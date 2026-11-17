@@ -252,10 +252,14 @@ export default function OrganizationsPage() {
             >
               <ExternalLink className="w-3.5 h-3.5" /> Details
             </Link>
+            {/* `POST /organization/:id/restore` needs `org_settings:write`, which
+                the `orgs:read` holders who reach this page may not carry —
+                locked with the reason rather than a step-up that ends in a 403. */}
             <button
               onClick={() => setPendingRestoreOrg(org)}
-              className="action-link inline-flex items-center gap-1"
-              title="Restore this soft-deleted organization"
+              disabled={!can('org_settings:write')}
+              className="action-link inline-flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+              title={can('org_settings:write') ? 'Restore this soft-deleted organization' : 'Requires the org_settings:write permission'}
             >
               <RotateCcw className="w-3.5 h-3.5" /> Restore
             </button>
@@ -276,6 +280,7 @@ export default function OrganizationsPage() {
               canKms={can('org_kms:write')}
               canIdp={can('org_idp:write')}
               canManage={can('orgs:manage')}
+              canNamespace={can('platform:read')}
               onKms={() => setKmsOrg(org)}
               onIdp={() => setIdpOrg(org)}
               // A team's tier is its root's (pooled), so only roots get a tier edit.

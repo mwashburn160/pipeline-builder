@@ -288,7 +288,14 @@ export const complianceScanSchedule = pgTable('compliance_scan_schedules', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedBy: text('updated_by').notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  // Soft-delete tombstone: a deleted schedule never fires, can't be edited or
+  // re-activated, and is hard-deleted by the retention sweep once
+  // `purge_after` has passed (set on delete alongside deleted_at).
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  deletedBy: text('deleted_by'),
+  purgeAfter: timestamp('purge_after', { withTimezone: true }),
 }, (table) => ({
+  purgeIdx: index('compliance_scan_schedule_purge_idx').on(table.purgeAfter).where(sql`deleted_at IS NOT NULL`),
   activeNextRunIdx: index('compliance_scan_schedule_active_next_idx')
     .on(table.isActive, table.nextRunAt),
   orgIdx: index('compliance_scan_schedule_org_idx').on(table.orgId),

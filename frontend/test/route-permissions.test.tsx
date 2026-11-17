@@ -2105,6 +2105,9 @@ const CONTROLS: Control[] = [
     behaviour: {
       mount: page('../pages/dashboard/reports'),
       find: button(/^scorecard$/i),
+      // Locked in place, not hidden: a bookmarked `?tab=scorecard` must land on
+      // the reason, not on a blank tab.
+      absence: 'disabled',
     },
   },
   {
@@ -2873,6 +2876,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   'image-registry POST /internal/plugin-images/discard': { category: 'machine-only', why: 'Service-principal route (callers: plugin): api/plugin/src/helpers/supply-chain.ts asks image-registry to delete a pushed, signed image (and its cosign .sig/.att companions) that the scan gates or compliance refused; no user token is admitted.' },
   'image-registry POST /internal/quarantine/:submissionId/credential': { category: 'machine-only', why: 'Service-principal route (callers: plugin): api/plugin/src/services/ecosystem/registry.ts asks for a short-lived, registry-only pull credential scoped to one anonymous submission\'s quarantine image, for the submission build; no user token is admitted.' },
   'plugin GET /internal/plugins/image-references': { category: 'machine-only', why: 'Service-principal route (callers: image-registry): api/image-registry/src/services/plugin-image-references.ts reads the digests an org\'s namespace still needs (plugin rows, pipelines declaring / running them, open deployed exposures) before the age GC deletes anything; no user token is admitted.' },
+  'plugin GET /internal/plugins/image-pipeline-references': { category: 'machine-only', why: 'Service-principal route (callers: image-registry): api/image-registry/src/services/plugin-image-references.ts `pipelinesReferencingImages` asks which pipelines still use each digest before an operator purge (images-delete.ts `refuseIfInUse`), so an in-use image is refused with 409; no user token is admitted.' },
   'plugin GET /internal/plugins/public-names': { category: 'machine-only', why: 'Service-principal route (callers: image-registry): api/image-registry/src/services/parent-public-plugins.ts reads the names of an org\'s live public plugins — the only repositories of its namespace its teams may pull; no user token is admitted.' },
   'plugin POST /plugins/toolchain/initial-default': { category: 'machine-only', why: 'Service-principal route (callers: deploy-bootstrap): deploy/bin/init-platform.sh sets the fresh-install platform toolchain default once (the fresh-install default, deploy/local/docker/README.md "Upgrading the pipeline toolchain"), signed with the deploy\'s own key from an operator shell; requireInternalService refuses every user and service-account token, and the plugin service refuses that identity on every other route. The console route that moves the default later is a separate, step-up route.' },
 

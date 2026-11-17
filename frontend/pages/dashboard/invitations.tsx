@@ -35,14 +35,20 @@ import { seatRemedy } from '@pipeline-builder/api-core/tier-limits';
 import { seatRemedyLabel, seatsAtCapacity, type AccountSeatUsage } from '@/lib/tiers';
 import { useOrgHierarchy } from '@/hooks/useOrgHierarchy';
 import api from '@/lib/api';
+import { hasPermission } from '@/lib/auth-helpers';
 
 export default function InvitationsPage() {
   const uid = useId();
   // The read gate (`invitations:manage`) comes from the nav entry via page-access.
-  const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard();
+  const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin, isReadOnly, can } = useAuthGuard();
   const toast = useToast();
   // Role admins/owners (via bundle) and custom-group members granted it.
+  // `can()` is read-only-aware: it gates the WRITE controls. The READS (the
+  // list, seats, teams) use the raw permission, so a read-only "view-as"
+  // session still SEES the org's invitations — the backend permits GETs under
+  // impersonation, and gating them on `can()` left an empty table.
   const canManageInvitations = can('invitations:manage');
+  const canViewInvitations = canManageInvitations || hasPermission(user, 'invitations:manage');
   // Drives the team wording in the invite follow-up notice: an org with teams
   // has somewhere to place the invitee AFTER acceptance; a flat org doesn't yet.
   const { hasChildOrgs } = useOrgHierarchy();
@@ -53,17 +59,17 @@ export default function InvitationsPage() {
   // this is null and the form stays enabled — the server still refuses per
   // address. Re-read after each send (pending invites reserve seats).
   const seatQ = useFetch(async (signal) => {
-    if (!user?.organizationId || !canManageInvitations) return null;
+    if (!user?.organizationId || !canViewInvitations) return null;
     return (await api.getOrganizationSeatUsage(user.organizationId, { signal })).data ?? null;
-  }, [user?.organizationId, canManageInvitations]);
+  }, [user?.organizationId, canViewInvitations]);
   const seatUsage: AccountSeatUsage | null = seatQ.data ?? null;
 
   // The org's teams (its whole subtree), so a team's invitations can be listed
   // and revoked / re-sent from here. Read only when the org has teams.
   const teamsQ = useFetch(async (signal) => {
-    if (!user?.organizationId || !canManageInvitations || !hasChildOrgs) return [];
+    if (!user?.organizationId || !canViewInvitations || !hasChildOrgs) return [];
     return (await api.getOrganizationTeams(user.organizationId, { signal })).data?.teams ?? [];
-  }, [user?.organizationId, canManageInvitations, hasChildOrgs]);
+  }, [user?.organizationId, canViewInvitations, hasChildOrgs]);
   const teams = teamsQ.data ?? [];
   const atCapacity = seatsAtCapacity(seatUsage);
   const seatRemedyText = seatRemedyLabel(seatRemedy(seatUsage?.tier));
@@ -93,7 +99,7 @@ export default function InvitationsPage() {
         pagination: data?.pagination,
       };
     },
-    enabled: isAuthenticated && canManageInvitations,
+    enabled: isAuthenticated && canViewInvitations,
   });
 
   // Send modal state — supports single + bulk send. The input is always
@@ -236,6 +242,9 @@ export default function InvitationsPage() {
           setSendModalOpen(false);
           setSendEmail('');
           setSendRole('member');
+          // The Roles too: carried over, they would be granted to whoever the
+          // next batch invites, ticked in a picker nobody re-read.
+          setSendRoleIds([]);
           setSendInvitationType('any');
           setSendResult(null);
         }, 1200);
@@ -302,8 +311,10 @@ export default function InvitationsPage() {
       title="Invitations"
       subtitle="Pending and sent invites"
       actions={
-        canManageInvitations ? (
-          <Button onClick={() => { setSendModalOpen(true); setSendError(null); }}>
+        // Locked, not hidden, in a read-only session: the viewer holds the
+        // permission, the session is what refuses the write.
+        canViewInvitations ? (
+          <Button readOnly={isReadOnly} onClick={() => { setSendModalOpen(true); setSendError(null); }}>
             Send Invitation
           </Button>
         ) : undefined

@@ -16,6 +16,10 @@ export const OM_NOT_A_MEMBER = 'OM_NOT_A_MEMBER';
 export const OM_CANNOT_REMOVE_OWNER = 'OM_CANNOT_REMOVE_OWNER';
 export const OM_OWNER_MEMBERSHIP_NOT_FOUND = 'OM_OWNER_MEMBERSHIP_NOT_FOUND';
 export const OM_NEW_OWNER_MUST_BE_MEMBER = 'OM_NEW_OWNER_MUST_BE_MEMBER';
+/** Ownership "transferred" to the current owner: refused, because the swap
+ *  would demote the owner's membership to admin while `org.owner` still names
+ *  them, leaving the owner removable by any admin. */
+export const OM_ALREADY_OWNER = 'OM_ALREADY_OWNER';
 export const OM_MEMBERSHIP_NOT_FOUND = 'OM_MEMBERSHIP_NOT_FOUND';
 export const OM_ALREADY_INACTIVE = 'OM_ALREADY_INACTIVE';
 export const OM_ALREADY_ACTIVE = 'OM_ALREADY_ACTIVE';

@@ -6,11 +6,15 @@
  * credential-minting actions (grant/revoke platform-admin, rotate KMS, download
  * namespace YAML, create tokens, etc.).
  *
- * Step-up is factor-agnostic — every method issues the SAME token:
+ * Every method issues the same kind of token:
  *   POST /api/auth/step-up                  body: { password }   (this file)
  *   POST /api/auth/step-up/reauth           + /reauth/callback   (provider
  *     re-auth for OAuth/SSO accounts — controllers/step-up-reauth.ts)
- * The token records `method` ('password' | 'reauth') for audit.
+ *   POST /api/auth/step-up/webauthn/*       (passkey — controllers/webauthn.ts)
+ *   POST /api/auth/step-up/totp             (authenticator app — controllers/totp.ts)
+ * The token records `method` ('password' | 'reauth' | 'webauthn' | 'totp'); a
+ * route gated by `requireStepUp({ methods: STRONG_STEP_UP_METHODS })` admits
+ * only the passkey and authenticator-app ones.
  *
  * Returns 200 with a short-lived `stepUpToken` JWT (default 60s TTL) bound to
  * `req.user.sub`, or 401 on a bad password. The frontend pattern is:

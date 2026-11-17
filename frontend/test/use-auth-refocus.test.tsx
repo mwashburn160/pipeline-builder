@@ -146,3 +146,45 @@ describe('useAuth per-session cache clearing', () => {
     expect(mockClearAttachmentImageCache).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('useAuth sign-out vs. a profile refresh still in flight', () => {
+  beforeEach(() => {
+    mockApi.getProfile.mockImplementation(async () => profile());
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+  });
+
+  it('a late profile answer does not sign the user back in after logout', async () => {
+    const wrapper = ({ children }: { children: ReactNode }) => <AuthProvider>{children}</AuthProvider>;
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(result.current.user?.id).toBe('u1'));
+
+    // A refocus refresh goes out under the old token and stalls.
+    let answer: (v: unknown) => void = () => undefined;
+    mockApi.getProfile.mockImplementation(() => new Promise((resolve) => { answer = resolve; }));
+    await act(async () => { void result.current.refreshUser({ force: true }); });
+
+    await act(async () => { await result.current.logout(); });
+    expect(result.current.user).toBeNull();
+    expect(result.current.organizations).toEqual([]);
+
+    // The server answered the pre-logout request after all.
+    await act(async () => { answer(profile()); });
+    expect(result.current.user).toBeNull();
+    expect(result.current.organizations).toEqual([]);
+  });
+
+  it('a late profile answer does not resurrect an expired session', async () => {
+    const wrapper = ({ children }: { children: ReactNode }) => <AuthProvider>{children}</AuthProvider>;
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(result.current.user?.id).toBe('u1'));
+
+    let answer: (v: unknown) => void = () => undefined;
+    mockApi.getProfile.mockImplementation(() => new Promise((resolve) => { answer = resolve; }));
+    await act(async () => { void result.current.refreshUser({ force: true }); });
+
+    act(() => { sessionExpired?.(); });
+    await act(async () => { answer(profile()); });
+
+    expect(result.current.user).toBeNull();
+  });
+});

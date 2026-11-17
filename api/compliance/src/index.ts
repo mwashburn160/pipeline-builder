@@ -16,6 +16,7 @@ import { startDigestScheduler, stopDigestScheduler } from './helpers/digest-sche
 import { startExemptionExpiryScheduler } from './helpers/exemption-expiry.js';
 import { startScanScheduler, stopScanScheduler } from './helpers/scan-scheduler.js';
 import { complianceRuleService } from './services/compliance-rule-service.js';
+import { complianceScanScheduleService } from './services/compliance-scan-schedule-service.js';
 import { compliancePolicyService } from './services/policy-service.js';
 
 const logger = createLogger('compliance');
@@ -54,14 +55,15 @@ const auditPrune = startAuditPruneCron();
 // pre-expiry warning (COMPLIANCE_EXEMPTION_EXPIRY_WARN_DAYS ahead).
 const exemptionExpiry = startExemptionExpiryScheduler();
 
-// Retention purge: hard-delete compliance policy + rule tombstones past their
-// purge_after deadline. Leader-locked + sysadmin-scoped inside the sweep. Opt
-// out with SOFT_DELETE_PURGE_ENABLED=false.
+// Retention purge: hard-delete compliance policy, rule and scan-schedule
+// tombstones past their purge_after deadline. Leader-locked + sysadmin-scoped
+// inside the sweep. Opt out with SOFT_DELETE_PURGE_ENABLED=false.
 const purgeScheduler = createSoftDeletePurgeScheduler({
   service: 'compliance',
   entities: [
     { name: 'compliance_policy', purgeExpired: (now, limit) => compliancePolicyService.purgeExpired(now, limit), auditAction: 'compliance.policy.purge' },
     { name: 'compliance_rule', purgeExpired: (now, limit) => complianceRuleService.purgeExpired(now, limit), auditAction: 'compliance.rule.purge' },
+    { name: 'compliance_scan_schedule', purgeExpired: (now, limit) => complianceScanScheduleService.purgeExpired(now, limit), auditAction: 'compliance.scan-schedule.purge' },
   ],
 });
 

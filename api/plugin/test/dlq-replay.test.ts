@@ -18,6 +18,8 @@ import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const dlqGetJob = jest.fn<AnyFn>();
+const queueGetJobs = jest.fn<AnyFn>(async () => []);
+const dlqGetJobs = jest.fn<AnyFn>(async () => []);
 const dlqAdd = jest.fn<AnyFn>();
 const queueAdd = jest.fn<AnyFn>();
 const replayHelper = jest.fn<AnyFn>();
@@ -40,8 +42,8 @@ jest.unstable_mockModule('../src/queue/connections.js', () => ({
   }),
   // route uses getAllTierQueues; expose one entry for the single-tier
   // assertions to remain valid.
-  getAllTierQueues: () => [{ tier: 'developer', queue: { name: 'plugin-build', add: queueAdd, getJobs: jest.fn<AnyFn>(), getJobCounts: jest.fn<AnyFn>() } }],
-  getDeadLetterQueue: () => ({ getJob: dlqGetJob, add: dlqAdd, getJobs: jest.fn<AnyFn>(), getJobCounts: jest.fn<AnyFn>() }),
+  getAllTierQueues: () => [{ tier: 'developer', queue: { name: 'plugin-build', add: queueAdd, getJobs: queueGetJobs, getJobCounts: jest.fn<AnyFn>() } }],
+  getDeadLetterQueue: () => ({ getJob: dlqGetJob, add: dlqAdd, getJobs: dlqGetJobs, getJobCounts: jest.fn<AnyFn>() }),
   findFailedJob: jest.fn<AnyFn>(),
 }));
 jest.unstable_mockModule('../src/queue/plugin-build-dlq.js', () => ({
@@ -230,5 +232,30 @@ describe('POST /dlq/:jobId/replay', () => {
       params: { jobId: 'j-orphan' },
     } as any, res);
     expect(json).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 404 }));
+  });
+});
+
+describe('triage cache after a replay', () => {
+  it('drops the memoized /triage view, so the replayed job stops being offered', async () => {
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
+    (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(true);
+    replayHelper.mockResolvedValue('new-job-1');
+    dlqGetJob.mockResolvedValue({ id: 'j-1', data: { orgId: 'org-a', pluginRecord: { name: 'p' } } });
+    const router = createQueueStatusRoutes(mockQuotaService);
+    const handlerOf = (path: string, method: string) => {
+      const layer = (router.stack as any[]).find((l) => l.route?.path === path && l.route?.methods?.[method]);
+      return layer.route.stack[layer.route.stack.length - 1].handle;
+    };
+    const triage = handlerOf('/triage', 'get');
+    const replay = handlerOf('/dlq/:jobId/replay', 'post');
+    const caller = { __orgId: '000000000000000000000001', user: { role: 'admin', organizationId: '000000000000000000000001' } };
+
+    await triage({ ...caller, query: {} } as any, makeRes().res);
+    await triage({ ...caller, query: {} } as any, makeRes().res);
+    expect(dlqGetJobs).toHaveBeenCalledTimes(1); // the second read was served from the memo
+
+    await replay({ ...caller, params: { jobId: 'j-1' } } as any, makeRes().res);
+    await triage({ ...caller, query: {} } as any, makeRes().res);
+    expect(dlqGetJobs).toHaveBeenCalledTimes(2);
   });
 });

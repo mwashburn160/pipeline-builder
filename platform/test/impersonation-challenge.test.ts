@@ -74,6 +74,15 @@ describe('sendImpersonationChallenge', () => {
     expect(query.role.$in).toEqual(expect.arrayContaining(['owner', 'admin']));
   });
 
+  it('under `org_admin`, never asks the TARGET even when they are one of the admins', async () => {
+    mockUOFind.mockReturnValue(selectLean([{ userId: 'admin-1' }, { userId: 'target' }]));
+
+    const out = await sendImpersonationChallenge({ ...base, mode: 'org_admin' });
+
+    expect(out).toEqual({ attempted: 1, delivered: 1 });
+    expect(mockSendConfirmed).not.toHaveBeenCalledWith(expect.objectContaining({ recipientUserId: 'target' }));
+  });
+
   it('reports ZERO delivered when every notification fails', async () => {
     mockSendConfirmed.mockResolvedValue(false);
 

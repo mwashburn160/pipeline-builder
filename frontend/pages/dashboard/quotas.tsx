@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import { formatError , QUOTA_WARNING_THRESHOLD } from '@/lib/constants';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useDebounce } from '@/hooks/useDebounce';
@@ -164,6 +164,19 @@ export default function QuotasPage() {
   // a failed read for Beta left Alpha's editor on screen under Beta's highlight —
   // and Save / Reset usage wrote to Alpha.
   const orgData = seededOrgData && seededOrgData.orgId === quotaOrgId ? seededOrgData : null;
+  // The org selected NOW, read after an await: a save / reset answered after the
+  // operator moved to another org must not seed that org's editor with this
+  // one's limits (a later Save there would then diff them onto it).
+  const selectedQuotaOrgRef = useRef(quotaOrgId);
+  selectedQuotaOrgRef.current = quotaOrgId;
+  /** Apply a write's response — into the editor only if its org is still the one selected. */
+  const applyWriteResult = (written: OrgQuotaResponse, from: OrgQuotaResponse) => {
+    if (selectedQuotaOrgRef.current !== from.orgId) {
+      setOrgHealthColors((prev) => ({ ...prev, [from.orgId]: overallHealthColor(written.quotas) }));
+      return;
+    }
+    applyOrgData(written, { orgId: from.orgId, sidebarName: from.name, sidebarSlug: from.slug, keepPool: from.pool });
+  };
 
   // A freshly read org seeds the view + the edit form.
   const loadedOrg = orgQ.data;
@@ -243,10 +256,10 @@ export default function QuotasPage() {
     try {
       const res = await api.updateOrgQuotas(orgData.orgId, body);
       const updated = (res.data?.quota || res.data) as OrgQuotaResponse;
-      // Pass the sidebar identity (as handleResetUsage does) — if the update
-      // response omits `name`, the fallback chain would otherwise resolve to the
-      // acting sysadmin's own org name while editing a different org.
-      applyOrgData(updated, { orgId: orgData.orgId, sidebarName: orgData.name, sidebarSlug: orgData.slug, keepPool: orgData.pool });
+      // Carries the sidebar identity — if the update response omits `name`, the
+      // fallback chain would otherwise resolve to the acting sysadmin's own org
+      // name while editing a different org.
+      applyWriteResult(updated, orgData);
 
       toast.success('Saved');
     } catch (error) {
@@ -264,7 +277,7 @@ export default function QuotasPage() {
     if (!orgData) return;
     const res = await api.resetOrgQuota(orgData.orgId, undefined, stepUpToken);
     const updated = (res.data?.quota || res.data) as OrgQuotaResponse;
-    applyOrgData(updated, { orgId: orgData.orgId, sidebarName: orgData.name, sidebarSlug: orgData.slug, keepPool: orgData.pool });
+    applyWriteResult(updated, orgData);
     toast.success('Usage counters reset');
     void fetchAtRisk();
   }

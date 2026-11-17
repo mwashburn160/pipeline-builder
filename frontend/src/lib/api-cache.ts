@@ -137,10 +137,6 @@ export const queries = {
     },
   }),
 
-  /** Signed-in devices + stored machine credentials. Asked for twice on the
-   *  Security page (the posture strip and the sessions panel). Throws on
-   *  failure for the same reason as {@link queries.totpStatus} — a false-empty
-   *  reads as "nothing is signed in" when devices may well be. */
   /** The org's active plugins (the pipeline editor's picker). Rarely changes
    *  within a session, so it keeps the longer window. */
   activePlugins: (): Query<Plugin[]> => ({
@@ -179,6 +175,10 @@ export const queries = {
     run: async (signal) => ({ warnings: (await api.lookupPlugin(filter, { signal })).data?.warnings ?? [] }),
   }),
 
+  /** Signed-in devices + stored machine credentials. Asked for twice on the
+   *  Security page (the posture strip and the sessions panel). Throws on
+   *  failure for the same reason as {@link queries.totpStatus} — a false-empty
+   *  reads as "nothing is signed in" when devices may well be. */
   sessions: (): Query<{ sessions: SessionMeta[]; machineSessions: SessionMeta[] }> => ({
     key: PREFIX.sessions,
     run: async (signal) => {

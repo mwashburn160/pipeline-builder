@@ -307,6 +307,32 @@ describe('POST /auth/device/token — issuing the session', () => {
   });
 });
 
+describe('POST /auth/device/token — the slot context the JWT does not carry', () => {
+  it('carries the approving slot\'s org-asserted aal and passkey model into the CLI session', async () => {
+    // An `aal: 2` vouched for by ONE org's IdP must stay tied to that org on the
+    // CLI session, or switching org there would keep it unchecked.
+    mockFindRefreshSession.mockResolvedValue({ id: 'browser-slot', aalAssertedBy: 'org-1', aaguid: 'aaguid-1' });
+    const started = await start();
+    await call(approveDeviceRequest, { user: { ...APPROVER, aal: 2 }, body: { userCode: started.user_code } });
+    clockOffset += 5_000;
+    await call(deviceToken, { body: { device_code: started.device_code } });
+
+    const [, , session] = mockIssueTokens.mock.calls[0] as any[];
+    expect(session.auth).toMatchObject({ aal: 2, aalAssertedBy: 'org-1', aaguid: 'aaguid-1' });
+  });
+
+  it('adds nothing when the slot carries neither', async () => {
+    const started = await start();
+    await call(approveDeviceRequest, { user: APPROVER, body: { userCode: started.user_code } });
+    clockOffset += 5_000;
+    await call(deviceToken, { body: { device_code: started.device_code } });
+
+    const [, , session] = mockIssueTokens.mock.calls[0] as any[];
+    expect(session.auth.aalAssertedBy).toBeUndefined();
+    expect(session.auth.aaguid).toBeUndefined();
+  });
+});
+
 describe('POST /auth/device/token — the approval must still speak for a live session', () => {
   it('refuses when the approver\'s sessions were revoked in between (tokenVersion moved)', async () => {
     const started = await start();

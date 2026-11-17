@@ -71,7 +71,10 @@ export async function sendImpersonationChallenge(input: {
       organizationId: input.orgId,
       isActive: true,
       role: { $in: [...ADMIN_ORG_ROLES] },
-    }).select('userId').lean()).map((a) => String((a as { userId: unknown }).userId));
+    }).select('userId').lean()).map((a) => String((a as { userId: unknown }).userId))
+      // The subject is never asked to approve access to their own account on the
+      // admin route — the decide endpoint refuses them there.
+      .filter((id) => id !== input.targetUserId);
 
   if (recipients.length === 0) return { attempted: 0, delivered: 0 };
 

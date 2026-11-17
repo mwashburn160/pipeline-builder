@@ -26,10 +26,10 @@ const deletedIds: unknown[] = [];
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
   const tx = {
     select: () => ({ from: () => ({ where: (w: unknown) => { where.push(w); return { limit: async (n: number) => { limits.push(n); return selected; } }; } }) }),
-    delete: () => ({ where: (w: { v: string[] }) => { deletedIds.push(w.v); return { returning: async () => w.v.map((id) => ({ id })) }; } }),
+    delete: () => ({ where: (w: { v: string[] }) => { deletedIds.push(w.v); return { returning: async () => w.v.map((id) => ({ id, orgId: 'sys-org', recipientOrgId: `org-of-${id}` })) }; } }),
   };
   return stubModule('@pipeline-builder/pipeline-data', {
-    schema: { message: { id: 'id', orgId: 'org_id', createdBy: 'created_by', channel: 'channel', threadId: 'thread_id', createdAt: 'created_at' } },
+    schema: { message: { id: 'id', orgId: 'org_id', recipientOrgId: 'recipient_org_id', createdBy: 'created_by', channel: 'channel', threadId: 'thread_id', createdAt: 'created_at' } },
     withTenantTx: (fn: (t: typeof tx) => unknown) => fn(tx),
   });
 });
@@ -43,6 +43,11 @@ jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
   sql: (strings: TemplateStringsArray) => ({ op: 'sql', text: strings.join('?') }),
 }));
 
+const mockInvalidate = jest.fn<(rows: unknown[]) => Promise<void>>();
+jest.unstable_mockModule('../src/services/message-service.js', () => ({
+  messageService: { invalidateRemovedMessages: (rows: unknown[]) => mockInvalidate(rows) },
+}));
+
 const { purgeAgedNotifications, NOTIFICATION_RETENTION_DAYS } = await import('../src/services/notification-retention.js');
 
 const NOW = new Date('2026-11-13T00:00:00Z');
@@ -52,6 +57,8 @@ beforeEach(() => {
   where.length = 0;
   limits.length = 0;
   deletedIds.length = 0;
+  mockInvalidate.mockReset();
+  mockInvalidate.mockResolvedValue(undefined);
 });
 
 describe('purgeAgedNotifications', () => {
@@ -76,9 +83,25 @@ describe('purgeAgedNotifications', () => {
     expect(deletedIds).toEqual([['m1', 'm2']]);
   });
 
+  it('invalidates the purged notices\' cached inbox views once the batch is gone', async () => {
+    selected = [{ id: 'm1' }, { id: 'm2' }];
+    await purgeAgedNotifications(NOW);
+    expect(mockInvalidate).toHaveBeenCalledWith([
+      { id: 'm1', orgId: 'sys-org', recipientOrgId: 'org-of-m1' },
+      { id: 'm2', orgId: 'sys-org', recipientOrgId: 'org-of-m2' },
+    ]);
+  });
+
+  it('a failed invalidation does not fail the sweep — the rows are already gone', async () => {
+    selected = [{ id: 'm1' }];
+    mockInvalidate.mockRejectedValueOnce(new Error('redis down'));
+    await expect(purgeAgedNotifications(NOW)).resolves.toBe(1);
+  });
+
   it('issues no DELETE when nothing is due', async () => {
     await expect(purgeAgedNotifications(NOW)).resolves.toBe(0);
     expect(deletedIds).toHaveLength(0);
+    expect(mockInvalidate).not.toHaveBeenCalled();
   });
 
   it('defaults to a one-year window', () => {

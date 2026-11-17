@@ -323,6 +323,19 @@ describe('POST /deploy-generated — Idempotency-Key guard', () => {
     expect(res.status).toHaveBeenCalledWith(503);
   });
 
+  it('keeps the key, the slot and the staged context when a throw comes AFTER the build was queued', async () => {
+    mockEmitPluginAudit.mockImplementationOnce(() => { throw new Error('audit down'); });
+    await expect(handler(mockReq('req-1:my-plugin'), mockRes())).rejects.toThrow('audit down');
+
+    // The queued build owns all three: a released key would let a retry queue
+    // the build twice, and a deleted context would fail the build in flight.
+    expect(mockEnqueueBuild).toHaveBeenCalledTimes(1);
+    expect(mockIdemDelete).not.toHaveBeenCalled();
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
+    expect(mockDeletePluginArtifact).not.toHaveBeenCalled();
+    expect(mockRmSync).not.toHaveBeenCalled();
+  });
+
   it('releases the key when enqueue throws (build never queued → retry allowed)', async () => {
     mockEnqueueBuild.mockRejectedValueOnce(new Error('queue down'));
     const res = mockRes();

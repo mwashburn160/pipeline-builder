@@ -10,11 +10,13 @@ import {
   readMarketplaceRef,
   clearMarketplaceRef,
 } from '../src/hooks/usePendingMarketplaceClaim';
+import { ApiError } from '../src/lib/api/errors';
 
 const claim = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: { claimMarketplaceRegistration: (...a: unknown[]) => claim(...a) },
+  ApiError: (jest.requireActual('../src/lib/api/errors') as { ApiError: unknown }).ApiError,
 }));
 
 const success = jest.fn<AnyFn>();
@@ -87,6 +89,22 @@ describe('usePendingMarketplaceClaim', () => {
     renderHook(() => usePendingMarketplaceClaim(authState.isInitialized && authState.isAuthenticated));
     await waitFor(() => expect(error).toHaveBeenCalledWith('already linked'));
     expect(readMarketplaceRef()).toBeNull();
+  });
+
+  it('clears the ref when the claim is REFUSED with a 4xx (api throws, it does not resolve)', async () => {
+    claim.mockRejectedValue(new ApiError('Organization already has a subscription', 409, 'CONFLICT'));
+    stashMarketplaceRef('ref-1', 'Team');
+    renderHook(() => usePendingMarketplaceClaim(authState.isInitialized && authState.isAuthenticated));
+    await waitFor(() => expect(error).toHaveBeenCalled());
+    expect(readMarketplaceRef()).toBeNull();
+  });
+
+  it('KEEPS the ref on a 5xx so a later visit retries', async () => {
+    claim.mockRejectedValue(new ApiError('Service unavailable', 503));
+    stashMarketplaceRef('ref-1', 'Team');
+    renderHook(() => usePendingMarketplaceClaim(authState.isInitialized && authState.isAuthenticated));
+    await waitFor(() => expect(error).toHaveBeenCalled());
+    expect(readMarketplaceRef()).toEqual({ registrationRef: 'ref-1', planName: 'Team' });
   });
 
   it('KEEPS the ref on a transient failure so a later visit retries', async () => {

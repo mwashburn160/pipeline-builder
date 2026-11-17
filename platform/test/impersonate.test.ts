@@ -470,6 +470,20 @@ describe('decideImpersonationRequest — authorization', () => {
     expect(mockDecide).toHaveBeenCalledWith('req-1', 'org-admin', true, false);
   });
 
+  it('REFUSES the SUBJECT deciding an org_admin-routed request, even when they are an admin of the org', async () => {
+    // An org that forbids self-approval routes every challenge to its admins;
+    // a target who is one of them must not answer for their own account.
+    mockRequestFindById.mockReturnValue(leanOf({
+      requesterId: 'sysadmin', targetUserId: 'admin-target', organizationId: 'org-a', approverMode: 'org_admin',
+    }));
+    mockIsTenantAdminOf.mockResolvedValue(true);
+
+    const res = await decide({ sub: 'admin-target', organizationId: 'org-a' });
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockDecide).not.toHaveBeenCalled();
+  });
+
   it('lets the named approver decide', async () => {
     mockRequestFindById.mockReturnValue(leanOf({
       requesterId: 'sysadmin', targetUserId: 't', organizationId: 'org-a', approverUserId: 'the-user',

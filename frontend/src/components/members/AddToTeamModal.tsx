@@ -43,10 +43,14 @@ export function AddToTeamModal({
       </p>
       <Input
         type="email"
+        aria-label="Email address"
         placeholder="user@example.com"
         value={email}
         onChange={(e) => onEmailChange(e.target.value)}
-        onKeyDown={(e) => e.key === 'Enter' && onSubmit()}
+        // Enter is a second submit path beside the footer button (which
+        // `loading` disables) — without the guard a repeated Enter posts twice.
+        onKeyDown={(e) => e.key === 'Enter' && !form.loading && onSubmit()}
+        disabled={form.loading}
         className="text-sm"
         autoFocus
       />

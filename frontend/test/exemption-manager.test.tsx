@@ -223,4 +223,18 @@ describe('ExemptionManager', () => {
       expect(screen.getByLabelText('New expiry date')).toBeInTheDocument();
     });
   });
+
+  it('a double click on Approve sends ONE review', async () => {
+    let resolve!: (v: unknown) => void;
+    reviewExemption.mockImplementation(() => new Promise((r) => { resolve = r; }));
+    render(<ExemptionManager />);
+    const approve = await screen.findByRole('button', { name: 'Approve' });
+    fireEvent.click(approve);
+    await waitFor(() => expect(approve).toBeDisabled());
+    fireEvent.click(approve);
+    expect(reviewExemption).toHaveBeenCalledTimes(1);
+    resolve({ success: true });
+    await waitFor(() => expect(pageToast.success).toHaveBeenCalledWith('Exemption approved'));
+  });
 });
+

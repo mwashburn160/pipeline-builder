@@ -43,7 +43,7 @@ export default function Home({ siteUrl = DEFAULT_SITE_URL }: Partial<WithSiteUrl
         <title>Pipeline Builder — Software Factories on AWS</title>
         <meta name="description" content="Stand up a complete DevSecOps environment on AWS — secure delivery pipelines, a signed and SBOM-attested supply chain, policy-as-code compliance and a tamper-evident audit trail, inside your own AWS account with no lock-in." />
         <meta property="og:title" content="Pipeline Builder — Software Factories on AWS" />
-        <meta property="og:description" content="A software factory on AWS: secure delivery pipelines with AI generation, 119 signed plugins, per-org compliance, and execution analytics. Deploys as native AWS CodePipeline in your account." />
+        <meta property="og:description" content="A software factory on AWS: secure delivery pipelines with AI generation, 118 signed plugins, per-org compliance, and execution analytics. Deploys as native AWS CodePipeline in your account." />
         <meta property="og:type" content="website" />
         <meta property="og:image" content={ogImage} />
         <meta property="og:image:width" content="1200" />

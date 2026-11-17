@@ -248,6 +248,11 @@ suite('service accounts (real Mongo)', () => {
     const account = await createAccount();
     const { key } = await sa.createServiceAccountKey(orgId, account.id, { name: 'k', expiresInSeconds: 86400 }, SUPER);
 
+    // A second PERSON holds the Admin Role, so deleting the creator doesn't empty
+    // it — the service account holding it doesn't count toward that guard.
+    const other = await m.User.create({ username: 'other-admin', email: 'other@example.com', password: 'Passw0rd!secret', isEmailVerified: true });
+    await m.RoleAssignment.create({ userId: other._id, roleId: new mongoose.Types.ObjectId(adminRoleId), organizationId: new mongoose.Types.ObjectId(orgId) });
+
     // Delete the creator the way the account-deletion cascade does.
     const { deleteUserCascade } = await import('../src/services/user-cascade.js');
     const session = await mongoose.startSession();
@@ -260,6 +265,14 @@ suite('service accounts (real Mongo)', () => {
     const view = await sa.getServiceAccount(orgId, account.id);
     // The attribution snapshot outlives the person.
     expect(view.createdByEmail).toBe('creator@example.com');
+  });
+
+  it('refuses to delete the last PERSON holding the Admin Role even when a service account also holds it', async () => {
+    await createAccount(); // the account holds the Admin Role too
+    const { deleteUserCascade } = await import('../src/services/user-cascade.js');
+    const session = await mongoose.startSession();
+    await expect(deleteUserCascade(session, creatorId)).rejects.toThrow('RL_LAST_PRIVILEGED_MEMBER');
+    await session.endSession();
   });
 
   it('deletes accounts, their keys and their role assignments with the org', async () => {

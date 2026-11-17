@@ -269,6 +269,8 @@ export function createStakeholderReportRoutes(): Router {
     }
     const rollupRefused = await refuseUnauthorizedRollup(req, body.scope.kind);
     if (rollupRefused) return sendBadRequest(res, rollupRefused, ErrorCode.INSUFFICIENT_PERMISSIONS);
+    const autoSendRefused = refuseUnauthorizedAutoSend(req, body.autoSend === true);
+    if (autoSendRefused) return sendError(res, 403, autoSendRefused, ErrorCode.INSUFFICIENT_PERMISSIONS);
     const badRecipients = await unknownRecipients(orgId, body.recipients ?? []);
     if (badRecipients) return sendBadRequest(res, badRecipients, ErrorCode.VALIDATION_ERROR);
 
@@ -324,6 +326,11 @@ export function createStakeholderReportRoutes(): Router {
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const body = validation.value;
     const prior = await stakeholderReportStore.requireDefinition(orgId, id);
+    // Turning auto-send on, or choosing who an auto-sending report mails, is a
+    // publish decision — the scheduler then publishes with no one clicking.
+    const autoSendAfter = body.autoSend ?? prior.autoSend;
+    const autoSendRefused = refuseUnauthorizedAutoSend(req, autoSendAfter && (body.autoSend === true || body.recipients !== undefined));
+    if (autoSendRefused) return sendError(res, 403, autoSendRefused, ErrorCode.INSUFFICIENT_PERMISSIONS);
 
     const patch: Record<string, unknown> = {};
     if (body.name !== undefined) patch.name = body.name;
@@ -1091,6 +1098,18 @@ async function refuseUnauthorizedRollup(req: Request, kind: string): Promise<str
   if (kind !== 'rollup') return null;
   if (userHasPermission(req, 'reports:rollup')) return null;
   return 'A rollup report includes your descendant teams, which needs the "Roll up team reports" permission.';
+}
+
+/**
+ * Auto-send PUBLISHES every period without anyone clicking Publish, so arming it
+ * (or picking an auto-sending report's recipients) needs the same
+ * `reports:publish` a manual publish does — `reports:write` alone would mail
+ * internal numbers out through the scheduler.
+ */
+function refuseUnauthorizedAutoSend(req: Request, armsAutoSend: boolean): string | null {
+  if (!armsAutoSend) return null;
+  if (userHasPermission(req, 'reports:publish')) return null;
+  return 'An auto-send report publishes itself every period, which needs the "Publish reports" permission.';
 }
 
 /**

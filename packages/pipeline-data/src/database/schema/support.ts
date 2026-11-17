@@ -122,8 +122,8 @@ export const supportCase = pgTable('support_cases', {
    * Accumulated seconds spent waiting on the customer.
    *
    * Ageing subtracts this. Without it a case we answered in an hour, where the
-   * tenant replied four days later, reads as a four-day case — and the metric
-   * Phase 2b exists to produce reports a number no customer will accept. An
+   * tenant replied four days later, reads as a four-day case — and the ageing
+   * metric reports a number no customer will accept. An
    * accumulator plus the current anchor survives a case bouncing between states
    * repeatedly, which replaying status history would not.
    */

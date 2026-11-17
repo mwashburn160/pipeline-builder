@@ -12,7 +12,7 @@
  */
 
 import { LIVE_SUPPORT_CASE_STATUSES, type SupportCaseStatus } from '@pipeline-builder/api-core';
-import { and, asc, desc, eq, getTableColumns, gte, inArray, isNull, lte, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, getTableColumns, gte, inArray, isNull, lte, ne, sql, type SQL } from 'drizzle-orm';
 import { CURSOR_SORT_KEY, decodeCursor, encodeCursor, isCastableTo, keysetAfter } from './keyset-cursor.js';
 import { schema } from '../database/drizzle-schema.js';
 import type { SupportCase } from '../database/schema/support.js';
@@ -331,6 +331,13 @@ export async function stampFirstResponse(caseId: string, at: Date = new Date()):
  * The arithmetic is done in SQL against the stored anchor rather than from a
  * caller-supplied duration, so a clock skew or a lost round trip cannot inflate
  * or erase paused time.
+ *
+ * Setting the status a case already has is a no-op, and the guard is in the
+ * WHERE clause so every caller gets it: rewriting it would restart
+ * `awaiting_since` on a repeated `awaiting_customer` (dropping the paused time
+ * not yet banked) and re-stamp `closed_at`/`closed_by` on a repeated close.
+ * The unchanged case is returned as it stands; null only when there is no
+ * live case.
  */
 export async function setCaseStatus(
   caseId: string,
@@ -353,9 +360,21 @@ export async function setCaseStatus(
         : sql`${schema.supportCase.awaitingTotalSeconds} + COALESCE(EXTRACT(EPOCH FROM (${now.toISOString()}::timestamptz - ${schema.supportCase.awaitingSince}))::int, 0)`,
       ...(closing ? { closedAt: now, closedBy: actorId } : { closedAt: null, closedBy: null }),
     })
-    .where(and(eq(schema.supportCase.id, caseId), isNull(schema.supportCase.deletedAt)))
+    .where(and(
+      eq(schema.supportCase.id, caseId),
+      isNull(schema.supportCase.deletedAt),
+      ne(schema.supportCase.status, status),
+    ))
     .returning());
-  return rows[0] ?? null;
+  if (rows[0]) return rows[0];
+  // Nothing written: either the case is already in `status` (answer it as it
+  // stands) or there is no live case (null).
+  const current = await withTenantTx((tx) => tx
+    .select()
+    .from(schema.supportCase)
+    .where(and(eq(schema.supportCase.id, caseId), isNull(schema.supportCase.deletedAt)))
+    .limit(1));
+  return (current as SupportCase[])[0] ?? null;
 }
 
 /**

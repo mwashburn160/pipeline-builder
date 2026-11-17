@@ -134,7 +134,7 @@ jest.unstable_mockModule('../src/services/support-entitlement-client.js', () => 
   fetchSupportEntitlement: mockFetchEntitlement,
 }));
 
-const { createCreateMessageRoutes } = await import('../src/routes/create-message.js');
+const { createCreateMessageRoutes, announcementFollowUp } = await import('../src/routes/create-message.js');
 
 const mockSseManager = createMockSseManager();
 const createRouter = createCreateMessageRoutes(mockSseManager);
@@ -774,47 +774,114 @@ describe('POST /messages/:id/reply', () => {
     );
   });
 
-  // A reply is ALWAYS a conversation, even when the root is an announcement.
-  // Copying rootMessage.messageType persisted `announcement`-typed rows authored
-  // by non-sysadmins (a member replying to a broadcast), polluting messageType
-  // filters + the announcements feed. Replies must persist as `conversation`.
-  it('persists an announcement reply as messageType="conversation" (not announcement)', async () => {
-    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+  // ANNOUNCEMENTS ARE ONE-WAY. A customer's reply to a broadcast starts a NEW
+  // support thread between their org and the system org (quoting the
+  // announcement); it is never a row in the broadcast's own thread, which every
+  // org can open.
+  describe('replying to an announcement', () => {
     const rootAnnouncement = {
       id: 'ann-1',
-      orgId: '000000000000000000000001', // system org broadcast
+      orgId: SYSTEM_ORG, // system org broadcast
       recipientOrgId: '*',
       messageType: 'announcement',
-      subject: 'System-wide notice',
-      priority: 'normal',
+      channel: null,
+      subject: 'Scheduled maintenance',
+      content: 'The registry is read-only on Saturday.\nPlan your publishes.',
+      priority: 'urgent',
+      createdAt: new Date('2026-11-01T09:00:00Z'),
     };
-    mockFindVisibleById.mockResolvedValue(rootAnnouncement);
-    mockCreate.mockResolvedValue({ id: 'reply-1', threadId: 'ann-1' });
 
-    // Caller org 'org-1' is a broadcast recipient → allowed to reply (goes to system org).
-    const req = mockReq({
-      params: { id: 'ann-1' },
-      body: { content: 'A member replying to the broadcast' },
-    });
-    const res = mockRes();
-    await handler(req, res);
+    it('a CUSTOMER reply starts a new support conversation with the system org, quoting the announcement', async () => {
+      (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+      mockFindVisibleById.mockResolvedValue(rootAnnouncement);
+      mockCreate.mockResolvedValue({ id: 'thread-new', threadId: null });
 
-    expect(res.status).toHaveBeenCalledWith(201);
-    expect(mockCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        threadId: 'ann-1',
+      const req = mockReq({ params: { id: 'ann-1' }, body: { content: 'Will Sunday be affected too?' } });
+      const res = mockRes();
+      await handler(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(201);
+      const row = mockCreate.mock.calls[0]![0] as Record<string, unknown>;
+      expect(row).toMatchObject({
+        orgId: 'org-1',
+        // A ROOT, not a reply in the broadcast's thread.
+        threadId: null,
+        recipientOrgId: SYSTEM_ORG,
+        recipientUserId: null,
         messageType: 'conversation',
-        recipientOrgId: '000000000000000000000001', // reply routes back to the system org
-      }),
-      'user-1',
-    );
-    // SSE notification carries the reply's (conversation) type too.
-    expect(mockSseManager.send).toHaveBeenCalledWith(
-      '000000000000000000000001',
-      'MESSAGE',
-      'New reply',
-      expect.objectContaining({ messageType: 'conversation' }),
-    );
+        channel: 'support',
+        subject: 'Re: Scheduled maintenance',
+        // The vendor's urgency is not the customer's.
+        priority: 'normal',
+      });
+      expect(row.content).toBe(
+        'Will Sunday be affected too?\n\n---\nIn reply to the announcement "Scheduled maintenance" (sent 2026-11-01):\n'
+        + '> The registry is read-only on Saturday.\n> Plan your publishes.',
+      );
+      // The desk is pinged about a new conversation, not a reply.
+      expect(mockSseManager.send).toHaveBeenCalledWith(
+        SYSTEM_ORG,
+        'MESSAGE',
+        'New message',
+        expect.objectContaining({ action: 'NEW_MESSAGE', messageId: 'thread-new', messageType: 'conversation' }),
+      );
+      // Correspondence, not a case: no entitlement read, no case opened.
+      expect(mockFetchEntitlement).not.toHaveBeenCalled();
+      expect(mockOpenCase).not.toHaveBeenCalled();
+    });
+
+    it('links the customer\'s attachments to the NEW thread', async () => {
+      (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+      mockFindVisibleById.mockResolvedValue(rootAnnouncement);
+      mockCreate.mockResolvedValue({ id: 'thread-new' });
+      mockLinkToMessage.mockResolvedValue([{ id: 'att-1' }]);
+
+      await handler(mockReq({ params: { id: 'ann-1' }, body: { content: 'screenshot attached', attachmentIds: ['att-1'] } }), mockRes());
+
+      expect(mockLinkToMessage).toHaveBeenCalledWith(['att-1'], 'thread-new', 'org-1', 'user-1');
+    });
+
+    it('a STAFF reply on the broadcast itself is refused (400) and writes nothing', async () => {
+      mockFindVisibleById.mockResolvedValue(rootAnnouncement);
+      const res = mockRes();
+      await handler(mockReq({
+        params: { id: 'ann-1' },
+        body: { content: 'Replying to everyone' },
+        user: { sub: 'staff-1', permissions: ['support_cases:write'] },
+        context: { identity: { orgId: SYSTEM_ORG, userId: 'staff-1' } },
+      }), res);
+
+      expect(sendBadRequest).toHaveBeenCalledWith(res, expect.stringContaining('Announcements are one-way'), 'VALIDATION_ERROR');
+      expect(mockCreate).not.toHaveBeenCalled();
+      expect(mockSseManager.send).not.toHaveBeenCalled();
+      expect(mockSseManager.broadcast).not.toHaveBeenCalled();
+    });
+
+    it('staff answer the customer in the follow-up thread, addressed to the customer org', async () => {
+      mockFindVisibleById.mockResolvedValue({
+        id: 'thread-new',
+        orgId: 'org-1',
+        recipientOrgId: SYSTEM_ORG,
+        messageType: 'conversation',
+        channel: 'support',
+        subject: 'Re: Scheduled maintenance',
+        priority: 'normal',
+      });
+      mockCreate.mockResolvedValue({ id: 'staff-reply' });
+      const res = mockRes();
+      await handler(mockReq({
+        params: { id: 'thread-new' },
+        body: { content: 'Sunday is unaffected.' },
+        user: { sub: 'staff-1', permissions: ['support_cases:write'] },
+        context: { identity: { orgId: SYSTEM_ORG, userId: 'staff-1' } },
+      }), res);
+
+      expect(res.status).toHaveBeenCalledWith(201);
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ threadId: 'thread-new', recipientOrgId: 'org-1', messageType: 'conversation' }),
+        'staff-1',
+      );
+    });
   });
 
   it('returns 404 when root message not found', async () => {
@@ -1217,7 +1284,7 @@ describe('POST /messages/:id/reply — first-response measurement', () => {
    * `identity.userId` are kept in step, per the harness's own warning that a
    * mismatched pair is a request no real caller can produce.
    */
-  const reply = async (callerOrg: string) => {
+  const reply = async (callerOrg: string, permissions: string[] = callerOrg === SYSTEM_ORG ? ['support_cases:write'] : []) => {
     mockFindVisibleById.mockResolvedValue(SUPPORT_ROOT);
     mockCreate.mockResolvedValue({ id: 'reply-1' });
     const res = mockRes();
@@ -1225,7 +1292,7 @@ describe('POST /messages/:id/reply — first-response measurement', () => {
     await handler(mockReq({
       params: { id: 'root-1' },
       body: { content: 'on it' },
-      user: { sub: who },
+      user: { sub: who, permissions },
       context: { identity: { orgId: callerOrg, userId: who } },
     }), res);
     return res;
@@ -1278,6 +1345,18 @@ describe('POST /messages/:id/reply — first-response measurement', () => {
     } as never);
     await reply('org-1');
     expect(mockStampFirst).not.toHaveBeenCalled();
+  });
+
+  it('does NOT stamp, or close the page, for a system-org member who is not SUPPORT STAFF', async () => {
+    // Being in the system org is not being support: a billing user's reply must
+    // not stop a premium case's response clock or close its on-call page.
+    mockFindCase.mockResolvedValue({
+      id: 'case-1', level: 'support_premium', severity: 'high', createdAt: new Date().toISOString(), awaitingTotalSeconds: 0,
+    } as never);
+    mockStampFirst.mockResolvedValue(true as never);
+    await reply(SYSTEM_ORG, ['messages:write']);
+    expect(mockStampFirst).not.toHaveBeenCalled();
+    expect(mockResolveCasePage).not.toHaveBeenCalled();
   });
 
   it('does not stamp a thread with no case (unentitled support correspondence)', async () => {
@@ -1381,10 +1460,24 @@ describe('POST /messages/support/:id/reply — the messages:read carve-out', () 
     await handler(mockReq({
       params: { id: 'root-1' },
       body: { content: 'looking into it' },
-      user: { sub: 'staff-1' },
+      user: { sub: 'staff-1', permissions: ['support_cases:write'] },
       context: { identity: { orgId: SYSTEM_ORG, userId: 'staff-1' } },
     }), res);
     expect(res.status).toHaveBeenCalledWith(201);
+  });
+
+  it('REFUSES a system-org member who is not support staff (messages:read alone)', async () => {
+    mockFindCase.mockResolvedValue({ id: 'case-1', tenantContact: 'opener-1' } as never);
+    mockFindVisibleById.mockResolvedValue(SUPPORT_ROOT);
+    const res = mockRes();
+    await handler(mockReq({
+      params: { id: 'root-1' },
+      body: { content: 'hi' },
+      user: { sub: 'finance-1', permissions: ['messages:read'] },
+      context: { identity: { orgId: SYSTEM_ORG, userId: 'finance-1' } },
+    }), res);
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockCreate).not.toHaveBeenCalled();
   });
 });
 
@@ -1541,5 +1634,25 @@ describe('POST /messages/support — the incident door', () => {
     mockOpenCase.mockRejectedValue(new Error('insert failed'));
     await send();
     expect(mockRefundIncident).not.toHaveBeenCalled();
+  });
+});
+
+describe('announcementFollowUp', () => {
+  it('caps the derived subject at the column width', () => {
+    const { subject } = announcementFollowUp({ subject: 'x'.repeat(500), content: 'c' }, 'r');
+    expect(subject).toHaveLength(500);
+    expect(subject.startsWith('Re: ')).toBe(true);
+  });
+
+  it('quotes an excerpt of a long announcement, not a copy', () => {
+    const { content } = announcementFollowUp({ subject: 's', content: 'y'.repeat(5_000) }, 'my reply');
+    expect(content.startsWith('my reply\n\n---\nIn reply to the announcement "s":\n> ')).toBe(true);
+    expect(content.endsWith('…')).toBe(true);
+    expect(content.length).toBeLessThan(5_000);
+  });
+
+  it('omits the sent date when the announcement has none', () => {
+    const { content } = announcementFollowUp({ subject: 's', content: 'c', createdAt: null }, 'r');
+    expect(content).toBe('r\n\n---\nIn reply to the announcement "s":\n> c');
   });
 });

@@ -41,7 +41,12 @@ export function useOwnQuota(type: DisplayedQuotaType, busy = false): { quota: Ow
         if (unmountedRef.current) return;
         const summary = q?.quotas?.[type];
         setQuota(summary ? { summary, tier: q?.tier } : null);
-      } catch { /* fail open — see above */ }
+      } catch {
+        // Fail open — see above. That includes dropping an earlier read: a
+        // stale "0 left" kept past a failed re-read would go on locking the
+        // control on a figure nobody can vouch for any more.
+        if (!unmountedRef.current) setQuota(null);
+      }
     })();
   }, [type, unmountedRef]);
 

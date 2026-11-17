@@ -49,6 +49,8 @@ const mockUserOrgFind = jest.fn<AnyFn>();
 const mockUserUpdateMany = jest.fn<AnyFn>();
 const mockUserFind = jest.fn<AnyFn>();
 const mockPatUpdateMany = jest.fn<AnyFn>();
+const mockPatFind = jest.fn<AnyFn>();
+const mockPublishKeyRevocation = jest.fn<(...a: unknown[]) => Promise<boolean>>();
 const mockServiceAccountFind = jest.fn<(...a: unknown[]) => unknown>();
 
 const auditExportQuery = { sort: () => auditExportQuery, limit: () => auditExportQuery, lean: async () => [] };
@@ -61,7 +63,7 @@ const queryChain = (rows: unknown[]) => {
   return c;
 };
 jest.unstable_mockModule('../src/models/audit-event.js', () => ({ __esModule: true, default: { deleteMany: jest.fn<AnyFn>(), find: jest.fn(() => auditExportQuery), create: jest.fn<AnyFn>() } }));
-jest.unstable_mockModule('../src/models/invitation.js', () => ({ __esModule: true, default: { deleteMany: jest.fn<AnyFn>(), find: jest.fn(() => ({ lean: () => [] })) } }));
+jest.unstable_mockModule('../src/models/invitation.js', () => ({ __esModule: true, default: { deleteMany: jest.fn<AnyFn>(), find: emptyFind } }));
 jest.unstable_mockModule('../src/models/org-idp-config.js', () => ({ __esModule: true, default: { deleteMany: jest.fn<AnyFn>(), find: emptyFind } }));
 jest.unstable_mockModule('../src/models/idp-group-mapping.js', () => ({ __esModule: true, default: { deleteMany: jest.fn<AnyFn>(), find: emptyFind } }));
 jest.unstable_mockModule('../src/models/org-domain.js', () => ({ __esModule: true, default: { deleteMany: jest.fn<AnyFn>(), find: emptyFind } }));
@@ -89,7 +91,11 @@ jest.unstable_mockModule('../src/models/user.js', () => ({
 jest.unstable_mockModule('../src/models/user-organization.js', () => ({ __esModule: true, default: { find: (...a: unknown[]) => mockUserOrgFind(...a) } }));
 jest.unstable_mockModule('../src/models/personal-access-token.js', () => ({
   __esModule: true,
-  default: { updateMany: (...a: unknown[]) => mockPatUpdateMany(...a), find: emptyFind },
+  default: { updateMany: (...a: unknown[]) => mockPatUpdateMany(...a), find: (...a: unknown[]) => mockPatFind(...a) },
+}));
+jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({
+  publishUsersRevocation: jest.fn(async () => true),
+  publishAccessKeyRevocation: (...a: unknown[]) => mockPublishKeyRevocation(...a),
 }));
 // Service accounts: the tombstone also revokes their keys — they hold no
 // session, so the members' tokenVersion bump cannot reach them.
@@ -123,7 +129,9 @@ beforeEach(() => {
   mockUserUpdateMany.mockReturnValue({ session: () => Promise.resolve({}) });
   // No one working in the org on inherited (parent-admin) authority by default.
   mockUserFind.mockReturnValue(queryChain([]));
-  mockPatUpdateMany.mockReturnValue({ session: () => Promise.resolve({}) });
+  mockPatUpdateMany.mockReturnValue({ session: () => Promise.resolve({}), then: (ok: AnyFn) => Promise.resolve({ modifiedCount: 0 }).then(ok) });
+  mockPatFind.mockImplementation(() => queryChain([]));
+  mockPublishKeyRevocation.mockResolvedValue(true);
   // One service account in the org, holding one live key.
   mockServiceAccountFind.mockReturnValue(queryChain([{ _id: 'sa-1' }]));
 });
@@ -202,6 +210,17 @@ describe('softDeleteOrg', () => {
     expect(saCall).toBeDefined();
     expect(saCall[0]).toEqual({ serviceAccountId: { $in: ['sa-1'] }, revoked: false });
     expect(saCall[1].$set.revoked).toBe(true);
+  });
+
+  it('publishes every revoked member PAT and service-account key, so other services stop honouring their exchanged tokens', async () => {
+    mockPatFind.mockImplementation((filter: any) => queryChain(
+      'serviceAccountId' in (filter ?? {}) ? [{ _id: 'sa-key-1' }] : 'userId' in (filter ?? {}) ? [{ _id: 'pat-1' }, { _id: 'pat-2' }] : [],
+    ));
+
+    await softDeleteOrg('org-acme', SYSTEM_ORG_ID, 'admin-1');
+
+    const published = mockPublishKeyRevocation.mock.calls.flatMap((c) => c[0] as string[]);
+    expect(published).toEqual(expect.arrayContaining(['pat-1', 'pat-2', 'sa-key-1']));
   });
 
   it('keeps the accounts themselves — a restore within the window needs them', async () => {

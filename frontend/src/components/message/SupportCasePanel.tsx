@@ -23,6 +23,8 @@ interface SupportCasePanelProps {
   contacts: { userId: string }[];
   /** Called after a successful change so the caller can refresh its copy. */
   onChanged?: () => void;
+  /** A read-only (impersonation) session: every control here is a write the server refuses. */
+  readOnly?: boolean;
 }
 
 /**
@@ -33,7 +35,7 @@ interface SupportCasePanelProps {
  * months-old "open" cases into the staff queue — and those threads simply get
  * no panel rather than an empty one.
  */
-export function SupportCasePanel({ supportCase, contacts, onChanged }: SupportCasePanelProps) {
+export function SupportCasePanel({ supportCase, contacts, onChanged, readOnly = false }: SupportCasePanelProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const target = responseTargetLabel(supportCase.level);
@@ -42,6 +44,11 @@ export function SupportCasePanel({ supportCase, contacts, onChanged }: SupportCa
   // who can undo it, since "my control stopped working" is otherwise the only
   // information the customer gets.
   const closedToTenant = isTenantTerminalCaseStatus(supportCase.status);
+  // A status only staff can set (`resolved`, `awaiting_support`) is still the
+  // select's value, as a disabled option: falling back to "Open" would show the
+  // wrong status AND make choosing "Open" (the tenant's reopen) fire no change.
+  const tenantSettable = TENANT_CASE_STATUSES.some((s) => s.value === supportCase.status);
+  const locked = busy || readOnly;
 
   /** Run one mutation, surfacing the server's own refusal rather than a generic one. */
   // A refusal (4xx/5xx) arrives as a thrown ApiError carrying the server's
@@ -84,11 +91,12 @@ export function SupportCasePanel({ supportCase, contacts, onChanged }: SupportCa
           <span className="text-fg-muted">Status</span>
           <Select
             aria-label="Case status"
-            value={TENANT_CASE_STATUSES.some((s) => s.value === supportCase.status) ? supportCase.status : 'open'}
-            disabled={busy || closedToTenant}
+            value={supportCase.status}
+            disabled={locked || closedToTenant}
             onChange={(e) => run(() => api.setSupportCaseStatus(supportCase.threadId, e.target.value))}
             className="text-xs"
           >
+            {!tenantSettable && <option value={supportCase.status} disabled>{caseStatusLabel(supportCase.status)}</option>}
             {TENANT_CASE_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
           </Select>
         </label>
@@ -101,7 +109,7 @@ export function SupportCasePanel({ supportCase, contacts, onChanged }: SupportCa
             <Select
               aria-label="Hand over to another support contact"
               defaultValue=""
-              disabled={busy}
+              disabled={locked}
               onChange={(e) => e.target.value && run(() => api.transferSupportCase(supportCase.threadId, e.target.value))}
               className="text-xs"
             >
@@ -117,6 +125,7 @@ export function SupportCasePanel({ supportCase, contacts, onChanged }: SupportCa
           <Button
             variant="secondary"
             disabled={busy}
+            readOnly={readOnly}
             onClick={() => run(() => api.setSupportCaseStatus(supportCase.threadId, 'closed'))}
           >
             Close case

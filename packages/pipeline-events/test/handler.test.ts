@@ -336,9 +336,39 @@ describe('pipeline-events handler', () => {
     }
   });
 
+  it('follows FilterLogEvents pages: an empty first page with a nextToken does not hide the marker', async () => {
+    const { _setFailureReasonLoaderForTests } = await import('../src/failure-reason.js');
+    const cbSend = jest.fn(async () => ({ builds: [{ logs: { groupName: '/aws/codebuild/synth', streamName: 'abc' } }] }));
+    const logsSend = jest.fn(async (cmd: unknown) => ((cmd as { input: { nextToken?: string } }).input.nextToken
+      ? { events: [{ message: 'PB_SYNTH_FAILURE {"code":"PLUGIN_NOT_INSTALLED","message":"acme/lint is not installed","plugins":[]}' }] }
+      : { events: [], nextToken: 'page-2' }));
+    _setFailureReasonLoaderForTests((async (pkg: string) => (pkg.endsWith('codebuild')
+      ? { CodeBuildClient: class { send = cbSend; }, BatchGetBuildsCommand: class { constructor(public input: unknown) {} } }
+      : { CloudWatchLogsClient: class { send = logsSend; }, FilterLogEventsCommand: class { constructor(public input: unknown) {} } })) as never);
+    try {
+      await handler(createSQSEvent([{
+        ...MOCK_CODEPIPELINE_EVENT,
+        'detail-type': 'CodePipeline Action Execution State Change',
+        'detail': {
+          ...MOCK_CODEPIPELINE_EVENT.detail,
+          'state': 'FAILED',
+          'stage': 'Build',
+          'action': 'Synth',
+          'type': { provider: 'CodeBuild', category: 'Build' },
+          'execution-result': { 'external-execution-id': 'synth-project:0b7e3c2a-1111-2222-3333-444455556666' },
+        },
+      }]));
+      expect(lastEventsBody().events[0].errorMessage).toBe('PLUGIN_NOT_INSTALLED: acme/lint is not installed');
+      expect(logsSend).toHaveBeenCalledTimes(2);
+      expect((logsSend.mock.calls[1]![0] as { input: { nextToken?: string } }).input.nextToken).toBe('page-2');
+    } finally {
+      _setFailureReasonLoaderForTests(undefined);
+    }
+  });
+
   it('promotes the compute size a SUCCEEDED CodeBuild action ran on, raw as AWS spells it', async () => {
-    // Phase 4's measurement half: duration x compute size is the vCPU-minute
-    // figure the tier ladder has to be re-derived from. Raw rather than
+    // Duration x compute size is the vCPU-minute figure the tier ladder is
+    // derived from. Raw rather than
     // normalised because this Lambda ships as ONE bundled file and cannot import
     // the vocabulary (see single-file-constraint.test.ts).
     const { _setFailureReasonLoaderForTests } = await import('../src/failure-reason.js');

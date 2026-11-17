@@ -131,6 +131,8 @@ export const REMOTE_AUDIT_ACTIONS = [
   'compliance.scan-schedule.create',
   'compliance.scan-schedule.update',
   'compliance.scan-schedule.delete',
+  // The retention sweep's hard-delete of scan-schedule tombstones past purge_after.
+  'compliance.scan-schedule.purge',
   'compliance.template.apply',
   // Launching an org-wide re-evaluation (the counterpart to `.cancel`) — it
   // persists a scan and can block entities that passed before.

@@ -13,11 +13,7 @@
  * followed by a License event for the same purchase, and only License events name
  * the license billing keys customers on.
  *
- * Extracted from `routes/marketplace.ts`, where ~300 lines of reconciliation sat
- * ABOVE the router, so the route module was mostly not routes. Same split as
- * `helpers/stripe-reversals.ts`: the route file keeps signature verification,
- * dedupe and dispatch; the business logic lives beside the other billing helpers
- * (`marketplace-helpers.ts` was already next door).
+ * Dispatched by routes/marketplace.ts after signature verification and dedupe.
  */
 
 import { createLogger } from '@pipeline-builder/api-core';

@@ -24,6 +24,7 @@ import { useFetch } from '@/hooks/useFetch';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
 import type { ServiceAccount } from '@/lib/api/domains/organizations';
+import { localDay } from '@/lib/local-day';
 
 /** The service account SCIM keys are issued against. One per org, created on
  *  demand, so an admin never has to know the service-account model exists to turn
@@ -150,7 +151,7 @@ export function ScimProvisioning({ orgId, readOnly }: { orgId: string; readOnly:
     setNewKey(null);
     try {
       const res = await api.createServiceAccountKey(orgId, accountId, {
-        name: `scim-${new Date().toISOString().slice(0, 10)}`,
+        name: `scim-${localDay(new Date())}`,
         expiresIn: Math.floor(days) * 86400,
         scope: SCIM_SCOPE,
       }, stepUpToken);

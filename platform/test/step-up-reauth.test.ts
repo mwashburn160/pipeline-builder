@@ -24,6 +24,7 @@ const GOOGLE_ISSUER = 'https://accounts.google.com';
 // -- Fixtures the mocks read -------------------------------------------------
 let userDoc: Record<string, unknown> | null;
 let memberships: Array<{ organizationId: string }>;
+const membershipFilters: unknown[] = [];
 let idpConfigs: Array<{ organizationId: string; provider: string }>;
 let orgs: Array<{ _id: string; name: string }>;
 let enabledProviders: Set<string>;
@@ -68,7 +69,7 @@ jest.unstable_mockModule('../src/utils/validation.js', () => ({
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
   User: { findById: () => selectLean(userDoc) },
-  UserOrganization: { find: () => selectLean(memberships) },
+  UserOrganization: { find: (filter: unknown) => { membershipFilters.push(filter); return selectLean(memberships); } },
   OrgIdpConfig: { find: () => selectLean(idpConfigs) },
   Organization: { find: () => selectLean(orgs) },
   PersonalAccessToken: {},
@@ -208,6 +209,13 @@ describe('resolveAuthFactors', () => {
     idpConfigs = [{ organizationId: 'org1', provider: 'generic-oidc' }];
     const factors = await resolveAuthFactors((await loadFactorUser('u1'))!);
     expect(factors.providers).toEqual([{ type: 'sso', provider: 'generic-oidc', orgId: 'org1', orgName: 'Acme' }]);
+  });
+
+  it('looks for SSO orgs among ACTIVE memberships only', async () => {
+    userDoc = { _id: 'u1', email: 'dev@acme.test', oauth: { 'generic-oidc': { id: 'sso-sub', issuer: 'https://idp.test' } } };
+    membershipFilters.length = 0;
+    await resolveAuthFactors((await loadFactorUser('u1'))!);
+    expect(membershipFilters).toContainEqual(expect.objectContaining({ isActive: true }));
   });
 
   it('refuses SSO re-auth for a platform administrator', async () => {

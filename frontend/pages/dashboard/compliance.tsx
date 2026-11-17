@@ -14,14 +14,14 @@ export default function CompliancePage() {
   // affordances inside ComplianceDashboard are gated separately on
   // `compliance:write` via the `canManage` prop. Backend remains the real gate
   // (compliance APIs 403 regardless); this is the cosmetic layer.
-  const { accessDenied, isReady, can } = useAuthGuard();
+  const { accessDenied, isReady, isReadOnly, can } = useAuthGuard();
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady) return <LoadingPage />;
 
   return (
     <DashboardLayout title="Compliance" subtitle="Organization compliance rules and policies">
-      <ComplianceDashboard canManage={can('compliance:write')} />
+      <ComplianceDashboard canManage={can('compliance:write')} sessionReadOnly={isReadOnly} />
     </DashboardLayout>
   );
 }

@@ -58,11 +58,16 @@ describe('CreateCampaignModal', () => {
     expect(screen.getByText(/Stored as/)).toHaveTextContent('summer-26');
     fireEvent.change(screen.getByLabelText(/Budget/), { target: { value: '250.50' } });
     fireEvent.change(screen.getByLabelText(/Starts/), { target: { value: '2026-06-01' } });
+    fireEvent.change(screen.getByLabelText(/Ends/), { target: { value: '2026-08-31' } });
     fireEvent.click(screen.getByLabelText('One redemption per account'));
     fireEvent.click(screen.getByRole('button', { name: 'Create Campaign' }));
     await waitFor(() => expect(onCreated).toHaveBeenCalled());
     expect(createCampaign).toHaveBeenCalledWith({
-      id: 'summer-26', name: 'Summer 26', budgetCents: 25_050, exclusive: true, startsAt: new Date('2026-06-01').toISOString(),
+      id: 'summer-26', name: 'Summer 26', budgetCents: 25_050, exclusive: true,
+      // The viewer's LOCAL days, the end day inclusive: the server ends a
+      // campaign once `endsAt < now`, so midnight would cut its last day off.
+      startsAt: new Date(2026, 5, 1).toISOString(),
+      endsAt: new Date(2026, 7, 31, 23, 59, 59, 999).toISOString(),
     });
   });
 
@@ -145,6 +150,17 @@ describe('EditCampaignModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     expect(updateCampaign).toHaveBeenCalledWith('summer-26', { startsAt: null });
+  });
+
+  it('sends a changed end day as its last local instant, and seeds the field from the LOCAL day', async () => {
+    const endsAt = new Date(2026, 7, 31, 23, 59, 59, 999).toISOString();
+    const onSaved = jest.fn<AnyFn>();
+    render(<EditCampaignModal campaign={campaign({ endsAt })} onClose={jest.fn<AnyFn>()} onSaved={onSaved} />);
+    expect(screen.getByLabelText('Ends')).toHaveValue('2026-08-31');
+    fireEvent.change(screen.getByLabelText('Ends'), { target: { value: '2026-09-15' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(updateCampaign).toHaveBeenCalledWith('summer-26', { endsAt: new Date(2026, 8, 15, 23, 59, 59, 999).toISOString() });
   });
 
   it('closes without a call when nothing changed', async () => {

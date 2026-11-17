@@ -21,10 +21,9 @@
  * key that `jsonwebtoken.verify` checks. `alg: none` and any HMAC alg are
  * rejected before verification so a tampered/unsigned token can never pass.
  *
- * Discovery + JWKS documents are cached in-memory with a short TTL, mirroring
- * the in-memory OAuth-state map in `controllers/oauth.ts`. Multi-pod caveat is
- * identical to that existing surface (each pod keeps its own cache); a stolen
- * cache entry is not a concern because these documents are public.
+ * Discovery + JWKS documents are cached in-memory, per pod, with a short TTL
+ * (each pod fetches its own copy); a stolen cache entry is not a concern because
+ * these documents are public.
  */
 
 import crypto from 'crypto';

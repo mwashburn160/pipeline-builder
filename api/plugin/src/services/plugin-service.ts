@@ -719,6 +719,11 @@ export class PluginService extends CrudService<
       .update(schema.plugin)
       .set({ quotaResetAt: resetAt === null ? null : new Date(resetAt) })
       .where(eq(schema.plugin.id, pluginId)));
+    // A delete refunds the snapshot of the row `findById` answers — from the
+    // cache. A restore re-charges AFTER its own invalidation, so a read in
+    // between cached the row without the snapshot and the next delete refunded
+    // nothing.
+    await this.invalidateIds([pluginId]);
   }
 
   /**
@@ -766,7 +771,8 @@ export class PluginService extends CrudService<
    * Yank a version: it stops resolving for ranges / `latest` / the
    * default, while an exact pin still finds it (and is told why). A LISTED
    * version is yanked by the system org on request, never by the org (409
-   * PLUGIN_VERSION_FROZEN). Yanking the default promotes the next one.
+   * PLUGIN_VERSION_FROZEN); one already yanked is a 409 CONFLICT. Yanking the
+   * default promotes the next one.
    */
   async yankVersion(existing: Plugin, orgId: string, userId: string, reason: string): Promise<{ yanked: Plugin | null; promoted: Plugin | null }> {
     // Before anything is written: a managed yank must never reach promoteNextDefault.
@@ -776,6 +782,11 @@ export class PluginService extends CrudService<
         'This plugin version is published to the ecosystem; request a yank from the ecosystem instead.',
         ErrorCode.PLUGIN_VERSION_FROZEN,
       );
+    }
+    // Re-yanking would overwrite the original yank's time and reason and notify
+    // every org on the version a second time.
+    if (isYankedVersion(existing)) {
+      throw new ConflictError(`${existing.name}@${existing.version} is already yanked.`);
     }
     const now = new Date();
     const yanked = await withTenantTx(async (tx) => {
@@ -810,7 +821,7 @@ export class PluginService extends CrudService<
         ErrorCode.PLUGIN_VERSION_FROZEN,
       );
     }
-    if (!existing.yankedAt && existing.lifecycle !== 'yanked') {
+    if (!isYankedVersion(existing)) {
       throw new ConflictError(`${existing.name}@${existing.version} is not yanked.`);
     }
     const now = new Date();

@@ -39,6 +39,11 @@ export interface PendingPasswordChange {
   aal: AssuranceLevel;
   /** The minimum the new password must meet (shown to the person). */
   minLength: number;
+  /** The account's HARD `tokenVersion` when the old password was proven. A
+   *  password reset, sign-out-everywhere or factor reset in between moves it,
+   *  and the handle must die with every other credential that predates it —
+   *  otherwise whoever held the OLD password could still set a new one. */
+  tokenVersion: number;
   /** Unix seconds. */
   expiresAt: number;
 }

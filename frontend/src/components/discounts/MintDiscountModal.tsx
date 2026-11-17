@@ -8,6 +8,7 @@ import { ModalFooter } from '@/components/ui/ModalFooter';
 import { Input } from '@/components/ui/Input';
 import api from '@/lib/api';
 import { CampaignSelect } from './CampaignSelect';
+import { localDayEndIso } from '@/lib/local-day';
 
 interface MintDiscountModalProps {
   onClose: () => void;
@@ -42,8 +43,9 @@ export function MintDiscountModal({ onClose, onCreated }: MintDiscountModalProps
       ...(targetOrgId.trim() && { targetOrgId: targetOrgId.trim() }),
       ...(campaign.trim() && { campaign: campaign.trim() }),
       ...(maxR !== undefined && { maxRedemptions: maxR }),
-      // <input type="date"> yields YYYY-MM-DD; send as an ISO instant.
-      ...(redeemBy.trim() && { redeemBy: new Date(redeemBy.trim()).toISOString() }),
+      // <input type="date"> yields a local YYYY-MM-DD, and "redeem by" includes
+      // that day: send its LAST instant (the server refuses once `redeemBy < now`).
+      ...(redeemBy.trim() && { redeemBy: localDayEndIso(redeemBy.trim()) }),
     }), { onSuccess: () => onCreated() });
   };
 

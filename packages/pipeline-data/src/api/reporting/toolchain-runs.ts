@@ -129,7 +129,7 @@ const IS_SELF_MUTATION = sql`(e.stage_name = ${SELF_MUTATION_STAGE} AND e.action
 // Canary gate — pure computation
 // -----------------------------------------------------------------------------
 
-/** The gate's thresholds (set on the console, Phase 5). */
+/** The gate's thresholds (set on the console). */
 export interface CanaryGateParams {
   /** N: counted synth runs required. */
   minRuns: number;

@@ -130,8 +130,11 @@ interface AcceptNotice {
   orgName: string;
 }
 
-/** What `processAcceptance` resolved about the invitation's named Roles. */
+/** What `processAcceptance` resolved: the coarse role actually granted, and the
+ *  invitation's named Roles it granted and dropped. */
 interface AcceptedRoles {
+  /** `member` when an ADMIN invitation's inviter no longer holds admin authority. */
+  role: 'admin' | 'member';
   granted: string[];
   dropped: string[];
 }
@@ -236,7 +239,34 @@ class InvitationService {
     acceptedVia: 'email' | OAuthProviderName,
     session: mongoose.ClientSession,
   ): Promise<{ notice: AcceptNotice | null; roles: AcceptedRoles }> {
-    const memberRole = invitation.role === 'admin' ? 'admin' : 'member';
+    const invitedRoleIds = (invitation.roleIds ?? []).map(String);
+
+    // The inviter's authority RIGHT NOW, read once for both re-validations below:
+    // an invitation can sit pending for days, during which the person who sent it
+    // may have lost the admin label, a permission, or the org relationship that
+    // let them grant what it promises — the same window
+    // `redeemImpersonationRequest` re-resolves for.
+    const needsInviter = invitation.role === 'admin' || invitedRoleIds.length > 0;
+    const inviterDoc = needsInviter
+      ? await User.findById(invitation.invitedBy).select('+isSuperAdmin').session(session)
+      : null;
+    const inviterIsSuperAdmin = (inviterDoc as { isSuperAdmin?: boolean } | null)?.isSuperAdmin === true;
+    const inviterNow = needsInviter
+      ? await this.inviterAuthorityNow(invitation.invitedBy, org._id as mongoose.Types.ObjectId, session)
+      : { isOrgAdmin: false, permissions: [] as string[] };
+
+    // The coarse ADMIN grant takes the same re-check the named Roles do (send
+    // time required the inviter to be an admin): an admin invitation whose sender
+    // has since been demoted or removed joins the invitee as a member.
+    const memberRole: 'admin' | 'member' = invitation.role === 'admin' && (inviterIsSuperAdmin || inviterNow.isOrgAdmin)
+      ? 'admin'
+      : 'member';
+    if (invitation.role === 'admin' && memberRole === 'member') {
+      logger.warn('Admin invitation accepted as member — the inviter no longer has admin authority', {
+        invitationId: String(invitation._id),
+        organizationId: String(org._id),
+      });
+    }
     await UserOrganization.create([{
       userId: user._id, organizationId: org._id, role: memberRole,
     }], { session });
@@ -253,29 +283,17 @@ class InvitationService {
     }
 
     // The invitation's named Roles, RE-VALIDATED against the inviter's CURRENT
-    // authority rather than trusted from send time.
-    //
-    // An invitation can sit pending for days, during which the person who sent
-    // it may have lost the permission, the admin label, or the org relationship
-    // that let them grant it — the same window `redeemImpersonationRequest`
-    // re-resolves for. A Role that no longer passes is DROPPED and recorded,
-    // not fatal: the invitee did nothing wrong, and refusing their acceptance
-    // over their inviter's demotion is the worse trade. They join with the
-    // coarse role either way.
-    const invitedRoleIds = (invitation.roleIds ?? []).map(String);
+    // authority rather than trusted from send time. A Role that no longer passes
+    // is DROPPED and recorded, not fatal: the invitee did nothing wrong, and
+    // refusing their acceptance over their inviter's demotion is the worse
+    // trade. They join with the coarse role either way.
     let grantedRoleIds: string[] = [];
     let droppedRoleIds: string[] = [];
     if (invitedRoleIds.length > 0) {
-      const inviter = await User.findById(invitation.invitedBy).select('+isSuperAdmin').session(session);
       const { eligible, rejected } = await partitionAssignableRoles(
         org._id as never,
         invitedRoleIds,
-        {
-          isSuperAdmin: (inviter as { isSuperAdmin?: boolean } | null)?.isSuperAdmin === true,
-          // Resolved from the inviter's CURRENT authority in this org, not from
-          // a claim captured when the invitation was written.
-          ...await this.inviterAuthorityNow(invitation.invitedBy, org._id as mongoose.Types.ObjectId, session),
-        },
+        { isSuperAdmin: inviterIsSuperAdmin, ...inviterNow },
         session,
       );
       grantedRoleIds = eligible.map(String);
@@ -326,7 +344,7 @@ class InvitationService {
     // Neither is recoverable: mail is not transactional. `send()` above already
     // does it this way, mailing on the line AFTER its transaction closes; this
     // is the same rule applied to the path that reaches it one call deeper.
-    const roles: AcceptedRoles = { granted: grantedRoleIds, dropped: droppedRoleIds };
+    const roles: AcceptedRoles = { role: memberRole, granted: grantedRoleIds, dropped: droppedRoleIds };
 
     const inviter = await User.findById(invitation.invitedBy).session(session);
     // A missing inviter costs the NOTICE, never the Role resolution — the grant
@@ -501,7 +519,7 @@ class InvitationService {
     // Reassigned on every transaction attempt, so a retry discards the previous
     // attempt's notice and only the committed one is ever mailed.
     let notice: AcceptNotice | null = null;
-    let acceptedRoles: AcceptedRoles = { granted: [], dropped: [] };
+    let acceptedRoles: AcceptedRoles = { role: 'member', granted: [], dropped: [] };
     const alreadyMember = await withMongoTransaction(async (session) => {
       const invitation = await this.validateToken(token, session);
 
@@ -548,7 +566,7 @@ class InvitationService {
         invitationId: String(invitation._id),
         organizationId: String(invitation.organizationId),
         email: invitation.email,
-        role: invitation.role,
+        role: acceptedRoles.role,
         ...roleAuditFields(acceptedRoles),
         userId,
       };
@@ -601,7 +619,7 @@ class InvitationService {
       organizationId: String(invitation.organizationId),
       organizationName: org.name,
       email: invitation.email,
-      role: invitation.role,
+      role: roles.role,
       userId: String(user._id),
       notifyAccepted: notice ? () => this.notifyAccepted(notice) : undefined,
     };
@@ -622,7 +640,7 @@ class InvitationService {
     let result: InvitationAcceptResult | null = null;
     // Same retry rule as `accept`: reassigned per attempt, mailed after commit.
     let notice: AcceptNotice | null = null;
-    let acceptedRoles: AcceptedRoles = { granted: [], dropped: [] };
+    let acceptedRoles: AcceptedRoles = { role: 'member', granted: [], dropped: [] };
     const alreadyMember = await withMongoTransaction(async (session) => {
       const invitation = await this.validateToken(token, session);
 
@@ -692,7 +710,7 @@ class InvitationService {
         invitationId: String(invitation._id),
         organizationId: String(invitation.organizationId),
         email: invitation.email,
-        role: invitation.role,
+        role: acceptedRoles.role,
         ...roleAuditFields(acceptedRoles),
         userId: String(user._id),
       };

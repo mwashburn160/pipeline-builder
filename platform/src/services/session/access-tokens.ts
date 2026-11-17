@@ -504,8 +504,8 @@ export async function issueStepUpToken(
     type: 'step-up' as const,
     sub: userId,
     amr: (STRONG_STEP_UP_METHODS.includes(method) ? ['stepup', 'mfa'] : ['stepup']) as AuthMethod[],
-    // How the step-up was earned — recorded for audit (and later assurance
-    // decisions). requireStepUp ignores it: every method yields the same gate.
+    // How the step-up was earned — recorded for audit, and read by
+    // `requireStepUp({ methods })` on the routes that admit only some methods.
     method,
     jti: crypto.randomBytes(8).toString('hex'),
   };

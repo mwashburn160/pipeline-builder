@@ -128,11 +128,21 @@ beforeEach(() => {
   mockAssignBuiltinAdminRole.mockResolvedValue(true);
   mockRecomputeUserOrgRole.mockResolvedValue(undefined);
   mockSendInvitationAccepted.mockResolvedValue(undefined);
-  // User.findById is called twice: first the accepting user, then the inviter.
-  mockUserFindById
-    .mockReturnValueOnce(sessionResolving({ _id: 'u1', email: INVITEE_EMAIL, lastActiveOrgId: 'existing-org', save: jest.fn() }))
-    .mockReturnValueOnce(sessionResolving({ _id: 'inviter-1', email: 'boss@example.com', username: 'boss' }));
+  // User.findById answered BY ID: the accepting user, and the inviter — looked
+  // up with `+isSuperAdmin` for the authority re-check and again for the notice.
+  inviterIsSuperAdmin = false;
+  mockUserFindById.mockReset();
+  mockUserFindById.mockImplementation((id: unknown) => {
+    const doc = String(id) === 'u1'
+      ? { _id: 'u1', email: INVITEE_EMAIL, lastActiveOrgId: 'existing-org', save: jest.fn() }
+      : { _id: 'inviter-1', email: 'boss@example.com', username: 'boss', isSuperAdmin: inviterIsSuperAdmin };
+    return { ...sessionResolving(doc), select: () => sessionResolving(doc) };
+  });
+  // The inviter is still an admin of the org unless a test says otherwise.
+  mockResolveOrgAuthority.mockResolvedValue({ role: 'admin', via: 'membership', permissionOrgIds: ['org-1'] });
 });
+
+let inviterIsSuperAdmin = false;
 
 describe('InvitationService.accept — RBAC Role assignment', () => {
   it('gives a member invitee the Member floor and NO Admin Role', async () => {
@@ -158,6 +168,40 @@ describe('InvitationService.accept — RBAC Role assignment', () => {
     expect(mockAssignBuiltinAdminRole).toHaveBeenCalledTimes(1);
     expect((mockAssignBuiltinAdminRole.mock.calls[0] as any)[1]).toBe('org-1');
     expect(mockRecomputeUserOrgRole).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('InvitationService.accept — the coarse ADMIN grant is re-checked at acceptance', () => {
+  it('joins as a MEMBER when the inviter is no longer an admin of the org', async () => {
+    mockResolveOrgAuthority.mockResolvedValue({ role: 'member', via: 'membership', permissionOrgIds: ['org-1'] });
+    mockInvitationFindOne.mockReturnValue(sessionResolving(makeInvitation('admin')));
+
+    const result = await invitationService.accept('tok', 'u1');
+
+    expect((mockUoCreate.mock.calls[0] as any)[0][0]).toMatchObject({ role: 'member' });
+    expect(mockAssignBuiltinAdminRole).not.toHaveBeenCalled();
+    // The audit facts say what was actually granted.
+    expect(result.role).toBe('member');
+  });
+
+  it('joins as a MEMBER when the inviter has left the org entirely', async () => {
+    mockResolveOrgAuthority.mockResolvedValue(undefined);
+    mockInvitationFindOne.mockReturnValue(sessionResolving(makeInvitation('admin')));
+
+    await invitationService.accept('tok', 'u1');
+
+    expect(mockAssignBuiltinAdminRole).not.toHaveBeenCalled();
+  });
+
+  it('keeps the admin grant for a platform-superadmin inviter', async () => {
+    mockResolveOrgAuthority.mockResolvedValue(undefined);
+    inviterIsSuperAdmin = true;
+    mockInvitationFindOne.mockReturnValue(sessionResolving(makeInvitation('admin')));
+
+    const result = await invitationService.accept('tok', 'u1');
+
+    expect(mockAssignBuiltinAdminRole).toHaveBeenCalledTimes(1);
+    expect(result.role).toBe('admin');
   });
 });
 
@@ -202,7 +246,8 @@ describe('InvitationService.acceptForRegistration — signing up FROM an invitat
   beforeEach(() => {
     // Only the inviter is looked up (the user is handed in, not fetched).
     mockUserFindById.mockReset();
-    mockUserFindById.mockReturnValue(sessionResolving({ _id: 'inviter-1', email: 'boss@example.com', username: 'boss' }));
+    const inviter = { _id: 'inviter-1', email: 'boss@example.com', username: 'boss' };
+    mockUserFindById.mockReturnValue({ ...sessionResolving(inviter), select: () => sessionResolving(inviter) });
   });
 
   it('joins the INVITING org with the invited role, makes it active, and marks the invite accepted', async () => {

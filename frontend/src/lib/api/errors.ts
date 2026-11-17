@@ -184,13 +184,17 @@ export class MfaRequiredError extends ApiError {
 }
 
 /**
- * Map a structured error response from the registry endpoints to the right
- * typed error subclass. Keeps the components from re-deriving the same
- * status-code switch.
+ * Narrow a registry endpoint's refusal to {@link ConflictError} when it is one
+ * (409, or a 400 `source-equals-target`), so the copy dialog can branch on
+ * `reason`. Every other error is returned AS IS — a step-up refusal keeps its
+ * class and `resume`, a quota refusal its fields, a 429 its `retryAfter`.
  */
-export function toRegistryError(message: string, statusCode: number, code: string | undefined, details?: Record<string, unknown>): ApiError {
-  if (statusCode === 409 || (statusCode === 400 && details?.reason === 'source-equals-target')) {
-    return new ConflictError(message, statusCode, code, details ?? {});
+export function toRegistryError(err: unknown): unknown {
+  if (!(err instanceof ApiError) || err instanceof ConflictError) return err;
+  if (err.statusCode === 409 || (err.statusCode === 400 && err.details?.reason === 'source-equals-target')) {
+    const conflict = new ConflictError(err.message, err.statusCode, err.code, err.details ?? {});
+    conflict.retryAfter = err.retryAfter;
+    return conflict;
   }
-  return new ApiError(message, statusCode, code, details);
+  return err;
 }

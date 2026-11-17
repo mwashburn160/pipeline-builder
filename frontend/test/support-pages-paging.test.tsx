@@ -95,6 +95,24 @@ describe('support page — case paging', () => {
   });
 });
 
+describe('support page — case rows', () => {
+  it('"Open conversation" deep-links through the `?message=` key the Messages page reads', async () => {
+    render(<SupportPage />);
+    await screen.findByText('#1');
+    expect(screen.getByRole('link', { name: 'Open conversation' })).toHaveAttribute('href', '/dashboard/messages?message=t1');
+  });
+
+  it('shows a loading line, not "No support cases yet", while the first page is in flight', async () => {
+    let resolve!: (v: unknown) => void;
+    api.getSupportCases.mockImplementation(() => new Promise((r) => { resolve = r; }));
+    render(<SupportPage />);
+    expect(await screen.findByText(/Loading your support cases/)).toBeInTheDocument();
+    expect(screen.queryByText('No support cases yet')).not.toBeInTheDocument();
+    resolve({ success: true, data: { cases: [], hasMore: false } });
+    expect(await screen.findByText('No support cases yet')).toBeInTheDocument();
+  });
+});
+
 describe('support page — export', () => {
   it('downloads through the client and says nothing when the file is complete', async () => {
     render(<SupportPage />);

@@ -200,8 +200,14 @@ describe('handleSsoCallback (state lifecycle + org binding)', () => {
     expect(mockFindOrCreate).toHaveBeenCalledWith(
       'generic-oidc',
       expect.objectContaining({ email: 'u@x.com' }),
-      { markOnboarding: false, sso: { issuer: 'https://idp.test' } },
+      { markOnboarding: false, sso: { issuer: 'https://idp.test', assertTrusted: expect.any(Function) } },
     );
+    // A subject match onto a DIFFERENT stored email is re-checked against this
+    // org's verified domains, from the same source.
+    const { sso } = mockFindOrCreate.mock.calls[0]![2] as { sso: { assertTrusted: (e: string) => Promise<void> } };
+    mockAssertSsoIdentityTrusted.mockClear();
+    await sso.assertTrusted('stored@other.test');
+    expect(mockAssertSsoIdentityTrusted).toHaveBeenCalledWith('org-1', { issuer: 'https://idp.test', email: 'stored@other.test' }, { protocol: 'oidc', provider: 'generic-oidc' });
     // SSO opens an INTERACTIVE session stamped `amr: ['sso']`.
     expect(mockIssueTokens).toHaveBeenCalledWith(
       expect.anything(), 'org-1', expect.objectContaining({ kind: 'interactive' }),

@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/Input';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import api from '@/lib/api';
+import { localDayEndIso, localDayStartIso } from '@/lib/local-day';
 
 interface CreateCampaignModalProps {
   onClose: () => void;
@@ -62,8 +63,10 @@ export function CreateCampaignModal({ onClose, onCreated }: CreateCampaignModalP
       name: name.trim(),
       ...(dollars !== undefined && { budgetCents: Math.round(dollars * 100) }),
       ...(exclusive && { exclusive: true }),
-      ...(startsAt.trim() && { startsAt: new Date(startsAt.trim()).toISOString() }),
-      ...(endsAt.trim() && { endsAt: new Date(endsAt.trim()).toISOString() }),
+      // Local days, and the end day inclusive — the server ends a campaign once
+      // `endsAt < now`, so midnight would cut the last day off.
+      ...(startsAt.trim() && { startsAt: localDayStartIso(startsAt.trim()) }),
+      ...(endsAt.trim() && { endsAt: localDayEndIso(endsAt.trim()) }),
     }), { onSuccess: () => onCreated() });
   };
 

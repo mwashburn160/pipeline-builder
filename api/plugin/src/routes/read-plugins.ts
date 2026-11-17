@@ -20,20 +20,14 @@ import type { Request, Response } from 'express';
 import { Router } from 'express';
 import { registerVulnerabilityRoutes } from './plugin-vulnerabilities.js';
 import { acceptancesFor, assessmentFor, consumptionPolicyFor, NO_ACCEPTANCES, ownedPipeline } from '../helpers/lookup-vuln-policy.js';
-import { isYankedVersion } from '../helpers/managed-toolchain.js';
+import { isDeprecatedVersion, isYankedVersion } from '../helpers/managed-toolchain.js';
 import { pipelinePluginRefs } from '../helpers/pipeline-plugin-refs.js';
-import { pluginRequiresImage, shapePlugin } from '../helpers/plugin-helpers.js';
+import { parentOrgIdOf, pluginRequiresImage, shapePlugin } from '../helpers/plugin-helpers.js';
 import { fetchImageSbom, ImageVerificationError, verifyImageSignature } from '../helpers/supply-chain.js';
 import { resolveListedLookup, shadowedListing, verifyListedImage } from '../services/ecosystem/lookup.js';
 import { pluginRowState } from '../services/plugin-row-state.js';
 import { notifyPipelineVulnerable } from '../services/plugin-security-notifications.js';
 import { pluginService } from '../services/plugin-service.js';
-
-/** The caller's parent-org id (org→team hierarchy), carried in the JWT; absent
- *  for root orgs. Centralizes the one cast the read handlers all need. */
-function parentOrgIdOf(req: Request): string | undefined {
-  return (req.user as { parentOrganizationId?: string } | undefined)?.parentOrganizationId;
-}
 
 /**
  * A warning attached to a lookup answer (lifecycle, listings, advisories, and
@@ -119,7 +113,7 @@ export function lookupWarnings(plugin: {
       message: `Plugin ${ref} is yanked${plugin.yankReason ? `: ${plugin.yankReason}` : ''}. It resolves only because it is pinned exactly; move to a supported version.`,
     });
   }
-  if (plugin.deprecatedAt || plugin.lifecycle === 'deprecated') {
+  if (isDeprecatedVersion(plugin)) {
     warnings.push({
       code: 'PLUGIN_DEPRECATED',
       severity: 'warning',

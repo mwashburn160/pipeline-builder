@@ -61,6 +61,7 @@ import {
   type PluginPlan, type RetentionAction, type RetentionCollection, type RetentionReport,
 } from './plan.js';
 import { declaredWithoutResolution, retentionHoldSql, systemPluginNames, type VersionDecision } from './select.js';
+import { isYankedVersion } from '../../helpers/managed-toolchain.js';
 import { refreshDeclaredResolutions } from '../declared-resolution-refresh.js';
 import { yankListedVersion } from '../ecosystem/execute.js';
 import { orgApprovers } from '../ecosystem/install-notify.js';
@@ -226,7 +227,7 @@ async function yank(plan: PluginPlan, d: VersionDecision, now: Date): Promise<vo
     await yankListedVersion(plan.listing.listing, plan.listing.publisher, d.version, RETENTION_YANK_REASON, SYSTEM_ACTOR_ID, { notify: false });
   } else if (!fact?.listing) {
     const row = await plugins.byId(d.pluginId, SYSTEM_ORG_ID);
-    if (row && !row.yankedAt) await pluginService.yankVersion(row, SYSTEM_ORG_ID, SYSTEM_ACTOR_ID, RETENTION_YANK_REASON);
+    if (row && !isYankedVersion(row)) await pluginService.yankVersion(row, SYSTEM_ORG_ID, SYSTEM_ACTOR_ID, RETENTION_YANK_REASON);
   }
   const fresh = await plugins.byId(d.pluginId, SYSTEM_ORG_ID);
   if (fresh) await pluginService.deleteVersion(fresh, SYSTEM_ORG_ID, SYSTEM_ACTOR_ID, { force: true });

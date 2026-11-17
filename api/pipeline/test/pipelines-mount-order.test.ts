@@ -255,7 +255,12 @@ function request(method: string, path: string, headers: Record<string, string> =
     }, (res) => {
       let raw = '';
       res.on('data', (c) => { raw += c; });
-      res.on('end', () => resolve({ status: res.statusCode ?? 0, body: raw ? JSON.parse(raw) : undefined, headers: res.headers }));
+      res.on('end', () => {
+        // Express's own fallback 404 is HTML, not JSON.
+        let parsed: unknown;
+        try { parsed = raw ? JSON.parse(raw) : undefined; } catch { parsed = raw; }
+        resolve({ status: res.statusCode ?? 0, body: parsed, headers: res.headers });
+      });
     });
     req.on('error', reject);
     if (body) req.write(body);
@@ -352,5 +357,36 @@ describe('gates are unchanged by the single shared chain', () => {
 
   it('POST /pipelines/registry still requires pipelines:write', async () => {
     expect((await request('POST', '/pipelines/registry', { 'x-org-id': 'acme' })).status).toBe(403);
+  });
+});
+
+describe('an unknown /pipelines/* path is a 404 before any write gate', () => {
+  it.each([
+    ['POST', `/pipelines/${ID}/purgee`],
+    ['POST', `/pipelines/${ID}/restore/extra`],
+    ['DELETE', `/pipelines/${ID}/nothing`],
+    ['PATCH', `/pipelines/${ID}`],
+  ])('%s %s answers 404 with no step-up demanded, for a writer and a reader', async (method, path) => {
+    for (const who of [WRITER, READER, { 'x-org-id': 'acme' }]) {
+      resetPasses();
+      const res = await request(method, path, { ...who, ...freshKey() });
+      expect(res.status).toBe(404);
+      expect(passes.stepUp).toBe(0);
+    }
+  });
+
+  it('step-up still gates restore (not only purge) and runs once on each', async () => {
+    expect((await request('POST', `/pipelines/${ID}/restore`, WRITER)).status).toBe(401);
+    resetPasses();
+    expect((await request('POST', `/pipelines/${ID}/restore`, { 'x-org-id': 'acme', 'x-test-stepup': 'ok' })).status).toBe(403);
+    expect(passes.stepUp).toBe(0); // the permission gate refuses first
+  });
+
+  it('PUT / DELETE /pipelines/:id never demand step-up', async () => {
+    for (const method of ['PUT', 'DELETE']) {
+      resetPasses();
+      expect((await request(method, `/pipelines/${ID}`, { ...WRITER, ...freshKey() })).status).toBe(404);
+      expect(passes.stepUp).toBe(0);
+    }
   });
 });

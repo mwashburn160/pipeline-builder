@@ -25,6 +25,8 @@ export interface VisibilityTarget {
   visibility?: string;
   /** Author — owns the `private` rung. */
   createdBy?: string;
+  /** Owning org. A row from another org (the system catalog, a parent org) is read-only here. */
+  orgId?: string;
 }
 
 /**
@@ -35,12 +37,17 @@ export interface VisibilityTarget {
  * - `public`  — super admins, or holders of the resource's `:publish`
  * - `org`     — anyone (the caller's `:write` permission is checked separately)
  * - `private` — the AUTHOR alone (plus super admins)
+ *
+ * A row another org owns is never writable from here (super admins aside): every
+ * write route looks the row up scoped to the caller's org and answers not-found,
+ * so offering Edit/Delete on a system-catalog or parent-org row only fails.
  */
 export function canModify(
   resource: VisibilityTarget,
-  opts: { isSuperAdmin: boolean; canPublish: boolean; userId?: string },
+  opts: { isSuperAdmin: boolean; canPublish: boolean; userId?: string; orgId?: string },
 ): boolean {
   if (opts.isSuperAdmin) return true;
+  if (resource.orgId && opts.orgId && resource.orgId.toLowerCase() !== opts.orgId.toLowerCase()) return false;
   if (resource.visibility === 'public') return opts.canPublish;
   // Fail closed without a viewer — an absent userId must not match an absent author.
   if (resource.visibility === 'private') return !!opts.userId && resource.createdBy === opts.userId;
@@ -58,13 +65,15 @@ export function canModify(
  * @param isSuperAdmin - Whether the user is a system admin.
  * @param resource - The pipeline's visibility rung + author.
  * @param userId - The caller's user id, for the author-only `private` rung.
+ * @param orgId - The caller's org; a pipeline another org owns is read-only.
  */
 export function canWritePipeline(
   can: (permission: Permission) => boolean,
   isSuperAdmin: boolean,
   resource: VisibilityTarget,
   userId?: string,
+  orgId?: string,
 ): boolean {
   return can('pipelines:write')
-    && canModify(resource, { isSuperAdmin, canPublish: can('pipelines:publish'), userId });
+    && canModify(resource, { isSuperAdmin, canPublish: can('pipelines:publish'), userId, orgId });
 }

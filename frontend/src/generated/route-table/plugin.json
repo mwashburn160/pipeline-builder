@@ -18,6 +18,25 @@
   },
   {
     "method": "GET",
+    "path": "/internal/plugins/image-pipeline-references",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "dynamicAuthz": [],
+    "internalCallers": [
+      "image-registry"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "GET",
     "path": "/internal/plugins/image-references",
     "auth": true,
     "permissions": [],

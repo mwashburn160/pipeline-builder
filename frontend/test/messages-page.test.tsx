@@ -27,9 +27,16 @@ jest.mock('@/hooks/useMessageNotifications', () => ({
 }));
 jest.mock('@/hooks/usePolling', () => ({ __esModule: true, usePolling: () => {} }));
 // The thread panel's own fetches are out of scope — render the subject it was handed.
+// Each MOUNT is recorded: the thread holds a per-thread reply draft, so the page
+// must remount it (not re-render it) when another thread is opened.
+const threadMounts: string[] = [];
 jest.mock('@/components/message/ThreadView', () => ({
   __esModule: true,
-  ThreadView: ({ rootMessage }: { rootMessage: { subject: string } }) => <div data-testid="thread">{rootMessage.subject}</div>,
+  ThreadView: ({ rootMessage }: { rootMessage: { id: string; subject: string } }) => {
+    const { useState } = require('react');
+    const [mountedFor] = useState(() => { threadMounts.push(rootMessage.id); return rootMessage.id; });
+    return <div data-testid="thread" data-mounted-for={mountedFor}>{rootMessage.subject}</div>;
+  },
 }));
 
 const mockRouter = { query: {} as Record<string, string>, pathname: '/dashboard/messages', isReady: true, replace: jest.fn<AnyFn>(), push: jest.fn<AnyFn>() };
@@ -115,5 +122,22 @@ describe('message filters', () => {
     await waitFor(() => expect(getMessages).toHaveBeenLastCalledWith(
       expect.objectContaining({ isRead: false, priority: 'urgent', channel: 'support', offset: 0 }),
     ));
+  });
+});
+
+describe('switching threads', () => {
+  it('remounts the thread view, so a reply draft typed in one thread never posts into another', async () => {
+    threadMounts.length = 0;
+    const other = { ...linked, id: 'm-two', subject: 'Second thread', content: 'other body' };
+    getMessages.mockResolvedValue({ data: { messages: [linked, other], pagination: { total: 2, limit: 25, offset: 0, hasMore: false } } });
+
+    render(<MessagesPage />);
+    fireEvent.click((await screen.findByText('body')).closest('[role="button"]') as HTMLElement);
+    expect(await screen.findByTestId('thread')).toHaveAttribute('data-mounted-for', 'm-old');
+
+    fireEvent.click(screen.getByText('other body').closest('[role="button"]') as HTMLElement);
+    await waitFor(() => expect(screen.getByTestId('thread')).toHaveTextContent('Second thread'));
+    expect(screen.getByTestId('thread')).toHaveAttribute('data-mounted-for', 'm-two');
+    expect(threadMounts).toEqual(['m-old', 'm-two']);
   });
 });

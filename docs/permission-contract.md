@@ -89,7 +89,7 @@ The superseded-version retention rows (`/plugins/retention/plan`, `/plugins/rete
 
 ### Plugin security notification routes
 
-The `/plugins/pipelines/:pipelineId/*` rows act only on a pipeline of the caller's own org (any other answers 404). The triage `POST` records a pipeline's risk decision — a time-boxed acceptance (reason + expiry, KEV only with an explicit `kev: true`), a false positive, a reopen — which downgrades that pipeline's vulnerability warnings and notices for the accepted findings; loosening it below `pipelines:write` would let a read-only member silence a pipeline's security signal, which is a weakening. Vulnerability state never blocks a pipeline, so no row here gates one. `GET /internal/plugins/image-references` feeds the image registry's age GC the digests it must never delete; widening its caller list would leak which images an org's pipelines run.
+The `/plugins/pipelines/:pipelineId/*` rows act only on a pipeline of the caller's own org (any other answers 404). The triage `POST` records a pipeline's risk decision — a time-boxed acceptance (reason + expiry, KEV only with an explicit `kev: true`), a false positive, a reopen — which downgrades that pipeline's vulnerability warnings and notices for the accepted findings; loosening it below `pipelines:write` would let a read-only member silence a pipeline's security signal, which is a weakening. Vulnerability state never blocks a pipeline, so no row here gates one. `GET /internal/plugins/image-references` feeds the image registry's age GC the digests it must never delete; widening its caller list would leak which images an org's pipelines run. `GET /internal/plugins/image-pipeline-references` answers the registry's manual purge with the pipelines (any org's) still referencing each image, so the purge can refuse; it names pipelines across orgs, so widening its caller list is a cross-tenant leak.
 
 The rows under `/plugins/security-notifications*` decide where the org's blocked-build (N30) and rescan (N31) notices go — including an outbound webhook and an external address. Loosening the `PUT` or the `test` send below `org_settings:write` would let any member redirect security notices or aim the webhook, which is a weakening.
 
@@ -130,6 +130,12 @@ Contacting support is self-service — every member who can open the Messages pa
 **Case export stays on `messages:read`**, the same floor as the JSON list it reshapes — a deliberate departure from the `logs:export` precedent. That permission was split out of `observability:read` because reading logs in the UI is paged and ephemeral while exporting them is bulk egress that can carry secrets out of the building. Neither applies here: it is the org's OWN support metadata, already fully readable one route up, and reshaping readable data into a file is not a new disclosure. The export is METADATA ONLY — case numbers, status, and the target each case was opened against, never message bodies, because the conversation is a different and much larger thing to hand over.
 
 **Support-contact designation is `org_settings:write`, read included** (`platform GET|POST|PATCH|DELETE /organization/:id/support-contacts`). It is an organization setting — which of the org's members speak for it to the support desk — rather than `billing:manage` (payment and plans) or `members:manage` (nothing here changes membership or a role). The READ carries the same capability because it discloses the account's **pooled** allowance and usage, a commercial fact spanning sibling teams the caller may not administer; the own-org list that ordinary members genuinely need is served separately by the message service on `messages:read`.
+
+### Rules checked inside a handler
+
+Some requirements depend on the body in a way the route gate cannot express, and are checked in the handler. They do not appear in the route table or in the rows below, so they are listed here:
+
+- **Stakeholder report auto-send needs `reports:publish`** (`reporting POST /reports/stakeholder/definitions`, `PUT /reports/stakeholder/definitions/:id`). Both routes are on `reports:write`, but an auto-send definition publishes itself every period with nobody clicking Publish. So creating one with `autoSend: true`, turning `autoSend` on, or changing the recipients of a definition that auto-sends returns **403** without `reports:publish`. The scheduler applies the same rule to the definition's owner on every run: an auto-send definition whose owner no longer holds `reports:publish` is paused with reason `permission_lost`. Dropping either check lets `reports:write` alone mail internal numbers out through the scheduler.
 
 ### Gates that apply to only some requests
 
@@ -559,6 +565,7 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | platform | PUT | `/users/:id/features` | `any(members:manage) + aal2 + step-up(any)` |
 | platform | POST | `/users/bulk-delete` | `any(members:manage) + aal2 + step-up(any)` |
 | plugin | GET | `/internal/plugins/public-names` | `service-principal + internal(image-registry)` |
+| plugin | GET | `/internal/plugins/image-pipeline-references` | `service-principal + internal(image-registry)` |
 | plugin | GET | `/internal/plugins/image-references` | `service-principal + internal(image-registry)` |
 | plugin | GET | `/plugins` | `any(plugins:read)` |
 | plugin | GET | `/plugins/storage` | `any(plugins:read)` |

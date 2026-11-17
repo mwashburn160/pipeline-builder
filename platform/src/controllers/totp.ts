@@ -190,8 +190,11 @@ export const stepUpVerifyTotp = withController('TOTP step-up verify', async (req
 /**
  * POST /auth/mfa/verify — finish a password sign-in with a second factor.
  *
- * The challenge is READ, not spent, until the code verifies: a mistyped digit
- * must not send the person back to re-enter their password. Guessing is bounded
+ * The challenge is CLAIMED atomically (so two concurrent codes can't both be
+ * tried against it) and handed back with its remaining life when the code is
+ * wrong: a mistyped digit must not send the person back to re-enter their
+ * password. A concurrent attempt while it is claimed answers
+ * `TOTP_INVALID_CHALLENGE`. Guessing is bounded
  * twice — the route's own limiter and the per-user TOTP lockout — and the
  * challenge dies with its 5-minute TTL regardless.
  *
@@ -276,6 +279,7 @@ export const verifyMfaLogin = withController('MFA login verify', async (req, res
       amr: ['pwd', 'mfa'],
       aal: 2,
       minLength: pending.passwordChangeMinLength,
+      tokenVersion: user.tokenVersion,
     });
     audit(req, 'user.password.change_required', {
       targetType: 'user',

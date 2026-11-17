@@ -27,7 +27,7 @@
 
 import { createHmac, randomBytes } from 'crypto';
 
-import { mapSecretValues, type SecretValuePath } from '@pipeline-builder/api-core';
+import { maskLine, mapSecretValues, type SecretValuePath } from '@pipeline-builder/api-core';
 
 /**
  * Key for the placeholder tags. Per process: a tag is only ever restored within
@@ -57,11 +57,38 @@ export function redactForModel(value: unknown): unknown {
   return mapSecretValues(value, (secret) => (isUnset(secret) ? secret : `[REDACTED:${tagOf(secret)}]`));
 }
 
+/** The most characters of one downstream free-text field (a build error) the model is shown. */
+export const MAX_MODEL_TEXT_CHARS = 500;
+
+/**
+ * A downstream FREE-TEXT value (a build job's error, a stack line) as the model
+ * may see it. {@link redactForModel} finds secrets by WHERE they sit — a key, a
+ * path — so it passes a string through whole, whatever the string quotes: a
+ * failed build's error routinely echoes a registry URL with credentials, a
+ * bearer header or a token from the command that failed. This masks the text
+ * with api-core's shared value patterns (`maskLine`, the list every log-masking
+ * layer uses) and only THEN cuts it to {@link MAX_MODEL_TEXT_CHARS} — cutting
+ * first could split a secret so no pattern matches its surviving prefix.
+ * Non-strings are serialised first; null/undefined stay null.
+ */
+export function redactTextForModel(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  const text = typeof value === 'string' ? value : (JSON.stringify(value) ?? String(value));
+  const masked = maskLine(text);
+  return masked.length > MAX_MODEL_TEXT_CHARS ? `${masked.slice(0, MAX_MODEL_TEXT_CHARS)}…` : masked;
+}
+
 export interface SecretRestoreResult {
   /** `changes` with every recognised placeholder replaced by the real value. */
   value: unknown;
   /** Placeholders that match no secret of the current document (stale, invented, or bare markers). */
   unknownPlaceholders: string[];
+  /**
+   * Recognised placeholders the model put somewhere that is NOT a secret
+   * position (a description, a stage name, a command). Never restored there:
+   * the real value would then sit in a field the model is shown in plaintext.
+   */
+  misplacedPlaceholders: string[];
   /** Secret positions the model gave a NEW value where the current document already holds a different secret. */
   overwrittenSecrets: string[];
   /** Secret positions the model gave a value where the current document holds none. */
@@ -73,8 +100,11 @@ export interface SecretRestoreResult {
  * report every way the model touched a secret.
  *
  * `current` is the entity as it is NOW, unredacted — the edit tool's own re-read.
- * A placeholder anywhere in `changes` is swapped for the value whose tag it
- * carries; one that matches nothing is reported, never passed through. A
+ * A placeholder at a SECRET position of `changes` is swapped for the value whose
+ * tag it carries; one that matches nothing is reported, never passed through.
+ * A placeholder at any other position is reported as misplaced and left as it
+ * is — restoring it would put the secret where `redactForModel` does not hide
+ * it, i.e. straight back into the model's context. A
  * plaintext value at a secret position was written by the model (it never saw a
  * real one): reported as an overwrite when the current document holds a
  * different secret at that path, as an addition when it holds none.
@@ -90,18 +120,31 @@ export function restoreSecrets(changes: unknown, current: unknown): SecretRestor
     return secret;
   });
 
+  // Where `changes` itself holds secrets — the only places a placeholder may be restored.
+  const secretPaths = new Set<string>();
+  mapSecretValues(changes, (secret, path) => {
+    secretPaths.add(formatPath(path));
+    return secret;
+  });
+
   const unknownPlaceholders: string[] = [];
+  const misplacedPlaceholders: string[] = [];
   const restoredPaths = new Set<string>();
   const restore = (v: unknown, path: Array<string | number>): unknown => {
     if (typeof v === 'string') {
       const m = PLACEHOLDER.exec(v);
       if (!m) return v;
       const tag = m[1];
+      const at = formatPath(path);
       if (tag !== undefined && byTag.has(tag)) {
-        restoredPaths.add(formatPath(path));
+        if (!secretPaths.has(at)) {
+          misplacedPlaceholders.push(at);
+          return v;
+        }
+        restoredPaths.add(at);
         return byTag.get(tag);
       }
-      unknownPlaceholders.push(formatPath(path));
+      unknownPlaceholders.push(at);
       return v;
     }
     if (Array.isArray(v)) return v.map((item, i) => restore(item, [...path, i]));
@@ -123,5 +166,5 @@ export function restoreSecrets(changes: unknown, current: unknown): SecretRestor
     return secret;
   });
 
-  return { value, unknownPlaceholders, overwrittenSecrets, addedSecrets };
+  return { value, unknownPlaceholders, misplacedPlaceholders, overwrittenSecrets, addedSecrets };
 }

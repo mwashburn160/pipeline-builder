@@ -73,6 +73,11 @@ describe('ingestStripeInvoice', () => {
     expect(BillingInvoice.updateOne).toHaveBeenCalledWith({ externalInvoiceId: 'in_2' }, expect.anything(), { upsert: true });
   });
 
+  it('sums tax lines, a line with no amount as 0', async () => {
+    await ledger.ingestStripeInvoice('org_1', { id: 'in_tax', total_taxes: [{ amount: 70 }, {}] } as any);
+    expect(lastSet().taxCents).toBe(70);
+  });
+
   it('sums discount lines (missing amounts as 0) and never records a negative consumed credit', async () => {
     await ledger.ingestStripeInvoice('org_1', {
       id: 'in_3',

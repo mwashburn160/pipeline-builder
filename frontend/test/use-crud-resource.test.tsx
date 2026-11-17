@@ -52,3 +52,25 @@ describe('useCrudResource.fetch', () => {
     expect(result.current.loading).toBe(false);
   });
 });
+
+describe('useCrudResource total', () => {
+  it('follows a create and a delete, so the count beside the list is not stale', async () => {
+    const api = {
+      list: jest.fn<AnyFn>(async () => ({ success: true, data: { items: [{ id: 'a' }, { id: 'b' }], pagination: { total: 2 } } })),
+      create: jest.fn<AnyFn>(async () => ({ success: true, data: { item: { id: 'c' } } })),
+      update: jest.fn<AnyFn>(),
+      delete: jest.fn<AnyFn>(async () => ({ success: true })),
+    } as never;
+    const { result } = renderHook(() => useCrudResource<Item, never, never, never>(api, 'policy'));
+
+    await act(async () => { await result.current.fetch(); });
+    expect(result.current.total).toBe(2);
+
+    await act(async () => { await result.current.create({} as never); });
+    expect(result.current.total).toBe(3);
+
+    await act(async () => { await result.current.remove('a'); });
+    expect(result.current.items.map((i) => i.id)).toEqual(['c', 'b']);
+    expect(result.current.total).toBe(2);
+  });
+});

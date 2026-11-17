@@ -83,9 +83,11 @@ export interface RuleValidationResult {
 }
 
 /**
- * Check if a rule is currently effective based on its date range.
+ * Check if a rule is currently effective based on its date range. Exported so a
+ * read that reports the enforced set (the posture endpoint) applies exactly the
+ * window evaluation applies.
  */
-function isRuleEffective(rule: EvaluableRule, now: Date): boolean {
+export function isRuleEffective(rule: Pick<EvaluableRule, 'effectiveFrom' | 'effectiveUntil'>, now: Date): boolean {
   if (rule.effectiveFrom && now < rule.effectiveFrom) return false;
   if (rule.effectiveUntil && now > rule.effectiveUntil) return false;
   return true;

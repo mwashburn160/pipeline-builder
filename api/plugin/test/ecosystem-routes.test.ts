@@ -191,11 +191,12 @@ describe('Ecosystem console routes', () => {
   });
 
   it('approves, second-approves and rejects, answering with the queue item', async () => {
-    decisions.approve.mockResolvedValueOnce({ request: { id: 'r-1' }, executed: false });
+    const parked = { id: 'r-1', status: 'pending_second_approval' };
+    decisions.approve.mockResolvedValueOnce({ request: parked, executed: false });
     const a = await call(consoleRouter, 'post', '/requests/:id/approve', { params: { id: 'r-1' }, body: { note: '  ok  ' } });
     expect(decisions.approve).toHaveBeenCalledWith(expect.anything(), 'r-1', 'ok');
     expect(a.body.data).toEqual({ request: { ok: 'asQueueItem' }, executed: false });
-    expect(recordDecision).toHaveBeenLastCalledWith({ id: 'r-1' }, 'first_approval');
+    expect(recordDecision).toHaveBeenLastCalledWith(parked, 'first_approval');
 
     decisions.secondApprove.mockResolvedValueOnce({ request: { id: 'r-1' }, executed: true });
     await call(consoleRouter, 'post', '/requests/:id/second-approve', { params: { id: 'r-1' }, body: {} });
@@ -204,6 +205,17 @@ describe('Ecosystem console routes', () => {
     decisions.approve.mockResolvedValueOnce({ request: { id: 'r-2' }, executed: true });
     await call(consoleRouter, 'post', '/requests/:id/approve', { params: { id: 'r-2' }, body: {} });
     expect(recordDecision).toHaveBeenLastCalledWith({ id: 'r-2' }, 'approved');
+
+    // An approval whose publish is still retrying is an APPROVAL, and the console
+    // is told it is retrying (and why) rather than "carried out".
+    const retrying = { id: 'r-3', status: 'approved' };
+    decisions.approve.mockResolvedValueOnce({ request: retrying, executed: false, executing: 'retrying', error: 'registry unavailable' });
+    const pending = await call(consoleRouter, 'post', '/requests/:id/approve', { params: { id: 'r-3' }, body: {} });
+    expect(pending.body.data).toEqual({ request: { ok: 'asQueueItem' }, executed: false, executing: 'retrying', error: 'registry unavailable' });
+    expect(recordDecision).toHaveBeenLastCalledWith(retrying, 'approved');
+    decisions.secondApprove.mockResolvedValueOnce({ request: retrying, executed: false, executing: 'publishing' });
+    const second = await call(consoleRouter, 'post', '/requests/:id/second-approve', { params: { id: 'r-3' }, body: {} });
+    expect(second.body.data).toEqual({ request: { ok: 'asQueueItem' }, executed: false, executing: 'publishing' });
 
     const r = await call(consoleRouter, 'post', '/requests/:id/reject', { params: { id: 'r-1' }, body: { reason: ' bad ' } });
     expect(r.statusCode).toBe(200);

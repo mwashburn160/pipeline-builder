@@ -222,8 +222,6 @@ export {
 // broke (see the modules' own headers for why each is written rather than derived).
 export {
   upsertDeployments,
-  applyDeployOutcome,
-  correlateIncident,
   isDeployEvent,
   leadTimeGapOf,
   type DeployCandidate,

@@ -67,6 +67,7 @@ import {
   transferCaseToContact,
 } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
+import { resolveCasePage } from '../services/oncall-sweep.js';
 
 /** Longest a staff note may be. Generous — it is a working note, not a field. */
 const NOTE_MAX = 5000;
@@ -98,6 +99,13 @@ const SEVERITIES = MESSAGE_PRIORITIES;
  * us having fixed anything.
  */
 const TENANT_STATUSES: readonly string[] = TENANT_SUPPORT_CASE_STATUSES;
+
+/**
+ * Statuses that take a case out of the on-call sweep's due set (`closed_at` is
+ * set). Reaching one must also RESOLVE a page already raised for the case — the
+ * sweep only stops re-triggering it.
+ */
+const PAGE_ENDING_STATUSES: readonly string[] = ['resolved', 'closed'] satisfies readonly SupportCaseStatus[];
 
 /**
  * REOPENING A CLOSED CASE IS STAFF ONLY. Both sides may close.
@@ -199,8 +207,19 @@ export function createSupportCaseRoutes(): Router {
         );
       }
 
+      // Setting the status a case already has changes nothing. `setCaseStatus`
+      // is itself a no-op for it (so `awaiting_since` and `closed_at` are never
+      // re-stamped); answering here as well keeps a retry from writing a
+      // `from === to` audit row or re-resolving a page.
+      if (status === supportCase.status) {
+        return sendSuccess(res, 200, { status: supportCase.status, awaitingTotalSeconds: supportCase.awaitingTotalSeconds ?? 0 });
+      }
+
       const updated = await setCaseStatus(supportCase.id, status as SupportCaseStatus, userId);
       if (!updated) return sendError(res, 404, 'No support case for that thread', ErrorCode.NOT_FOUND);
+      // A closed or resolved case leaves the sweep's due set, so the sweep stops
+      // re-triggering it — but only a `resolve` closes a page it already raised.
+      if (PAGE_ENDING_STATUSES.includes(updated.status)) await resolveCasePage(supportCase.id);
 
       recordAudit({
         action: 'support.case.status',
@@ -570,6 +589,8 @@ export function createSupportCaseRoutes(): Router {
         ? await closeCases(ids, userId)
         : await assignCases(ids, body.assignedTo as string | null, userId);
       const movedSet = new Set(moved);
+      // A bulk close ends each moved case's page, as a single close does.
+      if (body.action === 'close') await Promise.all(moved.map((caseId) => resolveCasePage(caseId)));
       const movedThreads = cases.filter((f) => movedSet.has(f.c.id)).map((f) => f.threadId);
 
       // ONE audit row per case, not one for the batch. A bulk action is a

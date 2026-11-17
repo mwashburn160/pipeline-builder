@@ -82,6 +82,11 @@ jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
   sql: jest.fn<AnyFn>(),
 }));
 
+// The create routes' rule check; not exercised here.
+jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
+  complianceRuleService: { findManyByIds: async () => [] },
+}));
+
 const { createExemptionRoutes } = await import('../src/routes/exemptions.js');
 
 function getReviewHandler() {
@@ -96,6 +101,8 @@ function getReviewHandler() {
   return stack[stack.length - 1].handle;
 }
 
+const EXEMPTION_ID = '22222222-2222-4222-8222-222222222222';
+
 function makeRes() {
   const json = jest.fn<AnyFn>();
   const status = jest.fn<AnyFn>().mockReturnValue({ json });
@@ -109,6 +116,21 @@ describe('PUT /exemptions/:id/review — self-approval guard', () => {
     jest.clearAllMocks();
   });
 
+  it('400s a malformed id before any query runs, instead of a uuid-cast 500', async () => {
+    const handler = getReviewHandler();
+    const { res, status, json } = makeRes();
+
+    await handler({
+      __orgId: 'org-1',
+      __userId: 'user-Y',
+      params: { id: 'exemp-1' },
+      body: { status: 'approved' },
+    } as any, res);
+
+    expect(status).toHaveBeenCalledWith(400);
+    expect(json.mock.calls[0][0].code).toBe('VALIDATION_ERROR');
+  });
+
   it('rejects approval when the reviewer is the requester', async () => {
     selectChainStub.fromRows = [{ createdBy: 'user-X' }];
     const handler = getReviewHandler();
@@ -117,7 +139,7 @@ describe('PUT /exemptions/:id/review — self-approval guard', () => {
     await handler({
       __orgId: 'org-1',
       __userId: 'user-X', // same as createdBy
-      params: { id: 'exemp-1' },
+      params: { id: EXEMPTION_ID },
       body: { status: 'approved' },
     } as any, res);
 
@@ -130,14 +152,14 @@ describe('PUT /exemptions/:id/review — self-approval guard', () => {
   it('allows the requester to REJECT their own pending request', async () => {
     // Self-rejection is a valid "I withdraw" flow — only approval is blocked.
     selectChainStub.fromRows = [{ createdBy: 'user-X' }];
-    selectChainStub.updateRows = [{ id: 'exemp-1', status: 'rejected' }];
+    selectChainStub.updateRows = [{ id: EXEMPTION_ID, status: 'rejected' }];
     const handler = getReviewHandler();
     const { res, json } = makeRes();
 
     await handler({
       __orgId: 'org-1',
       __userId: 'user-X',
-      params: { id: 'exemp-1' },
+      params: { id: EXEMPTION_ID },
       body: { status: 'rejected' },
     } as any, res);
 
@@ -148,14 +170,14 @@ describe('PUT /exemptions/:id/review — self-approval guard', () => {
 
   it('allows a different reviewer to approve', async () => {
     selectChainStub.fromRows = [{ createdBy: 'user-REQUESTER' }];
-    selectChainStub.updateRows = [{ id: 'exemp-1', status: 'approved' }];
+    selectChainStub.updateRows = [{ id: EXEMPTION_ID, status: 'approved' }];
     const handler = getReviewHandler();
     const { res, json } = makeRes();
 
     await handler({
       __orgId: 'org-1',
       __userId: 'user-REVIEWER',
-      params: { id: 'exemp-1' },
+      params: { id: EXEMPTION_ID },
       body: { status: 'approved' },
     } as any, res);
 
@@ -172,7 +194,7 @@ describe('PUT /exemptions/:id/review — self-approval guard', () => {
     await handler({
       __orgId: 'org-1',
       __userId: 'user-Y',
-      params: { id: 'missing' },
+      params: { id: '99999999-9999-4999-8999-999999999999' },
       body: { status: 'approved' },
     } as any, res);
 

@@ -770,6 +770,7 @@ describe('StripeProvider', () => {
       const view = await provider.getSubscription('sub_stripe_live');
       expect(view).toEqual({
         status: 'active',
+        currentPeriodStart: new Date((unix - 2_592_000) * 1000),
         currentPeriodEnd: new Date(unix * 1000),
         cancelAtPeriodEnd: false,
       });

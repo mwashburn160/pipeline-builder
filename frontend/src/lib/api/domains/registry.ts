@@ -3,7 +3,7 @@
 
 import type { ApiCore } from '../core';
 import { buildQuery } from '../util';
-import { ApiError, toRegistryError } from '../errors';
+import { toRegistryError } from '../errors';
 import type { ApiResponse, RegistryRepository, RegistryTagList, RegistryManifest, RegistryCopyResult } from '@/types';
 
 /**
@@ -35,11 +35,11 @@ export function registryApi(core: ApiCore) {
     // ==========================================================================
 
     /**
-     * List repositories from /v2/_catalog with cursor pagination.
-     * Pass `nonEmpty: true` to have the backend drop repos with no tags
-     * (empty shells left behind after all tags are deleted).
+     * List repositories from /v2/_catalog with cursor pagination. `cursor` is
+     * the previous page's `next`, sent back unchanged (it is opaque). Pass
+     * `nonEmpty: true` to have the backend drop repos with no tags (empty
+     * shells left behind after all tags are deleted).
      */
-    /** `cursor` is the previous page's `next`, sent back unchanged (it is opaque). */
     listImages: async (params?: { limit?: number; cursor?: string; nonEmpty?: boolean }) => {
       return core.request<ApiResponse<{ repositories: RegistryRepository[]; next?: string }>>(
         `/api/images${buildQuery(params as Record<string, unknown> | undefined)}`,
@@ -72,10 +72,7 @@ export function registryApi(core: ApiCore) {
         // blob endpoints inherit those guarantees instead of forking the auth plumbing.
         return await core.request<unknown>(endpoint);
       } catch (err) {
-        if (err instanceof ApiError) {
-          throw toRegistryError(err.message, err.statusCode, err.code, err.details);
-        }
-        throw err;
+        throw toRegistryError(err);
       }
     },
 
@@ -121,10 +118,7 @@ export function registryApi(core: ApiCore) {
           { method: 'POST', body: JSON.stringify(body) },
         );
       } catch (err) {
-        if (err instanceof ApiError) {
-          throw toRegistryError(err.message, err.statusCode, err.code, err.details);
-        }
-        throw err;
+        throw toRegistryError(err);
       }
     },
 

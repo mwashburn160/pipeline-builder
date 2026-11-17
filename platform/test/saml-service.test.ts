@@ -252,6 +252,14 @@ describe('validateSamlResponse — accepting a good assertion', () => {
     expect(identity.groups).toEqual(['Platform']);
   });
 
+  it('keeps a lone group value whole — a SAML AttributeValue is ONE group, never a list to split', async () => {
+    const response = await solicited({
+      attributes: { email: 'ada@acme.test', groups: 'CN=Pipeline Admins,OU=Groups' },
+    });
+    const identity = await validateSamlResponse(cfg(), response, 'state-1', 'state-1');
+    expect(identity.groups).toEqual(['CN=Pipeline Admins,OU=Groups']);
+  });
+
   it('falls back to an email-shaped NameID when no email attribute is present', async () => {
     const identity = await validateSamlResponse(cfg(), await solicited({ attributes: {} }), 'state-1', 'state-1');
     expect(identity.email).toBe('ada@acme.test');
@@ -459,6 +467,17 @@ describe('single logout — SP-initiated', () => {
     // Consumed: the same response can't be replayed.
     await expect(validateSamlLogoutMessage(cfg({ sloUrl: IDP_SLO }), { binding: 'redirect', ...msg }))
       .rejects.toThrow('SAML_INVALID_LOGOUT');
+  });
+
+  it('accepts only ONE of two copies of a LogoutResponse validated at the same moment', async () => {
+    const url = await buildSamlLogoutRequestUrl(cfg({ sloUrl: IDP_SLO }), session, '');
+    const inResponseTo = requestIdFromLogoutUrl(url);
+    const msg = buildRedirectLogoutResponse(keys, { issuer: IDP_ENTITY, destination: SLO, inResponseTo });
+    const outcomes = await Promise.allSettled([
+      validateSamlLogoutMessage(cfg({ sloUrl: IDP_SLO }), { binding: 'redirect', ...msg }),
+      validateSamlLogoutMessage(cfg({ sloUrl: IDP_SLO }), { binding: 'redirect', ...msg }),
+    ]);
+    expect(outcomes.filter((o) => o.status === 'fulfilled')).toHaveLength(1);
   });
 
   it('refuses a LogoutResponse answering a request we never sent', async () => {

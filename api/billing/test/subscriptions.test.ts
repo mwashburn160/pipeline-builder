@@ -213,7 +213,7 @@ function mockRes(): any {
 
 function makeSubscription(overrides: Record<string, unknown> = {}) {
   return {
-    _id: { toString: () => 'sub-1' },
+    _id: { toString: () => '64b000000000000000000001' },
     orgId: 'org-1',
     planId: 'pro',
     status: 'active',
@@ -247,7 +247,7 @@ describe('GET /subscriptions', () => {
     await handler(req, res);
 
     expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, {
-      subscription: expect.objectContaining({ id: 'sub-1', planId: 'pro' }),
+      subscription: expect.objectContaining({ id: '64b000000000000000000001', planId: 'pro' }),
     });
   });
 
@@ -284,7 +284,7 @@ describe('GET /subscriptions', () => {
     await handler(mockReq(), res);
 
     expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, {
-      subscription: expect.objectContaining({ id: 'sub-1', status: 'trialing' }),
+      subscription: expect.objectContaining({ id: '64b000000000000000000001', status: 'trialing' }),
     });
   });
 
@@ -374,16 +374,16 @@ describe('POST /subscriptions', () => {
     await handler(req, res);
 
     expect(mockSendSuccess).toHaveBeenCalledWith(res, 201, {
-      subscription: expect.objectContaining({ id: 'sub-1' }),
+      subscription: expect.objectContaining({ id: '64b000000000000000000001' }),
     });
     // Service token, not the user's bearer — see subscriptions.ts comment.
     // 4th arg is subscriptionId so the quota service can audit the trigger.
-    expect(mockSyncTierToQuotaService).toHaveBeenCalledWith('org-1', 'pro', 'Bearer service-token', 'sub-1');
+    expect(mockSyncTierToQuotaService).toHaveBeenCalledWith('org-1', 'pro', 'Bearer service-token', '64b000000000000000000001');
     // 5th arg = actorId, the acting user (req.user.sub).
     expect(mockCreateBillingEvent).toHaveBeenCalledWith('org-1', 'subscription_created', expect.any(Object), expect.any(String), 'user-1');
     // The reserved row's id rides on the provider sub, so a `.created` webhook
     // that beats the bind is recognised as mid-bind rather than unbound.
-    expect(mockCreateSubscription).toHaveBeenCalledWith('ext-cust-1', 'pro', 'monthly', 'sub_sub-1', 'sub-1');
+    expect(mockCreateSubscription).toHaveBeenCalledWith('ext-cust-1', 'pro', 'monthly', 'sub_64b000000000000000000001', '64b000000000000000000001');
   });
 
   it('grants entitlements when the provider reports a trialing subscription', async () => {
@@ -400,7 +400,7 @@ describe('POST /subscriptions', () => {
     // trialing is entitlement-worthy — paid caps are granted and the local
     // status reflects the provider's real state.
     expect(createdSub.status).toBe('trialing');
-    expect(mockSyncTierToQuotaService).toHaveBeenCalledWith('org-1', 'pro', 'Bearer service-token', 'sub-1');
+    expect(mockSyncTierToQuotaService).toHaveBeenCalledWith('org-1', 'pro', 'Bearer service-token', '64b000000000000000000001');
     expect(mockSendSuccess).toHaveBeenCalledWith(res, 201, expect.any(Object));
   });
 
@@ -544,7 +544,7 @@ describe('PUT /subscriptions/:id', () => {
     mockPlanFindOne.mockResolvedValue({ _id: 'enterprise', name: 'Enterprise', tier: 'enterprise' });
     mockUpdateSubscription.mockResolvedValue(undefined);
 
-    const req = mockReq({ params: { id: 'sub-1' } });
+    const req = mockReq({ params: { id: '64b000000000000000000001' } });
     const res = mockRes();
     await handler(req, res);
 
@@ -557,7 +557,7 @@ describe('PUT /subscriptions/:id', () => {
   it('returns 400 when neither planId nor interval provided', async () => {
     mockValidateBody.mockReturnValue({ ok: true, value: {} });
 
-    const req = mockReq({ params: { id: 'sub-1' } });
+    const req = mockReq({ params: { id: '64b000000000000000000001' } });
     const res = mockRes();
     await handler(req, res);
 
@@ -567,10 +567,18 @@ describe('PUT /subscriptions/:id', () => {
   it('returns 404 when subscription not found', async () => {
     mockSubscriptionFindOne.mockResolvedValue(null);
 
-    const req = mockReq({ params: { id: 'nonexistent' } });
+    const req = mockReq({ params: { id: '64b0000000000000000000ff' } });
     const res = mockRes();
     await handler(req, res);
 
+    expect(mockSendError).toHaveBeenCalledWith(res, 404, 'Active subscription not found', 'NOT_FOUND');
+  });
+
+  it('answers 404 for a malformed subscription id without querying (a cast error was a 500)', async () => {
+    const res = mockRes();
+    await handler(mockReq({ params: { id: 'not-an-object-id' } }), res);
+
+    expect(mockSubscriptionFindOne).not.toHaveBeenCalled();
     expect(mockSendError).toHaveBeenCalledWith(res, 404, 'Active subscription not found', 'NOT_FOUND');
   });
 
@@ -579,7 +587,7 @@ describe('PUT /subscriptions/:id', () => {
     mockSubscriptionFindOne.mockResolvedValue(sub);
     mockPlanFindOne.mockResolvedValue(null);
 
-    const req = mockReq({ params: { id: 'sub-1' } });
+    const req = mockReq({ params: { id: '64b000000000000000000001' } });
     const res = mockRes();
     await handler(req, res);
 
@@ -593,14 +601,14 @@ describe('PUT /subscriptions/:id', () => {
     mockUpdateSubscription.mockResolvedValue(undefined);
     mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'enterprise' } });
 
-    const req = mockReq({ params: { id: 'sub-1' } });
+    const req = mockReq({ params: { id: '64b000000000000000000001' } });
     const res = mockRes();
     await handler(req, res);
 
     expect(mockCreateBillingEvent).toHaveBeenCalledWith(
       'org-1', 'plan_changed',
       { oldPlanId: 'developer', newPlanId: 'enterprise' },
-      'sub-1', 'user-1',
+      '64b000000000000000000001', 'user-1',
     );
   });
 
@@ -624,14 +632,14 @@ describe('PUT /subscriptions/:id', () => {
     const pruned = [{ bundleId: 'advanced_reporting', features: ['advanced_reporting'] }];
     mockApplyTierIncludedAddonPrune.mockImplementationOnce((s: any) => { s.addons = reduced; return pruned; });
 
-    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), mockRes());
 
     // Persisted subscription no longer carries the now-bundled add-on...
     expect((sub as { addons?: unknown }).addons).toEqual(reduced);
     expect(sub.save).toHaveBeenCalled();
     // ...the REDUCED set (not the original) is what gets synced downstream...
     expect(mockSyncTierToQuotaService).toHaveBeenCalledWith(
-      'org-1', 'enterprise', 'Bearer service-token', 'sub-1', reduced,
+      'org-1', 'enterprise', 'Bearer service-token', '64b000000000000000000001', reduced,
     );
     // ...and the provider line-item removal fires (post-save) with the pruned
     // bundle + the reduced list + the sub's external id / cadence.
@@ -640,7 +648,7 @@ describe('PUT /subscriptions/:id', () => {
       reduced,
       expect.objectContaining({
         orgId: 'org-1',
-        subscriptionId: 'sub-1',
+        subscriptionId: '64b000000000000000000001',
         interval: 'monthly',
         externalId: 'ext-sub-1',
         actorId: 'user-1',
@@ -657,7 +665,7 @@ describe('PUT /subscriptions/:id', () => {
 
     // Default applyTierIncludedAddonPrune returns [] (no prune). finalize is still
     // called by the route, but with an empty pruned list (a no-op in the real impl).
-    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), mockRes());
 
     expect(mockFinalizePrunedAddons).toHaveBeenCalledWith([], [{ bundleId: 'seat_pack', quantity: 2 }], expect.any(Object));
   });
@@ -667,14 +675,14 @@ describe('PUT /subscriptions/:id', () => {
     mockSubscriptionFindOne.mockResolvedValue(sub);
     mockValidateBody.mockReturnValue({ ok: true, value: { interval: 'annual' } });
 
-    const req = mockReq({ params: { id: 'sub-1' } });
+    const req = mockReq({ params: { id: '64b000000000000000000001' } });
     const res = mockRes();
     await handler(req, res);
 
     expect(mockCreateBillingEvent).toHaveBeenCalledWith(
       'org-1', 'interval_changed',
       { oldInterval: 'monthly', newInterval: 'annual' },
-      'sub-1', 'user-1',
+      '64b000000000000000000001', 'user-1',
     );
   });
 
@@ -693,7 +701,7 @@ describe('PUT /subscriptions/:id', () => {
     mockValidateBody.mockReturnValue({ ok: true, value: { interval: 'monthly' } });
 
     const before = Date.now();
-    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), mockRes());
 
     // The period restarts at the change...
     expect(sub.currentPeriodStart.getTime()).toBeGreaterThanOrEqual(before);
@@ -712,7 +720,7 @@ describe('PUT /subscriptions/:id', () => {
     mockValidateBody.mockReturnValue({ ok: true, value: { interval: 'annual' } });
     mockUpdateSubscription.mockResolvedValue(undefined);
 
-    const req = mockReq({ params: { id: 'sub-1' } });
+    const req = mockReq({ params: { id: '64b000000000000000000001' } });
     const res = mockRes();
     await handler(req, res);
 
@@ -729,7 +737,7 @@ describe('PUT /subscriptions/:id', () => {
     mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'enterprise', interval: 'annual' } });
     mockUpdateSubscription.mockResolvedValue(undefined);
 
-    const req = mockReq({ params: { id: 'sub-1' } });
+    const req = mockReq({ params: { id: '64b000000000000000000001' } });
     const res = mockRes();
     await handler(req, res);
 
@@ -743,7 +751,7 @@ describe('PUT /subscriptions/:id', () => {
     mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'enterprise' } });
     mockUpdateSubscription.mockResolvedValue(undefined);
 
-    const req = mockReq({ params: { id: 'sub-1' } });
+    const req = mockReq({ params: { id: '64b000000000000000000001' } });
     const res = mockRes();
     await handler(req, res);
 
@@ -764,7 +772,7 @@ describe('POST /subscriptions/:id/cancel', () => {
     mockSubscriptionFindOne.mockResolvedValue(sub);
     mockCancelSubscription.mockResolvedValue(undefined);
 
-    const req = mockReq({ params: { id: 'sub-1' } });
+    const req = mockReq({ params: { id: '64b000000000000000000001' } });
     const res = mockRes();
     await handler(req, res);
 
@@ -779,10 +787,18 @@ describe('POST /subscriptions/:id/cancel', () => {
   it('returns 404 when active subscription not found', async () => {
     mockSubscriptionFindOne.mockResolvedValue(null);
 
-    const req = mockReq({ params: { id: 'nonexistent' } });
+    const req = mockReq({ params: { id: '64b0000000000000000000ff' } });
     const res = mockRes();
     await handler(req, res);
 
+    expect(mockSendError).toHaveBeenCalledWith(res, 404, 'Active subscription not found', 'NOT_FOUND');
+  });
+
+  it('answers 404 for a malformed subscription id without querying (a cast error was a 500)', async () => {
+    const res = mockRes();
+    await handler(mockReq({ params: { id: 'not-an-object-id' } }), res);
+
+    expect(mockSubscriptionFindOne).not.toHaveBeenCalled();
     expect(mockSendError).toHaveBeenCalledWith(res, 404, 'Active subscription not found', 'NOT_FOUND');
   });
 
@@ -791,10 +807,10 @@ describe('POST /subscriptions/:id/cancel', () => {
     mockSubscriptionFindOne.mockResolvedValue(sub);
     mockCancelSubscription.mockResolvedValue(undefined);
 
-    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), mockRes());
 
     expect(mockSubscriptionFindOne).toHaveBeenCalledWith({
-      _id: 'sub-1',
+      _id: '64b000000000000000000001',
       orgId: 'org-1',
       status: { $in: expect.arrayContaining(['active', 'trialing', 'past_due']) },
     });
@@ -806,7 +822,7 @@ describe('POST /subscriptions/:id/cancel', () => {
     mockCancelSubscription.mockResolvedValue(undefined);
 
     const res = mockRes();
-    await handler(mockReq({ params: { id: 'sub-1' } }), res);
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), res);
 
     expect(sub.cancelAtPeriodEnd).toBe(true);
     expect(mockCancelSubscription).toHaveBeenCalledWith('ext-sub-1');
@@ -821,7 +837,7 @@ describe('POST /subscriptions/:id/cancel', () => {
     mockCancelSubscription.mockResolvedValue(undefined);
 
     const res = mockRes();
-    await handler(mockReq({ params: { id: 'sub-1' } }), res);
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), res);
 
     expect(sub.cancelAtPeriodEnd).toBe(true);
     expect(mockCancelSubscription).toHaveBeenCalledWith('ext-sub-1');
@@ -835,7 +851,7 @@ describe('POST /subscriptions/:id/cancel', () => {
     mockSubscriptionFindOne.mockResolvedValue(sub);
     mockCancelSubscription.mockRejectedValue(new Error('Provider timeout'));
 
-    const req = mockReq({ params: { id: 'sub-1' } });
+    const req = mockReq({ params: { id: '64b000000000000000000001' } });
     const res = mockRes();
     await handler(req, res);
 
@@ -847,7 +863,7 @@ describe('POST /subscriptions/:id/cancel', () => {
     mockSubscriptionFindOne.mockResolvedValue(sub);
     mockCancelSubscription.mockResolvedValue(undefined);
 
-    const req = mockReq({ params: { id: 'sub-1' } });
+    const req = mockReq({ params: { id: '64b000000000000000000001' } });
     await handler(req, mockRes());
 
     expect(mockAuditRecord).toHaveBeenCalledWith(
@@ -855,7 +871,7 @@ describe('POST /subscriptions/:id/cancel', () => {
         action: 'billing.subscription.cancel',
         actorId: 'user-1',
         orgId: 'org-1',
-        targetId: 'sub-1',
+        targetId: '64b000000000000000000001',
         details: expect.objectContaining({ planId: 'pro', orgId: 'org-1' }),
       }),
     );
@@ -872,7 +888,7 @@ describe('POST /subscriptions/:id/cancel', () => {
     mockSubscriptionFindOne.mockResolvedValue(sub);
     mockCancelSubscription.mockResolvedValue(undefined);
 
-    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), mockRes());
 
     const [event] = mockAuditRecord.mock.calls[0];
     const serialized = JSON.stringify(event);
@@ -886,7 +902,7 @@ describe('POST /subscriptions/:id/cancel', () => {
     mockSubscriptionFindOne.mockResolvedValue(sub);
     mockCancelSubscription.mockRejectedValue(new Error('Provider timeout'));
 
-    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), mockRes());
 
     expect(mockAuditRecord).not.toHaveBeenCalled();
   });
@@ -905,7 +921,7 @@ describe('POST /subscriptions/:id/reactivate', () => {
     mockSubscriptionFindOne.mockResolvedValue(sub);
     mockReactivateSubscription.mockResolvedValue(undefined);
 
-    const req = mockReq({ params: { id: 'sub-1' } });
+    const req = mockReq({ params: { id: '64b000000000000000000001' } });
     const res = mockRes();
     await handler(req, res);
 
@@ -917,10 +933,18 @@ describe('POST /subscriptions/:id/reactivate', () => {
     }));
   });
 
+  it('answers 404 for a malformed subscription id without querying (a cast error was a 500)', async () => {
+    const res = mockRes();
+    await handler(mockReq({ params: { id: 'not-an-object-id' } }), res);
+
+    expect(mockSubscriptionFindOne).not.toHaveBeenCalled();
+    expect(mockSendError).toHaveBeenCalledWith(res, 404, expect.stringContaining('No canceled subscription'), 'NOT_FOUND');
+  });
+
   it('returns 404 when no canceled subscription found', async () => {
     mockSubscriptionFindOne.mockResolvedValue(null);
 
-    const req = mockReq({ params: { id: 'sub-1' } });
+    const req = mockReq({ params: { id: '64b000000000000000000001' } });
     const res = mockRes();
     await handler(req, res);
 
@@ -932,7 +956,7 @@ describe('POST /subscriptions/:id/reactivate', () => {
     mockSubscriptionFindOne.mockResolvedValue(sub);
     mockReactivateSubscription.mockRejectedValue(new Error('Network error'));
 
-    const req = mockReq({ params: { id: 'sub-1' } });
+    const req = mockReq({ params: { id: '64b000000000000000000001' } });
     const res = mockRes();
     await handler(req, res);
 

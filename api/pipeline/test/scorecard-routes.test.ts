@@ -19,6 +19,7 @@ const mockGetDoraMetrics = jest.fn<AnyFn>();
 const mockGetIncidentSettings = jest.fn<AnyFn>();
 const mockFindById = jest.fn<AnyFn>();
 const mockFindPaginated = jest.fn<AnyFn>();
+const mockOpenExposures = jest.fn<AnyFn>(async () => []);
 const rollupCacheStore = new Map<string, unknown>();
 let viewer = 'user-1';
 
@@ -55,7 +56,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
     getReportingSettings: (...a: unknown[]) => mockGetIncidentSettings(...a),
   },
   viewerCacheSegment: () => viewer,
-  openExposures: async () => [],
+  openExposures: (...a: unknown[]) => mockOpenExposures(...a),
 }));
 
 jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
@@ -112,6 +113,16 @@ describe('GET /:id/scorecard', () => {
       'acme', expect.any(String), expect.any(String), ['acme'],
       { pipelineId: 'p1', incidentWindowHours: undefined },
     );
+  });
+
+  it('scores security against the ROW id, so a mixed-case path id still sees its exposures', async () => {
+    const lower = 'abcdef00-0000-4000-8000-0000000000ab';
+    mockFindById.mockResolvedValue({ id: lower, name: 'P1' });
+    mockGetIncidentSettings.mockResolvedValue({ incidentWindowHours: null, defaultWindowHours: 24 });
+    mockOpenExposures.mockResolvedValueOnce([{ pipelineId: lower, criticalCount: 2, highCount: 1, topFindings: [] }]);
+    await handler()({ params: { id: lower.toUpperCase() } }, res());
+    const [, , payload] = mockSendSuccess.mock.calls[0];
+    expect(payload.scorecard.security.exposures).toMatchObject({ count: 1, critical: 2, high: 1 });
   });
 
   it('returns the scorecard consuming the response deploymentFrequency.level', async () => {

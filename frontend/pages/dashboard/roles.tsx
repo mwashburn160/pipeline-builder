@@ -425,7 +425,10 @@ export default function RolesPage() {
               placeholder="user@example.com"
               value={addEmail}
               onChange={(e) => setAddEmail(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+              // Enter is a second submit path beside the footer button (which
+              // `loading` disables) — without the guard a repeated Enter posts twice.
+              onKeyDown={(e) => e.key === 'Enter' && !addForm.loading && handleAdd()}
+              disabled={addForm.loading}
               autoFocus
             />
           </FormField>

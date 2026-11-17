@@ -47,6 +47,9 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
   // incomplete form did nothing at all (a bare `return`) with no explanation.
   const [submitting, setSubmitting] = useState(false);
   const [rejectionReason, setRejectionReason] = useState('');
+  /** The exemption whose review (approve / reject) is in flight — a second
+   *  click would send a second `PUT /:id/review`, which the server refuses. */
+  const [reviewingId, setReviewingId] = useState<string | null>(null);
   // Extend-expiry form: the exemption being extended, the chosen local day, and
   // the server's refusal (shown in place so the date can be corrected).
   const [extendingId, setExtendingId] = useState<string | null>(null);
@@ -115,16 +118,22 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
   };
 
   const handleApprove = async (id: string) => {
+    if (reviewingId) return;
+    setReviewingId(id);
     try {
       await api.reviewExemption(id, 'approved');
       toastRef.current.success('Exemption approved');
       fetchExemptions();
     } catch (err) {
       toastRef.current.error(formatError(err, 'Failed to approve exemption'));
+    } finally {
+      setReviewingId(null);
     }
   };
 
   const handleReject = async (id: string) => {
+    if (reviewingId) return;
+    setReviewingId(id);
     try {
       await api.reviewExemption(id, 'rejected', rejectionReason || undefined);
       setRejectingId(null);
@@ -133,6 +142,8 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
       fetchExemptions();
     } catch (err) {
       toastRef.current.error(formatError(err, 'Failed to reject exemption'));
+    } finally {
+      setReviewingId(null);
     }
   };
 
@@ -370,10 +381,10 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
                     <div className="flex items-center gap-1">
                       {ex.status === 'pending' && (
                         <>
-                          <IconButton restTone="success" onClick={() => handleApprove(ex.id)} title="Approve" aria-label="Approve">
+                          <IconButton restTone="success" onClick={() => handleApprove(ex.id)} disabled={reviewingId === ex.id} title="Approve" aria-label="Approve">
                             <Check className="h-4 w-4" />
                           </IconButton>
-                          <IconButton restTone="danger" onClick={() => openReject(ex.id)} title="Reject" aria-label="Reject">
+                          <IconButton restTone="danger" onClick={() => openReject(ex.id)} disabled={reviewingId === ex.id} title="Reject" aria-label="Reject">
                             <X className="h-4 w-4" />
                           </IconButton>
                         </>
@@ -423,7 +434,7 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
                       placeholder="Reason for rejection (optional)"
                       className="flex-1"
                     />
-                    <Button variant="danger" size="xs" onClick={() => handleReject(ex.id)}>
+                    <Button variant="danger" size="xs" onClick={() => handleReject(ex.id)} loading={reviewingId === ex.id}>
                       Confirm Reject
                     </Button>
                     <Button variant="secondary" size="xs" onClick={() => { setRejectingId(null); setRejectionReason(''); }}>

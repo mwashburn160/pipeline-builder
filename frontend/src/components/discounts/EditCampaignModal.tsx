@@ -15,6 +15,7 @@ import { LoadingSpinner } from '@/components/ui/Loading';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
 import type { Campaign } from '@/types';
+import { localDay, localDayEndIso, localDayStartIso } from '@/lib/local-day';
 
 interface EditCampaignModalProps {
   campaign: Campaign;
@@ -28,8 +29,9 @@ function money(cents: number): string {
   return `$${(cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-/** ISO instant → the `YYYY-MM-DD` an `<input type="date">` holds. */
-const dateField = (iso?: string) => (iso ? iso.slice(0, 10) : '');
+/** ISO instant → the LOCAL `YYYY-MM-DD` an `<input type="date">` holds (the
+ *  UTC slice would read as the next day for an end-of-day instant west of UTC). */
+const dateField = (iso?: string) => (iso ? localDay(new Date(iso)) : '');
 
 /**
  * Inspect and edit one campaign.
@@ -84,9 +86,11 @@ export function EditCampaignModal({ campaign, onClose, onSaved }: EditCampaignMo
       return;
     }
     if (!startsAt && campaign.startsAt) body.startsAt = null;
-    else if (startsAt && startsAt !== dateField(campaign.startsAt)) body.startsAt = new Date(startsAt).toISOString();
+    else if (startsAt && startsAt !== dateField(campaign.startsAt)) body.startsAt = localDayStartIso(startsAt);
     if (!endsAt && campaign.endsAt) body.endsAt = null;
-    else if (endsAt && endsAt !== dateField(campaign.endsAt)) body.endsAt = new Date(endsAt).toISOString();
+    // The END day is inclusive: the campaign runs through its last instant. The
+    // server treats `endsAt < now` as over, so midnight would end it a day early.
+    else if (endsAt && endsAt !== dateField(campaign.endsAt)) body.endsAt = localDayEndIso(endsAt);
 
     if (Object.keys(body).length === 0) { onClose(); return; }
     await form.run(async () => {

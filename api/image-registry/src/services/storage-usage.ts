@@ -532,9 +532,11 @@ async function scanRepositories(
  *  GC endpoint after pruning so the dashboard shows the freed bytes. */
 export function invalidateStorageCache(prefix: string): void {
   cache.delete(prefix);
-  // An org namespace's bytes are also part of that org's combined rollup.
+  // An org namespace's bytes are also part of that org's combined rollup AND
+  // its per-version breakdown — the prune view would otherwise keep offering
+  // the versions just deleted until the breakdown's TTL ran out.
   const org = /^org-([a-z0-9-]+)\/$/.exec(prefix);
-  if (org) cache.delete(`${ORG_ROLLUP_KEY}${org[1]}`);
+  if (org) invalidateOrgStorageCache(org[1]!);
 }
 
 /** Evict one org's combined (own + published) rollup. */

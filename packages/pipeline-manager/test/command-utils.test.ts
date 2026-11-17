@@ -133,3 +133,25 @@ describe('validateEntityId', () => {
     );
   });
 });
+
+describe('credential progress stays off stdout', () => {
+  it('resolveToken + createAuthenticatedClient write nothing to stdout (a --json payload is the only stdout)', async () => {
+    const { resolveToken, createAuthenticatedClient } = await import('../src/utils/command-utils.js');
+    const saved = process.env.PLATFORM_TOKEN;
+    process.env.PLATFORM_TOKEN = 'pb_pat_test';
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      expect(await resolveToken({})).toBe('pb_pat_test');
+      createAuthenticatedClient({});
+      expect(logSpy).not.toHaveBeenCalled();
+      expect(printInfo).not.toHaveBeenCalled();
+      expect(printSuccess).not.toHaveBeenCalled();
+      expect(errSpy.mock.calls.map((c) => String(c[0])).join('\n')).toMatch(/Initializing API client/);
+    } finally {
+      logSpy.mockRestore();
+      errSpy.mockRestore();
+      if (saved === undefined) delete process.env.PLATFORM_TOKEN; else process.env.PLATFORM_TOKEN = saved;
+    }
+  });
+});

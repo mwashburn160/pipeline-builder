@@ -313,7 +313,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
     } finally {
       if (!cancelledRef.current) setBusy(false);
     }
-  }, [busy, quotaBlocked, messages, ai.selectedProvider, ai.selectedModel, ai.customApiKey, repoToken, cancelledRef]);
+  }, [busy, quotaBlocked, messages, ai.selectedProvider, ai.currentSource, ai.selectedModel, ai.customApiKey, repoToken, cancelledRef]);
 
   /** Commit a proposal via the normal write API (the user's own session). */
   const commitProposal = useCallback(async (index: number) => {
@@ -598,7 +598,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
                               : meta.createLabel}
                           </button>
                           <span className="text-2xs text-fg-muted">
-                            {!allowed ? `Requires the ${needed} permission`
+                            {!allowed ? blockedReason
                               : ready ? meta.reviewHint : 'Draft incomplete'}
                           </span>
                         </div>

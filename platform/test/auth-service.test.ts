@@ -376,7 +376,7 @@ describe('AuthService.findOrCreateOAuthUser — SSO identities', () => {
 
     await authService.findOrCreateOAuthUser('generic-oidc', {
       id: 'victim-sub', email: 'someone@attacker.com',
-    }, { markOnboarding: false, sso: { issuer: 'https://attacker-idp.test' } });
+    }, { markOnboarding: false, sso: { issuer: 'https://attacker-idp.test', assertTrusted: async () => undefined } });
 
     // Another org's IdP minting the victim's subject must not match the victim.
     expect(mockUserFindOne.mock.calls[0][0]).toEqual({
@@ -384,6 +384,29 @@ describe('AuthService.findOrCreateOAuthUser — SSO identities', () => {
       'oauth.generic-oidc.issuer': 'https://attacker-idp.test',
     });
     expect((lastUser.oauth as any)['generic-oidc'].issuer).toBe('https://attacker-idp.test');
+  });
+
+  it('SECURITY: re-checks the org\'s authority over the EMAIL of the account a subject match lands on', async () => {
+    // Org A copied org B's issuer and asserted the victim's subject with an email
+    // at a domain A verified — the subject match lands on B's member.
+    mockUserFindOne.mockReturnValueOnce({ select: () => Promise.resolve({ _id: 'victim', email: 'victim@b.test' }) });
+    const assertTrusted = jest.fn<(email: string) => Promise<void>>(async () => { throw new Error('OIDC_EMAIL_DOMAIN_NOT_VERIFIED'); });
+
+    await expect(authService.findOrCreateOAuthUser('saml', { id: 'victim-sub', email: 'x@attacker.test' }, {
+      sso: { issuer: 'https://idp.b.test', assertTrusted },
+    })).rejects.toThrow('OIDC_EMAIL_DOMAIN_NOT_VERIFIED');
+    expect(assertTrusted).toHaveBeenCalledWith('victim@b.test');
+  });
+
+  it('does not re-check when the matched account\'s email IS the asserted one (already checked by the caller)', async () => {
+    mockUserFindOne.mockReturnValueOnce({ select: () => Promise.resolve({ _id: 'u1', email: 'dev@acme.test' }) });
+    const assertTrusted = jest.fn<(email: string) => Promise<void>>(async () => undefined);
+
+    const user = await authService.findOrCreateOAuthUser('saml', { id: 'sub', email: 'Dev@Acme.test' }, {
+      sso: { issuer: 'https://idp.acme.test', assertTrusted },
+    });
+    expect((user as { _id: string })._id).toBe('u1');
+    expect(assertTrusted).not.toHaveBeenCalled();
   });
 
   it('social login still matches by provider id alone', async () => {
@@ -399,7 +422,7 @@ describe('AuthService.findOrCreateOAuthUser — SSO identities', () => {
     mockUserFindOne.mockReturnValueOnce({ select: () => Promise.resolve({ _id: 'admin', isSuperAdmin: true }) });
 
     await expect(authService.findOrCreateOAuthUser('generic-oidc', { id: 's', email: 'root@corp.com' }, {
-      sso: { issuer: 'https://idp.corp.com' },
+      sso: { issuer: 'https://idp.corp.com', assertTrusted: async () => undefined },
     })).rejects.toThrow('SSO_SUPERADMIN_REFUSED');
   });
 
@@ -409,7 +432,7 @@ describe('AuthService.findOrCreateOAuthUser — SSO identities', () => {
       .mockReturnValueOnce({ select: () => Promise.resolve({ _id: 'admin', isSuperAdmin: true, isEmailVerified: true }) });
 
     await expect(authService.findOrCreateOAuthUser('generic-oidc', { id: 's', email: 'root@corp.com' }, {
-      sso: { issuer: 'https://idp.corp.com' },
+      sso: { issuer: 'https://idp.corp.com', assertTrusted: async () => undefined },
     })).rejects.toThrow('SSO_SUPERADMIN_REFUSED');
     expect(mockUserUpdateOne).not.toHaveBeenCalled();
   });

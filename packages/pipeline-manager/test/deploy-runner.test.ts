@@ -5,7 +5,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from '@pipeline-builder/api-core/testing';
 
-const mockExecuteCdk = jest.fn<(...args: any[]) => { success: boolean; duration: number }>();
+const mockExecuteCdk = jest.fn<(...args: any[]) => { duration: number }>();
 const mockBuildRegistryPayload = jest.fn<(...args: any[]) => Promise<{ pipelineId: string }>>();
 const mockWritePendingIntent = jest.fn<(...args: any[]) => Promise<string>>();
 const mockReadStepManifest = jest.fn<(...args: any[]) => Promise<unknown[] | undefined>>();
@@ -46,7 +46,7 @@ const BASE = {
 describe('runDeploy', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockExecuteCdk.mockReturnValue({ success: true, duration: 5 });
+    mockExecuteCdk.mockReturnValue({ duration: 5 });
     mockBuildRegistryPayload.mockResolvedValue({ pipelineId: 'p-1' });
     mockWritePendingIntent.mockResolvedValue('/tmp/intent.json');
     mockReadStepManifest.mockResolvedValue(undefined);
@@ -75,7 +75,7 @@ describe('runDeploy', () => {
     mockExecuteCdk.mockImplementation((_cmd: unknown, opts: unknown) => {
       const file = (opts as { env: Record<string, string> }).env.PIPELINE_PROPS_FILE!;
       seen = { file, props: JSON.parse(readFileSync(file, 'utf-8')), mode: statSync(file).mode % 0o1000 };
-      return { success: true, duration: 5 };
+      return { duration: 5 };
     });
     await runDeploy(BASE);
     expect(seen!.props).toEqual(BASE.propsWithIds);

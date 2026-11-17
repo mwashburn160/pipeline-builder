@@ -9,9 +9,9 @@ import {
   sendEntityNotFound,
   ErrorCode,
   errorMessage,
-  getParam,
   parsePaginationParams,
   validateBody,
+  validateQuery,
   audited,
   requirePermission,
   actorId,
@@ -19,12 +19,13 @@ import {
   proposable,
   withProposalProvenance,
   RULE_TARGETS,
-  type RuleTarget,
-  COMPLIANCE_EXEMPTION_DECISIONS, type ComplianceExemptionStatus,
+  COMPLIANCE_EXEMPTION_DECISIONS, COMPLIANCE_EXEMPTION_STATUSES,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
+import { checkExemptionRules } from '../helpers/exemption-rule-check.js';
+import { uuidParam } from '../helpers/uuid-param.js';
 import {
   complianceExemptionService,
   CE_NOT_FOUND,
@@ -58,6 +59,15 @@ const ExemptionReviewSchema = z.object({
   rejectionReason: z.string().max(2000).optional(),
 });
 
+// Validate the GET / filter query: `ruleId` and `entityId` are uuid columns, so
+// a malformed value reached Postgres as a cast error → an unhandled 500.
+const ExemptionListQuerySchema = z.object({
+  ruleId: z.string().uuid().optional(),
+  entityType: z.enum(RULE_TARGETS).optional(),
+  entityId: z.string().uuid().optional(),
+  status: z.enum(COMPLIANCE_EXEMPTION_STATUSES).optional(),
+});
+
 const BulkExemptionsSchema = z.object({
   exemptions: z.array(ExemptionCreateSchema).min(1).max(500),
 });
@@ -77,12 +87,9 @@ export function createExemptionRoutes(): Router {
   // GET / — list exemptions (paginated, filterable)
   router.get('/', requireComplianceRead, withRoute(async ({ req, res, ctx, orgId }) => {
     const { limit, offset } = parsePaginationParams(req.query);
-    const filter = {
-      ruleId: req.query.ruleId as string | undefined,
-      entityType: req.query.entityType as RuleTarget | undefined,
-      entityId: req.query.entityId as string | undefined,
-      status: req.query.status as ComplianceExemptionStatus | undefined,
-    };
+    const r = validateQuery(req, ExemptionListQuerySchema);
+    if (!r.ok) return sendBadRequest(res, r.error, ErrorCode.VALIDATION_ERROR);
+    const filter = r.value;
 
     const { exemptions, total } = await complianceExemptionService.list(filter, orgId, limit, offset);
     ctx.log('COMPLETED', 'Listed exemptions', { count: exemptions.length });
@@ -102,6 +109,9 @@ export function createExemptionRoutes(): Router {
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
+
+    const refused = await checkExemptionRules(validation.value.exemptions, orgId, req.user?.parentOrganizationId);
+    if (refused) return sendError(res, refused.status, refused.message, refused.status === 403 ? ErrorCode.INSUFFICIENT_PERMISSIONS : ErrorCode.VALIDATION_ERROR);
 
     const ids = await complianceExemptionService.bulkCreate(validation.value.exemptions, orgId, userId);
 
@@ -139,6 +149,8 @@ export function createExemptionRoutes(): Router {
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
+    const refused = await checkExemptionRules([validation.value], orgId, req.user?.parentOrganizationId);
+    if (refused) return sendError(res, refused.status, refused.message, refused.status === 403 ? ErrorCode.INSUFFICIENT_PERMISSIONS : ErrorCode.VALIDATION_ERROR);
 
     try {
       const exemption = await complianceExemptionService.create(validation.value, orgId, userId);
@@ -175,8 +187,8 @@ export function createExemptionRoutes(): Router {
   // exemption via POST /, but only an admin reviews it). The service still
   // blocks self-approval (CE_SELF_APPROVE) so an admin can't approve their own.
   router.put('/:id/review', requirePermission('compliance:write'), audited('compliance.exemption.approve', 'compliance.exemption.reject'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const id = getParam(req.params, 'id');
-    if (!id) return sendBadRequest(res, 'Exemption ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
+    const id = uuidParam(req, res, 'id');
+    if (!id) return;
 
     const validation = validateBody(req, ExemptionReviewSchema);
     if (!validation.ok) {
@@ -243,8 +255,8 @@ export function createExemptionRoutes(): Router {
   // waiver, so it carries approval's gate, its two-person rule (the requester
   // cannot extend their own) and its audit action, marked `extension`.
   router.put('/:id/expiry', requirePermission('compliance:write'), audited('compliance.exemption.approve'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const id = getParam(req.params, 'id');
-    if (!id) return sendBadRequest(res, 'Exemption ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
+    const id = uuidParam(req, res, 'id');
+    if (!id) return;
 
     const validation = validateBody(req, ExemptionExtendSchema);
     if (!validation.ok) {
@@ -310,8 +322,8 @@ export function createExemptionRoutes(): Router {
   // re-imposes a rule (can block a previously-compliant entity), so it's an
   // admin action, not something any member should do.
   router.delete('/:id', requirePermission('compliance:write'), audited('compliance.exemption.revoke'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const id = getParam(req.params, 'id');
-    if (!id) return sendBadRequest(res, 'Exemption ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
+    const id = uuidParam(req, res, 'id');
+    if (!id) return;
 
     const deleted = await complianceExemptionService.delete(id, orgId);
     if (!deleted) return sendEntityNotFound(res, 'Exemption');

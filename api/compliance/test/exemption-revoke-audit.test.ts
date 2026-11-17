@@ -48,6 +48,11 @@ jest.unstable_mockModule('../src/services/compliance-exemption-service.js', () =
   CE_EXPIRY_NOT_LATER: 'CE_EXPIRY_NOT_LATER',
 }));
 
+// The create routes' rule check; not exercised here.
+jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
+  complianceRuleService: { findManyByIds: async () => [] },
+}));
+
 const { createExemptionRoutes } = await import('../src/routes/exemptions.js');
 
 function lastHandler(path: string, method: string) {

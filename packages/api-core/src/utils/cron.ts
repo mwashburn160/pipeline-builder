@@ -8,7 +8,8 @@
  * accepts is one the scheduler honours and one a Kubernetes CronJob would take:
  *
  * - `minute hour day-of-month month day-of-week`;
- * - each field `*`, `N`, `a-b`, `* /n`, `a-b/n`, `N/n` (N through the maximum) or a
+ * - each field `*`, `N`, `a-b`, `* /n`, `a-b/n`, `N/n` (N through the maximum; 6
+ *   in day-of-week) or a
  *   comma list of those (written without the space; it is only there to keep
  *   this comment open);
  * - month names `JAN`–`DEC` and weekday names `SUN`–`SAT`, any case;
@@ -16,8 +17,11 @@
  * - the macros `@yearly` / `@annually`, `@monthly`, `@weekly`, `@daily` /
  *   `@midnight` and `@hourly`.
  *
- * Day matching follows Vixie cron: when BOTH day fields are restricted, a day
- * matching EITHER fires; otherwise the restricted one decides.
+ * Day matching follows Kubernetes CronJob (robfig/cron): when BOTH day fields
+ * are restricted, a day matching EITHER fires; otherwise the restricted one
+ * decides. Only a bare `*` or `?` counts as unrestricted — a stepped star such as
+ * `* /2` restricts its field, so `0 0 * /2 * MON` fires on odd days AND on
+ * Mondays. (Classic Vixie cron treats a stepped star as unrestricted here.)
  *
  * Times are read in the zone passed to {@link nextCronRun}, default UTC. Across a
  * DST switch, a time inside the spring-forward gap runs shifted by the gap (02:30
@@ -27,7 +31,7 @@
 
 import { civilIn, instantOfCivil, type CivilDateTime } from './calendar.js';
 
-/** One parsed field: the allowed values, and whether it was unrestricted (`*`). */
+/** One parsed field: the allowed values, and whether it was unrestricted (a bare `*` or `?`). */
 export interface CronField {
   readonly values: ReadonlySet<number>;
   readonly any: boolean;
@@ -48,15 +52,17 @@ export const CRON_GRAMMAR_HINT =
   + 'a step (*/n or a-b/n) or a comma list of those; months and weekdays may be names (JAN, MON). '
   + 'The macros @yearly, @monthly, @weekly, @daily and @hourly are accepted. It must describe a time that actually occurs.';
 
-const MACROS: Readonly<Record<string, string>> = {
-  '@yearly': '0 0 1 1 *',
-  '@annually': '0 0 1 1 *',
-  '@monthly': '0 0 1 * *',
-  '@weekly': '0 0 * * 0',
-  '@daily': '0 0 * * *',
-  '@midnight': '0 0 * * *',
-  '@hourly': '0 * * * *',
-};
+// A Map, not an object literal: a lookup keyed by caller input must not reach
+// `Object.prototype` (`constructor`, `toString`), whose members are not strings.
+const MACROS: ReadonlyMap<string, string> = new Map([
+  ['@yearly', '0 0 1 1 *'],
+  ['@annually', '0 0 1 1 *'],
+  ['@monthly', '0 0 1 * *'],
+  ['@weekly', '0 0 * * 0'],
+  ['@daily', '0 0 * * *'],
+  ['@midnight', '0 0 * * *'],
+  ['@hourly', '0 * * * *'],
+]);
 
 const MONTH_NAMES = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 const DAY_NAMES = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
@@ -99,12 +105,15 @@ function parseField(text: string, spec: FieldSpec): CronField | null {
       if (!/^\d+$/.test(stepText) || Number(stepText) < 1) return null;
       step = Number(stepText);
     }
+    // An open-ended range (`*`, `N/n`) stops at 6 in day-of-week: 7 is only an
+    // alias for Sunday, so running through it would make `1/2` (Mon, Wed, Fri)
+    // fire on Sundays too.
+    const openMax = spec.dayOfWeek ? 6 : spec.max;
     let lo: number;
     let hi: number;
     if (range === '*') {
       lo = spec.min;
-      // `*` in day-of-week is 0-6 once, not 0-7 (Sunday twice).
-      hi = spec.dayOfWeek ? 6 : spec.max;
+      hi = openMax;
     } else if (range.includes('-')) {
       const [a, b, ...more] = range.split('-');
       const av = atom(a ?? '', spec);
@@ -116,7 +125,8 @@ function parseField(text: string, spec: FieldSpec): CronField | null {
       const v = atom(range, spec);
       if (v === null) return null;
       lo = v;
-      hi = stepText !== undefined ? spec.max : v;
+      // `7/n` is Sunday alone, not an empty range.
+      hi = stepText !== undefined ? Math.max(v, openMax) : v;
     }
     if (lo < spec.min || hi > spec.max) return null;
     for (let v = lo; v <= hi; v += step) values.add(spec.dayOfWeek && v === 7 ? 0 : v);
@@ -127,7 +137,7 @@ function parseField(text: string, spec: FieldSpec): CronField | null {
 /** Parse an expression, or null when any part of it is malformed. */
 export function parseCron(expression: string): ParsedCron | null {
   const trimmed = expression.trim();
-  const parts = (MACROS[trimmed.toLowerCase()] ?? trimmed).split(/\s+/);
+  const parts = (MACROS.get(trimmed.toLowerCase()) ?? trimmed).split(/\s+/);
   if (parts.length !== 5) return null;
   const fields = parts.map((p, i) => parseField(p, FIELDS[i]!));
   if (fields.some((f) => f === null)) return null;

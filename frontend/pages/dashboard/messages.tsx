@@ -766,6 +766,10 @@ export default function MessagesPage() {
           <div className={`${selectedMessage ? 'flex' : 'hidden lg:flex'} flex-1 flex-col min-w-0`}>
             {selectedMessage ? (
               <ThreadView
+                // Keyed by thread: the reply draft, its attachments and an open
+                // inline edit belong to ONE thread — without a remount, text
+                // typed in thread A would be sent into thread B.
+                key={selectedMessage.id}
                 supportCase={selectedMessage ? supportCasesQ.data?.[selectedMessage.id] : undefined}
                 supportContacts={supportContactsQ.data ?? []}
                 onCaseChanged={supportCasesQ.refetch}
@@ -777,8 +781,10 @@ export default function MessagesPage() {
                 onBack={handleBack}
                 onThreadRead={markThreadAsRead}
                 onDelete={canWrite ? ((id: string) => del.open(id)) : undefined}
+                onFollowUpCreated={(root) => { handleSelectMessage(root); void fetchMessages(); }}
                 canDelete={canDeleteMessage}
                 canWrite={canWrite}
+                readOnly={isReadOnly}
               />
             ) : (
               <EmptyChat />

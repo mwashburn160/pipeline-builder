@@ -12,10 +12,11 @@ import { Command } from 'commander';
 // we are verifying here.
 jest.unstable_mockModule('../src/utils/cdk-utils.js', () => ({
   ensureCdkAvailable: jest.fn(),
-  executeCdkShellCommand: jest.fn(() => ({ success: true, duration: 1 })),
+  executeCdkShellCommand: jest.fn(() => ({ duration: 1 })),
 }));
 
 const { bootstrap } = await import('../src/commands/bootstrap.js');
+const cdkUtils = await import('../src/utils/cdk-utils.js');
 
 const AUDIT_DIR = path.join(os.homedir(), '.pipeline-manager');
 const AUDIT_FILE = path.join(AUDIT_DIR, 'audit.log');
@@ -78,5 +79,21 @@ describe('bootstrap audit-log (account-id persistence prevention)', () => {
     // Safe metadata is still recorded.
     expect(bootstrapLine.details.region).toBe('us-east-1');
     expect(bootstrapLine.details.profile).toBe('default');
+  });
+});
+
+describe('bootstrap --json', () => {
+  it('writes ONLY the result document to stdout and captures CDK output', async () => {
+    const lines: string[] = [];
+    (console.log as unknown as jest.Mock).mockImplementation((...args: unknown[]) => { lines.push(args.map(String).join(' ')); });
+    const program = new Command();
+    program.exitOverride();
+    bootstrap(program);
+
+    await program.parseAsync(['bootstrap', '--account', ACCOUNT_ID, '--region', 'us-east-1', '--json'], { from: 'user' });
+
+    const out = JSON.parse(lines.join('\n')) as { success: boolean; region: string; duration: number };
+    expect(out).toMatchObject({ success: true, region: 'us-east-1', duration: 1 });
+    expect(cdkUtils.executeCdkShellCommand).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ showOutput: false }));
   });
 });

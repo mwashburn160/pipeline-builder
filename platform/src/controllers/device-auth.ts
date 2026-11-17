@@ -16,8 +16,8 @@
  *    platform API calls from the approval page and use the normal envelope.
  *
  * Approval is step-up gated (route middleware). That is the point of routing
- * sign-in through the browser: whatever the account can prove — password today,
- * provider re-auth for social/SSO accounts, passkeys and TOTP later — is what
+ * sign-in through the browser: whatever the account can prove — password,
+ * provider re-auth for social/SSO accounts, a passkey or an authenticator app — is what
  * gates handing a shell a session, and none of it ever reaches the CLI.
  */
 
@@ -151,7 +151,13 @@ export const deviceToken = withController('Device authorization token', async (r
     kind: 'interactive',
     // The CLI session INHERITS the approving browser session's assurance and
     // sign-in time — approving on a device can never raise either.
-    auth: { amr: approval.amr, aal: approval.aal, authTime: new Date(approval.authTime) },
+    auth: {
+      amr: approval.amr,
+      aal: approval.aal,
+      authTime: new Date(approval.authTime),
+      ...(approval.aaguid ? { aaguid: approval.aaguid } : {}),
+      ...(approval.aalAssertedBy ? { aalAssertedBy: approval.aalAssertedBy } : {}),
+    },
     client: record.client,
   });
 
@@ -256,6 +262,10 @@ export const approveDeviceRequest = withController('Device authorization approve
     return;
   }
   const approverSid = (req.user as AccessTokenPayload).sid;
+  // The parts of the slot's auth context the JWT does not carry (the passkey
+  // model, the org that asserted `aal`), so the CLI session is re-checked
+  // against them exactly as the browser session is at every renewal.
+  const approverSlot = approverSid ? await findRefreshSession(approver._id, approverSid) : undefined;
   const outcome = await decide(located.record.userCode, 'approved', {
     userId: req.user.sub,
     ...(req.user.organizationId ? { orgId: req.user.organizationId } : {}),
@@ -265,6 +275,8 @@ export const approveDeviceRequest = withController('Device authorization approve
     stepUpVerifiedAt: Date.now(),
     tokenVersion: approver.tokenVersion,
     ...(approverSid ? { sessionId: approverSid } : {}),
+    ...(approverSlot?.aaguid ? { aaguid: approverSlot.aaguid } : {}),
+    ...(approverSlot?.aalAssertedBy ? { aalAssertedBy: approverSlot.aalAssertedBy } : {}),
   });
   if (outcome !== 'ok') {
     decisionError(res, outcome);

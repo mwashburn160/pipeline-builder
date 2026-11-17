@@ -17,9 +17,12 @@
  * would orphan the replies.
  */
 
-import { envInt, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createLogger, envInt, errorMessage, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { schema, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { and, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
+import { messageService } from './message-service.js';
+
+const logger = createLogger('notification-retention');
 
 /** Days a system notification is kept. */
 export const NOTIFICATION_RETENTION_DAYS = envInt('MESSAGE_NOTIFICATION_RETENTION_DAYS', 365, { min: 7 });
@@ -28,11 +31,17 @@ export const NOTIFICATION_RETENTION_DAYS = envInt('MESSAGE_NOTIFICATION_RETENTIO
  * Hard-delete one batch of system notifications older than the retention
  * window. Runs inside the soft-delete purge sweep (sysadmin scope, leader lock,
  * one `message.purge` audit row per tick). Returns how many were removed.
+ *
+ * The delete bypasses the message service's mutation hooks, so the audiences'
+ * cached inbox views are invalidated here once the batch has committed —
+ * otherwise a purged notice keeps being served until the cache TTL. That is
+ * best-effort: the rows are already gone, and a failed invalidation only means
+ * a stale view until the TTL, so it is logged rather than failing the sweep.
  */
 export async function purgeAgedNotifications(now: Date, limit = 500): Promise<number> {
   const cutoff = new Date(now.getTime() - NOTIFICATION_RETENTION_DAYS * 86_400_000);
   const m = schema.message;
-  return withTenantTx(async (tx) => {
+  const removed = await withTenantTx(async (tx) => {
     // pg DELETE has no LIMIT — select a bounded batch, then delete by id.
     const doomed = await tx
       .select({ id: m.id })
@@ -46,10 +55,15 @@ export async function purgeAgedNotifications(now: Date, limit = 500): Promise<nu
         sql`NOT EXISTS (SELECT 1 FROM messages r WHERE r.thread_id = ${m.id})`,
       ))
       .limit(limit);
-    if (doomed.length === 0) return 0;
-    const removed = await tx.delete(m)
+    if (doomed.length === 0) return [];
+    return tx.delete(m)
       .where(inArray(m.id, doomed.map((d) => d.id)))
-      .returning({ id: m.id });
-    return removed.length;
+      .returning({ id: m.id, orgId: m.orgId, recipientOrgId: m.recipientOrgId });
   });
+  if (removed.length > 0) {
+    await messageService.invalidateRemovedMessages(removed).catch((err: unknown) => {
+      logger.warn('Notification cache invalidation failed after purge', { removed: removed.length, error: errorMessage(err) });
+    });
+  }
+  return removed.length;
 }

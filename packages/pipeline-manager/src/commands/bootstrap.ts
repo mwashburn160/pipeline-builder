@@ -114,14 +114,19 @@ export function bootstrap(program: Command): void {
           throw new Error('AWS account ID not provided');
         }
 
-        printInfo('Bootstrap parameters', {
-          account,
-          region,
-          profile: options.profile,
-          qualifier: options.qualifier || '(default)',
-          trust: options.trust || '(none)',
-          cloudformationExecutionPolicies: options.cloudformationExecutionPolicies || '(none)',
-        });
+        // `--json` prints ONE document on stdout, so progress lines and CDK's own
+        // output stay off it (CDK's output is captured and shown only on failure).
+        const progress = !options.json;
+        if (progress) {
+          printInfo('Bootstrap parameters', {
+            account,
+            region,
+            profile: options.profile,
+            qualifier: options.qualifier || '(default)',
+            trust: options.trust || '(none)',
+            cloudformationExecutionPolicies: options.cloudformationExecutionPolicies || '(none)',
+          });
+        }
 
         // CDK availability is verified up front by the CLI's preAction hook.
 
@@ -135,37 +140,39 @@ export function bootstrap(program: Command): void {
           cloudformationExecutionPolicies: options.cloudformationExecutionPolicies,
         });
 
-        printSection('CDK Execution');
-        console.log(cyan(bold('Command:')), dim(command));
-        console.log('');
+        if (progress) {
+          printSection('CDK Execution');
+          console.log(cyan(bold('Command:')), dim(command));
+          console.log('');
+        }
 
-        // Execute bootstrap
+        // Execute bootstrap (throws on failure)
         const result = executeCdkShellCommand(command, {
           debug: program.opts().debug,
-          showOutput: true,
+          showOutput: progress,
         });
 
-        console.log('');
-        printSection('Bootstrap Complete');
+        if (progress) {
+          console.log('');
+          printSection('Bootstrap Complete');
+        }
 
-        if (result.success) {
-          if (options.json) {
-            console.log(JSON.stringify({
-              success: true,
-              executionId,
-              account,
-              region,
-              duration: result.duration,
-            }, null, 2));
-          } else {
-            printKeyValue({
-              'Execution ID': executionId,
-              'Account': account,
-              'Region': region,
-              'Duration': `${result.duration}ms`,
-              'Status': '✓ Success',
-            });
-          }
+        if (options.json) {
+          console.log(JSON.stringify({
+            success: true,
+            executionId,
+            account,
+            region,
+            duration: result.duration,
+          }, null, 2));
+        } else {
+          printKeyValue({
+            'Execution ID': executionId,
+            'Account': account,
+            'Region': region,
+            'Duration': `${result.duration}ms`,
+            'Status': '✓ Success',
+          });
         }
 
       } catch (error) {

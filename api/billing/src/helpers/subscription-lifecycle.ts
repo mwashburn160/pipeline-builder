@@ -213,6 +213,26 @@ async function recordStalePeriodEvent(
 }
 
 /**
+ * Move a stale row onto a new period, guarded on the period end this pass read:
+ * a concurrent pass or a provider webhook that moved the period first wins, and
+ * this returns false without writing. Mirrors the write onto the in-memory doc.
+ */
+async function adoptPeriod(
+  subscription: Pick<SubscriptionDocument, '_id' | 'currentPeriodStart' | 'currentPeriodEnd'>,
+  start: Date,
+  end: Date,
+): Promise<boolean> {
+  const res = await Subscription.updateOne(
+    { _id: subscription._id, currentPeriodEnd: subscription.currentPeriodEnd },
+    { $set: { currentPeriodStart: start, currentPeriodEnd: end } },
+  );
+  if (res.modifiedCount === 0) return false;
+  subscription.currentPeriodStart = start;
+  subscription.currentPeriodEnd = end;
+  return true;
+}
+
+/**
  * Renew a period the PLATFORM owns (no provider reports one): the next period,
  * or the one `now` falls in after missed renewals, on the stored anchor day. The
  * write is guarded on the old period end, so a concurrent pass or a provider
@@ -221,13 +241,7 @@ async function recordStalePeriodEvent(
 async function renewLocally(subscription: SubscriptionDocument, now: Date, reason: string): Promise<void> {
   const previousEnd = subscription.currentPeriodEnd;
   const { start, end } = renewedPeriod(subscription, now);
-  const res = await Subscription.updateOne(
-    { _id: subscription._id, currentPeriodEnd: previousEnd },
-    { $set: { currentPeriodStart: start, currentPeriodEnd: end } },
-  );
-  if (res.modifiedCount === 0) return;
-  subscription.currentPeriodStart = start;
-  subscription.currentPeriodEnd = end;
+  if (!(await adoptPeriod(subscription, start, end))) return;
   await createBillingEvent(subscription.orgId, 'subscription_updated', {
     reason, previousPeriodEnd: previousEnd.toISOString(), currentPeriodEnd: end.toISOString(),
   }, subscription._id.toString());
@@ -320,13 +334,17 @@ async function checkExpiredSubscriptions(): Promise<void> {
           // so the platform renews it on the anchor day instead.
           const expiries = live.map((e) => e.expirationDate).filter((d): d is Date => d instanceof Date && d > now);
           if (expiries.length > 0 && expiries.length === live.length) {
+            // The renewed term opens where the old one closed, the same move the
+            // entitlement-update path makes. Advancing only the END kept the old
+            // start, and the start date is the credit-period key, so the renewed
+            // term's recurring credits and promotions read as already granted.
             const periodEnd = new Date(Math.max(...expiries.map((d) => d.getTime())));
-            await Subscription.updateOne({ _id: subscription._id }, { $set: { currentPeriodEnd: periodEnd } });
-            subscription.currentPeriodEnd = periodEnd;
-            incCounter('billing_stale_subscription_reconciled_total', { outcome: 'renewed' });
-            logger.info('Stale marketplace sub still entitled — period advanced to entitlement expiry', {
-              orgId: subscription.orgId, subscriptionId: subscription._id.toString(), currentPeriodEnd: periodEnd.toISOString(),
-            });
+            if (await adoptPeriod(subscription, subscription.currentPeriodEnd, periodEnd)) {
+              incCounter('billing_stale_subscription_reconciled_total', { outcome: 'renewed' });
+              logger.info('Stale marketplace sub still entitled — period advanced to entitlement expiry', {
+                orgId: subscription.orgId, subscriptionId: subscription._id.toString(), currentPeriodEnd: periodEnd.toISOString(),
+              });
+            }
           } else {
             // An open-ended entitlement has no term for AWS to report, so the
             // period is the platform's to keep: renew it on the anchor day.
@@ -411,10 +429,11 @@ async function checkExpiredSubscriptions(): Promise<void> {
           subscriptionId: subscription._id.toString(),
         });
       } else if (view.currentPeriodEnd && view.currentPeriodEnd > now) {
-        // Provider renewed — the webhook was merely late. Advance the local
-        // period (drops the row from this scan) and do NOT downgrade.
-        subscription.currentPeriodEnd = view.currentPeriodEnd;
-        await subscription.save();
+        // Provider renewed — the webhook was merely late. Adopt the provider's
+        // period (drops the row from this scan) and do NOT downgrade. The START
+        // moves too: it keys the period's credits and bounds its usage window.
+        const start = view.currentPeriodStart ?? subscription.currentPeriodEnd;
+        if (!(await adoptPeriod(subscription, start, view.currentPeriodEnd))) continue;
 
         await createBillingEvent(subscription.orgId, 'subscription_updated', {
           reason: 'provider_verified_renewal_late_webhook',

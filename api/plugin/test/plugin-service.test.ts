@@ -736,6 +736,16 @@ describe('PluginService', () => {
       await service.clearQuotaSnapshot('p-1');
       expect(set).toHaveBeenCalledWith({ quotaResetAt: null });
     });
+
+    it('setQuotaSnapshot drops every cached copy of the row (a delete refunds from the cached read)', async () => {
+      const set = jest.fn((..._args: unknown[]) => ({ where: jest.fn(async () => undefined) }));
+      txWith({ update: jest.fn(() => ({ set })) });
+      const ids = jest.spyOn(service as any, 'invalidateIds');
+      await service.setQuotaSnapshot('p-1', '2026-12-01T00:00:00.000Z');
+      expect(set).toHaveBeenCalledWith({ quotaResetAt: new Date('2026-12-01T00:00:00.000Z') });
+      expect(ids).toHaveBeenCalledWith(['p-1']);
+      ids.mockRestore();
+    });
   });
 
   describe('setDeprecated', () => {
@@ -779,6 +789,14 @@ describe('PluginService', () => {
       pipelineDataMock.withTenantTx.mockImplementation(async (cb: any) => cb({ execute: jest.fn(async () => ({ rows: [{ x: 1 }] })) }));
       await expect(service.yankVersion({ id: 'p-1', isDefault: false } as any, 'org-1', 'u-1', 'why'))
         .rejects.toMatchObject({ statusCode: 409, code: 'PLUGIN_VERSION_FROZEN' });
+    });
+
+    it('refuses to re-yank a yanked version (409), writing nothing', async () => {
+      const update = jest.fn();
+      pipelineDataMock.withTenantTx.mockImplementation(async (cb: any) => cb({ execute: jest.fn(async () => ({ rows: [] })), update }));
+      await expect(service.yankVersion({ id: 'p-1', name: 'trivy', version: '1.0.0', isDefault: false, lifecycle: 'yanked', yankedAt: new Date() } as any, 'org-1', 'u-1', 'again'))
+        .rejects.toMatchObject({ statusCode: 409 });
+      expect(update).not.toHaveBeenCalled();
     });
 
     it('yanks (clearing default) and promotes the next default when it was the default', async () => {

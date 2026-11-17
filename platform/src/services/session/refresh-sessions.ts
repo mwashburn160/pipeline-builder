@@ -333,10 +333,11 @@ function samePermissionSet(a: readonly string[] | undefined, b: readonly string[
  * Re-issue the token pair for an EXISTING refresh-session slot, replacing the
  * slot's hash in one atomic `findOneAndUpdate`.
  *
- * - Refresh passes `presentedToken` and `kind: 'interactive'`: the write matches
- *   only while the slot still holds THAT token's hash (and the user's
+ * - Refresh passes `presentedToken` and the slot's OWN `kind` (an interactive
+ *   or a machine slot both refresh there): the write matches only while the
+ *   slot still holds THAT token's hash, of that kind (and the user's
  *   tokenVersion is unchanged), so of two racing uses of one refresh token
- *   exactly one wins — and a machine slot never matches.
+ *   exactly one wins.
  * - Generate-token renewal passes `kind: 'machine'`; switch-org passes no kind.
  *   Both are authenticated by an access token minted for this slot, so only the
  *   slot's existence is required.

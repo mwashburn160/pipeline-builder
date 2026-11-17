@@ -33,7 +33,7 @@ jest.unstable_mockModule('../src/services/registry-client.js', () => registryCli
 jest.unstable_mockModule('../src/services/public-publications.js', () => ({ publicRepositoriesOwnedBy }));
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-const { computeOrgStorageBreakdown, computeSystemRetentionBreakdown, invalidateOrgStorageCache } = await import('../src/services/storage-usage.js');
+const { computeOrgStorageBreakdown, computeSystemRetentionBreakdown, invalidateOrgStorageCache, invalidateStorageCache } = await import('../src/services/storage-usage.js');
 
 const MANIFEST = 'application/vnd.oci.image.manifest.v1+json';
 const MB = 1024 * 1024;
@@ -65,6 +65,28 @@ beforeEach(() => {
   jest.clearAllMocks();
   publicRepositoriesOwnedBy.mockResolvedValue({ repositories: [], complete: true });
   invalidateOrgStorageCache('acme');
+});
+
+describe('computeOrgStorageBreakdown — eviction after a GC', () => {
+  it('invalidateStorageCache on the org namespace evicts the breakdown, so a deleted version leaves the prune view at once', async () => {
+    registry({ 'org-acme/app': { v1: ['sha256:c1', 'sha256:l1'], v2: ['sha256:c2', 'sha256:l2'] } }, { 'sha256:c1': MB, 'sha256:l1': MB, 'sha256:c2': MB, 'sha256:l2': MB });
+    expect((await computeOrgStorageBreakdown('acme')).entries.map((e) => e.tag).sort()).toEqual(['v1', 'v2']);
+
+    // The GC deletes v1 and invalidates the namespace it pruned.
+    registry({ 'org-acme/app': { v2: ['sha256:c2', 'sha256:l2'] } }, { 'sha256:c2': MB, 'sha256:l2': MB });
+    // Still cached before the invalidation (the TTL path) — the bug being fixed.
+    expect((await computeOrgStorageBreakdown('acme')).entries.map((e) => e.tag).sort()).toEqual(['v1', 'v2']);
+    invalidateStorageCache('org-acme/');
+    expect((await computeOrgStorageBreakdown('acme')).entries.map((e) => e.tag)).toEqual(['v2']);
+  });
+
+  it('a non-org prefix leaves an org\'s breakdown cached', async () => {
+    registry({ 'org-acme/app': { v1: ['sha256:c1'] } }, { 'sha256:c1': MB });
+    await computeOrgStorageBreakdown('acme');
+    registry({ 'org-acme/app': {} }, {});
+    invalidateStorageCache('library/');
+    expect((await computeOrgStorageBreakdown('acme')).entries).toHaveLength(1);
+  });
 });
 
 describe('computeOrgStorageBreakdown — marginal bytes', () => {

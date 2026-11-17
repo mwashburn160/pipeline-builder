@@ -257,7 +257,7 @@ beforeEach(() => {
   mockSelectChain.where.mockResolvedValue([]);
   mockHttpDelete.mockResolvedValue({ statusCode: 200, body: {} });
   mockInvitationDeleteMany.mockResolvedValue({ deletedCount: 0 });
-  mockInvitationFind.mockReturnValue({ lean: () => [] });
+  mockInvitationFind.mockReturnValue(findChain([]));
   mockAuditDeleteMany.mockResolvedValue({ deletedCount: 0 });
   mockAuditFind.mockReturnValue(auditCursor([]));
   mockAuditCreate.mockResolvedValue({});
@@ -599,7 +599,7 @@ describe('cascadeDeleteOrg', () => {
 describe('exportOrg', () => {
   it('reads from every cascade-targeted table + mongo collection', async () => {
     mockSelectChain.where.mockResolvedValue([{ id: 'a' }]);
-    mockInvitationFind.mockReturnValue({ lean: () => [{ email: 'foo@example.com' }] });
+    mockInvitationFind.mockReturnValue(findChain([{ email: 'foo@example.com' }]));
     mockAuditFind.mockReturnValue(auditCapped([{ action: 'user.login' }]));
 
     const dump = await exportOrg('org-acme', '000000000000000000000001');
@@ -661,9 +661,19 @@ describe('exportOrg', () => {
     expect(select).toHaveBeenCalledWith('-keyHash');
   });
 
+  it('never exports an invitation TOKEN (the accept link is a bearer credential)', async () => {
+    const select = jest.fn((..._args: unknown[]) => findChain([{ email: 'a@acme.test' }]));
+    mockInvitationFind.mockReturnValue({ select } as never);
+
+    const dump = await exportOrg('org-acme', '000000000000000000000001');
+
+    expect(select).toHaveBeenCalledWith('-token');
+    expect(dump.mongo.invitations).toHaveLength(1);
+  });
+
   it('caps the audit read so one tenant cannot exhaust the heap', async () => {
     mockSelectChain.where.mockResolvedValue([]);
-    mockInvitationFind.mockReturnValue({ lean: () => [] });
+    mockInvitationFind.mockReturnValue(findChain([]));
     let applied = 0;
     mockAuditFind.mockReturnValue(auditCapped([{ action: 'user.login' }], (n) => { applied = n; }));
 
@@ -676,7 +686,7 @@ describe('exportOrg', () => {
 
   it('REPORTS truncation when the audit read fills the cap (never silently partial)', async () => {
     mockSelectChain.where.mockResolvedValue([]);
-    mockInvitationFind.mockReturnValue({ lean: () => [] });
+    mockInvitationFind.mockReturnValue(findChain([]));
     let cap = 0;
     // Return exactly `cap` rows, which is how the service detects truncation.
     mockAuditFind.mockImplementation(() => {
@@ -697,7 +707,7 @@ describe('exportOrg', () => {
 
 describe('exportOrg — read failures', () => {
   const emptyReads = () => {
-    mockInvitationFind.mockReturnValue({ lean: () => [] });
+    mockInvitationFind.mockReturnValue(findChain([]));
     mockAuditFind.mockReturnValue(auditCapped([]));
   };
 

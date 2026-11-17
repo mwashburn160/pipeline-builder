@@ -236,9 +236,11 @@ export class StripeProvider implements PaymentProvider {
   async getSubscription(externalId: string): Promise<ProviderSubscriptionView | null> {
     try {
       const sub = await this.stripe.subscriptions.retrieve(externalId);
+      const period = stripeSubscriptionPeriod(sub);
       return {
         status: mapStripeStatus(sub.status),
-        currentPeriodEnd: stripeSubscriptionPeriod(sub)?.end,
+        currentPeriodStart: period?.start,
+        currentPeriodEnd: period?.end,
         cancelAtPeriodEnd: sub.cancel_at_period_end ?? false,
       };
     } catch (err) {

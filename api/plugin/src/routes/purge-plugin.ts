@@ -16,7 +16,7 @@ import { pluginService } from '../services/plugin-service.js';
  * by hand.
  *
  * Expects auth + orgId, `requirePermission('plugins:write')` and `requireStepUp`
- * from the parent mount (index.ts) — the SAME authority as restore, sharing its
+ * from the parent mount (app-routes.ts) — the SAME authority as restore, sharing its
  * single step-up layer: purge is an irreversible destructive act, so it requires
  * a password re-verify on top of the frontend's explicit confirm dialog.
  *
@@ -27,8 +27,9 @@ import { pluginService } from '../services/plugin-service.js';
  * inside `purgeById`'s transaction — the machinery the retention sweep reuses.
  *
  * A tombstone that still carries its quota snapshot (one soft-deleted by a path
- * that didn't refund, e.g. bulk delete) has its `plugins` slot refunded here,
- * period-conditionally. A single delete already refunded and cleared it.
+ * that didn't refund, e.g. the Toolchain console's release delete) has its
+ * `plugins` slot refunded here, period-conditionally. A single or bulk delete
+ * already refunded and cleared it.
  */
 export function createPurgePluginRoutes(quotaService: QuotaService): Router {
   const router: Router = Router();

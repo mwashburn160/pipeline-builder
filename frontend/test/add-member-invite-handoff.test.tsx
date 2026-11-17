@@ -89,3 +89,21 @@ describe('AddMemberModal — unregistered address', () => {
     expect(screen.queryByRole('link', { name: /send dup@x\.io an invitation/i })).not.toBeInTheDocument();
   });
 });
+
+describe('AddMemberModal — Enter submits once', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  it('a repeated Enter while the add is in flight posts it ONCE, and the field is labelled', async () => {
+    let resolve!: (v: unknown) => void;
+    addMemberToOrganization.mockImplementation(() => new Promise((r) => { resolve = r; }));
+    renderModal(true);
+    const box = screen.getByRole('textbox', { name: 'Email address' });
+    fireEvent.change(box, { target: { value: 'bee@acme.test' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    await waitFor(() => expect(box).toBeDisabled());
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(addMemberToOrganization).toHaveBeenCalledTimes(1);
+    resolve({ success: true });
+    await waitFor(() => expect(box).toBeEnabled());
+  });
+});

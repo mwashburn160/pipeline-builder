@@ -251,6 +251,17 @@ describe('CacheService (in-memory)', () => {
       expect(second).not.toBe(first);
     });
 
+    it('stores a copy — mutating the object after set cannot corrupt the cache', async () => {
+      const original = { nested: { count: 1 }, list: [1, 2] };
+      await cache.set('written', original);
+      original.nested.count = 999;
+      original.list.push(99);
+
+      const read = await cache.get<{ nested: { count: number }; list: number[] }>('written');
+      expect(read!.nested.count).toBe(1);
+      expect(read!.list).toEqual([1, 2]);
+    });
+
     it('getOrSet returns an independent copy — mutating it cannot corrupt a later get', async () => {
       const factory = jest.fn<() => Promise<{ nested: { count: number }; list: number[] }>>()
         .mockResolvedValue({ nested: { count: 1 }, list: [1, 2] });

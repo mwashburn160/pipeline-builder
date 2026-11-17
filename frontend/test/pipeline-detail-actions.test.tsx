@@ -136,3 +136,37 @@ describe('pipeline detail runs + actions', () => {
     expect(screen.getByRole('button', { name: /Edit/ })).toBeDisabled();
   });
 });
+
+describe('pipeline detail — Save as template', () => {
+  it('is gated on templates:write (the template route\'s permission), not pipelines:write', async () => {
+    mockAuthGuard({ user: { id: 'u1', organizationId: 'org-1' }, can: (p: string) => p !== 'templates:write' });
+    const { unmount } = render(<PipelineDetailPage />);
+    const locked = await screen.findByRole('button', { name: /Save as template/ });
+    expect(locked).toBeDisabled();
+    expect(locked).toHaveAttribute('title', 'Requires templates:write');
+    unmount();
+
+    // A template author without pipelines:write may still save one.
+    mockAuthGuard({ user: { id: 'u1', organizationId: 'org-1' }, can: (p: string) => p !== 'pipelines:write' });
+    render(<PipelineDetailPage />);
+    expect(await screen.findByRole('button', { name: /Save as template/ })).toBeEnabled();
+  });
+});
+
+describe('pipeline detail — Recent runs card', () => {
+  it('says the totals failed to load (with a retry) rather than "No recorded runs yet"', async () => {
+    mockRouter.query = { id: 'p1', tab: 'runs' };
+    api.getExecutionCount.mockRejectedValue(new Error('reporting down'));
+    render(<PipelineDetailPage />);
+    expect(await screen.findByText('Run totals could not be loaded')).toBeInTheDocument();
+    expect(screen.queryByText('No recorded runs yet.')).not.toBeInTheDocument();
+  });
+
+  it('shows a loading line while the totals are in flight', async () => {
+    mockRouter.query = { id: 'p1', tab: 'runs' };
+    api.getExecutionCount.mockImplementation(() => new Promise(() => {}));
+    render(<PipelineDetailPage />);
+    expect(await screen.findByText(/Loading runs/)).toBeInTheDocument();
+    expect(screen.queryByText('No recorded runs yet.')).not.toBeInTheDocument();
+  });
+});

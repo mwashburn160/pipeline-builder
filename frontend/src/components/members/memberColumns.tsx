@@ -11,13 +11,17 @@ import type { OrganizationMember } from '@/types';
 
 interface BuildMemberColumnsOptions {
   currentUserId: string | undefined;
-  currentUserRole: string | undefined;
-  isSuperAdmin: boolean;
+  /** May hand the org to this member: the current owner or a sysadmin (the
+   *  controller's rule), holding `org_settings:write` (the route's), in a
+   *  writable session. */
+  canTransferOwnership: boolean;
   /** Read-only-aware `can('members:manage')` — gates the destructive row actions
    *  (reset MFA / (de)activate / remove) so a read-only "view-as"
    *  impersonation session (which CAN now see the roster) doesn't show enabled
    *  buttons that only dead-end at a backend 403. */
   canManageMembers: boolean;
+  /** The org parents teams AND the viewer may write memberships
+   *  (`members:manage`, read-only-aware) — the bulk-add route's gate. */
   canManageTeams: boolean;
   canManageRoles: boolean;
   rolesForMember: (m: OrganizationMember) => Array<{ id: string; name: string }>;
@@ -37,8 +41,7 @@ interface BuildMemberColumnsOptions {
  */
 export function buildMemberColumns({
   currentUserId,
-  currentUserRole,
-  isSuperAdmin,
+  canTransferOwnership,
   canManageMembers,
   canManageTeams,
   canManageRoles,
@@ -137,7 +140,7 @@ export function buildMemberColumns({
             )}
             {/* Ownership transfer is backend-gated to the current owner or a
                 sysadmin — only surface it to them so others don't hit a 403. */}
-            {(currentUserRole === 'owner' || isSuperAdmin) && (
+            {canTransferOwnership && (
               <IconButton
                 tone="success"
                 onClick={() => onTransfer(m)}

@@ -107,8 +107,8 @@ describe('the read connection cannot become the primary', () => {
 
 describe('the read helper is read-only on EVERY path', () => {
   it('declares the transaction read-only on the replica AND the primary fallback', () => {
-    // Two occurrences, deliberately. Phase 0a found four call sites that look
-    // like reads and are not (`SELECT … FOR UPDATE`, `pg_advisory_xact_lock`).
+    // Two occurrences, deliberately. Some call sites look like reads and
+    // are not (`SELECT … FOR UPDATE`, `pg_advisory_xact_lock`).
     // Declaring it on the fallback path too makes such a call fail HERE, with a
     // clear message, on every target — including the ones that will never have
     // a replica, where it would otherwise succeed and quietly take a lock.

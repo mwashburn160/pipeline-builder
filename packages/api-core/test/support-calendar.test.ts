@@ -197,6 +197,13 @@ describe('businessCalendar() reads the environment', () => {
     expect(businessCalendar().days).toEqual([0, 3, 6]);
   });
 
+  it('does not read an empty working-week entry as Sunday', () => {
+    process.env.SUPPORT_BUSINESS_HOURS_DAYS = '1,2,3,4,5,';
+    expect(businessCalendar().days).toEqual([1, 2, 3, 4, 5]);
+    process.env.SUPPORT_BUSINESS_HOURS_DAYS = '1,,5';
+    expect(businessCalendar().days).toEqual([1, 5]);
+  });
+
   it('parses holidays, dropping anything not YYYY-MM-DD', () => {
     process.env.SUPPORT_BUSINESS_HOURS_HOLIDAYS = '2026-12-25, 2027-01-01 ,25/12/2026,';
     expect([...businessCalendar().holidays].sort()).toEqual(['2026-12-25', '2027-01-01']);

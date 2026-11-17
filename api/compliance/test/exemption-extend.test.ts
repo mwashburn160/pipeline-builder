@@ -82,6 +82,11 @@ jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
   sql: jest.fn<AnyFn>(),
 }));
 
+// The create routes' rule check; not exercised here.
+jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
+  complianceRuleService: { findManyByIds: async () => [] },
+}));
+
 const { createExemptionRoutes } = await import('../src/routes/exemptions.js');
 
 function getHandler(method: 'put' | 'post', path: string) {
@@ -98,6 +103,7 @@ function makeRes() {
   return { res: { status, json } as any, json, status };
 }
 
+const EX_ID = '11111111-1111-4111-8111-111111111111';
 const DAY = 24 * 60 * 60 * 1000;
 const inDays = (n: number) => new Date(Date.now() + n * DAY);
 
@@ -110,26 +116,36 @@ describe('PUT /exemptions/:id/expiry', () => {
 
   async function extend(userId: string, body: unknown) {
     const { res, json, status } = makeRes();
-    await getHandler('put', '/:id/expiry')({ __orgId: 'org-1', __userId: userId, params: { id: 'ex-1' }, body } as any, res);
+    await getHandler('put', '/:id/expiry')({ __orgId: 'org-1', __userId: userId, params: { id: EX_ID }, body } as any, res);
     return { json, status };
   }
+
+  it('400s a malformed id before any query runs, instead of a uuid-cast 500', async () => {
+    const { res, json, status } = makeRes();
+    await getHandler('put', '/:id/expiry')({
+      __orgId: 'org-1', __userId: 'reviewer', params: { id: 'ex-1' }, body: { expiresAt: inDays(30).toISOString() },
+    } as any, res);
+    expect(status).toHaveBeenCalledWith(400);
+    expect(json.mock.calls[0][0].code).toBe('VALIDATION_ERROR');
+    expect(mockRecordAudit).not.toHaveBeenCalled();
+  });
 
   it('extends an approved exemption and audits it as an approval marked `extension`', async () => {
     const previous = inDays(2);
     const next = inDays(30);
     selectChainStub.fromRows = [{ createdBy: 'requester', status: 'approved', expiresAt: previous }];
     selectChainStub.updateRows = [{
-      id: 'ex-1', status: 'approved', expiresAt: next, ruleId: 'r1', entityType: 'plugin', entityId: 'e1', createdBy: 'requester',
+      id: EX_ID, status: 'approved', expiresAt: next, ruleId: 'r1', entityType: 'plugin', entityId: 'e1', createdBy: 'requester',
     }];
 
     const { json, status } = await extend('reviewer', { expiresAt: next.toISOString() });
 
     expect(status).toHaveBeenCalledWith(200);
-    expect(json.mock.calls[0][0].data.exemption).toMatchObject({ id: 'ex-1', expiresAt: next });
+    expect(json.mock.calls[0][0].data.exemption).toMatchObject({ id: EX_ID, expiresAt: next });
     expect(mockRecordAudit).toHaveBeenCalledWith(expect.objectContaining({
       action: 'compliance.exemption.approve',
       actorId: 'reviewer',
-      targetId: 'ex-1',
+      targetId: EX_ID,
       details: expect.objectContaining({
         extension: true, requester: 'requester', previousExpiresAt: previous.toISOString(), expiresAt: next.toISOString(),
       }),

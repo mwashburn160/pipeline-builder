@@ -118,7 +118,6 @@ describe('executeCdkShellCommand', () => {
     mockExecSync.mockReturnValue(Buffer.from(''));
     const result = executeCdkShellCommand('cdk bootstrap aws://123/us-east-1');
 
-    expect(result.success).toBe(true);
     expect(typeof result.duration).toBe('number');
     expect(mockExecSync).toHaveBeenCalledWith(
       'cdk bootstrap aws://123/us-east-1',

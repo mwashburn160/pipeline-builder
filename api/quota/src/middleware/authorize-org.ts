@@ -24,6 +24,12 @@ interface AuthorizeOrgOptions {
    * `findOrgWithHierarchy` resolve a mixed-case `:orgId` to "no such org".
    */
   permission?: Permission;
+  /**
+   * The route WRITES the target org's state. `orgs:read` is a read grant: it
+   * lets a platform operator open any account's quota views, and must not let
+   * them change another tenant's settings. Same-org or system admin only.
+   */
+  mutates?: boolean;
 }
 
 /**
@@ -42,7 +48,7 @@ interface AuthorizeOrgOptions {
  * ```
  */
 export function authorizeOrg(options: AuthorizeOrgOptions = {}) {
-  const { requireSystemAdmin = false, permission } = options;
+  const { requireSystemAdmin = false, permission, mutates = false } = options;
   const permissionGate = permission ? requirePermission(permission) : undefined;
 
   // Tagged for the route table: the `requireSystemAdmin: true` variant IS the
@@ -107,9 +113,13 @@ export function authorizeOrg(options: AuthorizeOrgOptions = {}) {
     // `GET /quotas/:orgId`. Without this the fleet list rendered and every row
     // 403'd. It is system-org-only, so no tenant Role can reach another tenant
     // through it.
-    if (!isSameOrg && !isSystemAdmin(req) && !userHasPermission(req, 'orgs:read')) {
+    // A write takes no read grant: `orgs:read` admitted an operator to every
+    // tenant's PUT /notice-settings (its webhook URL and offers consent), with an
+    // audit row that named the tenant as the actor's own org.
+    const operatorRead = !mutates && userHasPermission(req, 'orgs:read');
+    if (!isSameOrg && !isSystemAdmin(req) && !operatorRead) {
       logger.warn('Access denied — cross-org without admin', { requestingOrgId, targetOrgId });
-      recordAuthzDenial(req, 'same-org, orgs:read or system-admin');
+      recordAuthzDenial(req, mutates ? 'same-org or system-admin' : 'same-org, orgs:read or system-admin');
       return sendError(
         res, 403,
         'Access denied. You can only access quotas for your own organization.',

@@ -4,7 +4,7 @@
 import { SYSTEM_ACTOR_ID, COMPLIANCE_CONTENT_SETS, createLogger, ForbiddenError, isSystemOrgId, ValidationError } from '@pipeline-builder/api-core';
 import { schema, withTenantTx, drizzleCount, runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import type { RuleScope } from '@pipeline-builder/pipeline-data';
-import { eq, and, isNull, inArray, sql } from 'drizzle-orm';
+import { eq, and, isNull, inArray, ne, sql } from 'drizzle-orm';
 import { complianceRuleService } from './compliance-rule-service.js';
 import { entitlementWatermarkStore } from './entitlement-watermark-store.js';
 import { hasSetTag, setNamesFromTags, setTagFor } from '../helpers/content-set-tags.js';
@@ -287,8 +287,9 @@ export class ComplianceRuleSubscriptionService {
 
   /**
    * Bulk activate/deactivate subscriptions.
-   * Returns the ruleIds actually toggled (rows that matched and were updated) —
-   * NOT the requested set. Callers deriving a count use `affectedIds.length`;
+   * Returns the ruleIds actually toggled (live rows whose `isActive` differed
+   * and was flipped) — NOT the requested set, and not rows already in the target
+   * state. Callers deriving a count use `affectedIds.length`;
    * callers auditing per-rule posture changes (see routes/subscriptions.ts) must
    * iterate the returned ids so events are emitted only for rules that changed.
    */
@@ -306,6 +307,10 @@ export class ComplianceRuleSubscriptionService {
         eq(schema.complianceRuleSubscription.orgId, orgId),
         inArray(schema.complianceRuleSubscription.ruleId, ruleIds),
         isNull(schema.complianceRuleSubscription.unsubscribedAt),
+        // Only rows whose state actually CHANGES: without this, RETURNING lists
+        // every matched row, and bulk-activating already-active rules audited a
+        // posture change for each one that never happened.
+        ne(schema.complianceRuleSubscription.isActive, isActive),
       ))
       .returning({ ruleId: schema.complianceRuleSubscription.ruleId }));
 

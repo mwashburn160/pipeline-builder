@@ -11,9 +11,8 @@
  *  - WHICH events are deploys (and why an in-flight one is not);
  *  - lead time measured once per execution, and DROPPED rather than clamped when
  *    the two timestamps disagree;
- *  - a conflict update that fills gaps in but never blanks out a measured value,
- *    and never erases a recorded production failure;
- *  - incident correlation that says how confident the link is;
+ *  - a conflict update keyed by (org, execution, environment) that fills gaps in
+ *    but never blanks out a measured value;
  *  - the settle delay, so a day is never rolled up while executions are still in
  *    it.
  */
@@ -34,7 +33,7 @@ jest.unstable_mockModule('../src/database/tenancy.js', () => ({
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
 const {
-  isDeployEvent, leadTimeGapOf, upsertDeployments, applyDeployOutcome, correlateIncident,
+  isDeployEvent, leadTimeGapOf, upsertDeployments,
 } = await import('../src/api/reporting/deploy-rollup.js');
 const {
   rollupSettleHours, rollupBatchDays, rebuildDay, runRollupPass,
@@ -153,20 +152,27 @@ describe('upsertDeployments', () => {
   /**
    * The conflict update FILLS IN but never blanks out: a later event may resolve a
    * commit range the first one could not, and a redelivery of the original must
-   * not erase what was already measured — or the recorded production failure.
+   * not erase what was already measured.
    */
-  it('fills gaps in on conflict, and never erases a measured value or a failure', async () => {
+  it('fills gaps in on conflict, and never erases a measured value', async () => {
     tx.queue([{ executionId: 'exec-1' }]);
     await upsertDeployments([event()]);
     const set = tx.of('insert')[0].arg('onConflictDoUpdate') as { set: Record<string, unknown> };
     for (const field of ['earliestCommitAt', 'leadTimeSeconds', 'commitCount', 'commitSha']) {
       expect(renderSql(set.set[field])).toMatch(/COALESCE/);
     }
-    // The outcome markers are owned by the outcome route and by incident
-    // correlation — the deploy event must not touch them.
-    expect('failedAt' in set.set).toBe(false);
-    expect('restoredAt' in set.set).toBe(false);
-    expect('correlationConfidence' in set.set).toBe(false);
+  });
+
+  /**
+   * Under forced RLS another org's row is invisible to this upsert. A conflict
+   * target without the org would collide with that invisible row and fail the
+   * upsert instead of landing this org's deploy beside it.
+   */
+  it('conflicts on (org, execution, environment), org first', async () => {
+    tx.queue([{ executionId: 'exec-1' }]);
+    await upsertDeployments([event()]);
+    const conflict = tx.of('insert')[0].arg('onConflictDoUpdate') as { target: Array<{ name: string }> };
+    expect(conflict.target.map((c) => c.name)).toEqual(['org_id', 'execution_id', 'environment']);
   });
 
   /** A resolved lead time and a reason it could not be resolved must not coexist. */
@@ -185,81 +191,6 @@ describe('upsertDeployments', () => {
   it('never throws — a rollup failure is not data loss', async () => {
     tx.queueError(new Error('deadlock detected'));
     await expect(upsertDeployments([event()])).resolves.toBe(0);
-  });
-});
-
-describe('applyDeployOutcome', () => {
-  beforeEach(() => { tx = fakeTx(); });
-
-  it('marks a deploy failed', async () => {
-    tx.queue([]);
-    await applyDeployOutcome(ORG, 'exec-1', 'failed', DEPLOYED, 'production');
-    expect(tx.of('update')[0].arg('set')).toMatchObject({ failedAt: DEPLOYED });
-    expect(tx.of('update')[0].whereSql()).toContain('"environment"');
-  });
-
-  it('scopes to the org even without an environment', async () => {
-    tx.queue([]);
-    await applyDeployOutcome(ORG, 'exec-1', 'failed', DEPLOYED);
-    const where = tx.of('update')[0].whereSql();
-    expect(where).toContain('"org_id"');
-    expect(where).not.toContain('"environment"');
-  });
-
-  /**
-   * A restore only means something for a deploy that was marked failed. Recording
-   * one without a failure would produce a negative time-to-restore.
-   */
-  it('only records a restore against a deploy that failed', async () => {
-    tx.queue([]);
-    await applyDeployOutcome(ORG, 'exec-1', 'restored', DEPLOYED);
-    expect(tx.of('update')[0].whereSql()).toContain('"failed_at" IS NOT NULL');
-    expect(tx.of('update')[0].arg('set')).toMatchObject({ restoredAt: DEPLOYED });
-  });
-});
-
-describe('correlateIncident', () => {
-  beforeEach(() => { tx = fakeTx(); });
-
-  it('finds nothing when no deploy precedes the incident in the window', async () => {
-    tx.queue([]);
-    expect(await correlateIncident(ORG, 'production', DEPLOYED, 12)).toBeNull();
-    expect(tx.of('update')).toHaveLength(0);
-  });
-
-  it('looks only at SUCCESSFUL deploys to that environment, newest first', async () => {
-    tx.queue([{ executionId: 'exec-1', deployedAt: DEPLOYED }], []);
-    await correlateIncident(ORG, 'production', new Date(DEPLOYED.getTime() + 3600_000), 12);
-    const where = tx.of('select')[0].whereSql();
-    expect(where).toContain('"succeeded"');
-    expect(where).toContain('"environment"');
-    expect(renderSql(tx.of('select')[0].arg('orderBy'))).toContain('DESC');
-  });
-
-  /**
-   * "This deploy broke production" and "an incident opened eleven hours after this
-   * deploy, and the window is twelve" are different claims, and a manager acts
-   * differently on each — so the link carries how confident it is.
-   */
-  it.each([
-    ['high', 1],
-    ['medium', 5],
-    ['low', 11],
-  ])('labels a link %s when the incident opened %ih after the deploy', async (confidence, hoursAfter) => {
-    tx.queue([{ executionId: 'exec-1', deployedAt: DEPLOYED }], []);
-    const result = await correlateIncident(ORG, 'production', new Date(DEPLOYED.getTime() + hoursAfter * 3600_000), 12);
-    expect(result).toEqual({ executionId: 'exec-1', confidence });
-    expect(tx.of('update')[0].arg('set')).toMatchObject({ correlationConfidence: confidence });
-  });
-
-  /**
-   * The FIRST incident linked to a deploy is the one that made it a change
-   * failure; a later one re-dating it would move time-to-restore.
-   */
-  it('does not overwrite a failure already attributed', async () => {
-    tx.queue([{ executionId: 'exec-1', deployedAt: DEPLOYED }], []);
-    await correlateIncident(ORG, 'production', new Date(DEPLOYED.getTime() + 3600_000), 12);
-    expect(tx.of('update')[0].whereSql()).toContain('"failed_at" is null');
   });
 });
 

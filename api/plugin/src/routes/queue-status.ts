@@ -446,6 +446,10 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
       },
     });
 
+    // The retried job is no longer a failure: drop every memoized triage view
+    // (the operator's cross-org one and the job's own org both listed it), or the
+    // dashboard keeps offering Retry on it for the cache's lifetime.
+    triageCache.clear();
     return sendSuccess(res, 200, { retried: true, failedJobId: jobId, newJobId });
   }));
 
@@ -563,6 +567,8 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
       },
     });
 
+    // Same as retry: the replayed job must leave every memoized triage view now.
+    triageCache.clear();
     return sendSuccess(res, 200, { replayed: true, dlqJobId: jobId, newJobId });
   }));
 

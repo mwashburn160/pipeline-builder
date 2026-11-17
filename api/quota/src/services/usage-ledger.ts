@@ -21,7 +21,7 @@ import type { USAGE_GROUP_BY } from '../validation/schemas.js';
 const logger = createLogger('usage-ledger');
 
 /** Counter of metered UNITS by quota type and outcome (value = amount, not calls). */
-export const QUOTA_INCREMENTS_METRIC = 'quota_increments_total';
+const QUOTA_INCREMENTS_METRIC = 'quota_increments_total';
 
 /** One ledger write. */
 export interface UsageEventInput {
@@ -128,7 +128,7 @@ export function recordUsageEvent(input: UsageEventInput): void {
 export type UsageGroupBy = (typeof USAGE_GROUP_BY)[number];
 
 /** Most groups one read returns (largest first) — the long tail is noise on a dashboard. */
-export const USAGE_MAX_GROUPS = 500;
+const USAGE_MAX_GROUPS = 500;
 
 export interface UsageQuery {
   /** The org the caller asked about. A pool ROOT sees its whole account; a team sees itself. */

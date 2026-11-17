@@ -14,6 +14,10 @@ export const RL_USER_NOT_FOUND = 'RL_USER_NOT_FOUND';
 export const RL_NOT_ORG_MEMBER = 'RL_NOT_ORG_MEMBER';
 /** You can't remove yourself from a Role that grants your own admin/superadmin. */
 export const RL_CANNOT_REMOVE_SELF = 'RL_CANNOT_REMOVE_SELF';
+/** Removing the org OWNER from the built-in Admin Role: permissions come only
+ *  from Roles, so the owner would keep the 'owner' label with none of the
+ *  permissions it needs to undo the change or transfer ownership. */
+export const RL_CANNOT_REMOVE_OWNER_ADMIN = 'RL_CANNOT_REMOVE_OWNER_ADMIN';
 /** Removing this user would leave a privilege-granting Role with no members. */
 export const RL_LAST_PRIVILEGED_MEMBER = 'RL_LAST_PRIVILEGED_MEMBER';
 /** Only a platform superadmin may add/remove members of a `superadmin`-granting

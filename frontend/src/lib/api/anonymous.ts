@@ -14,7 +14,7 @@
  * `code`, its `details`, and `retryAfter` on 429.
  */
 import { ApiError } from './errors';
-import { API_URL } from './util';
+import { API_URL, parseRetryAfterSeconds } from './util';
 
 interface ErrorBody { message?: string; code?: string; details?: Record<string, unknown>; data?: unknown }
 
@@ -33,8 +33,7 @@ export async function anonymousRequest<T>(path: string, init: RequestInit & { si
   const body = (await response.json().catch(() => ({}))) as ErrorBody;
   if (!response.ok) {
     const error = new ApiError(body.message || `Request failed (${response.status})`, response.status, body.code, body.details);
-    const retryAfter = Number(response.headers.get('Retry-After'));
-    if (Number.isFinite(retryAfter) && retryAfter > 0) error.retryAfter = retryAfter;
+    error.retryAfter = parseRetryAfterSeconds(response.headers.get('Retry-After'));
     throw error;
   }
   // The platform wraps payloads as `{ success, data }`; tolerate a bare body too.

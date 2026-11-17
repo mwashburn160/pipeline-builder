@@ -242,6 +242,20 @@ describe('notice settings', () => {
     expect(settingsFindOneAndUpdate).not.toHaveBeenCalled();
   });
 
+  it('an operator\'s `orgs:read` opens another account\'s settings but cannot WRITE them', async () => {
+    const operator = member('ops-org', ['orgs:read', 'quotas:read', 'billing:manage']);
+    settingsFindOne.mockResolvedValue(null);
+    const read = makeRes();
+    await run('get', '/:orgId/notice-settings', { user: operator, params: { orgId: 'root' }, query: {} }, read);
+    expect(read.status).toHaveBeenCalledWith(200);
+
+    const write = makeRes();
+    await run('put', '/:orgId/notice-settings', { user: operator, params: { orgId: 'root' }, body: { offersEnabled: false } }, write);
+    expect(write.status).toHaveBeenCalledWith(403);
+    expect(settingsFindOneAndUpdate).not.toHaveBeenCalled();
+    expect(recordAudit).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'quota.notice_settings.update' }));
+  });
+
   it('PUT on a TEAM is refused — notices belong to the account', async () => {
     resolveRootOrgId.mockResolvedValue('root');
     const res = makeRes();

@@ -100,16 +100,14 @@ const FATAL_LOOKUP_CODES: readonly string[] = [
 
 /** The error code of a plugin service answer, when it is one of {@link FATAL_LOOKUP_CODES}. */
 function fatalLookupCode(err: unknown): string | null {
-  const data = (err as { response?: { data?: unknown } } | undefined)?.response?.data;
-  const code = data && typeof data === 'object' ? (data as { code?: unknown }).code : undefined;
-  return typeof code === 'string' && FATAL_LOOKUP_CODES.includes(code) ? code : null;
+  const code = serviceErrorCode(err);
+  return code !== null && FATAL_LOOKUP_CODES.includes(code) ? code : null;
 }
 
 /** Whether the plugin service answered "no such plugin/version" (404 NOT_FOUND). */
 function isNotFound(err: unknown): boolean {
-  const response = (err as { response?: { status?: unknown; data?: unknown } } | undefined)?.response;
-  const code = response?.data && typeof response.data === 'object' ? (response.data as { code?: unknown }).code : undefined;
-  return response?.status === 404 || code === ErrorCode.NOT_FOUND;
+  const status = (err as { response?: { status?: unknown } } | undefined)?.response?.status;
+  return status === 404 || serviceErrorCode(err) === ErrorCode.NOT_FOUND;
 }
 
 /**

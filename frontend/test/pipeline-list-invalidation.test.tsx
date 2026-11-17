@@ -127,3 +127,17 @@ describe('pipeline detail', () => {
     expect(mockRouter.push).toHaveBeenCalledWith('/dashboard/pipelines');
   });
 });
+
+describe('pipelines catalog — page summary', () => {
+  it('counts only the PRIVATE rung as private, not org-shared rows', async () => {
+    mockRouter.pathname = '/dashboard/pipelines';
+    mockRouter.query = {};
+    listPipelines.mockResolvedValue({ success: true, data: { pipelines: [
+      row,
+      { ...row, id: 'p2', pipelineName: 'draft-pipeline', visibility: 'private' },
+      { ...row, id: 'p3', pipelineName: 'shared-pipeline', visibility: 'public' },
+    ], pagination: { total: 3, limit: 25, offset: 0, hasMore: false } } });
+    render(<PipelinesPage />);
+    expect(await screen.findByText(/Showing 3 of 3 pipelines · 1 private on this page/)).toBeInTheDocument();
+  });
+});

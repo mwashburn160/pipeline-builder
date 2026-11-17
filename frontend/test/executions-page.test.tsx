@@ -84,3 +84,23 @@ it('stat cards show distinct facts and each selects its own filter', () => {
   expect(screen.queryByText('pipe-a')).not.toBeInTheDocument();
   expect(screen.getByText('pipe-c')).toBeInTheDocument();
 });
+
+it('the headline rate counts SUCCEEDED runs — canceled runs did not pass', () => {
+  rows = [{ ...row('a', 10, 0), succeeded: 7, canceled: 3 } as ExecutionCountRow];
+  render(<ExecutionsPage />);
+  expect(screen.getByText('All clean')).toBeInTheDocument();
+  expect(screen.getByText('No failed runs · 7 of 10 passed')).toBeInTheDocument();
+  expect(screen.queryByText(/All 10 runs passing/)).not.toBeInTheDocument();
+});
+
+it('the headline says "All N runs passing" only when every run passed', () => {
+  rows = [row('a', 4, 0)];
+  render(<ExecutionsPage />);
+  expect(screen.getByText('All 4 runs passing')).toBeInTheDocument();
+});
+
+it('the failure headline rate excludes canceled runs', () => {
+  rows = [{ ...row('a', 10, 1), succeeded: 6, canceled: 3 } as ExecutionCountRow];
+  render(<ExecutionsPage />);
+  expect(screen.getByText(/60% passing/)).toBeInTheDocument();
+});

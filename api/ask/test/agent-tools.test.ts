@@ -59,6 +59,7 @@ jest.unstable_mockModule('@pipeline-builder/ai-core', () => stubModule('@pipelin
 
 const { buildAgentTools } = await import('../src/services/agent-tools.js');
 const { DownstreamError } = await import('../src/services/downstream-error.js');
+const { MAX_MODEL_TEXT_CHARS } = await import('../src/services/secret-redaction.js');
 /** The options a DELEGATED generation is posted with (the generation timeout). */
 const GEN = { generation: true };
 // The SHARED allowlist — the same module the browser's confirm handler reads.
@@ -209,6 +210,14 @@ describe('diagnosis — inspect_pipeline_run', () => {
     reporting.get.mockResolvedValue({ data: { executions: [{ execution_id: 'e1', status: 'failed' }, { execution_id: 'e2', status: 'failed' }] } });
     const out = await call('inspect_pipeline_run', { pipelineId: 'p1', executionId: 'e2' });
     expect(out.executions).toEqual([expect.objectContaining({ executionId: 'e2' })]);
+    // A named run is looked for beyond the default 10 most recent.
+    expect(reporting.get).toHaveBeenCalledWith('/reports/execution/list?pipelineId=p1&limit=200');
+  });
+
+  it('says a named execution was NOT FOUND rather than returning an empty (healthy-looking) history', async () => {
+    reporting.get.mockResolvedValue({ data: { executions: [{ execution_id: 'e1', status: 'succeeded' }] } });
+    const out = await call('inspect_pipeline_run', { pipelineId: 'p1', executionId: 'old-run' });
+    expect(out).toEqual({ pipelineId: 'p1', executionId: 'old-run', notFound: expect.stringContaining('old-run') });
   });
 
   it('reports the history as unavailable instead of failing the turn', async () => {
@@ -262,6 +271,31 @@ describe('diagnosis — inspect_plugin_build', () => {
     const out = await call('inspect_plugin_build', {});
     expect(out.plugin).toBeUndefined();
     expect(out.failedJobs).toEqual([expect.objectContaining({ jobId: 'j1', error: 'boom' })]);
+  });
+
+  it('masks secrets the build error quotes, then caps it — the raw text never reaches the model', async () => {
+    const token = `ghp_${'A1b2'.repeat(9)}`;
+    const raw = `push failed: https://bot:hunter2pass@registry.example.com/v2/ denied; Authorization: Bearer abc.def-ghi; GITHUB_TOKEN=${token} `
+      + 'x'.repeat(2000);
+    plugin.get.mockImplementation(async (path: string) => (path === '/plugins/queue/triage'
+      ? { data: { totalFailed: 2, groups: [{ category: 'auth-secrets', count: 2, pluginNames: ['p'], samples: [{ id: 'j1', pluginName: 'p', version: '1.0.0', error: raw, failedAt: null, source: 'queue' }] }] } }
+      : { data: { jobs: [{ id: 'j1', pluginName: 'p', error: raw }, { id: 'j2', pluginName: 'q', error: null }, { id: 'j3', pluginName: 'r', error: { message: 'token=s3cr3tvalue123' } }] } }));
+    const out = await call('inspect_plugin_build', {});
+    // The triage samples are the same raw build text: masked + capped the same way.
+    const sample = (out.triage as { groups: Array<{ category: string; samples: Array<{ error: string }> }> }).groups[0];
+    expect(sample.category).toBe('auth-secrets');
+    expect(sample.samples[0].error).toContain('[REDACTED]');
+    expect(sample.samples[0].error.length).toBeLessThanOrEqual(MAX_MODEL_TEXT_CHARS + 1);
+    const [first, second, third] = out.failedJobs as Array<{ error: string | null }>;
+    expect(first.error).toContain('push failed');
+    expect(first.error).toContain('[REDACTED]');
+    for (const secret of ['hunter2pass', 'abc.def-ghi', token]) expect(JSON.stringify(out)).not.toContain(secret);
+    expect(first.error!.length).toBeLessThanOrEqual(MAX_MODEL_TEXT_CHARS + 1);
+    expect(first.error!.endsWith('…')).toBe(true);
+    expect(second.error).toBeNull();
+    // A structured error is serialised, then masked like text.
+    expect(third.error).toContain('message');
+    expect(third.error).not.toContain('s3cr3tvalue123');
   });
 });
 
@@ -844,6 +878,18 @@ describe('edit — propose_pipeline_edit', () => {
     expect(JSON.stringify(out.proposed)).not.toContain('public');
   });
 
+  it('dry-runs a NON-props edit too, against the whole row as it will stand (stored visibility kept)', async () => {
+    pipeline.get.mockResolvedValue({ data: { pipeline: { ...current, visibility: 'public', ownerId: 'u1' } } });
+    const out = await call('propose_pipeline_edit', { id: 'p1', changes: { description: 'new' } });
+    expect(out.changedFields).toEqual(['description']);
+    expect(out.compliance).toMatchObject({ checked: true });
+    expect(compliance.post).toHaveBeenCalledWith('/compliance/validate/pipeline/dry-run', {
+      attributes: {
+        pipelineName: 'api', description: 'new', keywords: ['a'], visibility: 'public', ownerId: 'u1', props: current.props,
+      },
+    });
+  });
+
   it('declines when every requested field is off the allowlist', async () => {
     pipeline.get.mockResolvedValue({ data: { pipeline: current } });
     const out = await call('propose_pipeline_edit', { id: 'p1', changes: { visibility: 'public' } });
@@ -942,6 +988,23 @@ describe('secrets never reach the model, and an edit never persists a placeholde
     const out = await call('propose_pipeline_edit', { id: 'p1', changes: { props } });
     expect(out).toMatchObject({ kind: 'pipeline-edit', error: expect.stringContaining('props.synth.env.DEPLOY_KEY') });
     expect(out).not.toHaveProperty('proposed');
+  });
+
+  it('DECLINES a real placeholder moved to a NON-secret field — the secret is never restored into plaintext', async () => {
+    const view = await modelView();
+    const tokenPlaceholder = view.props.synth.source.options.token as string;
+    pipeline.get.mockResolvedValue({ data: stored() });
+    const out = await call('propose_pipeline_edit', { id: 'p1', changes: { description: tokenPlaceholder } });
+    expect(out).toMatchObject({ kind: 'pipeline-edit', error: expect.stringContaining('description') });
+    expect(out).not.toHaveProperty('proposed');
+    expect(JSON.stringify(out)).not.toContain(SECRET_TOKEN);
+
+    // The same inside props: a stage name is not a secret position.
+    const props = { ...view.props, stages: [{ ...view.props.stages[0], stageName: tokenPlaceholder }] };
+    pipeline.get.mockResolvedValue({ data: stored() });
+    const nested = await call('propose_pipeline_edit', { id: 'p1', changes: { props } });
+    expect(nested).toMatchObject({ error: expect.stringContaining('props.stages[0].stageName') });
+    expect(JSON.stringify(nested)).not.toContain(SECRET_TOKEN);
   });
 
   it('DECLINES a bare [REDACTED] marker too', async () => {

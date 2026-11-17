@@ -59,7 +59,7 @@ export type OfferStatus = (typeof OFFER_STATUSES)[number];
  * the date it expects the better offer by, and the outcome measurement can ask whether holds
  * were vindicated.
  */
-export const SUPPRESSION_REASONS = [
+const SUPPRESSION_REASONS = [
   'offers_disabled_instance',
   'offers_disabled_account',
   'quiet_period',

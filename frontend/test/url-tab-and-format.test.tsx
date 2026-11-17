@@ -174,6 +174,16 @@ describe('formatDuration — one duration vocabulary', () => {
     expect(formatDuration(90_000_000)).toBe('1d 1h');
   });
 
+  it('never rounds a remainder up to a whole unit ("1m 60s", "3h 60m")', () => {
+    expect(formatDuration(999.6)).toBe('1s');
+    expect(formatDuration(59_600)).toBe('1m');
+    expect(formatDuration(119_700)).toBe('2m');
+    expect(formatDuration(3_599_700)).toBe('1h');
+    expect(formatDuration(14_390_000)).toBe('4h');
+    expect(formatDuration(86_390_000)).toBe('1d');
+    expect(formatDuration(171_000_000)).toBe('2d');
+  });
+
   it('renders the placeholder for null/negative rather than "NaN" or "-1ms"', () => {
     expect(formatDuration(null)).toBe('—');
     expect(formatDuration(undefined)).toBe('—');

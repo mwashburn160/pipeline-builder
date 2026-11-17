@@ -84,6 +84,8 @@ Three differences, and each one is the reason a decision in this feature went th
 | `reports:rollup` | A report may cover descendant teams, not just its own org. |
 | `org_settings:write` | Change **who reports may reach** — the org policy above. |
 
+**Auto-send needs `reports:publish`.** An auto-send report publishes itself every period with nobody clicking Publish, so arming it is a publish decision, not an authoring one. Creating a definition with `autoSend: true`, turning `autoSend` on, or changing the recipients of a report that auto-sends all return **403** without `reports:publish`, even though the definition routes themselves are on `reports:write`. The check is made in the handler, so it does not appear in the route table. The scheduler holds the owner to the same rule on every run (see [What a scheduled run re-checks](#what-a-scheduled-run-re-checks)).
+
 `author` and `share` are split because publishing is a different risk from writing: a lead can be trusted to build reports without being trusted to mail them outside the company. The built-in **Team Lead** role carries both, and deliberately not `reports:rollup` — downward visibility across the org tree is granted, not inherited.
 
 The policy is on `org_settings:write` rather than `reports:write` for the same kind of reason: if a report author could widen the allowed domains or turn on public links, the policy would only be a suggestion.
@@ -136,9 +138,9 @@ A team's report is bounded by its **account root's** retention window (retention
 
 ### What a scheduled run re-checks
 
-A scheduled run has **no caller**, so it is authorized as the definition's **owner**, and that authorization is re-checked on every single run against the platform service: is the owner still an active member, do they still hold `reports:write` — and, for a **rollup** definition (one that covers the descendant teams), `reports:rollup` too — and does the account still hold the add-on. Nothing is cached. An entitlement that lapsed on Tuesday has to stop Wednesday's report, and a cache refreshed by a sync leg is exactly one missed sync away from mailing a report the customer stopped paying for.
+A scheduled run has **no caller**, so it is authorized as the definition's **owner**, and that authorization is re-checked on every single run against the platform service: is the owner still an active member, do they still hold `reports:write` — and, for a **rollup** definition (one that covers the descendant teams), `reports:rollup` too, and for an **auto-send** definition `reports:publish` — and does the account still hold the add-on. Nothing is cached. An entitlement that lapsed on Tuesday has to stop Wednesday's report, and a cache refreshed by a sync leg is exactly one missed sync away from mailing a report the customer stopped paying for.
 
-A check that comes back **revoked** pauses the definition with the reason, and the lead is told which of the three it was — an entitlement lapse is a billing conversation, a deactivated owner is a handover, and a lost permission (`permission_lost`, either `reports:write` or a rollup's `reports:rollup`) is an admin question, and a single "paused" notice would send all three to the wrong person.
+A check that comes back **revoked** pauses the definition with the reason, and the lead is told which of the three it was — an entitlement lapse is a billing conversation, a deactivated owner is a handover, and a lost permission (`permission_lost`: `reports:write`, a rollup's `reports:rollup`, or an auto-send definition's `reports:publish`) is an admin question, and a single "paused" notice would send all three to the wrong person.
 
 A check that comes back **unreadable** only skips that run. Failing closed is right for the run; pausing every report in the fleet because platform was unreachable for five minutes is not, because a human would then have to resume each one.
 

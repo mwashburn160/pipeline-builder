@@ -264,8 +264,11 @@ function PipelineDetail({ id }: { id: string }) {
 
   const [showEdit, setShowEdit] = useState(false);
   const [showSaveTemplate, setShowSaveTemplate] = useState(false);
-  const canWrite = can('pipelines:write');
-  const canPublish = can('pipelines:publish');
+  // Saving as a template is a TEMPLATE write (`POST /pipeline-templates` gates on
+  // `templates:write`, and the public rung on `templates:publish`) — not a
+  // pipeline write, which a member can hold without either.
+  const canWriteTemplate = can('templates:write');
+  const canPublishTemplate = can('templates:publish');
   const [showDelete, setShowDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -359,7 +362,7 @@ function PipelineDetail({ id }: { id: string }) {
   // `pipelines:write` capability and ownership of the resource — the backend
   // gates every pipeline mutation on `pipelines:write`, so a read-only member
   // must not see them enabled (matches the list page).
-  const canEdit = pipeline ? canWritePipeline(can, isSuperAdmin, pipeline, user?.id) : false;
+  const canEdit = pipeline ? canWritePipeline(can, isSuperAdmin, pipeline, user?.id, user?.organizationId) : false;
 
   return (
     <DashboardLayout
@@ -392,9 +395,9 @@ function PipelineDetail({ id }: { id: string }) {
           <Button
             variant="secondary"
             onClick={() => setShowSaveTemplate(true)}
-            disabled={!canWrite}
+            disabled={!canWriteTemplate}
             className="inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            title={canWrite ? 'Save this pipeline as a reusable golden-path template' : 'Requires pipelines:write'}
+            title={canWriteTemplate ? 'Save this pipeline as a reusable golden-path template' : 'Requires templates:write'}
           >
             <LayoutTemplate className="w-4 h-4" /> Save as template
           </Button>
@@ -574,8 +577,8 @@ function PipelineDetail({ id }: { id: string }) {
 
         {activeTab === 'runs' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Recent runs card — derived from org-wide execution-count
-              aggregate. Absent if the pipeline has no recorded runs. */}
+          {/* Recent runs card — derived from the org-wide execution-count
+              aggregate. */}
           <Card>
             <h3 className="text-base font-semibold text-fg mb-3">Recent runs</h3>
             {execStats ? (
@@ -620,6 +623,11 @@ function PipelineDetail({ id }: { id: string }) {
                   </Link>
                 </div>
               </dl>
+            ) : execCounts.error ? (
+              // A failed org-wide read is not "no runs": say so, with a retry.
+              <RetryError message="Run totals could not be loaded" onRetry={execCounts.refetch} />
+            ) : execCounts.loading ? (
+              <div className="flex items-center gap-2 text-sm text-fg-muted"><LoadingSpinner size="sm" label={null} /> Loading runs…</div>
             ) : (
               <p className="text-sm text-fg-muted">No recorded runs yet.</p>
             )}
@@ -667,7 +675,7 @@ function PipelineDetail({ id }: { id: string }) {
       {showSaveTemplate && pipeline && (
         <CreateTemplateModal
           pipeline={pipeline}
-          canPublish={canPublish}
+          canPublish={canPublishTemplate}
           onClose={() => setShowSaveTemplate(false)}
           onCreated={() => setShowSaveTemplate(false)}
         />

@@ -62,8 +62,9 @@ beforeEach(() => {
   mockAuthGuard({
     isAdmin: true,
     // The affordance is backend-gated to the owner, so the viewer must BE one.
-    user: { id: 'me', organizationId: 'org-1', role: 'owner', permissions: ['members:manage'] },
-    can: (p: string) => p === 'members:manage',
+    user: { id: 'me', organizationId: 'org-1', role: 'owner', permissions: ['members:manage', 'org_settings:write'] },
+    // `PATCH /organization/:id/transfer-owner` also needs org_settings:write.
+    can: (p: string) => p === 'members:manage' || p === 'org_settings:write',
   });
   mockApi.getOrganizationMembers = jest.fn<AnyFn>().mockResolvedValue({
     success: true, data: { members: [BEE], pagination: { total: 1, limit: 25, offset: 0, hasMore: false } },
@@ -118,6 +119,19 @@ describe('transfer ownership is one dialog', () => {
       isAdmin: true,
       user: { id: 'me', organizationId: 'org-1', role: 'admin', permissions: ['members:manage'] },
       can: (p: string) => p === 'members:manage',
+    });
+    render(<MembersPage />);
+    await screen.findByText('bee');
+    expect(screen.queryByRole('button', { name: /transfer organization ownership/i })).not.toBeInTheDocument();
+  });
+
+  it('is not offered in a read-only session viewing an owner (`user.role` is the TARGET\'s there)', async () => {
+    // `can()` is read-only-aware: the org_settings:write half answers false.
+    mockAuthGuard({
+      isAdmin: true,
+      isReadOnly: true,
+      user: { id: 'me', organizationId: 'org-1', role: 'owner', permissions: ['members:manage', 'org_settings:write'] },
+      can: () => false,
     });
     render(<MembersPage />);
     await screen.findByText('bee');

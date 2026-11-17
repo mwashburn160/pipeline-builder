@@ -131,6 +131,21 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
     await Promise.all([...patterns].map((p) => messageCache.invalidatePattern(p)));
   }
 
+  /**
+   * Invalidate the cached views of messages removed OUTSIDE this service's
+   * mutation paths (the notification age-out deletes rows directly), so a
+   * purged notice stops appearing in its audience's cached inbox.
+   */
+  async invalidateRemovedMessages(rows: ReadonlyArray<{ orgId: string; recipientOrgId: string | null }>): Promise<void> {
+    const seen = new Set<string>();
+    await Promise.all(rows.filter((r) => {
+      const key = `${r.orgId}|${r.recipientOrgId ?? ''}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).map((r) => this.invalidateMessageCaches(r.orgId, r.recipientOrgId)));
+  }
+
   protected async onAfterCreate(entity: Message): Promise<void> {
     await this.invalidateMessageCaches(entity.orgId, entity.recipientOrgId);
   }

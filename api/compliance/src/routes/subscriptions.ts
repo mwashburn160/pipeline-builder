@@ -6,7 +6,6 @@ import {
   sendPaginatedNested,
   sendBadRequest,
   ErrorCode,
-  getParam,
   parsePaginationParams,
   validateBody,
   audited,
@@ -28,6 +27,7 @@ import { isFieldPresent } from '../engine/rule-operators.js';
 import { setForFeature } from '../helpers/content-set-tags.js';
 import { evaluateEntity } from '../helpers/evaluate-entity.js';
 import { withInheritedSource } from '../helpers/inherited-source.js';
+import { uuidParam } from '../helpers/uuid-param.js';
 import { complianceRuleService } from '../services/compliance-rule-service.js';
 import { subscriptionService } from '../services/subscription-service.js';
 
@@ -188,10 +188,8 @@ export function createSubscriptionRoutes(): Router {
 
   // PATCH /:ruleId — activate or deactivate a subscribed rule
   router.patch('/:ruleId', requireComplianceRead, audited('compliance.rule.toggle'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const ruleId = getParam(req.params, 'ruleId');
-    if (!ruleId) {
-      return sendBadRequest(res, 'ruleId is required', ErrorCode.VALIDATION_ERROR);
-    }
+    const ruleId = uuidParam(req, res, 'ruleId');
+    if (!ruleId) return;
 
     const validation = validateBody(req, SetActiveSchema);
     if (!validation.ok) {
@@ -487,8 +485,8 @@ export function createSubscriptionRoutes(): Router {
   // tightening (or fix) of the published rule stops applying — the same class of
   // posture change as deactivating. Hence `compliance:write`, like unsubscribe.
   router.post('/:ruleId/pin', requireComplianceWrite, audited('compliance.rule.toggle'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const ruleId = getParam(req.params, 'ruleId');
-    if (!ruleId) return sendBadRequest(res, 'ruleId is required', ErrorCode.VALIDATION_ERROR);
+    const ruleId = uuidParam(req, res, 'ruleId');
+    if (!ruleId) return;
 
     const subscription = await subscriptionService.pinVersion(orgId, ruleId, userId);
     ctx.log('COMPLETED', 'Pinned subscription version', { ruleId });
@@ -513,8 +511,8 @@ export function createSubscriptionRoutes(): Router {
   // DELETE /:ruleId/pin — unpin subscription (use latest rule version). Same
   // governance gate + trail as the pin above.
   router.delete('/:ruleId/pin', requireComplianceWrite, audited('compliance.rule.toggle'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const ruleId = getParam(req.params, 'ruleId');
-    if (!ruleId) return sendBadRequest(res, 'ruleId is required', ErrorCode.VALIDATION_ERROR);
+    const ruleId = uuidParam(req, res, 'ruleId');
+    if (!ruleId) return;
 
     const subscription = await subscriptionService.unpinVersion(orgId, ruleId);
     ctx.log('COMPLETED', 'Unpinned subscription version', { ruleId });
@@ -537,10 +535,8 @@ export function createSubscriptionRoutes(): Router {
   // governance-gated), so leaving unsubscribe at member level bypassed that
   // gate. Same route-level gate as POST /clone.
   router.delete('/:ruleId', requireComplianceWrite, audited('compliance.rule.toggle'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const ruleId = getParam(req.params, 'ruleId');
-    if (!ruleId) {
-      return sendBadRequest(res, 'ruleId is required', ErrorCode.VALIDATION_ERROR);
-    }
+    const ruleId = uuidParam(req, res, 'ruleId');
+    if (!ruleId) return;
 
     await subscriptionService.unsubscribe(orgId, ruleId, userId);
     ctx.log('COMPLETED', 'Unsubscribed from published rule', { ruleId });

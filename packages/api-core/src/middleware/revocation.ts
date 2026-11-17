@@ -97,17 +97,24 @@ let revocationStoreMissingWarned = false;
  * Fail-open — any store error, a missing entry, or a token/store without a
  * usable version yields `false` (allow). Never throws.
  */
+/**
+ * Make the "revocation is OFF" state OBSERVABLE: a service that verifies user
+ * tokens but forgot `setTokenRevocationStore()` silently disables the session
+ * kill-switch. Warn ONCE (only for a revocable user token) so a misconfigured
+ * boot surfaces in the logs instead of failing open invisibly. Called from both
+ * the `requireAuth` path ({@link hasRevocationCheck}) and the out-of-band one.
+ */
+function warnIfStoreMissing(decoded: Pick<JwtPayload, 'sub' | 'tokenVersion'>): void {
+  if (!revocationStoreMissingWarned && decoded.sub && typeof decoded.tokenVersion === 'number') {
+    revocationStoreMissingWarned = true;
+    logger.warn('Token revocation store NOT registered — revocation checks are INACTIVE (setTokenRevocationStore was never called); revoked/compromised sessions stay valid until natural TTL');
+  }
+}
+
 async function isTokenRevoked(decoded: JwtPayload): Promise<boolean> {
   const store = tokenRevocationStore;
   if (!store) {
-    // Make the "revocation is OFF" state OBSERVABLE: a service that verifies user
-    // tokens but forgot `setTokenRevocationStore()` silently disables the session
-    // kill-switch. Warn ONCE (only for a revocable user token) so a misconfigured
-    // boot surfaces in the logs instead of failing open invisibly.
-    if (!revocationStoreMissingWarned && decoded.sub && typeof decoded.tokenVersion === 'number') {
-      revocationStoreMissingWarned = true;
-      logger.warn('Token revocation store NOT registered — revocation checks are INACTIVE (setTokenRevocationStore was never called); revoked/compromised sessions stay valid until natural TTL');
-    }
+    warnIfStoreMissing(decoded);
     return false;
   }
   if (store.isCredentialRevoked) {
@@ -133,7 +140,10 @@ async function isTokenRevoked(decoded: JwtPayload): Promise<boolean> {
 /** Whether the registered store has anything to say about this token. */
 function hasRevocationCheck(decoded: JwtPayload): boolean {
   const store = tokenRevocationStore;
-  if (!store) return false;
+  if (!store) {
+    warnIfStoreMissing(decoded);
+    return false;
+  }
   if (decoded.sub && typeof decoded.tokenVersion === 'number') return true;
   return !!store.isCredentialRevoked && credentialRevocationRefs(decoded) !== null;
 }

@@ -163,6 +163,25 @@ describe('audit stacks', () => {
     expect(report.findings).toHaveLength(2);
   });
 
+  it('a stack that exists in a non-terminal state is not missing-stack', async () => {
+    registry = [row(1), row(2)];
+    stackPages = [[
+      { ...stack('stack-1'), StackStatus: 'UPDATE_IN_PROGRESS' },
+      { ...stack('stack-2'), StackStatus: 'UPDATE_ROLLBACK_FAILED' },
+    ]];
+    const { code, report } = await audit(['--region', 'us-east-1']);
+    expect(report.findings).toEqual([]);
+    expect(code).toBe(0);
+  });
+
+  it('--json writes only the report to stdout (credential progress goes to stderr)', async () => {
+    registry = [row(1)];
+    stackPages = [[stack('stack-1')]];
+    await audit(['--region', 'us-east-1']);
+    const stdout = (console.log as unknown as jest.Mock).mock.calls.map((c) => c.map(String).join(' ')).join('\n');
+    expect(() => JSON.parse(stdout)).not.toThrow();
+  });
+
   it('compares only the scanned region\'s registry rows', async () => {
     registry = [row(1), row(2, { region: 'eu-west-1' }), row(3, { region: undefined })];
     stackPages = [[stack('stack-1')]];

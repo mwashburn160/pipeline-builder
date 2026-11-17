@@ -214,8 +214,12 @@ export default function DashboardPage() {
     void router.replace({ pathname: router.pathname, query: {...router.query, range: next } }, undefined, { shallow: true });
   }, [router]);
 
+  // A clone is a create: a second click while the first is in flight would
+  // make a second copy.
+  const [cloning, setCloning] = useState(false);
   const onClone = async () => {
-    if (!dashboard) return;
+    if (!dashboard || cloning) return;
+    setCloning(true);
     try {
       const res = await api.cloneDashboard(dashboard.id);
       const newId = res.data?.dashboard.id;
@@ -225,6 +229,8 @@ export default function DashboardPage() {
       }
     } catch (err) {
       toast.error(formatError(err));
+    } finally {
+      setCloning(false);
     }
   };
 
@@ -303,6 +309,7 @@ export default function DashboardPage() {
             // Clone is a create (POST, `dashboards:write` at the route); `can()`
             // also reports false under read-only impersonation.
             disabled={!canClone}
+            loading={cloning}
             title={canClone ? undefined : (isReadOnly ? READ_ONLY_REASON : 'Requires dashboards:write')}
             className="gap-1"
           >

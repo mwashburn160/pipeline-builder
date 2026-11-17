@@ -139,6 +139,20 @@ about a missed target a factual one.
 A case is never silently archived. `resolved` and `closed` are distinct so that
 "we believe this is answered" and "this is finished" are different statements.
 
+Setting a case to the status it already has changes nothing. The waiting-on-you
+time already counted is kept, and a repeated close does not move when the case
+was closed or who closed it.
+
+### Replying to an announcement
+
+Announcements are one-way. When you reply to one, your reply starts a **new
+conversation** with the support desk, titled `Re: <announcement subject>`, with
+the announcement quoted beneath your text so support reads it in context. Support
+answers you in that conversation. It is correspondence rather than a case: it
+spends no incident and carries no response target. Support staff cannot reply
+on the announcement itself, because a reply there would have no single customer
+to go to.
+
 ### Rating a case
 
 When a case is closed you can rate it 1–5 with an optional comment. CSAT is the

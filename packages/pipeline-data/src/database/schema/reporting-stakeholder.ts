@@ -150,7 +150,7 @@ export const reportRun = pgTable('report_runs', {
   // `asks` was DELETED here, and it is the removal most worth explaining, because the idea
   // was good: what the lead needs a decision on, from whom, by when — kept apart from
   // `leadNotes` because a request for a decision buried in narrative reads as commentary
-  // and gets no answer. It was declared in Phase 2 and then never written or read by
+  // and gets no answer. It was declared and then never written or read by
   // anything: no route accepted one, no composer emitted one, no view rendered one, and
   // the shared report a manager actually reads never showed them. A column that only ever
   // held its own default is not a feature in progress, it is a claim the schema makes and

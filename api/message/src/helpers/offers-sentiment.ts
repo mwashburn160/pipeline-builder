@@ -41,7 +41,7 @@
 import { Output, aiCallSettings, generateText, resolveModelSelection } from '@pipeline-builder/ai-core';
 import { createLogger, emitCounter, errorMessage, LIVE_SUPPORT_CASE_STATUSES } from '@pipeline-builder/api-core';
 import { runWithTenantContext, schema, withTenantTxRead } from '@pipeline-builder/pipeline-data';
-import { and, desc, eq, gte, inArray } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 
 const logger = createLogger('offers-sentiment');
@@ -129,7 +129,10 @@ function noSignal(orgId: string, sampled: number, degraded: boolean): Frustratio
  * is a sales cycle: an AI outage must cost us a suppression signal, not an
  * account's turn.
  */
-export async function frustrationSignalFor(orgId: string): Promise<FrustrationSignal> {
+export async function frustrationSignalFor(rawOrgId: string): Promise<FrustrationSignal> {
+  // Org ids are stored lower-cased; a mixed-case path param must read the same
+  // org rather than finding no cases and answering "content".
+  const orgId = rawOrgId.toLowerCase();
   let excerpts: string[] = [];
   try {
     excerpts = await recentCaseExcerpts(orgId);
@@ -210,9 +213,13 @@ export const SENTIMENT_SYSTEM_PROMPT = [
  * SYSADMIN scope (the caller is a service with no tenant session), so the
  * explicit `org_id` predicate on the cases — not RLS — is what confines the
  * assessment to this org's own cases; the messages are then read only by those
- * cases' thread ids.
+ * cases' thread ids. Soft-deleted cases and messages are excluded (a deleted
+ * message is gone for everyone, so it must not speak for the account), and both
+ * reads are ordered newest-first with an id tiebreak, so the same data always
+ * yields the same sample and so the same signal.
  */
-export async function recentCaseExcerpts(orgId: string): Promise<string[]> {
+export async function recentCaseExcerpts(rawOrgId: string): Promise<string[]> {
+  const orgId = rawOrgId.toLowerCase();
   const since = new Date(Date.now() - SENTIMENT_WINDOW_DAYS * 24 * 60 * 60 * 1000);
   return runWithTenantContext({ orgId, isSuperAdmin: true }, async () => withTenantTxRead(async (tx) => {
     const cases = await tx
@@ -225,15 +232,20 @@ export async function recentCaseExcerpts(orgId: string): Promise<string[]> {
         // signal is about.
         inArray(schema.supportCase.status, [...LIVE_SUPPORT_CASE_STATUSES]),
         gte(schema.supportCase.createdAt, since),
+        isNull(schema.supportCase.deletedAt),
       ))
-      .orderBy(desc(schema.supportCase.createdAt))
+      .orderBy(desc(schema.supportCase.createdAt), desc(schema.supportCase.id))
       .limit(MAX_EXCERPTS);
     if (cases.length === 0) return [];
 
     const rows = await tx
       .select({ subject: schema.message.subject, content: schema.message.content })
       .from(schema.message)
-      .where(inArray(schema.message.id, cases.map((c) => c.threadId)))
+      .where(and(
+        inArray(schema.message.id, cases.map((c) => c.threadId)),
+        isNull(schema.message.deletedAt),
+      ))
+      .orderBy(desc(schema.message.createdAt), desc(schema.message.id))
       .limit(MAX_EXCERPTS);
 
     return rows

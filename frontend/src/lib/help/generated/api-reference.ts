@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 40337598be71b8e173508cc4e96eb8b11947483201393d95826e67bd694209aa
+// SOURCE-SHA256: b60a01d17a5ede6faf36cfc4c5ba60124e9bb8832cd69b9d7c5044e95188aba9
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1208,7 +1208,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "POST",
               "/messages/:id/reply",
-              "Reply to a thread",
+              "Reply to a thread. On an announcement it starts a new support conversation instead (see below)",
               "messages:write"
             ],
             [
@@ -1265,6 +1265,10 @@ export const apiReferenceTopic: HelpTopic = {
         {
           "type": "text",
           "content": "Contacting support: reaching support is self-service, so POST /messages/support is gated on messages:read — the same authority the inbox needs — rather than messages:write. A read-only member can therefore file a request although they cannot send ordinary messages. The route is safe at that floor because the recipient is not a caller input: it is always the system support org, on the reserved support channel. Everything else (validation, attachment linking, the SSE ping, the send rate limit) matches POST /messages; announcements, broadcasts and per-user targeting do not apply. Attachments must still be uploaded through POST /messages/attachments, which remains messages:write."
+        },
+        {
+          "type": "text",
+          "content": "Replying to an announcement: announcements are one-way. A member's POST /messages/:id/reply on an announcement does not add a row to the broadcast's thread, which every org can open. It starts a new conversation between the member's org and the system support org on the support channel, with the subject Re: <announcement subject>. The member's text comes first, and the announcement (its subject, when it went out, and an excerpt) is quoted below it. The 201 returns that new conversation, and its id is the thread to follow. Attachments link to it. No support case is opened. Support staff answer in that thread. A system-org reply on the announcement itself is refused with 400."
         },
         {
           "type": "text",
@@ -1843,7 +1847,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "POST",
               "/auth/device/approve",
-              "Grant the waiting device a session, { userCode }. The CLI session inherits this session's org, amr, aal and auth_time",
+              "Grant the waiting device a session, { userCode }. The CLI session inherits this session's org, amr, aal, auth_time and the passkey it was earned with. Only your own interactive session can approve: an access-key, scoped or impersonation token answers 403 INTERACTIVE_SESSION_REQUIRED",
               "+ step-up"
             ],
             [

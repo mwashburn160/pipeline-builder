@@ -926,10 +926,12 @@ CREATE INDEX IF NOT EXISTS deployment_outcomes_org_env_idx
     ON deployment_outcomes(org_id, environment);
 CREATE INDEX IF NOT EXISTS deployment_outcomes_execution_idx
     ON deployment_outcomes(execution_id);
--- Idempotent re-marking: one row per (execution, outcome) — a duplicate POST is
--- an upsert (refreshes `at`), a failed→restored pair stays two rows.
-CREATE UNIQUE INDEX IF NOT EXISTS deployment_outcomes_execution_outcome_unique
-    ON deployment_outcomes(execution_id, outcome);
+-- Idempotent re-marking: one row per (org, execution, outcome) — a duplicate
+-- POST is an upsert (refreshes `at`), a failed→restored pair stays two rows.
+-- org_id leads: under forced RLS an index without it lets one org's row (which
+-- the other org cannot see) collide with, and block, another org's upsert.
+CREATE UNIQUE INDEX IF NOT EXISTS deployment_outcomes_org_execution_outcome_unique
+    ON deployment_outcomes(org_id, execution_id, outcome);
 
 -- ============================================================================
 -- INGEST HEALTH (per-org events-Lambda forwarded/dropped/last-seen — DORA)
@@ -1515,7 +1517,9 @@ CREATE TABLE IF NOT EXISTS compliance_scan_schedules (    id UUID PRIMARY KEY DE
     created_by TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_by TEXT NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMPTZ,
+    deleted_by TEXT
 );
 
 CREATE INDEX IF NOT EXISTS compliance_scan_schedule_active_next_idx
@@ -1838,22 +1842,17 @@ CREATE TABLE IF NOT EXISTS dora_deployments (
     lead_time_gap VARCHAR(30)
         CONSTRAINT dora_deployment_gap_check
         CHECK (lead_time_gap IS NULL OR lead_time_gap IN ('no_token', 'rate_limited', 'unsupported_source', 'no_commit_data')),
-    -- Post-deploy outcome, denormalized onto the deploy so change-failure rate
-    -- and time-to-restore are one scan rather than a join per window.
-    failed_at TIMESTAMPTZ,
-    restored_at TIMESTAMPTZ,
-    correlation_confidence VARCHAR(10)
-        CONSTRAINT dora_deployment_confidence_check
-        CHECK (correlation_confidence IS NULL OR correlation_confidence IN ('high', 'medium', 'low')),
     -- The EventBridge event id of the deploy STAGE event that last wrote this
     -- row, so a DORA number traces back to the exact pipeline_events row (and
     -- AWS event) behind it. NULL when the deploy came from a producer without one.
     source_event_id VARCHAR(128),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    -- One row per execution per environment: a redelivered event (EventBridge to
-    -- SQS is at-least-once) upserts instead of inserting a second deploy.
-    PRIMARY KEY (execution_id, environment)
+    -- One row per org, execution and environment: a redelivered event
+    -- (EventBridge to SQS is at-least-once) upserts instead of inserting a second
+    -- deploy. org_id leads the key: under forced RLS a key without it lets one
+    -- org's (invisible) row collide with another org's upsert, which then fails.
+    PRIMARY KEY (org_id, execution_id, environment)
 );
 
 CREATE INDEX IF NOT EXISTS dora_deployment_org_env_deployed_idx
@@ -3144,6 +3143,7 @@ ALTER TABLE org_alert_destinations ADD COLUMN IF NOT EXISTS purge_after TIMESTAM
 ALTER TABLE org_alert_rules        ADD COLUMN IF NOT EXISTS purge_after TIMESTAMPTZ;
 ALTER TABLE compliance_policies    ADD COLUMN IF NOT EXISTS purge_after TIMESTAMPTZ;
 ALTER TABLE compliance_rules       ADD COLUMN IF NOT EXISTS purge_after TIMESTAMPTZ;
+ALTER TABLE compliance_scan_schedules ADD COLUMN IF NOT EXISTS purge_after TIMESTAMPTZ;
 ALTER TABLE messages               ADD COLUMN IF NOT EXISTS purge_after TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS plugin_purge_idx                ON plugins(purge_after)                WHERE deleted_at IS NOT NULL;
@@ -3154,6 +3154,7 @@ CREATE INDEX IF NOT EXISTS org_alert_destination_purge_idx ON org_alert_destinat
 CREATE INDEX IF NOT EXISTS org_alert_rule_purge_idx        ON org_alert_rules(purge_after)        WHERE deleted_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS compliance_policy_purge_idx     ON compliance_policies(purge_after)    WHERE deleted_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS compliance_rule_purge_idx       ON compliance_rules(purge_after)       WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS compliance_scan_schedule_purge_idx ON compliance_scan_schedules(purge_after) WHERE deleted_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS message_purge_idx               ON messages(purge_after)               WHERE deleted_at IS NOT NULL;
 
 -- ============================================================================

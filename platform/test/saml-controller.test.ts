@@ -259,8 +259,14 @@ describe('ACS — accepting an assertion', () => {
     expect(mockFindOrCreate).toHaveBeenCalledWith(
       'saml',
       expect.objectContaining({ id: 'ada@acme.test', email: 'ada@acme.test' }),
-      { markOnboarding: false, sso: { issuer: 'https://idp.test' } },
+      { markOnboarding: false, sso: { issuer: 'https://idp.test', assertTrusted: expect.any(Function) } },
     );
+    // A subject match onto a DIFFERENT stored email is re-checked against this
+    // org's verified domains, from the same source.
+    const { sso } = mockFindOrCreate.mock.calls[0]![2] as { sso: { assertTrusted: (e: string) => Promise<void> } };
+    mockAssertSsoIdentityTrusted.mockClear();
+    await sso.assertTrusted('stored@other.test');
+    expect(mockAssertSsoIdentityTrusted).toHaveBeenCalledWith(ORG, { issuer: 'https://idp.test', email: 'stored@other.test' }, { protocol: 'saml' });
     // The ACS itself never mints a session.
     expect(mockIssueTokens).not.toHaveBeenCalled();
     expect(res.redirect).toHaveBeenCalledWith(302, expect.stringContaining('handoff='));
@@ -435,6 +441,16 @@ describe('completing the sign-in', () => {
     await (completeSamlLogin as any)({ ...browser(), params: { orgId: 'org-other' }, body: { handoff } }, res);
     expect(res.status).toHaveBeenCalledWith(403);
     expect(mockIssueTokens).not.toHaveBeenCalled();
+  });
+
+  it("answers the typed 401 MFA_REQUIRED (not a 500) when the org requires MFA its IdP doesn't assert", async () => {
+    const handoff = await acsHandoff();
+    const { MFA_REQUIRED_FOR_ORG } = await import('../src/services/auth-errors.js');
+    mockIssueTokens.mockRejectedValueOnce(new Error(MFA_REQUIRED_FOR_ORG));
+    const res = makeRes();
+    await (completeSamlLogin as any)({ ...browser(), params: { orgId: ORG }, body: { handoff } }, res);
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect((res.json as jest.Mock<AnyFn>).mock.calls[0]![0]).toMatchObject({ code: 'MFA_REQUIRED' });
   });
 
   it('re-asserts the platform-admin refusal at redemption', async () => {

@@ -13,7 +13,7 @@ import { pluginService } from '../services/plugin-service.js';
  * (before the purge sweep hard-deletes the tombstone).
  *
  * Expects auth + orgId, `requirePermission('plugins:write')` and `requireStepUp`
- * from the parent mount (index.ts), whose single step-up layer it shares with
+ * from the parent mount (app-routes.ts), whose single step-up layer it shares with
  * purge (delete's authority plus a step-up re-verify, since restore reverses a
  * destructive act).
  * The load → publish-gate → restore → 404 skeleton is shared via `loadAndRestore`.

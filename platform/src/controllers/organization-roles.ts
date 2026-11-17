@@ -14,7 +14,7 @@ import {
 } from '../helpers/controller-helper.js';
 import { listRolesWithMembers, addUserToRole, removeUserFromRole, createRole, updateRole, deleteRole, ecosystemRoleName, notifyEcosystemManagerChange } from '../services/index.js';
 import type { ActorPermissionCeiling } from '../services/index.js';
-import { RL_ROLE_NOT_FOUND, RL_USER_NOT_FOUND, RL_NOT_ORG_MEMBER, RL_CANNOT_REMOVE_SELF, RL_LAST_PRIVILEGED_MEMBER, RL_REQUIRES_SUPERADMIN, RL_SYSTEM_IMMUTABLE, RL_NAME_TAKEN, RL_INVALID_PERMISSION, RL_PERMISSION_NOT_ASSIGNABLE, RL_PERMISSION_EXCEEDS_CEILING, RL_ASSIGN_EXCEEDS_CEILING, RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN, RL_SYSTEM_ORG_ROLE_OUTSIDE_SYSTEM_ORG } from '../services/roles-errors.js';
+import { RL_ROLE_NOT_FOUND, RL_USER_NOT_FOUND, RL_NOT_ORG_MEMBER, RL_CANNOT_REMOVE_SELF, RL_CANNOT_REMOVE_OWNER_ADMIN, RL_LAST_PRIVILEGED_MEMBER, RL_REQUIRES_SUPERADMIN, RL_SYSTEM_IMMUTABLE, RL_NAME_TAKEN, RL_INVALID_PERMISSION, RL_PERMISSION_NOT_ASSIGNABLE, RL_PERMISSION_EXCEEDS_CEILING, RL_ASSIGN_EXCEEDS_CEILING, RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN, RL_SYSTEM_ORG_ROLE_OUTSIDE_SYSTEM_ORG } from '../services/roles-errors.js';
 import { validateBody, addRoleMemberSchema, createRoleSchema, updateRoleSchema } from '../utils/validation.js';
 
 const logger = createLogger('organization-roles-controller');
@@ -236,5 +236,6 @@ export const removeRoleMember = withController('Remove role member', async (req,
   [RL_ASSIGN_EXCEEDS_CEILING]: { status: 403, message: 'You cannot change membership of a role granting permissions you do not hold yourself' },
   [RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN]: { status: 403, message: 'Only a platform superadmin can manage members of an ecosystem-management role' },
   [RL_CANNOT_REMOVE_SELF]: { status: 400, message: 'You cannot remove yourself from this role — it grants your own admin access. Have another admin do it, or assign a replacement first.' },
+  [RL_CANNOT_REMOVE_OWNER_ADMIN]: { status: 400, message: 'The organization owner cannot be removed from the Admin role. Transfer ownership first.' },
   [RL_LAST_PRIVILEGED_MEMBER]: { status: 400, message: 'Cannot remove the last member of this role — the organization would be left with no one in this role. Add another member first.' },
 });

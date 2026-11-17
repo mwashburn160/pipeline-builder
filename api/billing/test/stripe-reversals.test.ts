@@ -80,7 +80,21 @@ jest.unstable_mockModule('../src/helpers/stripe-helpers.js', () => ({
 // instanceof StripeProvider`, so the provider mock must BE an instance of the
 // mocked StripeProvider and expose getStripeClient() → { charges.retrieve }.
 const mockChargesRetrieve = jest.fn<(...a: unknown[]) => Promise<unknown>>();
-class MockStripeProvider { getStripeClient() { return { charges: { retrieve: (...a: unknown[]) => mockChargesRetrieve(...a) } }; } }
+// A charge names its invoice only through the InvoicePayment on its
+// PaymentIntent; this stand-in maps `pi_X` to `in_X`.
+const mockInvoicePaymentsList = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const invoiceForPaymentIntent = async (params: unknown) => {
+  const pi = (params as { payment: { payment_intent: string } }).payment.payment_intent;
+  return { data: [{ invoice: pi.replace('pi_', 'in_') }] };
+};
+class MockStripeProvider {
+  getStripeClient() {
+    return {
+      charges: { retrieve: (...a: unknown[]) => mockChargesRetrieve(...a) },
+      invoicePayments: { list: (...a: unknown[]) => mockInvoicePaymentsList(...a) },
+    };
+  }
+}
 jest.unstable_mockModule('../src/config.js', () => ({ config: { paymentGracePeriodDays: 7, stripe: { priceToPlanMap: {} } } }));
 jest.unstable_mockModule('../src/models/plan.js', () => ({ Plan: { findById: jest.fn(), findOne: jest.fn() } }));
 jest.unstable_mockModule('../src/models/webhook-dedupe.js', () => ({ claimWebhookEvent: jest.fn(), markWebhookEventDone: jest.fn(), releaseWebhookEvent: jest.fn(), webhookEventStatus: jest.fn() }));
@@ -104,6 +118,7 @@ function subDoc(over: Record<string, unknown> = {}) {
 beforeEach(() => {
   jest.clearAllMocks();
   mockReverseLedgerInvoice.mockResolvedValue('org-1');
+  mockInvoicePaymentsList.mockImplementation(invoiceForPaymentIntent);
   mockClawback.mockResolvedValue(0);
 });
 
@@ -113,7 +128,7 @@ describe('charge.refunded', () => {
     mockFindReversalSub.mockResolvedValue({ subscription: sub, ambiguous: false });
     mockClawback.mockResolvedValue(2);
 
-    await handleChargeRefunded({ id: 'ch_1', invoice: 'in_1', customer: 'cus_1', amount: 4900, amount_refunded: 4900, refunded: true } as any);
+    await handleChargeRefunded({ id: 'ch_1', payment_intent: 'pi_1', customer: 'cus_1', amount: 4900, amount_refunded: 4900, refunded: true } as any);
 
     // Ledger reversed as 'refunded' with net paid = amount − amount_refunded = 0.
     expect(mockReverseLedgerInvoice).toHaveBeenCalledWith('in_1', 'refunded', 0);
@@ -129,15 +144,39 @@ describe('charge.refunded', () => {
     );
   });
 
+  it('finds the invoice through the InvoicePayment on the charge\'s PaymentIntent (a Charge has no `invoice`)', async () => {
+    mockFindReversalSub.mockResolvedValue({ subscription: subDoc(), ambiguous: false });
+    await handleChargeRefunded({ id: 'ch_pi', payment_intent: 'pi_9', customer: 'cus_1', amount: 100, amount_refunded: 100 } as any);
+    expect(mockInvoicePaymentsList).toHaveBeenCalledWith({ payment: { type: 'payment_intent', payment_intent: 'pi_9' }, limit: 1 });
+    expect(mockReverseLedgerInvoice).toHaveBeenCalledWith('in_9', 'refunded', 0);
+  });
+
+  it('skips the ledger reversal when the PaymentIntent paid no invoice', async () => {
+    mockFindReversalSub.mockResolvedValue({ subscription: subDoc(), ambiguous: false });
+    mockInvoicePaymentsList.mockResolvedValueOnce({ data: [] });
+    await handleChargeRefunded({ id: 'ch_one_off', payment_intent: 'pi_x', customer: 'cus_1', amount: 100, amount_refunded: 100 } as any);
+    expect(mockReverseLedgerInvoice).not.toHaveBeenCalled();
+    expect(mockClawback).toHaveBeenCalled();
+  });
+
+  it('RE-THROWS an invoice-payment lookup failure so Stripe redelivers the refund', async () => {
+    mockInvoicePaymentsList.mockRejectedValueOnce(new Error('stripe 503'));
+    await expect(
+      handleChargeRefunded({ id: 'ch_err', payment_intent: 'pi_e', customer: 'cus_1', amount: 100, amount_refunded: 100 } as any),
+    ).rejects.toThrow('stripe 503');
+    expect(mockReverseLedgerInvoice).not.toHaveBeenCalled();
+    expect(mockClawback).not.toHaveBeenCalled();
+  });
+
   it('handles a PARTIAL refund — net paid = amount − amount_refunded', async () => {
     mockFindReversalSub.mockResolvedValue({ subscription: subDoc(), ambiguous: false });
-    await handleChargeRefunded({ id: 'ch_2', invoice: 'in_2', customer: 'cus_1', amount: 4900, amount_refunded: 1000, refunded: false } as any);
+    await handleChargeRefunded({ id: 'ch_2', payment_intent: 'pi_2', customer: 'cus_1', amount: 4900, amount_refunded: 1000, refunded: false } as any);
     expect(mockReverseLedgerInvoice).toHaveBeenCalledWith('in_2', 'refunded', 3900);
   });
 
   it('reverses the ledger but skips clawback when no local subscription matches', async () => {
     mockFindReversalSub.mockResolvedValue({ subscription: null, ambiguous: false });
-    await handleChargeRefunded({ id: 'ch_3', invoice: 'in_3', customer: 'cus_x', amount: 4900, amount_refunded: 4900 } as any);
+    await handleChargeRefunded({ id: 'ch_3', payment_intent: 'pi_3', customer: 'cus_x', amount: 4900, amount_refunded: 4900 } as any);
     expect(mockReverseLedgerInvoice).toHaveBeenCalledWith('in_3', 'refunded', 0);
     expect(mockClawback).not.toHaveBeenCalled();
     expect(mockCreateBillingEvent).not.toHaveBeenCalled();
@@ -148,7 +187,7 @@ describe('charge.refunded', () => {
     // this charge belongs to, so the sub-scoped clawback must be skipped (the
     // invoice-keyed ledger reversal still runs).
     mockFindReversalSub.mockResolvedValue({ subscription: null, ambiguous: true });
-    await handleChargeRefunded({ id: 'ch_a', invoice: 'in_a', customer: 'cus_multi', amount: 4900, amount_refunded: 4900 } as any);
+    await handleChargeRefunded({ id: 'ch_a', payment_intent: 'pi_a', customer: 'cus_multi', amount: 4900, amount_refunded: 4900 } as any);
     expect(mockReverseLedgerInvoice).toHaveBeenCalledWith('in_a', 'refunded', 0);
     expect(mockClawback).not.toHaveBeenCalled();
     expect(mockCreateBillingEvent).not.toHaveBeenCalled();
@@ -156,7 +195,7 @@ describe('charge.refunded', () => {
 
   it('skips the ledger reversal for a charge with no invoice (non-subscription charge)', async () => {
     mockFindReversalSub.mockResolvedValue({ subscription: subDoc(), ambiguous: false });
-    await handleChargeRefunded({ id: 'ch_4', invoice: null, customer: 'cus_1', amount: 500, amount_refunded: 500 } as any);
+    await handleChargeRefunded({ id: 'ch_4', payment_intent: null, customer: 'cus_1', amount: 500, amount_refunded: 500 } as any);
     expect(mockReverseLedgerInvoice).not.toHaveBeenCalled();
     // Still claws back on the resolved subscription.
     expect(mockClawback).toHaveBeenCalled();
@@ -165,7 +204,7 @@ describe('charge.refunded', () => {
 
 describe('charge.dispute.created', () => {
   it('re-fetches the disputed charge, reverses the ledger, and claws back', async () => {
-    mockChargesRetrieve.mockResolvedValue({ id: 'ch_d', invoice: 'in_d', customer: 'cus_1', amount: 4900 });
+    mockChargesRetrieve.mockResolvedValue({ id: 'ch_d', payment_intent: 'pi_d', customer: 'cus_1', amount: 4900 });
     mockFindReversalSub.mockResolvedValue({ subscription: subDoc(), ambiguous: false });
 
     await handleChargeDisputeCreated({ id: 'dp_1', charge: 'ch_d', amount: 4900, status: 'warning_needs_response' } as any);

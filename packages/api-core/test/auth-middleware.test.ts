@@ -182,6 +182,24 @@ describe('requireAuth', () => {
     expect(next).not.toHaveBeenCalled();
   });
 
+  it('hands a DOWNSTREAM throw to the error middleware instead of answering 401', async () => {
+    // A throw from the rest of the chain is not an authentication failure: it
+    // used to be caught by the verification try and answered 401 "Authentication
+    // failed", after the chain may already have responded.
+    const token = await userToken();
+    const req = createMockReq({ headers: { authorization: `Bearer ${token}` } });
+    const res = createMockRes();
+    const boom = new Error('downstream');
+    const next = jest.fn<AnyFn>((err?: unknown) => { if (err === undefined) throw boom; });
+
+    requireAuth(req, res, next);
+    await settle();
+
+    expect(res._status).toBe(0);
+    expect(next).toHaveBeenCalledTimes(2);
+    expect(next).toHaveBeenLastCalledWith(boom);
+  });
+
   it('answers 503 (never a pass) when the signing keys cannot be fetched', async () => {
     // Fail CLOSED and retryably: an unverifiable token is not an identity, and a
     // 401 would send a legitimate client off to re-authenticate over our outage.
@@ -559,6 +577,15 @@ describe('setAuthzDenialAuditor', () => {
   }
 
   afterEach(() => setAuthzDenialAuditor(undefined));
+
+  it('a request with no method still gets its 403 — the auditor is skipped, the gate never throws', () => {
+    const seen: AuthzDenialInfo[] = [];
+    setAuthzDenialAuditor((i) => seen.push(i));
+    const res = createMockRes();
+    expect(() => requirePermission('pipelines:write')(denialReq({ method: undefined }), res, jest.fn<AnyFn>())).not.toThrow();
+    expect(res._status).toBe(403);
+    expect(seen).toHaveLength(0);
+  });
 
   it('fires on a requirePermission denial for a non-GET request with the required permission', () => {
     const seen: AuthzDenialInfo[] = [];

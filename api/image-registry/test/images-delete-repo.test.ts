@@ -41,6 +41,11 @@ jest.unstable_mockModule('../src/services/registry-client.js', () => ({
   isNotFound,
 }));
 
+// --- storage caches the deletes must evict ---------------------------------
+const invalidateStorageCache = jest.fn<AnyFn>();
+const invalidateOrgStorageCache = jest.fn<AnyFn>();
+jest.unstable_mockModule('../src/services/storage-usage.js', () => ({ invalidateStorageCache, invalidateOrgStorageCache }));
+
 // --- durable-audit mock (assert the registry.image.delete event shape) ------
 const recordAuditMock = jest.fn<AnyFn>();
 
@@ -86,6 +91,15 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 // SUT + express imported AFTER mocks are registered (ESM linking order).
 const express = (await import('express')).default;
 const { createImageRoutes } = await import('../src/routes/images.js');
+const { setPipelineReferencesFetcherForTests } = await import('../src/services/plugin-image-references.js');
+
+/** The plugin service's answer: which of the asked digests pipelines reference. */
+const pipelineRefs = jest.fn<(digests: string[]) => Promise<Array<{ digest: string; pipelineCount: number; pipelines: Array<{ id: string; name: string | null; orgId: string; sources: string[]; deleted: boolean }> }>>>();
+setPipelineReferencesFetcherForTests((digests) => pipelineRefs(digests));
+beforeEach(() => {
+  pipelineRefs.mockReset();
+  pipelineRefs.mockResolvedValue([]);
+});
 
 let server: Server;
 let baseUrl: string;
@@ -263,5 +277,104 @@ describe('DELETE /api/images/:name/manifests/:reference', () => {
 
     expect(status).toBe(200);
     expect(deleteManifest).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('an image a pipeline references is never deleted', () => {
+  const inUse = (digest: string) => ({
+    digest,
+    pipelineCount: 2,
+    pipelines: [
+      { id: 'p-1', name: 'web', orgId: 'acme', sources: ['deployed'], deleted: false },
+      { id: 'p-2', name: null, orgId: 'beta', sources: ['declared'], deleted: false },
+    ],
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    getManifest.mockReset();
+    deleteManifest.mockReset();
+    deleteManifest.mockResolvedValue(undefined);
+  });
+
+  it('DELETE a manifest refuses 409 naming the pipelines, deletes nothing, and records the refusal', async () => {
+    getManifest.mockResolvedValue({ digest: 'sha256:aaa' });
+    pipelineRefs.mockResolvedValue([inUse('sha256:aaa')]);
+
+    const res = await fetch(`${baseUrl}/api/images/${encodeURIComponent('org-acme/app')}/manifests/1.0.0`, { method: 'DELETE' });
+    const body = await res.json() as { code?: string; message: string };
+
+    expect(res.status).toBe(409);
+    expect(body.code).toBe('PLUGIN_VERSION_IN_USE');
+    expect(body.message).toMatch(/in use by 2 pipelines \(web, p-2\)/);
+    expect(pipelineRefs).toHaveBeenCalledWith(['sha256:aaa']);
+    expect(deleteManifest).not.toHaveBeenCalled();
+    expect(invalidateStorageCache).not.toHaveBeenCalled();
+    expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'registry.image.delete',
+      outcome: 'failure',
+      affectedOrgId: 'acme',
+      details: expect.objectContaining({ refusal: 'PLUGIN_VERSION_IN_USE', digests: ['sha256:aaa'], pipelineCount: 2 }),
+    }));
+  });
+
+  it('DELETE a repo refuses when ANY of its images is referenced — none of them is deleted', async () => {
+    listTags.mockResolvedValue({ tags: ['1.0', '2.0'] });
+    getManifest.mockImplementation(async (_n, ref) => ({ digest: ref === '1.0' ? 'sha256:aaa' : 'sha256:bbb' }));
+    pipelineRefs.mockImplementation(async (digests) => digests.filter((d) => d === 'sha256:bbb').map(inUse));
+
+    const { status, body } = await del('org-acme/app');
+
+    expect(status).toBe(409);
+    expect(body.code).toBe('PLUGIN_VERSION_IN_USE');
+    expect([...pipelineRefs.mock.calls[0]![0]].sort()).toEqual(['sha256:aaa', 'sha256:bbb']);
+    expect(deleteManifest).not.toHaveBeenCalled();
+    expect(incCounter).not.toHaveBeenCalled();
+  });
+
+  it('asks about a large repo in chunks the plugin route accepts (50 digests each)', async () => {
+    const tags = Array.from({ length: 60 }, (_, i) => `v${i}`);
+    listTags.mockResolvedValue({ tags });
+    getManifest.mockImplementation(async (_n, ref) => ({ digest: `sha256:${ref}` }));
+
+    const { status } = await del('org-acme/big');
+
+    expect(status).toBe(200);
+    expect(pipelineRefs.mock.calls.map((c) => c[0].length)).toEqual([50, 10]);
+  });
+
+  it('fails safe: an unreadable answer deletes nothing (503)', async () => {
+    getManifest.mockResolvedValue({ digest: 'sha256:aaa' });
+    pipelineRefs.mockRejectedValue(new Error('plugin service answered HTTP 502'));
+
+    const res = await fetch(`${baseUrl}/api/images/${encodeURIComponent('org-acme/app')}/manifests/1.0.0`, { method: 'DELETE' });
+
+    expect(res.status).toBe(503);
+    expect(deleteManifest).not.toHaveBeenCalled();
+  });
+
+  it('an unreferenced image is deleted and the owner\'s storage figures are evicted', async () => {
+    getManifest.mockImplementation(async (_n, ref) => {
+      if (ref === '1.0.0') return { digest: 'sha256:aaa' };
+      throw Object.assign(new Error('nope'), { response: { status: 404 } });
+    });
+
+    const res = await fetch(`${baseUrl}/api/images/${encodeURIComponent('org-acme/app')}/manifests/1.0.0`, { method: 'DELETE' });
+
+    expect(res.status).toBe(200);
+    expect(deleteManifest).toHaveBeenCalledWith('org-acme/app', 'sha256:aaa');
+    expect(invalidateStorageCache).toHaveBeenCalledWith('org-acme/');
+    expect(invalidateOrgStorageCache).toHaveBeenCalledWith('acme');
+  });
+
+  it('a repo prune evicts the storage figures once it deleted something', async () => {
+    listTags.mockResolvedValue({ tags: ['1.0'] });
+    getManifest.mockResolvedValue({ digest: 'sha256:aaa' });
+
+    const { status } = await del('org-acme/app');
+
+    expect(status).toBe(200);
+    expect(invalidateStorageCache).toHaveBeenCalledWith('org-acme/');
+    expect(invalidateOrgStorageCache).toHaveBeenCalledWith('acme');
   });
 });

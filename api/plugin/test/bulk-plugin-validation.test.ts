@@ -39,6 +39,10 @@ jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
   },
 }));
 
+// The withdrawal notice a deactivation sends (its own suite covers the fan-out).
+const mockOnVersionWithdrawn = jest.fn<(...a: any[]) => Promise<any>>().mockResolvedValue(null);
+jest.unstable_mockModule('../src/services/version-withdrawal.js', () => ({ onVersionWithdrawn: mockOnVersionWithdrawn }));
+
 // Fail-closed compliance re-check shared with single-row update.
 const mockValidatePlugin = jest.fn<(...a: any[]) => Promise<any>>().mockResolvedValue({ blocked: false, violations: [] });
 
@@ -506,5 +510,34 @@ describe('PUT /plugins/bulk/update — frozen / listed versions (same rule as si
     const { res } = makeRes();
     await getUpdateHandler()({ user: admin, body: { ids: [P1], data: { category: 'lint' } } }, res);
     expect(mockVersionImmutability).not.toHaveBeenCalled();
+  });
+});
+
+// A single-row deactivation notifies the orgs using the version; bulk-setting
+// `isActive: false` used to deactivate the same versions silently.
+describe('PUT /plugins/bulk/update — deactivation notice parity with single update', () => {
+  beforeEach(() => { jest.clearAllMocks(); mockFindByIds.mockResolvedValue([]); });
+
+  it('notifies each version the batch deactivated, and none it left as it was', async () => {
+    mockFindByIds.mockResolvedValue([
+      { id: P1, orgId: 'org-1', visibility: 'org', isActive: true },
+      { id: P2, orgId: 'org-1', visibility: 'org', isActive: false },
+    ]);
+    mockUpdateMany.mockResolvedValue([
+      { id: P1, orgId: 'org-1', name: 'a', version: '1.0.0', isActive: false },
+      { id: P2, orgId: 'org-1', name: 'b', version: '1.0.0', isActive: false },
+    ]);
+    const { res } = makeRes();
+    await getUpdateHandler()({ user: { sub: 'u-1', isSuperAdmin: true }, body: { ids: [P1, P2], data: { isActive: false } } }, res);
+    expect(mockOnVersionWithdrawn).toHaveBeenCalledTimes(1);
+    expect(mockOnVersionWithdrawn).toHaveBeenCalledWith(expect.objectContaining({ id: P1 }), 'deactivated');
+  });
+
+  it('sends no notice for an update that does not deactivate', async () => {
+    mockFindByIds.mockResolvedValue([{ id: P1, orgId: 'org-1', visibility: 'org', isActive: false }]);
+    mockUpdateMany.mockResolvedValue([{ id: P1, orgId: 'org-1', name: 'a', version: '1.0.0', isActive: true }]);
+    const { res } = makeRes();
+    await getUpdateHandler()({ user: { sub: 'u-1', isSuperAdmin: true }, body: { ids: [P1], data: { isActive: true } } }, res);
+    expect(mockOnVersionWithdrawn).not.toHaveBeenCalled();
   });
 });

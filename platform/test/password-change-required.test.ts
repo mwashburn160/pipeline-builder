@@ -98,7 +98,7 @@ const policyRefusal = (code: string, message: string) =>
 
 const req = (b: Record<string, unknown>) => ({ body: b, headers: {}, ip: '10.0.0.1' }) as any;
 const open = (aal: 1 | 2 = 1) => createPasswordChangeChallenge({
-  userId: 'u1', orgId: 'org-1', amr: aal === 2 ? ['pwd', 'mfa'] : ['pwd'], aal, minLength: 14,
+  userId: 'u1', orgId: 'org-1', amr: aal === 2 ? ['pwd', 'mfa'] : ['pwd'], aal, minLength: 14, tokenVersion: 4,
 });
 
 beforeEach(() => {
@@ -125,6 +125,22 @@ describe('POST /auth/password/change-required', () => {
       details: { reason: 'org_password_policy', minLength: 14 },
     }));
     expect(res.json.mock.calls[0][0].data).toMatchObject({ accessToken: 'access.jwt' });
+    expect(await peekPasswordChangeChallenge(challengeId)).toBeNull();
+  });
+
+  it('SECURITY: refuses (and spends) a handle opened before the account\'s sessions were revoked', async () => {
+    // The old (non-compliant) password was proven, then the owner reset it: the
+    // reset moved tokenVersion. Whoever held the OLD password must not be able
+    // to finish the change and take the account.
+    const { challengeId } = await open();
+    account.tokenVersion = 5;
+    const res = makeRes();
+    await completeRequiredPasswordChange(req({ challengeId, newPassword: 'BrandNewPassw0rd!' }), res);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json.mock.calls[0][0].code).toBe('PASSWORD_CHANGE_CHALLENGE_INVALID');
+    expect(account.save).not.toHaveBeenCalled();
+    expect(mockIssueTokens).not.toHaveBeenCalled();
     expect(await peekPasswordChangeChallenge(challengeId)).toBeNull();
   });
 

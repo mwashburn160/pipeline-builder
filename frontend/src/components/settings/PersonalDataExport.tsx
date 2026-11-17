@@ -11,10 +11,11 @@ import api from '@/lib/api';
 import { continueAfterStepUp } from '@/lib/api/errors';
 import { formatError } from '@/lib/constants';
 import { triggerBlobDownload } from '@/lib/download';
+import { localDay } from '@/lib/local-day';
 
 /** The file name the platform also suggests (`Content-Disposition`). */
 export function personalExportFilename(now = new Date()): string {
-  return `pipeline-builder-account-${now.toISOString().slice(0, 10)}.json`;
+  return `pipeline-builder-account-${localDay(now)}.json`;
 }
 
 /**

@@ -134,7 +134,7 @@ export default function PipelinesPage() {
       isLoading: list.isLoading,
       flags: [
         { label: 'inactive', pred: (p) => !p.isActive },
-        { label: 'private', pred: (p) => p.visibility !== 'public' },
+        { label: 'private', pred: (p) => p.visibility === 'private' },
       ],
     }),
     [filteredPipelines, list.isLoading, list.pagination.total],
@@ -310,8 +310,8 @@ export default function PipelinesPage() {
   // ── Columns ──
 
   const canWriteRow = useCallback(
-    (pipeline: PipelineSummary) => canWritePipeline(can, isSuperAdmin, pipeline, user?.id),
-    [can, isSuperAdmin, user?.id],
+    (pipeline: PipelineSummary) => canWritePipeline(can, isSuperAdmin, pipeline, user?.id, user?.organizationId),
+    [can, isSuperAdmin, user?.id, user?.organizationId],
   );
   const openDelete = del.open;
   const pipelineColumns = usePipelineColumns({
@@ -482,7 +482,10 @@ export default function PipelinesPage() {
           cancelLabel="Keep the existing one"
           tone="danger"
           loading={createForm.loading}
-          onConfirm={() => { void submitCreatePipeline(...slotConflict.args, true); }}
+          // Closed either way once the overwrite settles: a refusal is reported
+          // on the create form's error line, which this dialog would otherwise
+          // sit in front of — leaving a button that silently repeats the failure.
+          onConfirm={() => { void submitCreatePipeline(...slotConflict.args, true).then(() => setSlotConflict(null)); }}
           onCancel={() => setSlotConflict(null)}
         >
           <p>

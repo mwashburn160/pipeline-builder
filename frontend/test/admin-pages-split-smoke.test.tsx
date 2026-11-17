@@ -232,4 +232,18 @@ describe('OrganizationsPage — extracted components', () => {
     await waitFor(() => expect(apiMock.updateOrganizationTier).toHaveBeenCalledWith('org-b', 'team', 'step-up-token'));
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Beta moved to team'));
   });
+
+  it('locks Restore on a soft-deleted org without org_settings:write (the restore route\'s permission)', () => {
+    listPage.data = [{ ...org, pendingDeletion: true }];
+    listPage.filters = { deleted: 'only' };
+    mockAuthGuard({ user: { id: 'me', organizationId: 'system' }, can: (p: string) => p === 'orgs:read' });
+    try {
+      render(<OrganizationsPage />);
+      const restore = screen.getByRole('button', { name: /Restore/ });
+      expect(restore).toBeDisabled();
+      expect(restore).toHaveAttribute('title', 'Requires the org_settings:write permission');
+    } finally {
+      mockAuthGuard({ isSuperAdmin: true, user: { id: 'me', organizationId: 'system' }, can: () => true });
+    }
+  });
 });

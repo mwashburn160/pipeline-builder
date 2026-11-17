@@ -15,6 +15,19 @@ export function buildQuery(params?: Record<string, unknown>): string {
   return entries.length ? '?' + new URLSearchParams(entries).toString() : '';
 }
 
+/**
+ * Seconds a `Retry-After` (or `RateLimit-Reset`) value says to wait, or
+ * `undefined` when it says nothing usable. The header is either a delay in
+ * seconds or an HTTP date; a past date or a non-positive delay is "nothing".
+ * Unclamped: a caller with its own bound applies it.
+ */
+export function parseRetryAfterSeconds(raw: string | null | undefined): number | undefined {
+  if (!raw) return undefined;
+  const trimmed = raw.trim();
+  const seconds = /^\d+(\.\d+)?$/.test(trimmed) ? Number(trimmed) : (Date.parse(trimmed) - Date.now()) / 1000;
+  return Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : undefined;
+}
+
 export function base64UrlDecode(str: string): string {
   let base64 = str.replace(/-/g, '+').replace(/_/g, '/');
   while (base64.length % 4) base64 += '=';

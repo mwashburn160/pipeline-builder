@@ -114,7 +114,7 @@ function Hero() {
             transition={{ duration: 0.4, delay: 0.1 }}
           >
             Turn a Git URL or a prompt into a working pipeline — deployed as native
-            AWS CodePipeline in your own account. 119 plugins, per-org compliance,
+            AWS CodePipeline in your own account. 118 plugins, per-org compliance,
             zero lock-in.
           </motion.p>
 
@@ -270,7 +270,7 @@ const featureGroups = [
   {
     icon: Sparkles,
     title: 'Generate',
-    items: ['AI from a Git URL or prompt', '119 plugins across 10 categories', 'Golden-path templates', 'Dashboard, CLI, REST API & CDK'],
+    items: ['AI from a Git URL or prompt', '118 plugins across 10 categories', 'Golden-path templates', 'Dashboard, CLI, REST API & CDK'],
   },
   {
     icon: Cloud,

@@ -8,7 +8,6 @@ import {
   sendEntityNotFound,
   ErrorCode,
   audited,
-  getParam,
   parsePaginationParams,
   requirePermission,
   validateBody,
@@ -20,6 +19,7 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
+import { uuidParam } from '../helpers/uuid-param.js';
 import { complianceScanService } from '../services/compliance-scan-service.js';
 
 /**
@@ -62,8 +62,8 @@ export function createScanRoutes(): Router {
 
   // GET /:id — get scan by ID
   router.get('/:id', requirePermission('compliance:read'), withRoute(async ({ req, res, ctx, orgId }) => {
-    const id = getParam(req.params, 'id');
-    if (!id) return sendEntityNotFound(res, 'Scan');
+    const id = uuidParam(req, res, 'id');
+    if (!id) return;
 
     const scan = await complianceScanService.findById(id, orgId);
     if (!scan) return sendEntityNotFound(res, 'Scan');
@@ -106,8 +106,8 @@ export function createScanRoutes(): Router {
 
   // POST /:id/cancel — cancel a running scan (mutation → compliance:write)
   router.post('/:id/cancel', requirePermission('compliance:write'), audited('compliance.scan.cancel'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const id = getParam(req.params, 'id');
-    if (!id) return sendBadRequest(res, 'Scan ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
+    const id = uuidParam(req, res, 'id');
+    if (!id) return;
 
     const updated = await complianceScanService.cancel(id, orgId, userId);
     if (!updated) return sendEntityNotFound(res, 'Running scan');

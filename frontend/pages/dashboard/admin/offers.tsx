@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Ban, Megaphone, Play, ShieldAlert, Undo2 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
-import { LoadingPage } from '@/components/ui/Loading';
+import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { BillingAdminTabs } from '@/components/billing/BillingAdminTabs';
 import { Badge } from '@/components/ui/Badge';
@@ -45,6 +45,8 @@ export default function AdminOffersPage() {
   const [summary, setSummary] = useState<AdminOfferSummary | null>(null);
   const [exclusions, setExclusions] = useState<OfferExclusion[]>([]);
   const [error, setError] = useState<string | null>(null);
+  /** The first read has settled (either way). */
+  const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
 
   // The veto form. A reason is required by the server, so the button stays
@@ -65,6 +67,8 @@ export default function AdminOffersPage() {
       setError(null);
     } catch (err) {
       setError(formatError(err, 'Could not load offer decisions'));
+    } finally {
+      setLoaded(true);
     }
   }, [isAuthenticated, canRead]);
 
@@ -162,64 +166,73 @@ export default function AdminOffersPage() {
         </Card>
       )}
 
-      {/* The counts first. "Suppressed and why, per reason" is the measurement
-          that tells an operator whether this feature is working or merely
-          running, so it is not buried under the row list. */}
-      <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-        <Card>
-          <h3 className="text-sm font-semibold text-fg">Outcomes</h3>
-          <CountList counts={summary?.counts.byStatus ?? {}} empty="No decisions recorded yet." />
-          <p className="mt-3 text-xs text-fg-subtle">
-            {summary?.counts.holdout ?? 0} in the measurement holdout — never offered to, so the lift
-            calculation has a control group.
-          </p>
-        </Card>
-        <Card>
-          <h3 className="text-sm font-semibold text-fg">Suppressed, by reason</h3>
-          <CountList
-            counts={summary?.counts.bySuppressionReason ?? {}}
-            empty="Nothing suppressed yet."
-          />
-        </Card>
-      </div>
+      {/* Nothing is stated about the counts until they are READ: "No
+          decisions recorded yet" and "0 in the holdout" are facts, and while
+          the first read is in flight (or after it failed) they would be false. */}
+      {summary ? (
+        <>
+          {/* The counts first. "Suppressed and why, per reason" is the measurement
+              that tells an operator whether this feature is working or merely
+              running, so it is not buried under the row list. */}
+          <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+            <Card>
+              <h3 className="text-sm font-semibold text-fg">Outcomes</h3>
+              <CountList counts={summary?.counts.byStatus ?? {}} empty="No decisions recorded yet." />
+              <p className="mt-3 text-xs text-fg-subtle">
+                {summary?.counts.holdout ?? 0} in the measurement holdout — never offered to, so the lift
+                calculation has a control group.
+              </p>
+            </Card>
+            <Card>
+              <h3 className="text-sm font-semibold text-fg">Suppressed, by reason</h3>
+              <CountList
+                counts={summary?.counts.bySuppressionReason ?? {}}
+                empty="Nothing suppressed yet."
+              />
+            </Card>
+          </div>
 
-      {/* The lift. Shown beside the raw counts because the counts alone cannot
-          answer the only question that matters: an account that was going to
-          upgrade this month upgrades this month, and if it got an offer first
-          the offer takes the credit. */}
-      <Card className="mt-4">
-        <h3 className="text-sm font-semibold text-fg">Offered vs holdout</h3>
-        <p className="mt-1 text-xs text-fg-muted">
-          Conversion rate per account in each arm. A NEGATIVE lift is a real answer — it means the
-          accounts we solicited converted less than the ones we left alone.
-        </p>
-        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <Arm label="Offered" arm={summary?.lift.offered} />
-          <Arm label="Holdout" arm={summary?.lift.holdout} />
-          <div>
-            <p className="text-xs uppercase tracking-wider text-fg-subtle">Lift</p>
-            <p
-              className={`text-xl font-semibold tabular-nums ${liftTone(summary?.lift.lift)}`}
-              data-testid="offer-lift"
-            >
-              {summary ? `${(summary.lift.lift * 100).toFixed(1)} pts` : '—'}
-            </p>
-          </div>
-        </div>
-        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div>
-            <h4 className="text-xs font-semibold uppercase tracking-wider text-fg-subtle">Bought SKU</h4>
+          {/* The lift. Shown beside the raw counts because the counts alone cannot
+              answer the only question that matters: an account that was going to
+              upgrade this month upgrades this month, and if it got an offer first
+              the offer takes the credit. */}
+          <Card className="mt-4">
+            <h3 className="text-sm font-semibold text-fg">Offered vs holdout</h3>
             <p className="mt-1 text-xs text-fg-muted">
-              An account that converts to a DIFFERENT SKU is a targeting failure wearing a conversion win.
+              Conversion rate per account in each arm. A NEGATIVE lift is a real answer — it means the
+              accounts we solicited converted less than the ones we left alone.
             </p>
-            <CountList counts={summary?.lift.skuMatch ?? {}} empty="No conversions yet." />
-          </div>
-          <div>
-            <h4 className="text-xs font-semibold uppercase tracking-wider text-fg-subtle">Time to conversion</h4>
-            <CountList counts={summary?.lift.timeToConversion ?? {}} empty="No conversions yet." />
-          </div>
-        </div>
-      </Card>
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <Arm label="Offered" arm={summary?.lift.offered} />
+              <Arm label="Holdout" arm={summary?.lift.holdout} />
+              <div>
+                <p className="text-xs uppercase tracking-wider text-fg-subtle">Lift</p>
+                <p
+                  className={`text-xl font-semibold tabular-nums ${liftTone(summary?.lift.lift)}`}
+                  data-testid="offer-lift"
+                >
+                  {summary ? `${(summary.lift.lift * 100).toFixed(1)} pts` : '—'}
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-fg-subtle">Bought SKU</h4>
+                <p className="mt-1 text-xs text-fg-muted">
+                  An account that converts to a DIFFERENT SKU is a targeting failure wearing a conversion win.
+                </p>
+                <CountList counts={summary?.lift.skuMatch ?? {}} empty="No conversions yet." />
+              </div>
+              <div>
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-fg-subtle">Time to conversion</h4>
+                <CountList counts={summary?.lift.timeToConversion ?? {}} empty="No conversions yet." />
+              </div>
+            </div>
+          </Card>
+        </>
+      ) : !loaded && (
+        <div className="mt-4 flex items-center gap-2 text-sm text-fg-muted"><LoadingSpinner size="sm" label={null} /> Loading offer decisions…</div>
+      )}
 
       {canManage && (
         <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">

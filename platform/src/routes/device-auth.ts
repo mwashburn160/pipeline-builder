@@ -22,7 +22,7 @@ import {
   getDeviceRequest,
   startDeviceCode,
 } from '../controllers/device-auth.js';
-import { requireAuth } from '../middleware/index.js';
+import { requireAuth, requireInteractiveSession } from '../middleware/index.js';
 import { extractClientIp } from '../middleware/rate-limit-keys.js';
 import { createLimiter, userOrIpKey } from '../middleware/rate-limiter.js';
 
@@ -89,11 +89,14 @@ router.get('/authorize', requireAuth, deviceApprovalLimiter, getDeviceRequest);
 
 /** POST /auth/device/approve - Grant the waiting device a session. Step-up
  *  gated: handing a shell a session deserves the same fresh proof as signing
- *  another device out, and it is what lets the CLI drop passwords entirely. */
+ *  another device out, and it is what lets the CLI drop passwords entirely.
+ *  A person's OWN interactive session only: an access key, a scoped credential
+ *  or an impersonation must not mint a full interactive session through it. */
 router.post(
   '/approve',
   requireAuth,
   deviceApprovalLimiter,
+  requireInteractiveSession,
   requireStepUp,
   audited('device.authorize.approve'),
   approveDeviceRequest,

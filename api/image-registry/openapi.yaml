@@ -198,6 +198,11 @@ paths:
         manifest. Distribution deletes by digest, so every tag pointing to
         the same digest stops working. Emits a `registry.tag.delete` audit
         event on success.
+
+        An image any pipeline still references is never deleted — 409
+        `PLUGIN_VERSION_IN_USE` naming the pipelines, with no override; update
+        those pipelines first. When the references cannot be read, nothing is
+        deleted (503).
       operationId: deleteImageManifest
       tags: [Images]
       parameters:
@@ -222,6 +227,18 @@ paths:
                           deleted: { type: boolean, enum: [true] }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: A pipeline still references the image (`PLUGIN_VERSION_IN_USE`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Pipeline references could not be read; nothing was deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /api/images/{name}/blobs/{digest}:
     get:

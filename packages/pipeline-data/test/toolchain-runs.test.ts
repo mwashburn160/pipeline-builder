@@ -130,7 +130,7 @@ describe('evaluateCanaryGate (pure)', () => {
     expect(r).toMatchObject({ passed: false, baselineRuns: 0, baselineFailureRate: 0, pointsAboveDefault: 10 });
   });
 
-  it('takes console-set thresholds (Phase 5)', () => {
+  it('takes console-set thresholds', () => {
     const r = evaluateCanaryGate({
       releaseVersion: '1.1.0',
       candidate: [{ orgId: ORG_A, outcomes: runs(2) }, { orgId: ORG_B, outcomes: runs(2) }, { orgId: ORG_C, outcomes: runs(2) }],

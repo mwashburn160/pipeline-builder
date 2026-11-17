@@ -144,3 +144,29 @@ describe('invitations composer — delivery reporting', () => {
     expect(sendInvitations).toHaveBeenCalledWith(expect.objectContaining({ emails: ['a@x.io', 'b@x.io'] }));
   });
 });
+
+describe('invitations page — read-only (view-as) session', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    // `can()` folds read-only in, so it answers false for the `:manage` write;
+    // the viewer still HOLDS the permission.
+    mockAuthGuard({
+      isReadOnly: true,
+      user: { id: 'u1', organizationId: 'org-1', permissions: ['invitations:manage'] } as never,
+      can: () => false,
+    });
+  });
+
+  it('still lists the org\'s invitations (the backend permits the GET)', async () => {
+    render(<InvitationsPage />);
+    await waitFor(() => expect(listInvitations).toHaveBeenCalled());
+  });
+
+  it('locks Send Invitation rather than hiding it', async () => {
+    render(<InvitationsPage />);
+    const send = await screen.findByRole('button', { name: /send invitation/i });
+    expect(send).toBeDisabled();
+    expect(send).toHaveAttribute('title', expect.stringMatching(/Read-only session/));
+    await waitFor(() => expect(listInvitations).toHaveBeenCalled());
+  });
+});

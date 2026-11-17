@@ -87,7 +87,7 @@ function lifecycleColumns(existing: Plugin, lifecycle: string | undefined): { co
  * Register the UPDATE route on a router.
  *
  * Expects auth + orgId + tenant scope (the shared `/plugins` chain) and
- * `requirePermission('plugins:write')` from the parent mount in index.ts.
+ * `requirePermission('plugins:write')` from the parent mount in app-routes.ts.
  *
  * Edits only DESCRIPTIVE catalog fields and the version's operational flags.
  * Execution-contract keys (commands, env, secrets, compute type, …) are

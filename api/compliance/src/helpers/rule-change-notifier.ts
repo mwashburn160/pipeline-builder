@@ -37,7 +37,7 @@ export async function notifyPublishedRuleChange(
       : `Published rule "${ruleName}" has been updated`;
 
     const content = changeType === 'deleted'
-      ? `The published compliance rule "${ruleName}" has been deleted by the system administrator. It is no longer enforced. Your subscription remains in your list and can be removed at your convenience.`
+      ? `The published compliance rule "${ruleName}" has been deleted by the system administrator. It is no longer enforced, and it no longer appears in your subscriptions — there is nothing for you to remove.`
       : `The published compliance rule "${ruleName}" has been updated by the system administrator. If you have pinned a specific version, your pinned version will continue to be used. Otherwise, the updated rule will take effect after cache refresh.`;
 
     for (const sub of recipients) {

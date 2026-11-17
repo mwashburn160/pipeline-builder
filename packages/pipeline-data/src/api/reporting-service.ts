@@ -538,9 +538,28 @@ export class ReportingService {
   // ── Category 3: DORA write paths (post-deploy outcomes + ingest health) ──
 
   /**
+   * Whether `executionId` is a pipeline execution of `orgId`: an ingested event
+   * for it, or a DORA deploy row (which outlives the swept events). Read on the
+   * primary — an outcome is often marked moments after the deploy landed, and a
+   * lagging replica would refuse a real execution. Explicitly org-filtered as
+   * well as RLS-scoped, so the answer never depends on the GUC alone.
+   */
+  async hasExecution(orgId: string, executionId: string): Promise<boolean> {
+    const result = await runWithTenantContext({ orgId, isSuperAdmin: false }, () =>
+      withTenantTx((tx) => tx.execute(sql`
+        SELECT (
+          EXISTS (SELECT 1 FROM pipeline_events WHERE org_id = ${orgId} AND execution_id = ${executionId})
+          OR EXISTS (SELECT 1 FROM dora_deployments WHERE org_id = ${orgId} AND execution_id = ${executionId})
+        ) AS found`)),
+    );
+    const [row] = resultRows<{ found: boolean }>(result);
+    return row?.found === true;
+  }
+
+  /**
    * Record a manual post-deploy outcome marker: a user marks a
    * deployment `failed` (a production incident linked to the deploy) or
-   * `restored` (recovered). Idempotent — keyed on (execution_id, outcome) so a
+   * `restored` (recovered). Idempotent — keyed on (org_id, execution_id, outcome) so a
    * duplicate POST refreshes `at` rather than double-counting, while a
    * failed→restored pair stays two rows. Feeds the post-deploy CFR component and
    * the real MTTR. Runs under the caller's org context (RLS WITH CHECK).
@@ -559,7 +578,11 @@ export class ReportingService {
         const [prior] = await tx
           .select({ at: schema.deploymentOutcome.at, environment: schema.deploymentOutcome.environment })
           .from(schema.deploymentOutcome)
-          .where(and(eq(schema.deploymentOutcome.executionId, executionId), eq(schema.deploymentOutcome.outcome, input.outcome)))
+          .where(and(
+            eq(schema.deploymentOutcome.orgId, orgId),
+            eq(schema.deploymentOutcome.executionId, executionId),
+            eq(schema.deploymentOutcome.outcome, input.outcome),
+          ))
           .limit(1);
         await tx.insert(schema.deploymentOutcome).values({
           executionId,
@@ -568,7 +591,7 @@ export class ReportingService {
           outcome: input.outcome,
           at: new Date(input.at),
         }).onConflictDoUpdate({
-          target: [schema.deploymentOutcome.executionId, schema.deploymentOutcome.outcome],
+          target: [schema.deploymentOutcome.orgId, schema.deploymentOutcome.executionId, schema.deploymentOutcome.outcome],
           set: {
             at: new Date(input.at),
             environment: scrubOptional(input.environment) ?? null,

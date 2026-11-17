@@ -249,6 +249,21 @@ describe('PUT /:id', () => {
     expect(svc.findByNameInOrg).not.toHaveBeenCalled();
   });
 
+  it('refuses an INPUTS-only edit that drops a var the STORED props still reference', async () => {
+    svc.findById.mockResolvedValueOnce({ ...template, props: { project: '{{ vars.repo }}' } });
+    const dropped = res();
+    await update(req({ body: { inputs: [] } }), dropped);
+    expect(dropped.status).toHaveBeenCalledWith(400);
+    expect(body(dropped).message).toMatch(/undeclared vars: repo/);
+    expect(svc.update).not.toHaveBeenCalled();
+
+    // Re-declaring it is fine.
+    svc.findById.mockResolvedValueOnce({ ...template, props: { project: '{{ vars.repo }}' } });
+    const kept = res();
+    await update(req({ body: { inputs: [{ name: 'repo' }, { name: 'env' }] } }), kept);
+    expect(kept.status).toHaveBeenCalledWith(200);
+  });
+
   it('refuses undeclared vars, invalid tokens and a bad body; stops on the visibility ladder; 404s', async () => {
     const undeclared = res();
     await update(req({ body: { props: { project: '{{ vars.nope }}' } } }), undeclared);

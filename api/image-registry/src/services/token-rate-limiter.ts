@@ -50,8 +50,13 @@ const memBuckets = new Map<string, { count: number; resetAt: number }>();
  * Build the per-(ip, username) bucket key. Password is intentionally EXCLUDED so
  * varying it can't spawn a fresh bucket per attempt.
  */
+/**
+ * Lower-cased: the login identifier (an email) is matched case-insensitively, so
+ * `Victim@x` and `victim@x` are one account — keyed as typed, every case variant
+ * was a fresh budget against the same password check.
+ */
 function userBucketKey(sourceIp: string, username: string): string {
-  return `u:${sourceIp}|${username}`;
+  return `u:${sourceIp}|${username.toLowerCase()}`;
 }
 
 /** Build the per-source-ip bucket key (distinct `ip:` namespace from the user buckets). */

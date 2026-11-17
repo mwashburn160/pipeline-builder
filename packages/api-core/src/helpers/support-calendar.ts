@@ -118,9 +118,13 @@ export function responseDueAt(
 
 /** `1,2,3,4,5` → `[1,2,3,4,5]`, ignoring anything that is not a weekday index. */
 function parseDays(raw: string): number[] {
+  // Only digit entries: `Number('')` is 0, so an empty entry (a trailing comma,
+  // `1,,5`, a blank setting) would otherwise make Sunday a working day.
   const out = raw.split(',')
-    .map((v) => Number(v.trim()))
-    .filter((v) => Number.isInteger(v) && v >= 0 && v <= 6);
+    .map((v) => v.trim())
+    .filter((v) => /^\d+$/.test(v))
+    .map(Number)
+    .filter((v) => v <= 6);
   return [...new Set(out)].sort((a, b) => a - b);
 }
 

@@ -20,6 +20,7 @@ const mockSendSuccess = jest.fn((_res: any, _code: number, data: any) => data);
 const mockRecordOutcome = jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue({ previous: null });
 const mockGetSettings = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockGetEnvironments = jest.fn<(...a: unknown[]) => Promise<string[]>>();
+const mockHasExecution = jest.fn<(...a: unknown[]) => Promise<boolean>>();
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (handler: any) => async (req: any, res: any) => {
@@ -39,6 +40,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   reportingService: {
     recordDeploymentOutcome: (...a: unknown[]) => mockRecordOutcome(...a),
+    hasExecution: (...a: unknown[]) => mockHasExecution(...a),
     getReportingSettings: (...a: unknown[]) => mockGetSettings(...a),
     getReportEnvironments: (...a: unknown[]) => mockGetEnvironments(...a),
   },
@@ -76,6 +78,7 @@ describe('POST /reports/deployments/:executionId/outcome', () => {
       defaultDoraRetentionDays: 180,
     });
     mockGetEnvironments.mockResolvedValue(['production', 'staging']);
+    mockHasExecution.mockResolvedValue(true);
     router = createDeploymentOutcomeRoutes();
   });
 
@@ -84,6 +87,14 @@ describe('POST /reports/deployments/:executionId/outcome', () => {
     await getHandler()({ params: { executionId: 'exec-1' }, body: { outcome: 'failed', at, environment: 'production' } }, res());
     expect(mockRecordOutcome).toHaveBeenCalledWith('acme', 'exec-1', { outcome: 'failed', at, environment: 'production' });
     expect(mockSendSuccess).toHaveBeenCalledWith(expect.anything(), 200, { executionId: 'exec-1', outcome: 'failed' });
+  });
+
+  it('404s an execution that is not the caller org\'s and does not write', async () => {
+    mockHasExecution.mockResolvedValue(false);
+    await getHandler()({ params: { executionId: 'other-org-exec' }, body: { outcome: 'failed', at: iso(DAY), environment: 'production' } }, res());
+    expect(mockHasExecution).toHaveBeenCalledWith('acme', 'other-org-exec');
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 404, expect.stringContaining('not found'), 'NOT_FOUND');
+    expect(mockRecordOutcome).not.toHaveBeenCalled();
   });
 
   it('records a restored outcome without an environment (no env validation)', async () => {

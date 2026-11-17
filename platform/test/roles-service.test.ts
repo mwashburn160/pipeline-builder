@@ -29,6 +29,7 @@ const mockGmExists = jest.fn<AnyFn>();
 const mockGmCount = jest.fn<AnyFn>();
 const mockGmAggregate = jest.fn<AnyFn>();
 const mockUoFindOne = jest.fn<AnyFn>();
+const mockUoExists = jest.fn<AnyFn>();
 const mockUserUpdateOne = jest.fn<AnyFn>();
 const mockUserUpdateMany = jest.fn<AnyFn>();
 const mockUserFindById = jest.fn<AnyFn>();
@@ -77,14 +78,14 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
     findById: (...a: unknown[]) => mockUserFindById(...a),
     findOne: (...a: unknown[]) => mockUserFindOne(...a),
   },
-  UserOrganization: { findOne: (...a: unknown[]) => mockUoFindOne(...a) },
+  UserOrganization: { findOne: (...a: unknown[]) => mockUoFindOne(...a), exists: (...a: unknown[]) => mockUoExists(...a) },
 }));
 
 const { seedDefaultRoles, recomputeUserOrgRole, ensureBaselineRole, assertActorMayAssignBuiltinAdmin } = await import('../src/services/roles-service.js');
 const { listRolesWithMembers, addUserToRole, removeUserFromRole, updateRole } = await import('../src/services/role-crud.js');
 const { rolePermissionsFor } = await import('../src/services/role-permissions.js');
 const { grantPlatformAdmin, revokePlatformAdmin } = await import('../src/services/platform-admin-roles.js');
-const { RL_ROLE_NOT_FOUND, RL_USER_NOT_FOUND, RL_NOT_ORG_MEMBER, RL_CANNOT_REMOVE_SELF, RL_LAST_PRIVILEGED_MEMBER, RL_REQUIRES_SUPERADMIN, RL_SUPERADMIN_ROLE_MISSING, RL_ASSIGN_EXCEEDS_CEILING, RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN, RL_SYSTEM_ORG_ROLE_OUTSIDE_SYSTEM_ORG } = await import('../src/services/roles-errors.js');
+const { RL_ROLE_NOT_FOUND, RL_USER_NOT_FOUND, RL_NOT_ORG_MEMBER, RL_CANNOT_REMOVE_SELF, RL_CANNOT_REMOVE_OWNER_ADMIN, RL_LAST_PRIVILEGED_MEMBER, RL_REQUIRES_SUPERADMIN, RL_SUPERADMIN_ROLE_MISSING, RL_ASSIGN_EXCEEDS_CEILING, RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN, RL_SYSTEM_ORG_ROLE_OUTSIDE_SYSTEM_ORG } = await import('../src/services/roles-errors.js');
 const { ECOSYSTEM_MANAGER_PERMISSIONS } = await import('@pipeline-builder/api-core') as unknown as { ECOSYSTEM_MANAGER_PERMISSIONS: readonly string[] };
 
 // Actor contexts for Role ASSIGNMENT (add/remove member). The 4th arg to
@@ -718,6 +719,38 @@ describe('removeUserFromRole', () => {
     await expect(removeUserFromRole('org-1', 'gA', 'victim', { actorUserId: 'owner-not-in-role' }))
       .rejects.toThrow(RL_LAST_PRIVILEGED_MEMBER);
     expect(mockGmDeleteOne).not.toHaveBeenCalled();
+  });
+
+  it('SECURITY: refuses removing the org OWNER from the built-in Admin Role (they would keep no permissions)', async () => {
+    mockGroupFindOne.mockReturnValue({ select: () => Promise.resolve({ _id: 'gA', grantsRole: 'admin', name: 'Admin', system: true }) });
+    mockGmExists.mockReturnValue(anyOrderQuery({ _id: 'm1' }));
+    mockUoExists.mockReturnValue(anyOrderQuery({ _id: 'uo-owner' }));
+
+    await expect(removeUserFromRole('org-1', 'gA', 'owner-1', { actorUserId: 'other-admin' }))
+      .rejects.toThrow(RL_CANNOT_REMOVE_OWNER_ADMIN);
+    expect(mockUoExists).toHaveBeenCalledWith({ userId: 'owner-1', organizationId: 'org-1', role: 'owner' });
+    expect(mockGmDeleteOne).not.toHaveBeenCalled();
+  });
+
+  it('still allows removing a non-owner from the built-in Admin Role', async () => {
+    mockGroupFindOne.mockReturnValue({ select: () => Promise.resolve({ _id: 'gA', grantsRole: 'admin', name: 'Admin', system: true }) });
+    guardSees('gA', 2);
+    mockUoExists.mockReturnValue(anyOrderQuery(null));
+    mockUoFindOne.mockReturnValue({ session: () => ({ role: 'admin', save: jest.fn<AnyFn>().mockResolvedValue(undefined) }) });
+
+    await removeUserFromRole('org-1', 'gA', 'victim', { actorUserId: 'other-admin' });
+
+    expect(mockGmDeleteOne).toHaveBeenCalledWith({ userId: 'victim', roleId: 'gA' }, { session: expect.anything() });
+  });
+
+  it('counts only PEOPLE toward the last-member guard (a service account holding the Role is not one)', async () => {
+    mockGroupFindOne.mockReturnValue({ select: () => Promise.resolve({ _id: 'gA', grantsRole: 'admin', name: 'Admin' }) });
+    guardSees('gA', 1);
+
+    await expect(removeUserFromRole('org-1', 'gA', 'victim', { actorUserId: 'other-admin' }))
+      .rejects.toThrow(RL_LAST_PRIVILEGED_MEMBER);
+    const pipeline = mockGmAggregate.mock.calls[0]![0] as Array<{ $match?: Record<string, unknown> }>;
+    expect(pipeline[0]!.$match).toMatchObject({ userId: { $type: 'objectId' } });
   });
 
   it('allows removing a non-last member of a privilege-granting Role', async () => {

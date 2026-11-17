@@ -186,3 +186,48 @@ describe('POST /plugins — name-shadowing refusal', () => {
     expect(fs.existsSync(tempPath)).toBe(false);
   });
 });
+
+// The parsed zip's extract dir used to be left on the build-scratch volume by
+// every outcome that queued no build (a refusal, a throw), until the stale-temp
+// sweep — only a queued build job ever cleaned it up.
+describe('POST /plugins — extract dir cleanup', () => {
+  function extracted(): string {
+    const dir = fs.mkdtempSync(path.join(uploadDir, 'extract-'));
+    fs.writeFileSync(path.join(dir, 'plugin-spec.yaml'), 'name: trivy');
+    mockParsePluginZip.mockResolvedValue({
+      pluginSpec: { name: 'trivy', version: '1.0.0', buildArgs: {} },
+      buildType: 'build_image',
+      readmeMd: null,
+      dockerfileContent: 'FROM scratch',
+      extractDir: dir,
+    });
+    return dir;
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockValidateBody.mockReturnValue({ ok: true, value: {} });
+    mockReserveQuota.mockResolvedValue({ exceeded: false, quota: { resetAt: 'P' } });
+  });
+
+  it('removes the extract dir when the upload is refused after parsing', async () => {
+    const dir = extracted();
+    mockShadowingDecision.mockResolvedValue({ mode: 'deny', shadows: ['official/trivy'] });
+    const res = mockRes();
+
+    await handler(uploadReq().req, res);
+
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(fs.existsSync(dir)).toBe(false);
+  });
+
+  it('removes the extract dir when processing throws after parsing', async () => {
+    const dir = extracted();
+    const { pluginService } = await import('../src/services/plugin-service.js');
+    (pluginService.assertDeployable as jest.Mock<(...a: any[]) => Promise<any>>).mockRejectedValueOnce(new Error('not deployable'));
+
+    await expect(handler(uploadReq().req, mockRes())).rejects.toThrow('not deployable');
+
+    expect(fs.existsSync(dir)).toBe(false);
+  });
+});

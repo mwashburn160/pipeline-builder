@@ -17,12 +17,13 @@ import { describe, it, expect, jest } from '@jest/globals';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { RowActionsMenu } from '../src/components/organizations/RowActionsMenu';
 
-const open = (canManage: boolean) => {
+const open = (canManage: boolean, canNamespace = true) => {
   render(
     <RowActionsMenu
       canKms={false}
       canIdp={false}
       canManage={canManage}
+      canNamespace={canNamespace}
       onKms={jest.fn()}
       onIdp={jest.fn()}
       onTier={jest.fn()}
@@ -47,5 +48,25 @@ describe('org row actions — the lifecycle half needs orgs:manage', () => {
     // The read-only actions stay: finding an org and reading it is the whole
     // point of the permission that got them here.
     expect(screen.getByRole('menuitem', { name: /namespace yaml/i })).toBeInTheDocument();
+  });
+});
+
+describe('org row actions — the namespace YAML needs platform:read', () => {
+  it('drops the item for an orgs:read holder without platform:read (Account Manager, Support Agent)', () => {
+    // `GET /organization/:id/namespace` is system-org `platform:read` + step-up:
+    // offering it would end in a 403 after the step-up.
+    open(true, false);
+    expect(screen.queryByRole('menuitem', { name: /namespace yaml/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /delete organization/i })).toBeInTheDocument();
+  });
+
+  it('renders no trigger at all when no item is available', () => {
+    render(
+      <RowActionsMenu
+        canKms={false} canIdp={false} canManage={false} canNamespace={false}
+        onKms={jest.fn()} onIdp={jest.fn()} onTier={jest.fn()} onNamespace={jest.fn()} onDelete={jest.fn()}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: /more actions/i })).not.toBeInTheDocument();
   });
 });

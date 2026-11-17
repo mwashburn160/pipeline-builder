@@ -34,12 +34,20 @@ import type { ToolSet } from '@pipeline-builder/ai-core';
 import { compareSemver, isSemver } from '@pipeline-builder/api-core';
 import { z } from 'zod';
 
+import { redactTextForModel } from '../secret-redaction.js';
 import type { AgentToolDeps } from '../tool-deps.js';
 import { ResourceId } from '../tool-deps.js';
 import { asArray, asRecord, settle, unwrap } from '../tool-helpers.js';
 
 /** How many rows any one diagnosis returns. A card lists; it does not page. */
 const MAX_ROWS = 20;
+
+/**
+ * How far back a NAMED execution is looked for. The history report returns the
+ * most recent runs only, so filtering the default 10 would answer "nothing
+ * failed" for any older run the user named.
+ */
+const NAMED_EXECUTION_WINDOW = 200;
 
 /** An optional ISO-8601 instant the model may supply for a report window. */
 const IsoInstant = z.string().datetime().describe('ISO-8601 timestamp');
@@ -62,7 +70,7 @@ export function diagnoseTools(deps: AgentToolDeps): ToolSet {
         limit: z.number().int().min(1).max(MAX_ROWS).optional().describe('How many recent executions to read'),
       }),
       execute: async ({ pipelineId, executionId, limit }) => {
-        const size = limit ?? 10;
+        const size = executionId ? NAMED_EXECUTION_WINDOW : limit ?? 10;
         const [runs, stages, actions] = await Promise.all([
           settle(async () => unwrap<{ executions?: unknown[] }>(
             await reporting.get(`/reports/execution/list?pipelineId=${encodeURIComponent(pipelineId)}&limit=${size}`),
@@ -86,7 +94,18 @@ export function diagnoseTools(deps: AgentToolDeps): ToolSet {
             failingAction: r.failing_action ?? null,
           };
         });
-        if (executionId) executions = executions.filter((e) => e.executionId === executionId);
+        if (executionId) {
+          const read = executions.length;
+          executions = executions.filter((e) => e.executionId === executionId);
+          if (executions.length === 0) {
+            // Said outright, so an empty list is never read as "the run was fine".
+            return {
+              pipelineId,
+              executionId,
+              notFound: `Execution ${executionId} is not among the ${read} most recent runs of this pipeline in the report window.`,
+            };
+          }
+        }
 
         const failed = executions.filter((e) => e.status === 'failed');
         return {
@@ -137,14 +156,15 @@ export function diagnoseTools(deps: AgentToolDeps): ToolSet {
                 jobId: r.id,
                 pluginName: r.pluginName,
                 version: r.version,
-                error: r.error,
+                // Free text from the build: masked + capped (`redactTextForModel`).
+                error: redactTextForModel(r.error),
                 attemptsMade: r.attemptsMade,
                 maxAttempts: r.maxAttempts,
                 failedAt: r.failedAt,
               };
             })
             : { unavailable: failed.reason },
-          triage: triage.ok ? triage.value : { unavailable: triage.reason },
+          triage: triage.ok ? shapeTriage(triage.value) : { unavailable: triage.reason },
         };
       },
     }),
@@ -437,6 +457,37 @@ export function diagnoseTools(deps: AgentToolDeps): ToolSet {
         const res = (await pipeline.get(`/pipelines/${encodeURIComponent(id)}`)) as { data?: unknown };
         return { pipeline: res?.data ?? res };
       },
+    }),
+  };
+}
+
+/**
+ * The failure-triage summary: categories, counts and plugin names, with each
+ * representative sample's build error masked + capped like a failed job's
+ * (`redactTextForModel`) — the samples are the same raw build text.
+ */
+function shapeTriage(value: unknown): Record<string, unknown> {
+  const rec = asRecord(value);
+  return {
+    totalFailed: rec.totalFailed,
+    groups: asArray(rec.groups).slice(0, MAX_ROWS).map((g) => {
+      const group = asRecord(g);
+      return {
+        category: group.category,
+        count: group.count,
+        pluginNames: asArray(group.pluginNames).slice(0, MAX_ROWS),
+        samples: asArray(group.samples).slice(0, MAX_ROWS).map((x) => {
+          const sample = asRecord(x);
+          return {
+            id: sample.id,
+            pluginName: sample.pluginName,
+            version: sample.version,
+            error: redactTextForModel(sample.error),
+            failedAt: sample.failedAt,
+            source: sample.source,
+          };
+        }),
+      };
     }),
   };
 }

@@ -39,6 +39,7 @@ import { OFFICIAL_PUBLISHER, type ListingDetail, type ReviewPage } from '@/lib/p
 import { InstallControls } from '@/components/plugin-installs/InstallControls';
 import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
+import { hasPermission } from '@/lib/auth-helpers';
 
 export type PluginPageProps = WithSiteUrl & (
   | { listing: ListingDetail; tab: ListingTab; unavailable?: false; initialReviews?: ReviewPage | null }
@@ -87,7 +88,7 @@ function SignedInInstall({ listing }: { listing: ListingDetail }) {
 }
 
 function PluginPageBody({ listing, tab, siteUrl, initialReviews }: { listing: ListingDetail; tab: ListingTab; siteUrl: string; initialReviews?: ReviewPage | null }) {
-  const { signedIn } = useClientAuth();
+  const { signedIn, user } = useClientAuth();
   const path = pluginPagePath(listing.publisher.handle, listing.name);
   const url = `${siteUrl}${path}`;
   const disclaimer = vendorDisclaimer(listing);
@@ -128,7 +129,13 @@ function PluginPageBody({ listing, tab, siteUrl, initialReviews }: { listing: Li
               surface where a maintainer finds their own plugin. */}
           {listing.publisher.handle === COMMUNITY_PUBLISHER && (
             <div className="pt-2">
-              <ClaimListingNotice listingName={listing.name} signedIn={signedIn} loginHref={loginHref(path)} />
+              <ClaimListingNotice
+                listingName={listing.name}
+                signedIn={signedIn}
+                // A claim is a publish request that needs `publishers:manage`.
+                canClaim={hasPermission(user, 'publishers:manage')}
+                loginHref={loginHref(path)}
+              />
             </div>
           )}
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 text-xs text-fg-subtle">

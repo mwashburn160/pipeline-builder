@@ -43,7 +43,7 @@
 
 import { tool } from '@pipeline-builder/ai-core';
 import type { ToolSet } from '@pipeline-builder/ai-core';
-import { PLUGIN_CATALOG_FIELDS } from '@pipeline-builder/api-core';
+import { PLUGIN_CATALOG_FIELDS, pickRuleAttributes } from '@pipeline-builder/api-core';
 import { validateTemplateDraft } from '@pipeline-builder/pipeline-core';
 import { z } from 'zod';
 
@@ -116,6 +116,11 @@ export function editTools(deps: AgentToolDeps): ToolSet {
         `The change carries a redacted secret value that matches nothing in the current ${noun} (${secrets.unknownPlaceholders.join(', ')}). `
         + `Secret values are never shown to the assistant: keep each [REDACTED:…] placeholder exactly as the ${noun} was read, or read it again first.`);
     }
+    if (secrets.misplacedPlaceholders.length > 0) {
+      return declined(opts.kind,
+        `A redacted secret value can only stay where a secret belongs (${secrets.misplacedPlaceholders.join(', ')}). `
+        + 'Leave each [REDACTED:…] placeholder in a secret field (env, buildArgs, a token/secret/password key); it is never copied into another field.');
+    }
     if (secrets.overwrittenSecrets.length > 0) {
       return declined(opts.kind,
         `Secret values cannot be changed through the assistant (${secrets.overwrittenSecrets.join(', ')}). `
@@ -163,21 +168,30 @@ export function editTools(deps: AgentToolDeps): ToolSet {
         reason: z.string().max(500).optional().describe('One sentence: what this change does and why'),
       }),
       execute: async ({ id, changes, reason }) => {
+        let currentDoc: Record<string, unknown> = {};
         const proposal = await proposeEdit({
           kind: 'pipeline-edit',
           toolName: 'propose_pipeline_edit',
           id,
-          read: async () => named(unwrap(await pipeline.get(`/pipelines/${encodeURIComponent(id)}`)), 'pipeline'),
+          read: async () => {
+            currentDoc = named(unwrap(await pipeline.get(`/pipelines/${encodeURIComponent(id)}`)), 'pipeline');
+            return currentDoc;
+          },
           allowed: PIPELINE_EDIT_FIELDS,
           changes: asRecord(changes),
           reason,
           commit: PIPELINE_COMMIT,
           label: (c) => String(c.pipelineName ?? c.project ?? id),
         });
-        if (!('changedFields' in proposal) || !proposal.changedFields.includes('props')) return proposal;
-        // Only a props change can move the compliance posture — the same test
-        // `PUT /pipelines/:id` applies before it re-checks.
-        return { ...proposal, compliance: await checkDraft(deps, 'pipeline', pipelineAttributes(proposal.proposed.props, orgId)) };
+        if (!('changedFields' in proposal)) return proposal;
+        // Every editable field (name, description, keywords, props) is one a
+        // rule can read, so every edit is dry-run — and against the pipeline AS
+        // IT WILL BE, its stored visibility/owner/labels included, exactly the
+        // document `PUT /pipelines/:id` re-checks.
+        return {
+          ...proposal,
+          compliance: await checkDraft(deps, 'pipeline', pickRuleAttributes('pipeline', { ...currentDoc, ...proposal.proposed })),
+        };
       },
     }),
 

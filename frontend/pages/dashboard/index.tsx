@@ -100,6 +100,8 @@ export default function DashboardPage() {
     const to = new Date();
     const from = new Date();
     from.setDate(from.getDate() - trendRange);
+    // UTC dates on purpose: `/reports/success-rate` buckets by UTC day (the route
+    // passes no zone), so the range must name UTC days too, not the viewer's.
     const res = await api.getSuccessRate({
       interval: 'day',
       from: from.toISOString().slice(0, 10),

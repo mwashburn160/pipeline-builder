@@ -230,3 +230,32 @@ describe('Recently deleted teams', () => {
     await waitFor(() => expect(refreshUser).toHaveBeenCalled());
   });
 });
+
+describe('Manage team memberships (row action)', () => {
+  const BEE = {
+    id: 'u2', username: 'bee', email: 'bee@acme.test', role: 'member',
+    isOwner: false, isActive: true, isEmailVerified: true, joinedAt: '2026-01-01T00:00:00Z', createdAt: '2026-01-01T00:00:00Z',
+  };
+  beforeEach(() => {
+    mockApi.getOrganizationMembers = jest.fn<AnyFn>().mockResolvedValue({
+      success: true, data: { members: [BEE], pagination: { total: 1, limit: 25, offset: 0, hasMore: false } },
+    });
+  });
+
+  it('is offered to a members:manage holder in an org with teams', async () => {
+    render(<MembersPage />);
+    expect(await screen.findByRole('button', { name: /manage team memberships for bee/i })).toBeInTheDocument();
+  });
+
+  it('is not offered in a read-only session — saving is the members:manage bulk-add route', async () => {
+    mockAuthGuard({
+      isAdmin: true,
+      isReadOnly: true,
+      user: { id: 'me', organizationId: 'org-1', permissions: ADMIN_PERMS },
+      can: () => false,
+    });
+    render(<MembersPage />);
+    await screen.findByText('bee');
+    expect(screen.queryByRole('button', { name: /manage team memberships/i })).not.toBeInTheDocument();
+  });
+});

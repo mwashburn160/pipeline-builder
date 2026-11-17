@@ -217,7 +217,10 @@ export function createScorecardRoutes(): Router {
     const { incidentWindowHours } = await reportingService.getReportingSettings(orgId);
 
     const warn = (msg: string, meta?: Record<string, unknown>) => ctx.log('WARN', msg, meta);
-    const security = (await securitySignals(orgId, [id], warn)).get(id);
+    // Keyed by the ROW's id, not the path segment: findById matches a
+    // mixed-case UUID, but exposure and security-report pipeline ids are stored
+    // lower-case and compared exactly — the raw segment would score it clean.
+    const security = (await securitySignals(orgId, [pipeline.id], warn)).get(pipeline.id);
     const scorecard = await computeScorecard(pipeline as ScorablePipeline, orgId, from, to, incidentWindowHours, warn, security);
     ctx.log('COMPLETED', 'Computed pipeline scorecard', { id, score: scorecard.score, grade: scorecard.grade });
     return sendSuccess(res, 200, { scorecard });

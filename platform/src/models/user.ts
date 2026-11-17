@@ -38,7 +38,9 @@ interface OAuthProviderData {
  * - `generic-oidc`, `cognito` — SSO-only OIDC providers.
  * - `saml` — SAML 2.0 SSO. One key for every SAML IdP: a SAML config has no named
  *   provider, and the link is only ever matched together with its `issuer` (the
- *   IdP's entity id), so two orgs on SAML never collide here.
+ *   IdP's entity id). An entity id is admin-typed and not unique across orgs, so
+ *   the SSO callers also re-check the org's authority over the matched account's
+ *   email (`findOrCreateOAuthUser`'s `sso.assertTrusted`).
  *
  * Without a schema key a linkage is silently dropped under Mongoose strict mode
  * and every sign-in re-matches by email instead of the oauth-id fast path.

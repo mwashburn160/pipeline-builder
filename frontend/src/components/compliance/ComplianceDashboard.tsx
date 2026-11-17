@@ -64,9 +64,11 @@ function TabSpinner() {
 
 interface ComplianceDashboardProps {
   canManage?: boolean;
+  /** A read-only (impersonation) session — refuses even the `compliance:read` POSTs. */
+  sessionReadOnly?: boolean;
 }
 
-export default function ComplianceDashboard({ canManage = false }: ComplianceDashboardProps) {
+export default function ComplianceDashboard({ canManage = false, sessionReadOnly = false }: ComplianceDashboardProps) {
   // Tab lives in the URL: compliance has 10 views across 2 levels, and none of
   // them could be linked, bookmarked or returned to with browser Back.
   const [tab, setTab] = useUrlTab<Tab>('view', COMPLIANCE_TABS, 'overview');
@@ -186,7 +188,7 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
         {tab === 'exemptions' && <ExemptionManager readOnly={!canManage} />}
         {tab === 'scans' && (
           detailScanId
-            ? <ScanDetail scanId={detailScanId} onBack={() => setDetailScanId(null)} readOnly={!canManage} />
+            ? <ScanDetail scanId={detailScanId} onBack={() => setDetailScanId(null)} readOnly={!canManage} sessionReadOnly={sessionReadOnly} />
             : <ScanManager onViewScan={handleViewScan} readOnly={!canManage} />
         )}
         {tab === 'schedules' && <ScanScheduleManager readOnly={!canManage} />}

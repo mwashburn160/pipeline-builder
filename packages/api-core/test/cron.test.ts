@@ -28,6 +28,21 @@ describe('parseCron', () => {
     expect([...parseCron('0 0 * * SUN,sat')!.dayOfWeek.values].sort()).toEqual([0, 6]);
   });
 
+  it('refuses, rather than throws on, an Object.prototype member name', () => {
+    for (const expr of ['constructor', 'toString', '__proto__', 'hasOwnProperty', 'valueOf']) {
+      expect(parseCron(expr)).toBeNull();
+      expect(isValidCron(expr)).toBe(false);
+    }
+  });
+
+  it('runs an open-ended day-of-week step to Saturday, not through 7 (Sunday)', () => {
+    expect([...parseCron('0 0 * * 1/2')!.dayOfWeek.values].sort()).toEqual([1, 3, 5]);
+    expect([...parseCron('0 0 * * 0/3')!.dayOfWeek.values].sort()).toEqual([0, 3, 6]);
+    expect([...parseCron('0 0 * * 7/2')!.dayOfWeek.values]).toEqual([0]);
+    // An explicit range through 7 still names Sunday.
+    expect([...parseCron('0 0 * * 5-7')!.dayOfWeek.values].sort()).toEqual([0, 5, 6]);
+  });
+
   it('marks only an unrestricted field as any', () => {
     const c = parseCron('0 0 ? * 1')!;
     expect(c.dayOfMonth.any).toBe(true);
@@ -49,10 +64,16 @@ describe('nextCronRun in UTC', () => {
     expect(next('@monthly', '2026-11-16T00:00:00Z')).toBe('2026-12-01T00:00:00.000Z');
   });
 
-  it('fires on either restricted day field (Vixie OR)', () => {
+  it('fires on either restricted day field (day OR, as Kubernetes CronJob)', () => {
     // The 1st, or any Friday: Fri 2026-11-20 comes first.
     expect(next('0 0 1 * 5', '2026-11-16T00:00:00Z')).toBe('2026-11-20T00:00:00.000Z');
     expect(next('0 0 1 * 5', '2026-11-28T00:00:00Z')).toBe('2026-12-01T00:00:00.000Z');
+  });
+
+  it('treats a stepped star as restricting its day field, as Kubernetes does (not classic Vixie)', () => {
+    // Odd days OR Mondays. Vixie would read `*/2` as unrestricted and fire on Mondays only (the 23rd).
+    expect(next('0 0 */2 * 1', '2026-11-17T00:00:00Z')).toBe('2026-11-19T00:00:00.000Z'); // Thu the 19th: odd
+    expect(next('0 0 */2 * 1', '2026-11-29T00:00:00Z')).toBe('2026-11-30T00:00:00.000Z'); // Mon the 30th: even, but Monday
   });
 
   it('is null for a schedule that never fires', () => {

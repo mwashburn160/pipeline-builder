@@ -253,6 +253,27 @@ describe('ComplianceRuleSubscriptionService', () => {
       expect(affected).toEqual(['r1']);
       expect(affected.length).toBe(1);
     });
+
+    it('matches only rows NOT already in the target state, so RETURNING is the real toggles', async () => {
+      nextReturningResult = [];
+      await svc.bulkSetActive('org-1', ['r1'], true, 'u');
+      const chain = (tx.update.mock.results[tx.update.mock.results.length - 1] as { value: Record<string, jest.Mock> }).value;
+      const where = chain.where.mock.calls[0]?.[0];
+      // Walk the drizzle SQL tree for its literal chunks + bound params.
+      const seen = new Set<unknown>();
+      const parts: string[] = [];
+      const walk = (n: unknown): void => {
+        if (n === null || typeof n !== 'object' || seen.has(n)) return;
+        seen.add(n);
+        const o = n as Record<string, unknown>;
+        if (Array.isArray(o.value)) parts.push(...o.value.filter((v): v is string => typeof v === 'string'));
+        else if ('value' in o && o.value !== undefined) parts.push(String(o.value));
+        for (const v of Object.values(o)) walk(v);
+      };
+      walk(where);
+      // `<>` is the not-equal on isActive — the only inequality in this WHERE.
+      expect(parts.join(' ')).toContain('<>');
+    });
   });
 
   describe('pinVersion', () => {

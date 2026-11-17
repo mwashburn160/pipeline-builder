@@ -167,17 +167,21 @@ export default function RegistryPage() {
   // Deep-link: ?action=copy&source=<repo:ref> opens the modal pre-populated.
   // Strips the `action`/`source` params after consuming them so the URL
   // state is stable on subsequent navigation.
+  // Waits for the session (`isReady`), then opens the modal only for a viewer
+  // who may copy — a `registry:read`-only viewer following a shared link lands
+  // on the tag itself, not on a form whose submit can only be refused.
   useEffect(() => {
+    if (!isReady) return;
     if (action === 'copy' && actionSource && !copyTag) {
       const sepIdx = actionSource.lastIndexOf(':');
       if (sepIdx > 0) {
         const sRepo = actionSource.slice(0, sepIdx);
         const sRef = actionSource.slice(sepIdx + 1);
         setQuery({ repo: sRepo, tag: sRef, action: null, source: null });
-        setCopyTag(sRef);
+        if (canCopy) setCopyTag(sRef);
       }
     }
-  }, [action, actionSource, copyTag, setQuery]);
+  }, [isReady, canCopy, action, actionSource, copyTag, setQuery]);
 
   const onSelectRepo = (name: string) => setQuery({ repo: name, tag: null, platform: null });
   const onSelectTag = (t: string) => setQuery({ tag: t, platform: null });
@@ -448,7 +452,7 @@ export default function RegistryPage() {
         <RecentActionsPanel actions={recentActions} />
       </div>
 
-      {copyTag && repo && (
+      {copyTag && repo && canCopy && (
         <CopyTagModal
           sourceRepo={repo}
           sourceRef={copyTag}

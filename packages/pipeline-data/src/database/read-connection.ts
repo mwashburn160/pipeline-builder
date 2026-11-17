@@ -45,7 +45,7 @@ let warned = false;
  * The replica pool, or null when no replica is configured.
  *
  * Lazily created so importing this module costs nothing on a deploy that has no
- * replica — which, until Phase 1 lands, is all of them.
+ * replica, which is the default.
  */
 export function getReadPool(): Pool | null {
   if (!isReadReplicaConfigured()) return null;

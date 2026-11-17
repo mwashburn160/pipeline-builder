@@ -134,7 +134,7 @@ Inline validation on upload or create is synchronous and blocking. Existing enti
 | `POST` | `/compliance/scan-schedules` | Create schedule (`{ target, cronExpression }`) |
 | `PUT` | `/compliance/scan-schedules/:id` | Update schedule target or cron |
 | `PATCH` | `/compliance/scan-schedules/:id/active` | Toggle active (`{ isActive: boolean }`) |
-| `DELETE` | `/compliance/scan-schedules/:id` | Deactivate schedule |
+| `DELETE` | `/compliance/scan-schedules/:id` | Delete schedule (soft-delete: it stops firing, drops out of the list and can no longer be updated or re-activated — both answer 404; the retention sweep hard-deletes it after `SOFT_DELETE_RETENTION_DAYS`) |
 
 Cron expressions use standard 5-field format (`minute hour dayOfMonth month dayOfWeek`). Examples: `0 * * * *` (hourly), `*/15 * * * *` (every 15 min), `0 6 * * 1` (Monday 6am).
 

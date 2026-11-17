@@ -13,7 +13,7 @@ import { resolveOrgLineage } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { withSeatGuard } from '../helpers/seats.js';
 import { emailDomain } from '../helpers/sso-enforcement.js';
-import { OrgDomain, JoinRequest, Organization, UserOrganization, User, type JoinRequestData, type OrgDomainDocument } from '../models/index.js';
+import { OrgDomain, JoinRequest, Organization, RoleAssignment, UserOrganization, User, type JoinRequestData, type OrgDomainDocument } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 
 const logger = createLogger('org-domain-service');
@@ -572,11 +572,16 @@ class OrgDomainService {
         if (existing) {
           if (existing.isActive) return; // already an active member
           if (!opts.allowReactivate) throw new Error(JOIN_MEMBERSHIP_REVOKED);
-          // Admin-approved reactivation: reset to a clean member (drop any stale
-          // elevated role) and re-seed the baseline Member role.
+          // Admin-approved reactivation: reset to a clean member and re-seed the
+          // baseline Member role. Deactivation keeps the person's Role
+          // assignments, and the coarse role is DERIVED from them, so the old
+          // assignments are dropped first — otherwise the recompute inside
+          // `ensureBaselineRole` would hand a former admin their Admin Role back
+          // on an approval the admin made as "a member".
           existing.isActive = true;
           existing.role = 'member';
           await existing.save({ session });
+          await RoleAssignment.deleteMany({ userId, organizationId: toOrgId(orgId) }, { session });
           await ensureBaselineRole(userId, toOrgId(orgId), session);
         } else {
           await UserOrganization.create([{ userId, organizationId: orgId, role: 'member' }], { session });

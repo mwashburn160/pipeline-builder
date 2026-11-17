@@ -310,6 +310,7 @@ export const login = withController('Login', async (req, res) => {
       amr: ['pwd'],
       aal: 1,
       minLength: shortfall.minLength,
+      tokenVersion: user.tokenVersion,
     });
     audit(req, 'user.password.change_required', {
       targetType: 'user',

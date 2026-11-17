@@ -172,6 +172,17 @@ export function AuthProvider({ children, deferInit = false }: { children: ReactN
   const refreshGenRef = useRef(0);
   /** Epoch ms of the last tab-focus-triggered refresh (see the throttle below). */
   const lastVisibilityRefreshRef = useRef(0);
+  /**
+   * Abandon any profile refresh still in flight, at the point the session ends.
+   * Its request went out under the token that was just discarded, and a late
+   * 200 would otherwise put the signed-out user back into `user` — a header and
+   * dashboard for a session that no longer has a token. Also frees the
+   * coalescing slot, so the next sign-in's refresh is not folded into it.
+   */
+  const abandonInFlightRefresh = useCallback(() => {
+    refreshGenRef.current += 1;
+    refreshInFlightRef.current = null;
+  }, []);
 
   /**
    * Refresh user profile from API
@@ -242,6 +253,7 @@ export function AuthProvider({ children, deferInit = false }: { children: ReactN
           }
           try {
             const orgRes = await api.getUserOrganizations();
+            if (gen !== refreshGenRef.current) return; // superseded while the list loaded
             const orgs = (orgRes.data?.organizations || []).map(o => ({
               id: o.organizationId,
               name: o.organizationName,
@@ -259,6 +271,7 @@ export function AuthProvider({ children, deferInit = false }: { children: ReactN
             }));
             setOrganizations((prev) => keepIfUnchanged(prev, orgs));
           } catch {
+            if (gen !== refreshGenRef.current) return;
             setOrganizations((prev) => (prev.length === 0 ? prev : []));
           }
           return;
@@ -368,13 +381,15 @@ export function AuthProvider({ children, deferInit = false }: { children: ReactN
    */
   useEffect(() => {
     return api.onSessionExpired(() => {
+      abandonInFlightRefresh();
       clearSessionCaches();
       setUser(null);
+      setOrganizations([]);
       // Remember where they were so signing back in returns them there.
       rememberReturnPath(router.asPath);
       void router.push('/?expired=1');
     });
-  }, [router]);
+  }, [router, abandonInFlightRefresh]);
 
   // The five ways a session gets opened (password, MFA completion, forced
   // password change, passkey, registration). They share only `refreshUser`,
@@ -410,15 +425,17 @@ export function AuthProvider({ children, deferInit = false }: { children: ReactN
     try {
       await api.logout();
     } finally {
+      abandonInFlightRefresh();
       clearSessionCaches();
       setUser(null);
+      setOrganizations([]);
       setIsLoading(false);
       // Navigate to landing page. A deliberate sign-out returns nowhere: the
       // auth guard remembers the page it bounces from as `user` clears, so the
       // remembered path is dropped once the navigation has happened.
       void Promise.resolve(router.push('/')).finally(forgetReturnPath);
     }
-  }, [router]);
+  }, [router, abandonInFlightRefresh]);
 
   // Derived from the current access token's `impersonationReadOnly` claim.
   //

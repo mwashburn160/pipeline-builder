@@ -162,6 +162,11 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
       const authHeader = getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' });
 
       const logWarn = ctx.log.bind(null, 'WARN');
+      // The parsed zip's extract dir, and whether a queued build job now owns it.
+      // Every other outcome (a refusal, a throw, a metadata_only deploy that
+      // builds nothing) removes it in the `finally` below.
+      let extractDir: string | null = null;
+      let extractDirHandedOff = false;
 
       try {
         // Pinned to a const: the narrowing from this guard does not survive
@@ -244,6 +249,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
 
             // -- Parse & validate ZIP ---------------------------------------------
             const plugin = await parsePluginZip(zipPath);
+            extractDir = plugin.extractDir;
             validateBuildArgs(plugin.pluginSpec.buildArgs);
             const catalog = catalogColumns(resolveCatalogMetadata(detectCatalogMetadata(catalogInputs(plugin)), edits.value));
             const s = plugin.pluginSpec;
@@ -437,8 +443,10 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
               await deletePluginArtifact(s3Key);
               return sendError(res, 503, 'Build queue unavailable  please retry', ErrorCode.SERVICE_UNAVAILABLE);
             }
-            // Queued: the build worker owns the slot now (it refunds on permanent failure).
+            // Queued: the build worker owns the slot and the extract dir now (it
+            // refunds on permanent failure and cleans the context up).
             slot.markConsumed();
+            extractDirHandedOff = true;
 
             ctx.log('INFO', 'Build queued', { pluginName: s.name, version });
 
@@ -493,9 +501,11 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
       } finally {
         // Remove the uploaded temp ZIP on EVERY outcome — early returns (bad
         // body, quota denied, compliance block) included, not only once the
-        // handler got as far as parsing it. The extract dir belongs to the build
-        // worker, which cleans it up.
+        // handler got as far as parsing it. The extract dir goes too unless a
+        // queued build owns it: left behind, it held the unpacked plugin on the
+        // build-scratch volume until the stale-temp sweep.
         cleanupUploadFile(req);
+        if (extractDir && !extractDirHandedOff) await fs.promises.rm(extractDir, { recursive: true, force: true }).catch(() => {});
       }
     }),
   );

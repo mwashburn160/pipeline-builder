@@ -44,7 +44,8 @@
  */
 
 import { createHash } from 'node:crypto';
-import { access, constants } from 'node:fs/promises';
+import { access, constants, mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { join } from 'node:path';
 import { createLogger, emitCounter, envBool, envInt, envStr, errorMessage } from '@pipeline-builder/api-core';
 import { observe } from '@pipeline-builder/api-server';
 
@@ -120,8 +121,15 @@ function scratchDir(): string {
   return envStr('REPORT_PDF_SCRATCH_DIR', '/tmp/report-pdf');
 }
 
-/** The launch flags, in one place so the deploy notes and the code cannot disagree. */
-export function chromiumArgs(): string[] {
+/**
+ * The launch flags, in one place so the deploy notes and the code cannot disagree.
+ *
+ * `profileDir` is a FRESH directory per render, under the scratch mount. Chromium locks
+ * its user-data dir (ProcessSingleton): a second instance pointed at the same one hands
+ * off to the first and exits, so a shared profile made every concurrent render past the
+ * first fail as soon as `REPORT_PDF_CONCURRENCY` was raised above 1.
+ */
+export function chromiumArgs(profileDir: string): string[] {
   return [
     // See the file header: the sandbox has nothing to contain here, and the pod cannot
     // give it the privileges it would need.
@@ -140,7 +148,7 @@ export function chromiumArgs(): string[] {
     '--disable-extensions',
     '--no-first-run',
     '--no-default-browser-check',
-    `--user-data-dir=${scratchDir()}`,
+    `--user-data-dir=${profileDir}`,
     `--js-flags=--max-old-space-size=${heapMb()}`,
   ];
 }
@@ -226,7 +234,7 @@ async function defaultLauncher(options: { executablePath: string; args: string[]
 let active = 0;
 let queued = 0;
 
-/** Current queue depth, for the health endpoint and tests. */
+/** Current queue depth (tests). */
 export function pdfQueueDepth(): { active: number; queued: number } {
   return { active, queued };
 }
@@ -314,6 +322,8 @@ export async function renderPdf(html: string): Promise<PdfResult | PdfRefusal> {
   // to drive a page nobody is waiting for.
   let finished = false;
   let timer: NodeJS.Timeout | null = null;
+  // This render's own Chromium profile (see chromiumArgs), removed once its browser is gone.
+  let profileDir: string | null = null;
   try {
     const budget = timeoutMs();
     // One deadline for the WHOLE render — launch, layout and print together. Per-step
@@ -323,7 +333,10 @@ export async function renderPdf(html: string): Promise<PdfResult | PdfRefusal> {
     });
 
     const work = (async (): Promise<Buffer> => {
-      launching = (launcher ?? defaultLauncher)({ executablePath: chromiumPath(), args: chromiumArgs() });
+      await mkdir(scratchDir(), { recursive: true });
+      profileDir = await mkdtemp(join(scratchDir(), 'render-'));
+      if (finished) throw new Error('render abandoned after its deadline');
+      launching = (launcher ?? defaultLauncher)({ executablePath: chromiumPath(), args: chromiumArgs(profileDir) });
       const launched = await launching;
       if (finished) throw new Error('render abandoned after its deadline');
       browser = launched;
@@ -382,14 +395,24 @@ export async function renderPdf(html: string): Promise<PdfResult | PdfRefusal> {
   } finally {
     finished = true;
     if (timer) clearTimeout(timer);
+    const dir = profileDir as string | null;
+    const removeProfile = async (): Promise<void> => {
+      if (!dir) return;
+      await rm(dir, { recursive: true, force: true }).catch((err: unknown) => {
+        logger.warn('Could not remove a render profile directory', { error: errorMessage(err) });
+      });
+    };
     if (browser) {
       await destroy(browser);
+      await removeProfile();
     } else if (launching) {
       // The deadline fired before the launch returned. The Chromium it is starting
       // still arrives, and nothing else holds a reference to it — so it is destroyed
       // the moment it does, instead of living on unowned. (The slot is released now,
       // so until it lands it runs outside the concurrency cap.)
-      void (launching as Promise<PdfBrowser>).then(destroy, () => undefined);
+      void (launching as Promise<PdfBrowser>).then(destroy, () => undefined).then(removeProfile);
+    } else {
+      await removeProfile();
     }
     release();
   }

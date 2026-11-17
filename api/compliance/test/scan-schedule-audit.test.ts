@@ -172,6 +172,8 @@ describe('DELETE /:id — delete emits compliance.scan-schedule.delete', () => {
     await handler({ __orgId: 'org-a', params: { id: SCHED_ID }, user: USER } as any, res);
 
     expect(status).toHaveBeenCalledWith(200);
+    // The deleting user is stamped on the tombstone (deleted_by).
+    expect(softDeleteMock).toHaveBeenCalledWith(SCHED_ID, 'org-a', 'u-1');
     expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({
       action: 'compliance.scan-schedule.delete',
       targetId: SCHED_ID,

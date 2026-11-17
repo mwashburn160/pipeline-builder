@@ -177,6 +177,19 @@ describe('PUT /pipelines/bulk/update — per-item isolation', () => {
     expect(changesById).toEqual({ [ID1]: { isActive: { from: true, to: false } }, [ID2]: {} });
   });
 
+  it('a MIXED-CASE id still finds its own row (rows come back lower-case) and is written once', async () => {
+    const lower = 'abcdef00-0000-4000-8000-0000000000ab';
+    mockFindByIds.mockResolvedValueOnce([{ id: lower, pipelineName: 'a', isActive: true }]);
+    mockUpdate.mockImplementation(async (id: string) => ({ id, pipelineName: 'a', isActive: false }));
+
+    await handler(mockReq({ ids: [lower.toUpperCase(), lower], data: { isActive: false } }), mockRes());
+
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
+    expect(mockUpdate.mock.calls[0][0]).toBe(lower);
+    expect(mockEmitAudit).toHaveBeenCalledTimes(1);
+    expect(mockEmitAudit.mock.calls[0][0]).toMatchObject({ targetId: lower, details: { changes: { isActive: { from: true, to: false } } } });
+  });
+
   it('reports all failures without throwing when every update rejects', async () => {
     mockUpdate.mockRejectedValue(new Error('boom'));
 

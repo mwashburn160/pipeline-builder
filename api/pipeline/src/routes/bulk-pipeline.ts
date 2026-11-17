@@ -43,6 +43,13 @@ const FullUuid = z.string().uuid();
 const nonUuidIds = (ids: unknown[]): boolean => ids.some((id) => !FullUuid.safeParse(id).success);
 
 /**
+ * Validated UUIDs, lower-cased and de-duplicated. A UUID matches the column in
+ * any case, but rows come back lower-case — so a mixed-case id would miss its
+ * own row in every per-id lookup (the compliance re-check, the audit `before`).
+ */
+const canonicalIds = (ids: string[]): string[] => [...new Set(ids.map((id) => id.toLowerCase()))];
+
+/**
  * Register bulk operation routes for pipelines.
  *
  * Each route owns its full guard chain (auth + orgId, then
@@ -183,8 +190,8 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
     const bulk = validateBulkArray<string>(req.body?.ids, 'ids', CoreConstants.MAX_BULK_ITEMS);
     if ('error' in bulk) return sendBadRequest(res, bulk.error, ErrorCode.VALIDATION_ERROR);
     if (nonUuidIds(bulk.value)) return sendBadRequest(res, '"ids" must be full pipeline UUIDs', ErrorCode.VALIDATION_ERROR);
-    // A repeated id is one pipeline: write and audit it once.
-    const ids = [...new Set(bulk.value)];
+    // A repeated id is one pipeline: write and audit it once (see canonicalIds).
+    const ids = canonicalIds(bulk.value);
 
     ctx.log('INFO', 'Bulk delete pipelines', { count: ids.length });
 
@@ -223,8 +230,8 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
     const bulk = validateBulkArray<string>(req.body?.ids, 'ids', CoreConstants.MAX_BULK_ITEMS);
     if ('error' in bulk) return sendBadRequest(res, bulk.error, ErrorCode.VALIDATION_ERROR);
     if (nonUuidIds(bulk.value)) return sendBadRequest(res, '"ids" must be full pipeline UUIDs', ErrorCode.VALIDATION_ERROR);
-    // A repeated id is one pipeline: write and audit it once.
-    const ids = [...new Set(bulk.value)];
+    // A repeated id is one pipeline: write and audit it once (see canonicalIds).
+    const ids = canonicalIds(bulk.value);
 
     if (!req.body?.data || typeof req.body.data !== 'object') {
       return sendBadRequest(res, 'Request body must include a "data" object with fields to update', ErrorCode.VALIDATION_ERROR);

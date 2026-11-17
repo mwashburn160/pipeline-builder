@@ -224,7 +224,10 @@ export const handleSsoCallback = withController('SSO callback', async (req, res)
     name: identity.name,
   }, {
     markOnboarding: false, // SSO users sign in to an enforced org, not a self-named personal one
-    sso: { issuer: identity.issuer },
+    sso: {
+      issuer: identity.issuer,
+      assertTrusted: (email) => assertSsoIdentityTrusted(orgId, { issuer: identity.issuer, email }, { protocol: 'oidc', provider }),
+    },
   });
 
   // JIT membership + group→Role sync, BEFORE the session is minted: the token

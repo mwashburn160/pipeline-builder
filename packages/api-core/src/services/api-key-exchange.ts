@@ -40,6 +40,7 @@ import { CLIENT_VERSION_HEADER } from '../middleware/client-version.js';
 import { getServiceAuthHeader } from '../middleware/service-tokens.js';
 import { SYSTEM_ORG_ID } from '../middleware/system-org.js';
 import { InternalHttpClient } from '../services/http-client.js';
+import { serviceIdentity } from '../services/service-keys.js';
 import { hashApiKey } from '../utils/api-key.js';
 import { envInt } from '../utils/env.js';
 import { createLogger } from '../utils/logger.js';
@@ -95,13 +96,16 @@ const rejectionCache = new Map<string, number>();
 /** In-flight exchanges, so concurrent requests for one key share a round-trip. */
 const inFlight = new Map<string, Promise<CacheEntry>>();
 
-/** The service name minted into the exchange call's own service token. */
-let serviceName = process.env.SERVICE_NAME || 'unknown';
+/**
+ * The service name minted into the exchange call's own service token. Defaults
+ * to this process's identity: a service can only sign as itself, so any other
+ * default would make every exchange before boot wiring fail to sign.
+ */
+let serviceName = serviceIdentity();
 
 /**
  * Name this process in the exchange call's service token. Called from
- * `wireServiceSecurity` at boot (and by the plugin service, which wires its
- * boot security by hand).
+ * `wireServiceSecurity` at boot.
  */
 export function setApiKeyExchangeServiceName(name: string): void {
   serviceName = name;

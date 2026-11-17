@@ -412,8 +412,9 @@ function applyAttributes(membership: UserOrganizationDocument, attrs: Partial<Re
 /**
  * Flip a membership's active flag, with every consequence that carries.
  *
- * Deactivating revokes the member's sessions in the SAME transaction and drops
- * the Roles their groups granted (manual ones stay — the admin's decision
+ * Deactivating ends the member's access to THIS org in the SAME transaction
+ * (`endOrgAccess` — a claims bump; their sessions survive, see the file header)
+ * and drops the Roles their groups granted (manual ones stay — the admin's decision
  * outlives the directory's). Activating re-charges a seat through the pooled cap
  * and restores the Roles their current groups map to.
  */
@@ -535,8 +536,8 @@ export async function patchUser(ctx: ScimContext, id: string, ops: unknown): Pro
 /**
  * DELETE /Users/:id — the directory removed the person.
  *
- * Deactivates the membership and revokes their sessions immediately (the plan's
- * requirement), drops every Role the directory granted, and empties their group
+ * Deactivates the membership and ends their access to this org immediately
+ * (`endOrgAccess`), drops every Role the directory granted, and empties their group
  * set. The membership ROW is kept deliberately: it carries the audit trail, the
  * hand-granted Roles an admin may want back, and the seat accounting — and a
  * deactivated membership grants nothing. Idempotent: deleting an already-removed

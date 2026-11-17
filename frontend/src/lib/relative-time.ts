@@ -27,9 +27,14 @@ export function formatRelativeTime(value: string | Date | number, now: number = 
   if (absMs < 30 * SECOND_MS) return 'just now';
   if (!RTF) return new Date(ts).toLocaleString();
 
-  if (absMs < HOUR_MS) return RTF.format(Math.round(diffMs / MINUTE_MS), 'minute');
-  if (absMs < DAY_MS) return RTF.format(Math.round(diffMs / HOUR_MS), 'hour');
-  if (absMs < 30 * DAY_MS) return RTF.format(Math.round(diffMs / DAY_MS), 'day');
+  // Pick the unit from the ROUNDED count, so 59m40s reads "1 hr. ago" rather
+  // than "60 min. ago" (and 23h40m "1 day ago", not "24 hr. ago").
+  const minutes = Math.round(diffMs / MINUTE_MS);
+  if (Math.abs(minutes) < 60) return RTF.format(minutes, 'minute');
+  const hours = Math.round(diffMs / HOUR_MS);
+  if (Math.abs(hours) < 24) return RTF.format(hours, 'hour');
+  const days = Math.round(diffMs / DAY_MS);
+  if (Math.abs(days) < 30) return RTF.format(days, 'day');
 
   return new Date(ts).toLocaleDateString();
 }

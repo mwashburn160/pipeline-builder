@@ -22,7 +22,8 @@ export interface StripeInvoiceLike {
   id?: string | null;
   subtotal?: number | null;
   total?: number | null;
-  tax?: number | null;
+  /** One entry per tax applied (Stripe dropped the scalar `tax` in API 2025-03-31). */
+  total_taxes?: Array<{ amount: number }> | null;
   amount_paid?: number | null;
   /** Customer balance BEFORE / AFTER this invoice (cents; negative = credit). */
   starting_balance?: number | null;
@@ -139,6 +140,7 @@ export async function ingestStripeInvoice(orgId: string, invoice: StripeInvoiceL
   const recurring = recurringInvoicePeriod(invoice);
   const line = invoice.lines?.data?.[0]?.period;
   const discountCents = (invoice.total_discount_amounts ?? []).reduce((s, d) => s + (d.amount ?? 0), 0);
+  const taxCents = (invoice.total_taxes ?? []).reduce((s, t) => s + (t.amount ?? 0), 0);
   const creditCents = Math.max(0, (invoice.ending_balance ?? 0) - (invoice.starting_balance ?? 0));
 
   // Preserve a prior reversal: if a charge.refunded / dispute already flipped this
@@ -157,7 +159,7 @@ export async function ingestStripeInvoice(orgId: string, invoice: StripeInvoiceL
     subtotalCents: invoice.subtotal ?? 0,
     discountCents,
     creditCents,
-    taxCents: invoice.tax ?? 0,
+    taxCents,
     totalCents: invoice.total ?? 0,
     currency: invoice.currency ?? 'usd',
   };

@@ -195,7 +195,10 @@ async function serviceAccountIds(orgId: string): Promise<Types.ObjectId[]> {
 const COLLECTION_DEFS = [
   {
     name: 'invitations',
-    read: (orgId) => Invitation.find({ organizationId: toOrgId(orgId) }).lean(),
+    // Never the `token`: it IS each pending invitation's bearer credential (the
+    // accept link), and the export reaches holders of `org_settings:write` who
+    // may lack `invitations:manage` — the same reason `listForOrg` strips it.
+    read: (orgId) => Invitation.find({ organizationId: toOrgId(orgId) }).select('-token').lean(),
     remove: async (orgId) => (await Invitation.deleteMany({ organizationId: toOrgId(orgId) })).deletedCount ?? 0,
   },
   {

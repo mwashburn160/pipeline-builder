@@ -57,7 +57,7 @@ async function getUserModel() {
  *
  * Every issuable access token is bounded by one of these: a session token
  * (interactive AND machine — a machine credential's access tokens are capped at
- * the per-tier lifetime, see `accessTokenTtlSeconds` in utils/token.ts), an
+ * the per-tier lifetime, see `accessTokenTtlSeconds` in services/session/access-tokens.ts), an
  * exchanged access-key token, or an impersonation token. We take the max of
  * those and the configured floor.
  *

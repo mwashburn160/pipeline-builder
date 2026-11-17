@@ -18,14 +18,12 @@ import {
   attachmentDisposition, ErrorCode, getParam, requirePermission, requireSystemOrgPermission, sendBadRequest, sendEntityNotFound, sendSuccess,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import type { Request, Router } from 'express';
+import type { Router } from 'express';
+import { parentOrgIdOf } from '../helpers/plugin-helpers.js';
 import { fleetPosture, findingsCsv, searchAdvisory, versionFindings } from '../services/plugin-vuln-posture.js';
 
 /** An advisory id as scanners report them (CVE, GHSA, Go vulndb, PyPA, RustSec, OSV …). */
 const ADVISORY_ID_RE = /^[A-Za-z][A-Za-z0-9]{1,15}-[A-Za-z0-9._:-]{1,64}$/;
-
-const parentOrgIdOf = (req: Request): string | undefined =>
-  (req.user as { parentOrganizationId?: string } | undefined)?.parentOrganizationId;
 
 /** Mount the vulnerability read routes on `router` (see module doc). */
 export function registerVulnerabilityRoutes(router: Router): void {

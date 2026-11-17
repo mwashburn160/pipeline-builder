@@ -36,6 +36,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
     res.status(status).json({ success: true, statusCode: status, data })),
   sendPaginatedNested: jest.fn<AnyFn>(),
   sendEntityNotFound: jest.fn((res: any) => res.status(404).json({ message: 'not found' })),
+  sendError: jest.fn((res: any, status: number, message: string) => res.status(status).json({ message })),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
@@ -83,6 +84,20 @@ jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
   sql: jest.fn<AnyFn>(),
 }));
 
+// The rules the batch names, as the sysadmin read returns them (live + active only).
+const RULE_ID = '11111111-1111-4111-8111-111111111111';
+const PARENT_RULE_ID = '44444444-4444-4444-8444-444444444444';
+const rulesRef: { value: Array<Record<string, unknown>> } = { value: [] };
+const defaultRules = () => [
+  { id: RULE_ID, orgId: 'org-a', scope: 'org', target: 'plugin', propagateToChildren: false },
+  { id: PARENT_RULE_ID, orgId: 'org-parent', scope: 'org', target: 'plugin', propagateToChildren: true },
+];
+jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
+  complianceRuleService: {
+    findManyByIds: async (ids: string[]) => rulesRef.value.filter((r) => ids.includes(String(r.id))),
+  },
+}));
+
 const { createExemptionRoutes } = await import('../src/routes/exemptions.js');
 
 function getHandler() {
@@ -114,6 +129,7 @@ describe('POST /exemptions/bulk', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     insertedRowsRef.value = [];
+    rulesRef.value = defaultRules();
   });
 
   it('inserts a batch and returns created/skipped counts', async () => {
@@ -188,6 +204,50 @@ describe('POST /exemptions/bulk', () => {
       body: { exemptions: [{ ruleId: validRow().ruleId, entityType: 'plugin', entityId: validRow().entityId /* no reason */ }] },
     } as any, res);
     expect(json).toHaveBeenCalledWith(expect.objectContaining({ message: expect.any(String) }));
+  });
+
+  it('returns 400 — not a foreign-key 500 — when a row names an unknown, deleted or inactive rule', async () => {
+    const handler = getHandler();
+    const { res } = makeRes();
+    await handler({
+      __orgId: 'org-a',
+      body: { exemptions: [validRow(), validRow({ ruleId: '99999999-9999-4999-8999-999999999999' })] },
+    } as any, res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(insertedRowsRef.value).toEqual([]);
+  });
+
+  it('returns 400 for another tenant\'s (non-published) rule, and for a rule of the other target', async () => {
+    rulesRef.value = [{ id: RULE_ID, orgId: 'org-b', scope: 'org', target: 'plugin', propagateToChildren: false }];
+    const handler = getHandler();
+    const cross = makeRes();
+    await handler({ __orgId: 'org-a', body: { exemptions: [validRow()] } } as any, cross.res);
+    expect(cross.res.status).toHaveBeenCalledWith(400);
+
+    rulesRef.value = [{ id: RULE_ID, orgId: 'org-a', scope: 'org', target: 'pipeline', propagateToChildren: false }];
+    const wrongTarget = makeRes();
+    await handler({ __orgId: 'org-a', body: { exemptions: [validRow()] } } as any, wrongTarget.res);
+    expect(wrongTarget.res.status).toHaveBeenCalledWith(400);
+  });
+
+  it('accepts a PUBLISHED rule (the subscribable library)', async () => {
+    rulesRef.value = [{ id: RULE_ID, orgId: 'system', scope: 'published', target: 'plugin', propagateToChildren: false }];
+    insertedRowsRef.value = [{ id: 'e1' }];
+    const handler = getHandler();
+    const { res } = makeRes();
+    await handler({ __orgId: 'org-a', body: { exemptions: [validRow()] } } as any, res);
+    expect(res.status).toHaveBeenCalledWith(201);
+  });
+
+  it('returns 403 when a TEAM tries to waive a rule its parent propagates', async () => {
+    const handler = getHandler();
+    const { res } = makeRes();
+    await handler({
+      __orgId: 'org-a',
+      user: { parentOrganizationId: 'org-parent' },
+      body: { exemptions: [validRow({ ruleId: PARENT_RULE_ID })] },
+    } as any, res);
+    expect(res.status).toHaveBeenCalledWith(403);
   });
 
   it('returns 400 when entityType is unknown', async () => {

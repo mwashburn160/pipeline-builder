@@ -48,7 +48,7 @@ export interface AiControls {
 const cache = new Map<string, { at: number; controls: AiControls }>();
 
 /** The account's AI controls (cached briefly; a missing row = both off). */
-export async function aiControlsFor(rootOrgId: string): Promise<AiControls> {
+async function aiControlsFor(rootOrgId: string): Promise<AiControls> {
   const hit = cache.get(rootOrgId);
   if (hit && Date.now() - hit.at < CONTROLS_CACHE_TTL_MS) return hit.controls;
   const row = await QuotaNoticeSettings.findOne({ orgId: rootOrgId }, { aiCallsPerMemberPct: 1, aiTokenBudget: 1 }).lean();

@@ -8,7 +8,7 @@ import { ApiClient } from './api-client.js';
 import { getSecretValue } from './aws-secrets.js';
 import { type Config, getApiConfig, getConfigWithOptions } from './config-loader.js';
 import { clearSession, isSessionUsable, loadSession, saveSession, withRefreshLock, type StoredSession } from './credential-store.js';
-import { printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from './output-utils.js';
+import { printError, printKeyValue, printSection, printWarning } from './output-utils.js';
 import { requestCorrelationHeaders, setInvocationId } from './request-context.js';
 import { platformHttpsAgent } from './tls.js';
 import { formatDuration, generateExecutionId } from '../config/cli.constants.js';
@@ -102,6 +102,16 @@ export async function refreshStoredSession(baseUrl: string, stale: StoredSession
   });
 }
 
+/**
+ * Credential and client-setup progress goes to STDERR. It is diagnostics, not
+ * the command's output: on stdout it landed ahead of the payload of every
+ * `--json` / stdout-piped command that authenticates (`template instantiate
+ * --json > props.json` wrote an "Initializing API client" line into the file).
+ */
+function printCredentialNote(message: string): void {
+  console.error(`${cyan('ℹ')} ${message}`);
+}
+
 /** The statuses with which /auth/refresh rejects the refresh token itself. */
 const REFRESH_REJECTED_STATUSES = new Set([400, 401]);
 
@@ -160,7 +170,7 @@ export async function resolveToken(options: {
 }): Promise<string> {
   // Path 1: PLATFORM_TOKEN env var
   if (process.env.PLATFORM_TOKEN) {
-    printInfo('Using PLATFORM_TOKEN from environment');
+    printCredentialNote('Using PLATFORM_TOKEN from environment');
     return process.env.PLATFORM_TOKEN;
   }
 
@@ -171,13 +181,13 @@ export async function resolveToken(options: {
     const baseUrl = getApiConfig().api.baseUrl;
     const stored = loadSession(baseUrl);
     if (isSessionUsable(stored)) {
-      printInfo('Using the stored session from "auth login"');
+      printCredentialNote('Using the stored session from "auth login"');
       return stored.accessToken;
     }
     if (stored) {
       const renewed = await refreshStoredSession(baseUrl, stored);
       if (renewed) {
-        printInfo('Renewed the stored session from "auth login"');
+        printCredentialNote('Renewed the stored session from "auth login"');
         return renewed;
       }
     }
@@ -190,11 +200,10 @@ export async function resolveToken(options: {
       throw new Error('PLATFORM_SECRET_NAME env var is required with --store-tokens');
     }
 
-    printInfo('Fetching secret from Secrets Manager', { secret: secretName });
+    printCredentialNote(`Fetching secret from Secrets Manager (${secretName})`);
 
     const secretJson = await getSecretValue(secretName, { region: options.region, profile: options.profile });
     const secret = JSON.parse(secretJson) as Record<string, string>;
-    printSuccess('Secret retrieved from Secrets Manager');
 
     // store-token writes the service-account KEY to the `password` field (schema:
     // { username: orgId, password: pb_sa_… } — satisfies CodeBuild's
@@ -204,7 +213,7 @@ export async function resolveToken(options: {
       throw new Error('Secret missing password (service-account key) — run "pipeline-manager infra store-token" to provision one');
     }
 
-    printInfo('Using the stored service-account key');
+    printCredentialNote('Using the stored service-account key');
     return secret.password;
   }
 
@@ -245,7 +254,7 @@ export async function createAuthenticatedClientAsync(options: {
  */
 export function createAuthenticatedClient(options: { verifySsl?: boolean }): ApiClient {
   const config: Config = getConfigWithOptions(options);
-  printInfo('Initializing API client', { baseUrl: config.api.baseUrl });
+  printCredentialNote(`Initializing API client (${config.api.baseUrl})`);
   const client = new ApiClient(config);
 
   if (!client.isAuthenticated()) {
@@ -253,7 +262,6 @@ export function createAuthenticatedClient(options: { verifySsl?: boolean }): Api
     throw new Error('Authentication required');
   }
 
-  printSuccess('API client initialized');
   return client;
 }
 

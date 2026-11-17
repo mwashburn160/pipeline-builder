@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { requirePermission, requireStepUp, type QuotaService } from '@pipeline-builder/api-core';
+import type { QuotaService } from '@pipeline-builder/api-core';
 import { apiCallsQuota, createAuthenticatedWithOrgRoute } from '@pipeline-builder/api-server';
 import type { Express } from 'express';
 
@@ -56,8 +56,8 @@ export function mountRoutes(app: Express, { quotaService }: PipelineRouteDeps): 
   //      keyed POST/PUT/DELETE that fell through two stacked
   //      `createAuthenticatedWithOrgRoute()` / `createProtectedRoute()` mounts
   //      would be rejected by its own second pass. The
-  //      remaining gates (pipelines:write, step-up) are layered as plain
-  //      middleware on the later mounts, each still running once.
+  //      remaining gates (pipelines:write, step-up) sit on the routes that
+  //      need them, never on a prefix mount (see the write routers below).
 
   // -- Self-guarded routers (per-route auth chains) ----------------------------
   //    - create: its own 'pipelines' quota reserve (+ apiCalls via the prefix).
@@ -97,18 +97,17 @@ export function mountRoutes(app: Express, { quotaService }: PipelineRouteDeps): 
   app.use('/pipelines', createScorecardRoutes(), createReadPipelineRoutes());
 
   // -- Writes — pipelines:write; purge + restore additionally need step-up -----
-  // Purge (permanent hard-delete of a tombstone) and restore (undo a soft-delete)
-  // are permanently-consequential and require a step-up (password re-verify). The
-  // single-use `requireStepUp` gate consumes the step-up token's `jti`, so it must
-  // run exactly once per request: it sits in this ONE chain after update/delete,
-  // so only requests those routers didn't serve reach it, and a POST /:id/restore
-  // falls through the purge router to the restore router without a second step-up.
+  // Every gate is PER ROUTE inside these routers, never a prefix chain: a gate
+  // on an `app.use('/pipelines', …)` mount runs for every request that falls
+  // this far, so an unknown `/pipelines/...` path answered "step-up required"
+  // (or 403) instead of 404 — and confirmed the prefix. Per route, a request no
+  // route matches meets no gate and falls through to the 404. The single-use
+  // `requireStepUp` (it consumes the step-up token's `jti`) still runs exactly
+  // once: only on the one route that serves the request.
   app.use(
     '/pipelines',
-    requirePermission('pipelines:write'),
     createUpdatePipelineRoutes(),
     createDeletePipelineRoutes(),
-    requireStepUp,
     createPurgePipelineRoutes(),
     createRestorePipelineRoutes(),
   );

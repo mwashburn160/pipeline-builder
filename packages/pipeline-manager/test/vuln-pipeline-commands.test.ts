@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 
-const { loadVerifySteps, runtimeCheck } = await import('../src/commands/verify-plugins.js');
+const { loadVerifySteps, printVerdict, runtimeCheck } = await import('../src/commands/verify-plugins.js');
 const { buildSecurityReportBody } = await import('../src/commands/security-report.js');
 const { emitSynthFailure } = await import('../src/commands/synth.js');
 const { PluginResolutionError } = await import('../src/utils/plugin-resolver.js');
@@ -61,6 +61,28 @@ describe('plugin verify — runtime-check call', () => {
 
   it('refuses an unreadable answer (the caller then warns, or fails with --strict)', async () => {
     await expect(runtimeCheck(client({ data: { verdict: 'block' } }) as never, 'p', [])).rejects.toThrow(/no readable verdict/);
+  });
+});
+
+describe('plugin verify — --json output', () => {
+  afterEach(() => { jest.restoreAllMocks(); });
+
+  it('prints the result and nothing else on stdout, so it parses', () => {
+    const log = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+    const result = {
+      verdict: 'critical' as const,
+      steps: [{ stepKey: 'a', imageDigest: DIGEST, verdict: 'critical' as const, reasons: [{ code: 'KEV', message: 'listed', severity: 'critical' as const }] }],
+    };
+    printVerdict(result as never, true);
+    const out = log.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(JSON.parse(out)).toEqual(result);
+  });
+
+  it('renders the human verdict without --json', () => {
+    const log = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    printVerdict({ verdict: 'ok', steps: [] }, false);
+    expect(log.mock.calls.map((c) => String(c[0])).join('\n')).toMatch(/Verdict: OK/);
   });
 });
 

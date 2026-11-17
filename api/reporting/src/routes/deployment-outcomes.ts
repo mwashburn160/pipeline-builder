@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, ErrorCode, validateBody, audited, actorId, recordAudit } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, sendError, ErrorCode, validateBody, audited, actorId, recordAudit } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { reportingService } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
@@ -14,20 +14,22 @@ import { orgRetentionWindowFromSettings, retentionOrgIdFor } from '../helpers/re
  * feed the DORA post-deploy Change Failure Rate component and the real MTTR.
  *
  * The write is org-scoped (RLS via the caller's org context) and idempotent —
- * re-posting the same (execution, outcome) refreshes `at` instead of
+ * re-posting the same (org, execution, outcome) refreshes `at` instead of
  * double-counting. Mounted `advanced_reporting`-gated alongside the other DORA
  * routes (see app-routes.ts).
  *
  * ANTI-FORGERY: the DORA compute makes a `failed` outcome's `environment`
  * appear as its own env card even with zero real deploys, so an unvalidated write
- * could manufacture PHANTOM environments (fake CFR/MTTR). Two guards close that:
- *   1. `at` must fall within `[now − effectiveDoraRetention, now]` — no future or
+ * could manufacture PHANTOM environments (fake CFR/MTTR). Three guards close that:
+ *   1. the execution must be one of the CALLER'S org's executions (an ingested
+ *      event or a DORA deploy row) — 404 otherwise, so a marker can never be
+ *      planted against an id the org never ran, nor against another org's run.
+ *   2. `at` must fall within `[now − effectiveDoraRetention, now]` — no future or
  *      pre-retention markers that would land outside every readable report window.
- *   2. a supplied `environment` must be a REAL deploy environment observed for the
- *      org within the retention window (pipeline-data has no execution-id resolver
- *      to key on, so the env — the sole lever that surfaces a phantom card — is the
- *      validated dimension). An omitted environment is null-scoped and is dropped
- *      by the CFR/MTTR compute, so it needs no check.
+ *   3. a supplied `environment` must be a REAL deploy environment observed for the
+ *      org within the retention window — the env is the sole lever that surfaces
+ *      a phantom card. An omitted environment is null-scoped and is dropped by the
+ *      CFR/MTTR compute, so it needs no check.
  */
 const outcomeSchema = z.object({
   outcome: z.enum(['failed', 'restored']),
@@ -53,6 +55,12 @@ export function createDeploymentOutcomeRoutes(): Router {
     // Bound `at` to the readable DORA horizon so a marker can't be planted in the
     // future or before the org's retention (where no report would ever surface it,
     // yet a mid-window purge could strand it). Unlimited retention ⇒ minFromMs=0.
+    // The execution must be this org's. Same 404 for "never existed" and
+    // "another org's", so the response doesn't confirm a foreign id.
+    if (!(await reportingService.hasExecution(orgId, executionId))) {
+      return sendError(res, 404, 'Deployment execution not found', ErrorCode.NOT_FOUND);
+    }
+
     const now = Date.now();
     const settings = await reportingService.getReportingSettings(orgId, retentionOrgIdFor(req, orgId));
     const win = orgRetentionWindowFromSettings(settings, 'dora', now);

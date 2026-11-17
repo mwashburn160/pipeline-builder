@@ -12,7 +12,7 @@ import { IconButton } from '@/components/ui/IconButton';
  * the table's `overflow-x-auto` scroll container.
  */
 export function RowActionsMenu({
-  canKms, canIdp, canManage, onKms, onIdp, onTier, onNamespace, onDelete,
+  canKms, canIdp, canManage, canNamespace, onKms, onIdp, onTier, onNamespace, onDelete,
 }: {
   canKms: boolean;
   canIdp: boolean;
@@ -22,6 +22,9 @@ export function RowActionsMenu({
    * the manage half, so both items used to answer 403 for a Platform Observer.
    */
   canManage: boolean;
+  /** `platform:read` — what `GET /organization/:id/namespace` requires (a
+   *  system-org grant that the Account Manager / Support Agent Roles lack). */
+  canNamespace: boolean;
   onKms: () => void;
   onIdp: () => void;
   /** Omitted for a team — its tier is inherited from its root, never edited. */
@@ -87,6 +90,10 @@ export function RowActionsMenu({
 
   const itemClass = 'w-full flex items-center gap-2 px-3 py-2 text-sm text-fg hover:bg-surface-muted/60 transition-colors';
 
+  // A viewer holding none of the item permissions gets no trigger, rather
+  // than a "More actions" button that opens an empty menu.
+  if (!canKms && !canIdp && !canManage && !canNamespace) return null;
+
   return (
     <>
       <IconButton
@@ -122,9 +129,11 @@ export function RowActionsMenu({
               <Layers className="w-3.5 h-3.5 text-fg-subtle" /> Change tier
             </button>
           )}
-          <button type="button" role="menuitem" onClick={run(onNamespace)} className={itemClass}>
-            <FileDown className="w-3.5 h-3.5 text-fg-subtle" /> Namespace YAML
-          </button>
+          {canNamespace && (
+            <button type="button" role="menuitem" onClick={run(onNamespace)} className={itemClass}>
+              <FileDown className="w-3.5 h-3.5 text-fg-subtle" /> Namespace YAML
+            </button>
+          )}
           {canManage && (
             <>
               <div className="my-1 border-t border-default" />

@@ -46,6 +46,7 @@ import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
 import { withController } from '../helpers/controller-helper.js';
 import { isBoundToThisBrowser } from '../helpers/login-binding.js';
+import { MFA_POLICY_ERROR_MAP } from '../helpers/mfa-policy.js';
 import { createPendingStateStore } from '../helpers/pending-state-store.js';
 import { completeInteractiveSignIn, ssoAuth } from '../helpers/sign-in.js';
 import { assertSsoIdentityTrusted, getEnforcedSamlConfig } from '../helpers/sso-enforcement.js';
@@ -208,7 +209,10 @@ async function provisionFromAssertion(
     name: identity.name,
   }, {
     markOnboarding: false,
-    sso: { issuer: identity.issuer },
+    sso: {
+      issuer: identity.issuer,
+      assertTrusted: (email) => assertSsoIdentityTrusted(orgId, { issuer: identity.issuer, email }, { protocol: 'saml' }),
+    },
   });
 
   const jit = await provisionJitMembership({ orgId, user, groups: identity.groups });
@@ -322,4 +326,4 @@ export const completeSamlLogin = withController('SAML complete', async (req, res
   });
   incCounter('platform_saml_signins_total', { result: 'success' });
   logger.info('[SAML] login successful', { orgId, userId: String(user._id) });
-}, { ...SAML_ERROR_MAP, [SSO_SUPERADMIN_REFUSED]: SSO_SUPERADMIN_REFUSED_ERROR });
+}, { ...SAML_ERROR_MAP, ...MFA_POLICY_ERROR_MAP, [SSO_SUPERADMIN_REFUSED]: SSO_SUPERADMIN_REFUSED_ERROR });

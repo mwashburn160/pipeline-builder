@@ -166,7 +166,7 @@ export function createUsageRoutes(svc: QuotaService = defaultQuotaService): Rout
   router.put(
     '/:orgId/notice-settings',
     requireAuth as RequestHandler,
-    authorizeOrg() as RequestHandler,
+    authorizeOrg({ mutates: true }) as RequestHandler,
     requirePermission('billing:manage') as RequestHandler,
     audited('quota.notice_settings.update'),
     withRoute(async ({ req, res, ctx, userId }) => {

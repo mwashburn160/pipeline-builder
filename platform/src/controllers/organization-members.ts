@@ -7,7 +7,7 @@ import { audit } from '../helpers/audit.js';
 import { canAccessOrg, ensureAuthenticated, forbid, getAdminContext, requireOrgScope, withController, roleAssignmentActor } from '../helpers/controller-helper.js';
 import { listPage } from '../helpers/pagination.js';
 import { orgMembersService } from '../services/index.js';
-import { OM_ORG_NOT_FOUND, OM_USER_NOT_FOUND, OM_ALREADY_MEMBER, OM_NOT_A_MEMBER, OM_CANNOT_REMOVE_OWNER, OM_OWNER_MEMBERSHIP_NOT_FOUND, OM_NEW_OWNER_MUST_BE_MEMBER, OM_MEMBERSHIP_NOT_FOUND, OM_ALREADY_INACTIVE, OM_ALREADY_ACTIVE, OM_TARGETS_OUT_OF_SCOPE, OM_SEAT_LIMIT } from '../services/org-members-errors.js';
+import { OM_ORG_NOT_FOUND, OM_USER_NOT_FOUND, OM_ALREADY_MEMBER, OM_NOT_A_MEMBER, OM_CANNOT_REMOVE_OWNER, OM_OWNER_MEMBERSHIP_NOT_FOUND, OM_NEW_OWNER_MUST_BE_MEMBER, OM_ALREADY_OWNER, OM_MEMBERSHIP_NOT_FOUND, OM_ALREADY_INACTIVE, OM_ALREADY_ACTIVE, OM_TARGETS_OUT_OF_SCOPE, OM_SEAT_LIMIT } from '../services/org-members-errors.js';
 import { pauseFormerMemberReports } from '../services/report-ownership.js';
 import { RL_ASSIGN_EXCEEDS_CEILING } from '../services/roles-errors.js';
 import {
@@ -230,7 +230,8 @@ export const transferOrganizationOwnership = withController('Transfer ownership'
 }, {
   [OM_ORG_NOT_FOUND]: { status: 404, message: 'Organization not found' },
   [OM_OWNER_MEMBERSHIP_NOT_FOUND]: { status: 500, message: 'Current owner membership record not found' },
-  [OM_NEW_OWNER_MUST_BE_MEMBER]: { status: 400, message: 'New owner must be a member of the organization' },
+  [OM_NEW_OWNER_MUST_BE_MEMBER]: { status: 400, message: 'New owner must be an active member of the organization' },
+  [OM_ALREADY_OWNER]: { status: 400, message: 'That user already owns this organization' },
 });
 
 /** PATCH /organization/:id/members/:userId/deactivate */

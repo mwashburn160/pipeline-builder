@@ -394,11 +394,13 @@ export const deploymentOutcome = pgTable('deployment_outcomes', {
 }, (table) => ({
   orgEnvIdx: index('deployment_outcomes_org_env_idx').on(table.orgId, table.environment),
   executionIdx: index('deployment_outcomes_execution_idx').on(table.executionId),
-  // Idempotent re-marking: one row per (execution, outcome). Re-posting the same
-  // outcome for a deploy is a no-op/refresh (onConflictDoUpdate the `at`), so a
-  // failed→restored pair is two rows while a duplicate POST doesn't double-count.
-  executionOutcomeUnique: uniqueIndex('deployment_outcomes_execution_outcome_unique')
-    .on(table.executionId, table.outcome),
+  // Idempotent re-marking: one row per (org, execution, outcome). Re-posting the
+  // same outcome for a deploy is a no-op/refresh (onConflictDoUpdate the `at`), so
+  // a failed→restored pair is two rows while a duplicate POST doesn't double-count.
+  // org_id leads: under forced RLS an index without it lets one org's row (which
+  // the other org cannot see) collide with — and block — the other org's upsert.
+  orgExecutionOutcomeUnique: uniqueIndex('deployment_outcomes_org_execution_outcome_unique')
+    .on(table.orgId, table.executionId, table.outcome),
 }));
 
 /**

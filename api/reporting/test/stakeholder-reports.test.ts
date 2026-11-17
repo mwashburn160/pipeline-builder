@@ -377,6 +377,20 @@ describe('stakeholder report routes', () => {
       expect(store.createDefinition).not.toHaveBeenCalled();
     });
 
+    /**
+     * Auto-send publishes every period with nobody clicking Publish — so arming it
+     * on `reports:write` alone was a way around the publish permission.
+     */
+    it('refuses auto-send without reports:publish (403), and allows it with', async () => {
+      await call('/definitions', 'post', { body: { ...body, autoSend: true }, user: { permissions: ['reports:write'] } });
+      expect(lastRes.status).toHaveBeenCalledWith(403);
+      expect(store.createDefinition).not.toHaveBeenCalled();
+
+      store.createDefinition.mockResolvedValue(definition({ autoSend: true }));
+      await call('/definitions', 'post', { body: { ...body, autoSend: true }, user: { permissions: ['reports:write', 'reports:publish'] } });
+      expect(store.createDefinition).toHaveBeenCalledWith(expect.objectContaining({ autoSend: true }));
+    });
+
     it('allows a rollup scope for a holder of reports:rollup', async () => {
       store.createDefinition.mockResolvedValue(definition({ scope: { kind: 'rollup' } }));
       await call('/definitions', 'post', {
@@ -453,7 +467,7 @@ describe('stakeholder report routes', () => {
           weekStart: 'sunday',
           sections: ['dora'],
         },
-        user: { permissions: ['reports:write'] },
+        user: { permissions: ['reports:write', 'reports:publish'] },
       });
       expect(store.updateDefinition.mock.calls[0][2]).toMatchObject({
         name: 'Renamed',
@@ -465,6 +479,25 @@ describe('stakeholder report routes', () => {
         weekStart: 'sunday',
         sections: ['dora'],
       });
+    });
+
+    it('refuses an update that ARMS auto-send, or re-targets an auto-sending report, without reports:publish', async () => {
+      store.requireDefinition.mockResolvedValue(definition({ autoSend: false }));
+      await call('/definitions/:id', 'put', { params: { id: 'def-1' }, body: { autoSend: true }, user: { permissions: ['reports:write'] } });
+      expect(lastRes.status).toHaveBeenCalledWith(403);
+
+      store.requireDefinition.mockResolvedValue(definition({ autoSend: true }));
+      store.getRecipients.mockResolvedValue([recipient()]);
+      await call('/definitions/:id', 'put', { params: { id: 'def-1' }, body: { recipients: ['rec-1'] }, user: { permissions: ['reports:write'] } });
+      expect(lastRes.status).toHaveBeenCalledWith(403);
+      expect(store.updateDefinition).not.toHaveBeenCalled();
+
+      // Turning it OFF, or editing a review-mode report's recipients, needs no publish grant.
+      store.updateDefinition.mockResolvedValue(definition());
+      await call('/definitions/:id', 'put', { params: { id: 'def-1' }, body: { autoSend: false }, user: { permissions: ['reports:write'] } });
+      store.requireDefinition.mockResolvedValue(definition({ autoSend: false }));
+      await call('/definitions/:id', 'put', { params: { id: 'def-1' }, body: { recipients: ['rec-1'] }, user: { permissions: ['reports:write'] } });
+      expect(store.updateDefinition).toHaveBeenCalledTimes(2);
     });
 
     it('refuses an update that switches the scope to a rollup without the grant', async () => {

@@ -539,6 +539,9 @@ describe('AskPanel remediation proposals', () => {
     expect(screen.getByText('Proposed compliance exemption')).toBeInTheDocument();
     const request = screen.getByRole('button', { name: /Request exemption/i });
     expect(request).toBeDisabled();
+    // The hint says WHY: the session, not a permission the operator already holds.
+    expect(request.parentElement).toHaveTextContent(/Read-only session/);
+    expect(screen.queryByText(/^Requires the .* permission$/)).not.toBeInTheDocument();
     fireEvent.click(request);
     expect(createExemption).not.toHaveBeenCalled();
   });

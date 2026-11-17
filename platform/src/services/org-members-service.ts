@@ -3,7 +3,7 @@
 
 import { createLogger, errorMessage, parsePage } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
-import { OM_ORG_NOT_FOUND, OM_USER_NOT_FOUND, OM_ALREADY_MEMBER, OM_NOT_A_MEMBER, OM_CANNOT_REMOVE_OWNER, OM_OWNER_MEMBERSHIP_NOT_FOUND, OM_NEW_OWNER_MUST_BE_MEMBER, OM_MEMBERSHIP_NOT_FOUND, OM_ALREADY_INACTIVE, OM_ALREADY_ACTIVE, OM_TARGETS_OUT_OF_SCOPE, OM_SEAT_LIMIT } from './org-members-errors.js';
+import { OM_ORG_NOT_FOUND, OM_USER_NOT_FOUND, OM_ALREADY_MEMBER, OM_NOT_A_MEMBER, OM_CANNOT_REMOVE_OWNER, OM_OWNER_MEMBERSHIP_NOT_FOUND, OM_NEW_OWNER_MUST_BE_MEMBER, OM_ALREADY_OWNER, OM_MEMBERSHIP_NOT_FOUND, OM_ALREADY_INACTIVE, OM_ALREADY_ACTIVE, OM_TARGETS_OUT_OF_SCOPE, OM_SEAT_LIMIT } from './org-members-errors.js';
 import type { RoleAssignmentActor } from './role-authority.js';
 import { assertActorMayAssignBuiltinAdmin, assignBuiltinAdminRole, ensureBaselineRole, recomputeUserOrgRole } from './roles-service.js';
 import { isAdminOrgRole, type OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
@@ -556,9 +556,15 @@ class OrgMembersService {
         organizationId: toOrgId(orgId), role: 'owner',
       }).session(session);
       if (!oldOwnerMembership) throw new Error(OM_OWNER_MEMBERSHIP_NOT_FOUND);
+      // Self-transfer: the two lookups would hydrate the SAME row twice, so the
+      // demotion below saves and the promotion is a no-op write — the owner ends
+      // up an 'admin' membership while `org.owner` still names them.
+      if (String(oldOwnerMembership.userId) === newOwnerId) throw new Error(OM_ALREADY_OWNER);
 
+      // ACTIVE members only: a deactivated member can't sign in to the org they
+      // would own.
       const newOwnerMembership = await UserOrganization.findOne({
-        userId: newOwnerId, organizationId: toOrgId(orgId),
+        userId: newOwnerId, organizationId: toOrgId(orgId), isActive: true,
       }).session(session);
       if (!newOwnerMembership) throw new Error(OM_NEW_OWNER_MUST_BE_MEMBER);
 

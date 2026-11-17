@@ -62,3 +62,20 @@ it('hides Cancel scan for a read-only viewer', async () => {
   expect(screen.queryByRole('button', { name: /cancel scan/i })).not.toBeInTheDocument();
   expect(cancelScan).not.toHaveBeenCalled();
 });
+
+it('locks Exempt in a read-only session — the exemption request is a POST it is refused', async () => {
+  const blocked = {
+    id: 'a1', orgId: 'o1', scanId: 'scan-1', entityType: 'plugin', entityId: 'plug-1', entityName: 'trivy',
+    action: 'scan', result: 'block', violations: [{ ruleId: 'r1', ruleName: 'No root' }], createdAt: '2026-01-01T00:00:00Z',
+  };
+  getComplianceAuditLog.mockResolvedValue({ success: true, data: { entries: [blocked], pagination: { total: 1, limit: 25, offset: 0 } } });
+
+  const { unmount } = render(<ScanDetail scanId="scan-1" onBack={jest.fn<AnyFn>()} readOnly />);
+  expect(await screen.findByRole('button', { name: /exempt/i })).toBeEnabled();
+  unmount();
+
+  render(<ScanDetail scanId="scan-1" onBack={jest.fn<AnyFn>()} readOnly sessionReadOnly />);
+  const exempt = await screen.findByRole('button', { name: /exempt/i });
+  expect(exempt).toBeDisabled();
+  expect(exempt).toHaveAttribute('title', expect.stringMatching(/Read-only session/));
+});

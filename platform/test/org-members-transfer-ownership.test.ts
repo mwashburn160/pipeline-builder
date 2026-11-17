@@ -60,7 +60,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 }));
 
 const { orgMembersService } = await import('../src/services/org-members-service.js');
-const { OM_ORG_NOT_FOUND, OM_OWNER_MEMBERSHIP_NOT_FOUND, OM_NEW_OWNER_MUST_BE_MEMBER } = await import('../src/services/org-members-errors.js');
+const { OM_ORG_NOT_FOUND, OM_OWNER_MEMBERSHIP_NOT_FOUND, OM_NEW_OWNER_MUST_BE_MEMBER, OM_ALREADY_OWNER } = await import('../src/services/org-members-errors.js');
 
 /** `X.findOne(...)/findById(...)` returns a query whose `.session()` resolves to `doc`. */
 const sessionResolving = (doc: unknown) => ({ session: () => Promise.resolve(doc) });
@@ -129,5 +129,24 @@ describe('OrgMembersService.transferOwnership', () => {
       .mockReturnValueOnce(sessionResolving(null));
     await expect(orgMembersService.transferOwnership('org-1', 'stranger')).rejects.toThrow(OM_NEW_OWNER_MUST_BE_MEMBER);
     expect(mockUserUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it('refuses a transfer to the current owner (would demote the owner while org.owner still names them)', async () => {
+    const oldOwnerMembership = { userId: 'old-owner', role: 'owner', save: jest.fn() };
+    mockOrgFindById.mockReturnValue(sessionResolving({ owner: 'old-owner', save: jest.fn() }));
+    mockUoFindOne.mockReturnValueOnce(sessionResolving(oldOwnerMembership));
+    await expect(orgMembersService.transferOwnership('org-1', 'old-owner')).rejects.toThrow(OM_ALREADY_OWNER);
+    expect(oldOwnerMembership.role).toBe('owner');
+    expect(oldOwnerMembership.save).not.toHaveBeenCalled();
+    expect(mockUserUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it('looks the new owner up among ACTIVE members only', async () => {
+    mockOrgFindById.mockReturnValue(sessionResolving({ owner: 'x', save: jest.fn() }));
+    mockUoFindOne
+      .mockReturnValueOnce(sessionResolving({ userId: 'old-owner', role: 'owner', save: jest.fn() }))
+      .mockReturnValueOnce(sessionResolving(null));
+    await expect(orgMembersService.transferOwnership('org-1', 'deactivated')).rejects.toThrow(OM_NEW_OWNER_MUST_BE_MEMBER);
+    expect(mockUoFindOne.mock.calls[1]![0]).toEqual({ userId: 'deactivated', organizationId: 'org-1', isActive: true });
   });
 });

@@ -214,7 +214,7 @@ function mockRes(): any {
 
 function makeSubscription(overrides: Record<string, unknown> = {}) {
   return {
-    _id: { toString: () => 'sub-1' },
+    _id: { toString: () => '64b000000000000000000001' },
     orgId: 'org-1',
     planId: 'pro',
     status: 'active',
@@ -296,7 +296,7 @@ describe('PUT /admin/subscriptions/:id', () => {
     mockPlanFindOne.mockResolvedValue({ _id: 'pro', name: 'Pro', tier: 'pro', isActive: true });
     mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'pro' } });
 
-    const req = mockReq({ params: { id: 'sub-1' } });
+    const req = mockReq({ params: { id: '64b000000000000000000001' } });
     const res = mockRes();
     await handler(req, res);
 
@@ -307,7 +307,7 @@ describe('PUT /admin/subscriptions/:id', () => {
     expect(mockCreateBillingEvent).toHaveBeenCalledWith(
       'org-1', 'plan_changed',
       { oldPlanId: 'developer', newPlanId: 'pro' },
-      'sub-1', 'admin-1',
+      '64b000000000000000000001', 'admin-1',
     );
     expect(mockSyncTierToQuotaService).toHaveBeenCalled();
   });
@@ -321,12 +321,12 @@ describe('PUT /admin/subscriptions/:id', () => {
     mockPlanFindOne.mockResolvedValue({ _id: 'pro', name: 'Pro', tier: 'pro', isActive: true });
     mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'pro' } });
 
-    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), mockRes());
 
     // New plan pushed with the current (unchanged) cadence.
     expect(mockUpdateSubscription).toHaveBeenCalledWith('ext-stripe-1', 'pro', 'monthly');
     // Entitlements still sync (billing + entitlements stay consistent).
-    expect(mockSyncTierToQuotaService).toHaveBeenCalledWith('org-1', 'pro', 'Bearer service-token', 'sub-1', []);
+    expect(mockSyncTierToQuotaService).toHaveBeenCalledWith('org-1', 'pro', 'Bearer service-token', '64b000000000000000000001', []);
   });
 
   it('pushes the effective interval when an admin changes plan AND interval together', async () => {
@@ -338,7 +338,7 @@ describe('PUT /admin/subscriptions/:id', () => {
     mockPlanFindOne.mockResolvedValue({ _id: 'pro', name: 'Pro', tier: 'pro', isActive: true });
     mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'pro', interval: 'annual' } });
 
-    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), mockRes());
 
     expect(mockUpdateSubscription).toHaveBeenCalledWith('ext-stripe-2', 'pro', 'annual');
   });
@@ -351,11 +351,11 @@ describe('PUT /admin/subscriptions/:id', () => {
     mockPlanFindOne.mockResolvedValue({ _id: 'pro', name: 'Pro', tier: 'pro', isActive: true });
     mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'pro' } });
 
-    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), mockRes());
 
     expect(mockUpdateSubscription).not.toHaveBeenCalled();
     // Entitlement sync still happens — only the provider push is skipped.
-    expect(mockSyncTierToQuotaService).toHaveBeenCalledWith('org-1', 'pro', 'Bearer service-token', 'sub-1', []);
+    expect(mockSyncTierToQuotaService).toHaveBeenCalledWith('org-1', 'pro', 'Bearer service-token', '64b000000000000000000001', []);
   });
 
   it('aborts before save/sync when the provider price push fails (provider-first drift guard)', async () => {
@@ -369,7 +369,7 @@ describe('PUT /admin/subscriptions/:id', () => {
     mockUpdateSubscription.mockRejectedValueOnce(new Error('stripe price push failed'));
 
     const res = mockRes();
-    await handler(mockReq({ params: { id: 'sub-1' } }), res);
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), res);
 
     // Provider threw → nothing persisted or synced, and the error surfaces.
     expect(sub.save).not.toHaveBeenCalled();
@@ -384,7 +384,7 @@ describe('PUT /admin/subscriptions/:id', () => {
     mockSubscriptionFindById.mockResolvedValue(sub);
     mockValidateBody.mockReturnValue({ ok: true, value: { status: 'canceled' } });
 
-    const req = mockReq({ params: { id: 'sub-1' } });
+    const req = mockReq({ params: { id: '64b000000000000000000001' } });
     const res = mockRes();
     await handler(req, res);
 
@@ -394,7 +394,7 @@ describe('PUT /admin/subscriptions/:id', () => {
     expect(mockCreateBillingEvent).toHaveBeenCalledWith(
       'org-1', 'subscription_updated',
       { status: 'canceled', providerUntouched: true },
-      'sub-1', 'admin-1',
+      '64b000000000000000000001', 'admin-1',
     );
   });
 
@@ -404,10 +404,10 @@ describe('PUT /admin/subscriptions/:id', () => {
     mockSubscriptionFindById.mockResolvedValue(sub);
     mockValidateBody.mockReturnValue({ ok: true, value: { status: 'trialing' } });
 
-    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), mockRes());
 
     expect(mockCreateBillingEvent).toHaveBeenCalledWith(
-      'org-1', 'subscription_updated', { status: 'trialing' }, 'sub-1', 'admin-1',
+      'org-1', 'subscription_updated', { status: 'trialing' }, '64b000000000000000000001', 'admin-1',
     );
   });
 
@@ -420,14 +420,14 @@ describe('PUT /admin/subscriptions/:id', () => {
     mockPlanFindById.mockResolvedValue(null);
     mockValidateBody.mockReturnValue({ ok: true, value: { status: 'active' } });
 
-    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), mockRes());
 
     // No entitlement sync fired (no tier to grant).
     expect(mockSyncTierToQuotaService).not.toHaveBeenCalled();
     // The shared reactivate-plan-missing recorder captures the gap (event + metric
     // live in that helper now) with the admin source + context.
     expect(mockRecordReactivate).toHaveBeenCalledWith(
-      'org-1', 'sub-1', 'admin',
+      'org-1', '64b000000000000000000001', 'admin',
       { status: 'active', planId: 'ghost-plan' },
       'admin-1',
     );
@@ -443,10 +443,10 @@ describe('PUT /admin/subscriptions/:id', () => {
     mockSubscriptionFindById.mockResolvedValue(sub);
     mockValidateBody.mockReturnValue({ ok: true, value: { status: 'canceled' } });
 
-    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), mockRes());
 
     // Baseline tier + EMPTY add-ons, via a service token (never the admin bearer).
-    expect(mockSyncTierToQuotaService).toHaveBeenCalledWith('org-1', 'developer', 'Bearer service-token', 'sub-1', []);
+    expect(mockSyncTierToQuotaService).toHaveBeenCalledWith('org-1', 'developer', 'Bearer service-token', '64b000000000000000000001', []);
   });
 
   it('downgrades to baseline when admin sets a terminal incomplete status', async () => {
@@ -454,9 +454,9 @@ describe('PUT /admin/subscriptions/:id', () => {
     mockSubscriptionFindById.mockResolvedValue(sub);
     mockValidateBody.mockReturnValue({ ok: true, value: { status: 'incomplete' } });
 
-    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), mockRes());
 
-    expect(mockSyncTierToQuotaService).toHaveBeenCalledWith('org-1', 'developer', 'Bearer service-token', 'sub-1', []);
+    expect(mockSyncTierToQuotaService).toHaveBeenCalledWith('org-1', 'developer', 'Bearer service-token', '64b000000000000000000001', []);
   });
 
   it('re-syncs the current plan tier + add-ons when admin reactivates (status → active)', async () => {
@@ -469,10 +469,10 @@ describe('PUT /admin/subscriptions/:id', () => {
     mockPlanFindById.mockResolvedValue({ _id: 'team', name: 'Team', tier: 'team', isActive: true });
     mockValidateBody.mockReturnValue({ ok: true, value: { status: 'active' } });
 
-    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), mockRes());
 
     expect(mockPlanFindById).toHaveBeenCalledWith('team');
-    expect(mockSyncTierToQuotaService).toHaveBeenCalledWith('org-1', 'team', 'Bearer service-token', 'sub-1', addons);
+    expect(mockSyncTierToQuotaService).toHaveBeenCalledWith('org-1', 'team', 'Bearer service-token', '64b000000000000000000001', addons);
   });
 
   it('does NOT sync entitlements for an entitled→entitled status change (guard against over-syncing)', async () => {
@@ -482,12 +482,12 @@ describe('PUT /admin/subscriptions/:id', () => {
     mockSubscriptionFindById.mockResolvedValue(sub);
     mockValidateBody.mockReturnValue({ ok: true, value: { status: 'trialing' } });
 
-    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), mockRes());
 
     expect(mockSyncTierToQuotaService).not.toHaveBeenCalled();
     // The billing_events row is still written (status did change).
     expect(mockCreateBillingEvent).toHaveBeenCalledWith(
-      'org-1', 'subscription_updated', { status: 'trialing' }, 'sub-1', 'admin-1',
+      'org-1', 'subscription_updated', { status: 'trialing' }, '64b000000000000000000001', 'admin-1',
     );
   });
 
@@ -499,11 +499,11 @@ describe('PUT /admin/subscriptions/:id', () => {
     mockPlanFindOne.mockResolvedValue({ _id: 'pro', name: 'Pro', tier: 'pro', isActive: true });
     mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'pro', status: 'active' } });
 
-    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), mockRes());
 
     // Exactly one sync — from the plan block (new tier), not a second from status.
     expect(mockSyncTierToQuotaService).toHaveBeenCalledTimes(1);
-    expect(mockSyncTierToQuotaService).toHaveBeenCalledWith('org-1', 'pro', 'Bearer service-token', 'sub-1', []);
+    expect(mockSyncTierToQuotaService).toHaveBeenCalledWith('org-1', 'pro', 'Bearer service-token', '64b000000000000000000001', []);
     // The status-block reactivation branch never looks up the current plan.
     expect(mockPlanFindById).not.toHaveBeenCalled();
   });
@@ -513,14 +513,14 @@ describe('PUT /admin/subscriptions/:id', () => {
     mockSubscriptionFindById.mockResolvedValue(sub);
     mockValidateBody.mockReturnValue({ ok: true, value: { interval: 'annual' } });
 
-    const req = mockReq({ params: { id: 'sub-1' } });
+    const req = mockReq({ params: { id: '64b000000000000000000001' } });
     const res = mockRes();
     await handler(req, res);
 
     expect(mockCreateBillingEvent).toHaveBeenCalledWith(
       'org-1', 'interval_changed',
       { oldInterval: 'monthly', newInterval: 'annual' },
-      'sub-1', 'admin-1',
+      '64b000000000000000000001', 'admin-1',
     );
   });
 
@@ -531,7 +531,7 @@ describe('PUT /admin/subscriptions/:id', () => {
     mockSubscriptionFindById.mockResolvedValue(sub);
     mockValidateBody.mockReturnValue({ ok: true, value: { interval: 'annual' } });
 
-    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), mockRes());
 
     expect(mockUpdateSubscription).toHaveBeenCalledWith('ext-stripe-4', 'team', 'annual');
     expect(sub.interval).toBe('annual');
@@ -544,7 +544,7 @@ describe('PUT /admin/subscriptions/:id', () => {
     mockValidateBody.mockReturnValue({ ok: true, value: { interval: 'annual' } });
     mockUpdateSubscription.mockRejectedValueOnce(new Error('stripe cadence push failed'));
 
-    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), mockRes());
 
     expect(sub.save).not.toHaveBeenCalled();
     expect(mockCreateBillingEvent).not.toHaveBeenCalled();
@@ -555,7 +555,7 @@ describe('PUT /admin/subscriptions/:id', () => {
     mockSubscriptionFindById.mockResolvedValue(sub);
     mockValidateBody.mockReturnValue({ ok: true, value: { interval: 'monthly', cancelAtPeriodEnd: true } });
 
-    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), mockRes());
 
     expect(mockUpdateSubscription).not.toHaveBeenCalled();
   });
@@ -568,14 +568,14 @@ describe('PUT /admin/subscriptions/:id', () => {
 
     // A DIFFERENT admin than the default — proves the actorId is threaded from
     // the request, not hardcoded.
-    const req = mockReq({ params: { id: 'sub-1' }, user: { organizationId: 'org-1', sub: 'sysadmin-42' } });
+    const req = mockReq({ params: { id: '64b000000000000000000001' }, user: { organizationId: 'org-1', sub: 'sysadmin-42' } });
     const res = mockRes();
     await handler(req, res);
 
     expect(mockCreateBillingEvent).toHaveBeenCalledWith(
       'org-1', 'plan_changed',
       { oldPlanId: 'developer', newPlanId: 'pro' },
-      'sub-1', 'sysadmin-42',
+      '64b000000000000000000001', 'sysadmin-42',
     );
   });
 
@@ -595,19 +595,19 @@ describe('PUT /admin/subscriptions/:id', () => {
     const pruned = [{ bundleId: 'bulk_operations', features: ['bulk_operations'] }];
     mockApplyTierIncludedAddonPrune.mockImplementationOnce((s: any) => { s.addons = reduced; return pruned; });
 
-    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), mockRes());
 
     expect((sub as { addons?: unknown }).addons).toEqual(reduced);
     expect(sub.save).toHaveBeenCalled();
     // Deferred (post-save): the reduced set syncs + the provider removal fires
     // with the pruned bundle, reduced list, and the sub's external id / cadence.
-    expect(mockSyncTierToQuotaService).toHaveBeenCalledWith('org-1', 'team', 'Bearer service-token', 'sub-1', reduced);
+    expect(mockSyncTierToQuotaService).toHaveBeenCalledWith('org-1', 'team', 'Bearer service-token', '64b000000000000000000001', reduced);
     expect(mockFinalizePrunedAddons).toHaveBeenCalledWith(
       pruned,
       reduced,
       expect.objectContaining({
         orgId: 'org-1',
-        subscriptionId: 'sub-1',
+        subscriptionId: '64b000000000000000000001',
         interval: 'monthly',
         externalId: 'ext-admin-1',
         actorId: 'admin-1',
@@ -626,7 +626,7 @@ describe('PUT /admin/subscriptions/:id', () => {
     mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'team' } });
     mockApplyTierIncludedAddonPrune.mockImplementationOnce((s: any) => { s.addons = []; return [{ bundleId: 'bulk_operations', features: ['bulk_operations'] }]; });
 
-    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), mockRes());
 
     // save() threw → the deferred queue never ran, so no provider removal / trail.
     expect(mockFinalizePrunedAddons).not.toHaveBeenCalled();
@@ -641,7 +641,7 @@ describe('PUT /admin/subscriptions/:id', () => {
     mockPlanFindOne.mockResolvedValue({ _id: 'pro', name: 'Pro', tier: 'pro', isActive: true });
     mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'pro', status: 'canceled', interval: 'annual' } });
 
-    const req = mockReq({ params: { id: 'sub-1' } });
+    const req = mockReq({ params: { id: '64b000000000000000000001' } });
     const res = mockRes();
     await handler(req, res);
 
@@ -660,7 +660,7 @@ describe('PUT /admin/subscriptions/:id', () => {
     mockPlanFindOne.mockResolvedValue({ _id: 'pro', name: 'Pro', tier: 'pro', isActive: true });
     mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'pro' } });
 
-    const req = mockReq({ params: { id: 'sub-1' }, user: { organizationId: 'sys-org', sub: 'sysadmin-7' } });
+    const req = mockReq({ params: { id: '64b000000000000000000001' }, user: { organizationId: 'sys-org', sub: 'sysadmin-7' } });
     await handler(req, mockRes());
 
     expect(mockAuditRecord).toHaveBeenCalledWith(
@@ -668,7 +668,7 @@ describe('PUT /admin/subscriptions/:id', () => {
         action: 'billing.tier.override',
         actorId: 'sysadmin-7',
         affectedOrgId: 'org-target',
-        targetId: 'sub-1',
+        targetId: '64b000000000000000000001',
         details: expect.objectContaining({ toTier: 'pro', fromPlanId: 'developer', toPlanId: 'pro' }),
       }),
     );
@@ -686,7 +686,7 @@ describe('PUT /admin/subscriptions/:id', () => {
     mockPlanFindOne.mockResolvedValue({ _id: 'pro', name: 'Pro', tier: 'pro', isActive: true });
     mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'pro' } });
 
-    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), mockRes());
 
     const [event] = mockAuditRecord.mock.calls[0];
     const serialized = JSON.stringify(event);
@@ -699,7 +699,7 @@ describe('PUT /admin/subscriptions/:id', () => {
     mockSubscriptionFindById.mockResolvedValue(sub);
     mockValidateBody.mockReturnValue({ ok: true, value: { status: 'canceled' } });
 
-    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), mockRes());
 
     expect(mockAuditRecord).not.toHaveBeenCalledWith(
       expect.objectContaining({ action: 'billing.tier.override' }),
@@ -715,7 +715,7 @@ describe('PUT /admin/subscriptions/:id', () => {
     mockPlanFindOne.mockResolvedValue({ _id: 'pro', name: 'Pro', tier: 'pro', isActive: true });
     mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'pro' } });
 
-    await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), mockRes());
 
     expect(mockAuditRecord).not.toHaveBeenCalled();
   });
@@ -724,10 +724,19 @@ describe('PUT /admin/subscriptions/:id', () => {
     mockSubscriptionFindById.mockResolvedValue(null);
     mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'pro' } });
 
-    const req = mockReq({ params: { id: 'nonexistent' } });
+    const req = mockReq({ params: { id: '64b0000000000000000000ff' } });
     const res = mockRes();
     await handler(req, res);
 
+    expect(mockSendError).toHaveBeenCalledWith(res, 404, 'Subscription not found', 'NOT_FOUND');
+  });
+
+  it('answers 404 for a malformed subscription id without querying (a cast error was a 500)', async () => {
+    mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'pro' } });
+    const res = mockRes();
+    await handler(mockReq({ params: { id: 'not-an-object-id' } }), res);
+
+    expect(mockSubscriptionFindById).not.toHaveBeenCalled();
     expect(mockSendError).toHaveBeenCalledWith(res, 404, 'Subscription not found', 'NOT_FOUND');
   });
 
@@ -737,7 +746,7 @@ describe('PUT /admin/subscriptions/:id', () => {
     mockPlanFindOne.mockResolvedValue(null);
     mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'nonexistent' } });
 
-    const req = mockReq({ params: { id: 'sub-1' } });
+    const req = mockReq({ params: { id: '64b000000000000000000001' } });
     const res = mockRes();
     await handler(req, res);
 
@@ -747,7 +756,7 @@ describe('PUT /admin/subscriptions/:id', () => {
   it('returns validation error on bad body', async () => {
     mockValidateBody.mockReturnValue({ ok: false, error: 'Invalid field' });
 
-    const req = mockReq({ params: { id: 'sub-1' } });
+    const req = mockReq({ params: { id: '64b000000000000000000001' } });
     const res = mockRes();
     await handler(req, res);
 
@@ -764,7 +773,7 @@ describe('GET /subscriptions/by-org/:orgId/billable (org-move guard)', () => {
   });
 
   it('reports a billable subscription across every manageable status', async () => {
-    mockSubscriptionExists.mockResolvedValue({ _id: 'sub-1' });
+    mockSubscriptionExists.mockResolvedValue({ _id: '64b000000000000000000001' });
     const res = mockRes();
     await handler(mockReq({ params: { orgId: 'org-9' }, user: { organizationId: 'sys-org', sub: 'svc' } }), res);
     expect(mockSubscriptionExists).toHaveBeenCalledWith({ orgId: 'org-9', status: { $in: ['active', 'trialing', 'past_due'] } });
@@ -922,7 +931,7 @@ describe('GET /admin/events', () => {
     const events = [{
       _id: { toString: () => 'evt-1' },
       orgId: 'org-1',
-      subscriptionId: 'sub-1',
+      subscriptionId: '64b000000000000000000001',
       type: 'plan_changed',
       details: {},
       createdAt: new Date('2026-03-01'),
@@ -975,7 +984,7 @@ describe('GET /events (customer-scoped, billing:read)', () => {
     const leanFn = jest.fn<AnyFn>().mockResolvedValue([{
       _id: { toString: () => 'evt-9' },
       orgId: 'org-1',
-      subscriptionId: 'sub-1',
+      subscriptionId: '64b000000000000000000001',
       type: 'credit_consumed',
       actorId: 'system',
       details: { consumedCents: 2000 },

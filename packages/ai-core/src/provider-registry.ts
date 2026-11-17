@@ -114,7 +114,8 @@ function keylessProviderAvailable(): boolean {
 /**
  * Lazily initialize the provider registry from environment variables. Key-based
  * providers register only when their key is set; keyless providers (Bedrock)
- * register when an AWS region is configured.
+ * register when an AWS region AND a resolvable credential source are configured
+ * (see {@link keylessProviderAvailable}).
  */
 function initRegistry(): void {
   if (initialized) return;
@@ -210,10 +211,6 @@ export function createModelWithKey(providerId: string, modelId: string, apiKey: 
   const factory = PROVIDER_FACTORIES[providerId];
   if (!factory) throw new Error(`Unsupported AI provider "${providerId}"`);
 
-  // Keyless providers (Bedrock) authenticate via the runtime IAM role and IGNORE a
-  // supplied key. Silently dropping the key and returning a model would defer the
-  // failure to model-call time when the IAM role/region isn't configured; guard it
-  // here so the failure is clear at config time (mirrors resolveModel's gate).
   // Keyless providers (Bedrock) authenticate via the RUNTIME's IAM role and have
   // no key to bring: honouring a "bring-your-own key" request there would serve
   // it on the platform's own AWS credentials — the silent BYO → platform fallback

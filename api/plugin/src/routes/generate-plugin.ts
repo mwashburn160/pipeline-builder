@@ -22,6 +22,7 @@ import { withAiCallReservation, withRoute, rateLimitByOrg } from '@pipeline-buil
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router, type Request } from 'express';
 
+import { parentOrgIdOf } from '../helpers/plugin-helpers.js';
 import { GenerationRun, type GenerationModelRequest } from '../services/ai-generation-run.js';
 import { getAvailableProviders, generatePluginConfig, streamPluginConfig } from '../services/ai-plugin-generation-service.js';
 import { findSimilarPlugins } from '../services/similar-plugin-lookup.js';
@@ -48,11 +49,6 @@ const generateRateLimit = rateLimitByOrg({
   windowMs: 60_000,
   message: 'Too many plugin generation requests, please slow down.',
 });
-
-/** The caller's parent-org id (org→team hierarchy), carried in the JWT; absent for root orgs. */
-function parentOrgIdOf(req: Request): string | undefined {
-  return (req.user as { parentOrganizationId?: string } | undefined)?.parentOrganizationId;
-}
 
 /** The caller's tier, for the token metric's label. */
 function tierOf(req: Request): string | undefined {

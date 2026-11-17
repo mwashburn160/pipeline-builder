@@ -111,7 +111,7 @@ export function TeamMemberAccess({ teams, currentUserId, readOnly }: TeamMemberA
           </Select>
         </div>
         <div className="min-w-[12rem] flex-1">
-          <SearchInput value={search} onChange={setSearch} placeholder="Search this team" />
+          <SearchInput value={search} onChange={setSearch} placeholder="Search this team" aria-label="Search this team's members" />
         </div>
       </div>
 
@@ -141,6 +141,10 @@ export function TeamMemberAccess({ teams, currentUserId, readOnly }: TeamMemberA
 
       {viewing && (
         <StepUpModal
+          // `POST /admin/impersonate/:userId` takes a STRONG factor only
+          // (passkey or authenticator); a password step-up would succeed and
+          // then be refused by the impersonation route.
+          requireStrongFactor
           action={`View ${viewing.member.email}'s account in ${viewingTeam?.orgName ?? 'this team'}, read-only. The team's admins will be notified.`}
           onConfirmed={(token) => view(viewing, token)}
           onClose={() => setViewing(null)}

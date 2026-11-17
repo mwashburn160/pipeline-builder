@@ -19,6 +19,7 @@ import {
   audited,
   resolveRecipientAlias,
   sendEntityNotFound,
+  userHasPermission,
   errorMessage,
   actorId,
   admitCaseSeverity,
@@ -56,6 +57,36 @@ const sendLimiter = rateLimitByOrg({
   windowMs: envInt('MESSAGE_SEND_RATE_WINDOW_MS', 60000, { min: 1000 }),
   message: 'Too many messages sent, please slow down.',
 });
+
+/** `messages.subject` is varchar(500); a derived subject is cut to fit. */
+const SUBJECT_COLUMN_MAX = 500;
+/** How much of the announcement a follow-up thread quotes — context, not a copy. */
+const ANNOUNCEMENT_QUOTE_CHARS = 600;
+/** The refusal for a staff reply on a broadcast. */
+const ANNOUNCEMENT_ONE_WAY =
+  'Announcements are one-way. Answer the customer in their own support thread, which their reply to this announcement started.';
+
+/**
+ * The opening message of the support thread a customer's announcement reply
+ * starts: their words first, then the announcement quoted beneath so the desk
+ * reads it in context. `messages` has no column referencing another thread, so
+ * the quote IS the link — it names the announcement and when it went out.
+ */
+export function announcementFollowUp(
+  announcement: { subject: string; content: string; createdAt?: Date | string | null },
+  reply: string,
+): { subject: string; content: string } {
+  const sent = announcement.createdAt ? new Date(announcement.createdAt) : null;
+  const when = sent && !Number.isNaN(sent.getTime()) ? ` (sent ${sent.toISOString().slice(0, 10)})` : '';
+  const body = announcement.content.length > ANNOUNCEMENT_QUOTE_CHARS
+    ? `${announcement.content.slice(0, ANNOUNCEMENT_QUOTE_CHARS).trimEnd()}…`
+    : announcement.content;
+  const quoted = body.split('\n').map((line) => `> ${line}`).join('\n');
+  return {
+    subject: `Re: ${announcement.subject}`.slice(0, SUBJECT_COLUMN_MAX),
+    content: `${reply}\n\n---\nIn reply to the announcement "${announcement.subject}"${when}:\n${quoted}`,
+  };
+}
 
 /** Everything the shared persist tail needs beyond the row itself. */
 interface PersistOptions {
@@ -686,6 +717,11 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
     const isRecipient = rootMessage.recipientOrgId.toLowerCase() === orgId;
     const isBroadcast = rootMessage.recipientOrgId === '*';
     const isSystem = orgId === SYSTEM_ORG_ID;
+    // WHO IS SUPPORT STAFF: the permission that says so, not system-org
+    // membership — the same test the case status route applies. A system-org
+    // member without it (billing, finance) must neither answer a tenant's case on
+    // the support door nor stop its response clock and close its on-call page.
+    const isSupportStaff = isSystem && userHasPermission(req, 'support_cases:write');
 
     if (!isSender && !isRecipient && !isBroadcast && !isSystem) {
       return sendError(res, 403, 'You are not a participant in this conversation', ErrorCode.INSUFFICIENT_PERMISSIONS);
@@ -708,8 +744,8 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       if (rootMessage.channel?.toLowerCase() !== SUPPORT_CHANNEL) {
         return sendBadRequest(res, 'That thread is not a support case', ErrorCode.VALIDATION_ERROR);
       }
-      // Staff reply through the ordinary route; this door is for the tenant side.
-      if (!isSystem) {
+      // This door is for the tenant side; support staff are admitted as staff.
+      if (!isSupportStaff) {
         const supportCase = await findCaseByThread(id);
         const isAuthor = rootMessage.createdBy === userId;
         const isOwner = supportCase?.tenantContact === userId;
@@ -724,26 +760,63 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       }
     }
 
-    ctx.log('INFO', 'Replying to thread', { threadId: id });
+    // ANNOUNCEMENTS ARE ONE-WAY. A broadcast goes to every org, so its thread
+    // has no single counterparty: a staff reply on it would be addressed to the
+    // system org itself, and a customer's reply on it would sit in a thread
+    // every org can open. Instead:
+    //   - staff are refused, and answer the customer in the customer's thread;
+    //   - a customer's reply STARTS that thread: a new support conversation
+    //     between their org and the system org, opening with their words and
+    //     the announcement quoted. No support case is opened (no entitlement
+    //     read, no incident spent) — it is correspondence, like an unentitled
+    //     support send.
+    if (isBroadcast) {
+      if (isSystem) return sendBadRequest(res, ANNOUNCEMENT_ONE_WAY, ErrorCode.VALIDATION_ERROR);
 
-    // Determine the recipient for the reply
-    let replyRecipientOrgId: string;
-    if (isSystem) {
-      // System org replying — send to the original sender
-      replyRecipientOrgId = rootMessage.orgId;
-    } else if (isBroadcast) {
-      // Replying to announcement — send to the system org
-      replyRecipientOrgId = SYSTEM_ORG_ID;
-    } else {
-      // Regular org replying — send to the other party
-      replyRecipientOrgId = isSender ? rootMessage.recipientOrgId : rootMessage.orgId;
+      const followUp = announcementFollowUp(rootMessage, content);
+      ctx.log('INFO', 'Starting a support thread from an announcement reply', { announcementId: id });
+      return persistAndRespond(sseManager, ctx, res, {
+        data: {
+          orgId,
+          threadId: null,
+          recipientOrgId: SYSTEM_ORG_ID,
+          recipientUserId: null,
+          messageType: 'conversation',
+          channel: SUPPORT_CHANNEL,
+          subject: followUp.subject,
+          content: followUp.content,
+          // The announcement's urgency was the vendor's; the customer's reply
+          // carries none of it.
+          priority: 'normal',
+          createdBy: userId,
+          updatedBy: userId,
+        },
+        orgId,
+        userId,
+        attachmentIds,
+        partialAttachmentWarning: 'Some reply attachments did not link',
+        completed: { label: 'Support thread started from announcement', details: { announcementId: id } },
+        notification: {
+          recipientOrgId: SYSTEM_ORG_ID,
+          subject: followUp.subject,
+          targeted: false,
+          senderOrgId: orgId,
+          messageType: 'conversation',
+        },
+        successMessage: 'Reply sent to the support team as a new conversation',
+      });
     }
 
-    // A reply is ALWAYS a conversation, never an announcement — even when the
-    // root is an announcement (a member replying to a broadcast opens a 1:1
-    // support thread to the system org). Copying rootMessage.messageType here
-    // persisted `announcement`-typed rows authored by non-sysadmins, polluting
-    // messageType filters and the announcements feed. Pin replies to conversation.
+    ctx.log('INFO', 'Replying to thread', { threadId: id });
+
+    // Determine the recipient for the reply: the system org answers the
+    // original sender; any other participant answers the other party.
+    const replyRecipientOrgId = isSystem
+      ? rootMessage.orgId
+      : (isSender ? rootMessage.recipientOrgId : rootMessage.orgId);
+
+    // A reply is ALWAYS a conversation. Pinned rather than copied from the root
+    // so no reply can ever persist as an `announcement`-typed row.
     const replyMessageType = 'conversation' as const;
 
     // Keep a per-user targeted thread private: when the reply is addressed BACK
@@ -796,11 +869,11 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
         // message timestamps, which would have to re-infer "was that reply from
         // staff" on every read.
         //
-        // `isSystem` is the staff test: a tenant replying to its own case is not a
-        // response to it. `stampFirstResponse` carries `first_response_at IS NULL`
+        // `isSupportStaff` is the staff test: a tenant replying to its own case is
+        // not a response to it, and neither is a system-org member who is not support. `stampFirstResponse` carries `first_response_at IS NULL`
         // in its WHERE clause, so a second staff reply cannot move the number — the
         // guard is in the UPDATE, not in a caller's check.
-        if (isSystem && rootMessage.channel?.toLowerCase() === SUPPORT_CHANNEL) {
+        if (isSupportStaff && rootMessage.channel?.toLowerCase() === SUPPORT_CHANNEL) {
           try {
             const supportCase = await findCaseByThread(id);
             const stamped = supportCase ? await stampFirstResponse(supportCase.id) : false;

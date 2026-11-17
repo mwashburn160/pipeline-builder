@@ -14,6 +14,7 @@
  * so the spreadsheet renders it as literal text.
  */
 import { triggerBlobDownload } from './download';
+import { localDay } from './local-day';
 
 
 function escapeCsvCell(s: string): string {
@@ -67,7 +68,8 @@ export function downloadJsonl<T>(
   return rows.length;
 }
 
-/** `<prefix>-YYYY-MM-DD` filename for a dated export download. */
-export function datedFilename(prefix: string): string {
-  return `${prefix}-${new Date().toISOString().slice(0, 10)}`;
+/** `<prefix>-YYYY-MM-DD` filename for a dated export download — the viewer's
+ *  LOCAL day, so an evening export west of UTC isn't stamped with tomorrow. */
+export function datedFilename(prefix: string, now: Date = new Date()): string {
+  return `${prefix}-${localDay(now)}`;
 }

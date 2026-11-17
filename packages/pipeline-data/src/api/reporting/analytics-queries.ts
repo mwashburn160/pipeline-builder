@@ -32,8 +32,8 @@
  * that introduced them is retired:
  *
  *   - Nothing here writes. Thirteen aggregate SELECTs, no INSERT, no UPDATE, no
- *     `SELECT … FOR UPDATE`, no advisory lock — so none of the four call sites
- *     the Phase 0a audit found hiding behind read-looking code.
+ *     `SELECT … FOR UPDATE`, no advisory lock — none of the write-shaped calls
+ *     that can hide behind read-looking code.
  *   - Nothing here feeds an AUTHORIZATION decision. These are dashboard
  *     aggregates; a stale permission check is a security bug, a stale chart is
  *     a stale chart.

@@ -4,6 +4,7 @@
 import { normalizeArrayFields, SYSTEM_ORG_ID, type BuildClass, type BuildSize, type MetadataSources, type Visibility, type WriteAccess } from '@pipeline-builder/api-core';
 import { type ComputeType, type PluginType } from '@pipeline-builder/pipeline-core';
 import type { PluginContractValueType, PluginIcon } from '@pipeline-builder/pipeline-data';
+import type { Request } from 'express';
 
 import type { BuildRequest, BuildType } from './docker-build.js';
 import type { PluginInsert } from '../services/plugin-service.js';
@@ -13,6 +14,14 @@ export interface PluginConfig {
   pluginSpec?: string;
   dockerfile?: string;
   buildType?: BuildType;
+}
+
+/**
+ * The caller's parent-org id (org→team hierarchy), carried in the JWT; absent
+ * for root orgs. What the read routes widen a team's view with.
+ */
+export function parentOrgIdOf(req: Request): string | undefined {
+  return (req.user as { parentOrganizationId?: string } | undefined)?.parentOrganizationId;
 }
 
 /**

@@ -29,6 +29,9 @@
  *    must say so.
  */
 
+import { existsSync, readdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
 import type { AnyFn } from '@pipeline-builder/api-core/testing';
 
@@ -108,9 +111,12 @@ function useBrowser(browser: FakeBrowser): { options: Array<{ executablePath: st
   return { options };
 }
 
+const SCRATCH = join(tmpdir(), `report-pdf-test-${process.pid}`);
+
 beforeEach(() => {
   for (const k of ENV_KEYS) saved[k] = process.env[k];
   process.env.REPORT_PDF_CHROMIUM_PATH = REAL_EXECUTABLE;
+  process.env.REPORT_PDF_SCRATCH_DIR = SCRATCH;
   delete process.env.REPORT_PDF_ENABLED;
   resetPdfAvailability();
 });
@@ -170,7 +176,7 @@ describe('availability', () => {
 });
 
 describe('the launch flags', () => {
-  const args = () => chromiumArgs();
+  const args = () => chromiumArgs('/tmp/pdf-scratch/render-x');
 
   it('disables the sandbox, because the pod cannot grant what it would need', () => {
     // Justified at length in the module header: uid 1000, no capabilities, no user
@@ -184,9 +190,8 @@ describe('the launch flags', () => {
     expect(args()).toContain('--disable-dev-shm-usage');
   });
 
-  it('points the user-data dir at the writable scratch mount, not the read-only root', () => {
-    process.env.REPORT_PDF_SCRATCH_DIR = '/tmp/pdf-scratch';
-    expect(args()).toContain('--user-data-dir=/tmp/pdf-scratch');
+  it('points the user-data dir at the profile it is given', () => {
+    expect(args()).toContain('--user-data-dir=/tmp/pdf-scratch/render-x');
   });
 
   it('caps the renderer heap, so one pathological document fails itself and not the pod', () => {
@@ -205,6 +210,22 @@ describe('a successful render', () => {
     expect(result.pdf.subarray(0, 4).toString()).toBe('%PDF');
     expect(options[0]?.executablePath).toBe(REAL_EXECUTABLE);
     expect(options[0]?.args).toContain('--no-sandbox');
+  });
+
+  it('gives every render its OWN Chromium profile under the scratch dir, and removes it after', async () => {
+    // A shared --user-data-dir is profile-locked: a second concurrent Chromium hands off
+    // to the first and exits, so raising REPORT_PDF_CONCURRENCY broke every render past one.
+    process.env.REPORT_PDF_CONCURRENCY = '2';
+    const { options } = useBrowser(fakeBrowser());
+    const [a, b] = await Promise.all([renderPdf('<html></html>'), renderPdf('<html></html>')]);
+    expect(a.ok && b.ok).toBe(true);
+    const dirs = options.map((o) => o.args.find((x) => x.startsWith('--user-data-dir='))!.slice('--user-data-dir='.length));
+    expect(new Set(dirs).size).toBe(2);
+    for (const d of dirs) {
+      expect(d.startsWith(join(SCRATCH, 'render-'))).toBe(true);
+      expect(existsSync(d)).toBe(false);
+    }
+    expect(readdirSync(SCRATCH)).toEqual([]);
   });
 
   it('asks for a TAGGED pdf — without it every accessibility property is discarded', async () => {

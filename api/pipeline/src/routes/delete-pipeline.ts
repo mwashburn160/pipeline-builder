@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { getParam, ErrorCode, requireVisibilityWriteAccess, sendBadRequest, sendSuccess, sendEntityNotFound, audited, actorId, recordAudit } from '@pipeline-builder/api-core';
+import { getParam, ErrorCode, requireVisibilityWriteAccess, sendBadRequest, sendSuccess, sendEntityNotFound, audited, actorId, recordAudit, requirePermission } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { pipelineService, withClosedExposureTally } from '../services/pipeline-service.js';
@@ -15,7 +15,7 @@ import { pipelineService, withClosedExposureTally } from '../services/pipeline-s
 export function createDeletePipelineRoutes(): Router {
   const router: Router = Router();
 
-  router.delete('/:id', audited('pipeline.delete'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.delete('/:id', requirePermission('pipelines:write'), audited('pipeline.delete'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
 
     if (!id) return sendBadRequest(res, 'Pipeline ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);

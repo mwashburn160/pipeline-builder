@@ -30,6 +30,7 @@ const mockSeatAvailable = jest.fn<(...a: unknown[]) => Promise<boolean>>();
 const mockSeatStillWithin = jest.fn<(...a: unknown[]) => Promise<boolean>>();
 const mockUserHasSeat = jest.fn<(...a: unknown[]) => Promise<boolean>>();
 const mockEnsureBaselineRole = jest.fn<(...a: unknown[]) => Promise<void>>();
+const mockRaDeleteMany = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({}));
 jest.unstable_mockModule('dns', () => ({ promises: { resolveTxt: (...a: unknown[]) => mockResolveTxt(...a) } }));
@@ -50,6 +51,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
     find: () => { const chain = { sort: () => chain, select: () => chain, lean: () => Promise.resolve([]) }; return chain; },
   },
   Organization: { findById: (...a: unknown[]) => mockOrgFindById(...a), find: (...a: unknown[]) => mockOrgFind(...a) },
+  RoleAssignment: { deleteMany: (...a: unknown[]) => mockRaDeleteMany(...a) },
   UserOrganization: {
     findOne: (...a: unknown[]) => mockUserOrgFindOne(...a),
     find: (...a: unknown[]) => mockUserOrgFind(...a),
@@ -367,6 +369,25 @@ describe('decideJoinRequest', () => {
     const res = await orgDomainService.decideJoinRequest('org-1', RID, 'approve', decider);
     expect(res.status).toBe('approved');
     expect(mockUserOrgCreate).toHaveBeenCalled();
+  });
+
+  it('SECURITY: approving a former admin reactivates them as a MEMBER — their old Role assignments are dropped first', async () => {
+    const userId = new Types.ObjectId();
+    mockJoinFindOne.mockResolvedValue({ _id: 'r1', organizationId: 'org-1', userId, email: 'jane@acme.com', status: 'pending', save: jest.fn<AnyFn>() });
+    mockDomainFind.mockReturnValue(discoverable('request'));
+    const membership = { isActive: false, role: 'admin', save: jest.fn<AnyFn>().mockResolvedValue(undefined) };
+    mockUserOrgFindOne.mockReturnValue({ lean: () => Promise.resolve(null), session: () => Promise.resolve(membership) });
+    mockRaDeleteMany.mockResolvedValue({});
+    const order: string[] = [];
+    mockRaDeleteMany.mockImplementation(async () => { order.push('drop-roles'); return {}; });
+    mockEnsureBaselineRole.mockImplementation(async () => { order.push('baseline'); });
+
+    await orgDomainService.decideJoinRequest('org-1', RID, 'approve', decider);
+
+    expect(membership.isActive).toBe(true);
+    expect(membership.role).toBe('member');
+    expect(mockRaDeleteMany).toHaveBeenCalledWith({ userId, organizationId: 'org-1' }, { session: expect.anything() });
+    expect(order).toEqual(['drop-roles', 'baseline']);
   });
 
   it('refuses to approve a request whose requester was deleted — no orphan membership', async () => {

@@ -46,15 +46,6 @@ export const LEAD_TIME_GAPS = ['no_token', 'rate_limited', 'unsupported_source',
 export type LeadTimeGap = (typeof LEAD_TIME_GAPS)[number];
 
 /**
- * How confidently an incident was attributed to a deploy. Shown beside change
- * failure rate and time to restore, because "this deploy broke production" and
- * "an incident opened some hours after this deploy" are different claims and a
- * manager acts differently on each.
- */
-export const CORRELATION_CONFIDENCES = ['high', 'medium', 'low'] as const;
-export type CorrelationConfidence = (typeof CORRELATION_CONFIDENCES)[number];
-
-/**
  * How a pipeline came to exist. For the adoption section: an org whose pipelines
  * are all hand-built is a different adoption story from one templating them.
  */
@@ -98,9 +89,12 @@ export type ExposureTriageState = (typeof EXPOSURE_TRIAGE_STATES)[number];
 /**
  * One deployment: an execution that reached an environment.
  *
- * Written at ingest, one row per (execution, environment). Everything DORA
- * reports is here, so `/dora`, the trend and the report sections stop scanning
- * raw events — and keep working after the events are swept.
+ * Written at ingest, one row per (org, execution, environment). The analytics
+ * reads (pipeline health deploy counts, the promotion view, deploy-tracking
+ * adoption) and the execution-ownership check use it, and it outlives the
+ * swept events. Change-failure rate and time to restore are NOT stored here:
+ * `/dora` derives them from the deploy events, `deployment_outcomes` and
+ * `incidents` directly.
  *
  * @table dora_deployments
  */
@@ -125,14 +119,6 @@ export const doraDeployment = pgTable('dora_deployments', {
   /** Why lead time is absent, when it is. NULL when it was measured. */
   leadTimeGap: varchar('lead_time_gap', { length: 30 }).$type<LeadTimeGap>(),
   /**
-   * Post-deploy outcome markers, denormalized onto the deploy so change-failure
-   * rate and time-to-restore are one scan rather than a join per window.
-   */
-  failedAt: timestamp('failed_at', { withTimezone: true }),
-  restoredAt: timestamp('restored_at', { withTimezone: true }),
-  /** How the incident→deploy link was judged. NULL when nothing was correlated. */
-  correlationConfidence: varchar('correlation_confidence', { length: 10 }).$type<CorrelationConfidence>(),
-  /**
    * The EventBridge event id of the deploy STAGE event that last wrote this row,
    * so a DORA number traces back to the exact `pipeline_events` row (and AWS
    * event) behind it. NULL for a deploy from a producer without one.
@@ -141,9 +127,11 @@ export const doraDeployment = pgTable('dora_deployments', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
-  // One row per execution per environment: a redelivered event upserts rather
-  // than inserting a second deploy (EventBridge → SQS is at-least-once).
-  pk: primaryKey({ columns: [table.executionId, table.environment] }),
+  // One row per org, execution and environment: a redelivered event upserts
+  // rather than inserting a second deploy (EventBridge → SQS is at-least-once).
+  // org_id leads the key: under forced RLS a key without it lets one org's
+  // (invisible) row collide with another org's upsert, which then fails.
+  pk: primaryKey({ columns: [table.orgId, table.executionId, table.environment] }),
   // The window scan every DORA read does.
   orgEnvDeployedIdx: index('dora_deployment_org_env_deployed_idx')
     .on(table.orgId, table.environment, table.deployedAt),

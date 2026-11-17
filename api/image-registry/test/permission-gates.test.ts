@@ -40,6 +40,8 @@ const mountBlob = jest.fn<(src: string, tgt: string, digest: string) => Promise<
 const putManifest = jest.fn<(name: string, ref: string, body: unknown, mediaType: string) => Promise<void>>();
 const isNotFound = (e: unknown): boolean => (e as { statusCode?: number })?.statusCode === 404;
 
+// The delete routes evict the storage caches; the real module needs registry calls this suite does not mock.
+jest.unstable_mockModule('../src/services/storage-usage.js', () => ({ invalidateStorageCache: jest.fn(), invalidateOrgStorageCache: jest.fn() }));
 jest.unstable_mockModule('../src/services/registry-client.js', () => ({
   listRepositories,
   listTags,

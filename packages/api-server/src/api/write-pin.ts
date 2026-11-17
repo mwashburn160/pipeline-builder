@@ -220,7 +220,43 @@ export function writePinActive(): boolean {
 export async function applyWritePin(scope: TenantContext): Promise<void> {
   if (!isReadReplicaConfigured()) return;
   if (scope.mayHaveWritten) return; // already known to have written
-  if (await getWritePinStore().isPinned(scope.orgId)) scope.mayHaveWritten = true;
+  if (await getWritePinStore().isPinned(scope.orgId)) holdOnPrimary(scope);
+}
+
+/**
+ * Scopes this module put on the primary because their ORG is pinned, mapped to
+ * whether the request itself has written since.
+ *
+ * Kept apart from `mayHaveWritten` because that flag is also what
+ * {@link recordWriteForPin} reads to decide whether to pin. A pinned org's
+ * read-only request would otherwise look like a write and renew the pin, so an
+ * org whose console polls more often than the TTL would sit on the primary
+ * forever after one write — the self-defeating loop `withTenantTx`'s
+ * `markWritten: false` exists to prevent, re-entered through this module.
+ */
+const heldOnPrimary = new WeakMap<TenantContext, { wrote: boolean }>();
+
+/**
+ * Route this request's reads to the primary without claiming it wrote: the
+ * read helper sees `mayHaveWritten === true`, and a real write still registers
+ * (the `withTenantTx` assignment lands in the setter), so only a request that
+ * actually wrote renews the pin.
+ */
+function holdOnPrimary(scope: TenantContext): void {
+  const state = { wrote: false };
+  heldOnPrimary.set(scope, state);
+  Object.defineProperty(scope, 'mayHaveWritten', {
+    configurable: true,
+    enumerable: true,
+    get: () => true,
+    set: (value: boolean | undefined) => { if (value) state.wrote = true; },
+  });
+}
+
+/** Whether this request itself may have written (as opposed to inheriting its org's pin). */
+function wroteThisRequest(scope: TenantContext): boolean {
+  const held = heldOnPrimary.get(scope);
+  return held ? held.wrote : scope.mayHaveWritten === true;
 }
 
 /**
@@ -234,6 +270,6 @@ export async function applyWritePin(scope: TenantContext): Promise<void> {
  */
 export function recordWriteForPin(scope: TenantContext): void {
   if (!isReadReplicaConfigured()) return;
-  if (!scope.mayHaveWritten) return;
+  if (!wroteThisRequest(scope)) return;
   void getWritePinStore().pin(scope.orgId);
 }

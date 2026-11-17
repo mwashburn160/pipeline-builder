@@ -309,6 +309,35 @@ describe('PluginUpgradePanel', () => {
     expect(apply).toBeDisabled();
     expect(apply).toHaveAttribute('title', 'Requires pipelines:write');
   });
+
+  it('a superseded preview never lands — Apply sends only steps drafted for the CURRENT widen setting', async () => {
+    api.previewPluginUpgrades.mockReturnValueOnce(ok(PREVIEW));
+    api.applyPluginUpgrades.mockReturnValue(ok({ upgraded: 0, results: [{ pipelineId: 'p1', status: 'unchanged' }], releases: [], redeployRequired: false }));
+    render(<PluginUpgradePanel pipelineId="p1" canWrite />);
+    fireEvent.click(screen.getByRole('button', { name: 'Preview upgrades' }));
+    await screen.findByLabelText('Upgrade build/scan');
+
+    // Widen on, then off again, while the first re-preview is still in flight.
+    let resolveWiden!: (v: unknown) => void;
+    let resolveNarrow!: (v: unknown) => void;
+    api.previewPluginUpgrades
+      .mockReturnValueOnce(new Promise((r) => { resolveWiden = r; }))
+      .mockReturnValueOnce(new Promise((r) => { resolveNarrow = r; }));
+    fireEvent.click(screen.getByLabelText('Widen past the pin'));
+    fireEvent.click(screen.getByLabelText('Widen past the pin'));
+    // Apply is locked while a preview is loading.
+    expect(screen.getByRole('button', { name: /apply 1 upgrade/i })).toBeDisabled();
+
+    // The newest (narrow) answer lands first; the older widened one arrives late.
+    resolveNarrow({ success: true, data: PREVIEW });
+    await waitFor(() => expect(screen.getByRole('button', { name: /apply 1 upgrade/i })).toBeEnabled());
+    resolveWiden({ success: true, data: PREVIEW });
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(screen.getByLabelText('Upgrade deploy/lint')).not.toBeChecked();
+    fireEvent.click(screen.getByRole('button', { name: /apply 1 upgrade/i }));
+    await waitFor(() => expect(api.applyPluginUpgrades).toHaveBeenCalledWith({ pipelineIds: ['p1'], widen: false, steps: ['build/scan'], redeploy: false }));
+  });
 });
 
 describe('ArtifactSecurityReportsCard', () => {

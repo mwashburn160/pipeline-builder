@@ -499,15 +499,17 @@ describe('Subscription Lifecycle Checker', () => {
 
     it('does NOT downgrade a stale-active sub the provider reports RENEWED (late webhook)', async () => {
       const future = new Date(Date.now() + 20 * 24 * 60 * 60 * 1000);
+      const providerStart = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000);
+      const previousEnd = new Date(Date.now() - 24 * 60 * 60 * 1000);
       const staleSub = {
         _id: { toString: () => 'sub-renew' },
         orgId: 'org-renew',
         status: 'active',
         externalId: 'sub_stripe_live',
-        currentPeriodEnd: new Date(Date.now() - 24 * 60 * 60 * 1000),
+        currentPeriodStart: new Date(previousEnd.getTime() - 30 * 24 * 60 * 60 * 1000),
+        currentPeriodEnd: previousEnd,
         cancelAtPeriodEnd: false,
         metadata: {} as Record<string, unknown>,
-        save: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
       };
 
       mockFind
@@ -515,16 +517,21 @@ describe('Subscription Lifecycle Checker', () => {
         .mockResolvedValueOnce([staleSub]) // expired subscriptions query
         .mockResolvedValueOnce([]) // renewal reminders query
         .mockResolvedValueOnce([]); // reconcile query
-      mockGetSubscription.mockResolvedValue({ status: 'active', currentPeriodEnd: future });
+      mockGetSubscription.mockResolvedValue({ status: 'active', currentPeriodStart: providerStart, currentPeriodEnd: future });
 
       startSubscriptionLifecycleChecker();
       await new Promise(resolve => setTimeout(resolve, 100));
 
-      // Period advanced locally; NO downgrade.
+      // The provider's whole period is adopted (its START keys the period's
+      // credits), guarded on the end this pass read; NO downgrade.
       expect(mockSyncEntitlements).not.toHaveBeenCalled();
+      expect(mockUpdateOne).toHaveBeenCalledWith(
+        { _id: staleSub._id, currentPeriodEnd: previousEnd },
+        { $set: { currentPeriodStart: providerStart, currentPeriodEnd: future } },
+      );
+      expect(staleSub.currentPeriodStart).toBe(providerStart);
       expect(staleSub.currentPeriodEnd).toBe(future);
       expect(staleSub.status).toBe('active');
-      expect(staleSub.save).toHaveBeenCalledTimes(1);
       expect(mockCreateBillingEvent).toHaveBeenCalledWith(
         'org-renew',
         'subscription_updated',
@@ -593,11 +600,13 @@ describe('Subscription Lifecycle Checker', () => {
     it('ADVANCES a still-entitled marketplace sub to its entitlement expiry (leaves the stale scan)', async () => {
       const expiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
       mockGetEntitlements.mockResolvedValueOnce([{ planId: 'pro', dimension: 'pro', isEntitled: true, expirationDate: expiry }]);
+      const previousEnd = new Date(Date.now() - 24 * 60 * 60 * 1000);
       const staleSub = {
         _id: { toString: () => 'sub-mkt3' },
         orgId: 'org-mkt3',
         status: 'active',
-        currentPeriodEnd: new Date(Date.now() - 24 * 60 * 60 * 1000),
+        currentPeriodStart: new Date(previousEnd.getTime() - 30 * 24 * 60 * 60 * 1000),
+        currentPeriodEnd: previousEnd,
         cancelAtPeriodEnd: false,
         metadata: { provider: 'aws-marketplace', awsLicenseArn: 'cust-3' } as Record<string, unknown>,
       };
@@ -606,9 +615,38 @@ describe('Subscription Lifecycle Checker', () => {
       startSubscriptionLifecycleChecker();
       await new Promise(resolve => setTimeout(resolve, 100));
 
-      expect(mockUpdateOne).toHaveBeenCalledWith({ _id: staleSub._id }, { $set: { currentPeriodEnd: expiry } });
+      // The renewed term opens where the old one closed: the START is the credit
+      // key, so leaving it behind skipped the renewed term's recurring credits.
+      expect(mockUpdateOne).toHaveBeenCalledWith(
+        { _id: staleSub._id, currentPeriodEnd: previousEnd },
+        { $set: { currentPeriodStart: previousEnd, currentPeriodEnd: expiry } },
+      );
+      expect(staleSub.currentPeriodStart).toBe(previousEnd);
+      expect(mockIncCounter).toHaveBeenCalledWith('billing_stale_subscription_reconciled_total', { outcome: 'renewed' });
       expect(mockCreateBillingEvent).not.toHaveBeenCalled();
       expect(mockSyncEntitlements).not.toHaveBeenCalled();
+    });
+
+    it('leaves a late-renewed Stripe sub alone when a webhook moved the period first', async () => {
+      mockGetSubscription.mockResolvedValueOnce({ status: 'active', currentPeriodEnd: new Date(Date.now() + 86_400_000) });
+      mockUpdateOne.mockResolvedValueOnce({ modifiedCount: 0 });
+      const staleSub = {
+        _id: { toString: () => 'sub-raced' },
+        orgId: 'org-raced',
+        status: 'active',
+        externalId: 'sub_stripe_raced',
+        currentPeriodStart: new Date(Date.now() - 31 * 86_400_000),
+        currentPeriodEnd: new Date(Date.now() - 86_400_000),
+        cancelAtPeriodEnd: false,
+        metadata: {} as Record<string, unknown>,
+      };
+      mockFind.mockResolvedValueOnce([]).mockResolvedValueOnce([staleSub]).mockResolvedValue([]);
+
+      startSubscriptionLifecycleChecker();
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      expect(mockCreateBillingEvent).not.toHaveBeenCalled();
+      expect(mockIncCounter).not.toHaveBeenCalledWith('billing_stale_subscription_reconciled_total', expect.anything());
     });
 
     it('RENEWS a still-entitled marketplace sub with an open-ended entitlement on its anchor day', async () => {

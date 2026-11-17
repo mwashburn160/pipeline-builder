@@ -11,6 +11,7 @@ import api from '@/lib/api';
 import type { Discount } from '@/types';
 import { TIER_KEYS } from '@/lib/tiers';
 import { formatDiscount } from './formatDiscount';
+import { localDay, localDayEndIso } from '@/lib/local-day';
 
 // Selectable tiers a discount can target — sourced from the shared TIER_KEYS so
 // the picker never drifts from the tier catalog. (`unlimited` is intentionally absent.)
@@ -29,8 +30,9 @@ export function EditDiscountModal({ discount, onClose, onSaved }: EditDiscountMo
   const [editMaxRedemptions, setEditMaxRedemptions] = useState(
     discount.maxRedemptions != null ? String(discount.maxRedemptions) : '',
   );
-  // <input type="date"> wants YYYY-MM-DD; the record carries a full ISO instant.
-  const [editRedeemBy, setEditRedeemBy] = useState(discount.redeemBy ? discount.redeemBy.slice(0, 10) : '');
+  // <input type="date"> wants the LOCAL YYYY-MM-DD; the record carries an ISO instant.
+  const initialRedeemBy = discount.redeemBy ? localDay(new Date(discount.redeemBy)) : '';
+  const [editRedeemBy, setEditRedeemBy] = useState(initialRedeemBy);
   const [editTiers, setEditTiers] = useState<string[]>(discount.appliesToTiers ?? []);
   const [editActive, setEditActive] = useState(discount.isActive);
   const editForm = useFormState();
@@ -52,7 +54,10 @@ export function EditDiscountModal({ discount, onClose, onSaved }: EditDiscountMo
       appliesToTiers: editTiers,
     };
     if (maxR !== undefined) body.maxRedemptions = maxR;
-    if (editRedeemBy.trim()) body.redeemBy = new Date(editRedeemBy.trim()).toISOString();
+    // Only a CHANGED day is sent — re-sending the seeded one would rewrite the
+    // stored instant on every unrelated edit. The day is inclusive: its last
+    // instant, since the server refuses once `redeemBy < now`.
+    if (editRedeemBy.trim() && editRedeemBy.trim() !== initialRedeemBy) body.redeemBy = localDayEndIso(editRedeemBy.trim());
     await editForm.run(() => api.updateDiscount(discount.id, body), { onSuccess: () => onSaved() });
   };
 

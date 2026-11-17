@@ -80,6 +80,10 @@ export default function TriagePage() {
   // overwritten when a second job is replayed, hiding the first's result during a
   // bulk triage session.
   const [replayMsgs, setReplayMsgs] = useState<Map<string | number, { text: string; isError: boolean }>>(new Map());
+  // DLQ jobs already re-enqueued. The server memoizes the triage read for a few
+  // seconds, so the refresh after a replay can still list the sample — and its
+  // source job is gone, so a second Replay would only answer "not found".
+  const [replayed, setReplayed] = useState<Set<string | number>>(new Set());
 
   const enabled = isReady && canTriage;
   const { data, loading, error, refetch: load } = useFetch<{ groups: TriageGroup[]; totalFailed: number } | null>(
@@ -119,6 +123,7 @@ export default function TriagePage() {
       const res = await api.replayDlqJob(String(jobId));
       const newJobId = res.data?.newJobId ?? '?';
       setReplayMsg(jobId, { text: `Re-enqueued as job ${newJobId}`, isError: false });
+      setReplayed(prev => new Set(prev).add(jobId));
       // Refresh so the replayed sample disappears.
       void load();
     } catch (err) {
@@ -234,7 +239,7 @@ export default function TriagePage() {
                               </span>
                               <div className="flex items-center gap-2">
                                 {s.failedAt && <RelativeTime value={s.failedAt} />}
-                                {s.source === 'dlq' && (
+                                {s.source === 'dlq' && !replayed.has(s.id) && (
                                   <button
                                     type="button"
                                     onClick={() => void handleReplay(s.id)}

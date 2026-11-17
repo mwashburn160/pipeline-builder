@@ -1,6 +1,6 @@
 // GENERATED FROM docs/compliance.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 50d618498e85e9fb7f3e4504cadefbf3f44c04eb82b0a04f3e724039d4982d1d
+// SOURCE-SHA256: 6418b79572de9b1b4bc08578c5ee9092016f857584886689fd58cf4df1d7153f
 // SPDX-License-Identifier: Apache-2.0
 import { ShieldCheck } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -339,7 +339,7 @@ export const complianceTopic: HelpTopic = {
             [
               "DELETE",
               "/compliance/scan-schedules/:id",
-              "Deactivate schedule"
+              "Delete schedule (soft-delete: it stops firing, drops out of the list and can no longer be updated or re-activated — both answer 404; the retention sweep hard-deletes it after SOFT_DELETE_RETENTION_DAYS)"
             ]
           ]
         },

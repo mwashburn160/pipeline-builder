@@ -38,7 +38,7 @@ import type { Request } from 'express';
 import { issuerAudienceOptions } from './jwt-verify.js';
 import { isServiceTokenDenied, serviceNameOf } from './service-tokens.js';
 import { currentAuditContext } from '../services/audit-context.js';
-import { isServiceKid, signServiceJwt, verifyServiceJwt } from '../services/service-keys.js';
+import { isServiceKid, serviceIdentity, signServiceJwt, verifyServiceJwt } from '../services/service-keys.js';
 import { decodeJwtHeader } from '../utils/jwk.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
@@ -91,7 +91,7 @@ export function onBehalfHeaders(subject?: OnBehalfSubject): Record<string, strin
         organizationId: principal.organizationId,
         jti: randomUUID(),
       },
-      { serviceName: process.env.SERVICE_NAME || 'api', expiresInSeconds: ON_BEHALF_TTL_SECONDS, ...issuerAudienceOptions() },
+      { serviceName: serviceIdentity(), expiresInSeconds: ON_BEHALF_TTL_SECONDS, ...issuerAudienceOptions() },
     );
     return { [ON_BEHALF_HEADER]: token };
   } catch (err) {

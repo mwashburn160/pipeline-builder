@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { isUsableTimeZone } from './calendar.js';
 import { MAX_PAGE_OFFSET } from '../validation/common-schemas.js';
 
 /**
@@ -220,15 +221,11 @@ export type WeekStart = (typeof WEEK_STARTS)[number];
  * error rather than a 400 naming the field.
  */
 export function isValidTimezone(tz: string): boolean {
-  // A bare offset like `+05:00` is accepted by Postgres but not by Intl, and it
-  // has no DST rules — which is exactly what a report period must respect.
+  // A bare offset like `+05:00` is refused by NAME, not left to Intl (which
+  // accepts one on current runtimes): it has no DST rules — which is exactly
+  // what a report period must respect.
   if (!/^[A-Za-z][A-Za-z0-9+_\-]*(\/[A-Za-z0-9+_\-]+)*$/.test(tz)) return false;
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone: tz });
-    return true;
-  } catch {
-    return false;
-  }
+  return isUsableTimeZone(tz);
 }
 
 /**

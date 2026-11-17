@@ -565,3 +565,30 @@ describe('org_toolchain_default (+ history) — own org; system org reads all', 
     });
   });
 });
+
+describe('dora_deployments — the deploy key is per org', () => {
+  // The upsert `upsertDeployments` issues. Under forced RLS another org's row
+  // is invisible, so a key without org_id let it collide with this org's
+  // upsert and fail the statement instead of landing a separate deploy.
+  const upsert = `INSERT INTO dora_deployments (org_id, execution_id, environment, deployed_at, succeeded)
+    VALUES ($1, $2, 'production', now(), $3)
+    ON CONFLICT (org_id, execution_id, environment) DO UPDATE SET succeeded = excluded.succeeded`;
+
+  it('two orgs record the same execution id + environment without colliding', async () => {
+    const executionId = `exec-${randomUUID()}`;
+    await seed('dora_deployments', ORG_B, { execution_id: executionId, environment: 'production' });
+    await asTenant(db, { orgId: ORG_A }, async (q) => {
+      await q.query(upsert, [ORG_A, executionId, true]);
+      // A redelivery of the same deploy upserts in place rather than adding a row.
+      await q.query(upsert, [ORG_A, executionId, false]);
+      const own = (await q.query<{ succeeded: boolean }>(
+        'SELECT succeeded FROM dora_deployments WHERE execution_id = $1', [executionId])).rows;
+      expect(own).toEqual([{ succeeded: false }]);
+    });
+    await asTenant(db, { orgId: ORG_B }, async (q) => {
+      const theirs = (await q.query<{ org_id: string }>(
+        'SELECT org_id FROM dora_deployments WHERE execution_id = $1', [executionId])).rows;
+      expect(theirs).toEqual([{ org_id: ORG_B }]);
+    });
+  });
+});

@@ -5,12 +5,7 @@
  * Stripe REVERSAL handling — refunds, disputes, and voided/uncollectible
  * invoices — plus the shared clawback tail they all run.
  *
- * Extracted from `routes/stripe-webhook.ts`, where these sat below the router
- * and were `export`ed at the bottom of the file purely so
- * `test/stripe-reversals.test.ts` could reach them. That made the route file
- * ~870 lines of which the router was ~115, and turned a test seam into part of
- * the route module's public surface. Here the exports are the module's actual
- * API, and the route file goes back to verify → dedupe → dispatch.
+ * Dispatched by routes/stripe-webhook.ts.
  */
 
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
@@ -32,6 +27,30 @@ function idOf(ref: unknown): string | undefined {
     return (ref as { id: string }).id;
   }
   return undefined;
+}
+
+/** The Stripe client, when Stripe is the active provider and has one. */
+function activeStripeClient(): Stripe | null {
+  const active = getPaymentProvider();
+  return active instanceof StripeProvider ? active.getStripeClient() : null;
+}
+
+/**
+ * The invoice a charge paid, or undefined for a charge that paid none (a
+ * one-off). Since Stripe API 2025-03-31 a Charge carries no `invoice`: the link
+ * is the InvoicePayment recorded against the charge's PaymentIntent. Reading the
+ * removed field returned undefined for every charge, so no refund or dispute
+ * ever reversed its ledger row. A failed lookup throws, so the webhook 500s and
+ * Stripe redelivers rather than the reversal being skipped for good.
+ */
+async function chargeInvoiceId(charge: Stripe.Charge, stripe: Stripe | null): Promise<string | undefined> {
+  const paymentIntent = idOf(charge.payment_intent);
+  if (!paymentIntent || !stripe) return undefined;
+  const payments = await stripe.invoicePayments.list({
+    payment: { type: 'payment_intent', payment_intent: paymentIntent },
+    limit: 1,
+  });
+  return idOf(payments.data[0]?.invoice);
 }
 
 /**
@@ -64,7 +83,7 @@ async function clawbackAndRecordReversal(
  * Apply a charge-level reversal (refund or dispute): reverse the ledger row for the
  * charge's invoice and claw back recently-granted promotion credits. The
  * subscription is resolved from the charge's CUSTOMER (a Charge/Dispute has no
- * subscription field); the ledger row is reversed by the charge's INVOICE id.
+ * subscription field); the ledger row is reversed by the INVOICE the charge paid.
  * Both are independent — a charge with no invoice (non-subscription charge) skips
  * the ledger reversal; a charge with no matched local subscription skips clawback.
  */
@@ -74,10 +93,9 @@ async function applyChargeReversal(
   reason: string,
   netAmountPaidCents: number,
   details: Record<string, unknown>,
+  stripe: Stripe | null,
 ): Promise<void> {
-  // `invoice` is present on a subscription Charge at runtime but isn't declared on
-  // Stripe's Charge type in this SDK version — read it structurally.
-  const invoiceId = idOf((charge as { invoice?: unknown }).invoice);
+  const invoiceId = await chargeInvoiceId(charge, stripe);
   const customerId = idOf(charge.customer);
 
   if (invoiceId) {
@@ -118,7 +136,7 @@ export async function handleChargeRefunded(charge: Stripe.Charge): Promise<void>
   await applyChargeReversal(charge, 'refunded', 'invoice_refunded', netPaidCents, {
     refundedCents: charge.amount_refunded ?? 0,
     fullyRefunded: charge.refunded === true,
-  });
+  }, activeStripeClient());
 }
 
 /**
@@ -132,8 +150,7 @@ export async function handleChargeDisputeCreated(dispute: Stripe.Dispute): Promi
     logger.warn('Stripe dispute without a charge id — cannot reverse', { disputeId: dispute.id });
     return;
   }
-  const active = getPaymentProvider();
-  const stripe = active instanceof StripeProvider ? active.getStripeClient() : null;
+  const stripe = activeStripeClient();
   if (!stripe) {
     logger.warn('Stripe client unavailable — cannot resolve disputed charge', { disputeId: dispute.id, chargeId });
     return;
@@ -160,7 +177,7 @@ export async function handleChargeDisputeCreated(dispute: Stripe.Dispute): Promi
   await applyChargeReversal(charge, 'disputed', 'invoice_disputed', netPaidCents, {
     disputedCents: dispute.amount ?? 0,
     disputeStatus: dispute.status,
-  });
+  }, stripe);
 }
 
 /**

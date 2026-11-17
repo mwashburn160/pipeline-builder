@@ -108,17 +108,23 @@ export default function ExecutionsPage() {
   const summary = useMemo(() => {
     const totalRuns = searched.reduce((s, r) => s + r.total, 0);
     const totalFailed = searched.reduce((s, r) => s + r.failed, 0);
+    const totalSucceeded = searched.reduce((s, r) => s + r.succeeded, 0);
     const pipelinesWithFailures = searched.filter((r) => r.failed > 0).length;
     const cleanPipelines = searched.length - pipelinesWithFailures;
-    return { totalRuns, totalFailed, pipelinesWithFailures, cleanPipelines };
+    return { totalRuns, totalFailed, totalSucceeded, pipelinesWithFailures, cleanPipelines };
   }, [searched]);
 
   // Posture: single "how are runs doing?" headline — worst signal wins.
-  const successRate = summary.totalRuns > 0 ? Math.round(((summary.totalRuns - summary.totalFailed) / summary.totalRuns) * 100) : 100;
+  // From SUCCEEDED runs, like the per-row rate: `total` also counts canceled
+  // (and in-flight) runs, which did not pass.
+  const successRate = summary.totalRuns > 0 ? Math.round((summary.totalSucceeded / summary.totalRuns) * 100) : 100;
+  const allPassed = summary.totalSucceeded === summary.totalRuns;
   const posture = summary.totalRuns === 0
     ? { tone: 'gray' as const, Icon: Activity, title: 'No runs yet', detail: 'Pipeline run results will appear here' }
     : summary.totalFailed === 0
-      ? { tone: 'green' as const, Icon: CheckCircle2, title: 'All clean', detail: `All ${summary.totalRuns} run${summary.totalRuns === 1 ? '' : 's'} passing` }
+      ? { tone: 'green' as const, Icon: CheckCircle2, title: 'All clean', detail: allPassed
+        ? `All ${summary.totalRuns} run${summary.totalRuns === 1 ? '' : 's'} passing`
+        : `No failed runs · ${summary.totalSucceeded} of ${summary.totalRuns} passed` }
       : { tone: (successRate >= 80 ? 'yellow' : 'red') as 'yellow' | 'red', Icon: XCircle, title: `${summary.totalFailed} failed run${summary.totalFailed === 1 ? '' : 's'}`, detail: `across ${summary.pipelinesWithFailures} pipeline${summary.pipelinesWithFailures === 1 ? '' : 's'} · ${successRate}% passing` };
 
   const columns: Column<ExecutionCountRow>[] = useMemo(() => [

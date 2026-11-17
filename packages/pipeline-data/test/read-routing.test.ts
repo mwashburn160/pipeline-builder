@@ -59,7 +59,7 @@ describe('chooseReadTarget', () => {
   });
 
   it('stays on the primary when no replica is available', () => {
-    // The state every target is in until Phase 1 ships a standby, and the state
+    // The default state of a target with no standby, and the state
     // the kill switch and the lag circuit both fall back to.
     expect(chooseReadTarget(ctx(), absent)).toEqual({ useReplica: false, reason: 'no-replica' });
   });

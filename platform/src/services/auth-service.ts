@@ -421,8 +421,10 @@ class AuthService {
       markOnboarding?: boolean;
       /** Set by the SSO callback: the id_token's issuer. The subject is matched
        *  only together with it, and platform administrators are refused. The
-       *  caller must already have checked the org's authority over the email. */
-      sso?: { issuer: string };
+       *  caller must already have checked the org's authority over the ASSERTED
+       *  email; `assertTrusted` is that same check, run again on the email of
+       *  the account a subject match lands on. */
+      sso?: { issuer: string; assertTrusted: (email: string) => Promise<void> };
     } = {},
   ) {
     const sso = opts.sso;
@@ -437,7 +439,17 @@ class AuthService {
       [`oauth.${providerName}.id`]: userInfo.id,
       ...(sso ? { [`oauth.${providerName}.issuer`]: sso.issuer } : {}),
     }).select('+tokenVersion +isSuperAdmin');
-    if (byOAuth) return refuseSuperAdmin(byOAuth);
+    if (byOAuth) {
+      refuseSuperAdmin(byOAuth);
+      // The issuer is not proof of WHICH org's IdP signed: a SAML entity id is
+      // whatever an admin typed, and a generic OIDC discovery document claims any
+      // issuer it likes, so a second org can present another org's issuer plus a
+      // victim's subject and an email at a domain it DID verify. The account a
+      // subject match lands on must therefore be one THIS org has authority over
+      // too — the check the caller ran on the asserted email, on the stored one.
+      if (sso && byOAuth.email.toLowerCase() !== userInfo.email.toLowerCase()) await sso.assertTrusted(byOAuth.email);
+      return byOAuth;
+    }
 
     const byEmail = await User.findOne({ email: userInfo.email.toLowerCase() }).select('+tokenVersion +isSuperAdmin');
     if (byEmail) {

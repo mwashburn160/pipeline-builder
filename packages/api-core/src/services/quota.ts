@@ -6,6 +6,7 @@ import type { Request, Response } from 'express';
 import { currentAuditContext, sanitizeCorrelationId } from './audit-context.js';
 import { createSafeClient, type RequestOptions } from './http-client.js';
 import { batcherFor, type MeteredIncrementGroup } from './quota-increment-batcher.js';
+import { serviceIdentity } from './service-keys.js';
 import { onBehalfCaller } from '../middleware/on-behalf.js';
 import { getServiceAuthHeader, isServicePrincipal } from '../middleware/service-tokens.js';
 import { SYSTEM_ORG_ID } from '../middleware/system-org.js';
@@ -247,7 +248,7 @@ export function callQuotaExemption(req: Request): CallQuotaExemption | undefined
  * turn enforcement off. Scoped to the target org with the lowest role (member).
  */
 export function getQuotaServiceAuthHeader(orgId: string): string {
-  return getServiceAuthHeader({ serviceName: process.env.SERVICE_NAME || 'api', orgId, role: 'member' });
+  return getServiceAuthHeader({ serviceName: serviceIdentity(), orgId, role: 'member' });
 }
 
 /**

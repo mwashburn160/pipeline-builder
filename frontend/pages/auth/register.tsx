@@ -32,7 +32,7 @@ import { formatError, providerLabel } from '@/lib/constants';
  *  context-free form by restating what the product actually does. */
 const SOLUTION_POINTS: { icon: typeof Sparkles; text: string }[] = [
   { icon: Sparkles, text: 'AI turns a Git URL or a prompt into a working pipeline — Anthropic, OpenAI, Google, xAI, or Bedrock.' },
-  { icon: Package, text: '119 plugins across 10 categories — build, test, security scans, and deploys.' },
+  { icon: Package, text: '118 plugins across 10 categories — build, test, security scans, and deploys.' },
   { icon: Cloud, text: 'Deploys as native AWS CodePipeline in your own account — zero lock-in.' },
   { icon: Shield, text: 'Per-org compliance, role-based access, and a tamper-evident audit trail on every build.' },
   { icon: BarChart3, text: 'Execution and team analytics, plus DORA delivery metrics.' },
@@ -169,7 +169,7 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
         <title>Create account - Pipeline Builder</title>
         <meta name="description" content="Create your Pipeline Builder account — stand up a secure software factory on AWS with signed plugins, policy-as-code compliance and an audit trail from day one. Native AWS CodePipeline, no lock-in." />
         <meta property="og:title" content="Create your Pipeline Builder account" />
-        <meta property="og:description" content="Software factories on AWS — 119 signed plugins, AI generation, per-org compliance. Deploys as native AWS CodePipeline in your account." />
+        <meta property="og:description" content="Software factories on AWS — 118 signed plugins, AI generation, per-org compliance. Deploys as native AWS CodePipeline in your account." />
         <meta property="og:type" content="website" />
         <meta property="og:image" content={OG_IMAGE} />
         <meta property="og:image:width" content="1200" />

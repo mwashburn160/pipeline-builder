@@ -478,6 +478,16 @@ describe('revoke — scoped to the owner', () => {
     expect(await apiKeyService.deleteForServiceAccounts([])).toBe(0);
   });
 
+  it('publishes the deleted account\'s LIVE keys as revoked, so other services stop honouring their exchanged tokens', async () => {
+    const { rec: live } = seedKey({ prefix: 'pb_sa', userId: null, serviceAccountId: ACCOUNT_ID });
+    seedKey({ prefix: 'pb_sa', userId: null, serviceAccountId: ACCOUNT_ID, revoked: true });
+    seedKey({ prefix: 'pb_sa', userId: null, serviceAccountId: OTHER_ACCOUNT });
+
+    await apiKeyService.deleteForServiceAccounts([new Types.ObjectId(ACCOUNT_ID)]);
+
+    expect(mockPublishKeyRevocation).toHaveBeenCalledWith([String(live._id)]);
+  });
+
   it('revokes every LIVE key a user holds, leaving other users untouched', async () => {
     seedKey();
     seedKey({ revoked: true });

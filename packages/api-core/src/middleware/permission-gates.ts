@@ -86,8 +86,10 @@ export function setAuthzDenialAuditor(fn: ((info: AuthzDenialInfo) => void) | un
 export function recordAuthzDenial(req: Request, required: string): void {
   const auditor = authzDenialAuditor;
   if (!auditor) return;
-  const method = req.method.toUpperCase();
-  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return;
+  // No method is no HTTP request to audit (a hand-built caller); reading it
+  // unguarded threw out of a gate that must never throw.
+  const method = req.method?.toUpperCase();
+  if (!method || method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return;
   try {
     auditor({
       actorId: req.user?.sub,

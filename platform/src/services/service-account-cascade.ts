@@ -8,7 +8,7 @@
  * becomes part of that graph. The full `service-account-service` reaches the
  * key service and the token signer (it has to: it MINTS credentials), which the
  * teardown needs none of. Keeping the two org-scoped operations here means the
- * cascade pulls in three model modules and nothing else.
+ * cascade pulls in three model modules and the revocation publisher, nothing else.
  *
  * Both operations are keyed by the owning org, and neither touches a user: a
  * service account belongs to the ORG, so the org's lifecycle is what ends it.
@@ -16,6 +16,7 @@
 
 import { Types } from 'mongoose';
 import { toOrgId } from '../helpers/org-id.js';
+import { publishAccessKeyRevocation } from '../helpers/session-revocation.js';
 import PersonalAccessToken from '../models/personal-access-token.js';
 import RoleAssignment from '../models/role-assignment.js';
 import ServiceAccount from '../models/service-account.js';
@@ -58,9 +59,11 @@ export async function deleteServiceAccountsForOrg(orgId: string): Promise<{ acco
 export async function revokeServiceAccountKeysForOrg(orgId: string): Promise<number> {
   const ids = await accountIdsForOrg(orgId);
   if (ids.length === 0) return 0;
-  const res = await PersonalAccessToken.updateMany(
-    { serviceAccountId: { $in: ids }, revoked: false },
-    { $set: { revoked: true, revokedAt: new Date() } },
-  );
+  const filter = { serviceAccountId: { $in: ids }, revoked: false };
+  const live = await PersonalAccessToken.find(filter).select('_id').lean();
+  const res = await PersonalAccessToken.updateMany(filter, { $set: { revoked: true, revokedAt: new Date() } });
+  // The other services only see `revoke:key:<id>`; without the publish the
+  // keys' exchanged tokens kept working there until they expired.
+  await publishAccessKeyRevocation(live.map((k) => String(k._id)));
   return res.modifiedCount ?? 0;
 }

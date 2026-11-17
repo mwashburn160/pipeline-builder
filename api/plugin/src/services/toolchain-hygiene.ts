@@ -50,8 +50,6 @@ export type ToolchainHygieneEvent =
   | { kind: 'vulnerable'; releaseVersion: string; plugin: string; criticalFixable: number; kev: number }
   | { kind: 'behind'; platformDefault: string; previousDefault: string | null };
 
-export type ToolchainHygieneKind = ToolchainHygieneEvent['kind'];
-
 /** How many orgs were told, by audience. */
 export interface ToolchainHygieneResult {
   orgDefaultOrgs: number;

@@ -128,22 +128,27 @@ export function formatDateMedium(iso: string | number | Date | null | undefined,
  */
 export function formatDuration(ms: number | null | undefined, placeholder = '—'): string {
   if (ms == null || ms < 0) return placeholder;
-  if (ms < 1000) return `${Math.round(ms)}ms`;
+  // Each tier rounds the WHOLE value to its smaller unit before splitting it,
+  // so a remainder can never round up to a full unit: 119.6s is "2m", not
+  // "1m 60s", and 59.6s is "1m", not "60s".
+  if (Math.round(ms) < 1000) return `${Math.round(ms)}ms`;
 
-  const seconds = ms / 1000;
-  if (seconds < 60) return `${Math.round(seconds)}s`;
-  if (seconds < 3600) {
-    const m = Math.floor(seconds / 60);
-    const s = Math.round(seconds % 60);
+  const totalSeconds = Math.round(ms / 1000);
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  if (totalSeconds < 3600) {
+    const m = Math.floor(totalSeconds / 60);
+    const s = totalSeconds % 60;
     return s > 0 ? `${m}m ${s}s` : `${m}m`;
   }
-  if (seconds < 86400) {
-    const h = Math.floor(seconds / 3600);
-    const m = Math.round((seconds % 3600) / 60);
+  const totalMinutes = Math.round(ms / 60_000);
+  if (totalMinutes < 1440) {
+    const h = Math.floor(totalMinutes / 60);
+    const m = totalMinutes % 60;
     return m > 0 ? `${h}h ${m}m` : `${h}h`;
   }
-  const d = Math.floor(seconds / 86400);
-  const h = Math.round((seconds % 86400) / 3600);
+  const totalHours = Math.round(ms / 3_600_000);
+  const d = Math.floor(totalHours / 24);
+  const h = totalHours % 24;
   return h > 0 ? `${d}d ${h}h` : `${d}d`;
 }
 

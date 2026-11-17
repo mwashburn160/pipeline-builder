@@ -26,6 +26,7 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
+import { isValidObjectId } from 'mongoose';
 import { applyPlanTierChange, applyTierIncludedAddonPrune, syncProviderAddons } from '../helpers/addon-prune.js';
 import { billingServiceAuth, createBillingEvent, recordReactivatePlanMissing } from '../helpers/billing-helpers.js';
 import { syncEntitlements } from '../helpers/entitlement-sync.js';
@@ -146,7 +147,7 @@ export function createAdminSubscriptionRoutes(): Router {
       if (!subscriptionId) return sendBadRequest(res, 'Subscription id is required', ErrorCode.MISSING_REQUIRED_FIELD);
       const body = (req.body ?? {}) as { seats?: unknown; floorCents?: unknown; note?: unknown };
 
-      const subscription = await Subscription.findById(subscriptionId);
+      const subscription = isValidObjectId(subscriptionId) ? await Subscription.findById(subscriptionId) : null;
       if (!subscription) return sendError(res, 404, 'Subscription not found', ErrorCode.NOT_FOUND);
 
       // `floorCents: null` CLEARS the agreement and returns the account to the
@@ -230,7 +231,9 @@ export function createAdminSubscriptionRoutes(): Router {
       }
       const { planId, status, interval, cancelAtPeriodEnd } = validation.value;
 
-      const subscription = await Subscription.findById(subscriptionId);
+      // A malformed id names no subscription: 404, not the 500 Mongo's ObjectId
+      // cast error surfaced as.
+      const subscription = subscriptionId && isValidObjectId(subscriptionId) ? await Subscription.findById(subscriptionId) : null;
       if (!subscription) {
         return sendError(res, 404, 'Subscription not found', ErrorCode.NOT_FOUND);
       }

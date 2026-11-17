@@ -26,7 +26,7 @@ import {
   queue, requestDetail, resignAll, setListingState, setPublisherTier, suspendPublisher, unsuspendPublisher, unyankVersion, updateRule, yankVersion,
 } from '../services/ecosystem/console.js';
 import { EcosystemError } from '../services/ecosystem/context.js';
-import { approve, reject, secondApprove } from '../services/ecosystem/decisions.js';
+import { approve, reject, secondApprove, type DecisionResult } from '../services/ecosystem/decisions.js';
 import { recordDecision } from '../services/ecosystem/metrics.js';
 import { holdReview, releaseReview, removeReply, removeReview, reviewQueue, reviewQueueCounts } from '../services/ecosystem/review-moderation.js';
 import { requests } from '../services/ecosystem/store.js';
@@ -48,6 +48,19 @@ async function stepUpForSensitiveRequest(req: Request, res: Response, next: Next
     return;
   }
   next();
+}
+
+/**
+ * What a decision answers besides the request: whether its execution finished,
+ * and if not why (`executing`: still publishing, or retrying after `error`) —
+ * so the console can say "retrying" instead of "carried out".
+ */
+function decisionBody(out: DecisionResult): Omit<DecisionResult, 'request'> {
+  return {
+    executed: out.executed,
+    ...(out.executing ? { executing: out.executing } : {}),
+    ...(out.error ? { error: out.error } : {}),
+  };
 }
 
 function noteOf(req: Request): string | null {
@@ -102,8 +115,10 @@ export function createEcosystemConsoleRoutes(): Router {
       'plugin.submission.claim'),
     ecosystemRoute(async ({ req, res, caller }) => {
       const out = await approve(caller, param(req, 'id'), noteOf(req));
-      recordDecision(out.request, out.executed ? 'approved' : 'first_approval');
-      sendSuccess(res, 200, { request: await asQueueItem(caller, out.request), executed: out.executed });
+      // Parked for a second approver, or approved (whether or not its execution
+      // has finished — a publish still running or retrying is still an approval).
+      recordDecision(out.request, out.request.status === 'pending_second_approval' ? 'first_approval' : 'approved');
+      sendSuccess(res, 200, { request: await asQueueItem(caller, out.request), ...decisionBody(out) });
     }));
 
   router.post('/requests/:id/second-approve', ...any, stepUpForSensitiveRequest as RequestHandler,
@@ -112,7 +127,7 @@ export function createEcosystemConsoleRoutes(): Router {
     ecosystemRoute(async ({ req, res, caller }) => {
       const out = await secondApprove(caller, param(req, 'id'), noteOf(req));
       recordDecision(out.request, 'second_approval');
-      sendSuccess(res, 200, { request: await asQueueItem(caller, out.request), executed: true });
+      sendSuccess(res, 200, { request: await asQueueItem(caller, out.request), ...decisionBody(out) });
     }));
 
   router.post('/requests/:id/reject', ...any, a('plugin.request.reject', 'publisher.verify.reject', 'publisher.transfer.reject', 'publisher.profile-change.reject',

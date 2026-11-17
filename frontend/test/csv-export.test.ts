@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, jest } from '@jest/globals';
-import { downloadCsv } from '../src/lib/csv-export';
+import { datedFilename, downloadCsv } from '../src/lib/csv-export';
 import { parseCsv } from '../src/lib/csv';
 
 /** Run an export and return the CSV text it produced. */
@@ -66,5 +66,13 @@ describe('triggerBlobDownload', () => {
       revoke.mockRestore();
       jest.useRealTimers();
     }
+  });
+});
+
+describe('datedFilename', () => {
+  it('stamps the viewer\'s local day, not the UTC one', () => {
+    // 23:30 local: in any zone west of UTC this is already tomorrow in UTC.
+    expect(datedFilename('audit-page', new Date(2026, 10, 16, 23, 30))).toBe('audit-page-2026-11-16');
+    expect(datedFilename('audit-page', new Date(2026, 0, 1, 0, 5))).toBe('audit-page-2026-01-01');
   });
 });

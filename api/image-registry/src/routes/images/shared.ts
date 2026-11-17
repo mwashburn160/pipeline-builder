@@ -41,7 +41,9 @@ export function recordRegistryAudit(req: Request, userId: string, entry: {
   /**
    * 'failure' for a write that died PART-WAY (a copy that mounted some blobs, a
    * repo prune that deleted some manifests) — something changed, so it is on
-   * the trail, flagged so a reviewer doesn't read it as a completed action.
+   * the trail, flagged so a reviewer doesn't read it as a completed action —
+   * and for a delete REFUSED because pipelines still reference the image
+   * (`details.refusal`), which changed nothing but was attempted.
    */
   outcome?: 'success' | 'failure';
 }): void {

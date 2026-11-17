@@ -19,7 +19,7 @@ import { isServiceTokenDenied, serviceNameOf } from './service-tokens.js';
 import { HttpStatus } from '../constants/http-status.js';
 import { JwksUnavailableError, UnknownKidError } from '../services/jwks-cache.js';
 import { ServiceKeyError, serviceIdentity } from '../services/service-keys.js';
-import { type AssuranceLevel } from '../types/common.js';
+import { type AssuranceLevel, type JwtPayload } from '../types/common.js';
 import { ErrorCode } from '../types/error-codes.js';
 import type { HttpRequest } from '../types/http.js';
 import { isOpaqueApiKey } from '../utils/api-key.js';
@@ -137,14 +137,16 @@ function _requireAuth(
   // short-lived JWT (cached in-process until it expires) and then verify that
   // JWT on the normal path — services never read a key hash. See
   // `services/api-key-exchange.ts`.
+  // `.catch(next)` on both paths forwards a rejection to Express's error
+  // middleware instead of leaving an unhandled rejection and a request that
+  // never answers: a failed lazy import of the exchange client, or a DOWNSTREAM
+  // synchronous throw from `next()`. Verification itself never rejects (it maps
+  // every failure to a response).
   if (isOpaqueApiKey(parts[1])) {
-    void resolveApiKey(options, parts[1], req, res, next);
+    void resolveApiKey(options, parts[1], req, res, next).catch(next);
     return;
   }
 
-  // `.catch(next)` forwards a DOWNSTREAM synchronous throw from `next()` to
-  // Express's error middleware — verification itself never rejects (it maps
-  // every failure to a response).
   void verifyAndAttach(options, parts[1], req, res, next).catch(next);
 }
 
@@ -188,6 +190,7 @@ async function verifyAndAttach(
   res: Response,
   next: NextFunction,
 ): Promise<void> {
+  let decoded: JwtPayload;
   try {
     // Two chains, one entry point (see `verifyBearerToken`): a user token must
     // be ES256 signed by platform and verified against its published JWKS; an
@@ -195,141 +198,151 @@ async function verifyAndAttach(
     // declare itself a service principal. Both pin the algorithm (no
     // alg-confusion, no `alg:none`) and both apply the optional issuer/audience
     // binding.
-    const decoded = await verifyBearerToken(
+    decoded = await verifyBearerToken(
       rawToken,
       options.acceptServices ? { acceptServices: options.acceptServices } : {},
     );
-
-    if (decoded.type !== 'access') {
-      return sendError(res, HttpStatus.UNAUTHORIZED, 'Only access tokens can be used for API requests', ErrorCode.TOKEN_INVALID);
-    }
-
-    if (!decoded.sub || !decoded.role || !hasValidIdentityClaims(decoded)) {
-      return sendError(res, HttpStatus.UNAUTHORIZED, 'Token missing required fields', ErrorCode.TOKEN_INVALID);
-    }
-
-    // Service-token kill-switch: reject a service principal whose service has
-    // been added to the denylist. Otherwise the only way to invalidate a
-    // service's tokens before their (short) TTL is rotating that service's
-    // signing key; this cuts one compromised/rogue service off immediately. O(1) Set lookup, zero cost when the denylist
-    // is empty (the default), so it never taxes the S2S hot path unless armed.
-    if (isServiceTokenDenied(decoded)) {
-      emitCounter('service_token_denied_total', { service: serviceNameOf(decoded) ?? 'unknown' });
-      logger.warn('Rejected denylisted service token', { sub: decoded.sub });
-      return sendError(res, HttpStatus.UNAUTHORIZED, 'Service token revoked', ErrorCode.TOKEN_REVOKED);
-    }
-
-    req.user = { ...decoded };
-
-    // READ-ONLY IMPERSONATION. The token names the operator AND says it may only
-    // look: every service refuses a state change under it, not only platform —
-    // a support session that could write to plugin/compliance/billing is not
-    // read-only. Checked before any other gate so no route can forget it.
-    if (isImpersonationWriteBlocked(req.method, decoded)) {
-      if (req.method) recordAuthzDenial(req, 'impersonation-read-only');
-      return sendError(
-        res, HttpStatus.FORBIDDEN,
-        'Write requests are disabled during read-only impersonation. Stop impersonating to make changes.',
-        ErrorCode.IMPERSONATION_READ_ONLY,
-      );
-    }
-
-    // BOOTSTRAP-ADMIN ENROLMENT SESSION. Such a token exists so
-    // the install's only admin can enrol a factor; it is `aal: 1` and must not
-    // reach anything else. Platform — which owns the exception and knows which
-    // of its own routes `init-platform.sh` calls — allows an explicit few before
-    // this point (see its own `requireAuth`); in EVERY other service the answer
-    // is simply no, so the reach restriction holds without a per-service
-    // allowlist to keep in sync.
-    if (decoded.mfaEnrollmentPending === true) {
-      emitCounter('mfa_enforcement_refused_total', { service: serviceIdentity(), reason: 'bootstrap_session' });
-      recordAuthzDenial(req, 'mfa-enrolment');
-      return sendError(
-        res, HttpStatus.FORBIDDEN,
-        'Finish setting up two-factor authentication before using the rest of Pipeline Builder',
-        ErrorCode.MFA_ENROLLMENT_REQUIRED,
-      );
-    }
-
-    // Session-level assurance (`requireAuth({ minAssurance, maxAge })`).
-    if (options.minAssurance
-      && refuseForAssurance({ minAssurance: options.minAssurance, ...(options.maxAge !== undefined ? { maxAge: options.maxAge } : {}) }, decoded, req, res)) return;
-
-    // The x-org-id/x-org-name override lets a SYS-ADMIN act on a chosen org
-    // (cross-org admin tooling). It is gated on the verified `isSuperAdmin` claim
-    // here so that even a route which mistakenly enables `allowOrgHeaderOverride`
-    // can NEVER let an ordinary authenticated user spoof another tenant's org via
-    // the header — defence-in-depth against the cross-tenant break this caused.
-    // A SERVICE principal never reaches it: its `isSuperAdmin` is stripped at
-    // verification, and the principal-type check keeps it that way if that ever
-    // regressed.
-    if (options.allowOrgHeaderOverride && decoded.isSuperAdmin === true && decoded.principalType !== 'service') {
-      const headerOrgId = getHeaderString(req.headers['x-org-id']);
-      const headerOrgName = getHeaderString(req.headers['x-org-name']);
-      if (headerOrgId) req.user.organizationId = headerOrgId;
-      if (headerOrgName) req.user.organizationName = headerOrgName;
-    }
-
-    // Re-derive the request's tenant identity from the NOW-verified JWT.
-    //
-    // `attachRequestContext` runs as a global middleware BEFORE this per-route
-    // `requireAuth`, so it captured `req.context.identity` while `req.user` was
-    // still undefined — at which point `getIdentity` falls back to the raw,
-    // client-settable `x-org-id`/`x-user-id` headers. Every downstream tenant-
-    // authority consumer (requireOrgId, withTenantContext's RLS scope, checkQuota,
-    // withRoute, and the idempotency namespace) reads `req.context.identity`, so
-    // that frozen header-derived value — not the JWT — was governing tenancy on
-    // any non-nginx path. Recomputing here, at the single post-verification choke
-    // point, makes `getIdentity` prefer the verified `req.user` (see identity.ts)
-    // so tenancy is JWT-authoritative. The nginx `x-org-id` overwrite stays as
-    // defence-in-depth. Guarded on `req.context` so services/paths that never
-    // attach a context (or run requireAuth pre-context) are unaffected.
-    const reqCtx = (req as Request & { context?: { identity: RequestIdentity } }).context;
-    if (reqCtx) {
-      reqCtx.identity = getIdentity(req as unknown as HttpRequest);
-    }
-
-    // Session invalidation (token-version store + impersonation-session
-    // liveness). No store registered ⇒ only impersonation sessions are checked.
-    if (needsRevocationCheck(decoded)) {
-      // `.catch(next)` forwards a DOWNSTREAM synchronous throw from `next()` to
-      // Express's error middleware — this `next()` runs in a microtask, outside
-      // the surrounding try/catch. The check itself never rejects.
-      checkRevocation(decoded).then((refusal) => {
-        if (refusal) return sendError(res, HttpStatus.UNAUTHORIZED, refusal, ErrorCode.TOKEN_REVOKED);
-        runDeferredQuotaCheck(req, res, next);
-      }).catch(next);
-      return;
-    }
-
-    // The apiCalls check a mount armed (api-server `apiCallsQuota`) runs here,
-    // now that tenancy is JWT-authoritative; a plain next() where none was armed.
-    runDeferredQuotaCheck(req, res, next);
   } catch (error) {
-    if (error instanceof jwt.TokenExpiredError) {
-      return sendError(res, HttpStatus.UNAUTHORIZED, 'Token has expired', ErrorCode.TOKEN_EXPIRED);
-    }
-
-    // The signing keys couldn't be fetched, so the token's validity is UNKNOWN.
-    // Fail CLOSED with a retryable 503 — never a pass, and never a 401 that
-    // would send a legitimate client off to re-authenticate over our outage.
-    // Same reasoning for the SERVICE chain: no readable key bundle means no way
-    // to tell a peer's token from a forgery, so the request is refused with a
-    // retryable 503 rather than admitted or bounced to re-authenticate.
-    if (error instanceof JwksUnavailableError || error instanceof ServiceKeyError) {
-      logger.warn('Rejecting request: token signing keys unavailable', { error: error.message });
-      return sendError(
-        res, HttpStatus.SERVICE_UNAVAILABLE,
-        'Token verification is temporarily unavailable; please retry',
-        ErrorCode.SERVICE_UNAVAILABLE,
-      );
-    }
-
-    if (error instanceof UnknownKidError || error instanceof jwt.JsonWebTokenError) {
-      return sendError(res, HttpStatus.UNAUTHORIZED, 'Invalid token', ErrorCode.TOKEN_INVALID);
-    }
-
-    return sendError(res, HttpStatus.UNAUTHORIZED, 'Authentication failed', ErrorCode.UNAUTHORIZED);
+    return refuseUnverifiedToken(res, error);
   }
+
+  // Only VERIFICATION is mapped to a 401/503 above. Everything from here on —
+  // the gates and the `next()` that runs the rest of the chain — is outside that
+  // try: a throw past this point is a bug or a downstream failure, which the
+  // caller's `.catch(next)` hands to Express's error middleware rather than
+  // dressing it up as "Authentication failed" after the chain may already have
+  // answered.
+  if (decoded.type !== 'access') {
+    return sendError(res, HttpStatus.UNAUTHORIZED, 'Only access tokens can be used for API requests', ErrorCode.TOKEN_INVALID);
+  }
+
+  if (!decoded.sub || !decoded.role || !hasValidIdentityClaims(decoded)) {
+    return sendError(res, HttpStatus.UNAUTHORIZED, 'Token missing required fields', ErrorCode.TOKEN_INVALID);
+  }
+
+  // Service-token kill-switch: reject a service principal whose service has
+  // been added to the denylist. Otherwise the only way to invalidate a
+  // service's tokens before their (short) TTL is rotating that service's
+  // signing key; this cuts one compromised/rogue service off immediately. O(1)
+  // Set lookup, zero cost when the denylist is empty (the default), so it never
+  // taxes the S2S hot path unless armed.
+  if (isServiceTokenDenied(decoded)) {
+    emitCounter('service_token_denied_total', { service: serviceNameOf(decoded) ?? 'unknown' });
+    logger.warn('Rejected denylisted service token', { sub: decoded.sub });
+    return sendError(res, HttpStatus.UNAUTHORIZED, 'Service token revoked', ErrorCode.TOKEN_REVOKED);
+  }
+
+  req.user = { ...decoded };
+
+  // READ-ONLY IMPERSONATION. The token names the operator AND says it may only
+  // look: every service refuses a state change under it, not only platform —
+  // a support session that could write to plugin/compliance/billing is not
+  // read-only. Checked before any other gate so no route can forget it.
+  if (isImpersonationWriteBlocked(req.method, decoded)) {
+    recordAuthzDenial(req, 'impersonation-read-only');
+    return sendError(
+      res, HttpStatus.FORBIDDEN,
+      'Write requests are disabled during read-only impersonation. Stop impersonating to make changes.',
+      ErrorCode.IMPERSONATION_READ_ONLY,
+    );
+  }
+
+  // BOOTSTRAP-ADMIN ENROLMENT SESSION. Such a token exists so
+  // the install's only admin can enrol a factor; it is `aal: 1` and must not
+  // reach anything else. Platform — which owns the exception and knows which
+  // of its own routes `init-platform.sh` calls — allows an explicit few before
+  // this point (see its own `requireAuth`); in EVERY other service the answer
+  // is simply no, so the reach restriction holds without a per-service
+  // allowlist to keep in sync.
+  if (decoded.mfaEnrollmentPending === true) {
+    emitCounter('mfa_enforcement_refused_total', { service: serviceIdentity(), reason: 'bootstrap_session' });
+    recordAuthzDenial(req, 'mfa-enrolment');
+    return sendError(
+      res, HttpStatus.FORBIDDEN,
+      'Finish setting up two-factor authentication before using the rest of Pipeline Builder',
+      ErrorCode.MFA_ENROLLMENT_REQUIRED,
+    );
+  }
+
+  // Session-level assurance (`requireAuth({ minAssurance, maxAge })`).
+  if (options.minAssurance
+    && refuseForAssurance({ minAssurance: options.minAssurance, ...(options.maxAge !== undefined ? { maxAge: options.maxAge } : {}) }, decoded, req, res)) return;
+
+  // The x-org-id/x-org-name override lets a SYS-ADMIN act on a chosen org
+  // (cross-org admin tooling). It is gated on the verified `isSuperAdmin` claim
+  // here so that even a route which mistakenly enables `allowOrgHeaderOverride`
+  // can NEVER let an ordinary authenticated user spoof another tenant's org via
+  // the header — defence-in-depth against the cross-tenant break this caused.
+  // A SERVICE principal never reaches it: its `isSuperAdmin` is stripped at
+  // verification, and the principal-type check keeps it that way if that ever
+  // regressed.
+  if (options.allowOrgHeaderOverride && decoded.isSuperAdmin === true && decoded.principalType !== 'service') {
+    const headerOrgId = getHeaderString(req.headers['x-org-id']);
+    const headerOrgName = getHeaderString(req.headers['x-org-name']);
+    if (headerOrgId) req.user.organizationId = headerOrgId;
+    if (headerOrgName) req.user.organizationName = headerOrgName;
+  }
+
+  // Re-derive the request's tenant identity from the NOW-verified JWT.
+  //
+  // `attachRequestContext` runs as a global middleware BEFORE this per-route
+  // `requireAuth`, so it captured `req.context.identity` while `req.user` was
+  // still undefined — at which point `getIdentity` falls back to the raw,
+  // client-settable `x-org-id`/`x-user-id` headers. Every downstream tenant-
+  // authority consumer (requireOrgId, withTenantContext's RLS scope, checkQuota,
+  // withRoute, and the idempotency namespace) reads `req.context.identity`, so
+  // that frozen header-derived value — not the JWT — was governing tenancy on
+  // any non-nginx path. Recomputing here, at the single post-verification choke
+  // point, makes `getIdentity` prefer the verified `req.user` (see identity.ts)
+  // so tenancy is JWT-authoritative. The nginx `x-org-id` overwrite stays as
+  // defence-in-depth. Guarded on `req.context` so services/paths that never
+  // attach a context (or run requireAuth pre-context) are unaffected.
+  const reqCtx = (req as Request & { context?: { identity: RequestIdentity } }).context;
+  if (reqCtx) {
+    reqCtx.identity = getIdentity(req as unknown as HttpRequest);
+  }
+
+  // Session invalidation (token-version store + impersonation-session
+  // liveness). No store registered ⇒ only impersonation sessions are checked.
+  // The check itself never rejects.
+  if (needsRevocationCheck(decoded)) {
+    const refusal = await checkRevocation(decoded);
+    if (refusal) return sendError(res, HttpStatus.UNAUTHORIZED, refusal, ErrorCode.TOKEN_REVOKED);
+  }
+
+  // The apiCalls check a mount armed (api-server `apiCallsQuota`) runs here,
+  // now that tenancy is JWT-authoritative; a plain next() where none was armed.
+  runDeferredQuotaCheck(req, res, next);
 }
 
+/**
+ * Answer a token that failed VERIFICATION: expired → 401 `TOKEN_EXPIRED`;
+ * keys unobtainable → retryable 503; unknown key / bad signature / malformed →
+ * 401 `TOKEN_INVALID`; anything else → 401 `UNAUTHORIZED`.
+ */
+function refuseUnverifiedToken(res: Response, error: unknown): void {
+  if (error instanceof jwt.TokenExpiredError) {
+    return sendError(res, HttpStatus.UNAUTHORIZED, 'Token has expired', ErrorCode.TOKEN_EXPIRED);
+  }
+
+  // The signing keys couldn't be fetched, so the token's validity is UNKNOWN.
+  // Fail CLOSED with a retryable 503 — never a pass, and never a 401 that
+  // would send a legitimate client off to re-authenticate over our outage.
+  // Same reasoning for the SERVICE chain: no readable key bundle means no way
+  // to tell a peer's token from a forgery, so the request is refused with a
+  // retryable 503 rather than admitted or bounced to re-authenticate.
+  if (error instanceof JwksUnavailableError || error instanceof ServiceKeyError) {
+    logger.warn('Rejecting request: token signing keys unavailable', { error: error.message });
+    return sendError(
+      res, HttpStatus.SERVICE_UNAVAILABLE,
+      'Token verification is temporarily unavailable; please retry',
+      ErrorCode.SERVICE_UNAVAILABLE,
+    );
+  }
+
+  if (error instanceof UnknownKidError || error instanceof jwt.JsonWebTokenError) {
+    return sendError(res, HttpStatus.UNAUTHORIZED, 'Invalid token', ErrorCode.TOKEN_INVALID);
+  }
+
+  return sendError(res, HttpStatus.UNAUTHORIZED, 'Authentication failed', ErrorCode.UNAUTHORIZED);
+}

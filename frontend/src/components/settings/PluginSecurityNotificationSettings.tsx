@@ -62,7 +62,7 @@ export function webhookUrlProblem(url: string): string | null {
 }
 
 /** What a test send could not do, in words (empty = every configured channel delivered). */
-export function testProblems(result: PluginSecurityTestResult | undefined): string[] {
+function testProblems(result: PluginSecurityTestResult | undefined): string[] {
   if (!result) return [];
   const out: string[] = [];
   if (result.relay === 'failed') out.push('the in-app and email notice failed');

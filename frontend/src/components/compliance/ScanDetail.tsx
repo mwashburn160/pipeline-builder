@@ -21,6 +21,7 @@ import { formatDateTime, formatTime } from '@/lib/format';
 import { formatError } from '@/lib/constants';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { localDayEndIso } from '@/lib/local-day';
+import { READ_ONLY_REASON } from '@/components/ui/ReadOnlyNotice';
 
 /** The subset of an audit row needed to pre-fill an exemption request. */
 interface ExemptTarget {
@@ -45,9 +46,13 @@ interface ScanDetailProps {
    *  the Cancel action is not rendered (the route refuses it). Mirrors
    *  ScanManager's own `readOnly`, which hides the row-level cancel icon. */
   readOnly?: boolean;
+  /** A read-only (impersonation) session. Requesting an exemption needs only
+   *  `compliance:read`, but it is a POST, which such a session is refused — so
+   *  the Exempt action is locked with the reason. */
+  sessionReadOnly?: boolean;
 }
 
-export default function ScanDetail({ scanId, onBack, readOnly = false }: ScanDetailProps) {
+export default function ScanDetail({ scanId, onBack, readOnly = false, sessionReadOnly = false }: ScanDetailProps) {
   const uid = useId();
   const toast = useToast();
   const [scan, setScan] = useState<ComplianceScan | null>(null);
@@ -222,8 +227,9 @@ export default function ScanDetail({ scanId, onBack, readOnly = false }: ScanDet
         return canExempt ? (
           <button
             onClick={() => openExempt(entry)}
-            className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium text-warning bg-warning-bg hover:bg-warning-bg transition-colors"
-            title="Request an exemption for this violation"
+            disabled={sessionReadOnly}
+            className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium text-warning bg-warning-bg hover:bg-warning-bg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            title={sessionReadOnly ? READ_ONLY_REASON : 'Request an exemption for this violation'}
           >
             <ShieldOff className="h-3.5 w-3.5" /> Exempt
           </button>

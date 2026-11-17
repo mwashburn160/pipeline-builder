@@ -122,7 +122,9 @@ async function ssoOptions(
   if (ssoLinked.length === 0) return [];
   const { Organization, OrgIdpConfig, UserOrganization, isSsoEntitled } = deps;
 
-  const memberships = await UserOrganization.find({ userId: user._id }).select('organizationId').lean();
+  // ACTIVE memberships only: a member an org deactivated or removed must not
+  // keep proving themselves through that org's IdP.
+  const memberships = await UserOrganization.find({ userId: user._id, isActive: true }).select('organizationId').lean();
   const orgIds = [...new Set([...memberships.map(m => String(m.organizationId)), ...(enforcedOrgId ? [enforcedOrgId] : [])])];
   if (orgIds.length === 0) return [];
 

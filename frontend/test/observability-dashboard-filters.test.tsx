@@ -12,6 +12,7 @@ import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import DashboardPage from '../pages/dashboard/observability/[id]';
+import { mockAuthGuard } from './helpers/pageMocks';
 
 jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
@@ -30,9 +31,11 @@ jest.mock('next/dynamic', () => ({
 }));
 
 const observabilityQueryBatch = jest.fn<AnyFn>();
+const cloneDashboard = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   api: {
+    cloneDashboard: (...a: unknown[]) => cloneDashboard(...a),
     getDashboard: jest.fn<AnyFn>().mockResolvedValue({
       data: {
         dashboard: {
@@ -80,5 +83,22 @@ describe('Dashboard page — audit filters', () => {
       undefined,
       { shallow: true },
     );
+  });
+});
+
+describe('Dashboard page — Clone', () => {
+  it('a double click while the clone is in flight makes ONE copy', async () => {
+    mockAuthGuard({ user: { id: 'u1', organizationId: 'org-1' }, can: () => true });
+    let resolve!: (v: unknown) => void;
+    cloneDashboard.mockReset().mockImplementation(() => new Promise((r) => { resolve = r; }));
+    render(<DashboardPage />);
+    const clone = await screen.findByRole('button', { name: /Clone/ });
+    fireEvent.click(clone);
+    fireEvent.click(clone);
+    await waitFor(() => expect(clone).toBeDisabled());
+    fireEvent.click(clone);
+    expect(cloneDashboard).toHaveBeenCalledTimes(1);
+    resolve({ data: { dashboard: { id: 'd2', name: 'Copy' } } });
+    await waitFor(() => expect(clone).toBeEnabled());
   });
 });

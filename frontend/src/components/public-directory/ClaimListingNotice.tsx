@@ -32,9 +32,12 @@ import api from '@/lib/api';
 /** The community publisher's handle — listings under it are the claimable ones. */
 export const COMMUNITY_PUBLISHER = 'community';
 
-export function ClaimListingNotice({ listingName, signedIn, loginHref }: {
+export function ClaimListingNotice({ listingName, signedIn, canClaim, loginHref }: {
   listingName: string;
   signedIn: boolean;
+  /** `publishers:manage` — what the claim (a publish request) needs. Without it
+   *  the button is LOCKED with the reason, not offered as a form that can only fail. */
+  canClaim: boolean;
   loginHref: string;
 }) {
   const toast = useToast();
@@ -49,7 +52,13 @@ export function ClaimListingNotice({ listingName, signedIn, loginHref }: {
             If it is yours, claim it to publish future versions under your own publisher.
           </p>
           {signedIn ? (
-            <Button size="xs" variant="secondary" onClick={() => setClaiming(true)}>
+            <Button
+              size="xs"
+              variant="secondary"
+              onClick={() => setClaiming(true)}
+              disabled={!canClaim}
+              title={canClaim ? undefined : 'Requires the publishers:manage permission — ask an organization admin to claim it'}
+            >
               <BadgeCheck className="mr-1 h-3.5 w-3.5" aria-hidden />Claim this listing
             </Button>
           ) : (

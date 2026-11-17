@@ -185,6 +185,11 @@ export function auditStacks(program: Command): void {
         if (!options.json) printInfo('Listing CloudFormation stacks', { region });
         const cfn = new CloudFormationClient({ region });
         const stacks: StackInfo[] = [];
+        // Every stack that EXISTS, whatever its state or tags. A registry row is
+        // only `missing-stack` when its stack is gone: one mid-update
+        // (UPDATE_IN_PROGRESS) or stuck in a failed rollback still exists, and
+        // reporting it missing told the operator to deregister a live pipeline.
+        const existingStackNames = new Set<string>();
         const activeStatuses = new Set(ACTIVE_STATUSES);
         let nextToken: string | undefined;
         let pages = 0;
@@ -197,6 +202,7 @@ export function auditStacks(program: Command): void {
           const resp = await cfn.send(new DescribeStacksCommand({ NextToken: nextToken }));
           for (const stack of resp.Stacks ?? []) {
             if (!stack.StackName) continue;
+            if (stack.StackStatus !== 'DELETE_COMPLETE') existingStackNames.add(stack.StackName);
             if (!activeStatuses.has(stack.StackStatus ?? '')) continue; // skip in-progress/rolled-back/deleted
             const tags = stack.Tags ?? [];
             const pbTag = tags.find((t) => t.Key === 'pipeline-builder')?.Value;
@@ -224,7 +230,6 @@ export function auditStacks(program: Command): void {
 
         // Diff.
         const registryStackNames = new Set(entries.map((e) => e.stackName).filter((n): n is string => !!n));
-        const cfnStackNames = new Set(stacks.map((s) => s.stackName));
 
         const findings: AuditFinding[] = [];
         for (const stack of stacks) {
@@ -242,7 +247,7 @@ export function auditStacks(program: Command): void {
           }
         }
         for (const entry of entries) {
-          if (entry.stackName && !cfnStackNames.has(entry.stackName)) {
+          if (entry.stackName && !existingStackNames.has(entry.stackName)) {
             findings.push({
               type: 'missing-stack',
               stackName: entry.stackName,

@@ -11,10 +11,12 @@
  *    exemption reasons — a manager's report says "48 rules active, last scan blocked 3 of
  *    210"; whoever needs to know WHICH three opens the compliance dashboard, where the
  *    permission to see them is already enforced.
- *  - WHAT COUNTS AS ACTIVE. A rule scheduled for next quarter is not active, and counting
- *    it would tell a manager the org enforces something it does not. An exemption counts
- *    only while approved and unexpired: a pending request is not a carve-out, and an
- *    expired one stopped being one.
+ *  - WHAT COUNTS AS ACTIVE. The EFFECTIVE set enforcement evaluates — owned rules,
+ *    active subscriptions to published rules and the parent's propagated rules — read
+ *    through the same resolver, then bounded by the engine's effective window. A rule
+ *    scheduled for next quarter is not active. An exemption counts only while approved
+ *    and unexpired: a pending request is not a carve-out, and an expired one stopped
+ *    being one.
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
@@ -25,7 +27,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const ORG = 'acme';
 
-/** The three selects the handler runs, in order: rules, exemptions, scans. */
+/** The two selects the handler runs, in order: exemptions, scans. */
 const results: unknown[][] = [];
 let scopes: Array<{ orgId?: string; isSuperAdmin?: boolean }> = [];
 const wheres: unknown[] = [];
@@ -71,14 +73,6 @@ function selectChain() {
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   schema: {
-    complianceRule: {
-      orgId: 'org_id',
-      isActive: 'is_active',
-      deletedAt: 'deleted_at',
-      tags: 'tags',
-      effectiveFrom: 'effective_from',
-      effectiveUntil: 'effective_until',
-    },
     complianceExemption: { orgId: 'org_id', status: 'status', expiresAt: 'expires_at' },
     complianceScan: {
       orgId: 'org_id',
@@ -97,6 +91,23 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
   },
 }));
 
+/** What the enforcement resolver hands back, and how it was called. */
+let enforced: Array<Record<string, unknown>> = [];
+let parentOrg: string | undefined;
+let parentLookupFails = false;
+const mockFindAllEnforced = jest.fn<AnyFn>(async () => enforced);
+const mockResolveParent = jest.fn<AnyFn>(async () => {
+  if (parentLookupFails) throw new Error('platform unreachable');
+  return parentOrg;
+});
+
+jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
+  complianceRuleService: { findAllEnforced: (...a: unknown[]) => mockFindAllEnforced(...a) },
+}));
+jest.unstable_mockModule('../src/helpers/org-hierarchy-client.js', () => ({
+  resolveParentOrgId: (...a: unknown[]) => mockResolveParent(...a),
+}));
+
 const { createPostureRoutes } = await import('../src/routes/posture.js');
 
 /** Drive the mounted GET handler. */
@@ -109,7 +120,11 @@ async function call(orgId = ORG): Promise<void> {
 
 const payload = () => mockSendSuccess.mock.calls[0]?.[2] as Record<string, unknown>;
 
-const RULES = [{ tags: ['SOC 2', 'PCI DSS'] }, { tags: ['SOC 2'] }, { tags: null }];
+const RULES = [
+  { id: 'r-own', orgId: ORG, tags: ['SOC 2', 'PCI DSS'] },
+  { id: 'r-sub', orgId: 'system', scope: 'published', tags: ['SOC 2'] },
+  { id: 'r-parent', orgId: 'parent-org', inherited: true, tags: null },
+];
 const EXEMPTIONS = [{ n: 3 }];
 const SCANS = [{
   completedAt: new Date('2026-09-20T00:00:00Z'),
@@ -119,17 +134,23 @@ const SCANS = [{
   block: 3,
 }];
 
+const DAY = 24 * 60 * 60 * 1000;
+
 beforeEach(() => {
   jest.clearAllMocks();
   results.length = 0;
   wheres.length = 0;
   scopes = [];
   failNext = false;
+  enforced = [];
+  parentOrg = undefined;
+  parentLookupFails = false;
 });
 
 describe('GET /compliance/posture', () => {
   it('returns the counts, the frameworks and the last scan', async () => {
-    results.push(RULES, EXEMPTIONS, SCANS, RULES);
+    enforced = RULES;
+    results.push(EXEMPTIONS, SCANS);
     await call();
     expect(payload()).toEqual({
       activeRules: 3,
@@ -142,7 +163,8 @@ describe('GET /compliance/posture', () => {
   });
 
   it('says nothing but counts, a date and framework labels', async () => {
-    results.push(RULES, EXEMPTIONS, SCANS, RULES);
+    enforced = RULES;
+    results.push(EXEMPTIONS, SCANS);
     await call();
     // No rule names, entity ids or exemption reasons: the org's policy text is not
     // reporting's business, and the people who need it already have a dashboard.
@@ -150,7 +172,8 @@ describe('GET /compliance/posture', () => {
   });
 
   it('reports a never-scanned org as a NULL scan, not a zeroed one', async () => {
-    results.push(RULES, EXEMPTIONS, [], RULES);
+    enforced = RULES;
+    results.push(EXEMPTIONS, []);
     await call();
     // "Never scanned" and "scanned, nothing blocked" are different facts, and a zeroed
     // scan would read as the second.
@@ -159,53 +182,81 @@ describe('GET /compliance/posture', () => {
   });
 
   it('runs scoped to the caller\'s own org', async () => {
-    results.push([], [{ n: 0 }], [], []);
+    results.push([{ n: 0 }], []);
     await call();
     // The org comes from the TOKEN, so there is no path parameter to disagree with and no
     // way to read a second org's posture by building the wrong URL.
     expect(scopes).toEqual([{ orgId: ORG, isSuperAdmin: false }]);
   });
 
-  it('bounds an active rule by its EFFECTIVE WINDOW', async () => {
-    results.push(RULES, EXEMPTIONS, SCANS, RULES);
+  it('counts the EFFECTIVE set — subscribed and inherited rules, not only owned ones', async () => {
+    // Regression: posture counted only the rules the org OWNS, so an org enforcing a
+    // subscribed library (or a team bound by its parent's rules) reported fewer active
+    // rules than enforcement applied.
+    parentOrg = 'parent-org';
+    enforced = RULES;
+    results.push(EXEMPTIONS, SCANS);
     await call();
-    const rendered = JSON.stringify(wheres[0] ?? {});
-    // A rule scheduled for next quarter is not active; counting it would say the org
-    // enforces something it does not.
-    expect(rendered).toContain('effective_from');
-    expect(rendered).toContain('effective_until');
+    expect(mockResolveParent).toHaveBeenCalledWith(ORG);
+    // Every target, with the parent — the exact resolver validate/scans use.
+    expect(mockFindAllEnforced).toHaveBeenCalledWith(ORG, undefined, 'parent-org');
+    expect(payload().activeRules).toBe(3);
   });
 
-  it('does not count a rule that is switched OFF', async () => {
-    results.push(RULES, EXEMPTIONS, SCANS, RULES);
+  it('passes no parent for a root org', async () => {
+    results.push([{ n: 0 }], []);
     await call();
-    // Enforcement skips an `isActive = false` rule; counting it told a manager the
-    // org enforced a rule an admin had turned off.
-    expect(JSON.stringify(wheres[0] ?? {})).toContain('is_active');
+    expect(mockFindAllEnforced).toHaveBeenCalledWith(ORG, undefined, undefined);
+  });
+
+  it('bounds an active rule by its EFFECTIVE WINDOW, as the engine does', async () => {
+    const now = Date.now();
+    enforced = [
+      { id: 'live', tags: ['SOC 2'] },
+      { id: 'started', effectiveFrom: new Date(now - DAY), effectiveUntil: new Date(now + DAY), tags: ['ISO'] },
+      // A rule scheduled for next quarter is not active; counting it would say the
+      // org enforces something it does not.
+      { id: 'future', effectiveFrom: new Date(now + 90 * DAY), tags: ['FUTURE'] },
+      { id: 'lapsed', effectiveUntil: new Date(now - DAY), tags: ['LAPSED'] },
+    ];
+    results.push([{ n: 0 }], []);
+    await call();
+    expect(payload().activeRules).toBe(2);
+    expect(payload().frameworks).toEqual(['ISO', 'SOC 2']);
+  });
+
+  it('answers 500 when the parent lookup fails, rather than an owned-rules undercount', async () => {
+    parentLookupFails = true;
+    results.push(EXEMPTIONS, SCANS);
+    await call();
+    expect(mockFindAllEnforced).not.toHaveBeenCalled();
+    expect(mockSendSuccess).not.toHaveBeenCalled();
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 500, expect.stringContaining('could not be read'));
   });
 
   it('counts only APPROVED, unexpired exemptions', async () => {
-    results.push(RULES, EXEMPTIONS, SCANS, RULES);
+    results.push(EXEMPTIONS, SCANS);
     await call();
-    const rendered = JSON.stringify(wheres[1] ?? {});
+    const rendered = JSON.stringify(wheres[0] ?? {});
     expect(rendered).toContain('status');
     expect(rendered).toContain('expires_at');
   });
 
   it('reads only COMPLETED scans', async () => {
-    results.push(RULES, EXEMPTIONS, SCANS, RULES);
+    results.push(EXEMPTIONS, SCANS);
     await call();
-    expect(JSON.stringify(wheres[2] ?? {})).toContain('status');
+    expect(JSON.stringify(wheres[1] ?? {})).toContain('status');
   });
 
   it('reports zero for an org with no rules at all', async () => {
-    results.push([], [], [], []);
+    results.push([], []);
     await call();
     expect(payload()).toMatchObject({ activeRules: 0, activeExemptions: 0, frameworks: [], lastScan: null });
   });
 
   it('drops empty and non-string tags', async () => {
-    results.push([{ tags: ['SOC 2', '', null, 7] }], [{ n: 0 }], [], [{ tags: ['SOC 2', '', null, 7] }]);
+    enforced = [{ id: 'r', tags: ['SOC 2', '', null, 7] }];
+    results.push([{ n: 0 }], []);
     await call();
     expect(payload().frameworks).toEqual(['SOC 2']);
   });

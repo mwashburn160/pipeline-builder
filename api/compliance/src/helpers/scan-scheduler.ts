@@ -4,7 +4,7 @@
 import { createLogger, errorMessage, createScheduler, nextCronRun, recordAudit, type Scheduler, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID, leaderLockKey, DEFAULT_LEADER_LOCK_TTL_MS } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 import { schema, withTenantTx, runWithTenantContext } from '@pipeline-builder/pipeline-data';
-import { eq, and, lte, sql } from 'drizzle-orm';
+import { eq, and, isNull, lte, sql } from 'drizzle-orm';
 import { executeScan, recoverStaleScans } from './scan-executor.js';
 
 const logger = createLogger('scan-scheduler');
@@ -99,6 +99,7 @@ async function checkDueSchedules(): Promise<void> {
     .from(schema.complianceScanSchedule)
     .where(and(
       eq(schema.complianceScanSchedule.isActive, true),
+      isNull(schema.complianceScanSchedule.deletedAt),
       lte(schema.complianceScanSchedule.nextRunAt, now),
       sql`lower(${schema.complianceScanSchedule.orgId}) <> ${SYSTEM_ORG_ID}`,
     ))
@@ -130,6 +131,8 @@ async function checkDueSchedules(): Promise<void> {
           .where(and(
             eq(schema.complianceScanSchedule.id, schedule.id),
             eq(schema.complianceScanSchedule.nextRunAt, claimedNextRunAt),
+            // A schedule deleted between the select and this claim must not fire.
+            isNull(schema.complianceScanSchedule.deletedAt),
           ))
           .returning({ id: schema.complianceScanSchedule.id });
         if (claimed.length === 0) return false; // lost the race — another runner claimed it

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/support.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 63e878db7cea74938f8c815be73c15558772300a4b1eadd5ae87a4762b362d14
+// SOURCE-SHA256: c6929b8366d6a2e9a1de4e86e1ce305469d57485f77c20872269c91100cef5e6
 // SPDX-License-Identifier: Apache-2.0
 import { LifeBuoy } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -254,6 +254,18 @@ export const supportTopic: HelpTopic = {
         {
           "type": "text",
           "content": "A case is never silently archived. resolved and closed are distinct so that \"we believe this is answered\" and \"this is finished\" are different statements."
+        },
+        {
+          "type": "text",
+          "content": "Setting a case to the status it already has changes nothing. The waiting-on-you time already counted is kept, and a repeated close does not move when the case was closed or who closed it."
+        },
+        {
+          "type": "text",
+          "content": "Replying to an announcement"
+        },
+        {
+          "type": "text",
+          "content": "Announcements are one-way. When you reply to one, your reply starts a new conversation with the support desk, titled Re: <announcement subject>, with the announcement quoted beneath your text so support reads it in context. Support answers you in that conversation. It is correspondence rather than a case: it spends no incident and carries no response target. Support staff cannot reply on the announcement itself, because a reply there would have no single customer to go to."
         },
         {
           "type": "text",

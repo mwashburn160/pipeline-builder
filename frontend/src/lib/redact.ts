@@ -24,7 +24,7 @@ const REDACTED = '[REDACTED]';
 
 /**
  * Keys whose values must be masked. Mirrors the server-side
- * `SENSITIVE_KEY_PATTERN` in `packages/api-core/src/utils/logger.ts`
+ * `SENSITIVE_KEY_PATTERN` in `packages/api-core/src/utils/sensitive-patterns.ts`
  * (kept in sync manually — the frontend must NOT import api-core server
  * code). Extended here with `account` / `accountId` so AWS-account-bearing
  * keys are masked by name as well as by value shape.

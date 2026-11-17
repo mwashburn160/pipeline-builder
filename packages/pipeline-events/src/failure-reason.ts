@@ -38,9 +38,17 @@ interface BatchGetBuildsOutput {
 interface LogsModule {
   CloudWatchLogsClient: new (config: { region: string }) => SdkClient;
   FilterLogEventsCommand: new (input: {
-    logGroupName: string; logStreamNames: string[]; filterPattern: string; limit: number;
+    logGroupName: string; logStreamNames: string[]; filterPattern: string; limit: number; nextToken?: string;
   }) => unknown;
 }
+
+/**
+ * Pages of `FilterLogEvents` to follow before giving up. The API searches a
+ * bounded slice of the stream per call and may answer a page with NO events and
+ * a `nextToken` even though a match lies further on — so reading only the first
+ * page missed the marker on any build whose log was long enough to span slices.
+ */
+const MAX_FILTER_PAGES = 10;
 
 type Loader = <T>(pkg: string) => Promise<T>;
 let loader: Loader = loadSdk;
@@ -136,15 +144,21 @@ export async function readSynthFailure(region: string, buildId: string): Promise
     if (!logs?.groupName || !logs.streamName) return null;
 
     const cw = await client('logs', region);
-    const res = await cw.client.send(new (cw.mod as LogsModule).FilterLogEventsCommand({
-      logGroupName: logs.groupName,
-      logStreamNames: [logs.streamName],
-      filterPattern: `"${SYNTH_FAILURE_MARKER}"`,
-      limit: 5,
-    })) as { events?: Array<{ message?: string }> };
-    for (const event of res.events ?? []) {
-      const failure = typeof event.message === 'string' ? parseSynthFailure(event.message) : null;
-      if (failure) return failure;
+    let nextToken: string | undefined;
+    for (let page = 0; page < MAX_FILTER_PAGES; page++) {
+      const res = await cw.client.send(new (cw.mod as LogsModule).FilterLogEventsCommand({
+        logGroupName: logs.groupName,
+        logStreamNames: [logs.streamName],
+        filterPattern: `"${SYNTH_FAILURE_MARKER}"`,
+        limit: 5,
+        ...(nextToken ? { nextToken } : {}),
+      })) as { events?: Array<{ message?: string }>; nextToken?: string };
+      for (const event of res.events ?? []) {
+        const failure = typeof event.message === 'string' ? parseSynthFailure(event.message) : null;
+        if (failure) return failure;
+      }
+      if (!res.nextToken || res.nextToken === nextToken) return null;
+      nextToken = res.nextToken;
     }
     return null;
   } catch (err) {

@@ -84,6 +84,16 @@ describe('canModify', () => {
     expect(canModify({ visibility: 'public' }, member)).toBe(false);
     expect(canModify({ visibility: 'public' }, publisher)).toBe(true);
   });
+
+  it('refuses a row another org owns (the system catalog, a parent org), whatever its rung', () => {
+    // Every write route looks the row up scoped to the caller's org, so Edit/Delete there only fails.
+    for (const visibility of ['org', 'public']) {
+      expect(canModify({ visibility, orgId: 'system' }, { ...publisher, orgId: 'org-1' })).toBe(false);
+    }
+    expect(canModify({ visibility: 'org', orgId: 'ORG-1' }, { ...member, orgId: 'org-1' })).toBe(true);
+    // A super admin still may.
+    expect(canModify({ visibility: 'org', orgId: 'system' }, { ...admin, orgId: 'org-1' })).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { loadAndPurge, sendSuccess, sendError, audited, actorId, recordAudit, getParam, ErrorCode } from '@pipeline-builder/api-core';
+import { loadAndPurge, sendSuccess, sendError, audited, actorId, recordAudit, getParam, ErrorCode, requirePermission, requireStepUp } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { pipelineRegistryService } from '../services/pipeline-registry-service.js';
@@ -12,19 +12,19 @@ import { pipelineService, withClosedExposureTally } from '../services/pipeline-s
  * pipeline tombstone on demand (the manual counterpart to the retention sweep,
  * which would remove it later once `purge_after` passes).
  *
- * Expects `requireAuth`, `requireOrgId`, `requirePermission('pipelines:write')`
- * and `requireStepUp` to have been applied as router-level middleware in the
- * parent (mirrors the restore authority — delete's write-gate plus a step-up
- * re-verify, since purge is a permanent destructive action). This router shares
- * the restore router's single step-up-gated mount so the single-use step-up jti
- * is consumed exactly once per request (see src/app-routes.ts). The load →
+ * Expects `requireAuth` and `requireOrgId` to have been applied in the parent.
+ * The route carries its own `requirePermission('pipelines:write')` and
+ * `requireStepUp` (the restore authority — delete's write-gate plus a step-up
+ * re-verify, since purge is a permanent destructive action); per route, so the
+ * single-use step-up jti is consumed only by a request this route serves (see
+ * src/app-routes.ts). The load →
  * publish-gate → hard-delete → 404 skeleton is shared via `loadAndPurge`, which
  * loads only a genuine tombstone (a live row 404s and is never hard-deleted).
  */
 export function createPurgePipelineRoutes(): Router {
   const router: Router = Router();
 
-  router.post('/:id/purge', audited('pipeline.purge'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/:id/purge', requirePermission('pipelines:write'), requireStepUp, audited('pipeline.purge'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     // A pipeline with a REGISTRATION may still have a running stack: purging it
     // would orphan that stack (its next registration is refused — the row is
     // gone — and its events stop attributing). The registry row is the only

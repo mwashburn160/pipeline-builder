@@ -13,7 +13,7 @@ type InheritedSource = Pick<ComplianceRule, 'inherited' | 'sourceOrgId' | 'sourc
  * printing a raw UUID at someone who has no way to look it up — the id itself
  * stays available as a tooltip for support.
  */
-export function inheritedSourceLabel(rule: InheritedSource): string {
+function inheritedSourceLabel(rule: InheritedSource): string {
   return rule.sourceOrgName || 'the parent organization';
 }
 

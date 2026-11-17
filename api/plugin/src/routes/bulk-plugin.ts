@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { refundPluginSlot } from '../helpers/quota-refund.js';
 import { checkUpdateCompliance, needsComplianceRecheck } from '../helpers/update-compliance.js';
 import { pluginService } from '../services/plugin-service.js';
+import { onVersionWithdrawn } from '../services/version-withdrawal.js';
 
 /**
  * Whitelist of plugin fields that may be set via bulk update.
@@ -56,7 +57,7 @@ function parseBulkIds(res: Parameters<typeof sendBadRequest>[0], raw: unknown): 
 /**
  * Register bulk operation routes for plugins.
  *
- * Expects auth + orgId + `plugins:write` at the parent mount (index.ts). The
+ * Expects auth + orgId + `plugins:write` at the parent mount (app-routes.ts). The
  * `bulk_operations` feature gate is attached to each route HERE, not the mount:
  * the mount's gates are prefix layers that also run for every request falling
  * through to later routers (purge/restore), which must not require the feature.
@@ -235,6 +236,16 @@ export function createBulkPluginRoutes(quotaService: QuotaService): Router {
     );
 
     ctx.log('COMPLETED', 'Bulk update complete', { requested: ids.length, updated: updated.length, skipped: skipped.length });
+
+    // Same after-effect as a single-row deactivation: the orgs whose pipelines
+    // use a version this batch deactivated hear it. Fire-and-forget per row
+    // (it never throws), so a large batch doesn't wait on the reference reads.
+    if (updateData.isActive === false) {
+      for (const row of updated) {
+        const prior = matched.find((m) => m.id === row.id);
+        if (prior?.isActive !== false) void onVersionWithdrawn(row, 'deactivated');
+      }
+    }
 
     // Best-effort attributed audit — ONE event per bulk op, emitted only when
     // rows actually changed. Ids are bounded by MAX_BULK_ITEMS so they're safe

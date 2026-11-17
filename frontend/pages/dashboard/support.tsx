@@ -5,7 +5,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { LifeBuoy } from 'lucide-react';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
-import { LoadingPage } from '@/components/ui/Loading';
+import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { Card } from '@/components/ui/Card';
 import { Callout } from '@/components/ui/Callout';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -143,7 +143,12 @@ export default function SupportPage() {
               </Callout>
             )}
 
-            {!cases.error && rows.length === 0 && (
+            {/* Not while the first page is in flight: an org with cases would
+                read "none yet" on every visit until it lands. */}
+            {cases.loading && rows.length === 0 && (
+              <div className="flex items-center gap-2 py-6 text-sm text-fg-muted"><LoadingSpinner size="sm" label={null} /> Loading your support cases…</div>
+            )}
+            {!cases.loading && !cases.error && rows.length === 0 && (
               <EmptyState
                 icon={LifeBuoy}
                 title="No support cases yet"
@@ -166,7 +171,7 @@ export default function SupportPage() {
                     </span>
                   )}
                   <Link
-                    href={`/dashboard/messages?thread=${encodeURIComponent(c.threadId)}`}
+                    href={`/dashboard/messages?message=${encodeURIComponent(c.threadId)}`}
                     className="ml-auto text-info underline"
                   >
                     Open conversation

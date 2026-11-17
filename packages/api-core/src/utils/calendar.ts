@@ -70,8 +70,10 @@ function formatterFor(timeZone: string): Intl.DateTimeFormat {
 }
 
 /**
- * Whether `timeZone` is a zone this runtime can compute in. A bare offset
- * (`+05:00`) or an unknown name is not.
+ * Whether `timeZone` is a zone this runtime can compute in. An unknown name is
+ * not. A fixed offset (`+05:00`) is, on a runtime whose ICU accepts one (current
+ * Node does) — it computes correctly but never observes DST, so callers that
+ * mean a place should still ask for an IANA name.
  */
 export function isUsableTimeZone(timeZone: string): boolean {
   try {

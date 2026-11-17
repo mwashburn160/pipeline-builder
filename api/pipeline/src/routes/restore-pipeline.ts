@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { loadAndRestore, sendSuccess, normalizeArrayFields, audited, actorId, recordAudit } from '@pipeline-builder/api-core';
+import { loadAndRestore, sendSuccess, normalizeArrayFields, audited, actorId, recordAudit, requirePermission, requireStepUp } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { pipelineService } from '../services/pipeline-service.js';
@@ -10,16 +10,16 @@ import { pipelineService } from '../services/pipeline-service.js';
  * Register the RESTORE route on a router — undo a soft-delete within the
  * retention window (before the purge sweep hard-deletes the tombstone).
  *
- * Expects `requireAuth`, `requireOrgId`, `requirePermission('pipelines:write')`
- * and `requireStepUp` to have been applied as router-level middleware in the
- * parent (mirrors the delete route's authority, plus a step-up re-verify since
+ * Expects `requireAuth` and `requireOrgId` to have been applied in the parent.
+ * The route carries its own `requirePermission('pipelines:write')` and
+ * `requireStepUp` (the delete route's authority, plus a step-up re-verify since
  * restore un-does a destructive action). The load → publish-gate → restore → 404
  * skeleton is shared via `loadAndRestore`.
  */
 export function createRestorePipelineRoutes(): Router {
   const router: Router = Router();
 
-  router.post('/:id/restore', audited('pipeline.restore'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/:id/restore', requirePermission('pipelines:write'), requireStepUp, audited('pipeline.restore'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const result = await loadAndRestore(req, res, pipelineService, { orgId, userId, label: 'Pipeline', publishPermission: 'pipelines:publish' });
     if (!result) return;
     const { existing, restored } = result;

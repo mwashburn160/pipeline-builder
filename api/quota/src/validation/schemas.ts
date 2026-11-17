@@ -33,7 +33,7 @@ const attributionText = z.string().trim().min(1).max(200);
  * only ever sent by an internal service (the routes are service-only), from a
  * VERIFIED inbound token. Unknown keys are stripped.
  */
-export const UsageAttributionSchema = z.object({
+const UsageAttributionSchema = z.object({
   principalType: z.enum(PRINCIPAL_TYPES as unknown as readonly [PrincipalType, ...PrincipalType[]]).optional(),
   principalId: attributionText.optional(),
   keyId: attributionText.optional(),
@@ -56,16 +56,16 @@ const quotaTypeEnum = z.enum(VALID_QUOTA_TYPES, {
  * passing `amount: 1_000_000` could exhaust the org's quota in one call; 1000 is
  * well above any legitimate batch size we issue today.
  */
-export const MAX_RESERVE_AMOUNT = 1000;
+const MAX_RESERVE_AMOUNT = 1000;
 
 /**
  * Ceiling on one METERED increment — a pod's per-flush sum for one (org, type).
  * Far above any real per-second rate; it only stops a nonsense figure.
  */
-export const MAX_METERED_AMOUNT = 1_000_000;
+const MAX_METERED_AMOUNT = 1_000_000;
 
 /** Most attribution groups one metered increment may carry (api-core sends ≤ this). */
-export const MAX_METERED_GROUPS = 500;
+const MAX_METERED_GROUPS = 500;
 
 /** One attribution group of a metered increment. */
 const MeteredGroupSchema = z.object({
@@ -101,7 +101,7 @@ export const IncrementQuotaSchema = z.object({
 });
 
 /** Largest token count one usage report may carry (far above any single call's). */
-export const MAX_REPORTED_TOKENS = 100_000_000;
+const MAX_REPORTED_TOKENS = 100_000_000;
 
 /**
  * POST /quotas/:orgId/increment with `report: true` — an AI call's AFTER-THE-CALL
@@ -154,7 +154,7 @@ export const UsageQuerySchema = z.object({
 });
 
 /** Largest per-period AI token budget an account may set (1e12 — effectively "very large"). */
-export const MAX_AI_TOKEN_BUDGET = 1_000_000_000_000;
+const MAX_AI_TOKEN_BUDGET = 1_000_000_000_000;
 
 /**
  * PUT /quotas/:orgId/notice-settings — the account's quota settings: the

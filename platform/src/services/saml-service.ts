@@ -265,6 +265,12 @@ async function samlFor(cfg: SamlLoginConfig, purpose: SamlPurpose): Promise<SAML
         if (key) await cache.remove(key);
         return key;
       },
+      // The atomic take (GETDEL): without it node-saml reads the id and then
+      // removes it in two calls, so two copies of one response validated at the
+      // same moment could both find it.
+      async consumeAsync(key: string) {
+        return cache.consume(key);
+      },
     },
     requestIdExpirationPeriodMs: config.oauth.samlRequestTtlMs,
     acceptedClockSkewMs: config.oauth.samlClockSkewMs,
@@ -591,8 +597,14 @@ export async function validateSamlResponse(
   // Groups run through the SAME normalization the OIDC groups claim does
   // (trim, case-fold, de-duplicate, cap), so a group spelled one way by a SAML
   // IdP and another by an OIDC one resolves to one mapping rule.
+  //
+  // A SAML attribute is MULTI-VALUED — each group is its own AttributeValue — and
+  // node-saml hands back a lone value as a plain string. That string is ONE
+  // group name, never a list: splitting it the way the OIDC string shape is
+  // split turned "Pipeline Admins" into "Pipeline" + "Admins" (and
+  // "CN=Admins,OU=Groups" into its RDNs) only for people in exactly one group.
   const groupsAttr = attr(profile, cfg.attributes.groups, GROUP_FALLBACKS);
-  const groups = extractGroupClaim({ groups: groupsAttr }, 'groups');
+  const groups = extractGroupClaim({ groups: typeof groupsAttr === 'string' ? [groupsAttr] : groupsAttr }, 'groups');
 
   return {
     subject,

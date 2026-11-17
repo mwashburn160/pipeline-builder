@@ -34,6 +34,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   JoinRequest: { find: (...a: unknown[]) => mockJoinFind(...a) },
   Organization: { find: (...a: unknown[]) => mockOrgFind(...a), findById: (...a: unknown[]) => mockOrgFindById(...a) },
   UserOrganization: { find: (...a: unknown[]) => mockUserOrgFind(...a) },
+  RoleAssignment: {},
   User: {},
 }));
 jest.unstable_mockModule('../src/utils/email.js', () => ({

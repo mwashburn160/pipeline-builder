@@ -333,8 +333,14 @@ export const decideImpersonationRequest = withController('Decide impersonation r
     // CONSENT belongs to the tenant: the named approver, or a genuine admin of the
     // org. NOT `canAdministerOrg` — it short-circuits true for any sysadmin, which
     // would let a platform operator consent on the tenant's behalf.
+    // The SUBJECT decides only when the challenge names them (`user` routing).
+    // An `org_admin`-routed request — the only routing an org that forbids
+    // self-approval allows — must not be answerable by a target who happens to
+    // be an admin there, or the policy forbids nothing for admin accounts.
     const isNamedApprover = request.approverUserId != null && String(request.approverUserId) === actorId;
-    const isTenantAdmin = request.organizationId != null && await isTenantAdminOf(req, String(request.organizationId));
+    const isSubject = String(request.targetUserId) === actorId;
+    const isTenantAdmin = !isSubject && request.organizationId != null
+      && await isTenantAdminOf(req, String(request.organizationId));
     if (!isNamedApprover && !isTenantAdmin) {
       return forbid(req, res, 'impersonation:named-approver or org-admin', 'Forbidden: you were not asked to decide this request');
     }

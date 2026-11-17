@@ -3,6 +3,7 @@
 
 import { jest, describe, it, expect, afterEach } from '@jest/globals';
 import { stubModule } from '@pipeline-builder/api-core/testing';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // createScheduler is exercised in api-core's own tests; here stub it to a
@@ -21,11 +22,14 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@p
     getAny: () => ({ scanSchedulerIntervalMs: 60000 }),
   },
 }));
+// The REAL schema (compiled table module, imported before the package is
+// mocked), so the due-schedule WHERE renders to the SQL the database would run.
+const { schema } = await import('@pipeline-builder/pipeline-data/lib/database/drizzle-schema.js');
+/** Every WHERE the sweep's tenant-tx selects were given, in order. */
+const selectWheres: unknown[] = [];
+
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
-  schema: {
-    complianceScan: {},
-    complianceScanSchedule: {},
-  },
+  schema,
   db: {
     select: jest.fn(() => ({
       from: jest.fn(() => ({ where: jest.fn(() => ({ limit: jest.fn(() => Promise.resolve([])) })) })),
@@ -39,7 +43,9 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
   runWithTenantContext: (_ctx: unknown, fn: () => unknown) => fn(),
   withTenantTx: (fn: (tx: unknown) => unknown) => fn({
     select: jest.fn(() => ({
-      from: jest.fn(() => ({ where: jest.fn(() => ({ limit: jest.fn(() => Promise.resolve([])) })) })),
+      from: jest.fn(() => ({
+        where: jest.fn((w: unknown) => { selectWheres.push(w); return { limit: jest.fn(() => Promise.resolve([])) }; }),
+      })),
     })),
     insert: jest.fn(() => ({ values: jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined) })),
     update: jest.fn(() => ({ set: jest.fn(() => ({ where: jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined) })) })),
@@ -85,6 +91,20 @@ describe('scheduler sweep', () => {
     expect(sweep).toBeDefined();
     await sweep!();
     expect(callOrder).toEqual(['recoverStaleScans']);
+  });
+
+  /** A soft-deleted schedule must never fire, even while its row still exists. */
+  it('only picks up live (not soft-deleted) schedules', async () => {
+    selectWheres.length = 0;
+    await sweep!();
+    type Where = Parameters<InstanceType<typeof PgDialect>['sqlToQuery']>[0];
+    const due = selectWheres
+      .map((w) => new PgDialect().sqlToQuery(w as Where).sql)
+      .filter((q) => q.includes('"compliance_scan_schedules"'));
+    expect(due).toHaveLength(1);
+    const rendered = due[0];
+    expect(rendered).toContain('"compliance_scan_schedules"."is_active" = $');
+    expect(rendered).toContain('"compliance_scan_schedules"."deleted_at" is null');
   });
 });
 

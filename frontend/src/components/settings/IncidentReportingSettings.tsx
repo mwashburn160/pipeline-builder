@@ -27,6 +27,7 @@ import { useFetch } from '@/hooks/useFetch';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
 import type { IncidentSettings, IncidentListItem, IncidentTestResult } from '@/lib/api/domains/reporting';
+import { localDay } from '@/lib/local-day';
 
 /** The machine scope the self-serve webhook token carries. */
 const REPORTING_INGEST_SCOPE = 'reporting:ingest';
@@ -178,7 +179,7 @@ export function IncidentReportingSettings({ readOnly }: { readOnly: boolean }) {
   const requestToken = () => {
     // 1-year token, org-bound + least-privilege (the `reporting:ingest` scope
     // forces role=member, no features/permissions) — minted by the platform.
-    setPendingCreate({ name: `incident-webhook-${new Date().toISOString().slice(0, 10)}`, expiresIn: 365 * 86400, scope: REPORTING_INGEST_SCOPE });
+    setPendingCreate({ name: `incident-webhook-${localDay(new Date())}`, expiresIn: 365 * 86400, scope: REPORTING_INGEST_SCOPE });
   };
 
   const executeCreate = async (stepUpToken: string) => {

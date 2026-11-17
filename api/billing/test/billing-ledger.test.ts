@@ -204,7 +204,7 @@ const invoice = (over: any = {}) => ({
   id: 'in_1',
   subtotal: 4900,
   total: 2900,
-  tax: 0,
+  total_taxes: [],
   amount_paid: 2900,
   starting_balance: -5000,
   ending_balance: -3000,
@@ -230,6 +230,11 @@ describe('ingestStripeInvoice', () => {
     await ingestStripeInvoice('org-1', invoice());
     await ingestStripeInvoice('org-1', invoice({ amount_paid: 2900 }));
     expect(store.size).toBe(1);
+  });
+
+  it('records tax as the sum of `total_taxes` (Stripe has no scalar `tax` any more)', async () => {
+    await ingestStripeInvoice('org-1', invoice({ total_taxes: [{ amount: 300 }, { amount: 45 }] }));
+    expect(store.get('in_1').taxCents).toBe(345);
   });
 
   it('skips an invoice with no id', async () => {
@@ -278,8 +283,8 @@ describe('getBillingSummary', () => {
     // Seed a mix of invoices, then reconcile the aggregation output against the
     // reference sum the removed `.find()`-and-loop implementation would produce.
     await ingestStripeInvoice('org-1', invoice({ id: 'i1' }));
-    await ingestStripeInvoice('org-1', invoice({ id: 'i2', subtotal: 1234, tax: 56, total: 1000, amount_paid: 1000, starting_balance: -400, ending_balance: -100 }));
-    await ingestStripeInvoice('org-1', invoice({ id: 'i3', subtotal: 7777, tax: 0, total: 7777, amount_paid: 7000, starting_balance: 0, ending_balance: 0 }));
+    await ingestStripeInvoice('org-1', invoice({ id: 'i2', subtotal: 1234, total_taxes: [{ amount: 50 }, { amount: 6 }], total: 1000, amount_paid: 1000, starting_balance: -400, ending_balance: -100 }));
+    await ingestStripeInvoice('org-1', invoice({ id: 'i3', subtotal: 7777, total_taxes: null, total: 7777, amount_paid: 7000, starting_balance: 0, ending_balance: 0 }));
     const rows = [...store.values()].filter((r) => r.orgId === 'org-1');
     const ref = rows.reduce((acc, r) => ({
       grossBilledCents: acc.grossBilledCents + r.subtotalCents,

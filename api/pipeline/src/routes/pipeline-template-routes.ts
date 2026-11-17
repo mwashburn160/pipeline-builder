@@ -294,10 +294,16 @@ export function createPipelineTemplateRoutes(): Router {
       } catch (err) {
         return sendBadRequest(res, (err as Error).message, ErrorCode.TEMPLATE_VALIDATION_FAILED);
       }
-      // Re-check declared-vars against the new inputs if supplied, else the
-      // template's stored inputs (a props-only update must not false-positive).
+    }
+    // Declared-vars are checked on the template AS IT WILL BE whenever either
+    // half changes: new props against the stored inputs (a props-only update
+    // must not false-positive), and new inputs against the stored props — an
+    // inputs-only update that drops a declared var would otherwise store a
+    // template that only fails at instantiate/synth.
+    if (body.props || body.inputs) {
+      const props = (body.props ?? existing.props) as Record<string, unknown> | undefined;
       const inputs = (body.inputs ?? existing.inputs ?? []) as TemplateInput[];
-      const missing = undeclaredVars(body.props, inputs);
+      const missing = undeclaredVars(props, inputs);
       if (missing.length > 0) {
         return sendBadRequest(res, `Template references undeclared vars: ${missing.join(', ')}.`, ErrorCode.TEMPLATE_VALIDATION_FAILED);
       }

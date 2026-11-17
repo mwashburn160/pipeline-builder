@@ -105,8 +105,8 @@ export default function PluginsPage() {
   // UI never offers an action the API refuses.
   const userId = user?.id;
   const canWriteRow = useCallback(
-    (p: { visibility?: string; createdBy?: string }) => canWrite && canModify(p, { isSuperAdmin, canPublish, userId }),
-    [canWrite, isSuperAdmin, canPublish, userId],
+    (p: { visibility?: string; createdBy?: string; orgId?: string }) => canWrite && canModify(p, { isSuperAdmin, canPublish, userId, orgId: user?.organizationId }),
+    [canWrite, isSuperAdmin, canPublish, userId, user?.organizationId],
   );
 
   // Mark the "explore plugin catalog" onboarding step as complete on first visit.
@@ -289,7 +289,7 @@ export default function PluginsPage() {
       isLoading: list.isLoading,
       flags: [
         { label: 'inactive', pred: (p) => !p.isActive },
-        { label: 'private', pred: (p) => p.visibility !== 'public' },
+        { label: 'private', pred: (p) => p.visibility === 'private' },
       ],
     }),
     [filteredPlugins, list.isLoading, list.pagination.total],

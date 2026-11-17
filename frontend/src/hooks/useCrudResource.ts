@@ -108,6 +108,8 @@ export function useCrudResource<T extends { id: string }, TCreate, TUpdate, TPar
       if (res.success && res.data) {
         const item = res.data.item;
         setItems((prev) => [item, ...prev]);
+        // The count shown beside the list ("Policies (3)") follows the rows.
+        setTotal((t) => t + 1);
         return item;
       }
       // 2xx with success:false / no data — surface it instead of a silent no-op.
@@ -150,6 +152,7 @@ export function useCrudResource<T extends { id: string }, TCreate, TUpdate, TPar
         return false;
       }
       setItems((prev) => prev.filter((i) => i.id !== id));
+      setTotal((t) => Math.max(0, t - 1));
       return true;
     } catch (err) {
       if (handedToStepUp(err)) return false;

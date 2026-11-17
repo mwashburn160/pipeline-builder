@@ -134,8 +134,9 @@ export default function MembersPage() {
   // their assigned Roles; the coarse owner/admin/member `role` is derived from
   // them by the backend and shown as a read-only badge. Editing access = adding
   // or removing Roles, which maps to the role-assignment API under the hood.
-  // Gated on `roles:manage` so members-only admins see chips but can't 403 on
-  // an assignment they aren't allowed to make.
+  // Gated on `roles:manage`: both the Roles column and the manage action show
+  // only to a holder, so a members-only admin is never offered an assignment
+  // that would 403.
   const canManageRoles = can('roles:manage');
   const memberRoles = useMemberRoles({
     orgId,
@@ -182,7 +183,10 @@ export default function MembersPage() {
 
   // Manage teams (org → team hierarchy: a member can belong to multiple teams).
   // Only meaningful when the active org is a root that parents teams.
-  const canManageTeams = hasChildOrgs && childTeamCount > 0;
+  // Saving memberships is `POST /organization/:id/members/bulk-add`, which
+  // needs `members:manage` — read-only-aware, so a view-as session gets no
+  // dialog whose save can only 403.
+  const canManageTeams = hasChildOrgs && childTeamCount > 0 && canManageMembers;
   const memberTeams = useMemberTeams({ orgId });
 
   // Transfer ownership. Destructive (the current owner is demoted and loses
@@ -273,8 +277,9 @@ export default function MembersPage() {
 
   const columns = useMemo(() => buildMemberColumns({
     currentUserId: user?.id,
-    currentUserRole: user?.role,
-    isSuperAdmin,
+    // Under read-only impersonation `user.role` is the TARGET's, so the owner
+    // check alone would offer the transfer to an operator viewing an owner.
+    canTransferOwnership: canOrgSettings && (user?.role === 'owner' || isSuperAdmin),
     canManageMembers,
     canManageTeams,
     canManageRoles,
@@ -287,7 +292,7 @@ export default function MembersPage() {
     ...(canResetMfa ? { onResetMfa: (m: OrganizationMember) => setResetMfaTarget(m) } : {}),
   }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the column builder closes over per-render handlers; the listed values are what change it
-    [user, isSuperAdmin, canManageMembers, canManageTeams, memberTeams.openManageTeams, canManageRoles, memberRoles.rolesForMember, memberRoles.openManageRoles, canResetMfa]);
+    [user, isSuperAdmin, canOrgSettings, canManageMembers, canManageTeams, memberTeams.openManageTeams, canManageRoles, memberRoles.rolesForMember, memberRoles.openManageRoles, canResetMfa]);
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;

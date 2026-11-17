@@ -17,8 +17,8 @@
  *
  * Design:
  * - All operations are fail-safe: cache misses/errors return null, never throw
- * - Reads deep-clone, so every caller gets an independent copy (mutating a
- *   result is always safe)
+ * - Reads AND writes deep-clone, so every caller gets an independent copy
+ *   (mutating a result, or an object after `set`-ing it, is always safe)
  * - `getOrSet` is single-flight: concurrent misses share one factory() call
  * - Key namespace prefixing to avoid collisions between services
  */
@@ -347,8 +347,10 @@ export class CacheService {
         if (firstKey) this.memory.delete(firstKey);
       }
 
+      // Store a COPY: the caller keeps its reference, and mutating that object
+      // after `set` would otherwise rewrite what every later reader is served.
       this.memory.set(fk, {
-        value,
+        value: cloneValue(value),
         expiresAt: Date.now() + ttl * 1000,
       });
     } catch {

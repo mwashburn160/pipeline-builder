@@ -74,7 +74,9 @@ export function AddMemberModal({ orgId, offerTeams, canInvite, onClose, onAdded 
 
   const submit = async () => {
     const address = email.trim().toLowerCase();
-    if (!address) return;
+    // Enter is a second submit path beside the footer button (which `loading`
+    // disables) — without this, a repeated Enter posts the add twice.
+    if (!address || form.loading) return;
     setUnregistered(false);
     await form.run(
       async () => {
@@ -135,10 +137,12 @@ export function AddMemberModal({ orgId, offerTeams, canInvite, onClose, onAdded 
       </p>
       <Input
         type="email"
+        aria-label="Email address"
         placeholder="user@example.com"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
         onKeyDown={(e) => e.key === 'Enter' && void submit()}
+        disabled={form.loading}
         className="text-sm"
         autoFocus
       />

@@ -3,7 +3,7 @@
 
 import { useEffect, useRef } from 'react';
 import { useToast } from '@/components/ui/Toast';
-import api from '@/lib/api';
+import api, { ApiError } from '@/lib/api';
 import { formatError } from '@/lib/constants';
 
 /** Handle carrying a resolved AWS Marketplace registration across the sign-up /
@@ -99,7 +99,12 @@ export function usePendingMarketplaceClaim(signedIn: boolean): void {
         }
       })
       .catch((e) => {
-        // Transient (network/5xx): keep the stash so a later visit retries.
+        // `api` throws on any non-2xx, so a definitive refusal (4xx: already
+        // linked, org already subscribed, bad ref) lands HERE — consume the stash,
+        // or every later visit retries it and toasts the same error again. Only a
+        // transient failure (network, 5xx, 429) keeps it for a later retry.
+        const status = e instanceof ApiError ? e.statusCode : undefined;
+        if (status !== undefined && status >= 400 && status < 500 && status !== 429) clearMarketplaceRef();
         toast.error(formatError(e));
       });
   }, [signedIn, toast]);

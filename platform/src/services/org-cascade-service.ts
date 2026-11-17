@@ -46,7 +46,7 @@ import {
 import { deleteServiceAccountsForOrg, revokeServiceAccountKeysForOrg } from './service-account-cascade.js';
 import { config } from '../config/index.js';
 import { toOrgId } from '../helpers/org-id.js';
-import { publishUsersRevocation } from '../helpers/session-revocation.js';
+import { publishAccessKeyRevocation, publishUsersRevocation } from '../helpers/session-revocation.js';
 import ArchivedAuditEvent from '../models/archived-audit-events.js';
 import AuditEvent from '../models/audit-event.js';
 import Organization from '../models/organization.js';
@@ -583,6 +583,7 @@ export async function softDeleteOrg(
   // 2. Tombstone + session cut-off, atomically.
 
   let bumpedMemberIds: Types.ObjectId[] = [];
+  let revokedPatIds: string[] = [];
   const membersInvalidated = await withMongoTransaction(async (session) => {
     await Organization.updateOne(
       { _id: toOrgId(orgId) },
@@ -616,16 +617,21 @@ export async function softDeleteOrg(
       // until purge. Scope the revoke to `organizationId === orgId` so a member's
       // PATs for OTHER (still-live) orgs are untouched. requireAuth also read-
       // guards this on `org.deletedAt`, so the two together fail closed.
+      const patFilter = { userId: { $in: bumpedMemberIds }, organizationId: orgId, revoked: false };
+      revokedPatIds = (await PersonalAccessToken.find(patFilter).select('_id').session(session).lean())
+        .map((k) => String(k._id));
       await PersonalAccessToken.updateMany(
-        { userId: { $in: bumpedMemberIds }, organizationId: orgId, revoked: false },
+        patFilter,
         { $set: { revoked: true, revokedAt: now } },
       ).session(session);
     }
     return bumpedMemberIds.length;
   });
   // Post-commit: publish each member's now-current tokenVersion so the stateless
-  // services cut them off from the tombstoned org immediately (best-effort).
+  // services cut them off from the tombstoned org immediately (best-effort) —
+  // and each revoked PAT, whose exchanged tokens the version bump doesn't reach.
   await publishUsersRevocation(bumpedMemberIds);
+  await publishAccessKeyRevocation(revokedPatIds);
 
   // Service-account keys, for the same reason member PATs are revoked above: an
   // account has no session and no `tokenVersion`, so the bump doesn't reach it,

@@ -45,15 +45,22 @@ const { handleChargeRefunded, handleChargeDisputeCreated, handleInvoiceReversal 
 
 const sub = { _id: { toString: () => 'sub_1' }, orgId: 'org_1' };
 
+const invoicePayments = {
+  list: async (params: { payment: { payment_intent: string } }) => ({
+    data: [{ invoice: { id: params.payment.payment_intent.replace('pi_', 'in_') } }],
+  }),
+};
+
 beforeEach(() => {
   jest.clearAllMocks();
+  activeProvider = new StripeProvider({ invoicePayments });
   findReversalSubscription.mockResolvedValue({ subscription: sub, ambiguous: false });
   findSubscriptionByStripeId.mockResolvedValue(sub);
 });
 
 describe('charge reversals', () => {
-  it('reads EXPANDED invoice/customer objects, and treats missing amounts as 0', async () => {
-    await handleChargeRefunded({ id: 'ch_1', invoice: { id: 'in_1' }, customer: { id: 'cus_1' } } as any);
+  it('reads EXPANDED payment-intent/invoice/customer objects, and treats missing amounts as 0', async () => {
+    await handleChargeRefunded({ id: 'ch_1', payment_intent: { id: 'pi_1' }, customer: { id: 'cus_1' } } as any);
     expect(reverseLedgerInvoice).toHaveBeenCalledWith('in_1', 'refunded', 0);
     expect(findReversalSubscription).toHaveBeenCalledWith('cus_1');
     expect(createBillingEvent).toHaveBeenCalledWith('org_1', 'subscription_updated', expect.objectContaining({ reason: 'invoice_refunded', refundedCents: 0, fullyRefunded: false, invoiceId: 'in_1', clawedPromotions: 1 }), 'sub_1');
@@ -69,7 +76,7 @@ describe('charge reversals', () => {
 
   it('a clawback failure is fail-soft: the reversal is still recorded with 0 clawed', async () => {
     clawbackRecentPromotions.mockRejectedValueOnce(new Error('mongo blip'));
-    await handleChargeRefunded({ id: 'ch_3', amount: 500, amount_refunded: 200, invoice: 'in_3', customer: 'cus_3' } as any);
+    await handleChargeRefunded({ id: 'ch_3', amount: 500, amount_refunded: 200, payment_intent: 'pi_3', customer: 'cus_3' } as any);
     expect(reverseLedgerInvoice).toHaveBeenCalledWith('in_3', 'refunded', 300);
     expect(createBillingEvent).toHaveBeenCalledWith('org_1', 'subscription_updated', expect.objectContaining({ clawedPromotions: 0 }), 'sub_1');
   });
@@ -90,8 +97,8 @@ describe('disputes', () => {
   });
 
   it('treats a missing charge or dispute amount as 0 (net never negative)', async () => {
-    const retrieve = jest.fn<AnyFn>(async () => ({ id: 'ch_4', invoice: 'in_4', customer: 'cus_4' }));
-    activeProvider = new StripeProvider({ charges: { retrieve } });
+    const retrieve = jest.fn<AnyFn>(async () => ({ id: 'ch_4', payment_intent: 'pi_4', customer: 'cus_4' }));
+    activeProvider = new StripeProvider({ charges: { retrieve }, invoicePayments });
     await handleChargeDisputeCreated({ id: 'dp_4', charge: 'ch_4', status: 'needs_response' } as any);
     expect(reverseLedgerInvoice).toHaveBeenCalledWith('in_4', 'disputed', 0);
     expect(createBillingEvent).toHaveBeenCalledWith('org_1', 'subscription_updated', expect.objectContaining({ disputedCents: 0, disputeStatus: 'needs_response' }), 'sub_1');

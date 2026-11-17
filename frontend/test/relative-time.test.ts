@@ -31,6 +31,15 @@ describe('formatRelativeTime', () => {
     expect(out.toLowerCase()).toMatch(/day/);
   });
 
+  it('moves to the next unit instead of saying "60 min" or "24 hr"', () => {
+    const almostHour = formatRelativeTime(NOW - (59 * 60_000 + 40_000), NOW);
+    expect(almostHour).not.toMatch(/60/);
+    expect(almostHour.toLowerCase()).toMatch(/hr|hour/);
+    const almostDay = formatRelativeTime(NOW - (23 * 60 + 40) * 60_000, NOW);
+    expect(almostDay).not.toMatch(/24/);
+    expect(almostDay.toLowerCase()).toMatch(/day|yesterday/);
+  });
+
   it('returns absolute date for >30 days', () => {
     const out = formatRelativeTime(NOW - 60 * 24 * 60 * 60_000, NOW);
     // toLocaleDateString output, but must NOT match relative pattern

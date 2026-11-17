@@ -316,7 +316,7 @@ export const deleteOrganization = withController('Delete organization', async (r
 /**
  * POST /organization/:id/restore — restore a soft-deleted org within its
  * retention window. Reverses {@link deleteOrganization}: clears the tombstone
- * and bumps member tokenVersion so re-issued tokens see the org live again.
+ * and bumps member claimsVersion so re-issued tokens see the org live again.
  *
  * Tenancy via `canManageOrgScope` (sysadmin, the caller's own org, or a team
  * under it) — the same gate `export` uses. `requirePermission('org_settings:write')` is the capability gate at the route.

@@ -25,6 +25,7 @@ import {
 } from './role-authority.js';
 import type { ActorPermissionCeiling, RoleAssignmentActor, UserId } from './role-authority.js';
 import {
+  RL_CANNOT_REMOVE_OWNER_ADMIN,
   RL_CANNOT_REMOVE_SELF,
   RL_LAST_PRIVILEGED_MEMBER,
   RL_NAME_TAKEN,
@@ -422,8 +423,11 @@ export async function assertNotLastPrivilegedMember(
     ...(ignoreOrgIds.length > 0 ? { organizationId: { $nin: ignoreOrgIds } } : {}),
   }).select('_id').session(session).lean();
   if (privileged.length === 0) return;
+  // PEOPLE only: a service account holding the Role (same collection, its
+  // `serviceAccountId` set) is not someone who can sign in and administer, so
+  // it must not make the last human holder look removable.
   const counts = await RoleAssignment.aggregate<{ _id: unknown; members: number }>([
-    { $match: { roleId: { $in: privileged.map((r) => r._id) } } },
+    { $match: { roleId: { $in: privileged.map((r) => r._id) }, userId: { $type: 'objectId' } } },
     { $group: { _id: '$roleId', members: { $sum: 1 } } },
   ]).session(session);
   if (counts.some((c) => c.members <= 1)) throw new Error(RL_LAST_PRIVILEGED_MEMBER);
@@ -437,6 +441,10 @@ export async function assertNotLastPrivilegedMember(
  * Lockout guards on privilege-granting Roles (Admin / Super Admin):
  *   - you can't remove YOURSELF from one (`actorUserId` === target).
  *   - you can't remove the LAST member of one (would leave it empty).
+ *   - you can't remove the org OWNER from the built-in Admin Role: the owner's
+ *     permissions come only from Roles, so they would keep the 'owner' label
+ *     with no `roles:manage` / `org_settings:write` to undo it or transfer
+ *     ownership (mirrors the owner protection on `PUT /users/:id`).
  * Member-only Roles (the built-in Member Role) are unguarded — losing them revokes nothing.
  *
  * Removing a member of a `superadmin`-granting Role requires the caller to be
@@ -454,7 +462,7 @@ export async function assertNotLastPrivilegedMember(
  *
  * Throws `RL_ROLE_NOT_FOUND`, `RL_REQUIRES_SUPERADMIN`,
  * `RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN`, `RL_ASSIGN_EXCEEDS_CEILING`,
- * `RL_CANNOT_REMOVE_SELF`, `RL_LAST_PRIVILEGED_MEMBER`.
+ * `RL_CANNOT_REMOVE_SELF`, `RL_CANNOT_REMOVE_OWNER_ADMIN`, `RL_LAST_PRIVILEGED_MEMBER`.
  */
 export async function removeUserFromRole(
   orgId: string,
@@ -469,7 +477,7 @@ export async function removeUserFromRole(
 ): Promise<void> {
   const oid = toOrgId(orgId);
 
-  const role = await Role.findOne({ _id: roleId, organizationId: oid }).select('grantsRole name permissions');
+  const role = await Role.findOne({ _id: roleId, organizationId: oid }).select('grantsRole name permissions system');
   if (!role) throw new Error(RL_ROLE_NOT_FOUND);
 
   // Role-ceiling: only a platform superadmin may change assignment of a
@@ -505,6 +513,11 @@ export async function removeUserFromRole(
       // Self-removal from a Role granting your own admin/superadmin.
       if (opts.actorUserId && String(opts.actorUserId) === String(userId)) {
         throw new Error(RL_CANNOT_REMOVE_SELF);
+      }
+      // The owner keeps the built-in Admin Role for as long as they own the org.
+      if (role.system === true && role.grantsRole === 'admin'
+        && await UserOrganization.exists({ userId, organizationId: oid, role: 'owner' }).session(session)) {
+        throw new Error(RL_CANNOT_REMOVE_OWNER_ADMIN);
       }
       // Never empty an admin/superadmin-granting Role.
       await assertNotLastPrivilegedMember(session, userId, roleId);

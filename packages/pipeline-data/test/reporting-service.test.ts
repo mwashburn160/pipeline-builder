@@ -114,7 +114,7 @@ describe('ReportingService', () => {
     }
 
     /**
-     * Phase 4's measurement half: a terminal CodeBuild ACTION's duration times
+     * A terminal CodeBuild ACTION's duration times
      * its compute size, fanned out as vCPU-minutes. Charged to NOTHING — the
      * tier ladder was derived without pipeline execution in it.
      */
@@ -1483,6 +1483,68 @@ describe('ReportingService', () => {
 
       const inserted = values.mock.calls[0][0] as Record<string, unknown>;
       expect(inserted.resolvedAt).toBeNull();
+    });
+  });
+
+  describe('recordDeploymentOutcome', () => {
+    function wireOutcome(prior: Record<string, unknown> | undefined) {
+      const where = jest.fn<AnyFn>().mockReturnValue({
+        limit: jest.fn<AnyFn>().mockResolvedValue(prior ? [prior] : []),
+      });
+      mockSelect.mockReturnValue({ from: jest.fn<AnyFn>().mockReturnValue({ where }) });
+      const onConflictDoUpdate = jest.fn<AnyFn>().mockResolvedValue(undefined);
+      const values = jest.fn<AnyFn>().mockReturnValue({ onConflictDoUpdate });
+      mockInsert.mockReturnValue({ values });
+      return { where, values, onConflictDoUpdate };
+    }
+
+    it('upserts on (org_id, execution_id, outcome) so another org\'s row never collides', async () => {
+      const { values, onConflictDoUpdate } = wireOutcome(undefined);
+      const result = await service.recordDeploymentOutcome('acme', 'exec-1', { outcome: 'failed', at: '2026-07-02T02:00:00Z' });
+
+      expect((values.mock.calls[0][0] as Record<string, unknown>).orgId).toBe('acme');
+      const { target } = onConflictDoUpdate.mock.calls[0][0] as { target: Array<{ name: string }> };
+      expect(target.map((c) => c.name)).toEqual(['org_id', 'execution_id', 'outcome']);
+      expect(result).toEqual({ previous: null });
+    });
+
+    it('reads the prior marker org-filtered', async () => {
+      const { where } = wireOutcome({ at: new Date('2026-07-01T00:00:00Z'), environment: 'production' });
+      const result = await service.recordDeploymentOutcome('acme', 'exec-1', { outcome: 'failed', at: '2026-07-02T02:00:00Z' });
+
+      const q = new PgDialect().sqlToQuery(where.mock.calls[0][0] as SQL);
+      expect(q.sql).toContain('"org_id" = $1');
+      expect(q.params).toEqual(['acme', 'exec-1', 'failed']);
+      expect(result.previous).toEqual({ at: '2026-07-01T00:00:00.000Z', environment: 'production' });
+    });
+
+    it('the unique index the conflict target names leads with org_id', async () => {
+      const { getTableConfig } = await import('drizzle-orm/pg-core');
+      const { deploymentOutcome } = await import('../src/database/schema/pipeline.js');
+      const unique = getTableConfig(deploymentOutcome).indexes.filter((i) => i.config.unique);
+      expect(unique.map((i) => i.config.columns.map((c) => (c as { name: string }).name)))
+        .toEqual([['org_id', 'execution_id', 'outcome']]);
+    });
+  });
+
+  describe('hasExecution', () => {
+    it('checks events and DORA deploys, both org-filtered, under the caller\'s tenant context', async () => {
+      tenantContexts.length = 0;
+      mockExecute.mockResolvedValueOnce({ rows: [{ found: true }] });
+      await expect(service.hasExecution('acme', 'exec-1')).resolves.toBe(true);
+
+      const q = new PgDialect().sqlToQuery(mockExecute.mock.calls[0][0] as SQL);
+      expect(q.sql).toContain('FROM pipeline_events WHERE org_id = $1 AND execution_id = $2');
+      expect(q.sql).toContain('FROM dora_deployments WHERE org_id = $3 AND execution_id = $4');
+      expect(q.params).toEqual(['acme', 'exec-1', 'acme', 'exec-1']);
+      expect(tenantContexts).toEqual([{ orgId: 'acme', isSuperAdmin: false }]);
+    });
+
+    it('is false for an execution the org never ran', async () => {
+      mockExecute.mockResolvedValueOnce({ rows: [{ found: false }] });
+      await expect(service.hasExecution('acme', 'nope')).resolves.toBe(false);
+      mockExecute.mockResolvedValueOnce({ rows: [] });
+      await expect(service.hasExecution('acme', 'nope')).resolves.toBe(false);
     });
   });
 

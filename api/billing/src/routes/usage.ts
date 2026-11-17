@@ -33,12 +33,6 @@ export function createUsageRoutes(): Router {
   router.get('/usage', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:read') as RequestHandler, withRoute(async ({ req, res, orgId }) => {
     const authHeader = req.headers.authorization || '';
 
-    // Subscription is optional — free / unsubscribed orgs still get a usage
-    // view (against the developer-tier defaults the quota service applies).
-    // Match the manageable (non-terminal) set — active / trialing / past_due —
-    // like every sibling route: a trialing or past_due org is paying/dunning on
-    // a real plan, so resolving only status:'active' wrongly showed them the
-    // developer defaults ($0 cost, wrong window).
     // Optional caller-supplied display window (editable period start/end in the
     // UI). Reframes the DISPLAYED period + day math only — the usage bars remain
     // the live current-period quota snapshot. Malformed → 400 (never silently
@@ -52,6 +46,12 @@ export function createUsageRoutes(): Router {
       ? { start: periodStart ?? undefined, end: periodEnd ?? undefined }
       : null;
 
+    // Subscription is optional — free / unsubscribed orgs still get a usage
+    // view (against the developer-tier defaults the quota service applies).
+    // Match the manageable (non-terminal) set — active / trialing / past_due —
+    // like every sibling route: a trialing or past_due org is paying/dunning on
+    // a real plan, so resolving only status:'active' wrongly showed them the
+    // developer defaults ($0 cost, wrong window).
     const subscription = await Subscription.findOne({
       orgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] },
     }).lean();

@@ -5,6 +5,8 @@ import {
   sendSuccess,
   sendBadRequest,
   sendEntityNotFound,
+  sendError,
+  errorMessage,
   ErrorCode,
   getParam,
   runConcurrent,
@@ -14,18 +16,20 @@ import {
   requireAssurance,
 } from '@pipeline-builder/api-core';
 import { withRoute, incCounter } from '@pipeline-builder/api-server';
-import { type Router, type RequestHandler } from 'express';
+import { type Request, type Response, type Router, type RequestHandler } from 'express';
 import { canWriteRepo } from './repo-access.js';
 import { denyRepoNotOwned, logger, recordRegistryAudit, RegistryMetrics } from './shared.js';
 import { cosignCompanionTags } from '../../services/cosign-tags.js';
 import { COPY_PARALLEL_BLOBS } from '../../services/manifest-copy.js';
 import { repoOwnerOrgId } from '../../services/namespaces.js';
+import { pipelinesReferencingImages, type ImagePipelineReference } from '../../services/plugin-image-references.js';
 import {
   listTags,
   getManifest,
   deleteManifest,
   isNotFound,
 } from '../../services/registry-client.js';
+import { invalidateOrgStorageCache, invalidateStorageCache } from '../../services/storage-usage.js';
 
 /**
  * Delete the cosign signature/attestation tags that describe `digest`, once the
@@ -47,6 +51,55 @@ async function deleteCosignCompanions(name: string, digest: string): Promise<num
 }
 
 /**
+ * Refuse deleting any of `digests` while a pipeline references it — 409
+ * PLUGIN_VERSION_IN_USE naming the pipelines, with NO override (no force flag,
+ * no operator exception): the pipeline's next pull would fail, and a vulnerable
+ * image is the worst one to take away. Update the pipelines first. The answer
+ * comes from the plugin service (the one `findVersionReferences` rule every
+ * removal path asks); when it cannot be read nothing is deleted (503).
+ * Returns true when it answered (refused), false when the delete may proceed.
+ */
+async function refuseIfInUse(
+  req: Request, res: Response, userId: string, name: string, digests: Iterable<string>,
+): Promise<boolean> {
+  let references;
+  try {
+    references = await pipelinesReferencingImages(digests);
+  } catch (err) {
+    logger.warn('Image delete refused: pipeline references unreadable', { name, error: errorMessage(err) });
+    sendError(res, 503, 'Could not confirm that no pipeline references this image, so nothing was deleted. Try again shortly.', ErrorCode.SERVICE_UNAVAILABLE);
+    return true;
+  }
+  if (references.length === 0) return false;
+
+  const pipelines = new Map<string, ImagePipelineReference['pipelines'][number]>();
+  for (const r of references) for (const p of r.pipelines) pipelines.set(p.id, p);
+  const pipelineCount = Math.max(pipelines.size, ...references.map((r) => r.pipelineCount));
+  const named = [...pipelines.values()].slice(0, 10).map((p) => p.name ?? p.id).join(', ');
+  recordRegistryAudit(req, userId, {
+    action: 'registry.image.delete',
+    ownerOrgId: repoOwnerOrgId(name),
+    targetId: name,
+    outcome: 'failure',
+    details: { repo: name, refusal: ErrorCode.PLUGIN_VERSION_IN_USE, digests: references.map((r) => r.digest), pipelineCount },
+  });
+  sendError(res, 409,
+    `${name} is in use by ${pipelineCount} pipeline${pipelineCount === 1 ? '' : 's'} (${named}${pipelines.size > 10 ? ', …' : ''}). `
+    + 'An image a pipeline references cannot be deleted — update those pipelines to another image first.',
+    ErrorCode.PLUGIN_VERSION_IN_USE,
+    { reason: 'in_use', pipelineCount, references, pipelines: [...pipelines.values()] });
+  return true;
+}
+
+/** The storage figures a delete in `name` made stale: its namespace rollup and the owner's rollup + breakdown. */
+function invalidateStorageAfterDelete(name: string): void {
+  const slash = name.indexOf('/');
+  if (slash > 0) invalidateStorageCache(name.slice(0, slash + 1));
+  const owner = repoOwnerOrgId(name);
+  if (owner) invalidateOrgStorageCache(owner);
+}
+
+/**
  * Register the destructive routes (each gated on `registry:purge`):
  *  - DELETE /:name/manifests/:reference (delete one manifest by ref)
  *  - DELETE /:name (prune a whole repo — deletes all tags)
@@ -62,6 +115,9 @@ async function deleteCosignCompanions(name: string, digest: string): Promise<num
  * machine principal outright, which is correct here: no service deletes through
  * this surface (the plugin service has its own internal yank/gc routes under
  * `/internal`, on the management identity).
+ *
+ * Neither deletes an image any pipeline still references ({@link refuseIfInUse}):
+ * a 409 naming the pipelines, whoever asks, with no force flag.
  */
 export function registerDeleteRoutes(router: Router): void {
   const purge: RequestHandler[] = [
@@ -79,8 +135,10 @@ export function registerDeleteRoutes(router: Router): void {
     try {
       // Distribution requires DELETE by digest, not tag. Resolve first.
       const { digest } = await getManifest(name, reference);
+      if (await refuseIfInUse(req, res, userId, name, [digest])) return;
       await deleteManifest(name, digest);
       const deletedCompanions = await deleteCosignCompanions(name, digest);
+      invalidateStorageAfterDelete(name);
       ctx.log('COMPLETED', 'Deleted manifest', { name, reference, digest, deletedCompanions });
       // The operator-facing Loki line; `recordRegistryAudit` below is its durable
       // twin — see that helper for why both exist.
@@ -144,6 +202,9 @@ export function registerDeleteRoutes(router: Router): void {
       }
     });
 
+    // Nothing is deleted while ANY of the repo's images is still referenced.
+    if (await refuseIfInUse(req, res, userId, name, digests)) return;
+
     let deletedManifests = 0;
     const deletedDigests: string[] = [];
     try {
@@ -170,6 +231,8 @@ export function registerDeleteRoutes(router: Router): void {
         });
       }
       throw err;
+    } finally {
+      if (deletedManifests > 0) invalidateStorageAfterDelete(name);
     }
 
     ctx.log('COMPLETED', 'Pruned repository', { name, deletedManifests, tags: tags.length });

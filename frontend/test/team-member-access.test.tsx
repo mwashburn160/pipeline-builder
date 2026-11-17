@@ -16,8 +16,8 @@ import { TeamMemberAccess } from '../src/components/members/TeamMemberAccess';
 
 jest.mock('@/components/admin/StepUpModal', () => ({
   __esModule: true,
-  StepUpModal: ({ action, onConfirmed }: { action: string; onConfirmed: (t: string) => void }) => (
-    <div role="dialog">
+  StepUpModal: ({ action, onConfirmed, requireStrongFactor }: { action: string; onConfirmed: (t: string) => void; requireStrongFactor?: boolean }) => (
+    <div role="dialog" data-strong-factor={String(!!requireStrongFactor)}>
       <p>{action}</p>
       <button type="button" onClick={() => onConfirmed('step-up-token')}>Confirm password</button>
     </div>
@@ -73,6 +73,8 @@ describe('TeamMemberAccess', () => {
     fireEvent.click((await screen.findAllByRole('button', { name: 'View as user' }))[0]!);
     // The team's admins are told — the prompt says so before the operator commits.
     expect(screen.getByRole('dialog')).toHaveTextContent(/team's admins will be notified/i);
+    // The impersonation route accepts only a STRONG step-up (passkey/TOTP).
+    expect(screen.getByRole('dialog')).toHaveAttribute('data-strong-factor', 'true');
     fireEvent.click(screen.getByRole('button', { name: 'Confirm password' }));
 
     await waitFor(() => expect(impersonateUser).toHaveBeenCalledWith('alice', 'step-up-token', { orgId: 'team-1' }));

@@ -273,4 +273,28 @@ describe('recordWriteForPin', () => {
     recordWriteForPin({ orgId: 'acme', isSuperAdmin: false, mayHaveWritten: true });
     expect(pin).not.toHaveBeenCalled();
   });
+
+  it('does NOT renew the pin for a read-only request that only inherited it', async () => {
+    // The pinned org's lookup puts the request on the primary. If that alone
+    // counted as a write, every read inside the TTL would renew the pin, and an
+    // org whose console polls faster than the TTL would never leave the primary.
+    const pin = jest.fn<(orgId: string | undefined) => Promise<void>>().mockResolvedValue(undefined);
+    setWritePinStore({ isPinned: () => Promise.resolve(true), pin });
+    const scope: { orgId: string; isSuperAdmin: boolean; mayHaveWritten?: boolean } = { orgId: 'acme', isSuperAdmin: false };
+    await applyWritePin(scope);
+    expect(scope.mayHaveWritten).toBe(true); // reads stay on the primary
+    recordWriteForPin(scope);
+    expect(pin).not.toHaveBeenCalled();
+  });
+
+  it('DOES renew the pin when a pinned request then writes', async () => {
+    const pin = jest.fn<(orgId: string | undefined) => Promise<void>>().mockResolvedValue(undefined);
+    setWritePinStore({ isPinned: () => Promise.resolve(true), pin });
+    const scope: { orgId: string; isSuperAdmin: boolean; mayHaveWritten?: boolean } = { orgId: 'acme', isSuperAdmin: false };
+    await applyWritePin(scope);
+    scope.mayHaveWritten = true; // what withTenantTx does before its transaction
+    expect(scope.mayHaveWritten).toBe(true);
+    recordWriteForPin(scope);
+    expect(pin).toHaveBeenCalledWith('acme');
+  });
 });

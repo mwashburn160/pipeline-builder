@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useFetch } from './useFetch';
 
 /** One page of a keyset-paged list: `nextCursor` is opaque and sent back verbatim. */
@@ -35,6 +35,9 @@ export function useCursorPages<T>(
   const [appended, setAppended] = useState<Appended<T> | null>(null);
   const [moreError, setMoreError] = useState<{ base: CursorPage<T>; message: string } | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  // Synchronous twin of `loadingMore`: two clicks inside one render both see
+  // the state flag false, and would append the same cursor's page twice.
+  const loadingMoreRef = useRef(false);
 
   const base = first.data;
   const more = base && appended?.base === base ? appended : null;
@@ -42,7 +45,8 @@ export function useCursorPages<T>(
   const nextCursor = more ? more.nextCursor : base?.nextCursor;
 
   const loadMore = async () => {
-    if (!base || !hasMore || !nextCursor) return;
+    if (!base || !hasMore || !nextCursor || loadingMoreRef.current) return;
+    loadingMoreRef.current = true;
     setLoadingMore(true);
     setMoreError(null);
     try {
@@ -56,6 +60,7 @@ export function useCursorPages<T>(
     } catch (err) {
       setMoreError({ base, message: err instanceof Error ? err.message : 'Could not load more' });
     } finally {
+      loadingMoreRef.current = false;
       setLoadingMore(false);
     }
   };

@@ -81,6 +81,12 @@ export interface DeviceApproval {
   tokenVersion: number;
   /** The approving browser session's slot — it must still exist at issue. */
   sessionId?: string;
+  /** The approving slot's passkey model and the org that asserted its `aal` —
+   *  the parts of its auth context the access token does not carry. Without
+   *  them the CLI session's `aal` could cross into another org unchecked, and a
+   *  passkey session would fail an org's authenticator allowlist. */
+  aaguid?: string;
+  aalAssertedBy?: string;
 }
 
 /** One in-flight device authorization. */

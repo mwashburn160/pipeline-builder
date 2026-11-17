@@ -20,6 +20,8 @@ const listTags = jest.fn<(name: string) => Promise<{ name: string; tags: string[
 const getManifest = jest.fn<AnyFn>();
 const isNotFound = (e: unknown): boolean => (e as { response?: { status?: number } })?.response?.status === 404;
 
+// The delete routes evict the storage caches; the real module needs registry calls this suite does not mock.
+jest.unstable_mockModule('../src/services/storage-usage.js', () => ({ invalidateStorageCache: jest.fn(), invalidateOrgStorageCache: jest.fn() }));
 jest.unstable_mockModule('../src/services/registry-client.js', () => ({
   listRepositories,
   listTags,

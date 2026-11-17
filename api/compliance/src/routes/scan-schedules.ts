@@ -8,7 +8,6 @@ import {
   sendEntityNotFound,
   ErrorCode,
   audited,
-  getParam,
   parsePaginationParams,
   validateBody,
   requirePermission,
@@ -22,6 +21,7 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
 import { auditedChanges } from '../helpers/audit-changes.js';
+import { uuidParam } from '../helpers/uuid-param.js';
 import { complianceScanScheduleService } from '../services/compliance-scan-schedule-service.js';
 
 /**
@@ -88,8 +88,8 @@ export function createScanScheduleRoutes(): Router {
 
   // PUT /:id — update a scan schedule
   router.put('/:id', requirePermission('compliance:write'), audited('compliance.scan-schedule.update'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const id = getParam(req.params, 'id');
-    if (!id) return sendEntityNotFound(res, 'Scan schedule');
+    const id = uuidParam(req, res, 'id');
+    if (!id) return;
 
     const validation = validateBody(req, ScheduleUpdateSchema);
     if (!validation.ok) {
@@ -122,8 +122,8 @@ export function createScanScheduleRoutes(): Router {
 
   // PATCH /:id/active — toggle schedule active/inactive
   router.patch('/:id/active', requirePermission('compliance:write'), audited('compliance.scan-schedule.update'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const id = getParam(req.params, 'id');
-    if (!id) return sendEntityNotFound(res, 'Scan schedule');
+    const id = uuidParam(req, res, 'id');
+    if (!id) return;
 
     const validation = validateBody(req, ToggleActiveSchema);
     if (!validation.ok) {
@@ -149,12 +149,13 @@ export function createScanScheduleRoutes(): Router {
     return sendSuccess(res, 200, { schedule: updated });
   }));
 
-  // DELETE /:id — deactivate/remove a scan schedule
+  // DELETE /:id — soft-delete a scan schedule (it stops firing and can no
+  // longer be edited or re-activated; the retention sweep hard-deletes it)
   router.delete('/:id', requirePermission('compliance:write'), audited('compliance.scan-schedule.delete'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const id = getParam(req.params, 'id');
-    if (!id) return sendEntityNotFound(res, 'Scan schedule');
+    const id = uuidParam(req, res, 'id');
+    if (!id) return;
 
-    const deleted = await complianceScanScheduleService.softDelete(id, orgId);
+    const deleted = await complianceScanScheduleService.softDelete(id, orgId, userId);
     if (!deleted) return sendEntityNotFound(res, 'Scan schedule');
 
     ctx.log('COMPLETED', 'Deleted scan schedule', { scheduleId: id });

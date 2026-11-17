@@ -5,7 +5,7 @@ import { ASK_AGENT_PROPOSER } from '@pipeline-builder/api-core/ask-proposals';
 import type { AuthTokens, ApiResponse } from '@/types';
 import { REFRESH_BUFFER_MS, REFRESH_RETRY_DELAYS_MS, REFRESH_FAILURE_COOLDOWN_MS, API_REQUEST_TIMEOUT_MS, REFRESH_REQUEST_TIMEOUT_MS, REFRESH_LOCK_WAIT_MS } from '../constants';
 import { ApiError, MfaRequiredError, QuotaExceededError, StepUpRequiredError } from './errors';
-import { API_URL, base64UrlDecode, isMfaErrorCode, isStepUpErrorCode, type ProposedByOptions } from './util';
+import { API_URL, base64UrlDecode, isMfaErrorCode, isStepUpErrorCode, parseRetryAfterSeconds, type ProposedByOptions } from './util';
 
 /** Upper bound on the server-side revoke when stopping impersonation. Stopping
  *  must never wait on the network longer than this. */
@@ -140,14 +140,17 @@ export interface StreamEvent {
  */
 function retryAfterMs(response: Response): number {
   const CAP_MS = 15 * 60 * 1000;
-  const raw = response.headers.get('retry-after') ?? response.headers.get('ratelimit-reset');
-  if (!raw) return 0;
-  const seconds = Number(raw);
-  const ms = Number.isFinite(seconds)
-    ? seconds * 1000
-    : Date.parse(raw) - Date.now(); // HTTP-date form
-  if (!Number.isFinite(ms) || ms <= 0) return 0;
-  return Math.min(ms, CAP_MS);
+  const seconds = parseRetryAfterSeconds(response.headers.get('retry-after') ?? response.headers.get('ratelimit-reset'));
+  return seconds === undefined ? 0 : Math.min(seconds * 1000, CAP_MS);
+}
+
+/**
+ * A server error message with any HTML tags removed (an error page from a proxy
+ * can put markup where the envelope's sentence belongs); `''` for a missing or
+ * non-string message.
+ */
+function stripTags(message: unknown): string {
+  return typeof message === 'string' ? message.replace(/<[^>]*>/g, '') : '';
 }
 
 /** API client for communicating with the backend. */
@@ -574,10 +577,11 @@ export class ApiCore {
    * Make an API request and return its JSON envelope.
    *
    * Contract (relied on by every consumer of this client):
-   *  - On HTTP 4xx/5xx: throws `ApiError` (or a subclass: `ConflictError`
-   *    for registry 409s). The thrown error carries `statusCode`, `code`,
-   *    and `details` for inspection (e.g. branch on `statusCode === 413` for
-   *    blob-too-large).
+   *  - On HTTP 4xx/5xx: throws `ApiError`, or the subclass for a refusal the
+   *    caller handles differently — `StepUpRequiredError`, `MfaRequiredError`,
+   *    `QuotaExceededError` (the registry domain further narrows its 409s to
+   *    `ConflictError`). The thrown error carries `statusCode`, `code`,
+   *    `details`, and `retryAfter` (seconds) on a 429/503 that sent one.
    *  - On 401: transparently refreshes the access token once and retries.
    *  - On 503: retries up to 2 times with backoff (read-only requests only).
    *  - On success (2xx): returns the parsed JSON envelope — typically
@@ -719,16 +723,7 @@ export class ApiCore {
     // below, because signing the person out would take away the very session
     // they need in order to enrol a factor.
     if (statusCode === 401 && isMfaErrorCode(data.code)) {
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('mfa-required', {
-          detail: { code: data.code, message: data.message, endpoint },
-        }));
-      }
-      throw new MfaRequiredError(
-        data.message || 'Two-factor authentication is required',
-        String(data.code),
-        data.details,
-      );
+      throw this.mfaRequired(data, endpoint);
     }
 
     // Handle 401 - try to refresh token. Recurse so the retry inherits the full
@@ -762,21 +757,14 @@ export class ApiCore {
       return this.send(endpoint, options, read, _retryCount + 1, _refreshed);
     }
 
-    // Strip HTML tags from server error messages to prevent XSS
-    const safeMessage = typeof data.message === 'string' && data.message
-      ? data.message.replace(/<[^>]*>/g, '')
-      : errorMessage ?? 'Request failed';
+    const safeMessage = stripTags(data.message) || (errorMessage ?? 'Request failed');
     const error = statusCode === 429 && data.code === 'QUOTA_EXCEEDED'
       ? this.quotaExceeded(safeMessage, data.details)
       : new ApiError(safeMessage, statusCode, data.code, data.details);
     // Extract Retry-After header for rate-limited responses (and a busy AI
     // provider's 503, which carries the provider's own Retry-After).
     if (statusCode === 429 || statusCode === 503) {
-      const retryAfter = response.headers.get('Retry-After');
-      if (retryAfter) {
-        const parsed = parseInt(retryAfter, 10);
-        error.retryAfter = Number.isFinite(parsed) ? parsed : undefined;
-      }
+      error.retryAfter = parseRetryAfterSeconds(response.headers.get('Retry-After'));
     }
     throw error;
   }
@@ -1052,6 +1040,22 @@ export class ApiCore {
   }
 
   /**
+   * An `MFA_REQUIRED` / `REAUTH_REQUIRED` refusal as a {@link MfaRequiredError},
+   * announced as `mfa-required` so the layout can offer enrolment from any page.
+   */
+  private mfaRequired(
+    data: { code?: string; message?: string; details?: Record<string, unknown> },
+    endpoint: string,
+  ): MfaRequiredError {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('mfa-required', {
+        detail: { code: data.code, message: data.message, endpoint },
+      }));
+    }
+    return new MfaRequiredError(data.message || 'Two-factor authentication is required', String(data.code), data.details);
+  }
+
+  /**
    * A 429 `QUOTA_EXCEEDED` as a {@link QuotaExceededError}, announced to the
    * global notice (DashboardLayout → QuotaExceededNotice): which quota, when it
    * resets, where to raise it — on every page, whatever the caller does with the
@@ -1114,12 +1118,7 @@ export class ApiCore {
       // raise assurance, so surface it as itself rather than bouncing the person
       // through a re-auth that would fail the same way.
       if (response.status === 401 && isMfaErrorCode(data.code)) {
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('mfa-required', {
-            detail: { code: data.code, message: data.message, endpoint },
-          }));
-        }
-        throw new MfaRequiredError(data.message || 'Two-factor authentication is required', String(data.code), data.details);
+        throw this.mfaRequired(data, endpoint);
       }
       // 401: refresh the access token once and retry the stream (mirrors request()).
       if (response.status === 401 && this.canRefresh() && !endpoint.includes('/auth/refresh') && !_refreshed) {
@@ -1133,15 +1132,14 @@ export class ApiCore {
       // Every service checks apiCalls now, the streaming generators included, so a
       // refused stream raises the same global notice a refused request does.
       if (response.status === 429 && data.code === 'QUOTA_EXCEEDED') {
-        throw this.quotaExceeded(String(data.message || 'Quota exceeded').replace(/<[^>]*>/g, ''), data.details);
+        throw this.quotaExceeded(stripTags(data.message) || 'Quota exceeded', data.details);
       }
       // `details` kept: a member's used-up AI share carries its used/limit/resetAt there.
-      const streamError = new ApiError(data.message || 'Stream failed', response.status, data.code, data.details);
+      const streamError = new ApiError(stripTags(data.message) || 'Stream failed', response.status, data.code, data.details);
       // A busy AI provider answers 429/503 with its own Retry-After — kept so the
       // UI can say "retry in N s" rather than a bare failure.
       if (response.status === 429 || response.status === 503) {
-        const parsed = parseInt(response.headers.get('Retry-After') ?? '', 10);
-        if (Number.isFinite(parsed)) streamError.retryAfter = parsed;
+        streamError.retryAfter = parseRetryAfterSeconds(response.headers.get('Retry-After'));
       }
       throw streamError;
     }

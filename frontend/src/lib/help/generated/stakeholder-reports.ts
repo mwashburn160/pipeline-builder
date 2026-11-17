@@ -1,6 +1,6 @@
 // GENERATED FROM docs/stakeholder-reports.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 57f356b871bd673a5d8cc9e42389960f12d3ef79d8712390a59d1725e52c4dec
+// SOURCE-SHA256: e9a85cb7055ea9adcd8d58393e2a044b2c7e0f546c219fb0812a9c7262a373b9
 // SPDX-License-Identifier: Apache-2.0
 import { FileText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -194,6 +194,10 @@ export const stakeholderReportsTopic: HelpTopic = {
         },
         {
           "type": "text",
+          "content": "Auto-send needs reports:publish. An auto-send report publishes itself every period with nobody clicking Publish, so arming it is a publish decision, not an authoring one. Creating a definition with autoSend: true, turning autoSend on, or changing the recipients of a report that auto-sends all return 403 without reports:publish, even though the definition routes themselves are on reports:write. The check is made in the handler, so it does not appear in the route table. The scheduler holds the owner to the same rule on every run (see What a scheduled run re-checks)."
+        },
+        {
+          "type": "text",
           "content": "author and share are split because publishing is a different risk from writing: a lead can be trusted to build reports without being trusted to mail them outside the company. The built-in Team Lead role carries both, and deliberately not reports:rollup — downward visibility across the org tree is granted, not inherited."
         },
         {
@@ -317,11 +321,11 @@ export const stakeholderReportsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "A scheduled run has no caller, so it is authorized as the definition's owner, and that authorization is re-checked on every single run against the platform service: is the owner still an active member, do they still hold reports:write — and, for a rollup definition (one that covers the descendant teams), reports:rollup too — and does the account still hold the add-on. Nothing is cached. An entitlement that lapsed on Tuesday has to stop Wednesday's report, and a cache refreshed by a sync leg is exactly one missed sync away from mailing a report the customer stopped paying for."
+          "content": "A scheduled run has no caller, so it is authorized as the definition's owner, and that authorization is re-checked on every single run against the platform service: is the owner still an active member, do they still hold reports:write — and, for a rollup definition (one that covers the descendant teams), reports:rollup too, and for an auto-send definition reports:publish — and does the account still hold the add-on. Nothing is cached. An entitlement that lapsed on Tuesday has to stop Wednesday's report, and a cache refreshed by a sync leg is exactly one missed sync away from mailing a report the customer stopped paying for."
         },
         {
           "type": "text",
-          "content": "A check that comes back revoked pauses the definition with the reason, and the lead is told which of the three it was — an entitlement lapse is a billing conversation, a deactivated owner is a handover, and a lost permission (permission_lost, either reports:write or a rollup's reports:rollup) is an admin question, and a single \"paused\" notice would send all three to the wrong person."
+          "content": "A check that comes back revoked pauses the definition with the reason, and the lead is told which of the three it was — an entitlement lapse is a billing conversation, a deactivated owner is a handover, and a lost permission (permission_lost: reports:write, a rollup's reports:rollup, or an auto-send definition's reports:publish) is an admin question, and a single \"paused\" notice would send all three to the wrong person."
         },
         {
           "type": "text",

@@ -163,7 +163,7 @@ beforeEach(() => {
   store.publishRun.mockResolvedValue({ run: run(), alreadyPublished: false });
   store.recordDelivery.mockResolvedValue(undefined);
   mockAuthority.mockResolvedValue({
-    active: true, permissions: ['reports:write'], features: ['stakeholder_reports'],
+    active: true, permissions: ['reports:write', 'reports:publish'], features: ['stakeholder_reports'],
   });
   mockPeriods.mockReturnValue([period('2026-W38')]);
   mockComposeRun.mockResolvedValue({ ok: true, run: run(), period: period('2026-W38'), reused: false });
@@ -197,14 +197,16 @@ describe('the kill switch', () => {
 });
 
 describe('claiming', () => {
-  it('claims BEFORE doing any work', async () => {
+  it('claims BEFORE doing any work, but AFTER the side-effect-free authority read', async () => {
     store.dueDefinitions.mockResolvedValue([definition()]);
     await cycle();
     const claimOrder = store.claimDefinition.mock.invocationCallOrder[0] ?? 0;
     const authorityOrder = mockAuthority.mock.invocationCallOrder[0] ?? 0;
+    const composeOrder = mockComposeRun.mock.invocationCallOrder[0] ?? 0;
     // A claim taken after the compose leaves a window wide enough to duplicate a
-    // delivery.
-    expect(claimOrder).toBeLessThan(authorityOrder);
+    // delivery; an authority read taken after the claim loses the period on a blip.
+    expect(authorityOrder).toBeLessThan(claimOrder);
+    expect(claimOrder).toBeLessThan(composeOrder);
   });
 
   it('claims against the `next_run_at` the scan saw', async () => {
@@ -217,7 +219,7 @@ describe('claiming', () => {
     store.dueDefinitions.mockResolvedValue([definition()]);
     store.claimDefinition.mockResolvedValue(false);
     await cycle();
-    expect(mockAuthority).not.toHaveBeenCalled();
+    expect(store.pauseDefinition).not.toHaveBeenCalled();
     expect(mockComposeRun).not.toHaveBeenCalled();
   });
 
@@ -284,7 +286,7 @@ describe('the per-run authority recheck', () => {
    */
   it('composes nothing when a rollup\'s team list cannot be read', async () => {
     store.dueDefinitions.mockResolvedValue([definition({ scope: { kind: 'rollup' }, autoSend: true })]);
-    mockAuthority.mockResolvedValue({ active: true, permissions: ['reports:write', 'reports:rollup'], features: ['stakeholder_reports'] });
+    mockAuthority.mockResolvedValue({ active: true, permissions: ['reports:write', 'reports:rollup', 'reports:publish'], features: ['stakeholder_reports'] });
     mockRollup.mockRejectedValue(new Error('platform unreachable'));
     await cycle();
     expect(mockComposeRun).not.toHaveBeenCalled();
@@ -301,6 +303,26 @@ describe('the per-run authority recheck', () => {
     expect(mockComposeRun).not.toHaveBeenCalled();
     expect(store.pauseDefinition).not.toHaveBeenCalled();
     expect(mockPaused).not.toHaveBeenCalled();
+    // ...and BEFORE the claim, so the definition is still due and the next cycle
+    // retries the same period instead of skipping past it.
+    expect(store.claimDefinition).not.toHaveBeenCalled();
+  });
+
+  it('pauses an AUTO-SEND definition whose owner no longer holds reports:publish', async () => {
+    store.dueDefinitions.mockResolvedValue([definition({ autoSend: true })]);
+    mockAuthority.mockResolvedValue({ active: true, permissions: ['reports:write'], features: ['stakeholder_reports'] });
+    await cycle();
+    expect(store.pauseDefinition).toHaveBeenCalledWith('def-1', 'permission_lost');
+    expect(store.publishRun).not.toHaveBeenCalled();
+    expect(mockDeliver).not.toHaveBeenCalled();
+  });
+
+  it('does not ask a REVIEW-mode definition\'s owner for reports:publish', async () => {
+    store.dueDefinitions.mockResolvedValue([definition({ autoSend: false })]);
+    mockAuthority.mockResolvedValue({ active: true, permissions: ['reports:write'], features: ['stakeholder_reports'] });
+    await cycle();
+    expect(store.pauseDefinition).not.toHaveBeenCalled();
+    expect(mockComposeRun).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -416,13 +438,37 @@ describe('running a definition', () => {
     expect(mockReadyForReview).toHaveBeenCalledTimes(1);
   });
 
-  it('does nothing further for a period whose snapshot already existed', async () => {
+  it('does nothing further for a period whose snapshot already existed AND was published', async () => {
     store.dueDefinitions.mockResolvedValue([definition({ autoSend: true })]);
-    mockComposeRun.mockResolvedValue({ ok: true, run: run(), period: period('2026-W38'), reused: true });
+    mockComposeRun.mockResolvedValue({ ok: true, run: run({ publishedAt: new Date() }), period: period('2026-W38'), reused: true });
     await cycle();
-    // Re-delivering a frozen snapshot would send the same manager the same report twice.
+    // Re-delivering a published snapshot would send the same manager the same report twice.
     expect(store.publishRun).not.toHaveBeenCalled();
     expect(mockReadyForReview).not.toHaveBeenCalled();
+  });
+
+  it('still AUTO-SENDS a period the lead generated by hand but never published', async () => {
+    store.dueDefinitions.mockResolvedValue([definition({ autoSend: true })]);
+    mockComposeRun.mockResolvedValue({ ok: true, run: run({ publishedAt: null }), period: period('2026-W38'), reused: true });
+    await cycle();
+    // The claim has advanced past this period — skipping it here would mean it is never sent.
+    expect(store.publishRun).toHaveBeenCalledWith('acme', 'run-1', 'user-lead');
+    expect(mockDeliver).toHaveBeenCalledTimes(1);
+  });
+
+  it('a reused period of a REVIEW-mode report is left to the lead who generated it', async () => {
+    store.dueDefinitions.mockResolvedValue([definition({ autoSend: false })]);
+    mockComposeRun.mockResolvedValue({ ok: true, run: run({ publishedAt: null }), period: period('2026-W38'), reused: true });
+    await cycle();
+    expect(mockReadyForReview).not.toHaveBeenCalled();
+    expect(store.publishRun).not.toHaveBeenCalled();
+  });
+
+  it('does not deliver again when a person published between the compose and the auto-send', async () => {
+    store.dueDefinitions.mockResolvedValue([definition({ autoSend: true })]);
+    store.publishRun.mockResolvedValue({ run: run({ publishedAt: new Date() }), alreadyPublished: true });
+    await cycle();
+    expect(mockDeliver).not.toHaveBeenCalled();
   });
 
   it('survives a throwing run and still processes the rest of the batch', async () => {

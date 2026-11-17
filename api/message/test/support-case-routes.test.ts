@@ -133,6 +133,13 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
   deleteCaseNote: (...a: unknown[]) => mockDeleteNote(...a),
 }));
 
+// The on-call page's resolve: a closed/resolved case leaves the sweep's due set,
+// so the status routes must close a page already raised for it.
+const mockResolveCasePage = jest.fn<AnyFn>(async () => undefined);
+jest.unstable_mockModule('../src/services/oncall-sweep.js', () => ({
+  resolveCasePage: (...a: unknown[]) => mockResolveCasePage(...a),
+}));
+
 const { createSupportCaseRoutes } = await import('../src/routes/support-case-routes.js');
 
 const router: any = createSupportCaseRoutes();
@@ -224,6 +231,14 @@ describe('PATCH /support/:id/status', () => {
     expect(status).toBe(200);
     expect(body.data).toEqual({ status: 'closed', awaitingTotalSeconds: 3600 });
     expect(mockSetCaseStatus).toHaveBeenCalledWith(CASE.id, 'closed', 'user-1');
+    // Closing ends any on-call page: the sweep stops re-triggering, only a resolve closes it.
+    expect(mockResolveCasePage).toHaveBeenCalledWith(CASE.id);
+  });
+
+  it('does NOT resolve the page on a status that keeps the case live', async () => {
+    mockSetCaseStatus.mockResolvedValue({ status: 'awaiting_customer', awaitingTotalSeconds: 0 });
+    await call({ status: 'awaiting_customer' });
+    expect(mockResolveCasePage).not.toHaveBeenCalled();
   });
 
   it('refuses the two statuses that are OURS to declare, and names the allowed set', async () => {
@@ -339,9 +354,19 @@ describe('PATCH /support/:id/status', () => {
   it('treats closed → closed as a harmless no-op, not a reopen', async () => {
     // The guard is on the TRANSITION out of a terminal state, not on any
     // particular target, so an idempotent retry must not 403.
-    mockFindCaseByThread.mockResolvedValue({ ...CASE, status: 'closed' });
-    mockSetCaseStatus.mockResolvedValue({ status: 'closed', awaitingTotalSeconds: 0 });
-    expect((await call({ status: 'closed' })).status).toBe(200);
+    mockFindCaseByThread.mockResolvedValue({ ...CASE, status: 'closed', awaitingTotalSeconds: 120 });
+    const out = await call({ status: 'closed' });
+    expect(out.status).toBe(200);
+    expect(out.body.data).toEqual({ status: 'closed', awaitingTotalSeconds: 120 });
+    // Nothing written: a re-close must not re-stamp closed_at/closed_by or audit a closed→closed move.
+    expect(mockSetCaseStatus).not.toHaveBeenCalled();
+    expect(mockRecordAudit).not.toHaveBeenCalled();
+  });
+
+  it('a repeated awaiting_customer does not restart the paused clock', async () => {
+    mockFindCaseByThread.mockResolvedValue({ ...CASE, status: 'awaiting_customer', awaitingTotalSeconds: 0 });
+    expect((await call({ status: 'awaiting_customer' })).status).toBe(200);
+    expect(mockSetCaseStatus).not.toHaveBeenCalled();
   });
 
   it('lets a tenant reopen a RESOLVED case, because that is the feedback loop', async () => {
@@ -768,6 +793,8 @@ describe('PATCH /support/bulk — the queue is unusable at scale without it', ()
     threeCases();
     await bulk({ threadIds: ['t1', 't2'], action: 'close' });
     expect(mockCloseCases).toHaveBeenCalledWith(['case-0', 'case-1'], 'user-1');
+    // Each closed case's page is resolved; an assign resolves nothing.
+    expect(mockResolveCasePage.mock.calls.map((c) => c[0])).toEqual(['case-0', 'case-1']);
   });
 
   it('reports MOVED against REQUESTED, so a stale selection is visible', async () => {

@@ -13,6 +13,11 @@
  * and notified, never removed). It FAILS SAFE: when the set cannot be read, the
  * caller deletes nothing in that namespace for the pass. Not cached: one read per
  * namespace per GC pass.
+ *
+ * The manual purge (`DELETE /api/images/...`) asks the narrower, NAMED question
+ * — which pipelines reference these digests (`GET
+ * /internal/plugins/image-pipeline-references`) — so its 409 can say what to
+ * update first. Same rule, same fail-safe: unreadable means nothing is deleted.
  */
 
 import { getServiceAuthHeader, InternalHttpClient, serviceEndpoint, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
@@ -40,4 +45,50 @@ export function setPluginImageReferencesFetcherForTests(f?: Fetcher): void {
 /** The digests `orgId`'s namespace still needs. THROWS when they cannot be read — the caller must then delete nothing. */
 export async function pluginImageReferences(orgId: string): Promise<ReadonlySet<string>> {
   return new Set(await fetcher(orgId));
+}
+
+/** The pipelines still referencing one image digest (the plugin service's `findVersionReferences`). */
+export interface ImagePipelineReference {
+  digest: string;
+  /** Exact count; `pipelines` names at most the first 50. */
+  pipelineCount: number;
+  pipelines: Array<{ id: string; name: string | null; orgId: string; sources: string[]; deleted: boolean }>;
+}
+
+type PipelineReferenceFetcher = (digests: string[]) => Promise<ImagePipelineReference[]>;
+
+/** Digests per read — the plugin route's own cap. */
+const REFERENCE_CHUNK = 50;
+
+const livePipelineReferenceFetcher: PipelineReferenceFetcher = async (digests) => {
+  const client = new InternalHttpClient(serviceEndpoint('plugin'));
+  const res = await client.get<{ data?: { references?: unknown } }>(
+    `/internal/plugins/image-pipeline-references?digests=${encodeURIComponent(digests.join(','))}`,
+    { headers: { Authorization: getServiceAuthHeader({ serviceName: 'image-registry', orgId: SYSTEM_ORG_ID, role: 'member' }) } },
+  );
+  if (res.statusCode !== 200) throw new Error(`plugin service answered HTTP ${res.statusCode}`);
+  const references = res.body?.data?.references;
+  if (!Array.isArray(references)) throw new Error('plugin service answered without a references list');
+  return references as ImagePipelineReference[];
+};
+
+let pipelineReferenceFetcher: PipelineReferenceFetcher = livePipelineReferenceFetcher;
+
+/** Test hook: replace the plugin-service read (pass nothing to restore it). */
+export function setPipelineReferencesFetcherForTests(f?: PipelineReferenceFetcher): void {
+  pipelineReferenceFetcher = f ?? livePipelineReferenceFetcher;
+}
+
+/**
+ * The digests among `digests` that some pipeline still references, with the
+ * pipelines — what a manual purge must refuse on. THROWS when the answer cannot
+ * be read: the caller must then delete nothing (an unknown answer is never "free").
+ */
+export async function pipelinesReferencingImages(digests: Iterable<string>): Promise<ImagePipelineReference[]> {
+  const all = [...new Set(digests)];
+  const out: ImagePipelineReference[] = [];
+  for (let i = 0; i < all.length; i += REFERENCE_CHUNK) {
+    out.push(...await pipelineReferenceFetcher(all.slice(i, i + REFERENCE_CHUNK)));
+  }
+  return out;
 }

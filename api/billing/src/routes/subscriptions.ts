@@ -21,6 +21,7 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { Request, RequestHandler, Response } from 'express';
+import { isValidObjectId } from 'mongoose';
 import { config } from '../config.js';
 import { applyPlanTierChange, applyTierIncludedAddonPrune } from '../helpers/addon-prune.js';
 import { syncProviderAddons, type PrunedAddon } from '../helpers/addon-prune.js';
@@ -95,6 +96,16 @@ async function preflightCreate(req: Request, res: Response, orgId: string) {
   const rawEmail = req.user?.email;
   const customerEmail = typeof rawEmail === 'string' && rawEmail.length > 0 ? rawEmail : undefined;
   return { ...validation.value, plan, customerEmail };
+}
+
+/**
+ * The org's manageable subscription named by a `:id` path param. A malformed id
+ * names no subscription: resolved to null (a 404) rather than handed to Mongo,
+ * whose ObjectId cast error surfaced as a 500.
+ */
+function findManageableSubscription(id: string | undefined, orgId: string, extra: Record<string, unknown> = {}) {
+  if (!id || !isValidObjectId(id)) return Promise.resolve(null);
+  return Subscription.findOne({ _id: id, orgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] }, ...extra });
 }
 
 /**
@@ -316,9 +327,7 @@ export function createSubscriptionRoutes(): Router {
       return sendError(res, 400, 'At least planId or interval is required', ErrorCode.VALIDATION_ERROR);
     }
 
-    const subscription = await Subscription.findOne({
-      _id: subscriptionId, orgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] },
-    });
+    const subscription = await findManageableSubscription(subscriptionId, orgId);
 
     if (!subscription) {
       return sendError(res, 404, 'Active subscription not found', ErrorCode.NOT_FOUND);
@@ -498,9 +507,7 @@ export function createSubscriptionRoutes(): Router {
   router.post('/subscriptions/:id/cancel', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, ADMIN_MFA, ROOT_ONLY, requireStepUp as RequestHandler, audited('billing.subscription.cancel'), withRoute(async ({ req, res, orgId, userId }) => {
     const subscriptionId = getParam(req.params, 'id');
 
-    const subscription = await Subscription.findOne({
-      _id: subscriptionId, orgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] },
-    });
+    const subscription = await findManageableSubscription(subscriptionId, orgId);
 
     if (!subscription) {
       return sendError(res, 404, 'Active subscription not found', ErrorCode.NOT_FOUND);
@@ -569,9 +576,7 @@ export function createSubscriptionRoutes(): Router {
   router.post('/subscriptions/:id/reactivate', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, ADMIN_MFA, ROOT_ONLY, audited('billing.subscription.reactivate'), withRoute(async ({ req, res, orgId, userId }) => {
     const subscriptionId = getParam(req.params, 'id');
 
-    const subscription = await Subscription.findOne({
-      _id: subscriptionId, orgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] }, cancelAtPeriodEnd: true,
-    });
+    const subscription = await findManageableSubscription(subscriptionId, orgId, { cancelAtPeriodEnd: true });
 
     if (!subscription) {
       return sendError( res, 404,

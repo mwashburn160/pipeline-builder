@@ -31,6 +31,7 @@ const mockReplace = jest.fn<AnyFn>(async () => 0);
 const mockReconcile = jest.fn<AnyFn>(async () => ({ opened: 0, closed: 0 }));
 const mockResolveListing = jest.fn<AnyFn>(async () => null);
 const mockInUse = jest.fn<AnyFn>(async () => [DIGEST]);
+const mockFindRefs = jest.fn<AnyFn>(async () => []);
 const mockResolveManaged = jest.fn<AnyFn>(async () => { throw new Error('no default'); });
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   executeRows: async () => rowsQueue.shift() ?? [],
@@ -63,6 +64,16 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
   reconcilePipelineExposures: (...a: unknown[]) => mockReconcile(...a),
   resolveListingReference: (...a: unknown[]) => mockResolveListing(...a),
   orgImageDigestsInUse: (...a: unknown[]) => mockInUse(...a),
+  findVersionReferences: (...a: unknown[]) => mockFindRefs(...a),
+  distinctPipelines: (refs: Array<{ pipelineId: string; pipelineName: string | null; orgId: string; source: string; pipelineDeleted: boolean }>) => {
+    const byId = new Map<string, { pipelineId: string; pipelineName: string | null; orgId: string; sources: string[]; pipelineDeleted: boolean; steps: string[] }>();
+    for (const r of refs) {
+      const e = byId.get(r.pipelineId) ?? { pipelineId: r.pipelineId, pipelineName: r.pipelineName, orgId: r.orgId, sources: [], pipelineDeleted: r.pipelineDeleted, steps: [] };
+      if (!e.sources.includes(r.source)) e.sources.push(r.source);
+      byId.set(r.pipelineId, e);
+    }
+    return [...byId.values()];
+  },
   resolveManagedToolchain: (...a: unknown[]) => mockResolveManaged(...a),
   compareSemver: (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true }),
 }));
@@ -460,6 +471,34 @@ describe('routes', () => {
     const bad = res();
     await h({ query: {} }, bad);
     expect(bad.status).toHaveBeenCalledWith(400);
+  });
+
+  it('serves the registry purge the pipelines referencing each digest (internal)', async () => {
+    const internal = createInternalRoutes();
+    const layer = (internal.stack as any[]).find((l) => l.route?.path === '/plugins/image-pipeline-references');
+    // The internal-caller gate, then the handler.
+    expect(layer.route.stack).toHaveLength(2);
+    const h = layer.route.stack[layer.route.stack.length - 1].handle as AnyFn;
+    mockFindRefs.mockImplementation(async (t: { imageDigest: string }) => (t.imageDigest === DIGEST
+      ? [
+        { pipelineId: PIPE, pipelineName: 'web', orgId: 'org-1', source: 'declared', pipelineDeleted: false, steps: [] },
+        { pipelineId: PIPE, pipelineName: 'web', orgId: 'org-1', source: 'deployed', pipelineDeleted: false, steps: [] },
+      ]
+      : []));
+    const r = res();
+    await h({ query: { digests: `${DIGEST},${OTHER},${DIGEST}` } }, r);
+    // Matched by digest alone, each digest once (deduped).
+    expect(mockFindRefs).toHaveBeenCalledTimes(2);
+    expect(mockFindRefs).toHaveBeenCalledWith(expect.objectContaining({ imageDigest: OTHER }));
+    expect(r.json.mock.calls[0][0]).toMatchObject({
+      data: { references: [{ digest: DIGEST, pipelineCount: 1, pipelines: [{ id: PIPE, name: 'web', orgId: 'org-1', sources: ['declared', 'deployed'], deleted: false }] }] },
+    });
+
+    for (const digests of [undefined, '', 'latest', `${DIGEST},nope`, Array.from({ length: 51 }, (_, i) => `sha256:${i.toString(16).padStart(64, '0')}`).join(',')]) {
+      const bad = res();
+      await h({ query: { digests } }, bad);
+      expect(bad.status).toHaveBeenCalledWith(400);
+    }
   });
 });
 

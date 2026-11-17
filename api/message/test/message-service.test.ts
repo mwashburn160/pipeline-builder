@@ -42,6 +42,7 @@ const purgeTx = {
 // key carries the viewer segment, and a key collision between two users is a
 // cross-user read, so it needs to be assertable.
 const mockCacheGetOrSet = jest.fn((_key: string, loader: () => unknown) => loader());
+const mockInvalidatePattern = jest.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createCacheService: () => ({
@@ -49,7 +50,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
     set: jest.fn<AnyFn>(),
     del: jest.fn<AnyFn>(),
     invalidate: jest.fn<AnyFn>(),
-    invalidatePattern: jest.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined),
+    invalidatePattern: (...args: unknown[]) => mockInvalidatePattern(...args),
     getOrSet: (key: string, loader: () => unknown) => mockCacheGetOrSet(key, loader),
   }),
 }));
@@ -147,6 +148,25 @@ describe('MessageService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     service = new MessageService();
+  });
+
+  describe('invalidateRemovedMessages', () => {
+    it('drops the sender and every recipient org\'s cached views, once per pair', async () => {
+      await service.invalidateRemovedMessages([
+        { orgId: 'sys', recipientOrgId: 'org-a' },
+        { orgId: 'sys', recipientOrgId: 'org-a' },
+        { orgId: 'sys', recipientOrgId: 'org-b' },
+      ]);
+      const patterns = mockInvalidatePattern.mock.calls.map((c) => c[0]);
+      expect(new Set(patterns)).toEqual(new Set(['sys:*', 'org-a:*', 'org-b:*']));
+      // The duplicate pair is not re-invalidated.
+      expect(patterns.filter((p) => p === 'org-a:*')).toHaveLength(1);
+    });
+
+    it('a removed broadcast drops every org\'s announcement pages', async () => {
+      await service.invalidateRemovedMessages([{ orgId: 'sys', recipientOrgId: '*' }]);
+      expect(mockInvalidatePattern.mock.calls.map((c) => c[0])).toEqual(['sys:*', '*:announcements*']);
+    });
   });
 
   describe('findThreadMessages', () => {

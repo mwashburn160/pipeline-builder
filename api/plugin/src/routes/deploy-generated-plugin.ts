@@ -161,8 +161,13 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
       // Release the idempotency reservation on any pre-enqueue failure so a
       // legitimate retry can proceed (nothing durable happened). Only a
       // successfully-queued build KEEPS the key, deduping retries for its TTL.
+      // Set once the build job is queued: from then on it owns the key, the
+      // staged context and the scratch dir, so a later throw (the audit, the
+      // response) must release none of them — a released key would let a retry
+      // queue the same build twice, and a deleted context would fail this one.
+      let buildQueued = false;
       const releaseIdem = (): void => {
-        if (!idemReserved || !idemKey) return;
+        if (buildQueued || !idemReserved || !idemKey) return;
         idemReserved = false;
         void idemStore.delete(idemKey).catch((err) =>
           ctx.log('WARN', 'Idempotency reservation release failed', { error: errorMessage(err) }));
@@ -325,6 +330,7 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
               // Queued: the build job owns the slot now (it refunds on permanent
               // failure), so a later throw in this handler must NOT refund it too.
               slot.markConsumed();
+              buildQueued = true;
 
               ctx.log('INFO', 'Build queued', {
                 pluginName: name,
@@ -360,13 +366,16 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
               }, 'Plugin build queued');
             } catch (err) {
               // Roll back the reserved slot if anything between reserve and the
-              // successful queue.add throws (fs operations, queue down). Release the
+              // successful queue.add throws (fs operations, queue down) — the
+              // guard refunds it; once queued, `markConsumed` stops that. Release the
               // idempotency key too so the client's retry isn't wrongly suppressed —
               // the build was never queued — and drop the staged context so it
               // doesn't orphan (best-effort; the bucket's expiry rule is the backstop).
-              releaseIdem();
-              await deletePluginArtifact(s3Key);
-              removeScratchDir(tempDir);
+              if (!buildQueued) {
+                releaseIdem();
+                await deletePluginArtifact(s3Key);
+                removeScratchDir(tempDir);
+              }
               throw err;
             }
           },

@@ -47,7 +47,7 @@ const ROOT = {
   priority: 'normal', createdAt: '2026-09-01T00:00:00Z', isRead: true, attachments: [],
 } as unknown as Message;
 
-function renderThread(canWrite: boolean) {
+function renderThread(canWrite: boolean, extra: Partial<React.ComponentProps<typeof ThreadView>> = {}) {
   return render(
     <ThreadView
       rootMessage={ROOT}
@@ -56,9 +56,15 @@ function renderThread(canWrite: boolean) {
       onBack={jest.fn<AnyFn>()}
       onThreadRead={jest.fn<AnyFn>()}
       canWrite={canWrite}
+      {...extra}
     />,
   );
 }
+
+const CASE = {
+  threadId: 'm1', displayNumber: 7, status: 'open', severity: 'normal', level: 'support_standard',
+  openedWithIncident: false, tenantContact: 'u1', firstResponseAt: null, createdAt: '2026-09-01T00:00:00Z', closedAt: null,
+};
 
 describe('ThreadView write gate (messages:write)', () => {
   beforeEach(() => {
@@ -118,5 +124,31 @@ describe('ThreadView write gate (messages:write)', () => {
     fireEvent.keyDown(box, { key: 'Enter' });
     expect(replyToMessage).not.toHaveBeenCalled();
     expect(uploadAttachment).not.toHaveBeenCalled();
+  });
+});
+
+describe('ThreadView in a read-only (impersonation) session', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    getThread.mockResolvedValue({ data: { messages: [ROOT] } });
+  });
+
+  it('the case author\'s reply carve-out does not survive read-only — every write is refused', async () => {
+    // Without read-only, the case author may reply on messages:read alone.
+    const { unmount } = renderThread(false, { supportCase: CASE });
+    await waitFor(() => expect(screen.getByText('the nightly build is red')).toBeInTheDocument());
+    expect(screen.getByRole('textbox', { name: 'Reply to conversation' })).toBeEnabled();
+    unmount();
+
+    renderThread(false, { supportCase: CASE, readOnly: true });
+    await waitFor(() => expect(screen.getByText('the nightly build is red')).toBeInTheDocument());
+    const box = screen.getByRole('textbox', { name: 'Reply to conversation' });
+    expect(box).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Attach files' })).toHaveAttribute('title', expect.stringMatching(/Read-only session/));
+    // The case controls are writes too.
+    expect(screen.getByRole('combobox', { name: 'Case status' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Close case' })).toBeDisabled();
+    // The permission hint would send them looking for a grant they already hold.
+    expect(screen.queryByText(/replying and attaching files need/i)).not.toBeInTheDocument();
   });
 });

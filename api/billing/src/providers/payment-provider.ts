@@ -17,6 +17,8 @@ export interface ProviderSubscriptionView {
    *  the future for a locally-stale sub signals the provider RENEWED it (a late
    *  webhook) rather than canceled it. */
   currentPeriodEnd?: Date;
+  /** The start of that period, when the provider reports one. */
+  currentPeriodStart?: Date;
   /** The provider keeps no billing period of its own, so the PLATFORM renews the
    *  period on its anchor day (the stub provider). */
   renewsLocally?: boolean;

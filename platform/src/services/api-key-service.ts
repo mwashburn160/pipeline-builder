@@ -403,12 +403,19 @@ class ApiKeyService {
     return toView(doc);
   }
 
-  /** Delete every key of the given service accounts (account delete). The ORG
-   *  purge does its own teardown in `service-account-cascade.ts`, which keeps the
-   *  cascade's import graph off the token signer. */
+  /** Delete every key of the given service accounts (account delete), and
+   *  publish the still-live ones as revoked: platform refuses a token whose key
+   *  record is gone, but the other services only see `revoke:key:<id>`, so
+   *  without the publish a deleted account's exchanged tokens kept working there
+   *  until they expired. The ORG purge does its own teardown in
+   *  `service-account-cascade.ts`, which keeps the cascade's import graph off the
+   *  token signer. */
   async deleteForServiceAccounts(serviceAccountIds: readonly Types.ObjectId[]): Promise<number> {
     if (serviceAccountIds.length === 0) return 0;
-    const res = await PersonalAccessToken.deleteMany({ serviceAccountId: { $in: serviceAccountIds } });
+    const filter = { serviceAccountId: { $in: serviceAccountIds } };
+    const live = await PersonalAccessToken.find({ ...filter, revoked: false }).select('_id').lean();
+    const res = await PersonalAccessToken.deleteMany(filter);
+    await publishAccessKeyRevocation(live.map((k) => String(k._id)));
     return res.deletedCount ?? 0;
   }
 

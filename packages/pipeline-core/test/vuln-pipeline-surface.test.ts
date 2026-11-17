@@ -147,7 +147,7 @@ describe('default build image = the resolved pipeline-bootstrap, pinned like a p
   });
 
   it('the default-image project has exactly a plugin step\'s Image / RegistryCredential shape', () => {
-    // Phase 0: CodeBuild pulls system/pipeline-bootstrap exactly as it already
+    // CodeBuild pulls system/pipeline-bootstrap exactly as it already
     // pulls every system plugin (cdk-synth et al.).
     const stack = new Stack(new App(), 'S');
     const uniqueId = new UniqueId({ organization: 'acme', project: 'x' });

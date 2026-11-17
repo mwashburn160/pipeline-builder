@@ -14,6 +14,7 @@ import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { RetryError } from '@/components/ui/RetryError';
+import { Callout } from '@/components/ui/Callout';
 import { DateRangePicker, AutoRefresh, TwoColumnSkeleton } from '@/components/reports/ReportHelpers';
 import { IngestFreshness } from '@/components/reports/IngestFreshness';
 import {
@@ -139,10 +140,11 @@ export default function ReportsPage() {
   const canRollup = can('reports:rollup');
   // The Scorecard roll-up reads GET /pipelines[/:id]/scorecard, which the pipeline
   // service gates on `pipelines:read` — a custom role with `reports:read` but no
-  // pipeline read would be offered a tab that can only 403. Hide that one tab
-  // (the permission is not purchasable, so there is nothing to upsell).
+  // pipeline read gets the tab LOCKED in place (it says which permission it
+  // needs) rather than a tab that can only 403, or none at all — a hidden tab
+  // left a bookmarked `?tab=scorecard` blank with a spinner that never stopped.
   const canReadPipelines = can('pipelines:read');
-  const visibleTopTabs = TOP_TABS.filter((t) => t.id !== 'scorecard' || canReadPipelines);
+  const scorecardLocked = topTab === 'scorecard' && !canReadPipelines;
 
   // Per-tab effective date-range caps (event vs DORA retention), read once from
   // the reports:read-only retention endpoint (so a Retention Pack shows without
@@ -159,6 +161,10 @@ export default function ReportsPage() {
   // banner + the refresh control). Only the mounted tab reports.
   const [status, setStatus] = useState<TabDataStatus>({ loading: true, error: null, refetch: () => {} });
   const onStatus = useCallback((s: TabDataStatus) => setStatus(s), []);
+  // The locked Scorecard mounts no tab to report a status, so it settles here.
+  useEffect(() => {
+    if (scorecardLocked) setStatus({ loading: false, error: null, refetch: () => {} });
+  }, [scorecardLocked]);
 
   // Effective max for the active tab: retention estimate, floored by any tighter
   // cap the backend reported.
@@ -275,14 +281,17 @@ export default function ReportsPage() {
 
         {/* ═══════ Top-level tabs: Pipelines / Plugins / DORA ═══════ */}
         <div className="flex gap-2">
-          {visibleTopTabs.map((tab) => {
+          {TOP_TABS.map((tab) => {
             const Icon = tab.icon;
             const active = topTab === tab.id;
+            const locked = tab.id === 'scorecard' && !canReadPipelines;
             return (
               <button
                 key={tab.id}
                 onClick={() => changeTopTab(tab.id)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                disabled={locked}
+                title={locked ? 'Requires the pipelines:read permission' : undefined}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                   active
                     ? 'bg-info-bg text-info ring-1 ring-info-border'
                     : 'text-fg-muted hover:bg-surface-muted'
@@ -325,7 +334,7 @@ export default function ReportsPage() {
         {topTab === 'plugins' && <PluginsTab filters={filters} onStatus={onStatus} />}
         {/* The entitled tabs wait for the entitlement verdict, so an entitled org
             never sees a flash of the upsell. */}
-        {(topTab === 'dora' || topTab === 'scorecard') && !doraGate.isLoaded && <TwoColumnSkeleton />}
+        {(topTab === 'dora' || (topTab === 'scorecard' && canReadPipelines)) && !doraGate.isLoaded && <TwoColumnSkeleton />}
         {topTab === 'dora' && doraGate.isLoaded && (
           // Marking an outcome is a write gated on `pipelines:write`. Checked with
           // `hasPermission` (not `can()`, which folds in read-only impersonation) so
@@ -334,6 +343,12 @@ export default function ReportsPage() {
         )}
         {topTab === 'scorecard' && canReadPipelines && doraGate.isLoaded && (
           <ScorecardTab enabled={doraEnabled} onStatus={onStatus} />
+        )}
+        {scorecardLocked && (
+          <Callout variant="info" title="The Scorecard needs pipeline read access">
+            It rolls up each pipeline&apos;s scorecard, which requires the pipelines:read permission.
+            Ask an organization admin to add it to one of your Roles.
+          </Callout>
         )}
         {topTab === 'stakeholder' && !stakeholderGate.isLoaded && <TwoColumnSkeleton />}
         {topTab === 'stakeholder' && stakeholderGate.isLoaded && (

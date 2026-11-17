@@ -39,7 +39,7 @@ interface FetchedForSynth {
  */
 async function fetchPipelineConfig(
   pipelineId: string,
-  options: { storeTokens?: boolean; verifySsl?: boolean; region?: string; profile?: string },
+  options: { storeTokens?: boolean; verifySsl?: boolean; region?: string; profile?: string; json?: boolean },
 ): Promise<FetchedForSynth> {
   const client = await createAuthenticatedClientAsync(options);
   const { pipeline, propsWithIds, baseUrl, pluginWarnings } = await fetchPipelineProps(client, pipelineId);
@@ -52,7 +52,7 @@ async function fetchPipelineConfig(
     process.env.PLATFORM_BASE_URL = baseUrl;
   }
 
-  printSuccess('Pipeline configuration loaded');
+  if (!options.json) printSuccess('Pipeline configuration loaded');
   return { client, props: propsWithIds, pipeline: { ...pipeline, id: pipeline.id || pipelineId }, pluginWarnings };
 }
 
@@ -134,7 +134,10 @@ export function synth(program: Command): void {
         if (!pipelineId) {
           throw new Error('Pipeline ID is required. Use --id <id> or set PIPELINE_ID env var.');
         }
-        printInfo('Fetching pipeline configuration', { id: pipelineId });
+        // `--json` prints ONE document on stdout, so progress lines and CDK's own
+        // output stay off it (CDK's output is captured and shown only on failure).
+        const progress = !options.json;
+        if (progress) printInfo('Fetching pipeline configuration', { id: pipelineId });
         const fetched = await fetchPipelineConfig(pipelineId, options);
 
         // The cdk prerequisite is verified up front by the CLI's preAction hook.
@@ -158,16 +161,20 @@ export function synth(program: Command): void {
 
         const command = parts.join(' ');
 
-        printInfo('Executing', { command: (command.split('--app')[0] ?? '').trim() + ' ...' });
-        console.log('');
+        if (progress) {
+          printInfo('Executing', { command: (command.split('--app')[0] ?? '').trim() + ' ...' });
+          console.log('');
+        }
 
         const result = withPropsFile(fetched.props, (env) => executeCdkShellCommand(command, {
-          showOutput: !options.quiet,
+          showOutput: progress && !options.quiet,
           env,
         }));
 
-        console.log('');
-        printSection('Synthesis Complete');
+        if (progress) {
+          console.log('');
+          printSection('Synthesis Complete');
+        }
 
         // A self-mutating pipeline re-synthesizes in CodeBuild on every run and
         // never passes through `pipeline deploy`, so register its step manifest
@@ -178,7 +185,7 @@ export function synth(program: Command): void {
         // Registered with the `pipeline-register` key, NOT the platform key the
         // synth fetched with: that one reads pipelines and plugins only. A
         // missing registration key skips this with a warning (no fallback).
-        if (result.success && inCodeBuild()) {
+        if (inCodeBuild()) {
           const registrationClient = await resolveRegistrationClient({
             client: fetched.client,
             storeTokens: options.storeTokens,
@@ -203,22 +210,20 @@ export function synth(program: Command): void {
         // above the CDK output.
         printLookupWarningSummary(fetched.pluginWarnings);
 
-        if (result.success) {
-          if (options.json) {
-            console.log(JSON.stringify({
-              success: true,
-              executionId,
-              duration: result.duration,
-              output: options.output,
-            }, null, 2));
-          } else {
-            printKeyValue({
-              'Execution ID': executionId,
-              'Duration': `${result.duration}ms`,
-              'Output': options.output,
-              'Status': '✓ Success',
-            });
-          }
+        if (options.json) {
+          console.log(JSON.stringify({
+            success: true,
+            executionId,
+            duration: result.duration,
+            output: options.output,
+          }, null, 2));
+        } else {
+          printKeyValue({
+            'Execution ID': executionId,
+            'Duration': `${result.duration}ms`,
+            'Output': options.output,
+            'Status': '✓ Success',
+          });
         }
 
       } catch (error) {

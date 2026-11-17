@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ArrowUpCircle } from 'lucide-react';
 import { SectionCard } from '@/components/ui/SectionCard';
@@ -78,23 +78,33 @@ export function PluginUpgradePanel({ pipelineId, canWrite, onApplied }: {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<PluginUpgradeApplyResult | null>(null);
 
+  // Only the NEWEST preview may land: toggling "widen" (or switching pipeline)
+  // while one is in flight would otherwise let the older answer win — steps
+  // drafted for the other widen setting, which Apply would then send with this one.
+  const loadSeq = useRef(0);
   const load = async (w: boolean) => {
+    const seq = ++loadSeq.current;
     setLoading(true);
     setError(null);
     try {
       const res = await api.previewPluginUpgrades(pipelineId, { widen: w });
+      if (seq !== loadSeq.current) return;
       if (!res.success || !res.data) throw new Error(res.message || 'Failed to preview upgrades');
       setPreview(res.data);
       setSelected(new Set(res.data.upgrades.filter((u) => upgradeTarget(u, w) !== null).map((u) => u.stepKey)));
     } catch (err) {
-      setError(formatError(err, 'Failed to preview upgrades'));
+      if (seq === loadSeq.current) setError(formatError(err, 'Failed to preview upgrades'));
     } finally {
-      setLoading(false);
+      if (seq === loadSeq.current) setLoading(false);
     }
   };
 
-  // A different pipeline (same-pathname navigation) starts from scratch.
-  useEffect(() => { setPreview(null); setResult(null); setError(null); }, [pipelineId]);
+  // A different pipeline (same-pathname navigation) starts from scratch, and an
+  // in-flight preview of the old one is dropped.
+  useEffect(() => {
+    loadSeq.current += 1;
+    setPreview(null); setResult(null); setError(null); setLoading(false);
+  }, [pipelineId]);
 
   const toggle = (key: string) => setSelected((s) => {
     const next = new Set(s);
@@ -215,7 +225,7 @@ export function PluginUpgradePanel({ pipelineId, canWrite, onApplied }: {
             </label>
             <Button
               onClick={() => void apply()}
-              disabled={!canWrite || applying || selected.size === 0}
+              disabled={!canWrite || applying || loading || selected.size === 0}
               title={canWrite ? undefined : 'Requires pipelines:write'}
             >
               {applying ? <LoadingSpinner size="sm" /> : null}

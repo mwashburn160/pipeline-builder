@@ -102,7 +102,7 @@ export interface CdkShellOptions {
  * Result of a CDK shell command execution.
  */
 export interface CdkShellResult {
-  success: boolean;
+  /** Wall-clock time the command took, in ms. */
   duration: number;
 }
 
@@ -111,7 +111,8 @@ export interface CdkShellResult {
  *
  * @param command - The full CDK CLI command string (e.g., `cdk bootstrap ...`).
  * @param options - Optional execution settings.
- * @returns An object with `success` and `duration` in ms.
+ * @returns The command's `duration` in ms. A failed command THROWS (after
+ *   printing its stderr/stdout), so there is no failure result to check.
  */
 export function executeCdkShellCommand(
   command: string,
@@ -135,10 +136,7 @@ export function executeCdkShellCommand(
 
     const duration = Date.now() - startTime;
 
-    return {
-      success: true,
-      duration,
-    };
+    return { duration };
   } catch (error) {
     const duration = Date.now() - startTime;
 

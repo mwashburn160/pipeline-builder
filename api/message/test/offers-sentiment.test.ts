@@ -15,9 +15,11 @@
  *    a degraded answer must read as "no signal", never as "they are fine".
  */
 
-import { describe, it, expect, jest } from '@jest/globals';
+import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { LIVE_SUPPORT_CASE_STATUSES } from '@pipeline-builder/api-core/wire-vocabulary';
+import type { SQL } from 'drizzle-orm';
+import { PgDialect, pgTable, text, timestamp, uuid, varchar } from 'drizzle-orm/pg-core';
 
 // Typed, not bare `jest.fn()`: an untyped mock's return is `unknown`, so
 // `mockResolvedValue` / `mockRejectedValue` infer `never` and reject their
@@ -42,14 +44,19 @@ function queueSelect(rows: unknown[]) { selectQueue.push(rows); }
 /** Queue a read that BLOWS UP, so the degrade path is exercised for real. */
 function queueSelectFailure() { selectQueue.push(THROW); }
 
+/** Every query the reader built: the args each chain method was called with. */
+const built: Array<Record<string, unknown[]>> = [];
+
 /** A drizzle-ish chain that resolves to whatever was queued next. */
 function chain(): unknown {
   const next = selectQueue.shift() ?? [];
   if (next === THROW) throw new Error('relation "support_cases" does not exist');
   const rows = next;
   const self: Record<string, unknown> = {};
+  const record: Record<string, unknown[]> = {};
+  built.push(record);
   for (const m of ['from', 'where', 'orderBy', 'limit']) {
-    self[m] = () => self;
+    self[m] = (...args: unknown[]) => { record[m] = args; return self; };
   }
   // `limit()` ends every query here, so make the object awaitable throughout.
   (self as { then: unknown }).then = (res: (v: unknown) => unknown) => Promise.resolve(rows).then(res);
@@ -73,14 +80,24 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => stubModule('@pipeli
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   runWithTenantContext: (_ctx: unknown, fn: () => unknown) => fn(),
   withTenantTxRead: (fn: (tx: unknown) => unknown) => fn({ select: () => chain() }),
+  // Real drizzle tables (a minimal subset of the columns read), so the
+  // predicates and orderings the reader builds can be rendered and asserted.
   schema: {
-    supportCase: {
-      threadId: 'thread_id',
-      orgId: 'org_id',
-      status: 'status',
-      createdAt: 'created_at',
-    },
-    message: { id: 'id', subject: 'subject', content: 'content' },
+    supportCase: pgTable('support_cases', {
+      id: uuid('id'),
+      threadId: uuid('thread_id'),
+      orgId: varchar('org_id'),
+      status: varchar('status'),
+      createdAt: timestamp('created_at'),
+      deletedAt: timestamp('deleted_at'),
+    }),
+    message: pgTable('messages', {
+      id: uuid('id'),
+      subject: text('subject'),
+      content: text('content'),
+      createdAt: timestamp('created_at'),
+      deletedAt: timestamp('deleted_at'),
+    }),
   },
 }));
 
@@ -121,6 +138,39 @@ describe('nothing identifying reaches the prompt', () => {
     queueSelect([{ subject: 'Still broken', content: 'reply to dana@acme.com or see https://x.test/y' }]);
     const excerpts = await recentCaseExcerpts('org-1');
     expect(excerpts).toEqual(['Still broken reply to [email] or see [link]']);
+  });
+});
+
+describe('the case read', () => {
+  const render = (q: SQL) => new PgDialect().sqlToQuery(q);
+  beforeEach(() => { built.length = 0; selectQueue.length = 0; });
+
+  it('excludes soft-deleted cases and messages', async () => {
+    queueSelect([{ threadId: 't1' }]);
+    queueSelect([{ subject: 's', content: 'c' }]);
+    await recentCaseExcerpts('org-1');
+    expect(render(built[0]!.where![0] as SQL).sql).toContain('"support_cases"."deleted_at" is null');
+    expect(render(built[1]!.where![0] as SQL).sql).toContain('"messages"."deleted_at" is null');
+  });
+
+  it('orders both reads newest-first with an id tiebreak, so the sample is deterministic', async () => {
+    queueSelect([{ threadId: 't1' }]);
+    queueSelect([{ subject: 's', content: 'c' }]);
+    await recentCaseExcerpts('org-1');
+    const order = (i: number) => (built[i]!.orderBy as SQL[]).map((o) => render(o).sql);
+    expect(order(0)).toEqual(['"support_cases"."created_at" desc', '"support_cases"."id" desc']);
+    expect(order(1)).toEqual(['"messages"."created_at" desc', '"messages"."id" desc']);
+  });
+
+  it('lower-cases the org id it filters on', async () => {
+    queueSelect([]);
+    await recentCaseExcerpts('Org-MiXed');
+    expect(render(built[0]!.where![0] as SQL).params).toContain('org-mixed');
+  });
+
+  it('reports the lower-cased org id on the signal', async () => {
+    queueSelect([]);
+    await expect(frustrationSignalFor('ORG-1')).resolves.toMatchObject({ orgId: 'org-1' });
   });
 });
 

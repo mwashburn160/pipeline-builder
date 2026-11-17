@@ -264,13 +264,13 @@ function getHttpStatusText(status: number): string {
 
 function getErrorSuggestion(err: unknown, code: ErrorCode): string | null {
   if (code === ERROR_CODES.AUTHENTICATION) {
-    return 'Check that PLATFORM_TOKEN environment variable is set correctly';
+    return 'Sign in again with "pipeline-manager auth login", or check the PLATFORM_TOKEN access key';
   }
   if (code === ERROR_CODES.NETWORK) {
     return 'Check your internet connection and API endpoint URL';
   }
   if (code === ERROR_CODES.CONFIGURATION) {
-    return 'Run "cli version --check-config" to verify configuration';
+    return 'Run "pipeline-manager version --check-config" to verify configuration';
   }
   if (code === ERROR_CODES.NOT_FOUND) {
     return 'Verify the resource ID exists and you have access to it';

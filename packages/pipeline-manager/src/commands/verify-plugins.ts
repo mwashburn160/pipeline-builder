@@ -81,6 +81,30 @@ const VERDICT_STYLE: Record<string, (s: string) => string> = {
 };
 
 /**
+ * Print a run-time check result. `--json` prints the result and NOTHING else on
+ * stdout, so the output parses: the human verdict section, the per-step lines
+ * and the success/warning summary are the non-JSON rendering only.
+ */
+export function printVerdict(result: RuntimeCheckResult, json: boolean): void {
+  if (json) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+  printSection(`Verdict: ${VERDICT_STYLE[result.verdict]!(result.verdict.toUpperCase())}`);
+  for (const step of result.steps) {
+    if (step.verdict === 'ok') continue;
+    for (const reason of step.reasons) {
+      const sev = reason.severity ?? step.verdict;
+      const tag = (VERDICT_STYLE[sev] ?? yellow)(`[${sev.toUpperCase()}]`);
+      console.log(`  ${tag} ${step.stepKey} (${step.imageDigest.slice(0, 19)}…) ${reason.code}: ${reason.message}`);
+    }
+  }
+  const flagged = result.steps.filter((s) => s.verdict !== 'ok').length;
+  if (result.verdict === 'ok') printSuccess('Run-time plugin check: no findings');
+  else printWarning(`Run-time plugin check: ${flagged} step(s) with findings (worst: ${result.verdict}) — reported, not enforced`);
+}
+
+/**
  * Registers `plugin verify`: ask the platform what it now knows about the
  * plugin images a pipeline runs — a CVE flagged, a KEV listing or an
  * org-policy change since the synth that pinned them — and print the graded
@@ -118,7 +142,7 @@ export function verifyPlugins(program: Command): void {
         printSslWarning(options.verifySsl);
         // Bad input is the caller's bug, not an outage: always an error.
         const steps = loadVerifySteps(options);
-        printInfo('Checking plugin images', { pipelineId: options.pipelineId, steps: steps.length });
+        if (!options.json) printInfo('Checking plugin images', { pipelineId: options.pipelineId, steps: steps.length });
         setPipelineId(options.pipelineId);
 
         let result: RuntimeCheckResult;
@@ -131,19 +155,7 @@ export function verifyPlugins(program: Command): void {
           return;
         }
 
-        if (options.json) console.log(JSON.stringify(result, null, 2));
-        printSection(`Verdict: ${VERDICT_STYLE[result.verdict]!(result.verdict.toUpperCase())}`);
-        for (const step of result.steps) {
-          if (step.verdict === 'ok') continue;
-          for (const reason of step.reasons) {
-            const sev = reason.severity ?? step.verdict;
-            const tag = (VERDICT_STYLE[sev] ?? yellow)(`[${sev.toUpperCase()}]`);
-            console.log(`  ${tag} ${step.stepKey} (${step.imageDigest.slice(0, 19)}…) ${reason.code}: ${reason.message}`);
-          }
-        }
-        const flagged = result.steps.filter((s) => s.verdict !== 'ok').length;
-        if (result.verdict === 'ok') printSuccess('Run-time plugin check: no findings');
-        else printWarning(`Run-time plugin check: ${flagged} step(s) with findings (worst: ${result.verdict}) — reported, not enforced`);
+        printVerdict(result, !!options.json);
       } catch (error) {
         handleError(error, ERROR_CODES.API_REQUEST, {
           debug: program.opts().debug,

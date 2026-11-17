@@ -16,6 +16,7 @@ import { scrollBehavior } from '@/lib/motion';
 import { SYSTEM_ORG_ID, formatError } from '@/lib/constants';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { READ_ONLY_REASON } from '@/components/ui/ReadOnlyNotice';
 
 /**
  * A thread bubble that may be an OPTIMISTIC local reply not yet confirmed by the
@@ -65,6 +66,12 @@ interface ThreadViewProps {
   /** Callback to delete the conversation (root message + replies). */
   onDelete?: (id: string) => void;
   /**
+   * Called when a reply to an ANNOUNCEMENT came back as a new thread: the server
+   * never threads a customer's answer under a broadcast, it opens a support
+   * conversation of their own, so the caller should switch to it.
+   */
+  onFollowUpCreated?: (root: Message) => void;
+  /**
    * Whether the viewer may delete THIS thread's root. Same server rule as the
    * list's trash icon: `messages:write` plus author-and-root for anyone who is
    * not a sysadmin.
@@ -79,6 +86,12 @@ interface ThreadViewProps {
    * a broken page rather than as a permission they don't have.
    */
   canWrite?: boolean;
+  /**
+   * A read-only (impersonation) session. The server refuses every write it
+   * sends, so this overrides the case author's carve-out below as well — the
+   * operator viewing as the case author must not get a live composer.
+   */
+  readOnly?: boolean;
 }
 
 /** Colored badge indicating message priority; renders nothing for "normal" (or an unknown) priority. */
@@ -95,7 +108,7 @@ function PriorityBadge({ priority }: { priority: string }) {
 }
 
 /** Chat-style thread view displaying a conversation with reply input. */
-export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOrgName, fetchMembers, onBack, onThreadRead, onDelete, canDelete, canWrite = false, supportCase, supportContacts = [], onCaseChanged }: ThreadViewProps) {
+export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOrgName, fetchMembers, onBack, onThreadRead, onDelete, onFollowUpCreated, canDelete, canWrite = false, readOnly = false, supportCase, supportContacts = [], onCaseChanged }: ThreadViewProps) {
   const { organizations } = useAuth();
   // The current org's own display name, for labelling optimistic (own) bubbles
   // before the server round-trip returns the resolved name.
@@ -147,9 +160,15 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
     || supportCase!.tenantContact === currentUserId
     || currentOrgId === SYSTEM_ORG_ID
   );
-  const canReply = canWrite || mayReplyToCase;
-
   const isRootMine = rootMessage.orgId.toLowerCase() === currentOrgId.toLowerCase();
+  // An announcement is one-way for its SENDER: the server refuses a reply on the
+  // broadcast itself (staff answer each customer in that customer's own thread).
+  const ownAnnouncement = rootMessage.messageType === 'announcement' && isRootMine;
+  const canReply = !readOnly && !ownAnnouncement && (canWrite || mayReplyToCase);
+  const noReplyReason = readOnly ? READ_ONLY_REASON
+    : ownAnnouncement ? 'Announcements are one-way. Customers who reply get their own conversation, where you can answer them.'
+      : NO_WRITE_REASON;
+
   const counterpartyOrgId = isRootMine ? rootMessage.recipientOrgId : rootMessage.orgId;
   const counterpartyName = isRootMine
     ? orgLabel(rootMessage.recipientOrgId, rootMessage.recipientOrgName)
@@ -226,9 +245,15 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
       const result = isSupportThread
         ? await api.replyToSupportCase(rootMessage.id, content, ids.length ? ids : undefined)
         : await api.replyToMessage(rootMessage.id, content, ids.length ? ids : undefined, idem);
-      if (result?.data) {
+      const row = result?.data as ThreadItem | undefined;
+      if (row && rootMessage.messageType === 'announcement' && row.threadId !== rootMessage.id) {
+        // An answer to a broadcast opens its own support conversation (the server
+        // never threads it under the announcement): drop the bubble, go there.
+        setThread((prev) => prev.filter((m) => m.id !== tempId));
+        onFollowUpCreated?.(row);
+      } else if (row) {
         // Swap the temp bubble for the authoritative server row (real id/author/time).
-        setThread((prev) => prev.map((m) => (m.id === tempId ? (result.data as ThreadItem) : m)));
+        setThread((prev) => prev.map((m) => (m.id === tempId ? row : m)));
       } else {
         markFailed(tempId);
       }
@@ -406,6 +431,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
             supportCase={supportCase}
             contacts={supportContacts}
             onChanged={onCaseChanged}
+            readOnly={readOnly}
           />
         </div>
       )}
@@ -532,7 +558,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
           </ul>
         )}
         <ErrorAlert message={uploadError} className="mb-2" />
-        {!canWrite && (
+        {!canWrite && !readOnly && (
           <p className="mb-2 text-xs text-fg-muted">
             You can read this conversation, but replying and attaching files need the
             &ldquo;messages:write&rdquo; permission.
@@ -551,7 +577,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading || !canReply}
             aria-label="Attach files"
-            title={canReply ? (uploading ? 'Uploading…' : 'Attach files') : NO_WRITE_REASON}
+            title={canReply ? (uploading ? 'Uploading…' : 'Attach files') : noReplyReason}
             className="p-2.5 rounded-xl text-fg-muted hover:text-brand hover:bg-surface-muted disabled:opacity-50 transition-colors"
           >
             <Paperclip className="w-5 h-5" />
@@ -574,9 +600,9 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
             value={replyContent}
             onChange={(e) => setReplyContent(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={canReply ? 'Type your reply... (Enter to send, Shift+Enter for new line)' : NO_WRITE_REASON}
+            placeholder={!canReply ? noReplyReason : rootMessage.messageType === 'announcement' ? 'Reply to start a conversation with support... (Enter to send)' : 'Type your reply... (Enter to send, Shift+Enter for new line)'}
             aria-label="Reply to conversation"
-            title={canReply ? undefined : NO_WRITE_REASON}
+            title={canReply ? undefined : noReplyReason}
             disabled={!canReply}
             rows={2}
             className="flex-1 resize-none"
@@ -585,7 +611,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
             onClick={handleSendReply}
             disabled={!canReply || !replyContent.trim() || uploading}
             aria-label="Send reply"
-            title={canReply ? undefined : NO_WRITE_REASON}
+            title={canReply ? undefined : noReplyReason}
             className="p-2.5 rounded-xl bg-brand text-white hover:bg-brand-strong disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             <Send className="w-5 h-5" />

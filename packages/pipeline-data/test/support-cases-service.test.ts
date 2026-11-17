@@ -172,9 +172,38 @@ describe('setCaseStatus', () => {
   });
 
   it('refuses to act on a soft-deleted case, and reports null when nothing matched', async () => {
-    tx.queue([]);
+    tx.queue([], []);
     await expect(svc.setCaseStatus('c1', 'open', 'u1')).resolves.toBeNull();
     expect(where()).toMatch(/deleted_at.*is null/i);
+    expect(where(1)).toMatch(/deleted_at.*is null/i);
+  });
+
+  it('a SAME-status write is a no-op at the store: guarded in the WHERE, answers the case unchanged', async () => {
+    // The update matches nothing (status <> 'awaiting_customer' is false), so
+    // awaiting_since is not restarted; the current row comes back untouched.
+    const stored = { id: 'c1', status: 'awaiting_customer', awaitingSince: new Date('2026-03-01T00:00:00Z'), closedAt: null };
+    tx.queue([], [stored]);
+    await expect(svc.setCaseStatus('c1', 'awaiting_customer', 'u1')).resolves.toBe(stored);
+    expect(where(0)).toMatch(/status.*<>/i);
+    expect(tx.queries[0]!.kind).toBe('update');
+    expect(tx.queries[1]!.kind).toBe('select');
+    expect(tx.queries).toHaveLength(2);
+  });
+
+  it('a repeated close does not re-stamp closed_at/closed_by', async () => {
+    const stored = { id: 'c1', status: 'closed', closedAt: new Date('2026-03-01T00:00:00Z'), closedBy: 'staff-1' };
+    tx.queue([], [stored]);
+    const row = await svc.setCaseStatus('c1', 'closed', 'staff-2');
+    expect(row).toMatchObject({ closedBy: 'staff-1', closedAt: stored.closedAt });
+    // The guard rides on the UPDATE itself, so two concurrent identical writes
+    // cannot both pass a read-then-write check.
+    expect(where(0)).toMatch(/status.*<>/i);
+  });
+
+  it('a real transition writes once and does not re-read', async () => {
+    tx.queue([{ id: 'c1', status: 'open' }]);
+    await svc.setCaseStatus('c1', 'open', 'u1');
+    expect(tx.queries).toHaveLength(1);
   });
 });
 

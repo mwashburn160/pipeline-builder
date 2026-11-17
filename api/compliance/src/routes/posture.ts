@@ -31,6 +31,9 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { runWithTenantContext, schema, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { and, desc, eq, gt, isNull, or, sql } from 'drizzle-orm';
 import { Router } from 'express';
+import { isRuleEffective } from '../engine/rule-engine.js';
+import { resolveParentOrgId } from '../helpers/org-hierarchy-client.js';
+import { complianceRuleService } from '../services/compliance-rule-service.js';
 
 const logger = createLogger('compliance-posture');
 
@@ -38,22 +41,27 @@ const logger = createLogger('compliance-posture');
 const requireReportingService = requireInternalService({ callers: ['reporting'] });
 
 /**
- * A rule is ACTIVE when it is switched on, not deleted, and its effective window
- * contains now.
+ * The rules ACTIVE for the org right now: the EFFECTIVE set enforcement evaluates,
+ * not just the rules the org owns.
  *
- * The window matters: an org that scheduled a rule for next quarter has not got it
- * active, and counting it would tell a manager the org enforces something it does not.
- * So does the switch, which this used to leave out: a rule an admin had turned OFF
- * (`isActive = false`, which enforcement skips) was still counted as active.
+ * That set is the org's own switched-on rules, plus its active subscriptions to
+ * published rules (pinned bodies honoured), plus the rules its parent propagates
+ * to teams. It is read through the same resolver validate, entity events and scans
+ * use ({@link complianceRuleService.findAllEnforced}), so the posture count and
+ * enforcement cannot disagree; counting only owned rules told a manager an org
+ * running a subscribed library enforced nothing.
+ *
+ * The effective window is then applied with the engine's own predicate: a rule
+ * scheduled for next quarter is skipped by evaluation, so it is not active here.
+ *
+ * The parent is resolved the way a scan resolves it (this request carries a
+ * service token, not a member JWT naming one), and a failed lookup THROWS — a
+ * team's posture without its parent's rules would be an undercount, not a gap.
  */
-function activeRuleWhere(orgId: string, now: Date) {
-  return and(
-    eq(schema.complianceRule.orgId, orgId),
-    eq(schema.complianceRule.isActive, true),
-    isNull(schema.complianceRule.deletedAt),
-    or(isNull(schema.complianceRule.effectiveFrom), sql`${schema.complianceRule.effectiveFrom} <= ${now}`),
-    or(isNull(schema.complianceRule.effectiveUntil), sql`${schema.complianceRule.effectiveUntil} > ${now}`),
-  );
+async function effectiveActiveRules(orgId: string, now: Date) {
+  const parentOrgId = await resolveParentOrgId(orgId);
+  const enforced = await complianceRuleService.findAllEnforced(orgId, undefined, parentOrgId);
+  return enforced.filter((rule) => isRuleEffective(rule, now));
 }
 
 export function createPostureRoutes(): Router {
@@ -62,39 +70,40 @@ export function createPostureRoutes(): Router {
   router.get('/', requireReportingService, withRoute(async ({ res, orgId }) => {
     const now = new Date();
     try {
-      const data = await runWithTenantContext({ orgId, isSuperAdmin: false }, async () => withTenantTx(async (tx) => {
-        const rules = await tx.select({ tags: schema.complianceRule.tags })
-          .from(schema.complianceRule).where(activeRuleWhere(orgId, now));
-        // An exemption counts only while APPROVED and unexpired: a pending request is
-        // not a carve-out, and an expired one stopped being one.
-        const exemptions = await tx.select({ n: sql<number>`COUNT(*)::int` })
-          .from(schema.complianceExemption)
-          .where(and(
-            eq(schema.complianceExemption.orgId, orgId),
-            eq(schema.complianceExemption.status, 'approved'),
-            or(isNull(schema.complianceExemption.expiresAt), gt(schema.complianceExemption.expiresAt, now)),
-          ));
-        const scans = await tx.select({
-          completedAt: schema.complianceScan.completedAt,
-          total: schema.complianceScan.totalEntities,
-          pass: schema.complianceScan.passCount,
-          warn: schema.complianceScan.warnCount,
-          block: schema.complianceScan.blockCount,
-        }).from(schema.complianceScan)
-          .where(and(
-            eq(schema.complianceScan.orgId, orgId),
-            eq(schema.complianceScan.status, 'completed'),
-          ))
-          .orderBy(desc(schema.complianceScan.completedAt))
-          .limit(1);
+      const data = await runWithTenantContext({ orgId, isSuperAdmin: false }, async () => {
+        const rules = await effectiveActiveRules(orgId, now);
+        const { exemptions, scans } = await withTenantTx(async (tx) => ({
+          // An exemption counts only while APPROVED and unexpired: a pending request is
+          // not a carve-out, and an expired one stopped being one.
+          exemptions: await tx.select({ n: sql<number>`COUNT(*)::int` })
+            .from(schema.complianceExemption)
+            .where(and(
+              eq(schema.complianceExemption.orgId, orgId),
+              eq(schema.complianceExemption.status, 'approved'),
+              or(isNull(schema.complianceExemption.expiresAt), gt(schema.complianceExemption.expiresAt, now)),
+            )),
+          scans: await tx.select({
+            completedAt: schema.complianceScan.completedAt,
+            total: schema.complianceScan.totalEntities,
+            pass: schema.complianceScan.passCount,
+            warn: schema.complianceScan.warnCount,
+            block: schema.complianceScan.blockCount,
+          }).from(schema.complianceScan)
+            .where(and(
+              eq(schema.complianceScan.orgId, orgId),
+              eq(schema.complianceScan.status, 'completed'),
+            ))
+            .orderBy(desc(schema.complianceScan.completedAt))
+            .limit(1),
+        }));
 
         // Frameworks come off rule TAGS, which is where the org put them. Reporting
         // shows them as a header line ("SOC 2, PCI DSS"), so the set is deduped and
         // sorted here rather than leaving the order to row sequence.
         const frameworks = [...new Set(
-          (rules as Array<{ tags: string[] | null }>)
-            .flatMap((r) => r.tags ?? [])
-            .filter((t) => typeof t === 'string' && t.length > 0),
+          rules
+            .flatMap((r) => (r.tags as unknown[] | null) ?? [])
+            .filter((t): t is string => typeof t === 'string' && t.length > 0),
         )].sort();
 
         const scan = (scans as Array<{
@@ -114,7 +123,7 @@ export function createPostureRoutes(): Router {
             }
             : null,
         };
-      }));
+      });
       return sendSuccess(res, 200, data);
     } catch (err) {
       // A failure here degrades ONE panel half in the report (the caller treats any

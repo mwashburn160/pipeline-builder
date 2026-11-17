@@ -50,6 +50,7 @@ const mkQuota = (orgId: string, name: string, slug: string) => ({
       quotas: {
         plugins: { limit: 10, used: 1, remaining: 9, unlimited: false, resetAt: '' },
         pipelines: { limit: 10, used: 1, remaining: 9, unlimited: false, resetAt: '' },
+        cpuCredits: { limit: 100, used: 1, remaining: 99, unlimited: false, resetAt: '' },
         apiCalls: { limit: 100, used: 1, remaining: 99, unlimited: false, resetAt: '' },
         automationCalls: { limit: 5000, used: 1, remaining: 4999, unlimited: false, resetAt: '' },
         aiCalls: { limit: 100, used: 1, remaining: 99, unlimited: false, resetAt: '' },
@@ -71,6 +72,7 @@ jest.mock('@/lib/api', () => ({
     getOrgAtRisk: jest.fn<AnyFn>().mockResolvedValue({ success: true, data: { atRisk: [] } }),
     getOrgQuotas: (orgId: string) => getDeferred(orgId).promise,
     getOwnQuotas: jest.fn<AnyFn>(),
+    updateOrgQuotas: () => getDeferred('save').promise,
     getAllOrgQuotas: jest.fn<AnyFn>(),
   },
 }));
@@ -149,5 +151,30 @@ describe('QuotasPage — org search race', () => {
 
     await waitFor(() => expect(screen.getByText('Fresh ab org')).toBeInTheDocument());
     expect(screen.queryByText('Stale ab org')).not.toBeInTheDocument();
+  });
+});
+
+describe('QuotasPage — a save answered after an org switch', () => {
+  it('does not seed the newly selected org\'s editor with the saved org\'s limits', async () => {
+    render(<QuotasPage />);
+    await act(async () => { getDeferred('org-a').resolve(mkQuota('org-a', 'Alpha', 'alpha-slug')); });
+    await waitFor(() => expect(screen.getByText('alpha-slug')).toBeInTheDocument());
+
+    // Edit Alpha (a tier preset) and save; the write is still in flight…
+    fireEvent.click(screen.getByRole('button', { name: /^Team/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    // …when the operator moves to Beta (confirming the discard prompt).
+    fireEvent.click(screen.getByText('Beta'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Discard and switch' }));
+    await act(async () => { getDeferred('org-b').resolve(mkQuota('org-b', 'Beta', 'beta-slug')); });
+    await waitFor(() => expect(screen.getByText('beta-slug')).toBeInTheDocument());
+
+    // Alpha's save lands late. Beta's editor stays Beta's.
+    const saved = mkQuota('org-a', 'Alpha', 'alpha-slug');
+    (saved.data.quota as { tier: string }).tier = 'team';
+    await act(async () => { getDeferred('save').resolve(saved); });
+    expect(screen.getByText('beta-slug')).toBeInTheDocument();
+    expect(screen.queryByText('alpha-slug')).not.toBeInTheDocument();
   });
 });

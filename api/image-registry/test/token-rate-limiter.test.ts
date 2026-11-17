@@ -43,6 +43,12 @@ describe('token rate limiter — per (ip, username) bucket', () => {
     expect(await checkTokenRateLimit('10.0.0.4', 'bob')).toBe(true);
     expect(await checkTokenRateLimit('10.0.0.3', 'carol')).toBe(true);
   });
+
+  it('treats case variants of one username as ONE account', async () => {
+    // The login identifier is case-insensitive, so re-casing it must not buy a fresh budget.
+    for (const u of ['Dave@x.io', 'DAVE@x.io', 'dave@X.io']) expect(await checkTokenRateLimit('10.0.0.9', u)).toBe(true);
+    expect(await checkTokenRateLimit('10.0.0.9', 'dAvE@x.io')).toBe(false);
+  });
 });
 
 describe('token rate limiter — per-ip bucket (password spraying)', () => {

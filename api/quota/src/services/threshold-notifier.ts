@@ -110,7 +110,7 @@ export function clearThresholdMemos(): void {
 const logger = createLogger('threshold-notifier');
 
 /** The `quota.threshold` webhook event name. */
-export const QUOTA_THRESHOLD_EVENT = 'quota.threshold';
+const QUOTA_THRESHOLD_EVENT = 'quota.threshold';
 
 const NOTICES_METRIC = 'quota_threshold_notices_total';
 

@@ -563,8 +563,7 @@ export interface StageIngestMetric {
 }
 
 /**
- * One terminal CodeBuild ACTION's compute consumption (Phase 4, measurement
- * half).
+ * One terminal CodeBuild ACTION's compute consumption.
  *
  * `credits` is NULL rather than 0 when the action could not be measured — no
  * declared start time, or a compute size the forwarder could not read. The

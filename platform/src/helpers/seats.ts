@@ -108,7 +108,10 @@ export async function userHasSeatInAccount(
   orgId: string,
   session?: ClientSession | null,
 ): Promise<boolean> {
-  const subtreeIds = (await expandOrgScope(orgId)).map(toOrgId);
+  // From the ROOT, not from `orgId`: a person already active in the root (or a
+  // sibling team) holds a seat too, and `expandOrgScope(orgId)` only walks DOWN.
+  const { rootOrgId } = await resolveOrgLineage(orgId);
+  const subtreeIds = (await expandOrgScope(rootOrgId)).map(toOrgId);
   return !!(await UserOrganization.exists({
     userId, organizationId: { $in: subtreeIds }, isActive: true,
   }).session(session ?? null));
