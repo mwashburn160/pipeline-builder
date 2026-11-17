@@ -53,6 +53,8 @@ export interface PipelineExecution {
   execution_id: string;
   /** Rolled-up terminal status: succeeded | failed | canceled | in-progress. */
   status: string;
+  /** A stage was retried (AWS RESUMED the execution, or a later outcome overtook an earlier one). */
+  retried: boolean;
   started_at: string | null;
   ended_at: string | null;
   duration_ms: number | null;

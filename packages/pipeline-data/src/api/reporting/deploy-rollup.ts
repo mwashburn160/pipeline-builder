@@ -163,6 +163,12 @@ export async function upsertDeployments(
           sourceEventId: sql`COALESCE(excluded.source_event_id, ${schema.doraDeployment.sourceEventId})`,
           updatedAt: new Date(),
         },
+        // The LATER deploy event decides the row, not the later-ARRIVING one. A
+        // retried deploy stage reports FAILED then SUCCEEDED for the same
+        // execution, and a dead-letter redrive can deliver them in either order;
+        // last-write-wins let a replayed FAILED overwrite the success. A tie (the
+        // same event redelivered) still refreshes, as before.
+        setWhere: sql`excluded.deployed_at >= ${schema.doraDeployment.deployedAt}`,
       })
       .returning({ executionId: schema.doraDeployment.executionId }));
     return (landed as unknown[]).length;

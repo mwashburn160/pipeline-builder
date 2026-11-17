@@ -222,6 +222,21 @@ describe('POST /reports/events', () => {
     expect(events[1]).not.toHaveProperty('detail');
   });
 
+  // CodePipeline sends RESUMED when a failed stage is retried. Refusing it 400'd
+  // the forwarder's whole batch, so the run's neighbouring events never landed.
+  it.each(['PIPELINE', 'STAGE'])('accepts a RESUMED %s event (a retried stage)', async (eventType) => {
+    await getHandler()(ingestReq({ body: { events: [{ ...validEvent, eventType, stageName: 'Build', status: 'RESUMED' }] } }), res());
+    expect(mockSendBadRequest).not.toHaveBeenCalled();
+    const [events] = mockIngestEvents.mock.calls[0] as [Array<Record<string, unknown>>];
+    expect(events[0]).toEqual(expect.objectContaining({ status: 'RESUMED' }));
+  });
+
+  it('still refuses a status CodePipeline never sends', async () => {
+    await getHandler()(ingestReq({ body: { events: [{ ...validEvent, status: 'RESUMING' }] } }), res());
+    expect(mockSendBadRequest).toHaveBeenCalledWith(expect.anything(), expect.stringContaining('status'), 'VALIDATION_ERROR');
+    expect(mockIngestEvents).not.toHaveBeenCalled();
+  });
+
   it('rejects a malformed failure', async () => {
     await getHandler()(ingestReq({ body: { events: [{ ...validEvent, failure: { message: 'no code' } }] } }), res());
     expect(mockSendBadRequest).toHaveBeenCalledWith(expect.anything(), expect.any(String), 'VALIDATION_ERROR');

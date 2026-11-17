@@ -209,8 +209,13 @@ export async function parseRecord(record: SQSRecord): Promise<ParsedEvent | null
   // row still lands in the report windows, which filter on `started_at` — but it
   // is NOT a measurement, and the duration below must not be computed from it.
   const declaredStart = detail['start-time'] as string | undefined;
-  const startedAt = declaredStart || event.time;
   const state = detail.state as string;
+  // RESUMED (a failed stage was retried) re-opens an execution that already
+  // reported a terminal FAILED. Its row records WHEN it re-opened: the execution's
+  // original start would place it before that FAILED, and the reports could not
+  // tell a run that is running again from one that failed. A RESUMED row is never
+  // terminal, so no duration is computed from it.
+  const startedAt = state === 'RESUMED' ? event.time : (declaredStart || event.time);
 
   let durationMs: number | undefined;
   let completedAt: string | undefined;
