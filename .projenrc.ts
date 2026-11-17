@@ -638,9 +638,12 @@ const pipelineCore = new PackageProject({
 ...pkgDefaults, parent: root,
   name: '@pipeline-builder/pipeline-core',
   outdir: './packages/pipeline-core',
+  // No pipeline-data: core only needed its plugin WIRE types (`PluginFilter`,
+  // the plugin row shape), which api-core owns (`types/plugin-wire.ts`). Keeping
+  // the data layer (drizzle, pg) out of core keeps it out of every service and
+  // the CLI that only want core.
   deps: [
     `@pipeline-builder/api-core@${pkg.apiCore}`,
-    `@pipeline-builder/pipeline-data@${pkg.pipelineData}`,
     'axios@1.21.1',
   ],
   // `aws-cdk-lib` / `constructs` are PEER deps, not regular deps  the standard

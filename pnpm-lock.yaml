@@ -1160,9 +1160,6 @@ importers:
       '@pipeline-builder/api-core':
         specifier: workspace:*
         version: link:../api-core
-      '@pipeline-builder/pipeline-data':
-        specifier: workspace:*
-        version: link:../pipeline-data
       axios:
         specifier: 1.21.1
         version: 1.21.1(debug@4.4.3(supports-color@8.1.1))(supports-color@8.1.1)
