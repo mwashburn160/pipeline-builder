@@ -30,6 +30,9 @@ jest.mock('@/components/settings/AuthenticatorPolicySettings', () => ({ Authenti
 jest.mock('@/components/settings/AIProviderConfig', () => ({ AIProviderConfig: () => null }));
 jest.mock('@/components/settings/PipelineToolchainSettings', () => ({ PipelineToolchainSettings: () => null }));
 jest.mock('@/components/admin/StepUpModal', () => ({ StepUpModal: () => null }));
+// DomainJoinSettings reads the hierarchy (root-only "Share with teams"); the
+// page here is mounted without an AuthProvider, so stub it (hierarchy unknown).
+jest.mock('@/hooks/useOrgHierarchy', () => ({ useOrgHierarchy: () => ({ activeOrg: undefined }) }));
 
 jest.mock('@/lib/api', () => ({
   __esModule: true,

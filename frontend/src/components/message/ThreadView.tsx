@@ -346,12 +346,16 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
   const handleFilesSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     e.target.value = ''; // allow re-selecting the same file
-    if (!canWrite || files.length === 0) return;
+    // Gated on `canReply`, the same rule as the attach button and Send: a
+    // requester on their own support case holds only `messages:read`, so the
+    // upload goes through the support carve-out (`messages:read`) on a case
+    // thread — the general route needs `messages:write` and would 403.
+    if (!canReply || files.length === 0) return;
     setUploadError('');
     setUploading(true);
     try {
       for (const file of files) {
-        const res = await api.uploadAttachment(file);
+        const res = isSupportThread ? await api.uploadSupportAttachment(file) : await api.uploadAttachment(file);
         if (res.data?.attachment) setReplyAttachments((cur) => [...cur, res.data!.attachment]);
       }
     } catch (err) {
@@ -558,7 +562,9 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
           </ul>
         )}
         <ErrorAlert message={uploadError} className="mb-2" />
-        {!canWrite && !readOnly && (
+        {/* Only when the viewer actually cannot reply: a requester on their own
+            support case may reply and attach on messages:read alone. */}
+        {!canReply && !canWrite && !readOnly && (
           <p className="mb-2 text-xs text-fg-muted">
             You can read this conversation, but replying and attaching files need the
             &ldquo;messages:write&rdquo; permission.

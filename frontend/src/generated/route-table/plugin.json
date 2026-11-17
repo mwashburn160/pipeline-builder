@@ -3484,7 +3484,7 @@
     "servicePrincipal": false,
     "dynamicAuthz": [],
     "internalCallers": [],
-    "stepUp": false,
+    "stepUp": true,
     "stepUpMethods": [],
     "minAssurance": 2,
     "conditionalGates": [],

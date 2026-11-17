@@ -54,6 +54,17 @@ export interface SsoTestReport {
   recorded?: boolean;
 }
 
+/**
+ * A NON-BLOCKING note the server returns beside a saved IdP config (the save
+ * succeeded). `IDP_GOOGLE_NO_VERIFIED_DOMAIN`: a Google IdP on an org with no
+ * verified domain admits existing members only — nobody new is provisioned.
+ * `code` is left open so a new server-side warning still renders its message.
+ */
+export interface IdpSaveWarning {
+  code: 'IDP_GOOGLE_NO_VERIFIED_DOMAIN' | (string & {});
+  message: string;
+}
+
 /** Per-org IdP config. The client secret never crosses the wire; the UI shows `hasClientSecret`. */
 export interface OrgIdpConfigDto {
   orgId: string;

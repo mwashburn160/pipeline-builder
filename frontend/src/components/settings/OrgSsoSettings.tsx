@@ -16,6 +16,7 @@ import { StepUpModal } from '@/components/admin/StepUpModal';
 import { SpValues } from '@/components/sso/SpValues';
 import { VerifiedDomainPicker } from '@/components/sso/VerifiedDomainPicker';
 import { useFormState } from '@/hooks/useFormState';
+import { useToast } from '@/components/ui/Toast';
 import type { OrgIdpConfigDto, OrgIdpConfigCreate, IdpProvider } from '@/types';
 import { formatDateTime } from '@/lib/format';
 import { changedIdpFields } from './idp-diff';
@@ -68,6 +69,7 @@ export function OrgSsoSettings({
   wizard?: { presetProvider?: IdpProvider; submitLabel?: string };
 }) {
   const form = useFormState();
+  const toast = useToast();
   const [provider, setProvider] = useState<IdpProvider>('generic-oidc');
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
@@ -161,6 +163,10 @@ export function OrgSsoSettings({
       onSuccess: (res) => {
         const saved = res?.data?.config;
         if (!saved) return;
+        // Non-blocking notes on a SUCCESSFUL save (e.g. a Google IdP with no
+        // verified domain admits existing members only). A toast, not an inline
+        // alert: in the wizard `onSaved` moves on to the next step at once.
+        for (const w of res?.data?.warnings ?? []) toast.warning(w.message);
         setClientSecret('');
         onSaved(saved);
       },

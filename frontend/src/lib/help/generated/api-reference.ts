@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 52d3bef516d1b7d58a83388d50b9e1837cc44e601a11d87d0eca70848001b113
+// SOURCE-SHA256: 76ee7a351df18aef7a1609cbf884f34248131db561df1ec7d28a4f6fc2592468
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -3019,7 +3019,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "DELETE",
               "/plugins/queue/dlq",
-              "system org; plugin_queue:manage; MFA session (aal2)",
+              "system org; plugin_queue:manage; MFA session (aal2); step-up",
               "apiCalls",
               "plugin.dlq.purge"
             ],

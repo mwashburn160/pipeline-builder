@@ -476,8 +476,15 @@ identical on both.
   authorization code, and validates the returned `id_token` signature against
   the IdP's published JWKS before trusting any identity claim.
 - **Verified domains decide who SSO serves.** An enabled connection serves the
-  email domains the org (or its account root) has **verified through DNS**
-  (Settings → Organization → domains). `allowedEmailDomains` optionally narrows
+  email domains the org has **verified through DNS** (Settings → Organization →
+  domains). A **team** may also use a domain its account root verified, but
+  **only when a root admin has shared that domain with teams**
+  (`PATCH /organization/:id/domains/:domainId/team-sharing`, `{ "sharedWithTeams": true }`;
+  `org_settings:write` + step-up, audited as `org.domain.share`). Sharing is off
+  by default: every team runs its own IdP, so inheriting the root's domains would
+  let any team owner assert `owner@<root-domain>` and sign in as the root's own
+  accounts. The same rule bounds a team's SCIM provisioning and direct member
+  adds. Losing the DNS proof on re-verification also clears the share. `allowedEmailDomains` optionally narrows
   that to a subset — it is a **picker over verified domains**, and the write
   path refuses a domain the org has not verified (`IDP_DOMAIN_NOT_VERIFIED`),
   because an unverified entry proves nothing. Only IdP users whose email is in a
@@ -490,8 +497,8 @@ identical on both.
   always exempts the org's **owners** (the break-glass path).
 - **The org must own the email domain — every provider except Google Workspace.**
   An org's own IdP can sign any address as verified, so an SSO sign-in is refused
-  (`OIDC_EMAIL_DOMAIN_NOT_VERIFIED`) unless the email's domain is one the org (or
-  its account root) has **verified through DNS**. **Google (`provider: google`)
+  (`OIDC_EMAIL_DOMAIN_NOT_VERIFIED`) unless the email's domain is one the org has
+  **verified through DNS** (or, for a team, a root domain shared with teams). **Google (`provider: google`)
   is the single exception**, and the reason is who does the verifying: an
   `accounts.google.com` identity can only be minted for a domain Google itself
   has confirmed the customer controls, so the org's DNS proof would restate
@@ -504,9 +511,15 @@ identical on both.
   callback. Domain-based **discovery** ("Continue with single sign-on" from the
   login page, and the SSO-required lookup) still requires a verified domain for
   *every* provider, Google included, and [**SSO required**](#sso-required) is
-  refused outright without one (`IDP_SSO_REQUIRED_NO_DOMAIN`). So a Google
-  connection works with no verified domain, but only for sign-ins that start at
-  the org's own SSO URL — verify a domain regardless.
+  refused outright without one (`IDP_SSO_REQUIRED_NO_DOMAIN`). And because a
+  Google connection signs in **any** Google account, just-in-time provisioning
+  creates a **new membership only when the email's domain is verified by the
+  org** (same rule as above); anyone else must already be a member, or the
+  sign-in is refused with `JIT_NOT_MEMBER` (403). Saving a Google connection
+  for an org with no verified domain succeeds but returns a
+  `warnings: [{ code: "IDP_GOOGLE_NO_VERIFIED_DOMAIN", … }]` field. So a Google
+  connection works with no verified domain, but only for existing members whose
+  sign-ins start at the org's own SSO URL — verify a domain regardless.
   An SSO identity is linked by its subject *and* issuer, so one IdP can't claim
   another's users.
 - **Platform administrators never sign in through an org's SSO**, and SSO never

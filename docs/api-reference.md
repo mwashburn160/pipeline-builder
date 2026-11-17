@@ -678,7 +678,7 @@ Every route of the Pipeline, Plugin and Ask services, generated from the route-t
 | `POST` | `/plugins/publisher/listings/:listingId/deprecate` | `plugins:publish` | `apiCalls` | `plugin.version.deprecate` |
 | `POST` | `/plugins/publisher/listings/:listingId/pause` | `plugins:publish` | `apiCalls` | `plugin.listing.pause`, `plugin.version.pause` |
 | `POST` | `/plugins/publisher/terms` | `publishers:manage` | `apiCalls` | `publisher.terms.accept` |
-| `DELETE` | `/plugins/queue/dlq` | system org; `plugin_queue:manage`; MFA session (aal2) | `apiCalls` | `plugin.dlq.purge` |
+| `DELETE` | `/plugins/queue/dlq` | system org; `plugin_queue:manage`; MFA session (aal2); step-up | `apiCalls` | `plugin.dlq.purge` |
 | `GET` | `/plugins/queue/dlq` | decided per request | `apiCalls` | — |
 | `POST` | `/plugins/queue/dlq/:jobId/replay` | decided per request | `apiCalls` | `plugin.dlq.replay` |
 | `GET` | `/plugins/queue/failed` | decided per request | `apiCalls` | — |

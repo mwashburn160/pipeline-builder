@@ -504,6 +504,7 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | platform | POST | `/organization/:id/domains` | `any(org_settings:write)` |
 | platform | DELETE | `/organization/:id/domains/:domainId` | `any(org_settings:write)` |
 | platform | PATCH | `/organization/:id/domains/:domainId` | `any(org_settings:write)` |
+| platform | PATCH | `/organization/:id/domains/:domainId/team-sharing` | `any(org_settings:write) + step-up(any)` |
 | platform | POST | `/organization/:id/domains/:domainId/verify` | `any(org_settings:write)` |
 | platform | GET | `/organization/:id/export` | `any(org_settings:write)` |
 | platform | PATCH | `/organization/:id/identity` | `any(org_settings:write)` |
@@ -680,7 +681,7 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | plugin | PUT | `/plugins/security-notifications` | `any(org_settings:write)` |
 | plugin | POST | `/plugins/security-notifications/test` | `any(org_settings:write)` |
 | plugin | GET | `/plugins/shadowing` | `any(plugins:read)` |
-| plugin | DELETE | `/plugins/queue/dlq` | `system-org + any(plugin_queue:manage) + aal2` |
+| plugin | DELETE | `/plugins/queue/dlq` | `system-org + any(plugin_queue:manage) + aal2 + step-up(any)` |
 | plugin | GET | `/plugins/queue/dlq` | `dynamic(superadmin,system-org,tenant-member:plugin_queue:manage|plugins:write)` |
 | plugin | POST | `/plugins/queue/dlq/:jobId/replay` | `dynamic(superadmin,system-org,tenant-member:plugin_queue:manage|plugins:write)` |
 | plugin | GET | `/plugins/queue/failed` | `dynamic(superadmin,system-org,tenant-member:plugin_queue:manage|plugins:write)` |

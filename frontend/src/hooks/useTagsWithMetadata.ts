@@ -42,14 +42,21 @@ export function useTagsWithMetadata(repo: string | null, tags: string[] | null) 
     // from repo A to repo B — both with a `latest` tag — showed A's digest, size
     // and multi-arch flag on B's `latest` row until B's manifest came back, and
     // forever if every fetch for B failed. A refresh of the SAME repo keeps what
-    // it has, so the table doesn't flicker.
+    // it has, so the table doesn't flicker: each resolved tag is MERGED into the
+    // previous map (rebuilding from an empty one blanked every not-yet-refetched
+    // row to "—"), and only tags no longer listed are dropped.
     if (metadataRepoRef.current !== repo) {
       metadataRepoRef.current = repo;
       setMetadata(new Map());
+    } else {
+      const listed = new Set(tags);
+      setMetadata((prev) => {
+        if ([...prev.keys()].every((t) => listed.has(t))) return prev;
+        return new Map([...prev].filter(([t]) => listed.has(t)));
+      });
     }
     let cancelled = false;
     setLoading(true);
-    const result = new Map<string, TagMetadata>();
 
     const fetchTag = async (tag: string) => {
       try {
@@ -77,14 +84,14 @@ export function useTagsWithMetadata(repo: string | null, tags: string[] | null) 
           // Trade-off: the table's "created" column stays empty.
         }
 
-        result.set(tag, {
+        const entry: TagMetadata = {
           isMultiArch: isIndex,
           digest: m.digest,
           digestShort: m.digest.slice(0, 19) + '…',
           totalSize,
           created,
-        });
-        if (!cancelled) setMetadata(new Map(result));
+        };
+        if (!cancelled) setMetadata((prev) => new Map(prev).set(tag, entry));
       } catch {
         // Skip — the row will fall back to its "—" defaults.
       }

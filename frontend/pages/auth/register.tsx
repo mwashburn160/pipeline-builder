@@ -65,6 +65,19 @@ function SolutionPanel({ billingOff }: { billingOff: boolean }) {
   );
 }
 
+/** Mirrors the platform's `registerSchema.organizationName` (min 2, max 100). */
+const ORG_NAME_MIN = 2;
+const ORG_NAME_MAX = 100;
+
+/** The organization-name problem, if any. Blank is fine — the field is optional. */
+function orgNameError(value: string): string {
+  const name = value.trim();
+  if (!name) return '';
+  if (name.length < ORG_NAME_MIN) return `Organization name must be at least ${ORG_NAME_MIN} characters`;
+  if (name.length > ORG_NAME_MAX) return `Organization name must be at most ${ORG_NAME_MAX} characters`;
+  return '';
+}
+
 export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<WithSiteUrl>) {
   const OG_IMAGE = `${siteUrl}/og-image.png`;
   const { register, isSubmitting } = useAuth();
@@ -94,6 +107,7 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
     if (field === 'email' && value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) err = 'Invalid email';
     if (field === 'password' && value && value.length < 8) err = 'Min 8 characters';
     if (field === 'confirmPassword' && value && password && value !== password) err = 'Passwords do not match';
+    if (field === 'organizationName') err = orgNameError(value);
     setFieldErrors(prev => ({ ...prev, [field]: err }));
   };
 
@@ -131,6 +145,11 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setError('Enter a valid email'); return; }
     if (password.length < 8) { setError('Password must be at least 8 characters'); return; }
     if (password !== confirmPassword) { setError('Passwords do not match'); return; }
+    // The server rejects a 1-character name with a generic validation error;
+    // say what is wrong before sending it.
+    const orgError = orgNameError(organizationName);
+    if (orgError) { setFieldErrors((prev) => ({ ...prev, organizationName: orgError })); setError(orgError); return; }
+    const orgName = organizationName.trim();
 
     try {
       // `register` establishes the session and NAVIGATES — `login` routes to the
@@ -139,7 +158,7 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
       // `router.push('/dashboard')` here won, so a visitor who signed up from a
       // guarded deep link (e.g. a CLI device approval) lost it — `takeReturnPath`
       // had already consumed it — and an enrolment redirect was overridden too.
-      await register(username, email, password, organizationName || undefined, billingEnabled ? selectedPlan : undefined);
+      await register(username, email, password, orgName || undefined, billingEnabled ? selectedPlan : undefined);
       setSuccess(true);
     } catch (err) {
       setError(formatError(err, 'Registration failed'));
@@ -214,7 +233,10 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
                   <Input id="reg-email" type="email" autoComplete="email" required className={fieldErrors.email ? 'input-error' : ''} placeholder="Email" aria-label="Email" value={email} onChange={(e) => setEmail(e.target.value)} onBlur={() => validateField('email', email)} disabled={isSubmitting} />
                   {fieldErrors.email && <p className="form-error mt-1">{fieldErrors.email}</p>}
                 </div>
-                <Input id="reg-org" type="text" placeholder="Organization (optional)" aria-label="Organization name" value={organizationName} onChange={(e) => setOrganizationName(e.target.value)} disabled={isSubmitting} />
+                <div>
+                  <Input id="reg-org" type="text" maxLength={ORG_NAME_MAX} className={fieldErrors.organizationName ? 'input-error' : ''} placeholder="Organization (optional, min 2 chars)" aria-label="Organization name" value={organizationName} onChange={(e) => setOrganizationName(e.target.value)} onBlur={() => validateField('organizationName', organizationName)} disabled={isSubmitting} />
+                  {fieldErrors.organizationName && <p className="form-error mt-1">{fieldErrors.organizationName}</p>}
+                </div>
                 <div>
                   <Input id="reg-password" type="password" autoComplete="new-password" required className={fieldErrors.password ? 'input-error' : ''} placeholder="Password (min 8 chars)" aria-label="Password" value={password} onChange={(e) => setPassword(e.target.value)} onBlur={() => validateField('password', password)} disabled={isSubmitting} />
                   {fieldErrors.password && <p className="form-error mt-1">{fieldErrors.password}</p>}

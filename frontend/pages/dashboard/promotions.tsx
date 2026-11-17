@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { cloneElement, isValidElement, useId, useState, type ReactNode } from 'react';
+import { cloneElement, isValidElement, useId, useRef, useState, type ReactNode } from 'react';
 import { Megaphone, Plus, ShieldAlert, Eye, Gift, BarChart3, Zap, Info } from 'lucide-react';
 import { formatError } from '@/lib/constants';
 import { formatCents } from '@/lib/format';
@@ -256,11 +256,33 @@ export default function PromotionsPage() {
   const [activateTarget, setActivateTarget] = useState<Promotion | null>(null);
   const [activateConfirm, setActivateConfirm] = useState('');
   const [activating, setActivating] = useState(false);
+  // Bumped whenever the dialog's target changes (opened, closed). A grant that
+  // finishes after its dialog was replaced must not close the NEW one.
+  const activateGeneration = useRef(0);
+  const openActivate = (p: Promotion) => {
+    activateGeneration.current += 1;
+    setActivateTarget(p);
+    setActivateConfirm('');
+  };
+  // Esc / X / backdrop while the grant is running would hide a fleet-wide spend
+  // whose outcome the operator then never sees, so they are ignored until it settles.
+  const closeActivate = () => {
+    if (activating) return;
+    activateGeneration.current += 1;
+    setActivateTarget(null);
+    setActivateConfirm('');
+  };
   const confirmActivate = async () => {
     if (!activateTarget) return;
+    const generation = activateGeneration.current;
     setActivating(true);
-    await doActivate(activateTarget);
-    setActivating(false);
+    try {
+      await doActivate(activateTarget);
+    } finally {
+      setActivating(false);
+    }
+    if (generation !== activateGeneration.current) return;
+    activateGeneration.current += 1;
     setActivateTarget(null);
     setActivateConfirm('');
   };
@@ -313,7 +335,7 @@ export default function PromotionsPage() {
         <div className="flex items-center justify-end gap-1">
           <Button variant="ghost" size="sm" onClick={() => setDetailId(p.id)} title="Details" aria-label="Details"><Info className="w-4 h-4" /></Button>
           <Button variant="ghost" size="sm" onClick={() => doPreview(p)} title="Preview reach" aria-label="Preview reach"><Eye className="w-4 h-4" /></Button>
-          <Button variant="ghost" size="sm" onClick={() => { setActivateTarget(p); setActivateConfirm(''); }} title="Grant to existing eligible base" aria-label="Grant to existing eligible base"><Zap className="w-4 h-4" /></Button>
+          <Button variant="ghost" size="sm" onClick={() => openActivate(p)} title="Grant to existing eligible base" aria-label="Grant to existing eligible base"><Zap className="w-4 h-4" /></Button>
           <Button variant="ghost" size="sm" onClick={() => doSpend(p)} title="Spend rollup" aria-label="Spend rollup"><BarChart3 className="w-4 h-4" /></Button>
           <Button variant="ghost" size="sm" onClick={() => openGrant(p)} title="Manual grant" aria-label="Manual grant"><Gift className="w-4 h-4" /></Button>
           <Button variant="ghost" size="sm" onClick={() => (p.isActive ? setRevokeTarget(p) : reactivate(p))}>{p.isActive ? 'Revoke' : 'Activate'}</Button>
@@ -470,10 +492,10 @@ export default function PromotionsPage() {
       {activateTarget && (
         <Modal
           title="Grant to eligible base"
-          onClose={() => setActivateTarget(null)}
+          onClose={closeActivate}
           footer={
             <ModalFooter
-              onCancel={() => setActivateTarget(null)}
+              onCancel={closeActivate}
               onConfirm={confirmActivate}
               confirmLabel="Grant credits"
               loading={activating}

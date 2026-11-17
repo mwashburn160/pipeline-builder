@@ -4,11 +4,13 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { Globe, Check, Trash2, RefreshCw } from 'lucide-react';
+import { StepUpModal } from '@/components/admin/StepUpModal';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { Callout } from '@/components/ui/Callout';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
+import { Switch } from '@/components/ui/Switch';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { FormField } from '@/components/ui/FormField';
 import { LoadingSpinner } from '@/components/ui/Loading';
@@ -17,6 +19,7 @@ import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { useToast } from '@/components/ui/Toast';
 import { DOMAIN_SETTINGS_ANCHOR } from '@/components/sso/VerifiedDomainPicker';
 import { useFeatureGate } from '@/hooks/useFeatureGate';
+import { useOrgHierarchy } from '@/hooks/useOrgHierarchy';
 import { useFetch } from '@/hooks/useFetch';
 import { useDelete } from '@/hooks/useDelete';
 import { useFormState } from '@/hooks/useFormState';
@@ -48,6 +51,16 @@ import { JoinRequestsPanel } from './JoinRequestsPanel';
  * they cannot finish wiring up, which is exactly the loop this text breaks.
  */
 /**
+ * "Share with teams" (ROOT orgs only, verified rows only): delegates the
+ * domain's identity trust to the account's teams, so a team's own IdP / SCIM may
+ * vouch for addresses at it. A security-relevant delegation, so the switch opens
+ * a `StepUpModal` stating the consequence and the PATCH carries its token. Hidden
+ * on a team (only the root owns the account's domains — the server refuses with
+ * `DOMAIN_SHARE_NOT_ROOT`) and on unverified rows (`DOMAIN_SHARE_UNVERIFIED`).
+ * Root-ness comes from {@link useOrgHierarchy}: the switch shows only once the
+ * active org's membership row has loaded, is THIS org, and has no parent — an
+ * unknown hierarchy never offers it.
+ *
  * `readOnly` shows the card with every control disabled — for a read-only
  * impersonation session, where the settings must be VISIBLE (that is the point
  * of investigating) but no write may be offered.
@@ -61,6 +74,10 @@ export function DomainJoinSettings({ orgId, readOnly = false }: { orgId: string;
   const sso = useFeatureGate('sso');
   const [newDomain, setNewDomain] = useState('');
   const form = useFormState();
+  const { activeOrg } = useOrgHierarchy();
+  const isRootOrg = !!activeOrg && activeOrg.id === orgId && !activeOrg.parentOrgId;
+  // The share change awaiting its step-up (the domain and the value to set).
+  const [pendingShare, setPendingShare] = useState<{ domain: OrgDomainDto; shared: boolean } | null>(null);
 
   // The domains. Join requests are their own paged read (JoinRequestsPanel).
   const read = useFetch(
@@ -89,6 +106,19 @@ export function DomainJoinSettings({ orgId, readOnly = false }: { orgId: string;
       void read.refetch();
     },
   });
+
+  // The step-up token is single-use and forwarded here, so the request is never
+  // replayed by the global dialog (`replayOnStepUp: false` on the client); a
+  // refusal (e.g. DOMAIN_SHARE_NOT_ROOT) lands in the card's error alert.
+  const confirmShare = async (stepUpToken: string) => {
+    const pending = pendingShare;
+    setPendingShare(null);
+    if (!pending) return;
+    await run(
+      () => api.setOrgDomainSharing(orgId, pending.domain.id, pending.shared, stepUpToken),
+      pending.shared ? `${pending.domain.domain} is now shared with teams` : `${pending.domain.domain} is no longer shared with teams`,
+    );
+  };
 
   // Same for the delete: `useDelete` follows the replay and re-reads after it.
   const del = useDelete<OrgDomainDto>(
@@ -200,6 +230,19 @@ export function DomainJoinSettings({ orgId, readOnly = false }: { orgId: string;
                     </Select>
                   </div>
                 )}
+
+                {d.verified && isRootOrg && (
+                  <div className="mt-2 flex items-center gap-2">
+                    <Switch
+                      id={`share-${d.id}`}
+                      aria-label={`Share ${d.domain} with teams`}
+                      checked={d.sharedWithTeams === true}
+                      disabled={locked}
+                      onChange={(next) => setPendingShare({ domain: d, shared: next })}
+                    />
+                    <label className="text-xs text-fg-muted" htmlFor={`share-${d.id}`}>Share with teams</label>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -207,6 +250,18 @@ export function DomainJoinSettings({ orgId, readOnly = false }: { orgId: string;
           {/* Join requests: pending (approve / deny) and denied (clear). */}
           <JoinRequestsPanel orgId={orgId} readOnly={readOnly} />
         </>
+      )}
+
+      {pendingShare && (
+        <StepUpModal
+          title={pendingShare.shared ? `Share ${pendingShare.domain.domain} with teams?` : `Stop sharing ${pendingShare.domain.domain}?`}
+          action={pendingShare.shared ? `Share ${pendingShare.domain.domain} with teams` : `Stop sharing ${pendingShare.domain.domain} with teams`}
+          details={pendingShare.shared
+            ? <>Teams in this account will be able to sign in and provision users at <strong>{pendingShare.domain.domain}</strong> through their own identity providers.</>
+            : <>Teams in this account will no longer be able to sign in or provision users at <strong>{pendingShare.domain.domain}</strong> through their own identity providers.</>}
+          onConfirmed={confirmShare}
+          onClose={() => setPendingShare(null)}
+        />
       )}
 
       {del.target && (

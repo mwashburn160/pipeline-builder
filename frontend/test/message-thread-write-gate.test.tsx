@@ -25,6 +25,7 @@ const replyToMessage = jest.fn<AnyFn>();
 const replyToSupportCase = jest.fn<AnyFn>();
 const editMessage = jest.fn<AnyFn>();
 const uploadAttachment = jest.fn<AnyFn>();
+const uploadSupportAttachment = jest.fn<AnyFn>();
 
 jest.mock('@/lib/api', () => ({
   __esModule: true,
@@ -34,6 +35,7 @@ jest.mock('@/lib/api', () => ({
     replyToSupportCase: (...a: unknown[]) => replyToSupportCase(...a),
     editMessage: (...a: unknown[]) => editMessage(...a),
     uploadAttachment: (...a: unknown[]) => uploadAttachment(...a),
+    uploadSupportAttachment: (...a: unknown[]) => uploadSupportAttachment(...a),
   },
 }));
 jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => ({ organizations: [{ id: 'org-1', name: 'Acme' }] })));
@@ -138,6 +140,56 @@ describe('ThreadView write gate (messages:write)', () => {
     fireEvent.keyDown(box, { key: 'Enter' });
     expect(replyToMessage).not.toHaveBeenCalled();
     expect(uploadAttachment).not.toHaveBeenCalled();
+  });
+});
+
+describe('ThreadView attachments on a support case (messages:read carve-out)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    getThread.mockResolvedValue({ data: { messages: [ROOT] } });
+  });
+
+  const pick = (name: string) => {
+    const input = screen.getByLabelText('Attach files to reply');
+    fireEvent.change(input, { target: { files: [new File(['log'], name, { type: 'text/plain' })] } });
+  };
+
+  it('a read-only requester on their own case uploads through the support endpoint', async () => {
+    uploadSupportAttachment.mockResolvedValue({ data: { attachment: { id: 'att-1', filename: 'build.log', contentType: 'text/plain', sizeBytes: 3 } } });
+    replyToSupportCase.mockResolvedValue({ data: { ...ROOT, id: 'm2', content: 'log attached' } });
+    renderThread(false, { supportCase: CASE });
+    await waitFor(() => expect(screen.getByText('the nightly build is red')).toBeInTheDocument());
+
+    expect(screen.getByRole('button', { name: 'Attach files' })).toBeEnabled();
+    // The "needs messages:write" hint would be wrong here — they may reply.
+    expect(screen.queryByText(/replying and attaching files need/i)).not.toBeInTheDocument();
+
+    pick('build.log');
+    await waitFor(() => expect(uploadSupportAttachment).toHaveBeenCalledTimes(1));
+    expect(uploadAttachment).not.toHaveBeenCalled();
+    expect(await screen.findByText('build.log')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Reply to conversation' }), { target: { value: 'log attached' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send reply' }));
+    await waitFor(() => expect(replyToSupportCase).toHaveBeenCalledWith('m1', 'log attached', ['att-1'], expect.any(String)));
+  });
+
+  it('a writer on a non-support thread still uses the general endpoint', async () => {
+    uploadAttachment.mockResolvedValue({ data: { attachment: { id: 'att-2', filename: 'a.txt', contentType: 'text/plain', sizeBytes: 3 } } });
+    renderThread(true);
+    await waitFor(() => expect(screen.getByText('the nightly build is red')).toBeInTheDocument());
+    pick('a.txt');
+    await waitFor(() => expect(uploadAttachment).toHaveBeenCalledTimes(1));
+    expect(uploadSupportAttachment).not.toHaveBeenCalled();
+  });
+
+  it('a reader who cannot reply uploads nothing even if the input fires', async () => {
+    renderThread(false);
+    await waitFor(() => expect(screen.getByText('the nightly build is red')).toBeInTheDocument());
+    pick('a.txt');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(uploadAttachment).not.toHaveBeenCalled();
+    expect(uploadSupportAttachment).not.toHaveBeenCalled();
   });
 });
 

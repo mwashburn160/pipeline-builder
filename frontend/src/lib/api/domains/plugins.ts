@@ -250,10 +250,16 @@ export function pluginsApi(core: ApiCore) {
       );
     },
 
-    /** Purge the entire plugin-build dead-letter queue. Destructive; system-admin only (403 otherwise). */
-    purgeDlq: async () => {
+    /**
+     * Purge the entire plugin-build dead-letter queue. Destructive; system-admin
+     * only (403 otherwise) and step-up gated: the caller passes the token its own
+     * StepUpModal minted, so the global dialog never replays it a second time.
+     */
+    purgeDlq: async (stepUpToken?: string) => {
       return core.request<ApiResponse<{ message: string }>>('/api/plugins/queue/dlq', {
         method: 'DELETE',
+        replayOnStepUp: false,
+        headers: core.stepUpHeader(stepUpToken),
       });
     },
 

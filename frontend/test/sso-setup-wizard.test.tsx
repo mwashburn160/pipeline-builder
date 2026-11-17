@@ -27,6 +27,8 @@ import { SsoStatusSummary } from '../src/components/sso/SsoStatusSummary';
 import { SsoRequiredToggle, ssoRequiredBlocker } from '../src/components/sso/SsoRequiredToggle';
 import type { OrgIdpConfigDto } from '../src/types';
 
+jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() })));
+
 jest.mock('@/lib/api', () => {
   const api = {
     getOwnOrgIdpSpInfo: jest.fn<AnyFn>(),

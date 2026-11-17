@@ -3065,7 +3065,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     category: 'sysadmin-console',
     why: 'Support queue console (pages/dashboard/admin/support.tsx, systemAdminOnly in nav.ts): "Take case" / "Release case" and the per-row Severity select. Staff-only rather than permission-gated for the same reason the routes are — `messages:read` is held by ordinary members in every tenant, and this surface spans all of them. Severity re-ranking is deliberately NOT offered to the tenant: they choose it at open, so a tenant-settable re-rank would let them pick the response target they are owed.',
   }),
-  'plugin DELETE /plugins/queue/dlq': { category: 'sysadmin-console', why: '"Purge DLQ" on pages/dashboard/build-queue.tsx, wrapped in a `plugin_queue:manage` check matching the route.' },
+  'plugin DELETE /plugins/queue/dlq': { category: 'sysadmin-console', why: '"Purge DLQ" on pages/dashboard/build-queue.tsx, wrapped in a `plugin_queue:manage` check matching the route; the confirm is a StepUpModal whose token api.purgeDlq sends as X-Step-Up-Token (the route requires step-up).' },
   'quota PUT /quotas/:orgId': { category: 'sysadmin-console', why: '"Save" in src/components/quotas/QuotasAdmin.tsx, rendered only when the viewer holds `quotas:manage` (the `canEditQuotas` prop). Note the PAGE gate is quotas:read — the control-level check is what matches the route.' },
   'quota POST /quotas/:orgId/reset': {
     category: 'sysadmin-console',
@@ -3180,6 +3180,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     coveredBy: 'Edit organization identity / AI settings',
     why: 'src/components/settings/DomainJoinSettings.tsx (verify, who-can-join select, delete domain) and the JoinRequestsPanel it renders (approve/deny a pending join request, "Clear denial" on the Denied tab). It has no internal check: its mount site is `{can(\'org_settings:write\') && …}` in pages/dashboard/settings.tsx — the gate the mapped row renders with and without.',
   }),
+  'platform PATCH /organization/:id/domains/:domainId/team-sharing': { category: 'same-control', coveredBy: 'Edit organization identity / AI settings', why: 'The per-row "Share with teams" switch in src/components/settings/DomainJoinSettings.tsx (setOrgDomainSharing), shown only on a ROOT org\'s verified domains. Same mount site as the rest of that card — `{canSeeOrgSettings && …}` in pages/dashboard/settings.tsx, the org_settings:write gate the mapped row renders with and without; the switch opens a StepUpModal and the PATCH carries its token (never replayed by the global dialog).' },
   'platform PUT /organization/ai-config': { category: 'same-control', coveredBy: 'Edit organization identity / AI settings', why: 'src/components/settings/AIProviderConfig.tsx, mounted with `canEdit={can(\'org_settings:write\')}`: the provider-key add/update/remove AND the org\'s "AI features" switch (aiEnabled), which is disabled without that permission. Every write is additionally step-up gated (StepUpModal before the PUT).' },
   'platform PATCH /organization/:id/transfer-owner': { category: 'same-control', coveredBy: "Change a member's role / remove a member", why: 'Transfer ownership on the Members page; owner-gated + step-up on an MFA-grade session.' },
   ...group('pipeline', ['POST /pipelines/registry', 'DELETE /pipelines/registry/:id'], {

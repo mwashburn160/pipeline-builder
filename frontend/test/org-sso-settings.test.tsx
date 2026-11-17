@@ -57,7 +57,8 @@ jest.mock('@/components/admin/StepUpModal', () => ({
   ),
 }));
 const toastSuccess = jest.fn<AnyFn>();
-jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => ({ success: toastSuccess, error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() })));
+const toastWarning = jest.fn<AnyFn>();
+jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => ({ success: toastSuccess, error: jest.fn<AnyFn>(), warning: toastWarning, info: jest.fn<AnyFn>() })));
 
 const stored: OrgIdpConfigDto = {
   orgId: 'org-1',
@@ -134,6 +135,37 @@ describe('OrgSsoSettings', () => {
     expect(patchOwnOrgIdpConfig).toHaveBeenCalledWith('org-1', { enabled: false }, 'tok');
     expect(putOwnOrgIdpConfig).not.toHaveBeenCalled();
     expect(onSaved).toHaveBeenCalledWith({ ...stored, enabled: false });
+  });
+
+  it('surfaces the server\'s save WARNINGS after a successful save (Google with no verified domain)', async () => {
+    const google = { ...stored, provider: 'google' as const, discoveryUrl: undefined };
+    const message = 'This organization has no verified domain, so Google sign-in will only admit existing members — nobody new is added automatically.';
+    patchOwnOrgIdpConfig.mockResolvedValue({
+      success: true,
+      data: { config: { ...google, enabled: false }, warnings: [{ code: 'IDP_GOOGLE_NO_VERIFIED_DOMAIN', message }] },
+    });
+    const onSaved = jest.fn<AnyFn>();
+    render(<OrgSsoSettings orgId="org-1" config={google} readOnly={false} onSaved={onSaved} />);
+    await waitFor(() => expect(screen.queryAllByLabelText('Loading')).toHaveLength(0));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Enabled' }));
+    fireEvent.click(screen.getByRole('button', { name: /Save SSO settings/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+
+    // The save still succeeded — the warning rides beside it, never instead of it.
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith({ ...google, enabled: false }));
+    expect(toastWarning).toHaveBeenCalledTimes(1);
+    expect(toastWarning).toHaveBeenCalledWith(message);
+  });
+
+  it('raises no warning when the save carries none', async () => {
+    render(<OrgSsoSettings orgId="org-1" config={stored} readOnly={false} onSaved={jest.fn<AnyFn>()} />);
+    await waitFor(() => expect(screen.queryAllByLabelText('Loading')).toHaveLength(0));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Enabled' }));
+    fireEvent.click(screen.getByRole('button', { name: /Save SSO settings/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+    await waitFor(() => expect(patchOwnOrgIdpConfig).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByText(/SSO configuration saved/i)).toBeInTheDocument());
+    expect(toastWarning).not.toHaveBeenCalled();
   });
 
   it('sends a typed secret as a rotation', async () => {

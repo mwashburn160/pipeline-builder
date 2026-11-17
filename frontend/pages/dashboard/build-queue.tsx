@@ -181,10 +181,10 @@ export default function BuildQueuePage() {
 
   // Purge the ENTIRE dead-letter queue — destructive, sysadmin-only. Strong
   // confirm, then refresh the aggregate status + (if open) the DLQ list.
-  const handlePurgeDlq = useCallback(async () => {
+  const handlePurgeDlq = useCallback(async (stepUpToken: string) => {
     setPurging(true);
     try {
-      await api.purgeDlq();
+      await api.purgeDlq(stepUpToken);
       toast.success('Dead-letter queue purged');
       refetchDlq();
       void fetchStatus();
@@ -436,7 +436,7 @@ export default function BuildQueuePage() {
       {pendingPurge && (
         <StepUpModal
           action="Purge the ENTIRE dead-letter queue — this permanently deletes every DLQ entry and cannot be undone"
-          onConfirmed={async () => { await handlePurgeDlq(); }}
+          onConfirmed={async (stepUpToken) => { await handlePurgeDlq(stepUpToken); }}
           onClose={() => setPendingPurge(false)}
         />
       )}

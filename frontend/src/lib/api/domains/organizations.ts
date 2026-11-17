@@ -4,7 +4,7 @@
 import type { AccessKeyMeta } from './auth';
 import type { ApiCore } from '../core';
 import { buildQuery } from '../util';
-import type { ApiResponse, Organization, OrganizationMember, MemberTeam, OrganizationRole, OrgAIConfig, Invitation, InvitationDelivery, OrgIdpConfigDto, OrgIdpConfigCreate, IdpGroupMappingDto, OrgMfaPolicy, OrgPasswordPolicy, OrgAuthenticatorPolicy, MfaResetRequest, ParsedIdpMetadata, PlanTier, SsoSpInfo, SsoTestReport } from '@/types';
+import type { ApiResponse, Organization, OrganizationMember, MemberTeam, OrganizationRole, OrgAIConfig, Invitation, InvitationDelivery, OrgIdpConfigDto, OrgIdpConfigCreate, IdpSaveWarning, IdpGroupMappingDto, OrgMfaPolicy, OrgPasswordPolicy, OrgAuthenticatorPolicy, MfaResetRequest, ParsedIdpMetadata, PlanTier, SsoSpInfo, SsoTestReport } from '@/types';
 import type { OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 
 /**
@@ -602,7 +602,8 @@ export function organizationsApi(core: ApiCore) {
      *  strong-factor step-up: the editor confirms in a `StepUpModal`
      *  (`requireStrongFactor`) and forwards its token here. */
     putOwnOrgIdpConfig: async (orgId: string, data: Partial<OrgIdpConfigCreate>, stepUpToken?: string) => {
-      return core.request<ApiResponse<{ config: OrgIdpConfigDto }>>(`/api/organization/${orgId}/idp`, {
+      // `warnings` rides only when there are any (see IdpSaveWarning).
+      return core.request<ApiResponse<{ config: OrgIdpConfigDto; warnings?: IdpSaveWarning[] }>>(`/api/organization/${orgId}/idp`, {
         method: 'PUT',
         body: JSON.stringify(data),
         headers: core.stepUpHeader(stepUpToken),
@@ -613,7 +614,8 @@ export function organizationsApi(core: ApiCore) {
      *  config (404 when none exists). An omitted/empty `clientSecret` keeps the
      *  stored one. */
     patchOwnOrgIdpConfig: async (orgId: string, data: Partial<OrgIdpConfigCreate>, stepUpToken?: string) => {
-      return core.request<ApiResponse<{ config: OrgIdpConfigDto }>>(`/api/organization/${orgId}/idp`, {
+      // `warnings` rides only when there are any (see IdpSaveWarning).
+      return core.request<ApiResponse<{ config: OrgIdpConfigDto; warnings?: IdpSaveWarning[] }>>(`/api/organization/${orgId}/idp`, {
         method: 'PATCH',
         body: JSON.stringify(data),
         headers: core.stepUpHeader(stepUpToken),
@@ -707,6 +709,23 @@ export function organizationsApi(core: ApiCore) {
     setOrgDomainMode: async (orgId: string, domainId: string, autoJoin: 'off' | 'request' | 'auto') => {
       return core.request<ApiResponse<{ domain: OrgDomainDto }>>(`/api/organization/${orgId}/domains/${domainId}`, {
         method: 'PATCH', body: JSON.stringify({ autoJoin }),
+      });
+    },
+    /**
+     * PATCH /organization/:id/domains/:domainId/team-sharing — a ROOT org shares
+     * (or stops sharing) a VERIFIED domain with the account's teams, letting
+     * their own IdPs / SCIM vouch for addresses at it. Gated `org_settings:write`
+     * plus step-up: the caller confirms in a `StepUpModal` and forwards its
+     * token, so the global dialog never replays it (`replayOnStepUp: false`).
+     * Refused 409 `DOMAIN_SHARE_NOT_ROOT` on a team and
+     * `DOMAIN_SHARE_UNVERIFIED` when turning it on for an unverified domain.
+     */
+    setOrgDomainSharing: async (orgId: string, domainId: string, sharedWithTeams: boolean, stepUpToken?: string) => {
+      return core.request<ApiResponse<{ domain: OrgDomainDto }>>(`/api/organization/${orgId}/domains/${domainId}/team-sharing`, {
+        method: 'PATCH',
+        replayOnStepUp: false,
+        headers: core.stepUpHeader(stepUpToken),
+        body: JSON.stringify({ sharedWithTeams }),
       });
     },
     deleteOrgDomain: async (orgId: string, domainId: string) => {
@@ -923,6 +942,9 @@ export interface OrgDomainDto {
   domain: string;
   verified: boolean;
   autoJoin: 'off' | 'request' | 'auto';
+  /** A ROOT org's verified domain shared with its teams: their IdPs / SCIM may
+   *  vouch for addresses at it. Off by default; always false on a team. */
+  sharedWithTeams?: boolean;
   /** DNS TXT record to publish — present only while unverified. */
   verification?: { host: string; type: string; value: string };
 }
