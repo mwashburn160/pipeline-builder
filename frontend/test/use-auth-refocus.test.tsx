@@ -29,6 +29,7 @@ const profile = () => ({
   data: { user: { id: 'u1', username: 'neo', email: 'neo@example.com', role: 'owner', organizationId: 'o1', features: ['a', 'b'] } },
 });
 let sessionExpired: (() => void) | null = null;
+let identityChanged: (() => void) | null = null;
 const mockApi = {
   isAuthenticated: jest.fn<AnyFn>(() => true),
   // A page load has no access token in memory; the provider trades the
@@ -40,6 +41,7 @@ const mockApi = {
   setOrganizationId: jest.fn<AnyFn>(),
   onAccessTokenChange: () => () => undefined,
   onOrganizationChange: () => () => undefined,
+  onIdentityChange: jest.fn<AnyFn>((cb: () => void) => { identityChanged = cb; return () => { identityChanged = null; }; }),
   onSessionExpired: jest.fn<AnyFn>((cb: () => void) => { sessionExpired = cb; return () => { sessionExpired = null; }; }),
   logout: jest.fn<AnyFn>(async () => undefined),
 };
@@ -197,5 +199,30 @@ describe('useAuth sign-out vs. a profile refresh still in flight', () => {
     await act(async () => { answer(profile()); });
 
     expect(result.current.user).toBeNull();
+  });
+});
+
+describe('useAuth when an impersonation starts in place', () => {
+  // The impersonation token is memory-only, so starting one cannot reload the
+  // page: the provider must rebuild everything under the new identity itself.
+  it('clears the previous identity\'s caches, reloads the profile and lands on /dashboard', async () => {
+    mockApi.getProfile.mockImplementation(async () => profile());
+    const wrapper = ({ children }: { children: ReactNode }) => <AuthProvider>{children}</AuthProvider>;
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(result.current.user?.id).toBe('u1'));
+    mockClearQueryCache.mockClear();
+    mockRouter.push.mockClear();
+
+    mockApi.getProfile.mockImplementation(async () => {
+      const p = profile();
+      p.data.user.id = 'target';
+      p.data.user.username = 'target-user';
+      return p;
+    });
+    await act(async () => { identityChanged?.(); });
+
+    expect(mockClearQueryCache).toHaveBeenCalled();
+    expect(mockRouter.push).toHaveBeenCalledWith('/dashboard');
+    await waitFor(() => expect(result.current.user?.id).toBe('target'));
   });
 });

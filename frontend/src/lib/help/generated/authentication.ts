@@ -1,6 +1,6 @@
 // GENERATED FROM docs/authentication.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: fb483a57aaa10d4784ca5202f6008b3b34a9c2dad853926f1c30e4ff687fd461
+// SOURCE-SHA256: ce8df831a6be6f1df65ed9ddbaa71fa701cb48beb5186ebd3f9b0e9b74fe2d4f
 // SPDX-License-Identifier: Apache-2.0
 import { Lock } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -325,7 +325,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "All buckets use the shared Redis rate-limit store (limits hold across replicas; a store outage lets requests through). A refusal answers 429 RATE_LIMIT_EXCEEDED with Retry-After and details.retryAfterSeconds, which the sign-in page turns into \"Try again in N minutes\", and is counted on platform_rate_limit_rejected_total{limiter,route} (alert: AuthRateLimitRefusalBurst). The trade-off of the per-account bucket: anyone who knows an identifier can delay its password sign-in for one window; passkey, social and SSO sign-in are unaffected. TOTP codes have their own per-account lockout."
+          "content": "All buckets use the shared Redis rate-limit store (limits hold across replicas; a store outage lets requests through, and every such store error is counted on rate_limit_store_error_total{limiter} — alert RateLimitStoreFailingOpen). Password sign-in does not rely on the Redis buckets alone: a durable per-account lockout in Mongo (platform/src/helpers/password-lockout.ts, LOGIN_ACCOUNT_LOCKOUT_, defaults matching the per-account bucket: 10 failures in 15 min lock password sign-in for 15 min) counts failed passwords for real accounts and keeps guessing bounded even while Redis is down. While it is live, /auth/login answers the same 429 the bucket gives — for a wrong and* a right password — and the trip is audited as user.login.locked_out; a password reset lifts it. With the defaults equal, the Redis bucket (which answers every identifier alike) trips first while Redis is healthy, so the Mongo lockout adds no \"this account exists\" signal in normal operation. A refusal answers 429 RATE_LIMIT_EXCEEDED with Retry-After and details.retryAfterSeconds, which the sign-in page turns into \"Try again in N minutes\", and is counted on platform_rate_limit_rejected_total{limiter,route} (alert: AuthRateLimitRefusalBurst). The trade-off of the per-account bucket: anyone who knows an identifier can delay its password sign-in for one window; passkey, social and SSO sign-in are unaffected. TOTP codes have their own per-account lockout."
         },
         {
           "type": "text",
@@ -353,6 +353,79 @@ export const authenticationTopic: HelpTopic = {
         {
           "type": "text",
           "content": "The buttons are hidden for anyone whose email domain is federated: social login is one of the bypasses the backend refuses for a covered account, so the card offers that org's SSO instead."
+        },
+        {
+          "type": "text",
+          "content": "Redis dependency"
+        },
+        {
+          "type": "text",
+          "content": "Redis is required in production: platform refuses to boot under NODE_ENV=production with neither REDIS_URL nor REDIS_SENTINELS set (assertRedisConfiguredForProduction, platform/src/utils/redis-client.ts). Dev and test keep per-process fallbacks so a single-process stack runs without it. Once configured, a Redis outage is handled per subsystem — some fail open (keep serving, a guarantee weakens), some fail closed (refuse, the person retries):"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Subsystem",
+            "On a Redis error",
+            "Signal"
+          ],
+          "rows": [
+            [
+              "Rate-limit buckets (every platform limiter, incl. per-IP sign-in and per-account login)",
+              "Open — the request passes unlimited (passOnStoreError)",
+              "rate_limit_store_error_total{limiter}"
+            ],
+            [
+              "Password guessing",
+              "Bounded anyway — the Mongo-backed per-account lockout keeps counting",
+              "user.login.locked_out audit"
+            ],
+            [
+              "OAuth / SSO / SAML / step-up / WebAuthn / device-flow / MFA-challenge pending state — write (put)",
+              "Closed in production — the initiate step answers 503 SERVICE_UNAVAILABLE; never a pod-local entry other replicas can't see. (Outside production: falls back to process memory.)",
+              "503s on the initiate routes, error log"
+            ],
+            [
+              "Same stores — read / consume",
+              "Closed — that attempt is refused (the person restarts the flow)",
+              "—"
+            ],
+            [
+              "SAML assertion replay guard (putIfAbsent)",
+              "Closed — treated as \"already used\"",
+              "sso.saml.refused reason: replay"
+            ],
+            [
+              "Refresh-token rotation grace",
+              "Write is best-effort (the rotation already committed and the caller keeps its new pair); a read error is closed — a concurrent refresh is treated as reuse and its slot revoked (sign in again)",
+              "platform_refresh_reuse_total"
+            ],
+            [
+              "Revocation publish (sign-out-everywhere, password reset, access-key revoke)",
+              "Open — the write in Mongo stands; other services see it only at token expiry",
+              "warning log"
+            ],
+            [
+              "Revocation read in the stateless services",
+              "Open — revocations stop taking effect until token expiry",
+              "token_revocation_fail_open_total (TokenRevocationFailingOpen)"
+            ],
+            [
+              "Impersonation-session revocation read",
+              "Closed — the session is rejected",
+              "session_revocation_unavailable_total (SessionRevocationUnavailable)"
+            ],
+            [
+              "Leader-locked background sweeps",
+              "Skip — the sweep does not run that tick (concurrency-safe sweeps run everywhere)",
+              "scheduler liveness gauges"
+            ],
+            [
+              "Infra auto-remediation cooldowns (PVC / disk / Postgres rung)",
+              "Closed — no action without a cooldown record",
+              "warning log"
+            ]
+          ]
         },
         {
           "type": "text",

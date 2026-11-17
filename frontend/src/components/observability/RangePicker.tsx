@@ -39,7 +39,7 @@ export function RangePicker({ value, onChange }: RangePickerProps) {
             onClick={() => onChange(p.key)}
             className={`px-3 py-1.5 text-xs font-medium ${i > 0 ? 'border-l border-default' : ''} ${
               active
-                ? 'bg-brand text-white'
+                ? 'bg-brand-solid text-white'
                 : 'bg-surface text-fg-muted hover:bg-surface-muted'
             }`}
             aria-pressed={active}

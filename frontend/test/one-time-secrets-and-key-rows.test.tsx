@@ -128,7 +128,7 @@ describe('every access key is reviewed the same way', () => {
 
   it('disables revoking under read-only impersonation', () => {
     render(<AccessKeyTable keys={[key()]} readOnly onRevoke={jest.fn<AnyFn>()} />);
-    expect(screen.getByRole('button', { name: /revoke/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /revoke/i })).toHaveAttribute('aria-disabled', 'true');
   });
 
   it('shows an empty state rather than a bare sentence', () => {

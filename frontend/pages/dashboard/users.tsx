@@ -266,9 +266,9 @@ export default function UsersPage() {
         // requestId is kept so "Stop impersonating" can end the session on the
         // server, not just in this browser.
         api.startImpersonation(outcome.accessToken, outcome.requestId);
-        // Hard-reload to refresh useAuth + every cached query under the new
-        // identity. Lighter than threading a swap event through every hook.
-        window.location.href = '/dashboard';
+        // No reload: the token is memory-only and a reload would end the
+        // session. AuthProvider (onIdentityChange) clears the caches, loads the
+        // impersonated profile and moves to /dashboard.
       } else {
         list.setError(outcome.message);
       }
@@ -288,7 +288,7 @@ export default function UsersPage() {
         setWaitingNotice(`Emergency access to ${breakglassTarget.email} needs a second administrator to approve it.`);
       } else if (outcome.kind === 'started') {
         api.startImpersonation(outcome.accessToken, outcome.requestId);
-        window.location.href = '/dashboard';
+        // AuthProvider swaps the identity in place and navigates (onIdentityChange).
       } else {
         list.setError(outcome.message);
       }
@@ -508,7 +508,7 @@ export default function UsersPage() {
                 onClick={() => setSuperAdminsOnly((v) => !v)}
                 aria-pressed={superAdminsOnly}
                 className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${superAdminsOnly
-                  ? 'bg-brand text-white border-brand'
+                  ? 'bg-brand-solid text-white border-brand'
                   : 'bg-surface text-fg-muted border-default hover:bg-surface-muted'}`}
               >
                 Super Admins only

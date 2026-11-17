@@ -40,8 +40,8 @@ async function selectTemplate() {
 it('disables Apply with the blocked reason and never calls the API when readOnly', async () => {
   render(<TemplateOnboarding readOnly />);
   const apply = await selectTemplate();
-  expect(apply).toBeDisabled();
-  expect(apply).toHaveAttribute('title', APPLY_BLOCKED_REASON);
+  expect(apply).toHaveAttribute('aria-disabled', 'true');
+  expect(apply).toHaveAccessibleDescription(APPLY_BLOCKED_REASON);
   fireEvent.click(apply);
   expect(applyRuleTemplates).not.toHaveBeenCalled();
 });

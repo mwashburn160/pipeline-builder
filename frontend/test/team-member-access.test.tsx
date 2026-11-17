@@ -102,7 +102,7 @@ describe('TeamMemberAccess', () => {
 
   it('disables viewing during read-only impersonation', async () => {
     render(<TeamMemberAccess teams={TEAMS} currentUserId="me" readOnly />);
-    expect((await screen.findAllByRole('button', { name: 'View as user' }))[0]).toBeDisabled();
+    expect((await screen.findAllByRole('button', { name: 'View as user' }))[0]).toHaveAttribute('aria-disabled', 'true');
   });
 
   it('renders nothing when the org has no teams', () => {

@@ -194,8 +194,8 @@ describe('PluginSecurityNotificationSettings', () => {
   it('disables every write control in a read-only session', async () => {
     renderCard({ readOnly: true });
     await screen.findByTestId('plugin-security-notifications');
-    expect(saveButton()).toBeDisabled();
-    expect(screen.getByRole('button', { name: /send test/i })).toBeDisabled();
+    expect(saveButton()).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByRole('button', { name: /send test/i })).toHaveAttribute('aria-disabled', 'true');
     expect(screen.getByLabelText(/webhook url/i)).toBeDisabled();
   });
 });

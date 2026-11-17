@@ -51,7 +51,10 @@ function detectRepoUrl(props: BuilderProps | undefined | null): string | null {
   if (!props) return null;
   const json = JSON.stringify(props);
   const m = json.match(/https?:\/\/[^\s"']*(?:github|gitlab|bitbucket|dev\.azure|codecommit)[^\s"']*|git@[^\s"':]+:[^\s"']+/i);
-  return m ? m[0].replace(/\.git$/, '') : null;
+  // Keep the URL exactly as it appears (including any `.git`): it is the literal
+  // `parameterizeProps` swaps for `{{ vars.repoUrl }}`, so stripping `.git` left
+  // the template saving `{{ vars.repoUrl }}.git`.
+  return m ? m[0] : null;
 }
 
 /** Swap each input's `replaces` literal with `{{ vars.<name> }}` throughout the

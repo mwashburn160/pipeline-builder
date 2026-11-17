@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { formatError } from '@/lib/constants';
 import Link from 'next/link';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import {
   GitBranch, ArrowRight, Upload, Wand2, Puzzle, Activity, CheckCircle2,
   BarChart3, XCircle, Inbox,
@@ -249,23 +249,23 @@ export default function DashboardPage() {
 
   return (
     <DashboardLayout title="Dashboard" subtitle={`Welcome back, ${user.username}`}>
-      <motion.div variants={stagger.container} initial="hidden" animate="show" className="page-section">
+      <m.div variants={stagger.container} initial="hidden" animate="show" className="page-section">
 
         {/* Load-failure banner — distinguishes a 500 from a genuinely empty org so
             the stats strip below isn't misread as "brand-new account". */}
         {loadError && (
-          <motion.div
+          <m.div
             variants={stagger.item}
             className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-danger-border bg-danger-bg px-4 py-3 text-sm text-danger"
             role="alert"
           >
             <span>{loadError}</span>
             <button type="button" onClick={fetchData} className="underline hover:no-underline">Retry</button>
-          </motion.div>
+          </m.div>
         )}
 
         {/* ─── Primary action: generate a pipeline from Git ─── */}
-        <Card as={motion.div} variants={stagger.item} className="mb-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 border-info-border">
+        <Card as={m.div} variants={stagger.item} className="mb-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 border-info-border">
           <div className="flex items-start gap-4">
             <div className="flex-shrink-0 w-12 h-12 rounded-lg bg-brand flex items-center justify-center">
               <GitBranch className="w-6 h-6 text-white" />
@@ -312,18 +312,18 @@ export default function DashboardPage() {
             Org-admin: health-focused (quotas, compliance, billing, team).
             Member-user: continues with personal activity + stats + timeline below. */}
         {isSuperAdmin && (
-          <motion.div variants={stagger.item}>
+          <m.div variants={stagger.item}>
             <SysadminHome />
-          </motion.div>
+          </m.div>
         )}
         {isOrgAdmin && (
-          <motion.div variants={stagger.item}>
+          <m.div variants={stagger.item}>
             {showOwnerOnboarding ? (
               <NewOrgWelcome signals={onboardingSignals} onDismiss={dismissOnboarding} />
             ) : (
               <OrgAdminHome organizationId={user.organizationId} />
             )}
-          </motion.div>
+          </m.div>
         )}
 
         {/* ─── Member-only stack: onboarding → action items → stats → timeline ─── */}
@@ -333,9 +333,9 @@ export default function DashboardPage() {
 
         {/* New-org onboarding (auto-hides once user has both pipelines and executions). */}
         {pipelineCount !== null && shouldShowOnboarding(onboardingSignals, onboardingDismissed) && (
-          <motion.div variants={stagger.item}>
+          <m.div variants={stagger.item}>
             <NewOrgWelcome signals={onboardingSignals} onDismiss={dismissOnboarding} />
-          </motion.div>
+          </m.div>
         )}
 
         {/* Personal action items FIRST — the user lands on what's theirs (recent
@@ -343,7 +343,7 @@ export default function DashboardPage() {
         <MyRecentActivity executions={executions} unreadCount={unreadMessageCount} />
 
         {/* Org-wide stats strip. */}
-        <motion.div variants={stagger.item} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-4">
+        <m.div variants={stagger.item} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-4">
           {stats.map((s) => {
             const Icon = s.icon;
             return (
@@ -362,7 +362,7 @@ export default function DashboardPage() {
               </Card>
             );
           })}
-        </motion.div>
+        </m.div>
 
         </>)}
 
@@ -371,7 +371,7 @@ export default function DashboardPage() {
             "is the platform busy"); org-admins still see it as a quick
             org-wide pipeline-health signal alongside their health cards. */}
         {!isSuperAdmin && timeline.length > 0 && (
-          <Card as={motion.div} variants={stagger.item} className="mt-4">
+          <Card as={m.div} variants={stagger.item} className="mt-4">
             <div className="flex items-center justify-between mb-4">
               <h3 className="h3">
                 <Activity className="w-4 h-4 inline mr-1.5 text-fg-subtle" />
@@ -386,7 +386,7 @@ export default function DashboardPage() {
                       onClick={() => setTrendRange(days)}
                       aria-pressed={trendRange === days}
                       className={`px-2 py-0.5 rounded-full text-2xs font-medium border transition-colors ${trendRange === days
-                        ? 'bg-brand text-white border-brand'
+                        ? 'bg-brand-solid text-white border-brand'
                         : 'bg-surface text-fg-muted border-default hover:bg-surface-muted'}`}
                     >
                       {days}d
@@ -436,7 +436,7 @@ export default function DashboardPage() {
             </div>
           </Card>
         )}
-      </motion.div>
+      </m.div>
 
       {/* Create Pipeline Modal — mounted only while open (fresh state per open). */}
       {showCreateModal && (

@@ -308,9 +308,8 @@ export default function DashboardPage() {
             onClick={() => void onClone()}
             // Clone is a create (POST, `dashboards:write` at the route); `can()`
             // also reports false under read-only impersonation.
-            disabled={!canClone}
             loading={cloning}
-            title={canClone ? undefined : (isReadOnly ? READ_ONLY_REASON : 'Requires dashboards:write')}
+            disabledReason={canClone ? undefined : (isReadOnly ? READ_ONLY_REASON : 'Requires dashboards:write')}
             className="gap-1"
           >
             <Copy className="w-3.5 h-3.5" /> Clone

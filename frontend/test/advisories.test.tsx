@@ -340,7 +340,7 @@ describe('AdvisoriesPanel (console)', () => {
     const draft = await screen.findByTestId('eco-advisory-a1');
     expect(within(draft).getByText('CVE rescan')).toBeInTheDocument();
     expect(within(screen.getByTestId('eco-advisory-a3')).getByText('Review')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Publish the advisory for jest' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Publish the advisory for jest' })).toHaveAttribute('aria-disabled', 'true');
     expect(api.listEcosystemAdvisories).toHaveBeenCalledWith({ state: 'draft' }, expect.anything());
   });
 
@@ -421,8 +421,8 @@ describe('AdvisoriesPanel (console)', () => {
     expect(screen.queryByRole('button', { name: /publish the advisory/i })).toBeNull();
     // SHOWN AND LOCKED, not hidden — see the note in the auto-approval twin.
     const newDraft = screen.getByRole('button', { name: /new draft/i });
-    expect(newDraft).toBeDisabled();
-    expect(newDraft).toHaveAttribute('title', expect.stringContaining('plugins:moderate'));
+    expect(newDraft).toHaveAttribute('aria-disabled', 'true');
+    expect(newDraft).toHaveAccessibleDescription(/plugins:moderate/);
   });
 });
 

@@ -266,12 +266,19 @@ export function orgHierarchyModule() {
  */
 export function motionModule() {
   const DROP = new Set(['initial', 'animate', 'transition', 'exit', 'whileHover', 'whileTap', 'variants', 'layout', 'layoutId']);
+  const elements = () => new Proxy({}, {
+    get: (_t, tag: string) => ({ children, ...props }: { children?: ReactNode } & Record<string, unknown>) =>
+      createElement(tag, Object.fromEntries(Object.entries(props).filter(([k]) => !DROP.has(k))), children),
+  });
+  const passThrough = ({ children }: { children?: ReactNode }) => createElement(Fragment, null, children);
   return {
     __esModule: true,
-    AnimatePresence: ({ children }: { children?: ReactNode }) => createElement(Fragment, null, children),
-    motion: new Proxy({}, {
-      get: (_t, tag: string) => ({ children, ...props }: { children?: ReactNode } & Record<string, unknown>) =>
-        createElement(tag, Object.fromEntries(Object.entries(props).filter(([k]) => !DROP.has(k))), children),
-    }),
+    AnimatePresence: passThrough,
+    LazyMotion: passThrough,
+    MotionConfig: passThrough,
+    domAnimation: {},
+    // `m.*` is what the app renders (inside `_app`'s LazyMotion); `motion.*` kept for any stragglers.
+    m: elements(),
+    motion: elements(),
   };
 }

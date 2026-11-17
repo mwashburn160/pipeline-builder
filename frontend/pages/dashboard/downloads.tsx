@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import Link from 'next/link';
 import { Terminal, Package, Copy, Check, ExternalLink } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -57,13 +57,13 @@ export default function DownloadsPage() {
       <div className="max-w-3xl space-y-6">
         {/* Hero install card */}
         <Card
-          as={motion.div}
+          as={m.div}
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3 }}
         >
           <div className="flex items-start gap-4">
-            <span className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-brand text-white shrink-0">
+            <span className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-brand-solid text-white shrink-0">
               <Terminal className="h-6 w-6" />
             </span>
             <div className="flex-1">
@@ -97,7 +97,7 @@ export default function DownloadsPage() {
 
         {/* Quick start */}
         <Card
-          as={motion.div}
+          as={m.div}
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3, delay: 0.1 }}
@@ -144,7 +144,7 @@ export default function DownloadsPage() {
 
         {/* Prerequisites */}
         <Card
-          as={motion.div}
+          as={m.div}
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3, delay: 0.15 }}
@@ -176,7 +176,7 @@ export default function DownloadsPage() {
         </Card>
 
         {/* Links */}
-        <motion.div
+        <m.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3, delay: 0.2 }}
@@ -190,7 +190,7 @@ export default function DownloadsPage() {
             <ExternalLink className="w-4 h-4" />
             Access keys
           </LinkButton>
-        </motion.div>
+        </m.div>
       </div>
     </DashboardLayout>
   );

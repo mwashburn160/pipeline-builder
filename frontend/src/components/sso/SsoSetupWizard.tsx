@@ -134,7 +134,7 @@ export function SsoSetupWizard({
                 aria-current={current ? 'step' : undefined}
                 className={[
                   'flex items-center gap-1.5 rounded-full px-3 py-1 text-xs border',
-                  current ? 'border-brand bg-brand text-white' : 'border-default',
+                  current ? 'border-brand bg-brand-solid text-white' : 'border-default',
                   !canVisit(n) ? 'opacity-50 cursor-not-allowed' : '',
                 ].join(' ')}
               >

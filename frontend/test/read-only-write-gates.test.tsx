@@ -69,8 +69,8 @@ describe('read-only write gates', () => {
   it('access keys: create is disabled with the read-only reason', async () => {
     render(<AccessKeysSection readOnly />);
     const create = screen.getByRole('button', { name: /create key/i });
-    expect(create).toBeDisabled();
-    expect(create).toHaveAttribute('title', expect.stringMatching(/read-only session/i));
+    expect(create).toHaveAttribute('aria-disabled', 'true');
+    expect(create).toHaveAccessibleDescription(/read-only session/i);
     await waitFor(() => expect(listAccessKeys).toHaveBeenCalled());
     fireEvent.click(create);
     expect(screen.queryByTestId('stepup-modal')).not.toBeInTheDocument();
@@ -86,7 +86,7 @@ describe('read-only write gates', () => {
     expect(screen.getByText('Read-only session')).toBeInTheDocument();
 
     const issue = screen.getByRole('button', { name: /issue a scim key/i });
-    expect(issue).toBeDisabled();
+    expect(issue).toHaveAttribute('aria-disabled', 'true');
     fireEvent.click(issue);
     expect(screen.queryByTestId('stepup-modal')).not.toBeInTheDocument();
     expect(createServiceAccountKey).not.toHaveBeenCalled();

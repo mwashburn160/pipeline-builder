@@ -17,7 +17,9 @@ const VERSION_COLUMNS: Column<PluginVersion>[] = [
     cellClassName: 'text-center',
     // The dot's colour alone carries the state, so each carries a text label for
     // screen readers (and a tooltip for sighted users).
-    render: (v) => (v.has_default
+    render: (v) => (v.managed
+      ? <span className="text-xs text-fg-muted" title="Managed toolchain plugin: resolved through its toolchain release, not a default">managed</span>
+      : v.has_default
       ? <><span aria-hidden="true" className="inline-block w-2 h-2 rounded-full bg-green-500" title="Default set" /><span className="sr-only">Default set</span></>
       : <><span aria-hidden="true" className="inline-block w-2 h-2 rounded-full bg-amber-400" title="No default set" /><span className="sr-only">No default set</span></>),
   },
@@ -31,7 +33,8 @@ interface PluginVersionsProps {
 /** Plugins → Versions tab: stale-default warning + per-plugin version table. */
 export function PluginVersions({ loading, pluginVersions }: PluginVersionsProps) {
   const hasVersionsData = pluginVersions.length > 0;
-  const stalePlugins = pluginVersions.filter(v => !v.has_default);
+  // Managed toolchain plugins never carry a default by design, so they are not "stale".
+  const stalePlugins = pluginVersions.filter(v => !v.has_default && !v.managed);
 
   if (loading && !hasVersionsData) return <SectionCardSkeleton lines={6} />;
   if (!loading && !hasVersionsData) return <EmptyState icon={Puzzle} title="No version data yet" description="Create plugins to see version tracking and freshness warnings." illustration="plugins" />;

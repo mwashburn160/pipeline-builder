@@ -233,7 +233,7 @@ export default function TemplatesPage() {
   const modalFooter = (
     <div className="flex items-center justify-end gap-3">
       <Button variant="secondary" onClick={() => setSelected(null)} disabled={submitting}>Cancel</Button>
-      <Button onClick={handleCreate} loading={submitting} disabled={!canCreatePipeline} title={canCreatePipeline ? undefined : 'Requires pipelines:write'}>Create pipeline</Button>
+      <Button onClick={handleCreate} loading={submitting} disabledReason={canCreatePipeline ? undefined : 'Requires pipelines:write'}>Create pipeline</Button>
     </div>
   );
 
@@ -352,7 +352,7 @@ export default function TemplatesPage() {
                 {t.description && <p className="mt-1 text-sm text-fg-muted line-clamp-3">{t.description}</p>}
                 <div className="mt-2 text-xs text-fg-subtle">{(t.inputs?.length ?? 0)} input{(t.inputs?.length ?? 0) === 1 ? '' : 's'}</div>
                 <div className="mt-auto pt-3">
-                  <Button onClick={() => openInstantiate(t)} disabled={!canCreatePipeline} title={canCreatePipeline ? undefined : 'Requires pipelines:write'} className="w-full">
+                  <Button onClick={() => openInstantiate(t)} disabledReason={canCreatePipeline ? undefined : 'Requires pipelines:write'} className="w-full">
                     <Sparkles className="w-4 h-4 mr-1.5" /> Use template
                   </Button>
                 </div>

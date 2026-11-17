@@ -1,4 +1,4 @@
-import type { AppProps } from 'next/app';
+import type { AppContext, AppProps } from 'next/app';
 import type { NextPage } from 'next';
 import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
 import { useRouter } from 'next/router';
@@ -45,13 +45,29 @@ type AppPropsWithLayout = AppProps & {
  */
 function AnimatedPageShell({ children }: { children: ReactNode }) {
   const { user } = useAuth();
-  const orgKey = user?.organizationId ?? 'anon';
+  // The user is part of the key as well: an impersonation starts IN PLACE (its
+  // token is memory-only, so it cannot ride a reload), and nothing rendered for
+  // the operator — the layout included — may survive into the other person's
+  // view, even when both are in the same org.
+  const identity = user ? `${user.id}:${user.organizationId ?? ''}` : null;
+  // Remount on a SWITCH between identities (org switch, impersonation start/stop,
+  // sign-out) — never on the session first loading. Keying on the raw identity
+  // remounted the whole tree the moment a full page load's session arrived
+  // (anon → user), which killed work pages started on mount: returning from
+  // Stripe Checkout, `useCheckoutReturn` began polling for the activated
+  // subscription, the remount dropped it, and the `?checkout=` param was already
+  // gone, so nothing restarted it — a late webhook left the buyer with no
+  // subscription until a manual reload.
+  const [seen, setSeen] = useState<{ identity: string | null; epoch: number }>({ identity, epoch: 0 });
+  if (identity !== seen.identity) {
+    // The first identity after "no session yet" is the initial load, not a switch.
+    setSeen({ identity, epoch: seen.identity === null ? seen.epoch : seen.epoch + 1 });
+  }
+  const orgKey = `shell-${seen.epoch}`;
   // The FIRST page renders at full opacity, so server-rendered HTML is visible
   // before (or without) hydration — the public plugin directory must read with
-  // JavaScript off. Once the org has changed, each newly keyed shell fades in.
-  const [firstKey] = useState(orgKey);
-  const [switched, setSwitched] = useState(false);
-  if (!switched && orgKey !== firstKey) setSwitched(true);
+  // JavaScript off. Once the identity has switched, each newly keyed shell fades in.
+  const switched = seen.epoch > 0;
 
   // A CSS fade rather than framer-motion: this one opacity transition was the
   // only `motion` component in the `_app` bundle, and `motion` pulls in its whole
@@ -91,6 +107,8 @@ export default function App({ Component, pageProps }: AppPropsWithLayout) {
     // OS "reduce motion" setting — transform/scale animations resolve instantly
     // while opacity still cross-fades. CSS keyframes/transitions are handled by
     // the matching media block in globals.css.
+    // The animation FEATURES are not loaded here: see MotionFeatures
+    // (src/components/ui/MotionFeatures.tsx), mounted by the shells that animate.
     <MotionConfig reducedMotion="user">
     <ErrorBoundary>
       <AuthProvider deferInit={publicPage}>
@@ -106,3 +124,22 @@ export default function App({ Component, pageProps }: AppPropsWithLayout) {
     </MotionConfig>
   );
 }
+
+/**
+ * Present only to opt every page out of Automatic Static Optimization.
+ *
+ * The CSP allows scripts by a per-request nonce (src/lib/csp.ts, proxy.ts), and a
+ * nonce can only be stamped on HTML rendered for the request that minted it. A
+ * statically prerendered page is served from build-time HTML whose scripts carry
+ * no nonce, so under `'strict-dynamic'` none of them would run — the page would
+ * never hydrate. An `App.getInitialProps` makes Next server-render every page per
+ * request instead. It adds nothing to the props; on client-side navigation it
+ * runs in the browser and costs one function call.
+ *
+ * The prerendered 404/500 error pages stay static (Next always prerenders them);
+ * they are plain server-rendered text and read fine without hydrating.
+ */
+// What `next/app`'s own `App.getInitialProps` does, without importing its runtime.
+App.getInitialProps = async ({ Component, ctx }: AppContext) => ({
+  pageProps: Component.getInitialProps ? await Component.getInitialProps(ctx) : {},
+});

@@ -205,7 +205,7 @@ export default function AccessRequestsPage() {
       const res = await api.redeemImpersonationRequest(req.id, stepUpToken);
       if (res.success && res.data?.accessToken) {
         api.startImpersonation(res.data.accessToken, res.data.requestId);
-        window.location.href = '/dashboard';
+        // AuthProvider swaps the identity in place and navigates (onIdentityChange).
         return;
       }
       setError(res.message || 'Could not open the session');

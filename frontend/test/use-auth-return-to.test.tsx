@@ -30,6 +30,7 @@ const mockApi = {
   setOrganizationId: jest.fn<AnyFn>(),
   onAccessTokenChange: () => () => undefined,
   onOrganizationChange: () => () => undefined,
+  onIdentityChange: () => () => undefined,
   onSessionExpired: jest.fn<AnyFn>((cb: () => void) => { expire = cb; return () => { expire = null; }; }),
   login: jest.fn<AnyFn>(async () => ({ success: true, data: {} })),
   verifyMfaLogin: jest.fn<AnyFn>(async () => ({ success: true })),

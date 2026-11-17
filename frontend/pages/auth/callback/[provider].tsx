@@ -6,7 +6,6 @@ import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { takeReturnPath } from '@/lib/return-to';
 import Link from 'next/link';
-import { motion } from 'framer-motion';
 import { XCircle, ArrowLeft } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { LoadingSpinner } from '@/components/ui/Loading';
@@ -191,7 +190,7 @@ export default function OAuthCallbackPage() {
           </Link>
         </div>
 
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="max-w-sm mx-auto">
+        <div className="page-reveal max-w-sm mx-auto">
           <Card className="p-8 text-center" role="status" aria-live="polite">
             {reauth ? (
               <>
@@ -239,7 +238,7 @@ export default function OAuthCallbackPage() {
               </>
             )}
           </Card>
-        </motion.div>
+        </div>
       </div>
     </>
   );

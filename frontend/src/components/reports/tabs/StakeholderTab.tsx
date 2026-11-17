@@ -140,10 +140,13 @@ export function StakeholderTab({
   const loading = definitions.loading || recipients.loading || policy.loading;
   const loadError = definitions.error ?? recipients.error ?? policy.error;
   const errorMessage = action.error ?? (loadError ? loadError.message : null);
+  const { refetch: refetchDefinitions } = definitions;
+  const { refetch: refetchRecipients } = recipients;
+  const { refetch: refetchPolicy } = policy;
   const refetch = useCallback(async () => {
-    const results = await Promise.all([definitions.refetch(), recipients.refetch(), policy.refetch()]);
+    const results = await Promise.all([refetchDefinitions(), refetchRecipients(), refetchPolicy()]);
     return results.every(Boolean);
-  }, [definitions.refetch, recipients.refetch, policy.refetch]);
+  }, [refetchDefinitions, refetchRecipients, refetchPolicy]);
 
   useEffect(() => { onStatus({ loading, error: errorMessage, refetch }); }, [loading, errorMessage, refetch, onStatus]);
 

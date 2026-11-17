@@ -4,7 +4,7 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { Menu, X, Bell, Search, Sparkles } from 'lucide-react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, m } from 'framer-motion';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFeatureGate } from '@/hooks/useFeatureGate';
 import { useFeatures } from '@/hooks/useFeatures';
@@ -12,6 +12,7 @@ import { useDialogBehavior } from '@/hooks/useDialogBehavior';
 import { useDarkMode } from '@/hooks/useDarkMode';
 import { useSidebarState } from '@/hooks/useSidebarState';
 import { usePendingMarketplaceClaim } from '@/hooks/usePendingMarketplaceClaim';
+import { MotionFeatures } from './MotionFeatures';
 import { Sidebar } from './Sidebar';
 import { Breadcrumb, type BreadcrumbItem } from './Breadcrumb';
 import { CommandPalette } from './CommandPalette';
@@ -51,11 +52,11 @@ interface DashboardLayoutProps {
 // always-mounted `step-up-required` listener below) and the dialog renders from
 // that state as soon as its code arrives, `retry` and all.
 const StepUpModal = dynamic(
-  () => import('@/components/admin/StepUpModal').then((m) => m.StepUpModal),
+  () => import('@/components/admin/StepUpModal').then((mod) => mod.StepUpModal),
   { ssr: false, loading: () => null },
 );
 const AskPanel = dynamic(
-  () => import('@/components/ask/AskPanel').then((m) => m.AskPanel),
+  () => import('@/components/ask/AskPanel').then((mod) => mod.AskPanel),
   { ssr: false, loading: () => null },
 );
 
@@ -65,7 +66,12 @@ const maxWidthClasses = {
   '7xl': 'max-w-7xl',
 };
 
-export function DashboardLayout({
+/** The dashboard shell. Hosts `MotionFeatures`, so every `m.*` element on a dashboard page animates. */
+export function DashboardLayout(props: DashboardLayoutProps) {
+  return <MotionFeatures><DashboardShell {...props} /></MotionFeatures>;
+}
+
+function DashboardShell({
   title,
   children,
   titleExtra,
@@ -245,7 +251,7 @@ export function DashboardLayout({
             straight to page content. Visually hidden until focused. */}
         <a
           href="#main-content"
-          className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[60] focus:px-3 focus:py-2 focus:rounded-lg focus:bg-brand focus:text-white focus:shadow-lg"
+          className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[60] focus:px-3 focus:py-2 focus:rounded-lg focus:bg-brand-solid focus:text-white focus:shadow-lg"
         >
           Skip to content
         </a>
@@ -258,7 +264,7 @@ export function DashboardLayout({
         <AnimatePresence>
           {mobileOpen && (
             <>
-              <motion.div
+              <m.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
@@ -266,7 +272,7 @@ export function DashboardLayout({
                 className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 lg:hidden"
                 onClick={closeMobile}
               />
-              <motion.div
+              <m.div
                 ref={mobileDrawerRef}
                 initial={{ x: -256 }}
                 animate={{ x: 0 }}
@@ -285,7 +291,7 @@ export function DashboardLayout({
                 >
                   <X className="w-5 h-5" />
                 </button>
-              </motion.div>
+              </m.div>
             </>
           )}
         </AnimatePresence>
@@ -395,8 +401,13 @@ export function DashboardLayout({
                 one-line description, and the page's primary actions on the
                 right. Pages keep passing `title`/`subtitle`/`actions` exactly as
                 before — the change is where those land. */}
-            <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div className="min-w-0">
+            {/* `sm:flex-wrap` + a title column that never shrinks below ~18rem:
+                a wide actions bar (Reports' presets + date pickers) wraps onto
+                its own line instead of crushing the title — with `shrink-0`
+                actions the h1 truncated to nothing and the subtitle wrapped
+                one word per line at tablet widths. */}
+            <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
+              <div className="min-w-0 sm:flex-1 sm:basis-72">
                 {breadcrumbs && <div className="mb-1.5"><Breadcrumb items={breadcrumbs} /></div>}
                 <div className="flex items-center gap-2.5 min-w-0">
                   <h1 className="h1 truncate">{title}</h1>
@@ -409,7 +420,7 @@ export function DashboardLayout({
                 )}
               </div>
               {actions && (
-                <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>
+                <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 sm:justify-end">{actions}</div>
               )}
             </div>
             <ErrorBoundary resetKey={router.asPath}>

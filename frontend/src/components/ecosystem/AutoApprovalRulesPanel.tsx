@@ -269,8 +269,7 @@ export function AutoApprovalRulesPanel({ can, currentUserId }: Props) {
         <Button
           size="sm"
           onClick={() => setPending({ kind: 'form', rule: null })}
-          disabled={!mayModerate}
-          title={mayModerate ? undefined : 'Requires plugins:moderate — unavailable in a read-only session'}
+          disabledReason={mayModerate ? undefined : 'Requires plugins:moderate — unavailable in a read-only session'}
         >
           <Plus className="w-4 h-4 mr-1" aria-hidden />New rule
         </Button>

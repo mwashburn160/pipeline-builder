@@ -76,7 +76,7 @@ export function TeamMemberAccess({ teams, currentUserId, readOnly }: TeamMemberA
       );
       if (outcome.kind === 'started') {
         api.startImpersonation(outcome.accessToken, outcome.requestId);
-        window.location.href = '/dashboard';
+        // AuthProvider swaps the identity in place and navigates (onIdentityChange).
         return;
       }
       // A parent admin is never asked to wait, so `waiting` here means something

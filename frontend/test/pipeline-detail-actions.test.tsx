@@ -132,8 +132,8 @@ describe('pipeline detail runs + actions', () => {
   it('a read-only viewer gets disabled write controls', async () => {
     mockAuthGuard({ user: { id: 'u2', organizationId: 'org-1' }, can: (p: string) => p === 'pipelines:read' });
     render(<PipelineDetailPage />);
-    expect(await screen.findByRole('button', { name: /Delete/ })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /Edit/ })).toBeDisabled();
+    expect(await screen.findByRole('button', { name: /Delete/ })).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByRole('button', { name: /Edit/ })).toHaveAttribute('aria-disabled', 'true');
   });
 });
 

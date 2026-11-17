@@ -30,8 +30,9 @@ jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks'
 // reduce it to plain divs so assertions see the rendered body.
 jest.mock('framer-motion', () => ({
   __esModule: true,
-  motion: new Proxy({}, { get: () => ({ children, ...p }: { children?: ReactNode } & Record<string, unknown>) => <div {...p}>{children ?? null}</div> }),
+  m: new Proxy({}, { get: () => ({ children, ...p }: { children?: ReactNode } & Record<string, unknown>) => <div {...p}>{children ?? null}</div> }),
   AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  LazyMotion: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
 const search = () => screen.getByLabelText(/search the docs/i) as HTMLInputElement;

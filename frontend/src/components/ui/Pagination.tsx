@@ -113,7 +113,7 @@ function PageButton({
       disabled={disabled}
       className={`inline-flex items-center justify-center min-w-[32px] h-8 px-1.5 text-sm rounded-md transition-colors ${
         active
-          ? 'bg-brand text-white font-semibold'
+          ? 'bg-brand-solid text-white font-semibold'
           : disabled
             ? 'text-fg-subtle cursor-not-allowed'
             : 'text-fg-muted hover:bg-surface-muted'

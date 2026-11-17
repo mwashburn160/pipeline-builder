@@ -143,11 +143,13 @@ jest.mock('framer-motion', () => {
     __esModule: true,
     // Cached per tag: a fresh component identity on every property read would
     // remount the subtree on every render (and re-run its effects forever).
-    motion: new Proxy({} as Record<string, unknown>, {
+    m: new Proxy({} as Record<string, unknown>, {
       get: (cache, tag: string) => (cache[tag] ??= ({ children, ...rest }: { children?: unknown }) =>
         React.createElement('div', rest as object, (children as never) ?? null)),
     }),
     AnimatePresence: ({ children }: { children?: unknown }) => children ?? null,
+    LazyMotion: ({ children }: { children?: unknown }) => children ?? null,
+    MotionConfig: ({ children }: { children?: unknown }) => children ?? null,
     useReducedMotion: () => false,
   };
 });
@@ -2419,6 +2421,9 @@ function negativeCase(control: Control): { gatedOn: GatedOn; guard: Partial<Page
   return { gatedOn, guard: {} };
 }
 
+/** Unavailable either natively (`disabled`) or as `<Button disabledReason>` (`aria-disabled`, still focusable). */
+const isInert = (el: Element) => (el as HTMLButtonElement).disabled || el.getAttribute('aria-disabled') === 'true';
+
 describe('a mapped control is really gated — rendered with and without the permission', () => {
   afterEach(() => cleanup());
 
@@ -2431,7 +2436,7 @@ describe('a mapped control is really gated — rendered with and without the per
     await renderCase(b, (p) => held.includes(p), {});
     const shown = b.find();
     if (shown && b.absence === 'disabled') {
-      expect({ control: control.control, enabledForHolder: !(shown as HTMLButtonElement).disabled })
+      expect({ control: control.control, enabledForHolder: !isInert(shown) })
         .toEqual({ control: control.control, enabledForHolder: true });
     }
     if (!shown) {
@@ -2447,7 +2452,7 @@ describe('a mapped control is really gated — rendered with and without the per
     const after = b.find();
     if (b.absence === 'disabled') {
       // Deliberately still on screen — but inert, so the click cannot 403.
-      expect({ control: control.control, withheld: gatedOn, present: !!after, inert: !!after && (after as HTMLButtonElement).disabled })
+      expect({ control: control.control, withheld: gatedOn, present: !!after, inert: !!after && isInert(after) })
         .toEqual({ control: control.control, withheld: gatedOn, present: true, inert: true });
     } else {
       expect({ control: control.control, withheld: gatedOn, stillRendered: after?.textContent?.trim() ?? null })

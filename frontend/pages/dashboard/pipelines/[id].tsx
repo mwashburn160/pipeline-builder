@@ -378,9 +378,9 @@ function PipelineDetail({ id }: { id: string }) {
         <div className="flex flex-wrap items-center gap-2">
           <Button
             onClick={handleTrigger}
-            disabled={!canEdit || triggering}
+            disabled={triggering}
             className="inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            title={canEdit ? undefined : 'Read-only (public catalog entry)'}
+            disabledReason={canEdit ? undefined : 'Read-only (public catalog entry)'}
           >
             {triggering ? <LoadingSpinner size="sm" /> : <Play className="w-4 h-4" />}
             {executions && executions.length > 0 ? 'Re-run' : 'Run pipeline'}
@@ -388,9 +388,8 @@ function PipelineDetail({ id }: { id: string }) {
           <Button
             variant="secondary"
             onClick={() => setShowEdit(true)}
-            disabled={!canEdit}
             className="inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            title={canEdit ? undefined : 'Read-only (public catalog entry)'}
+            disabledReason={canEdit ? undefined : 'Read-only (public catalog entry)'}
           >
             <Pencil className="w-4 h-4" /> Edit
           </Button>
@@ -406,9 +405,8 @@ function PipelineDetail({ id }: { id: string }) {
           <Button
             variant="danger"
             onClick={() => setShowDelete(true)}
-            disabled={!canEdit}
             className="inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            title={canEdit ? undefined : 'Read-only (public catalog entry)'}
+            disabledReason={canEdit ? undefined : 'Read-only (public catalog entry)'}
           >
             <Trash2 className="w-4 h-4" /> Delete
           </Button>

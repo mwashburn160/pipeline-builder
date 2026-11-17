@@ -38,25 +38,10 @@ const nextConfig = {
   },
 
   async headers() {
-    // CSP for the Next.js app. `unsafe-inline` on scripts is required by
-    // Next.js for its inline runtime bootstrap; `unsafe-eval` would NOT be
-    // safe to add. `connect-src` includes `'self'` so same-origin /api
-    // calls go through nginx; if you front the API on a separate hostname,
-    // add it here explicitly. Error reports need no entry: they go through the
-    // same-origin `/client-errors` relay, never straight to the collector.
-    const csp = [
-      "default-src 'self'",
-      "script-src 'self' 'unsafe-inline'",
-      "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data: blob:",
-      "font-src 'self' data:",
-      "connect-src 'self'",
-      "frame-ancestors 'none'",
-      "base-uri 'self'",
-      "form-action 'self'",
-      "object-src 'none'",
-    ].join('; ');
-
+    // The Content-Security-Policy is NOT set here: it carries a per-request
+    // script nonce, so `proxy.ts` builds it for every document response (policy
+    // in src/lib/csp.ts). A static header here would be a SECOND policy the
+    // browser enforces alongside it.
     return [
       {
         source: '/(.*)',
@@ -68,7 +53,6 @@ const nextConfig = {
           // already `self`) so a later tightening of this header cannot silently
           // disable passkey registration and sign-in.
           { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), publickey-credentials-get=(self), publickey-credentials-create=(self)' },
-          { key: 'Content-Security-Policy', value: csp },
           // HSTS — 2 years, include subdomains, preload-list eligible.
           // Nginx terminates TLS so this header survives the proxy hop and
           // pins the browser to HTTPS for future visits.

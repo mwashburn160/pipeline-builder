@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m, AnimatePresence } from 'framer-motion';
 import type { HelpTopic } from '@/lib/help/types';
 import { Card } from '@/components/ui/Card';
 import { HelpSectionCard } from './HelpSection';
@@ -46,19 +46,19 @@ export function HelpAccordionTopic({ topic, defaultOpen = false, bare = false }:
             {topic.description}
           </p>
         </div>
-        <motion.div
+        <m.div
           animate={{ rotate: isOpen ? 180 : 0 }}
           transition={{ duration: 0.2 }}
           className="flex-shrink-0"
         >
           <ChevronDown className="w-5 h-5 text-fg-subtle" />
-        </motion.div>
+        </m.div>
       </button>
 
       {/* Expandable body */}
       <AnimatePresence initial={false}>
         {isOpen && (
-          <motion.div
+          <m.div
             key="content"
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
@@ -78,7 +78,7 @@ export function HelpAccordionTopic({ topic, defaultOpen = false, bare = false }:
                 </div>
               ))}
             </div>
-          </motion.div>
+          </m.div>
         )}
       </AnimatePresence>
     </>

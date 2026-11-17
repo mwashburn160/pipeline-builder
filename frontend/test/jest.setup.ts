@@ -59,6 +59,12 @@ if (typeof url.createObjectURL !== 'function') {
 if (typeof Element !== 'undefined' && typeof Element.prototype.scrollIntoView !== 'function') {
   Element.prototype.scrollIntoView = function scrollIntoView() {};
 }
+// Same gap for `Element.scrollTo`: the builder wizard scrolls its modal body
+// back to the top on every step change (useBuilderWizard), so a suite that
+// clicks Next dies in an effect without it.
+if (typeof Element !== 'undefined' && typeof Element.prototype.scrollTo !== 'function') {
+  Element.prototype.scrollTo = function scrollTo() {};
+}
 
 // jsdom's window has no TextEncoder, which every browser ships; the shared
 // template tokenizer uses it to measure fields in UTF-8 bytes.

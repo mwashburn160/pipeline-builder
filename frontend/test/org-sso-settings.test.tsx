@@ -304,6 +304,6 @@ describe('SsoDisconnect', () => {
 
   it('is disabled for a read-only session', async () => {
     render(<SsoDisconnect orgId="org-1" config={stored} readOnly onDisconnected={jest.fn<AnyFn>()} />);
-    expect(screen.getByRole('button', { name: /Disconnect SSO/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Disconnect SSO/i })).toHaveAttribute('aria-disabled', 'true');
   });
 });

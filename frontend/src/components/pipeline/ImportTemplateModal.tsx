@@ -69,7 +69,9 @@ export function ImportTemplateModal({ canPublish, onClose, onImported }: ImportT
       return;
     }
     if (!parsed || typeof parsed !== 'object') { setError('JSON must be a template object.'); return; }
-    if (!parsed.name?.trim()) { setError('Template JSON is missing a "name".'); return; }
+    // `typeof` first: a non-string "name" (e.g. 5) made `.trim()` throw here,
+    // outside the parse try, so the import crashed instead of saying why.
+    if (typeof parsed.name !== 'string' || !parsed.name.trim()) { setError('Template JSON is missing a "name".'); return; }
     if (!parsed.props || typeof parsed.props !== 'object') { setError('Template JSON is missing a "props" (BuilderProps) object.'); return; }
 
     // Public requires templates:publish — clamp to `org` otherwise so the import

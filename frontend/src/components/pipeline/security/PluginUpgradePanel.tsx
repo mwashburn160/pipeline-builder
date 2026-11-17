@@ -225,8 +225,8 @@ export function PluginUpgradePanel({ pipelineId, canWrite, onApplied }: {
             </label>
             <Button
               onClick={() => void apply()}
-              disabled={!canWrite || applying || loading || selected.size === 0}
-              title={canWrite ? undefined : 'Requires pipelines:write'}
+              disabled={applying || loading || selected.size === 0}
+              disabledReason={canWrite ? undefined : 'Requires pipelines:write'}
             >
               {applying ? <LoadingSpinner size="sm" /> : null}
               Apply {selected.size} upgrade{selected.size === 1 ? '' : 's'}

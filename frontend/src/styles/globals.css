@@ -69,6 +69,8 @@
 
   --color-brand: var(--pb-brand);
   --color-brand-strong: var(--pb-brand-strong);
+  --color-brand-solid: var(--pb-brand-solid);
+  --color-brand-solid-strong: var(--pb-brand-solid-strong);
   --color-accent: var(--pb-accent);
 
   --color-success: var(--pb-success-fg);
@@ -150,11 +152,23 @@
        #5b6b7f keeps the slate cast and clears it everywhere: 4.90 on
        surface-muted, 5.04 on the canvas, 5.45 on surface. */
     --pb-text-subtle: #5b6b7f;
-    --pb-brand: #0f6fff;
-    --pb-brand-strong: #0b5fe0;
+    /* Contrast floors (WCAG AA 4.5:1, small text), pinned by
+       test/theme-contrast.test.ts. The old #0f6fff scored 4.43 on white, 4.10
+       on the canvas and 3.99 on surface-muted — as link text AND under the
+       white label of every primary button. #0b5fe0: 5.63 / 5.21 / 5.07, and
+       white on it 5.63. `-strong` (hover) moves darker again. */
+    --pb-brand: #0b5fe0;
+    --pb-brand-strong: #0a4fbf;
+    /* The FILL behind white text (.btn-primary, `bg-brand-solid text-white`).
+       Separate from `--pb-brand` because in dark mode the brand TEXT colour is
+       a light blue that white text cannot sit on (2.49:1). */
+    --pb-brand-solid: var(--pb-brand);
+    --pb-brand-solid-strong: var(--pb-brand-strong);
     --pb-accent: #efb64c;
-    --pb-success: #1f9d6d;
-    --pb-danger: #e24b4b;
+    /* Fills behind white button labels (.btn-success / .btn-danger): the old
+       #1f9d6d and #e24b4b gave white text 3.44 and 3.93. */
+    --pb-success: #15803d;
+    --pb-danger: #c53030;
 
     /* Elevation, in three steps. `--pb-shadow` is the hairline every resting
        panel gets (and the name SectionCard reads); `-md` is for a layer that
@@ -177,8 +191,9 @@
     --pb-warning-fg-strong: #92400e;
     --pb-warning-bg: #fffbeb;
     --pb-warning-border: #fde68a;
-    --pb-danger-fg: #dc2626;
-    --pb-danger-fg-strong: #b91c1c;
+    /* #dc2626 was 4.35 on surface-muted, 4.41 on danger-bg, 4.47 on the canvas. */
+    --pb-danger-fg: #b91c1c;
+    --pb-danger-fg-strong: #991b1b;
     --pb-danger-bg: #fef2f2;
     --pb-danger-border: #fecaca;
     --pb-info-fg: #1d4ed8;
@@ -201,10 +216,16 @@
        6.22 on the canvas) while staying clearly dimmer than `--pb-text-muted`. */
     --pb-text-subtle: #8494aa;
     --pb-brand: #63a6ff;
-    --pb-brand-strong: #3b82f6;
+    /* Hover for brand TEXT goes lighter on a dark canvas; the old #3b82f6 was
+       4.34 on surface-muted. */
+    --pb-brand-strong: #7db4ff;
+    /* White-label fills: #2563eb 5.17, #1d4ed8 6.70 (white on #63a6ff: 2.49). */
+    --pb-brand-solid: #2563eb;
+    --pb-brand-solid-strong: #1d4ed8;
     --pb-accent: #f5c85c;
-    --pb-success: #22c58b;
-    --pb-danger: #f07171;
+    /* Button fills under white labels (were #22c58b 2.3 and #f07171 2.87). */
+    --pb-success: #15803d;
+    --pb-danger: #c53030;
 
     /* Dark surfaces separate by value, not by shadow, so the resting hairline
        is nearly invisible on purpose; the floating steps stay strong enough to
@@ -328,6 +349,11 @@
            focus-visible:ring-offset-2 focus-visible:ring-offset-canvas
            disabled:opacity-50 disabled:pointer-events-none;
   }
+  /* Unavailable-with-a-reason (`<Button disabledReason>`): looks disabled but
+     keeps pointer events and focus, so hovering or tabbing to it shows WHY. */
+  .btn[aria-disabled="true"] {
+    @apply opacity-50 cursor-not-allowed;
+  }
 
   /* -- Color variants --
      Solid fills. Each was a `linear-gradient(180deg, …)` plus a 22–26px
@@ -336,9 +362,9 @@
      (`:active`) instead of nudging the button down a pixel. */
 
   .btn-primary {
-    background-color: var(--pb-brand);
+    background-color: var(--pb-brand-solid);
     color: #fff;
-    @apply hover:bg-brand-strong active:brightness-95;
+    @apply hover:bg-brand-solid-strong active:brightness-95;
   }
 
   .btn-secondary {

@@ -95,7 +95,7 @@ function PackQuantityEntry({ bundle, qty, interval, disabled, requestAddonChange
   const [value, setValue] = useState(String(show(qty)));
   const [confirming, setConfirming] = useState(false);
   // Re-sync the field when the committed quantity changes (e.g. after a purchase).
-  useEffect(() => setValue(String(show(qty))), [qty, step]);
+  useEffect(() => setValue(String(qty * step)), [qty, step]);
 
   const max = bundle.maxQuantity;
   // An empty / non-numeric / negative field is NOT a "set to 0" — treat it as "no

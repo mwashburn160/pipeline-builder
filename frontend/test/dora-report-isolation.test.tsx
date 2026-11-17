@@ -187,9 +187,9 @@ describe('DoraReport — deploy list (mark failed/restored)', () => {
       />,
     );
     const failed = screen.getByRole('button', { name: /mark failed/i });
-    expect(failed).toBeDisabled();
-    expect(failed).toHaveAttribute('title', expect.stringMatching(/read-only session/i));
-    expect(screen.getByRole('button', { name: /mark restored/i })).toBeDisabled();
+    expect(failed).toHaveAttribute('aria-disabled', 'true');
+    expect(failed).toHaveAccessibleDescription(/read-only session/i);
+    expect(screen.getByRole('button', { name: /mark restored/i })).toHaveAttribute('aria-disabled', 'true');
     fireEvent.click(failed);
     expect(onMarkOutcome).not.toHaveBeenCalled();
   });

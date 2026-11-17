@@ -6,7 +6,6 @@ import Head from 'next/head';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { LinkButton } from '@/components/ui/LinkButton';
-import { motion } from 'framer-motion';
 import { CheckCircle, XCircle, ArrowLeft } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Card } from '@/components/ui/Card';
@@ -64,7 +63,7 @@ export default function VerifyEmailPage() {
           </Link>
         </div>
 
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="max-w-sm mx-auto">
+        <div className="page-reveal max-w-sm mx-auto">
           <Card className="p-8 text-center" role="status" aria-live="polite">
             {status === 'pending' && (
               <>
@@ -93,7 +92,7 @@ export default function VerifyEmailPage() {
               </>
             )}
           </Card>
-        </motion.div>
+        </div>
       </div>
     </>
   );

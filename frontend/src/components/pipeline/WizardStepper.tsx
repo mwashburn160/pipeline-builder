@@ -60,7 +60,7 @@ export default function WizardStepper({ steps, currentStep, onStepClick, stepSta
               <div
                 className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-medium transition-colors ${
                   isCurrent
-                    ? 'bg-brand text-white ring-2 ring-brand/30'
+                    ? 'bg-brand-solid text-white ring-2 ring-brand/30'
                     : isCompleted && status === 'valid'
                     ? 'bg-green-600 text-white'
                     : status === 'error'

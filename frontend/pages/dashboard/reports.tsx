@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { localDay, localDaysBack } from '@/lib/local-day';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { GitBranch, Puzzle, Gauge, Trophy, FileText } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
@@ -25,11 +25,11 @@ import { hasPermission } from '@/lib/auth-helpers';
 // Only one top tab shows at a time, so each is its own chunk: the page ships the
 // shell + the active tab instead of all four report bundles up front.
 const tabLoading = () => <TwoColumnSkeleton />;
-const PipelinesTab = dynamic(() => import('@/components/reports/tabs/PipelinesTab').then((m) => m.PipelinesTab), { loading: tabLoading });
-const PluginsTab = dynamic(() => import('@/components/reports/tabs/PluginsTab').then((m) => m.PluginsTab), { loading: tabLoading });
-const DoraTab = dynamic(() => import('@/components/reports/tabs/DoraTab').then((m) => m.DoraTab), { loading: tabLoading });
-const ScorecardTab = dynamic(() => import('@/components/reports/tabs/ScorecardTab').then((m) => m.ScorecardTab), { loading: tabLoading });
-const StakeholderTab = dynamic(() => import('@/components/reports/tabs/StakeholderTab').then((m) => m.StakeholderTab), { loading: tabLoading });
+const PipelinesTab = dynamic(() => import('@/components/reports/tabs/PipelinesTab').then((mod) => mod.PipelinesTab), { loading: tabLoading });
+const PluginsTab = dynamic(() => import('@/components/reports/tabs/PluginsTab').then((mod) => mod.PluginsTab), { loading: tabLoading });
+const DoraTab = dynamic(() => import('@/components/reports/tabs/DoraTab').then((mod) => mod.DoraTab), { loading: tabLoading });
+const ScorecardTab = dynamic(() => import('@/components/reports/tabs/ScorecardTab').then((mod) => mod.ScorecardTab), { loading: tabLoading });
+const StakeholderTab = dynamic(() => import('@/components/reports/tabs/StakeholderTab').then((mod) => mod.StakeholderTab), { loading: tabLoading });
 
 /**
  * Billing add-on that widens each window: the Retention Pack (every tier)
@@ -100,8 +100,8 @@ function clampFrom(from: string, to: string, maxDays: number): { from: string; c
 /** Extract the backend range-cap (N days) from its "exceeds maximum of N days" error. */
 function rangeCapFromError(error: string | null): number | null {
   if (!error) return null;
-  const m = /exceeds maximum of (\d+) days/i.exec(error);
-  return m ? Number(m[1]) : null;
+  const match = /exceeds maximum of (\d+) days/i.exec(error);
+  return match ? Number(match[1]) : null;
 }
 
 // ─── Page ───────────────────────────────────────────────
@@ -246,7 +246,7 @@ export default function ReportsPage() {
                   aria-pressed={active}
                   className={`px-2 py-1 text-xs font-medium rounded-lg transition-colors ${
                     active
-                      ? 'bg-brand text-white'
+                      ? 'bg-brand-solid text-white'
                       : 'text-fg-muted hover:bg-surface-muted'
                   }`}
                   title={`Show the last ${p.days} days`}
@@ -277,7 +277,7 @@ export default function ReportsPage() {
         </div>
       }
     >
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }} className="page-section space-y-6">
+      <m.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }} className="page-section space-y-6">
 
         {/* ═══════ Top-level tabs: Pipelines / Plugins / DORA ═══════ */}
         <div className="flex gap-2">
@@ -368,7 +368,7 @@ export default function ReportsPage() {
           />
         )}
 
-      </motion.div>
+      </m.div>
     </DashboardLayout>
   );
 }

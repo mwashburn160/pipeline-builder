@@ -42,9 +42,32 @@ const CLIENT_TYPE = 'web';
  */
 const SESSION_MARKER_KEY = 'pb.session';
 
-/** Tab-scoped handoff for an impersonation session (see `startImpersonation`). */
-const IMPERSONATION_TOKEN_KEY = 'impersonation.accessToken';
+/**
+ * Where an older build kept the impersonation access token. Nothing writes it
+ * any more; the constructor deletes it so a token from before the upgrade does
+ * not sit in storage until the tab closes.
+ */
+const LEGACY_IMPERSONATION_TOKEN_KEY = 'impersonation.accessToken';
+/**
+ * The id of the impersonation session open in this tab — NOT a credential (it
+ * authorizes nothing; revoking needs the operator's own token). Kept in
+ * tab-scoped sessionStorage only so that, when a reload throws the in-memory
+ * token away, the next page can revoke the orphaned session on the server
+ * instead of leaving it valid until its TTL.
+ */
 const IMPERSONATION_REQUEST_KEY = 'impersonation.requestId';
+
+/**
+ * The live impersonation session, held in this page's memory ONLY.
+ *
+ * Its access token is a bearer credential for someone else's account, so it is
+ * kept out of web storage, where any script on the origin (or anyone at the
+ * keyboard with devtools) could lift it long after the session was meant to be
+ * over. Memory is also exactly the right scope: it is per tab, and a reload —
+ * or closing the tab — ends the session, which drops the operator back onto
+ * their own (never-disturbed) refresh cookie. See `startImpersonation`.
+ */
+let impersonationSession: { accessToken: string; requestId: string | null } | null = null;
 
 /** What tabs tell each other on {@link AUTH_CHANNEL_NAME}. */
 type AuthBroadcast =
@@ -191,7 +214,10 @@ export class ApiCore {
   private sessionExpiredCallbacks: Set<() => void> = new Set();
   private accessTokenListeners: Set<(token: string | null) => void> = new Set();
   private organizationChangeListeners: Set<() => void> = new Set();
+  private identityChangeListeners: Set<() => void> = new Set();
   private authChannel: BroadcastChannel | null = null;
+  /** An impersonation session a reload abandoned; revoked once a session is restored. */
+  private orphanedImpersonationRequestId: string | null = null;
 
   private static REFRESH_BUFFER_MS = REFRESH_BUFFER_MS;
 
@@ -245,12 +271,15 @@ export class ApiCore {
     if (typeof window === 'undefined') return;
     this.organizationId = readStore('local', 'organizationId');
     // A fresh page has no access token: it is memory-only. `restoreSession()`
-    // (called once by AuthProvider) trades the refresh cookie for one.
-    // EXCEPT an impersonation session, whose token is deliberately not
-    // refreshable — it rides the operator's intentional reload in tab-scoped
-    // sessionStorage, because a refresh would hand back the OPERATOR's session.
-    const impersonation = readStore('session', IMPERSONATION_TOKEN_KEY);
-    if (impersonation) this.accessToken = impersonation;
+    // (called once by AuthProvider) trades the refresh cookie for one. That
+    // includes a tab that WAS impersonating before the reload: the
+    // impersonation token died with the previous page, so the refresh hands
+    // back the operator's own session — the impersonation has ended. Its
+    // request id survives the reload (it is not a credential) so the restored
+    // session can revoke it on the server; see `revokeOrphanedImpersonation`.
+    writeStore('session', LEGACY_IMPERSONATION_TOKEN_KEY, null);
+    this.orphanedImpersonationRequestId = readStore('session', IMPERSONATION_REQUEST_KEY);
+    if (this.orphanedImpersonationRequestId) writeStore('session', IMPERSONATION_REQUEST_KEY, null);
     this.openAuthChannel();
   }
 
@@ -372,7 +401,23 @@ export class ApiCore {
   async restoreSession(): Promise<boolean> {
     if (this.accessToken) return true;
     if (!this.hasSessionMarker()) return false;
-    return this.refreshAccessToken();
+    const restored = await this.refreshAccessToken();
+    if (restored) this.revokeOrphanedImpersonation();
+    return restored;
+  }
+
+  /**
+   * Revoke, on the server, the impersonation session a reload abandoned in this
+   * tab. Its token is already gone (it lived in the previous page's memory), so
+   * this only closes the server-side window until its TTL. Best-effort and not
+   * awaited: page start-up must never wait on, or fail because of, it.
+   */
+  private revokeOrphanedImpersonation(): void {
+    const requestId = this.orphanedImpersonationRequestId;
+    this.orphanedImpersonationRequestId = null;
+    if (!requestId || this.isImpersonating()) return;
+    this.request(`/api/admin/impersonate/requests/${encodeURIComponent(requestId)}/revoke`, { method: 'POST' })
+      .catch(() => { /* already ended, or unreachable — it expires at its TTL */ });
   }
 
   /**
@@ -435,24 +480,45 @@ export class ApiCore {
    *
    * Nothing of the operator's is stashed: their refresh token is an HttpOnly
    * cookie this swap never touches, so their own session survives untouched
-   * and stopping is just "throw this token away and refresh". The
-   * impersonation token itself is kept in TAB-SCOPED sessionStorage because
-   * starting a session deliberately reloads the page, and the token is not
-   * refreshable (short-lived, 15min, read-only) — a reload that refreshed
-   * instead would drop the operator straight back into their own session.
+   * and stopping is just "throw this token away and refresh".
+   *
+   * The impersonation token is held in MEMORY only (`impersonationSession`),
+   * never web storage, so the session is scoped to this tab and this page: the
+   * swap happens in place (subscribers of `onIdentityChange` reload the profile
+   * and navigate) rather than by reloading, and a reload ends the session —
+   * the token is not refreshable (short-lived, read-only), so the next page
+   * restores the operator's own session and revokes the abandoned one.
    */
   startImpersonation(impersonationAccessToken: string, requestId?: string): void {
-    writeStore('session', IMPERSONATION_TOKEN_KEY, impersonationAccessToken);
+    impersonationSession = { accessToken: impersonationAccessToken, requestId: requestId ?? null };
     // Remembered so stopping can end the session on the SERVER, not just
-    // discard the token in this browser.
-    if (requestId) writeStore('session', IMPERSONATION_REQUEST_KEY, requestId);
-    // Also re-points the cached org at the impersonated user's, so the reload
-    // below comes up in their tenant.
+    // discard the token in this browser — and, in the tab's sessionStorage, so
+    // a reload can too. Only the id: it is not a credential.
+    writeStore('session', IMPERSONATION_REQUEST_KEY, requestId ?? null);
+    // Also re-points the cached org at the impersonated user's.
     this.applyAccessToken(impersonationAccessToken);
     // Don't schedule a proactive refresh — `scheduleProactiveRefresh` already
     // declines for an impersonation token, but a timer armed by the operator's
     // own session is still pending here.
     if (this.refreshTimer) { clearTimeout(this.refreshTimer); this.refreshTimer = null; }
+    this.notifyIdentityChange();
+  }
+
+  /**
+   * Subscribe to this tab's session switching to ANOTHER PERSON without a page
+   * load — an impersonation starting. Everything derived from the previous
+   * identity (profile, caches, the current page) must be rebuilt. Returns an
+   * unsubscribe.
+   */
+  onIdentityChange(callback: () => void): () => void {
+    this.identityChangeListeners.add(callback);
+    return () => { this.identityChangeListeners.delete(callback); };
+  }
+
+  private notifyIdentityChange(): void {
+    this.identityChangeListeners.forEach((cb) => {
+      try { cb(); } catch { /* ignore listener errors */ }
+    });
   }
 
   /**
@@ -465,7 +531,7 @@ export class ApiCore {
    */
   async stopImpersonation(): Promise<void> {
     if (typeof window === 'undefined') return;
-    writeStore('session', IMPERSONATION_TOKEN_KEY, null);
+    impersonationSession = null;
     writeStore('session', IMPERSONATION_REQUEST_KEY, null);
     this.accessToken = null;
     if (await this.restoreSession()) return;
@@ -490,7 +556,7 @@ export class ApiCore {
    */
   async endImpersonation(): Promise<void> {
     if (typeof window === 'undefined') return;
-    const requestId = readStore('session', IMPERSONATION_REQUEST_KEY);
+    const requestId = this.getImpersonationRequestId();
 
     await this.stopImpersonation();
     // Without the operator's own token there is nothing authorized to revoke
@@ -520,8 +586,8 @@ export class ApiCore {
    *  Shown in the banner so the operator can cite it; also what `endImpersonation`
    *  revokes. */
   getImpersonationRequestId(): string | null {
-    if (!this.isImpersonating()) return null;
-    return readStore('session', IMPERSONATION_REQUEST_KEY);
+    if (!this.isImpersonating() || impersonationSession?.accessToken !== this.accessToken) return null;
+    return impersonationSession.requestId;
   }
 
   /**
@@ -545,7 +611,7 @@ export class ApiCore {
 
     writeStore('local', 'organizationId', null);
     writeStore('local', SESSION_MARKER_KEY, null);
-    writeStore('session', IMPERSONATION_TOKEN_KEY, null);
+    impersonationSession = null;
     writeStore('session', IMPERSONATION_REQUEST_KEY, null);
     this.notifyAccessToken(null);
   }

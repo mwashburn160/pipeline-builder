@@ -309,8 +309,7 @@ export default function OrganizationsPage() {
         // only `orgs:read`, so the read-only job Roles see the action locked.
         <Button
           onClick={() => setCreateOpen(true)}
-          disabled={!can('org_settings:write')}
-          title={can('org_settings:write') ? undefined : 'Requires the org_settings:write permission'}
+          disabledReason={can('org_settings:write') ? undefined : 'Requires the org_settings:write permission'}
         >
           <Plus className="w-4 h-4 mr-1.5" /> New Organization
         </Button>

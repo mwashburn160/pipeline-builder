@@ -9,8 +9,9 @@
  * token and refresh". `stopImpersonation` does only that — the session stays
  * valid on the server until its TTL; `endImpersonation` also revokes it.
  * The properties under test:
- *   - nothing of the operator's is stashed in web storage — only the
- *     impersonation token, tab-scoped, to survive the deliberate reload;
+ *   - no token is stashed in web storage — the impersonation token lives in
+ *     memory only, so it is tab-scoped and a reload ends the session (the
+ *     next page restores the operator's own session and revokes the orphan);
  *   - the revoke is sent under the OPERATOR's restored token, never the
  *     impersonation token (which is read-only, so a write under it is rejected);
  *   - getting out never depends on the revoke — it neither throws nor hangs.
@@ -56,24 +57,79 @@ afterEach(() => {
 });
 
 describe('ApiCore.startImpersonation', () => {
-  it('stashes only the impersonation token, never anything of the operator\'s', () => {
+  it('keeps the impersonation token in memory only, never in web storage', () => {
     const core = impersonatingCore('req-7');
 
-    expect(sessionStorage.getItem('impersonation.accessToken')).toBe(IMPERSONATION_TOKEN);
+    expect(core.isImpersonating()).toBe(true);
+    expect(core.getImpersonationRequestId()).toBe('req-7');
+    const stored = [...Object.values({ ...localStorage }), ...Object.values({ ...sessionStorage })];
+    expect(stored.some((v) => String(v).includes(IMPERSONATION_TOKEN))).toBe(false);
+    expect(sessionStorage.getItem('impersonation.accessToken')).toBeNull();
     expect(sessionStorage.getItem('impersonation.originalRefresh')).toBeNull();
     expect(sessionStorage.getItem('impersonation.originalAccess')).toBeNull();
-    expect(core.isImpersonating()).toBe(true);
   });
 
-  it('survives the reload the operator is about to trigger', () => {
+  it('swaps identity in place: subscribers hear about it, nobody reloads', () => {
+    const core = new ApiCore();
+    core.setTokens({ accessToken: OPERATOR_TOKEN });
+    const onIdentity = jest.fn();
+    const unsubscribe = core.onIdentityChange(onIdentity);
+
+    core.startImpersonation(IMPERSONATION_TOKEN, 'req-7');
+    expect(onIdentity).toHaveBeenCalledTimes(1);
+    expect(tokenOf(core)).toBe(IMPERSONATION_TOKEN);
+
+    unsubscribe();
+    core.startImpersonation(IMPERSONATION_TOKEN, 'req-8');
+    expect(onIdentity).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not survive a reload: the next page is the operator\'s own session', async () => {
     impersonatingCore('req-7');
 
-    // A fresh client in the same tab (i.e. after `window.location.href = ...`)
-    // must come up still impersonating, not refreshed back into the operator's
-    // own session.
+    // A fresh client in the same tab (i.e. after a reload) has no token at all,
+    // and restoring trades the refresh cookie for the OPERATOR's session.
     const reloaded = new ApiCore();
-    expect(reloaded.isImpersonating()).toBe(true);
-    expect(tokenOf(reloaded)).toBe(IMPERSONATION_TOKEN);
+    expect(reloaded.isImpersonating()).toBe(false);
+    expect(tokenOf(reloaded)).toBeNull();
+    jest.spyOn(reloaded, 'request').mockResolvedValue({} as never);
+
+    await expect(reloaded.restoreSession()).resolves.toBe(true);
+    expect(tokenOf(reloaded)).toBe(OPERATOR_TOKEN);
+    expect(reloaded.isImpersonating()).toBe(false);
+  });
+
+  it('revokes the session a reload abandoned, once the operator session is back', async () => {
+    impersonatingCore('req-7');
+    const reloaded = new ApiCore();
+    let tokenAtRevoke: string | null = null;
+    const request = jest.spyOn(reloaded, 'request').mockImplementation(async () => {
+      tokenAtRevoke = tokenOf(reloaded);
+      return {} as never;
+    });
+
+    await reloaded.restoreSession();
+
+    expect(request).toHaveBeenCalledWith('/api/admin/impersonate/requests/req-7/revoke', { method: 'POST' });
+    expect(tokenAtRevoke).toBe(OPERATOR_TOKEN);
+    // Once only: the id is consumed, so a later page does not revoke it again.
+    expect(sessionStorage.getItem('impersonation.requestId')).toBeNull();
+    expect(new ApiCore().getImpersonationRequestId()).toBeNull();
+  });
+
+  it('a failed orphan revoke does not fail the restore', async () => {
+    impersonatingCore('req-7');
+    const reloaded = new ApiCore();
+    jest.spyOn(reloaded, 'request').mockRejectedValue(new Error('network down'));
+
+    await expect(reloaded.restoreSession()).resolves.toBe(true);
+  });
+
+  it('removes a token an older build left in sessionStorage', () => {
+    sessionStorage.setItem('impersonation.accessToken', IMPERSONATION_TOKEN);
+    const core = new ApiCore();
+    expect(sessionStorage.getItem('impersonation.accessToken')).toBeNull();
+    expect(core.isImpersonating()).toBe(false);
   });
 });
 

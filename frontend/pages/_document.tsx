@@ -1,5 +1,6 @@
-import { Html, Head, Main, NextScript } from 'next/document';
+import NextDocument, { Html, Head, Main, NextScript, type DocumentContext, type DocumentInitialProps } from 'next/document';
 import { fontClassNames } from '@/lib/fonts';
+import { requestNonce } from '@/lib/csp';
 
 /**
  * Custom document, added for one reason: `next/font` exposes each face as a CSS
@@ -8,8 +9,15 @@ import { fontClassNames } from '@/lib/fonts';
  * variables must live on `<html>` — which only the document can reach.
  *
  * `lang` is set here too; without it every page shipped an unlabelled document.
+ *
+ * It also carries the CSP nonce: `proxy.ts` mints one per request and forwards it
+ * in the `x-nonce` request header, and `<Head nonce>` / `<NextScript nonce>`
+ * stamp it on every script Next emits, which is what the nonce-based
+ * `script-src` (src/lib/csp.ts) allows to run.
  */
-export default function Document() {
+type DocumentProps = DocumentInitialProps & { nonce?: string };
+
+export default function Document({ nonce }: { nonce?: string }) {
   // Search Console ownership proof, rendered only when the deployment sets one.
   //
   // Read from the runtime env rather than hardcoded, because a verification
@@ -26,13 +34,18 @@ export default function Document() {
   const siteVerification = process.env.GOOGLE_SITE_VERIFICATION;
   return (
     <Html lang="en" className={fontClassNames}>
-      <Head>
+      <Head nonce={nonce}>
         {siteVerification && <meta name="google-site-verification" content={siteVerification} />}
       </Head>
       <body>
         <Main />
-        <NextScript />
+        <NextScript nonce={nonce} />
       </body>
     </Html>
   );
 }
+
+Document.getInitialProps = async (ctx: DocumentContext): Promise<DocumentProps> => {
+  const initialProps = await NextDocument.getInitialProps(ctx);
+  return { ...initialProps, nonce: requestNonce(ctx.req) };
+};

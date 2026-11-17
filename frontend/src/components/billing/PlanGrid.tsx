@@ -50,7 +50,7 @@ export function PlanGrid({
             }`}
           >
             {isCurrent && (                  <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                <span className="bg-brand text-white text-xs font-medium px-3 py-1 rounded-full">
+                <span className="bg-brand-solid text-white text-xs font-medium px-3 py-1 rounded-full">
                   Current Plan
                 </span>
               </div>

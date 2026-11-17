@@ -6,7 +6,6 @@ import Head from 'next/head';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { LinkButton } from '@/components/ui/LinkButton';
-import { motion } from 'framer-motion';
 import { Mail, CheckCircle, XCircle, ArrowLeft, UserPlus, LogIn } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { LoadingSpinner } from '@/components/ui/Loading';
@@ -205,7 +204,7 @@ export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial
           </Link>
         </div>
 
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="max-w-sm mx-auto">
+        <div className="page-reveal max-w-sm mx-auto">
           <div className="flex items-center justify-center mb-4">
             <Mail className="w-7 h-7 text-brand" />
           </div>
@@ -360,7 +359,7 @@ export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial
               </>
             )}
           </Card>
-        </motion.div>
+        </div>
       </div>
     </>
   );

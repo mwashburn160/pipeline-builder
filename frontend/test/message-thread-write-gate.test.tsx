@@ -213,7 +213,7 @@ describe('ThreadView in a read-only (impersonation) session', () => {
     expect(screen.getByRole('button', { name: 'Attach files' })).toHaveAttribute('title', expect.stringMatching(/Read-only session/));
     // The case controls are writes too.
     expect(screen.getByRole('combobox', { name: 'Case status' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Close case' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Close case' })).toHaveAttribute('aria-disabled', 'true');
     // The permission hint would send them looking for a grant they already hold.
     expect(screen.queryByText(/replying and attaching files need/i)).not.toBeInTheDocument();
   });

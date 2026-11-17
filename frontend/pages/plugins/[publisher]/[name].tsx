@@ -31,6 +31,7 @@ import { resolveSiteUrl, type WithSiteUrl } from '@/lib/site-url';
 import { getListing, getListingReviews } from '@/lib/public-directory/api';
 import { DEFAULT_REVIEW_SORT, REVIEWS_PAGE_SIZE } from '@/components/reviews/ReviewsSection';
 import { cachePublicly, markUnavailable } from '@/lib/public-directory/server';
+import { requestNonce } from '@/lib/csp';
 import {
   categoryPagePath, loginHref, pipelineSnippet, pluginPagePath, safeExternalUrl,
 } from '@/lib/public-directory/links';
@@ -42,7 +43,8 @@ import api from '@/lib/api';
 import { hasPermission } from '@/lib/auth-helpers';
 
 export type PluginPageProps = WithSiteUrl & (
-  | { listing: ListingDetail; tab: ListingTab; unavailable?: false; initialReviews?: ReviewPage | null }
+  // `nonce`: this request's CSP nonce (proxy.ts), for the inline JSON-LD block.
+  | { listing: ListingDetail; tab: ListingTab; unavailable?: false; initialReviews?: ReviewPage | null; nonce?: string }
   | { listing: null; tab: ListingTab; unavailable: true; publisher: string; name: string }
 );
 
@@ -87,7 +89,7 @@ function SignedInInstall({ listing }: { listing: ListingDetail }) {
   );
 }
 
-function PluginPageBody({ listing, tab, siteUrl, initialReviews }: { listing: ListingDetail; tab: ListingTab; siteUrl: string; initialReviews?: ReviewPage | null }) {
+function PluginPageBody({ listing, tab, siteUrl, initialReviews, nonce }: { listing: ListingDetail; tab: ListingTab; siteUrl: string; initialReviews?: ReviewPage | null; nonce?: string }) {
   const { signedIn, user } = useClientAuth();
   const path = pluginPagePath(listing.publisher.handle, listing.name);
   const url = `${siteUrl}${path}`;
@@ -106,7 +108,9 @@ function PluginPageBody({ listing, tab, siteUrl, initialReviews }: { listing: Li
         siteUrl={siteUrl}
       />
       <Head>
-        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: pluginJsonLd(listing, url) }} />
+        {/* A data block, which CSP does not gate — but nonced anyway, so nothing
+            inline on the page depends on that distinction holding. */}
+        <script type="application/ld+json" nonce={nonce} dangerouslySetInnerHTML={{ __html: pluginJsonLd(listing, url) }} />
       </Head>
       <nav aria-label="Breadcrumb" className="mb-4 flex flex-wrap items-center gap-2 text-sm">
         <Link href="/plugins" className="action-link inline-flex items-center gap-1"><ArrowLeft className="h-4 w-4" aria-hidden="true" /> Plugins</Link>
@@ -192,7 +196,7 @@ export default function PluginPage(props: PluginPageProps) {
   return (
     <PublicLayout>
       {props.listing
-        ? <PluginPageBody listing={props.listing} tab={props.tab} siteUrl={props.siteUrl} initialReviews={props.initialReviews} />
+        ? <PluginPageBody listing={props.listing} tab={props.tab} siteUrl={props.siteUrl} initialReviews={props.initialReviews} nonce={props.nonce} />
         : (
           <>
             <DirectoryHead
@@ -216,7 +220,7 @@ function parseTab(raw: unknown): ListingTab {
 
 const SEGMENT_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
-export const getServerSideProps: GetServerSideProps<PluginPageProps> = async ({ params, query, res }) => {
+export const getServerSideProps: GetServerSideProps<PluginPageProps> = async ({ params, query, req, res }) => {
   const publisher = params?.publisher;
   const name = params?.name;
   if (typeof publisher !== 'string' || typeof name !== 'string' || !SEGMENT_RE.test(publisher) || !SEGMENT_RE.test(name)) {
@@ -237,10 +241,12 @@ export const getServerSideProps: GetServerSideProps<PluginPageProps> = async ({ 
     ? await getListingReviews(publisher, name, { sort: DEFAULT_REVIEW_SORT, limit: REVIEWS_PAGE_SIZE })
     : null;
   cachePublicly(res);
+  const nonce = requestNonce(req);
   return {
     props: {
       siteUrl, listing: result.data.listing, tab,
       ...(reviews?.ok ? { initialReviews: reviews.data } : {}),
+      ...(nonce ? { nonce } : {}),
     },
   };
 };

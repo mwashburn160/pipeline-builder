@@ -4,7 +4,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
-import { motion } from 'framer-motion';
 import { XCircle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { Card } from '@/components/ui/Card';
@@ -142,7 +141,7 @@ export default function SamlLandingPage() {
     <>
       <Head><title>Signing in… - Pipeline Builder</title></Head>
       <div className="min-h-screen px-6 py-10">
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="max-w-sm mx-auto">
+        <div className="page-reveal max-w-sm mx-auto">
           <Card className="p-8 text-center" role="status" aria-live="polite">
             {error ? (
               <>
@@ -168,7 +167,7 @@ export default function SamlLandingPage() {
               </>
             )}
           </Card>
-        </motion.div>
+        </div>
       </div>
     </>
   );

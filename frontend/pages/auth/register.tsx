@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
-import { motion } from 'framer-motion';
 import { UserPlus, CheckCircle, Check, ArrowLeft, Sparkles, Package, Cloud, Shield, BarChart3, LogIn } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useFeatures } from '@/hooks/useFeatures';
@@ -173,7 +172,7 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
   if (success) {
     return (
       <div className="min-h-screen flex items-center justify-center px-6">
-        <Card as={motion.div} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-8 max-w-xs text-center" role="status" aria-live="polite">
+        <Card className="page-reveal p-8 max-w-xs text-center" role="status" aria-live="polite">
           <CheckCircle className="w-10 h-10 text-success mx-auto mb-3" />
           <p className="font-bold">Account created!</p>
           <p className="text-sm text-fg-muted mt-1">Redirecting...</p>
@@ -205,7 +204,7 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
           </Link>
         </div>
 
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="max-w-4xl mx-auto">
+        <div className="page-reveal max-w-4xl mx-auto">
           <h1 className="text-xl font-bold text-center mb-1">Create account</h1>
           <p className="text-sm text-fg-muted text-center mb-6">
             Have an account? <Link href="/" className="text-brand hover:underline">Sign in</Link>
@@ -325,7 +324,7 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
               )}
             </div>
           </div>
-        </motion.div>
+        </div>
       </div>
     </>
   );

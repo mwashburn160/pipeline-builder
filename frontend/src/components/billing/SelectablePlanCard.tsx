@@ -66,7 +66,7 @@ export function SelectablePlanCard({
       }`}
     >
       {popular && (
-        <span className="absolute -top-2 right-3 rounded-full bg-brand text-white text-2xs font-semibold px-2 py-0.5">
+        <span className="absolute -top-2 right-3 rounded-full bg-brand-solid text-white text-2xs font-semibold px-2 py-0.5">
           Popular
         </span>
       )}

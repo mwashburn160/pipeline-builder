@@ -229,8 +229,8 @@ describe('Toolchain console: access', () => {
   it('a read-only session sees the console with every write locked', async () => {
     asOperator({ isReadOnly: true });
     await renderConsole();
-    expect(screen.getByRole('button', { name: 'Set as default 1.4.1' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Yank 1.4.1' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Set as default 1.4.1' })).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByRole('button', { name: 'Yank 1.4.1' })).toHaveAttribute('aria-disabled', 'true');
   });
 });
 

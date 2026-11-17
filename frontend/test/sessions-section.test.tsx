@@ -133,7 +133,7 @@ describe('SessionsSection', () => {
   it('disables revoking under read-only impersonation', async () => {
     render(<SessionsSection readOnly />);
     const button = await screen.findByRole('button', { name: /Stop renewal/ });
-    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute('aria-disabled', 'true');
   });
 
   it('surfaces a load failure instead of an empty list', async () => {

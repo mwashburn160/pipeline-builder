@@ -35,6 +35,7 @@ const mockApi = {
   setOrganizationId: jest.fn<AnyFn>(),
   onAccessTokenChange: () => () => undefined,
   onOrganizationChange: () => () => undefined,
+  onIdentityChange: () => () => undefined,
   onSessionExpired: jest.fn<AnyFn>(() => () => { /* unsubscribe */ }),
   login: jest.fn<AnyFn>(),
 };

@@ -117,7 +117,7 @@ export function ImpersonationBanner({ className = '' }: ImpersonationBannerProps
             )}
           </p>
           <p className="text-xs text-warning">
-            Read-only — changes are blocked for this session.
+            Read-only — changes are blocked for this session. It lives in this tab only: reloading or closing the tab ends it.
             {requestId && (
               <span className="ml-1">
                 Request <code className="rounded bg-amber-100 px-1 dark:bg-amber-900/50">{requestId}</code>

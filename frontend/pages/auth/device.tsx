@@ -6,7 +6,6 @@ import Head from 'next/head';
 import Link from 'next/link';
 import { LinkButton } from '@/components/ui/LinkButton';
 import { useRouter } from 'next/router';
-import { motion } from 'framer-motion';
 import { ArrowLeft, CheckCircle, MonitorSmartphone, ShieldAlert, Terminal, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -126,9 +125,9 @@ export default function DeviceApprovalPage() {
             <ArrowLeft className="w-3.5 h-3.5" /> Dashboard
           </Link>
         </div>
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="max-w-md mx-auto">
+        <div className="page-reveal max-w-md mx-auto">
           <Card className="p-8">{children}</Card>
-        </motion.div>
+        </div>
       </div>
     </>
   );

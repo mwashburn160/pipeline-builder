@@ -165,8 +165,8 @@ describe('invitations page — read-only (view-as) session', () => {
   it('locks Send Invitation rather than hiding it', async () => {
     render(<InvitationsPage />);
     const send = await screen.findByRole('button', { name: /send invitation/i });
-    expect(send).toBeDisabled();
-    expect(send).toHaveAttribute('title', expect.stringMatching(/Read-only session/));
+    expect(send).toHaveAttribute('aria-disabled', 'true');
+    expect(send).toHaveAccessibleDescription(/Read-only session/);
     await waitFor(() => expect(listInvitations).toHaveBeenCalled());
   });
 });

@@ -56,8 +56,7 @@ export function ClaimListingNotice({ listingName, signedIn, canClaim, loginHref 
               size="xs"
               variant="secondary"
               onClick={() => setClaiming(true)}
-              disabled={!canClaim}
-              title={canClaim ? undefined : 'Requires the publishers:manage permission — ask an organization admin to claim it'}
+              disabledReason={canClaim ? undefined : 'Requires the publishers:manage permission — ask an organization admin to claim it'}
             >
               <BadgeCheck className="mr-1 h-3.5 w-3.5" aria-hidden />Claim this listing
             </Button>

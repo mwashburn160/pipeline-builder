@@ -476,7 +476,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
                     ? 'max-w-[85%] rounded-2xl px-3 py-2 text-sm text-white'
                     : 'max-w-[95%] rounded-2xl px-3 py-2 text-sm bg-surface-muted text-fg'
                 }
-                style={m.role === 'user' ? { background: 'var(--pb-brand)' } : undefined}
+                style={m.role === 'user' ? { background: 'var(--pb-brand-solid)' } : undefined}
               >
                 <div className="whitespace-pre-wrap break-words">
                   {m.content}
@@ -596,7 +596,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
                             disabled={m.proposalStatus === 'creating' || !ready || !allowed}
                             title={allowed ? undefined : blockedReason}
                             className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-white text-xs disabled:opacity-50"
-                            style={{ background: 'var(--pb-brand)' }}
+                            style={{ background: 'var(--pb-brand-solid)' }}
                           >
                             {m.proposalStatus === 'creating'
                               ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> {meta.busyLabel}</>
@@ -708,7 +708,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
               title={isReadOnly ? READ_ONLY_REASON : undefined}
               aria-label="Send"
               className="p-2 rounded-lg text-white disabled:opacity-40"
-              style={{ background: 'var(--pb-brand)' }}
+              style={{ background: 'var(--pb-brand-solid)' }}
             >
               <Send className="w-4 h-4" />
             </button>

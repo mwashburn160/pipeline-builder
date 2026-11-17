@@ -164,15 +164,15 @@ describe('IncidentReportingSettings', () => {
     expect(screen.getByText('Read-only session')).toBeInTheDocument();
 
     goTab(/^Webhooks$/);
-    expect(screen.getByRole('button', { name: /generate webhook token/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /generate webhook token/i })).toHaveAttribute('aria-disabled', 'true');
 
     goTab(/^Providers$/);
     await waitFor(() => expect(getIncidentSettings).toHaveBeenCalled());
-    expect(screen.getByRole('button', { name: /save window/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /save window/i })).toHaveAttribute('aria-disabled', 'true');
 
     goTab(/Test & history/);
     const send = screen.getByRole('button', { name: /send test incident/i });
-    expect(send).toBeDisabled();
+    expect(send).toHaveAttribute('aria-disabled', 'true');
     fireEvent.click(send);
     expect(sendTestIncident).not.toHaveBeenCalled();
   });

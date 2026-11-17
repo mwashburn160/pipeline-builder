@@ -236,11 +236,11 @@ describe('AccessRequestsPage — read-only impersonation', () => {
     serve({ toDecide: [pending()], sessions: [live()] });
     render(<AccessRequestsPage />);
 
-    expect(await screen.findByRole('button', { name: 'Approve' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Deny' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'End session' })).toBeDisabled();
+    expect(await screen.findByRole('button', { name: 'Approve' })).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByRole('button', { name: 'Deny' })).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByRole('button', { name: 'End session' })).toHaveAttribute('aria-disabled', 'true');
     for (const name of ['Approve', 'Deny', 'End session']) {
-      expect(screen.getByRole('button', { name })).toHaveAttribute('title', READ_ONLY_REASON);
+      expect(screen.getByRole('button', { name })).toHaveAccessibleDescription(READ_ONLY_REASON);
     }
     expect(screen.getByText('Read-only session')).toBeInTheDocument();
   });

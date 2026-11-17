@@ -276,8 +276,8 @@ describe('TotpSection — keeping the posture strip honest', () => {
 describe('TotpSection — read-only and failure', () => {
   it('offers no writes during a read-only impersonation', async () => {
     await renderSection(enabled(), true);
-    expect(screen.getByRole('button', { name: /turn off/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /new recovery codes/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /turn off/i })).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByRole('button', { name: /new recovery codes/i })).toHaveAttribute('aria-disabled', 'true');
   });
 
   it('a failed status read shows a retry, NOT a false "two-factor is off"', async () => {

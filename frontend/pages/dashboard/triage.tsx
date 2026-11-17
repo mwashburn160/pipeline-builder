@@ -244,7 +244,7 @@ export default function TriagePage() {
                                     type="button"
                                     onClick={() => void handleReplay(s.id)}
                                     disabled={isReplaying}
-                                    className="px-2 py-0.5 text-2xs uppercase tracking-wider rounded bg-brand text-white hover:bg-brand-strong disabled:opacity-50 disabled:cursor-not-allowed"
+                                    className="px-2 py-0.5 text-2xs uppercase tracking-wider rounded bg-brand-solid text-white hover:bg-brand-solid-strong disabled:opacity-50 disabled:cursor-not-allowed"
                                     title="Re-enqueue this DLQ job onto the main build queue"
                                   >
                                     {isReplaying ? 'Replaying…' : 'Replay'}

@@ -143,7 +143,7 @@
       }
     ],
     "react-hooks/rules-of-hooks": "error",
-    "react-hooks/exhaustive-deps": "warn",
+    "react-hooks/exhaustive-deps": "error",
     "react/prop-types": "off",
     "jsx-a11y/no-autofocus": "off",
     "jsx-a11y/label-has-associated-control": [

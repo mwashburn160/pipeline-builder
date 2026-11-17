@@ -129,7 +129,8 @@ export default function CreatePipelineModal({
   const handleSubmit = async () => {
     const props = await resolveProps();
     if (!props) return;
-    // Description/keywords from upload or AI tabs
+    // Description/keywords live on each authoring tab (they are pipeline-record
+    // fields, not part of `props`), so read them from whichever tab is active.
     let desc = '';
     let kw = '';
     switch (activeTab) {
@@ -144,6 +145,12 @@ export default function CreatePipelineModal({
       case 'prompt':
         desc = promptRef.current?.getDescription() ?? '';
         kw = promptRef.current?.getKeywords() ?? '';
+        break;
+      case 'form':
+        // The wizard was missing here, so what was typed into its Description
+        // and Keywords fields was silently dropped from the create request.
+        desc = formRef.current?.getDescription() ?? '';
+        kw = formRef.current?.getKeywords() ?? '';
         break;
     }
     const keywordsArray = kw.split(',').map(k => k.trim()).filter(k => k);

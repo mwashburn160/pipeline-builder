@@ -225,7 +225,7 @@ export function AutoRefresh({ onRefresh, loading }: AutoRefreshProps) {
             onClick={() => setInterval_(opt.value)}
             className={`px-2 py-1 text-xs font-medium transition-colors ${
               interval === opt.value
-                ? 'bg-brand text-white'
+                ? 'bg-brand-solid text-white'
                 : 'text-fg-muted hover:bg-surface-muted'
             }`}
           >

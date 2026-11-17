@@ -109,8 +109,8 @@ Use the [Table of Contents](#table-of-contents) below to jump to a section.
 | `JWT_EXPIRES_IN_BUSINESS` | (inherits `JWT_EXPIRES_IN`) | Business-tier override |
 | `JWT_EXPIRES_IN_ENTERPRISE` | (inherits `JWT_EXPIRES_IN`) | Enterprise-tier override (e.g. `1800` = 30 min) |
 | `JWT_EXPIRES_IN_UNLIMITED` | (inherits `JWT_EXPIRES_IN`) | Unlimited-tier override (billing-disabled default tier) |
-| `JWT_ISSUER` | — | When set, platform stamps it on every token it signs and every service rejects tokens without it. Applies to both chains. Set on all services at once. |
-| `JWT_AUDIENCE` | — | Same as `JWT_ISSUER`, for the `aud` claim. |
+| `JWT_ISSUER` | `pipeline-builder-platform` (deploy configs) | Platform stamps it on every token it signs and every service rejects tokens without it. Applies to both chains. Set on all services at once. **Required when `NODE_ENV=production`**: a service refuses to boot without it (outside production, unset disables the check). |
+| `JWT_AUDIENCE` | `pipeline-builder` (deploy configs) | Same as `JWT_ISSUER`, for the `aud` claim. Also required in production. |
 | `BCRYPT_SALT_ROUNDS` | `12` | bcrypt cost factor for password hashing (10-12 recommended). |
 | `REFRESH_TOKEN_EXPIRES_IN` | `2592000` | Refresh token TTL (30d). Also the `Max-Age` of the browser's `pb_refresh` cookie. |
 | `AUTH_REFRESH_COOKIE_PATH` | `/api/auth/refresh` | Path the browser's refresh cookie is scoped to, as the **browser** sees it (nginx strips `/api` before proxying, so this is the public path). Change only when the UI is served under a different public prefix. |
@@ -122,6 +122,9 @@ Use the [Table of Contents](#table-of-contents) below to jump to a section.
 | `PASSWORD_BREACH_CHECK_TIMEOUT_MS` | `2000` | Per-check timeout; past it the check fails open |
 | `LOGIN_ACCOUNT_LIMITER_MAX` | `10` | Per-**account** failed password sign-ins allowed per window on `POST /auth/login` (keyed on a SHA-256 of the normalized identifier; successful sign-ins are not counted). The per-IP limit is `AUTH_LIMITER_*` |
 | `LOGIN_ACCOUNT_LIMITER_WINDOW_MS` | `900000` | Per-account sign-in throttle window (15 min) |
+| `LOGIN_ACCOUNT_LOCKOUT_MAX_FAILURES` | `LOGIN_ACCOUNT_LIMITER_MAX` | Durable (Mongo-backed) per-account password lockout: failed passwords for a real account within the window before password sign-in is locked. The backstop for the Redis bucket above, which fails open on a store error. Keep it ≥ the bucket's max so the bucket trips first while Redis is healthy |
+| `LOGIN_ACCOUNT_LOCKOUT_WINDOW_MS` | `LOGIN_ACCOUNT_LIMITER_WINDOW_MS` | Window those failures are counted in |
+| `LOGIN_ACCOUNT_LOCKOUT_MS` | `LOGIN_ACCOUNT_LIMITER_WINDOW_MS` | How long the lockout lasts (a password reset lifts it early) |
 | `BOOTSTRAP_SUPERADMIN_EMAILS` | — | Comma-separated user emails auto-promoted to `isSuperAdmin=true` at platform boot. **Required for fresh installs** — the first sysadmin can only be granted through this env or a direct DB update. Idempotent. Also names who the **bootstrap-admin MFA exception** applies to (#8): until one of these accounts enrols a passkey or an authenticator app, its password sign-in yields a limited session that can reach only enrolment, sign-out and the setup routes, and SSO enforcement never applies to it. Read live, so changing it needs no redeploy. See [Assurance levels and required MFA](authentication.md#assurance-levels-and-required-mfa). |
 | `BOOTSTRAP_SETUP_WINDOW_MS` | `86400000` | How long (ms, measured from the system org's creation — the install time) a password-only bootstrap-admin session may still mint the `setup` service account and its key through the MFA exception. Past it those two routes demand a real second factor; enrolment, sign-out and refresh stay open forever, so a late admin is never locked out. Raise it only for an install that legitimately takes longer than a day to finish; unset / non-positive = the 24h default |
 | `MFA_RECOVER_OPERATOR` | — | Default `--operator` for the `scripts/mfa-recover.js` factor-reset command — who is running it, recorded as the audit actor. Only read by that command; the flag wins when both are given, and the command refuses to run with neither (an audit row for a factor reset is worth little without a name). |
@@ -722,6 +725,7 @@ The deadline scales with the machine: a sub-Standard build gets `DOCKER_BUILD_TI
 | `LIMITER_MULT_ENTERPRISE` | `50` | Enterprise-tier rate-limit multiplier |
 | `LIMITER_MULT_UNLIMITED` | `100` | Unlimited-tier rate-limit multiplier (billing-disabled default tier) |
 | `ASK_RATE_LIMIT_PER_MIN` | `30` | Per-org ceiling on the Ask agent's routes. These run an LLM per request, so the cap is about model spend and latency, not abuse |
+| `ASK_HTTP_MAX_RESPONSE_BYTES` | `4194304` (4 MiB) | Largest response body the Ask agent accepts from a service it calls (pipeline, plugin, compliance, quota). A larger body is refused rather than buffered, so one oversized reply can't exhaust the Ask pod's memory. |
 | `ASK_DOCS_DIR` | `<cwd>/docs` | Directory the Ask service indexes as its answer corpus. The default follows the process's working directory, so a container that does not ship `docs/` indexes nothing and answers from no sources |
 | `PIPELINE_GENERATE_RATE_LIMIT_PER_MIN` | `20` | Per-org ceiling on AI pipeline generation (`POST /pipelines/generate`) |
 | `PLUGIN_GENERATE_RATE_LIMIT_PER_MIN` | `20` | Per-org ceiling on AI plugin generation. `POST /plugins/generate` and `/generate/stream` share ONE limiter instance, so this is the combined allowance across both, not per route |
@@ -898,6 +902,7 @@ Attachments are validated against a MIME allow-list (common images + documents; 
 | `EMAIL_FROM` | `noreply@example.com` | Sender address |
 | `EMAIL_FROM_NAME` | `pipeline-builder` | Sender display name |
 | `EMAIL_PROVIDER` | `smtp` | `smtp` or `ses` |
+| `EMAIL_SEND_TIMEOUT_MS` | `10000` | Upper bound per send phase — SES connect/request, SMTP connect/greeting (socket idle is 1.5×). Sends are awaited inline on request paths; a timed-out send returns false and counts `platform_email_send_total{outcome="failure"}` |
 | `SMTP_HOST` | `localhost` | SMTP host |
 | `SMTP_PORT` | `587` | SMTP port |
 | `SMTP_SECURE` | `false` | Use TLS |
@@ -1005,6 +1010,10 @@ Event reporting (`setup-events` → the reporting service) and DORA metrics. All
 | `EVENT_DLQ_ARN` | derived from the trigger | The event consumer's dead-letter queue, for the health probe. **Normally leave it unset**: the default is derived from the SQS trigger ARN the Lambda already receives (`<main-queue>-dlq`), so neither the region nor the account id has to be configured anywhere. Set it only when the DLQ does not follow that naming |
 | `REPORTING_DORA_RETENTION_DAYS` | `180` | Retention (days) for **DORA-source** records (deploy-stage events + deployment outcomes + incidents) — ~2 quarters. Per-org override via `dora_settings`. |
 | `REPORTING_RETENTION_INTERVAL_HOURS` | `12` | How often the leader-locked retention sweep runs. |
+| `REPORTING_ROLLUP_ENABLED` | `true` | Master switch for the leader-locked **daily rollup** scheduler that populates `execution_daily_rollups`, which every analytics section reads. `false` stops it; the analytics sections then go stale. |
+| `REPORTING_ROLLUP_INTERVAL_MINUTES` | `60` | How often the daily rollup pass runs. Each pass rebuilds the last `REPORTING_ROLLUP_BATCH_DAYS` settled days. |
+| `REPORTING_ROLLUP_STARTUP_DELAY_MS` | `60000` | Settle time before the first rollup pass after boot. |
+| `REPORTING_ROLLUP_LOCK_TTL_MS` | shared crash-recovery window | Leader-lock TTL for the rollup pass (the lock heartbeats while a pass runs). |
 | `REPORTING_ROLLUP_SETTLE_HOURS` | `6` | How long after a UTC day closes before it is rolled up into `execution_daily_rollups`. Rolling a day up at 00:01 counts every execution still running at midnight as neither a success nor a failure. Matches the report scheduler's own settle delay — a rollup that lagged it would make a scheduled report read a half-built day. |
 | `REPORTING_ROLLUP_BATCH_DAYS` | `7` | How many recent settled days each rollup pass rebuilds. Rebuilding a window rather than only the newest day is what makes a dead-letter redrive self-healing: late events land on days already rolled up, and a job that only built "yesterday" would leave those permanently wrong. |
 | `REPORT_SCHEDULER_ENABLED` | `true` | Master switch for the **stakeholder-report** scheduler. `false` stops every scheduled run fleet-wide without a redeploy — definitions stay active and simply do not fire, so flipping it back resumes them (missed periods are caught up, bounded by `REPORT_CATCHUP_MAX`). |

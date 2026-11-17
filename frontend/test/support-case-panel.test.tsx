@@ -51,6 +51,6 @@ describe('SupportCasePanel status select', () => {
     render(<SupportCasePanel supportCase={kase('open')} contacts={[{ userId: 'u1' }, { userId: 'u2' }]} readOnly />);
     expect(screen.getByRole('combobox', { name: 'Case status' })).toBeDisabled();
     expect(screen.getByRole('combobox', { name: 'Hand over to another support contact' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Close case' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Close case' })).toHaveAttribute('aria-disabled', 'true');
   });
 });

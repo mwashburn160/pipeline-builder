@@ -64,6 +64,22 @@ import { DashboardLayout } from '../src/components/ui/DashboardLayout';
 beforeEach(() => { stepUpProps = null; aiEntitled = false; });
 
 describe('step-up loads on demand without dropping the request', () => {
+  it('lets a wide actions bar wrap instead of crushing the title (Reports at tablet width)', () => {
+    render(
+      <DashboardLayout title="Reports" subtitle="Pipeline execution analytics" actions={<button type="button">act</button>}>
+        <p>body</p>
+      </DashboardLayout>,
+    );
+    const titleCol = screen.getByRole('heading', { level: 1, name: 'Reports' }).parentElement!.parentElement!;
+    const actions = screen.getByRole('button', { name: 'act' }).parentElement!;
+    // jsdom can't measure layout, so pin the classes that make it work: the
+    // header row wraps, the title column keeps a minimum basis, and the actions
+    // bar may shrink (a `shrink-0` actions bar is what squeezed the title away).
+    expect(titleCol.parentElement!.className).toContain('sm:flex-wrap');
+    expect(titleCol.className).toContain('sm:basis-72');
+    expect(actions.className).not.toContain('shrink-0');
+  });
+
   it('renders no step-up dialog (and loads none) until one is requested', () => {
     render(<DashboardLayout title="Home"><p>home</p></DashboardLayout>);
     expect(screen.queryByTestId('global-stepup')).toBeNull();

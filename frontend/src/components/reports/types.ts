@@ -13,7 +13,9 @@ export interface ActionFailure { action_name: string; failures: number; total: n
 
 // ─── Plugin ─────────────────────────────────────────────
 export interface PluginSummary { total: number; active: number; inactive: number; public: number; private: number; unique_names: number }
-export interface PluginVersion { name: string; version_count: number; latest_version: string; has_default: boolean }
+/** `managed`: a managed toolchain plugin (pipeline-bootstrap, cdk-synth), which resolves through
+ *  its toolchain release and never carries a default. Absent from older servers. */
+export interface PluginVersion { name: string; version_count: number; latest_version: string; has_default: boolean; managed?: boolean }
 export interface BuildSuccessEntry { period: string; succeeded: number; failed: number; success_pct: number }
 export interface BuildDurationStat { plugin_name: string; avg_ms: number; max_ms: number; builds: number }
 /** One plugin version's run-time behaviour (success-rate + duration routes, joined). */

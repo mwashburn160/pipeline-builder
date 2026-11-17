@@ -216,6 +216,16 @@
         }
       ]
     },
+    "test:e2e": {
+      "name": "test:e2e",
+      "description": "Playwright smoke + axe suite against next dev with the backend stubbed",
+      "steps": [
+        {
+          "exec": "playwright test",
+          "receiveArgs": true
+        }
+      ]
+    },
     "test:update": {
       "name": "test:update",
       "description": "Update jest snapshots",

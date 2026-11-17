@@ -106,8 +106,8 @@ export default function NewDashboardPage() {
             variant="primary"
             size="sm"
             onClick={() => void onCreate()}
-            disabled={submitting || !name.trim() || !canWrite}
-            title={canWrite ? undefined : 'Read-only — requires dashboards:write'}
+            disabled={submitting || !name.trim()}
+            disabledReason={canWrite ? undefined : 'Read-only — requires dashboards:write'}
           >
             {submitting ? 'Creating…' : 'Create & add panels'}
           </Button>

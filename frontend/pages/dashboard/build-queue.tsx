@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { formatError } from '@/lib/constants';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { Clock, Loader, CheckCircle2, XCircle, PauseCircle, RefreshCw, Inbox, AlertTriangle } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -236,7 +236,7 @@ export default function BuildQueuePage() {
       )}
 
       {/* Health indicator */}
-      <motion.div
+      <m.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
@@ -253,7 +253,7 @@ export default function BuildQueuePage() {
             Auto-refresh {POLL_INTERVAL / 1000}s &middot; {formatTime(lastUpdated)}
           </span>
         )}
-      </motion.div>
+      </m.div>
 
       {/* Stat cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
@@ -311,7 +311,7 @@ export default function BuildQueuePage() {
 
       {/* Failed jobs */}
       {status && status.failed > 0 && (
-        <motion.div
+        <m.div
           className="mt-8"
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
@@ -347,12 +347,12 @@ export default function BuildQueuePage() {
               actionTitle="Re-enqueue this failed build onto the main build queue"
             />
           )}
-        </motion.div>
+        </m.div>
       )}
 
       {/* DLQ */}
       {dlqTotal > 0 && (
-        <motion.div
+        <m.div
           className="mt-8"
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
@@ -397,7 +397,7 @@ export default function BuildQueuePage() {
               actionTitle="Re-enqueue this DLQ job onto the main build queue"
             />
           )}
-        </motion.div>
+        </m.div>
       )}
 
       {/* Replay confirmation (per DLQ row) */}

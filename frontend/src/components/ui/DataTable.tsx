@@ -1,5 +1,5 @@
 import { useState, useMemo, type KeyboardEvent, type ReactNode } from 'react';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { AlertCircle, ArrowUp, ArrowDown, ArrowUpDown, Columns3 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { LoadingSpinner } from './Loading';
@@ -235,7 +235,7 @@ export function DataTable<T>({
               <Columns3 className="w-3.5 h-3.5" />
               Columns
               {hiddenColumns.size > 0 && (
-                <span className="inline-flex items-center justify-center w-4 h-4 text-2xs font-bold rounded-full bg-brand text-white">
+                <span className="inline-flex items-center justify-center w-4 h-4 text-2xs font-bold rounded-full bg-brand-solid text-white">
                   {hiddenColumns.size}
                 </span>
               )}
@@ -349,7 +349,7 @@ export function DataTable<T>({
                 : { className: 'data-table-row' };
 
               return animated ? (
-                <motion.tr
+                <m.tr
                   key={key}
                   {...rowClickProps}
                   initial={{ opacity: 0, y: 8 }}
@@ -361,7 +361,7 @@ export function DataTable<T>({
                       {col.render(item, i)}
                     </td>
                   ))}
-                </motion.tr>
+                </m.tr>
               ) : (
                 <tr key={key} {...rowClickProps}>
                   {visibleColumns.map((col) => (

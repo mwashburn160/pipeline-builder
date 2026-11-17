@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { LinkButton } from '@/components/ui/LinkButton';
 import { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
+import { MotionFeatures } from '@/components/ui/MotionFeatures';
 import {
   Shield, BarChart3, Cloud, Bot, Globe, Zap, ArrowRight, Check, Sparkles, Menu, X, Moon, Sun,
 } from 'lucide-react';
@@ -89,7 +90,7 @@ function Hero() {
       <div className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-5 gap-10 items-start">
         {/* Left — 3 cols */}
         <div className="lg:col-span-3 pt-2">
-          <motion.div
+          <m.div
             className="inline-flex items-center gap-1.5 mb-3 px-3 py-1 rounded-full text-xs font-medium bg-surface border border-default text-fg-muted"
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
@@ -97,8 +98,8 @@ function Hero() {
           >
             <Sparkles className="w-3.5 h-3.5 text-brand" strokeWidth={2} />
             Software factories on AWS
-          </motion.div>
-          <motion.h1
+          </m.div>
+          <m.h1
             className="text-3xl sm:text-4xl font-bold leading-tight mb-3"
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
@@ -106,8 +107,8 @@ function Hero() {
           >
             Software factories from code or{' '}
             <span className="text-brand">AI</span>
-          </motion.h1>
-          <motion.p
+          </m.h1>
+          <m.p
             className="text-fg-muted text-sm mb-4 leading-relaxed max-w-lg"
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
@@ -116,9 +117,9 @@ function Hero() {
             Turn a Git URL or a prompt into a working pipeline — deployed as native
             AWS CodePipeline in your own account. 118 plugins, per-org compliance,
             zero lock-in.
-          </motion.p>
+          </m.p>
 
-          <motion.div
+          <m.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.3, delay: 0.18 }}
@@ -140,11 +141,11 @@ function Hero() {
                 Apache-2.0 · No credit card
               </span>
             </div>
-          </motion.div>
+          </m.div>
         </div>
 
         {/* Right — 2 cols, sign-in card */}
-        <motion.div
+        <m.div
           id="signin"
           className="lg:col-span-2"
           initial={{ opacity: 0, y: 16 }}
@@ -152,7 +153,7 @@ function Hero() {
           transition={{ duration: 0.4, delay: 0.1 }}
         >
           <SignInCard />
-        </motion.div>
+        </m.div>
       </div>
     </section>
   );
@@ -185,7 +186,7 @@ function Strengths() {
     <section className="py-12 px-6 bg-surface-muted">
       <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-8">
         {strengths.map((s, i) => (
-          <motion.div
+          <m.div
             key={s.title}
             className="flex flex-col gap-2"
             variants={fadeUp}
@@ -197,7 +198,7 @@ function Strengths() {
             <s.icon className="w-6 h-6 text-brand" strokeWidth={1.5} />
             <h3 className="font-semibold text-fg">{s.title}</h3>
             <p className="text-sm text-fg-muted leading-relaxed">{s.text}</p>
-          </motion.div>
+          </m.div>
         ))}
       </div>
     </section>
@@ -220,7 +221,7 @@ function AI() {
   return (
     <section id="how" className="py-16 px-6 scroll-mt-16">
       <div className="max-w-4xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8 items-center">
-        <motion.div
+        <m.div
           initial={{ opacity: 0, x: -12 }}
           whileInView={{ opacity: 1, x: 0 }}
           viewport={{ once: true }}
@@ -240,8 +241,8 @@ function AI() {
               </span>
             ))}
           </div>
-        </motion.div>
-        <motion.div
+        </m.div>
+        <m.div
           initial={{ opacity: 0, x: 12 }}
           whileInView={{ opacity: 1, x: 0 }}
           viewport={{ once: true }}
@@ -256,7 +257,7 @@ function AI() {
     { "plugin": "cdk-deploy" }
   ]
 }`} />
-        </motion.div>
+        </m.div>
       </div>
     </section>
   );
@@ -293,7 +294,7 @@ function Features() {
   return (
     <section className="py-14 px-6">
       <div className="max-w-5xl mx-auto">
-        <motion.h2
+        <m.h2
           className="text-2xl font-bold text-center mb-2"
           initial={{ opacity: 0, y: 8 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -301,13 +302,13 @@ function Features() {
           transition={{ duration: 0.4 }}
         >
           Everything you get
-        </motion.h2>
+        </m.h2>
         <p className="text-sm text-fg-muted text-center mb-8">
           Generate, deploy, govern, and measure — in one self-service platform.
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
           {featureGroups.map((g, i) => (
-            <motion.div
+            <m.div
               key={g.title}
               variants={fadeUp}
               initial="hidden"
@@ -329,7 +330,7 @@ function Features() {
                   ))}
                 </ul>
               </Card>
-            </motion.div>
+            </m.div>
           ))}
         </div>
       </div>
@@ -404,6 +405,7 @@ export default function LandingPage() {
   return (
     // `marketing-canvas` carries the two-tone radial wash. It belongs to this
     // page: on `body` it would tint every table and card in the signed-in app.
+    <MotionFeatures>
     <div className="min-h-screen marketing-canvas">
       <NavBar />
       <Hero />
@@ -413,5 +415,6 @@ export default function LandingPage() {
       <CTA />
       <Footer />
     </div>
+    </MotionFeatures>
   );
 }

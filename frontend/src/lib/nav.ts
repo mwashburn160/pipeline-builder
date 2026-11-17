@@ -163,7 +163,7 @@ export const QUICK_ACTIONS: { href: string; label: string; icon: LucideIcon; col
   // accented (creating a pipeline is the thing this product is for); the others
   // are quiet, so the top of the rail reads as a toolbar rather than as three
   // competing buttons in blue, amber and green.
-  { href: '/dashboard/pipelines?create=1', label: 'Create pipeline', icon: Plus, color: 'bg-brand text-white hover:bg-brand-strong', requiredPermission: 'pipelines:write' },
+  { href: '/dashboard/pipelines?create=1', label: 'Create pipeline', icon: Plus, color: 'bg-brand-solid text-white hover:bg-brand-solid-strong', requiredPermission: 'pipelines:write' },
   { href: '/dashboard/plugins?create=1', label: 'Add plugin', icon: Plus, color: 'bg-surface-muted text-fg-muted hover:text-fg', requiredPermission: 'plugins:write' },
   { href: '/dashboard/downloads', label: 'Get the CLI', icon: Download, color: 'bg-surface-muted text-fg-muted hover:text-fg' },
 ];

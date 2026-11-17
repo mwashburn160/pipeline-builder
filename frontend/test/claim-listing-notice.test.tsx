@@ -27,7 +27,7 @@ describe('ClaimListingNotice', () => {
   it('locks it, with the reason, for anyone else', () => {
     render(<ClaimListingNotice listingName="trivy" signedIn canClaim={false} loginHref="/login" />);
     const claim = screen.getByRole('button', { name: /claim this listing/i });
-    expect(claim).toBeDisabled();
-    expect(claim).toHaveAttribute('title', expect.stringContaining('publishers:manage'));
+    expect(claim).toHaveAttribute('aria-disabled', 'true');
+    expect(claim).toHaveAccessibleDescription(/publishers:manage/);
   });
 });

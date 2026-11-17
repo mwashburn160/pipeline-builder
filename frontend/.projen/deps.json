@@ -1,8 +1,18 @@
 {
   "dependencies": [
     {
+      "name": "@axe-core/playwright",
+      "version": "4.14.0",
+      "type": "build"
+    },
+    {
       "name": "@jest/globals",
       "version": "30.5.2",
+      "type": "build"
+    },
+    {
+      "name": "@playwright/test",
+      "version": "1.64.1",
       "type": "build"
     },
     {

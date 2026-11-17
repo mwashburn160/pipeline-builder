@@ -101,7 +101,7 @@ export function FilterBar({
               <SlidersHorizontal className="w-4 h-4" />
               Filters
               {advancedFilterCount > 0 && (
-                <span className="inline-flex items-center justify-center w-5 h-5 text-xs font-bold rounded-full bg-brand text-white">
+                <span className="inline-flex items-center justify-center w-5 h-5 text-xs font-bold rounded-full bg-brand-solid text-white">
                   {advancedFilterCount}
                 </span>
               )}

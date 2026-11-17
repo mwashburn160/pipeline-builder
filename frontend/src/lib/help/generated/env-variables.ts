@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 334e79906483251084881d2c5a7ebd53545d98eab250eb9180c2d7b7faeb6cd6
+// SOURCE-SHA256: e365b963710d72fe9756de7a6f3f9bf49b9d9b55954b543100faba83875acd95
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -263,13 +263,13 @@ export const envVariablesTopic: HelpTopic = {
             ],
             [
               "JWT_ISSUER",
-              "—",
-              "When set, platform stamps it on every token it signs and every service rejects tokens without it. Applies to both chains. Set on all services at once."
+              "pipeline-builder-platform (deploy configs)",
+              "Platform stamps it on every token it signs and every service rejects tokens without it. Applies to both chains. Set on all services at once. Required when NODE_ENV=production: a service refuses to boot without it (outside production, unset disables the check)."
             ],
             [
               "JWT_AUDIENCE",
-              "—",
-              "Same as JWT_ISSUER, for the aud claim."
+              "pipeline-builder (deploy configs)",
+              "Same as JWT_ISSUER, for the aud claim. Also required in production."
             ],
             [
               "BCRYPT_SALT_ROUNDS",
@@ -325,6 +325,21 @@ export const envVariablesTopic: HelpTopic = {
               "LOGIN_ACCOUNT_LIMITER_WINDOW_MS",
               "900000",
               "Per-account sign-in throttle window (15 min)"
+            ],
+            [
+              "LOGIN_ACCOUNT_LOCKOUT_MAX_FAILURES",
+              "LOGIN_ACCOUNT_LIMITER_MAX",
+              "Durable (Mongo-backed) per-account password lockout: failed passwords for a real account within the window before password sign-in is locked. The backstop for the Redis bucket above, which fails open on a store error. Keep it ≥ the bucket's max so the bucket trips first while Redis is healthy"
+            ],
+            [
+              "LOGIN_ACCOUNT_LOCKOUT_WINDOW_MS",
+              "LOGIN_ACCOUNT_LIMITER_WINDOW_MS",
+              "Window those failures are counted in"
+            ],
+            [
+              "LOGIN_ACCOUNT_LOCKOUT_MS",
+              "LOGIN_ACCOUNT_LIMITER_WINDOW_MS",
+              "How long the lockout lasts (a password reset lifts it early)"
             ],
             [
               "BOOTSTRAP_SUPERADMIN_EMAILS",
@@ -2312,6 +2327,11 @@ export const envVariablesTopic: HelpTopic = {
               "Per-org ceiling on the Ask agent's routes. These run an LLM per request, so the cap is about model spend and latency, not abuse"
             ],
             [
+              "ASK_HTTP_MAX_RESPONSE_BYTES",
+              "4194304 (4 MiB)",
+              "Largest response body the Ask agent accepts from a service it calls (pipeline, plugin, compliance, quota). A larger body is refused rather than buffered, so one oversized reply can't exhaust the Ask pod's memory."
+            ],
+            [
               "ASK_DOCS_DIR",
               "<cwd>/docs",
               "Directory the Ask service indexes as its answer corpus. The default follows the process's working directory, so a container that does not ship docs/ indexes nothing and answers from no sources"
@@ -2934,6 +2954,11 @@ export const envVariablesTopic: HelpTopic = {
               "smtp or ses"
             ],
             [
+              "EMAIL_SEND_TIMEOUT_MS",
+              "10000",
+              "Upper bound per send phase — SES connect/request, SMTP connect/greeting (socket idle is 1.5×). Sends are awaited inline on request paths; a timed-out send returns false and counts platform_email_send_total{outcome=\"failure\"}"
+            ],
+            [
               "SMTP_HOST",
               "localhost",
               "SMTP host"
@@ -3324,6 +3349,26 @@ export const envVariablesTopic: HelpTopic = {
               "REPORTING_RETENTION_INTERVAL_HOURS",
               "12",
               "How often the leader-locked retention sweep runs."
+            ],
+            [
+              "REPORTING_ROLLUP_ENABLED",
+              "true",
+              "Master switch for the leader-locked daily rollup scheduler that populates execution_daily_rollups, which every analytics section reads. false stops it; the analytics sections then go stale."
+            ],
+            [
+              "REPORTING_ROLLUP_INTERVAL_MINUTES",
+              "60",
+              "How often the daily rollup pass runs. Each pass rebuilds the last REPORTING_ROLLUP_BATCH_DAYS settled days."
+            ],
+            [
+              "REPORTING_ROLLUP_STARTUP_DELAY_MS",
+              "60000",
+              "Settle time before the first rollup pass after boot."
+            ],
+            [
+              "REPORTING_ROLLUP_LOCK_TTL_MS",
+              "shared crash-recovery window",
+              "Leader-lock TTL for the rollup pass (the lock heartbeats while a pass runs)."
             ],
             [
               "REPORTING_ROLLUP_SETTLE_HOURS",

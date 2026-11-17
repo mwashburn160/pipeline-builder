@@ -58,6 +58,7 @@ export default function EditTemplateModal({ template, canPublish, onClose, onSav
   const [visibility, setVisibility] = useState<TemplateVisibility>(template.visibility ?? 'private');
   const [inputs, setInputs] = useState<EditableInput[]>(toEditableInputs(template.inputs));
 
+  const [validationError, setValidationError] = useState<string | null>(null);
   const { execute: saveAsync, loading, error, clearError } = useAsyncCallback(
     (data: Parameters<typeof api.updatePipelineTemplate>[1]) => api.updatePipelineTemplate(template.id, data),
   );
@@ -115,11 +116,19 @@ export default function EditTemplateModal({ template, canPublish, onClose, onSav
 
   const handleSave = async () => {
     clearError();
+    setValidationError(null);
     setSuccess(null);
 
-    if (!name.trim()) { formRef.current?.goToStep(0); return; }
+    // Say WHY a save is refused (as the create modal does) — bouncing to step one
+    // with no message read as a broken Save button.
+    if (!name.trim()) {
+      setValidationError('Template name is required.');
+      formRef.current?.goToStep(0);
+      return;
+    }
     for (const r of inputs) {
       if (r.name.trim() && !INPUT_NAME_RE.test(r.name.trim())) {
+        setValidationError(`Input name "${r.name.trim()}" must be a valid identifier (letters, digits and underscores, not starting with a digit).`);
         formRef.current?.goToStep(0);
         return;
       }
@@ -272,7 +281,7 @@ export default function EditTemplateModal({ template, canPublish, onClose, onSav
       footer={footer}
       dirty={formDirty || ownFieldsDirty}
     >
-      <ErrorAlert message={error} className="mb-4" />
+      <ErrorAlert message={validationError ?? error} className="mb-4" />
       <SuccessAlert message={success} className="mb-4" />
 
       {fetching ? (

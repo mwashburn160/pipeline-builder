@@ -338,7 +338,7 @@ export function ComplianceOverview({ onGoToRules }: OverviewProps) {
                     type="button"
                     onClick={() => applyPreset(p.days)}
                     className={`px-2 py-1 text-xs border-l first:border-l-0 border-default ${
-                      isActive ? 'bg-brand text-white' : 'bg-surface text-fg-muted hover:bg-surface-muted'
+                      isActive ? 'bg-brand-solid text-white' : 'bg-surface text-fg-muted hover:bg-surface-muted'
                     }`}
                   >
                     {p.label}

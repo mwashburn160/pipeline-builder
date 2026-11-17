@@ -39,5 +39,7 @@ dist
 junit.xml
 /coverage/
 /.next/
+/test-results/
+/playwright-report/
 /public/plugin-icons/
 !/.eslintrc.json

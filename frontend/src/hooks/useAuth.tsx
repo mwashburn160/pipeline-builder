@@ -380,6 +380,21 @@ export function AuthProvider({ children, deferInit = false }: { children: ReactN
   }), [refreshUser]);
 
   /**
+   * This tab's session became SOMEONE ELSE's in place — an impersonation
+   * started (`api.startImpersonation`). Its token lives in memory only, so this
+   * cannot be a page load (which would discard it): drop the previous
+   * identity's caches, load the new profile, and land on the dashboard. The
+   * page shell re-keys on the user, so nothing rendered for the operator
+   * survives the switch.
+   */
+  useEffect(() => api.onIdentityChange(() => {
+    abandonInFlightRefresh();
+    clearSessionCaches();
+    void refreshUser({ force: true });
+    void router.push('/dashboard');
+  }), [router, refreshUser, abandonInFlightRefresh]);
+
+  /**
    * Handle session expiry — API client fires this when refresh fails.
    * Redirects to login page and clears local state.
    */
@@ -449,8 +464,7 @@ export function AuthProvider({ children, deferInit = false }: { children: ReactN
   // before the token was adopted (or after a sibling tab's broadcast swapped it)
   // kept its stale answer until something unrelated re-rendered the provider.
   // Reading it during render was also a server/client hydration hazard — the
-  // server never has a token, the browser may restore one from sessionStorage
-  // before the first paint. Syncing in an effect keyed on the profile covers
+  // server never has a token, the browser restores one before the first paint. Syncing in an effect keyed on the profile covers
   // every path that can change it: init, sign-in, org switch (this tab's or a
   // sibling's), and stop-impersonation all refresh the profile.
   const [isReadOnly, setIsReadOnly] = useState(false);

@@ -180,8 +180,7 @@ export function ListingStatePanel({ can }: Props) {
           variant="secondary"
           size="sm"
           onClick={() => setAction({ kind: 'resign' })}
-          disabled={!mayModerate}
-          title={mayModerate ? undefined : 'Requires plugins:moderate — unavailable in a read-only session'}
+          disabledReason={mayModerate ? undefined : 'Requires plugins:moderate — unavailable in a read-only session'}
         >
           <Stamp className="w-4 h-4 mr-1" aria-hidden />Re-sign all published images
         </Button>

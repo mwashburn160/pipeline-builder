@@ -38,4 +38,17 @@ describe('PluginVersions (isolation)', () => {
     expect(screen.getByText(/1 plugin without a default version/i)).toBeInTheDocument();
     expect(screen.getByText('beta', { selector: 'p' })).toBeInTheDocument();
   });
+
+  it('never flags a managed toolchain plugin as missing a default (it resolves via its release)', () => {
+    const managed: PluginVersion = { name: 'cdk-synth', version_count: 1, latest_version: '1.1.16', has_default: false, managed: true };
+    render(<PluginVersions loading={false} pluginVersions={[withDefault, managed]} />);
+    expect(screen.queryByText(/without a default version/)).toBeNull();
+    expect(screen.getByText('managed')).toBeInTheDocument();
+  });
+
+  it('still flags a real stale plugin alongside a managed one', () => {
+    const managed: PluginVersion = { name: 'pipeline-bootstrap', version_count: 1, latest_version: '1.0.0', has_default: false, managed: true };
+    render(<PluginVersions loading={false} pluginVersions={[stale, managed]} />);
+    expect(screen.getByText(/1 plugin without a default version/)).toBeInTheDocument();
+  });
 });

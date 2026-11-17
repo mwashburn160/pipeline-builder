@@ -306,8 +306,8 @@ describe('PluginUpgradePanel', () => {
     await waitFor(() => expect(api.previewPluginUpgrades).toHaveBeenLastCalledWith('p1', { widen: true }));
     await waitFor(() => expect(screen.getByLabelText('Upgrade deploy/lint')).toBeEnabled());
     const apply = screen.getByRole('button', { name: /apply 2 upgrades/i });
-    expect(apply).toBeDisabled();
-    expect(apply).toHaveAttribute('title', 'Requires pipelines:write');
+    expect(apply).toHaveAttribute('aria-disabled', 'true');
+    expect(apply).toHaveAccessibleDescription('Requires pipelines:write');
   });
 
   it('a superseded preview never lands — Apply sends only steps drafted for the CURRENT widen setting', async () => {

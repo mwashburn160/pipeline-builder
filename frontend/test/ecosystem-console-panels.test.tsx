@@ -485,8 +485,8 @@ describe('Auto-approval rules', () => {
     render(<AutoApprovalRulesPanel can={() => false} currentUserId="u-me" />);
     await screen.findByTestId('rule-rule-1');
     const newRule = screen.getByRole('button', { name: /new rule/i });
-    expect(newRule).toBeDisabled();
-    expect(newRule).toHaveAttribute('title', expect.stringContaining('plugins:moderate'));
+    expect(newRule).toHaveAttribute('aria-disabled', 'true');
+    expect(newRule).toHaveAccessibleDescription(/plugins:moderate/);
     expect(screen.queryByRole('button', { name: /disable|approve the change|delete/i })).not.toBeInTheDocument();
   });
 });

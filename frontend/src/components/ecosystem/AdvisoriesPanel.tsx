@@ -131,8 +131,7 @@ export function AdvisoriesPanel({ can }: Props) {
         <Button
           size="sm"
           onClick={() => setAction({ kind: 'new-form' })}
-          disabled={!mayModerate}
-          title={mayModerate ? undefined : 'Requires plugins:moderate — unavailable in a read-only session'}
+          disabledReason={mayModerate ? undefined : 'Requires plugins:moderate — unavailable in a read-only session'}
         >
           <Plus className="w-4 h-4 mr-1" aria-hidden />New draft
         </Button>
@@ -173,8 +172,7 @@ export function AdvisoriesPanel({ can }: Props) {
                       <Button
                         size="xs"
                         onClick={() => setAction({ kind: 'publish', advisory: a })}
-                        disabled={!a.requestId}
-                        title={a.requestId ? undefined : 'This draft has no open request'}
+                        disabledReason={a.requestId ? undefined : 'This draft has no open request'}
                         aria-label={`Publish the advisory for ${a.listingName}`}
                       >
                         <Check className="w-3.5 h-3.5 mr-1" aria-hidden />Publish
@@ -183,11 +181,10 @@ export function AdvisoriesPanel({ can }: Props) {
                         variant="danger-outline"
                         size="xs"
                         onClick={() => setAction({ kind: 'discard', advisory: a })}
-                        disabled={!a.requestId}
                         // The Publish button immediately above carries this
                         // same reason; an identically-disabled Discard with no
-                        // title reads as broken rather than inapplicable.
-                        title={a.requestId ? undefined : 'This draft has no open request'}
+                        // reason reads as broken rather than inapplicable.
+                        disabledReason={a.requestId ? undefined : 'This draft has no open request'}
                         aria-label={`Discard the draft for ${a.listingName}`}
                       >
                         <X className="w-3.5 h-3.5 mr-1" aria-hidden />Discard

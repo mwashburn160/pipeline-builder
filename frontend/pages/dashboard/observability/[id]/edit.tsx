@@ -179,8 +179,8 @@ export default function DashboardEditPage() {
             variant="primary"
             size="xs"
             onClick={() => void onSave()}
-            disabled={saving || !name.trim() || !canWrite}
-            title={canWrite ? undefined : 'Read-only — requires dashboards:write'}
+            disabled={saving || !name.trim()}
+            disabledReason={canWrite ? undefined : 'Read-only — requires dashboards:write'}
             className="gap-1"
           >
             <Save className="w-3.5 h-3.5" /> {saving ? 'Saving…' : 'Save'}
@@ -229,14 +229,14 @@ export default function DashboardEditPage() {
               <div className="inline-flex border border-default rounded overflow-hidden text-xs">
                 <button
                   onClick={() => setEditorMode('grid')}
-                  className={`px-2 py-1 inline-flex items-center gap-1 ${editorMode === 'grid' ? 'bg-brand text-white' : 'hover:bg-surface-muted'}`}
+                  className={`px-2 py-1 inline-flex items-center gap-1 ${editorMode === 'grid' ? 'bg-brand-solid text-white' : 'hover:bg-surface-muted'}`}
                   aria-pressed={editorMode === 'grid'}
                 >
                   <LayoutGrid className="w-3.5 h-3.5" /> Grid
                 </button>
                 <button
                   onClick={() => setEditorMode('list')}
-                  className={`px-2 py-1 inline-flex items-center gap-1 ${editorMode === 'list' ? 'bg-brand text-white' : 'hover:bg-surface-muted'}`}
+                  className={`px-2 py-1 inline-flex items-center gap-1 ${editorMode === 'list' ? 'bg-brand-solid text-white' : 'hover:bg-surface-muted'}`}
                   aria-pressed={editorMode === 'list'}
                 >
                   <List className="w-3.5 h-3.5" /> List

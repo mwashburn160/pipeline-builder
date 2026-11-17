@@ -121,6 +121,6 @@ describe('ImpersonationPolicySettings', () => {
   it('is fully disabled during read-only impersonation', async () => {
     render(<ImpersonationPolicySettings orgId="org-1" readOnly />);
     expect(await screen.findByRole('radio', { name: /^open/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Save' })).toHaveAttribute('aria-disabled', 'true');
   });
 });

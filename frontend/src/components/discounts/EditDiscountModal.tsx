@@ -122,7 +122,7 @@ export function EditDiscountModal({ discount, onClose, onSaved }: EditDiscountMo
                 aria-pressed={editTiers.includes(tier)}
                 disabled={editForm.loading}
                 className={`px-3 py-1.5 rounded-full text-xs font-medium border capitalize transition-colors ${editTiers.includes(tier)
-                  ? 'bg-brand text-white border-brand'
+                  ? 'bg-brand-solid text-white border-brand'
                   : 'bg-surface text-fg-muted border-default hover:bg-surface-muted'}`}
               >
                 {tier}

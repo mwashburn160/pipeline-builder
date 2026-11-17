@@ -106,8 +106,8 @@ export default function TemplateOnboarding({ readOnly = false }: TemplateOnboard
         <Button
           onClick={handleApply}
           loading={applying}
-          disabled={readOnly || selectedIds.size === 0}
-          title={readOnly ? APPLY_BLOCKED_REASON : undefined}
+          disabled={selectedIds.size === 0}
+          disabledReason={readOnly ? APPLY_BLOCKED_REASON : undefined}
           className="gap-1.5"
         >
           {!applying && <Sparkles className="h-4 w-4" />}
