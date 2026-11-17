@@ -45,7 +45,7 @@ import {
 import { report } from './reporting/query-scope.js';
 import { purgeExpiredReportingData as purgeReportingRetention } from './reporting/retention-sweep.js';
 import { REPORTING_EVENT_RETENTION_DAYS, REPORTING_DORA_RETENTION_DAYS } from './reporting/retention.js';
-import { assertReportInterval, bucketKey, periodBucket, scrubOptional, optionalStartedAtRange, startedAtWindow } from './reporting/sql-helpers.js';
+import { assertReportInterval, bucketKey, notOvertaken, periodBucket, scrubOptional, optionalStartedAtRange, startedAtWindow, terminalStatusList } from './reporting/sql-helpers.js';
 import type {
   ExecutionCount, TimeSeriesEntry, DurationStats, PipelineExecution, StageFailure, StageBottleneck,
   ActionFailure, ErrorEntry, PluginSummary, TypeComputeDistribution, VersionCount,
@@ -162,8 +162,13 @@ export class ReportingService {
           MIN(e.started_at)::text AS first_execution,
           MAX(e.started_at)::text AS last_execution
         FROM ${schema.pipeline} p
+        -- One row per execution OUTCOME: its terminal PIPELINE event, minus any a
+        -- retry overtook (see notOvertaken). Counting every non-STARTED row made a
+        -- retried run count twice (FAILED + SUCCEEDED) and counted RESUMED/STOPPING
+        -- rows as runs of their own.
         JOIN ${schema.pipelineEvent} e ON e.pipeline_id = p.id
-          AND e.event_type = 'PIPELINE' AND e.status != 'STARTED'
+          AND e.event_type = 'PIPELINE' AND e.status IN (${terminalStatusList})
+          AND ${notOvertaken}
           ${rangeClause}
         WHERE p.org_id ${pred} AND p.is_active = true
         GROUP BY p.id
@@ -175,12 +180,15 @@ export class ReportingService {
    * Per-pipeline execution history — DISTINCT executions for one pipeline,
    * newest first. Groups all events by `execution_id` in a single scan and
    * rolls each execution up to one row:
-   *   - status: derived from the PIPELINE-type events. FAILED wins, then
-   *     SUCCEEDED, then CANCELED; an execution with no terminal PIPELINE event
-   *     is still `in-progress`.
+   *   - status: derived from the PIPELINE-type events a retry did not overtake
+   *     (see `notOvertaken`), so a run whose failed stage was retried and passed
+   *     is `succeeded`. Among those, FAILED wins, then SUCCEEDED, then CANCELED;
+   *     an execution with no terminal PIPELINE event, or RESUMED after its last
+   *     one, is still `in-progress`.
+   *   - retried: a stage of the execution was retried.
    *   - startedAt/endedAt/durationMs: from the PIPELINE lifecycle events.
-   *   - failingStage/failingAction: the first FAILED STAGE/ACTION event (cheap —
-   *     same scan, no extra query).
+   *   - failingStage/failingAction: the first FAILED STAGE/ACTION event that a
+   *     retry did not overtake (cheap — same scan, no extra query).
    *
    * ORG-SCOPING: identical to the sibling execution reports — joins the pipeline
    * registry table (`pipeline`) and gates on `p.org_id ${pred}`, where `pred` is
@@ -199,17 +207,28 @@ export class ReportingService {
         SELECT
           e.execution_id,
           CASE
-            WHEN bool_or(e.event_type = 'PIPELINE' AND e.status = 'FAILED') THEN 'failed'
-            WHEN bool_or(e.event_type = 'PIPELINE' AND e.status = 'SUCCEEDED') THEN 'succeeded'
-            WHEN bool_or(e.event_type = 'PIPELINE' AND e.status = 'CANCELED') THEN 'canceled'
+            -- An execution resumed after its last outcome has no outcome that
+            -- stands (notOvertaken), so it falls through to in-progress.
+            WHEN bool_or(e.event_type = 'PIPELINE' AND e.status = 'FAILED' AND ${notOvertaken}) THEN 'failed'
+            WHEN bool_or(e.event_type = 'PIPELINE' AND e.status = 'SUCCEEDED' AND ${notOvertaken}) THEN 'succeeded'
+            WHEN bool_or(e.event_type = 'PIPELINE' AND e.status = 'CANCELED' AND ${notOvertaken}) THEN 'canceled'
             ELSE 'in-progress'
           END AS status,
+          -- A stage was retried: AWS said RESUMED, or a later terminal event
+          -- overtook an earlier one (the RESUMED row itself may be missing — the
+          -- ingest refused it before RESUMED was accepted).
+          (bool_or(e.status = 'RESUMED')
+            OR bool_or(e.event_type = 'PIPELINE' AND e.status IN (${terminalStatusList}) AND NOT ${notOvertaken})) AS retried,
           MIN(e.started_at) FILTER (WHERE e.event_type = 'PIPELINE')::text AS started_at,
           MAX(e.completed_at) FILTER (WHERE e.event_type = 'PIPELINE')::text AS ended_at,
-          MAX(e.duration_ms) FILTER (WHERE e.event_type = 'PIPELINE')::int AS duration_ms,
-          (ARRAY_AGG(e.stage_name) FILTER (WHERE e.event_type = 'STAGE' AND e.status = 'FAILED'))[1] AS failing_stage,
-          (ARRAY_AGG(e.action_name) FILTER (WHERE e.event_type = 'ACTION' AND e.status = 'FAILED'))[1] AS failing_action,
-          (ARRAY_AGG(e.detail->'failure') FILTER (WHERE e.detail ? 'failure'))[1] AS failure
+          -- The final outcome's duration: start of the execution → its last terminal
+          -- event. An overtaken FAILED measured only up to the failure.
+          MAX(e.duration_ms) FILTER (WHERE e.event_type = 'PIPELINE' AND ${notOvertaken})::int AS duration_ms,
+          -- Only failures nothing overtook: a stage that failed and then passed on
+          -- retry did not fail the execution.
+          (ARRAY_AGG(e.stage_name) FILTER (WHERE e.event_type = 'STAGE' AND e.status = 'FAILED' AND ${notOvertaken}))[1] AS failing_stage,
+          (ARRAY_AGG(e.action_name) FILTER (WHERE e.event_type = 'ACTION' AND e.status = 'FAILED' AND ${notOvertaken}))[1] AS failing_action,
+          (ARRAY_AGG(e.detail->'failure') FILTER (WHERE e.detail ? 'failure' AND ${notOvertaken}))[1] AS failure
         FROM ${schema.pipelineEvent} e
         JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
         WHERE p.org_id ${pred} AND e.pipeline_id = ${pipelineId} AND e.execution_id IS NOT NULL
@@ -241,6 +260,7 @@ export class ReportingService {
         JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
         WHERE p.org_id ${pred} AND e.event_type = 'PIPELINE'
           AND e.status IN ('SUCCEEDED', 'FAILED', 'CANCELED')
+          AND ${notOvertaken}
           AND ${startedAtWindow(from, to)}
         GROUP BY period ORDER BY period
       `);
@@ -259,6 +279,7 @@ export class ReportingService {
         FROM ${schema.pipelineEvent} e
         JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
         WHERE p.org_id ${pred} AND e.event_type = 'PIPELINE' AND e.duration_ms IS NOT NULL
+          AND ${notOvertaken}
           AND ${startedAtWindow(from, to)}
         GROUP BY p.id ORDER BY avg_ms DESC
       `);
@@ -276,6 +297,10 @@ export class ReportingService {
         FROM ${schema.pipelineEvent} e
         JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
         WHERE p.org_id ${pred} AND e.event_type = 'STAGE' AND e.stage_name IS NOT NULL
+          -- A RESUMED row re-opens a stage that already has a row; counting it
+          -- would add an attempt that never happened. A retried stage's earlier
+          -- FAILED stays: the stage did fail, which is what this heatmap shows.
+          AND e.status <> 'RESUMED'
           AND ${startedAtWindow(from, to)}
         GROUP BY e.stage_name ORDER BY failures DESC
       `);

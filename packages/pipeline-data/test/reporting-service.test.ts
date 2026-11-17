@@ -1092,7 +1092,9 @@ describe('ReportingService', () => {
       await service.getDoraMetrics('acme', FROM, TO);
       const { sql } = dialect.sqlToQuery(mockExecute.mock.calls[0]?.[0] as SQL);
       expect(sql).toContain('GROUP BY e.environment, e.execution_id');
-      expect(sql).not.toContain('stage_name');
+      // No grouping by stage. (stage_name does appear: notOvertaken matches a
+      // retried stage to its own later outcome — a filter, not a grain.)
+      expect(sql).not.toMatch(/GROUP BY[^\n]*stage_name/);
     });
 
     it('one per-execution deploy row (two stages already rolled up) counts as 1 deployment', async () => {
@@ -1595,7 +1597,7 @@ describe('ReportingService', () => {
       expect(sql).toContain('exec_commits');
       // per-execution grouping — one deployment per (env, execution), NOT per stage.
       expect(sql).toContain('GROUP BY e.environment, e.execution_id');
-      expect(sql).not.toContain('e.stage_name');
+      expect(sql).not.toMatch(/GROUP BY[^\n]*stage_name/);
       // No run-basis PIPELINE roll-up any more.
       expect(sql).not.toContain("e.event_type = 'PIPELINE'");
       // Unscoped ⇒ no per-pipeline / single-environment predicate.
@@ -1668,7 +1670,7 @@ describe('ReportingService', () => {
       expect(sql).toContain('DATE_TRUNC');
       // per-execution grouping in the trend CTE, not per stage.
       expect(sql).toContain('GROUP BY e.environment, e.execution_id');
-      expect(sql).not.toContain('e.stage_name');
+      expect(sql).not.toMatch(/GROUP BY[^\n]*stage_name/);
       expect(sql).not.toContain("e.event_type = 'PIPELINE'");
     });
   });

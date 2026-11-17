@@ -1049,6 +1049,22 @@ describe('pipeline-events handler', () => {
     expect(event.durationMs).toBeDefined();
   });
 
+  // A retried stage re-opens the execution after its terminal FAILED. The row must
+  // say WHEN it re-opened (event.time), not the execution's original start, or the
+  // reports cannot tell "running again" from "failed".
+  it('stamps a RESUMED event with the moment it resumed, and leaves it non-terminal', async () => {
+    await handler(createSQSEvent([{
+      ...MOCK_CODEPIPELINE_EVENT,
+      detail: { ...MOCK_CODEPIPELINE_EVENT.detail, state: 'RESUMED' },
+    }]));
+    const event = lastEventsBody().events[0];
+    expect(event.status).toBe('RESUMED');
+    expect(event.startedAt).toBe(MOCK_CODEPIPELINE_EVENT.time);
+    expect(event.startedAt).not.toBe(MOCK_CODEPIPELINE_EVENT.detail['start-time']);
+    expect(event.completedAt).toBeUndefined();
+    expect(event.durationMs).toBeUndefined();
+  });
+
   it('omits the duration when AWS sent no start-time, instead of reporting 0', async () => {
     // `startedAt` falls back to `event.time` so the row still lands in the report
     // windows (which filter on started_at) — but on a TERMINAL event that makes

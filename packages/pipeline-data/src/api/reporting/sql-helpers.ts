@@ -78,12 +78,76 @@ export function scrubOptional(value: string | undefined): string | undefined {
  * Shared by the three per-(env|stage, execution) rollup CTEs — DORA metrics, DORA
  * trend, and build health — so the precedence can't drift between them. Assumes the
  * grouped event alias is `e`.
+ *
+ * "FAILED wins" is right ACROSS the stages of an execution (two deploy stages to
+ * one env, one failed: the deployment failed). It is wrong WITHIN one stage that
+ * was retried, so each caller also filters on {@link notOvertaken}: the FAILED a
+ * successful retry overtook never reaches this CASE.
  */
 export const terminalStatusRollup = sql`CASE
               WHEN bool_or(e.status = 'FAILED') THEN 'FAILED'
               WHEN bool_or(e.status = 'SUCCEEDED') THEN 'SUCCEEDED'
               ELSE 'OTHER'
             END`;
+
+/**
+ * The CodePipeline states that END an execution, stage or action. Mirrors the
+ * events Lambda's `TERMINAL_STATES` (packages/pipeline-events/src/parse.ts):
+ * these are the rows that carry a `completed_at`.
+ */
+export const TERMINAL_EVENT_STATUSES = ['SUCCEEDED', 'FAILED', 'CANCELED', 'STOPPED', 'SUPERSEDED', 'ABANDONED'] as const;
+
+/** {@link TERMINAL_EVENT_STATUSES} as a SQL list, for `status IN (…)`. */
+export const terminalStatusList = sql.join(TERMINAL_EVENT_STATUSES.map((s) => sql`${s}`), sql`, `);
+
+/**
+ * Lifecycle states that are NOT an outcome: the run, stage or action is under way
+ * (or re-opened) and a terminal row will follow. A report counting outcomes
+ * excludes them.
+ */
+export const NON_OUTCOME_EVENT_STATUSES = ['STARTED', 'RESUMED', 'IN_PROGRESS', 'STOPPING'] as const;
+
+/** {@link NON_OUTCOME_EVENT_STATUSES} as a SQL list, for `status NOT IN (…)`. */
+export const nonOutcomeStatusList = sql.join(NON_OUTCOME_EVENT_STATUSES.map((s) => sql`${s}`), sql`, `);
+
+/**
+ * True for an event row that NO LATER terminal event of the same execution has
+ * overtaken. Assumes the outer event alias is `e`.
+ *
+ * WHY. A retried CodePipeline stage reopens the SAME execution: AWS sends a
+ * terminal `FAILED`, then `RESUMED`, then a second terminal status (say
+ * `SUCCEEDED`) for the same execution, stage and action. Reports that read
+ * "any FAILED" or count terminal rows then show one successful run as a failure,
+ * or as two runs. The latest terminal status is the execution's outcome, so the
+ * overtaken one is excluded.
+ *
+ * A terminal row is overtaken by a LATER row for the same unit that is either:
+ *  - terminal (the retry finished: its outcome replaces this one), or
+ *  - RESUMED (the retry is running: this outcome is no longer the answer, and
+ *    the run reads as in progress until the retry finishes).
+ *
+ * "Same unit" = same execution, pipeline, event type, stage and action, so a
+ * failed stage is only overtaken by that stage's own later rows, never by a
+ * sibling stage. Ordered by AWS's event time (`completed_at` on a terminal row,
+ * `started_at` on a RESUMED row — the events Lambda stamps the resume time
+ * there), NOT by ingest time: a dead-letter redrive inserts events hours late and
+ * out of order. A RESUMED row from an older Lambda carries the execution's start,
+ * which is never later, so it overtakes nothing and the outcome stands as
+ * before. A non-terminal row (no `completed_at`) and a row with no execution id
+ * always pass. Served by `event_execution_id_idx`.
+ */
+export const notOvertaken = sql`NOT EXISTS (
+            SELECT 1 FROM pipeline_events later
+            WHERE later.execution_id = e.execution_id
+              AND later.pipeline_id = e.pipeline_id
+              AND later.event_type = e.event_type
+              AND later.stage_name IS NOT DISTINCT FROM e.stage_name
+              AND later.action_name IS NOT DISTINCT FROM e.action_name
+              AND (
+                (later.status IN (${terminalStatusList}) AND later.completed_at > e.completed_at)
+                OR (later.status = 'RESUMED' AND later.started_at > e.completed_at)
+              )
+          )`;
 
 /** The report window on `e.started_at` (inclusive `[from, to]`). */
 export function startedAtWindow(from: string, to: string): ReturnType<typeof sql> {

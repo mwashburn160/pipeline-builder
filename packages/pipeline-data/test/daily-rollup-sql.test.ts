@@ -34,16 +34,29 @@ const OTHER_PIPE = randomUUID();
 const REBUILD = `
   WITH ev AS (
     SELECT
-      org_id,
-      pipeline_id::text AS pipeline_id,
-      COALESCE(stage_name, '') AS stage_name,
-      status,
-      failure_category,
-      duration_ms
-    FROM pipeline_events
-    WHERE created_at >= $1 AND created_at < $2
-      AND pipeline_id IS NOT NULL
-      AND event_type IN ('PIPELINE', 'STAGE')
+      e.org_id,
+      e.pipeline_id::text AS pipeline_id,
+      COALESCE(e.stage_name, '') AS stage_name,
+      e.status,
+      e.failure_category,
+      e.duration_ms
+    FROM pipeline_events e
+    WHERE e.created_at >= $1 AND e.created_at < $2
+      AND e.pipeline_id IS NOT NULL
+      AND e.event_type IN ('PIPELINE', 'STAGE')
+      AND e.status NOT IN ('STARTED', 'RESUMED', 'IN_PROGRESS', 'STOPPING')
+      AND NOT EXISTS (
+        SELECT 1 FROM pipeline_events later
+        WHERE later.execution_id = e.execution_id
+          AND later.pipeline_id = e.pipeline_id
+          AND later.event_type = e.event_type
+          AND later.stage_name IS NOT DISTINCT FROM e.stage_name
+          AND later.action_name IS NOT DISTINCT FROM e.action_name
+          AND (
+            (later.status IN ('SUCCEEDED', 'FAILED', 'CANCELED', 'STOPPED', 'SUPERSEDED', 'ABANDONED') AND later.completed_at > e.completed_at)
+            OR (later.status = 'RESUMED' AND later.started_at > e.completed_at)
+          )
+      )
   ),
   cats AS (
     SELECT org_id, pipeline_id, stage_name,

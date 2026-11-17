@@ -18,8 +18,14 @@ import { requireIngestScope } from '../middleware/require-ingest-scope.js';
  * silently producing zero-result reports — the dashboard queries
  * `getSuccessRate` (uppercase) and `getBuildSuccessRate` (lowercase) are
  * shape-coupled to these strings.
+ *
+ * `RESUMED` is what CodePipeline sends when a failed stage is retried: the SAME
+ * execution re-opens after its terminal FAILED. Refusing it failed the whole
+ * forwarded batch (400) and dropped the one signal that the failure was not
+ * final. It is non-terminal; the execution reports read the retried outcome via
+ * `notOvertaken` (packages/pipeline-data/src/api/reporting/sql-helpers.ts).
  */
-const AWS_STATUSES = ['SUCCEEDED', 'FAILED', 'CANCELED', 'IN_PROGRESS', 'STARTED', 'STOPPED', 'STOPPING', 'SUPERSEDED', 'ABANDONED'] as const;
+const AWS_STATUSES = ['SUCCEEDED', 'FAILED', 'CANCELED', 'IN_PROGRESS', 'STARTED', 'RESUMED', 'STOPPED', 'STOPPING', 'SUPERSEDED', 'ABANDONED'] as const;
 
 const PLUGIN_BUILD_STATUSES = ['completed', 'failed', 'started', 'timeout', 'cancelled'] as const;
 

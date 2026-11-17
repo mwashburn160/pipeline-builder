@@ -18,7 +18,7 @@ import {
   round, median, percentile,
 } from './dora-scoring.js';
 import { orgScope, runReport } from './query-scope.js';
-import { assertReportInterval, bucketKey, periodBucket, terminalStatusRollup } from './sql-helpers.js';
+import { assertReportInterval, bucketKey, notOvertaken, periodBucket, terminalStatusRollup } from './sql-helpers.js';
 import type {
   DoraOptions, DoraMetrics, DoraEnvMetrics, DoraTrendPoint, BuildHealth, BuildHealthStage,
   DeployRow, OutcomeRow, MttrPairRow, IncidentRow, CoverageRow,
@@ -118,6 +118,7 @@ export async function getDoraMetrics(
         FROM ${schema.pipelineEvent} e
         JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
         WHERE p.org_id ${pred} AND e.event_type = 'STAGE' AND e.environment IS NOT NULL
+          AND ${notOvertaken}
           ${pipelineClause} ${scanEnvClause}
           AND e.completed_at >= ${lookbackFrom}::timestamptz AND e.completed_at <= ${to}::timestamptz
         GROUP BY e.environment, e.execution_id
@@ -545,6 +546,7 @@ export async function getDoraTrend(
         FROM ${schema.pipelineEvent} e
         JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
         WHERE p.org_id ${pred} AND e.event_type = 'STAGE' AND e.environment IS NOT NULL
+          AND ${notOvertaken}
           ${pipelineClause} ${envClause}
           AND e.completed_at >= ${from}::timestamptz AND e.completed_at <= ${to}::timestamptz
         GROUP BY e.environment, e.execution_id
@@ -595,6 +597,7 @@ export async function getBuildHealth(
         JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
         WHERE p.org_id ${pred} AND e.pipeline_id = ${pipelineId}
           AND e.event_type = 'STAGE' AND e.stage_name IS NOT NULL
+          AND ${notOvertaken}
           AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
         GROUP BY e.stage_name, e.execution_id
       )

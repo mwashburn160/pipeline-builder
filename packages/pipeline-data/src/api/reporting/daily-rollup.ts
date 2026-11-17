@@ -26,6 +26,7 @@
 
 import { createLogger, errorMessage, envInt, startOf } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
+import { nonOutcomeStatusList, notOvertaken } from './sql-helpers.js';
 import { withTenantTx } from '../../database/tenancy.js';
 
 const logger = createLogger('daily-rollup');
@@ -70,19 +71,26 @@ export async function rebuildDay(day: Date): Promise<number> {
   // CTEs rather than window functions, because `PERCENTILE_CONT` is an ordered-set
   // aggregate and cannot be used as a window function at all — the shape that
   // looks natural here does not run.
+  //
+  // ONE ROW PER OUTCOME, not per event. A STARTED or RESUMED row is a lifecycle
+  // step of a run that has (or will have) its own terminal row, and a terminal row
+  // a retry overtook (FAILED, then the retried stage SUCCEEDED) is not the run's
+  // outcome — counting either made one run several.
   const result = await withTenantTx((tx) => tx.execute(sql`
     WITH ev AS (
       SELECT
-        org_id,
-        pipeline_id::text AS pipeline_id,
-        COALESCE(stage_name, '') AS stage_name,
-        status,
-        failure_category,
-        duration_ms
-      FROM pipeline_events
-      WHERE created_at >= ${dayStart} AND created_at < ${dayEnd}
-        AND pipeline_id IS NOT NULL
-        AND event_type IN ('PIPELINE', 'STAGE')
+        e.org_id,
+        e.pipeline_id::text AS pipeline_id,
+        COALESCE(e.stage_name, '') AS stage_name,
+        e.status,
+        e.failure_category,
+        e.duration_ms
+      FROM pipeline_events e
+      WHERE e.created_at >= ${dayStart} AND e.created_at < ${dayEnd}
+        AND e.pipeline_id IS NOT NULL
+        AND e.event_type IN ('PIPELINE', 'STAGE')
+        AND e.status NOT IN (${nonOutcomeStatusList})
+        AND ${notOvertaken}
     ),
     cats AS (
       SELECT org_id, pipeline_id, stage_name,
