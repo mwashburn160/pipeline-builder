@@ -66,13 +66,14 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
     findById: (...a: unknown[]) => mockOrgFindById(...a),
     findOne: (...a: unknown[]) => mockOrgFindOne(...a),
     find: (...a: unknown[]) => mockOrgFind(...a),
+    deleteOne: () => ({ session: async () => ({ deletedCount: 1 }) }),
   },
   User: { updateMany: (...a: unknown[]) => mockUserUpdateMany(...a), updateOne: jest.fn<AnyFn>() },
-  UserOrganization: { find: (...a: unknown[]) => mockUserOrgFind(...a), deleteMany: jest.fn<AnyFn>(), countDocuments: jest.fn(async () => 0) },
+  UserOrganization: { find: (...a: unknown[]) => mockUserOrgFind(...a), deleteMany: () => ({ session: async () => ({}) }), countDocuments: jest.fn(async () => 0) },
   Invitation: { distinct: () => ({ session: () => Promise.resolve([]) }) },
   OrgIdpConfig: { find: jest.fn<AnyFn>(), exists: jest.fn(async () => null) },
-  Role: { create: jest.fn<AnyFn>(), find: jest.fn<AnyFn>(), findOne: jest.fn<AnyFn>(), exists: jest.fn<AnyFn>(), deleteMany: jest.fn<AnyFn>() },
-  RoleAssignment: { create: jest.fn<AnyFn>(), find: jest.fn<AnyFn>(), exists: jest.fn<AnyFn>(), deleteMany: jest.fn<AnyFn>() },
+  Role: { create: jest.fn<AnyFn>(), find: jest.fn<AnyFn>(), findOne: jest.fn<AnyFn>(), exists: jest.fn<AnyFn>(), deleteMany: () => ({ session: async () => ({}) }) },
+  RoleAssignment: { create: jest.fn<AnyFn>(), find: jest.fn<AnyFn>(), exists: jest.fn<AnyFn>(), deleteMany: () => ({ session: async () => ({}) }) },
 }));
 
 const { organizationService } = await import('../src/services/organization-service.js');
@@ -154,6 +155,16 @@ describe('organizationService.restore', () => {
     const result = await organizationService.restore('gone');
     expect(result).toBeNull();
     expect(mockUserUpdateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('organizationService.delete — per-org feature overrides', () => {
+  it('unsets every user\'s feature-override entry for the deleted org, and only that entry', async () => {
+    await organizationService.delete('org-gone');
+    const call = mockUserUpdateMany.mock.calls.find((c) => (c[1] as any)?.$unset?.['featureOverrides.org-gone'] !== undefined);
+    expect(call).toBeDefined();
+    expect(call![0]).toEqual({ 'featureOverrides.org-gone': { $exists: true } });
+    expect(Object.keys((call![1] as any).$unset)).toEqual(['featureOverrides.org-gone']);
   });
 });
 

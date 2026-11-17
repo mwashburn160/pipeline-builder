@@ -13,6 +13,7 @@ import { expandOrgScope } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { withSeatGuard } from '../helpers/seats.js';
 import { publishUserRevocation, publishUsersRevocation } from '../helpers/session-revocation.js';
+import { orgFeatureOverridesPath } from '../helpers/user-response.js';
 import { Organization, RoleAssignment, User, UserOrganization } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 import { escapeRegex } from '../utils/regex.js';
@@ -533,6 +534,9 @@ class OrgMembersService {
       // defeating the last-privileged-member guard. Mirrors the user-delete /
       // org-purge paths, which already clean assignments.
       await RoleAssignment.deleteMany({ userId, organizationId: toOrgId(orgId) }, { session });
+      // This org's feature overrides go with the membership, in the same tx:
+      // left behind, a stale grant silently re-applies if the person rejoins.
+      await User.updateOne({ _id: userId }, { $unset: { [orgFeatureOverridesPath(orgId)]: '' } }, { session });
       // A superadmin-granting assignment just went with them: re-derive the
       // platform flag (recompute only touches it in an org that defines a
       // superadmin Role — the system org), exactly as removeUserFromRole does.

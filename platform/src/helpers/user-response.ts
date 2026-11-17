@@ -45,6 +45,15 @@ type OverrideSet = Map<string, boolean> | Record<string, boolean>;
 export type StoredFeatureOverrides = Map<string, OverrideSet> | Record<string, OverrideSet>;
 
 /**
+ * The Mongo path of ONE org's entry in `User.featureOverrides`. Used to
+ * `$unset` the entry when the person's membership in that org ends (member
+ * removal, org delete/purge), so a stale grant never re-applies on rejoin.
+ */
+export function orgFeatureOverridesPath(orgId: string): string {
+  return `featureOverrides.${String(orgId)}`;
+}
+
+/**
  * The feature overrides that apply in ONE organization, as a plain record.
  *
  * Overrides are per-org (an org admin's grant/revoke must never reach the

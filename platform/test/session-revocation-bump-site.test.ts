@@ -116,6 +116,18 @@ describe('OrgMembersService.removeMember → session-revocation publish', () => 
     expect((unpin![1] as any).$unset).toHaveProperty('lastActiveOrgId');
   });
 
+  it('drops ONLY the removed org\'s feature overrides (a stale grant must not re-apply on rejoin)', async () => {
+    mockUoFindOne.mockReturnValue(findOneResolving({ _id: 'm1', role: 'member' }));
+
+    await orgMembersService.removeMember('org-1', 'user-1', ADMIN);
+
+    const unset = mockUserUpdateOne.mock.calls.find((c) => (c[1] as any)?.$unset?.['featureOverrides.org-1'] !== undefined);
+    expect(unset).toBeDefined();
+    expect(unset![0]).toEqual({ _id: 'user-1' });
+    // No other org's entry is touched.
+    expect(Object.keys((unset![1] as any).$unset)).toEqual(['featureOverrides.org-1']);
+  });
+
   it('runs the Role-unassign guards with the actor BEFORE deleting anything', async () => {
     mockUoFindOne.mockReturnValue(findOneResolving({ _id: 'm1', role: 'admin' }));
     const peopleManager = { isSuperAdmin: false, isOrgAdmin: false, permissions: ['members:manage'] };

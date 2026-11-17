@@ -17,6 +17,7 @@ import { seedDefaultRoles } from './roles-service.js';
 import { getOrgName } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { publishUsersRevocation } from '../helpers/session-revocation.js';
+import { orgFeatureOverridesPath } from '../helpers/user-response.js';
 import { Role, RoleAssignment, Organization, OrgIdpConfig, User, UserOrganization } from '../models/index.js';
 import type { PlanTier } from '../models/organization.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
@@ -506,6 +507,10 @@ class OrganizationService {
       // filter must therefore compare against the stringified org id
       // for the BSON match to succeed.
       await User.updateMany({ lastActiveOrgId: String(queryId) }, { $unset: { lastActiveOrgId: '' } }).session(session);
+      // Per-org feature overrides keyed on this org are dead references too;
+      // drop them so a future org can never inherit them.
+      const overridesPath = orgFeatureOverridesPath(String(queryId));
+      await User.updateMany({ [overridesPath]: { $exists: true } }, { $unset: { [overridesPath]: '' } }).session(session);
       const res = await Organization.deleteOne({ _id: queryId }).session(session);
       if (!res.deletedCount) throw new Error(ORG_NOT_FOUND);
     });
