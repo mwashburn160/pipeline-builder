@@ -250,6 +250,9 @@ export async function deliverPublishedRun(
         `This instance has no outbound email configured, so ${deliverable.length} recipient(s) were not emailed. `
         + 'The report is available in the product, and a share link can be sent by hand.',
       );
+      logger.warn('Report not emailed: no outbound email configured on this instance', {
+        orgId: definition.orgId, definitionId: definition.id, runId: run.id, recipients: deliverable.length,
+      });
       emitCounter('report_delivery_email_unavailable_total', {});
     }
   } else if (deliverable.length > 0) {
@@ -367,7 +370,7 @@ export async function deliverAndRecord(
     // Best-effort: if the store is what failed, this fails too and the log + counter
     // are all that is left — but the lead is still told.
     await stakeholderReportStore.recordDelivery(definition.orgId, run.id, failed as unknown as Record<string, unknown>)
-      .catch((e) => logger.warn('Could not record the failed delivery', { runId: run.id, error: errorMessage(e) }));
+      .catch((e) => logger.warn('Could not record the failed delivery', { orgId: definition.orgId, runId: run.id, error: errorMessage(e) }));
     await notifyDeliveryFailed(definition, run, failed);
     return failed;
   }
@@ -398,8 +401,11 @@ async function notifyDeliveryFailed(definition: ReportDefinition, run: ReportRun
     });
     await emailOwner(definition, subject, body);
   } catch (err) {
-    logger.warn('Could not notify the lead of a failed delivery', { runId: run.id, error: errorMessage(err) });
+    logger.warn('Could not notify the lead of a failed delivery', { orgId: definition.orgId, runId: run.id, error: errorMessage(err) });
   }
+  logger.warn('Report delivery incomplete', {
+    orgId: definition.orgId, definitionId: definition.id, runId: run.id, notes: outcome.notes.length,
+  });
   emitCounter('report_delivery_incomplete_total', {});
 }
 
@@ -494,6 +500,9 @@ async function deliverToDestinations(
       const res = await webhook.deliver(msg, { value: dest.target, orgId: definition.orgId });
       if (res.ok) {deliveredIds.push(dest.id);} else {
         failed += 1;
+        logger.warn('Report destination refused the delivery', {
+          orgId: definition.orgId, definitionId: definition.id, runId: run.id, channel: dest.channel,
+        });
         emitCounter('report_delivery_failed_total', { channel: dest.channel });
       }
     } catch (err) {
@@ -564,6 +573,7 @@ export async function notifyRunFailed(
     priority: 'high',
   });
   await emailOwner(definition, subject, body);
+  logger.warn('Report run failed to compose', { orgId: definition.orgId, definitionId: definition.id, period, reason });
   emitCounter('report_run_failed_total', { cadence: definition.cadence });
 }
 
@@ -604,6 +614,7 @@ export async function notifyPaused(definition: ReportDefinition, reason: ReportP
     content: body,
     priority: 'high',
   });
+  logger.warn('Report definition paused', { orgId: definition.orgId, definitionId: definition.id, reason });
   emitCounter('report_definition_paused_total', { reason });
 }
 
@@ -643,7 +654,10 @@ export async function sendRecipientConfirmation(orgId: string, email: string, to
       },
     );
     const sent = res.statusCode < 400 && Array.isArray(res.body?.data?.sent) && res.body.data.sent.length > 0;
-    if (!sent) emitCounter('report_delivery_failed_total', { channel: 'confirmation' });
+    if (!sent) {
+      logger.warn('Recipient confirmation email not sent', { orgId, status: res.statusCode });
+      emitCounter('report_delivery_failed_total', { channel: 'confirmation' });
+    }
     return sent;
   } catch (err) {
     logger.warn('Recipient confirmation email failed', { orgId, error: errorMessage(err) });

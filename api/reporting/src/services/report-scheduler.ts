@@ -372,7 +372,7 @@ async function runOne(
     // left unclaimed and still due, so the next cycle retries the same periods.
     const verdict = await checkAuthority(definition);
     if (verdict.action === 'skip') {
-      logger.warn('Owner authority unreadable; leaving the definition due for the next cycle', { definitionId: definition.id });
+      logger.warn('Owner authority unreadable; leaving the definition due for the next cycle', { orgId: definition.orgId, definitionId: definition.id });
       emitCounter('report_authority_unavailable_total', {});
       return;
     }

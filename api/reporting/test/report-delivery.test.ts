@@ -35,7 +35,12 @@ const mockRecordBounce = jest.fn<AnyFn>();
 const mockDeliverability = jest.fn<AnyFn>();
 const mockRecordDelivery = jest.fn<AnyFn>();
 
+const mockWarn = jest.fn<AnyFn>();
+
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  // Captured: delivery counters carry no per-org label, so every failure path
+  // must log the org id instead (asserted below).
+  createLogger: () => ({ info: jest.fn(), warn: (...a: unknown[]) => mockWarn(...a), error: jest.fn(), debug: jest.fn() }),
   sendSystemNotification: (...a: unknown[]) => mockSystemNotification(...a),
   InternalHttpClient: class {
     get = (...a: unknown[]) => mockGet(...a);
@@ -478,6 +483,22 @@ describe('notifyPaused', () => {
  * address, and nothing mailed it — so an external recipient could only become
  * deliverable by the lead confirming it themselves.
  */
+describe('failure logs name the org (metrics carry no per-org label)', () => {
+  const warnedWithOrg = (fragment: string) => mockWarn.mock.calls.some(
+    ([msg, meta]) => String(msg).includes(fragment) && (meta as Record<string, unknown> | undefined)?.orgId === 'acme',
+  );
+
+  it('a failed run logs its org', async () => {
+    await delivery.notifyRunFailed(definition(), '2026-W38', 'past your retention horizon');
+    expect(warnedWithOrg('Report run failed to compose')).toBe(true);
+  });
+
+  it('a paused definition logs its org', async () => {
+    await delivery.notifyPaused(definition(), 'entitlement');
+    expect(warnedWithOrg('Report definition paused')).toBe(true);
+  });
+});
+
 describe('sendRecipientConfirmation', () => {
   it('mails the confirm link to that one address through the report leg', async () => {
     mockPost.mockResolvedValue(relay(['vp@partner.test']));
