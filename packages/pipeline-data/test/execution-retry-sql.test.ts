@@ -21,7 +21,7 @@ import { randomUUID } from 'node:crypto';
 import type { PGlite } from '@electric-sql/pglite';
 import { describe, it, expect, beforeAll, afterAll, beforeEach, jest } from '@jest/globals';
 import { drizzle } from 'drizzle-orm/pglite';
-import { bootInitDb } from './helpers/pglite-init.js';
+import { bootInitDb } from '../src/testing/pglite-init.js';
 
 let pg: PGlite;
 let db: ReturnType<typeof drizzle>;
