@@ -84,7 +84,7 @@ spec:
             app: grype-db-refresh
             # The plugin image — so the DB is written by the SAME grype the
             # plugin pods scan with. Keep in step with plugin.yaml.
-            version: "4.9.0"
+            version: "4.9.1"
             track: stable
         spec:
           serviceAccountName: grype-db-refresh
@@ -97,7 +97,7 @@ spec:
             fsGroup: 1000
           containers:
             - name: refresh
-              image: ghcr.io/mwashburn160/plugin:4.9.0@sha256:89953d867183c82c053269ca3eeffe71a68660d84cb721a0ef5fac86297cd95a
+              image: ghcr.io/mwashburn160/plugin:4.9.1@sha256:7ccca5cc5142334d3159e1d4fe091339f65187cd87ada237c0e8b04553cb3fa6
               # Clear download dirs an interrupted run left behind (grype never
               # does), then update. `exec` so grype's exit code is the job's.
               command: ["/bin/sh", "-c"]
