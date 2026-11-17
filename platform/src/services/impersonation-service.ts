@@ -201,13 +201,13 @@ class ImpersonationService {
    * the check and the update.
    *
    * `operator` is the requester's state at redemption (hard `tokenVersion`,
-   * superadmin flag), stamped on the record so the auth middleware can end the
+   * `claimsVersion`, superadmin flag), stamped on the record so the auth middleware can end the
    * session once the operator is revoked (see `requesterTokenVersion`).
    */
   async consume(
     requestId: string,
     jti: string,
-    operator: { tokenVersion: number; isSuperAdmin: boolean },
+    operator: { tokenVersion: number; claimsVersion: number; isSuperAdmin: boolean },
   ): Promise<{ ok: true; expiresAt: Date } | { ok: false; code: string }> {
     const now = new Date();
     const updated = await ImpersonationRequest.findOneAndUpdate(
@@ -218,6 +218,7 @@ class ImpersonationService {
           consumedAt: now,
           jti,
           requesterTokenVersion: operator.tokenVersion,
+          requesterClaimsVersion: operator.claimsVersion,
           requesterSuperAdmin: operator.isSuperAdmin,
         },
       },

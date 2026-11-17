@@ -3,6 +3,7 @@
 
 import { createLogger, errorMessage, parsePage } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
+import { revokePendingInvitationsSentBy, type RevokedInvitation } from './inviter-exit.js';
 import { OM_ORG_NOT_FOUND, OM_USER_NOT_FOUND, OM_ALREADY_MEMBER, OM_NOT_A_MEMBER, OM_CANNOT_REMOVE_OWNER, OM_OWNER_MEMBERSHIP_NOT_FOUND, OM_NEW_OWNER_MUST_BE_MEMBER, OM_ALREADY_OWNER, OM_MEMBERSHIP_NOT_FOUND, OM_ALREADY_INACTIVE, OM_ALREADY_ACTIVE, OM_TARGETS_OUT_OF_SCOPE, OM_SEAT_LIMIT } from './org-members-errors.js';
 import type { RoleAssignmentActor } from './role-authority.js';
 import { assertActorMayStripMemberRoles, assertActorMayWieldMemberRoles } from './role-crud.js';
@@ -14,7 +15,7 @@ import { toOrgId } from '../helpers/org-id.js';
 import { withSeatGuard } from '../helpers/seats.js';
 import { publishUserRevocation, publishUsersRevocation } from '../helpers/session-revocation.js';
 import { orgFeatureOverridesPath } from '../helpers/user-response.js';
-import { Invitation, Organization, RoleAssignment, User, UserOrganization } from '../models/index.js';
+import { Organization, RoleAssignment, User, UserOrganization } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 import { escapeRegex } from '../utils/regex.js';
 
@@ -683,6 +684,12 @@ class OrgMembersService {
   }
 }
 
+/** What a member removal / deactivation did beyond the membership itself. */
+export interface MemberExitResult {
+  /** The person's pending invitations into the org, revoked with them. */
+  revokedInvitations: RevokedInvitation[];
+}
+
 /**
  * End a person's access to ONE org — the org-scoped revocation SCIM uses
  * (`services/scim-users.ts` endOrgAccess).
@@ -695,54 +702,6 @@ class OrgMembersService {
  * refresh re-mints into an org they are still active in (issuance requires a
  * live membership), never this one; the pin to it is dropped here.
  */
-/** A pending invitation withdrawn because its sender left the org — the
- *  secret-free facts the controller audits as `invitation.revoke`. */
-export interface RevokedInvitation {
-  invitationId: string;
-  organizationId: string;
-  email: string;
-  role: string;
-}
-
-/** What a member removal / deactivation did beyond the membership itself. */
-export interface MemberExitResult {
-  /** The person's pending invitations into the org, revoked with them. */
-  revokedInvitations: RevokedInvitation[];
-}
-
-/**
- * Revoke every PENDING invitation `userId` sent into `orgId`, in the caller's
- * transaction.
- *
- * An invitation is the sender's authority to admit someone, parked until the
- * invitee clicks. Once the sender is removed or deactivated that authority is
- * gone, so the invitations they left pending go with it — otherwise a removed
- * admin's outstanding links keep onboarding people into the org they no longer
- * belong to. Same status the manual revoke (`invitationService.revoke`) writes,
- * so the listing, the preview and acceptance all already treat them as dead.
- * Acceptance also re-checks the inviter (`processAcceptance`) as a backstop.
- */
-async function revokePendingInvitationsSentBy(
-  userId: string,
-  orgId: string,
-  session: mongoose.ClientSession,
-): Promise<RevokedInvitation[]> {
-  const pending = await Invitation.find({ invitedBy: userId, organizationId: toOrgId(orgId), status: 'pending' })
-    .select('_id organizationId email role').session(session).lean();
-  if (pending.length === 0) return [];
-  await Invitation.updateMany(
-    { _id: { $in: pending.map((inv) => inv._id) }, status: 'pending' },
-    { $set: { status: 'revoked' } },
-    { session },
-  );
-  return pending.map((inv) => ({
-    invitationId: String(inv._id),
-    organizationId: String(inv.organizationId),
-    email: inv.email,
-    role: inv.role,
-  }));
-}
-
 async function endOrgAccess(userId: string, orgId: string, session: mongoose.ClientSession): Promise<void> {
   await User.updateOne({ _id: userId }, { $inc: { claimsVersion: 1 } }, { session });
   await User.updateOne(

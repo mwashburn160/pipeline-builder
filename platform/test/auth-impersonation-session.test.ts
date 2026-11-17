@@ -218,8 +218,44 @@ describe('requireAuth — impersonation session', () => {
   });
 
   it('admits a session opened under tenant (ancestor-admin) authority without the superadmin flag', async () => {
-    mockImpFindOne.mockReturnValue(selectLean(live({ requesterSuperAdmin: false })));
+    mockImpFindOne.mockReturnValue(selectLean(live({ requesterSuperAdmin: false, requesterClaimsVersion: 3 })));
+    operator = { _id: 'sysadmin-1', tokenVersion: 5, claimsVersion: 3 };
+    const res = makeRes(); const next = jest.fn();
+    await (requireAuth as any)(req(), res, next);
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('treats a tenant-authority operator row with no claimsVersion as version 0', async () => {
+    mockImpFindOne.mockReturnValue(selectLean(live({ requesterSuperAdmin: false, requesterClaimsVersion: 0 })));
     operator = { _id: 'sysadmin-1', tokenVersion: 5 };
+    const res = makeRes(); const next = jest.fn();
+    await (requireAuth as any)(req(), res, next);
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('ends a tenant-authority session once the operator\'s claimsVersion moves (lost their tenant role)', async () => {
+    mockImpFindOne.mockReturnValue(selectLean(live({ requesterSuperAdmin: false, requesterClaimsVersion: 3 })));
+    // Only claimsVersion moved: a role / membership change, no hard sign-out.
+    operator = { _id: 'sysadmin-1', tokenVersion: 5, claimsVersion: 4 };
+    const res = makeRes(); const next = jest.fn();
+    await (requireAuth as any)(req(), res, next);
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ message: 'Impersonation session ended' }));
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('fails closed on a tenant-authority record without the claims stamp', async () => {
+    mockImpFindOne.mockReturnValue(selectLean(live({ requesterSuperAdmin: false })));
+    operator = { _id: 'sysadmin-1', tokenVersion: 5, claimsVersion: 0 };
+    const res = makeRes(); const next = jest.fn();
+    await (requireAuth as any)(req(), res, next);
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('a SUPERADMIN session survives a claimsVersion move (its authority is the flag)', async () => {
+    mockImpFindOne.mockReturnValue(selectLean(live({ requesterClaimsVersion: 3 })));
+    operator = { _id: 'sysadmin-1', tokenVersion: 5, claimsVersion: 9, isSuperAdmin: true };
     const res = makeRes(); const next = jest.fn();
     await (requireAuth as any)(req(), res, next);
     expect(next).toHaveBeenCalled();

@@ -171,6 +171,25 @@ describe('SCIM auditing', () => {
     expect(JSON.stringify(audits[0].options)).not.toContain('alice@acme.com');
   });
 
+  it('audits each invitation a deprovisioned member left pending as `invitation.revoke` (inviter-deprovisioned)', async () => {
+    const revokedInvitations = [
+      { invitationId: 'inv-1', organizationId: 'org1', email: 'a@acme.com', role: 'member' },
+      { invitationId: 'inv-2', organizationId: 'org1', email: 'b@acme.com', role: 'admin' },
+    ];
+    svc.deleteUser.mockResolvedValue({ resource: { id: 'u1' }, action: 'delete', changed: ['active'], revokedInvitations });
+    const { res } = fakeRes();
+    await ctl.scimDeleteUser(fakeReq({ params: { id: 'u1' } }), res);
+
+    expect(audits.map((a) => a.action)).toEqual(['org.scim.user.delete', 'invitation.revoke', 'invitation.revoke']);
+    expect(audits[1].options).toEqual({
+      targetType: 'invitation',
+      targetId: 'inv-1',
+      affectedOrgId: 'org1',
+      details: { email: 'a@acme.com', role: 'member', reason: 'inviter-deprovisioned', inviterId: 'u1' },
+    });
+    expect(audits[2].options).toMatchObject({ targetId: 'inv-2', details: { role: 'admin', reason: 'inviter-deprovisioned' } });
+  });
+
   it('names group member changes distinctly from a group rename', async () => {
     svc.patchGroup.mockResolvedValue({
       resource: { id: 'g1', meta: { location: 'x' } },

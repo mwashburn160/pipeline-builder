@@ -124,15 +124,15 @@ describe('createRequest', () => {
 });
 
 /** The operator's state at redemption, stamped on the record. */
-const OPERATOR = { tokenVersion: 7, isSuperAdmin: true };
+const OPERATOR = { tokenVersion: 7, claimsVersion: 3, isSuperAdmin: true };
 
 describe('consume', () => {
-  it('stamps the operator\'s tokenVersion and superadmin flag on the consumed record', async () => {
+  it('stamps the operator\'s tokenVersion, claimsVersion and superadmin flag on the consumed record', async () => {
     mockFindOneAndUpdate.mockResolvedValue({ _id: 'req-1', expiresAt: new Date(Date.now() + 1000) });
     await impersonationService.consume('req-1', 'jti-1', OPERATOR);
     const update = mockFindOneAndUpdate.mock.calls[0]![1] as any;
     expect(update.$set).toMatchObject({
-      status: 'consumed', jti: 'jti-1', requesterTokenVersion: 7, requesterSuperAdmin: true,
+      status: 'consumed', jti: 'jti-1', requesterTokenVersion: 7, requesterClaimsVersion: 3, requesterSuperAdmin: true,
     });
   });
 

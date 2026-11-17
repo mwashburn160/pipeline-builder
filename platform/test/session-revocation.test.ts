@@ -30,6 +30,9 @@ const fakeRedis = {
 const mockGetRedis = jest.fn<(..._a: unknown[]) => Promise<unknown>>(async () => fakeRedis);
 const mockUserFindById = jest.fn<(...a: unknown[]) => unknown>();
 const mockUserFind = jest.fn<(...a: unknown[]) => unknown>();
+const mockImpFind = jest.fn<(...a: unknown[]) => unknown>();
+const mockImpUpdateOne = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockRecordAudit = jest.fn<(...a: unknown[]) => void>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   // Faithful to api-core: SET authrev:tv:<userId> <version> EX <ttl>.
@@ -67,8 +70,21 @@ jest.unstable_mockModule('../src/models/user.js', () => ({
   },
 }));
 
+jest.unstable_mockModule('../src/models/impersonation-request.js', () => ({
+  __esModule: true,
+  default: {
+    find: (...a: unknown[]) => mockImpFind(...a),
+    updateOne: (...a: unknown[]) => mockImpUpdateOne(...a),
+  },
+}));
+
+jest.unstable_mockModule('../src/helpers/audit.js', () => ({
+  recordAuditEvent: (...a: unknown[]) => mockRecordAudit(...a),
+}));
+
 const {
-  publishUserRevocation, publishUsersRevocation, publishImpersonationSessionRevocation,
+  publishUserRevocation, publishUsersRevocation, publishImpersonationSessionRevocation, publishUserDeletionRevocation,
+  endOperatorImpersonationSessions,
   publishSessionSlotRevocation, publishAccessKeyRevocation, revocationTtlSeconds,
 } = await import('../src/helpers/session-revocation.js');
 
@@ -79,9 +95,16 @@ const findByIdResolves = (doc: unknown) =>
 const findResolves = (rows: unknown[]) =>
   mockUserFind.mockReturnValue({ select: () => ({ lean: () => Promise.resolve(rows) }) });
 
+/** ImpersonationRequest.find({...}).select(...).lean() → rows */
+const impFindResolves = (rows: unknown[]) =>
+  mockImpFind.mockReturnValue({ select: () => ({ lean: () => Promise.resolve(rows) }) });
+
 beforeEach(() => {
   jest.clearAllMocks();
   mockGetRedis.mockResolvedValue(fakeRedis);
+  // No live impersonation sessions unless a test seeds some.
+  impFindResolves([]);
+  mockImpUpdateOne.mockResolvedValue({ modifiedCount: 1 });
 });
 
 describe('publishUserRevocation', () => {
@@ -219,5 +242,142 @@ describe('publishUserRevocation — a known (post-$inc) version', () => {
     findByIdResolves({ _id: 'u1', tokenVersion: 3, claimsVersion: 4 });
     await publishUserRevocation('u1');
     expect(fakeRedis.set).toHaveBeenCalledWith('authrev:tv:u1', '7', 'EX', 3600);
+  });
+});
+
+describe('operator revocation reaches the impersonation sessions they opened', () => {
+  beforeEach(() => { fakeRedis.set.mockReset().mockImplementation(async () => 'OK'); });
+
+  const consumedAt = new Date(Date.now() - 60_000);
+  /** A live session opened by `op1` against `target`, stamped at tv 5 / cv 2. */
+  const session = (over: Record<string, unknown> = {}) => ({
+    _id: 'req-1',
+    jti: 'sess-1',
+    consumedAt,
+    requesterId: 'op1',
+    targetUserId: 'target',
+    organizationId: 'org-a',
+    requesterTokenVersion: 5,
+    requesterClaimsVersion: 2,
+    requesterSuperAdmin: false,
+    ...over,
+  });
+  const jtiWrites = () => fakeRedis.set.mock.calls.filter((c) => String(c[0]).startsWith('authrev:jti:'));
+
+  it('ends a tenant-authority session once the operator\'s claimsVersion moved — by jti, never the subject', async () => {
+    findByIdResolves({ _id: 'op1', tokenVersion: 5, claimsVersion: 3 });
+    impFindResolves([session()]);
+    findResolves([{ _id: 'op1', tokenVersion: 5, claimsVersion: 3 }]);
+
+    await publishUserRevocation('op1');
+
+    // Only LIVE sessions the operator OPENED are considered.
+    const filter = mockImpFind.mock.calls[0]![0] as Record<string, any>;
+    expect(filter).toMatchObject({ requesterId: { $in: ['op1'] }, status: 'consumed' });
+    expect(filter.expiresAt.$gt).toBeInstanceOf(Date);
+    // Marked revoked in Mongo, guarded on still being consumed.
+    expect(mockImpUpdateOne).toHaveBeenCalledWith(
+      { _id: 'req-1', status: 'consumed' },
+      { $set: { status: 'revoked', revokedAt: expect.any(Date) } },
+    );
+    // Published by the session's jti — the impersonated user's own version is
+    // never touched, so they stay signed in.
+    expect(jtiWrites().map((c) => c[0])).toEqual(['authrev:jti:sess-1']);
+    expect(fakeRedis.set).not.toHaveBeenCalledWith('authrev:tv:target', expect.anything(), expect.anything(), expect.anything());
+    expect(mockRecordAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'admin.impersonate.revoke',
+      targetType: 'user',
+      targetId: 'target',
+      affectedOrgId: 'org-a',
+      outcome: 'success',
+      details: { impersonationRequestId: 'req-1', requesterId: 'op1', reason: 'operator-revoked', revokedEverywhere: true },
+    }));
+  });
+
+  it('ends any session once the operator\'s hard tokenVersion moved', async () => {
+    impFindResolves([session({ requesterSuperAdmin: true })]);
+    findResolves([{ _id: 'op1', tokenVersion: 6, claimsVersion: 2, isSuperAdmin: true }]);
+    await publishUserRevocation('op1', 8);
+    expect(jtiWrites()).toHaveLength(1);
+  });
+
+  it('ends a superadmin session once the flag is gone', async () => {
+    impFindResolves([session({ requesterSuperAdmin: true })]);
+    findResolves([{ _id: 'op1', tokenVersion: 5, claimsVersion: 2, isSuperAdmin: false }]);
+    await expect(endOperatorImpersonationSessions(['op1'])).resolves.toBe(1);
+  });
+
+  it('LEAVES a session the operator still supports (superadmin + claims move, or nothing moved)', async () => {
+    impFindResolves([
+      session({ _id: 'req-sa', jti: 'sess-sa', requesterSuperAdmin: true }),
+      session({ _id: 'req-t', jti: 'sess-t' }),
+    ]);
+    // claimsVersion matches the tenant session's stamp; the superadmin session
+    // ignores claims, and the flag is still held.
+    findResolves([{ _id: 'op1', tokenVersion: 5, claimsVersion: 2, isSuperAdmin: true }]);
+    await expect(endOperatorImpersonationSessions(['op1'])).resolves.toBe(0);
+    expect(mockImpUpdateOne).not.toHaveBeenCalled();
+    expect(mockRecordAudit).not.toHaveBeenCalled();
+  });
+
+  it('a superadmin session survives the operator\'s claimsVersion moving', async () => {
+    impFindResolves([session({ requesterSuperAdmin: true })]);
+    findResolves([{ _id: 'op1', tokenVersion: 5, claimsVersion: 99, isSuperAdmin: true }]);
+    await expect(endOperatorImpersonationSessions(['op1'])).resolves.toBe(0);
+  });
+
+  it('ends a session whose operator row is gone', async () => {
+    impFindResolves([session()]);
+    findResolves([]);
+    await expect(endOperatorImpersonationSessions(['op1'])).resolves.toBe(1);
+  });
+
+  it('does not publish or audit a session someone else ended first', async () => {
+    impFindResolves([session({ requesterTokenVersion: undefined })]);
+    findResolves([{ _id: 'op1', tokenVersion: 5, claimsVersion: 2 }]);
+    mockImpUpdateOne.mockResolvedValue({ modifiedCount: 0 });
+    await expect(endOperatorImpersonationSessions(['op1'])).resolves.toBe(0);
+    expect(jtiWrites()).toHaveLength(0);
+    expect(mockRecordAudit).not.toHaveBeenCalled();
+  });
+
+  it('a record without a jti or org still ends and audits (nothing to publish)', async () => {
+    impFindResolves([session({ jti: undefined, organizationId: undefined })]);
+    findResolves([]);
+    mockImpUpdateOne.mockResolvedValue({});
+    await expect(endOperatorImpersonationSessions(['op1'])).resolves.toBe(0);
+    mockImpUpdateOne.mockResolvedValue({ modifiedCount: 1 });
+    await expect(endOperatorImpersonationSessions(['op1'])).resolves.toBe(1);
+    expect(jtiWrites()).toHaveLength(0);
+    const event = mockRecordAudit.mock.calls[0]![0] as Record<string, unknown>;
+    expect(event).not.toHaveProperty('affectedOrgId');
+    expect(event.details).toMatchObject({ revokedEverywhere: true });
+  });
+
+  it('a deleted operator\'s sessions all end, without reading the operator', async () => {
+    impFindResolves([session()]);
+    await publishUserDeletionRevocation('op1', 7);
+    expect(fakeRedis.set).toHaveBeenCalledWith('authrev:tv:op1', '8', 'EX', 3600);
+    expect(mockUserFind).not.toHaveBeenCalled();
+    expect(jtiWrites()).toHaveLength(1);
+  });
+
+  it('the batch publisher sweeps every bumped user\'s sessions', async () => {
+    findResolves([{ _id: 'op1', tokenVersion: 5, claimsVersion: 3 }, { _id: 'u2', tokenVersion: 1 }]);
+    impFindResolves([session()]);
+    await publishUsersRevocation(['op1', 'u2']);
+    expect((mockImpFind.mock.calls[0]![0] as any).requesterId).toEqual({ $in: ['op1', 'u2'] });
+    expect(jtiWrites()).toHaveLength(1);
+  });
+
+  it('no-ops on an empty operator list, and swallows a sweep failure in the publisher', async () => {
+    await expect(endOperatorImpersonationSessions([])).resolves.toBe(0);
+    expect(mockImpFind).not.toHaveBeenCalled();
+
+    findByIdResolves({ _id: 'op1', tokenVersion: 5 });
+    mockImpFind.mockImplementation(() => { throw new Error('mongo down'); });
+    await expect(publishUserRevocation('op1')).resolves.toBeUndefined();
+    // The user's own version still landed first.
+    expect(fakeRedis.set).toHaveBeenCalledWith('authrev:tv:op1', '5', 'EX', 3600);
   });
 });

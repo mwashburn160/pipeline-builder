@@ -395,7 +395,7 @@ describe('redeemImpersonationRequest', () => {
     }));
     mockUserFindById.mockImplementation((id: unknown) => ({
       select: jest.fn<AnyFn>().mockResolvedValue(id === 'sysadmin'
-        ? { _id: 'sysadmin', isSuperAdmin: true, tokenVersion: 4 }
+        ? { _id: 'sysadmin', isSuperAdmin: true, tokenVersion: 4, claimsVersion: 2 }
         : { _id: 'target', isSuperAdmin: false }),
     }));
     mockIssueImpersonation.mockResolvedValue({ accessToken: 'imp.jwt', expiresIn: 900 });
@@ -405,7 +405,7 @@ describe('redeemImpersonationRequest', () => {
     expect(res.status).toHaveBeenCalledWith(200);
     // Redeemed through the SAME single-use gate and token path as inline
     // sessions — stamping the OPERATOR's state so revoking them ends the session.
-    expect(mockConsume).toHaveBeenCalledWith('req-1', expect.any(String), { tokenVersion: 4, isSuperAdmin: true });
+    expect(mockConsume).toHaveBeenCalledWith('req-1', expect.any(String), { tokenVersion: 4, claimsVersion: 2, isSuperAdmin: true });
     expect(mockIssueImpersonation).toHaveBeenCalledWith(
       expect.objectContaining({ _id: 'target' }), 'sysadmin', 'org-a', expect.any(String),
       expect.objectContaining({ amr: expect.any(Array), aal: 1 }), undefined, RECORD_EXPIRES_AT,

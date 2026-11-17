@@ -7,6 +7,7 @@
  * PATCH operation parsing.
  */
 
+import type { RevokedInvitation } from './inviter-exit.js';
 import {
   scimInvalidFilter,
   scimInvalidSyntax,
@@ -81,6 +82,12 @@ export interface ScimWriteOutcome<T> {
   changed: string[];
   /** Users whose Role set the write reconciled (audited as the blast radius). */
   affectedUserIds?: string[];
+  /**
+   * Pending invitations the deprovisioned member had sent into the org, revoked
+   * in the same transaction as the deactivation / delete. The controller audits
+   * each as `invitation.revoke` (reason `inviter-deprovisioned`).
+   */
+  revokedInvitations?: RevokedInvitation[];
 }
 
 /**

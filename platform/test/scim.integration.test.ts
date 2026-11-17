@@ -243,6 +243,23 @@ suite('SCIM 2.0 provisioning (real Mongo replica set)', () => {
     expect(after.claimsVersion).toBeGreaterThan(before.claimsVersion ?? 0);
   });
 
+  it('deprovisioning revokes the pending invitations the member sent into THIS org only', async () => {
+    const created = await createAlice();
+    const id = created.resource.id;
+    const otherOrg = await makeOrg({}, { domain: null });
+    const expiresAt = new Date(Date.now() + 86_400_000);
+    const mine = await m.Invitation.create({ email: 'new@acme.com', organizationId: orgId, invitedBy: id, token: 'tok-mine', expiresAt });
+    const elsewhere = await m.Invitation.create({ email: 'x@acme.com', organizationId: otherOrg, invitedBy: id, token: 'tok-other', expiresAt });
+
+    const out = await scim.patchUser(ctx, id, [{ op: 'replace', path: 'active', value: false }]);
+    expect(out.revokedInvitations).toEqual([
+      { invitationId: String(mine._id), organizationId: orgId, email: 'new@acme.com', role: 'member' },
+    ]);
+    expect((await m.Invitation.findById(mine._id).lean()).status).toBe('revoked');
+    // Another org's directory has no say over this person's invitations there.
+    expect((await m.Invitation.findById(elsewhere._id).lean()).status).toBe('pending');
+  });
+
   it('DELETE deactivates and revokes too, and is idempotent', async () => {
     const created = await createAlice();
     const id = created.resource.id;

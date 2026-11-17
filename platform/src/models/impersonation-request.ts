@@ -125,6 +125,14 @@ export interface ImpersonationRequestData {
    * false: its authority is a tenant permission, not the flag.
    */
   requesterSuperAdmin?: boolean;
+  /**
+   * The OPERATOR's `claimsVersion` at redemption. A session opened under TENANT
+   * authority (`requesterSuperAdmin` false — an ancestor-org admin) ends once
+   * this moves: a role, membership or org change is what can strip that
+   * authority, and the hard `tokenVersion` does not move for it. A
+   * non-superadmin record without it fails closed. Superadmin sessions ignore it.
+   */
+  requesterClaimsVersion?: number;
   /** Who decided, when a human did. Unset for auto-approvals. */
   decidedBy?: Types.ObjectId;
   decidedAt?: Date;
@@ -170,6 +178,7 @@ const impersonationRequestSchema = new Schema<ImpersonationRequestData, Imperson
     jti: { type: String },
     requesterTokenVersion: { type: Number },
     requesterSuperAdmin: { type: Boolean },
+    requesterClaimsVersion: { type: Number },
     decidedBy: { type: Schema.Types.ObjectId },
     decidedAt: { type: Date },
     revokedBy: { type: Schema.Types.ObjectId },
@@ -201,6 +210,10 @@ impersonationRequestSchema.index({ organizationId: 1, createdAt: -1 });
 // session by `jti`, so this index is on the hot path. Sparse — only redeemed
 // requests carry one.
 impersonationRequestSchema.index({ jti: 1 }, { sparse: true });
+
+// Operator revocation: when an operator is signed out / demoted, the revocation
+// publisher finds every LIVE session they opened to end it everywhere.
+impersonationRequestSchema.index({ requesterId: 1, status: 1, expiresAt: 1 });
 
 // NOT a Mongo TTL index: expiry must flip `status` and leave the row in place,
 // because these records are audit evidence. Deleting them would erase the

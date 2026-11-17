@@ -56,12 +56,16 @@
  *                 (every outstanding access token is stale) and publishing it.
  *                 The person's sessions themselves survive: one org's directory
  *                 has no say over their other orgs, and the next refresh simply
- *                 re-mints into an org they are still active in.
+ *                 re-mints into an org they are still active in. The pending
+ *                 invitations they sent into the org are revoked in the same
+ *                 transaction (their authority to admit people left with them)
+ *                 and handed back for the controller to audit.
  */
 
 import { createLogger } from '@pipeline-builder/api-core';
 import { Types, type ClientSession } from 'mongoose';
 import { idpGroupMappingService } from './idp-group-mapping-service.js';
+import { revokePendingInvitationsSentBy, type RevokedInvitation } from './inviter-exit.js';
 import { syncMappedRoles } from './mapped-roles.js';
 import { ensureBaselineRole, recomputeUserOrgRole } from './roles-service.js';
 import {
@@ -421,11 +425,17 @@ function applyAttributes(membership: UserOrganizationDocument, attrs: Partial<Re
  * Deactivating ends the member's access to THIS org in the SAME transaction
  * (`endOrgAccess` — a claims bump; their sessions survive, see the file header)
  * and drops the Roles their groups granted (manual ones stay — the admin's decision
- * outlives the directory's). Activating re-charges a seat through the pooled cap
- * and restores the Roles their current groups map to.
+ * outlives the directory's), and revokes the invitations they left pending in the
+ * org. Activating re-charges a seat through the pooled cap and restores the Roles
+ * their current groups map to.
  */
-async function setActive(ctx: ScimContext, membership: UserOrganizationDocument, active: boolean): Promise<string[]> {
-  if (membership.isActive === active) return [];
+interface ActiveChange {
+  changed: string[];
+  revokedInvitations: RevokedInvitation[];
+}
+
+async function setActive(ctx: ScimContext, membership: UserOrganizationDocument, active: boolean): Promise<ActiveChange> {
+  if (membership.isActive === active) return { changed: [], revokedInvitations: [] };
   if (membership.role === 'owner') throw scimOwnerProtected();
   await assertNotPlatformAdmin(membership.userId);
 
@@ -437,21 +447,26 @@ async function setActive(ctx: ScimContext, membership: UserOrganizationDocument,
     ));
     membership.isActive = true;
     await resyncMemberRoles(ctx.orgId, membership.userId, membership.scim?.groups ?? []);
-    return ['active'];
+    return { changed: ['active'], revokedInvitations: [] };
   }
 
   assertIntentAllowed(ctx, 'deactivate');
+  let revokedInvitations: RevokedInvitation[] = [];
   await withMongoTransaction(async (session) => {
     await UserOrganization.updateOne({ _id: membership._id }, { $set: { isActive: false } }, { session });
     await endOrgAccess(membership.userId, ctx.orgId, session);
+    // Reassigned per attempt: a retried body re-reads the (rolled-back) rows.
+    revokedInvitations = await revokePendingInvitationsSentBy(String(membership.userId), ctx.orgId, session);
   });
   membership.isActive = false;
   // Post-commit: make the revocation true on the stateless services too.
   await publishUserRevocation(String(membership.userId));
   // The directory says they are gone: the Roles it granted go with them.
   await resyncMemberRoles(ctx.orgId, membership.userId, []);
-  logger.info('[SCIM] deactivated member and ended their access to the org', { orgId: ctx.orgId, userId: String(membership.userId) });
-  return ['active'];
+  logger.info('[SCIM] deactivated member and ended their access to the org', {
+    orgId: ctx.orgId, userId: String(membership.userId), revokedInvitations: revokedInvitations.length,
+  });
+  return { changed: ['active'], revokedInvitations };
 }
 
 /** PUT /Users/:id — replace the directory-owned attributes and the active flag. */
@@ -475,12 +490,14 @@ export async function replaceUser(ctx: ScimContext, id: string, body: Record<str
     changed.push(...applyAttributes(membership, scimAttributes(body)));
     if (changed.length > 0) await membership.save();
   }
-  changed.push(...await setActive(ctx, membership, active));
+  const flip = await setActive(ctx, membership, active);
+  changed.push(...flip.changed);
 
   return {
     resource: await getUser(ctx, id),
     action: deactivating ? 'deactivate' : 'update',
     changed,
+    ...(flip.revokedInvitations.length > 0 ? { revokedInvitations: flip.revokedInvitations } : {}),
   };
 }
 /**
@@ -529,13 +546,15 @@ export async function patchUser(ctx: ScimContext, id: string, ops: unknown): Pro
 
   const changed = attributeChange ? applyAttributes(membership, attrs) : [];
   if (changed.length > 0) await membership.save();
-  if (nextActive !== undefined) changed.push(...await setActive(ctx, membership, nextActive));
+  const flip = nextActive !== undefined ? await setActive(ctx, membership, nextActive) : undefined;
+  if (flip) changed.push(...flip.changed);
 
   if (ignored > 0) logger.debug('[SCIM] ignored unmodelled PATCH attributes', { orgId: ctx.orgId, ignored });
   return {
     resource: await getUser(ctx, id),
     action: deactivating ? 'deactivate' : nextActive === true ? 'activate' : 'update',
     changed,
+    ...(flip && flip.revokedInvitations.length > 0 ? { revokedInvitations: flip.revokedInvitations } : {}),
   };
 }
 
@@ -546,8 +565,9 @@ export async function patchUser(ctx: ScimContext, id: string, ops: unknown): Pro
  * (`endOrgAccess`), drops every Role the directory granted, and empties their group
  * set. The membership ROW is kept deliberately: it carries the audit trail, the
  * hand-granted Roles an admin may want back, and the seat accounting — and a
- * deactivated membership grants nothing. Idempotent: deleting an already-removed
- * user answers 204 again.
+ * deactivated membership grants nothing. The pending invitations they sent into
+ * the org are revoked in the same transaction. Idempotent: deleting an
+ * already-removed user answers 204 again.
  */
 export async function deleteUser(ctx: ScimContext, id: string): Promise<ScimWriteOutcome<{ id: string }>> {
   assertIntentAllowed(ctx, 'delete');
@@ -556,6 +576,7 @@ export async function deleteUser(ctx: ScimContext, id: string): Promise<ScimWrit
   await assertNotPlatformAdmin(membership.userId);
 
   const hadGroups = (membership.scim?.groups ?? []).length > 0;
+  let revokedInvitations: RevokedInvitation[] = [];
   if (membership.isActive || hadGroups) {
     await withMongoTransaction(async (session) => {
       await UserOrganization.updateOne(
@@ -564,10 +585,19 @@ export async function deleteUser(ctx: ScimContext, id: string): Promise<ScimWrit
         { session },
       );
       await endOrgAccess(membership.userId, ctx.orgId, session);
+      // Reassigned per attempt: a retried body re-reads the (rolled-back) rows.
+      revokedInvitations = await revokePendingInvitationsSentBy(String(membership.userId), ctx.orgId, session);
     });
     await publishUserRevocation(String(membership.userId));
     await resyncMemberRoles(ctx.orgId, membership.userId, []);
-    logger.info('[SCIM] removed member (deactivated + org access ended)', { orgId: ctx.orgId, userId: id });
+    logger.info('[SCIM] removed member (deactivated + org access ended)', {
+      orgId: ctx.orgId, userId: id, revokedInvitations: revokedInvitations.length,
+    });
   }
-  return { resource: { id }, action: 'delete', changed: ['active'] };
+  return {
+    resource: { id },
+    action: 'delete',
+    changed: ['active'],
+    ...(revokedInvitations.length > 0 ? { revokedInvitations } : {}),
+  };
 }

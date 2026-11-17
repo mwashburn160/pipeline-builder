@@ -307,12 +307,14 @@ async function redeemAndIssue(
   // The operator's state NOW, stamped on the session record: requireAuth ends
   // the session once the operator's hard tokenVersion moves (sign-out
   // everywhere, password reset, deletion) or — for a session opened as a
-  // superadmin — once they lose the flag. `+tokenVersion` / `+isSuperAdmin` are
-  // `select: false`.
+  // superadmin — once they lose the flag, and for one opened under tenant
+  // (ancestor-admin) authority — once their claimsVersion moves (a role or
+  // membership change). `+tokenVersion` / `+isSuperAdmin` are `select: false`.
   const operator = await User.findById(requesterId).select('+tokenVersion +isSuperAdmin');
   if (!operator) return { ok: false, code: IMP_NOT_APPROVED };
   const operatorState = {
     tokenVersion: (operator as { tokenVersion?: number }).tokenVersion ?? 0,
+    claimsVersion: (operator as { claimsVersion?: number }).claimsVersion ?? 0,
     isSuperAdmin: (operator as { isSuperAdmin?: boolean }).isSuperAdmin === true,
   };
 

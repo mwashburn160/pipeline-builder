@@ -35,7 +35,7 @@ jest.unstable_mockModule('../src/models/user.js', () => ({ default: empty }));
 jest.unstable_mockModule('../src/models/user-organization.js', () => ({ default: empty }));
 jest.unstable_mockModule('../src/models/idp-group-mapping.js', () => ({ default: empty }));
 jest.unstable_mockModule('../src/models/index.js', () => ({
-  Organization: empty, User: empty, UserOrganization: empty, Role: empty, RoleAssignment: empty, OrgDomain: empty, OrgIdpConfig: empty,
+  Organization: empty, User: empty, UserOrganization: empty, Role: empty, RoleAssignment: empty, OrgDomain: empty, OrgIdpConfig: empty, Invitation: empty,
 }));
 jest.unstable_mockModule('../src/services/mapped-roles.js', () => ({
   syncMappedRoles: async () => ({ added: [], removed: [] }),

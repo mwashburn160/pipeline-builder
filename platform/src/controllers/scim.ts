@@ -136,6 +136,18 @@ function auditWrite(req: Request, resource: 'User' | 'Group', outcome: ScimWrite
         : {}),
     },
   });
+  // A deprovisioned member's pending invitations went with them — one
+  // `invitation.revoke` per row, exactly as the admin remove / deactivate paths
+  // record it, so the invitation's trail shows who withdrew it and why. The
+  // actor is the SCIM credential (`req.user`), as for every other SCIM write.
+  for (const inv of outcome.revokedInvitations ?? []) {
+    audit(req, 'invitation.revoke', {
+      targetType: 'invitation',
+      targetId: inv.invitationId,
+      affectedOrgId: inv.organizationId,
+      details: { email: inv.email, role: inv.role, reason: 'inviter-deprovisioned', inviterId: outcome.resource.id },
+    });
+  }
 }
 
 const query = (req: Request): ScimListQuery => ({

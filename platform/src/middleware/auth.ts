@@ -6,6 +6,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { isAdminOrgRole, type OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import { accessTokenVersion } from '../helpers/access-version.js';
 import { bootstrapSessionMayReach } from '../helpers/bootstrap-admin.js';
+import { isImpersonationOperatorStale, type ImpersonationOperatorStamp } from '../helpers/impersonation-operator.js';
 import { resolveOrgAuthority } from '../helpers/org-authority.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { CLIENT_TYPE_HEADER, clientType, readRefreshCookie } from '../helpers/session-cookie.js';
@@ -394,7 +395,7 @@ async function userSessionRejection(decoded: AccessTokenPayload): Promise<Sessio
     let session;
     try {
       session = await ImpersonationRequest.findOne({ jti: decoded.jti })
-        .select('status expiresAt targetUserId requesterId requesterTokenVersion requesterSuperAdmin').lean();
+        .select('status expiresAt targetUserId requesterId requesterTokenVersion requesterClaimsVersion requesterSuperAdmin').lean();
     } catch (err) {
       logger.warn('Impersonation session lookup failed — denying', { error: String(err) });
       return SESSION_INVALID;
@@ -445,19 +446,14 @@ async function userSessionRejection(decoded: AccessTokenPayload): Promise<Sessio
  * The record alone said nothing about the person who opened the session, so
  * revoking the OPERATOR (sign-out everywhere, a password reset, deletion, or a
  * sysadmin losing the flag) left every session they had opened running to its
- * expiry. The session is ended when:
- *   - the operator no longer exists;
- *   - their hard `tokenVersion` differs from the one stamped on the record at
- *     redemption (a record without one — redeemed before the stamp existed —
- *     fails closed);
- *   - the session was opened as a superadmin and they no longer are one.
+ * expiry. The session is ended when the operator no longer exists,
+ * their hard `tokenVersion` moved, a superadmin-opened session's operator lost
+ * the flag, or a tenant-authority (ancestor-admin) session's operator had their
+ * `claimsVersion` move — see `isImpersonationOperatorStale`, the rule shared
+ * with the revocation publisher. A record missing its stamp fails closed.
  * Fail closed on a lookup error, like the record read above.
  */
-async function operatorRejection(session: {
-  requesterId?: unknown;
-  requesterTokenVersion?: number;
-  requesterSuperAdmin?: boolean;
-}): Promise<SessionRejection | undefined> {
+async function operatorRejection(session: ImpersonationOperatorStamp & { requesterId?: unknown }): Promise<SessionRejection | undefined> {
   const ended: SessionRejection = { message: 'Impersonation session ended' };
   if (typeof session.requesterTokenVersion !== 'number') return ended;
   let operator;
@@ -467,10 +463,7 @@ async function operatorRejection(session: {
     logger.warn('Impersonation operator lookup failed — denying', { error: String(err) });
     return ended;
   }
-  if (!operator) return ended;
-  if ((operator.tokenVersion ?? 0) !== session.requesterTokenVersion) return ended;
-  if (session.requesterSuperAdmin === true && operator.isSuperAdmin !== true) return ended;
-  return undefined;
+  return isImpersonationOperatorStale(session, operator) ? ended : undefined;
 }
 
 /**

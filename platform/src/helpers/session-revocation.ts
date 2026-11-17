@@ -20,6 +20,13 @@
  * configured at all) simply means the services fall back to token expiry, which
  * the short access-token TTL keeps small.
  *
+ * OPERATOR revocation reaches the impersonation sessions the user OPENED, too:
+ * every user-version publish below also ends (Mongo `revoked` + the per-session
+ * `authrev:jti:<jti>` key) each live session whose operator stamp no longer
+ * matches the operator — see {@link endOperatorImpersonationSessions}. That is
+ * keyed by the session's `jti`, NOT the impersonated subject's id, so the subject
+ * stays signed in to their own sessions.
+ *
  * Ordering: call these AFTER the transaction/commit that bumped a version —
  * they publish the value the `$inc` returned (or re-read the now-current one);
  * the store's atomic set-if-greater means the highest version always wins.
@@ -32,8 +39,11 @@ import {
   publishCredentialRevocation,
   publishSessionRevocation,
   publishTokenRevocation,
+  SYSTEM_ACTOR_ID,
+  SYSTEM_ORG_ID,
 } from '@pipeline-builder/api-core';
 import { accessTokenVersion } from './access-version.js';
+import { isImpersonationOperatorStale, type ImpersonationOperatorState } from './impersonation-operator.js';
 import { getRedisClient } from '../utils/redis-client.js';
 
 const logger = createLogger('session-revocation');
@@ -47,6 +57,11 @@ const logger = createLogger('session-revocation');
  */
 async function getUserModel() {
   return (await import('../models/user.js')).default;
+}
+
+/** Lazily resolve the ImpersonationRequest model — same reason as {@link getUserModel}. */
+async function getImpersonationRequestModel() {
+  return (await import('../models/impersonation-request.js')).default;
 }
 
 /**
@@ -96,14 +111,14 @@ export async function publishUserRevocation(userId: string, accessVersion?: numb
 
     if (typeof accessVersion === 'number') {
       await publishTokenRevocation(redis, String(userId), accessVersion, await revocationTtlSeconds());
-      return;
+    } else {
+      const User = await getUserModel();
+      const user = await User.findById(userId).select('+tokenVersion').lean();
+      if (!user || typeof user.tokenVersion !== 'number') return;
+
+      await publishTokenRevocation(redis, String(userId), accessTokenVersion(user), await revocationTtlSeconds());
     }
-
-    const User = await getUserModel();
-    const user = await User.findById(userId).select('+tokenVersion').lean();
-    if (!user || typeof user.tokenVersion !== 'number') return;
-
-    await publishTokenRevocation(redis, String(userId), accessTokenVersion(user), await revocationTtlSeconds());
+    await endOperatorImpersonationSessions([String(userId)]);
   } catch (err) {
     logger.warn('publishUserRevocation failed (best-effort; falling back to token expiry)', {
       userId, error: errorMessage(err),
@@ -134,6 +149,7 @@ export async function publishUsersRevocation(userIds: Array<string | { toString(
           : Promise.resolve(),
       ),
     );
+    await endOperatorImpersonationSessions(ids);
   } catch (err) {
     logger.warn('publishUsersRevocation failed (best-effort; falling back to token expiry)', {
       count: userIds?.length, error: errorMessage(err),
@@ -156,6 +172,8 @@ export async function publishUserDeletionRevocation(userId: string, accessVersio
     const redis = await getRedisClient();
     if (!redis) return; // no Redis configured — services fall back to token expiry
     await publishTokenRevocation(redis, String(userId), accessVersion + 1, await revocationTtlSeconds());
+    // The operator is gone, so every session they opened ends unconditionally.
+    await endOperatorImpersonationSessions([String(userId)], { operatorGone: true });
   } catch (err) {
     logger.warn('publishUserDeletionRevocation failed (best-effort; falling back to token expiry)', {
       userId, error: errorMessage(err),
@@ -194,6 +212,92 @@ export async function publishImpersonationSessionRevocation(jti: string, consume
     logger.warn('Impersonation session revocation publish failed', { jti, error: errorMessage(err) });
     return false;
   }
+}
+
+/**
+ * End every LIVE impersonation session OPENED BY one of `operatorIds` that its
+ * operator's current state no longer supports, everywhere — not just on the
+ * platform (whose auth middleware already refuses it per request via the same
+ * rule, {@link isImpersonationOperatorStale}).
+ *
+ * The stateless services check an impersonation token's revocation by its
+ * `jti` (`authrev:jti:<jti>`), and its `sub` is the IMPERSONATED user — so
+ * bumping/publishing the subject's version would sign the subject out of their
+ * own account. Instead each stale session is:
+ *   1. flipped `consumed` → `revoked` in Mongo (guarded, so a concurrent end by
+ *      a person or another publish wins once), and
+ *   2. published by `jti` (`publishImpersonationSessionRevocation`), and
+ *   3. audited as `admin.impersonate.revoke` by the SYSTEM actor (nobody in a
+ *      request ended it) with reason `operator-revoked`.
+ *
+ * A session is "stale" when the operator's hard `tokenVersion` moved, they
+ * lost the superadmin flag a superadmin session was opened on, or — for a
+ * tenant-authority (ancestor-admin) session — their `claimsVersion` moved.
+ * Sessions the operator still supports are left alone, so an unrelated publish
+ * (e.g. a superadmin's claims change) never ends them. `operatorGone` (the
+ * operator was deleted) ends them all without reading the operator.
+ *
+ * Called from the user-version publishers, i.e. every tokenVersion /
+ * claimsVersion bump site, after commit. THROWS on a DB error — the callers'
+ * best-effort wrappers log and swallow it; the platform's own per-request check
+ * still refuses the session either way.
+ */
+export async function endOperatorImpersonationSessions(
+  operatorIds: readonly string[],
+  opts: { operatorGone?: boolean } = {},
+): Promise<number> {
+  if (operatorIds.length === 0) return 0;
+  const ImpersonationRequest = await getImpersonationRequestModel();
+  const now = new Date();
+  const live = await ImpersonationRequest.find({
+    requesterId: { $in: [...operatorIds] },
+    status: 'consumed',
+    expiresAt: { $gt: now },
+  })
+    .select('_id jti consumedAt requesterId targetUserId organizationId requesterTokenVersion requesterClaimsVersion requesterSuperAdmin')
+    .lean();
+  if (live.length === 0) return 0;
+
+  const operators = new Map<string, ImpersonationOperatorState>();
+  if (!opts.operatorGone) {
+    const User = await getUserModel();
+    const requesterIds = [...new Set(live.map((s) => String(s.requesterId)))];
+    const rows = await User.find({ _id: { $in: requesterIds } }).select('+tokenVersion +isSuperAdmin').lean();
+    for (const u of rows) operators.set(String(u._id), u);
+  }
+
+  const stale = live.filter((s) => isImpersonationOperatorStale(s, operators.get(String(s.requesterId))));
+  if (stale.length === 0) return 0;
+
+  const { recordAuditEvent } = await import('./audit.js');
+  let ended = 0;
+  for (const s of stale) {
+    const res = await ImpersonationRequest.updateOne(
+      { _id: s._id, status: 'consumed' },
+      { $set: { status: 'revoked', revokedAt: now } },
+    );
+    // Someone else ended it first — they published and audited it.
+    if ((res.modifiedCount ?? 0) === 0) continue;
+    ended++;
+    const revokedEverywhere = s.jti ? await publishImpersonationSessionRevocation(s.jti, s.consumedAt) : true;
+    recordAuditEvent({
+      action: 'admin.impersonate.revoke',
+      actorId: SYSTEM_ACTOR_ID,
+      orgId: SYSTEM_ORG_ID,
+      ...(s.organizationId ? { affectedOrgId: String(s.organizationId) } : {}),
+      targetType: 'user',
+      targetId: String(s.targetUserId),
+      outcome: 'success',
+      details: {
+        impersonationRequestId: String(s._id),
+        requesterId: String(s.requesterId),
+        reason: 'operator-revoked',
+        revokedEverywhere,
+      },
+    });
+  }
+  if (ended > 0) logger.info('Ended impersonation sessions of a revoked operator', { ended });
+  return ended;
 }
 
 /**

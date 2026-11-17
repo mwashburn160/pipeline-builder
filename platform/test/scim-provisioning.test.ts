@@ -234,6 +234,7 @@ const mockSyncMappedRoles = jest.fn<(...a: unknown[]) => Promise<{ added: string
 const mockEnsureBaselineRole = jest.fn<(...a: unknown[]) => Promise<void>>(async () => undefined);
 const mockRecompute = jest.fn<(...a: unknown[]) => Promise<void>>(async () => undefined);
 const mockPublishRevocation = jest.fn<(...a: unknown[]) => Promise<void>>(async () => undefined);
+const mockRevokeInvitations = jest.fn<(...a: unknown[]) => Promise<unknown[]>>(async () => []);
 const mockOwnsVerifiedDomain = jest.fn<(...a: unknown[]) => Promise<boolean>>(async () => true);
 const seats = {
   available: jest.fn<(...a: unknown[]) => Promise<boolean>>(async () => true),
@@ -271,6 +272,9 @@ jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({
   publishSessionSlotRevocation: async () => true,
   publishAccessKeyRevocation: async () => true,
   publishUserRevocation: (...a: unknown[]) => mockPublishRevocation(...a),
+}));
+jest.unstable_mockModule('../src/services/inviter-exit.js', () => ({
+  revokePendingInvitationsSentBy: (...a: unknown[]) => mockRevokeInvitations(...a),
 }));
 jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({
   emailDomain: (email: string) => { const at = email.lastIndexOf('@'); return at <= 0 ? null : email.slice(at + 1).toLowerCase(); },
@@ -343,7 +347,11 @@ beforeEach(() => {
   seats.usage.mockResolvedValue({ limit: 3, used: 3 });
   mockSyncMappedRoles.mockResolvedValue({ added: [], removed: [] });
   mockResolveMappedRoles.mockResolvedValue({ roleIds: [], matchedGroups: [] });
+  mockRevokeInvitations.mockResolvedValue([]);
 });
+
+/** One pending invitation the deprovisioned member had sent, as revoked. */
+const SENT_INVITE = { invitationId: 'inv-1', organizationId: ORG, email: 'new@acme.com', role: 'member' };
 
 // ---------------------------------------------------------------------------
 
@@ -624,6 +632,16 @@ describe('replaceUser (PUT)', () => {
     expect(db.users[0].refreshSessions).toEqual([{ id: 'laptop' }]);
     expect(mockPublishRevocation).toHaveBeenCalledWith(ALICE);
     expect(mockResolveMappedRoles).toHaveBeenCalledWith(ORG, []);
+    // Nothing pending → nothing for the controller to audit.
+    expect(mockRevokeInvitations).toHaveBeenCalledWith(ALICE, ORG, { id: 'session' });
+    expect(out.revokedInvitations).toBeUndefined();
+  });
+
+  it('a PUT deactivation revokes the invitations the member left pending, in the same transaction', async () => {
+    mockRevokeInvitations.mockResolvedValue([SENT_INVITE]);
+    const out = await scim.replaceUser(ctx(), ALICE, { active: false });
+    expect(mockRevokeInvitations).toHaveBeenCalledWith(ALICE, ORG, { id: 'session' });
+    expect(out.revokedInvitations).toEqual([SENT_INVITE]);
   });
 
   it('a deactivation still works after the entitlement lapses; anything else does not', async () => {
@@ -709,6 +727,22 @@ describe('patchUser (PATCH)', () => {
     db.memberships[0].isActive = false;
     const out = await scim.patchUser(ctx(), ALICE, [{ op: 'replace', path: 'active', value: true }]);
     expect(out.action).toBe('activate');
+    // Reactivation revokes nothing.
+    expect(mockRevokeInvitations).not.toHaveBeenCalled();
+    expect(out.revokedInvitations).toBeUndefined();
+  });
+
+  it('a PATCH deactivation revokes the invitations the member left pending', async () => {
+    mockRevokeInvitations.mockResolvedValue([SENT_INVITE]);
+    const out = await scim.patchUser(ctx(), ALICE, [{ op: 'replace', path: 'active', value: false }]);
+    expect(out.action).toBe('deactivate');
+    expect(mockRevokeInvitations).toHaveBeenCalledWith(ALICE, ORG, { id: 'session' });
+    expect(out.revokedInvitations).toEqual([SENT_INVITE]);
+  });
+
+  it('a PATCH deactivation with nothing pending reports no revoked invitations', async () => {
+    const out = await scim.patchUser(ctx(), ALICE, [{ op: 'replace', path: 'active', value: false }]);
+    expect(out.revokedInvitations).toBeUndefined();
   });
 
   it('patches every modelled attribute, and CLEARS one a `remove` names', async () => {
@@ -783,6 +817,14 @@ describe('deleteUser (DELETE)', () => {
     expect(mockPublishRevocation).toHaveBeenCalledWith(ALICE);
     expect(db.users[0].claimsVersion).toBe(1);
     expect(db.users[0].tokenVersion).toBe(1);
+    expect(mockRevokeInvitations).toHaveBeenCalledWith(ALICE, ORG, { id: 'session' });
+    expect(out.revokedInvitations).toBeUndefined();
+  });
+
+  it('revokes the invitations the removed member left pending, and hands them back to audit', async () => {
+    mockRevokeInvitations.mockResolvedValue([SENT_INVITE]);
+    const out = await scim.deleteUser(ctx(), ALICE);
+    expect(out.revokedInvitations).toEqual([SENT_INVITE]);
   });
 
   it('is idempotent — deleting an already-removed user does no further work', async () => {
@@ -793,6 +835,7 @@ describe('deleteUser (DELETE)', () => {
 
     expect(out.action).toBe('delete');
     expect(mockPublishRevocation).not.toHaveBeenCalled();
+    expect(mockRevokeInvitations).not.toHaveBeenCalled();
   });
 
   it('survives a downgrade, but never removes the owner or a platform administrator', async () => {
