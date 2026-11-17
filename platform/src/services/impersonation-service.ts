@@ -199,12 +199,28 @@ class ImpersonationService {
    * cannot both succeed — the second matches nothing. Expiry is checked in the
    * same query rather than read-then-write, so a request cannot lapse between
    * the check and the update.
+   *
+   * `operator` is the requester's state at redemption (hard `tokenVersion`,
+   * superadmin flag), stamped on the record so the auth middleware can end the
+   * session once the operator is revoked (see `requesterTokenVersion`).
    */
-  async consume(requestId: string, jti: string): Promise<{ ok: true; expiresAt: Date } | { ok: false; code: string }> {
+  async consume(
+    requestId: string,
+    jti: string,
+    operator: { tokenVersion: number; isSuperAdmin: boolean },
+  ): Promise<{ ok: true; expiresAt: Date } | { ok: false; code: string }> {
     const now = new Date();
     const updated = await ImpersonationRequest.findOneAndUpdate(
       { _id: requestId, status: 'approved', expiresAt: { $gt: now } },
-      { $set: { status: 'consumed', consumedAt: now, jti } },
+      {
+        $set: {
+          status: 'consumed',
+          consumedAt: now,
+          jti,
+          requesterTokenVersion: operator.tokenVersion,
+          requesterSuperAdmin: operator.isSuperAdmin,
+        },
+      },
       { new: true },
     );
     // `expiresAt` comes back so the caller can cap the session token at the

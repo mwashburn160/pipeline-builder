@@ -186,10 +186,12 @@ async function provisionFromAssertion(
   orgId: string,
   cfg: SamlLoginConfig,
   samlResponse: string,
-  state: string,
+  relay: { state: string; requestId: string },
   relayState: string | undefined,
 ): Promise<{ userId: string; issuer: string; session: SamlSessionRef }> {
-  const identity = await validateSamlResponse(cfg, samlResponse, relayState, state);
+  // The response must answer the AuthnRequest minted WITH this RelayState —
+  // not merely some request this deployment made for the org.
+  const identity = await validateSamlResponse(cfg, samlResponse, relayState, relay.state, { expectedRequestId: relay.requestId });
 
   // The org's IdP vouching for an email proves nothing unless the org has
   // proven it owns that domain.
@@ -264,7 +266,7 @@ export const handleSamlAcs = withController('SAML ACS', async (req, res) => {
     const relay = await consumeSamlRelayState(orgId, body.RelayState);
     binding = relay.binding;
     const cfg = await getEnforcedSamlConfig(orgId);
-    result = await provisionFromAssertion(req, orgId, cfg, body.SAMLResponse, relay.state, body.RelayState);
+    result = await provisionFromAssertion(req, orgId, cfg, body.SAMLResponse, relay, body.RelayState);
   } catch (err) {
     refuseAssertion(req, res, orgId, err);
     return;

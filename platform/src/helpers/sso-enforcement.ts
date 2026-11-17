@@ -52,20 +52,35 @@ export function emailDomain(email: string): string | null {
 export { GOOGLE_ISSUER };
 
 /**
- * Whether `orgId` — or the account root it belongs to — has proven ownership of
- * `domain` through the DNS challenge. This is what makes an org's say-so about an
- * address trustworthy; the free-text `allowedEmailDomains` list proves nothing.
+ * The OrgDomain filter for the domains `orgId` may VOUCH for: its OWN domains,
+ * plus — for a team — the account root's domains that a root administrator has
+ * explicitly shared with its teams (`sharedWithTeams`).
+ *
+ * A root domain is NOT inherited by default. Every team admin runs their own
+ * IdP, so inheriting the root's domains would let any team owner assert
+ * `owner@root-domain` and sign in as (or link onto) the root's own accounts.
  * If the lineage can't be read, only the org's own domains count (fail closed).
  */
-export async function ownsVerifiedDomain(orgId: string, domain: string): Promise<boolean> {
-  const owners = [orgId];
+async function trustedDomainScope(orgId: string): Promise<Record<string, unknown>> {
+  const own = { organizationId: orgId };
   try {
     const { rootOrgId } = await resolveOrgLineage(orgId);
-    if (rootOrgId !== orgId) owners.push(rootOrgId);
+    if (rootOrgId !== orgId) return { $or: [own, { organizationId: rootOrgId, sharedWithTeams: true }] };
   } catch {
     // Own domains only.
   }
-  return !!(await OrgDomain.exists({ domain: domain.toLowerCase(), verified: true, organizationId: { $in: owners } }));
+  return own;
+}
+
+/**
+ * Whether `orgId` has proven ownership of `domain` through the DNS challenge —
+ * itself, or (for a team) through a root domain the root has shared with its
+ * teams (see {@link trustedDomainScope}). This is what makes an org's say-so
+ * about an address trustworthy; the free-text `allowedEmailDomains` list proves
+ * nothing.
+ */
+export async function ownsVerifiedDomain(orgId: string, domain: string): Promise<boolean> {
+  return !!(await OrgDomain.exists({ domain: domain.toLowerCase(), verified: true, ...(await trustedDomainScope(orgId)) }));
 }
 
 /** Where a verified SSO identity came from. The Google carve-out is decided
@@ -96,6 +111,23 @@ export async function assertSsoIdentityTrusted(
   if (!domain || !(await ownsVerifiedDomain(orgId, domain))) {
     throw new Error('OIDC_EMAIL_DOMAIN_NOT_VERIFIED');
   }
+}
+
+/**
+ * Whether a sign-in through this IdP may CREATE a new membership for `email`.
+ *
+ * Every admin-run IdP already had to pass {@link assertSsoIdentityTrusted}, so
+ * its email domain is one the org may vouch for — JIT may add the person. Google
+ * is the exception: its identities are trusted without a verified domain (Google
+ * owns the address), but ANY Google account can complete the flow, so a Google
+ * IdP may only create a membership when the email's domain is one the org may
+ * vouch for (same rule as {@link ownsVerifiedDomain}). Otherwise the sign-in
+ * admits existing members only (`JIT_NOT_MEMBER`).
+ */
+export async function mayAutoProvisionMembership(orgId: string, email: string, source: SsoIdentitySource): Promise<boolean> {
+  if (source.protocol !== 'oidc' || source.provider !== 'google') return true;
+  const domain = emailDomain(email);
+  return !!domain && await ownsVerifiedDomain(orgId, domain);
 }
 
 /**
@@ -251,9 +283,9 @@ async function verifiedDomainOwner(domain: string): Promise<string | null> {
 
 /**
  * DOMAIN-level SSO coverage: the org whose ENABLED + `sso`-ENTITLED IdP serves
- * `email`'s domain, or null. "Serves" means the org (or its account root) has
- * DNS-VERIFIED the domain AND, when the IdP pins `allowedEmailDomains`, the
- * domain is on that list. `required` reports the org's "SSO required" policy.
+ * `email`'s domain, or null. "Serves" means the org has DNS-VERIFIED the domain
+ * (or, for a team, its account root verified it AND shared it with teams)
+ * AND, when the IdP pins `allowedEmailDomains`, the domain is on that list. `required` reports the org's "SSO required" policy.
  *
  * Said about the DOMAIN, never the address — so it is safe to answer for an
  * anonymous caller in a bare yes/no (discover), and it is what lets the login
@@ -327,7 +359,7 @@ export async function findSsoEnforcementForEmail(
 }
 
 /**
- * Domains in `domains` that `orgId` (or its account root) has NOT verified. The
+ * Domains in `domains` that `orgId` may NOT vouch for (see {@link ownsVerifiedDomain}). The
  * IdP write path refuses an `allowedEmailDomains` entry the org can't vouch for:
  * the list is a picker over verified domains, not free text.
  */
@@ -339,16 +371,10 @@ export async function unverifiedDomains(orgId: string, domains: readonly string[
   return out;
 }
 
-/** Whether `orgId` (or its account root) has any DNS-verified domain. */
+/** Whether `orgId` has any domain it may vouch for — its own verified domains
+ *  or a root domain shared with its teams (same rule as {@link ownsVerifiedDomain}). */
 export async function hasVerifiedDomain(orgId: string): Promise<boolean> {
-  const owners = [orgId];
-  try {
-    const { rootOrgId } = await resolveOrgLineage(orgId);
-    if (rootOrgId !== orgId) owners.push(rootOrgId);
-  } catch {
-    // Own domains only.
-  }
-  return !!(await OrgDomain.exists({ verified: true, organizationId: { $in: owners } }));
+  return !!(await OrgDomain.exists({ verified: true, ...(await trustedDomainScope(orgId)) }));
 }
 
 /**

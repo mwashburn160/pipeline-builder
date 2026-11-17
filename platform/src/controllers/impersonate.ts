@@ -42,6 +42,7 @@ import { expandOrgScope } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { publishImpersonationSessionRevocation } from '../helpers/session-revocation.js';
 import { ImpersonationRequest, User, UserOrganization, type ImpersonationApproverMode } from '../models/index.js';
+import { IMP_NOT_APPROVED } from '../services/impersonation-errors.js';
 import { decideInitialApproval, impersonationService } from '../services/impersonation-service.js';
 import { authFromClaims, issueImpersonationToken } from '../services/session/access-tokens.js';
 
@@ -303,9 +304,21 @@ async function redeemAndIssue(
   // `tokenVersion` would end their own sessions at the same time.
   const jti = crypto.randomBytes(16).toString('hex');
 
+  // The operator's state NOW, stamped on the session record: requireAuth ends
+  // the session once the operator's hard tokenVersion moves (sign-out
+  // everywhere, password reset, deletion) or — for a session opened as a
+  // superadmin — once they lose the flag. `+tokenVersion` / `+isSuperAdmin` are
+  // `select: false`.
+  const operator = await User.findById(requesterId).select('+tokenVersion +isSuperAdmin');
+  if (!operator) return { ok: false, code: IMP_NOT_APPROVED };
+  const operatorState = {
+    tokenVersion: (operator as { tokenVersion?: number }).tokenVersion ?? 0,
+    isSuperAdmin: (operator as { isSuperAdmin?: boolean }).isSuperAdmin === true,
+  };
+
   // `consume` is the single-use gate: it only matches while the row is still
   // `approved`, so an approval can never be spent twice.
-  const redeemed = await impersonationService.consume(request.id, jti);
+  const redeemed = await impersonationService.consume(request.id, jti, operatorState);
   if (!redeemed.ok) {
     logger.warn('Impersonation request could not be redeemed', { requestId: request.id, code: redeemed.code });
     return redeemed;

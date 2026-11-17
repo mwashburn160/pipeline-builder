@@ -172,6 +172,9 @@ export const PLATFORM_AUDIT_ACTIONS = [
   'org.domain.add',
   'org.domain.verify',
   'org.domain.mode',
+  // A root admin shared (or stopped sharing) a verified domain with the
+  // account's teams; `details` carries `domain` and the new `sharedWithTeams`.
+  'org.domain.share',
   'org.domain.delete',
   'org.join.request',
   'org.join.auto',

@@ -34,9 +34,10 @@ import { bindLoginToBrowser, isBoundToThisBrowser } from '../helpers/login-bindi
 import { MFA_POLICY_ERROR_MAP } from '../helpers/mfa-policy.js';
 import { createPendingStateStore } from '../helpers/pending-state-store.js';
 import { completeInteractiveSignIn, ssoAuth } from '../helpers/sign-in.js';
-import { assertSsoIdentityTrusted, findSsoCoverageForEmail, getEnforcedIdpProtocol, getEnforcedLoginConfig } from '../helpers/sso-enforcement.js';
+import { assertSsoIdentityTrusted, findSsoCoverageForEmail, getEnforcedIdpProtocol, getEnforcedLoginConfig, mayAutoProvisionMembership } from '../helpers/sso-enforcement.js';
+import { ssoRefusalReason } from '../helpers/sso-refusal-reason.js';
 import { incCounter } from '../observability/metrics.js';
-import { JIT_SEAT_LIMIT } from '../services/idp-mapping-errors.js';
+import { JIT_NOT_MEMBER, JIT_SEAT_LIMIT } from '../services/idp-mapping-errors.js';
 import { authService } from '../services/index.js';
 import {
   OIDC_ERROR_MAP,
@@ -45,7 +46,7 @@ import {
 } from '../services/oidc-service.js';
 import { beginSamlLogin } from '../services/saml-login-state.js';
 import { SAML_ERROR_MAP } from '../services/saml-service.js';
-import { assertJitSeatAvailable, provisionJitMembership } from '../services/sso-jit-service.js';
+import { assertExistingMember, assertJitSeatAvailable, provisionJitMembership } from '../services/sso-jit-service.js';
 import { oauthCallbackSchema, ssoDiscoverSchema, validateBody } from '../utils/validation.js';
 
 const logger = createLogger('sso-controller');
@@ -138,10 +139,12 @@ export const startSsoLogin = withController('Start SSO', async (req, res) => {
 }, { ...OIDC_ERROR_MAP, ...SAML_ERROR_MAP });
 
 /** Label a failed provisioning attempt for the audit row + metric. Only the seat
- *  cap is an expected refusal; anything else is an infrastructure failure and is
+ *  cap and the Google existing-members-only rule are expected refusals (labelled
+ *  from the shared refusal catalog); anything else is an infrastructure failure and is
  *  counted separately so a Mongo outage can't masquerade as a full account. */
 function jitRefusalReason(err: unknown): string {
-  return (err instanceof Error && err.message === JIT_SEAT_LIMIT) ? 'seat_limit' : 'error';
+  if (!(err instanceof Error)) return 'error';
+  return err.message === JIT_SEAT_LIMIT || err.message === JIT_NOT_MEMBER ? ssoRefusalReason(err.message) : 'error';
 }
 
 /**
@@ -203,11 +206,18 @@ export const handleSsoCallback = withController('SSO callback', async (req, res)
     throw err;
   }
 
+  // A Google IdP signs in ANY Google account; unless the email's domain is one
+  // the org has verified, only people who are ALREADY members may come in —
+  // JIT never creates a membership for them. Checked (like seats, below) before
+  // the identity becomes an account; `allowCreate` is the authoritative re-check.
+  const allowCreate = await mayAutoProvisionMembership(orgId, identity.email, { protocol: 'oidc', provider });
+
   // JIT: seats are checked BEFORE the identity becomes an account, so a
   // sign-in that the seat cap will refuse doesn't leave a user record (and its
   // personal org) behind. The authoritative check runs again inside the
   // provisioning transaction below.
   try {
+    if (!allowCreate) await assertExistingMember(orgId, identity.email);
     await assertJitSeatAvailable(orgId, identity.email);
   } catch (err) {
     refuseJit(req, orgId, identity.email, jitRefusalReason(err));
@@ -236,7 +246,7 @@ export const handleSsoCallback = withController('SSO callback', async (req, res)
   // it, so the token below is valid from its first request.
   let jit;
   try {
-    jit = await provisionJitMembership({ orgId, user, groups: identity.groups });
+    jit = await provisionJitMembership({ orgId, user, groups: identity.groups, allowCreate });
   } catch (err) {
     refuseJit(req, orgId, identity.email, jitRefusalReason(err));
     throw err;

@@ -393,18 +393,38 @@ describe('redeemImpersonationRequest', () => {
     mockRequestFindById.mockReturnValue(leanOf({
       requesterId: 'sysadmin', targetUserId: 'target', organizationId: 'org-a', approvalReason: 'consent',
     }));
-    mockUserFindById.mockReturnValue({ select: jest.fn<AnyFn>().mockResolvedValue({ _id: 'target', isSuperAdmin: false }) });
+    mockUserFindById.mockImplementation((id: unknown) => ({
+      select: jest.fn<AnyFn>().mockResolvedValue(id === 'sysadmin'
+        ? { _id: 'sysadmin', isSuperAdmin: true, tokenVersion: 4 }
+        : { _id: 'target', isSuperAdmin: false }),
+    }));
     mockIssueImpersonation.mockResolvedValue({ accessToken: 'imp.jwt', expiresIn: 900 });
 
     const res = await call({ sub: 'sysadmin' });
 
     expect(res.status).toHaveBeenCalledWith(200);
-    // Redeemed through the SAME single-use gate and token path as inline sessions.
-    expect(mockConsume).toHaveBeenCalledWith('req-1', expect.any(String));
+    // Redeemed through the SAME single-use gate and token path as inline
+    // sessions — stamping the OPERATOR's state so revoking them ends the session.
+    expect(mockConsume).toHaveBeenCalledWith('req-1', expect.any(String), { tokenVersion: 4, isSuperAdmin: true });
     expect(mockIssueImpersonation).toHaveBeenCalledWith(
       expect.objectContaining({ _id: 'target' }), 'sysadmin', 'org-a', expect.any(String),
       expect.objectContaining({ amr: expect.any(Array), aal: 1 }), undefined, RECORD_EXPIRES_AT,
     );
+  });
+
+  it('refuses to redeem when the operator record is gone', async () => {
+    mockRequestFindById.mockReturnValue(leanOf({
+      requesterId: 'sysadmin', targetUserId: 'target', organizationId: 'org-a', approvalReason: 'consent',
+    }));
+    mockUserFindById.mockImplementation((id: unknown) => ({
+      select: jest.fn<AnyFn>().mockResolvedValue(id === 'sysadmin' ? null : { _id: 'target', isSuperAdmin: false }),
+    }));
+
+    const res = await call({ sub: 'sysadmin' });
+
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(mockConsume).not.toHaveBeenCalled();
+    expect(mockIssueImpersonation).not.toHaveBeenCalled();
   });
 
   it('refuses anyone other than the requester — an approval is not a bearer ticket', async () => {

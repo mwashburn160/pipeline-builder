@@ -86,6 +86,11 @@ export function formatUserResponse(
     /** The feature overrides for the ONE org this response describes — never
      *  the raw per-org map, which would expose other orgs' settings. */
     featureOverrides?: Record<string, boolean>;
+    /** The org this response describes. When set (including `null`) it
+     *  replaces the default of the user's own `lastActiveOrgId` — an org-scoped
+     *  admin view passes the CALLER's org so the target's (possibly foreign)
+     *  last-active org id never leaks across tenants. */
+    organizationId?: string | null;
   },
 ) {
   return {
@@ -99,7 +104,9 @@ export function formatUserResponse(
     isSuperAdmin: user.isSuperAdmin === true,
     isEmailVerified: user.isEmailVerified,
     needsOnboarding: user.needsOnboarding === true,
-    organizationId: user.lastActiveOrgId?.toString() || null,
+    organizationId: opts?.organizationId !== undefined
+      ? opts.organizationId
+      : user.lastActiveOrgId?.toString() || null,
     organizationName: opts?.activeOrgName || null,
     ...(opts?.organization && { organization: opts.organization }),
     ...(opts?.organizations && { organizations: opts.organizations }),

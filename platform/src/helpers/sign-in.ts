@@ -118,7 +118,7 @@ export async function sendMfaChallenge(
   res: Response,
   userId: string,
   orgId: string | undefined,
-  opts: MfaChallengeOptions = {},
+  opts: MfaChallengeOptions,
 ): Promise<void> {
   // Lazily imported: the challenge store reads its own config at module load,
   // which most routes of the importing controllers never need.
@@ -144,7 +144,7 @@ export async function openMfaChallengeIfOwed(
   res: Response,
   userId: string,
   orgId: string | undefined,
-  opts: Omit<MfaChallengeOptions, 'recoveryOnly'> = {},
+  opts: Omit<MfaChallengeOptions, 'recoveryOnly'>,
 ): Promise<boolean> {
   const { hasActiveTotp } = await import('./auth-factors.js');
   if (!(await hasActiveTotp(userId))) return false;

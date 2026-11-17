@@ -222,10 +222,11 @@ class InvitationService {
     inviterId: mongoose.Types.ObjectId,
     organizationId: mongoose.Types.ObjectId,
     session: mongoose.ClientSession,
-  ): Promise<{ isOrgAdmin: boolean; permissions: string[] }> {
+  ): Promise<{ inOrg: boolean; isOrgAdmin: boolean; permissions: string[] }> {
     const authority = await resolveOrgAuthority(String(inviterId), String(organizationId));
-    if (!authority) return { isOrgAdmin: false, permissions: [] };
+    if (!authority) return { inOrg: false, isOrgAdmin: false, permissions: [] };
     return {
+      inOrg: true,
       isOrgAdmin: isAdminOrgRole(authority.role),
       permissions: await rolePermissionsFor(String(inviterId), authority.permissionOrgIds, session),
     };
@@ -241,19 +242,35 @@ class InvitationService {
   ): Promise<{ notice: AcceptNotice | null; roles: AcceptedRoles }> {
     const invitedRoleIds = (invitation.roleIds ?? []).map(String);
 
-    // The inviter's authority RIGHT NOW, read once for both re-validations below:
+    // The inviter's authority RIGHT NOW, read once for every re-validation below:
     // an invitation can sit pending for days, during which the person who sent it
     // may have lost the admin label, a permission, or the org relationship that
     // let them grant what it promises — the same window
     // `redeemImpersonationRequest` re-resolves for.
-    const needsInviter = invitation.role === 'admin' || invitedRoleIds.length > 0;
-    const inviterDoc = needsInviter
-      ? await User.findById(invitation.invitedBy).select('+isSuperAdmin').session(session)
-      : null;
+    const inviterDoc = await User.findById(invitation.invitedBy).select('+isSuperAdmin').session(session);
     const inviterIsSuperAdmin = (inviterDoc as { isSuperAdmin?: boolean } | null)?.isSuperAdmin === true;
-    const inviterNow = needsInviter
-      ? await this.inviterAuthorityNow(invitation.invitedBy, org._id as mongoose.Types.ObjectId, session)
-      : { isOrgAdmin: false, permissions: [] as string[] };
+    const inviterNow = await this.inviterAuthorityNow(invitation.invitedBy, org._id as mongoose.Types.ObjectId, session);
+
+    // The invitation ITSELF is re-checked, not only the privileges it carries:
+    // admitting anyone into the org is the authority `POST /invitation/send`
+    // gated (the org's owner, or `invitations:manage`). An inviter who has
+    // since been removed, deactivated, or stripped of that permission no longer
+    // vouches for it, so a plain member invitation they sent must stop
+    // admitting people too. A platform superadmin inviter keeps the standing
+    // the send route gave them. Refused as revoked — which is what the
+    // inviter's removal now does to their pending invitations
+    // (`revokePendingInvitationsBy`); this is the backstop for any that
+    // predate it or were sent from an inherited (parent-org) authority.
+    const inviterIsOwner = !!inviterDoc && String((org as { owner?: unknown }).owner ?? '') === String(invitation.invitedBy);
+    const inviterMayInvite = inviterIsSuperAdmin
+      || (inviterNow.inOrg && (inviterIsOwner || inviterNow.permissions.includes('invitations:manage')));
+    if (!inviterMayInvite) {
+      logger.warn('Invitation refused at acceptance — the inviter no longer has authority to invite into the org', {
+        invitationId: String(invitation._id),
+        organizationId: String(org._id),
+      });
+      throw new Error(INV_REVOKED);
+    }
 
     // The coarse ADMIN grant takes the same re-check the named Roles do (send
     // time required the inviter to be an admin): an admin invitation whose sender

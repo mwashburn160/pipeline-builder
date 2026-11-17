@@ -197,6 +197,28 @@ export const bulkAddMemberToTeams = withController('Bulk add member to teams', a
   [OM_CONSENT_REQUIRED]: CONSENT_REQUIRED,
 });
 
+/**
+ * Audit each pending invitation a member removal/deactivation revoked, as the
+ * same `invitation.revoke` event the manual revoke emits — a withdrawn
+ * invitation must be traceable whichever path withdrew it. `reason` and
+ * `inviterId` say it was the cascade, not a direct revoke.
+ */
+function auditInviterExitRevocations(
+  req: Parameters<typeof audit>[0],
+  revoked: ReadonlyArray<{ invitationId: string; organizationId: string; email: string; role: string }>,
+  inviterId: string,
+  reason: 'inviter-removed' | 'inviter-deactivated',
+): void {
+  for (const inv of revoked) {
+    audit(req, 'invitation.revoke', {
+      targetType: 'invitation',
+      targetId: inv.invitationId,
+      affectedOrgId: inv.organizationId,
+      details: { email: inv.email, role: inv.role, reason, inviterId },
+    });
+  }
+}
+
 /** DELETE /organization/:id/members/:userId */
 export const removeMemberFromOrganization = withController('Remove member', async (req, res) => {
   if (!ensureAuthenticated(req, res)) return;
@@ -209,9 +231,10 @@ export const removeMemberFromOrganization = withController('Remove member', asyn
     return sendError(res, 400, 'Cannot remove yourself from the organization');
   }
 
-  await orgMembersService.removeMember(id, userId, roleAssignmentActor(req));
+  const { revokedInvitations } = await orgMembersService.removeMember(id, userId, roleAssignmentActor(req));
   logger.info(`[REMOVE MEMBER FROM ORG] User ${userId} removed from Org ${id} by ${admin.adminType} ${req.user!.sub}`);
   audit(req, 'org.member.remove', { targetType: 'user', targetId: userId, affectedOrgId: id });
+  auditInviterExitRevocations(req, revokedInvitations, userId, 'inviter-removed');
   // Their stakeholder reports run with THEIR access, so they stop now rather than
   // at the next scheduled run. Fire-and-forget: the removal is what the admin asked
   // for and must not fail on an unreachable reporting service.
@@ -263,9 +286,10 @@ export const deactivateMember = withController('Deactivate member', async (req, 
   const admin = getAdminContext(req);
   if (!(await requireOrgScope(req, res, id))) return;
 
-  await orgMembersService.deactivateMember(id, userId, roleAssignmentActor(req));
+  const { revokedInvitations } = await orgMembersService.deactivateMember(id, userId, roleAssignmentActor(req));
   logger.info(`[DEACTIVATE MEMBER] User ${userId} deactivated in Org ${id} by ${admin.adminType} ${req.user!.sub}`);
   audit(req, 'org.member.deactivate', { targetType: 'user', targetId: userId, affectedOrgId: id });
+  auditInviterExitRevocations(req, revokedInvitations, userId, 'inviter-deactivated');
   // Same reason as the remove path: a report authorized as a deactivated account
   // would keep computing and mailing numbers nobody is accountable for. Reactivating
   // does NOT auto-resume them — see services/report-ownership.ts.

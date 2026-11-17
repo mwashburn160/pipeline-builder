@@ -49,6 +49,13 @@ const mockResolveOrgAuthority = jest.fn<(...a: unknown[]) => Promise<unknown>>(a
 jest.unstable_mockModule('../src/helpers/org-authority.js', () => ({
   resolveOrgAuthority: (...a: unknown[]) => mockResolveOrgAuthority(...a),
 }));
+// The inviter's CURRENT permissions in the org. Every acceptance now re-checks
+// that the inviter may still invite (`invitations:manage`), so the default is
+// an inviter who can; a test strips it to model a demoted sender.
+let inviterPermissions: string[] = ['invitations:manage'];
+jest.unstable_mockModule('../src/services/role-permissions.js', () => ({
+  rolePermissionsFor: async () => inviterPermissions,
+}));
 jest.unstable_mockModule('../src/utils/email.js', () => ({
   emailService: { sendInvitationAccepted: (...a: unknown[]) => mockSendInvitationAccepted(...a) },
 }));
@@ -140,6 +147,7 @@ beforeEach(() => {
   });
   // The inviter is still an admin of the org unless a test says otherwise.
   mockResolveOrgAuthority.mockResolvedValue({ role: 'admin', via: 'membership', permissionOrgIds: ['org-1'] });
+  inviterPermissions = ['invitations:manage'];
 });
 
 let inviterIsSuperAdmin = false;
@@ -184,12 +192,13 @@ describe('InvitationService.accept — the coarse ADMIN grant is re-checked at a
     expect(result.role).toBe('member');
   });
 
-  it('joins as a MEMBER when the inviter has left the org entirely', async () => {
+  it('REFUSES the invitation outright when the inviter has left the org entirely', async () => {
     mockResolveOrgAuthority.mockResolvedValue(undefined);
     mockInvitationFindOne.mockReturnValue(sessionResolving(makeInvitation('admin')));
 
-    await invitationService.accept('tok', 'u1');
+    await expect(invitationService.accept('tok', 'u1')).rejects.toThrow(errors.INV_REVOKED);
 
+    expect(mockUoCreate).not.toHaveBeenCalled();
     expect(mockAssignBuiltinAdminRole).not.toHaveBeenCalled();
   });
 
@@ -202,6 +211,77 @@ describe('InvitationService.accept — the coarse ADMIN grant is re-checked at a
 
     expect(mockAssignBuiltinAdminRole).toHaveBeenCalledTimes(1);
     expect(result.role).toBe('admin');
+  });
+});
+
+/**
+ * EVERY invitation — not only admin or Role-carrying ones — is re-checked
+ * against its inviter at acceptance. Admitting someone into the org is the
+ * authority `POST /invitation/send` gated (owner, or `invitations:manage`); a
+ * plain member invitation from a sender who has since been removed,
+ * deactivated or stripped of that permission must stop admitting people.
+ */
+describe('InvitationService.accept — the inviter must still be able to invite', () => {
+  it('REFUSES a member invitation whose inviter is no longer an active member of the org', async () => {
+    // Removed or deactivated: resolveOrgAuthority reads ACTIVE memberships only.
+    mockResolveOrgAuthority.mockResolvedValue(undefined);
+    const invitation = makeInvitation('member');
+    mockInvitationFindOne.mockReturnValue(sessionResolving(invitation));
+
+    await expect(invitationService.accept('tok', 'u1')).rejects.toThrow(errors.INV_REVOKED);
+
+    expect(mockResolveOrgAuthority).toHaveBeenCalledWith('inviter-1', 'org-1');
+    expect(mockUoCreate).not.toHaveBeenCalled();
+    expect(mockEnsureBaselineRole).not.toHaveBeenCalled();
+    expect(invitation.status).toBe('pending');
+    expect(mockSendInvitationAccepted).not.toHaveBeenCalled();
+  });
+
+  it('REFUSES a member invitation whose inviter is still a member but lost invitations:manage', async () => {
+    mockResolveOrgAuthority.mockResolvedValue({ role: 'member', via: 'membership', permissionOrgIds: ['org-1'] });
+    inviterPermissions = ['members:read'];
+    mockInvitationFindOne.mockReturnValue(sessionResolving(makeInvitation('member')));
+
+    await expect(invitationService.accept('tok', 'u1')).rejects.toThrow(errors.INV_REVOKED);
+    expect(mockUoCreate).not.toHaveBeenCalled();
+  });
+
+  it('admits via an inviter who still holds invitations:manage without being an admin', async () => {
+    mockResolveOrgAuthority.mockResolvedValue({ role: 'member', via: 'membership', permissionOrgIds: ['org-1'] });
+    mockInvitationFindOne.mockReturnValue(sessionResolving(makeInvitation('member')));
+
+    await invitationService.accept('tok', 'u1');
+    expect((mockUoCreate.mock.calls[0] as any)[0][0]).toMatchObject({ role: 'member' });
+  });
+
+  it('admits via the org OWNER even without the permission in their Role bundle', async () => {
+    mockOrgFindById.mockReturnValue(sessionResolving({ _id: 'org-1', name: 'Acme', owner: 'inviter-1' }));
+    mockResolveOrgAuthority.mockResolvedValue({ role: 'owner', via: 'membership', permissionOrgIds: ['org-1'] });
+    inviterPermissions = [];
+    mockInvitationFindOne.mockReturnValue(sessionResolving(makeInvitation('member')));
+
+    await invitationService.accept('tok', 'u1');
+    expect(mockUoCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps admitting via a platform-superadmin inviter (no membership needed)', async () => {
+    mockResolveOrgAuthority.mockResolvedValue(undefined);
+    inviterPermissions = [];
+    inviterIsSuperAdmin = true;
+    mockInvitationFindOne.mockReturnValue(sessionResolving(makeInvitation('member')));
+
+    await invitationService.accept('tok', 'u1');
+    expect(mockUoCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it('applies on the sign-up path too (acceptForRegistration)', async () => {
+    mockResolveOrgAuthority.mockResolvedValue(undefined);
+    mockInvitationFindOne.mockReturnValue(sessionResolving(makeInvitation('member')));
+    const user = { _id: 'new-u', email: INVITEE_EMAIL, username: 'newbie', save: jest.fn() };
+
+    await expect(invitationService.acceptForRegistration('tok', user as never, { id: 's' } as never))
+      .rejects.toThrow(errors.INV_REVOKED);
+    expect(mockUoCreate).not.toHaveBeenCalled();
   });
 });
 
@@ -229,9 +309,13 @@ describe('InvitationService.accept — a CLAIMED OAuth provider', () => {
   it('accepts when the account IS linked to the claimed provider', async () => {
     mockInvitationFindOne.mockReturnValue(sessionResolving(oauthOnly()));
     mockUserFindById.mockReset();
-    mockUserFindById
-      .mockReturnValueOnce(sessionResolving({ _id: 'u1', email: INVITEE_EMAIL, oauth: { google: { id: 'g-1' } }, save: jest.fn() }))
-      .mockReturnValueOnce(sessionResolving({ _id: 'inviter-1', email: 'boss@example.com', username: 'boss' }));
+    // Answered BY ID: the inviter is read twice (authority re-check, notice).
+    mockUserFindById.mockImplementation((id: unknown) => {
+      const doc = String(id) === 'u1'
+        ? { _id: 'u1', email: INVITEE_EMAIL, oauth: { google: { id: 'g-1' } }, save: jest.fn() }
+        : { _id: 'inviter-1', email: 'boss@example.com', username: 'boss' };
+      return { ...sessionResolving(doc), select: () => sessionResolving(doc) };
+    });
 
     await invitationService.accept('tok', 'u1', 'google');
 
@@ -308,15 +392,17 @@ describe('InvitationService.accept — the inviter notification is post-commit',
    */
   it('mails the inviter ONCE even when the transaction body is retried', async () => {
     txAttempts = 2;
-    // Four lookups now happen (accepting user + inviter, per attempt). Without
-    // all four the second pass would find no inviter and the assertion would
-    // pass for the wrong reason.
+    // Every attempt reads the accepting user and the inviter (twice: the
+    // authority re-check, then the notice). Answered BY ID with a fresh doc per
+    // read, so the second pass finds its inviter and the assertion cannot pass
+    // for the wrong reason.
     mockUserFindById.mockReset();
-    for (let i = 0; i < 2; i += 1) {
-      mockUserFindById
-        .mockReturnValueOnce(sessionResolving({ _id: 'u1', email: INVITEE_EMAIL, lastActiveOrgId: 'existing-org', save: jest.fn() }))
-        .mockReturnValueOnce(sessionResolving({ _id: 'inviter-1', email: 'boss@example.com', username: 'boss' }));
-    }
+    mockUserFindById.mockImplementation((id: unknown) => {
+      const doc = String(id) === 'u1'
+        ? { _id: 'u1', email: INVITEE_EMAIL, lastActiveOrgId: 'existing-org', save: jest.fn() }
+        : { _id: 'inviter-1', email: 'boss@example.com', username: 'boss' };
+      return { ...sessionResolving(doc), select: () => sessionResolving(doc) };
+    });
     // A FRESH doc per read, because an aborted transaction's writes are rolled
     // back: the retry re-reads a still-`pending` invitation. Handing back the
     // same object would let the first pass's `status = 'accepted'` leak into

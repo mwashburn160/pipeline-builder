@@ -41,6 +41,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   User: {},
   UserOrganization: { exists: (...a: unknown[]) => mockUoExists(...a) },
   RoleAssignment: {},
+  // Linking stub: org-members-service revokes a leaving member's invitations.
+  Invitation: {},
 }));
 
 // The member service's consent and Role-unassign guards (untested here).

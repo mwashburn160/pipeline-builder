@@ -30,7 +30,11 @@
  *                 REFUSED. An unsolicited assertion is a login-CSRF and replay
  *                 primitive: nothing ties it to a browser that asked to sign in.
  *                 The request id is additionally checked against the id this
- *                 deployment minted (Redis-backed, consumed on use).
+ *                 deployment minted for THIS org (Redis-backed, keyed by org,
+ *                 consumed on use) AND must equal the id recorded with the
+ *                 caller's one-time RelayState — so a captured, unredeemed
+ *                 response can only finish the sign-in that requested it, never
+ *                 one an attacker started in their own browser.
  *   NO REPLAY   — the assertion's own `ID` is claimed in Redis until the
  *                 assertion expires, so the same assertion can never be
  *                 presented twice, on any replica.
@@ -157,6 +161,10 @@ export function samlSloUrl(orgId: string): string {
  * different replicas — exactly the reason the OIDC `state` is stored there. The
  * entry is REMOVED when the matching response arrives, so a second response
  * carrying the same `InResponseTo` finds nothing and is refused.
+ *
+ * Keys are scoped by org (`saml:req:<orgId>:<requestId>` — see
+ * {@link requestIdKey}), so a request minted for one org's IdP can never be
+ * answered at another org's ACS or SLO endpoint.
  */
 const requestIdCache = createPendingStateStore<string>({
   prefix: 'saml:req:',
@@ -194,7 +202,16 @@ const testRequestIdCache = createPendingStateStore<string>({
   maxEntries: config.oauth.maxPendingStates,
 });
 
-/** IdP LogoutRequest ids already acted on — one LogoutRequest, one logout. */
+/** The org-scoped key under which a request id lives in {@link requestIdCache}
+ *  / {@link testRequestIdCache}. */
+function requestIdKey(orgId: string, requestId: string): string {
+  return `${orgId}:${requestId}`;
+}
+
+/** IdP LogoutRequest ids already acted on — one LogoutRequest, one logout.
+ *  Keyed `saml:logoutreq:<orgId>:<ID>`: a LogoutRequest id is chosen by the IdP,
+ *  so two orgs' IdPs may legitimately reuse one, and neither may burn the
+ *  other's. */
 const logoutRequestIdCache = createPendingStateStore<number>({
   prefix: 'saml:logoutreq:',
   ttlMs: config.oauth.samlAssertionReplayTtlMs,
@@ -211,6 +228,14 @@ interface SamlPurpose {
   flow: 'login' | 'test';
   /** Sign outgoing redirect messages with the SP signing key. */
   sign: boolean;
+  /** Use exactly this id for the (single) AuthnRequest the instance mints, so
+   *  the caller can record it alongside its RelayState. */
+  requestId?: string;
+}
+
+/** A fresh SAML message id (an NCName: must not start with a digit). */
+function newSamlId(): string {
+  return `_${crypto.randomUUID().replace(/-/g, '')}`;
 }
 
 /**
@@ -255,21 +280,21 @@ async function samlFor(cfg: SamlLoginConfig, purpose: SamlPurpose): Promise<SAML
     validateInResponseTo: ValidateInResponseTo.always,
     cacheProvider: {
       async saveAsync(key: string, value: string) {
-        await cache.put(key, value);
+        await cache.put(requestIdKey(cfg.orgId, key), value);
         return { value, createdAt: Date.now() };
       },
       async getAsync(key: string) {
-        return cache.peek(key);
+        return cache.peek(requestIdKey(cfg.orgId, key));
       },
       async removeAsync(key: string | null) {
-        if (key) await cache.remove(key);
+        if (key) await cache.remove(requestIdKey(cfg.orgId, key));
         return key;
       },
       // The atomic take (GETDEL): without it node-saml reads the id and then
       // removes it in two calls, so two copies of one response validated at the
       // same moment could both find it.
       async consumeAsync(key: string) {
-        return cache.consume(key);
+        return cache.consume(requestIdKey(cfg.orgId, key));
       },
     },
     requestIdExpirationPeriodMs: config.oauth.samlRequestTtlMs,
@@ -291,7 +316,7 @@ async function samlFor(cfg: SamlLoginConfig, purpose: SamlPurpose): Promise<SAML
     // Only an org that has said its IdP encrypts gets a decryption key; without
     // one node-saml refuses an EncryptedAssertion outright.
     ...(cfg.encryptAssertions ? { decryptionPvk: keys.encryption.privateKey } : {}),
-    generateUniqueId: () => `_${crypto.randomUUID().replace(/-/g, '')}`,
+    generateUniqueId: purpose.requestId ? () => purpose.requestId! : newSamlId,
   });
 }
 
@@ -302,17 +327,30 @@ async function samlFor(cfg: SamlLoginConfig, purpose: SamlPurpose): Promise<SAML
  *
  * `state` travels as the SAML `RelayState` and is echoed back by the IdP — it is
  * the same one-time, org-bound value the OIDC flow mints, stored in the same
- * pending-state store by the caller. The AuthnRequest id is remembered
- * separately (see {@link requestIdCache}) and is what proves the response
- * answers a request this deployment actually made.
+ * pending-state store by the caller. The AuthnRequest id is remembered in the
+ * org-scoped {@link requestIdCache} (proof the response answers a request this
+ * deployment made) and RETURNED, so the caller stores it with the state: the ACS
+ * then requires the response's `InResponseTo` to be exactly that id
+ * (see `expectedRequestId` on {@link validateSamlResponse}).
  */
+export async function buildSamlAuthorizeRequest(
+  cfg: SamlLoginConfig,
+  state: string,
+  opts: { test?: boolean } = {},
+): Promise<{ url: string; requestId: string }> {
+  const requestId = newSamlId();
+  const saml = await samlFor(cfg, { flow: opts.test ? 'test' : 'login', sign: cfg.signAuthnRequests, requestId });
+  const url = await saml.getAuthorizeUrlAsync(state, undefined, {});
+  return { url, requestId };
+}
+
+/** {@link buildSamlAuthorizeRequest}, URL only. */
 export async function buildSamlAuthorizeUrl(
   cfg: SamlLoginConfig,
   state: string,
   opts: { test?: boolean } = {},
 ): Promise<string> {
-  const saml = await samlFor(cfg, { flow: opts.test ? 'test' : 'login', sign: cfg.signAuthnRequests });
-  return saml.getAuthorizeUrlAsync(state, undefined, {});
+  return (await buildSamlAuthorizeRequest(cfg, state, opts)).url;
 }
 
 /** The per-org options the SP metadata reflects. */
@@ -493,6 +531,15 @@ async function assertEncryptionShape(cfg: SamlLoginConfig, samlResponseB64: stri
   }
 }
 
+/** The top-level Response's `InResponseTo`, read off the raw (unverified) XML
+ *  with the same XPath node-saml uses; null when absent or unparseable. */
+async function rawResponseInResponseTo(samlResponseB64: string): Promise<string | null> {
+  const dom = await parseSamlXml(samlResponseB64);
+  if (!dom) return null;
+  const nodes = xpath.selectAttributes(dom as never, "/*[local-name()='Response']/@InResponseTo") as unknown as Array<{ nodeValue: string | null }>;
+  return nodes.length === 1 ? nodes[0].nodeValue : null;
+}
+
 /** Wall-clock bound on how long a spent assertion id is remembered. Long enough
  *  to cover any sane `NotOnOrAfter`, short enough to bound the key space. */
 const MAX_REPLAY_WINDOW_MS = 12 * 60 * 60 * 1000;
@@ -534,19 +581,34 @@ function assertionIdentity(profile: Profile): { id: string; expiresAtMs: number 
  * @param expectedState the `RelayState` the caller minted, already validated
  *   against its pending-state entry. Passed only so a mismatch is caught here
  *   too rather than relying on the controller alone.
+ * @param opts.expectedRequestId the AuthnRequest id recorded with that
+ *   RelayState when the flow began. REQUIRED: the response's `InResponseTo`
+ *   must equal it, so a response answering some OTHER in-flight request — a
+ *   victim's, captured before they redeemed it — cannot be completed under the
+ *   attacker's RelayState and browser binding.
  */
 export async function validateSamlResponse(
   cfg: SamlLoginConfig,
   samlResponseB64: string,
   relayState: string | undefined,
   expectedState: string,
-  opts: { test?: boolean } = {},
+  opts: { test?: boolean; expectedRequestId: string },
 ): Promise<SamlIdentity> {
   if (relayState !== undefined && relayState !== expectedState) throw new Error('SAML_INVALID_STATE');
+  if (!opts.expectedRequestId) throw new Error('SAML_INVALID_STATE');
 
   // IdP-initiated sign-in is refused before any parsing work: it is a login-CSRF
   // and replay primitive, not a supported entry point.
   if (!isSpInitiatedResponse(samlResponseB64)) throw new Error('SAML_IDP_INITIATED');
+
+  // Cheap pre-check on the RAW top-level InResponseTo (the same node node-saml
+  // reads): a response answering another flow's request is refused BEFORE
+  // node-saml consumes that request id, so presenting a victim's response
+  // under an attacker's state cannot even burn the victim's request. The
+  // authoritative check is on the VERIFIED value below.
+  if ((await rawResponseInResponseTo(samlResponseB64)) !== opts.expectedRequestId) {
+    throw new Error('SAML_INVALID_STATE');
+  }
 
   await assertEncryptionShape(cfg, samlResponseB64);
 
@@ -565,6 +627,10 @@ export async function validateSamlResponse(
     throw new Error('SAML_INVALID_ASSERTION');
   }
   if (!profile) throw new Error('SAML_INVALID_ASSERTION');
+
+  // The VERIFIED InResponseTo (from the signed Response, or the signed
+  // assertion's SubjectConfirmationData) must name the request this flow made.
+  if (profile.inResponseTo !== opts.expectedRequestId) throw new Error('SAML_INVALID_STATE');
 
   // Issuer is checked by node-saml against `idpIssuer`; re-assert it here so the
   // identity we return can never carry an issuer we did not pin it to.
@@ -678,24 +744,24 @@ export async function validateSamlLogoutMessage(
         // verifyLogoutResponse inside checks status, issuer and InResponseTo.
         const inResponseTo = await logoutResponseInResponseTo(message.query.SAMLResponse, 'redirect');
         await saml.validateRedirectAsync(message.query, message.rawQuery);
-        await requestIdCache.remove(inResponseTo);
+        await requestIdCache.remove(requestIdKey(cfg.orgId, inResponseTo));
         return { kind: 'response' };
       }
       if (!message.query.SAMLRequest) throw new Error('no SAML message');
       const { profile } = await saml.validateRedirectAsync(message.query, message.rawQuery);
-      return await claimLogoutRequest(profile);
+      return await claimLogoutRequest(cfg.orgId, profile);
     }
     if (message.body.SAMLResponse) {
       const inResponseTo = await logoutResponseInResponseTo(message.body.SAMLResponse, 'post');
-      if (!(await requestIdCache.peek(inResponseTo))) throw new Error('LogoutResponse answers no request we sent');
+      if (!(await requestIdCache.peek(requestIdKey(cfg.orgId, inResponseTo)))) throw new Error('LogoutResponse answers no request we sent');
       const { loggedOut } = await saml.validatePostResponseAsync({ SAMLResponse: message.body.SAMLResponse });
       if (!loggedOut) throw new Error('not a LogoutResponse');
-      await requestIdCache.remove(inResponseTo);
+      await requestIdCache.remove(requestIdKey(cfg.orgId, inResponseTo));
       return { kind: 'response' };
     }
     if (!message.body.SAMLRequest) throw new Error('no SAML message');
     const { profile } = await saml.validatePostRequestAsync({ SAMLRequest: message.body.SAMLRequest });
-    return await claimLogoutRequest(profile);
+    return await claimLogoutRequest(cfg.orgId, profile);
   } catch (err) {
     logger.warn('SAML logout message refused', { orgId: cfg.orgId, error: errorMessage(err) });
     throw new Error('SAML_INVALID_LOGOUT');
@@ -720,11 +786,12 @@ async function logoutResponseInResponseTo(b64: string, binding: SamlLogoutBindin
   return inResponseTo;
 }
 
-/** Claim a verified LogoutRequest's id (replay guard) and project it. */
-async function claimLogoutRequest(profile: Profile | null): Promise<SamlLogoutMessage> {
+/** Claim a verified LogoutRequest's id (replay guard, scoped to the org) and
+ *  project it. */
+async function claimLogoutRequest(orgId: string, profile: Profile | null): Promise<SamlLogoutMessage> {
   const p = profile as (Profile & { ID?: string }) | null;
   if (!p?.ID || !p.nameID) throw new Error('LogoutRequest missing ID or NameID');
-  if (!(await logoutRequestIdCache.putIfAbsent(p.ID, Date.now()))) throw new Error('replayed LogoutRequest');
+  if (!(await logoutRequestIdCache.putIfAbsent(`${orgId}:${p.ID}`, Date.now()))) throw new Error('replayed LogoutRequest');
   return {
     kind: 'request',
     id: p.ID,

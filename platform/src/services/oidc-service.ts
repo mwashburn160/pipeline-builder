@@ -30,7 +30,7 @@ import crypto from 'crypto';
 import { createLogger, safeFetch, type SafeFetchResponse, errorMessage } from '@pipeline-builder/api-core';
 import jwt from 'jsonwebtoken';
 import { ACCOUNT_EMAIL_UNVERIFIED, SSO_SUPERADMIN_REFUSED, SSO_SUPERADMIN_REFUSED_ERROR } from './auth-errors.js';
-import { JIT_SEAT_LIMIT } from './idp-mapping-errors.js';
+import { JIT_NOT_MEMBER, JIT_SEAT_LIMIT } from './idp-mapping-errors.js';
 import { config } from '../config/index.js';
 import { extractGroupClaim } from '../helpers/idp-claims.js';
 import { PKCE_METHOD_S256, createCodeVerifier, pkceAuthorizeParams } from '../helpers/pkce.js';
@@ -73,6 +73,9 @@ export const OIDC_ERROR_MAP = {
   // signing the user in without a membership) so the seat cap means the same
   // thing here as it does on the invitation path.
   [JIT_SEAT_LIMIT]: { status: 403, message: 'Your organization has no seats left, so single sign-on could not add you to it. Ask an administrator to free a seat or raise the seat limit.' },
+  // Google IdP + an email domain the org has not verified: existing members
+  // only — a new membership is never created for an arbitrary Google account.
+  [JIT_NOT_MEMBER]: { status: 403, message: 'This organization signs in with Google but has not verified your email domain, so single sign-on can only admit existing members. Ask an administrator to invite you.' },
   [SSO_SUPERADMIN_REFUSED]: SSO_SUPERADMIN_REFUSED_ERROR,
   [ACCOUNT_EMAIL_UNVERIFIED]: { status: 409, message: 'An account already exists for this email but is not verified. Verify (or reset the password on) that account first, then sign in.' },
 } as const;
@@ -457,8 +460,10 @@ export async function exchangeAndValidate(
   //    config, or a shared corporate Okta/Cognito pool — so the pinned domain
   //    list is the control that keeps a foreign (e.g. `@gmail.com` or
   //    `@evil-contractor.com`) identity from federating into this org. Empty
-  //    list = no restriction (the documented default). Without this the field
-  //    the model advertises as an access control would be inert.
+  //    list = no domain restriction here; with the `google` provider the SSO
+  //    callback then admits only EXISTING members unless the email's domain is
+  //    verified by the org (see `mayAutoProvisionMembership`). Without this the
+  //    field the model advertises as an access control would be inert.
   if (cfg.allowedEmailDomains.length > 0) {
     const domain = email.split('@').pop() ?? '';
     const allowed = cfg.allowedEmailDomains.map(d => d.toLowerCase().trim().replace(/^@/, ''));

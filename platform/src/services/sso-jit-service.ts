@@ -39,7 +39,7 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import { idpGroupMappingService } from './idp-group-mapping-service.js';
-import { JIT_SEAT_LIMIT } from './idp-mapping-errors.js';
+import { JIT_NOT_MEMBER, JIT_SEAT_LIMIT } from './idp-mapping-errors.js';
 import { syncMappedRoles } from './mapped-roles.js';
 import { ensureBaselineRole, recomputeUserOrgRole } from './roles-service.js';
 import { toOrgId } from '../helpers/org-id.js';
@@ -93,6 +93,21 @@ export async function assertJitSeatAvailable(orgId: string, email: string): Prom
 }
 
 /**
+ * Pre-flight for a sign-in that may NOT create a membership (a Google IdP on an
+ * email domain the org hasn't verified — see `mayAutoProvisionMembership`): the
+ * person must already hold a membership in `orgId`. Checked BEFORE the identity
+ * becomes an account so a refused stranger leaves no user record behind;
+ * `provisionJitMembership({ allowCreate: false })` is the authoritative re-check.
+ *
+ * Throws `JIT_NOT_MEMBER`.
+ */
+export async function assertExistingMember(orgId: string, email: string): Promise<void> {
+  const existing = await User.findOne({ email: email.toLowerCase() }).select('_id').lean();
+  if (existing && await UserOrganization.exists({ userId: existing._id, organizationId: toOrgId(orgId) })) return;
+  throw new Error(JIT_NOT_MEMBER);
+}
+
+/**
  * Add `user` to `orgId` (if they aren't already a member) and reconcile the
  * Roles their IdP `groups` map to.
  *
@@ -102,14 +117,19 @@ export async function assertJitSeatAvailable(orgId: string, email: string): Prom
  * document to `issueTokens` and get a session that is valid from the first
  * request. Callers must not mint tokens from a copy taken before this call.
  *
- * Throws `JIT_SEAT_LIMIT`; every other outcome is reported in the result.
+ * `allowCreate: false` (default true) refuses to CREATE a membership — the
+ * sign-in may only reconcile an existing one (see {@link assertExistingMember}).
+ *
+ * Throws `JIT_SEAT_LIMIT` / `JIT_NOT_MEMBER`; every other outcome is reported in
+ * the result.
  */
 export async function provisionJitMembership(input: {
   orgId: string;
   user: UserDocument;
   groups: readonly string[];
+  allowCreate?: boolean;
 }): Promise<JitProvisionResult> {
-  const { orgId, user, groups } = input;
+  const { orgId, user, groups, allowCreate = true } = input;
   const none: JitProvisionResult = { membershipCreated: false, matchedGroups: [], rolesAdded: [], rolesRemoved: [] };
 
   // Platform administrators are never provisioned into a customer org — their
@@ -141,6 +161,7 @@ export async function provisionJitMembership(input: {
 
     let membershipCreated = false;
     if (!membership) {
+      if (!allowCreate) throw new Error(JIT_NOT_MEMBER);
       // Seats pool at the account root and count distinct humans, so someone who
       // is already active elsewhere in the account costs nothing to add here.
       await withSeatGuard({ userId: user._id, orgId, session, errorCode: JIT_SEAT_LIMIT }, async () => {

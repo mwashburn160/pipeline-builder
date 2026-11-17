@@ -394,7 +394,7 @@ async function userSessionRejection(decoded: AccessTokenPayload): Promise<Sessio
     let session;
     try {
       session = await ImpersonationRequest.findOne({ jti: decoded.jti })
-        .select('status expiresAt targetUserId').lean();
+        .select('status expiresAt targetUserId requesterId requesterTokenVersion requesterSuperAdmin').lean();
     } catch (err) {
       logger.warn('Impersonation session lookup failed — denying', { error: String(err) });
       return SESSION_INVALID;
@@ -410,7 +410,9 @@ async function userSessionRejection(decoded: AccessTokenPayload): Promise<Sessio
     // Defense in depth against a jti/sub mismatch — the token must name the
     // user the request was opened against.
     if (String(session.targetUserId) !== String(decoded.sub)) return SESSION_INVALID;
-    return undefined;
+    // ...and the operator the token names must be the one who redeemed it.
+    if (String(session.requesterId) !== String(decoded.impersonatorId)) return SESSION_INVALID;
+    return operatorRejection(session);
   }
 
   if (decoded.token_use === 'api_key') {
@@ -433,6 +435,41 @@ async function userSessionRejection(decoded: AccessTokenPayload): Promise<Sessio
   if (decoded.tokenVersion !== accessTokenVersion(user)) return SESSION_INVALID;
   // Its slot was revoked (sign-out of that device / machine credential).
   if (decoded.sid && !(user.refreshSessions ?? []).some((s) => s.id === decoded.sid)) return SESSION_INVALID;
+  return undefined;
+}
+
+/**
+ * The OPERATOR half of an impersonation session's validity — one read of the
+ * operator, impersonated requests only.
+ *
+ * The record alone said nothing about the person who opened the session, so
+ * revoking the OPERATOR (sign-out everywhere, a password reset, deletion, or a
+ * sysadmin losing the flag) left every session they had opened running to its
+ * expiry. The session is ended when:
+ *   - the operator no longer exists;
+ *   - their hard `tokenVersion` differs from the one stamped on the record at
+ *     redemption (a record without one — redeemed before the stamp existed —
+ *     fails closed);
+ *   - the session was opened as a superadmin and they no longer are one.
+ * Fail closed on a lookup error, like the record read above.
+ */
+async function operatorRejection(session: {
+  requesterId?: unknown;
+  requesterTokenVersion?: number;
+  requesterSuperAdmin?: boolean;
+}): Promise<SessionRejection | undefined> {
+  const ended: SessionRejection = { message: 'Impersonation session ended' };
+  if (typeof session.requesterTokenVersion !== 'number') return ended;
+  let operator;
+  try {
+    operator = await User.findById(String(session.requesterId)).select('+tokenVersion +isSuperAdmin').lean();
+  } catch (err) {
+    logger.warn('Impersonation operator lookup failed — denying', { error: String(err) });
+    return ended;
+  }
+  if (!operator) return ended;
+  if ((operator.tokenVersion ?? 0) !== session.requesterTokenVersion) return ended;
+  if (session.requesterSuperAdmin === true && operator.isSuperAdmin !== true) return ended;
   return undefined;
 }
 

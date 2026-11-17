@@ -28,7 +28,7 @@ const mockFindByOrg = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockRecord = jest.fn<(...a: unknown[]) => Promise<boolean>>();
 const mockBuildAuthorizeUrl = jest.fn<(...a: unknown[]) => Promise<{ url: string; codeVerifier?: string }>>();
 const mockExchange = jest.fn<(...a: unknown[]) => Promise<unknown>>();
-const mockBuildSamlUrl = jest.fn<(...a: unknown[]) => Promise<string>>();
+const mockBuildSamlUrl = jest.fn<(...a: unknown[]) => Promise<{ url: string; requestId: string }>>();
 const mockValidateSaml = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockTrusted = jest.fn<(...a: unknown[]) => Promise<void>>();
 const mockSeat = jest.fn<(...a: unknown[]) => Promise<void>>();
@@ -61,6 +61,7 @@ jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({
   getEnforcedLoginConfig: (...a: unknown[]) => mockGetEnforcedLoginConfig(...a),
   getEnforcedIdpProtocol: async () => 'oidc',
   findSsoCoverageForEmail: async () => null,
+  mayAutoProvisionMembership: async () => true,
 }));
 jest.unstable_mockModule('../src/services/org-idp-service.js', () => ({
   orgIdpService: { findByOrg: (...a: unknown[]) => mockFindByOrg(...a), recordTestResult: (...a: unknown[]) => mockRecord(...a) },
@@ -76,7 +77,7 @@ jest.unstable_mockModule('../src/services/oidc-service.js', () => ({
 }));
 jest.unstable_mockModule('../src/services/saml-service.js', () => ({
   SAML_ERROR_MAP: { SAML_INVALID_ASSERTION: { status: 401, message: 'The identity provider returned an invalid SAML assertion' } },
-  buildSamlAuthorizeUrl: (...a: unknown[]) => mockBuildSamlUrl(...a),
+  buildSamlAuthorizeRequest: (...a: unknown[]) => mockBuildSamlUrl(...a),
   samlLandingUrl: (orgId: string) => `https://pb.test/auth/sso/${orgId}/saml`,
   validateSamlResponse: (...a: unknown[]) => mockValidateSaml(...a),
 }));
@@ -84,6 +85,7 @@ const MARKER_KEY = crypto.randomBytes(32);
 jest.unstable_mockModule('../src/services/saml-sp-keys.js', () => ({ getSamlSpKeys: async () => ({ testMarkerKey: MARKER_KEY }) }));
 jest.unstable_mockModule('../src/services/sso-jit-service.js', () => ({
   assertJitSeatAvailable: (...a: unknown[]) => mockSeat(...a),
+  assertExistingMember: async () => undefined,
   provisionJitMembership: (...a: unknown[]) => mockProvisionJit(...a),
 }));
 jest.unstable_mockModule('../src/services/idp-group-mapping-service.js', () => ({
@@ -111,7 +113,7 @@ jest.unstable_mockModule('../src/utils/validation.js', () => ({
 jest.unstable_mockModule('../src/services/saml-login-state.js', () => ({ beginSamlLogin: jest.fn() }));
 
 const { startSsoTest, completeSsoTest } = await import('../src/controllers/sso-test.js');
-const { handleSamlTestAssertion, isTestState } = await import('../src/helpers/sso-test-flow.js');
+const { handleSamlTestAssertion, isTestState, mintTestState, rememberTest } = await import('../src/helpers/sso-test-flow.js');
 const { _resetAllPendingStoresForTests } = await import('../src/helpers/pending-state-store.js');
 const { handleSsoCallback } = await import('../src/controllers/sso.js');
 
@@ -140,7 +142,7 @@ beforeEach(() => {
   mockRequireOwnOrgSso.mockResolvedValue(true);
   mockRecord.mockResolvedValue(true);
   mockBuildAuthorizeUrl.mockResolvedValue({ url: 'https://idp.test/authorize?x', codeVerifier: 'verifier-1' });
-  mockBuildSamlUrl.mockResolvedValue('https://idp.test/saml?SAMLRequest=x');
+  mockBuildSamlUrl.mockResolvedValue({ url: 'https://idp.test/saml?SAMLRequest=x', requestId: '_test-req-1' });
   mockExchange.mockResolvedValue({ subject: 'sub-1', issuer: 'https://idp.test', email: 'ada@acme.test', name: 'Ada', groups: ['Eng'] });
   mockValidateSaml.mockResolvedValue({ subject: 'ada@acme.test', issuer: 'https://idp.test', email: 'ada@acme.test', groups: ['Eng'] });
   mockTrusted.mockResolvedValue(undefined);
@@ -274,7 +276,7 @@ describe('SAML dry run (ACS leg + collection)', () => {
     const acsRes = makeRes();
     await handleSamlTestAssertion(acsRes, ORG, 'b64-response', state);
 
-    expect(mockValidateSaml).toHaveBeenCalledWith(expect.anything(), 'b64-response', state, state, { test: true });
+    expect(mockValidateSaml).toHaveBeenCalledWith(expect.anything(), 'b64-response', state, state, { test: true, expectedRequestId: '_test-req-1' });
     const redirect = (acsRes.redirect as jest.Mock<AnyFn>).mock.calls[0][1] as string;
     expect(redirect).toContain(`?test=${encodeURIComponent(state)}`);
     expect(redirect).not.toContain('handoff');
@@ -293,6 +295,13 @@ describe('SAML dry run (ACS leg + collection)', () => {
     const res = makeRes();
     await (completeSsoTest as any)({ params: { id: ORG }, user: ADMIN, body: { state } }, res);
     expect(body(res).report).toMatchObject({ ok: false, reason: 'invalid_assertion' });
+  });
+
+  it('passes an empty expected request id for a pending test recorded without one (refused downstream)', async () => {
+    const state = await mintTestState(ORG);
+    await rememberTest(state, { orgId: ORG, actorId: String(ADMIN.sub), protocol: 'saml', testedUpdatedAt: 'x' });
+    await handleSamlTestAssertion(makeRes(), ORG, 'r', state);
+    expect(mockValidateSaml).toHaveBeenCalledWith(expect.anything(), 'r', state, state, { test: true, expectedRequestId: '' });
   });
 
   it('refuses a forged marker at the ACS without validating anything', async () => {

@@ -58,6 +58,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   // Named import in org-members-service (listMembers-only, untested here); ESM
   // linking still requires the export to exist on the mock.
   RoleAssignment: {},
+  // removeMember/deactivateMember revoke the member's pending invitations in-tx.
+  Invitation: { find: () => ({ select: () => ({ session: () => ({ lean: async () => [] }) }) }), updateMany: async () => ({}) },
 }));
 
 const { orgMembersService } = await import('../src/services/org-members-service.js');

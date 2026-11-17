@@ -54,7 +54,7 @@ jest.unstable_mockModule('../src/helpers/password-policy.js', () => ({
 }));
 jest.unstable_mockModule('../src/services/index.js', () => ({
   authService: {
-    findForTokenIssue: async (id: string) => ({ _id: { toString: () => id }, email: 'p@example.com', lastActiveOrgId: 'org-1' }),
+    findForTokenIssue: async (id: string) => ({ _id: { toString: () => id }, email: 'p@example.com', lastActiveOrgId: 'org-1', tokenVersion: 2 }),
     findByCredentials: (...a: unknown[]) => mockFindByCredentials(...a),
   },
   auditService: { createEvent: jest.fn(async () => undefined) },
@@ -174,13 +174,14 @@ describe('POST /auth/login with a password below the org policy', () => {
 describe('POST /auth/mfa/verify when the password owes a change', () => {
   it('verifies the code, then returns a change challenge at aal 2 instead of a session', async () => {
     mockVerifyCode.mockResolvedValue({ method: 'totp', recoveryCodesRemaining: 10 });
-    const { challengeId } = await createMfaChallenge('u1', 'org-1', { passwordChangeMinLength: 16 });
+    const { challengeId } = await createMfaChallenge('u1', 'org-1', { passwordChangeMinLength: 16, tokenVersion: 2 });
     const res = makeRes();
     await verifyMfaLogin(req({ challengeId, code: '123456' }), res);
 
     const payload = data(res);
     expect(payload).toMatchObject({ passwordChangeRequired: true, minLength: 16 });
     expect(mockIssueTokens).not.toHaveBeenCalled();
-    expect(await peekPasswordChangeChallenge(payload.challengeId)).toMatchObject({ amr: ['pwd', 'mfa'], aal: 2, orgId: 'org-1' });
+    // Bound to the tokenVersion recorded at PASSWORD PROOF (carried by the MFA challenge).
+    expect(await peekPasswordChangeChallenge(payload.challengeId)).toMatchObject({ amr: ['pwd', 'mfa'], aal: 2, orgId: 'org-1', tokenVersion: 2 });
   });
 });

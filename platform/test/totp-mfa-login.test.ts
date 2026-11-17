@@ -31,6 +31,11 @@ const mockVerifyCode = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockHasActiveTotp = jest.fn<(...a: unknown[]) => Promise<boolean>>(async () => false);
 const mockFindByCredentials = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockRejectIfSsoEnforced = jest.fn<(...a: unknown[]) => Promise<boolean>>(async () => false);
+/** The account's live tokenVersion as the verify leg reads it. */
+let currentTokenVersion = 3;
+let mockUserMissing = false;
+/** The version a challenge records at first-factor proof (matches by default). */
+const TV = { tokenVersion: 3 };
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string, code?: string) =>
@@ -53,7 +58,9 @@ jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({
 }));
 jest.unstable_mockModule('../src/services/index.js', () => ({
   authService: {
-    findForTokenIssue: async (id: string) => ({ _id: { toString: () => id }, email: 'person@example.com', lastActiveOrgId: 'org-1' }),
+    findForTokenIssue: async (id: string) => (mockUserMissing
+      ? null
+      : { _id: { toString: () => id }, email: 'person@example.com', lastActiveOrgId: 'org-1', tokenVersion: currentTokenVersion }),
     findByCredentials: (...a: unknown[]) => mockFindByCredentials(...a),
   },
   auditService: { createEvent: jest.fn(async () => undefined) },
@@ -125,12 +132,16 @@ beforeEach(() => {
   mockIncCounter.mockClear();
   mockIssueTokens.mockClear();
   mockRejectIfSsoEnforced.mockResolvedValue(false);
+  mockVerifyCode.mockReset();
+  mockVerifyRecoveryCode.mockReset();
+  currentTokenVersion = 3;
+  mockUserMissing = false;
 });
 
 describe('POST /auth/mfa/verify', () => {
   it('opens the session, with `mfa` in amr, and spends the challenge', async () => {
     mockVerifyCode.mockResolvedValue({ method: 'totp', recoveryCodesRemaining: 10 });
-    const { challengeId } = await createMfaChallenge(USER, 'org-7');
+    const { challengeId } = await createMfaChallenge(USER, 'org-7', TV);
     const res = makeRes();
 
     await verifyMfaLogin(body({ challengeId, code: '123456' }), res);
@@ -163,7 +174,7 @@ describe('POST /auth/mfa/verify', () => {
 
   it('keeps the challenge alive after a WRONG code, so a typo is not a re-login', async () => {
     mockVerifyCode.mockRejectedValue(new Error(TOTP_INVALID_CODE));
-    const { challengeId } = await createMfaChallenge(USER);
+    const { challengeId } = await createMfaChallenge(USER, undefined, TV);
     const res = makeRes();
 
     await verifyMfaLogin(body({ challengeId, code: '000000' }), res);
@@ -180,7 +191,7 @@ describe('POST /auth/mfa/verify', () => {
 
   it('answers a lockout with the SAME opaque 401 as a wrong code', async () => {
     mockVerifyCode.mockRejectedValue(new Error(TOTP_LOCKED_OUT));
-    const { challengeId } = await createMfaChallenge(USER);
+    const { challengeId } = await createMfaChallenge(USER, undefined, TV);
     const res = makeRes();
 
     await verifyMfaLogin(body({ challengeId, code: '000000' }), res);
@@ -192,7 +203,7 @@ describe('POST /auth/mfa/verify', () => {
 
   it('accepts a recovery code and records that one was spent', async () => {
     mockVerifyCode.mockResolvedValue({ method: 'recovery', recoveryCodesRemaining: 4 });
-    const { challengeId } = await createMfaChallenge(USER);
+    const { challengeId } = await createMfaChallenge(USER, undefined, TV);
     const res = makeRes();
 
     await verifyMfaLogin(body({ challengeId, code: 'ABCDE-FGHIJ' }), res);
@@ -206,7 +217,7 @@ describe('POST /auth/mfa/verify', () => {
 
   it('one challenge yields ONE session even when two attempts race (atomic claim)', async () => {
     mockVerifyCode.mockResolvedValue({ method: 'totp', recoveryCodesRemaining: 10 });
-    const { challengeId } = await createMfaChallenge(USER);
+    const { challengeId } = await createMfaChallenge(USER, undefined, TV);
     const [r1, r2] = [makeRes(), makeRes()];
 
     await Promise.all([
@@ -223,7 +234,7 @@ describe('POST /auth/mfa/verify', () => {
     // An org can turn SSO enforcement on BETWEEN the two legs; the second one
     // re-checks rather than trusting the first.
     mockRejectIfSsoEnforced.mockResolvedValue(true);
-    const { challengeId } = await createMfaChallenge(USER);
+    const { challengeId } = await createMfaChallenge(USER, undefined, TV);
     const res = makeRes();
 
     await verifyMfaLogin(body({ challengeId, code: '123456' }), res);
@@ -237,7 +248,7 @@ describe('POST /auth/login — first leg', () => {
   it('returns a challenge and NO session for an account with an authenticator', async () => {
     mockHasActiveTotp.mockResolvedValue(true);
     mockFindByCredentials.mockResolvedValue({
-      _id: { toString: () => USER }, email: 'person@example.com', lastActiveOrgId: { toString: () => 'org-1' },
+      _id: { toString: () => USER }, email: 'person@example.com', lastActiveOrgId: { toString: () => 'org-1' }, tokenVersion: 9,
     });
     const { login } = await import('../src/controllers/auth.js');
     const res = makeRes();
@@ -255,7 +266,8 @@ describe('POST /auth/login — first leg', () => {
     expect(mockAudit).not.toHaveBeenCalledWith(expect.anything(), 'user.login', expect.anything());
 
     // The challenge names the account whose password was verified.
-    expect(await peekMfaChallenge(payload.challengeId)).toMatchObject({ userId: USER, orgId: 'org-1' });
+    // ...and the tokenVersion at PASSWORD PROOF, which the verify leg re-checks.
+    expect(await peekMfaChallenge(payload.challengeId)).toMatchObject({ userId: USER, orgId: 'org-1', tokenVersion: 9 });
   });
 
   it('signs an account with no authenticator straight in, unchanged', async () => {
@@ -280,7 +292,7 @@ describe('recovery codes for a passkey account (no authenticator app)', () => {
     mockHasUnspentRecoveryCodes.mockResolvedValue(true);
     mockIssueTokens.mockRejectedValueOnce(new Error('MFA_REQUIRED_FOR_ORG'));
     mockFindByCredentials.mockResolvedValue({
-      _id: { toString: () => USER }, email: 'person@example.com', lastActiveOrgId: { toString: () => 'org-1' },
+      _id: { toString: () => USER }, email: 'person@example.com', lastActiveOrgId: { toString: () => 'org-1' }, tokenVersion: 4,
     });
     const { login } = await import('../src/controllers/auth.js');
     const res = makeRes();
@@ -290,7 +302,7 @@ describe('recovery codes for a passkey account (no authenticator app)', () => {
     const payload = res.json.mock.calls[0][0].data;
     expect(payload).toMatchObject({ mfaRequired: true, methods: ['recovery'] });
     expect(payload.accessToken).toBeUndefined();
-    expect(await peekMfaChallenge(payload.challengeId)).toMatchObject({ userId: USER, recoveryOnly: true });
+    expect(await peekMfaChallenge(payload.challengeId)).toMatchObject({ userId: USER, recoveryOnly: true, tokenVersion: 4 });
   });
 
   it('login still refuses (401 MFA_REQUIRED) when there are no recovery codes to offer', async () => {
@@ -310,7 +322,7 @@ describe('recovery codes for a passkey account (no authenticator app)', () => {
 
   it('a recovery-only challenge is finished by a recovery code, at aal 2, and never asks the authenticator', async () => {
     mockVerifyRecoveryCode.mockResolvedValue(7);
-    const { challengeId } = await createMfaChallenge(USER, 'org-1', { recoveryOnly: true });
+    const { challengeId } = await createMfaChallenge(USER, 'org-1', { recoveryOnly: true, ...TV });
     const res = makeRes();
 
     await verifyMfaLogin(body({ challengeId, code: 'ABCDE-FGHIJ' }), res);
@@ -327,7 +339,7 @@ describe('recovery codes for a passkey account (no authenticator app)', () => {
 
   it('a wrong recovery code is the same opaque 401 and does not spend the challenge', async () => {
     mockVerifyRecoveryCode.mockRejectedValue(new Error(TOTP_INVALID_CODE));
-    const { challengeId } = await createMfaChallenge(USER, 'org-1', { recoveryOnly: true });
+    const { challengeId } = await createMfaChallenge(USER, 'org-1', { recoveryOnly: true, ...TV });
     const res = makeRes();
 
     await verifyMfaLogin(body({ challengeId, code: 'ZZZZZ-ZZZZZ' }), res);
@@ -335,5 +347,60 @@ describe('recovery codes for a passkey account (no authenticator app)', () => {
     expect(res.status).toHaveBeenCalledWith(401);
     expect(mockIssueTokens).not.toHaveBeenCalled();
     expect(await peekMfaChallenge(challengeId)).not.toBeNull();
+  });
+});
+
+describe('the challenge is bound to the tokenVersion at first-factor proof', () => {
+  it('refuses to finish once the account\'s tokenVersion moved (password reset / sign-out-everywhere)', async () => {
+    mockVerifyCode.mockResolvedValue({ method: 'totp', recoveryCodesRemaining: 10 });
+    const { challengeId } = await createMfaChallenge(USER, 'org-1', TV);
+    currentTokenVersion = 4; // bumped during the TTL
+    const res = makeRes();
+
+    await verifyMfaLogin(body({ challengeId, code: '123456' }), res);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    // The dead-challenge answer: the UI sends them back to the first factor.
+    expect(res.json.mock.calls[0][0].code).toBe('TOTP_INVALID_CHALLENGE');
+    expect(mockIssueTokens).not.toHaveBeenCalled();
+    // Checked before the code: nothing spent, nothing counted against a lockout.
+    expect(mockVerifyCode).not.toHaveBeenCalled();
+    // And the handle stays spent — a retry can never succeed.
+    expect(await peekMfaChallenge(challengeId)).toBeNull();
+    expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'user.login.failed', expect.objectContaining({
+      targetId: USER,
+      details: { method: 'totp', reason: 'session-revoked' },
+    }));
+  });
+
+  it('refuses a recovery-only challenge the same way, without spending a recovery code', async () => {
+    const { challengeId } = await createMfaChallenge(USER, 'org-1', { recoveryOnly: true, ...TV });
+    currentTokenVersion = 5;
+    const res = makeRes();
+    await verifyMfaLogin(body({ challengeId, code: 'ABCDE-FGHIJ' }), res);
+    expect(res.json.mock.calls[0][0].code).toBe('TOTP_INVALID_CHALLENGE');
+    expect(mockVerifyRecoveryCode).not.toHaveBeenCalled();
+  });
+
+  it('refuses a challenge recorded without a tokenVersion (minted before the binding)', async () => {
+    const { challengeId } = await createMfaChallenge(USER, 'org-1', TV);
+    const pending = await claimMfaChallenge(challengeId);
+    const { tokenVersion: _drop, ...legacy } = pending!;
+    void _drop;
+    await restoreMfaChallenge(challengeId, legacy);
+    const res = makeRes();
+    await verifyMfaLogin(body({ challengeId, code: '123456' }), res);
+    expect(res.json.mock.calls[0][0].code).toBe('TOTP_INVALID_CHALLENGE');
+    expect(mockIssueTokens).not.toHaveBeenCalled();
+  });
+
+  it('answers the opaque 401 when the account is gone, without checking the code', async () => {
+    const { challengeId } = await createMfaChallenge(USER, 'org-1', TV);
+    mockUserMissing = true;
+    const res = makeRes();
+    await verifyMfaLogin(body({ challengeId, code: '123456' }), res);
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json.mock.calls[0][0].message).toBe('Invalid credentials');
+    expect(mockVerifyCode).not.toHaveBeenCalled();
   });
 });

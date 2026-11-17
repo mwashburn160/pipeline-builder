@@ -455,7 +455,10 @@ class UserAdminService {
       ? await (await import('./api-key-service.js')).apiKeyService.revokeAllForUser(String(updatedUser._id))
       : 0;
 
-    const { organizationName, activeOrgRole } = await loadActiveOrgInfo(updatedUser._id, updatedUser.lastActiveOrgId?.toString());
+    // An org-scoped caller gets the target's name/role in the CALLER's org —
+    // never the target's (possibly foreign) last-active org.
+    const viewOrgId = options.scopeOrgId ?? updatedUser.lastActiveOrgId?.toString();
+    const { organizationName, activeOrgRole } = await loadActiveOrgInfo(updatedUser._id, viewOrgId);
     return { user: updatedUser, changes, organizationName, activeOrgRole, accessKeysRevoked };
   }
 

@@ -113,14 +113,19 @@ export const listAllUsers = withController('List users', async (req, res) => {
 
   const usersWithOrg = users.map(user => {
     const userMemberships = membershipsByUser.get(user._id.toString()) || [];
-    const activeOrgId = user.lastActiveOrgId?.toString();
-    const activeMembership = activeOrgId
-      ? userMemberships.find(m => m.organizationId.toString() === activeOrgId)
+    // A system admin sees each user's own last-active org. Anyone else sees
+    // the org fields (id, name, role) STRICTLY as the user's membership in the
+    // org being listed — the caller's org scope — never the target's
+    // lastActiveOrgId, which may be another tenant.
+    const viewOrgId = admin.isSuperAdmin ? user.lastActiveOrgId?.toString() : effectiveScopeOrgId?.toLowerCase();
+    const viewMembership = viewOrgId
+      ? userMemberships.find(m => m.organizationId.toString() === viewOrgId)
       : undefined;
 
     return formatUserResponse(user, {
-      activeOrgRole: activeMembership?.role,
-      activeOrgName: activeOrgId ? orgNameMap.get(activeOrgId) || null : null,
+      activeOrgRole: viewMembership?.role,
+      activeOrgName: viewOrgId ? orgNameMap.get(viewOrgId) || null : null,
+      ...(!admin.isSuperAdmin && { organizationId: viewMembership ? viewOrgId! : null }),
     });
   });
 
@@ -189,6 +194,8 @@ export const getUserById = withController('Get user', async (req, res) => {
     user: formatUserResponse(user, {
       activeOrgRole,
       activeOrgName: organizationName,
+      // Org-scoped view: the id is the admin's org, never the target's lastActiveOrgId.
+      ...(!admin.isSuperAdmin && { organizationId: activeOrgId ?? null }),
       organization,
       organizations,
       tier,
@@ -306,7 +313,17 @@ export const updateUserById = withController('Update user', async (req, res) => 
 
   sendSuccess(
     res, 200,
-    { user: formatUserResponse(user, { activeOrgRole, activeOrgName: organizationName }), changes, accessKeysRevoked },
+    {
+      user: formatUserResponse(user, {
+        activeOrgRole,
+        activeOrgName: organizationName,
+        // Org-scoped caller: describe the target as a member of the caller's org
+        // (the service resolved name/role for `scopeOrgId`), never its lastActiveOrgId.
+        ...(!admin.isSuperAdmin && { organizationId: admin.orgId ?? null }),
+      }),
+      changes,
+      accessKeysRevoked,
+    },
     'User updated successfully',
   );
 }, adminErrorMap);
@@ -518,6 +535,7 @@ export const updateUserFeatures = withController('Update user features', async (
       user: formatUserResponse(user, {
         activeOrgRole,
         activeOrgName: organizationName,
+        ...(!admin.isSuperAdmin && { organizationId: targetOrgId }),
         tier: (orgTier as PlanTier) || 'developer',
         features,
         featureOverrides: overrides as Record<string, boolean>,

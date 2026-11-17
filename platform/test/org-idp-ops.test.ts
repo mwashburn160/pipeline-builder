@@ -291,6 +291,48 @@ describe('"SSO required"', () => {
   });
 });
 
+describe('Google IdP with no verified domain — a WARNING, never a refusal', () => {
+  const bodyOf = (res: unknown) => (res as { body: { data: Record<string, unknown> } }).body.data;
+
+  it('PUT: saves a Google config and warns that only existing members can sign in', async () => {
+    upsert.mockResolvedValue({ protocol: 'oidc', provider: 'google' });
+    hasVerifiedDomain.mockResolvedValue(false);
+    const res = mockRes();
+    await upsertOrgIdp(mockReq({ provider: 'google', clientId: 'cid', clientSecret: 's', enabled: true }), res, 'org-1', 'self-service');
+    expect((res as unknown as { statusCode: number }).statusCode).toBe(200);
+    expect(upsert).toHaveBeenCalledTimes(1);
+    expect(hasVerifiedDomain).toHaveBeenCalledWith('org-1');
+    expect(bodyOf(res).warnings).toEqual([expect.objectContaining({ code: 'IDP_GOOGLE_NO_VERIFIED_DOMAIN' })]);
+  });
+
+  it('PATCH: warns the same way', async () => {
+    patch.mockResolvedValue({ protocol: 'oidc', provider: 'google' });
+    hasVerifiedDomain.mockResolvedValue(false);
+    const res = mockRes();
+    await patchOrgIdp(mockReq({ enabled: true }), res, 'org-1', 'admin');
+    expect(bodyOf(res).warnings).toEqual([expect.objectContaining({ code: 'IDP_GOOGLE_NO_VERIFIED_DOMAIN' })]);
+  });
+
+  it('no warning once the org has a verified domain, or for a non-Google IdP', async () => {
+    patch.mockResolvedValue({ protocol: 'oidc', provider: 'google' });
+    hasVerifiedDomain.mockResolvedValue(true);
+    const res1 = mockRes();
+    await patchOrgIdp(mockReq({ enabled: true }), res1, 'org-1', 'admin');
+    expect(bodyOf(res1)).not.toHaveProperty('warnings');
+
+    patch.mockResolvedValue({ protocol: 'oidc', provider: 'generic-oidc' });
+    hasVerifiedDomain.mockResolvedValue(false);
+    const res2 = mockRes();
+    await patchOrgIdp(mockReq({ enabled: true }), res2, 'org-1', 'admin');
+    expect(bodyOf(res2)).not.toHaveProperty('warnings');
+
+    patch.mockResolvedValue({ protocol: 'saml', provider: 'google' });
+    const res3 = mockRes();
+    await patchOrgIdp(mockReq({ enabled: true }), res3, 'org-1', 'admin');
+    expect(bodyOf(res3)).not.toHaveProperty('warnings');
+  });
+});
+
 describe('readOrgIdp', () => {
   it('returns 200 with config: null when the org has none (a normal state, not a 404)', async () => {
     findByOrg.mockResolvedValue(null);

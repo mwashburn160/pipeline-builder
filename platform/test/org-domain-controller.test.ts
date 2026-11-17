@@ -14,17 +14,20 @@ const mockAddDomain = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockListDomains = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockIsEntitled = jest.fn<(...a: unknown[]) => Promise<boolean>>();
 const mockDecide = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockSetSharing = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockAudit = jest.fn();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, message: string) => { res.status(status).json({ success: false, message }); return res; },
   sendSuccess: (res: any, status: number, data: unknown) => { res.status(status).json({ success: true, data }); return res; },
 }));
-jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() }));
+jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn() }));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({
   validateBody: (_s: unknown, body: unknown) => body,
   addDomainSchema: {},
   setDomainModeSchema: {},
+  setDomainSharingSchema: {},
 }));
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
@@ -36,12 +39,13 @@ jest.unstable_mockModule('../src/services/org-domain-service.js', () => ({
     listDomains: (...a: unknown[]) => mockListDomains(...a),
     isEntitled: (...a: unknown[]) => mockIsEntitled(...a),
     decideJoinRequest: (...a: unknown[]) => mockDecide(...a),
+    setDomainSharing: (...a: unknown[]) => mockSetSharing(...a),
   },
   VERIFY_RECORD_HOST: (domain: string) => `_pipeline-builder-verify.${domain}`,
   VERIFY_RECORD_VALUE: (token: string) => `pb-verify=${token}`,
 }));
 
-const { listOrgDomains, addOrgDomain, decideOrgJoinRequest } = await import('../src/controllers/org-domain.js');
+const { listOrgDomains, addOrgDomain, decideOrgJoinRequest, setOrgDomainSharing } = await import('../src/controllers/org-domain.js');
 
 function makeRes() {
   const res: any = {};
@@ -128,5 +132,44 @@ describe('org-domain controller', () => {
     await (decideOrgJoinRequest as any)(req({ params: { id: 'org-1', reqId: 'r1', decision: 'approve' } }), res);
     expect(res.status).toHaveBeenCalledWith(200);
     expect(mockDecide).toHaveBeenCalledWith('org-1', 'r1', 'approve', 'u1');
+  });
+
+  it('setOrgDomainSharing: shares a root domain with teams, audits it, and reports the flag', async () => {
+    mockSetSharing.mockResolvedValue({ _id: 'd1', domain: 'acme.com', verified: true, verificationToken: 't', autoJoin: 'off', sharedWithTeams: true });
+    const res = makeRes();
+    await (setOrgDomainSharing as any)(req({ params: { id: 'org-1', domainId: 'd1' }, body: { sharedWithTeams: true } }), res);
+    expect(mockSetSharing).toHaveBeenCalledWith('org-1', 'd1', true);
+    expect(res.status).toHaveBeenCalledWith(200);
+    const body = (res.json as jest.Mock<AnyFn>).mock.calls[0][0] as any;
+    expect(body.data.domain.sharedWithTeams).toBe(true);
+    expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'org.domain.share', expect.objectContaining({
+      affectedOrgId: 'org-1',
+      details: { domain: 'acme.com', domainId: 'd1', sharedWithTeams: true },
+    }));
+  });
+
+  it('setOrgDomainSharing: 403 for an admin of a DIFFERENT org', async () => {
+    const res = makeRes();
+    await (setOrgDomainSharing as any)(req({ user: { sub: 'u3', organizationId: 'org-other', role: 'admin' }, params: { id: 'org-1', domainId: 'd1' }, body: { sharedWithTeams: true } }), res);
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockSetSharing).not.toHaveBeenCalled();
+  });
+
+  it('setOrgDomainSharing: maps DOMAIN_SHARE_NOT_ROOT / DOMAIN_SHARE_UNVERIFIED → 409', async () => {
+    for (const code of ['DOMAIN_SHARE_NOT_ROOT', 'DOMAIN_SHARE_UNVERIFIED']) {
+      mockSetSharing.mockRejectedValueOnce(new Error(code));
+      const res = makeRes();
+      await (setOrgDomainSharing as any)(req({ params: { id: 'org-1', domainId: 'd1' }, body: { sharedWithTeams: true } }), res);
+      expect(res.status).toHaveBeenCalledWith(409);
+    }
+    expect(mockAudit).not.toHaveBeenCalledWith(expect.anything(), 'org.domain.share', expect.anything());
+  });
+
+  it('listOrgDomains: sharedWithTeams defaults to false in the view', async () => {
+    mockListDomains.mockResolvedValue([{ _id: 'd1', domain: 'acme.com', verified: true, verificationToken: '', autoJoin: 'off' }]);
+    const res = makeRes();
+    await (listOrgDomains as any)(req(), res);
+    const body = (res.json as jest.Mock<AnyFn>).mock.calls[0][0] as any;
+    expect(body.data.domains[0].sharedWithTeams).toBe(false);
   });
 });

@@ -69,6 +69,7 @@ const REASON_BY_CODE: Readonly<Record<string, string>> = Object.freeze({
   OIDC_EMAIL_DOMAIN_NOT_VERIFIED: 'domain_not_verified',
   ACCOUNT_EMAIL_UNVERIFIED: 'account_email_unverified',
   JIT_SEAT_LIMIT: 'seat_limit',
+  JIT_NOT_MEMBER: 'not_member',
   SSO_SUPERADMIN_REFUSED: 'platform_admin',
 
   // The provider's own error relayed through, not a refusal we raised — which

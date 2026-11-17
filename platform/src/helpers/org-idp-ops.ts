@@ -105,6 +105,35 @@ async function assertDomainsVerified(res: Response, orgId: string, domains: stri
   return false;
 }
 
+/** A non-blocking note returned alongside a saved config. */
+export interface IdpSaveWarning {
+  code: 'IDP_GOOGLE_NO_VERIFIED_DOMAIN';
+  message: string;
+}
+
+/**
+ * Warn — never refuse — when a GOOGLE IdP is saved for an org with no domain it
+ * may vouch for. Google signs in any Google account, so with no verified domain
+ * the sign-in admits EXISTING members only and never creates a membership (see
+ * `mayAutoProvisionMembership`). That is a legitimate setup (an invite-only org
+ * using Google as its login), so the save succeeds; the warning tells the admin
+ * why new people won't be added automatically.
+ */
+async function idpSaveWarnings(orgId: string, config: OrgIdpConfigDto): Promise<IdpSaveWarning[]> {
+  if (config.protocol === 'saml' || config.provider !== 'google') return [];
+  if (await hasVerifiedDomain(orgId)) return [];
+  return [{
+    code: 'IDP_GOOGLE_NO_VERIFIED_DOMAIN',
+    message: 'This organization has no verified domain, so Google sign-in will only admit existing members — nobody new is added automatically. Verify your domain under Settings → Domains to let people at it join on first sign-in.',
+  }];
+}
+
+/** `{ config }`, plus `warnings` only when there are any (additive field). */
+async function savedConfigBody(orgId: string, config: OrgIdpConfigDto): Promise<Record<string, unknown>> {
+  const warnings = await idpSaveWarnings(orgId, config);
+  return warnings.length > 0 ? { config, warnings } : { config };
+}
+
 /** The settings that decide WHICH identity provider (and so which token
  *  endpoint) the client secret is sent to. */
 const SECRET_BOUND_FIELDS = ['provider', 'discoveryUrl', 'region', 'userPoolId'] as const;
@@ -184,7 +213,7 @@ export async function upsertOrgIdp(req: Request, res: Response, orgId: string, s
       details: { protocol: config.protocol, provider: config.provider, surface },
     });
     auditCertificateRotation(req, orgId, certsOf(existing), certsOf(config), surface);
-    sendSuccess(res, 200, { config });
+    sendSuccess(res, 200, await savedConfigBody(orgId, config));
   };
   // Reserve the `idpConfigs` slot only on a fresh insert; updating an existing
   // config doesn't consume a new one. The per-org unique index caps orgs at one
@@ -240,7 +269,7 @@ export async function patchOrgIdp(req: Request, res: Response, orgId: string, su
     });
     incCounter('platform_sso_required_changes_total', { to: config.ssoRequired ? 'on' : 'off' });
   }
-  sendSuccess(res, 200, { config });
+  sendSuccess(res, 200, await savedConfigBody(orgId, config));
 }
 
 /** Hard-remove an org's IdP config and give back its quota slot. */

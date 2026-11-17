@@ -29,6 +29,12 @@ export interface OrgDomainData {
   /** When the domain last passed (re-)verification — drives the staleness sweep. */
   verifiedAt?: Date;
   autoJoin: DomainJoinMode;
+  /** ROOT orgs only: whether the account's TEAMS may vouch for this domain on
+   *  their identity-trust paths (team SSO/SAML sign-in, SCIM, direct add). Off by
+   *  default — a team runs its own IdP, so inheriting the root's domains would let
+   *  any team owner sign in as the root's accounts. Counts only while verified;
+   *  cleared when re-verification fails. Toggled by a root admin. */
+  sharedWithTeams: boolean;
   createdBy: string;
   createdAt: Date;
   updatedAt: Date;
@@ -44,6 +50,7 @@ const orgDomainSchema = new Schema<OrgDomainData>(
     verificationToken: { type: String, required: true },
     verifiedAt: { type: Date },
     autoJoin: { type: String, enum: [...DOMAIN_JOIN_MODES], default: 'off' },
+    sharedWithTeams: { type: Boolean, default: false },
     createdBy: { type: String, required: true },
   },
   { timestamps: true, collection: 'org_domains' },

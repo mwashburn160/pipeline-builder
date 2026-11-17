@@ -11,7 +11,9 @@
  *   - a refused new password leaves the link usable for another try;
  *   - a reset is a HARD revocation: tokenVersion bump, every refresh slot gone,
  *     every access key revoked;
- *   - a new request supersedes the previous link.
+ *   - a new request supersedes the previous link;
+ *   - a password sign-in's pending MFA challenge, opened BEFORE the reset,
+ *     cannot be finished after it (the challenge is bound to tokenVersion).
  *
  * Gated behind RUN_MONGO_INTEGRATION (skipped by default).
  */
@@ -128,5 +130,29 @@ suite('password reset (real Mongo)', () => {
     expect(await m.PasswordResetToken.countDocuments({})).toBe(1);
     await expect(svc.resetPassword(first.rawToken, 'New-Passw0rd!secret')).rejects.toThrow(svc.PASSWORD_RESET_TOKEN_INVALID);
     await expect(svc.resetPassword(second.rawToken, 'New-Passw0rd!secret')).resolves.toMatchObject({ userId });
+  });
+
+  it('kills an MFA sign-in challenge opened before the reset (tokenVersion binding)', async () => {
+    const { createMfaChallenge } = await import('../src/services/mfa-challenge.js');
+    const { verifyMfaLogin } = await import('../src/controllers/totp.js');
+    const { Registry } = await import('prom-client');
+    (await import('../src/observability/metrics.js')).setMetricsRegistry(new Registry());
+    const before = await m.User.findById(userId).select('+tokenVersion').lean();
+    // Leg one happened: the password was proven at the CURRENT tokenVersion.
+    const { challengeId } = await createMfaChallenge(userId, undefined, { tokenVersion: before.tokenVersion ?? 0 });
+
+    // ...then the account is reset (by its owner, or by whoever holds the inbox).
+    const { rawToken } = await svc.requestPasswordReset('forgetful@example.com');
+    await svc.resetPassword(rawToken, 'New-Passw0rd!secret');
+
+    const res: any = { locals: {} };
+    res.status = (code: number) => { res.statusCode = code; return res; };
+    res.json = (b: unknown) => { res.body = b; return res; };
+    res.cookie = () => res;
+    await verifyMfaLogin({ body: { challengeId, code: '123456' }, headers: {}, ip: '127.0.0.1' } as any, res);
+
+    expect(res.statusCode).toBe(401);
+    expect(res.body).toMatchObject({ code: 'TOTP_INVALID_CHALLENGE' });
+    expect(res.body?.data?.accessToken).toBeUndefined();
   });
 });

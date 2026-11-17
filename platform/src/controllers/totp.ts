@@ -238,6 +238,27 @@ export const verifyMfaLogin = withController('MFA login verify', async (req, res
     return sendError(res, 401, TOTP_ERROR_MAP[TOTP_INVALID_CHALLENGE].message, TOTP_INVALID_CHALLENGE);
   }
 
+  // The account must still be the one whose first factor this challenge
+  // recorded: a password reset / change or "sign out everywhere" during the
+  // TTL bumps `tokenVersion`, and a first factor proven under revoked
+  // credentials must not be finishable into a session. Checked BEFORE the code
+  // so a dead challenge cannot spend a recovery code or count against the
+  // lockout. The handle stays spent (it is never handed back) and the caller
+  // gets the dead-challenge answer, which sends them back to the first factor.
+  const user = await authService.findForTokenIssue(pending.userId);
+  if (!user) return deny('user-missing', pending.userId);
+  if (typeof pending.tokenVersion !== 'number' || user.tokenVersion !== pending.tokenVersion) {
+    audit(req, 'user.login.failed', {
+      targetType: 'user',
+      targetId: pending.userId,
+      outcome: 'failure',
+      details: { method: 'totp', reason: 'session-revoked' },
+    });
+    incCounter('platform_logins_failed_total');
+    meter('login', 'failure');
+    return sendError(res, 401, TOTP_ERROR_MAP[TOTP_INVALID_CHALLENGE].message, TOTP_INVALID_CHALLENGE);
+  }
+
   // A RECOVERY-ONLY challenge (a passkey account whose org policy refused the
   // password alone) accepts nothing but one of the account's recovery codes,
   // under their own lockout; otherwise it is the authenticator app's code or a
@@ -253,8 +274,6 @@ export const verifyMfaLogin = withController('MFA login verify', async (req, res
     return deny(err instanceof Error ? err.message : 'unknown', pending.userId);
   }
 
-  const user = await authService.findForTokenIssue(pending.userId);
-  if (!user) return deny('user-missing', pending.userId);
   if (await rejectIfSsoEnforced(req, res, user.email, { method: 'totp', targetId: pending.userId })) {
     // Not spent by a refusal: the handle goes back (it still can't open a
     // session while the org enforces SSO). The refusal is audited by the gate.
@@ -279,7 +298,9 @@ export const verifyMfaLogin = withController('MFA login verify', async (req, res
       amr: ['pwd', 'mfa'],
       aal: 2,
       minLength: pending.passwordChangeMinLength,
-      tokenVersion: user.tokenVersion,
+      // The version recorded at PASSWORD PROOF (checked equal above), so the
+      // change leg is bound to the first factor, not to this verify.
+      tokenVersion: pending.tokenVersion,
     });
     audit(req, 'user.password.change_required', {
       targetType: 'user',

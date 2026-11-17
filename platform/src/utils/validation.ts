@@ -101,6 +101,11 @@ export const setDomainModeSchema = z.object({
   autoJoin: z.enum(DOMAIN_JOIN_MODES),
 });
 
+/** Share (or stop sharing) a root domain with the account's teams. */
+export const setDomainSharingSchema = z.object({
+  sharedWithTeams: z.boolean(),
+}).strict();
+
 /** Onboarding: join a domain-discovered org. */
 export const joinOrgSchema = z.object({
   orgId: z.string().min(1),

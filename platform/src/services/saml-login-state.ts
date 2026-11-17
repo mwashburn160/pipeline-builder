@@ -9,7 +9,7 @@
  */
 
 import crypto from 'crypto';
-import { buildSamlAuthorizeUrl } from './saml-service.js';
+import { buildSamlAuthorizeRequest } from './saml-service.js';
 import { config } from '../config/index.js';
 import { createPendingStateStore } from '../helpers/pending-state-store.js';
 import { getEnforcedSamlConfig } from '../helpers/sso-enforcement.js';
@@ -19,8 +19,15 @@ import { getEnforcedSamlConfig } from '../helpers/sso-enforcement.js';
  * that minted it — the same shape and the same store the OIDC flow uses, so a
  * multi-replica deployment behaves identically on both protocols. It travels to
  * the IdP as `RelayState` and comes back on the assertion POST.
+ *
+ * `requestId` is the id of the AuthnRequest minted WITH this state. The ACS
+ * requires the response's `InResponseTo` to equal it, which is what binds an
+ * assertion to the RelayState (and so to the browser binding) of the flow that
+ * asked for it: without it, any unredeemed response for the org — a victim's,
+ * captured in flight — could be posted alongside an attacker's own fresh
+ * RelayState and land in the attacker's browser.
  */
-const pendingSamlStates = createPendingStateStore<{ orgId: string; binding: string }>({
+const pendingSamlStates = createPendingStateStore<{ orgId: string; binding: string; requestId: string }>({
   prefix: 'saml:state:',
   ttlMs: config.oauth.samlRequestTtlMs,
   cleanupIntervalMs: config.oauth.cleanupIntervalMs,
@@ -40,19 +47,25 @@ const pendingSamlStates = createPendingStateStore<{ orgId: string; binding: stri
 export async function beginSamlLogin(orgId: string, binding: string): Promise<{ url: string; state: string }> {
   const cfg = await getEnforcedSamlConfig(orgId);
   const state = crypto.randomBytes(32).toString('hex');
-  const url = await buildSamlAuthorizeUrl(cfg, state);
+  const { url, requestId } = await buildSamlAuthorizeRequest(cfg, state);
   // The browser binding rides the state to the ACS (which can't see the Lax
-  // cookie — it is a cross-site POST) and from there onto the handoff.
-  await pendingSamlStates.put(state, { orgId, binding });
+  // cookie — it is a cross-site POST) and from there onto the handoff; the
+  // request id rides it so the ACS can demand the response answer THIS request.
+  await pendingSamlStates.put(state, { orgId, binding, requestId });
   return { url, state };
 }
 
 /** Consume the RelayState and confirm it was minted for THIS org. Consumed on
  *  ANY lookup — valid or not — so a state can never be probed or replayed, the
- *  same one-time contract the OIDC callback keeps. */
-export async function consumeSamlRelayState(orgId: string, relayState: string | undefined): Promise<{ state: string; binding: string }> {
+ *  same one-time contract the OIDC callback keeps. A state recorded without a
+ *  request id (minted before the binding existed) is refused like any other
+ *  invalid state. */
+export async function consumeSamlRelayState(
+  orgId: string,
+  relayState: string | undefined,
+): Promise<{ state: string; binding: string; requestId: string }> {
   if (!relayState) throw new Error('SAML_IDP_INITIATED');
   const pending = await pendingSamlStates.consume(relayState);
-  if (!pending || pending.orgId !== orgId) throw new Error('SAML_INVALID_STATE');
-  return { state: relayState, binding: pending.binding };
+  if (!pending || pending.orgId !== orgId || !pending.requestId) throw new Error('SAML_INVALID_STATE');
+  return { state: relayState, binding: pending.binding, requestId: pending.requestId };
 }

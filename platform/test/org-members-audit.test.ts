@@ -125,7 +125,7 @@ describe('addMember audit', () => {
 
 describe('removeMember audit', () => {
   it('records org.member.remove with affectedOrgId', async () => {
-    mockRemoveMember.mockResolvedValue(undefined);
+    mockRemoveMember.mockResolvedValue({ revokedInvitations: [] });
     const req: any = {
       params: { id: 'org-acme', userId: 'u1' },
       user: { sub: 'admin-1', organizationId: 'org-acme' },
@@ -137,6 +137,41 @@ describe('removeMember audit', () => {
       targetId: 'u1',
       affectedOrgId: 'org-acme',
     });
+  });
+});
+
+describe('a leaving member\'s pending invitations — revoked and audited', () => {
+  const revoked = [
+    { invitationId: 'inv-1', organizationId: 'org-acme', email: 'a@example.com', role: 'member' },
+    { invitationId: 'inv-2', organizationId: 'org-acme', email: 'b@example.com', role: 'admin' },
+  ];
+  const req = (): any => ({
+    params: { id: 'org-acme', userId: 'u1' },
+    user: { sub: 'admin-1', organizationId: 'org-acme' },
+  });
+
+  it.each([
+    ['removal', () => mockRemoveMember, removeMemberFromOrganization, 'inviter-removed'],
+    ['deactivation', () => mockDeactivateMember, deactivateMember, 'inviter-deactivated'],
+  ] as const)('emits invitation.revoke for each invitation the %s revoked', async (_what, svc, handler, reason) => {
+    svc().mockResolvedValue({ revokedInvitations: revoked });
+    const r = req();
+    await (handler as unknown as (req: any, res: any) => Promise<void>)(r, mockRes());
+
+    const revokes = mockAudit.mock.calls.filter((c) => c[1] === 'invitation.revoke');
+    expect(revokes).toHaveLength(2);
+    expect(mockAudit).toHaveBeenCalledWith(r, 'invitation.revoke', {
+      targetType: 'invitation',
+      targetId: 'inv-2',
+      affectedOrgId: 'org-acme',
+      details: { email: 'b@example.com', role: 'admin', reason, inviterId: 'u1' },
+    });
+  });
+
+  it('emits no invitation.revoke when the member had none pending', async () => {
+    mockRemoveMember.mockResolvedValue({ revokedInvitations: [] });
+    await (removeMemberFromOrganization as unknown as (req: any, res: any) => Promise<void>)(req(), mockRes());
+    expect(mockAudit.mock.calls.some((c) => c[1] === 'invitation.revoke')).toBe(false);
   });
 });
 
@@ -162,7 +197,7 @@ describe('transferOwnership audit', () => {
 
 describe('deactivate / activate member audit', () => {
   it('records org.member.deactivate', async () => {
-    mockDeactivateMember.mockResolvedValue(undefined);
+    mockDeactivateMember.mockResolvedValue({ revokedInvitations: [] });
     const req: any = {
       params: { id: 'org-acme', userId: 'u1' },
       user: { sub: 'admin-1', organizationId: 'org-acme' },

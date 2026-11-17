@@ -31,7 +31,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockGetEnforcedSamlConfig = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockAssertSsoIdentityTrusted = jest.fn<(...a: unknown[]) => Promise<void>>();
 const mockValidateSamlResponse = jest.fn<(...a: unknown[]) => Promise<unknown>>();
-const mockBuildSamlAuthorizeUrl = jest.fn<(...a: unknown[]) => Promise<string>>();
+const mockBuildSamlAuthorizeRequest = jest.fn<(...a: unknown[]) => Promise<{ url: string; requestId: string }>>();
 const mockFindOrCreate = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockIssueTokens = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockAssertSeat = jest.fn<(...a: unknown[]) => Promise<void>>();
@@ -87,7 +87,7 @@ jest.unstable_mockModule('../src/services/saml-service.js', () => ({
     SAML_REPLAYED_ASSERTION: { status: 403, message: 'already used' },
     SAML_INVALID_ASSERTION: { status: 401, message: 'invalid assertion' },
   },
-  buildSamlAuthorizeUrl: (...a: unknown[]) => mockBuildSamlAuthorizeUrl(...a),
+  buildSamlAuthorizeRequest: (...a: unknown[]) => mockBuildSamlAuthorizeRequest(...a),
   buildSamlMetadata: (...a: unknown[]) => mockBuildMetadata(...a),
   samlLandingUrl: (orgId: string) => `https://pb.test/auth/sso/${orgId}/saml`,
   validateSamlResponse: (...a: unknown[]) => mockValidateSamlResponse(...a),
@@ -163,8 +163,8 @@ let bindingCookie = '';
 const browser = () => ({ headers: { cookie: `pb_login_binding=${bindingCookie}` } });
 
 /** Mint a real one-time RelayState through the initiate leg, bound to a browser. */
-async function mintState(orgId = ORG): Promise<string> {
-  mockBuildSamlAuthorizeUrl.mockResolvedValue('https://idp.test/sso?SAMLRequest=x');
+async function mintState(orgId = ORG, requestId = '_req-1'): Promise<string> {
+  mockBuildSamlAuthorizeRequest.mockResolvedValue({ url: 'https://idp.test/sso?SAMLRequest=x', requestId });
   const binding = bindLoginToBrowser({ cookie: (_n: string, v: string) => { bindingCookie = v; } } as never);
   const { state } = await beginSamlLogin(orgId, binding);
   return state;
@@ -305,6 +305,26 @@ describe('ACS — accepting an assertion', () => {
     const second = makeRes();
     await (handleSamlAcs as any)({ params: { orgId: ORG }, body: { SAMLResponse: 'r', RelayState: state } }, second);
     expect(errorFrom(second)).toBe('SAML_INVALID_STATE');
+  });
+
+  it('validates the response against the AuthnRequest id recorded with THIS RelayState', async () => {
+    const state = await mintState(ORG, '_req-mine');
+    const res = makeRes();
+    await (handleSamlAcs as any)({ params: { orgId: ORG }, body: { SAMLResponse: 'r', RelayState: state } }, res);
+    expect(mockValidateSamlResponse).toHaveBeenCalledWith(
+      expect.anything(), 'r', state, state, { expectedRequestId: '_req-mine' },
+    );
+    expect(mockBuildSamlAuthorizeRequest).toHaveBeenCalledWith(expect.anything(), state);
+  });
+
+  it('refuses a response answering another flow\'s request (InResponseTo mismatch) before any account work', async () => {
+    mockValidateSamlResponse.mockRejectedValue(new Error('SAML_INVALID_STATE'));
+    const state = await mintState(ORG, '_req-attacker');
+    const res = makeRes();
+    await (handleSamlAcs as any)({ params: { orgId: ORG }, body: { SAMLResponse: 'victim-response', RelayState: state } }, res);
+    expect(errorFrom(res)).toBe('SAML_INVALID_STATE');
+    expect(mockFindOrCreate).not.toHaveBeenCalled();
+    expect(res.redirect).not.toHaveBeenCalledWith(302, expect.stringContaining('handoff='));
   });
 
   it('refuses a state minted for another org', async () => {

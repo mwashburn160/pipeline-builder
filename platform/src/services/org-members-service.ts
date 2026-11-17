@@ -14,7 +14,7 @@ import { toOrgId } from '../helpers/org-id.js';
 import { withSeatGuard } from '../helpers/seats.js';
 import { publishUserRevocation, publishUsersRevocation } from '../helpers/session-revocation.js';
 import { orgFeatureOverridesPath } from '../helpers/user-response.js';
-import { Organization, RoleAssignment, User, UserOrganization } from '../models/index.js';
+import { Invitation, Organization, RoleAssignment, User, UserOrganization } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 import { escapeRegex } from '../utils/regex.js';
 
@@ -515,7 +515,8 @@ class OrgMembersService {
    * sessions — which span every org they belong to — survive. One org's admin
    * has no say over the person's other orgs.
    */
-  async removeMember(orgId: string, userId: string, actor: RoleAssignmentActor): Promise<void> {
+  async removeMember(orgId: string, userId: string, actor: RoleAssignmentActor): Promise<MemberExitResult> {
+    let revokedInvitations: RevokedInvitation[] = [];
     await withMongoTransaction(async (session) => {
       const membership = await UserOrganization.findOne({
         userId, organizationId: toOrgId(orgId),
@@ -542,9 +543,12 @@ class OrgMembersService {
       // superadmin Role — the system org), exactly as removeUserFromRole does.
       if (heldSuperadmin) await recomputeUserOrgRole(userId, toOrgId(orgId), session);
       await endOrgAccess(userId, orgId, session);
+      // Reassigned per attempt: a retried body re-reads the (rolled-back) rows.
+      revokedInvitations = await revokePendingInvitationsSentBy(userId, orgId, session);
     });
     // Post-commit: publish the removed user's now-current access version.
     await publishUserRevocation(userId);
+    return { revokedInvitations };
   }
 
   /**
@@ -633,7 +637,8 @@ class OrgMembersService {
    * of access immediate. The next refresh re-mints into an org they are still
    * active in, never this one (token issuance requires a live membership).
    */
-  async deactivateMember(orgId: string, userId: string, actor: RoleAssignmentActor): Promise<void> {
+  async deactivateMember(orgId: string, userId: string, actor: RoleAssignmentActor): Promise<MemberExitResult> {
+    let revokedInvitations: RevokedInvitation[] = [];
     await withMongoTransaction(async (session) => {
       const membership = await UserOrganization.findOne({ userId, organizationId: toOrgId(orgId) }).session(session);
       if (!membership) throw new Error(OM_MEMBERSHIP_NOT_FOUND);
@@ -646,9 +651,11 @@ class OrgMembersService {
       await membership.save({ session });
 
       await endOrgAccess(userId, orgId, session);
+      revokedInvitations = await revokePendingInvitationsSentBy(userId, orgId, session);
     });
     // Post-commit: publish the deactivated user's now-current access version.
     await publishUserRevocation(userId);
+    return { revokedInvitations };
   }
 
   /**
@@ -688,6 +695,54 @@ class OrgMembersService {
  * refresh re-mints into an org they are still active in (issuance requires a
  * live membership), never this one; the pin to it is dropped here.
  */
+/** A pending invitation withdrawn because its sender left the org — the
+ *  secret-free facts the controller audits as `invitation.revoke`. */
+export interface RevokedInvitation {
+  invitationId: string;
+  organizationId: string;
+  email: string;
+  role: string;
+}
+
+/** What a member removal / deactivation did beyond the membership itself. */
+export interface MemberExitResult {
+  /** The person's pending invitations into the org, revoked with them. */
+  revokedInvitations: RevokedInvitation[];
+}
+
+/**
+ * Revoke every PENDING invitation `userId` sent into `orgId`, in the caller's
+ * transaction.
+ *
+ * An invitation is the sender's authority to admit someone, parked until the
+ * invitee clicks. Once the sender is removed or deactivated that authority is
+ * gone, so the invitations they left pending go with it — otherwise a removed
+ * admin's outstanding links keep onboarding people into the org they no longer
+ * belong to. Same status the manual revoke (`invitationService.revoke`) writes,
+ * so the listing, the preview and acceptance all already treat them as dead.
+ * Acceptance also re-checks the inviter (`processAcceptance`) as a backstop.
+ */
+async function revokePendingInvitationsSentBy(
+  userId: string,
+  orgId: string,
+  session: mongoose.ClientSession,
+): Promise<RevokedInvitation[]> {
+  const pending = await Invitation.find({ invitedBy: userId, organizationId: toOrgId(orgId), status: 'pending' })
+    .select('_id organizationId email role').session(session).lean();
+  if (pending.length === 0) return [];
+  await Invitation.updateMany(
+    { _id: { $in: pending.map((inv) => inv._id) }, status: 'pending' },
+    { $set: { status: 'revoked' } },
+    { session },
+  );
+  return pending.map((inv) => ({
+    invitationId: String(inv._id),
+    organizationId: String(inv.organizationId),
+    email: inv.email,
+    role: inv.role,
+  }));
+}
+
 async function endOrgAccess(userId: string, orgId: string, session: mongoose.ClientSession): Promise<void> {
   await User.updateOne({ _id: userId }, { $inc: { claimsVersion: 1 } }, { session });
   await User.updateOne(

@@ -70,7 +70,7 @@ export const handleCallback = withController('OAuth callback', async (req, res) 
   const second = await secondFactorFor(user._id.toString());
   if (second === 'totp') {
     clearLoginBinding(res);
-    return sendMfaChallenge(res, user._id.toString(), user.lastActiveOrgId?.toString(), { firstFactor: 'oauth' });
+    return sendMfaChallenge(res, user._id.toString(), user.lastActiveOrgId?.toString(), { firstFactor: 'oauth', tokenVersion: user.tokenVersion });
   }
   if (second === 'passkey') throw new Error(OAUTH_PASSKEY_REQUIRED);
 

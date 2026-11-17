@@ -52,6 +52,7 @@ import {
   addOrgDomain,
   verifyOrgDomain,
   setOrgDomainMode,
+  setOrgDomainSharing,
   deleteOrgDomain,
   listOrgJoinRequests,
   decideOrgJoinRequest,
@@ -246,6 +247,9 @@ router.get('/:id/domains', requireAuth, requirePermission('org_settings:write'),
 router.post('/:id/domains', requireAuth, requirePermission('org_settings:write'), audited('org.domain.add'), addOrgDomain);
 router.post('/:id/domains/:domainId/verify', requireAuth, requirePermission('org_settings:write'), domainVerifyLimiter, audited('org.domain.verify'), verifyOrgDomain);
 router.patch('/:id/domains/:domainId', requireAuth, requirePermission('org_settings:write'), audited('org.domain.mode'), setOrgDomainMode);
+// Sharing a ROOT domain with the account's teams delegates identity trust (their
+// IdPs / SCIM may then vouch for addresses at it), so it takes a fresh step-up.
+router.patch('/:id/domains/:domainId/team-sharing', requireAuth, requirePermission('org_settings:write'), requireStepUp, audited('org.domain.share'), setOrgDomainSharing);
 router.delete('/:id/domains/:domainId', requireAuth, requirePermission('org_settings:write'), audited('org.domain.delete'), deleteOrgDomain);
 router.get('/:id/join-requests', requireAuth, requirePermission('org_settings:write'), listOrgJoinRequests);
 router.post('/:id/join-requests/:reqId/:decision', requireAuth, requirePermission('org_settings:write'), audited('org.join.approve', 'org.join.deny'), decideOrgJoinRequest);

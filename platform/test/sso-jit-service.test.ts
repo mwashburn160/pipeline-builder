@@ -33,6 +33,7 @@ const mockPublishRevocation = jest.fn<(...a: unknown[]) => Promise<void>>();
 
 const membershipFindOne = jest.fn<(...a: unknown[]) => unknown>();
 const membershipCreate = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const membershipExists = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const userFindOne = jest.fn<(...a: unknown[]) => unknown>();
 const userFindById = jest.fn<(...a: unknown[]) => unknown>();
 const userUpdateOne = jest.fn<(...a: unknown[]) => Promise<unknown>>();
@@ -87,6 +88,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   UserOrganization: {
     findOne: (...a: unknown[]) => membershipFindOne(...a),
     create: (...a: unknown[]) => membershipCreate(...a),
+    exists: (...a: unknown[]) => membershipExists(...a),
   },
 }));
 
@@ -96,8 +98,8 @@ jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
   withMongoTransaction: async (fn: (s: unknown) => Promise<unknown>) => fn({}),
 }));
 
-const { assertJitSeatAvailable, provisionJitMembership } = await import('../src/services/sso-jit-service.js');
-const { JIT_SEAT_LIMIT } = await import('../src/services/idp-mapping-errors.js');
+const { assertExistingMember, assertJitSeatAvailable, provisionJitMembership } = await import('../src/services/sso-jit-service.js');
+const { JIT_NOT_MEMBER, JIT_SEAT_LIMIT } = await import('../src/services/idp-mapping-errors.js');
 
 const ORG = 'sso-org';
 const user = (over: Record<string, unknown> = {}) => ({ _id: 'u1', tokenVersion: 3, ...over }) as never;
@@ -112,6 +114,7 @@ beforeEach(() => {
   mockSyncMappedRoles.mockResolvedValue({ added: [], removed: [] });
   membershipFindOne.mockReturnValue(query(null));
   membershipCreate.mockResolvedValue(undefined);
+  membershipExists.mockResolvedValue(null);
   userFindOne.mockReturnValue(query(null));
   userFindById.mockReturnValue(query({ tokenVersion: 4 }));
   userUpdateOne.mockResolvedValue(undefined);
@@ -136,7 +139,38 @@ describe('assertJitSeatAvailable (pre-flight, before an account exists)', () => 
   });
 });
 
+describe('assertExistingMember (Google IdP, unverified domain)', () => {
+  it('refuses someone with no account', async () => {
+    await expect(assertExistingMember(ORG, 'Stranger@Gmail.com')).rejects.toThrow(JIT_NOT_MEMBER);
+    expect(userFindOne).toHaveBeenCalledWith({ email: 'stranger@gmail.com' });
+  });
+
+  it('refuses an account that is not a member of THIS org', async () => {
+    userFindOne.mockReturnValue(query({ _id: 'u1' }));
+    await expect(assertExistingMember(ORG, 'u@gmail.com')).rejects.toThrow(JIT_NOT_MEMBER);
+    expect(membershipExists).toHaveBeenCalledWith({ userId: 'u1', organizationId: ORG });
+  });
+
+  it('admits an existing member', async () => {
+    userFindOne.mockReturnValue(query({ _id: 'u1' }));
+    membershipExists.mockResolvedValue({ _id: 'm1' });
+    await expect(assertExistingMember(ORG, 'u@gmail.com')).resolves.toBeUndefined();
+  });
+});
+
 describe('provisionJitMembership', () => {
+  it('allowCreate: false — refuses to CREATE a membership', async () => {
+    await expect(provisionJitMembership({ orgId: ORG, user: user(), groups: [], allowCreate: false }))
+      .rejects.toThrow(JIT_NOT_MEMBER);
+    expect(membershipCreate).not.toHaveBeenCalled();
+  });
+
+  it('allowCreate: false — still reconciles an EXISTING membership', async () => {
+    membershipFindOne.mockReturnValue(query({ _id: 'm1', isActive: true }));
+    const out = await provisionJitMembership({ orgId: ORG, user: user(), groups: [], allowCreate: false });
+    expect(out.membershipCreated).toBe(false);
+  });
+
   it('adds the membership as a plain MEMBER of the SSO org and applies the Member floor', async () => {
     mockResolveMappedRoles.mockResolvedValue({ roleIds: ['r1'], matchedGroups: ['eng'] });
     mockSyncMappedRoles.mockResolvedValue({ added: ['r1'], removed: [] });

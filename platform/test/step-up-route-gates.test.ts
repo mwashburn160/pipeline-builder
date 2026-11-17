@@ -57,7 +57,7 @@ const HANDLERS = [
   'deactivateMember', 'activateMember', 'deleteOrganization', 'restoreOrganization', 'exportOrganization',
   'listDeletedTeams', 'deleteTeam', 'moveOrganization',
   'getOrganizationRoles', 'createOrganizationRole', 'updateOrganizationRole', 'deleteOrganizationRole',
-  'addRoleMember', 'removeRoleMember', 'listOrgDomains', 'addOrgDomain', 'verifyOrgDomain', 'setOrgDomainMode',
+  'addRoleMember', 'removeRoleMember', 'listOrgDomains', 'addOrgDomain', 'verifyOrgDomain', 'setOrgDomainMode', 'setOrgDomainSharing',
   'deleteOrgDomain', 'listOrgJoinRequests', 'decideOrgJoinRequest', 'resetOrgJoinRequest',
   'getOrganizationServiceAccounts', 'getOrganizationServiceAccount', 'createOrganizationServiceAccount',
   'updateOrganizationServiceAccount', 'deleteOrganizationServiceAccount',
@@ -109,6 +109,13 @@ describe('step-up route gates', () => {
     const mw = routeChain(organizationRouter, 'delete', '/:id/service-accounts/:accountId/keys/:keyId');
     expect(mw).toContain('requireAuth');
     expect(mw).not.toContain('requireStepUp');
+  });
+
+  it('sharing a root domain with teams requires step-up after auth; the discovery-mode PATCH does not', () => {
+    const mw = routeChain(organizationRouter, 'patch', '/:id/domains/:domainId/team-sharing');
+    expect(mw).toContain('requireStepUp');
+    expect(mw.indexOf('requireStepUp')).toBeGreaterThan(mw.indexOf('requireAuth'));
+    expect(routeChain(organizationRouter, 'patch', '/:id/domains/:domainId')).not.toContain('requireStepUp');
   });
 
   it('PUT /organization/:id requires step-up after auth', () => {

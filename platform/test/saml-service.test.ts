@@ -72,6 +72,7 @@ jest.unstable_mockModule('../src/utils/redis-client.js', () => ({
 }));
 
 const {
+  buildSamlAuthorizeRequest,
   buildSamlAuthorizeUrl,
   buildSamlLogoutRequestUrl,
   buildSamlLogoutResponseUrl,
@@ -119,8 +120,15 @@ function cfg(overrides: Partial<Parameters<typeof validateSamlResponse>[0]> = {}
  * mints twice.
  */
 async function mintRequestId(): Promise<string> {
-  return requestIdFromAuthorizeUrl(await buildSamlAuthorizeUrl(cfg(), 'state-1'));
+  lastRequestId = requestIdFromAuthorizeUrl(await buildSamlAuthorizeUrl(cfg(), 'state-1'));
+  return lastRequestId;
 }
+
+/** The id the most recent {@link mintRequestId} minted — what the flow's
+ *  pending state would have recorded, and so what the ACS expects. Read in an
+ *  argument list AFTER `await solicited()` so it is the id that call minted. */
+let lastRequestId = '';
+const bound = () => ({ expectedRequestId: lastRequestId });
 
 /** A well-formed, solicited response — the baseline every negative case bends. */
 function goodResponse(over: Partial<Parameters<typeof buildSamlResponse>[1]> = {}, withKeys = keys): string {
@@ -216,7 +224,7 @@ describe('SP-initiated authorize request', () => {
 
 describe('validateSamlResponse — accepting a good assertion', () => {
   it('returns the verified identity with mapped attributes', async () => {
-    const identity = await validateSamlResponse(cfg(), await solicited(), 'state-1', 'state-1');
+    const identity = await validateSamlResponse(cfg(), await solicited(), 'state-1', 'state-1', bound());
     expect(identity).toEqual({
       subject: 'ada@acme.test',
       issuer: IDP_ENTITY,
@@ -246,7 +254,7 @@ describe('validateSamlResponse — accepting a good assertion', () => {
         name: 'http://schemas.microsoft.com/identity/claims/displayname',
         groups: 'http://schemas.microsoft.com/ws/2008/06/identity/claims/groups',
       },
-    }), response, 'state-1', 'state-1');
+    }), response, 'state-1', 'state-1', bound());
     expect(identity.email).toBe('grace@acme.test');
     expect(identity.name).toBe('Grace Hopper');
     expect(identity.groups).toEqual(['Platform']);
@@ -256,19 +264,19 @@ describe('validateSamlResponse — accepting a good assertion', () => {
     const response = await solicited({
       attributes: { email: 'ada@acme.test', groups: 'CN=Pipeline Admins,OU=Groups' },
     });
-    const identity = await validateSamlResponse(cfg(), response, 'state-1', 'state-1');
+    const identity = await validateSamlResponse(cfg(), response, 'state-1', 'state-1', bound());
     expect(identity.groups).toEqual(['CN=Pipeline Admins,OU=Groups']);
   });
 
   it('falls back to an email-shaped NameID when no email attribute is present', async () => {
-    const identity = await validateSamlResponse(cfg(), await solicited({ attributes: {} }), 'state-1', 'state-1');
+    const identity = await validateSamlResponse(cfg(), await solicited({ attributes: {} }), 'state-1', 'state-1', bound());
     expect(identity.email).toBe('ada@acme.test');
     expect(identity.groups).toEqual([]);
   });
 
   it('enforces the org\'s pinned email domains', async () => {
     await expect(
-      validateSamlResponse(cfg({ allowedEmailDomains: ['other.test'] }), await solicited(), 's', 's'),
+      validateSamlResponse(cfg({ allowedEmailDomains: ['other.test'] }), await solicited(), 's', 's', bound()),
     ).rejects.toThrow('SAML_EMAIL_DOMAIN_NOT_ALLOWED');
   });
 });
@@ -276,17 +284,17 @@ describe('validateSamlResponse — accepting a good assertion', () => {
 describe('validateSamlResponse — refusals', () => {
   it('refuses an assertion issued for a different audience', async () => {
     const response = await solicited({ audience: 'https://someone-else.test/sp' });
-    await expect(validateSamlResponse(cfg(), response, 's', 's')).rejects.toThrow('SAML_INVALID_ASSERTION');
+    await expect(validateSamlResponse(cfg(), response, 's', 's', bound())).rejects.toThrow('SAML_INVALID_ASSERTION');
   });
 
   it('refuses an expired assertion', async () => {
     const response = await solicited({ notBeforeMs: -60 * 60_000, notOnOrAfterMs: -30 * 60_000 });
-    await expect(validateSamlResponse(cfg(), response, 's', 's')).rejects.toThrow('SAML_INVALID_ASSERTION');
+    await expect(validateSamlResponse(cfg(), response, 's', 's', bound())).rejects.toThrow('SAML_INVALID_ASSERTION');
   });
 
   it('refuses an assertion that is not yet valid', async () => {
     const response = await solicited({ notBeforeMs: 30 * 60_000, notOnOrAfterMs: 60 * 60_000 });
-    await expect(validateSamlResponse(cfg(), response, 's', 's')).rejects.toThrow('SAML_INVALID_ASSERTION');
+    await expect(validateSamlResponse(cfg(), response, 's', 's', bound())).rejects.toThrow('SAML_INVALID_ASSERTION');
   });
 
   it('tolerates small clock skew either side of the window', async () => {
@@ -294,27 +302,27 @@ describe('validateSamlResponse — refusals', () => {
     // comparison would reject and an IdP a few seconds ahead of us routinely
     // produces.
     const response = await solicited({ notBeforeMs: 30_000, notOnOrAfterMs: 5 * 60_000 });
-    await expect(validateSamlResponse(cfg(), response, 's', 's')).resolves.toMatchObject({ email: 'ada@acme.test' });
+    await expect(validateSamlResponse(cfg(), response, 's', 's', bound())).resolves.toMatchObject({ email: 'ada@acme.test' });
   });
 
   it('refuses an assertion signed by a key the org does not trust', async () => {
     const attacker = generateIdpKeyPair();
     const response = await solicited({ signWith: attacker.privateKey });
-    await expect(validateSamlResponse(cfg(), response, 's', 's')).rejects.toThrow('SAML_INVALID_ASSERTION');
+    await expect(validateSamlResponse(cfg(), response, 's', 's', bound())).rejects.toThrow('SAML_INVALID_ASSERTION');
   });
 
   it('refuses an unsigned assertion even inside a signed response', async () => {
     const response = await solicited({ unsignedAssertion: true });
-    await expect(validateSamlResponse(cfg(), response, 's', 's')).rejects.toThrow('SAML_INVALID_ASSERTION');
+    await expect(validateSamlResponse(cfg(), response, 's', 's', bound())).rejects.toThrow('SAML_INVALID_ASSERTION');
   });
 
   it('refuses an assertion from a different issuer', async () => {
     const response = await solicited({ issuer: 'https://evil-idp.test/saml' });
-    await expect(validateSamlResponse(cfg(), response, 's', 's')).rejects.toThrow('SAML_INVALID_ASSERTION');
+    await expect(validateSamlResponse(cfg(), response, 's', 's', bound())).rejects.toThrow('SAML_INVALID_ASSERTION');
   });
 
   it('refuses a RelayState that does not match the state we minted', async () => {
-    await expect(validateSamlResponse(cfg(), await solicited(), 'their-state', 'our-state'))
+    await expect(validateSamlResponse(cfg(), await solicited(), 'their-state', 'our-state', bound()))
       .rejects.toThrow('SAML_INVALID_STATE');
   });
 });
@@ -322,7 +330,7 @@ describe('validateSamlResponse — refusals', () => {
 describe('IdP-initiated sign-in', () => {
   it('refuses a response with no InResponseTo', async () => {
     const response = goodResponse({ inResponseTo: undefined });
-    await expect(validateSamlResponse(cfg(), response, 's', 's')).rejects.toThrow('SAML_IDP_INITIATED');
+    await expect(validateSamlResponse(cfg(), response, 's', 's', bound())).rejects.toThrow('SAML_IDP_INITIATED');
   });
 
   it('recognizes a solicited response', () => {
@@ -338,23 +346,70 @@ describe('replay', () => {
     // their OWN sign-in and presents it there, so the request-id binding is
     // satisfied and only the assertion-id cache stands in the way.
     const first = await solicited({ assertionId: '_fixed-assertion-id' });
-    await expect(validateSamlResponse(cfg(), first, 's', 's')).resolves.toMatchObject({ email: 'ada@acme.test' });
+    await expect(validateSamlResponse(cfg(), first, 's', 's', bound())).resolves.toMatchObject({ email: 'ada@acme.test' });
 
     const replayed = await solicited({ assertionId: '_fixed-assertion-id' });
-    await expect(validateSamlResponse(cfg(), replayed, 's', 's')).rejects.toThrow('SAML_REPLAYED_ASSERTION');
+    await expect(validateSamlResponse(cfg(), replayed, 's', 's', bound())).rejects.toThrow('SAML_REPLAYED_ASSERTION');
   });
 
   it('does not burn the assertion id when verification fails, so a later valid assertion still works', async () => {
     const attacker = generateIdpKeyPair();
     const forged = await solicited({ assertionId: '_shared-id', signWith: attacker.privateKey });
-    await expect(validateSamlResponse(cfg(), forged, 's', 's')).rejects.toThrow('SAML_INVALID_ASSERTION');
+    await expect(validateSamlResponse(cfg(), forged, 's', 's', bound())).rejects.toThrow('SAML_INVALID_ASSERTION');
     const genuine = await solicited({ assertionId: '_shared-id' });
-    await expect(validateSamlResponse(cfg(), genuine, 's', 's')).resolves.toMatchObject({ email: 'ada@acme.test' });
+    await expect(validateSamlResponse(cfg(), genuine, 's', 's', bound())).resolves.toMatchObject({ email: 'ada@acme.test' });
   });
 
   it('refuses a response answering a request this deployment never made', async () => {
     const response = goodResponse({ inResponseTo: '_never-minted' });
-    await expect(validateSamlResponse(cfg(), response, 's', 's')).rejects.toThrow('SAML_INVALID_ASSERTION');
+    await expect(validateSamlResponse(cfg(), response, 's', 's', { expectedRequestId: '_never-minted' }))
+      .rejects.toThrow('SAML_INVALID_ASSERTION');
+  });
+});
+
+describe('request id bound to the RelayState', () => {
+  it('refuses a genuine response that answers a DIFFERENT in-flight request (victim response, attacker state)', async () => {
+    // The victim's flow: request minted, response issued, never redeemed.
+    const victimResponse = await solicited();
+    const victimRequestId = lastRequestId;
+    // The attacker starts their own flow and posts the victim's response with
+    // their own RelayState — whose pending state names the ATTACKER's request.
+    const attackerRequestId = await mintRequestId();
+    await expect(validateSamlResponse(cfg(), victimResponse, 'atk', 'atk', { expectedRequestId: attackerRequestId }))
+      .rejects.toThrow('SAML_INVALID_STATE');
+    // Refused BEFORE node-saml consumed the victim's request id: the victim can
+    // still complete their own sign-in.
+    await expect(validateSamlResponse(cfg(), victimResponse, 'v', 'v', { expectedRequestId: victimRequestId }))
+      .resolves.toMatchObject({ email: 'ada@acme.test' });
+  });
+
+  it('refuses when no expected request id is supplied', async () => {
+    await expect(validateSamlResponse(cfg(), await solicited(), 's', 's', { expectedRequestId: '' }))
+      .rejects.toThrow('SAML_INVALID_STATE');
+  });
+
+  it('scopes minted request ids by org: another org\'s ACS cannot answer them', async () => {
+    // A response otherwise perfectly addressed to org 2 (its audience and ACS),
+    // answering a request minted for ORG: org 2's request cache has never seen
+    // that id, so it is refused there even with the matching expected id.
+    const requestId = await mintRequestId();
+    const otherOrg = cfg({ orgId: 'org-saml-2' });
+    const forOther = goodResponse({
+      inResponseTo: requestId,
+      audience: 'https://pb.test/api/auth/sso/org-saml-2/saml/metadata',
+      destination: 'https://pb.test/api/auth/sso/org-saml-2/saml/acs',
+    });
+    await expect(validateSamlResponse(otherOrg, forOther, 's', 's', { expectedRequestId: requestId }))
+      .rejects.toThrow('SAML_INVALID_ASSERTION');
+    // Untouched for the org that minted it.
+    await expect(validateSamlResponse(cfg(), goodResponse({ inResponseTo: requestId }), 's', 's', { expectedRequestId: requestId }))
+      .resolves.toMatchObject({ email: 'ada@acme.test' });
+  });
+
+  it('returns the minted id from buildSamlAuthorizeRequest, matching the AuthnRequest ID', async () => {
+    const { url, requestId } = await buildSamlAuthorizeRequest(cfg(), 'state-x');
+    expect(requestIdFromAuthorizeUrl(url)).toBe(requestId);
+    expect(requestId).toMatch(/^_[0-9a-f]{32}$/);
   });
 });
 
@@ -364,17 +419,17 @@ describe('certificate rotation overlap', () => {
     const trustBoth = cfg({ certificates: [incoming.certificate, keys.certificate] });
 
     // Signed by the OUTGOING key — still accepted while its certificate is listed.
-    await expect(validateSamlResponse(trustBoth, await solicited(), 's', 's'))
+    await expect(validateSamlResponse(trustBoth, await solicited(), 's', 's', bound()))
       .resolves.toMatchObject({ email: 'ada@acme.test' });
     // Signed by the INCOMING key — accepted from the moment its certificate is added.
-    await expect(validateSamlResponse(trustBoth, await solicited({}, incoming), 's', 's'))
+    await expect(validateSamlResponse(trustBoth, await solicited({}, incoming), 's', 's', bound()))
       .resolves.toMatchObject({ email: 'ada@acme.test' });
   });
 
   it('refuses the retired certificate once the window is closed', async () => {
     const incoming = generateIdpKeyPair();
     const trustNewOnly = cfg({ certificates: [incoming.certificate] });
-    await expect(validateSamlResponse(trustNewOnly, await solicited(), 's', 's'))
+    await expect(validateSamlResponse(trustNewOnly, await solicited(), 's', 's', bound()))
       .rejects.toThrow('SAML_INVALID_ASSERTION');
   });
 });
@@ -389,12 +444,12 @@ describe('encrypted assertions', () => {
       attributes: { email: 'ada@acme.test', groups: ['Engineering'] },
       inResponseTo: await mintRequestId(),
     }, SP_KEYS.encryption.certificate);
-    await expect(validateSamlResponse(cfg({ encryptAssertions: true }), response, 's', 's'))
+    await expect(validateSamlResponse(cfg({ encryptAssertions: true }), response, 's', 's', bound()))
       .resolves.toMatchObject({ email: 'ada@acme.test', groups: ['Engineering'] });
   });
 
   it('refuses a PLAINTEXT assertion when the org requires encryption (no downgrade)', async () => {
-    await expect(validateSamlResponse(cfg({ encryptAssertions: true }), await solicited(), 's', 's'))
+    await expect(validateSamlResponse(cfg({ encryptAssertions: true }), await solicited(), 's', 's', bound()))
       .rejects.toThrow('SAML_ENCRYPTION_REQUIRED');
   });
 
@@ -406,7 +461,7 @@ describe('encrypted assertions', () => {
       nameId: 'ada@acme.test',
       inResponseTo: await mintRequestId(),
     }, SP_KEYS.encryption.certificate);
-    await expect(validateSamlResponse(cfg(), response, 's', 's')).rejects.toThrow('SAML_UNEXPECTED_ENCRYPTION');
+    await expect(validateSamlResponse(cfg(), response, 's', 's', bound())).rejects.toThrow('SAML_UNEXPECTED_ENCRYPTION');
   });
 
   it('refuses an assertion encrypted to some OTHER key', async () => {
@@ -418,7 +473,7 @@ describe('encrypted assertions', () => {
       nameId: 'ada@acme.test',
       inResponseTo: await mintRequestId(),
     }, other.encryption.certificate);
-    await expect(validateSamlResponse(cfg({ encryptAssertions: true }), response, 's', 's'))
+    await expect(validateSamlResponse(cfg({ encryptAssertions: true }), response, 's', 's', bound()))
       .rejects.toThrow('SAML_INVALID_ASSERTION');
   });
 });
@@ -428,15 +483,16 @@ describe('dry-run (test connection) isolation', () => {
     const testRequestId = requestIdFromAuthorizeUrl(await buildSamlAuthorizeUrl(cfg(), 'ssotest.x', { test: true }));
     const response = goodResponse({ inResponseTo: testRequestId });
     // The SIGN-IN path has never heard of this request id.
-    await expect(validateSamlResponse(cfg(), response, 's', 's')).rejects.toThrow('SAML_INVALID_ASSERTION');
+    await expect(validateSamlResponse(cfg(), response, 's', 's', { expectedRequestId: testRequestId }))
+      .rejects.toThrow('SAML_INVALID_ASSERTION');
     // A fresh assertion answering the same test request is accepted by the test path.
     const again = goodResponse({ inResponseTo: testRequestId });
-    await expect(validateSamlResponse(cfg(), again, 's', 's', { test: true })).resolves.toMatchObject({ email: 'ada@acme.test' });
+    await expect(validateSamlResponse(cfg(), again, 's', 's', { test: true, expectedRequestId: testRequestId })).resolves.toMatchObject({ email: 'ada@acme.test' });
   });
 
   it('never lets a sign-in assertion satisfy the test path', async () => {
     const response = await solicited();
-    await expect(validateSamlResponse(cfg(), response, 's', 's', { test: true })).rejects.toThrow('SAML_INVALID_ASSERTION');
+    await expect(validateSamlResponse(cfg(), response, 's', 's', { test: true, expectedRequestId: lastRequestId })).rejects.toThrow('SAML_INVALID_ASSERTION');
   });
 });
 
@@ -516,6 +572,15 @@ describe('single logout — IdP-initiated', () => {
     const msg = buildRedirectLogoutRequest(keys, { ...base, id: '_fixed-logout' });
     await expect(validateSamlLogoutMessage(cfg(), { binding: 'redirect', ...msg })).resolves.toMatchObject({ kind: 'request' });
     await expect(validateSamlLogoutMessage(cfg(), { binding: 'redirect', ...msg })).rejects.toThrow('SAML_INVALID_LOGOUT');
+  });
+
+  it('scopes the LogoutRequest replay guard by org: the same IdP-chosen ID is independent per org', async () => {
+    const msg = buildRedirectLogoutRequest(keys, { ...base, id: '_shared-logout' });
+    await expect(validateSamlLogoutMessage(cfg(), { binding: 'redirect', ...msg })).resolves.toMatchObject({ kind: 'request' });
+    const otherSlo = 'https://pb.test/api/auth/sso/org-saml-2/saml/slo';
+    const other = buildRedirectLogoutRequest(keys, { ...base, destination: otherSlo, id: '_shared-logout' });
+    await expect(validateSamlLogoutMessage(cfg({ orgId: 'org-saml-2' }), { binding: 'redirect', ...other }))
+      .resolves.toMatchObject({ kind: 'request' });
   });
 
   it('accepts a signed POST-binding LogoutRequest and refuses a forged one', async () => {

@@ -62,6 +62,8 @@ export interface PendingTest {
   /** OIDC only. */
   nonce?: string;
   codeVerifier?: string;
+  /** SAML only: the test AuthnRequest's id — the assertion must answer it. */
+  samlRequestId?: string;
 }
 
 const pendingTests = createPendingStateStore<PendingTest>({
@@ -224,7 +226,12 @@ export async function handleSamlTestAssertion(
   let report: SsoTestReport;
   try {
     const cfg = await getTestableSamlConfig(orgId);
-    const identity = await validateSamlResponse(cfg, samlResponse, relayState, relayState, { test: true });
+    const identity = await validateSamlResponse(cfg, samlResponse, relayState, relayState, {
+      test: true,
+      // Missing on a test started before the binding existed — refused as an
+      // invalid state, like the sign-in path.
+      expectedRequestId: pending.samlRequestId ?? '',
+    });
     report = await dryRunChecks(orgId, { protocol: 'saml' }, identity);
   } catch (err) {
     report = failure('saml', err);

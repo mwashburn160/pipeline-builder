@@ -79,7 +79,7 @@ jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unkno
 jest.unstable_mockModule('../src/services/roles-service.js', () => ({ ensureBaselineRole: (...a: unknown[]) => mockEnsureBaselineRole(...a) }));
 
 const svc = await import('../src/services/org-domain-service.js');
-const { DOMAIN_LIMIT, DOMAIN_NOT_ENTITLED, DOMAIN_NOT_FOUND, DOMAIN_NOT_VERIFIED, DOMAIN_PUBLIC, DOMAIN_TAKEN, DOMAIN_VERIFY_FAILED, JOIN_NOT_ELIGIBLE, JOIN_REQUESTER_GONE, JOIN_REQUEST_NOT_FOUND, JOIN_SEAT_LIMIT } = await import('../src/services/org-domain-errors.js');
+const { DOMAIN_LIMIT, DOMAIN_NOT_ENTITLED, DOMAIN_NOT_FOUND, DOMAIN_NOT_VERIFIED, DOMAIN_PUBLIC, DOMAIN_SHARE_NOT_ROOT, DOMAIN_SHARE_UNVERIFIED, DOMAIN_TAKEN, DOMAIN_VERIFY_FAILED, JOIN_NOT_ELIGIBLE, JOIN_REQUESTER_GONE, JOIN_REQUEST_NOT_FOUND, JOIN_SEAT_LIMIT } = await import('../src/services/org-domain-errors.js');
 const { orgDomainService } = svc;
 
 const entitledOrg = (over: Record<string, unknown> = {}) =>
@@ -204,6 +204,54 @@ describe('setDomainMode', () => {
   });
 });
 
+describe('setDomainSharing', () => {
+  const domainDoc = (over: Record<string, unknown> = {}) => ({
+    _id: 'd1',
+    organizationId: 'org-1',
+    domain: 'acme.com',
+    verified: true,
+    sharedWithTeams: false,
+    save: jest.fn<() => Promise<unknown>>().mockResolvedValue(undefined),
+    ...over,
+  });
+
+  it('shares a verified ROOT domain with the account\'s teams', async () => {
+    const doc = domainDoc();
+    mockDomainFindOne.mockResolvedValue(doc);
+    mockOrgFindById.mockReturnValue(entitledOrg({ parentOrgId: null }));
+    const out: any = await orgDomainService.setDomainSharing('org-1', DID, true);
+    expect(out.sharedWithTeams).toBe(true);
+    expect(doc.save).toHaveBeenCalled();
+  });
+
+  it('refuses to share from a TEAM (only the root owns the account\'s domains)', async () => {
+    const doc = domainDoc();
+    mockDomainFindOne.mockResolvedValue(doc);
+    mockOrgFindById.mockReturnValue(entitledOrg({ parentOrgId: 'root-1' }));
+    await expect(orgDomainService.setDomainSharing('org-1', DID, true)).rejects.toThrow(DOMAIN_SHARE_NOT_ROOT);
+    expect(doc.save).not.toHaveBeenCalled();
+  });
+
+  it('refuses to share an unverified domain', async () => {
+    mockDomainFindOne.mockResolvedValue(domainDoc({ verified: false }));
+    await expect(orgDomainService.setDomainSharing('org-1', DID, true)).rejects.toThrow(DOMAIN_SHARE_UNVERIFIED);
+  });
+
+  it('always allows turning sharing OFF', async () => {
+    const doc = domainDoc({ verified: false, sharedWithTeams: true });
+    mockDomainFindOne.mockResolvedValue(doc);
+    mockOrgFindById.mockReturnValue(entitledOrg({ parentOrgId: 'root-1' }));
+    const out: any = await orgDomainService.setDomainSharing('org-1', DID, false);
+    expect(out.sharedWithTeams).toBe(false);
+  });
+
+  it('404s a malformed or foreign domain id', async () => {
+    await expect(orgDomainService.setDomainSharing('org-1', 'nope', true)).rejects.toThrow(DOMAIN_NOT_FOUND);
+    mockDomainFindOne.mockResolvedValue(null);
+    await expect(orgDomainService.setDomainSharing('org-1', DID, true)).rejects.toThrow(DOMAIN_NOT_FOUND);
+  });
+});
+
 describe('deleteDomain', () => {
   it('deletes and cancels that domain’s pending requests', async () => {
     mockDomainFindOne.mockResolvedValue({ _id: 'd1', organizationId: 'org-1', domain: 'acme.com' });
@@ -319,13 +367,15 @@ describe('reverifyStaleDomains', () => {
   });
 
   it('un-verifies + disables a domain whose TXT proof is definitively gone', async () => {
-    const doc = staleDoc();
+    const doc: ReturnType<typeof staleDoc> & { sharedWithTeams?: boolean } = staleDoc({ sharedWithTeams: true });
     mockDomainFind.mockReturnValue({ limit: () => Promise.resolve([doc]) });
     mockResolveTxt.mockResolvedValue([['pb-verify=DIFFERENT']]); // resolves, but token missing
     const res = await orgDomainService.reverifyStaleDomains(1000);
     expect(res).toEqual({ checked: 1, unverified: 1 });
     expect(doc.verified).toBe(false);
     expect(doc.autoJoin).toBe('off');
+    // A lost proof withdraws team sharing too — re-verifying must re-opt in.
+    expect(doc.sharedWithTeams).toBe(false);
     expect(mockJoinDeleteMany).toHaveBeenCalled(); // pending requests denied
     // The un-verify is the sweep's act, so it is audited under the system actor.
     expect(mockRecordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({

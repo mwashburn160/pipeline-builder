@@ -23,6 +23,13 @@
  * mistyped digit sending someone back to re-enter their password would push
  * people towards weaker factors, and guessing is already bounded twice over, by
  * the route's rate limiter and by the per-user TOTP lockout.
+ *
+ * BOUND TO THE ACCOUNT'S `tokenVersion` at the moment the first factor was
+ * proven. A password reset, a password change or "sign out everywhere" during
+ * the challenge's TTL bumps that version, and the verify leg refuses a
+ * challenge whose recorded version no longer matches — so a first factor that
+ * was proven under credentials the account has since revoked can never be
+ * finished into a session.
  */
 
 import crypto from 'crypto';
@@ -34,6 +41,11 @@ import { createPendingStateStore } from '../helpers/pending-state-store.js';
 interface PendingMfaChallenge {
   /** The account whose password was verified. */
   userId: string;
+  /** The account's `tokenVersion` when the first factor was proven. The
+   *  verify leg refuses the challenge if it has moved since (password reset /
+   *  change, sign-out-everywhere). Absent only on a challenge minted before
+   *  this field existed — refused like a moved one. */
+  tokenVersion?: number;
   /** Active org the completed sign-in should land on — resolved BEFORE the
    *  challenge so the second leg can't be steered somewhere else. */
   orgId?: string;
@@ -58,6 +70,9 @@ export type FirstFactor = Extract<AuthMethod, 'pwd' | 'oauth'>;
 
 /** What the first-factor step hands the challenge. */
 export interface MfaChallengeOptions {
+  /** The account's `tokenVersion` at first-factor proof — see
+   *  {@link PendingMfaChallenge.tokenVersion}. */
+  tokenVersion: number;
   recoveryOnly?: boolean;
   passwordChangeMinLength?: number;
   firstFactor?: FirstFactor;
@@ -80,13 +95,14 @@ export interface IssuedMfaChallenge {
  *  `recoveryOnly` when the only code the account can present is a recovery code. */
 export async function createMfaChallenge(
   userId: string,
-  orgId?: string,
-  opts: MfaChallengeOptions = {},
+  orgId: string | undefined,
+  opts: MfaChallengeOptions,
 ): Promise<IssuedMfaChallenge> {
   const challengeId = crypto.randomBytes(32).toString('base64url');
   const expiresAt = Math.floor((Date.now() + config.auth.totp.challengeTtlMs) / 1000);
   await challenges.put(challengeId, {
     userId,
+    tokenVersion: opts.tokenVersion,
     ...(orgId ? { orgId } : {}),
     ...(opts.recoveryOnly ? { recoveryOnly: true } : {}),
     ...(opts.passwordChangeMinLength ? { passwordChangeMinLength: opts.passwordChangeMinLength } : {}),

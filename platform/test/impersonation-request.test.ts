@@ -123,18 +123,30 @@ describe('createRequest', () => {
   });
 });
 
+/** The operator's state at redemption, stamped on the record. */
+const OPERATOR = { tokenVersion: 7, isSuperAdmin: true };
+
 describe('consume', () => {
+  it('stamps the operator\'s tokenVersion and superadmin flag on the consumed record', async () => {
+    mockFindOneAndUpdate.mockResolvedValue({ _id: 'req-1', expiresAt: new Date(Date.now() + 1000) });
+    await impersonationService.consume('req-1', 'jti-1', OPERATOR);
+    const update = mockFindOneAndUpdate.mock.calls[0]![1] as any;
+    expect(update.$set).toMatchObject({
+      status: 'consumed', jti: 'jti-1', requesterTokenVersion: 7, requesterSuperAdmin: true,
+    });
+  });
+
   it('redeems an approved request', async () => {
     const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
     mockFindOneAndUpdate.mockResolvedValue({ _id: 'req-1', status: 'consumed', expiresAt });
 
     // The record's window comes back so the token's exp can be capped at it.
-    await expect(impersonationService.consume('req-1', 'jti-1')).resolves.toEqual({ ok: true, expiresAt });
+    await expect(impersonationService.consume('req-1', 'jti-1', OPERATOR)).resolves.toEqual({ ok: true, expiresAt });
   });
 
   it('guards on status AND expiry in the same query', async () => {
     mockFindOneAndUpdate.mockResolvedValue({ _id: 'req-1' });
-    await impersonationService.consume('req-1', 'jti-1');
+    await impersonationService.consume('req-1', 'jti-1', OPERATOR);
 
     // Both conditions must live in the filter. Read-then-write would let a
     // request lapse — or be redeemed elsewhere — between check and update.
@@ -148,7 +160,7 @@ describe('consume', () => {
     mockFindOneAndUpdate.mockResolvedValue(null);
     mockFindById.mockReturnValue(leanOf({ status: 'consumed', expiresAt: new Date(Date.now() + 1000) }));
 
-    await expect(impersonationService.consume('req-1', 'jti-1')).resolves.toEqual({
+    await expect(impersonationService.consume('req-1', 'jti-1', OPERATOR)).resolves.toEqual({
       ok: false, code: IMP_NOT_APPROVED,
     });
   });
@@ -157,7 +169,7 @@ describe('consume', () => {
     mockFindOneAndUpdate.mockResolvedValue(null);
     mockFindById.mockReturnValue(leanOf({ status: 'approved', expiresAt: new Date(Date.now() - 1000) }));
 
-    await expect(impersonationService.consume('req-1', 'jti-1')).resolves.toEqual({
+    await expect(impersonationService.consume('req-1', 'jti-1', OPERATOR)).resolves.toEqual({
       ok: false, code: IMP_EXPIRED,
     });
     // "Too late" and "already used" are different operator-facing problems.
@@ -171,7 +183,7 @@ describe('consume', () => {
     mockFindOneAndUpdate.mockResolvedValue(null);
     mockFindById.mockReturnValue(leanOf({ status: 'denied', expiresAt: new Date(Date.now() + 1000) }));
 
-    await expect(impersonationService.consume('req-1', 'jti-1')).resolves.toEqual({
+    await expect(impersonationService.consume('req-1', 'jti-1', OPERATOR)).resolves.toEqual({
       ok: false, code: IMP_NOT_APPROVED,
     });
     expect(mockUpdateOne).not.toHaveBeenCalled();

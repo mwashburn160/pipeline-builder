@@ -6,7 +6,7 @@ import { promises as dns } from 'dns';
 import { createLogger, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID, TIER_FEATURES, type PlanTier } from '@pipeline-builder/api-core';
 import { ADMIN_ORG_ROLES } from '@pipeline-builder/api-core/wire-vocabulary';
 import { Types, isValidObjectId, type QueryFilter } from 'mongoose';
-import { DOMAIN_TAKEN, DOMAIN_NOT_FOUND, DOMAIN_NOT_VERIFIED, DOMAIN_VERIFY_FAILED, DOMAIN_NOT_ENTITLED, DOMAIN_LIMIT, DOMAIN_PUBLIC, JOIN_NOT_ELIGIBLE, JOIN_SEAT_LIMIT, JOIN_REQUEST_NOT_FOUND, JOIN_REQUESTER_GONE } from './org-domain-errors.js';
+import { DOMAIN_TAKEN, DOMAIN_NOT_FOUND, DOMAIN_NOT_VERIFIED, DOMAIN_VERIFY_FAILED, DOMAIN_NOT_ENTITLED, DOMAIN_LIMIT, DOMAIN_PUBLIC, DOMAIN_SHARE_NOT_ROOT, DOMAIN_SHARE_UNVERIFIED, JOIN_NOT_ELIGIBLE, JOIN_SEAT_LIMIT, JOIN_REQUEST_NOT_FOUND, JOIN_REQUESTER_GONE } from './org-domain-errors.js';
 import { ensureBaselineRole } from './roles-service.js';
 import type { DomainJoinMode } from '../constants/vocabulary.js';
 import { resolveOrgLineage } from '../helpers/org-hierarchy.js';
@@ -217,6 +217,9 @@ class OrgDomainService {
       const previousMode = doc.autoJoin;
       doc.verified = false;
       doc.autoJoin = 'off';
+      // A lost proof also withdraws team sharing: a later re-verification must
+      // not silently restore teams' authority over the domain.
+      doc.sharedWithTeams = false;
       await doc.save();
       const cancelled = await this.cancelPendingRequestsForDomain(String(doc.organizationId), doc.domain);
       unverified++;
@@ -254,6 +257,27 @@ class OrgDomainService {
     await doc.save();
     // Turning discovery off strands any pending requests from this domain — deny them.
     if (mode === 'off') await this.cancelPendingRequestsForDomain(orgId, doc.domain);
+    return doc;
+  }
+
+  /**
+   * Share (or stop sharing) a ROOT org's verified domain with the account's
+   * teams. While shared, a team may vouch for the domain on its identity-trust
+   * paths (its own SSO/SAML sign-in, SCIM, direct add) — see `ownsVerifiedDomain`.
+   * Refused on a team (only the root owns the account's domains) and, when
+   * turning sharing ON, on an unverified domain. Turning it off always succeeds.
+   */
+  async setDomainSharing(orgId: string, domainId: string, shared: boolean): Promise<OrgDomainDocument> {
+    if (!isValidObjectId(domainId)) throw new Error(DOMAIN_NOT_FOUND);
+    const doc = await OrgDomain.findOne({ _id: domainId, organizationId: orgId });
+    if (!doc) throw new Error(DOMAIN_NOT_FOUND);
+    if (shared) {
+      const org = await Organization.findById(toOrgId(orgId)).select('parentOrgId').lean();
+      if ((org as { parentOrgId?: unknown } | null)?.parentOrgId) throw new Error(DOMAIN_SHARE_NOT_ROOT);
+      if (!doc.verified) throw new Error(DOMAIN_SHARE_UNVERIFIED);
+    }
+    doc.sharedWithTeams = shared;
+    await doc.save();
     return doc;
   }
 

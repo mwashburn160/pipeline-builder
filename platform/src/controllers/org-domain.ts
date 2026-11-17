@@ -7,7 +7,7 @@ import { canManageOrgScope, ensureAuthenticated, forbid, withController } from '
 import { incCounter } from '../observability/metrics.js';
 import { DOMAIN_ERROR_MAP } from '../services/org-domain-errors.js';
 import { orgDomainService, VERIFY_RECORD_HOST, VERIFY_RECORD_VALUE } from '../services/org-domain-service.js';
-import { validateBody, addDomainSchema, setDomainModeSchema } from '../utils/validation.js';
+import { validateBody, addDomainSchema, setDomainModeSchema, setDomainSharingSchema } from '../utils/validation.js';
 
 const logger = createLogger('org-domain-controller');
 
@@ -19,12 +19,13 @@ function verifyInstructions(domain: string, token: string) {
 }
 
 /** Serialize a domain doc for the admin UI (includes the token + DNS hint until verified). */
-function domainView(d: { _id: unknown; domain: string; verified: boolean; verificationToken: string; autoJoin: string }) {
+function domainView(d: { _id: unknown; domain: string; verified: boolean; verificationToken: string; autoJoin: string; sharedWithTeams?: boolean }) {
   return {
     id: String(d._id),
     domain: d.domain,
     verified: d.verified,
     autoJoin: d.autoJoin,
+    sharedWithTeams: d.sharedWithTeams === true,
     ...(d.verified ? {} : { verification: verifyInstructions(d.domain, d.verificationToken) }),
   };
 }
@@ -81,6 +82,31 @@ export const setOrgDomainMode = withController('Set org domain mode', async (req
   if (!body) return;
   const doc = await orgDomainService.setDomainMode(id, domainId, body.autoJoin);
   audit(req, 'org.domain.mode', { targetType: 'organization', targetId: id, affectedOrgId: id, details: { domain: doc.domain, autoJoin: doc.autoJoin } });
+  sendSuccess(res, 200, { domain: domainView(doc) });
+}, DOMAIN_ERROR_MAP);
+
+/**
+ * PATCH /organization/:id/domains/:domainId/team-sharing — a ROOT admin shares
+ * (or stops sharing) a verified domain with the account's teams, letting their
+ * IdPs / SCIM vouch for addresses at it. Off by default; a security-relevant
+ * delegation, so the route requires step-up and the change is audited with its
+ * before/after.
+ */
+export const setOrgDomainSharing = withController('Set org domain team sharing', async (req, res) => {
+  if (!ensureAuthenticated(req, res)) return;
+  const id = getParam(req.params, 'id')!;
+  if (!(await canManageOrgScope(req, id))) return forbid(req, res, 'org-admin', 'You can only manage an organization you administer');
+  const domainId = getParam(req.params, 'domainId')!;
+  const body = validateBody(setDomainSharingSchema, req.body, res);
+  if (!body) return;
+  const doc = await orgDomainService.setDomainSharing(id, domainId, body.sharedWithTeams);
+  audit(req, 'org.domain.share', {
+    targetType: 'organization',
+    targetId: id,
+    affectedOrgId: id,
+    details: { domain: doc.domain, domainId, sharedWithTeams: doc.sharedWithTeams },
+  });
+  logger.info(`Domain ${doc.domain} team sharing ${doc.sharedWithTeams ? 'on' : 'off'} for org ${id} by ${req.user!.sub}`);
   sendSuccess(res, 200, { domain: domainView(doc) });
 }, DOMAIN_ERROR_MAP);
 

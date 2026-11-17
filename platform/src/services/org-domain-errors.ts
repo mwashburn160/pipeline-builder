@@ -18,6 +18,10 @@ export const DOMAIN_VERIFY_FAILED = 'DOMAIN_VERIFY_FAILED';
 export const DOMAIN_NOT_ENTITLED = 'DOMAIN_NOT_ENTITLED';
 export const DOMAIN_LIMIT = 'DOMAIN_LIMIT';
 export const DOMAIN_PUBLIC = 'DOMAIN_PUBLIC';
+/** Sharing a domain with teams requires it to be verified. */
+export const DOMAIN_SHARE_UNVERIFIED = 'DOMAIN_SHARE_UNVERIFIED';
+/** Only an account ROOT can share its domains with its teams. */
+export const DOMAIN_SHARE_NOT_ROOT = 'DOMAIN_SHARE_NOT_ROOT';
 export const JOIN_NOT_ELIGIBLE = 'JOIN_NOT_ELIGIBLE';
 export const JOIN_SEAT_LIMIT = 'JOIN_SEAT_LIMIT';
 export const JOIN_REQUEST_NOT_FOUND = 'JOIN_REQUEST_NOT_FOUND';
@@ -34,6 +38,8 @@ export const DOMAIN_ERROR_MAP: ErrorMap = {
   [DOMAIN_NOT_ENTITLED]: { status: 403, message: 'Domain-based join requires the Team or Enterprise tier' },
   [DOMAIN_LIMIT]: { status: 409, message: 'This organization has reached its domain limit' },
   [DOMAIN_PUBLIC]: { status: 400, message: 'Public email providers (e.g. gmail.com) cannot be used for domain-based join' },
+  [DOMAIN_SHARE_UNVERIFIED]: { status: 409, message: 'Verify the domain before sharing it with teams' },
+  [DOMAIN_SHARE_NOT_ROOT]: { status: 409, message: 'Only the account\'s top-level organization can share a domain with its teams' },
   [JOIN_NOT_ELIGIBLE]: { status: 409, message: 'This domain is no longer configured for join — the request can’t be approved' },
   [JOIN_REQUEST_NOT_FOUND]: { status: 404, message: 'Join request not found' },
   [JOIN_REQUESTER_GONE]: { status: 410, message: 'The requesting user no longer exists' },

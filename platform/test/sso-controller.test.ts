@@ -34,6 +34,8 @@ const mockExchangeAndValidate = jest.fn<AnyFn>();
 const mockFindOrCreate = jest.fn<AnyFn>();
 const mockIssueTokens = jest.fn<AnyFn>();
 const mockAssertSeat = jest.fn<AnyFn>();
+const mockAssertExistingMember = jest.fn<AnyFn>();
+const mockMayAutoProvision = jest.fn<AnyFn>();
 const mockProvisionJit = jest.fn<AnyFn>();
 const mockAudit = jest.fn<AnyFn>();
 
@@ -67,6 +69,7 @@ jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({
   getEnforcedSamlConfig: jest.fn(async () => { throw new Error('SAML_NOT_CONFIGURED'); }),
   findSsoCoverageForEmail: (...a: unknown[]) => mockFindSsoCoverageForEmail(...a),
   assertSsoIdentityTrusted: (...a: unknown[]) => mockAssertSsoIdentityTrusted(...a),
+  mayAutoProvisionMembership: (...a: unknown[]) => mockMayAutoProvision(...a),
   rejectIfSsoEnforced: async () => false,
 }));
 
@@ -78,6 +81,7 @@ jest.unstable_mockModule('../src/services/oidc-service.js', () => ({
     OIDC_INVALID_STATE: { status: 403, message: 'Invalid or expired SSO state' },
     OIDC_EMAIL_DOMAIN_NOT_VERIFIED: { status: 403, message: 'domain not verified' },
     JIT_SEAT_LIMIT: { status: 403, message: 'no seats left' },
+    JIT_NOT_MEMBER: { status: 403, message: 'existing members only' },
   },
   buildAuthorizeUrl: (...a: unknown[]) => mockBuildAuthorizeUrl(...a),
   exchangeAndValidate: (...a: unknown[]) => mockExchangeAndValidate(...a),
@@ -91,6 +95,7 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
 // the identity into an account, then provisions the membership + mapped Roles.
 jest.unstable_mockModule('../src/services/sso-jit-service.js', () => ({
   assertJitSeatAvailable: (...a: unknown[]) => mockAssertSeat(...a),
+  assertExistingMember: (...a: unknown[]) => mockAssertExistingMember(...a),
   provisionJitMembership: (...a: unknown[]) => mockProvisionJit(...a),
 }));
 
@@ -160,6 +165,8 @@ beforeEach(() => {
   mockIssueTokens.mockResolvedValue({ accessToken: 'a', refreshToken: 'r' });
   mockAssertSsoIdentityTrusted.mockResolvedValue(undefined);
   mockAssertSeat.mockResolvedValue(undefined);
+  mockAssertExistingMember.mockResolvedValue(undefined);
+  mockMayAutoProvision.mockResolvedValue(true);
   mockProvisionJit.mockResolvedValue({ membershipCreated: false, matchedGroups: [], rolesAdded: [], rolesRemoved: [] });
 });
 afterEach(() => { jest.clearAllMocks(); });
@@ -257,7 +264,9 @@ describe('handleSsoCallback (state lifecycle + org binding)', () => {
     const res = makeRes();
     await (handleSsoCallback as any)({ ...browser(), params: { orgId: 'org-1' }, body: { code: 'c', state } }, res);
 
-    expect(mockProvisionJit).toHaveBeenCalledWith({ orgId: 'org-1', user: { _id: 'u1' }, groups: ['eng'] });
+    expect(mockProvisionJit).toHaveBeenCalledWith({ orgId: 'org-1', user: { _id: 'u1' }, groups: ['eng'], allowCreate: true });
+    // A non-Google IdP never needs the existing-member pre-flight.
+    expect(mockAssertExistingMember).not.toHaveBeenCalled();
     expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'sso.jit.provision', expect.objectContaining({
       affectedOrgId: 'org-1',
     }));
@@ -280,6 +289,75 @@ describe('handleSsoCallback (state lifecycle + org binding)', () => {
     expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'sso.jit.refused', expect.objectContaining({
       outcome: 'failure',
       details: expect.objectContaining({ reason: 'seat_limit' }),
+    }));
+  });
+
+  it('Google IdP on an UNVERIFIED domain: refuses a non-member before any account is created', async () => {
+    const state = await mintState('org-1');
+    mockGetEnforcedLoginConfig.mockResolvedValue({ provider: 'google' });
+    mockExchangeAndValidate.mockResolvedValue({ subject: 's', issuer: 'https://accounts.google.com', email: 'stranger@gmail.com', groups: [] });
+    mockMayAutoProvision.mockResolvedValue(false);
+    mockAssertExistingMember.mockRejectedValue(new Error('JIT_NOT_MEMBER'));
+
+    const res = makeRes();
+    await (handleSsoCallback as any)({ ...browser(), params: { orgId: 'org-1' }, body: { code: 'c', state } }, res);
+
+    expect(mockMayAutoProvision).toHaveBeenCalledWith('org-1', 'stranger@gmail.com', { protocol: 'oidc', provider: 'google' });
+    expect(mockAssertExistingMember).toHaveBeenCalledWith('org-1', 'stranger@gmail.com');
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ message: 'existing members only' }));
+    expect(mockFindOrCreate).not.toHaveBeenCalled();
+    expect(mockProvisionJit).not.toHaveBeenCalled();
+    expect(mockIssueTokens).not.toHaveBeenCalled();
+    expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'sso.jit.refused', expect.objectContaining({
+      details: expect.objectContaining({ reason: 'not_member' }),
+    }));
+  });
+
+  it('Google IdP on an UNVERIFIED domain: an existing member signs in, with membership creation disabled', async () => {
+    const state = await mintState('org-1');
+    mockGetEnforcedLoginConfig.mockResolvedValue({ provider: 'google' });
+    mockExchangeAndValidate.mockResolvedValue({ subject: 's', issuer: 'https://accounts.google.com', email: 'member@gmail.com', groups: [] });
+    mockMayAutoProvision.mockResolvedValue(false);
+    mockFindOrCreate.mockResolvedValue({ _id: 'u1' });
+
+    const res = makeRes();
+    await (handleSsoCallback as any)({ ...browser(), params: { orgId: 'org-1' }, body: { code: 'c', state } }, res);
+
+    expect(mockProvisionJit).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'org-1', allowCreate: false }));
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('Google IdP on a VERIFIED domain: JIT may create the membership', async () => {
+    const state = await mintState('org-1');
+    mockGetEnforcedLoginConfig.mockResolvedValue({ provider: 'google' });
+    mockExchangeAndValidate.mockResolvedValue({ subject: 's', issuer: 'https://accounts.google.com', email: 'new@acme.com', groups: [] });
+    mockMayAutoProvision.mockResolvedValue(true);
+    mockFindOrCreate.mockResolvedValue({ _id: 'u1' });
+
+    const res = makeRes();
+    await (handleSsoCallback as any)({ ...browser(), params: { orgId: 'org-1' }, body: { code: 'c', state } }, res);
+
+    expect(mockAssertExistingMember).not.toHaveBeenCalled();
+    expect(mockProvisionJit).toHaveBeenCalledWith(expect.objectContaining({ allowCreate: true }));
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('labels a non-member refusal from the provisioning backstop as not_member', async () => {
+    const state = await mintState('org-1');
+    mockGetEnforcedLoginConfig.mockResolvedValue({ provider: 'google' });
+    mockExchangeAndValidate.mockResolvedValue({ subject: 's', issuer: 'https://accounts.google.com', email: 'm@gmail.com', groups: [] });
+    mockMayAutoProvision.mockResolvedValue(false);
+    mockFindOrCreate.mockResolvedValue({ _id: 'u1' });
+    mockProvisionJit.mockRejectedValue(new Error('JIT_NOT_MEMBER'));
+
+    const res = makeRes();
+    await (handleSsoCallback as any)({ ...browser(), params: { orgId: 'org-1' }, body: { code: 'c', state } }, res);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockIssueTokens).not.toHaveBeenCalled();
+    expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'sso.jit.refused', expect.objectContaining({
+      details: expect.objectContaining({ reason: 'not_member' }),
     }));
   });
 

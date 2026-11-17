@@ -31,7 +31,7 @@ import { type PendingTest, isTestState, mintTestState, rememberTest, resolveTest
 import { incCounter } from '../observability/metrics.js';
 import { OIDC_ERROR_MAP, buildAuthorizeUrl } from '../services/oidc-service.js';
 import { orgIdpService } from '../services/org-idp-service.js';
-import { SAML_ERROR_MAP, buildSamlAuthorizeUrl } from '../services/saml-service.js';
+import { SAML_ERROR_MAP, buildSamlAuthorizeRequest } from '../services/saml-service.js';
 import { ssoTestCompleteSchema, validateBody } from '../utils/validation.js';
 
 const logger = createLogger('sso-test');
@@ -64,8 +64,9 @@ export const startSsoTest = withController('Start SSO test', async (req, res) =>
 
   let url: string;
   if (stored.protocol === 'saml') {
-    url = await buildSamlAuthorizeUrl(await getTestableSamlConfig(orgId), state, { test: true });
-    await rememberTest(state, base);
+    const authorize = await buildSamlAuthorizeRequest(await getTestableSamlConfig(orgId), state, { test: true });
+    url = authorize.url;
+    await rememberTest(state, { ...base, samlRequestId: authorize.requestId });
   } else {
     const nonce = crypto.randomBytes(16).toString('hex');
     const authorize = await buildAuthorizeUrl(await getTestableLoginConfig(orgId), state, nonce);

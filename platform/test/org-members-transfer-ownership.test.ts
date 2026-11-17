@@ -61,6 +61,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   User: { updateMany: (...a: unknown[]) => mockUserUpdateMany(...a) },
   UserOrganization: { findOne: (...a: unknown[]) => mockUoFindOne(...a) },
   RoleAssignment: {},
+  // Linking stub: org-members-service revokes a leaving member's invitations.
+  Invitation: {},
 }));
 
 const { orgMembersService } = await import('../src/services/org-members-service.js');

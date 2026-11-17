@@ -110,6 +110,21 @@ export interface ImpersonationRequestData {
    * their own account.
    */
   jti?: string;
+  /**
+   * The OPERATOR's hard `tokenVersion` when the session was redeemed. Every
+   * request made under the session re-reads the operator and refuses it once
+   * this has moved — so signing the operator out everywhere, resetting their
+   * password or deleting them ends the sessions they opened, not only their
+   * own. Set on redemption; a consumed record without it fails closed.
+   */
+  requesterTokenVersion?: number;
+  /**
+   * Whether the operator held the superadmin flag at redemption. When true, the
+   * session also ends the moment they no longer do (a demoted sysadmin keeps no
+   * session opened on that authority). An ancestor-org admin's session records
+   * false: its authority is a tenant permission, not the flag.
+   */
+  requesterSuperAdmin?: boolean;
   /** Who decided, when a human did. Unset for auto-approvals. */
   decidedBy?: Types.ObjectId;
   decidedAt?: Date;
@@ -153,6 +168,8 @@ const impersonationRequestSchema = new Schema<ImpersonationRequestData, Imperson
     approverUserId: { type: Schema.Types.ObjectId },
     subjectConsentRequired: { type: Boolean },
     jti: { type: String },
+    requesterTokenVersion: { type: Number },
+    requesterSuperAdmin: { type: Boolean },
     decidedBy: { type: Schema.Types.ObjectId },
     decidedAt: { type: Date },
     revokedBy: { type: Schema.Types.ObjectId },

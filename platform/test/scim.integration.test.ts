@@ -96,8 +96,9 @@ suite('SCIM 2.0 provisioning (real Mongo replica set)', () => {
     await m.Organization.updateOne({ _id: org._id }, { $set: { owner: owner._id } });
     await roles.seedDefaultRoles(id, owner._id);
     // A VERIFIED domain: without one SCIM refuses to provision at all. `domain:
-    // null` makes a team that inherits its ROOT's verified domain instead (the
-    // `verified` partial-unique index allows only one org per domain).
+    // null` makes a team with no domain of its own (the `verified` partial-unique
+    // index allows only one org per domain); it may vouch for its ROOT's domain
+    // only once the root shares it with teams (`sharedWithTeams`).
     if (opts.domain !== null) {
       await m.OrgDomain.create({
         organizationId: id,
@@ -478,10 +479,31 @@ suite('SCIM 2.0 provisioning (real Mongo replica set)', () => {
 
   // -- Tenancy --------------------------------------------------------------
 
+  it('a TEAM may NOT provision at its root\'s domain by default — no root-account takeover', async () => {
+    const teamId = await makeOrg({ parentOrgId: orgId }, { domain: null });
+    const teamCtx = { orgId: teamId, entitled: true };
+    // The root OWNER's own address: a team's SCIM client must not staple a
+    // membership (and its directory-driven Roles) onto that account.
+    const rootOwner = await m.User.findOne({ email: `owner-${orgId}@acme.com` }).lean();
+    await expect(scim.createUser(teamCtx, { userName: rootOwner.email }))
+      .rejects.toMatchObject({ status: 400, scimType: 'invalidValue' });
+    await expect(scim.createUser(teamCtx, { userName: 'alice@acme.com' }))
+      .rejects.toMatchObject({ status: 400, scimType: 'invalidValue' });
+    expect(await m.UserOrganization.exists({ userId: rootOwner._id, organizationId: teamId })).toBeNull();
+  });
+
+  it('a TEAM may provision at its root\'s domain once the root SHARES it with teams', async () => {
+    const teamId = await makeOrg({ parentOrgId: orgId }, { domain: null });
+    await m.OrgDomain.updateOne({ organizationId: orgId, domain: 'acme.com' }, { $set: { sharedWithTeams: true } });
+    const out = await scim.createUser({ orgId: teamId, entitled: true }, { userName: 'alice@acme.com' });
+    expect(out.action).toBe('create');
+  });
+
   it('only ever touches its OWN org', async () => {
-    // A TEAM under the same account root: it inherits the root's verified domain,
-    // so the same person can legitimately be provisioned into both.
+    // A TEAM under the same account root that the root SHARED its verified
+    // domain with, so the same person can legitimately be provisioned into both.
     const otherOrgId = await makeOrg({ parentOrgId: orgId }, { domain: null });
+    await m.OrgDomain.updateOne({ organizationId: orgId, domain: 'acme.com' }, { $set: { sharedWithTeams: true } });
     const alice = (await createAlice()).resource.id;
 
     // The same person, provisioned into the second org by its own SCIM client.

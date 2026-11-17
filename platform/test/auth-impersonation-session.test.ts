@@ -84,7 +84,23 @@ beforeEach(() => {
     tokenVersion: 1,
     organizationId: 'org-a',
   });
-  mockUserFindById.mockReturnValue(selectLean({ _id: 'target-user', tokenVersion: 1 }));
+  operator = { _id: 'sysadmin-1', tokenVersion: 5, isSuperAdmin: true };
+  mockUserFindById.mockImplementation((id: unknown) => (id === 'sysadmin-1'
+    ? selectLean(operator)
+    : selectLean({ _id: 'target-user', tokenVersion: 1 })));
+});
+
+/** The operator's live row, as requireAuth re-reads it. */
+let operator: Record<string, unknown> | null = null;
+/** A live session record redeemed by `sysadmin-1` at tokenVersion 5, as a superadmin. */
+const live = (over: Record<string, unknown> = {}) => ({
+  status: 'consumed',
+  targetUserId: 'target-user',
+  expiresAt: future(),
+  requesterId: 'sysadmin-1',
+  requesterTokenVersion: 5,
+  requesterSuperAdmin: true,
+  ...over,
 });
 
 /** A record window that is still open. */
@@ -92,7 +108,7 @@ const future = (): Date => new Date(Date.now() + 10 * 60 * 1000);
 
 describe('requireAuth — impersonation session', () => {
   it('authenticates a live (consumed) session', async () => {
-    mockImpFindOne.mockReturnValue(selectLean({ status: 'consumed', targetUserId: 'target-user', expiresAt: future() }));
+    mockImpFindOne.mockReturnValue(selectLean(live()));
     const res = makeRes(); const next = jest.fn();
 
     await (requireAuth as any)(req(), res, next);
@@ -102,7 +118,7 @@ describe('requireAuth — impersonation session', () => {
   });
 
   it('resolves an impersonation token through the impersonation record', async () => {
-    mockImpFindOne.mockReturnValue(selectLean({ status: 'consumed', targetUserId: 'target-user', expiresAt: future() }));
+    mockImpFindOne.mockReturnValue(selectLean(live()));
     const res = makeRes(); const next = jest.fn();
 
     await (requireAuth as any)(req(), res, next);
@@ -169,8 +185,83 @@ describe('requireAuth — impersonation session', () => {
     expect(next).not.toHaveBeenCalled();
   });
 
+  it('ends the session once the OPERATOR\'s tokenVersion moves (signed out everywhere / password reset)', async () => {
+    mockImpFindOne.mockReturnValue(selectLean(live()));
+    operator = { _id: 'sysadmin-1', tokenVersion: 6, isSuperAdmin: true };
+    const res = makeRes(); const next = jest.fn();
+
+    await (requireAuth as any)(req(), res, next);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ message: 'Impersonation session ended' }));
+    expect(next).not.toHaveBeenCalled();
+    // The operator is read by the id the RECORD names.
+    expect(mockUserFindById).toHaveBeenCalledWith('sysadmin-1');
+  });
+
+  it('ends the session once the operator is deleted', async () => {
+    mockImpFindOne.mockReturnValue(selectLean(live()));
+    operator = null;
+    const res = makeRes(); const next = jest.fn();
+    await (requireAuth as any)(req(), res, next);
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('ends a superadmin-opened session once the operator loses the flag', async () => {
+    mockImpFindOne.mockReturnValue(selectLean(live()));
+    operator = { _id: 'sysadmin-1', tokenVersion: 5, isSuperAdmin: false };
+    const res = makeRes(); const next = jest.fn();
+    await (requireAuth as any)(req(), res, next);
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('admits a session opened under tenant (ancestor-admin) authority without the superadmin flag', async () => {
+    mockImpFindOne.mockReturnValue(selectLean(live({ requesterSuperAdmin: false })));
+    operator = { _id: 'sysadmin-1', tokenVersion: 5 };
+    const res = makeRes(); const next = jest.fn();
+    await (requireAuth as any)(req(), res, next);
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('treats an operator row with no tokenVersion as version 0', async () => {
+    mockImpFindOne.mockReturnValue(selectLean(live({ requesterTokenVersion: 0 })));
+    operator = { _id: 'sysadmin-1', isSuperAdmin: true };
+    const res = makeRes(); const next = jest.fn();
+    await (requireAuth as any)(req(), res, next);
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('fails closed on a consumed record without the operator stamp (redeemed before it existed)', async () => {
+    mockImpFindOne.mockReturnValue(selectLean(live({ requesterTokenVersion: undefined })));
+    const res = makeRes(); const next = jest.fn();
+    await (requireAuth as any)(req(), res, next);
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(mockUserFindById).not.toHaveBeenCalledWith('sysadmin-1');
+  });
+
+  it('FAILS CLOSED when the operator cannot be read', async () => {
+    mockImpFindOne.mockReturnValue(selectLean(live()));
+    mockUserFindById.mockImplementation((id: unknown) => (id === 'sysadmin-1'
+      ? selectLeanThrows()
+      : selectLean({ _id: 'target-user', tokenVersion: 1 })));
+    const res = makeRes(); const next = jest.fn();
+    await (requireAuth as any)(req(), res, next);
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('rejects a token whose impersonatorId is not the operator who redeemed the record', async () => {
+    mockImpFindOne.mockReturnValue(selectLean(live({ requesterId: 'someone-else' })));
+    const res = makeRes(); const next = jest.fn();
+    await (requireAuth as any)(req(), res, next);
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
+  });
+
   it('rejects a jti/sub mismatch', async () => {
-    mockImpFindOne.mockReturnValue(selectLean({ status: 'consumed', targetUserId: 'someone-else', expiresAt: future() }));
+    mockImpFindOne.mockReturnValue(selectLean(live({ targetUserId: 'someone-else' })));
     const res = makeRes(); const next = jest.fn();
 
     await (requireAuth as any)(req(), res, next);
@@ -205,7 +296,7 @@ describe('requireAuth — impersonation session', () => {
 
 describe('requireAuth — read-only impersonation backstop', () => {
   beforeEach(() => {
-    mockImpFindOne.mockReturnValue(selectLean({ status: 'consumed', targetUserId: 'target-user', expiresAt: future() }));
+    mockImpFindOne.mockReturnValue(selectLean(live()));
   });
 
   it('refuses a WRITE on the verified claims (not only the pre-auth peek)', async () => {

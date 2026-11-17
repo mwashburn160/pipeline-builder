@@ -395,7 +395,7 @@ describe('handleCallback (OAUTH_ERROR_MAP wiring)', () => {
     global.fetch = jest.fn<AnyFn>()
       .mockResolvedValueOnce(okJson({ access_token: 'tok' }))
       .mockResolvedValueOnce(okJson({ sub: 'g-7', email: 'ok@x.com', email_verified: true })) as any;
-    mockFindOrCreate.mockResolvedValue({ _id: 'u1', lastActiveOrgId: { toString: () => 'org-1' } });
+    mockFindOrCreate.mockResolvedValue({ _id: 'u1', lastActiveOrgId: { toString: () => 'org-1' }, tokenVersion: 6 });
     mockSignInMethods.mockResolvedValueOnce({ hasPassword: true, hasProvider: true, passkeyCount: 0, hasTotp: true });
 
     const res = makeRes();
@@ -403,7 +403,8 @@ describe('handleCallback (OAUTH_ERROR_MAP wiring)', () => {
 
     expect(res.status).toHaveBeenCalledWith(200);
     expect((res.json as jest.Mock<AnyFn>).mock.calls[0][0]).toMatchObject({ mfaRequired: true, challengeId: 'chal-1', methods: ['totp', 'recovery'] });
-    expect(mockCreateMfaChallenge).toHaveBeenCalledWith('u1', 'org-1', { firstFactor: 'oauth' });
+    // Bound to the tokenVersion at first-factor (OAuth) proof.
+    expect(mockCreateMfaChallenge).toHaveBeenCalledWith('u1', 'org-1', { firstFactor: 'oauth', tokenVersion: 6 });
     expect(mockIssueTokens).not.toHaveBeenCalled();
   });
 

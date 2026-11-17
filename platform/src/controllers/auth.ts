@@ -299,7 +299,12 @@ export const login = withController('Login', async (req, res) => {
   // instead of a session. POST /auth/mfa/verify trades the challenge plus a code
   // (generated or recovery) for the session this would otherwise have opened.
   // The sign-in is NOT audited as `user.login` here — it hasn't happened yet.
-  if (await openMfaChallengeIfOwed(res, userId, orgId, shortfall ? { passwordChangeMinLength: shortfall.minLength } : {})) return;
+  // The challenge records the account's tokenVersion NOW, at password proof, so
+  // a reset / sign-out-everywhere before the code arrives kills it.
+  if (await openMfaChallengeIfOwed(res, userId, orgId, {
+    tokenVersion: user.tokenVersion,
+    ...(shortfall ? { passwordChangeMinLength: shortfall.minLength } : {}),
+  })) return;
 
   if (shortfall) {
     const { createPasswordChangeChallenge } = await import('../services/password-change-challenge.js');
@@ -342,7 +347,7 @@ export const login = withController('Login', async (req, res) => {
     if (err instanceof Error && err.message === MFA_REQUIRED_FOR_ORG) {
       const { hasUnspentRecoveryCodes } = await import('../services/recovery-codes-service.js');
       if (await hasUnspentRecoveryCodes(userId)) {
-        return sendMfaChallenge(res, userId, orgId, { recoveryOnly: true });
+        return sendMfaChallenge(res, userId, orgId, { recoveryOnly: true, tokenVersion: user.tokenVersion });
       }
     }
     throw err;

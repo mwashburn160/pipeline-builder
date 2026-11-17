@@ -72,6 +72,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   // removeMember now deletes the user's role assignments for the org in-tx
   // (privilege-resurrection fix); called with the `{ session }` option form.
   RoleAssignment: { deleteMany: (...a: unknown[]) => mockRaDeleteMany(...a) },
+  // removeMember/deactivateMember revoke the member's pending invitations in-tx.
+  Invitation: { find: () => ({ select: () => ({ session: () => ({ lean: async () => [] }) }) }), updateMany: async () => ({}) },
 }));
 
 const { orgMembersService } = await import('../src/services/org-members-service.js');

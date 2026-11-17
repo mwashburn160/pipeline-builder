@@ -43,6 +43,15 @@ export const IGM_FORBIDDEN_GRANT = 'IGM_FORBIDDEN_GRANT';
 export const JIT_SEAT_LIMIT = 'JIT_SEAT_LIMIT';
 
 /**
+ * JIT membership refused because the IdP is Google and the email's domain is
+ * not one the org may vouch for (its own verified domain, or a root domain
+ * shared with its teams). Google signs in ANY Google account, so without a
+ * verified domain the sign-in can only admit people who are already members —
+ * otherwise every Gmail user on earth could join the org by clicking through.
+ */
+export const JIT_NOT_MEMBER = 'JIT_NOT_MEMBER';
+
+/**
  * The config would be left unable to sign anyone in.
  *
  * `protocol` decides which fields matter, and Mongoose can't express "required
