@@ -175,7 +175,8 @@
       "!src/api/reporting/types.ts",
       "!src/core/query-filters.ts",
       "!src/database/index.ts",
-      "!src/index.ts"
+      "!src/index.ts",
+      "!src/testing/index.ts"
     ],
     "coverageThreshold": {
       "global": {
@@ -188,6 +189,18 @@
   },
   "types": "lib/index.d.ts",
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./testing": {
+      "types": "./lib/testing/index.d.ts",
+      "default": "./lib/testing/index.js"
+    },
+    "./lib/*": "./lib/*",
+    "./package.json": "./package.json"
+  },
   "nx": {
     "targets": {
       "build": {

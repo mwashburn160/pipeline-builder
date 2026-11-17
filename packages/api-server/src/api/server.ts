@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Server } from 'http';
-import { buildRouteTable, createLogger, errorMessage, flushQuotaIncrements, installCrashHandlers, nextBackoffMs, resolveRedisConnection, retryForever, summarizeRouteTable, sleep, envInt } from '@pipeline-builder/api-core';
+import { assertJwtIssuerAudienceConfigured, buildRouteTable, createLogger, errorMessage, flushQuotaIncrements, installCrashHandlers, nextBackoffMs, resolveRedisConnection, retryForever, summarizeRouteTable, sleep, envInt } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 import { getConnection, closeConnection } from '@pipeline-builder/pipeline-data';
 import type { Express } from 'express';
@@ -327,6 +327,10 @@ export function runServer(app: Express, options: StartServerOptions = {}): void 
   // rejection / uncaught exception is logged (not silently fatal) then the
   // process exits for the orchestrator to restart. No-op under NODE_ENV=test.
   installCrashHandlers(logger);
+  // Refuse to boot in production without JWT issuer/audience pinning. Without
+  // this the misconfiguration only surfaces per request (every token check
+  // fails closed with a 401), which looks like an auth outage, not a config one.
+  assertJwtIssuerAudienceConfigured();
   startServer(app, options).catch((error) => {
     // startServer now listens-first and supervises the DB in the background, so
     // it only rejects on a genuinely fatal SETUP error (invalid auth config, a

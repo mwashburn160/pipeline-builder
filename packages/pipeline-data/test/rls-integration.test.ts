@@ -24,7 +24,7 @@
 import { randomUUID } from 'crypto';
 import type { PGlite } from '@electric-sql/pglite';
 import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
-import { SYSTEM_ORG, asTenant, bootInitDb } from './helpers/pglite-init.js';
+import { SYSTEM_ORG, asTenant, bootInitDb } from '../src/testing/pglite-init.js';
 
 const ORG_A = 'org-a';
 const ORG_B = 'org-b';

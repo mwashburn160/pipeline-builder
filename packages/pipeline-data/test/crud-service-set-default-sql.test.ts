@@ -19,7 +19,7 @@ import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import { drizzle } from 'drizzle-orm/pglite';
 import { apiCoreMock } from './helpers/mock-api-core.js';
-import { bootInitDb } from './helpers/pglite-init.js';
+import { bootInitDb } from '../src/testing/pglite-init.js';
 
 let db: PGlite;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

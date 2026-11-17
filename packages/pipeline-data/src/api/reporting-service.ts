@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, errorMessage, isoOrNull, scrubAwsIdentifiersFromString } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, isManagedToolchainPlugin, isoOrNull, scrubAwsIdentifiersFromString } from '@pipeline-builder/api-core';
 import { and, eq, sql, type SQL } from 'drizzle-orm';
 import { drizzleRows } from './crud-service.js';
 import { schema } from '../database/drizzle-schema.js';
@@ -468,7 +468,13 @@ export class ReportingService {
         WHERE ${schema.plugin.orgId} = ${orgId} AND ${schema.plugin.isActive} = true
         GROUP BY ${schema.plugin.name}
         ORDER BY version_count DESC
-      `).then(r => drizzleRows<VersionCount>(r.rows))),
+      `).then(r => drizzleRows<Omit<VersionCount, 'managed'>>(r.rows).map((row) => ({
+        ...row,
+        // The managed toolchain halves (pipeline-bootstrap, cdk-synth) never carry
+        // a default by design — they resolve through toolchain_release — so the
+        // report must not flag them as "without a default version".
+        managed: isManagedToolchainPlugin(row.name),
+      })))),
     );
   }
 

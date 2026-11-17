@@ -87,7 +87,7 @@
           }]
         },
         "ManagedPolicyArns": [
-          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+          { "Fn::Sub": "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole" }
         ],
         "Policies": [{
           "PolicyName": "event-ingestion",
@@ -110,31 +110,31 @@
                 "Effect": "Allow",
                 "Action": "secretsmanager:GetSecretValue",
                 "Resource": [
-                  { "Fn::Sub": "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/*/platform-*" },
-                  { "Fn::Sub": "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/*/reporting-ingest-*" },
-                  { "Fn::If": ["DoraOn", { "Fn::Sub": "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/*/github-token-*" }, { "Ref": "AWS::NoValue" }] }
+                  { "Fn::Sub": "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/*/platform-*" },
+                  { "Fn::Sub": "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/*/reporting-ingest-*" },
+                  { "Fn::If": ["DoraOn", { "Fn::Sub": "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/*/github-token-*" }, { "Ref": "AWS::NoValue" }] }
                 ]
               },
               {
                 "Effect": "Allow",
                 "Action": "codepipeline:ListTagsForResource",
-                "Resource": { "Fn::Sub": "arn:aws:codepipeline:*:${AWS::AccountId}:*" }
+                "Resource": { "Fn::Sub": "arn:${AWS::Partition}:codepipeline:${AWS::Region}:${AWS::AccountId}:*" }
               },
               {
                 "Effect": "Allow",
                 "Action": "codebuild:BatchGetBuilds",
-                "Resource": { "Fn::Sub": "arn:aws:codebuild:*:${AWS::AccountId}:project/*" }
+                "Resource": { "Fn::Sub": "arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:project/*" }
               },
               {
                 "Effect": "Allow",
                 "Action": "logs:FilterLogEvents",
-                "Resource": { "Fn::Sub": "arn:aws:logs:*:${AWS::AccountId}:log-group:/aws/codebuild/*:*" }
+                "Resource": { "Fn::Sub": "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/*:*" }
               },
               {
                 "Fn::If": ["DoraOn", {
                   "Effect": "Allow",
                   "Action": "codecommit:GetCommit",
-                  "Resource": { "Fn::Sub": "arn:aws:codecommit:*:${AWS::AccountId}:*" }
+                  "Resource": { "Fn::Sub": "arn:${AWS::Partition}:codecommit:${AWS::Region}:${AWS::AccountId}:*" }
                 }, { "Ref": "AWS::NoValue" }]
               }
             ]

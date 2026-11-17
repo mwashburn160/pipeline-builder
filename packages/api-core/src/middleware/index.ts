@@ -5,6 +5,8 @@ export {
   verifyUserJwt,
   verifyBearerToken,
   hasValidIdentityClaims,
+  assertJwtIssuerAudienceConfigured,
+  JwtIssuerAudienceConfigError,
 } from './jwt-verify.js';
 export {
   requireAuth,

@@ -16,8 +16,8 @@ import type { PGlite } from '@electric-sql/pglite';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
 import { sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
-import { SYSTEM_ORG, asTenant, bootInitDb } from './helpers/pglite-init.js';
 import { findVersionReferences, versionReferencedPredicate } from '../src/api/version-references.js';
+import { SYSTEM_ORG, asTenant, bootInitDb } from '../src/testing/pglite-init.js';
 
 let pg: PGlite;
 let db: ReturnType<typeof drizzle>;

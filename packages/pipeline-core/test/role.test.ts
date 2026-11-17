@@ -604,3 +604,85 @@ describe('resolveRole', () => {
     expect(() => resolveRole(stack, id, config)).toThrow('Unknown role config type');
   });
 });
+
+/**
+ * Admin-equivalent grants on a tenant-defined role are refused at synth unless
+ * `allowBroadPermissions: true` — the same rule the API schema applies
+ * (api-core `findBroadRolePermissions`), held here for configs that reach synth
+ * without passing through the API.
+ */
+describe('resolveRole — broad permissions (defense in depth)', () => {
+  const GH = 'https://token.actions.githubusercontent.com';
+  let stack: Stack;
+  let id: UniqueId;
+
+  beforeEach(() => {
+    stack = new Stack(new App(), 'BroadStack');
+    id = new UniqueId({ organization: 'test-org', project: 'test-project' });
+  });
+
+  const oidc = (extra: Record<string, unknown>): RoleConfig => ({
+    type: 'oidc',
+    options: { issuer: GH, conditions: SUB_CONDITION, ...extra },
+  } as RoleConfig);
+
+  /** Every Allow statement in every synthesized IAM policy whose action is a full or service-wide wildcard on `*`. */
+  function wildcardAllows(template: Template): unknown[] {
+    const out: unknown[] = [];
+    const docs: any[] = [
+      ...Object.values(template.findResources('AWS::IAM::Policy')).map((r: any) => r.Properties.PolicyDocument),
+      ...Object.values(template.findResources('AWS::IAM::Role')).flatMap((r: any) => (r.Properties.Policies ?? []).map((p: any) => p.PolicyDocument)),
+    ];
+    for (const doc of docs) {
+      for (const s of doc.Statement as any[]) {
+        if (s.Effect !== 'Allow') continue;
+        const actions: string[] = [].concat(s.Action ?? []);
+        const resources: unknown[] = [].concat(s.Resource ?? []);
+        const anyResource = resources.includes('*');
+        if (actions.some((a) => a === '*' || a === '*:*' || (anyResource && /^[A-Za-z0-9-]+:\*$/.test(a)))) out.push(s);
+      }
+    }
+    return out;
+  }
+
+  it.each([
+    ['Action *', { policyStatements: [{ actions: ['*'], resources: ['arn:aws:s3:::b'] }] }],
+    ['Action *:*', { policyStatements: [{ actions: ['*:*'], resources: ['*'] }] }],
+    ['iam:* on *', { policyStatements: [{ actions: ['iam:*'], resources: ['*'] }] }],
+    ['AdministratorAccess', { managedPolicyArns: ['arn:aws:iam::aws:policy/AdministratorAccess'] }],
+    ['PowerUserAccess', { managedPolicyArns: ['arn:aws-cn:iam::aws:policy/PowerUserAccess'] }],
+    ['IAMFullAccess', { managedPolicyArns: ['arn:aws:iam::aws:policy/IAMFullAccess'] }],
+  ])('refuses %s at synth', (_name, extra) => {
+    expect(() => resolveRole(stack, id, oidc(extra))).toThrow(/admin-equivalent.*allowBroadPermissions: true/s);
+  });
+
+  it('synthesizes a template with no wildcard Allow for a scoped role (Template assertion)', () => {
+    resolveRole(stack, id, oidc({
+      policyStatements: [
+        { actions: ['s3:GetObject', 's3:PutObject'], resources: ['arn:aws:s3:::artifacts/*'] },
+        { actions: ['s3:*'], resources: ['arn:aws:s3:::artifacts', 'arn:aws:s3:::artifacts/*'] },
+        { effect: 'Deny', actions: ['*'], resources: ['*'] },
+      ],
+      managedPolicyArns: ['arn:aws:iam::aws:policy/ReadOnlyAccess'],
+    }));
+    const template = Template.fromStack(stack);
+    expect(wildcardAllows(template)).toEqual([]);
+    // The scoped statements really were synthesized (guards a vacuous pass).
+    template.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: { Statement: [{ Action: ['s3:GetObject', 's3:PutObject'], Effect: 'Allow', Resource: 'arn:aws:s3:::artifacts/*' }, {}, {}] },
+    });
+  });
+
+  it('allows a broad role only when allowBroadPermissions is explicitly true — and the template shows it', () => {
+    resolveRole(stack, id, oidc({ policyStatements: [{ actions: ['*'], resources: ['*'] }], allowBroadPermissions: true }));
+    expect(wildcardAllows(Template.fromStack(stack))).toHaveLength(1);
+  });
+
+  it('treats allowBroadPermissions: false like absent', () => {
+    expect(() => resolveRole(stack, id, oidc({ policyStatements: [{ actions: ['*'], resources: ['*'] }], allowBroadPermissions: false }))).toThrow(/admin-equivalent/);
+  });
+
+  it('skips unresolved tokens it cannot inspect', () => {
+    expect(() => resolveRole(stack, id, oidc({ managedPolicyArns: [Fn.importValue('SomePolicyArn')] }))).not.toThrow();
+  });
+});

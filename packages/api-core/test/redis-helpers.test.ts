@@ -3,6 +3,7 @@
 
 import { describe, it, expect, jest } from '@jest/globals';
 import { makeFakeRedis } from './helpers/fake-redis.js';
+import { realRedisUrl, redisTest } from './helpers/redis-gate.js';
 import { createRedisReadyGate, incrWindow } from '../src/services/env-redis.js';
 
 describe('incrWindow', () => {
@@ -20,8 +21,8 @@ describe('incrWindow', () => {
     expect(evalFn).toHaveBeenCalledWith(expect.stringContaining('PEXPIRE'), 1, 'rl:x', 1501);
   });
 
-  const REAL_URL = process.env.API_CORE_TEST_REDIS_URL;
-  (REAL_URL ? it : it.skip)('real Redis: counter expires and a TTL-less key is healed', async () => {
+  const REAL_URL = realRedisUrl();
+  redisTest()('real Redis: counter expires and a TTL-less key is healed', async () => {
     const { Redis } = await import('ioredis');
     const client = new Redis(REAL_URL!);
     try {

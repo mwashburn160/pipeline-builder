@@ -27,7 +27,7 @@
 import { createLogger, errorMessage, envInt, startOf } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
 import { nonOutcomeStatusList, notOvertaken } from './sql-helpers.js';
-import { withTenantTx } from '../../database/tenancy.js';
+import { runWithTenantContext, withTenantTx } from '../../database/tenancy.js';
 
 const logger = createLogger('daily-rollup');
 
@@ -76,7 +76,15 @@ export async function rebuildDay(day: Date): Promise<number> {
   // step of a run that has (or will have) its own terminal row, and a terminal row
   // a retry overtook (FAILED, then the retried stage SUCCEEDED) is not the run's
   // outcome — counting either made one run several.
-  const result = await withTenantTx((tx) => tx.execute(sql`
+  //
+  // ELEVATED, because this is a SYSTEM job over every org's events: under any
+  // narrower scope FORCE RLS on `pipeline_events` / `execution_daily_rollups`
+  // hides the other orgs' rows, and with no scope at all the GUCs are empty and
+  // the statement silently rolls up NOTHING (or throws, in production's strict
+  // RLS_CONTEXT_MODE — which `runRollupPass` would then swallow as a warning
+  // every day). The elevation lives here rather than in a caller so no scheduler
+  // can forget it; there is no per-org variant to protect.
+  const result = await runWithTenantContext({ isSuperAdmin: true }, () => withTenantTx((tx) => tx.execute(sql`
     WITH ev AS (
       SELECT
         e.org_id,
@@ -142,8 +150,10 @@ export async function rebuildDay(day: Date): Promise<number> {
       p95_ms = excluded.p95_ms,
       build_seconds = excluded.build_seconds,
       computed_at = excluded.computed_at
-  `));
-  const rows = (result as unknown as { rowCount?: number }).rowCount ?? 0;
+  `)));
+  // node-postgres reports `rowCount`; PGlite (the test substrate) `affectedRows`.
+  const res = result as unknown as { rowCount?: number | null; affectedRows?: number };
+  const rows = res.rowCount ?? res.affectedRows ?? 0;
   logger.debug('Rolled up a day', { day: dayStart.toISOString().slice(0, 10), rows });
   return rows;
 }

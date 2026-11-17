@@ -109,6 +109,174 @@ const StageSchema = z.object({
   steps: z.array(StageStepSchema).min(1),
 }).passthrough();
 
+// ---------------------------------------------------------------------------
+// IAM role configuration (pipeline-core `RoleConfig`, core/role-types.ts)
+// ---------------------------------------------------------------------------
+
+/**
+ * AWS-managed policies that grant administrator-equivalent reach. Attaching one
+ * to a tenant-defined role turns "a pipeline that deploys my app" into "a
+ * principal that can do anything in the account" — including minting more of
+ * itself (IAMFullAccess is admin by one CreatePolicy away).
+ */
+export const BROAD_AWS_MANAGED_POLICY_NAMES = ['AdministratorAccess', 'PowerUserAccess', 'IAMFullAccess'] as const;
+
+const BROAD_MANAGED_POLICY_ARN = new RegExp(
+  `^arn:[^:]+:iam::aws:policy/(?:[^/]+/)*(?:${BROAD_AWS_MANAGED_POLICY_NAMES.join('|')})$`,
+);
+
+/** One reason a role's permissions are too broad, with the path to the offending value. */
+export interface BroadPermissionIssue {
+  path: (string | number)[];
+  message: string;
+}
+
+/** The permission-bearing part of a role's options (pipeline-core `OidcRoleOptions`). */
+export interface RolePermissionOptions {
+  readonly policyStatements?: ReadonlyArray<{ readonly effect?: string; readonly actions: readonly string[]; readonly resources: readonly string[] }>;
+  readonly managedPolicyArns?: readonly string[];
+}
+
+/**
+ * Find admin-equivalent grants in a role's permissions. Pure, so the API schema
+ * and pipeline-core's synth-time check (core/role.ts) apply the SAME rule:
+ *
+ *  - an Allow statement whose action is `*` or `*:*` (any resource);
+ *  - an Allow statement with a service-wide action (`<svc>:*`) on resource `*`;
+ *  - a managed policy ARN naming {@link BROAD_AWS_MANAGED_POLICY_NAMES}.
+ *
+ * Deny statements are never broad — a wide Deny narrows. Callers skip this when
+ * the role sets `allowBroadPermissions: true` explicitly.
+ */
+export function findBroadRolePermissions(options: RolePermissionOptions): BroadPermissionIssue[] {
+  const issues: BroadPermissionIssue[] = [];
+  (options.policyStatements ?? []).forEach((stmt, i) => {
+    if (stmt.effect === 'Deny') return;
+    const anyResource = stmt.resources.some((r) => r.trim() === '*');
+    stmt.actions.forEach((raw, j) => {
+      const action = raw.trim();
+      if (action === '*' || action === '*:*') {
+        issues.push({ path: ['policyStatements', i, 'actions', j], message: `Action '${action}' grants every AWS action` });
+      } else if (anyResource && /^[A-Za-z0-9-]+:\*$/.test(action)) {
+        issues.push({ path: ['policyStatements', i, 'actions', j], message: `Action '${action}' on Resource '*' grants the whole service account-wide` });
+      }
+    });
+  });
+  (options.managedPolicyArns ?? []).forEach((arn, i) => {
+    if (BROAD_MANAGED_POLICY_ARN.test(arn.trim())) {
+      issues.push({ path: ['managedPolicyArns', i], message: `Managed policy ${arn} grants administrator-equivalent access` });
+    }
+  });
+  return issues;
+}
+
+/** The message every broad-permission refusal carries, so callers learn the escape hatch. */
+export const BROAD_PERMISSIONS_HINT =
+  'Scope the actions and resources to what the pipeline needs, or set `allowBroadPermissions: true` '
+  + 'on the role options to accept the risk explicitly.';
+
+const RoleMutableSchema = z.boolean().optional();
+
+const RoleArnConfigSchema = z.object({
+  type: z.literal('roleArn'),
+  options: z.object({
+    roleArn: z.string().min(1).max(2048),
+    mutable: RoleMutableSchema,
+  }).strict(),
+}).strict();
+
+const RoleNameConfigSchema = z.object({
+  type: z.literal('roleName'),
+  options: z.object({
+    roleName: z.string().min(1).max(64),
+    mutable: RoleMutableSchema,
+  }).strict(),
+}).strict();
+
+const CodeBuildDefaultRoleConfigSchema = z.object({
+  type: z.literal('codeBuildDefault'),
+  options: z.object({
+    roleName: z.string().min(1).max(64).optional(),
+  }).strict().default({}),
+}).strict();
+
+const ConditionMapSchema = z.record(z.string().min(1), z.union([z.string(), z.array(z.string())]));
+
+/**
+ * An inline policy statement (pipeline-core `OidcPolicyStatement`). Strict:
+ * `NotAction`, `NotResource` and `Condition` are not supported by the role
+ * builder, and silently dropping a `NotAction` would turn an allow-list into
+ * something else entirely.
+ */
+const OidcPolicyStatementSchema = z.object({
+  effect: z.enum(['Allow', 'Deny']).optional(),
+  actions: z.array(z.string().min(1)).min(1),
+  resources: z.array(z.string().min(1)).min(1),
+}).strict();
+
+const isWildcardOnly = (value: string | string[]): boolean => {
+  const values = Array.isArray(value) ? value : [value];
+  return values.length === 0 || values.every((v) => /^\*+$/.test(v.trim()));
+};
+
+const OidcRoleConfigSchema = z.object({
+  type: z.literal('oidc'),
+  options: z.object({
+    providerArn: z.string().min(1).optional(),
+    issuer: z.string().url().optional(),
+    clientIds: z.array(z.string().min(1)).optional(),
+    thumbprints: z.array(z.string().min(1)).optional(),
+    conditions: ConditionMapSchema.optional(),
+    conditionsLike: ConditionMapSchema.optional(),
+    roleName: z.string().min(1).max(64).optional(),
+    description: z.string().max(1000).optional(),
+    maxSessionDuration: z.number().int().min(3600).max(43200).optional(),
+    permissionsBoundaryArn: z.string().min(1).optional(),
+    managedPolicyArns: z.array(z.string().min(1)).optional(),
+    policyStatements: z.array(OidcPolicyStatementSchema).optional(),
+    /** Accept admin-equivalent grants (see {@link findBroadRolePermissions}). Must be `true` literally. */
+    allowBroadPermissions: z.boolean().optional(),
+  }).strict().superRefine((opts, ctx) => {
+    if (opts.providerArn && opts.issuer) {
+      ctx.addIssue({ code: 'custom', path: ['issuer'], message: 'Specify either providerArn or issuer, not both' });
+    } else if (!opts.providerArn && !opts.issuer) {
+      ctx.addIssue({ code: 'custom', path: ['providerArn'], message: 'OIDC role requires either providerArn or issuer' });
+    }
+    // Same fail-closed rule as pipeline-core's trust builder: an OIDC trust with
+    // no scoped subject lets ANY identity the issuer serves assume the role.
+    const subs = [...Object.entries(opts.conditions ?? {}), ...Object.entries(opts.conditionsLike ?? {})]
+      .filter(([key]) => key.endsWith(':sub'));
+    if (subs.length === 0) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['conditions'],
+        message: "OIDC role must restrict the token subject with a '<issuer-host>:sub' condition "
+          + "(e.g. 'token.actions.githubusercontent.com:sub': 'repo:acme/app:ref:refs/heads/main')",
+      });
+    } else if (subs.every(([, v]) => isWildcardOnly(v))) {
+      ctx.addIssue({ code: 'custom', path: ['conditions'], message: "OIDC ':sub' condition must not be a bare '*' wildcard" });
+    }
+    if (opts.allowBroadPermissions !== true) {
+      for (const issue of findBroadRolePermissions(opts)) {
+        ctx.addIssue({ code: 'custom', path: issue.path, message: `${issue.message}. ${BROAD_PERMISSIONS_HINT}` });
+      }
+    }
+  }),
+}).strict();
+
+/**
+ * The pipeline-level IAM role (pipeline-core `RoleConfig`): an existing role by
+ * ARN or name, a CodeBuild default role, or an OIDC-federated role. Validated
+ * here rather than passed through, because a tenant-supplied role is IAM the
+ * platform deploys into the tenant's account.
+ */
+export const RoleConfigSchema = z.discriminatedUnion('type', [
+  RoleArnConfigSchema,
+  RoleNameConfigSchema,
+  CodeBuildDefaultRoleConfigSchema,
+  OidcRoleConfigSchema,
+]);
+
 /**
  * BuilderProps schema — structural validation for pipeline configuration.
  * Uses passthrough() to allow additional fields without rejecting them.
@@ -119,7 +287,7 @@ const BuilderPropsSchema = z.object({
   pipelineName: z.string().optional(),
   global: z.record(z.string(), z.unknown()).optional(),
   defaults: z.record(z.string(), z.unknown()).optional(),
-  role: z.record(z.string(), z.unknown()).optional(),
+  role: RoleConfigSchema.optional(),
   /**
    * Cost-allocation tags applied to the pipeline's stack. Reserved keys are
    * refused rather than dropped, so a caller learns which key it may not set;

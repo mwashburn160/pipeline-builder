@@ -294,10 +294,30 @@ export function isServiceKid(kid: string): boolean {
  * the same shape platform's signer produces — `crypto.sign` is synchronous, so
  * unlike the KMS path this costs nothing.
  */
+/**
+ * Under `NODE_ENV=production` every service token is pinned to an issuer AND an
+ * audience, in both directions. Callers pass them from `JWT_ISSUER` /
+ * `JWT_AUDIENCE` (`issuerAudienceOptions`, or platform's config); a caller that
+ * arrives without them is refused here rather than silently minting — or
+ * accepting — an unpinned token. Defense in depth behind the same check in
+ * `issuerAudienceOptions`, for direct callers such as platform's verifier.
+ */
+function requirePinsInProduction(op: 'sign' | 'verify', options: { issuer?: string; audience?: string }): void {
+  if (process.env.NODE_ENV !== 'production') return;
+  const missing = [...(options.issuer ? [] : ['issuer']), ...(options.audience ? [] : ['audience'])];
+  if (missing.length > 0) {
+    throw new ServiceKeyError(
+      `Refusing to ${op} a service token without ${missing.join(' and ')} under NODE_ENV=production ` +
+      '(set JWT_ISSUER and JWT_AUDIENCE on every service)',
+    );
+  }
+}
+
 export function signServiceJwt(
   claims: Record<string, unknown>,
   options: { serviceName: string; expiresInSeconds: number; issuer?: string; audience?: string },
 ): string {
+  requirePinsInProduction('sign', options);
   const key = signingKeyFor(options.serviceName);
   const now = Math.floor(Date.now() / 1000);
   const body = {
@@ -396,12 +416,14 @@ export function withoutServiceAuthorityClaims<T>(claims: T): T {
  *         signature, expired, a `sub` that disagrees with the signing key, or an
  *         opt-in signer this call site did not accept.
  * @throws {ServiceKeyError} no verification bundle could be read at all — the
- *         token's validity is UNKNOWN and the caller must not treat it as valid.
+ *         token's validity is UNKNOWN and the caller must not treat it as valid —
+ *         or, under `NODE_ENV=production`, no issuer/audience was supplied.
  */
 export function verifyServiceJwt<T = Record<string, unknown>>(
   token: string,
   options: ServiceJwtVerifyOptions,
 ): T {
+  requirePinsInProduction('verify', options);
   const entry = verificationKeys().get(options.kid);
   // EVERY emission of this counter carries the same label KEYS. The Prometheus
   // counter is registered lazily with whatever keys its first emission used,

@@ -3,7 +3,7 @@
 
 import { correlationHeaders } from '@pipeline-builder/pipeline-core/lib/core/audit-correlation.js';
 import { getAuthToken } from './auth.js';
-import { arnRef, BoundedMap, CACHE_MAX_ENTRIES, fetchWithTimeout, loadSdk, log } from './util.js';
+import { arnRef, BoundedMap, CACHE_MAX_ENTRIES, dnsSuffixForPartition, fetchWithTimeout, loadSdk, log } from './util.js';
 
 // Delivery health + self-healing DLQ redrive.
 // After a SUCCESSFUL batch POST we (throttled, best-effort):
@@ -60,13 +60,14 @@ const MAX_DLQ_REDRIVE_AGE_SEC = 6 * 60 * 60; // 6 hours
 /** Parse the SQS trigger ARN and derive the main + DLQ ARNs and the DLQ URL. */
 function deriveQueues(mainQueueArn: string | undefined): { region: string; mainArn: string; dlqArn: string; dlqUrl: string } | undefined {
   if (!mainQueueArn) return undefined;
-  // arn:aws:sqs:{region}:{account}:{name}
+  // arn:{partition}:sqs:{region}:{account}:{name} — the partition comes from the
+  // trigger's own ARN, so GovCloud / China queues resolve to their real DLQ.
   const parts = mainQueueArn.split(':');
-  if (parts.length < 6 || parts[2] !== 'sqs') return undefined;
-  const [, , , region, account, name] = parts;
-  const dlqArn = process.env.EVENT_DLQ_ARN || `arn:aws:sqs:${region}:${account}:${name}-dlq`;
+  if (parts.length < 6 || parts[0] !== 'arn' || parts[2] !== 'sqs') return undefined;
+  const [, partition, , region, account, name] = parts;
+  const dlqArn = process.env.EVENT_DLQ_ARN || `arn:${partition}:sqs:${region}:${account}:${name}-dlq`;
   const dlqName = dlqArn.split(':').pop() ?? `${name}-dlq`;
-  const dlqUrl = `https://sqs.${region}.amazonaws.com/${account}/${dlqName}`;
+  const dlqUrl = `https://sqs.${region}.${dnsSuffixForPartition(partition!)}/${account}/${dlqName}`;
   return { region, mainArn: mainQueueArn, dlqArn, dlqUrl };
 }
 

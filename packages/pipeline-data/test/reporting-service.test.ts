@@ -1859,7 +1859,19 @@ describe('ReportingService', () => {
 
       const result = await service.getPluginVersions('acme');
 
-      expect(result).toEqual(mockRows);
+      expect(result).toEqual([{ ...mockRows[0], managed: false }]);
+    });
+
+    it('marks the managed toolchain plugins, which never carry a default by design', async () => {
+      mockExecute.mockResolvedValue({
+        rows: [
+          { name: 'cdk-synth', version_count: 1, latest_version: '1.1.16', has_default: false },
+          { name: 'pipeline-bootstrap', version_count: 1, latest_version: '1.0.0', has_default: false },
+          { name: 'trivy', version_count: 2, latest_version: '2.0.0', has_default: false },
+        ],
+      });
+      const result = await service.getPluginVersions('managed-org');
+      expect(result.map((r) => [r.name, r.managed])).toEqual([['cdk-synth', true], ['pipeline-bootstrap', true], ['trivy', false]]);
     });
 
     it('guards the ::int[] version sort against non-numeric versions (no whole-summary throw)', async () => {

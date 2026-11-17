@@ -62,6 +62,41 @@ describe('metadataForCodeBuildStep', () => {
     const config = metadataForCodeBuildStep(metadata);
     expect(config).toEqual({ projectName: 'MyProject', timeout: 30 });
   });
+
+  describe('rolePolicyStatements (tenant JSON — a second door to IAM)', () => {
+    const KEY = 'aws:cdk:pipelines:codebuildstep:rolepolicystatements';
+
+    it('normalises plain JSON statements into PolicyStatements', () => {
+      const config = metadataForCodeBuildStep({
+        [KEY]: [{ Effect: 'Allow', Action: ['s3:GetObject'], Resource: ['arn:aws:s3:::bucket/*'] }],
+      } as never);
+      expect(config.rolePolicyStatements).toHaveLength(1);
+      expect(config.rolePolicyStatements![0].toStatementJson()).toMatchObject({ Action: 's3:GetObject', Effect: 'Allow' });
+    });
+
+    it.each([
+      [{ Effect: 'Allow', Action: '*', Resource: '*' }],
+      [{ Effect: 'Allow', Action: ['iam:*'], Resource: ['*'] }],
+    ])('refuses an admin-equivalent statement %j', (stmt) => {
+      expect(() => metadataForCodeBuildStep({ [KEY]: [stmt] } as never)).toThrow(/admin-equivalent/);
+    });
+
+    it('allows a broad statement only with the explicit opt-out', () => {
+      const config = metadataForCodeBuildStep({
+        [KEY]: [{ Effect: 'Allow', Action: '*', Resource: '*' }],
+        'aws:cdk:pipelines:codebuildstep:allowbroadpermissions': 'true',
+      } as never);
+      expect(config.rolePolicyStatements).toHaveLength(1);
+    });
+
+    it('never counts a Deny as broad', () => {
+      expect(() => metadataForCodeBuildStep({ [KEY]: [{ Effect: 'Deny', Action: '*', Resource: '*' }] } as never)).not.toThrow();
+    });
+
+    it('rejects a non-object entry', () => {
+      expect(() => metadataForCodeBuildStep({ [KEY]: ['s3:*'] } as never)).toThrow(/must be an IAM statement object/);
+    });
+  });
 });
 
 describe('metadataForShellStep', () => {

@@ -5,7 +5,7 @@ import type { SQSRecord } from 'aws-lambda';
 import { codeBuildIdOf, readBuildCompute, readSynthFailure } from './failure-reason.js';
 import { classifySource, resolveCommitInfo } from './scm.js';
 import { MAX_ATTR, resolvePipeline } from './tags.js';
-import { log } from './util.js';
+import { log, partitionForRegion } from './util.js';
 
 // Event parsing: an SQS record → the normalized reporting event.
 
@@ -203,7 +203,7 @@ export async function parseRecord(record: SQSRecord): Promise<ParsedEvent | null
 
   // Resolve the pipeline's pb.pipeline-id (= platform pipelineId) + pb.deploys map.
   // The ARN is only a transient handle for the tag lookup; it is never stored.
-  const arn = `arn:aws:codepipeline:${event.region}:${event.account}:${pipelineName}`;
+  const arn = `arn:${partitionForRegion(event.region)}:codepipeline:${event.region}:${event.account}:${pipelineName}`;
   const { pipelineId, orgId, deploys } = await resolvePipeline(arn, event.region);
   if (!pipelineId) return null; // untagged / unregistered → skip
 

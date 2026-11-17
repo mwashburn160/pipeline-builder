@@ -20,7 +20,7 @@
 
 import type { PGlite } from '@electric-sql/pglite';
 import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
-import { asTenant, bootInitDb } from './helpers/pglite-init.js';
+import { asTenant, bootInitDb } from '../src/testing/pglite-init.js';
 
 const ORG_A = '000000000000000000000a01';
 const ORG_B = '000000000000000000000b01';

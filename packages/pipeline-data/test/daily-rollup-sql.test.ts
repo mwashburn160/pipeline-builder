@@ -14,14 +14,22 @@
  * It also pins the three properties the job's correctness rests on: two grains
  * from one scan, idempotency per day, and a rebuild that REPLACES a day rather
  * than adding to it.
+ *
+ * It calls the REAL `rebuildDay` — through the real `withTenantTx`, as the
+ * application role, under the init script's RLS — via the package's testing
+ * entry. (It used to execute a hand-copied string of the statement, which proved
+ * that a string in a test file ran, not that the module's SQL did.)
  */
 
 import { randomUUID } from 'node:crypto';
 import type { PGlite } from '@electric-sql/pglite';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
-import { bootInitDb } from './helpers/pglite-init.js';
+import { rebuildDay } from '../src/api/reporting/daily-rollup.js';
+import { asTenantContext, bootTenantDb, type TenantTestDb } from '../src/testing/index.js';
 
-let db: PGlite;
+let tdb: TenantTestDb;
+/** Raw SQL as the bootstrap superuser — fixtures and inspection across every org. */
+const owner = <T>(fn: (q: PGlite) => Promise<T>) => tdb.asOwner(fn);
 
 const ORG = 'org-rollup';
 const OTHER_ORG = 'org-other';
@@ -30,84 +38,8 @@ const PIPE_A = randomUUID();
 const PIPE_B = randomUUID();
 const OTHER_PIPE = randomUUID();
 
-/** The statement `rebuildDay` runs, with its two parameters bound. */
-const REBUILD = `
-  WITH ev AS (
-    SELECT
-      e.org_id,
-      e.pipeline_id::text AS pipeline_id,
-      COALESCE(e.stage_name, '') AS stage_name,
-      e.status,
-      e.failure_category,
-      e.duration_ms
-    FROM pipeline_events e
-    WHERE e.created_at >= $1 AND e.created_at < $2
-      AND e.pipeline_id IS NOT NULL
-      AND e.event_type IN ('PIPELINE', 'STAGE')
-      AND e.status NOT IN ('STARTED', 'RESUMED', 'IN_PROGRESS', 'STOPPING')
-      AND NOT EXISTS (
-        SELECT 1 FROM pipeline_events later
-        WHERE later.execution_id = e.execution_id
-          AND later.pipeline_id = e.pipeline_id
-          AND later.event_type = e.event_type
-          AND later.stage_name IS NOT DISTINCT FROM e.stage_name
-          AND later.action_name IS NOT DISTINCT FROM e.action_name
-          AND (
-            (later.status IN ('SUCCEEDED', 'FAILED', 'CANCELED', 'STOPPED', 'SUPERSEDED', 'ABANDONED') AND later.completed_at > e.completed_at)
-            OR (later.status = 'RESUMED' AND later.started_at > e.completed_at)
-          )
-      )
-  ),
-  cats AS (
-    SELECT org_id, pipeline_id, stage_name,
-           jsonb_object_agg(failure_category, n) AS failures_by_category
-    FROM (
-      SELECT org_id, pipeline_id, stage_name, failure_category, COUNT(*)::int AS n
-      FROM ev
-      WHERE failure_category IS NOT NULL
-      GROUP BY 1, 2, 3, 4
-    ) t
-    GROUP BY 1, 2, 3
-  ),
-  agg AS (
-    SELECT
-      org_id, pipeline_id, stage_name,
-      COUNT(*)::int AS runs,
-      COUNT(*) FILTER (WHERE status IN ('SUCCEEDED', 'SUCCESS'))::int AS succeeded,
-      COUNT(*) FILTER (WHERE status IN ('FAILED', 'FAILURE', 'ERROR', 'TIMED_OUT'))::int AS failed,
-      PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY duration_ms)::int AS p50_ms,
-      PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY duration_ms)::int AS p90_ms,
-      PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY duration_ms)::int AS p95_ms,
-      (SUM(COALESCE(duration_ms, 0)) / 1000)::int AS build_seconds
-    FROM ev
-    GROUP BY 1, 2, 3
-  )
-  INSERT INTO execution_daily_rollups (
-    org_id, day, pipeline_id, stage_name,
-    runs, succeeded, failed, failures_by_category,
-    p50_ms, p90_ms, p95_ms, build_seconds, computed_at
-  )
-  SELECT
-    a.org_id, $1::timestamptz, a.pipeline_id, a.stage_name,
-    a.runs, a.succeeded, a.failed,
-    COALESCE(c.failures_by_category, '{}'::jsonb),
-    a.p50_ms, a.p90_ms, a.p95_ms, a.build_seconds, NOW()
-  FROM agg a
-  LEFT JOIN cats c
-    ON c.org_id = a.org_id AND c.pipeline_id = a.pipeline_id AND c.stage_name = a.stage_name
-  ON CONFLICT (org_id, day, pipeline_id, stage_name) DO UPDATE SET
-    runs = excluded.runs,
-    succeeded = excluded.succeeded,
-    failed = excluded.failed,
-    failures_by_category = excluded.failures_by_category,
-    p50_ms = excluded.p50_ms,
-    p90_ms = excluded.p90_ms,
-    p95_ms = excluded.p95_ms,
-    build_seconds = excluded.build_seconds,
-    computed_at = excluded.computed_at
-`;
-
-const rebuild = (day = DAY) => db.query(REBUILD, [`${day}T00:00:00Z`, `${day}T24:00:00Z`.replace('T24', 'T00').replace(day, nextDay(day))]);
+/** The module's rebuild for one UTC day (the day it is given is truncated to its UTC start). */
+const rebuild = (day = DAY) => rebuildDay(new Date(`${day}T15:30:00Z`));
 
 function nextDay(day: string): string {
   const d = new Date(`${day}T00:00:00Z`);
@@ -127,7 +59,7 @@ interface EventSeed {
 }
 
 async function seedEvent(seed: EventSeed = {}): Promise<void> {
-  await db.query(
+  await owner((db) => db.query(
     `INSERT INTO pipeline_events
        (pipeline_id, org_id, event_source, event_type, status, execution_id,
         stage_name, duration_ms, failure_category, created_at)
@@ -143,17 +75,17 @@ async function seedEvent(seed: EventSeed = {}): Promise<void> {
       seed.failureCategory ?? null,
       seed.at ?? `${DAY}T12:00:00Z`,
     ],
-  );
+  ));
 }
 
-const rollups = async () => (await db.query<Record<string, unknown>>(
+const rollups = async () => (await owner((db) => db.query<Record<string, unknown>>(
   `SELECT org_id, pipeline_id, stage_name, runs, succeeded, failed,
           failures_by_category, p50_ms, p90_ms, p95_ms, build_seconds
      FROM execution_daily_rollups ORDER BY org_id, pipeline_id, stage_name`,
-)).rows;
+))).rows;
 
 beforeAll(async () => {
-  db = await bootInitDb();
+  tdb = await bootTenantDb();
   // The pipelines the events reference (pipeline_id has an FK). Distinct projects
   // because one pipeline per (project, organization) is a uniqueness rule.
   for (const [id, org, project] of [
@@ -161,26 +93,44 @@ beforeAll(async () => {
     [PIPE_B, ORG, 'api'],
     [OTHER_PIPE, OTHER_ORG, 'web'],
   ] as const) {
-    await db.query(
+    await owner((db) => db.query(
       `INSERT INTO pipelines (id, org_id, project, organization, props, created_by, updated_by)
        VALUES ($1, $2, $3, 'acme', '{}'::jsonb, 'u1', 'u1')`,
       [id, org, project],
-    );
+    ));
   }
 }, 120_000);
 
-afterAll(async () => { await db?.close(); });
+afterAll(async () => { await tdb?.close(); });
 
 beforeEach(async () => {
-  await db.query('DELETE FROM execution_daily_rollups');
-  await db.query('DELETE FROM pipeline_events');
+  await owner((db) => db.exec('DELETE FROM execution_daily_rollups; DELETE FROM pipeline_events;'));
 });
 
 describe('the daily rollup statement', () => {
-  it('runs at all — the shape that reads naturally does not', async () => {
+  it('runs at all — the shape that reads naturally does not — and reports the rows it wrote', async () => {
     await seedEvent();
-    await expect(rebuild()).resolves.toBeDefined();
+    await expect(rebuild()).resolves.toBe(1);
     expect(await rollups()).toHaveLength(1);
+  });
+
+  /**
+   * A SYSTEM job over every org's events. Under FORCE RLS a rebuild that ran in
+   * whatever scope its caller happened to hold would roll up only that org — or,
+   * with no scope at all, nothing — so `rebuildDay` elevates itself.
+   */
+  it('rolls up EVERY org, whatever tenant scope it is called from', async () => {
+    await seedEvent({ pipelineId: PIPE_A });
+    await seedEvent({ pipelineId: OTHER_PIPE, orgId: OTHER_ORG });
+    await expect(asTenantContext({ orgId: ORG }, () => rebuild())).resolves.toBe(2);
+    expect(new Set((await rollups()).map((r) => r.org_id))).toEqual(new Set([ORG, OTHER_ORG]));
+  });
+
+  it('rolls up every org with no tenant scope at all (a scheduler tick)', async () => {
+    await seedEvent({ pipelineId: PIPE_A });
+    await seedEvent({ pipelineId: OTHER_PIPE, orgId: OTHER_ORG });
+    await rebuild();
+    expect(await rollups()).toHaveLength(2);
   });
 
   /**
@@ -287,7 +237,7 @@ describe('the daily rollup statement', () => {
   });
 
   it('writes no row for a day with no activity', async () => {
-    await rebuild();
+    await expect(rebuild()).resolves.toBe(0);
     expect(await rollups()).toEqual([]);
   });
 });

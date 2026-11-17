@@ -17,7 +17,7 @@ import type { PGlite } from '@electric-sql/pglite';
 import { jest, describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import { drizzle } from 'drizzle-orm/pglite';
 import { apiCoreMock } from './helpers/mock-api-core.js';
-import { bootInitDb } from './helpers/pglite-init.js';
+import { bootInitDb } from '../src/testing/pglite-init.js';
 
 let db: PGlite;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -41,6 +41,32 @@ export function arnRef(arn: string): string {
   return `arn#${createHash('sha256').update(arn).digest('hex').slice(0, 12)}`;
 }
 
+/**
+ * The AWS partition a region belongs to. ARNs embed the partition, so a
+ * hard-coded `arn:aws:` names a resource that does not exist in GovCloud or
+ * China and every lookup against it fails (the pipeline is then silently
+ * skipped as "untagged"). Unknown prefixes fall back to the commercial
+ * partition.
+ */
+export function partitionForRegion(region: string | undefined): string {
+  if (!region) return 'aws';
+  if (region.startsWith('cn-')) return 'aws-cn';
+  if (region.startsWith('us-gov-')) return 'aws-us-gov';
+  if (region.startsWith('us-iso-')) return 'aws-iso';
+  if (region.startsWith('us-isob-')) return 'aws-iso-b';
+  return 'aws';
+}
+
+/** The service-endpoint DNS suffix for a partition (`amazonaws.com`, or `.com.cn` in China). */
+export function dnsSuffixForPartition(partition: string): string {
+  switch (partition) {
+    case 'aws-cn': return 'amazonaws.com.cn';
+    case 'aws-iso': return 'c2s.ic.gov';
+    case 'aws-iso-b': return 'sc2s.sgov.gov';
+    default: return 'amazonaws.com';
+  }
+}
+
 /** Upper bound for every per-key cache below. */
 export const CACHE_MAX_ENTRIES = 5000;
 

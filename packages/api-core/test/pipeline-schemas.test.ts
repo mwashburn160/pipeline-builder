@@ -202,3 +202,95 @@ describe('create-time lifecycle flags', () => {
     if (result.success) expect('isDefault' in result.data).toBe(false);
   });
 });
+
+describe('props.role (RoleConfigSchema)', () => {
+  const SUB = { 'token.actions.githubusercontent.com:sub': 'repo:acme/app:ref:refs/heads/main' };
+  const withRole = (role: unknown) => ({
+    project: 'demo',
+    organization: 'acme',
+    props: { project: 'demo', organization: 'acme', synth: { plugin: { name: 'cdk-synth' } }, role },
+  });
+  const parse = (role: unknown) => PipelineCreateSchema.safeParse(withRole(role));
+  const messages = (role: unknown): string[] => {
+    const r = parse(role);
+    return r.success ? [] : r.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`);
+  };
+  const oidc = (extra: Record<string, unknown> = {}) => ({
+    type: 'oidc',
+    options: { issuer: 'https://token.actions.githubusercontent.com', conditions: SUB, ...extra },
+  });
+
+  // The exact shapes frontend/src/types/props-assembly.ts sends.
+  it.each([
+    ['roleArn', { type: 'roleArn', options: { roleArn: 'arn:aws:iam::123456789012:role/Deploy', mutable: false } }],
+    ['roleName', { type: 'roleName', options: { roleName: 'Deploy', mutable: true } }],
+    ['codeBuildDefault (no name)', { type: 'codeBuildDefault', options: {} }],
+    ['codeBuildDefault (named)', { type: 'codeBuildDefault', options: { roleName: 'Build' } }],
+    ['oidc by issuer', { type: 'oidc', options: { issuer: 'https://token.actions.githubusercontent.com', clientIds: ['sts.amazonaws.com'], conditions: SUB, roleName: 'Gh', description: 'd' } }],
+    ['oidc by provider', { type: 'oidc', options: { providerArn: 'arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com', conditions: SUB } }],
+  ])('accepts %s', (_name, role) => {
+    expect(messages(role)).toEqual([]);
+  });
+
+  it('accepts scoped inline statements, a wide Deny and a non-admin managed policy', () => {
+    expect(messages(oidc({
+      policyStatements: [
+        { actions: ['s3:GetObject'], resources: ['arn:aws:s3:::b/*'] },
+        { actions: ['s3:*'], resources: ['arn:aws:s3:::b', 'arn:aws:s3:::b/*'] },
+        { effect: 'Deny', actions: ['*'], resources: ['*'] },
+      ],
+      managedPolicyArns: ['arn:aws:iam::aws:policy/ReadOnlyAccess'],
+    }))).toEqual([]);
+  });
+
+  it('rejects an unknown role type and a free-form object', () => {
+    expect(parse({ type: 'admin', options: {} }).success).toBe(false);
+    expect(parse({ arn: 'x' }).success).toBe(false);
+  });
+
+  it('rejects unknown option fields and unsupported statement keys (strict)', () => {
+    expect(parse({ type: 'roleArn', options: { roleArn: 'arn:aws:iam::1:role/x', extra: 1 } }).success).toBe(false);
+    expect(messages(oidc({ policyStatements: [{ actions: ['s3:GetObject'], resources: ['*'], notAction: ['iam:*'] }] })).length).toBeGreaterThan(0);
+  });
+
+  it('requires an ARN/name for the lookup variants', () => {
+    expect(parse({ type: 'roleArn', options: { roleArn: '' } }).success).toBe(false);
+    expect(parse({ type: 'roleName', options: {} }).success).toBe(false);
+  });
+
+  it.each([
+    ['Action *', { policyStatements: [{ actions: ['*'], resources: ['arn:aws:s3:::b'] }] }, 'policyStatements.0.actions.0'],
+    ['Action *:*', { policyStatements: [{ actions: ['*:*'], resources: ['arn:aws:s3:::b'] }] }, 'policyStatements.0.actions.0'],
+    ['iam:* on *', { policyStatements: [{ actions: ['s3:GetObject', 'iam:*'], resources: ['*'] }] }, 'policyStatements.0.actions.1'],
+    ['explicit Allow s3:* on *', { policyStatements: [{ effect: 'Allow', actions: ['s3:*'], resources: ['*'] }] }, 'policyStatements.0.actions.0'],
+    ['AdministratorAccess', { managedPolicyArns: ['arn:aws:iam::aws:policy/AdministratorAccess'] }, 'managedPolicyArns.0'],
+    ['PowerUserAccess (GovCloud)', { managedPolicyArns: ['arn:aws-us-gov:iam::aws:policy/PowerUserAccess'] }, 'managedPolicyArns.0'],
+    ['IAMFullAccess', { managedPolicyArns: ['arn:aws:iam::aws:policy/IAMFullAccess'] }, 'managedPolicyArns.0'],
+  ])('refuses %s without allowBroadPermissions', (_name, extra, path) => {
+    const out = messages(oidc(extra));
+    expect(out.some((m) => m.startsWith(`props.role.options.${path}:`) && /allowBroadPermissions: true/.test(m))).toBe(true);
+    // ...and accepts it once the caller opts in explicitly.
+    expect(messages(oidc({ ...extra, allowBroadPermissions: true }))).toEqual([]);
+    expect(messages(oidc({ ...extra, allowBroadPermissions: false })).length).toBeGreaterThan(0);
+  });
+
+  it('does not treat a customer policy that merely shares the name as AWS-managed admin', () => {
+    expect(messages(oidc({ managedPolicyArns: ['arn:aws:iam::123456789012:policy/AdministratorAccess'] }))).toEqual([]);
+  });
+
+  it('mirrors the synth-time OIDC trust rules (one provider source, a scoped :sub)', () => {
+    expect(messages({ type: 'oidc', options: { conditions: SUB } }).join()).toMatch(/providerArn or issuer/);
+    expect(messages(oidc({ providerArn: 'arn:aws:iam::1:oidc-provider/x' })).join()).toMatch(/not both/);
+    expect(messages({ type: 'oidc', options: { issuer: 'https://token.actions.githubusercontent.com' } }).join()).toMatch(/:sub/);
+    expect(messages({ type: 'oidc', options: { issuer: 'https://token.actions.githubusercontent.com', conditionsLike: { 'token.actions.githubusercontent.com:sub': '*' } } }).join()).toMatch(/bare '\*'/);
+    expect(messages(oidc({ maxSessionDuration: 60 })).length).toBeGreaterThan(0);
+  });
+});
+
+describe('findBroadRolePermissions', () => {
+  it('returns nothing for empty / scoped options', async () => {
+    const { findBroadRolePermissions } = await import('../src/validation/pipeline-schemas.js');
+    expect(findBroadRolePermissions({})).toEqual([]);
+    expect(findBroadRolePermissions({ policyStatements: [{ actions: ['logs:*'], resources: ['arn:aws:logs:*:*:log-group:/x:*'] }] })).toEqual([]);
+  });
+});

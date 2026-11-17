@@ -6,8 +6,8 @@ import { PGlite } from '@electric-sql/pglite';
 import { afterAll, beforeAll, describe, expect, it, jest } from '@jest/globals';
 import { sql } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
-import { REPO_ROOT } from './helpers/pglite-init.js';
 import { anyText, executeRows, isUniqueViolation, resultRows } from '../src/database/pg-result.js';
+import { REPO_ROOT } from '../src/testing/pglite-init.js';
 
 describe('isUniqueViolation', () => {
   it('matches a top-level 23505', () => {

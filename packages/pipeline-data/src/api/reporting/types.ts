@@ -116,6 +116,8 @@ export interface VersionCount {
   version_count: number;
   latest_version: string;
   has_default: boolean;
+  /** A managed toolchain plugin: versions resolve via the toolchain release, never a default. */
+  managed: boolean;
 }
 
 export interface BuildTimeSeriesEntry {

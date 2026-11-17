@@ -15,8 +15,8 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import { PgDialect, getTableConfig } from 'drizzle-orm/pg-core';
-import { bootInitDb } from './helpers/pglite-init.js';
 import { pipelineEvent } from '../src/database/schema/pipeline.js';
+import { bootInitDb } from '../src/testing/pglite-init.js';
 
 let db: PGlite;
 beforeAll(async () => {

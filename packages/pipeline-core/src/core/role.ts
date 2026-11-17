@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { BROAD_PERMISSIONS_HINT, findBroadRolePermissions } from '@pipeline-builder/api-core';
 import { ArnFormat, Duration, Stack, Token } from 'aws-cdk-lib';
 import {
   Effect,
@@ -107,6 +108,7 @@ function createOidcRole(
   if (options.providerArn && options.issuer) {
     throw new Error('OIDC role config must specify either providerArn or issuer, not both');
   }
+  assertNotBroad(options);
 
   let provider: IOpenIdConnectProvider;
 
@@ -164,6 +166,31 @@ function createOidcRole(
   }
 
   return role;
+}
+
+/**
+ * Defense in depth behind the API's RoleConfigSchema: a config that reaches
+ * synth some other way (the CLI, a stored pre-validation row, a direct CDK
+ * caller) is held to the same rule (api-core `findBroadRolePermissions`).
+ * Values that are unresolved CDK tokens cannot be inspected and are skipped.
+ */
+function assertNotBroad(options: OidcRoleOptions): void {
+  if (options.allowBroadPermissions === true) return;
+  const resolved = {
+    policyStatements: options.policyStatements?.map((s) => ({
+      effect: s.effect,
+      actions: s.actions.filter((a) => !Token.isUnresolved(a)),
+      resources: s.resources.filter((r) => !Token.isUnresolved(r)),
+    })),
+    managedPolicyArns: options.managedPolicyArns?.filter((a) => !Token.isUnresolved(a)),
+  };
+  const issues = findBroadRolePermissions(resolved);
+  if (issues.length > 0) {
+    throw new Error(
+      `OIDC role config grants admin-equivalent permissions: ${issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}. `
+      + BROAD_PERMISSIONS_HINT,
+    );
+  }
 }
 
 /**

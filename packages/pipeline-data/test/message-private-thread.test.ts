@@ -17,7 +17,7 @@ import { jest, describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import { and } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { apiCoreMock } from './helpers/mock-api-core.js';
-import { asTenant, bootInitDb } from './helpers/pglite-init.js';
+import { asTenant, bootInitDb } from '../src/testing/pglite-init.js';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 const { buildMessageConditions } = await import('../src/api/query-builders.js');

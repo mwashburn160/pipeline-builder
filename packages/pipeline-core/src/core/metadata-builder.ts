@@ -1,7 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { BROAD_PERMISSIONS_HINT, findBroadRolePermissions } from '@pipeline-builder/api-core';
+import { Token } from 'aws-cdk-lib';
 import type { BuildEnvironment } from 'aws-cdk-lib/aws-codebuild';
+import { Effect, PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import type { CodeBuildStepProps, CodePipelineProps, ShellStepProps } from 'aws-cdk-lib/pipelines';
 import type { NetworkConfig, SubnetTypeName } from './network-types.js';
 import { CDK_METADATA_PREFIX, MetadataKeys } from './pipeline-types.js';
@@ -90,9 +93,52 @@ export function metadataForCodePipeline(metadata: MetaDataType): Partial<CodePip
   return buildConfigFromMetadata(metadata, NAMESPACE.CODE_PIPELINE) as Partial<CodePipelineProps>;
 }
 
+/**
+ * `rolePolicyStatements` arrives from step METADATA, which is tenant JSON — so
+ * it is normally plain IAM statement objects (`{ Effect, Action, Resource }`),
+ * not CDK `PolicyStatement`s. Normalise to `PolicyStatement` (CDK needs that)
+ * and hold it to the same admin-equivalent rule as the pipeline role
+ * (api-core `findBroadRolePermissions`): metadata is a second door to IAM and
+ * must not be the unchecked one. `allowBroadPermissions` (same namespace) is the
+ * explicit opt-out, exactly as on the role config.
+ */
+function normalizeRolePolicyStatements(raw: unknown, allowBroad: boolean): PolicyStatement[] {
+  const list = Array.isArray(raw) ? raw : [raw];
+  const statements = list.map((s, i) => {
+    if (s instanceof PolicyStatement) return s;
+    if (s && typeof s === 'object') return PolicyStatement.fromJson(s);
+    throw new Error(`Step metadata rolePolicyStatements[${i}] must be an IAM statement object`);
+  });
+  if (!allowBroad) {
+    const issues = findBroadRolePermissions({
+      policyStatements: statements.map((st) => {
+        const json = st.toStatementJson() as { Effect?: string; Action?: string | string[]; Resource?: string | string[] };
+        const arr = (v: string | string[] | undefined) => (v === undefined ? [] : Array.isArray(v) ? v : [v]);
+        return {
+          effect: st.effect === Effect.DENY ? 'Deny' : 'Allow',
+          actions: arr(json.Action).filter((a) => !Token.isUnresolved(a)),
+          resources: arr(json.Resource).filter((r) => !Token.isUnresolved(r)),
+        };
+      }),
+    });
+    if (issues.length > 0) {
+      throw new Error(
+        `Step metadata rolePolicyStatements grants admin-equivalent permissions: ${issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}. `
+        + BROAD_PERMISSIONS_HINT,
+      );
+    }
+  }
+  return statements;
+}
+
 /** Extract CodeBuildStep config from metadata. */
 export function metadataForCodeBuildStep(metadata: MetaDataType): Partial<CodeBuildStepProps> {
-  return buildConfigFromMetadata(metadata, NAMESPACE.CODE_BUILD_STEP) as Partial<CodeBuildStepProps>;
+  const config = buildConfigFromMetadata(metadata, NAMESPACE.CODE_BUILD_STEP);
+  if (config.rolePolicyStatements !== undefined) {
+    const allowBroad = isTrue(metadata[getCustomKey(NAMESPACE.CODE_BUILD_STEP, 'allowBroadPermissions')]);
+    config.rolePolicyStatements = normalizeRolePolicyStatements(config.rolePolicyStatements, allowBroad);
+  }
+  return config as Partial<CodeBuildStepProps>;
 }
 
 /** Extract ShellStep config from metadata. */

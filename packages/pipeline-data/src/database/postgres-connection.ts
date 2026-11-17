@@ -383,6 +383,19 @@ function getDbInstance(): ReturnType<typeof drizzle> {
 }
 
 /**
+ * TEST SEAM: point the shared {@link db} proxy at another Drizzle instance (an
+ * in-process PGlite one), or back at the lazy pool with `null`. Everything that
+ * reads `db` — `withTenantTx`, `withTenantTxRead`'s primary path, CrudService —
+ * then runs its REAL code against that database. Deliberately NOT re-exported
+ * from the package barrel; the only caller is `@pipeline-builder/pipeline-data/testing`.
+ *
+ * @internal
+ */
+export function setDbInstanceForTesting(instance: unknown): void {
+  _dbInstance = instance as ReturnType<typeof drizzle> | null;
+}
+
+/**
  * Proxy-based lazy database instance
  * The actual connection is only created when first accessed
  *

@@ -7,6 +7,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { realRedisUrl, redisSuite } from './helpers/redis-gate.js';
 import type { AnyFn } from '../src/testing/any-fn.js';
 
 const logMock = { info: jest.fn<AnyFn>(), warn: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), debug: jest.fn<AnyFn>() };
@@ -338,8 +339,8 @@ describe('durable event bus', () => {
 });
 
 /** Real Redis (opt-in: API_CORE_TEST_REDIS_URL): XPENDING/XRANGE reply shapes, dead-lettering and publishedAt. */
-const REAL_URL = process.env.API_CORE_TEST_REDIS_URL;
-(REAL_URL ? describe : describe.skip)('durable event bus (real Redis)', () => {
+const REAL_URL = realRedisUrl();
+redisSuite()('durable event bus (real Redis)', () => {
   it('delivers with the publish time and dead-letters after maxDeliveries', async () => {
     const { Redis } = await import('ioredis');
     const client = new Redis(REAL_URL!);

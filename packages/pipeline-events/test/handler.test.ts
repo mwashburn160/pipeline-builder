@@ -1002,6 +1002,44 @@ describe('pipeline-events handler', () => {
       expect(ingestHealthBody()).toMatchObject({ dropped: 5 });
     });
 
+    it('derives the DLQ ARN/URL in the trigger queue\'s OWN partition (GovCloud)', async () => {
+      mockSqsSend.mockImplementation((cmd) => {
+        if (cmd.__type === 'GetQueueAttributes') return Promise.resolve({ Attributes: { ApproximateNumberOfMessages: '2' } });
+        if (cmd.__type === 'ListMessageMoveTasks') return Promise.resolve({ Results: [] });
+        return Promise.resolve({ TaskHandle: 'task-1' });
+      });
+      const ev = createSQSEvent([{ ...MOCK_CODEPIPELINE_EVENT, region: 'us-gov-west-1' }]);
+      for (const r of ev.Records) {
+        (r as any).eventSourceARN = 'arn:aws-us-gov:sqs:us-gov-west-1:123:pipeline-builder-events';
+        (r as any).awsRegion = 'us-gov-west-1';
+      }
+
+      await handler(ev);
+
+      const move = mockSqsSend.mock.calls.find((c: any[]) => c[0].__type === 'StartMessageMoveTask');
+      expect(move![0].SourceArn).toBe('arn:aws-us-gov:sqs:us-gov-west-1:123:pipeline-builder-events-dlq');
+      expect(move![0].DestinationArn).toBe('arn:aws-us-gov:sqs:us-gov-west-1:123:pipeline-builder-events');
+      const attrs = mockSqsSend.mock.calls.find((c: any[]) => c[0].__type === 'GetQueueAttributes');
+      expect((attrs![0] as any).QueueUrl).toBe('https://sqs.us-gov-west-1.amazonaws.com/123/pipeline-builder-events-dlq');
+      // ...and the pipeline tag lookup used the same partition.
+      expect(mockTagsSend.mock.calls.map((c) => c[0].resourceArn)).toContain('arn:aws-us-gov:codepipeline:us-gov-west-1:123456789012:acme-webapp-pipeline');
+    });
+
+    it('uses the .com.cn endpoint suffix for a China-partition queue', async () => {
+      mockSqsSend.mockImplementation((cmd) => {
+        if (cmd.__type === 'GetQueueAttributes') return Promise.resolve({ Attributes: { ApproximateNumberOfMessages: '0' } });
+        return Promise.resolve({ Results: [] });
+      });
+      const ev = createSQSEvent([{ ...MOCK_CODEPIPELINE_EVENT, region: 'cn-north-1' }]);
+      for (const r of ev.Records) (r as any).eventSourceARN = 'arn:aws-cn:sqs:cn-north-1:123:pipeline-builder-events';
+
+      await handler(ev);
+
+      const attrs = mockSqsSend.mock.calls.find((c: any[]) => c[0].__type === 'GetQueueAttributes');
+      expect((attrs![0] as any).QueueUrl).toBe('https://sqs.cn-north-1.amazonaws.com.cn/123/pipeline-builder-events-dlq');
+      expect(mockTagsSend.mock.calls.map((c) => c[0].resourceArn)).toContain('arn:aws-cn:codepipeline:cn-north-1:123456789012:acme-webapp-pipeline');
+    });
+
     it('does NOT start a move task when one is already running (one-at-a-time)', async () => {
       mockSqsSend.mockImplementation((cmd) => {
         if (cmd.__type === 'GetQueueAttributes') return Promise.resolve({ Attributes: { ApproximateNumberOfMessages: '5' } });

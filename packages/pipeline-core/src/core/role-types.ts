@@ -249,6 +249,16 @@ export interface OidcRoleOptions {
    * ```
    */
   readonly policyStatements?: OidcPolicyStatement[];
+
+  /**
+   * Accept admin-equivalent grants: an Allow of `*` / `*:*`, a service-wide
+   * `<svc>:*` on Resource `*`, or the AWS-managed AdministratorAccess,
+   * PowerUserAccess or IAMFullAccess policies. Refused at the API and again at
+   * synth unless this is `true` — explicitly, so a broad role is a decision
+   * someone wrote down rather than a default.
+   * @default false
+   */
+  readonly allowBroadPermissions?: boolean;
 }
 
 /**

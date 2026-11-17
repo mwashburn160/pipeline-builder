@@ -3,6 +3,7 @@
 
 import { describe, it, expect, afterEach, jest } from '@jest/globals';
 import { makeFakeRedis } from './helpers/fake-redis.js';
+import { realRedisUrl, redisSuite } from './helpers/redis-gate.js';
 import { createEnvSseTicketStore, createRedisSseTicketStore, envSseTicketCaps, SseStreamOwnerConflictError, type SseTicketStore, type SseTicketStoreConfig } from '../src/services/sse-ticket-store.js';
 
 const stores: Array<{ stop(): void }> = [];
@@ -214,8 +215,8 @@ describe('Redis SSE ticket store specifics', () => {
  * Real-Redis check of the Lua issue script. Opt-in: set API_CORE_TEST_REDIS_URL
  * (e.g. redis://127.0.0.1:6379) to run it; skipped otherwise.
  */
-const REAL_URL = process.env.API_CORE_TEST_REDIS_URL;
-(REAL_URL ? describe : describe.skip)('Redis SSE ticket store (real Redis)', () => {
+const REAL_URL = realRedisUrl();
+redisSuite()('Redis SSE ticket store (real Redis)', () => {
   const clients: Array<{ quit(): Promise<unknown> }> = [];
   afterEach(async () => { while (clients.length) await clients.pop()!.quit(); });
 

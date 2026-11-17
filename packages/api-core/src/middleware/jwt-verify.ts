@@ -12,12 +12,49 @@ import { SERVICE_SUBJECT_PREFIX, isServiceKid, verifyServiceJwt } from '../servi
 import { AUTH_METHODS, PRINCIPAL_TYPES, TOKEN_USES, type JwtPayload } from '../types/common.js';
 import { USER_TOKEN_ALGORITHM, decodeJwtHeader } from '../utils/jwk.js';
 import { emitCounter } from '../utils/metric-emitter.js';
-/** Issuer/audience pinning, when the deployment configures them. Shared by both chains. */
+/** Thrown when production runs without the issuer/audience every token is pinned to. */
+export class JwtIssuerAudienceConfigError extends Error {
+  constructor(missing: readonly string[]) {
+    super(
+      `${missing.join(' and ')} must be set when NODE_ENV=production. Every token platform and the services ` +
+      'sign is stamped with them and every verifier checks them, so an unset value would accept a token minted ' +
+      'for any other issuer/audience. Use the same values on every service (the deploy configs ship ' +
+      'JWT_ISSUER=pipeline-builder-platform and JWT_AUDIENCE=pipeline-builder).',
+    );
+    this.name = 'JwtIssuerAudienceConfigError';
+  }
+}
+
+/**
+ * Issuer/audience pinning. Shared by both chains, by both directions (sign and
+ * verify), and by platform's own signer, which reads the same two variables.
+ *
+ * Optional in development and tests; REQUIRED under `NODE_ENV=production`,
+ * where an unset value throws {@link JwtIssuerAudienceConfigError}. Every
+ * caller is inside a verify/sign try, so a misconfigured production process
+ * fails closed (401 / no token) rather than accepting unpinned tokens — and
+ * {@link assertJwtIssuerAudienceConfigured} lets a service refuse to boot.
+ */
 export function issuerAudienceOptions(): { issuer?: string; audience?: string } {
+  const issuer = process.env.JWT_ISSUER || undefined;
+  const audience = process.env.JWT_AUDIENCE || undefined;
+  if (process.env.NODE_ENV === 'production' && (!issuer || !audience)) {
+    throw new JwtIssuerAudienceConfigError([...(issuer ? [] : ['JWT_ISSUER']), ...(audience ? [] : ['JWT_AUDIENCE'])]);
+  }
   return {
-    ...(process.env.JWT_ISSUER ? { issuer: process.env.JWT_ISSUER } : {}),
-    ...(process.env.JWT_AUDIENCE ? { audience: process.env.JWT_AUDIENCE } : {}),
+    ...(issuer ? { issuer } : {}),
+    ...(audience ? { audience } : {}),
   };
+}
+
+/**
+ * Startup guard: throws {@link JwtIssuerAudienceConfigError} under
+ * `NODE_ENV=production` when JWT_ISSUER or JWT_AUDIENCE is unset. Call once at
+ * boot, before the server listens, so the misconfiguration is a crash-loop with
+ * a clear message rather than every request answering 401.
+ */
+export function assertJwtIssuerAudienceConfigured(): void {
+  issuerAudienceOptions();
 }
 
 /**
