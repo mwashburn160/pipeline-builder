@@ -56,6 +56,10 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   RoleAssignment: { find: (...a: unknown[]) => mockRaFind(...a) },
 }));
 
+// The member service's consent and Role-unassign guards (untested here).
+jest.unstable_mockModule('../src/helpers/account-membership.js', () => ({ assertDirectAddConsented: jest.fn(async () => undefined) }));
+jest.unstable_mockModule('../src/services/role-crud.js', () => ({ assertActorMayStripMemberRoles: jest.fn(async () => ({ heldSuperadmin: false })) }));
+
 const { orgMembersService } = await import('../src/services/org-members-service.js');
 
 // ─── Chainable-query mock builders ──────────────────────────────────────────

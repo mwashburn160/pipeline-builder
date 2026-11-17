@@ -46,7 +46,20 @@ jobs:
           package-manager-cache: pnpm
       - name: Configure npm registry
         id: configure_npm_registry
-        run: export NPM_TOKEN=$(echo ${{ secrets.NPM_TOKEN_ENCODED }} | base64 -d) && npm config set //registry.npmjs.org/:_authToken=$NPM_TOKEN && npm config set @pipeline-builder:registry=https://registry.npmjs.org/
+        env:
+          NPM_TOKEN_ENCODED: ${{ secrets.NPM_TOKEN_ENCODED }}
+        run: |-
+          set -euo pipefail
+          NPM_TOKEN="$(printf "%s" "$NPM_TOKEN_ENCODED" | base64 -d)"
+          if [ -n "$NPM_TOKEN" ]; then
+            echo "::add-mask::$NPM_TOKEN"
+            NPMRC="$(npm config get userconfig)"
+            touch "$NPMRC" && chmod 600 "$NPMRC"
+            printf "//registry.npmjs.org/:_authToken=%s\n" "$NPM_TOKEN" >> "$NPMRC"
+          else
+            echo "NPM_TOKEN_ENCODED is not available; continuing without npm auth"
+          fi
+          npm config set @pipeline-builder:registry=https://registry.npmjs.org/
       - name: Install dependencies
         id: install_dependencies
         run: pnpm install --frozen-lockfile
@@ -84,7 +97,20 @@ jobs:
           package-manager-cache: pnpm
       - name: Configure npm registry
         id: configure_npm_registry
-        run: export NPM_TOKEN=$(echo ${{ secrets.NPM_TOKEN_ENCODED }} | base64 -d) && npm config set //registry.npmjs.org/:_authToken=$NPM_TOKEN && npm config set @pipeline-builder:registry=https://registry.npmjs.org/
+        env:
+          NPM_TOKEN_ENCODED: ${{ secrets.NPM_TOKEN_ENCODED }}
+        run: |-
+          set -euo pipefail
+          NPM_TOKEN="$(printf "%s" "$NPM_TOKEN_ENCODED" | base64 -d)"
+          if [ -n "$NPM_TOKEN" ]; then
+            echo "::add-mask::$NPM_TOKEN"
+            NPMRC="$(npm config get userconfig)"
+            touch "$NPMRC" && chmod 600 "$NPMRC"
+            printf "//registry.npmjs.org/:_authToken=%s\n" "$NPM_TOKEN" >> "$NPMRC"
+          else
+            echo "NPM_TOKEN_ENCODED is not available; continuing without npm auth"
+          fi
+          npm config set @pipeline-builder:registry=https://registry.npmjs.org/
       - name: Install dependencies
         id: install_dependencies
         run: pnpm install --frozen-lockfile

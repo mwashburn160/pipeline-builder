@@ -86,9 +86,12 @@ beforeEach(() => {
   mockUserFindById.mockReturnValue(selectLean({ _id: 'target-user', tokenVersion: 1 }));
 });
 
+/** A record window that is still open. */
+const future = (): Date => new Date(Date.now() + 10 * 60 * 1000);
+
 describe('requireAuth — impersonation session', () => {
   it('authenticates a live (consumed) session', async () => {
-    mockImpFindOne.mockReturnValue(selectLean({ status: 'consumed', targetUserId: 'target-user' }));
+    mockImpFindOne.mockReturnValue(selectLean({ status: 'consumed', targetUserId: 'target-user', expiresAt: future() }));
     const res = makeRes(); const next = jest.fn();
 
     await (requireAuth as any)(req(), res, next);
@@ -98,7 +101,7 @@ describe('requireAuth — impersonation session', () => {
   });
 
   it('resolves an impersonation token through the impersonation record', async () => {
-    mockImpFindOne.mockReturnValue(selectLean({ status: 'consumed', targetUserId: 'target-user' }));
+    mockImpFindOne.mockReturnValue(selectLean({ status: 'consumed', targetUserId: 'target-user', expiresAt: future() }));
     const res = makeRes(); const next = jest.fn();
 
     await (requireAuth as any)(req(), res, next);
@@ -117,6 +120,28 @@ describe('requireAuth — impersonation session', () => {
 
     // The whole point of per-session revocation: it takes effect on the next
     // request rather than waiting out the 15-minute TTL.
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('rejects a consumed session whose window has passed (expiresAt <= now)', async () => {
+    mockImpFindOne.mockReturnValue(selectLean({ status: 'consumed', targetUserId: 'target-user', expiresAt: new Date(Date.now() - 1000) }));
+    const res = makeRes(); const next = jest.fn();
+
+    await (requireAuth as any)(req(), res, next);
+
+    // `expiresAt` used to be selected and never read: a consumed record whose
+    // window had closed kept authenticating for as long as the JWT lived.
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('fails closed on a consumed record with no expiresAt', async () => {
+    mockImpFindOne.mockReturnValue(selectLean({ status: 'consumed', targetUserId: 'target-user' }));
+    const res = makeRes(); const next = jest.fn();
+
+    await (requireAuth as any)(req(), res, next);
+
     expect(res.status).toHaveBeenCalledWith(401);
     expect(next).not.toHaveBeenCalled();
   });
@@ -144,7 +169,7 @@ describe('requireAuth — impersonation session', () => {
   });
 
   it('rejects a jti/sub mismatch', async () => {
-    mockImpFindOne.mockReturnValue(selectLean({ status: 'consumed', targetUserId: 'someone-else' }));
+    mockImpFindOne.mockReturnValue(selectLean({ status: 'consumed', targetUserId: 'someone-else', expiresAt: future() }));
     const res = makeRes(); const next = jest.fn();
 
     await (requireAuth as any)(req(), res, next);

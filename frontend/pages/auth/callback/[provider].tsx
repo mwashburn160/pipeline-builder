@@ -18,6 +18,8 @@ import api from '@/lib/api';
 import { startOAuthLogin, takeOAuthIntent } from '@/lib/oauth-intent';
 import { isReauthState, publishReauthResult } from '@/lib/step-up-reauth';
 import { formatError } from '@/lib/constants';
+import { PasswordChangeStep } from '@/components/auth/SignInCard/PasswordChangeStep';
+import { useRequiredPasswordChange } from '@/components/auth/SignInCard/useRequiredPasswordChange';
 
 /**
  * OAuth / SSO callback landing page.
@@ -59,6 +61,13 @@ export default function OAuthCallbackPage() {
   const [mfaChallenge, setMfaChallenge] = useState<string | null>(null);
   const [mfaCode, setMfaCode] = useState('');
   const [mfaBusy, setMfaBusy] = useState(false);
+  // Both factors verified, but the password is below the org policy: the same
+  // new-password step the sign-in card shows, else the person is stuck here.
+  const passwordChange = useRequiredPasswordChange({
+    setError,
+    onCancel: () => { void router.replace('/'); },
+  });
+  const { pwChange, takeLoginResult } = passwordChange;
 
   const submitMfa = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,7 +75,13 @@ export default function OAuthCallbackPage() {
     setMfaBusy(true);
     setError(null);
     try {
-      await completeMfaLogin(mfaChallenge, mfaCode.trim());
+      // Handled exactly as the sign-in card's MFA leg: a result that owes a new
+      // password swaps the code form for that step.
+      const result = await completeMfaLogin(mfaChallenge, mfaCode.trim());
+      if (takeLoginResult(result)) {
+        setMfaChallenge(null);
+        setMfaCode('');
+      }
     } catch (err) {
       setError(formatError(err, 'That code did not work. Try again.'));
     } finally {
@@ -183,6 +198,12 @@ export default function OAuthCallbackPage() {
                 <p className="font-bold">Confirmed</p>
                 <p className="text-sm text-fg-muted mt-1">You can close this window.</p>
               </>
+            ) : pwChange ? (
+              <div className="space-y-3 text-left">
+                <p className="font-bold text-center">Choose a new password</p>
+                {error && <p className="text-sm text-danger text-center" role="alert">{error}</p>}
+                <PasswordChangeStep flow={passwordChange} minLength={pwChange.minLength} />
+              </div>
             ) : mfaChallenge ? (
               <form onSubmit={(e) => { void submitMfa(e); }} className="space-y-3 text-left">
                 <p className="font-bold text-center">Two-factor authentication</p>

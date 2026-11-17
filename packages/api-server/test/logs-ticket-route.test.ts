@@ -53,7 +53,10 @@ describe('POST /logs/ticket (app-factory)', () => {
   let base: string;
 
   beforeAll(async () => {
-    const { app } = createApp({ enableRateLimit: false, enableOpenApi: false, enableHelmet: false, logStream: true });
+    const { app, sseManager } = createApp({ enableRateLimit: false, enableOpenApi: false, enableHelmet: false, logStream: true });
+    // The producer (the plugin build submission) binds the stream's owner
+    // before handing out the requestId; minting refuses an unbound subject.
+    await sseManager.bindStreamOwner(REQ_ID, 'org-acme');
     await new Promise<void>((resolve) => {
       server = app.listen(0, () => resolve());
     });
@@ -75,6 +78,13 @@ describe('POST /logs/ticket (app-factory)', () => {
       body: JSON.stringify({ requestId }),
     });
   }
+
+  it('refuses a mint for a subject with no bound owner (403), and for another org\'s subject (403)', async () => {
+    const unbound = await mint(signAccess({ organizationId: 'org-acme' }), '44444444-4444-4444-4444-444444444444');
+    expect(unbound.status).toBe(403);
+    const foreign = await mint(signAccess({ organizationId: 'org-other' }));
+    expect(foreign.status).toBe(403);
+  });
 
   it('rejects an unauthenticated mint request (401)', async () => {
     const res = await fetch(`${base}/logs/ticket`, { method: 'POST' });

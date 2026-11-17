@@ -1430,6 +1430,30 @@ describe('plugin-build-queue', () => {
       expect(failedJob.remove).not.toHaveBeenCalled();
     });
 
+    it('a FAIL-OPEN reservation hands the new job no slot, so neither a failed add nor its terminal decrements', async () => {
+      const quota = makeQuotaService();
+      const failedJob = makeFailedJob();
+      mockQueueGetJob.mockImplementation((id: string) => Promise.resolve(id.startsWith('dlq-') ? undefined : failedJob));
+      // QUOTA_RESERVE_FAIL_OPEN: the quota service was unreachable and the reserve
+      // let the re-run through WITHOUT counting a unit.
+      const failOpen = { exceeded: false, failOpen: true, quota: { type: 'plugins', limit: -1, used: 0, remaining: -1 } };
+
+      mockReserveQuota.mockResolvedValueOnce(failOpen);
+      mockQueueAdd.mockRejectedValueOnce(new Error('redis add failed'));
+      await expect(requeueModule.retryFailedJob('failed-1', quota, SYSADMIN)).rejects.toThrow('redis add failed');
+      // Nothing was reserved, so the failed enqueue must not give a unit back.
+      expect(mockIncrementQuota).not.toHaveBeenCalled();
+
+      mockReserveQuota.mockResolvedValueOnce(failOpen);
+      mockQueueAdd.mockResolvedValueOnce({ id: 'new-job-fo' });
+      await expect(requeueModule.retryFailedJob('failed-1', quota, SYSADMIN)).resolves.toBe('new-job-fo');
+      // The new job carries quotaReleased so its own terminal never decrements either.
+      const data = mockQueueAdd.mock.calls.at(-1)![1] as Record<string, unknown>;
+      expect(data.quotaReleased).toBe(true);
+      expect(data.reservedResetAt).toBeUndefined();
+      expect(mockIncrementQuota).not.toHaveBeenCalled();
+    });
+
     it('remove() failure is non-fatal: the op still returns the new job id (no second enqueue on this op)', async () => {
       const quota = makeQuotaService();
       const failedJob = makeFailedJob({

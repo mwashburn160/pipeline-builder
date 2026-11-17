@@ -419,8 +419,9 @@ export async function setHelpful(caller: Caller, id: string, helpful: boolean) {
     await votes.add(review.id, caller.userId).catch((err) => { if (!isUniqueViolation(err)) throw err; });
   }
   if (!helpful && has) await votes.remove(review.id, caller.userId);
-  const helpfulCount = await votes.count(review.id);
-  if (helpfulCount !== review.helpfulCount) await reviews.setHelpfulCount(review.id, helpfulCount);
+  // Count and store in ONE locked transaction (see `recountHelpful`): a
+  // separate count-then-write let concurrent voters overwrite each other's total.
+  const helpfulCount = await reviews.recountHelpful(review.id);
   return { helpfulCount, voted: helpful };
 }
 

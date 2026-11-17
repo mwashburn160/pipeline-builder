@@ -271,3 +271,18 @@ describe('messagesApi send contracts', () => {
     expect(JSON.parse(calls[0].init.body ?? '{}')).toEqual({ content: 'on it', attachmentIds: ['att-1'] });
   });
 });
+
+describe('a failed send shows the server reason in the composer', () => {
+  it('wired like the Messages page handleSend: the rejection reaches the compose alert and the form stays open', async () => {
+    sendSupportMessage.mockRejectedValue(new Error('Recipient organization does not accept messages'));
+    const { result } = renderHook(() => useMessages('org-1'));
+    // Same shape as pages/dashboard/messages.tsx handleSend.
+    const onSend = jest.fn<AnyFn>(async (data: unknown) => (await result.current.sendMessage(data as Parameters<typeof result.current.sendMessage>[0])) !== null);
+    renderCompose(false, onSend);
+
+    compose('hello');
+
+    expect(await screen.findByText('Recipient organization does not accept messages')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^send$/i })).toBeInTheDocument();
+  });
+});

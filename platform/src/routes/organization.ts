@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { audited, requireAssurance, requireOrgAdminAssurance, requirePermission, requireSystemOrgPermission, requireServicePrincipal, requireStepUp, STRONG_STEP_UP_METHODS } from '@pipeline-builder/api-core';
+import { audited, requireAssurance, requireInternalService, requireOrgAdminAssurance, requirePermission, requireSystemOrgPermission, requireServicePrincipal, requireStepUp, STRONG_STEP_UP_METHODS } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import {
   getMyOrganization,
@@ -95,6 +95,7 @@ import { completeSsoTest, startSsoTest } from '../controllers/sso-test.js';
 import { isBootstrapSetupRequest, resolveBootstrapSetupWindow } from '../helpers/bootstrap-admin.js';
 import { requireAuth } from '../middleware/index.js';
 import { createLimiter, userOrIpKey } from '../middleware/rate-limiter.js';
+import { serviceOrUserGates } from '../middleware/service-or-user-gates.js';
 
 const router: Router = Router();
 
@@ -277,24 +278,38 @@ router.post('/:id/restore', requireAuth, requirePermission('org_settings:write')
  *  is the capability gate (org_settings:write, in the admin/owner bundle). */
 router.get('/:id/export', requireAuth, requirePermission('org_settings:write'), exportOrganization);
 
-/** PUT /organization/:id/seat-limit — internal seat-entitlement sync from billing.
- *  Service-principal or sysadmin (checked in the controller); NO step-up, so the
- *  billing service can sync effective seats without a human MFA gate. */
-router.put('/:id/seat-limit', requireAuth, audited('admin.org.seatLimit.update'), updateOrganizationSeatLimit);
+/** Billing is the ONE service that syncs and reads an account's seat /
+ *  entitlement window; any other service token is refused, exactly as on the
+ *  `/internal/*` routes. */
+const billingOnly = [requireInternalService({ callers: ['billing'] })];
 
-/** GET /organization/:id/seat-usage — internal pooled seat usage read for
- *  billing's over-cap gate. Service-principal or sysadmin (checked in controller). */
-router.get('/:id/seat-usage', requireAuth, getOrganizationSeatUsage);
+/** PUT /organization/:id/seat-limit — seat/feature/tier entitlement sync.
+ *  Two callers, two chains: the BILLING service (named-caller gate, NO step-up,
+ *  so the sync needs no human MFA), or a platform operator overriding seats by
+ *  hand, gated exactly like the sibling `PATCH /:id/tier` (system org +
+ *  `orgs:manage` + aal2, then a step-up). */
+router.put(
+  '/:id/seat-limit',
+  requireAuth,
+  serviceOrUserGates(billingOnly, [...requireSystemOrgPermission('orgs:manage'), requireStepUp]),
+  audited('admin.org.seatLimit.update'),
+  updateOrganizationSeatLimit,
+);
+
+/** GET /organization/:id/seat-usage — pooled seat usage, for billing's over-cap
+ *  gate (service tokens: billing only) or an admin reading their OWN account
+ *  (`canAdministerOrg`, checked in the controller). */
+router.get('/:id/seat-usage', requireAuth, serviceOrUserGates(billingOnly, []), getOrganizationSeatUsage);
 
 /** GET /organization/:id/feature-entitlements — internal account feature-entitlement
  *  read for billing's entitlement-drift reconciler. Same gate as seat-usage:
- *  service-principal or organization-admin (checked in controller). */
-router.get('/:id/feature-entitlements', requireAuth, getOrganizationFeatureEntitlements);
+ *  billing, or an organization admin of the account (checked in controller). */
+router.get('/:id/feature-entitlements', requireAuth, serviceOrUserGates(billingOnly, []), getOrganizationFeatureEntitlements);
 
 /** GET /organization/:id/support-usage — the account's support-contact caps and
  *  pooled active designations, for billing's over-cap gate and drift reconciler.
- *  Same gate as seat-usage (checked in controller). */
-router.get('/:id/support-usage', requireAuth, getOrganizationSupportUsage);
+ *  Same gate as seat-usage. */
+router.get('/:id/support-usage', requireAuth, serviceOrUserGates(billingOnly, []), getOrganizationSupportUsage);
 
 /*
  * Per-org SSO / IdP self-service (customer org-admin manages THEIR OWN org's

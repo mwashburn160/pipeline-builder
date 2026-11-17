@@ -1174,9 +1174,10 @@ if [ "$AUTO_INIT" = true ]; then
   # alias was created seconds ago in Phase 8, and DNS/negative-cache lags). Port-forward
   # goes straight through the API server, so init works regardless of DNS/ALB warm-up and
   # in both deploy modes (the internal ALB isn't reachable from here in private mode).
-  env -u PLATFORM_BASE_URL \
+  # PLATFORM_PASSWORD as a prefix assignment (exported into env's environment),
+  # NOT an `env` argument: argv is readable by every user via ps.
+  PLATFORM_PASSWORD="$_admin_pw" env -u PLATFORM_BASE_URL \
     LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y NAMESPACE="$NAMESPACE" \
-    PLATFORM_PASSWORD="$_admin_pw" \
     bash "$INIT_PLATFORM" --continue-on-build-failure eks \
     && AUTO_INIT_OK=true \
     || echo "  WARNING: auto-init exited non-zero — re-run by hand (the LOAD_* gates are REQUIRED; they default to OFF): env -u PLATFORM_BASE_URL LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y ./deploy/bin/init-platform.sh eks" >&2

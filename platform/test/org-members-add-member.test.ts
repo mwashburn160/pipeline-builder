@@ -49,6 +49,12 @@ jest.unstable_mockModule('../src/services/roles-service.js', () => ({
   assertActorMayAssignBuiltinAdmin: (...a: unknown[]) => mockAssertMayAssignAdmin(...a),
 }));
 
+const mockAssertConsented = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+jest.unstable_mockModule('../src/helpers/account-membership.js', () => ({
+  assertDirectAddConsented: (...a: unknown[]) => mockAssertConsented(...a),
+}));
+jest.unstable_mockModule('../src/services/role-crud.js', () => ({ assertActorMayStripMemberRoles: jest.fn(async () => ({ heldSuperadmin: false })) }));
+
 // Run the transaction body inline with a fake session (no live Mongo).
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
   withMongoTransaction: (cb: (s: unknown) => unknown) => cb({ id: 'test-session' }),
@@ -89,6 +95,7 @@ beforeEach(() => {
   mockAssignBuiltinAdminRole.mockResolvedValue(true);
   mockRecomputeUserOrgRole.mockResolvedValue(undefined);
   mockAssertMayAssignAdmin.mockResolvedValue(undefined);
+  mockAssertConsented.mockResolvedValue(undefined);
 });
 
 const ADMIN = { isSuperAdmin: false, isOrgAdmin: true, permissions: [] };
@@ -146,6 +153,19 @@ describe('OrgMembersService.addMember', () => {
 
     expect(mockUoCreate).not.toHaveBeenCalled();
     expect(mockAssignBuiltinAdminRole).not.toHaveBeenCalled();
+    expect(mockEnsureBaselineRole).not.toHaveBeenCalled();
+  });
+
+  it('refuses (OM_CONSENT_REQUIRED) a person who never agreed to join, before any write', async () => {
+    mockUserFindById.mockReturnValue(sessionResolving({ _id: 'u1', email: 'victim@elsewhere.example' }));
+    mockAssertConsented.mockRejectedValue(new Error('OM_CONSENT_REQUIRED'));
+
+    await expect(orgMembersService.addMember('org-1', { userId: 'u1' }, ADMIN)).rejects.toThrow('OM_CONSENT_REQUIRED');
+
+    expect(mockAssertConsented).toHaveBeenCalledWith(expect.objectContaining({
+      user: expect.objectContaining({ _id: 'u1' }), orgId: 'org-1', actor: ADMIN,
+    }));
+    expect(mockUoCreate).not.toHaveBeenCalled();
     expect(mockEnsureBaselineRole).not.toHaveBeenCalled();
   });
 

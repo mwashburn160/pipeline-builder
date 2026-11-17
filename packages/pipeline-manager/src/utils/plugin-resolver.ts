@@ -4,7 +4,7 @@
 import { ErrorCode, errorMessage, managedToolchainRefName, toolchainReleasePin } from '@pipeline-builder/api-core';
 import {
   collectPluginSteps, exactPinNotFoundMessage, lookupNotFoundState, type LookupToolchain, type LookupWarning, type LookupWarningSeverity,
-  pluginArtifactAlias, pluginLookupFilter, summarizeLookupWarnings, unwrapLookup,
+  pluginArtifactAlias, pluginLookupFilter, pluginTargetIdentity, summarizeLookupWarnings, unwrapLookup,
 } from '@pipeline-builder/pipeline-core';
 import pico from 'picocolors';
 import { ApiClient } from './api-client.js';
@@ -43,21 +43,23 @@ function collectPluginRefs(props: Record<string, unknown>): PluginRef[] {
     const r = raw as PluginRef;
     if (!r.name) return;
     const key = cacheKey(r);
-    // The name the lookup will TARGET — an explicit `filter.name` wins (see
-    // below), so two refs that resolve to the same plugin are not a collision.
-    const name = (r.filter?.name as string | undefined) ?? r.name;
-    const target = r.publisher ? `${r.publisher}/${name}` : name;
+    // The FULL identity the lookup will target: name (an explicit
+    // `filter.name` wins), publisher AND the rest of the filter (version,
+    // ...). Two refs that resolve to the same plugin are not a collision.
+    const target = pluginTargetIdentity(r);
     const holder = seen.get(key);
     if (holder !== undefined) {
       // One alias can only ever mean one plugin. Deduplicating on the alias
       // alone kept the FIRST plugin and silently dropped the second, so a step
       // declaring `{ name: 'maven-build', alias: 'build' }` after another
       // declaring `{ name: 'nodejs-build', alias: 'build' }` ran nodejs-build's
-      // image and commands — no error, just the wrong build.
+      // image and commands — no error, just the wrong build. The same holds
+      // for one plugin under two filters: `nodejs-build` pinned to 18.2.0 and
+      // 20.1.0, both unaliased, share the default alias `nodejs-build-alias`.
       if (holder !== target) {
         throw new Error(
           `Plugin alias "${key}" is used for two different plugins ("${holder}" and "${target}"). `
-          + 'Give each plugin its own alias.',
+          + 'Give each plugin reference (each distinct plugin, publisher or filter/version) its own alias.',
         );
       }
       return;

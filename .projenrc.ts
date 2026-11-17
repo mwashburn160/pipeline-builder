@@ -902,6 +902,13 @@ platform.postCompileTask.exec('copyfiles -f ./src/utils/email-templates/*.html .
 platform.addScripts(dockerScripts('platform'));
 addImageDescription(platform, 'platform');
 platform.eslint?.addRules(rules);
+// Recycle a jest worker once it holds more than 1GB after a test file. Platform
+// is the largest suite (~270 files, many booting a real mongod replica set under
+// RUN_MONGO_INTEGRATION), and an ESM (vm-modules) worker never gives back the
+// module graphs of the files it ran, so on a memory-constrained host the workers
+// grew until the kernel OOM-killed one mid-suite ("A jest worker process was
+// terminated by another process: signal=SIGKILL") — a different suite each run.
+if (platform.jest) platform.jest.config.workerIdleMemoryLimit = '1GB';
 
 // =============================================================================
 // Frontend

@@ -125,9 +125,11 @@ describe('createRequest', () => {
 
 describe('consume', () => {
   it('redeems an approved request', async () => {
-    mockFindOneAndUpdate.mockResolvedValue({ _id: 'req-1', status: 'consumed' });
+    const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+    mockFindOneAndUpdate.mockResolvedValue({ _id: 'req-1', status: 'consumed', expiresAt });
 
-    await expect(impersonationService.consume('req-1', 'jti-1')).resolves.toEqual({ ok: true });
+    // The record's window comes back so the token's exp can be capped at it.
+    await expect(impersonationService.consume('req-1', 'jti-1')).resolves.toEqual({ ok: true, expiresAt });
   });
 
   it('guards on status AND expiry in the same query', async () => {

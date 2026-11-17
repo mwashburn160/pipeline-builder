@@ -24,7 +24,7 @@
 # service and the single public bundle everywhere, without exposing the other
 # key material in cert_dir.
 #
-# Writes (chmod 644 — deploy convention, see deploy/*/startup.sh):
+# Writes (keys 0600 — 0644 on the docker target, see KEY_MODE below; the bundle 0644):
 #   <cert_dir>/service-keys/<service>.key           EC P-256 private key, PKCS#8 PEM
 #   <cert_dir>/service-keys/<service>-previous.key  retiring key, only after --rotate
 #   <cert_dir>/service-keys/bundle.json             every service's PUBLIC keys
@@ -94,6 +94,18 @@ SERVICES+=(deploy-bootstrap)
 KEY_DIR="$CERT_DIR/service-keys"
 BUNDLE="$KEY_DIR/bundle.json"
 
+# Private-key file mode. 0600 wherever the key is only read by the user who
+# owns it: the k8s targets load it into a Secret with kubectl as that same user
+# (ec2's startup.sh chowns it to minikube, the user its kubectl runs as). The
+# docker target is the one exception — compose BIND-MOUNTS the file into
+# containers that run as assorted uids, which on a Linux host read it as
+# "other" — so a cert_dir that sits next to a docker-compose.yml keeps 0644
+# (local dev only; tightening it there has broken reads before).
+# PB_PRIVATE_KEY_MODE overrides either default.
+if [ -n "${PB_PRIVATE_KEY_MODE:-}" ]; then KEY_MODE="$PB_PRIVATE_KEY_MODE"
+elif [ -f "$(dirname "$CERT_DIR")/docker-compose.yml" ]; then KEY_MODE=644
+else KEY_MODE=600; fi
+
 command -v openssl >/dev/null 2>&1 || { echo "ERROR: openssl is required" >&2; exit 1; }
 
 mkdir -p "$KEY_DIR"
@@ -140,11 +152,10 @@ _jwk() {
 _generate() {  # _generate <key_file>
   # prime256v1 IS NIST P-256 — the curve ES256 pins, the same one the user-token
   # signer uses. PKCS#8 so Node reads it without a hint.
-  openssl ecparam -name prime256v1 -genkey -noout 2>/dev/null \
-    | openssl pkcs8 -topk8 -nocrypt -out "$1"
-  # 644 (not 600): the deploy convention — mounted into containers that run as
-  # assorted uids, and tightening to 600 has broken reads before.
-  chmod 644 "$1"
+  ( umask 077
+    openssl ecparam -name prime256v1 -genkey -noout 2>/dev/null \
+      | openssl pkcs8 -topk8 -nocrypt -out "$1" )
+  chmod "$KEY_MODE" "$1"
 }
 
 for svc in "${SERVICES[@]}"; do
@@ -179,7 +190,7 @@ for svc in "${SERVICES[@]}"; do
     _generate "$key"
     echo "  wrote service signing key: $key"
   fi
-  [ -f "$prev" ] && chmod 644 "$prev"
+  [ -f "$prev" ] && chmod "$KEY_MODE" "$prev"
 done
 
 # Rebuild the bundle from whatever is on disk. Always regenerated (never patched)
@@ -200,6 +211,6 @@ done
   printf '\n  }\n}\n'
 } > "$BUNDLE.tmp"
 mv "$BUNDLE.tmp" "$BUNDLE"
-# Public keys only — 644 like everything else the containers mount.
+# Public keys only — 0644.
 chmod 644 "$BUNDLE"
 echo "  wrote service key bundle: $BUNDLE"

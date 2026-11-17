@@ -57,6 +57,11 @@ export async function reserveFeatureQuota(
  *   period rolled over between reserve and rollback the quota service skips
  *   the decrement instead of stealing a slot from the NEW period.
  * - a release with no reservation in hand (the delete path) → `null`.
+ *
+ * A rollback of a FAIL-OPEN reservation (`reservation.failOpen`: the quota
+ * service was unreachable and QUOTA_RESERVE_FAIL_OPEN let the write through)
+ * is a no-op: that pass reserved nothing, so decrementing would hand the org a
+ * unit it never spent.
  */
 export function releaseFeatureQuota(
   orgId: string,
@@ -64,6 +69,7 @@ export function releaseFeatureQuota(
   logWarn: (msg: string, data?: unknown) => void,
   reservation: QuotaReserveResult | null,
 ): void {
+  if (reservation?.failOpen === true) return;
   const resetAtSnapshot = reservation?.quota.resetAt;
   void resolveOrgLineage(orgId)
     .then(({ rootOrgId }) => {

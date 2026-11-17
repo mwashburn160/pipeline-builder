@@ -34,6 +34,13 @@ jest.unstable_mockModule('../src/services/roles-service.js', () => ({
   assertActorMayAssignBuiltinAdmin: (...a: unknown[]) => (mockAssertMayAssignAdmin as any)(...a),
 }));
 const ADMIN = { isSuperAdmin: false, isOrgAdmin: true, permissions: [] };
+// The direct-add consent rule (helpers/account-membership.ts) is covered in
+// account-membership.test.ts; stubbed here so each branch can be driven.
+const mockAssertConsented = jest.fn(async (..._args: unknown[]) => undefined);
+jest.unstable_mockModule('../src/helpers/account-membership.js', () => ({
+  assertDirectAddConsented: (...a: unknown[]) => (mockAssertConsented as any)(...a),
+}));
+jest.unstable_mockModule('../src/services/role-crud.js', () => ({ assertActorMayStripMemberRoles: jest.fn(async () => ({ heldSuperadmin: false })) }));
 
 jest.unstable_mockModule('mongoose', () => {
   class Schema {
@@ -211,6 +218,18 @@ describe('orgMembersService.bulkAddMemberToTeams', () => {
     mockAssertMayAssignAdmin.mockRejectedValueOnce(new Error('RL_ASSIGN_EXCEEDS_CEILING') as never);
     await expect(orgMembersService.bulkAddMemberToTeams('ctx', { userId: 'u1', orgIds: ['teamA'], role: 'admin' }, { isSuperAdmin: false, isOrgAdmin: false, permissions: [] }))
       .rejects.toThrow('RL_ASSIGN_EXCEEDS_CEILING');
+    expect(mockUserOrgCreate).not.toHaveBeenCalled();
+  });
+
+  it('refuses a person not yet in the account (consent) before writing any membership', async () => {
+    mockExpandOrgScope.mockResolvedValue(['ctx', 'teamA', 'teamB']);
+    mockUserFindById.mockReturnValue(sessionReturns({ _id: 'u1', email: 'someone@other.example' }));
+    mockAssertConsented.mockRejectedValueOnce(new Error('OM_CONSENT_REQUIRED') as never);
+
+    await expect(orgMembersService.bulkAddMemberToTeams('ctx', { userId: 'u1', orgIds: ['teamA', 'teamB'] }, ADMIN))
+      .rejects.toThrow('OM_CONSENT_REQUIRED');
+    // Checked once, against the CONTEXT org's account, which holds every target.
+    expect(mockAssertConsented).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'ctx', actor: ADMIN }));
     expect(mockUserOrgCreate).not.toHaveBeenCalled();
   });
 

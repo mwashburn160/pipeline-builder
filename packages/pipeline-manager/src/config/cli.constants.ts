@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { defaultPipelineName as sharedDefaultPipelineName, pipelineIdentityHash } from '@pipeline-builder/api-core';
 import { randomBytes } from 'crypto';
 import { readFileSync } from 'node:fs';
 
@@ -220,15 +221,15 @@ export function shellQuote(value: string): string {
 }
 
 /**
- * Canonical default pipeline name when none is given — MUST mirror pipeline-core's
- * pipeline-configuration.ts (`${sanitize(org)}-${sanitize(project)}-pipeline`,
- * non-alphanumeric → '_', lowercased), so the CLI's create and registry paths
- * derive the SAME name the CDK builder actually deploys (a mismatch breaks
- * StartPipelineExecution against the registered name).
+ * Canonical default pipeline name when none is given — api-core's
+ * `defaultPipelineName`, the SAME rule pipeline-core's PipelineConfiguration
+ * uses (`<org>-<project>-pipeline`, non-alphanumeric → '_', lowercased, plus a
+ * `-<hash>` of the raw pair when that is lossy), so the CLI's create and
+ * registry paths derive the name the CDK builder actually deploys (a mismatch
+ * breaks StartPipelineExecution against the registered name).
  */
 export function defaultPipelineName(organization: string, project: string): string {
-  const sanitize = (s: string) => s.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
-  return `${sanitize(organization)}-${sanitize(project)}-pipeline`;
+  return sharedDefaultPipelineName(organization, project);
 }
 
 /** CloudFormation's stack-name rule (the same pattern aws-cdk-lib's `Stack` enforces). */
@@ -238,7 +239,9 @@ const STACK_NAME_MAX_LENGTH = 128;
 
 /**
  * The CloudFormation stack name a pipeline deploys as: `<project>-<organization>`,
- * lowercased, with `_` turned into `-`. A project name may contain underscores
+ * lowercased, with `_` turned into `-` — and, when the given pair is not
+ * already clean (letters, digits, hyphens), `-<hash>` of the raw pair
+ * (`pipelineIdentityHash`) so distinct inputs never share a stack. A project name may contain underscores
  * and a stack name may not (`spring_boot` gave the invalid `spring_boot-system`).
  *
  * Shared by the synth app (`boilerplate.ts`, which names the stack) and the
@@ -252,7 +255,11 @@ const STACK_NAME_MAX_LENGTH = 128;
  * swaps in a hashed name, so the registry would record a stack that doesn't exist.
  */
 export function pipelineStackName(project: string, organization: string): string {
-  const name = `${project}-${organization}`.toLowerCase().replace(/_/g, '-');
+  // `_` → `-` is lossy (`spring_boot` and `spring-boot` would share a stack),
+  // so a pair it changes carries a hash of the raw pair; a clean pair keeps
+  // the stack name it always had.
+  const hash = pipelineIdentityHash(project, organization);
+  const name = `${project}-${organization}${hash ? `-${hash}` : ''}`.toLowerCase().replace(/_/g, '-');
   if (name.length > STACK_NAME_MAX_LENGTH) {
     throw new Error(
       `Stack name '${name}' (from project '${project}' and organization '${organization}') is ${name.length} characters; `

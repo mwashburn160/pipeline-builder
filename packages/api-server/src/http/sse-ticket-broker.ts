@@ -36,8 +36,10 @@ export interface SseTicketBrokerOptions {
   maxPerOrg?: number;
   /** Ticket TTL in ms for the default store. */
   ttlMs?: number;
-  /** TTL for a stream-ownership binding (default 1h). Long enough to outlive a
-   *  build; the producer re-binds as needed. */
+  /** TTL for a stream-ownership binding (default 24h). It must outlive the
+   *  longest build INCLUDING its queue/slot wait, since an unbound subject can't
+   *  be ticketed; the worker re-binds on each attempt and every successful mint
+   *  refreshes it. */
   ownerTtlMs?: number;
 }
 
@@ -63,6 +65,9 @@ function canonicalOrgId(orgId: string): string {
   return normalizeOrgId(orgId) ?? '';
 }
 
+/** Default stream-ownership TTL: 24h, covering a long build plus its slot wait. */
+export const DEFAULT_OWNER_TTL_MS = 24 * 3_600_000;
+
 export class SseTicketBroker {
   private storeInstance?: SseTicketStore;
   /** True when this broker built its store (so shutdown stops it). */
@@ -77,7 +82,7 @@ export class SseTicketBroker {
     this.maxTotal = options.maxTotal ?? caps.maxTotal;
     this.maxPerOrg = options.maxPerOrg ?? caps.maxPerOrg;
     this.ttlMs = options.ttlMs ?? SSE_TICKET_TTL_MS;
-    this.ownerTtlMs = options.ownerTtlMs ?? 3_600_000; // 1 hour
+    this.ownerTtlMs = options.ownerTtlMs ?? DEFAULT_OWNER_TTL_MS;
     this.storeInstance = options.store;
   }
 
@@ -118,12 +123,15 @@ export class SseTicketBroker {
    * ticket can then only be consumed to open that one subject's stream — see
    * {@link consumeTicket} — which is what enforces per-subject authorization.
    *
-   * ORG-OWNERSHIP: if a stream owner has been bound for this subject (via
-   * {@link bindStreamOwner}) and it is a DIFFERENT org, minting is refused
-   * (`reason: 'forbidden'`) — an org cannot mint a ticket for another org's
-   * stream even if it guesses the requestId. When no owner is bound (the
-   * producer's best-effort bind failed or its TTL lapsed, or the subject is an
-   * org-keyed channel), minting binds the ticket to the caller's own org.
+   * ORG-OWNERSHIP (fail-closed): minting requires a stream owner bound for
+   * this subject (via {@link bindStreamOwner}) that IS the caller's org —
+   * otherwise it is refused (`reason: 'forbidden'`). An org cannot mint a
+   * ticket for another org's stream even if it guesses the requestId, and a
+   * subject with NO owner (a bind that failed, a TTL that lapsed, or an id that
+   * was never a stream) is refused too: minting it to the caller's org used to
+   * let the first org to guess a fresh requestId claim it. A successful mint
+   * refreshes the binding's TTL so a long build keeps its owner while watched.
+   * (Org-keyed channels don't come here — see `registerSseTicketChannel`.)
    *
    * Bounded by the ticket store's live-ticket caps (total and per org). An
    * ownership lookup the store can't answer is refused as `capacity`.
@@ -150,8 +158,10 @@ export class SseTicketBroker {
       incCounter('sse_ticket_rejected_total', { reason: 'capacity' });
       return { ok: false, reason: 'capacity' };
     }
-    if (owner && owner !== normalizedOrg) {
-      logger.warn(`SSE ticket refused: org ${normalizedOrg} does not own stream subject`);
+    if (!owner || owner !== normalizedOrg) {
+      logger.warn(owner
+        ? `SSE ticket refused: org ${normalizedOrg} does not own stream subject`
+        : `SSE ticket refused: no owner bound for stream subject (org ${normalizedOrg})`);
       incCounter('sse_ticket_rejected_total', { reason: 'forbidden' });
       return { ok: false, reason: 'forbidden' };
     }
@@ -163,6 +173,11 @@ export class SseTicketBroker {
       incCounter('sse_ticket_rejected_total', { reason });
       return { ok: false, reason };
     }
+    // Someone is watching this stream: keep its owner bound for another TTL so
+    // a build outliving the original binding stays ticketable. Best-effort —
+    // the ticket is already valid and the binding still live.
+    await this.store.bindOwner(normalized, normalizedOrg, this.ownerTtlMs).catch((err) =>
+      logger.debug('SSE stream-owner refresh failed', { error: errorMessage(err) }));
     return { ok: true, ticket: issued.ticket };
   }
 

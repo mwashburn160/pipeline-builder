@@ -70,7 +70,7 @@ const findChain = (list: unknown[]) => ({ sort: () => ({ lean: () => Promise.res
 const orgChain = (doc: unknown) => ({ select: () => ({ lean: () => Promise.resolve(doc) }) });
 
 const claims = (t: string) =>
-  jwt.decode(t) as { organizationId?: string; impersonatorId?: string; impersonationReadOnly?: boolean };
+  jwt.decode(t) as { organizationId?: string; impersonatorId?: string; impersonationReadOnly?: boolean; exp?: number };
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -128,6 +128,31 @@ describe('issueImpersonationToken — organization pin', () => {
 
     expect(claims(accessToken).impersonatorId).toBe('sysadmin-1');
     expect(claims(accessToken).impersonationReadOnly).toBe(true);
+    expect(expiresIn).toBe(15 * 60);
+  });
+
+  it('caps the token exp at the redeemed record\'s expiresAt', async () => {
+    mockUOFindOne.mockReturnValue(findOneChain({ role: 'member', organizationId: 'org-a' }));
+    mockOrgFindById.mockReturnValue(orgChain({ name: 'Org A', deletedAt: null }));
+    const notAfter = new Date(Date.now() + 120 * 1000);
+
+    const { accessToken, expiresIn } = await issueImpersonationToken(
+      target(), 'sysadmin-1', 'org-a', 'jti-1', operatorAuth, undefined, notAfter,
+    );
+
+    // The record's window closes in ~2 minutes, well inside the 15-minute TTL.
+    expect(expiresIn).toBeLessThanOrEqual(120);
+    expect(expiresIn).toBeGreaterThan(110);
+    expect(claims(accessToken).exp).toBeLessThanOrEqual(Math.floor(notAfter.getTime() / 1000));
+  });
+
+  it('keeps the default TTL when the record outlives it', async () => {
+    mockUOFindOne.mockReturnValue(findOneChain({ role: 'member', organizationId: 'org-a' }));
+    mockOrgFindById.mockReturnValue(orgChain({ name: 'Org A', deletedAt: null }));
+
+    const { expiresIn } = await issueImpersonationToken(
+      target(), 'sysadmin-1', 'org-a', 'jti-1', operatorAuth, undefined, new Date(Date.now() + 60 * 60 * 1000),
+    );
     expect(expiresIn).toBe(15 * 60);
   });
 });

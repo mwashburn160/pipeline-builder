@@ -98,6 +98,9 @@ export async function reserveQuotaSlot(opts: QuotaReservationOptions): Promise<Q
 
   let consumed = false;
   let refunded = false;
+  // A fail-open pass (QUOTA_RESERVE_FAIL_OPEN, quota service unreachable)
+  // reserved NOTHING, so a refund must not decrement a unit never counted.
+  const reservedUnits = reservation.failOpen !== true;
   const slot: QuotaSlot = {
     serviceAuth,
     reservation,
@@ -106,6 +109,7 @@ export async function reserveQuotaSlot(opts: QuotaReservationOptions): Promise<Q
     refund: () => {
       if (refunded || consumed) return;
       refunded = true;
+      if (!reservedUnits) return;
       // The reserved resetAt keeps a period rollover from being double-charged.
       decrementQuota(quotaService, orgId, type, serviceAuth, logWarn, amount, reservation.quota.resetAt, attribution);
     },

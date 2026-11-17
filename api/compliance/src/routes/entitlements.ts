@@ -7,6 +7,7 @@ import {
   ErrorCode,
   audited,
   getParam,
+  normalizeOrgId,
   requireInternalService,
   validateBody,
   COMPLIANCE_CONTENT_SETS,
@@ -65,7 +66,10 @@ export function createEntitlementSyncRoutes(): Router {
   const router = Router();
 
   router.put('/:orgId', requireBillingService, audited('compliance.rule.toggle'), withRoute(async ({ req, res, ctx }) => {
-    const orgId = getParam(req.params, 'orgId');
+    // Canonical (trimmed, lowercased) like quota's `authorizeOrg`: subscriptions,
+    // the watermark and the advisory lock all key on the stored lowercase id, so
+    // a mixed-case push would reconcile — and lock — a different org key.
+    const orgId = normalizeOrgId(getParam(req.params, 'orgId'));
     if (!orgId) return sendBadRequest(res, 'orgId path parameter is required', ErrorCode.VALIDATION_ERROR);
 
     const validation = validateBody(req, EntitlementsSchema);
@@ -127,7 +131,10 @@ export function createEntitlementSyncRoutes(): Router {
   // the org to hold, re-driving the PUT push on mismatch. Same internal-route
   // guard as the PUT — the `:orgId` is the target root org, not the token's org.
   router.get('/:orgId', requireBillingService, withRoute(async ({ req, res, ctx }) => {
-    const orgId = getParam(req.params, 'orgId');
+    // Canonical (trimmed, lowercased) like quota's `authorizeOrg`: subscriptions,
+    // the watermark and the advisory lock all key on the stored lowercase id, so
+    // a mixed-case push would reconcile — and lock — a different org key.
+    const orgId = normalizeOrgId(getParam(req.params, 'orgId'));
     if (!orgId) return sendBadRequest(res, 'orgId path parameter is required', ErrorCode.VALIDATION_ERROR);
 
     const sets = await subscriptionService.getActiveEntitledSets(orgId);

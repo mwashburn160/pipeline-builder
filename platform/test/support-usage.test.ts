@@ -57,7 +57,7 @@ beforeEach(() => { isService = false; isAdmin = false; scopes.length = 0; findBy
 describe('GET /organization/:id/support-usage', () => {
   it('answers a service principal with both dimensions, read at the root and pooled over the subtree', async () => {
     isService = true;
-    const res = await call({ sub: 'billing' });
+    const res = await call({ sub: 'service:billing', principalType: 'service' });
     expect(res.statusCode).toBe(200);
     expect((res.body as { data: unknown }).data).toEqual({
       supportContacts: { limit: 5, used: 3 },
@@ -70,6 +70,13 @@ describe('GET /organization/:id/support-usage', () => {
   it('answers an admin of the account', async () => {
     isAdmin = true;
     expect((await call({ sub: 'u1' })).statusCode).toBe(200);
+  });
+
+  it('refuses a service principal that is not billing', async () => {
+    isService = true;
+    // Any service token used to be enough; the read is billing's alone.
+    expect((await call({ sub: 'service:plugin', principalType: 'service' })).statusCode).toBe(403);
+    expect(scopes).toEqual([]);
   });
 
   it('refuses anyone else', async () => {

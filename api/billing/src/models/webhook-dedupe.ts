@@ -4,6 +4,7 @@
 import { randomUUID } from 'node:crypto';
 import { envInt } from '@pipeline-builder/api-core';
 import mongoose, { Schema, type Document } from 'mongoose';
+import { WEBHOOK_DONE_TTL_SECONDS } from '../config/webhook-retention.js';
 
 /**
  * Records external webhook event IDs so retries (SNS, Stripe) become no-ops
@@ -46,7 +47,7 @@ export interface WebhookDedupeDocument extends Document {
 }
 
 /** Durable "done" marker lifetime — outlasts every observed provider retry window. */
-const DONE_TTL_SECONDS = 30 * 24 * 60 * 60;
+const DONE_TTL_SECONDS = WEBHOOK_DONE_TTL_SECONDS;
 /**
  * In-progress lease lifetime. Long enough to outlast the slowest handler (some
  * reversal handlers re-fetch a Stripe charge) so two pods never process the same

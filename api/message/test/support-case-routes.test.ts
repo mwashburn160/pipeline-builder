@@ -175,6 +175,7 @@ const CASE = {
   displayNumber: 1042,
   status: 'open',
   severity: 'normal',
+  createdBy: 'user-1',
   tenantContact: 'user-1',
   assignedTo: null,
 };
@@ -558,7 +559,7 @@ describe('PATCH /support/:id/transfer — the tenant owner', () => {
     // They are the same for a tenant, but if the two ever diverge the case's own
     // org is the right one: it is where the case lives and whose contacts may
     // own it.
-    mockFindCaseByThread.mockResolvedValue({ ...CASE, orgId: 'org-1' });
+    mockFindCaseByThread.mockResolvedValue({ ...CASE, orgId: 'org-1', createdBy: 'user-9' });
     identity = { orgId: 'org-1', userId: 'user-9' };
     mockIsSupportContact.mockResolvedValue(true);
     mockTransferCaseToContact.mockResolvedValue({ tenantContact: 'user-2' });
@@ -1082,5 +1083,56 @@ describe('the canned-reply library', () => {
       .map((l: any) => l.route.path as string)
       .filter((p: string) => /^\/support\/:[^/]+$/.test(p));
     expect(twoSegmentParam).toEqual([]);
+  });
+});
+
+describe('tenant-side case writes are the AUTHOR\'s or current OWNER\'s, not any org reader\'s', () => {
+  // These routes run on `messages:read`, so the own-org check alone admits any
+  // reader in the org. The reply route already narrows to author + tenant
+  // contact; status, transfer and satisfaction must apply the same rule.
+  const run = async (method: string, path: string, body: unknown) => {
+    const res = mockRes();
+    await getHandler(method, path)({ params: { id: 'thread-1' }, body }, res);
+    return answered(res);
+  };
+  const routes: Array<[string, unknown]> = [
+    ['/support/:id/status', { status: 'closed' }],
+    ['/support/:id/transfer', { tenantContact: 'user-2' }],
+    ['/support/:id/satisfaction', { satisfaction: 4 }],
+  ];
+
+  beforeEach(() => {
+    mockIsSupportContact.mockResolvedValue(true);
+    mockTransferCaseToContact.mockResolvedValue({ tenantContact: 'user-2' });
+    mockSetCaseStatus.mockResolvedValue({ status: 'closed', awaitingTotalSeconds: 0 });
+  });
+
+  it.each(routes)('%s refuses a same-org reader who neither raised nor owns the case', async (path, body) => {
+    identity = { orgId: 'org-1', userId: 'bystander' };
+    mockFindCaseByThread.mockResolvedValue({ ...CASE, createdBy: 'user-1', tenantContact: 'user-2' });
+    const out = await run('patch', path, body);
+    expect(out.status).toBe(403);
+    expect(mockSetCaseStatus).not.toHaveBeenCalled();
+    expect(mockTransferCaseToContact).not.toHaveBeenCalled();
+    expect(mockRateCase).not.toHaveBeenCalled();
+  });
+
+  it.each(routes)('%s admits the case AUTHOR after a handover', async (path, body) => {
+    identity = { orgId: 'org-1', userId: 'author' };
+    mockFindCaseByThread.mockResolvedValue({ ...CASE, createdBy: 'author', tenantContact: 'user-3' });
+    expect((await run('patch', path, body)).status).toBe(200);
+  });
+
+  it.each(routes)('%s admits the CURRENT tenant contact', async (path, body) => {
+    identity = { orgId: 'org-1', userId: 'owner' };
+    mockFindCaseByThread.mockResolvedValue({ ...CASE, createdBy: 'someone-else', tenantContact: 'owner' });
+    expect((await run('patch', path, body)).status).toBe(200);
+  });
+
+  it('keeps the STAFF override on status', async () => {
+    staff = true;
+    identity = { orgId: 'system', userId: 'staff-1' };
+    mockFindCaseByThread.mockResolvedValue({ ...CASE, orgId: 'tenant-9', createdBy: 'x', tenantContact: 'y' });
+    expect((await run('patch', '/support/:id/status', { status: 'closed' })).status).toBe(200);
   });
 });

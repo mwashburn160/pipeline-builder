@@ -146,6 +146,7 @@
     "setupFilesAfterEnv": [
       "<rootDir>/../jest-env-guard.js"
     ],
+    "workerIdleMemoryLimit": "1GB",
     "collectCoverageFrom": [
       "src/**/*.ts",
       "!src/**/*.d.ts",

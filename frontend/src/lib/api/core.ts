@@ -64,14 +64,17 @@ function readStore(store: 'local' | 'session', key: string): string | null {
   }
 }
 
-function writeStore(store: 'local' | 'session', key: string, value: string | null): void {
-  if (typeof window === 'undefined') return;
+/** Returns false when the storage refused the write (unavailable / quota). */
+function writeStore(store: 'local' | 'session', key: string, value: string | null): boolean {
+  if (typeof window === 'undefined') return false;
   try {
     const target = store === 'local' ? localStorage : sessionStorage;
     if (value === null) target.removeItem(key);
     else target.setItem(key, value);
+    return true;
   } catch {
     // Storage unavailable — the session still works for this tab.
+    return false;
   }
 }
 
@@ -171,6 +174,15 @@ export class ApiCore {
   /** While set (ms timestamp), refreshes short-circuit to `false` without a
    *  network call: the last refresh gave up on transient failures. */
   private refreshCooldownUntil = 0;
+  /**
+   * In-memory stand-in for the `pb.session` marker, set when a sign-in could
+   * not persist the marker (storage blocked / throwing). Without it every
+   * refresh path would see "no session" and the tab would die with bare 401s
+   * at access-token expiry. Only used as a fallback so that, whenever storage
+   * works, the shared marker stays the single cross-tab source of truth (a
+   * sibling's sign-out clearing it still stops this tab refreshing).
+   */
+  private sessionInMemory = false;
   /** Bumped whenever the identity changes (sign-in, sign-out, adoption). An
    *  in-flight refresh that sees it move no longer speaks for the session and
    *  abandons its result (an HttpOnly refresh cookie can't be asked "is this
@@ -269,6 +281,9 @@ export class ApiCore {
         const previousOrg = this.organizationId;
         this.sessionGeneration++;
         this.refreshCooldownUntil = 0;
+        // A sibling holds a live session; if this tab can't see the shared
+        // marker (storage blocked), remember it in memory instead.
+        if (readStore('local', SESSION_MARKER_KEY) !== '1') this.sessionInMemory = true;
         this.applyAccessToken(message.accessToken);
         if (message.organizationId) this.organizationId = message.organizationId;
         if (this.organizationId !== previousOrg) {
@@ -290,7 +305,7 @@ export class ApiCore {
 
   /** True when this browser is believed to hold a refresh cookie. */
   private hasSessionMarker(): boolean {
-    return readStore('local', SESSION_MARKER_KEY) === '1';
+    return this.sessionInMemory || readStore('local', SESSION_MARKER_KEY) === '1';
   }
 
   /**
@@ -392,7 +407,8 @@ export class ApiCore {
     // A fresh session must be refreshable right away, even if the previous
     // one's refresh was cooling down after transient failures.
     this.refreshCooldownUntil = 0;
-    writeStore('local', SESSION_MARKER_KEY, '1');
+    // Storage that refuses the marker must not make this session unrefreshable.
+    this.sessionInMemory = !writeStore('local', SESSION_MARKER_KEY, '1');
     this.applyAccessToken(tokens.accessToken);
     this.broadcast({ type: 'access-token', accessToken: tokens.accessToken, organizationId: this.organizationId });
   }
@@ -520,6 +536,7 @@ export class ApiCore {
     this.accessToken = null;
     this.organizationId = null;
     this.refreshCooldownUntil = 0;
+    this.sessionInMemory = false;
 
     if (this.refreshTimer) {
       clearTimeout(this.refreshTimer);
@@ -957,11 +974,16 @@ export class ApiCore {
    *  session is still worth refreshing by then. */
   private scheduleRefreshAfterCooldown(): void {
     if (this.refreshTimer) clearTimeout(this.refreshTimer);
+    // Fire when the cooldown actually ends: a 429's Retry-After can stretch it
+    // well past the ordinary failure cooldown.
+    const delay = this.refreshCooldownUntil
+      ? Math.max(0, this.refreshCooldownUntil - Date.now())
+      : REFRESH_FAILURE_COOLDOWN_MS;
     this.refreshTimer = setTimeout(() => {
       this.refreshTimer = null;
       this.refreshCooldownUntil = 0;
       if (this.canRefresh()) void this.refreshAccessToken();
-    }, REFRESH_FAILURE_COOLDOWN_MS);
+    }, delay);
   }
 
   /**

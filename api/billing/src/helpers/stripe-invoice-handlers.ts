@@ -13,6 +13,7 @@ import { createBillingEvent, recordReactivatePlanMissing } from './billing-helpe
 import { ingestStripeInvoice } from './billing-ledger.js';
 import { reconcileDiscountsOnInvoice } from './discount-helpers.js';
 import { syncEntitlements } from './entitlement-sync.js';
+import { prepareLapseReconcile } from './lapse-reconcile.js';
 import { grantRecurringPromotions, qualifyReferral } from './promotion-engine.js';
 import { findSubscriptionByStripeId, invoiceSubscriptionId, type StripeEventMeta } from './stripe-helpers.js';
 import { invoiceCreditPeriodKey, recurringInvoicePeriod } from './stripe-period.js';
@@ -104,6 +105,7 @@ export async function handlePaymentSucceeded(invoice: Stripe.Invoice, event: Str
   let wasSettle = false;
   let settleReferralCode: string | undefined;
   let recoveryPlan: PlanDocument | null = null;
+  let lapseResync: (() => Promise<void>) | null = null;
 
   if (inOrder) {
     // A paid invoice settles the sub whether it was in dunning (`past_due`) or had
@@ -131,13 +133,6 @@ export async function handlePaymentSucceeded(invoice: Stripe.Invoice, event: Str
     // Restore active status if recovering from past_due
     if (wasRecovery) {
       subscription.status = 'active';
-
-      // Clear the grace-period downgrade dedupe marker so a FUTURE lapse can
-      // re-downgrade (the lifecycle cron excludes rows that still carry it).
-      if (subscription.metadata?.gracePeriodDowngradedAt) {
-        const { gracePeriodDowngradedAt: _cleared, ...rest } = subscription.metadata;
-        subscription.metadata = rest;
-      }
 
       // Re-upgrade to their plan's tier, preserving purchased add-on grants. The
       // sync itself runs AFTER the save below, like every other entitlement push:
@@ -170,6 +165,12 @@ export async function handlePaymentSucceeded(invoice: Stripe.Invoice, event: Str
         subscription.metadata = rest;
       }
     }
+
+    // Clear the grace-period downgrade marker whenever the sub is entitled again
+    // (shared with the `.updated` handler, which may observe the recovery first —
+    // then previousStatus here is already `active`, and a recovery-only clear left
+    // the org pinned to developer forever). Returns the post-save tier re-sync.
+    lapseResync = prepareLapseReconcile(subscription, 'invoice.payment_succeeded');
   }
 
   // Reconcile discounts against this settled invoice (Stripe = source of truth):
@@ -197,6 +198,12 @@ export async function handlePaymentSucceeded(invoice: Stripe.Invoice, event: Str
 
   if (recoveryPlan) {
     await syncEntitlements(subscription.orgId, recoveryPlan.tier, '', subscription._id.toString(), subscription.addons ?? []);
+  }
+  // A marker cleared outside a recovery/settle (e.g. `.updated`→active already
+  // flipped the status but not the marker) still needs its tier re-pushed; the
+  // recovery and settle paths re-push it themselves.
+  if (lapseResync && !wasRecovery && !wasSettle) {
+    await lapseResync();
   }
   if (wasSettle) {
     await grantOnBecomingEntitled(subscription, null, { previousStatus, referralCode: settleReferralCode });

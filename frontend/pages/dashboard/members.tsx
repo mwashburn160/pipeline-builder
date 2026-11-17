@@ -167,7 +167,7 @@ export default function MembersPage() {
   // adding someone straight to one.
   const {
     teams, teamsLoadWarning, childTeamCount, deletedTeams, refreshTeams, switchTeam,
-    addToTeam, setAddToTeam, teamMemberEmail, setTeamMemberEmail, teamAddForm, handleAddToTeam,
+    addToTeam, setAddToTeam, teamMemberEmail, setTeamMemberEmail, teamAddForm, teamAddInviteEmail, handleAddToTeam,
   } = useMemberTeamsPanel({ orgId: orgId ?? '', canManageMembers, canOrgSettings, activeOrgIsRoot, hasChildOrgs });
 
   // Pooled seat usage for the whole account (distinct members + pending invites
@@ -590,6 +590,8 @@ export default function MembersPage() {
         form={teamAddForm}
         onSubmit={handleAddToTeam}
         onClose={() => setAddToTeam(null)}
+        canInvite={canInvite}
+        inviteEmail={teamAddInviteEmail}
       />
 
       {/* Transfer ownership — ONE dialog: what it costs, and the factor. */}

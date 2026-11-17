@@ -95,6 +95,13 @@ export interface ImpersonationRequestData {
   /** The specific user challenged under `user` mode. */
   approverUserId?: Types.ObjectId;
   /**
+   * Only the TARGET may decide. Set when an ancestor-org admin asks to view a
+   * person who also belongs to orgs outside the ancestor's account: the
+   * ancestor carve-out does not reach them, and an admin of the pinned org
+   * (the requester's colleague) cannot consent on the person's behalf.
+   */
+  subjectConsentRequired?: boolean;
+  /**
    * The `jti` of the token issued for this session, set on redemption.
    *
    * This is what makes a session revocable INDIVIDUALLY. Revoking via the
@@ -144,6 +151,7 @@ const impersonationRequestSchema = new Schema<ImpersonationRequestData, Imperson
     approvalReason: { type: String, enum: [...IMPERSONATION_APPROVAL_REASONS] },
     approverMode: { type: String, enum: [...IMPERSONATION_APPROVER_MODES] },
     approverUserId: { type: Schema.Types.ObjectId },
+    subjectConsentRequired: { type: Boolean },
     jti: { type: String },
     decidedBy: { type: Schema.Types.ObjectId },
     decidedAt: { type: Date },

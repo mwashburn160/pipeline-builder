@@ -25,7 +25,7 @@ import {
   type PluginStatsInsert,
   type ReviewStatus,
 } from '@pipeline-builder/pipeline-data';
-import { and, desc, eq, gte, inArray, isNull } from 'drizzle-orm';
+import { and, count, desc, eq, gte, inArray, isNull } from 'drizzle-orm';
 
 import { elevated } from './store.js';
 import { first } from './util.js';
@@ -69,9 +69,24 @@ export const reviews = {
     elevated(async (tx) => (await tx.insert(RV()).values(values).returning())[0] as PluginReview),
   update: (id: string, patch: Partial<PluginReviewInsert>): Promise<PluginReview | null> =>
     elevated(async (tx) => first(await tx.update(RV()).set({ ...patch, updatedAt: new Date() }).where(eq(RV().id, id)).returning())),
-  /** Update without touching `updated_at` (the helpful count is not an edit). */
-  setHelpfulCount: (id: string, helpfulCount: number): Promise<void> =>
-    elevated(async (tx) => { await tx.update(RV()).set({ helpfulCount }).where(eq(RV().id, id)); }),
+  /**
+   * Recompute `helpful_count` from the votes table and store it, ATOMICALLY:
+   * one transaction that row-locks the review FIRST, then counts and writes.
+   *
+   * A count taken in one statement and written in another lets two concurrent
+   * voters interleave (A counts 1, B adds and writes 2, A writes 1) and the
+   * column ends below the truth. With the lock, every recount runs after the
+   * previous one committed, and — the vote itself having committed before its
+   * recount starts — each count sees every vote cast so far. Does not touch
+   * `updated_at` (the helpful count is not an edit). Returns the stored count.
+   */
+  recountHelpful: (id: string): Promise<number> =>
+    elevated(async (tx) => {
+      await tx.select({ id: RV().id }).from(RV()).where(eq(RV().id, id)).for('update');
+      const n = Number((await tx.select({ n: count() }).from(VT()).where(eq(VT().reviewId, id)))[0]?.n ?? 0);
+      await tx.update(RV()).set({ helpfulCount: n }).where(eq(RV().id, id));
+      return n;
+    }),
   /** Delete a review; replies, reports, votes and history cascade. */
   remove: (id: string): Promise<boolean> =>
     elevated(async (tx) => (await tx.delete(RV()).where(eq(RV().id, id)).returning()).length > 0),
@@ -124,8 +139,6 @@ export const votes = {
     elevated(async (tx) => { await tx.insert(VT()).values({ reviewId, userId }); }),
   remove: (reviewId: string, userId: string): Promise<void> =>
     elevated(async (tx) => { await tx.delete(VT()).where(and(eq(VT().reviewId, reviewId), eq(VT().userId, userId))); }),
-  count: (reviewId: string): Promise<number> =>
-    elevated(async (tx) => (await tx.select({ userId: VT().userId }).from(VT()).where(eq(VT().reviewId, reviewId))).length),
   /** The review ids this user found helpful, among these. */
   votedBy: async (userId: string, reviewIds: string[]): Promise<string[]> =>
     reviewIds.length === 0 ? [] : elevated(async (tx) => (await tx.select({ reviewId: VT().reviewId }).from(VT())

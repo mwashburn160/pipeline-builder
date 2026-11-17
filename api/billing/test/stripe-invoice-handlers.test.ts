@@ -251,6 +251,32 @@ describe('handlePaymentSucceeded', () => {
       expect(sub.metadata.keepMe).toBe('yes');
     });
 
+    it('clears a stale marker and re-grants the tier when `.updated`→active already flipped the status', async () => {
+      // `.updated` processed first (before the shared reconcile existed) left the
+      // row `active` WITH the marker; the invoice must heal it, not skip it.
+      const sub = makeSub({ status: 'active', metadata: { gracePeriodDowngradedAt: '2026-08-15T00:00:00Z' } });
+      findSubscriptionByStripeId.mockResolvedValue(sub);
+      syncEntitlements.mockClear();
+
+      await handlePaymentSucceeded(makeInvoice(), EVT);
+
+      expect(sub.metadata.gracePeriodDowngradedAt).toBeUndefined();
+      expect(syncEntitlements).toHaveBeenCalledTimes(1);
+      expect(syncEntitlements).toHaveBeenCalledWith('org-1', 'pro', '', 'sub-1', []);
+      expect((sub.save as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(syncEntitlements.mock.invocationCallOrder[0]);
+    });
+
+    it('re-grants exactly once on a past_due recovery that also clears the marker', async () => {
+      const sub = makeSub({ status: 'past_due', metadata: { gracePeriodDowngradedAt: '2026-08-15T00:00:00Z' } });
+      findSubscriptionByStripeId.mockResolvedValue(sub);
+      syncEntitlements.mockClear();
+
+      await handlePaymentSucceeded(makeInvoice(), EVT);
+
+      expect(sub.metadata.gracePeriodDowngradedAt).toBeUndefined();
+      expect(syncEntitlements).toHaveBeenCalledTimes(1);
+    });
+
     it('records a repair signal when the planId dangles, instead of silently not re-granting', async () => {
       planFindById.mockResolvedValue(null);
       const sub = makeSub({ status: 'past_due' });

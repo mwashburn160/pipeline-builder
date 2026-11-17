@@ -1330,10 +1330,30 @@ Resources:
             # LEAN mode passthrough — startup.sh reads $LEAN (accepts true/false).
             export LEAN="${Lean}"
             # Boot secrets come from Secrets Manager (see GhcrTokenSecret) — never
-            # interpolated here. An absent secret (parameter left empty) reads as "".
+            # interpolated here. An ABSENT secret (parameter left empty, so the
+            # conditional secret was never created → ResourceNotFoundException)
+            # reads as "". Any OTHER failure (throttling, a not-yet-propagated
+            # instance role, AccessDenied, no network) is retried, then FAILS the
+            # boot loudly: swallowing it used to turn e.g. a transient error on
+            # admin-password into a silently-generated password, or a missing
+            # GHCR token into image-pull failures with no hint why.
             pb_boot_secret() {
-              aws secretsmanager get-secret-value --region "${AWS::Region}" \
-                --secret-id "${AWS::StackName}/$1" --query SecretString --output text 2>/dev/null || true
+              local out err attempt
+              err="$(mktemp)"
+              for attempt in 1 2 3 4 5; do
+                if out="$(aws secretsmanager get-secret-value --region "${AWS::Region}" \
+                    --secret-id "${AWS::StackName}/$1" --query SecretString --output text 2>"$err")"; then
+                  rm -f "$err"; printf '%s' "$out"; return 0
+                fi
+                if grep -q 'ResourceNotFoundException' "$err"; then
+                  rm -f "$err"; return 0
+                fi
+                echo "WARNING: reading boot secret '$1' failed (attempt $attempt/5): $(head -c 500 "$err")" >&2
+                sleep $((attempt * 5))
+              done
+              rm -f "$err"
+              echo "ERROR: could not read boot secret ${AWS::StackName}/$1 from Secrets Manager after 5 attempts — aborting bootstrap (see /var/log/user-data.log)" >&2
+              return 1
             }
             GHCR_TOKEN="$(pb_boot_secret ghcr-token)"; export GHCR_TOKEN
             # Ops-team Slack webhooks — same Secrets Manager path (credentials).

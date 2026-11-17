@@ -45,6 +45,12 @@ function mockSseRes() {
 
 // Tests
 
+/** Bind `org` as the stream's owner (as the producer does) and mint a ticket for it. */
+async function mintOwned(m: { bindStreamOwner(r: string, o: string): Promise<void>; createTicket(o: string, r: string): Promise<any> }, org: string, req: string) {
+  await m.bindStreamOwner(req, org);
+  return m.createTicket(org, req);
+}
+
 describe('SSEManager', () => {
   let manager: InstanceType<typeof SSEManager>;
 
@@ -302,7 +308,7 @@ describe('SSEManager', () => {
     const REQ_B = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 
     it('mints a ticket and consumes it exactly once (single-use)', async () => {
-      const result = await manager.createTicket('org-a', REQ_A);
+      const result = await mintOwned(manager, 'org-a', REQ_A);
       expect(result.ok).toBe(true);
       const ticket = (result as { ok: true; ticket: string }).ticket;
       expect(typeof ticket).toBe('string');
@@ -315,7 +321,7 @@ describe('SSEManager', () => {
     });
 
     it('rejects consuming a ticket for a subject it was not minted for', async () => {
-      const ticket = ((await manager.createTicket('org-a', REQ_A)) as { ok: true; ticket: string }).ticket;
+      const ticket = ((await mintOwned(manager, 'org-a', REQ_A)) as { ok: true; ticket: string }).ticket;
       // Ticket is bound to REQ_A; presenting it for REQ_B is rejected...
       expect(await manager.consumeTicket(ticket, REQ_B)).toBeNull();
       // ...and the mismatched attempt still CONSUMED the ticket (single-use),
@@ -325,7 +331,7 @@ describe('SSEManager', () => {
 
     it('matches the bound subject regardless of dash formatting', async () => {
       // Minted with dashes; the nginx `$request_id` form drops them. Same id.
-      const ticket = ((await manager.createTicket('org-a', REQ_A)) as { ok: true; ticket: string }).ticket;
+      const ticket = ((await mintOwned(manager, 'org-a', REQ_A)) as { ok: true; ticket: string }).ticket;
       const undashed = REQ_A.replace(/-/g, '');
       expect(await manager.consumeTicket(ticket, undashed)).toEqual({ orgId: 'org-a' });
     });
@@ -337,7 +343,7 @@ describe('SSEManager', () => {
     it('returns null for an expired ticket', async () => {
       const expiring = new SSEManager({ ticketTtlMs: -1, cleanupIntervalMs: 0 });
       try {
-        const result = await expiring.createTicket('org-a', REQ_A);
+        const result = await mintOwned(expiring, 'org-a', REQ_A);
         const ticket = (result as { ok: true; ticket: string }).ticket;
         // Already expired at mint (negative TTL) — consume rejects it.
         expect(await expiring.consumeTicket(ticket, REQ_A)).toBeNull();
@@ -349,12 +355,12 @@ describe('SSEManager', () => {
     it('enforces the per-org ticket cap (org-limit)', async () => {
       const capped = new SSEManager({ maxTicketsPerOrg: 2, cleanupIntervalMs: 0 });
       try {
-        expect((await capped.createTicket('org-a', REQ_A)).ok).toBe(true);
-        expect((await capped.createTicket('org-a', REQ_A)).ok).toBe(true);
-        const third = await capped.createTicket('org-a', REQ_A);
+        expect((await mintOwned(capped, 'org-a', REQ_A)).ok).toBe(true);
+        expect((await mintOwned(capped, 'org-a', REQ_A)).ok).toBe(true);
+        const third = await mintOwned(capped, 'org-a', REQ_A);
         expect(third).toEqual({ ok: false, reason: 'org-limit' });
         // A different org is unaffected.
-        expect((await capped.createTicket('org-b', REQ_A)).ok).toBe(true);
+        expect((await mintOwned(capped, 'org-b', REQ_A)).ok).toBe(true);
       } finally {
         capped.shutdown();
       }
@@ -363,8 +369,8 @@ describe('SSEManager', () => {
     it('enforces the total ticket cap (capacity)', async () => {
       const capped = new SSEManager({ maxTotalTickets: 1, maxTicketsPerOrg: 100, cleanupIntervalMs: 0 });
       try {
-        expect((await capped.createTicket('org-a', REQ_A)).ok).toBe(true);
-        const second = await capped.createTicket('org-b', REQ_A);
+        expect((await mintOwned(capped, 'org-a', REQ_A)).ok).toBe(true);
+        const second = await mintOwned(capped, 'org-b', REQ_A);
         expect(second).toEqual({ ok: false, reason: 'capacity' });
       } finally {
         capped.shutdown();
@@ -379,9 +385,23 @@ describe('SSEManager', () => {
       expect((await manager.createTicket('org-a', REQ_A)).ok).toBe(true);
     });
 
-    it('mints normally when no owner is bound', async () => {
-      // No bindStreamOwner call → falls back to binding the ticket to the caller.
-      expect((await manager.createTicket('org-x', REQ_B)).ok).toBe(true);
+    it('refuses to mint when NO owner is bound (fail-closed, not first-come)', async () => {
+      // No bindStreamOwner call → minting used to bind the ticket to whichever
+      // org asked first, so a guessed fresh requestId could be claimed.
+      expect(await manager.createTicket('org-x', REQ_B)).toEqual({ ok: false, reason: 'forbidden' });
+    });
+
+    it('refreshes the owner binding on a successful mint, so a long build stays ticketable', async () => {
+      const short = new SSEManager({ streamOwnerTtlMs: 100, cleanupIntervalMs: 0 });
+      try {
+        await short.bindStreamOwner(REQ_A, 'org-a');
+        await new Promise((r) => setTimeout(r, 60));
+        expect((await short.createTicket('org-a', REQ_A)).ok).toBe(true); // refreshes to +100ms
+        await new Promise((r) => setTimeout(r, 60)); // 120ms after the original bind
+        expect((await short.createTicket('org-a', REQ_A)).ok).toBe(true);
+      } finally {
+        short.shutdown();
+      }
     });
 
     it('normalizes orgId so a producer/consumer casing drift does not false-forbid the owner', async () => {
@@ -434,7 +454,7 @@ describe('SSEManager', () => {
     it('rejects an expired ticket (401)', async () => {
       const expiring = new SSEManager({ ticketTtlMs: -1, cleanupIntervalMs: 0 });
       try {
-        const ticket = ((await expiring.createTicket('org-a', REQ_ID)) as { ok: true; ticket: string }).ticket;
+        const ticket = ((await mintOwned(expiring, 'org-a', REQ_ID)) as { ok: true; ticket: string }).ticket;
         const res = mockMwRes();
         await expiring.middleware()({ params: { requestId: REQ_ID }, query: { ticket } }, res);
         expect(res.statusCode).toBe(401);
@@ -449,7 +469,7 @@ describe('SSEManager', () => {
       // stream subject they only guessed. consumeTicket rejects the mismatch,
       // so no headers flush and no client is attached to the other subject.
       const otherReqId = '87654321-4321-4321-4321-cba987654321';
-      const ticket = ((await manager.createTicket('org-a', REQ_ID)) as { ok: true; ticket: string }).ticket;
+      const ticket = ((await mintOwned(manager, 'org-a', REQ_ID)) as { ok: true; ticket: string }).ticket;
       const res = mockMwRes();
       await manager.middleware()({ params: { requestId: otherReqId }, query: { ticket } }, res);
       expect(res.statusCode).toBe(401);
@@ -464,7 +484,7 @@ describe('SSEManager', () => {
     });
 
     it('admits a valid ticket exactly once, then it is consumed (401 on reuse)', async () => {
-      const ticket = ((await manager.createTicket('org-a', REQ_ID)) as { ok: true; ticket: string }).ticket;
+      const ticket = ((await mintOwned(manager, 'org-a', REQ_ID)) as { ok: true; ticket: string }).ticket;
 
       // First use: stream opens, headers flush, client is bound to the org.
       const res1 = mockMwRes();
@@ -489,8 +509,8 @@ describe('SSEManager', () => {
       // then got a silently-closed stream instead of a readable 429.
       const capped = new SSEManager({ maxClientsPerRequest: 1, maxClientsPerOrg: 100, cleanupIntervalMs: 0 });
       try {
-        const t1 = ((await capped.createTicket('org-a', REQ_ID)) as { ok: true; ticket: string }).ticket;
-        const t2 = ((await capped.createTicket('org-a', REQ_ID)) as { ok: true; ticket: string }).ticket;
+        const t1 = ((await mintOwned(capped, 'org-a', REQ_ID)) as { ok: true; ticket: string }).ticket;
+        const t2 = ((await mintOwned(capped, 'org-a', REQ_ID)) as { ok: true; ticket: string }).ticket;
 
         const res1 = mockMwRes();
         await capped.middleware()({ params: { requestId: REQ_ID }, query: { ticket: t1 } }, res1);
@@ -512,10 +532,10 @@ describe('SSEManager', () => {
       const capped = new SSEManager({ maxClientsPerOrg: 1, maxClientsPerRequest: 100, cleanupIntervalMs: 0 });
       try {
         const REQ_ID_2 = '87654321-1234-1234-1234-123456789abc';
-        const t1 = ((await capped.createTicket('org-a', REQ_ID)) as { ok: true; ticket: string }).ticket;
+        const t1 = ((await mintOwned(capped, 'org-a', REQ_ID)) as { ok: true; ticket: string }).ticket;
         // Second ticket is bound to the second subject so it passes the subject
         // check and reaches the per-org cap gate.
-        const t2 = ((await capped.createTicket('org-a', REQ_ID_2)) as { ok: true; ticket: string }).ticket;
+        const t2 = ((await mintOwned(capped, 'org-a', REQ_ID_2)) as { ok: true; ticket: string }).ticket;
 
         const res1 = mockMwRes();
         await capped.middleware()({ params: { requestId: REQ_ID }, query: { ticket: t1 } }, res1);
@@ -548,7 +568,7 @@ describe('SSEManager', () => {
         // Occupy the single total slot with an anonymous (no-org) client.
         expect(capped.addClient('99999999-9999-9999-9999-999999999999', mockMwRes())).toBe(true);
 
-        const ticket = ((await capped.createTicket('org-a', REQ_ID)) as { ok: true; ticket: string }).ticket;
+        const ticket = ((await mintOwned(capped, 'org-a', REQ_ID)) as { ok: true; ticket: string }).ticket;
         const res = mockMwRes();
         await capped.middleware()({ params: { requestId: REQ_ID }, query: { ticket } }, res);
 
@@ -564,7 +584,7 @@ describe('SSEManager', () => {
     });
 
     it('rejects a malformed requestId before consuming the ticket (400)', async () => {
-      const ticket = ((await manager.createTicket('org-a', REQ_ID)) as { ok: true; ticket: string }).ticket;
+      const ticket = ((await mintOwned(manager, 'org-a', REQ_ID)) as { ok: true; ticket: string }).ticket;
       const res = mockMwRes();
       await manager.middleware()({ params: { requestId: 'not-a-uuid' }, query: { ticket } }, res);
       expect(res.statusCode).toBe(400);

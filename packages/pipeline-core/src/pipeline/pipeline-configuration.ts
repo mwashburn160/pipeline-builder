@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { defaultPipelineName, pipelineIdentityHash } from '@pipeline-builder/api-core';
 import type { BuilderProps } from './pipeline-builder.js';
 import type { CodeCommitOptions, CodeStarOptions, GitHubOptions, S3Options, SourceType } from './source-types.js';
 import type { PluginOptions, StageOptions, StepCustomization } from './step-types.js';
@@ -32,6 +33,13 @@ export class PipelineConfiguration {
   public readonly project: string;
   public readonly organization: string;
   public readonly pipelineName: string;
+  /**
+   * Short stable hash of the RAW (project, organization) when sanitizing them
+   * was lossy (`spring_boot` and `spring-boot` both sanitize to `spring_boot`),
+   * else null — see `pipelineIdentityHash`. Folded into every name derived
+   * from the sanitized pair so distinct inputs never share resources.
+   */
+  public readonly identityHash: string | null;
   public readonly metadata: {
     readonly global: MetaDataType;
     readonly synth: MetaDataType;
@@ -53,8 +61,12 @@ export class PipelineConfiguration {
     this.project = replaceNonAlphanumeric(props.project, '_').toLowerCase();
     this.organization = replaceNonAlphanumeric(props.organization, '_').toLowerCase();
 
-    // Calculate pipeline name
-    this.pipelineName = props.pipelineName ?? `${this.organization}-${this.project}-pipeline`;
+    // Sanitizing is lossy, so a pair whose sanitized form differs from what
+    // was given carries a hash of the raw pair (clean pairs keep their names).
+    this.identityHash = pipelineIdentityHash(props.project, props.organization);
+
+    // Calculate pipeline name (the one rule the CLI shares: `defaultPipelineName`)
+    this.pipelineName = props.pipelineName ?? defaultPipelineName(props.organization, props.project);
 
     // Metadata merging: global → defaults → synth-specific. The one definition
     // of `pipeline.metadata` — the API's plugin-contract check reads it too.
@@ -138,7 +150,7 @@ export class PipelineConfiguration {
     // Validate pipeline name length (AWS max 100 characters)
     const MAX_PIPELINE_NAME_LENGTH = CoreConstants.PIPELINE_NAME_MAX_LENGTH;
     const pipelineName = props.pipelineName
-      ?? `${replaceNonAlphanumeric(props.organization ?? '', '_').toLowerCase()}-${replaceNonAlphanumeric(props.project ?? '', '_').toLowerCase()}-pipeline`;
+      ?? defaultPipelineName(props.organization ?? '', props.project ?? '');
     if (pipelineName.length > MAX_PIPELINE_NAME_LENGTH) {
       errors.push(`Pipeline name "${pipelineName}" exceeds AWS maximum of ${MAX_PIPELINE_NAME_LENGTH} characters (${pipelineName.length})`);
     }

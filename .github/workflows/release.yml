@@ -47,7 +47,20 @@ jobs:
           package-manager-cache: pnpm
       - name: Configure npm registry
         id: configure_npm_registry
-        run: export NPM_TOKEN=$(echo ${{ secrets.NPM_TOKEN_ENCODED }} | base64 -d) && npm config set //registry.npmjs.org/:_authToken=$NPM_TOKEN && npm config set @pipeline-builder:registry=https://registry.npmjs.org/
+        env:
+          NPM_TOKEN_ENCODED: ${{ secrets.NPM_TOKEN_ENCODED }}
+        run: |-
+          set -euo pipefail
+          NPM_TOKEN="$(printf "%s" "$NPM_TOKEN_ENCODED" | base64 -d)"
+          if [ -n "$NPM_TOKEN" ]; then
+            echo "::add-mask::$NPM_TOKEN"
+            NPMRC="$(npm config get userconfig)"
+            touch "$NPMRC" && chmod 600 "$NPMRC"
+            printf "//registry.npmjs.org/:_authToken=%s\n" "$NPM_TOKEN" >> "$NPMRC"
+          else
+            echo "NPM_TOKEN_ENCODED is not available; continuing without npm auth"
+          fi
+          npm config set @pipeline-builder:registry=https://registry.npmjs.org/
       - name: Install dependencies
         id: install_dependencies
         run: pnpm install --frozen-lockfile
@@ -56,7 +69,25 @@ jobs:
         run: git config user.name "ci" && git config user.email "mwashburn160@gmail.com"
       - name: Prune tags older than 15 days
         id: prune_tags_older_than_15_days
-        run: CUTOFF_DATE=$(date -d "15 days ago" +%s) && git for-each-ref --format="%(refname:short) %(creatordate:unix)" refs/tags | while read TAG DATE; do if [ $DATE -lt $CUTOFF_DATE ]; then echo "Deleting tag $TAG created on $(date -d @$DATE)"; git tag -d $TAG; fi; done && git push origin --tags --prune
+        run: |-
+          set -euo pipefail
+          CUTOFF_DATE="$(date -d "15 days ago" +%s)"
+          SEEN="|"
+          PRUNED=0
+          while read -r TAG DATE; do
+            case "$TAG" in
+              release/*)
+                PROJECT="${TAG%/*}"
+                case "$SEEN" in *"|$PROJECT|"*) ;; *) SEEN="$SEEN$PROJECT|"; continue ;; esac
+                ;;
+            esac
+            if [ "$DATE" -lt "$CUTOFF_DATE" ]; then
+              echo "Deleting tag $TAG created on $(date -d "@$DATE")"
+              git tag -d "$TAG"
+              PRUNED=$((PRUNED + 1))
+            fi
+          done < <(git for-each-ref --sort=-creatordate --format="%(refname:short) %(creatordate:unix)" refs/tags)
+          if [ "$PRUNED" -gt 0 ]; then git push origin --tags --prune; fi
       - name: Set NX_BASE
         id: nx_base
         run: if [ -f .nx_base ] && [ -s .nx_base ]; then echo NX_BASE=$(cat .nx_base) >> $GITHUB_OUTPUT; else echo NX_BASE=$(git rev-parse HEAD~1) >> $GITHUB_OUTPUT; fi
@@ -118,7 +149,20 @@ jobs:
           package-manager-cache: pnpm
       - name: Configure npm registry
         id: configure_npm_registry
-        run: export NPM_TOKEN=$(echo ${{ secrets.NPM_TOKEN_ENCODED }} | base64 -d) && npm config set //registry.npmjs.org/:_authToken=$NPM_TOKEN && npm config set @pipeline-builder:registry=https://registry.npmjs.org/
+        env:
+          NPM_TOKEN_ENCODED: ${{ secrets.NPM_TOKEN_ENCODED }}
+        run: |-
+          set -euo pipefail
+          NPM_TOKEN="$(printf "%s" "$NPM_TOKEN_ENCODED" | base64 -d)"
+          if [ -n "$NPM_TOKEN" ]; then
+            echo "::add-mask::$NPM_TOKEN"
+            NPMRC="$(npm config get userconfig)"
+            touch "$NPMRC" && chmod 600 "$NPMRC"
+            printf "//registry.npmjs.org/:_authToken=%s\n" "$NPM_TOKEN" >> "$NPMRC"
+          else
+            echo "NPM_TOKEN_ENCODED is not available; continuing without npm auth"
+          fi
+          npm config set @pipeline-builder:registry=https://registry.npmjs.org/
       - name: Install dependencies
         id: install_dependencies
         run: pnpm install --frozen-lockfile
@@ -127,7 +171,25 @@ jobs:
         run: git config user.name "ci" && git config user.email "mwashburn160@gmail.com"
       - name: Prune tags older than 15 days
         id: prune_tags_older_than_15_days
-        run: CUTOFF_DATE=$(date -d "15 days ago" +%s) && git for-each-ref --format="%(refname:short) %(creatordate:unix)" refs/tags | while read TAG DATE; do if [ $DATE -lt $CUTOFF_DATE ]; then echo "Deleting tag $TAG created on $(date -d @$DATE)"; git tag -d $TAG; fi; done && git push origin --tags --prune
+        run: |-
+          set -euo pipefail
+          CUTOFF_DATE="$(date -d "15 days ago" +%s)"
+          SEEN="|"
+          PRUNED=0
+          while read -r TAG DATE; do
+            case "$TAG" in
+              release/*)
+                PROJECT="${TAG%/*}"
+                case "$SEEN" in *"|$PROJECT|"*) ;; *) SEEN="$SEEN$PROJECT|"; continue ;; esac
+                ;;
+            esac
+            if [ "$DATE" -lt "$CUTOFF_DATE" ]; then
+              echo "Deleting tag $TAG created on $(date -d "@$DATE")"
+              git tag -d "$TAG"
+              PRUNED=$((PRUNED + 1))
+            fi
+          done < <(git for-each-ref --sort=-creatordate --format="%(refname:short) %(creatordate:unix)" refs/tags)
+          if [ "$PRUNED" -gt 0 ]; then git push origin --tags --prune; fi
       - name: Set NX:BASE, NX:HEAD
         id: set_nx_base_nx_head
         run: echo NX_BASE=${{ needs.init.outputs.NX_BASE }} >> $GITHUB_ENV && echo NX_HEAD=${{ needs.init.outputs.NX_HEAD }}  >> $GITHUB_ENV
@@ -166,7 +228,7 @@ jobs:
         if: ${{ steps.check.outputs.AFFECTED_LIBS != '[]' && steps.check.outputs.AFFECTED_LIBS != '' }}
         env:
           NPM_CONFIG_PROVENANCE: "true"
-        run: npm config set @pipeline-builder:registry=https://registry.npmjs.org/ && FILTERS=$(echo '${{ steps.check.outputs.AFFECTED_LIBS }}' | jq -r '[.[] | "--filter @pipeline-builder/" + .] | join(" ")') && if [ -z "$FILTERS" ]; then echo "No affected @pipeline-builder libraries to publish."; else pnpm publish --access public $FILTERS --no-git-checks --loglevel debug; fi
+        run: npm config set @pipeline-builder:registry=https://registry.npmjs.org/ && FILTERS=$(echo '${{ steps.check.outputs.AFFECTED_LIBS }}' | jq -r '[.[] | "--filter @pipeline-builder/" + .] | join(" ")') && if [ -z "$FILTERS" ]; then echo "No affected @pipeline-builder libraries to publish."; else pnpm publish --access public $FILTERS --no-git-checks; fi
       - name: Generate source dependency SBOM (CycloneDX)
         id: generate_source_dependency_sbom_cyclonedx
         env:
@@ -262,7 +324,20 @@ jobs:
           package-manager-cache: pnpm
       - name: Configure npm registry
         id: configure_npm_registry
-        run: export NPM_TOKEN=$(echo ${{ secrets.NPM_TOKEN_ENCODED }} | base64 -d) && npm config set //registry.npmjs.org/:_authToken=$NPM_TOKEN && npm config set @pipeline-builder:registry=https://registry.npmjs.org/
+        env:
+          NPM_TOKEN_ENCODED: ${{ secrets.NPM_TOKEN_ENCODED }}
+        run: |-
+          set -euo pipefail
+          NPM_TOKEN="$(printf "%s" "$NPM_TOKEN_ENCODED" | base64 -d)"
+          if [ -n "$NPM_TOKEN" ]; then
+            echo "::add-mask::$NPM_TOKEN"
+            NPMRC="$(npm config get userconfig)"
+            touch "$NPMRC" && chmod 600 "$NPMRC"
+            printf "//registry.npmjs.org/:_authToken=%s\n" "$NPM_TOKEN" >> "$NPMRC"
+          else
+            echo "NPM_TOKEN_ENCODED is not available; continuing without npm auth"
+          fi
+          npm config set @pipeline-builder:registry=https://registry.npmjs.org/
       - name: Install dependencies
         id: install_dependencies
         run: pnpm install --frozen-lockfile
@@ -271,7 +346,25 @@ jobs:
         run: git config user.name "ci" && git config user.email "mwashburn160@gmail.com"
       - name: Prune tags older than 15 days
         id: prune_tags_older_than_15_days
-        run: CUTOFF_DATE=$(date -d "15 days ago" +%s) && git for-each-ref --format="%(refname:short) %(creatordate:unix)" refs/tags | while read TAG DATE; do if [ $DATE -lt $CUTOFF_DATE ]; then echo "Deleting tag $TAG created on $(date -d @$DATE)"; git tag -d $TAG; fi; done && git push origin --tags --prune
+        run: |-
+          set -euo pipefail
+          CUTOFF_DATE="$(date -d "15 days ago" +%s)"
+          SEEN="|"
+          PRUNED=0
+          while read -r TAG DATE; do
+            case "$TAG" in
+              release/*)
+                PROJECT="${TAG%/*}"
+                case "$SEEN" in *"|$PROJECT|"*) ;; *) SEEN="$SEEN$PROJECT|"; continue ;; esac
+                ;;
+            esac
+            if [ "$DATE" -lt "$CUTOFF_DATE" ]; then
+              echo "Deleting tag $TAG created on $(date -d "@$DATE")"
+              git tag -d "$TAG"
+              PRUNED=$((PRUNED + 1))
+            fi
+          done < <(git for-each-ref --sort=-creatordate --format="%(refname:short) %(creatordate:unix)" refs/tags)
+          if [ "$PRUNED" -gt 0 ]; then git push origin --tags --prune; fi
       - name: Download artifact
         id: dnload_artifact
         if: ${{ matrix.project_name == 'frontend' }}

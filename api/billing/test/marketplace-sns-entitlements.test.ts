@@ -205,6 +205,7 @@ function snsEnvelope(over: Record<string, unknown> = {}) {
     MessageId: 'msg-1',
     Signature: 'sig',
     TopicArn: TOPIC,
+    Timestamp: new Date().toISOString(),
     ...over,
   };
 }
@@ -291,6 +292,60 @@ describe('POST /marketplace/sns — validation & security', () => {
     expect(res.status).toHaveBeenCalledWith(403);
     expect(mockClaimWebhookEvent).not.toHaveBeenCalled();
     expect(mockSubscriptionFindOne).not.toHaveBeenCalled();
+  });
+
+  describe('Timestamp replay window (dedupe marker lives 30d)', () => {
+    const DAY = 24 * 60 * 60 * 1000;
+
+    it('rejects a validly signed message older than the dedupe window (minus a day) with 403', async () => {
+      const res = mockRes();
+      await handler({ body: snsEnvelope({ Timestamp: new Date(Date.now() - 29 * DAY - 60_000).toISOString(), Message: event(DEPROVISIONED) }) }, res);
+
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(mockClaimWebhookEvent).not.toHaveBeenCalled();
+      expect(mockSubscriptionFindOne).not.toHaveBeenCalled();
+      expect(mockIncCounter).toHaveBeenCalledWith('billing_marketplace_sns_rejected_total', { reason: 'timestamp_too_old' });
+    });
+
+    it('accepts a message inside the window (e.g. a late SNS retry days later)', async () => {
+      const res = mockRes();
+      await handler({ body: snsEnvelope({ Type: 'UnsubscribeConfirmation', Timestamp: new Date(Date.now() - 28 * DAY).toISOString() }) }, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('rejects a message stamped more than a few minutes in the future', async () => {
+      const res = mockRes();
+      await handler({ body: snsEnvelope({ Timestamp: new Date(Date.now() + 10 * 60_000).toISOString() }) }, res);
+
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(mockClaimWebhookEvent).not.toHaveBeenCalled();
+    });
+
+    it('tolerates small clock skew into the future', async () => {
+      const res = mockRes();
+      await handler({ body: snsEnvelope({ Type: 'UnsubscribeConfirmation', Timestamp: new Date(Date.now() + 60_000).toISOString() }) }, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('rejects a missing or unparseable Timestamp', async () => {
+      for (const Timestamp of [undefined, 'not-a-date']) {
+        const res = mockRes();
+        await handler({ body: snsEnvelope({ Timestamp }) }, res);
+        expect(res.status).toHaveBeenCalledWith(403);
+      }
+      expect(mockClaimWebhookEvent).not.toHaveBeenCalled();
+    });
+
+    it('checks the signature BEFORE trusting the Timestamp', async () => {
+      mockVerifySNSSignature.mockResolvedValue(false);
+      const res = mockRes();
+      await handler({ body: snsEnvelope({ Timestamp: 'not-a-date' }) }, res);
+
+      expect(mockVerifySNSSignature).toHaveBeenCalled();
+      expect(mockIncCounter).not.toHaveBeenCalledWith('billing_marketplace_sns_rejected_total', expect.anything());
+    });
   });
 
   it('parses a text/plain (string) SNS body before validating', async () => {

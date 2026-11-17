@@ -388,6 +388,30 @@ describe('publisher-level requests: transfer, claim, profile change, Verified', 
     await rejects(requestsSvc.submit(tenant() as any, { kind: 'transfer', listingId: listing.id, target: { targetPublisherHandle: 'beta' } }), 'CONFLICT');
   });
 
+  it('only the FIRST response to a transfer wins — concurrent answers cannot both apply or both notify', async () => {
+    // Acceptance leaves the request `pending` (the system org still decides),
+    // so the status lock alone let a second answer overwrite the first.
+    const { acme } = seedPublishers(db);
+    db.seed('publishers', { handle: 'beta', ownerOrgId: 'org-beta', displayName: 'Beta', termsVersion: '2026-09-21' });
+    const { listing } = seedListed(acme, 'lint', '1.0.0');
+    const out = await requestsSvc.submit(tenant() as any, { kind: 'transfer', listingId: listing.id, target: { targetPublisherHandle: 'beta' } });
+    const betaCaller = tenant({ userId: 'u-beta', orgId: 'org-beta' });
+    h.notify.mockClear();
+
+    const results = await Promise.allSettled([
+      requestsSvc.respondToTransfer(betaCaller as any, out.request.id, true),
+      requestsSvc.respondToTransfer(betaCaller as any, out.request.id, false),
+    ]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    const lost = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
+    expect(lost.reason).toMatchObject({ code: 'CONFLICT' });
+    // The stored answer is the winner's, and the outcome was announced once.
+    const row = db.tables.plugin_publish_requests!.find((r) => r.id === out.request.id)!;
+    expect((row.payload as any).transfer.response).toBe('accepted');
+    expect(row.status).toBe('pending');
+    expect(h.notify.mock.calls.filter((c: any[]) => c[0] === 'N10')).toHaveLength(1);
+  });
+
   it('claims a RESERVED handle or a community listing, and refuses anything else', async () => {
     seedPublishers(db);
     db.seed('ecosystem_reserved_names', { name: 'trivy', reason: 'Aqua' });

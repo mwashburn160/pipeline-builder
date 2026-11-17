@@ -148,3 +148,4 @@ export {
   type ProofOfWorkSolution,
 } from './proof-of-work.js';
 export { compareSemver, isSemver, satisfiesRange } from './semver.js';
+export * from './pipeline-identity.js';

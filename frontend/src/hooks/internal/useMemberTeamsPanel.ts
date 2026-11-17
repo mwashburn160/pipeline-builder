@@ -8,6 +8,7 @@ import { useFetch } from '@/hooks/useFetch';
 import { useFormState } from '@/hooks/useFormState';
 import { useToast } from '@/components/ui/Toast';
 import api from '@/lib/api';
+import { ApiError, MEMBER_INVITATION_REQUIRED } from '@/lib/api/errors';
 import { formatError } from '@/lib/constants';
 
 interface UseMemberTeamsPanelOptions {
@@ -82,13 +83,25 @@ export function useMemberTeamsPanel({
   const [addToTeam, setAddToTeam] = useState<{ orgId: string; orgName: string } | null>(null);
   const [teamMemberEmail, setTeamMemberEmail] = useState('');
   const teamAddForm = useFormState();
+  /** The address the last add was refused for because the person is outside the
+   *  account ({@link MEMBER_INVITATION_REQUIRED}) — they need an invitation to
+   *  the organization first, which `form.error` (a string) cannot offer. */
+  const [teamAddInviteEmail, setTeamAddInviteEmail] = useState<string | null>(null);
 
   const handleAddToTeam = async () => {
     if (!orgId || !addToTeam) return;
     const email = teamMemberEmail.trim().toLowerCase();
     if (!email) return;
+    setTeamAddInviteEmail(null);
     await teamAddForm.run(
-      () => api.bulkAddMemberToTeams(orgId, { email, orgIds: [addToTeam.orgId], role: 'member' }),
+      async () => {
+        try {
+          return await api.bulkAddMemberToTeams(orgId, { email, orgIds: [addToTeam.orgId], role: 'member' });
+        } catch (err) {
+          if (err instanceof ApiError && err.code === MEMBER_INVITATION_REQUIRED) setTeamAddInviteEmail(email);
+          throw err;
+        }
+      },
       {
         onSuccess: (result) => {
           const status = result.data?.results?.[0]?.status;
@@ -116,6 +129,7 @@ export function useMemberTeamsPanel({
     teamMemberEmail,
     setTeamMemberEmail,
     teamAddForm,
+    teamAddInviteEmail,
     handleAddToTeam,
   };
 }

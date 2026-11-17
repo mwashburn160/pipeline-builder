@@ -10,6 +10,7 @@
 import {
   actorId,
   createComplianceClient,
+  defaultPipelineName,
   ErrorCode,
   errorMessage,
   isSystemAdmin,
@@ -135,7 +136,9 @@ export function preparePipelineCreate(req: Request, body: PipelineCreateBody): P
   return {
     project,
     organization,
-    pipelineName: body.pipelineName ?? `${organization}-${project}-pipeline`,
+    // The CDK side (pipeline-core PipelineConfiguration) derives the same name from
+    // the RAW pair, including the disambiguating hash for a lossy derivation.
+    pipelineName: body.pipelineName ?? defaultPipelineName(body.organization, body.project),
     visibility,
   };
 }

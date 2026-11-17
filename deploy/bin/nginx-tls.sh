@@ -21,8 +21,8 @@
 # the expiry test a re-run kept an EXPIRED cert and the gateway just started
 # failing TLS with nothing in the setup output saying why. Nothing depends on
 # the leaf's identity (no sessions, no signatures), so regenerating is safe.
-# Writes (chmod 644 key —
-# deploy convention): <cert_dir>/nginx-tls.crt, <cert_dir>/nginx-tls.key, and
+# Writes (the key 0600 — 0644 on the docker target, see KEY_MODE below; the
+# certs 0644): <cert_dir>/nginx-tls.crt, <cert_dir>/nginx-tls.key, and
 # <cert_dir>/dev-ca.crt — the CA that issued the leaf (mkcert's root, or the
 # self-signed leaf itself). The release images trust NO dev CA; the local
 # targets mount dev-ca.crt into the containers and point NODE_EXTRA_CA_CERTS
@@ -34,6 +34,18 @@ CERT_DIR="${1:?usage: nginx-tls.sh <cert_dir>}"
 CRT="$CERT_DIR/nginx-tls.crt"
 KEY="$CERT_DIR/nginx-tls.key"
 CA="$CERT_DIR/dev-ca.crt"
+
+# Private-key file mode. 0600 wherever the key is only read by the user who
+# owns it: the k8s targets load it into a Secret with kubectl as that same user
+# (ec2's startup.sh chowns it to minikube, the user its kubectl runs as). The
+# docker target is the one exception — compose BIND-MOUNTS the file into
+# containers that run as assorted uids, which on a Linux host read it as
+# "other" — so a cert_dir that sits next to a docker-compose.yml keeps 0644
+# (local dev only; tightening it there has broken reads before).
+# PB_PRIVATE_KEY_MODE overrides either default.
+if [ -n "${PB_PRIVATE_KEY_MODE:-}" ]; then KEY_MODE="$PB_PRIVATE_KEY_MODE"
+elif [ -f "$(dirname "$CERT_DIR")/docker-compose.yml" ]; then KEY_MODE=644
+else KEY_MODE=600; fi
 
 # The SANs the gateway cert must carry: browsers use localhost/127.0.0.1, the
 # frontend server reaches the gateway as `nginx` inside the network.
@@ -72,10 +84,11 @@ basicConstraints = critical, CA:FALSE
 keyUsage = critical, digitalSignature, keyEncipherment
 extendedKeyUsage = serverAuth
 SANEOF
-  openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-    -keyout "$KEY" -out "$CRT" -config "$_sancnf"
+  ( umask 077; openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+    -keyout "$KEY" -out "$CRT" -config "$_sancnf" )
   rm -f "$_sancnf"
   # A self-signed leaf is its own trust anchor.
   cp "$CRT" "$CA"
 fi
-chmod 644 "$KEY" "$CRT" "$CA"
+chmod "$KEY_MODE" "$KEY"
+chmod 644 "$CRT" "$CA"

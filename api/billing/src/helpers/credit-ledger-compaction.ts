@@ -38,6 +38,8 @@ export interface CreditLedgerEntry {
   grantCount?: number;
   /** The campaign the granting discount belonged to (campaign spend reporting). */
   campaign?: string;
+  /** Set on a promotion clawback tombstone (see clawbackRecentPromotions). */
+  clawedBackAt?: Date;
 }
 
 /**

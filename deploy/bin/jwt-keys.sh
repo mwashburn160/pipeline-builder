@@ -18,8 +18,8 @@
 #
 # cert_dir defaults to <this script's ..>/certs. Idempotent: skips when both files
 # already exist (so re-running setup doesn't invalidate issued registry tokens);
-# pass --force to regenerate. Writes (chmod 644 — deploy convention, see
-# deploy/*/startup.sh):
+# pass --force to regenerate. Writes (the key 0600 — 0644 on the docker target,
+# see KEY_MODE below; the cert 0644):
 #   <cert_dir>/image-registry-jwt.key   RSA private key (4096-bit, PEM)
 #   <cert_dir>/image-registry-jwt.crt   Self-signed x509 cert (PEM)
 
@@ -41,6 +41,18 @@ done
 CERT_DIR="${CERT_DIR:-$(cd "$(dirname "$0")/.." && pwd)/certs}"
 KEY_FILE="$CERT_DIR/image-registry-jwt.key"
 CERT_FILE="$CERT_DIR/image-registry-jwt.crt"
+
+# Private-key file mode. 0600 wherever the key is only read by the user who
+# owns it: the k8s targets load it into a Secret with kubectl as that same user
+# (ec2's startup.sh chowns it to minikube, the user its kubectl runs as). The
+# docker target is the one exception — compose BIND-MOUNTS the file into
+# containers that run as assorted uids, which on a Linux host read it as
+# "other" — so a cert_dir that sits next to a docker-compose.yml keeps 0644
+# (local dev only; tightening it there has broken reads before).
+# PB_PRIVATE_KEY_MODE overrides either default.
+if [ -n "${PB_PRIVATE_KEY_MODE:-}" ]; then KEY_MODE="$PB_PRIVATE_KEY_MODE"
+elif [ -f "$(dirname "$CERT_DIR")/docker-compose.yml" ]; then KEY_MODE=644
+else KEY_MODE=600; fi
 
 if [ -f "$KEY_FILE" ] && [ -f "$CERT_FILE" ] && [ -z "$FORCE" ]; then
   echo "  registry JWT keypair already present in $CERT_DIR (use --force to regenerate)"
@@ -64,13 +76,13 @@ done
 # 4096-bit RSA — matches the registry's expected RS256 verification. The cert is
 # self-signed with 10-year validity (rotate by regenerating with --force); the
 # subject is informational only — the registry uses just the embedded public key.
-openssl genrsa -out "$KEY_FILE" 4096
+( umask 077; openssl genrsa -out "$KEY_FILE" 4096 )
 openssl req -x509 -new -nodes -key "$KEY_FILE" -sha256 -days 3650 \
   -subj "/CN=pipeline-image-registry-token-issuer" \
   -out "$CERT_FILE"
 
-# 644 (not 600): the deploy convention — these are mounted into containers that
-# run as assorted uids, and tightening to 600 has broken reads before.
-chmod 644 "$KEY_FILE" "$CERT_FILE"
+# The cert is public (0644); the private key gets KEY_MODE (see above).
+chmod "$KEY_MODE" "$KEY_FILE"
+chmod 644 "$CERT_FILE"
 
 echo "  wrote registry JWT keypair: $KEY_FILE + $CERT_FILE"

@@ -5,10 +5,14 @@ import { ArrowLeft, KeyRound, LogIn } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { LoadingSpinner } from '@/components/ui/Loading';
-import type { SignInFlow } from './useSignInFlow';
+import type { RequiredPasswordChange } from './useRequiredPasswordChange';
 
-/** The password was right but is below the org's policy: choose a new one. */
-export function PasswordChangeStep({ flow, minLength }: { flow: SignInFlow; minLength: number }) {
+type PasswordChangeFlow = Pick<RequiredPasswordChange,
+  'handlePasswordChangeSubmit' | 'newPassword' | 'setNewPassword' | 'confirmNewPassword' | 'setConfirmNewPassword' | 'pwChangeBusy' | 'cancelPasswordChange'>;
+
+/** The password was right but is below the org's policy: choose a new one.
+ *  Shared by the sign-in card and the OAuth callback page. */
+export function PasswordChangeStep({ flow, minLength }: { flow: PasswordChangeFlow; minLength: number }) {
   const { handlePasswordChangeSubmit, newPassword, setNewPassword, confirmNewPassword, setConfirmNewPassword, pwChangeBusy, cancelPasswordChange } = flow;
   return (
     <form onSubmit={handlePasswordChangeSubmit} className="space-y-3">

@@ -18,7 +18,7 @@ import {
   actorId,
   recordAudit,
 } from '@pipeline-builder/api-core';
-import { withRoute } from '@pipeline-builder/api-server';
+import { incCounter, withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { Request, RequestHandler, Response } from 'express';
 import { isValidObjectId } from 'mongoose';
@@ -40,6 +40,56 @@ import { getPaymentProvider } from '../providers/provider-factory.js';
 import { SubscriptionCreateSchema, SubscriptionUpdateSchema } from '../validation/schemas.js';
 
 const logger = createLogger('billing-subscriptions');
+
+/** Attempts (including the first) to persist the provider bind on the reserved row. */
+const BIND_SAVE_ATTEMPTS = 3;
+const BIND_SAVE_BACKOFF_MS = 100;
+
+/**
+ * Persist the provider bind on the reserved row, retrying a transient failure.
+ * Runs only AFTER the provider subscription exists, where giving up costs a
+ * compensating cancel, so a couple of retries are worth it.
+ */
+async function saveWithRetry(subscription: { save: () => Promise<unknown> }): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await subscription.save();
+      return;
+    } catch (err) {
+      if (attempt >= BIND_SAVE_ATTEMPTS) throw err;
+      logger.warn('Saving the provider bind failed; retrying', { attempt, error: errorMessage(err) });
+      await new Promise((r) => setTimeout(r, BIND_SAVE_BACKOFF_MS * attempt));
+    }
+  }
+}
+
+/**
+ * The provider subscription was created but its bind could not be saved: cancel
+ * it (immediately when the provider supports that) so the customer isn't billed
+ * for a subscription we have no record of. A failed cancel is logged LOUDLY and
+ * metered — that sub needs operator follow-up (cancel + refund).
+ */
+async function compensateUnboundProviderSubscription(
+  provider: ReturnType<typeof getPaymentProvider>,
+  externalId: string,
+  orgId: string,
+  subscriptionRef: string,
+  cause: unknown,
+): Promise<void> {
+  logger.error('Provider subscription created but local bind failed to save — cancelling provider subscription', {
+    orgId, externalId, subscriptionRef, error: errorMessage(cause),
+  });
+  incCounter('billing_unbound_provider_subscription_total', { reason: 'bind_save_failed' });
+  try {
+    if (provider.cancelSubscriptionNow) await provider.cancelSubscriptionNow(externalId);
+    else await provider.cancelSubscription(externalId);
+  } catch (cancelErr) {
+    logger.error('FAILED to cancel unbound provider subscription — customer may be billed with no local record; operator must cancel/refund', {
+      orgId, externalId, subscriptionRef, error: errorMessage(cancelErr),
+    });
+    incCounter('billing_unbound_provider_subscription_total', { reason: 'compensation_failed' });
+  }
+}
 
 const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
 
@@ -235,10 +285,15 @@ export function createSubscriptionRoutes(): Router {
     // reuses the same idempotency key (providers that support it dedupe rather
     // than double-create). On any provider failure, roll the reservation back.
     const idempotencyKey = subscription._id.toString();
+    const provider = getPaymentProvider();
+    // Set once the provider has minted a REAL (billable) subscription. After that
+    // point a failure must not just drop the local row: the customer would be
+    // billed with no record on our side. See the catch below.
+    let createdExternalId: string | undefined;
     try {
-      const provider = getPaymentProvider();
       const customerId = await provider.createCustomer(orgId, customerEmail, `cust_${idempotencyKey}`);
       const externalResult = await provider.createSubscription(customerId, planId, interval, `sub_${idempotencyKey}`, idempotencyKey);
+      createdExternalId = externalResult.externalId;
       subscription.externalId = externalResult.externalId;
       subscription.externalCustomerId = externalResult.externalCustomerId;
       // Reconcile the local status to the provider's REAL state. The row was
@@ -256,8 +311,16 @@ export function createSubscriptionRoutes(): Router {
       if (referralCode && subscription.status !== 'active' && subscription.status !== 'trialing') {
         subscription.metadata = { ...subscription.metadata, pendingReferralCode: referralCode };
       }
-      await subscription.save();
+      await saveWithRetry(subscription);
     } catch (err) {
+      if (createdExternalId) {
+        // The provider sub exists (and bills) but the bind never persisted. The
+        // save was already retried; compensate by cancelling the provider sub
+        // BEFORE dropping the row, so we never leave a billing sub with no record.
+        await compensateUnboundProviderSubscription(provider, createdExternalId, orgId, idempotencyKey, err);
+      }
+      // No external subscription (or it was just compensated): roll back the
+      // reservation so the org isn't wedged behind a phantom subscription.
       await Subscription.deleteOne({ _id: subscription._id }).catch(() => { /* best-effort rollback */ });
       throw err;
     }

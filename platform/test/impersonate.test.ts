@@ -37,6 +37,9 @@ const mockSendChallenge = jest.fn<AnyFn>();
 const mockMarkUndeliverable = jest.fn<AnyFn>();
 const mockUOFindOne = jest.fn<AnyFn>();
 const mockNotifyRequester = jest.fn<AnyFn>();
+const mockOutsideAccount = jest.fn<AnyFn>();
+/** The redeemed record's window, which caps the session token's exp. */
+const RECORD_EXPIRES_AT = new Date('2030-01-01T00:00:00Z');
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   isSystemAdmin: (...a: unknown[]) => mockIsSystemAdmin(...a),
@@ -58,6 +61,11 @@ jest.unstable_mockModule('mongoose', () => {
   return { Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn<AnyFn>() };
 });
 
+// Whether the target belongs to orgs outside the caller's account (covered in
+// account-membership.test.ts); driven per test here.
+jest.unstable_mockModule('../src/helpers/account-membership.js', () => ({
+  hasMembershipOutsideAccount: (...a: unknown[]) => mockOutsideAccount(...a),
+}));
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 // Authority now depends on BOTH parties (is the caller an ancestor admin of the
@@ -175,7 +183,8 @@ beforeEach(() => {
   // Default: the request opens already-approved and redeems cleanly, which is
   // what happens while no org requires consent.
   mockCreateRequest.mockReset().mockResolvedValue({ id: 'req-1', status: 'approved', approvalReason: 'policy_open' });
-  mockConsume.mockReset().mockResolvedValue({ ok: true });
+  mockConsume.mockReset().mockResolvedValue({ ok: true, expiresAt: RECORD_EXPIRES_AT });
+  mockOutsideAccount.mockReset().mockResolvedValue(false);
 });
 
 describe('impersonateUser', () => {
@@ -214,6 +223,61 @@ describe('impersonateUser', () => {
     expect(mockNotifyTeam).toHaveBeenCalledWith(
       expect.objectContaining({ orgId: 'org-team', requesterId: 'parent-admin', targetUserId: 'target' }),
     );
+  });
+
+  it('ancestor authority does NOT skip consent for a target who also belongs to orgs outside the account', async () => {
+    mockResolveAuthority.mockResolvedValue({ kind: 'ancestor', viaOrgId: 'org-parent' });
+    mockOutsideAccount.mockResolvedValue(true);
+    mockUserFindById.mockReturnValue({
+      select: jest.fn<AnyFn>().mockResolvedValue({ _id: 'target', isSuperAdmin: false, lastActiveOrgId: 'org-team' }),
+    });
+    mockCreateRequest.mockResolvedValue({ id: 'req-9', status: 'pending' });
+
+    const res = mockRes();
+    await (impersonateUser as unknown as (req: any, res: any) => Promise<void>)(
+      { user: { sub: 'parent-admin', organizationId: 'org-parent' }, params: { userId: 'target' } }, res,
+    );
+
+    expect(mockOutsideAccount).toHaveBeenCalledWith('target', 'org-parent');
+    // Not auto-approved: pending, routed to the PERSON, who alone may answer it.
+    expect(mockDecideInitialApproval).not.toHaveBeenCalled();
+    expect(mockCreateRequest).toHaveBeenCalledWith(expect.objectContaining({
+      decision: { kind: 'pending' }, approverMode: 'user', approverUserId: 'target', subjectConsentRequired: true,
+    }));
+    expect(mockSendChallenge).toHaveBeenCalledWith(expect.objectContaining({ mode: 'user', targetUserId: 'target' }));
+    expect(res.status).toHaveBeenCalledWith(202);
+    expect(mockConsume).not.toHaveBeenCalled();
+    expect(mockIssueImpersonation).not.toHaveBeenCalled();
+    expect(mockNotifyTeam).not.toHaveBeenCalled();
+  });
+
+  it('refuses an explicit org_admin route when only the person may consent (never silently rerouted)', async () => {
+    mockResolveAuthority.mockResolvedValue({ kind: 'ancestor', viaOrgId: 'org-parent' });
+    mockOutsideAccount.mockResolvedValue(true);
+    mockUserFindById.mockReturnValue({
+      select: jest.fn<AnyFn>().mockResolvedValue({ _id: 'target', isSuperAdmin: false, lastActiveOrgId: 'org-team' }),
+    });
+
+    const res = mockRes();
+    await (impersonateUser as unknown as (req: any, res: any) => Promise<void>)(
+      { user: { sub: 'parent-admin', organizationId: 'org-parent' }, params: { userId: 'target' }, body: { approverMode: 'org_admin' } }, res,
+    );
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockCreateRequest).not.toHaveBeenCalled();
+  });
+
+  it('does not consult outside memberships on the platform path', async () => {
+    mockUserFindById.mockReturnValue({
+      select: jest.fn<AnyFn>().mockResolvedValue({ _id: 'target', isSuperAdmin: false, lastActiveOrgId: 'org-team' }),
+    });
+    mockIssueImpersonation.mockResolvedValue({ accessToken: 'imp.jwt', expiresIn: 900 });
+    const res = mockRes();
+    await (impersonateUser as unknown as (req: any, res: any) => Promise<void>)(
+      { user: { sub: 'sysadmin' }, params: { userId: 'target' } }, res,
+    );
+    // The vendor path is governed by the org's consent policy already.
+    expect(mockOutsideAccount).not.toHaveBeenCalled();
   });
 
   it('does NOT send the team notice on the sysadmin path', async () => {
@@ -292,6 +356,9 @@ describe('impersonateUser', () => {
       expect.any(String), // the session jti
       // The OPERATOR's own sign-in context — the session inherits it, never raises it.
       expect.objectContaining({ amr: expect.any(Array), aal: 1 }),
+      undefined,
+      // The token's exp is capped at the redeemed record's window.
+      RECORD_EXPIRES_AT,
     );
     // The impersonator at session start IS the actor (the sysadmin), already
     // captured as the event's actorId — so it's no longer duplicated into
@@ -336,7 +403,7 @@ describe('redeemImpersonationRequest', () => {
     expect(mockConsume).toHaveBeenCalledWith('req-1', expect.any(String));
     expect(mockIssueImpersonation).toHaveBeenCalledWith(
       expect.objectContaining({ _id: 'target' }), 'sysadmin', 'org-a', expect.any(String),
-      expect.objectContaining({ amr: expect.any(Array), aal: 1 }),
+      expect.objectContaining({ amr: expect.any(Array), aal: 1 }), undefined, RECORD_EXPIRES_AT,
     );
   });
 
@@ -418,6 +485,16 @@ describe('redeemImpersonationRequest', () => {
 });
 
 
+/** A pending request only the target may decide (ancestor → cross-account target). */
+const SUBJECT_CONSENT_REQUEST = {
+  requesterId: 'parent-admin',
+  targetUserId: 't',
+  organizationId: 'org-team',
+  approverMode: 'user',
+  approverUserId: 't',
+  subjectConsentRequired: true,
+};
+
 describe('decideImpersonationRequest — authorization', () => {
   const leanOf = (doc: unknown) => ({ lean: () => Promise.resolve(doc) });
   const decide = (user: any, approve = true) => {
@@ -457,6 +534,28 @@ describe('decideImpersonationRequest — authorization', () => {
 
     expect(res.status).toHaveBeenCalledWith(403);
     expect(mockDecide).not.toHaveBeenCalled();
+  });
+
+  it('REFUSES a tenant admin deciding a request that needs the PERSON\'s consent', async () => {
+    // An ancestor reaching a target who belongs to other accounts: an admin of
+    // the pinned org is the requester's colleague, not the person consenting.
+    mockRequestFindById.mockReturnValue(leanOf(SUBJECT_CONSENT_REQUEST));
+    mockIsTenantAdminOf.mockResolvedValue(true);
+
+    const res = await decide({ sub: 'other-parent-admin', organizationId: 'org-parent' });
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockDecide).not.toHaveBeenCalled();
+  });
+
+  it('lets the person themselves decide a subject-consent request', async () => {
+    mockRequestFindById.mockReturnValue(leanOf(SUBJECT_CONSENT_REQUEST));
+    mockDecide.mockResolvedValue({ ok: true, request: { status: 'approved' } });
+
+    const res = await decide({ sub: 't' });
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(mockDecide).toHaveBeenCalledWith('req-1', 't', true, false);
   });
 
   it('lets a genuine tenant admin decide a consent request', async () => {

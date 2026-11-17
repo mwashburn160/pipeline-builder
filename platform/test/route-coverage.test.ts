@@ -266,13 +266,13 @@ const EXCEPTIONS: RouteCoverageException[] = [
   {
     path: /^GET \/organization\/:id\/(parent|seat-usage|support-usage|feature-entitlements)$/,
     waive: 'permission',
-    reason: 'Least-privilege internal reads for peer services: the controller allows isServicePrincipal OR canAdministerOrg(targetOrg) — a two-way check on the path org that no static permission gate can express.',
+    reason: 'Least-privilege internal reads for peer services: a service token must be a named caller (seat/support-usage and feature-entitlements: billing only, via serviceOrUserGates + requireInternalService), a user must pass canAdministerOrg(targetOrg) in the controller — a two-way check on the path org that no static permission gate can express.',
   },
   {
     method: 'PUT',
     path: '/organization/:id/seat-limit',
     waive: 'permission',
-    reason: 'Billing syncs the account seat/feature/tier entitlement here; the controller allows isServicePrincipal OR isSystemAdmin, and deliberately runs no step-up so the sync needs no human MFA.',
+    reason: 'Billing syncs the account seat/feature/tier entitlement here. serviceOrUserGates branches on the caller: a service token must be billing (requireInternalService), deliberately with no step-up; a user runs requireSystemOrgPermission(orgs:manage) + requireStepUp like PATCH /:id/tier. The branch is untagged in the route table, hence the waiver.',
   },
 
   // -- Membership-scoped org reads (dynamic on the target org) ---------------

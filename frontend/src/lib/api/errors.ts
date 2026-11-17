@@ -19,6 +19,14 @@ export class ApiError extends Error {
 }
 
 /**
+ * Platform's 409 for a direct member add of someone OUTSIDE the account (no
+ * verified domain vouches for them): they must agree to join, so the remedy is
+ * an invitation. A plain string (not api-core's runtime `ErrorCode` enum, which
+ * would drag the server barrel into the client bundle).
+ */
+export const MEMBER_INVITATION_REQUIRED = 'MEMBER_INVITATION_REQUIRED';
+
+/**
  * A 429 `QUOTA_EXCEEDED`: the org has used up a quota for this period.
  *
  * Its own class so any catch can branch on `instanceof` and render the

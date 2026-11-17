@@ -78,6 +78,25 @@ describe('PluginLookup', () => {
         .toThrow(/resolves to "nodejs-build", not "maven-build"/);
     });
 
+    it('refuses one alias serving the same plugin under two different version pins', () => {
+      const lookup = new PluginLookup({
+        resolvedPlugins: { 'nodejs-build-alias': { name: 'nodejs-build', version: '18.2.0', commands: [] } as never },
+      });
+
+      expect(lookup.plugin({ name: 'nodejs-build', filter: { version: '18.2.0' } } as never).version).toBe('18.2.0');
+      expect(() => lookup.plugin({ name: 'nodejs-build', filter: { version: '20.1.0' } } as never, 'Build/nodejs-build'))
+        .toThrow(/alias "nodejs-build-alias" is used for two different plugin references.*own alias/);
+    });
+
+    it('refuses a pre-resolved record whose version is not the exact pin', () => {
+      const lookup = new PluginLookup({
+        resolvedPlugins: { 'nodejs-build-alias': { name: 'nodejs-build', version: '18.2.0', commands: [] } as never },
+      });
+
+      expect(() => lookup.plugin({ name: 'nodejs-build', filter: { version: '20.1.0' } } as never))
+        .toThrow(/resolves to nodejs-build@18.2.0, not the pinned nodejs-build@20.1.0/);
+    });
+
     it('keys a publisher reference by <publisher>-<name>-alias and refuses a record from another publisher', () => {
       const lookup = new PluginLookup({
         resolvedPlugins: {

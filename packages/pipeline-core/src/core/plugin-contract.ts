@@ -260,6 +260,37 @@ export function pluginLookupFilter(ref: Pick<PluginStepRef, 'name' | 'filter' | 
   };
 }
 
+/** JSON with object keys sorted at every depth, so equal values serialize equally. */
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    return `{${Object.keys(obj).sort()
+      .filter((k) => obj[k] !== undefined)
+      .map((k) => `${JSON.stringify(k)}:${stableJson(obj[k])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
+}
+
+/**
+ * The full TARGET identity of a plugin reference — what its lookup actually
+ * selects: `[<publisher>/]<name>` (an explicit `filter.name` wins) plus the
+ * rest of the filter as stable JSON (an absent or name-only filter is the
+ * default active+default version).
+ *
+ * The resolved-plugins map is keyed by alias (`pluginArtifactAlias`), so two
+ * references sharing an alias must share this identity: `nodejs-build` pinned
+ * to 18.2.0 and to 20.1.0, both unaliased, would otherwise both get the first
+ * one's record.
+ */
+export function pluginTargetIdentity(ref: Pick<PluginStepRef, 'name' | 'filter' | 'publisher'>): string {
+  const { name: filterName, ...rest } = (ref.filter ?? {}) as Record<string, unknown>;
+  const name = typeof filterName === 'string' && filterName ? filterName : ref.name;
+  const selector = Object.keys(rest).length > 0 ? rest : { isActive: true, isDefault: true };
+  return `${ref.publisher ? `${ref.publisher}/` : ''}${name} ${stableJson(selector)}`;
+}
+
 // -----------------------------------------------------------------------------
 // Reference identity (CDK-free: the CLI, the pipeline service and synth share it)
 // -----------------------------------------------------------------------------

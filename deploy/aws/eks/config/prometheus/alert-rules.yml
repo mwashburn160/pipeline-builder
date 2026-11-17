@@ -1300,6 +1300,36 @@ groups:
           summary: "Stripe {{ $labels.event_mode }}-mode events are arriving at a key of the other mode"
           description: "{{ $value | humanize }} Stripe event(s) in the last hour passed signature verification but came from the other Stripe world and were refused. The deployment is half-configured: STRIPE_SECRET_KEY and the webhook endpoint belong to different modes. Until it is fixed no lifecycle event reconciles — subscriptions, payments and cancellations all stop updating."
 
+      # ---- Money left in an inconsistent state that needs an operator ----
+      # marketplace-metering.ts reserves an hour's Marketplace credit before metering
+      # and gives it back when metering fails; a failed give-back leaves the customer
+      # short that credit until someone re-grants it. subscriptions.ts cancels a
+      # provider subscription whose local bind could not be saved; reason=
+      # compensation_failed means that cancel failed too, so the customer may be
+      # billed for a subscription this install has no record of. bind_save_failed
+      # alone self-compensates and is not alerted.
+      - alert: BillingMarketplaceCreditRestoreFailed
+        expr: sum (increase(billing_marketplace_credit_restore_failed_total[1h])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: billing
+          tenancy: platform
+        annotations:
+          summary: "Reserved Marketplace credit could not be restored"
+          description: "{{ $value | humanize }} reserved Marketplace credit restore(s) failed in the last hour, so the affected customer's credit balance is short by that reservation. Find the org/cents/hour in billing's logs ('FAILED to restore reserved Marketplace credit') and re-grant the credit."
+
+      - alert: BillingUnboundProviderSubscription
+        expr: sum (increase(billing_unbound_provider_subscription_total{reason="compensation_failed"}[1h])) > 0
+        for: 0m
+        labels:
+          severity: critical
+          component: billing
+          tenancy: platform
+        annotations:
+          summary: "A provider subscription exists with no local record and could not be cancelled"
+          description: "{{ $value | humanize }} provider subscription(s) in the last hour were created at the payment provider, could not be bound locally, and the compensating cancel also failed. The customer may be billed for a subscription this install does not know about. Find the externalId in billing's logs ('FAILED to cancel unbound provider subscription'), then cancel and refund it at the provider."
+
       # ---- A provider that was never fully configured ----
       # validate-provider-config.ts checks these at boot and used to only warn. Several
       # of them leave the provider NON-FUNCTIONAL — no Stripe webhook secret means no
@@ -2137,6 +2167,32 @@ groups:
         annotations:
           summary: "Durable events moved to the dead-letter stream"
           description: "{{ $value | humanize }} events on topic {{ $labels.topic }} exhausted their deliveries in the last hour and were dead-lettered to evt:{{ $labels.topic }}:dlq. The consumer kept failing — investigate, then replay or discard them."
+
+      # The dead-letter path above preserves a payload; these two are the case where
+      # there is none left. A group whose unread backlog reaches the stream cap
+      # (XADD MAXLEN ~) has its oldest UNREAD entries trimmed away, and a pending
+      # entry trimmed before it was handled is acked as lost (durable-event-bus.ts).
+      - alert: EventBusPendingTrimmed
+        expr: sum by (topic, group) (increase(event_bus_trimmed_pending_total[1h])) > 0
+        for: 0m
+        labels:
+          severity: critical
+          component: event-bus
+          tenancy: platform
+        annotations:
+          summary: "Durable events on {{ $labels.topic }} were trimmed before {{ $labels.group }} handled them"
+          description: "{{ $value | humanize }} pending event(s) on topic {{ $labels.topic }} were trimmed from the stream (MAXLEN) before consumer group {{ $labels.group }} handled them and were acked as lost — there is no payload to replay. The consumer is too far behind the stream cap: fix the slow/failing consumer, or raise the stream's maxLen."
+
+      - alert: EventBusBacklogNearCap
+        expr: sum by (topic, group) (increase(event_bus_lag_near_cap_total[30m])) > 0
+        for: 15m
+        labels:
+          severity: warning
+          component: event-bus
+          tenancy: platform
+        annotations:
+          summary: "Event bus consumer {{ $labels.group }} is near the {{ $labels.topic }} stream cap"
+          description: "Consumer group {{ $labels.group }} has an unread backlog on topic {{ $labels.topic }} close to the stream's MAXLEN. Past the cap, unread events are trimmed and lost (EventBusPendingTrimmed). Check that the consumer is running and keeping up."
 
       # ---- Billing → entitlement/quota sync ----
       # billing_quota_sync_failed_total: a subscription/entitlement change failed

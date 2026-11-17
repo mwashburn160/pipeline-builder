@@ -20,7 +20,8 @@ jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() =>
 
 const mockRefreshUser = jest.fn<AnyFn>().mockResolvedValue(undefined);
 const mockCompleteMfaLogin = jest.fn<AnyFn>().mockResolvedValue({ status: 'complete' });
-jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => ({ refreshUser: mockRefreshUser, completeMfaLogin: mockCompleteMfaLogin })));
+const mockCompleteRequiredPasswordChange = jest.fn<AnyFn>().mockResolvedValue({ status: 'complete' });
+jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => ({ refreshUser: mockRefreshUser, completeMfaLogin: mockCompleteMfaLogin, completeRequiredPasswordChange: mockCompleteRequiredPasswordChange })));
 
 jest.mock('framer-motion', () => require('./helpers/pageMocks').motionModule());
 
@@ -123,4 +124,32 @@ it('reports a provider denial to the opener rather than a code', async () => {
   ));
   expect(publishReauthResult.mock.calls[0][0]).not.toHaveProperty('code');
   close.mockRestore();
+});
+
+it('after MFA, a password below the org policy opens the new-password step instead of leaving the user stuck', async () => {
+  stash({ state: 's1', kind: 'login', returnUrl: '/dashboard' });
+  mockApi.completeOAuthCallback.mockResolvedValue({ success: true, data: { mfaRequired: true, challengeId: 'chal-1' } });
+  mockCompleteMfaLogin.mockResolvedValueOnce({ status: 'password_change_required', challengeId: 'pw-1', expiresAt: 0, minLength: 14 });
+  render(<OAuthCallbackPage />);
+
+  fireEvent.change(await screen.findByLabelText(/authentication code/i), { target: { value: '123456' } });
+  fireEvent.click(screen.getByRole('button', { name: /verify/i }));
+
+  // Re-queried each time: the framer-motion mock remounts the card on every render.
+  const pw = () => screen.getByLabelText('New password');
+  await screen.findByLabelText('New password');
+  expect(screen.queryByLabelText(/authentication code/i)).not.toBeInTheDocument();
+  expect(screen.getByText('14')).toBeInTheDocument();
+
+  // Checked locally first, then completed with the handle — like the sign-in card.
+  fireEvent.change(pw(), { target: { value: 'short' } });
+  fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'short' } });
+  fireEvent.click(screen.getByRole('button', { name: /change password and sign in/i }));
+  expect(await screen.findByText(/at least 14 characters/i)).toBeInTheDocument();
+  expect(mockCompleteRequiredPasswordChange).not.toHaveBeenCalled();
+
+  fireEvent.change(pw(), { target: { value: 'a-much-longer-password' } });
+  fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'a-much-longer-password' } });
+  fireEvent.click(screen.getByRole('button', { name: /change password and sign in/i }));
+  await waitFor(() => expect(mockCompleteRequiredPasswordChange).toHaveBeenCalledWith('pw-1', 'a-much-longer-password'));
 });

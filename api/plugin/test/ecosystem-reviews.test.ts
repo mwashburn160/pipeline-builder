@@ -299,6 +299,24 @@ describe('setHelpful', () => {
     expect(h.audit).not.toHaveBeenCalled();
   });
 
+  it('concurrent voters never leave the stored count below the votes cast', async () => {
+    // The count and its write are one locked transaction (`recountHelpful`):
+    // a separate count-then-write let one voter's stale total overwrite another's.
+    const { review } = await published();
+    const voters = ['u-v1', 'u-v2', 'u-v3', 'u-v4', 'u-v5'].map((userId, i) => REVIEWER({ userId, orgId: `org-v${i}` }));
+    await Promise.all(voters.map((v) => reviewsSvc.setHelpful(v, review.id, true)));
+    expect(review.helpfulCount).toBe(5);
+  });
+
+  it('a recount repairs a stored count that drifted from the votes', async () => {
+    const { review } = await published();
+    const carol = REVIEWER({ userId: 'u-carol', orgId: 'org-c' });
+    await reviewsSvc.setHelpful(carol, review.id, true);
+    review.helpfulCount = 7; // drifted
+    expect(await reviewsSvc.setHelpful(carol, review.id, true)).toEqual({ helpfulCount: 1, voted: true });
+    expect(review.helpfulCount).toBe(1);
+  });
+
   it('refuses the author, the publisher\'s org, and held reviews', async () => {
     const { review } = await published();
     await rejects(reviewsSvc.setHelpful(REVIEWER(), review.id, true), 'VALIDATION_ERROR');

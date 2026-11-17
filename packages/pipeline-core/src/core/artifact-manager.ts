@@ -35,9 +35,21 @@ export class ArtifactManager {
    * Register a build step artifact
    * @param key - The hierarchical key identifying this artifact (includes output directory)
    * @param step - The CodeBuildStep or ShellStep to store
+   * @throws Error if a DIFFERENT step already registered this key — silently
+   *   replacing it would hand every consumer of the key the second step's
+   *   output. Re-registering the same step is a no-op.
    */
   add(key: ArtifactKey, step: CodeBuildStep | ShellStep): void {
-    this.artifacts.set(this.generateKey(key), step);
+    const id = this.generateKey(key);
+    const existing = this.artifacts.get(id);
+    if (existing !== undefined && existing !== step) {
+      throw new Error(
+        `Duplicate artifact key "${id}": stage "${key.stageName}" (alias "${key.stageAlias}") already has a step `
+        + `"${existing.id}" registered for plugin "${key.pluginName}" (alias "${key.pluginAlias}") with output `
+        + `"${key.outputDirectory}"; step "${step.id}" would replace it. Give the steps distinct plugin aliases.`,
+      );
+    }
+    this.artifacts.set(id, step);
   }
 
   /**

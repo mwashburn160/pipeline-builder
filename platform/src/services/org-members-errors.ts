@@ -29,3 +29,7 @@ export const OM_TARGETS_OUT_OF_SCOPE = 'OM_TARGETS_OUT_OF_SCOPE';
 /** The org is at its seat cap (`org.quotas.seats`); adding this member would
  *  exceed it. Mirrors the seat check enforced at invite time. */
 export const OM_SEAT_LIMIT = 'OM_SEAT_LIMIT';
+/** A direct add of an existing platform user who is not yet in this account,
+ *  at an address whose domain the account has not verified. Nothing for the
+ *  person to accept would be an add without consent — send an invitation. */
+export const OM_CONSENT_REQUIRED = 'OM_CONSENT_REQUIRED';

@@ -289,9 +289,12 @@ export class PipelineBuilder extends Construct {
       // Pass org+project so log group / IAM role names get a stable hash
       // suffix per pipeline. Prevents `Resource already exists` collisions
       // across stacks deployed to the same AWS account.
+      // A lossy-sanitized pair (`spring_boot` vs `spring-boot`) folds its
+      // raw-identity hash in, so the two never share a log group or role;
+      // a clean pair keeps the hash (and resource names) it always had.
       const uniqueId = new UniqueId({
         organization: this.config.organization,
-        project: this.config.project,
+        project: this.config.identityHash ? `${this.config.project}:${this.config.identityHash}` : this.config.project,
       });
       const pluginLookup = new PluginLookup({ resolvedPlugins: props.resolvedPlugins });
 

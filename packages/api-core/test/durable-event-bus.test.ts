@@ -9,8 +9,9 @@
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import type { AnyFn } from '../src/testing/any-fn.js';
 
+const logMock = { info: jest.fn<AnyFn>(), warn: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), debug: jest.fn<AnyFn>() };
 jest.unstable_mockModule('../src/utils/logger.js', () => ({
-  createLogger: () => ({ info: jest.fn<AnyFn>(), warn: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), debug: jest.fn<AnyFn>() }),
+  createLogger: () => logMock,
 }));
 
 const { createRedisDurableEventBus } = await import('../src/services/durable-event-bus.js');
@@ -65,10 +66,11 @@ function makeFakeStream() {
       return e ? [[e.id, ['d', e.payload]]] : [];
     },
     async xgroup(...args: (string | number)[]) {
-      const [cmd, , group] = args as [string, string, string];
+      const [cmd, , group, start] = args as [string, string, string, string];
       if (cmd !== 'CREATE') return 'OK';
       if (groups.has(group)) throw new Error('BUSYGROUP Consumer Group name already exists');
-      groups.set(group, { cursor: entries.length, pending: new Map() });
+      // '$' = only entries added from now on; '0' = the whole retained stream.
+      groups.set(group, { cursor: start === '$' ? entries.length : 0, pending: new Map() });
       return 'OK';
     },
     async xreadgroup(...args: (string | number)[]) {
@@ -259,6 +261,70 @@ describe('durable event bus', () => {
     expect(calls).toBe(3);
     expect(fake.dlq).toEqual([{ d: JSON.stringify({ n: 9 }), sourceId: id, group: 'g1', deliveries: '3' }]);
     expect(fake.groups.get('g1')!.pending.size).toBe(0);
+  });
+
+  it('creates the group at 0 so events published BEFORE the subscriber started are delivered', async () => {
+    const fake = makeFakeStream();
+    const bus = createRedisDurableEventBus(fake as never);
+    await bus.publish('t', { n: 1 }); // before any group exists
+    const received: unknown[] = [];
+    let resolveGot: () => void;
+    const got = new Promise<void>((r) => { resolveGot = r; });
+    const sub = bus.subscribe<{ n: number }>({
+      topic: 't',
+      group: 'late',
+      consumer: 'c1',
+      blockMs: 1,
+      minIdleMs: 0,
+      handler: async (env) => { received.push(env.payload); resolveGot(); },
+    });
+    await got;
+    await sub.stop();
+    expect(received).toEqual([{ n: 1 }]);
+  });
+
+  it('acks a pending entry that was trimmed (MAXLEN) instead of dead-lettering an empty payload', async () => {
+    const fake = makeFakeStream();
+    const bus = createRedisDurableEventBus(fake as never);
+    logMock.error.mockClear();
+    let calls = 0;
+    const sub = bus.subscribe<{ n: number }>({
+      topic: 't',
+      group: 'g1',
+      consumer: 'c1',
+      blockMs: 1,
+      minIdleMs: 0,
+      maxDeliveries: 2,
+      handler: async () => {
+        calls++;
+        // Simulate MAXLEN trimming the entry while it is still pending.
+        fake.entries.splice(0, fake.entries.length);
+        throw new Error('fail');
+      },
+    });
+    await bus.publish('t', { n: 1 });
+    for (let i = 0; i < 400 && (calls === 0 || (fake.groups.get('g1')?.pending.size ?? 1) !== 0); i++) await new Promise((r) => setTimeout(r, 5));
+    await sub.stop();
+    expect(fake.dlq).toEqual([]);
+    expect(fake.groups.get('g1')!.pending.size).toBe(0);
+    expect(logMock.error).toHaveBeenCalledWith(expect.stringMatching(/trimmed/), expect.objectContaining({ topic: 't', group: 'g1' }));
+  });
+
+  it('warns when the group lag nears the stream cap (XINFO GROUPS)', async () => {
+    const fake = makeFakeStream() as ReturnType<typeof makeFakeStream> & { xinfo?: (...a: unknown[]) => Promise<unknown> };
+    fake.xinfo = async () => [['name', 'g1', 'consumers', 1, 'pending', 0, 'lag', 95]];
+    const bus = createRedisDurableEventBus(fake as never, { maxLen: 100 });
+    logMock.warn.mockClear();
+    const sub = bus.subscribe({
+      topic: 't',
+      group: 'g1',
+      consumer: 'c1',
+      blockMs: 1,
+      handler: async () => undefined,
+    });
+    for (let i = 0; i < 100 && logMock.warn.mock.calls.length === 0; i++) await new Promise((r) => setTimeout(r, 5));
+    await sub.stop();
+    expect(logMock.warn).toHaveBeenCalledWith(expect.stringMatching(/near the stream cap/), expect.objectContaining({ lag: 95, maxLen: 100 }));
   });
 
   it('createEnvRedisDurableEventBus returns null when Redis is not configured', async () => {

@@ -71,7 +71,7 @@ import {
 } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { pipelinesOnVersion, runWithTenantContext, schema, type PipelineOnVersion, type PluginSecurityNotificationPref } from '@pipeline-builder/pipeline-data';
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, gt, inArray } from 'drizzle-orm';
 
 import { EcosystemError } from './ecosystem/context.js';
 import { elevated } from './ecosystem/store.js';
@@ -174,6 +174,29 @@ export const prefsStore = {
   async byVerifyToken(tokenHash: string): Promise<SecurityPrefs | null> {
     const rows = await elevated((tx) => tx.select().from(T()).where(eq(T().externalVerifyTokenHash, tokenHash))) as PluginSecurityNotificationPref[];
     return rows[0] ? fromRow(rows[0].orgId, rows[0]) : null;
+  },
+  /**
+   * Mark the external address verified — ONLY the verification columns, and
+   * only while the row still holds this token, for this address, unexpired.
+   *
+   * A targeted update rather than a read-then-`put` of the whole row: the
+   * confirm is an anonymous public click that can land at any moment, and
+   * writing back the row it read would revert whatever an admin saved in
+   * between (recipients, webhook, digest mode — or a NEW address, which would
+   * then be stamped verified with the old address's link). The conditions make
+   * the token single-use under concurrency too. False when nothing matched.
+   */
+  async confirmVerifyToken(orgId: string, tokenHash: string, emailHash: string, now: Date): Promise<boolean> {
+    const rows = await elevated((tx) => tx.update(T())
+      .set({ externalEmailVerifiedAt: now, externalVerifyTokenHash: null, externalVerifyExpiresAt: null, updatedAt: now })
+      .where(and(
+        eq(T().orgId, orgId),
+        eq(T().externalVerifyTokenHash, tokenHash),
+        eq(T().externalEmailHash, emailHash),
+        gt(T().externalVerifyExpiresAt, now),
+      ))
+      .returning({ orgId: T().orgId })) as Array<{ orgId: string }>;
+    return rows.length > 0;
   },
   async put(prefs: SecurityPrefs): Promise<void> {
     const { orgId, updatedAt: _ignored, ...values } = prefs;
@@ -446,9 +469,12 @@ export async function confirmExternalEmail(rawToken: unknown): Promise<{ confirm
   const token = typeof rawToken === 'string' ? rawToken.trim() : '';
   const invalid = () => new EcosystemError(ErrorCode.VALIDATION_ERROR, 'This confirmation link is invalid or has expired.');
   if (token.length < 16 || token.length > 128) throw invalid();
-  const prefs = await prefsStore.byVerifyToken(sha256(token));
-  if (!prefs || !prefs.externalVerifyExpiresAt || prefs.externalVerifyExpiresAt.getTime() <= Date.now() || !prefs.externalEmailEnc) throw invalid();
-  await prefsStore.put({ ...prefs, externalEmailVerifiedAt: new Date(), externalVerifyTokenHash: null, externalVerifyExpiresAt: null });
+  const tokenHash = sha256(token);
+  const prefs = await prefsStore.byVerifyToken(tokenHash);
+  if (!prefs || !prefs.externalVerifyExpiresAt || prefs.externalVerifyExpiresAt.getTime() <= Date.now() || !prefs.externalEmailEnc || !prefs.externalEmailHash) throw invalid();
+  // Conditional on the row STILL holding this token for the address it was
+  // issued to: a concurrent address change (or a second click) matches nothing.
+  if (!(await prefsStore.confirmVerifyToken(prefs.orgId, tokenHash, prefs.externalEmailHash, new Date()))) throw invalid();
   recordAudit({
     action: 'plugin.security_notifications.external_email.verify',
     actorId: ANONYMOUS_ACTOR_ID,

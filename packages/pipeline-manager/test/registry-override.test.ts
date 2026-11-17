@@ -5,6 +5,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { pipelineStackName } from '../src/config/cli.constants.js';
 import { bakePlatformRegistry, buildRegistryPayload, readStepManifest, registryOverrideFromBaseUrl } from '../src/utils/registry.js';
 
 describe('registryOverrideFromBaseUrl', () => {
@@ -74,7 +75,9 @@ describe('buildRegistryPayload stack name', () => {
       { id: 'pl-1', orgId: 'org-1', project: 'spring_boot', organization: 'system' },
       'us-east-1',
     );
-    expect(payload.stackName).toBe('spring-boot-system');
+    // `spring_boot` is lossy under `_` → `-`, so it carries the raw-pair hash.
+    expect(payload.stackName).toBe(pipelineStackName('spring_boot', 'system'));
+    expect(payload.stackName).toMatch(/^spring-boot-system-[0-9a-f]{8}$/);
     expect(payload.project).toBe('spring_boot');
     expect(payload.organization).toBe('system');
   });

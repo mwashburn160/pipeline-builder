@@ -388,6 +388,12 @@ async function userSessionRejection(decoded: AccessTokenPayload): Promise<Sessio
     }
     // `revoked` lands here too: the session was ended early.
     if (!session || session.status !== 'consumed') return { message: 'Impersonation session ended' };
+    // The record's window bounds the session too: the token's own `exp` is
+    // capped at it on issue, and this refuses one that outlives it anyway (a
+    // token minted before the cap existed, or clock skew between signer and
+    // verifier). A record with no window is malformed — fail closed.
+    const sessionEnds = session.expiresAt ? new Date(session.expiresAt).getTime() : Number.NaN;
+    if (!Number.isFinite(sessionEnds) || sessionEnds <= Date.now()) return { message: 'Impersonation session ended' };
     // Defense in depth against a jti/sub mismatch — the token must name the
     // user the request was opened against.
     if (String(session.targetUserId) !== String(decoded.sub)) return SESSION_INVALID;

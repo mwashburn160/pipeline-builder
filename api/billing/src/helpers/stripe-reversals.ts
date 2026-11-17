@@ -55,28 +55,46 @@ async function chargeInvoiceId(charge: Stripe.Charge, stripe: Stripe | null): Pr
 
 /**
  * Shared reversal tail: claw back promotion credits granted inside the clawback
- * window (the subscribe-grab-refund defense) and record a `subscription_updated`
+ * window (the subscribe-grab-refund defense; charge reversals only when FULL —
+ * see {@link isFullReversal}) and record a `subscription_updated`
  * row tagging the reversal reason. `clawbackRecentPromotions` reverses via atomic
- * `$pull`/`$inc` (no `subscription.save()` — a save here would re-add the pulled
- * rows), so this NEVER saves the subscription. Fail-soft: a clawback error must not
+ * updates (no `subscription.save()` — a save here would overwrite the
+ * tombstoned rows with the stale in-memory ones), so this NEVER saves the subscription. Fail-soft: a clawback error must not
  * fail the webhook (the ledger reversal already recorded the money movement).
  */
 async function clawbackAndRecordReversal(
   subscription: SubscriptionDocument,
   reason: string,
   details: Record<string, unknown>,
+  /** False for a PARTIAL charge reversal: record it, but claw back nothing. */
+  clawback = true,
 ): Promise<void> {
   let clawedPromotions = 0;
-  try {
-    clawedPromotions = await clawbackRecentPromotions(subscription);
-  } catch (err) {
-    logger.warn('Promotion clawback failed during reversal', {
-      orgId: subscription.orgId, reason, error: errorMessage(err),
-    });
+  if (clawback) {
+    try {
+      clawedPromotions = await clawbackRecentPromotions(subscription);
+    } catch (err) {
+      logger.warn('Promotion clawback failed during reversal', {
+        orgId: subscription.orgId, reason, error: errorMessage(err),
+      });
+    }
   }
   await createBillingEvent(subscription.orgId, 'subscription_updated', {
-    provider: 'stripe', reason, clawedPromotions, ...details,
+    provider: 'stripe', reason, clawedPromotions, ...(clawback ? {} : { clawbackSkipped: 'partial_reversal' }), ...details,
   }, subscription._id.toString());
+}
+
+/**
+ * Is a charge reversal of `reversedCents` a FULL one? Only a full refund/dispute
+ * triggers the promotion clawback: promotion grants carry no link to the invoice
+ * whose charge is reversed, so the clawback takes back EVERY recent grant — fair
+ * for a subscribe-grab-refund (the whole payment comes back), but a partial
+ * goodwill/proration refund used to strip a paying customer's signup credit too.
+ * A partial refund topped up later arrives with the cumulative `amount_refunded`,
+ * so the clawback still fires once the charge is fully reversed.
+ */
+function isFullReversal(chargeCents: number, reversedCents: number): boolean {
+  return chargeCents > 0 && reversedCents >= chargeCents;
 }
 
 /**
@@ -94,6 +112,8 @@ async function applyChargeReversal(
   netAmountPaidCents: number,
   details: Record<string, unknown>,
   stripe: Stripe | null,
+  /** Whether the reversal is full — gates the promotion clawback. */
+  fullReversal: boolean,
 ): Promise<void> {
   const invoiceId = await chargeInvoiceId(charge, stripe);
   const customerId = idOf(charge.customer);
@@ -122,8 +142,8 @@ async function applyChargeReversal(
     }
     return;
   }
-  await clawbackAndRecordReversal(subscription, reason, { ...details, invoiceId });
-  logger.info('Stripe charge reversal processed', { orgId: subscription.orgId, reason, chargeId: charge.id, invoiceId });
+  await clawbackAndRecordReversal(subscription, reason, { ...details, invoiceId }, fullReversal);
+  logger.info('Stripe charge reversal processed', { orgId: subscription.orgId, reason, chargeId: charge.id, invoiceId, fullReversal });
 }
 
 /**
@@ -133,10 +153,11 @@ async function applyChargeReversal(
  */
 export async function handleChargeRefunded(charge: Stripe.Charge): Promise<void> {
   const netPaidCents = Math.max(0, (charge.amount ?? 0) - (charge.amount_refunded ?? 0));
+  const fullyRefunded = charge.refunded === true || isFullReversal(charge.amount ?? 0, charge.amount_refunded ?? 0);
   await applyChargeReversal(charge, 'refunded', 'invoice_refunded', netPaidCents, {
     refundedCents: charge.amount_refunded ?? 0,
-    fullyRefunded: charge.refunded === true,
-  }, activeStripeClient());
+    fullyRefunded,
+  }, activeStripeClient(), fullyRefunded);
 }
 
 /**
@@ -177,7 +198,7 @@ export async function handleChargeDisputeCreated(dispute: Stripe.Dispute): Promi
   await applyChargeReversal(charge, 'disputed', 'invoice_disputed', netPaidCents, {
     disputedCents: dispute.amount ?? 0,
     disputeStatus: dispute.status,
-  }, stripe);
+  }, stripe, isFullReversal(charge.amount ?? 0, dispute.amount ?? 0));
 }
 
 /**

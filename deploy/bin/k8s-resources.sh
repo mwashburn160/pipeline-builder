@@ -57,7 +57,53 @@ pb_kube_apply_ss() { $PB_KUBECTL "$@" --dry-run=client -o yaml | $PB_KUBECTL app
 # command's: without it these ALWAYS returned 0 (the echo), so a caller that
 # tests them — or that calls them from inside an `&&` list, where errexit is
 # suppressed — was told a failed `kubectl apply` had succeeded.
-pb_secret()    { local _n="$1"; shift; pb_kube_apply create secret generic "$_n" "$@" -n "$PB_NAMESPACE" || return 1; echo "  secret $_n"; }
+#
+# pb_secret takes kubectl's `--from-literal=K=V` / `--from-file=K=PATH` /
+# `--from-env-file=PATH` flags, but a call carrying any --from-literal is NOT
+# handed to `kubectl create`: every argument of that process — every password
+# in it — would be readable by any local user in `ps`//proc/<pid>/cmdline for
+# as long as kubectl runs. Such a call renders the Secret manifest in the
+# shell instead (values base64'd through a pipe, never argv) and streams it to
+# `kubectl apply -f -` on stdin, which is what the create→apply render did.
+pb_secret()    {
+  local _n="$1" _a _doc; shift
+  for _a in "$@"; do
+    case "$_a" in
+      --from-literal=*)
+        _doc="$(_pb_secret_manifest "$_n" "$@")" || return 1
+        printf '%s\n' "$_doc" | $PB_KUBECTL apply -f - || return 1
+        echo "  secret $_n"
+        return 0 ;;
+    esac
+  done
+  pb_kube_apply create secret generic "$_n" "$@" -n "$PB_NAMESPACE" || return 1; echo "  secret $_n"
+}
+
+# _pb_secret_manifest <name> [--from-literal=K=V | --from-file=K=PATH]...
+# Prints an Opaque Secret manifest (same shape `kubectl create secret generic
+# --dry-run=client -o yaml` emits) for PB_NAMESPACE. Values only ever travel
+# through printf (a builtin) and a pipe into base64. Any other flag is refused
+# rather than silently dropped.
+_pb_secret_manifest() {
+  local _n="$1" _a _k _v _b64; shift
+  printf 'apiVersion: v1\nkind: Secret\ntype: Opaque\nmetadata:\n  name: "%s"\n  namespace: "%s"\ndata:\n' "$_n" "$PB_NAMESPACE"
+  for _a in "$@"; do
+    case "$_a" in
+      --from-literal=*=*)
+        _a="${_a#--from-literal=}"; _k="${_a%%=*}"; _v="${_a#*=}"
+        _b64="$(printf '%s' "$_v" | base64 | tr -d '\n')" || return 1 ;;
+      --from-file=*=*)
+        _a="${_a#--from-file=}"; _k="${_a%%=*}"; _v="${_a#*=}"
+        [ -f "$_v" ] || { echo "ERROR: secret $_n: no such file $_v" >&2; return 1; }
+        _b64="$(base64 < "$_v" | tr -d '\n')" || return 1 ;;
+      *) echo "ERROR: secret $_n: unsupported argument with --from-literal: ${_a%%=*}" >&2; return 1 ;;
+    esac
+    case "$_k" in
+      ''|*[!A-Za-z0-9._-]*) echo "ERROR: secret $_n: invalid key '$_k'" >&2; return 1 ;;
+    esac
+    printf '  "%s": "%s"\n' "$_k" "$_b64"
+  done
+}
 pb_configmap() { local _n="$1"; shift; pb_kube_apply_ss create configmap "$_n" "$@" -n "$PB_NAMESPACE" || return 1; echo "  configmap $_n"; }
 
 # pb_split_app_env <clean_env> <config_out> <secret_out>

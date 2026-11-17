@@ -65,6 +65,7 @@ export {
   type PluginStepRef,
   collectPluginSteps,
   pluginLookupFilter,
+  pluginTargetIdentity,
   pluginArtifactAlias,
   pluginStepLabel,
   type PluginRefIdentity,

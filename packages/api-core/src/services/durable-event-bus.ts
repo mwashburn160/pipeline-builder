@@ -11,8 +11,10 @@
  * is momentarily down (the reconcilers exist to paper over exactly that).
  *
  * This is that missing bus, as a reusable primitive:
- *  - **publish(topic, payload)** → `XADD` onto a bounded (`MAXLEN ~`) per-topic
- *    stream. Durable across restarts, shared by all replicas.
+ *  - **publish(topic, payload)** → `XADD` onto a bounded (`MAXLEN ~`, default
+ *    100k) per-topic stream. Durable across restarts, shared by all replicas.
+ *    Trimming drops the oldest entries even if a group has not read them, so
+ *    consumers warn when their backlog nears the cap.
  *  - **subscribe({topic, group, consumer, handler})** → a `XREADGROUP` consumer
  *    on its OWN connection (`duplicate()`), so a blocking read never delays a
  *    publish. Consumer GROUPS give at-least-once: each group gets every message
@@ -112,13 +114,25 @@ export interface RedisStreamClient {
   xautoclaim(...args: (string | number)[]): Promise<unknown>;
   xpending(key: string, group: string, ...args: (string | number)[]): Promise<unknown>;
   xrange(key: string, start: string, end: string, ...args: (string | number)[]): Promise<unknown>;
+  /** `XINFO GROUPS <key>` — optional; used only for the trim-lag warning. */
+  xinfo?(...args: (string | number)[]): Promise<unknown>;
   /** A new connection with the same options — each subscriber reads on its own. */
   duplicate(): RedisStreamClient;
   quit?(): Promise<unknown>;
   on?(event: 'error', cb: (err: unknown) => void): unknown;
 }
 
-const DEFAULT_MAXLEN = 10_000;
+/**
+ * Approximate per-topic stream cap. `MAXLEN ~` trims the OLDEST entries
+ * whether or not every group has read them, so the cap must comfortably exceed
+ * the backlog a slow or down consumer can accumulate; 10k was easily overrun
+ * by a consumer outage. Override per bus with `maxLen`.
+ */
+const DEFAULT_MAXLEN = 100_000;
+/** Warn when a group's unread backlog reaches this share of the cap. */
+const TRIM_LAG_WARN_RATIO = 0.8;
+/** How often (ms) a consumer checks its group's lag against the cap. */
+const LAG_CHECK_INTERVAL_MS = 60_000;
 const DEFAULT_BATCH = 16;
 const DEFAULT_BLOCK_MS = 5_000;
 const DEFAULT_MIN_IDLE_MS = 60_000;
@@ -256,7 +270,18 @@ export function createRedisDurableEventBus(
           const deliveries = Number(p[3]);
           if (!(deliveries >= maxDeliveries)) continue;
           const entries = await reader.xrange(key, id, id);
-          const fields = Array.isArray(entries) && Array.isArray(entries[0]) && Array.isArray(entries[0][1]) ? entries[0][1] : [];
+          if (!Array.isArray(entries) || entries.length === 0) {
+            // The entry was trimmed (MAXLEN) while still pending: there is no
+            // payload left to preserve, so dead-lettering it would only write
+            // an empty record. Ack it out of the PEL and say it was trimmed.
+            await reader.xack(key, group, id);
+            emitCounter('event_bus_trimmed_pending_total', { topic, group });
+            logger.error('Pending event was trimmed from the stream before it was handled (MAXLEN); acked as lost', {
+              topic, group, id, deliveries, maxLen,
+            });
+            continue;
+          }
+          const fields = Array.isArray(entries[0]) && Array.isArray(entries[0][1]) ? entries[0][1] : [];
           let raw = '';
           for (let i = 0; i + 1 < fields.length; i += 2) {
             if (String(fields[i]) === 'd') { raw = String(fields[i + 1]); break; }
@@ -280,8 +305,13 @@ export function createRedisDurableEventBus(
       let groupReady = false;
       const ensureGroup = async (): Promise<void> => {
         try {
-          // MKSTREAM so the stream need not exist yet; '$' = only new messages.
-          await reader.xgroup('CREATE', key, group, '$', 'MKSTREAM');
+          // MKSTREAM so the stream need not exist yet. '0', not '$': a group
+          // created at '$' silently skipped every event published before it
+          // existed (a consumer deployed after its publisher, or a group
+          // recreated after NOGROUP). '0' delivers the retained backlog
+          // (at-least-once; handlers are idempotent by contract). An existing
+          // group is untouched (BUSYGROUP).
+          await reader.xgroup('CREATE', key, group, '0', 'MKSTREAM');
           groupReady = true;
         } catch (err) {
           if (!isBusyGroup(err)) throw err;
@@ -289,10 +319,42 @@ export function createRedisDurableEventBus(
         }
       };
 
+      /**
+       * Warn when this group's unread backlog approaches the stream cap: past it,
+       * `XADD MAXLEN ~` trims entries the group has not read yet. Cheap (one
+       * `XINFO GROUPS` per {@link LAG_CHECK_INTERVAL_MS}); `lag` needs Redis 7+
+       * and is skipped when absent. Never throws.
+       */
+      let lastLagCheck = 0;
+      const checkLag = async (): Promise<void> => {
+        if (typeof reader.xinfo !== 'function' || Date.now() - lastLagCheck < LAG_CHECK_INTERVAL_MS) return;
+        lastLagCheck = Date.now();
+        try {
+          const groups = await reader.xinfo('GROUPS', key);
+          if (!Array.isArray(groups)) return;
+          for (const g of groups) {
+            if (!Array.isArray(g)) continue;
+            const info: Record<string, unknown> = {};
+            for (let i = 0; i + 1 < g.length; i += 2) info[String(g[i])] = g[i + 1];
+            if (String(info.name) !== group) continue;
+            const lag = Number(info.lag);
+            if (info.lag !== null && info.lag !== undefined && Number.isFinite(lag) && lag >= maxLen * TRIM_LAG_WARN_RATIO) {
+              emitCounter('event_bus_lag_near_cap_total', { topic, group });
+              logger.warn('Event bus consumer backlog is near the stream cap; MAXLEN trimming may drop undelivered events', {
+                topic, group, lag, maxLen,
+              });
+            }
+          }
+        } catch (err) {
+          logger.debug('Event bus lag check failed', { topic, group, error: errorMessage(err) });
+        }
+      };
+
       const loop = async (): Promise<void> => {
         while (!stopped) {
           try {
             if (!groupReady) await ensureGroup();
+            await checkLag();
             // 1) Dead-letter messages that have exhausted their deliveries, then
             //    reclaim the rest stranded by a failed/crashed consumer.
             await deadLetterExhausted();

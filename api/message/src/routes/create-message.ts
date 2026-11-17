@@ -36,6 +36,7 @@ import { notifyNewMessage, validateRecipient } from '../helpers/new-message.js';
 import type { NewMessageNotification } from '../helpers/new-message.js';
 import { enrichOneWithOrgNames } from '../helpers/org-names.js';
 import { isRecipientReachable, isTargetUserReachable } from '../helpers/org-reachability.js';
+import { authorizeCaseParticipant } from '../helpers/support-case-authz.js';
 import { attachmentService } from '../services/attachment-service.js';
 import { messageService } from '../services/message-service.js';
 import { resolveCasePage } from '../services/oncall-sweep.js';
@@ -747,15 +748,10 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       // This door is for the tenant side; support staff are admitted as staff.
       if (!isSupportStaff) {
         const supportCase = await findCaseByThread(id);
-        const isAuthor = rootMessage.createdBy === userId;
-        const isOwner = supportCase?.tenantContact === userId;
-        if (!isAuthor && !isOwner) {
-          return sendError(
-            res,
-            403,
-            'Only the person who raised this case, or the contact it is assigned to, can reply to it',
-            ErrorCode.INSUFFICIENT_PERMISSIONS,
-          );
+        const participants = { createdBy: rootMessage.createdBy, tenantContact: supportCase?.tenantContact };
+        if (!authorizeCaseParticipant(res, participants, userId,
+          'Only the person who raised this case, or the contact it is assigned to, can reply to it')) {
+          return undefined;
         }
       }
     }

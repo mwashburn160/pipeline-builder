@@ -11,7 +11,7 @@ import { billingPeriodKey } from './billing-period.js';
 import { grantPeriodicCredits } from './discount-helpers.js';
 import { planMeteredDrawdown } from './marketplace-credit.js';
 import { grantRecurringPromotions } from './promotion-engine.js';
-import { Subscription } from '../models/subscription.js';
+import { Subscription, type SubscriptionDocument } from '../models/subscription.js';
 import { AWSMarketplaceProvider, type MeterUsageResult } from '../providers/aws-marketplace-provider.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
 
@@ -27,6 +27,38 @@ export type MeteringOutcome =
   | { status: 'skipped'; reason: 'not-marketplace' | 'no-subscription' | 'no-license' | 'no-addons' | 'provider-mismatch' }
   | { status: 'metered'; result: MeterUsageResult }
   | { status: 'error'; error: string };
+
+/**
+ * Put reserved-but-unused credit back on the balance. `releaseHour` also frees
+ * the per-hour drawdown claim (a failed report: AWS discounted nothing this hour,
+ * so the next attempt may reserve again). Never throws — a failed restore is
+ * logged loudly and metered, since the customer is then short that credit until
+ * an operator re-grants it. Returns whether the restore landed.
+ */
+async function restoreReservedCredit(
+  subscriptionId: SubscriptionDocument['_id'],
+  orgId: string,
+  cents: number,
+  hourKey: string,
+  releaseHour: boolean,
+): Promise<boolean> {
+  try {
+    await Subscription.findOneAndUpdate(
+      releaseHour ? { '_id': subscriptionId, 'metadata.lastDrawdownHour': hourKey } : { _id: subscriptionId },
+      {
+        $inc: { creditBalanceCents: cents },
+        ...(releaseHour ? { $unset: { 'metadata.lastDrawdownHour': '' } } : {}),
+      },
+    );
+    return true;
+  } catch (err) {
+    logger.error('FAILED to restore reserved Marketplace credit — customer balance is short; operator re-grant needed', {
+      orgId, cents, hourKey, error: String(err),
+    });
+    incCounter('billing_marketplace_credit_restore_failed_total', {});
+    return false;
+  }
+}
 
 /**
  * Report an account's current add-on quantities to AWS Marketplace as metered
@@ -117,40 +149,59 @@ export async function reportMarketplaceAddonUsage(orgId: string, now: Date = new
     logger.info('Marketplace drawdown DRY-RUN — reporting full usage', { orgId, wouldConsumeCents: plan.consumedCents, wouldRemainCents: plan.remainingCents });
   }
 
-  // Report withheld (reduced) quantities live; report full quantities in dry-run.
-  const reportAddons = (plan && !drawdownDryRun) ? plan.adjustedAddons : (subscription.addons ?? []);
+  // 3. RESERVE the credit BEFORE reporting reduced quantities to AWS. Reporting
+  //    first and decrementing after meant a decrement that matched nothing (the
+  //    hour already drawn by another pod/cycle, or the balance moved) left the
+  //    usage discounted at AWS AND the credit still on the balance — spendable
+  //    again next hour. The reservation is the same atomic, once-per-dedupe-hour,
+  //    balance-guarded decrement; only a WON reservation earns a reduced report.
+  const hourKey = hourKeyFor(now);
+  let reserved: SubscriptionDocument | null = null;
+  if (plan && !drawdownDryRun && plan.consumedCents > 0) {
+    reserved = await Subscription.findOneAndUpdate(
+      { '_id': subscription._id, 'metadata.lastDrawdownHour': { $ne: hourKey }, 'creditBalanceCents': { $gte: plan.consumedCents } },
+      {
+        $set: { 'metadata.lastDrawdownHour': hourKey },
+        $inc: { creditBalanceCents: -plan.consumedCents },
+      },
+      { new: true },
+    );
+    if (!reserved) {
+      logger.info('Marketplace credit reservation lost (hour already drawn or balance moved) — reporting full usage', { orgId, hourKey });
+    }
+  }
 
-  // 3. Report to AWS.
+  // Withheld (reduced) quantities ONLY against a won reservation; full quantities
+  // otherwise (dry-run, no credit, or a lost reservation).
+  const reportAddons = (plan && reserved) ? plan.adjustedAddons : (subscription.addons ?? []);
+
+  // 4. Report to AWS. On failure, give the reserved credit back (and free the hour
+  //    so the retry can reserve again) — AWS applied no discount.
   let result: MeterUsageResult;
   try {
     result = await provider.meterAddonUsage(licenseArn, reportAddons, now);
   } catch (err) {
+    if (plan && reserved) await restoreReservedCredit(subscription._id, orgId, plan.consumedCents, hourKey, true);
     logger.warn('AWS Marketplace metering failed (will be retried next cycle)', { orgId, error: String(err) });
     return { status: 'error', error: String(err) };
   }
 
-  // 4. Consume the credit — but ONLY for dimensions AWS actually accepted. A
-  //    partial BatchMeterUsage means the reduced quantity was applied for the
-  //    accepted records (customer under-billed → credit truly spent) but NOT for
-  //    the unprocessed ones (retried next cycle). Drawing down the full plan on a
-  //    partial batch would double-discount the unprocessed dimensions; drawing
-  //    down nothing unless every record was accepted double-discounts the
-  //    ACCEPTED ones. So attribute consumption to the accepted lines only.
-  //    At most once per AWS dedupe-hour, atomic on the balance.
-  const unprocessedDims = new Set(result.unprocessedDimensions ?? []);
-  const acceptedLines = plan ? plan.perLine.filter((l) => !unprocessedDims.has(l.dimension)) : [];
-  const acceptedConsumedCents = acceptedLines.reduce((s, l) => s + l.creditConsumedCents, 0);
-  if (plan && !drawdownDryRun && acceptedConsumedCents > 0) {
-    const hourKey = hourKeyFor(now);
-    const drawn = await Subscription.findOneAndUpdate(
-      { '_id': subscription._id, 'metadata.lastDrawdownHour': { $ne: hourKey }, 'creditBalanceCents': { $gte: acceptedConsumedCents } },
-      {
-        $set: { 'metadata.lastDrawdownHour': hourKey },
-        $inc: { creditBalanceCents: -acceptedConsumedCents },
-      },
-      { new: true },
-    );
-    if (drawn) {
+  // 5. Settle the reservation against what AWS actually ACCEPTED. A partial
+  //    BatchMeterUsage applied the reduced quantity for the accepted records
+  //    (customer under-billed → credit truly spent) but NOT for the unprocessed
+  //    ones, so their share of the reservation goes back on the balance. The hour
+  //    stays claimed: the accepted dimensions are deduped by AWS for this hour, and
+  //    a same-hour retry reports full usage for the rest (no double discount).
+  if (plan && reserved) {
+    const unprocessedDims = new Set(result.unprocessedDimensions ?? []);
+    const acceptedLines = plan.perLine.filter((l) => !unprocessedDims.has(l.dimension));
+    const acceptedConsumedCents = acceptedLines.reduce((sum, l) => sum + l.creditConsumedCents, 0);
+    const unusedCents = plan.consumedCents - acceptedConsumedCents;
+    let remainingBalance = reserved.creditBalanceCents ?? 0;
+    if (unusedCents > 0) {
+      if (await restoreReservedCredit(subscription._id, orgId, unusedCents, hourKey, false)) remainingBalance += unusedCents;
+    }
+    if (acceptedConsumedCents > 0) {
       // The subscription's own period, the same one the credit grant above keys on.
       await recordMarketplaceConsumption(
         orgId, billingPeriodKey(subscription.currentPeriodStart),
@@ -167,7 +218,7 @@ export async function reportMarketplaceAddonUsage(orgId: string, now: Date = new
         details: { consumedCents: acceptedConsumedCents, dimensions: acceptedLines.length, subscriptionId: subId },
       });
       incCounter('billing_marketplace_credit_consumed_total', {});
-      if ((drawn.creditBalanceCents ?? 0) === 0) {
+      if (remainingBalance === 0) {
         await createBillingEvent(orgId, 'credit_exhausted', { previousCents: balance }, subId);
         recordAudit({
           action: 'billing.credit.exhausted',

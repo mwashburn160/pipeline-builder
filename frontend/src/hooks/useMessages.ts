@@ -80,6 +80,7 @@ interface UseMessagesReturn {
   fetchMessages: () => Promise<void>;
   /** Re-read the unread count from the server; resolves to it (null when the read failed). */
   fetchUnreadCount: () => Promise<number | null>;
+  /** Rejects with the server's error (also mirrored into `error`). */
   sendMessage: (data: SendMessageInput) => Promise<Message | null>;
   replyToMessage: (threadId: string, content: string, attachmentIds?: string[]) => Promise<Message | null>;
   markAsRead: (id: string) => Promise<void>;
@@ -229,7 +230,7 @@ export function useMessages(orgId?: string | null, search = '', view: MessageVie
     }
   }, []);
 
-  const { execute: sendMessageRaw, error: sendError } = useAsyncCallback(async (data: SendMessageInput): Promise<Message | null> => {
+  const sendMessageRequest = useCallback(async (data: SendMessageInput): Promise<Message | null> => {
     // A support send goes to its OWN route, whose recipient the server forces:
     // it is gated on `messages:read`, so a member without `messages:write`
     // reaches support instead of a 403 from POST /messages. The recipient the
@@ -245,13 +246,22 @@ export function useMessages(orgId?: string | null, search = '', view: MessageVie
     await fetchMessages();
     await fetchUnreadCount();
     return result.data || null;
-  });
+  }, [fetchMessages, fetchUnreadCount]);
 
+  /**
+   * Send, surfacing every failure with the server's own reason. The error is
+   * taken from THIS call's rejection — not from render-time state, which still
+   * held the previous attempt's value — mirrored into `error`, and rethrown so
+   * the composer can show it next to the form the user is about to retry.
+   */
   const sendMessage = useCallback(async (data: SendMessageInput): Promise<Message | null> => {
-    const result = await sendMessageRaw(data);
-    if (!result && !sendError) setError('Failed to send message');
-    return result;
-  }, [sendMessageRaw, sendError]);
+    try {
+      return await sendMessageRequest(data);
+    } catch (err) {
+      setError(formatError(err, 'Failed to send message'));
+      throw err;
+    }
+  }, [sendMessageRequest]);
 
   const { execute: replyRaw } = useAsyncCallback(async (threadId: string, content: string, attachmentIds?: string[]): Promise<Message | null> => {
     const result = await api.replyToMessage(threadId, content, attachmentIds);
@@ -273,12 +283,17 @@ export function useMessages(orgId?: string | null, search = '', view: MessageVie
       const stamp = new Date().toISOString();
       const orgKey = orgId?.toLowerCase();
       if (orgKey) {
-        let wasUnread = false;
-        setMessages(prev => prev.map(m => {
-          if (m.id !== id) return m;
-          if (!m.readBy?.[orgKey]) wasUnread = true;
-          return { ...m, readBy: { ...m.readBy, [orgKey]: stamp } };
-        }));
+        // Decide from the CURRENT list, before scheduling the update: a
+        // `setMessages` updater runs later (during render), so a flag set
+        // inside it would still be false when read on the next line.
+        const stampRead = (list: Message[]) => list.map(m => (
+          m.id === id ? { ...m, readBy: { ...m.readBy, [orgKey]: stamp } } : m
+        ));
+        const wasUnread = messagesRef.current.some(m => m.id === id && !m.readBy?.[orgKey]);
+        // Stamp the ref now too, so a second markAsRead before the re-render
+        // doesn't see it unread again and double-decrement.
+        messagesRef.current = stampRead(messagesRef.current);
+        setMessages(stampRead);
         // Only decrement when this viewer hadn't already read it — decrementing
         // on an already-read message drifts the badge below the true count.
         if (wasUnread) setUnreadCount(prev => Math.max(0, prev - 1));

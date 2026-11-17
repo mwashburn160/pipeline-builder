@@ -260,6 +260,21 @@ echo "=== Registering admin user ==="
 PLATFORM_IDENTIFIER="${PLATFORM_IDENTIFIER:-admin@internal}"
 # PB_DEV_PASSWORD comes from common.sh — ONE definition, so the default set here
 # and the refusal below can never drift apart (two string literals could).
+# PLATFORM_PASSWORD_FILE: read the password from a file instead (first line,
+# no trailing newline needed). The scripted auto-init paths use it so the secret
+# never appears in a process argv (`env PLATFORM_PASSWORD=… init-platform.sh` is
+# readable by every user via ps). An explicit PLATFORM_PASSWORD still wins.
+if [ -z "${PLATFORM_PASSWORD:-}" ] && [ -n "${PLATFORM_PASSWORD_FILE:-}" ]; then
+  if [ ! -r "$PLATFORM_PASSWORD_FILE" ]; then
+    echo "  ERROR: PLATFORM_PASSWORD_FILE '$PLATFORM_PASSWORD_FILE' is not readable." >&2
+    exit 1
+  fi
+  IFS= read -r PLATFORM_PASSWORD < "$PLATFORM_PASSWORD_FILE" || [ -n "${PLATFORM_PASSWORD:-}" ]
+  if [ -z "${PLATFORM_PASSWORD:-}" ]; then
+    echo "  ERROR: PLATFORM_PASSWORD_FILE '$PLATFORM_PASSWORD_FILE' is empty." >&2
+    exit 1
+  fi
+fi
 PLATFORM_PASSWORD="${PLATFORM_PASSWORD:-$PB_DEV_PASSWORD}"
 # A non-docker target reaching this with the well-known dev password would ship an
 # internet-facing platform with a public credential — refuse (matches
@@ -288,11 +303,14 @@ if [ -n "${BOOTSTRAP_SUPERADMIN_EMAILS:-}" ]; then
        echo "           Add PLATFORM_IDENTIFIER to BOOTSTRAP_SUPERADMIN_EMAILS and restart the platform before re-running init." >&2 ;;
   esac
 fi
-REG_STATUS=$(curl -X POST "${PLATFORM_BASE_URL}/api/auth/register" \
-  -k -s -o /dev/null -w "%{http_code}" \
-  -H 'Content-Type: application/json' \
-  -d "$(jq -n --arg email "$PLATFORM_IDENTIFIER" --arg pw "$PLATFORM_PASSWORD" \
-    '{username: "admin", email: $email, password: $pw, organizationName: "system"}')")
+# The password reaches jq through its ENVIRONMENT and curl through stdin
+# (--data-binary @-), never as an argument — argv is visible to every user in ps.
+REG_STATUS=$(PB_PW="$PLATFORM_PASSWORD" jq -n --arg email "$PLATFORM_IDENTIFIER" \
+    '{username: "admin", email: $email, password: env.PB_PW, organizationName: "system"}' \
+  | curl -X POST "${PLATFORM_BASE_URL}/api/auth/register" \
+    -k -s -o /dev/null -w "%{http_code}" \
+    -H 'Content-Type: application/json' \
+    --data-binary @-)
 
 case "$(classify_status "$REG_STATUS")" in
   ok)     echo "  Admin user created." ;;

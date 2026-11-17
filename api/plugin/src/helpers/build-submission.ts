@@ -66,12 +66,38 @@ export async function compliancePreflight(orgId: string, authHeader: string, inp
   }
 }
 
+/** Attempts (and the pause before each retry) for the stream-owner bind. */
+const OWNER_BIND_RETRY_DELAYS_MS = [100, 400];
+
+/**
+ * Bind the build-log stream's owner, retrying a transient failure. Throws
+ * after the last attempt: the ticket broker refuses to mint for a subject with
+ * no bound owner, so a submission whose bind failed would hand back a
+ * requestId whose logs nobody could ever open — fail it (the route answers
+ * 503 and refunds the slot) instead of queuing a build that streams to no one.
+ */
+async function bindStreamOwnerWithRetry(sseManager: SSEManager, requestId: string, orgId: string, logWarn: LogFn): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await sseManager.bindStreamOwner(requestId, orgId);
+      return;
+    } catch (err) {
+      const delay = OWNER_BIND_RETRY_DELAYS_MS[attempt];
+      if (delay === undefined) throw new Error(`Stream-owner bind failed: ${errorMessage(err)}`);
+      logWarn('Stream-owner bind failed; retrying', { attempt: attempt + 1, error: errorMessage(err) });
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+}
+
 /**
  * Queue a build on the org's per-tier queue. Binds the build-log stream's
  * owner FIRST: a client can mint a stream ticket as soon as it has the
  * requestId, so the owner must be recorded before the id is returned, or a
  * tenant could mint a ticket for another tenant's guessed stream. The bind is
- * best-effort (the worker re-binds as a backstop); a queue failure throws.
+ * retried and then REQUIRED (tickets are refused for an unbound subject); the
+ * worker re-binds on every attempt to keep the binding alive. A bind or queue
+ * failure throws.
  */
 export async function queuePluginBuild(input: {
   quotaService: QuotaService;
@@ -86,8 +112,7 @@ export async function queuePluginBuild(input: {
   logWarn: LogFn;
 }): Promise<void> {
   const { quotaService, sseManager, orgId, authHeader, jobData } = input;
-  await sseManager.bindStreamOwner(jobData.requestId, orgId).catch((bindErr) =>
-    input.logWarn('Stream-owner bind failed (non-fatal)', { error: errorMessage(bindErr) }));
+  await bindStreamOwnerWithRetry(sseManager, jobData.requestId, orgId, input.logWarn);
   const tier = input.tier ?? await getOrgTier(quotaService, orgId, authHeader);
   await enqueueBuild(tier, input.jobName, jobData);
 }

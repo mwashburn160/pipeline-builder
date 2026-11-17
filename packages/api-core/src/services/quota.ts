@@ -268,6 +268,14 @@ export interface QuotaReserveResult {
    */
   unavailable?: boolean;
   /**
+   * Set (true) when the quota service did NOT confirm the slot but
+   * `QUOTA_RESERVE_FAIL_OPEN=true` let the request through anyway
+   * (`exceeded: false`). Nothing was reserved, so there is nothing to give
+   * back: a refund of this result must be skipped — decrementing it would
+   * subtract a unit the org never spent (free capacity on every outage).
+   */
+  failOpen?: boolean;
+  /**
    * Set when an `aiCalls` reservation was refused by one of the org's OPTIONAL
    * AI controls rather than the period cap: {@link ErrorCode.AI_MEMBER_SHARE_EXCEEDED}
    * (the caller's per-member share is spent) or
@@ -384,7 +392,7 @@ function unconfirmedReserve(
   if (QUOTA_RESERVE_FAIL_OPEN) {
     logger.warn('QUOTA_FAIL_OPEN: quota reserve not confirmed, allowing request', { orgId, quotaType, reason, statusCode });
     emitCounter('quota_fail_open_total', { operation: 'reserve', reason, quotaType });
-    return { exceeded: false, quota: { type: quotaType, limit: -1, used: 0, remaining: -1 } };
+    return { exceeded: false, failOpen: true, quota: { type: quotaType, limit: -1, used: 0, remaining: -1 } };
   }
   logger.warn('QUOTA_FAIL_CLOSED: quota reserve not confirmed, denying request', { orgId, quotaType, reason, statusCode });
   emitCounter('quota_fail_closed_total', { operation: 'reserve', reason, quotaType });

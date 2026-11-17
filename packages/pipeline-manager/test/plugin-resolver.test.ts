@@ -290,6 +290,36 @@ describe('resolvePluginsForProps — alias collisions', () => {
       { name: 'java-corretto', alias: 'build' },
     ))).resolves.toBeDefined();
   });
+
+  it('refuses one plugin pinned to two versions under the same (default) alias', async () => {
+    // Both unaliased: both key as `nodejs-build-alias`, so the second step
+    // would silently run the first one's version.
+    const client = clientReturning({ data: { plugin: PLUGIN } });
+    await expect(resolvePluginsForProps(client, twoSteps(
+      { name: 'nodejs-build', filter: { version: '18.2.0' } },
+      { name: 'nodejs-build', filter: { version: '20.1.0' } },
+    ))).rejects.toThrow(/alias "nodejs-build-alias" is used for two different plugins.*own alias/);
+  });
+
+  it('accepts two pinned versions once each has its own alias', async () => {
+    const sent: Array<Record<string, unknown>> = [];
+    const client = clientCapturing({ data: { plugin: PLUGIN } }, sent);
+    await resolvePluginsForProps(client, twoSteps(
+      { name: 'nodejs-build', alias: 'node18', filter: { version: '18.2.0' } },
+      { name: 'nodejs-build', alias: 'node20', filter: { version: '20.1.0' } },
+    ));
+    expect(sent.map((f) => f.version).sort()).toEqual(['18.2.0', '20.1.0']);
+  });
+
+  it('treats the same filter with keys in another order as the same target', async () => {
+    const sent: Array<Record<string, unknown>> = [];
+    const client = clientCapturing({ data: { plugin: PLUGIN } }, sent);
+    await resolvePluginsForProps(client, twoSteps(
+      { name: 'java-corretto', filter: { version: '1.0.0', isActive: true } },
+      { name: 'java-corretto', filter: { isActive: true, version: '1.0.0' } },
+    ));
+    expect(sent).toHaveLength(1);
+  });
 });
 
 describe('lookup answers carrying lifecycle warnings', () => {

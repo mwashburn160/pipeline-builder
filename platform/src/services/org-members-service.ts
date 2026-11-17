@@ -5,8 +5,10 @@ import { createLogger, errorMessage, parsePage } from '@pipeline-builder/api-cor
 import mongoose from 'mongoose';
 import { OM_ORG_NOT_FOUND, OM_USER_NOT_FOUND, OM_ALREADY_MEMBER, OM_NOT_A_MEMBER, OM_CANNOT_REMOVE_OWNER, OM_OWNER_MEMBERSHIP_NOT_FOUND, OM_NEW_OWNER_MUST_BE_MEMBER, OM_ALREADY_OWNER, OM_MEMBERSHIP_NOT_FOUND, OM_ALREADY_INACTIVE, OM_ALREADY_ACTIVE, OM_TARGETS_OUT_OF_SCOPE, OM_SEAT_LIMIT } from './org-members-errors.js';
 import type { RoleAssignmentActor } from './role-authority.js';
+import { assertActorMayStripMemberRoles } from './role-crud.js';
 import { assertActorMayAssignBuiltinAdmin, assignBuiltinAdminRole, ensureBaselineRole, recomputeUserOrgRole } from './roles-service.js';
 import { isAdminOrgRole, type OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
+import { assertDirectAddConsented } from '../helpers/account-membership.js';
 import { expandOrgScope } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { withSeatGuard } from '../helpers/seats.js';
@@ -317,6 +319,13 @@ class OrgMembersService {
       }).session(session);
       if (existing) throw new Error(OM_ALREADY_MEMBER);
 
+      // CONSENT: a direct add has nothing for the person to accept, so it is
+      // only allowed for someone already in this account, or at an address
+      // whose domain the account has verified (the SCIM / SSO authority rule).
+      // Anyone else is invited instead (OM_CONSENT_REQUIRED) — otherwise any
+      // admin could staple a membership onto any account on the platform.
+      await assertDirectAddConsented({ user, orgId, actor, session });
+
       // Seat-cap enforcement — pooled at the account root (same cap the invite
       // path enforces); a direct add must not bypass it. A user who already holds
       // a seat elsewhere in the account consumes no new seat.
@@ -445,6 +454,10 @@ class OrgMembersService {
         : await User.findOne({ email: body.email!.toLowerCase() }).session(session);
       if (!user) throw new Error(OM_USER_NOT_FOUND);
 
+      // CONSENT, as in addMember: every target lies in `contextOrgId`'s account,
+      // so one check against it covers them all — before any write.
+      await assertDirectAddConsented({ user, orgId: contextOrgId, actor, session });
+
       // Seats pool at the account ROOT and count DISTINCT humans, so adding
       // this one user to N teams consumes at most ONE seat — one guard around
       // all the inserts.
@@ -491,19 +504,25 @@ class OrgMembersService {
    * (transfer first). Also clears `User.lastActiveOrgId` if it pointed at
    * this org so the next login picks a different default.
    *
-   * Bumps the removed user's `tokenVersion` so any JWTs they still hold for
-   * the now-revoked org are rejected on the next request (the JWT carries
-   * the issuance-time tokenVersion; `requireAuth` compares it to the
-   * current value). Without this bump a kicked user keeps acting as the
-   * org until their access token expires (~15 min default).
+   * Removing someone deletes every Role they hold here, so `actor` must be
+   * allowed to take each one away — the same guards `removeUserFromRole`
+   * runs (superadmin-only Roles, the permission ceiling, never emptying a
+   * privileged Role); see `assertActorMayStripMemberRoles`.
+   *
+   * Ends access to THIS org only ({@link endOrgAccess}): a claims bump, so every
+   * outstanding access token is stale on the next request, while the person's
+   * sessions — which span every org they belong to — survive. One org's admin
+   * has no say over the person's other orgs.
    */
-  async removeMember(orgId: string, userId: string): Promise<void> {
+  async removeMember(orgId: string, userId: string, actor: RoleAssignmentActor): Promise<void> {
     await withMongoTransaction(async (session) => {
       const membership = await UserOrganization.findOne({
         userId, organizationId: toOrgId(orgId),
       }).session(session);
       if (!membership) throw new Error(OM_NOT_A_MEMBER);
       if (membership.role === 'owner') throw new Error(OM_CANNOT_REMOVE_OWNER);
+
+      const { heldSuperadmin } = await assertActorMayStripMemberRoles(orgId, userId, actor, session);
 
       await UserOrganization.deleteOne({ _id: membership._id }).session(session);
       // Delete this org's RoleAssignment rows for the user in the SAME tx as the
@@ -514,23 +533,13 @@ class OrgMembersService {
       // defeating the last-privileged-member guard. Mirrors the user-delete /
       // org-purge paths, which already clean assignments.
       await RoleAssignment.deleteMany({ userId, organizationId: toOrgId(orgId) }, { session });
-      await User.updateOne(
-        { _id: userId },
-        {
-          $inc: { tokenVersion: 1 },
-          $set: { refreshSessions: [] },
-        },
-        { session },
-      );
-      // Clear lastActiveOrgId if it pointed at the just-removed org (in a
-      // separate update so the unset only fires for matching docs).
-      await User.updateOne(
-        { _id: userId, lastActiveOrgId: String(toOrgId(orgId)) },
-        { $unset: { lastActiveOrgId: '' } },
-        { session },
-      );
+      // A superadmin-granting assignment just went with them: re-derive the
+      // platform flag (recompute only touches it in an org that defines a
+      // superadmin Role — the system org), exactly as removeUserFromRole does.
+      if (heldSuperadmin) await recomputeUserOrgRole(userId, toOrgId(orgId), session);
+      await endOrgAccess(userId, orgId, session);
     });
-    // Post-commit: publish the removed user's now-current tokenVersion.
+    // Post-commit: publish the removed user's now-current access version.
     await publishUserRevocation(userId);
   }
 
@@ -610,43 +619,31 @@ class OrgMembersService {
    * lastActiveOrgId if it pointed here. They keep the membership record
    * but lose access. Refuses to touch the owner.
    *
-   * Bumps the user's `tokenVersion` and clears their refresh-session slots in the same
-   * transaction (mirrors {@link removeMember}). `requireAuth` trusts the JWT
-   * claims and only re-reads `tokenVersion` — it does NOT re-check `isActive` —
-   * so without this bump a deactivated member would keep full read+write access
-   * until their access token expired (~15 min). The bump forces every outstanding
-   * JWT to be rejected on the next request, and clearing the refresh-session slots
-   * blocks a silent re-issue.
+   * Deactivating withdraws every Role the person holds here as surely as
+   * removing them, so it runs the same unassign guards (see
+   * {@link removeMember}); the assignments themselves are kept for reactivation.
+   *
+   * Ends access to THIS org only ({@link endOrgAccess}, mirrors removeMember).
+   * `requireAuth` trusts the JWT claims and only re-reads the access version —
+   * it does NOT re-check `isActive` — so the claims bump is what makes the loss
+   * of access immediate. The next refresh re-mints into an org they are still
+   * active in, never this one (token issuance requires a live membership).
    */
-  async deactivateMember(orgId: string, userId: string): Promise<void> {
+  async deactivateMember(orgId: string, userId: string, actor: RoleAssignmentActor): Promise<void> {
     await withMongoTransaction(async (session) => {
       const membership = await UserOrganization.findOne({ userId, organizationId: toOrgId(orgId) }).session(session);
       if (!membership) throw new Error(OM_MEMBERSHIP_NOT_FOUND);
       if (membership.role === 'owner') throw new Error(OM_CANNOT_REMOVE_OWNER);
       if (!membership.isActive) throw new Error(OM_ALREADY_INACTIVE);
 
+      await assertActorMayStripMemberRoles(orgId, userId, actor, session);
+
       membership.isActive = false;
       await membership.save({ session });
 
-      // Invalidate outstanding access tokens + block refresh re-issue so the
-      // loss of access is immediate, not deferred to token expiry.
-      await User.updateOne(
-        { _id: userId },
-        {
-          $inc: { tokenVersion: 1 },
-          $set: { refreshSessions: [] },
-        },
-        { session },
-      );
-
-      // Clear lastActiveOrgId if it pointed at the just-deactivated org.
-      await User.updateOne(
-        { _id: userId, lastActiveOrgId: String(toOrgId(orgId)) },
-        { $unset: { lastActiveOrgId: '' } },
-        { session },
-      );
+      await endOrgAccess(userId, orgId, session);
     });
-    // Post-commit: publish the deactivated user's now-current tokenVersion.
+    // Post-commit: publish the deactivated user's now-current access version.
     await publishUserRevocation(userId);
   }
 
@@ -666,6 +663,27 @@ class OrgMembersService {
       });
     });
   }
+}
+
+/**
+ * End a person's access to ONE org — the org-scoped revocation SCIM uses
+ * (`services/scim-users.ts` endOrgAccess).
+ *
+ * A CLAIMS bump, not a session kill: every outstanding access token goes stale
+ * on the next request (here, and on the stateless services via the post-commit
+ * publish), but the person's sessions survive. They are the person's, spanning
+ * every org they belong to, and one org's admin must not be able to sign them
+ * out of the others — repeatedly, by re-adding and removing them. The next
+ * refresh re-mints into an org they are still active in (issuance requires a
+ * live membership), never this one; the pin to it is dropped here.
+ */
+async function endOrgAccess(userId: string, orgId: string, session: mongoose.ClientSession): Promise<void> {
+  await User.updateOne({ _id: userId }, { $inc: { claimsVersion: 1 } }, { session });
+  await User.updateOne(
+    { _id: userId, lastActiveOrgId: String(toOrgId(orgId)) },
+    { $unset: { lastActiveOrgId: '' } },
+    { session },
+  );
 }
 
 export const orgMembersService = new OrgMembersService();

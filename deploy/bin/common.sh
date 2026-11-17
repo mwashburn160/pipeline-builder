@@ -1029,11 +1029,13 @@ prompt_credentials() {
 # ---------------------------------------------------------------------------
 login() {
   local _resp _err _challenge _code
-  _resp=$(curl -X POST "${PLATFORM_BASE_URL}/api/auth/login" \
-    -k -s \
-    -H 'Content-Type: application/json' \
-    -d "$(jq -n --arg id "$PLATFORM_IDENTIFIER" --arg pw "$PLATFORM_PASSWORD" \
-      '{identifier: $id, password: $pw}')" 2>&1) || true
+  # Password via jq's environment + curl's stdin, never argv (visible in ps).
+  _resp=$(PB_PW="$PLATFORM_PASSWORD" jq -n --arg id "$PLATFORM_IDENTIFIER" \
+      '{identifier: $id, password: env.PB_PW}' \
+    | curl -X POST "${PLATFORM_BASE_URL}/api/auth/login" \
+      -k -s \
+      -H 'Content-Type: application/json' \
+      --data-binary @- 2>&1) || true
 
   # SECOND FACTOR. Once the admin has an authenticator app, the password alone
   # buys a CHALLENGE rather than a session — and the setup calls below need an
@@ -1219,11 +1221,13 @@ _api_error() {
 
 step_up_token() {
   local _resp _token
-  _resp=$(curl -X POST "${PLATFORM_BASE_URL}/api/auth/step-up" \
-    -k -s \
-    -H 'Content-Type: application/json' \
-    -H "Authorization: Bearer ${JWT_TOKEN}" \
-    -d "$(jq -n --arg pw "$PLATFORM_PASSWORD" '{password: $pw}')" 2>&1) || true
+  # Password via jq's environment + curl's stdin, never argv (visible in ps).
+  _resp=$(PB_PW="$PLATFORM_PASSWORD" jq -n '{password: env.PB_PW}' \
+    | curl -X POST "${PLATFORM_BASE_URL}/api/auth/step-up" \
+      -k -s \
+      -H 'Content-Type: application/json' \
+      -H "Authorization: Bearer ${JWT_TOKEN}" \
+      --data-binary @- 2>&1) || true
   _token=$(printf '%s' "$_resp" | jq -r '.data.stepUpToken // empty' 2>/dev/null) || true
   if [ -z "$_token" ]; then
     echo "ERROR: could not obtain a step-up token (is PLATFORM_PASSWORD correct?)" >&2

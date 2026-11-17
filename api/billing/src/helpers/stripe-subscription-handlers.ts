@@ -20,6 +20,7 @@ import type { PrunedAddon } from './addon-prune.js';
 import { billingServiceAuth, createBillingEvent, calculatePeriodEnd, recordReactivatePlanMissing } from './billing-helpers.js';
 import { clearDiscountsOnCancel } from './discount-helpers.js';
 import { syncEntitlements } from './entitlement-sync.js';
+import { prepareLapseReconcile } from './lapse-reconcile.js';
 import { runSignupPromotions } from './signup-promotions.js';
 import { claimStripeEventOrder, findSubscriptionByStripeId, mapStripeStatus, type StripeEventMeta } from './stripe-helpers.js';
 import { stripeSubscriptionPeriod } from './stripe-period.js';
@@ -404,6 +405,14 @@ export async function handleSubscriptionUpdated(payload: Stripe.Subscription, ev
     dirty = true;
   }
 
+  // Back in an entitled status but still carrying the grace-lapse marker (e.g.
+  // the `.updated`→active of a recovered `past_due` landed before its
+  // `invoice.payment_succeeded`): clear the marker in the same save and re-push
+  // the tier post-save. Shared with the invoice handler — whichever observes the
+  // recovery first heals the row.
+  const lapseResync = prepareLapseReconcile(subscription, 'customer.subscription.updated');
+  if (lapseResync) dirty = true;
+
   if (dirty) await subscription.save();
 
   if (becameUnentitled) {
@@ -431,6 +440,11 @@ export async function handleSubscriptionUpdated(payload: Stripe.Subscription, ev
     logger.info('Stripe subscription plan synced', {
       orgId: subscription.orgId, externalId, oldPlanId, newPlanId: subscription.planId, interval: subscription.interval,
     });
+  }
+
+  // The plan-change and became-entitled paths re-push the tier themselves.
+  if (lapseResync && !syncedPlan && !becameEntitled) {
+    await lapseResync();
   }
 
   if (becameEntitled) {

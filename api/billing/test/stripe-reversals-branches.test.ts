@@ -63,7 +63,9 @@ describe('charge reversals', () => {
     await handleChargeRefunded({ id: 'ch_1', payment_intent: { id: 'pi_1' }, customer: { id: 'cus_1' } } as any);
     expect(reverseLedgerInvoice).toHaveBeenCalledWith('in_1', 'refunded', 0);
     expect(findReversalSubscription).toHaveBeenCalledWith('cus_1');
-    expect(createBillingEvent).toHaveBeenCalledWith('org_1', 'subscription_updated', expect.objectContaining({ reason: 'invoice_refunded', refundedCents: 0, fullyRefunded: false, invoiceId: 'in_1', clawedPromotions: 1 }), 'sub_1');
+    // No amounts → not a FULL refund → recorded, but nothing clawed back.
+    expect(createBillingEvent).toHaveBeenCalledWith('org_1', 'subscription_updated', expect.objectContaining({ reason: 'invoice_refunded', refundedCents: 0, fullyRefunded: false, invoiceId: 'in_1', clawedPromotions: 0, clawbackSkipped: 'partial_reversal' }), 'sub_1');
+    expect(clawbackRecentPromotions).not.toHaveBeenCalled();
   });
 
   it('a charge with no invoice skips the ledger, one with no customer skips the clawback', async () => {
@@ -76,8 +78,9 @@ describe('charge reversals', () => {
 
   it('a clawback failure is fail-soft: the reversal is still recorded with 0 clawed', async () => {
     clawbackRecentPromotions.mockRejectedValueOnce(new Error('mongo blip'));
-    await handleChargeRefunded({ id: 'ch_3', amount: 500, amount_refunded: 200, payment_intent: 'pi_3', customer: 'cus_3' } as any);
-    expect(reverseLedgerInvoice).toHaveBeenCalledWith('in_3', 'refunded', 300);
+    await handleChargeRefunded({ id: 'ch_3', amount: 500, amount_refunded: 500, payment_intent: 'pi_3', customer: 'cus_3' } as any);
+    expect(clawbackRecentPromotions).toHaveBeenCalled();
+    expect(reverseLedgerInvoice).toHaveBeenCalledWith('in_3', 'refunded', 0);
     expect(createBillingEvent).toHaveBeenCalledWith('org_1', 'subscription_updated', expect.objectContaining({ clawedPromotions: 0 }), 'sub_1');
   });
 });

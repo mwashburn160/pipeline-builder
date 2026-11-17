@@ -52,6 +52,8 @@ export function releasePluginQuota(job: Job<PluginBuildJobData>, quotaService: Q
  * - `quotaReleased:false` + `reservedResetAt` set when a slot was reserved (new
  *   job owns it, releases it on its own terminal, and carries the fresh
  *   period snapshot so that release is period-safe).
+ * - `quotaReleased:true` with no `noSlot` when the reservation FAILED OPEN
+ *   (`reservation.failOpen`): the re-run proceeds but owns nothing to release.
  * - `quotaReleased:true` (no `reservedResetAt`) + `noSlot` when the org is at
  *   its plugin cap or the reservation call failed (the job would carry no slot,
  *   keeping accounting balanced with no double-credit). Only a SYSTEM ADMIN's
@@ -74,6 +76,13 @@ export async function reserveReplaySlot(quotaService: QuotaService, orgId: strin
       }
       logger.warn('Re-enqueue has no plugin-quota slot (org at cap)', { jobId, orgId });
       return { quotaReleased: true, noSlot: 'cap' };
+    }
+    // A fail-open pass (QUOTA_RESERVE_FAIL_OPEN, quota service unreachable)
+    // reserved NOTHING: the re-run proceeds, but owns no slot to give back —
+    // releasing one on its terminal would decrement a unit never counted.
+    if (reservation.failOpen === true) {
+      logger.warn('Re-enqueue proceeds without a plugin-quota slot (quota fail-open)', { jobId, orgId });
+      return { quotaReleased: true };
     }
     return { quotaReleased: false, reservedResetAt: reservation.quota.resetAt };
   } catch (err) {

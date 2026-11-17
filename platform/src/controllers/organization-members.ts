@@ -7,9 +7,9 @@ import { audit } from '../helpers/audit.js';
 import { canAccessOrg, ensureAuthenticated, forbid, getAdminContext, requireOrgScope, withController, roleAssignmentActor } from '../helpers/controller-helper.js';
 import { listPage } from '../helpers/pagination.js';
 import { orgMembersService } from '../services/index.js';
-import { OM_ORG_NOT_FOUND, OM_USER_NOT_FOUND, OM_ALREADY_MEMBER, OM_NOT_A_MEMBER, OM_CANNOT_REMOVE_OWNER, OM_OWNER_MEMBERSHIP_NOT_FOUND, OM_NEW_OWNER_MUST_BE_MEMBER, OM_ALREADY_OWNER, OM_MEMBERSHIP_NOT_FOUND, OM_ALREADY_INACTIVE, OM_ALREADY_ACTIVE, OM_TARGETS_OUT_OF_SCOPE, OM_SEAT_LIMIT } from '../services/org-members-errors.js';
+import { OM_ORG_NOT_FOUND, OM_USER_NOT_FOUND, OM_ALREADY_MEMBER, OM_NOT_A_MEMBER, OM_CANNOT_REMOVE_OWNER, OM_OWNER_MEMBERSHIP_NOT_FOUND, OM_NEW_OWNER_MUST_BE_MEMBER, OM_ALREADY_OWNER, OM_MEMBERSHIP_NOT_FOUND, OM_ALREADY_INACTIVE, OM_ALREADY_ACTIVE, OM_TARGETS_OUT_OF_SCOPE, OM_SEAT_LIMIT, OM_CONSENT_REQUIRED } from '../services/org-members-errors.js';
 import { pauseFormerMemberReports } from '../services/report-ownership.js';
-import { RL_ASSIGN_EXCEEDS_CEILING } from '../services/roles-errors.js';
+import { RL_ASSIGN_EXCEEDS_CEILING, RL_LAST_PRIVILEGED_MEMBER, RL_REQUIRES_SUPERADMIN, RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN } from '../services/roles-errors.js';
 import {
   validateBody,
   addMemberSchema,
@@ -18,6 +18,23 @@ import {
 } from '../utils/validation.js';
 
 const logger = createLogger('organization-members-controller');
+
+/** A direct add the person never agreed to: the UI routes the admin to an
+ *  invitation (the same way it handles "no account for that address"). */
+const CONSENT_REQUIRED = {
+  status: 409,
+  message: 'That person is not in your organization yet. Send them an invitation — they join when they accept.',
+  code: 'MEMBER_INVITATION_REQUIRED',
+};
+
+/** Ending a membership takes away every Role the person holds in the org, so it
+ *  answers the same refusals as removing them from a Role. */
+const STRIP_ROLE_REFUSALS = {
+  [RL_REQUIRES_SUPERADMIN]: { status: 403, message: 'Only a platform superadmin can remove or deactivate a member of a superadmin role' },
+  [RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN]: { status: 403, message: 'Only a platform superadmin can remove or deactivate a member of an ecosystem-management role' },
+  [RL_ASSIGN_EXCEEDS_CEILING]: { status: 403, message: 'You cannot remove or deactivate this member: they hold a role granting permissions you do not hold yourself' },
+  [RL_LAST_PRIVILEGED_MEMBER]: { status: 400, message: 'Cannot remove or deactivate the last member of an admin role — the organization would be left with no one in it. Add another member to that role first.' },
+};
 
 /** The Role-assignment ceiling context for an add that grants the Admin Role. */
 /** GET /organization/:id/members */
@@ -113,6 +130,7 @@ export const addMemberToOrganization = withController('Add member', async (req, 
   [OM_ALREADY_MEMBER]: { status: 400, message: 'User is already a member of this organization' },
   [OM_SEAT_LIMIT]: { status: 403, message: 'Seat limit reached for this plan — upgrade the plan or remove a member' },
   [RL_ASSIGN_EXCEEDS_CEILING]: { status: 403, message: 'You cannot add an admin: that grants permissions you do not hold yourself' },
+  [OM_CONSENT_REQUIRED]: CONSENT_REQUIRED,
 });
 
 /** GET /organization/:id/member/:memberId/teams — descendant teams annotated
@@ -176,6 +194,7 @@ export const bulkAddMemberToTeams = withController('Bulk add member to teams', a
   [OM_TARGETS_OUT_OF_SCOPE]: { status: 403, message: 'One or more teams are outside your manageable organizations' },
   [OM_SEAT_LIMIT]: { status: 403, message: 'Seat limit reached for this plan — upgrade the plan or remove a member' },
   [RL_ASSIGN_EXCEEDS_CEILING]: { status: 403, message: 'You cannot add an admin: that grants permissions you do not hold yourself' },
+  [OM_CONSENT_REQUIRED]: CONSENT_REQUIRED,
 });
 
 /** DELETE /organization/:id/members/:userId */
@@ -190,7 +209,7 @@ export const removeMemberFromOrganization = withController('Remove member', asyn
     return sendError(res, 400, 'Cannot remove yourself from the organization');
   }
 
-  await orgMembersService.removeMember(id, userId);
+  await orgMembersService.removeMember(id, userId, roleAssignmentActor(req));
   logger.info(`[REMOVE MEMBER FROM ORG] User ${userId} removed from Org ${id} by ${admin.adminType} ${req.user!.sub}`);
   audit(req, 'org.member.remove', { targetType: 'user', targetId: userId, affectedOrgId: id });
   // Their stakeholder reports run with THEIR access, so they stop now rather than
@@ -201,6 +220,7 @@ export const removeMemberFromOrganization = withController('Remove member', asyn
 }, {
   [OM_NOT_A_MEMBER]: { status: 400, message: 'User is not a member of this organization' },
   [OM_CANNOT_REMOVE_OWNER]: { status: 400, message: 'Cannot remove organization owner. Transfer ownership first.' },
+  ...STRIP_ROLE_REFUSALS,
 });
 
 /** PATCH /organization/:id/transfer-owner */
@@ -243,7 +263,7 @@ export const deactivateMember = withController('Deactivate member', async (req, 
   const admin = getAdminContext(req);
   if (!(await requireOrgScope(req, res, id))) return;
 
-  await orgMembersService.deactivateMember(id, userId);
+  await orgMembersService.deactivateMember(id, userId, roleAssignmentActor(req));
   logger.info(`[DEACTIVATE MEMBER] User ${userId} deactivated in Org ${id} by ${admin.adminType} ${req.user!.sub}`);
   audit(req, 'org.member.deactivate', { targetType: 'user', targetId: userId, affectedOrgId: id });
   // Same reason as the remove path: a report authorized as a deactivated account
@@ -255,6 +275,7 @@ export const deactivateMember = withController('Deactivate member', async (req, 
   [OM_MEMBERSHIP_NOT_FOUND]: { status: 404, message: 'Membership not found' },
   [OM_CANNOT_REMOVE_OWNER]: { status: 400, message: 'Cannot deactivate organization owner. Transfer ownership first.' },
   [OM_ALREADY_INACTIVE]: { status: 400, message: 'Member is already inactive' },
+  ...STRIP_ROLE_REFUSALS,
 });
 
 /** PATCH /organization/:id/members/:userId/activate */

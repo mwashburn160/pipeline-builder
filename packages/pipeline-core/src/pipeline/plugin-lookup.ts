@@ -5,7 +5,7 @@ import { createLogger, MANAGED_TOOLCHAIN, SYSTEM_ORG_ID } from '@pipeline-builde
 import type { PluginFilter } from '@pipeline-builder/pipeline-data';
 import type { PluginOptions } from './step-types.js';
 import { platformTlsVerify } from '../core/platform-tls.js';
-import { pluginArtifactAlias, pluginLookupFilter } from '../core/plugin-contract.js';
+import { pluginArtifactAlias, pluginLookupFilter, pluginTargetIdentity } from '../core/plugin-contract.js';
 import type { ResolvedPlugin } from '../core/plugin-lookup-envelope.js';
 import { PLACEHOLDER_PLUGIN_ID } from '../core/step-manifest.js';
 
@@ -35,6 +35,8 @@ export interface PluginLookupProps {
  */
 export class PluginLookup {
   private readonly _resolvedPlugins?: Record<string, ResolvedPlugin>;
+  /** alias -> the target identity (`pluginTargetIdentity`) first served under it. */
+  private readonly _servedIdentities = new Map<string, string>();
 
   constructor(props: PluginLookupProps = {}) {
     this._resolvedPlugins = props.resolvedPlugins;
@@ -79,6 +81,31 @@ export class PluginLookup {
       throw new Error(
         `Plugin alias "${cacheKey}" resolves to ${preResolved.publisher ? `${preResolved.publisher}/` : 'your organization\'s '}${preResolved.name}, `
         + `not ${props.publisher}/${targetName}. Each alias must name exactly one plugin.`,
+      );
+    }
+    // One alias, one TARGET: the same plugin under two different filters
+    // (`nodejs-build` pinned to 18.2.0 in one step and 20.1.0 in another, both
+    // unaliased) shares the default alias, so the map can only hold one of
+    // them — the second step would silently run the first one's version.
+    const rawRef: PluginOptions = typeof plugin === 'string' ? { name: plugin } : plugin;
+    const identity = pluginTargetIdentity({
+      name: rawRef.name, publisher: rawRef.publisher, filter: rawRef.filter as Record<string, unknown> | undefined,
+    });
+    const served = this._servedIdentities.get(cacheKey);
+    if (served !== undefined && served !== identity) {
+      throw new Error(
+        `Plugin alias "${cacheKey}" is used for two different plugin references ("${served}" and "${identity}")`
+        + `${stepKey ? ` (step ${stepKey})` : ''}. Give each plugin reference (each distinct plugin, publisher or filter/version) its own alias.`,
+      );
+    }
+    this._servedIdentities.set(cacheKey, identity);
+    // An exact version pin must have resolved to THAT version.
+    const pin = (rawRef.filter as { version?: unknown } | undefined)?.version;
+    if (preResolved && typeof pin === 'string' && /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(pin)
+      && typeof preResolved.version === 'string' && preResolved.version !== pin) {
+      throw new Error(
+        `Plugin alias "${cacheKey}" resolves to ${targetName}@${preResolved.version}, not the pinned ${targetName}@${pin}. `
+        + 'Each alias must name exactly one plugin version; give each pinned version its own alias.',
       );
     }
     if (preResolved) {

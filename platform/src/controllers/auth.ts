@@ -100,9 +100,8 @@ export const register = withController('Register', async (req, res) => {
       },
     });
   } else {
-    // isSystemOrgId checks BOTH id and name so a system-named org with an
-    // ObjectId id (or vice-versa) is still recognised.
-    const isSystem = isSystemOrgId(result.organizationId, result.organizationName);
+    // By id only: an org NAME is a display string any tenant can carry.
+    const isSystem = isSystemOrgId(result.organizationId);
 
     if (config.billing.enabled) {
       // Fire-and-forget: retries, then persists a durable marker the reconcile pass

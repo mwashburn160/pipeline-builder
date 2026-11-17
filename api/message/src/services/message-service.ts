@@ -60,6 +60,19 @@ function inboxFilterFields(f: InboxFilters): Partial<MessageFilter> {
 }
 
 /**
+ * The key an org's per-participant state lives under in `read_by` / `hidden_by`.
+ *
+ * LOWERCASED, because the shared builder (`buildMessageConditions`) reads those
+ * maps with the lowercased org id. A write keyed on the raw id would stamp a key
+ * the reads never find — a "read" message that stays unread, a "hidden" one
+ * that stays visible and cannot be un-hidden. Every read/hidden write and key
+ * check in this service goes through here so the two sides cannot drift.
+ */
+function participantKey(orgId: string): string {
+  return orgId.toLowerCase();
+}
+
+/**
  * Service for managing internal messages.
  *
  * Supports:
@@ -386,10 +399,11 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
       ...(filters.ids ? { ids: filters.ids } : {}),
     };
     const now = new Date().toISOString();
+    const key = participantKey(orgId);
     const updated = await withTenantTx(async (tx) => tx
       .update(schema.message)
       .set({
-        hiddenBy: sql`coalesce(${schema.message.hiddenBy}, '{}'::jsonb) || ${JSON.stringify({ [orgId]: now })}::jsonb`,
+        hiddenBy: sql`coalesce(${schema.message.hiddenBy}, '{}'::jsonb) || ${JSON.stringify({ [key]: now })}::jsonb`,
         updatedBy: userId,
         updatedAt: new Date(),
       })
@@ -412,7 +426,7 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
     const updated = await withTenantTx(async (tx) => tx
       .update(schema.message)
       .set({
-        hiddenBy: sql`coalesce(${schema.message.hiddenBy}, '{}'::jsonb) - ${orgId.toLowerCase()}::text`,
+        hiddenBy: sql`coalesce(${schema.message.hiddenBy}, '{}'::jsonb) - ${participantKey(orgId)}::text`,
         updatedBy: userId,
         updatedAt: new Date(),
       })
@@ -439,13 +453,14 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
    */
   async setReadState(ids: string[], isRead: boolean, orgId: string, userId: string): Promise<number> {
     const now = new Date().toISOString();
-    const readKey = sql`coalesce(${schema.message.readBy}, '{}'::jsonb) ? ${orgId}`;
+    const key = participantKey(orgId);
+    const readKey = sql`coalesce(${schema.message.readBy}, '{}'::jsonb) ? ${key}`;
     const updated = await withTenantTx(async (tx) => {
       if (!isRead) {
         return tx
           .update(schema.message)
           .set({
-            readBy: sql`coalesce(${schema.message.readBy}, '{}'::jsonb) - ${orgId}::text`,
+            readBy: sql`coalesce(${schema.message.readBy}, '{}'::jsonb) - ${key}::text`,
             updatedBy: userId,
             updatedAt: new Date(),
           })
@@ -461,7 +476,7 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
       return tx
         .update(schema.message)
         .set({
-          readBy: sql`coalesce(${schema.message.readBy}, '{}'::jsonb) || ${JSON.stringify({ [orgId]: now })}::jsonb`,
+          readBy: sql`coalesce(${schema.message.readBy}, '{}'::jsonb) || ${JSON.stringify({ [participantKey(orgId)]: now })}::jsonb`,
           updatedBy: userId,
           updatedAt: new Date(),
         })
@@ -491,7 +506,7 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
     const [updated] = await withTenantTx(async (tx) => tx
       .update(schema.message)
       .set({
-        readBy: sql`coalesce(${schema.message.readBy}, '{}'::jsonb) || ${JSON.stringify({ [orgId]: now })}::jsonb`,
+        readBy: sql`coalesce(${schema.message.readBy}, '{}'::jsonb) || ${JSON.stringify({ [participantKey(orgId)]: now })}::jsonb`,
         updatedBy: userId,
         updatedAt: new Date(),
       })
@@ -507,7 +522,7 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
         // The stamped viewer scopes per-user targeted rows to their target — a
         // member can't mark-read a message addressed to a different user.
         ...this.buildConditions({ id, isActive: true } as Partial<MessageFilter>, orgId),
-        sql`not (coalesce(${schema.message.readBy}, '{}'::jsonb) ? ${orgId})`,
+        sql`not (coalesce(${schema.message.readBy}, '{}'::jsonb) ? ${participantKey(orgId)})`,
       ))
       .returning());
     // Direct tx bypasses the CrudService onAfter* hooks — invalidate the reader's
@@ -580,7 +595,7 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
     const updated = await withTenantTx(async (tx) => tx
       .update(schema.message)
       .set({
-        readBy: sql`coalesce(${schema.message.readBy}, '{}'::jsonb) || ${JSON.stringify({ [orgId]: now })}::jsonb`,
+        readBy: sql`coalesce(${schema.message.readBy}, '{}'::jsonb) || ${JSON.stringify({ [participantKey(orgId)]: now })}::jsonb`,
         updatedBy: userId,
         updatedAt: new Date(),
       })
@@ -591,7 +606,7 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
         // cross-org thread read rather than silently matching zero rows.
         // The stamped viewer keeps per-user targeted rows scoped to their target.
         ...this.buildConditions({ threadId, isActive: true } as Partial<MessageFilter>, orgId),
-        sql`not (coalesce(${schema.message.readBy}, '{}'::jsonb) ? ${orgId})`,
+        sql`not (coalesce(${schema.message.readBy}, '{}'::jsonb) ? ${participantKey(orgId)})`,
       ))
       .returning());
     if (updated.length > 0) await this.invalidateMessageCaches(orgId);
@@ -621,7 +636,7 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
         // count consistent with the per-user inbox: a message targeted at another
         // member of the org is neither visible nor counted here.
         ...this.buildConditions({ isActive: true } as Partial<MessageFilter>, orgId),
-        sql`not (coalesce(${schema.message.readBy}, '{}'::jsonb) ? ${orgId})`,
+        sql`not (coalesce(${schema.message.readBy}, '{}'::jsonb) ? ${participantKey(orgId)})`,
       )));
     return row?.count ?? 0;
   }

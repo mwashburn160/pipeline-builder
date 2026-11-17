@@ -141,6 +141,18 @@ describe('releaseFeatureQuota — rolls back against the same resolved ROOT', ()
     );
   });
 
+  it('skips the rollback of a FAIL-OPEN reservation (it reserved nothing)', async () => {
+    mockResolveOrgLineage.mockResolvedValue({ rootOrgId: 'root-1' });
+    const logWarn = jest.fn<AnyFn>();
+    const failOpen = { exceeded: false, failOpen: true, quota: { type: 'dashboards' as const, limit: -1, used: 0, remaining: -1 } };
+
+    releaseFeatureQuota('team-9', 'dashboards', logWarn, failOpen);
+    await new Promise((r) => setImmediate(r));
+
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
+    expect(mockResolveOrgLineage).not.toHaveBeenCalled();
+  });
+
   it('logs (and does not decrement) when root resolution fails', async () => {
     mockResolveOrgLineage.mockRejectedValue(new Error('lineage down'));
     const logWarn = jest.fn<AnyFn>();
@@ -198,5 +210,15 @@ describe('withFeatureQuota', () => {
     await expect(withFeatureQuota(resStub(), 'org-1', 'dashboards', async () => { throw new Error('db'); })).rejects.toThrow('db');
     await flush();
     expect(mockDecrementQuota).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not refund a FAIL-OPEN reservation when the write keeps nothing or throws', async () => {
+    mockReserveQuota.mockResolvedValue({ exceeded: false, failOpen: true, quota: { type: 'dashboards', limit: -1, used: 0, remaining: -1 } });
+    const write = jest.fn(async () => false);
+    await withFeatureQuota(resStub(), 'org-1', 'dashboards', write);
+    expect(write).toHaveBeenCalledTimes(1);
+    await expect(withFeatureQuota(resStub(), 'org-1', 'dashboards', async () => { throw new Error('db'); })).rejects.toThrow('db');
+    await flush();
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
   });
 });

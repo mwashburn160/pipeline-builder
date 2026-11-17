@@ -254,7 +254,32 @@ export function jsonPathEq(column: AnyColumn, path: string[], value: string): SQ
   return Object.assign(predicate, { jsonPathEq: { column, path, value } });
 }
 
-/** A keyset position in a `(created_at, id)`-ordered request list. */
+/**
+ * `created_at` truncated to MILLISECONDS — the request lists' keyset column.
+ *
+ * `created_at` is a `timestamptz`, stored to the MICROSECOND, but it reaches
+ * this service as a JS `Date`, which holds milliseconds. A cursor built from a
+ * row therefore carries a value the row's own column never equals: the
+ * `created_at = cursor` tie-break never matched, so `created_at > cursor`
+ * re-admitted the boundary row (asc repeated it) and `created_at < cursor`
+ * dropped the rest of its millisecond (desc skipped them). Ordering AND
+ * comparing on the truncated value makes the cursor exact, with `id` still
+ * breaking ties inside one millisecond.
+ *
+ * Carries `__col` so the in-memory test double treats it as the `createdAt`
+ * column (its dates are already millisecond-precision); Postgres only ever
+ * sees the SQL — the same pattern as {@link jsonPathEq}.
+ */
+function createdAtMs(): SQL {
+  return Object.assign(sql`date_trunc('milliseconds', ${R().createdAt})`, { __col: 'createdAt' });
+}
+
+/** A transfer request no one has answered yet (`payload.transfer.response = 'pending'`) — the guard for {@link requests.transition}'s `also`. */
+export function transferUnanswered(): SQL {
+  return jsonPathEq(R().payload, ['transfer', 'response'], 'pending');
+}
+
+/** A keyset position in a `(created_at, id)`-ordered request list (created_at at ms, see {@link createdAtMs}). */
 export interface RequestCursor { createdAt: Date; id: string }
 
 /** Encode a cursor for an API response (opaque to the client). */
@@ -318,7 +343,8 @@ function requestWhere(filter: RequestFilter, withCursor: boolean): SQL | undefin
   const c = withCursor ? filter.cursor : null;
   if (c) {
     const past = filter.order === 'asc' ? gt : lt;
-    where.push(or(past(R().createdAt, c.createdAt), and(eq(R().createdAt, c.createdAt), past(R().id, c.id)))!);
+    const at = createdAtMs();
+    where.push(or(past(at, c.createdAt), and(eq(at, c.createdAt), past(R().id, c.id)))!);
   }
   return and(...where);
 }
@@ -331,7 +357,9 @@ export const requests = {
     elevated(async (tx) => {
       const dir = filter.order === 'asc' ? asc : desc;
       return tx.select().from(R()).where(requestWhere(filter, true))
-        .orderBy(dir(R().createdAt), dir(R().id)).limit(filter.limit ?? 200);
+        // The SAME truncated key the cursor predicate compares, so the order and
+        // the keyset agree inside a millisecond (see `createdAtMs`).
+        .orderBy(dir(createdAtMs()), dir(R().id)).limit(filter.limit ?? 200);
     }),
   /** How many rows match `filter` (cursor and limit ignored) — the queue's total. */
   count: (filter: RequestFilter = {}): Promise<number> =>
@@ -342,9 +370,13 @@ export const requests = {
    * Move a request on, but only from `fromStatus` — the optimistic lock that
    * stops two managers (or a manager and the submitter's withdraw) from both
    * deciding one request. Null when it was no longer in that status.
+   *
+   * `also` adds a further condition to the same lock, for a step that moves the
+   * request on WITHOUT changing its status (a transfer's acceptance) — status
+   * alone cannot tell that step from the one before it.
    */
-  transition: (id: string, fromStatus: PublishRequestStatus, patch: Partial<PluginPublishRequestInsert>): Promise<PluginPublishRequest | null> =>
-    elevated(async (tx) => first(await tx.update(R()).set(patch).where(and(eq(R().id, id), eq(R().status, fromStatus))).returning())),
+  transition: (id: string, fromStatus: PublishRequestStatus, patch: Partial<PluginPublishRequestInsert>, also?: SQL): Promise<PluginPublishRequest | null> =>
+    elevated(async (tx) => first(await tx.update(R()).set(patch).where(and(eq(R().id, id), eq(R().status, fromStatus), ...(also ? [also] : []))).returning())),
   /** Record that an approved request's execution returned (see `executedAt`). */
   markExecuted: (id: string, at: Date = new Date()): Promise<void> =>
     elevated(async (tx) => { await tx.update(R()).set({ executedAt: at }).where(eq(R().id, id)); }),

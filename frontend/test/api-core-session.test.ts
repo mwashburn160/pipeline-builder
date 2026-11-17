@@ -432,3 +432,92 @@ describe('ApiCore cross-tab coordination', () => {
     expect(expiredInB).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('ApiCore refresh cooldown and storage fallback', () => {
+  let fetchMock: jest.Mock<AnyFn>;
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    fetchMock = jest.fn<AnyFn>();
+    global.fetch = fetchMock as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+    localStorage.clear();
+    sessionStorage.clear();
+  });
+
+  function throttled(retryAfterSeconds: number) {
+    return { status: 429, ok: false, headers: new Headers({ 'Retry-After': String(retryAfterSeconds) }), json: async () => ({}) } as unknown as Response;
+  }
+
+  it('a 429 waits out the full Retry-After before the automatic retry, not just the failure cooldown', async () => {
+    const core = signedInCore();
+    const waitMs = REFRESH_FAILURE_COOLDOWN_MS * 4;
+    fetchMock.mockResolvedValueOnce(throttled(waitMs / 1000)).mockResolvedValue(res(200, { data: ROTATED }));
+
+    await expect(refresh(core)).resolves.toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // The ordinary cooldown has passed, but the server asked for longer.
+    await jest.advanceTimersByTimeAsync(REFRESH_FAILURE_COOLDOWN_MS + 1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await jest.advanceTimersByTimeAsync(waitMs - REFRESH_FAILURE_COOLDOWN_MS);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(core.getAccessToken()).toBe(ROTATED.accessToken);
+  });
+
+  it('a 429 with a short Retry-After still waits the minimum failure cooldown', async () => {
+    const core = signedInCore();
+    fetchMock.mockResolvedValueOnce(throttled(1)).mockResolvedValue(res(200, { data: ROTATED }));
+
+    await refresh(core);
+    await jest.advanceTimersByTimeAsync(REFRESH_FAILURE_COOLDOWN_MS - 10);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(20);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  describe('when localStorage throws', () => {
+    beforeEach(() => {
+      jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('SecurityError'); });
+      jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('SecurityError'); });
+      jest.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => { throw new Error('SecurityError'); });
+    });
+
+    it('a signed-in session stays refreshable from memory', async () => {
+      const core = signedInCore();
+      fetchMock.mockResolvedValue(res(200, { data: ROTATED }));
+      await expect(refresh(core)).resolves.toBe(true);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(core.getAccessToken()).toBe(ROTATED.accessToken);
+    });
+
+    it('a rejected refresh still ends the session with onSessionExpired, not a bare 401', async () => {
+      const core = signedInCore();
+      const expired = jest.fn<AnyFn>();
+      core.onSessionExpired(expired);
+      fetchMock.mockResolvedValue(res(401));
+      await expect(refresh(core)).resolves.toBe(false);
+      expect(expired).toHaveBeenCalledTimes(1);
+      expect(core.getAccessToken()).toBeNull();
+    });
+
+    it('sign-out clears the in-memory marker: no refresh afterwards', async () => {
+      const core = signedInCore();
+      core.clearTokens();
+      await expect(refresh(core)).resolves.toBe(false);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+  });
+
+  it('with working storage, a sibling clearing the shared marker still stops refreshes', async () => {
+    const core = signedInCore();
+    localStorage.removeItem('pb.session');
+    await expect(refresh(core)).resolves.toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});

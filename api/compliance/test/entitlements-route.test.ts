@@ -22,6 +22,7 @@ const syncEntitledSetsMock = jest.fn<(...a: unknown[]) => Promise<{ skipped: boo
   async () => ({ skipped: false, activated: [], deactivated: [] }),
 );
 const recordAuditMock = jest.fn();
+const getActiveEntitledSetsMock = jest.fn<(...a: unknown[]) => Promise<string[]>>(async () => []);
 
 // Auth flags carried by the current fake request; mutated per-test.
 let isSvc = false;
@@ -56,7 +57,10 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 
 
 jest.unstable_mockModule('../src/services/subscription-service.js', () => ({
-  subscriptionService: { syncEntitledSets: (...a: unknown[]) => syncEntitledSetsMock(...a) },
+  subscriptionService: {
+    syncEntitledSets: (...a: unknown[]) => syncEntitledSetsMock(...a),
+    getActiveEntitledSets: (...a: unknown[]) => getActiveEntitledSetsMock(...a),
+  },
 }));
 
 const { createEntitlementSyncRoutes } = await import('../src/routes/entitlements.js');
@@ -66,10 +70,10 @@ const { createEntitlementSyncRoutes } = await import('../src/routes/entitlements
  * authorization now lives in `requireInternalService` ahead of the handler, so a
  * test that reached past it would assert nothing about who may call this.
  */
-function putRoute() {
+function putRoute(method: 'put' | 'get' = 'put') {
   const router = createEntitlementSyncRoutes();
-  const layer = (router.stack as any[]).find((l) => l.route?.path === '/:orgId' && l.route?.methods?.put);
-  if (!layer) throw new Error('no PUT /:orgId');
+  const layer = (router.stack as any[]).find((l) => l.route?.path === '/:orgId' && l.route?.methods?.[method]);
+  if (!layer) throw new Error(`no ${method.toUpperCase()} /:orgId`);
   const stack = layer.route.stack as Array<{ handle: Function }>;
   return async (req: any, res: any) => {
     for (const l of stack) {
@@ -151,5 +155,37 @@ describe('PUT /entitlements/:orgId — service-principal gated', () => {
     const { res } = makeRes();
     await handler({ params: { orgId: 'org-a' }, body: { sets: ['standard', 'bogus', 'advanced'] }, user: { sub: 'service:billing', principalType: 'service' } } as any, res);
     expect(syncEntitledSetsMock).toHaveBeenCalledWith('org-a', ['standard', 'advanced'], 'service:billing', {});
+  });
+});
+
+describe('the :orgId path param is CANONICALIZED (trimmed, lowercased), like quota authorizeOrg', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    isSvc = true;
+    isAdmin = false;
+  });
+  const billing = { sub: 'service:billing', principalType: 'service' };
+
+  it('PUT reconciles and audits the lowercase org id', async () => {
+    syncEntitledSetsMock.mockResolvedValueOnce({ skipped: false, activated: ['r1'], deactivated: [] });
+    const { res } = makeRes();
+    await putRoute()({ params: { orgId: ' ORG-A ' }, body: { sets: ['standard'] }, user: billing } as any, res);
+    expect(syncEntitledSetsMock).toHaveBeenCalledWith('org-a', ['standard'], 'service:billing', {});
+    expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'org-a' }));
+  });
+
+  it('GET drift-reads the lowercase org id', async () => {
+    getActiveEntitledSetsMock.mockResolvedValueOnce(['standard']);
+    const { res, status } = makeRes();
+    await putRoute('get')({ params: { orgId: 'Org-A' }, user: billing } as any, res);
+    expect(getActiveEntitledSetsMock).toHaveBeenCalledWith('org-a');
+    expect(status).toHaveBeenCalledWith(200);
+  });
+
+  it('a blank id is still a 400', async () => {
+    const { res, status } = makeRes();
+    await putRoute()({ params: { orgId: '   ' }, body: { sets: [] }, user: billing } as any, res);
+    expect(status).toHaveBeenCalledWith(400);
+    expect(syncEntitledSetsMock).not.toHaveBeenCalled();
   });
 });

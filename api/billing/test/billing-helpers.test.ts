@@ -105,6 +105,7 @@ const {
   syncEntitlements,
   setEntitlementSyncBus,
   startEntitlementSyncConsumer,
+  entitlementSyncConsumerName,
 } = await import('../src/helpers/entitlement-sync.js');
 const { effectiveEntitlements } = await import('../src/config/entitlements.js');
 
@@ -448,6 +449,31 @@ describe('syncEntitlements durable-bus retry', () => {
     const replay = mockClientPut.mock.calls.find((c) => String(c[0]).includes('/compliance/entitlements/'));
     expect(complianceBody(replay!).occurredAt).toBe(occurredAt);
     mockSubscriptionRow.mockReturnValue(null);
+  });
+
+  describe('retry consumer identity', () => {
+    const savedHost = process.env.HOSTNAME;
+    afterEach(() => {
+      if (savedHost === undefined) delete process.env.HOSTNAME;
+      else process.env.HOSTNAME = savedHost;
+    });
+
+    it('subscribes with a per-container consumer id, not `billing-<pid>` (PID 1 in every container)', () => {
+      process.env.HOSTNAME = 'billing-7d9f-abcde';
+      let consumer: string | undefined;
+      startEntitlementSyncConsumer({ subscribe: (o: { consumer: string }) => { consumer = o.consumer; return { stop: async () => {} }; } } as never);
+      expect(consumer).toMatch(new RegExp(`^billing-billing-7d9f-abcde-${process.pid}-[0-9a-f]{6}$`));
+    });
+
+    it('is unique per process even when two replicas share a hostname', () => {
+      process.env.HOSTNAME = 'same-host';
+      expect(entitlementSyncConsumerName()).not.toBe(entitlementSyncConsumerName());
+    });
+
+    it('falls back to os.hostname() when HOSTNAME is unset', () => {
+      delete process.env.HOSTNAME;
+      expect(entitlementSyncConsumerName()).toMatch(/^billing-.+-\d+-[0-9a-f]{6}$/);
+    });
   });
 
   describe('retry consumer re-reads the CURRENT subscription (never replays a stale payload)', () => {

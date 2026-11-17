@@ -200,6 +200,40 @@ describe('external address confirmation', () => {
     expect(row()!.externalEmailVerifiedAt).toBeNull();
   });
 
+  it('confirming writes ONLY the verification fields — a save that lands meanwhile is not reverted', async () => {
+    await svc.putSecurityPrefs(ORG, 'u', { externalEmail: 'sec@example.com' });
+    const token = lastConfirmToken();
+    // An admin save lands between the confirm's read and its write.
+    const original = svc.prefsStore.byVerifyToken.bind(svc.prefsStore);
+    const spy = jest.spyOn(svc.prefsStore, 'byVerifyToken').mockImplementationOnce(async (hash: string) => {
+      const read = await original(hash);
+      await svc.putSecurityPrefs(ORG, 'u', { digestMode: 'daily', notifyRescan: false });
+      return read;
+    });
+    try {
+      await expect(svc.confirmExternalEmail(token)).resolves.toEqual({ confirmed: true });
+    } finally { spy.mockRestore(); }
+    expect(row()!.digestMode).toBe('daily');
+    expect(row()!.notifyRescan).toBe(false);
+    expect(row()!.externalEmailVerifiedAt).toBeInstanceOf(Date);
+  });
+
+  it('refuses a confirm whose address was CHANGED after the link was read — the new address stays unverified', async () => {
+    await svc.putSecurityPrefs(ORG, 'u', { externalEmail: 'sec@example.com' });
+    const token = lastConfirmToken();
+    const original = svc.prefsStore.byVerifyToken.bind(svc.prefsStore);
+    const spy = jest.spyOn(svc.prefsStore, 'byVerifyToken').mockImplementationOnce(async (hash: string) => {
+      const read = await original(hash);
+      await svc.putSecurityPrefs(ORG, 'u', { externalEmail: 'other@example.com' });
+      return read;
+    });
+    try {
+      await expect(svc.confirmExternalEmail(token)).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    } finally { spy.mockRestore(); }
+    expect(row()!.externalEmailVerifiedAt).toBeNull();
+    expect(h.audit).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'plugin.security_notifications.external_email.verify' }));
+  });
+
   it('changing the address resets verification; the same address is a no-op; resend re-issues the link', async () => {
     await svc.putSecurityPrefs(ORG, 'u', { externalEmail: 'sec@example.com' });
     await svc.confirmExternalEmail(lastConfirmToken());

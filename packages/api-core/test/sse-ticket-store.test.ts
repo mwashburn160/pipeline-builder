@@ -148,7 +148,8 @@ describe('Redis SSE ticket store specifics', () => {
     expect(await store.issue('org-a')).toEqual({ ok: false, reason: 'total' });
     expect(await store.consume('x')).toBeNull();
     await expect(store.getOwner('s')).rejects.toThrow('down');
-    await expect(store.bindOwner('s', 'o', 1000)).resolves.toBeUndefined();
+    // An unbound subject can't be ticketed, so a failed bind must surface.
+    await expect(store.bindOwner('s', 'o', 1000)).rejects.toThrow('down');
   });
 
   it('waits (bounded) for a not-yet-connected client instead of failing the first mint', async () => {

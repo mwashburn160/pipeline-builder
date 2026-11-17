@@ -293,11 +293,18 @@ export const pipelineEvent = pgTable('pipeline_events', {
   createdAtIdx: index('event_created_at_idx').on(table.createdAt),
   orgTypeCreatedIdx: index('event_org_type_created_idx').on(table.orgId, table.eventType, table.createdAt),
   orgSourceStatusIdx: index('event_org_source_status_idx').on(table.orgId, table.eventSource, table.status),
-  // Idempotency: EventBridge → SQS is at-least-once, so the same state-change
-  // can be delivered twice. This partial unique index dedups re-deliveries
-  // (paired with `onConflictDoNothing` in reporting-service.ingestEvents).
-  // Partial (execution_id IS NOT NULL) because that's the natural per-event
-  // key; events without an executionId (rare) aren't deduped, which is safe.
+  // Idempotency for events WITHOUT a producer event id (plugin-build events:
+  // a BullMQ retry/stalled-recovery re-records the same BUILD outcome for the
+  // same job). Paired with `onConflictDoNothing` in ingestEvents /
+  // recordBuildEvent.
+  //
+  // Partial on `source_event_id IS NULL`: an event that HAS an EventBridge id
+  // dedups on that id alone (`event_source_event_idx` below). The composite
+  // key is not unique per state change — a stage or action RETRIED in the same
+  // execution emits a second, genuine FAILED/SUCCEEDED event with the very same
+  // (pipeline, execution, type, status, stage, action), which this index used
+  // to swallow as a duplicate (losing the retry from rates, MTTR and the
+  // timeline). Events without an executionId (rare) aren't deduped, which is safe.
   // Includes pipeline_id so a (theoretical) execution-id reuse across pipelines
   // can't collide (the ARN is not part of the row).
   //
@@ -317,7 +324,7 @@ export const pipelineEvent = pgTable('pipeline_events', {
       sql`coalesce(${table.stageName}, '')`,
       sql`coalesce(${table.actionName}, '')`,
     )
-    .where(sql`execution_id IS NOT NULL`),
+    .where(sql`execution_id IS NOT NULL AND source_event_id IS NULL`),
   // Strongest dedup key when the producer has one: an EventBridge event id is
   // unique per AWS state change, so an SQS redelivery or DLQ redrive of the same
   // event collapses here even without an execution_id. Partial — plugin-build

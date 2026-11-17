@@ -97,8 +97,9 @@ export interface SSEManagerOptions {
    */
   logStream?: boolean;
   /**
-   * TTL for a stream-ownership binding (default 1h). Long enough to outlive a
-   * build; the producer re-binds as needed.
+   * TTL for a stream-ownership binding (default 24h). Must outlive a build and
+   * its queue wait — an unbound subject can't be ticketed; the worker re-binds
+   * per attempt and each successful mint refreshes it.
    */
   streamOwnerTtlMs?: number;
   /**

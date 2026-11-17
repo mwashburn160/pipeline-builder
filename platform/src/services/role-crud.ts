@@ -433,6 +433,91 @@ export async function assertNotLastPrivilegedMember(
   if (counts.some((c) => c.members <= 1)) throw new Error(RL_LAST_PRIVILEGED_MEMBER);
 }
 
+/** The actor context the unassign guards read (see {@link removeUserFromRole}). */
+export interface UnassignActorOpts {
+  actorIsSuperAdmin?: boolean;
+  actorIsOrgAdmin?: boolean;
+  /** Omitted ⇒ the permission ceiling is not evaluated (internal callers that
+   *  already gate authority upstream). */
+  actorPermissions?: readonly string[];
+}
+
+/**
+ * The per-Role half of the unassign guards, shared by every path that takes a
+ * Role AWAY from someone — removing them from the Role, and ending their
+ * membership (which deletes every Role they hold in the org):
+ *   - a `superadmin`-granting Role: platform superadmin only (`RL_REQUIRES_SUPERADMIN`);
+ *   - an ecosystem (system-org-only) Role: platform superadmin only, checked
+ *     unconditionally (`RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN`);
+ *   - otherwise the permission ceiling: a non-admin delegate may only strip a
+ *     Role whose permissions are all within their own (`RL_ASSIGN_EXCEEDS_CEILING`).
+ * Pure — no reads.
+ */
+export function assertActorMayUnassignRole(
+  role: { grantsRole?: string | null; permissions?: readonly string[] | string[] | null },
+  opts: UnassignActorOpts,
+): void {
+  // Role-ceiling: only a platform superadmin may change assignment of a
+  // superadmin-granting Role (mirror of the gate in addUserToRole).
+  if (role.grantsRole === 'superadmin' && !opts.actorIsSuperAdmin) {
+    throw new Error(RL_REQUIRES_SUPERADMIN);
+  }
+  const permissions = (role.permissions ?? undefined) as string[] | undefined;
+  // Unassigning an ecosystem (system-org-only) Role is superadmin-only too —
+  // checked unconditionally, not only when the actor context is supplied.
+  if (carriesSystemOrgOnlyPermission(permissions) && !opts.actorIsSuperAdmin) {
+    throw new Error(RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN);
+  }
+  // Permission ceiling (symmetry with addUserToRole): a delegate can't touch
+  // membership of a Role granting permissions beyond their own. Evaluated only
+  // when the caller supplies the actor's permission context.
+  if (opts.actorPermissions !== undefined) {
+    assertActorMayAssignRole(permissions, {
+      isSuperAdmin: opts.actorIsSuperAdmin === true,
+      isOrgAdmin: opts.actorIsOrgAdmin === true,
+      permissions: opts.actorPermissions,
+    });
+  }
+}
+
+/**
+ * The membership-level unassign guard: assert `actor` may take away EVERY Role
+ * `userId` holds in `orgId` — what ending their membership (remove) or access
+ * (deactivate) amounts to. Runs {@link assertActorMayUnassignRole} on each held
+ * Role, then the lockout guard ({@link assertNotLastPrivilegedMember}) on each
+ * privilege-granting one, inside the caller's transaction.
+ *
+ * Without this a `members:manage`-only delegate (a "People Manager") could strip
+ * an admin, a superadmin, or an org's last admin simply by removing the person,
+ * walking past every check `removeUserFromRole` enforces.
+ *
+ * Returns whether any held Role grants `superadmin` (the caller recomputes
+ * `User.isSuperAdmin` when it deletes those assignments).
+ */
+export async function assertActorMayStripMemberRoles(
+  orgId: string,
+  userId: UserId,
+  actor: RoleAssignmentActor,
+  session: mongoose.ClientSession,
+): Promise<{ heldSuperadmin: boolean }> {
+  const oid = toOrgId(orgId);
+  const held = await RoleAssignment.find({ userId, organizationId: oid })
+    .select('roleId').session(session).lean();
+  if (held.length === 0) return { heldSuperadmin: false };
+  const roles = await Role.find({ _id: { $in: held.map((a) => a.roleId) } })
+    .select('_id grantsRole permissions').session(session).lean();
+  const opts: UnassignActorOpts = {
+    actorIsSuperAdmin: actor.isSuperAdmin,
+    actorIsOrgAdmin: actor.isOrgAdmin,
+    actorPermissions: actor.permissions,
+  };
+  for (const role of roles) assertActorMayUnassignRole(role as { grantsRole?: string; permissions?: string[] }, opts);
+  for (const role of roles) {
+    if (role.grantsRole !== 'member') await assertNotLastPrivilegedMember(session, userId, role._id as mongoose.Types.ObjectId);
+  }
+  return { heldSuperadmin: roles.some((r) => r.grantsRole === 'superadmin') };
+}
+
 /**
  * Remove a user from a Role, then recompute their cached org role. Within the
  * system org, removing the last `superadmin`-granting assignment also clears
@@ -468,39 +553,14 @@ export async function removeUserFromRole(
   orgId: string,
   roleId: string,
   userId: string,
-  opts: {
-    actorUserId?: string;
-    actorIsSuperAdmin?: boolean;
-    actorIsOrgAdmin?: boolean;
-    actorPermissions?: readonly string[];
-  } = {},
+  opts: UnassignActorOpts & { actorUserId?: string } = {},
 ): Promise<void> {
   const oid = toOrgId(orgId);
 
   const role = await Role.findOne({ _id: roleId, organizationId: oid }).select('grantsRole name permissions system');
   if (!role) throw new Error(RL_ROLE_NOT_FOUND);
 
-  // Role-ceiling: only a platform superadmin may change assignment of a
-  // superadmin-granting Role (mirror of the gate in addUserToRole).
-  if (role.grantsRole === 'superadmin' && !opts.actorIsSuperAdmin) {
-    throw new Error(RL_REQUIRES_SUPERADMIN);
-  }
-  // Unassigning an ecosystem (system-org-only) Role is superadmin-only too —
-  // checked unconditionally, not only when the actor context is supplied.
-  if (carriesSystemOrgOnlyPermission(role.permissions as string[] | undefined) && !opts.actorIsSuperAdmin) {
-    throw new Error(RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN);
-  }
-
-  // Permission ceiling (symmetry with addUserToRole): a delegate can't touch
-  // membership of a Role granting permissions beyond their own. Evaluated only
-  // when the caller supplies the actor's permission context.
-  if (opts.actorPermissions !== undefined) {
-    assertActorMayAssignRole(role.permissions as string[] | undefined, {
-      isSuperAdmin: opts.actorIsSuperAdmin === true,
-      isOrgAdmin: opts.actorIsOrgAdmin === true,
-      permissions: opts.actorPermissions,
-    });
-  }
+  assertActorMayUnassignRole(role, opts);
 
   // Atomic: the lockout guards, the assignment delete and the role/isSuperAdmin
   // recompute run in one transaction, so the guards read a snapshot consistent

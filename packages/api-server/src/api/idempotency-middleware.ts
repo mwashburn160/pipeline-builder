@@ -26,9 +26,24 @@ function bodyFingerprint(body: unknown): string {
   }
 }
 
+/**
+ * How a cached body was produced, so a replay sends the SAME bytes back:
+ * - `json`: an object/array/number/boolean/null sent via `res.json` / `res.send(obj)`
+ * - `string`: a string body (`res.send('<html>')`, `res.end('text')`) — replayed as-is,
+ *   never re-encoded as a JSON string literal
+ * - `buffer`: binary (`res.send(Buffer)`), stored base64 so it survives JSON storage
+ * - `empty`: no body (204, `res.end()`)
+ * Entries written before this field existed are treated as `json`.
+ */
+type CachedBodyKind = 'json' | 'string' | 'buffer' | 'empty';
+
 interface CachedEntry {
   statusCode: number;
   body: unknown;
+  /** See {@link CachedBodyKind}; absent on legacy entries (→ `json`). */
+  bodyKind?: CachedBodyKind;
+  /** The original `Content-Type`, replayed for `string`/`buffer` bodies. */
+  contentType?: string;
   expiresAt: number;
   /** Reservation placeholder: the request is in-flight, no real response yet.
    *  A duplicate that sees a pending entry is rejected with 409, not replayed. */
@@ -242,8 +257,56 @@ function idempotencyStoreKey(req: Request, key: string): string | undefined {
   const orgId = req.user?.organizationId || req.context?.identity?.orgId;
   if (!orgId) return undefined;
   const sub = req.user?.sub;
-  const routePath = (req.baseUrl ?? '') + (req.route?.path ?? req.path ?? '');
+  // The CONCRETE path, never the route pattern: `req.route.path` is `/:id`, so
+  // the same key + body on `/pipelines/a` and `/pipelines/b` (e.g. two DELETEs)
+  // shared one entry and the second replayed the first's response without
+  // running. `baseUrl + path` is also the same full path in every mount
+  // context (requireAuth's pre-check runs at a different mount than the route).
+  const routePath = (req.baseUrl ?? '') + (req.path ?? '');
   return `${req.method}:${routePath}:${orgId}:${sub ?? '-'}:${bodyFingerprint(req.body)}:${key}`;
+}
+
+/** The response's Content-Type header, when set (test doubles may lack getHeader). */
+function responseContentType(res: Response): string | undefined {
+  const getHeader = (res as { getHeader?: (name: string) => unknown }).getHeader;
+  const ct = typeof getHeader === 'function' ? getHeader.call(res, 'Content-Type') : undefined;
+  return typeof ct === 'string' && ct ? ct : undefined;
+}
+
+/** Encode a captured body for storage (JSON-safe for the Redis store). */
+function encodeBody(body: unknown, viaJson: boolean): Pick<CachedEntry, 'body' | 'bodyKind'> {
+  if (viaJson) return { body: body ?? null, bodyKind: 'json' };
+  if (body === undefined || body === null) return { body: null, bodyKind: 'empty' };
+  if (typeof body === 'string') return { body, bodyKind: 'string' };
+  if (Buffer.isBuffer(body) || body instanceof Uint8Array) {
+    return { body: Buffer.from(body as Uint8Array).toString('base64'), bodyKind: 'buffer' };
+  }
+  // res.send(object) → express sends it as JSON.
+  return { body, bodyKind: 'json' };
+}
+
+/**
+ * Replay a cached response as it was first sent: a JSON value through
+ * `res.json`, a string or binary body verbatim with its original Content-Type
+ * (`res.json` double-encoded a string and turned a Buffer into
+ * `{"type":"Buffer",...}`), and an empty body as an empty response.
+ */
+function replayCached(res: Response, cached: CachedEntry): void {
+  res.status(cached.statusCode);
+  const kind = cached.bodyKind ?? 'json';
+  if (kind === 'json') {
+    res.json(cached.body);
+    return;
+  }
+  if (kind === 'empty') {
+    res.end();
+    return;
+  }
+  if (cached.contentType) {
+    if (typeof res.type === 'function') res.type(cached.contentType);
+    else res.setHeader('Content-Type', cached.contentType);
+  }
+  res.send(kind === 'buffer' ? Buffer.from(String(cached.body), 'base64') : String(cached.body));
 }
 
 /** Methods the idempotency middleware applies to. */
@@ -332,7 +395,7 @@ export function idempotencyMiddleware(options: IdempotencyMiddlewareOptions = {}
         logger.debug('Idempotent request replayed', { key: fullKey });
         (res.locals ??= {})[IDEMPOTENT_REPLAY_LOCAL] = true;
         res.setHeader('X-Idempotent-Replayed', 'true');
-        res.status(cached.statusCode).json(cached.body);
+        replayCached(res, cached);
         return;
       }
       if (cached && cached.pending) {
@@ -359,6 +422,10 @@ export function idempotencyMiddleware(options: IdempotencyMiddlewareOptions = {}
       let settled = false;
       let capturedBody: unknown;
       let bodyCaptured = false;
+      /** True when the body came through `res.json` (always a JSON value). */
+      let capturedViaJson = false;
+      /** Streamed (res.write / SSE / sendFile): not replayable, never cached. */
+      let streamed = false;
 
       /** Remember the response body for replay (first capture wins). */
       const captureBody = (body: unknown): void => {
@@ -378,10 +445,19 @@ export function idempotencyMiddleware(options: IdempotencyMiddlewareOptions = {}
 
       const cacheSuccess = (): void => {
         if (settled) return;
+        const contentType = responseContentType(res);
+        if (streamed || /^text\/event-stream\b/i.test(contentType ?? '')) {
+          // A streamed body can't be replayed faithfully (only the first chunk,
+          // if anything, was seen) — skip storing and free the key.
+          logger.debug('Idempotency skipped for streamed response', { key: fullKey });
+          release();
+          return;
+        }
         settled = true;
         store.set(fullKey, {
           statusCode: res.statusCode,
-          body: bodyCaptured ? capturedBody : null,
+          ...encodeBody(bodyCaptured ? capturedBody : undefined, capturedViaJson),
+          ...(contentType ? { contentType } : {}),
           expiresAt: Date.now() + ttlMs,
         }, ttlSec).catch((err) => {
           logger.warn('Idempotency store.set failed', { key: fullKey, error: errorMessage(err) });
@@ -404,6 +480,7 @@ export function idempotencyMiddleware(options: IdempotencyMiddlewareOptions = {}
       const originalJson = res.json.bind(res);
       res.json = (body: unknown) => {
         res.setHeader('X-Idempotent-Replayed', 'false');
+        if (!bodyCaptured) capturedViaJson = true;
         captureBody(body);
         settleFromStatus();
         return originalJson(body);
@@ -417,8 +494,18 @@ export function idempotencyMiddleware(options: IdempotencyMiddlewareOptions = {}
       const patched = res as unknown as {
         send?: (body?: unknown) => unknown;
         end?: (...args: unknown[]) => unknown;
+        write?: (...args: unknown[]) => unknown;
         on?: (event: string, cb: () => void) => unknown;
       };
+      // Any res.write is a streamed body (SSE, sendFile/pipe, chunked writes):
+      // mark it so the final settle skips caching instead of storing a partial.
+      if (typeof patched.write === 'function') {
+        const originalWrite = patched.write.bind(res);
+        patched.write = (...args: unknown[]) => {
+          streamed = true;
+          return originalWrite(...args);
+        };
+      }
       if (typeof patched.send === 'function') {
         const originalSend = patched.send.bind(res);
         patched.send = (body?: unknown) => {

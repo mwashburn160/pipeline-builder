@@ -30,6 +30,14 @@
 # silently does not exist, and the failure surfaces steps later.
 # =============================================================================
 
+# A failed create-bucket after the owner-checked head-bucket failed usually
+# means the predictable name already exists in ANOTHER account.
+_cfn_bucket_err() {
+  echo "ERROR: could not create the template staging bucket s3://$1." >&2
+  echo "       If the error was BucketAlreadyExists, that name is held by another AWS account —" >&2
+  echo "       it will NOT be used. Remove the template-size overflow or stage manually." >&2
+}
+
 cfn_deploy() {
   local full_name="$1"
   local template_file="$2"
@@ -73,14 +81,22 @@ cfn_deploy() {
       return 1
     fi
     bucket="pipeline-builder-cfn-${acct}-${REGION}"
-    if ! aws s3api head-bucket --bucket "$bucket" >/dev/null 2>&1; then
+    # The name is PREDICTABLE (account id + region), so anyone can pre-create
+    # it in THEIR account and grant us write: `cloudformation deploy` would then
+    # upload our template into a bucket someone else controls, and they could
+    # swap the object before CloudFormation fetches it. Every S3 call that
+    # takes --expected-bucket-owner gets it, so a bucket owned by any other
+    # account answers 403 here instead of being used. (`cloudformation deploy
+    # --s3-bucket` has no such flag; the ownership check immediately before it
+    # is what guards that upload.)
+    if ! aws s3api head-bucket --bucket "$bucket" --expected-bucket-owner "$acct" >/dev/null 2>&1; then
       echo "  Template is ${tpl_bytes} bytes — creating staging bucket ${bucket}"
       # us-east-1 is the one region that rejects an explicit LocationConstraint.
       if [ "$REGION" = "us-east-1" ]; then
-        aws s3api create-bucket --bucket "$bucket" --region "$REGION" >/dev/null || return 1
+        aws s3api create-bucket --bucket "$bucket" --region "$REGION" >/dev/null || { _cfn_bucket_err "$bucket"; return 1; }
       else
         aws s3api create-bucket --bucket "$bucket" --region "$REGION" \
-          --create-bucket-configuration "LocationConstraint=${REGION}" >/dev/null || return 1
+          --create-bucket-configuration "LocationConstraint=${REGION}" >/dev/null || { _cfn_bucket_err "$bucket"; return 1; }
       fi
       # A template carries no secrets (every credential is a NoEcho parameter that
       # lands in Secrets Manager), but it does describe the whole topology.
@@ -90,10 +106,16 @@ cfn_deploy() {
       # also wrong: the one case that matters is an IAM policy without
       # s3:PutBucketPublicAccessBlock, where the operator should know the
       # hardening they think is applied is not.
-      aws s3api put-public-access-block --bucket "$bucket" \
+      aws s3api put-public-access-block --bucket "$bucket" --expected-bucket-owner "$acct" \
         --public-access-block-configuration \
         'BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true' >/dev/null 2>&1 \
         || echo "  WARNING: could not set Block Public Access on s3://${bucket} (needs s3:PutBucketPublicAccessBlock); AWS defaults it on for new buckets, but verify" >&2
+    fi
+    # Re-verify ownership right before the upload (covers a bucket that
+    # create-bucket reported but that is not, in fact, ours).
+    if ! aws s3api head-bucket --bucket "$bucket" --expected-bucket-owner "$acct" >/dev/null 2>&1; then
+      echo "ERROR: staging bucket s3://${bucket} is not owned by account ${acct} (or is unreachable) — refusing to upload the template to it" >&2
+      return 1
     fi
     echo "  Staging the ${tpl_bytes}-byte template through s3://${bucket}"
     stage=(--s3-bucket "$bucket" --s3-prefix "cfn/${full_name}")

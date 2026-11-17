@@ -214,17 +214,60 @@ describe('reportMarketplaceAddonUsage — usage-credit realization', () => {
     expect(mockIncCounter).toHaveBeenCalledWith('billing_marketplace_credit_consumed_total', {});
   });
 
-  it('does NOT draw down twice in the same hour (atomic hour claim lost → no event)', async () => {
+  it('does NOT draw down twice in the same hour (reservation lost → FULL usage reported, no event)', async () => {
     mockSubscriptionFindOne.mockResolvedValue(creditSub());
     mockSubscriptionFindById.mockResolvedValue(creditSub());
     claims({ period: null, hour: null }); // hour already claimed by another cycle/pod
 
     await reportMarketplaceAddonUsage('org-1');
-    expect(mockMeterAddonUsage).toHaveBeenCalled(); // still reports (AWS dedupes)
+    // No reservation → no discount at AWS: the credit stays on the balance, so the
+    // usage must not be withheld (it was discounted AND kept before).
+    expect(mockMeterAddonUsage).toHaveBeenCalledWith(LICENSE, [{ bundleId: 'seat_pack', quantity: 3 }], expect.any(Date));
     expect(mockCreateBillingEvent).not.toHaveBeenCalledWith('org-1', 'credit_consumed', expect.anything(), expect.anything());
   });
 
-  it('does NOT draw down a dimension AWS did not accept (proportional, not all-or-nothing)', async () => {
+  it('reserves the credit BEFORE reporting the reduced quantities', async () => {
+    mockSubscriptionFindOne.mockResolvedValue(creditSub());
+    mockSubscriptionFindById.mockResolvedValue(creditSub());
+    claims({ period: null, hour: { creditBalanceCents: 0 } });
+
+    await reportMarketplaceAddonUsage('org-1');
+    const reserveIdx = mockSubscriptionFindOneAndUpdate.mock.calls.findIndex((c: any) => c[0]['metadata.lastDrawdownHour']?.$ne);
+    expect(reserveIdx).toBeGreaterThanOrEqual(0);
+    expect(mockSubscriptionFindOneAndUpdate.mock.invocationCallOrder[reserveIdx])
+      .toBeLessThan(mockMeterAddonUsage.mock.invocationCallOrder[0]);
+  });
+
+  it('restores the reserved credit AND frees the hour when the AWS report fails', async () => {
+    mockSubscriptionFindOne.mockResolvedValue(creditSub());
+    mockSubscriptionFindById.mockResolvedValue(creditSub());
+    claims({ period: null, hour: { creditBalanceCents: 0 } });
+    mockMeterAddonUsage.mockRejectedValue(new Error('throttled'));
+
+    const out = await reportMarketplaceAddonUsage('org-1', new Date('2026-07-29T14:00:00Z'));
+    expect(out.status).toBe('error');
+    expect(mockSubscriptionFindOneAndUpdate).toHaveBeenCalledWith(
+      { '_id': expect.anything(), 'metadata.lastDrawdownHour': '2026-07-29T14' },
+      { $inc: { creditBalanceCents: 3000 }, $unset: { 'metadata.lastDrawdownHour': '' } },
+    );
+    expect(mockCreateBillingEvent).not.toHaveBeenCalledWith('org-1', 'credit_consumed', expect.anything(), expect.anything());
+  });
+
+  it('meters a failed restore loudly instead of throwing', async () => {
+    mockSubscriptionFindOne.mockResolvedValue(creditSub());
+    mockSubscriptionFindById.mockResolvedValue(creditSub());
+    mockSubscriptionFindOneAndUpdate.mockImplementation((query: any) => {
+      if (query['metadata.lastDrawdownHour']?.$ne) return Promise.resolve({ creditBalanceCents: 0 });
+      if (query['metadata.lastDrawdownHour']) return Promise.reject(new Error('mongo down'));
+      return Promise.resolve(null);
+    });
+    mockMeterAddonUsage.mockRejectedValue(new Error('throttled'));
+
+    await expect(reportMarketplaceAddonUsage('org-1')).resolves.toMatchObject({ status: 'error' });
+    expect(mockIncCounter).toHaveBeenCalledWith('billing_marketplace_credit_restore_failed_total', {});
+  });
+
+  it('gives back the reserved credit for a dimension AWS did not accept (proportional, not all-or-nothing)', async () => {
     mockSubscriptionFindOne.mockResolvedValue(creditSub());
     mockSubscriptionFindById.mockResolvedValue(creditSub());
     claims({ period: null, hour: { creditBalanceCents: 0 } });
@@ -234,9 +277,8 @@ describe('reportMarketplaceAddonUsage — usage-credit realization', () => {
     mockMeterAddonUsage.mockResolvedValue({ metered: 0, skipped: [], unprocessed: 1, unprocessedDimensions: ['seats'] });
 
     await reportMarketplaceAddonUsage('org-1');
-    expect(mockSubscriptionFindOneAndUpdate).not.toHaveBeenCalledWith(
-      expect.objectContaining({ 'metadata.lastDrawdownHour': expect.anything() }), expect.anything(), expect.anything(),
-    );
+    // Restored WITHOUT freeing the hour (a same-hour retry reports full usage).
+    expect(mockSubscriptionFindOneAndUpdate).toHaveBeenCalledWith({ _id: expect.anything() }, { $inc: { creditBalanceCents: 3000 } });
     expect(mockCreateBillingEvent).not.toHaveBeenCalledWith('org-1', 'credit_consumed', expect.anything(), expect.anything());
   });
 

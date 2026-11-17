@@ -11,17 +11,9 @@ import { startOAuthLogin } from '@/lib/oauth-intent';
 import { peekReturnPath } from '@/lib/return-to';
 import { formatError, providerLabel } from '@/lib/constants';
 import { rateLimitedMessage } from '@/lib/rate-limit-message';
+import { useRequiredPasswordChange, signInError } from './useRequiredPasswordChange';
 import { browserSupportsWebAuthn, browserSupportsWebAuthnAutofill, cancelPasskeyCeremony } from '@/lib/passkeys';
 import { webauthnErrorMessage } from '@/lib/webauthn';
-
-/**
- * A sign-in failure as the person should read it. A rate-limited one says WHEN
- * to try again ("Try again in 12 minutes") rather than "later": every failed
- * retry on the sign-in bucket is counted, so retrying blind extends the wait.
- */
-function signInError(err: unknown, fallback: string): string {
-  return rateLimitedMessage(err) ?? formatError(err, fallback);
-}
 
 /** The same for a passkey ceremony, which stays silent when the person cancelled. */
 function passkeyError(err: unknown): string | null {
@@ -51,7 +43,7 @@ export function emailDomain(identifier: string): string | null {
  * social sign-in. The step components only render what this returns.
  */
 export function useSignInFlow() {
-  const { login, completeMfaLogin, completeRequiredPasswordChange, loginWithPasskey, isSubmitting } = useAuth();
+  const { login, completeMfaLogin, loginWithPasskey, isSubmitting } = useAuth();
   const router = useRouter();
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
@@ -72,10 +64,9 @@ export function useSignInFlow() {
   const [mfaPolicyBlocked, setMfaPolicyBlocked] = useState<string | null>(null);
   // Set when the password was right but no longer meets the org's password
   // policy: no session was opened, and the card asks for a NEW password.
-  const [pwChange, setPwChange] = useState<{ challengeId: string; minLength: number } | null>(null);
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmNewPassword, setConfirmNewPassword] = useState('');
-  const [pwChangeBusy, setPwChangeBusy] = useState(false);
+  // Shared with the OAuth callback page, which reaches the same step after MFA.
+  const passwordChange = useRequiredPasswordChange({ setError });
+  const { takeLoginResult } = passwordChange;
   // Enterprise SSO. `ssoDomain` is what DISCOVERY found (an org's IdP serves the
   // domain — and, per the cache below, whether the org REQUIRES it; we are told
   // nothing else); `ssoAccount` is what a refused password attempt named
@@ -205,9 +196,8 @@ export function useSignInFlow() {
         setMfaCode('');
         setLostFactorOpen(false);
         setMfaChallengeId(result.challengeId);
-      } else if (result.status === 'password_change_required') {
+      } else if (takeLoginResult(result)) {
         setPassword('');
-        setPwChange({ challengeId: result.challengeId, minLength: result.minLength });
       }
     } catch (err) {
       const code = (err as { code?: string } | null)?.code;
@@ -273,10 +263,9 @@ export function useSignInFlow() {
     setMfaBusy(true);
     try {
       const result = await completeMfaLogin(mfaChallengeId, mfaCode.trim());
-      if (result?.status === 'password_change_required') {
+      if (takeLoginResult(result)) {
         setMfaChallengeId(null);
         setMfaCode('');
-        setPwChange({ challengeId: result.challengeId, minLength: result.minLength });
       }
     } catch (err) {
       // A dead challenge is the one refusal that isn't opaque, and the one case
@@ -287,35 +276,6 @@ export function useSignInFlow() {
     } finally {
       setMfaBusy(false);
     }
-  };
-
-  /** Last leg of a sign-in whose password is below the org policy: a new one. */
-  const handlePasswordChangeSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    if (!pwChange) return;
-    if (newPassword.length < pwChange.minLength) {
-      setError(`Your organization requires at least ${pwChange.minLength} characters`);
-      return;
-    }
-    if (newPassword !== confirmNewPassword) { setError('Passwords do not match'); return; }
-    setPwChangeBusy(true);
-    try {
-      await completeRequiredPasswordChange(pwChange.challengeId, newPassword);
-    } catch (err) {
-      // A dead handle can't be retried — back to the password form.
-      if ((err as { code?: string } | null)?.code === 'PASSWORD_CHANGE_CHALLENGE_INVALID') setPwChange(null);
-      setError(signInError(err, 'Could not change your password'));
-    } finally {
-      setPwChangeBusy(false);
-    }
-  };
-
-  const cancelPasswordChange = () => {
-    setPwChange(null);
-    setNewPassword('');
-    setConfirmNewPassword('');
-    setError(null);
   };
 
   /** Abandon the code step and start over with the password. */
@@ -387,8 +347,7 @@ export function useSignInFlow() {
     identifier, changeIdentifier, password, setPassword, showPassword, setShowPassword, handleSignIn,
     mfaChallengeId, mfaCode, setMfaCode, mfaBusy, handleMfaSubmit, cancelMfa, lostFactorOpen, setLostFactorOpen,
     mfaPolicyBlocked,
-    pwChange, newPassword, setNewPassword, confirmNewPassword, setConfirmNewPassword, pwChangeBusy,
-    handlePasswordChangeSubmit, cancelPasswordChange,
+    ...passwordChange,
     discoverSso, ssoDomain, ssoAccount, ssoRequired, ssoOffered, ssoProviderName, ssoBusy, startSso, setBreakGlass,
     passkeySupported, passkeyBusy, handlePasskeySignIn,
     providers, oauthBusy, startOAuth,

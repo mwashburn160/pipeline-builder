@@ -37,7 +37,9 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createCacheService: () => ({ get: jest.fn<AnyFn>(), set: jest.fn<AnyFn>(), del: jest.fn<AnyFn>(), invalidate: jest.fn<AnyFn>() }),
 }));
 
+const mockIncCounter = jest.fn<AnyFn>();
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
+  incCounter: (...a: unknown[]) => mockIncCounter(...a),
   withRoute: (handler: Function) => async (req: any, res: any) => {
     const orgId = req.user?.organizationId || '';
     const userId = req.user?.sub || '';
@@ -90,6 +92,7 @@ const mockCreateCheckoutSession = jest.fn<(...args: unknown[]) => Promise<string
 const mockUpdateSubscription = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 const mockCancelSubscription = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 const mockReactivateSubscription = jest.fn<(...args: unknown[]) => Promise<unknown>>();
+const mockCancelSubscriptionNow = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 
 jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({
   getPaymentProvider: () => ({
@@ -99,6 +102,7 @@ jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({
     updateSubscription: mockUpdateSubscription,
     cancelSubscription: mockCancelSubscription,
     reactivateSubscription: mockReactivateSubscription,
+    cancelSubscriptionNow: mockCancelSubscriptionNow,
   }),
 }));
 
@@ -526,6 +530,59 @@ describe('POST /subscriptions', () => {
     await handler(req, res);
 
     expect(mockSendError).toHaveBeenCalledWith(res, 500, 'Internal server error', 'INTERNAL_ERROR');
+    // Nothing billable was created → plain rollback, no compensation.
+    expect(mockSubscriptionDeleteOne).toHaveBeenCalledWith({ _id: expect.anything() });
+    expect(mockCancelSubscriptionNow).not.toHaveBeenCalled();
+    expect(mockCancelSubscription).not.toHaveBeenCalled();
+  });
+
+  describe('bind save after the provider subscription exists', () => {
+    beforeEach(() => {
+      mockPlanFindOne.mockResolvedValue({ _id: 'pro', name: 'Pro', tier: 'pro', isActive: true });
+      mockSubscriptionFindOne.mockResolvedValue(null);
+    });
+
+    it('retries a transient save failure and keeps the row (no cancel, no delete)', async () => {
+      const save = jest.fn<AnyFn>()
+        .mockRejectedValueOnce(new Error('write conflict'))
+        .mockResolvedValue(undefined);
+      mockSubscriptionCreate.mockResolvedValue(makeSubscription({ save }));
+
+      const res = mockRes();
+      await handler(mockReq(), res);
+
+      expect(save).toHaveBeenCalledTimes(2);
+      expect(mockSendSuccess).toHaveBeenCalledWith(res, 201, expect.anything());
+      expect(mockCancelSubscriptionNow).not.toHaveBeenCalled();
+      expect(mockSubscriptionDeleteOne).not.toHaveBeenCalled();
+    });
+
+    it('cancels the provider subscription BEFORE deleting the row when every save fails', async () => {
+      const save = jest.fn<AnyFn>().mockRejectedValue(new Error('mongo down'));
+      mockSubscriptionCreate.mockResolvedValue(makeSubscription({ save }));
+
+      const res = mockRes();
+      await handler(mockReq(), res);
+
+      expect(save).toHaveBeenCalledTimes(3);
+      expect(mockCancelSubscriptionNow).toHaveBeenCalledWith('ext-sub-1');
+      expect(mockSubscriptionDeleteOne).toHaveBeenCalled();
+      expect(mockCancelSubscriptionNow.mock.invocationCallOrder[0])
+        .toBeLessThan(mockSubscriptionDeleteOne.mock.invocationCallOrder[0]);
+      expect(mockIncCounter).toHaveBeenCalledWith('billing_unbound_provider_subscription_total', { reason: 'bind_save_failed' });
+      expect(mockSendError).toHaveBeenCalledWith(res, 500, 'Internal server error', 'INTERNAL_ERROR');
+    });
+
+    it('meters a failed compensation and still rolls the row back', async () => {
+      const save = jest.fn<AnyFn>().mockRejectedValue(new Error('mongo down'));
+      mockSubscriptionCreate.mockResolvedValue(makeSubscription({ save }));
+      mockCancelSubscriptionNow.mockRejectedValueOnce(new Error('stripe down'));
+
+      await handler(mockReq(), mockRes());
+
+      expect(mockIncCounter).toHaveBeenCalledWith('billing_unbound_provider_subscription_total', { reason: 'compensation_failed' });
+      expect(mockSubscriptionDeleteOne).toHaveBeenCalled();
+    });
   });
 });
 

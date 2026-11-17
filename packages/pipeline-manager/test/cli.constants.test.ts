@@ -18,17 +18,47 @@ import {
   meetsNodeVersionFloor,
   NODE_VERSION_FLOOR,
   pipelineStackName,
+  defaultPipelineName,
 } from '../src/config/cli.constants.js';
 
-describe('pipelineStackName', () => {
-  it('turns underscores into hyphens (CloudFormation stack names allow no `_`)', () => {
-    expect(pipelineStackName('spring_boot', 'system')).toBe('spring-boot-system');
-    expect(pipelineStackName('my__app', 'acme_corp')).toBe('my--app-acme-corp');
+describe('defaultPipelineName', () => {
+  it('keeps the name it always had for a clean pair', () => {
+    expect(defaultPipelineName('my-org', 'spring-boot')).toBe('my_org-spring_boot-pipeline');
+    expect(defaultPipelineName('Acme', 'api')).toBe('acme-api-pipeline');
   });
 
-  it('lowercases, and leaves an already-valid name as it was', () => {
-    expect(pipelineStackName('Spring_Boot', 'System')).toBe('spring-boot-system');
+  it('appends a raw-pair hash when sanitizing is lossy, so spring-boot and spring_boot differ', () => {
+    const clean = defaultPipelineName('acme', 'spring-boot');
+    const lossy = defaultPipelineName('acme', 'spring_boot');
+    expect(lossy).toMatch(/^acme-spring_boot-pipeline-[0-9a-f]{8}$/);
+    expect(lossy).not.toBe(clean);
+    expect(defaultPipelineName('acme', 'my.app')).not.toBe(lossy);
+  });
+});
+
+describe('pipelineStackName', () => {
+  it('turns underscores into hyphens (CloudFormation stack names allow no `_`), with a raw-pair hash', () => {
+    expect(pipelineStackName('spring_boot', 'system')).toMatch(/^spring-boot-system-[0-9a-f]{8}$/);
+    expect(pipelineStackName('my__app', 'acme_corp')).toMatch(/^my--app-acme-corp-[0-9a-f]{8}$/);
+  });
+
+  it('lowercases, and leaves an already-clean name exactly as it was (no hash)', () => {
+    expect(pipelineStackName('Spring-Boot', 'System')).toBe('spring-boot-system');
+    expect(pipelineStackName('spring-boot', 'system')).toBe('spring-boot-system');
     expect(pipelineStackName('api', 'acme')).toBe('api-acme');
+  });
+
+  it('never gives two distinct lossy inputs, or a lossy and a clean one, the same stack', () => {
+    const names = [
+      pipelineStackName('spring-boot', 'system'),
+      pipelineStackName('spring_boot', 'system'),
+      pipelineStackName('spring__boot', 'system'),
+      pipelineStackName('a_b', 'c'),
+      pipelineStackName('a', 'b_c'),
+    ];
+    expect(new Set(names).size).toBe(names.length);
+    // Stable: the same raw pair always derives the same name (case-insensitive).
+    expect(pipelineStackName('Spring_Boot', 'System')).toBe(pipelineStackName('spring_boot', 'system'));
   });
 
   it.each([

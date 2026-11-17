@@ -596,3 +596,112 @@ describe('idempotency key scoping and abort handling', () => {
     expect(replay.res.headers['X-Idempotent-Replayed']).toBe('true');
   });
 });
+
+describe('idempotency key path and faithful replay', () => {
+  const flush = () => new Promise((resolve) => setImmediate(resolve));
+  /** mockRes plus the header/type/write surface real Express responses have. */
+  function richRes(): any {
+    const res = mockRes();
+    res.getHeader = jest.fn((name: string) => res.headers[name]);
+    res.type = jest.fn((t: string) => { res.headers['Content-Type'] = t; return res; });
+    res.write = jest.fn().mockReturnValue(true);
+    return res;
+  }
+  async function first(req: any, complete: (res: any) => void): Promise<void> {
+    const res = richRes();
+    const middleware = idempotencyMiddleware({ store: store_ });
+    middleware(req, res, jest.fn());
+    await flush();
+    complete(res);
+    res.emit('finish');
+    await flush();
+  }
+  async function retry(req: any): Promise<{ res: any; next: any }> {
+    const res = richRes();
+    const next = jest.fn();
+    idempotencyMiddleware({ store: store_ })(req, res, next);
+    await flush();
+    return { res, next };
+  }
+  let store_: ReturnType<typeof createMemoryStore>;
+  beforeEach(() => { store_ = createMemoryStore(); });
+
+  it('keys on the CONCRETE path, not the route pattern (/:id)', async () => {
+    const key = 'k-path';
+    await first(mockReq({ method: 'DELETE', headers: { 'idempotency-key': key }, baseUrl: '/pipelines', path: '/a', route: { path: '/:id' } }),
+      (res) => { res.json({ deleted: 'a' }); });
+    const other = await retry(mockReq({ method: 'DELETE', headers: { 'idempotency-key': key }, baseUrl: '/pipelines', path: '/b', route: { path: '/:id' } }));
+    expect(other.next).toHaveBeenCalled();
+    const same = await retry(mockReq({ method: 'DELETE', headers: { 'idempotency-key': key }, baseUrl: '/pipelines', path: '/a', route: { path: '/:id' } }));
+    expect(same.next).not.toHaveBeenCalled();
+    expect(same.res.json).toHaveBeenCalledWith({ deleted: 'a' });
+  });
+
+  it('replays a string body verbatim with its content type (not JSON-encoded)', async () => {
+    const req = () => mockReq({ headers: { 'idempotency-key': 'k-str' }, path: '/s' });
+    await first(req(), (res) => {
+      res.headers['Content-Type'] = 'text/csv; charset=utf-8';
+      res.send('a,b\n1,2');
+      res.end('a,b\n1,2');
+    });
+    const { res, next } = await retry(req());
+    expect(next).not.toHaveBeenCalled();
+    expect(res.json).not.toHaveBeenCalled();
+    expect(res.type).toHaveBeenCalledWith('text/csv; charset=utf-8');
+    expect(res.send).toHaveBeenCalledWith('a,b\n1,2');
+  });
+
+  it('replays a Buffer body as the same bytes', async () => {
+    const req = () => mockReq({ headers: { 'idempotency-key': 'k-buf' }, path: '/b' });
+    const bytes = Buffer.from([0, 1, 2, 250, 255]);
+    await first(req(), (res) => {
+      res.headers['Content-Type'] = 'application/octet-stream';
+      res.send(bytes);
+      res.end(bytes);
+    });
+    const { res } = await retry(req());
+    expect(res.json).not.toHaveBeenCalled();
+    const sent = res.send.mock.calls[0][0] as Buffer;
+    expect(Buffer.isBuffer(sent)).toBe(true);
+    expect(sent.equals(bytes)).toBe(true);
+  });
+
+  it('round-trips a Buffer body through the Redis store (JSON storage)', async () => {
+    const map = new Map<string, string>();
+    store_ = createRedisIdempotencyStore({
+      get: async (k: string) => map.get(k) ?? null,
+      set: async (k: string, v: string, ...args: (string | number)[]) => {
+        if (args.includes('NX') && map.has(k)) return null;
+        map.set(k, v); return 'OK';
+      },
+      del: async (k: string) => (map.delete(k) ? 1 : 0),
+    });
+    const req = () => mockReq({ headers: { 'idempotency-key': 'k-buf-redis' }, path: '/b' });
+    const bytes = Buffer.from('binary\u0000data');
+    await first(req(), (res) => { res.send(bytes); res.end(bytes); });
+    const { res } = await retry(req());
+    expect((res.send.mock.calls[0][0] as Buffer).equals(bytes)).toBe(true);
+  });
+
+  it('does not cache a streamed (res.write / SSE) response — the retry runs fresh', async () => {
+    const req = () => mockReq({ headers: { 'idempotency-key': 'k-sse' }, path: '/stream' });
+    await first(req(), (res) => {
+      res.headers['Content-Type'] = 'text/event-stream';
+      res.write('data: 1\n\n');
+      res.write('data: 2\n\n');
+      res.end();
+    });
+    const { res, next } = await retry(req());
+    expect(next).toHaveBeenCalled();
+    expect(res.headers['X-Idempotent-Replayed']).not.toBe('true');
+  });
+
+  it('replays an empty 204 as an empty response', async () => {
+    const req = () => mockReq({ headers: { 'idempotency-key': 'k-204' }, path: '/e' });
+    await first(req(), (res) => { res.status(204); res.end(); });
+    const { res } = await retry(req());
+    expect(res.status).toHaveBeenCalledWith(204);
+    expect(res.json).not.toHaveBeenCalled();
+    expect(res.end).toHaveBeenCalled();
+  });
+});

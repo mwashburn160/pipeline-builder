@@ -139,6 +139,7 @@ jest.unstable_mockModule('drizzle-orm/column', () => ({}));
 jest.unstable_mockModule('drizzle-orm/pg-core', () => ({}));
 
 const { MessageService } = await import('../src/services/message-service.js');
+const { sql: mockSql } = (await import('drizzle-orm')) as unknown as { sql: jest.Mock };
 
 // Tests
 
@@ -314,6 +315,35 @@ describe('MessageService', () => {
       mockDbUpdate.mockClear();
       expect(await service.setReadState(IDS, true, 'org-1', 'user-1')).toBe(0);
       expect(mockDbUpdate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('per-org state keys are LOWERCASED, matching the shared readers', () => {
+    // `buildMessageConditions` reads `read_by` / `hidden_by` with the lowercased
+    // org id; a write keyed on the raw id would stamp a key no read finds.
+    const sqlValues = (): string[] => (mockSql.mock.calls as unknown[][])
+      .flatMap((c) => c.slice(1))
+      .filter((v): v is string => typeof v === 'string');
+    const wire = () => {
+      const returningFn = jest.fn<() => Promise<unknown>>().mockResolvedValue([{ id: 'm-1' }]);
+      mockDbUpdate.mockReturnValue({ set: jest.fn<AnyFn>().mockReturnValue({ where: jest.fn<AnyFn>().mockReturnValue({ returning: returningFn }) }) });
+      mockDbSelect.mockReturnValue({ from: jest.fn<AnyFn>().mockReturnValue({ where: jest.fn<() => Promise<unknown>>().mockResolvedValue([{ id: 'm-1' }]) }) });
+    };
+    const cases: Array<[string, (svc: InstanceType<typeof MessageService>) => Promise<unknown>]> = [
+      ['hideFromInbox', (svc) => svc.hideFromInbox('conversation', 'ORG-1', 'user-1')],
+      ['unhideFromInbox', (svc) => svc.unhideFromInbox(['m-1'], 'ORG-1', 'user-1')],
+      ['setReadState(true)', (svc) => svc.setReadState(['m-1'], true, 'ORG-1', 'user-1')],
+      ['setReadState(false)', (svc) => svc.setReadState(['m-1'], false, 'ORG-1', 'user-1')],
+      ['markAsRead', (svc) => svc.markAsRead('m-1', 'ORG-1', 'user-1')],
+      ['markThreadAsRead', (svc) => svc.markThreadAsRead('t-1', 'ORG-1', 'user-1')],
+    ];
+
+    it.each(cases)('%s never keys on the raw-case org id', async (_name, run) => {
+      wire();
+      await run(service);
+      const values = sqlValues();
+      expect(values.some((v) => v === 'org-1' || v.includes('"org-1"'))).toBe(true);
+      expect(values.some((v) => v.includes('ORG-1'))).toBe(false);
     });
   });
 

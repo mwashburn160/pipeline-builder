@@ -172,6 +172,9 @@ const SET_BY_RUNTIME = new Set([
   'AWS_LAMBDA_FUNCTION_NAME',
   // Injected by the kubelet into every pod; read to detect in-cluster.
   'KUBERNETES_SERVICE_HOST', 'KUBERNETES_SERVICE_PORT',
+  // Set by the container runtime (the pod name in Kubernetes); read only to
+  // label which replica holds a lease (billing's entitlement-sync.ts).
+  'HOSTNAME',
 ]);
 
 /** Every name exempt from the documentation requirement, with its reason above. */

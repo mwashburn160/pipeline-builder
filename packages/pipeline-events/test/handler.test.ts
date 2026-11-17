@@ -562,6 +562,20 @@ describe('pipeline-events handler', () => {
     expect(res.batchItemFailures).toEqual([]);
   });
 
+  it.each([
+    ['null', null],
+    ['an empty object', {}],
+    ['an array', [1, 2]],
+    ['a number', 42],
+    ['a non-string detail-type', { ...MOCK_CODEPIPELINE_EVENT, 'detail-type': 7 }],
+    ['a non-object detail', { ...MOCK_CODEPIPELINE_EVENT, detail: 'nope' }],
+  ])('skips (never retries) a JSON body that is %s, keeping the good records', async (_label, body) => {
+    const res = await handler(createSQSEvent([body as unknown as Record<string, unknown>, MOCK_CODEPIPELINE_EVENT]));
+    // A throw here used to fail the record, which SQS redelivered until the DLQ.
+    expect(res.batchItemFailures).toEqual([]);
+    expect(lastEventsBody().events).toHaveLength(1);
+  });
+
   it('should throw if PLATFORM_BASE_URL is not set', async () => {
     const origUrl = process.env.PLATFORM_BASE_URL;
     delete process.env.PLATFORM_BASE_URL;

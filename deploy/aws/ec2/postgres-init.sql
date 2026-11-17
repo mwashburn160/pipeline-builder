@@ -887,6 +887,11 @@ CREATE INDEX IF NOT EXISTS event_plugin_publisher_id_idx
 -- DISTINCT in a unique index — PIPELINE/STAGE/BUILD events leave stage_name/
 -- action_name (and plugin-build, pipeline_id) NULL, so a plain unique index never
 -- dedups them. Must match the drizzle `event_dedup_idx` expression index.
+-- Partial on `source_event_id IS NULL`: an event that carries an EventBridge id
+-- dedups on that id alone (`event_source_event_idx` below), because the composite
+-- key repeats for a genuine stage/action RETRY in the same execution (same key,
+-- new EventBridge id) and must not swallow it. Only events without one (the
+-- plugin-build re-runs) dedup on the composite key.
 CREATE UNIQUE INDEX IF NOT EXISTS event_dedup_idx
     ON pipeline_events (
         coalesce(pipeline_id::text, ''),
@@ -896,7 +901,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS event_dedup_idx
         coalesce(stage_name, ''),
         coalesce(action_name, '')
     )
-    WHERE execution_id IS NOT NULL;
+    WHERE execution_id IS NOT NULL AND source_event_id IS NULL;
 
 -- Strongest dedup key when the producer has one: an EventBridge event id is
 -- unique per AWS state change, so an SQS redelivery or a DLQ redrive of the same

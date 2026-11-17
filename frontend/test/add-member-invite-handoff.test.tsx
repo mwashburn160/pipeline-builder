@@ -90,6 +90,35 @@ describe('AddMemberModal — unregistered address', () => {
   });
 });
 
+describe('AddMemberModal — person outside the account (MEMBER_INVITATION_REQUIRED)', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+  const refusal = () => new ApiError(
+    'That person is not in your organization yet. Send them an invitation — they join when they accept.',
+    409, 'MEMBER_INVITATION_REQUIRED',
+  );
+
+  it('shows the server\'s reason and offers to INVITE that exact address', async () => {
+    addMemberToOrganization.mockRejectedValue(refusal());
+
+    renderModal(true);
+    await submit('outsider@other.io');
+
+    expect(await screen.findByText(/not in your organization yet/i)).toBeInTheDocument();
+    const link = await screen.findByRole('link', { name: /send outsider@other.io an invitation/i });
+    expect(link).toHaveAttribute('href', expect.stringContaining('email=outsider%40other.io'));
+  });
+
+  it('names who can invite instead of linking, for a viewer without invitation access', async () => {
+    addMemberToOrganization.mockRejectedValue(refusal());
+
+    renderModal(false);
+    await submit('outsider@other.io');
+
+    await waitFor(() => expect(screen.getByText(/ask an admin with invitation access/i)).toBeInTheDocument());
+    expect(screen.queryByRole('link', { name: /invitation/i })).not.toBeInTheDocument();
+  });
+});
+
 describe('AddMemberModal — Enter submits once', () => {
   beforeEach(() => { jest.clearAllMocks(); });
 

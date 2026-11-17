@@ -9,6 +9,8 @@
  * change which would drop a count quota below current usage.
  */
 
+import { randomBytes } from 'node:crypto';
+import { hostname } from 'node:os';
 import type { PlanTier, DurableEventBus, EventSubscription } from '@pipeline-builder/api-core';
 import { clampRetentionDays, complianceSetsForFeatures, createLogger, errorMessage, TIER_FEATURES, VALID_QUOTA_TYPES } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
@@ -384,6 +386,22 @@ export function setEntitlementSyncBus(bus: DurableEventBus | null): void {
 }
 
 /**
+ * This process's consumer id within the entitlement-sync group. Was
+ * `billing-${process.pid}` — and every container's app runs as PID 1, so every
+ * replica joined the group as the SAME consumer (`billing-1`): Redis then treats
+ * them as one reader, so pending entries were shared across replicas and the
+ * per-consumer idle tracking that XAUTOCLAIM relies on (the bus already
+ * reclaims a dead consumer's pending messages after `minIdleMs`) could not tell
+ * a crashed replica from a live one. The container's HOSTNAME (pod name in k8s,
+ * container id in Docker) — else `os.hostname()` — plus the pid and a short
+ * random suffix makes the id unique per process, even across restarts.
+ */
+export function entitlementSyncConsumerName(): string {
+  const host = (process.env.HOSTNAME || hostname() || 'unknown').trim() || 'unknown';
+  return `billing-${host}-${process.pid}-${randomBytes(3).toString('hex')}`;
+}
+
+/**
  * Start the billing-side consumer that re-drives failed entitlement syncs off the
  * durable bus. The handler THROWS on an incomplete sync so the bus leaves the
  * message pending and redelivers it (at-least-once) until every leg succeeds.
@@ -393,7 +411,7 @@ export function startEntitlementSyncConsumer(bus: DurableEventBus): EventSubscri
   return bus.subscribe<EntitlementSyncEvent>({
     topic: ENTITLEMENT_SYNC_TOPIC,
     group: 'billing-entitlement-sync',
-    consumer: `billing-${process.pid}`,
+    consumer: entitlementSyncConsumerName(),
     handler: async (env) => {
       const { orgId, subscriptionId } = env.payload;
       let { tier, occurredAt } = env.payload;

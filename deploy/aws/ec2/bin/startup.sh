@@ -122,19 +122,21 @@ if [ "$(id -u)" = "0" ]; then
   # that lost dir x-bits — leaves directories at 0644, which cannot be traversed
   # even by their owner, so a later read of a ConfigMap/cert *source file* dies
   # with "permission denied" ("no objects passed to apply") even though the FILE
-  # itself is 0644-readable. Restore dir execute bits WITHOUT touching file modes
-  # (the 644 TLS/JWT key files stay 644): `+X` adds x only to directories (and
-  # already-executable files). Covers the full deploy path the reader traverses.
+  # itself is readable. Restore dir execute bits WITHOUT touching file modes
+  # (the private keys under certs/ stay 0600, owned by minikube — see the key
+  # section below): `+X` adds x only to directories (and already-executable
+  # files). Covers the full deploy path the reader traverses.
   find "$DEPLOY_DIR" -type d -exec chmod a+rX {} + 2>/dev/null || true
   chmod -R o+rX "$DEPLOY_DIR/k8s" "$DEPLOY_DIR/config" "$DEPLOY_DIR/nginx" 2>/dev/null || true
-  # Give .env to the minikube user (who owns and runs the stack) and keep it
-  # READABLE (0644) so `startup.sh` re-run as ANY login user — root, minikube,
-  # or the default ec2-user/ssm-user — can source it at `. "$ENV_FILE"`. On this
-  # single-node box the whole deploy tree (incl. TLS/JWT keys) is intentionally
-  # 644; locking .env to 0600/root makes a non-owner re-run die with
-  # "Permission denied" while sourcing it.
+  # .env holds every credential of the stack (DB superusers, S3 keys, signing
+  # secrets), so it is minikube:minikube 0600 — never world-readable. The two
+  # identities that legitimately source it are both covered: root (this unit,
+  # bootstrap, boot-recover — root ignores the mode) and minikube (a non-root
+  # re-run of startup.sh, whose `mk` runs commands directly and so must BE the
+  # minikube user, plus the backup unit). Any other login user re-runs with
+  # `sudo` (or `sudo -iu minikube`), exactly as every other step here needs.
   chown minikube:minikube "$DEPLOY_DIR/.env" 2>/dev/null || true
-  chmod 644 "$DEPLOY_DIR/.env" 2>/dev/null || true
+  chmod 600 "$DEPLOY_DIR/.env" 2>/dev/null || true
 fi
 # Generate the MongoDB replica-set keyfile per-deploy (idempotent; the keyfile is
 # never committed). pb_create_config_maps below reads it directly.
@@ -148,7 +150,7 @@ if [ -f "$DEPLOY_DIR/mongodb-keyfile" ]; then
   # 0400 keyfile is unreadable by minikube → "open …: permission denied" → the
   # secret gets no input ("no objects passed to apply"). Hand the file to
   # minikube so its owner-only read still applies to the kubectl reader. The
-  # keyfile stays 0400 (never loosened to 0644 like the TLS/JWT keys), and the
+  # keyfile stays 0400 (tighter than the 0600 signing keys), and the
   # container's mounted copy is independently chmod 400 + chown 999 in
   # mongodb.yaml, so host ownership doesn't weaken Mongo's keyfile security.
   [ "$(id -u)" = "0" ] && chown minikube "$DEPLOY_DIR/mongodb-keyfile" 2>/dev/null || true
@@ -323,8 +325,25 @@ log "Creating registry token-signing keypair"
 mkdir -p "$CERT_DIR"
 # Group the cert dir to minikube so `mk kubectl` (the minikube-user reader) can
 # traverse it. Root-only: a non-root (minikube) run can't chown to root and would
-# abort under `set -e` — and it doesn't need to (it already owns what it created;
-# the JWT keys are 0644 and the dir 0755, so they stay readable regardless).
+# abort under `set -e` — and it doesn't need to (it already owns what it created,
+# and the dir is 0755).
+#
+# KEY FILE MODES on this target: every PRIVATE key is minikube:minikube 0600 and
+# every public cert/key/bundle 0644. Nothing bind-mounts these files into a
+# container here — they reach pods only as Secrets that `mk kubectl` (the
+# minikube user) builds from them, and init-platform (also minikube) signs with
+# service-keys/deploy-bootstrap.key — so the owner is the only reader needed.
+# pb_own_private_keys hands root-generated keys to minikube; a minikube-run
+# startup already owns them (the generators write 0600).
+pb_own_private_keys() {
+  [ "$(id -u)" = "0" ] || return 0
+  local _f
+  for _f in "$@"; do
+    [ -f "$_f" ] || continue
+    chown minikube:minikube "$_f"
+    chmod 600 "$_f"
+  done
+}
 [ "$(id -u)" = "0" ] && chown root:minikube "$CERT_DIR" 2>/dev/null || true
 
 # JWT signing keypair for image-registry's token-auth endpoint (shared generator), then the
@@ -334,12 +353,14 @@ bash "$BIN_DIR/jwt-keys.sh" "$CERT_DIR"
 # Guarantee the minikube-user reader (pb_create_registry_secrets → mk kubectl)
 # can TRAVERSE cert dir + READ the freshly-written keypair, regardless of the
 # umask jwt-keys.sh created them under. Dir gets traverse bits; the key/crt keep
-# the intended 0644 (readable). This is the exact read that was failing with
-# "permission denied → no objects passed to apply" when a dir lost its x-bit.
+# minikube:minikube 0600 (private key) / 0644 (cert). This is the exact read that
+# was failing with "permission denied → no objects passed to apply" when a dir
+# lost its x-bit.
 if [ "$(id -u)" = "0" ]; then
   chmod a+rX "$CERT_DIR" 2>/dev/null || true
-  chmod 644 "$CERT_DIR/image-registry-jwt.key" "$CERT_DIR/image-registry-jwt.crt" 2>/dev/null || true
+  chmod 644 "$CERT_DIR/image-registry-jwt.crt" 2>/dev/null || true
 fi
+pb_own_private_keys "$CERT_DIR/image-registry-jwt.key"
 pb_create_registry_secrets "$CERT_DIR/image-registry-jwt.key" "$CERT_DIR/image-registry-jwt.crt"
 echo "  registry token-signing keypair done"
 
@@ -347,7 +368,7 @@ echo "  registry token-signing keypair done"
 # TOKEN_SIGNING_MODE=kms, where the private key never leaves AWS.
 if [ "${TOKEN_SIGNING_MODE:-local}" = "local" ]; then
   bash "$BIN_DIR/token-signing-keys.sh" "$CERT_DIR"
-  [ "$(id -u)" = "0" ] && chmod 644 "$CERT_DIR/token-signing/token-signing.key" 2>/dev/null || true
+  pb_own_private_keys "$CERT_DIR/token-signing/token-signing.key" "$CERT_DIR/token-signing/token-signing-previous.key"
 fi
 pb_create_token_signing_secret "$CERT_DIR/token-signing/token-signing.key" "$CERT_DIR/token-signing/token-signing-previous.key"
 echo "  user-token signing key done"
@@ -359,7 +380,8 @@ echo "  user-token signing key done"
 # pb_create_plugin_signing_secrets. Idempotent: never regenerates a key, since
 # that would orphan the signature on every plugin image already pushed.
 bash "$BIN_DIR/plugin-signing-keys.sh" "$CERT_DIR"
-[ "$(id -u)" = "0" ] && chmod 644 "$CERT_DIR"/plugin-signing/plugin-signing.* 2>/dev/null || true
+pb_own_private_keys "$CERT_DIR/plugin-signing/plugin-signing.key"
+[ "$(id -u)" = "0" ] && chmod 644 "$CERT_DIR/plugin-signing/plugin-signing.pub" 2>/dev/null || true
 pb_create_plugin_signing_secrets "$CERT_DIR/plugin-signing"
 echo "  plugin-image signing key done"
 
@@ -369,7 +391,7 @@ echo "  plugin-image signing key done"
 # `service-key-bundle` every service verifies against. Idempotent: re-running
 # startup never rotates a key (see the two-phase procedure in the generator).
 bash "$BIN_DIR/service-signing-keys.sh" "$CERT_DIR"
-[ "$(id -u)" = "0" ] && chmod 644 "$CERT_DIR"/service-keys/*.key 2>/dev/null || true
+pb_own_private_keys "$CERT_DIR"/service-keys/*.key
 pb_create_service_key_secrets "$CERT_DIR/service-keys"
 echo "  per-service signing keys done"
 

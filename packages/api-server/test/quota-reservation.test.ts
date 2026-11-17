@@ -59,6 +59,13 @@ describe('withQuotaReservation', () => {
     expect(mockDecrementQuota.mock.calls[0]![6]).toBe(GRANTED.quota.resetAt);
   });
 
+  it('does NOT refund a fail-open pass (QUOTA_RESERVE_FAIL_OPEN): nothing was reserved', async () => {
+    mockReserveQuota.mockResolvedValue({ exceeded: false, failOpen: true, quota: { type: 'aiCalls', limit: -1, used: 0, remaining: -1 } });
+    const err = new Error('boom');
+    await expect(withQuotaReservation(opts(), async () => { throw err; })).rejects.toBe(err);
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
+  });
+
   it('keeps the slot once consumed, whatever fails afterwards', async () => {
     const onError = jest.fn<(e: unknown) => void>();
     await withQuotaReservation(opts(), async (slot) => { slot.markConsumed(); throw new Error('late'); }, onError);

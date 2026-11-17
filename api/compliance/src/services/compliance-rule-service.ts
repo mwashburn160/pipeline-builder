@@ -521,17 +521,33 @@ export class ComplianceRuleService extends CrudService<
     });
   }
 
-  /** Batch lookup of non-deleted rules by id. */
-  async findManyByIds(ids: string[]): Promise<ComplianceRule[]> {
+  /**
+   * Batch lookup of live (active, non-deleted) PUBLISHED rules by id.
+   *
+   * Runs under sysadmin scope (published rules don't share the caller's
+   * orgId), so the `scope='published'` filter is REQUIRED — without it this
+   * returned ANY org's private rule by UUID, exactly the cross-tenant
+   * disclosure {@link findPublishedById} guards against. The subscription
+   * callers only ever deal in published rules (a subscription can only be to
+   * one), so for them nothing else is wanted.
+   *
+   * `alsoOwnedBy` admits, in addition, the rules OWNED by these orgs whatever
+   * their scope — for a caller that must see its own (and its parent's) private
+   * rules, like the exemption check. Named orgs only: never "any scope".
+   */
+  async findManyByIds(ids: string[], options: { alsoOwnedBy?: Array<string | undefined> } = {}): Promise<ComplianceRule[]> {
     if (ids.length === 0) return [];
-    // Caller-side scope decision: this is used by the subscription flow which
-    // needs to look up published rules from any org. Sysadmin scope.
+    const owners = [...new Set((options.alsoOwnedBy ?? []).filter((o): o is string => !!o).map((o) => o.toLowerCase()))];
+    const visible = owners.length > 0
+      ? or(eq(schema.complianceRule.scope, 'published' as RuleScope), inArray(schema.complianceRule.orgId, owners))!
+      : eq(schema.complianceRule.scope, 'published' as RuleScope);
     const rows = await runWithTenantContext({ isSuperAdmin: true }, () =>
       withTenantTx(async (tx) => tx
         .select()
         .from(schema.complianceRule)
         .where(and(
           inArray(schema.complianceRule.id, ids),
+          visible,
           eq(schema.complianceRule.isActive, true),
           isNull(schema.complianceRule.deletedAt),
         ))),

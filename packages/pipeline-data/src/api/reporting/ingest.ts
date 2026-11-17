@@ -387,10 +387,12 @@ export async function ingestEvents(
     }
 
     // SQS is at-least-once, so EventBridge can deliver the same state-change
-    // twice. `onConflictDoNothing` + the partial unique indexes on
-    // (pipeline_id, execution_id, event_type, status, stage_name, action_name)
-    // and on source_event_id (the EventBridge id, when present) make
-    // re-delivery idempotent. `returning` gives the REAL inserted set so
+    // twice. `onConflictDoNothing` + the partial unique indexes make
+    // re-delivery idempotent: an event WITH a source_event_id (the EventBridge
+    // id) dedups on that id alone — so a genuinely retried stage/action, which
+    // repeats the composite key under a new id, still lands — and one without
+    // dedups on (pipeline_id, execution_id, event_type, status, stage_name,
+    // action_name). `returning` gives the REAL inserted set so
     // counts, metrics and cache invalidation all ignore duplicates.
     const landed = rows.length > 0
       ? await tx.insert(schema.pipelineEvent).values(rows)

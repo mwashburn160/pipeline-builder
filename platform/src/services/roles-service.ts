@@ -265,8 +265,9 @@ export async function recomputeUserOrgRole(
   // expiry. Bumping claimsVersion makes every service reject the user's existing
   // ACCESS tokens; their refresh token stays valid (it carries only the hard
   // tokenVersion), so the next refresh reissues a JWT carrying the new
-  // role/flag — no sign-in. (A removal/deactivation is different: that bumps
-  // tokenVersion and drops the slots — the session ENDS.) No bump when nothing
+  // role/flag — no sign-in. (A membership removal/deactivation is the same
+  // claims bump, scoped to that org: the person's sessions span their other
+  // orgs and survive — see org-members-service `endOrgAccess`.) No bump when nothing
   // flipped (e.g. assigned a member-only Role, or a no-op re-assign).
   if (privilegeChanged) {
     await User.updateOne({ _id: userId }, { $inc: { claimsVersion: 1 } }, { session });

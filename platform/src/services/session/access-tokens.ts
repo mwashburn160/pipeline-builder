@@ -452,7 +452,15 @@ export async function issueImpersonationToken(
   jti: string,
   auth: SessionAuth,
   ttlSeconds = IMPERSONATION_SESSION_TTL_MS / 1000,
+  /** The redeemed record's `expiresAt`: the token's `exp` is capped at it, so a
+   *  session never outlives the record that authorizes it (requireAuth also
+   *  refuses a record past its window). */
+  notAfter?: Date,
 ): Promise<{ accessToken: string; expiresIn: number }> {
+  if (notAfter) {
+    const remaining = Math.floor((new Date(notAfter).getTime() - Date.now()) / 1000);
+    ttlSeconds = Math.max(0, Math.min(ttlSeconds, remaining));
+  }
   let membership: MembershipContext | undefined;
   try {
     membership = orgId ? await resolveOrgMembership(target._id.toString(), orgId) : undefined;

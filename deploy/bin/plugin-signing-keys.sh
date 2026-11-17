@@ -40,7 +40,7 @@
 # mounted. Delete the key and re-run only as part of that procedure — see
 # "Plugin-signing key" in docs/runbooks/secret-rotation.md.
 #
-# Writes (chmod 644 — deploy convention, see deploy/*/startup.sh):
+# Writes (the key 0600 — 0644 on the docker target, see KEY_MODE below; the .pub 0644):
 #   <cert_dir>/plugin-signing/plugin-signing.key   EC P-256 private key, PKCS#8 PEM (local mode only)
 #   <cert_dir>/plugin-signing/plugin-signing.pub   EC P-256 public key, SPKI PEM   (both modes)
 
@@ -59,6 +59,18 @@ CERT_DIR="${CERT_DIR:-$(cd "$(dirname "$0")/.." && pwd)/certs}"
 KEY_DIR="$CERT_DIR/plugin-signing"
 KEY_FILE="$KEY_DIR/plugin-signing.key"
 PUB_FILE="$KEY_DIR/plugin-signing.pub"
+
+# Private-key file mode. 0600 wherever the key is only read by the user who
+# owns it: the k8s targets load it into a Secret with kubectl as that same user
+# (ec2's startup.sh chowns it to minikube, the user its kubectl runs as). The
+# docker target is the one exception — compose BIND-MOUNTS the file into
+# containers that run as assorted uids, which on a Linux host read it as
+# "other" — so a cert_dir that sits next to a docker-compose.yml keeps 0644
+# (local dev only; tightening it there has broken reads before).
+# PB_PRIVATE_KEY_MODE overrides either default.
+if [ -n "${PB_PRIVATE_KEY_MODE:-}" ]; then KEY_MODE="$PB_PRIVATE_KEY_MODE"
+elif [ -f "$(dirname "$CERT_DIR")/docker-compose.yml" ]; then KEY_MODE=644
+else KEY_MODE=600; fi
 MODE="${PLUGIN_SIGNING_MODE:-local}"
 
 mkdir -p "$KEY_DIR"
@@ -82,8 +94,9 @@ case "$MODE" in
       # (ECC_NIST_P256), so a deployment can move between signers without
       # changing what cosign verifies against. PKCS#8 so cosign's
       # `import-key-pair` (run by image-registry at boot) reads it without a hint.
-      openssl ecparam -name prime256v1 -genkey -noout 2>/dev/null \
-        | openssl pkcs8 -topk8 -nocrypt -out "$KEY_FILE"
+      ( umask 077
+        openssl ecparam -name prime256v1 -genkey -noout 2>/dev/null \
+          | openssl pkcs8 -topk8 -nocrypt -out "$KEY_FILE" )
       echo "  wrote plugin signing key: $KEY_FILE"
     fi
     # Re-derive the public half whenever it is missing — it is a pure function
@@ -123,7 +136,6 @@ case "$MODE" in
     ;;
 esac
 
-# 644 (not 600): the deploy convention — mounted into containers that run as
-# assorted uids, and tightening to 600 has broken reads before.
-[ -f "$KEY_FILE" ] && chmod 644 "$KEY_FILE"
+# The public half is 0644; the private key gets KEY_MODE (see above).
+[ -f "$KEY_FILE" ] && chmod "$KEY_MODE" "$KEY_FILE"
 chmod 644 "$PUB_FILE"

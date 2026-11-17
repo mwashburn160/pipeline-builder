@@ -401,11 +401,11 @@ export class Workflow extends Component {
                     if: '${{ steps.check.outputs.AFFECTED_LIBS != \'[]\' && steps.check.outputs.AFFECTED_LIBS != \'\' }}',
                     // Belt-and-suspenders: if FILTERS resolves empty, skip rather than
                     // let `pnpm publish` fall back to the current (root) package.
-                    // `--loglevel debug`, not `--verbose`: pnpm 12 dropped the
-                    // latter and exits 2 on an unknown argument, so the release
-                    // failed AFTER the images had been pushed. The flag is only
-                    // for diagnosing a failed publish — the levels are
-                    // silent|error|warn|info|debug.
+                    // Default loglevel: `--loglevel debug` dumped full registry
+                    // request/response traces (headers included) into the public
+                    // job log. To diagnose a failed publish, re-run the job with
+                    // debug logging enabled rather than shipping it always-on.
+                    // (Do NOT use `--verbose`: pnpm 12 dropped it and exits 2.)
                     //
                     // PROVENANCE: every package carries publishConfig.provenance
                     // (.projenrc.ts publishToNpm), and NPM_CONFIG_PROVENANCE says
@@ -418,7 +418,7 @@ export class Workflow extends Component {
                     // mwashburn160/pipeline-builder, workflow release.yml) the
                     // long-lived NPM_TOKEN set in "Configure npm registry" is only
                     // a fallback and can be deleted.
-                    run: 'npm config set @pipeline-builder:registry=https://registry.npmjs.org/ && FILTERS=$(echo \'${{ steps.check.outputs.AFFECTED_LIBS }}\' | jq -r \'[.[] | "--filter @pipeline-builder/" + .] | join(" ")\') && if [ -z "$FILTERS" ]; then echo "No affected @pipeline-builder libraries to publish."; else pnpm publish --access public $FILTERS --no-git-checks --loglevel debug; fi',
+                    run: 'npm config set @pipeline-builder:registry=https://registry.npmjs.org/ && FILTERS=$(echo \'${{ steps.check.outputs.AFFECTED_LIBS }}\' | jq -r \'[.[] | "--filter @pipeline-builder/" + .] | join(" ")\') && if [ -z "$FILTERS" ]; then echo "No affected @pipeline-builder libraries to publish."; else pnpm publish --access public $FILTERS --no-git-checks; fi',
                     env: { NPM_CONFIG_PROVENANCE: 'true' },
                 },
                 {
@@ -1159,6 +1159,34 @@ export class Workflow extends Component {
         'grype version',
     ];
 
+    /**
+     * "Configure npm registry". The secret reaches the shell through `env:`,
+     * never by `${{ }}` interpolation into the script text, and the DECODED
+     * token is registered with `::add-mask::` before anything can print it
+     * (GitHub only masks the secret's literal — base64 — value). The token is
+     * written to the npm userconfig with the `printf` builtin so it never
+     * appears in a process argv.
+     */
+    private static configureNpmStep(): JobStep {
+        return {
+            name: 'Configure npm registry',
+            env: { NPM_TOKEN_ENCODED: '${{ secrets.NPM_TOKEN_ENCODED }}' },
+            run: [
+                'set -euo pipefail',
+                'NPM_TOKEN="$(printf "%s" "$NPM_TOKEN_ENCODED" | base64 -d)"',
+                'if [ -n "$NPM_TOKEN" ]; then',
+                '  echo "::add-mask::$NPM_TOKEN"',
+                '  NPMRC="$(npm config get userconfig)"',
+                '  touch "$NPMRC" && chmod 600 "$NPMRC"',
+                '  printf "//registry.npmjs.org/:_authToken=%s\\n" "$NPM_TOKEN" >> "$NPMRC"',
+                'else',
+                '  echo "NPM_TOKEN_ENCODED is not available; continuing without npm auth"',
+                'fi',
+                'npm config set @pipeline-builder:registry=https://registry.npmjs.org/',
+            ].join('\n'),
+        };
+    }
+
     /** `env` every DIFF_BASE step needs (the push `before` SHA). */
     private static readonly DIFF_BASE_ENV = { PUSH_BEFORE: '${{ github.event.before }}' };
 
@@ -1194,10 +1222,7 @@ export class Workflow extends Component {
                     'package-manager-cache': 'pnpm',
                 },
             },
-            {
-                name: 'Configure npm registry',
-                run: 'export NPM_TOKEN=$(echo ${{ secrets.NPM_TOKEN_ENCODED }} | base64 -d) && npm config set //registry.npmjs.org/\:_authToken=$NPM_TOKEN && npm config set \@pipeline-builder\:registry=https://registry.npmjs.org/',
-            },
+            Workflow.configureNpmStep(),
             {
                 name: 'Install dependencies',
                 run: 'pnpm install --frozen-lockfile',
@@ -1428,7 +1453,8 @@ export class Workflow extends Component {
      * 5. **Install deps**: `pnpm install --frozen-lockfile` — a release builds
      *    exactly the dependency set the lockfile pins, or fails
      * 6. **Set git user**: Configures git for version commits
-     * 7. **Prune tags**: Deletes git tags older than 15 days
+     * 7. **Prune tags**: Deletes git tags older than 15 days, always keeping
+     *    each project's newest release/* tag (nx release reads it)
      *
      * Cache Strategy:
      * - Uses the PNPM content-addressable store (setup-node cache). There is no
@@ -1480,10 +1506,7 @@ export class Workflow extends Component {
                     'package-manager-cache': 'pnpm',
                 },
             },
-            {
-                name: 'Configure npm registry',
-                run: 'export NPM_TOKEN=$(echo ${{ secrets.NPM_TOKEN_ENCODED }} | base64 -d) && npm config set //registry.npmjs.org/\:_authToken=$NPM_TOKEN && npm config set \@pipeline-builder\:registry=https://registry.npmjs.org/',
-            },
+            Workflow.configureNpmStep(),
             {
                 // Frozen: the release must build exactly what pnpm-lock.yaml pins.
                 // `--no-frozen-lockfile` let CI silently resolve a DIFFERENT
@@ -1499,14 +1522,37 @@ export class Workflow extends Component {
                 run: 'git config user.name "ci" && git config user.email "mwashburn160@gmail.com"',
             },
             {
+                // Prune old tags, but NEVER a project's newest release tag.
+                // `nx release` derives each project's current version from its
+                // latest `release/{projectName}/{version}` tag; deleting every
+                // tag older than 15 days removed that tag for any project not
+                // released in the window, and the next release mis-detected
+                // its version. So: release/* tags are grouped by project (the
+                // tag minus its last `/version` segment) and the newest one
+                // per project is always kept; only OLDER release tags and
+                // other tags past the cutoff are deleted.
                 name: 'Prune tags older than 15 days',
-                run: 'CUTOFF_DATE=$(date -d "15 days ago" +%s) && ' +
-                    'git for-each-ref --format="%(refname:short) %(creatordate:unix)" refs/tags | while read TAG DATE; do ' +
-                    'if [ $DATE -lt $CUTOFF_DATE ]; then ' +
-                    'echo "Deleting tag $TAG created on $(date -d @$DATE)"; ' +
-                    'git tag -d $TAG; ' +
-                    'fi; ' +
-                    'done && git push origin --tags --prune',
+                run: [
+                    'set -euo pipefail',
+                    'CUTOFF_DATE="$(date -d "15 days ago" +%s)"',
+                    'SEEN="|"',
+                    'PRUNED=0',
+                    'while read -r TAG DATE; do',
+                    '  case "$TAG" in',
+                    '    release/*)',
+                    '      PROJECT="${TAG%/*}"',
+                    '      case "$SEEN" in *"|$PROJECT|"*) ;; *) SEEN="$SEEN$PROJECT|"; continue ;; esac',
+                    '      ;;',
+                    '  esac',
+                    '  if [ "$DATE" -lt "$CUTOFF_DATE" ]; then',
+                    '    echo "Deleting tag $TAG created on $(date -d "@$DATE")"',
+                    '    git tag -d "$TAG"',
+                    '    PRUNED=$((PRUNED + 1))',
+                    '  fi',
+                    // Newest first, so the first release/* tag seen per project is its latest.
+                    'done < <(git for-each-ref --sort=-creatordate --format="%(refname:short) %(creatordate:unix)" refs/tags)',
+                    'if [ "$PRUNED" -gt 0 ]; then git push origin --tags --prune; fi',
+                ].join('\n'),
             },
         ];
     }

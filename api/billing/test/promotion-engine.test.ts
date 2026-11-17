@@ -272,7 +272,7 @@ describe('grantPromotionToOrg', () => {
 });
 
 describe('clawbackRecentPromotions', () => {
-  it('reverses a recent grant: pulls the ledger row, reduces balance, releases budget', async () => {
+  it('reverses a recent grant: tombstones the ledger row, reduces balance, releases budget', async () => {
     promo.spentCents = 5000; promo.grantsCount = 1;
     const appliedAt = new Date();
     const sub = {
@@ -286,13 +286,14 @@ describe('clawbackRecentPromotions', () => {
     expect(count).toBe(1);
     expect(sub.creditBalanceCents).toBe(0);
     const key = `promo-clawback-promo:promo_1:org_1-${appliedAt.getTime()}`;
-    // Ledger $pull + balance $inc -reduce on the subscription, guarded on the row
-    // still being present (so a retried cancel can't double-release) — and the
+    // Ledger row TOMBSTONED (dedupeKey kept, cents → consumed part, 0 grants) +
+    // balance $inc -reduce on the subscription, guarded on the row not already
+    // being tombstoned (so a retried cancel can't double-release) — and the
     // provider debit queued in the SAME write.
     expect(mockSubUpdateOne).toHaveBeenCalledWith(
-      { '_id': 'sub_1', 'creditLedger.dedupeKey': 'promo:promo_1:org_1' },
+      { _id: 'sub_1', creditLedger: { $elemMatch: { dedupeKey: 'promo:promo_1:org_1', clawedBackAt: { $exists: false } } } },
       {
-        $pull: { creditLedger: { dedupeKey: 'promo:promo_1:org_1' } },
+        $set: { 'creditLedger.$.cents': 0, 'creditLedger.$.grantCount': 0, 'creditLedger.$.clawedBackAt': expect.any(Date) },
         $inc: { creditBalanceCents: -5000 },
         $push: { pendingCreditDebits: { key, cents: 5000, createdAt: expect.any(Date) } },
       },
@@ -329,6 +330,47 @@ describe('clawbackRecentPromotions', () => {
     };
     await clawbackRecentPromotions(sub as any);
     expect(mockDebitUsageCredit).toHaveBeenCalledWith('cus_1', 1200, expect.stringMatching(/^promo-clawback-/));
+  });
+
+  it('releases only the RECOVERED cents to the promotion + campaign budgets when some was consumed', async () => {
+    campaignStore.set('spring', { _id: 'spring', isActive: true, spentCents: 5000, grantsCount: 1, budgetCents: 5000 });
+    const sub = {
+      _id: 'sub_1',
+      orgId: ORG,
+      externalCustomerId: 'cus_1',
+      creditBalanceCents: 1200,
+      creditLedger: [{ discountId: 'promo:promo_1', cents: 5000, appliedAt: new Date(), dedupeKey: 'promo:promo_1:org_1', campaign: 'spring' }],
+    };
+    expect(await clawbackRecentPromotions(sub as any)).toBe(1);
+    // 3800c was spent on real invoices — it stays spent on both budgets.
+    expect(mockPromoUpdateOne).toHaveBeenCalledWith({ _id: 'promo_1' }, { $inc: { spentCents: -1200, grantsCount: -1 } });
+    expect(campaignStore.get('spring')).toMatchObject({ spentCents: 3800, grantsCount: 0 });
+    // The tombstone keeps the consumed 3800c so ledger-derived spend agrees.
+    const [, update] = mockSubUpdateOne.mock.calls[0] as [unknown, { $set: Record<string, unknown> }];
+    expect(update.$set['creditLedger.$.cents']).toBe(3800);
+    campaignStore.delete('spring');
+  });
+
+  it('skips a row already tombstoned by an earlier clawback', async () => {
+    const sub = {
+      _id: 'sub_1',
+      orgId: ORG,
+      creditBalanceCents: 5000,
+      creditLedger: [{ discountId: 'promo:promo_1', cents: 0, grantCount: 0, appliedAt: new Date(), dedupeKey: 'promo:promo_1:org_1', clawedBackAt: new Date() }],
+    };
+    expect(await clawbackRecentPromotions(sub as any)).toBe(0);
+    expect(mockSubUpdateOne).not.toHaveBeenCalled();
+  });
+
+  it('a one-time promotion cannot be re-granted to the org after a clawback (tombstone keeps the dedupeKey)', async () => {
+    const sub = {
+      ...subFixture(),
+      orgId: ORG,
+      creditLedger: [{ discountId: 'promo:promo_1', cents: 0, grantCount: 0, appliedAt: new Date(), dedupeKey: 'promo:promo_1:org_1', clawedBackAt: new Date() }],
+    };
+    const r = await grantPromotionToOrg(promo as any, sub as any, ORG, CTX);
+    expect(r).toMatchObject({ granted: false, reason: 'already_granted' });
+    expect(promo.spentCents).toBe(0);
   });
 
   it('queues no provider debit when the credit is fully consumed', async () => {

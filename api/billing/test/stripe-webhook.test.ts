@@ -748,6 +748,43 @@ describe('handleSubscriptionUpdated unentitled → entitled crossing', () => {
     expect(mockSyncTier).not.toHaveBeenCalled();
     expect(mockRunSignupPromotions).not.toHaveBeenCalled();
   });
+
+  // Grace-lapsed past_due → active via `.updated` BEFORE invoice.payment_succeeded:
+  // the marker must be cleared HERE (the invoice handler then sees `active` and
+  // never takes its recovery branch) and the tier re-pushed after the save.
+  it('clears the grace-lapse marker and re-syncs the tier when a lapsed past_due goes active', async () => {
+    const sub = makeSub({ status: 'past_due', metadata: { provider: 'stripe', gracePeriodDowngradedAt: '2026-08-15T00:00:00Z' } });
+    mockFindByStripeId.mockResolvedValue(sub);
+
+    await handleSubscriptionUpdated(stripeSub('active'), EVT);
+
+    expect(sub.metadata.gracePeriodDowngradedAt).toBeUndefined();
+    expect(sub.metadata.provider).toBe('stripe');
+    expect(sub.save).toHaveBeenCalled();
+    expect(mockSyncTier).toHaveBeenCalledTimes(1);
+    expect(mockSyncTier).toHaveBeenCalledWith('org-inc', 'team', '', 'sub-inc', [{ bundleId: 'seat_pack', quantity: 2 }]);
+    expect(sub.save.mock.invocationCallOrder[0]).toBeLessThan(mockSyncTier.mock.invocationCallOrder[0]);
+  });
+
+  it('clears the marker but does not double-sync when the crossing grant already re-pushes the tier', async () => {
+    const sub = makeSub({ status: 'canceled', metadata: { gracePeriodDowngradedAt: '2026-08-15T00:00:00Z' } });
+    mockFindByStripeId.mockResolvedValue(sub);
+
+    await handleSubscriptionUpdated(stripeSub('active'), EVT);
+
+    expect(sub.metadata.gracePeriodDowngradedAt).toBeUndefined();
+    expect(mockSyncTier).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the marker on a lapsed sub that is still past_due', async () => {
+    const sub = makeSub({ status: 'past_due', firstFailedAt: new Date(), metadata: { gracePeriodDowngradedAt: '2026-08-15T00:00:00Z' } });
+    mockFindByStripeId.mockResolvedValue(sub);
+
+    await handleSubscriptionUpdated(stripeSub('past_due'), EVT);
+
+    expect(sub.metadata.gracePeriodDowngradedAt).toBe('2026-08-15T00:00:00Z');
+    expect(mockSyncTier).not.toHaveBeenCalled();
+  });
 });
 
 // ============================================

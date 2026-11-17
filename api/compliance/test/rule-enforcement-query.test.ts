@@ -143,4 +143,26 @@ describe('ComplianceRuleService — enforcement queries (real query builder)', (
     expect(result.blocked).toBe(false);
     expect(JSON.stringify([plugins, pipelines])).not.toMatch(/sekret|"pw"/);
   });
+  describe('findManyByIds — sysadmin scope, so PUBLISHED only unless owners are named', () => {
+    it('filters to scope = published by default (another tenant\'s private rule is never returned)', async () => {
+      await svc.findManyByIds(['r-1', 'r-2']);
+      const stmt = rdb.statements[0]!;
+      expect(paramsForColumn(stmt, 'scope')).toEqual(['published']);
+      expect(stmt.sql).not.toMatch(/"org_id" in/);
+      expect(stmt.sql).toMatch(/"is_active" = \$\d+/);
+      expect(stmt.sql).toMatch(/"deleted_at" is null/);
+    });
+
+    it('alsoOwnedBy admits the NAMED orgs\' own rules besides published ones — lowercased, blanks dropped', async () => {
+      await svc.findManyByIds(['r-1'], { alsoOwnedBy: ['ORG-A', undefined, 'org-parent'] });
+      const stmt = rdb.statements[0]!;
+      expect(stmt.sql).toMatch(/\("compliance_rules"\."scope" = \$\d+ or "compliance_rules"\."org_id" in \(\$\d+, \$\d+\)\)/);
+      expect(stmt.params).toEqual(expect.arrayContaining(['published', 'org-a', 'org-parent']));
+    });
+
+    it('answers [] without a query for no ids', async () => {
+      expect(await svc.findManyByIds([])).toEqual([]);
+      expect(rdb.statements).toHaveLength(0);
+    });
+  });
 });

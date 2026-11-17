@@ -37,7 +37,7 @@
 # token-signing-previous.key (and unsetting TOKEN_SIGNING_KEY_PREVIOUS_FILE) once
 # every token signed with it has expired.
 #
-# Writes (chmod 644 — deploy convention, see deploy/*/startup.sh):
+# Writes (0600 — 0644 on the docker target, see KEY_MODE below):
 #   <cert_dir>/token-signing/token-signing.key            EC P-256 private key, PKCS#8 PEM
 #   <cert_dir>/token-signing/token-signing-previous.key   retiring key, only after --rotate
 
@@ -56,6 +56,18 @@ while [ $# -gt 0 ]; do
 done
 CERT_DIR="${CERT_DIR:-$(cd "$(dirname "$0")/.." && pwd)/certs}"
 KEY_DIR="$CERT_DIR/token-signing"
+
+# Private-key file mode. 0600 wherever the key is only read by the user who
+# owns it: the k8s targets load it into a Secret with kubectl as that same user
+# (ec2's startup.sh chowns it to minikube, the user its kubectl runs as). The
+# docker target is the one exception — compose BIND-MOUNTS the file into
+# containers that run as assorted uids, which on a Linux host read it as
+# "other" — so a cert_dir that sits next to a docker-compose.yml keeps 0644
+# (local dev only; tightening it there has broken reads before).
+# PB_PRIVATE_KEY_MODE overrides either default.
+if [ -n "${PB_PRIVATE_KEY_MODE:-}" ]; then KEY_MODE="$PB_PRIVATE_KEY_MODE"
+elif [ -f "$(dirname "$CERT_DIR")/docker-compose.yml" ]; then KEY_MODE=644
+else KEY_MODE=600; fi
 KEY_FILE="$KEY_DIR/token-signing.key"
 PREV_FILE="$KEY_DIR/token-signing-previous.key"
 
@@ -112,12 +124,11 @@ fi
 # prime256v1 IS NIST P-256 — the curve ES256 pins, and the same one the AWS
 # targets use in KMS (ECC_NIST_P256), so a deployment can move between signers
 # without changing the token format. PKCS#8 so Node reads it without a hint.
-openssl ecparam -name prime256v1 -genkey -noout 2>/dev/null \
-  | openssl pkcs8 -topk8 -nocrypt -out "$KEY_FILE"
+( umask 077
+  openssl ecparam -name prime256v1 -genkey -noout 2>/dev/null \
+    | openssl pkcs8 -topk8 -nocrypt -out "$KEY_FILE" )
 
-# 644 (not 600): the deploy convention — mounted into containers that run as
-# assorted uids, and tightening to 600 has broken reads before.
-chmod 644 "$KEY_FILE"
-[ -f "$PREV_FILE" ] && chmod 644 "$PREV_FILE"
+chmod "$KEY_MODE" "$KEY_FILE"
+[ -f "$PREV_FILE" ] && chmod "$KEY_MODE" "$PREV_FILE"
 
 echo "  wrote token signing key: $KEY_FILE"

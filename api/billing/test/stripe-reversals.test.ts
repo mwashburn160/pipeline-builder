@@ -174,6 +174,25 @@ describe('charge.refunded', () => {
     expect(mockReverseLedgerInvoice).toHaveBeenCalledWith('in_2', 'refunded', 3900);
   });
 
+  it('does NOT claw back promotions on a PARTIAL refund (still records the reversal)', async () => {
+    // A goodwill/proration refund is not a subscribe-grab-refund; promotion grants
+    // have no invoice link, so clawing back on any refund stripped every recent grant.
+    mockFindReversalSub.mockResolvedValue({ subscription: subDoc(), ambiguous: false });
+    await handleChargeRefunded({ id: 'ch_p', payment_intent: 'pi_2', customer: 'cus_1', amount: 4900, amount_refunded: 1000, refunded: false } as any);
+    expect(mockClawback).not.toHaveBeenCalled();
+    expect(mockCreateBillingEvent).toHaveBeenCalledWith(
+      'org-1', 'subscription_updated',
+      expect.objectContaining({ reason: 'invoice_refunded', clawedPromotions: 0, clawbackSkipped: 'partial_reversal', fullyRefunded: false }),
+      'sub-1',
+    );
+  });
+
+  it('claws back once a topped-up refund makes the cumulative amount_refunded FULL', async () => {
+    mockFindReversalSub.mockResolvedValue({ subscription: subDoc(), ambiguous: false });
+    await handleChargeRefunded({ id: 'ch_p', payment_intent: 'pi_2', customer: 'cus_1', amount: 4900, amount_refunded: 4900, refunded: false } as any);
+    expect(mockClawback).toHaveBeenCalled();
+  });
+
   it('reverses the ledger but skips clawback when no local subscription matches', async () => {
     mockFindReversalSub.mockResolvedValue({ subscription: null, ambiguous: false });
     await handleChargeRefunded({ id: 'ch_3', payment_intent: 'pi_3', customer: 'cus_x', amount: 4900, amount_refunded: 4900 } as any);
@@ -216,6 +235,21 @@ describe('charge.dispute.created', () => {
     expect(mockCreateBillingEvent).toHaveBeenCalledWith(
       'org-1', 'subscription_updated',
       expect.objectContaining({ reason: 'invoice_disputed', disputedCents: 4900, disputeStatus: 'warning_needs_response' }),
+      'sub-1',
+    );
+  });
+
+  it('does NOT claw back on a PARTIAL dispute (dispute.amount < charge.amount)', async () => {
+    mockChargesRetrieve.mockResolvedValue({ id: 'ch_d', payment_intent: 'pi_d', customer: 'cus_1', amount: 4900 });
+    mockFindReversalSub.mockResolvedValue({ subscription: subDoc(), ambiguous: false });
+
+    await handleChargeDisputeCreated({ id: 'dp_p', charge: 'ch_d', amount: 1000, status: 'needs_response' } as any);
+
+    expect(mockReverseLedgerInvoice).toHaveBeenCalledWith('in_d', 'disputed', 3900);
+    expect(mockClawback).not.toHaveBeenCalled();
+    expect(mockCreateBillingEvent).toHaveBeenCalledWith(
+      'org-1', 'subscription_updated',
+      expect.objectContaining({ reason: 'invoice_disputed', clawbackSkipped: 'partial_reversal' }),
       'sub-1',
     );
   });

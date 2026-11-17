@@ -64,7 +64,7 @@ import {
   assertRootOrg, displayNameOf, handleRefusal, listingsQuota, ownPublisher, termsAccepted, verifiedEligible,
 } from './publishers.js';
 import {
-  decodeRequestCursor, encodeRequestCursor, listings, OPEN_STATUSES, plugins, publishers, REQUEST_STATUS_FILTERS, requests, reservedNames, versions, type PluginRow, type RequestCursor, type RequestFilter,
+  decodeRequestCursor, encodeRequestCursor, listings, OPEN_STATUSES, plugins, publishers, REQUEST_STATUS_FILTERS, requests, reservedNames, transferUnanswered, versions, type PluginRow, type RequestCursor, type RequestFilter,
 } from './store.js';
 import { claimantEmailHash as claimantEmailHashOf } from './submission-moderation.js';
 import { topInstalledListings } from './submissions-store.js';
@@ -618,10 +618,15 @@ export async function respondToTransfer(caller: Caller, id: string, accept: bool
   if (!r || r.kind !== 'transfer' || transfer?.targetPublisherId !== publisher.id) throw new EcosystemError(ErrorCode.NOT_FOUND, 'Transfer not found');
   if (r.status !== 'pending' || transfer.response !== 'pending') throw new EcosystemError(ErrorCode.CONFLICT, 'This transfer was already answered.');
   const payload = { ...r.payload, transfer: { ...transfer, response: accept ? 'accepted' : 'declined', respondedBy: caller.userId, respondedAt: new Date().toISOString() } };
+  // Guarded on the RESPONSE as well as the status: an acceptance leaves the
+  // request `pending` (the system org still decides), so a status-only lock let
+  // a second response (a double-click, or accept racing decline) overwrite the
+  // first and notify again. Only the first response matches.
   const updated = await requests.transition(r.id, 'pending', accept
     ? { payload }
-    : { payload, status: 'rejected', reason: 'Declined by the receiving publisher', decidedBy: caller.userId, decidedAt: new Date() });
-  if (!updated) throw new EcosystemError(ErrorCode.CONFLICT, 'The transfer was decided meanwhile.');
+    : { payload, status: 'rejected', reason: 'Declined by the receiving publisher', decidedBy: caller.userId, decidedAt: new Date() },
+  transferUnanswered());
+  if (!updated) throw new EcosystemError(ErrorCode.CONFLICT, 'This transfer was already answered.');
   const sender = await publishers.byId(r.publisherId);
   const listing = r.listingId ? await listings.byId(r.listingId) : null;
   ecosystemAudit({

@@ -31,12 +31,19 @@ export const SYSTEM_ORG_ID = '000000000000000000000001';
 export const SYSTEM_ORG_SLUG = 'system';
 
 /**
- * Check if an orgId or orgName/slug matches the system org. Use this instead of
- * comparing directly: the id is now an ObjectId ({@link SYSTEM_ORG_ID}) while the
- * name/slug is 'system' ({@link SYSTEM_ORG_SLUG}), so the two are compared against
- * their respective canonical values.
+ * Check if an org **id** is the system org's ({@link SYSTEM_ORG_ID}). Use this
+ * instead of comparing directly.
+ *
+ * IDs ONLY. It used to also return true for an org NAME of 'system' — but a
+ * name is a display string another org can carry (or be renamed to), so any
+ * tenant called "system" was treated as the system tenant. The second
+ * parameter is kept only so existing two-argument callers still compile; it is
+ * IGNORED — drop it at the call site.
+ *
+ * @param orgId - The org id to test.
+ * @param _orgName - Deprecated, ignored.
  */
-export function isSystemOrgId(orgId?: string, orgName?: string): boolean {
-  return orgId?.toLowerCase() === SYSTEM_ORG_ID || orgName?.toLowerCase() === SYSTEM_ORG_SLUG;
+export function isSystemOrgId(orgId?: string, _orgName?: string): boolean {
+  return orgId?.trim().toLowerCase() === SYSTEM_ORG_ID;
 }
 

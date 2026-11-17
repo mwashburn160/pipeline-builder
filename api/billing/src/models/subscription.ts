@@ -117,7 +117,7 @@ export interface SubscriptionDocument extends Document {
    *  periodic rows into one, carrying their summed `cents` + grant count so the
    *  promotion-spend reconcile stays exact while the array stays bounded. Absent
    *  on ordinary rows (counted as 1). */
-  creditLedger: Array<{ discountId: string; cents: number; appliedAt: Date; fulfillmentRef?: { kind: string; ref: string }; dedupeKey?: string; grantCount?: number; campaign?: string }>;
+  creditLedger: Array<{ discountId: string; cents: number; appliedAt: Date; fulfillmentRef?: { kind: string; ref: string }; dedupeKey?: string; grantCount?: number; campaign?: string; clawedBackAt?: Date }>;
   /**
    * Provider balance DEBITS owed back after a promotion clawback — the outbox
    * that makes a clawback reach the provider. The local `$pull` of the grant and
@@ -234,6 +234,12 @@ const subscriptionSchema = new Schema<SubscriptionDocument>(
         // records. Same strict-mode rule as the two fields above: absent from
         // the schema, Mongoose strips it and campaign spend silently reads 0.
         campaign: { type: String, default: undefined },
+        // Set when a promotion clawback TOMBSTONED this row (clawbackRecentPromotions):
+        // the row keeps its dedupeKey so the grant cannot be re-issued, with
+        // `cents` cut to the consumed (still-spent) part and `grantCount: 0`.
+        // Same strict-mode rule: absent from the schema it is stripped and the
+        // row is clawed back again on the next pass.
+        clawedBackAt: { type: Date, default: undefined },
       }],
       default: [],
     },

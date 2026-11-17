@@ -87,6 +87,8 @@ export interface CreateImpersonationRequestInput {
   approverMode?: ImpersonationApproverMode;
   /** The specific user to challenge under `user` mode. */
   approverUserId?: string;
+  /** Only the target (the named approver) may decide — see the model field. */
+  subjectConsentRequired?: boolean;
 }
 
 /**
@@ -173,6 +175,7 @@ class ImpersonationService {
       approvalReason: approved ? approvalReason : undefined,
       approverMode: input.approverMode,
       approverUserId: input.approverUserId,
+      ...(input.subjectConsentRequired ? { subjectConsentRequired: true } : {}),
       expiresAt: new Date(Date.now() + IMPERSONATION_REQUEST_TTL_MS),
     });
 
@@ -197,14 +200,16 @@ class ImpersonationService {
    * same query rather than read-then-write, so a request cannot lapse between
    * the check and the update.
    */
-  async consume(requestId: string, jti: string): Promise<{ ok: true } | { ok: false; code: string }> {
+  async consume(requestId: string, jti: string): Promise<{ ok: true; expiresAt: Date } | { ok: false; code: string }> {
     const now = new Date();
     const updated = await ImpersonationRequest.findOneAndUpdate(
       { _id: requestId, status: 'approved', expiresAt: { $gt: now } },
       { $set: { status: 'consumed', consumedAt: now, jti } },
       { new: true },
     );
-    if (updated) return { ok: true };
+    // `expiresAt` comes back so the caller can cap the session token at the
+    // record's window: the token must never outlive the record it redeems.
+    if (updated) return { ok: true, expiresAt: updated.expiresAt };
 
     // Nothing matched — say WHY, so the caller can distinguish "too late" from
     // "already used" rather than reporting a generic failure.

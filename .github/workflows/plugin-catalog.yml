@@ -75,7 +75,9 @@ jobs:
 
       # Changed plugin dirs = deploy/plugins/<category>/<plugin>/… paths in the
       # PR diff whose plugin still exists and has a Dockerfile. A change to a
-      # shared base or the test script selects every plugin. A change under
+      # shared base, the test script, the upload-API validation or the
+      # pipeline-manager CLI (both run by test-plugins.sh / the smoke build)
+      # selects every plugin. A change under
       # deploy/toolchain/ selects both halves of the managed toolchain release
       # (toolchain/pipeline-bootstrap + toolchain/cdk-synth — one release, and
       # no catalog plugin builds FROM it). Output: one matrix entry per category
@@ -102,7 +104,7 @@ jobs:
             selected="$(all_plugins)"
           else
             changed="$(git diff --name-only "${BASE_SHA}...HEAD")"
-            if printf '%s\n' "$changed" | grep -qE '^(deploy/plugins/_base/|deploy/bin/test-plugins\.sh$|deploy/bin/common\.sh$|packages/api-core/src/validation/)'; then
+            if printf '%s\n' "$changed" | grep -qE '^(deploy/plugins/_base/|deploy/bin/test-plugins\.sh$|deploy/bin/common\.sh$|packages/api-core/src/validation/|packages/pipeline-manager/src/)'; then
               selected="$(all_plugins)"
             else
               selected="$(printf '%s\n' "$changed" \

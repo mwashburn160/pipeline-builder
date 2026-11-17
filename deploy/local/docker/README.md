@@ -129,7 +129,7 @@ targets instead.
 | image-registry | 3000 (internal) | Registry token-auth issuer + image management API |
 | pgbouncer | 6432 (internal) | Connection pooler — every service's `DB_HOST` |
 | rustfs | 9000 (internal) | S3-compatible object storage (attachments, registry, loki, thanos, plugin build contexts) |
-| jaeger | 16686 (exposed) | Trace UI; OTLP receivers on 4317/4318 (internal) |
+| jaeger | 16686 (127.0.0.1 only) | Trace UI; OTLP receivers on 4317/4318 (internal) |
 | quota | 3000 (internal) | Quota enforcement |
 | billing | 3000 (internal) | Subscription management |
 | message | 3000 (internal) | Message routing + WebSocket |
@@ -138,10 +138,10 @@ targets instead.
 | postgres | 5432 (internal) | PostgreSQL database |
 | mongodb | 27017 (internal) | MongoDB (platform, quota, billing) |
 | redis | 6379 (internal) | Job queue (BullMQ) for plugin builds + compliance events |
-| pgadmin | 5480 (exposed) | PostgreSQL admin UI |
-| mongo-express | 27081 (exposed) | MongoDB admin UI |
+| pgadmin | 5480 (127.0.0.1 only) | PostgreSQL admin UI |
+| mongo-express | 27081 (127.0.0.1 only) | MongoDB admin UI |
 | grafana | via nginx `/grafana/` | Dashboards over prometheus/loki/jaeger (own login) |
-| registry | 5000 (exposed) | Docker image registry |
+| registry | 5000 (127.0.0.1 only) | Docker image registry |
 | prometheus | 9090 (internal) | Metrics scrape target for the native Observability dashboards |
 | loki | 3100 (internal) | Log store for the native Audit Activity dashboard |
 

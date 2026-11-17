@@ -183,16 +183,23 @@ install -o root -g root -m 0755 "$KUBECTL_TMP" /usr/local/bin/kubectl
 rm -f "$KUBECTL_TMP"
 echo "  kubectl ${KUBECTL_VERSION} installed (sha256 verified)"
 
-# minikube — same treatment: `latest` floats, so verify against the .sha256
-# published next to the release asset rather than installing whatever came back.
+# minikube — PINNED (MINIKUBE_VERSION + MINIKUBE_SHA256_LINUX_AMD64 in
+# deploy/bin/tool-pins.sh, sourced via common.sh). It used to float on
+# releases/latest and verify against the .sha256 fetched from the same place,
+# which only proves the download was not truncated — not that it is the build
+# that was reviewed — and let a new minikube (with a different default/newest
+# Kubernetes) land on the next bootstrap without any change here.
 echo "  Installing minikube..."
-MINIKUBE_URL="https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64"
-MINIKUBE_SHA256=$(curl -fsSL --retry 3 "${MINIKUBE_URL}.sha256")
+case "${MINIKUBE_VERSION:-}" in
+  v[0-9]*) ;;
+  *) echo "ERROR: MINIKUBE_VERSION is '${MINIKUBE_VERSION:-}', not a vX.Y.Z version (tool-pins.sh)" >&2; exit 1 ;;
+esac
+MINIKUBE_URL="https://storage.googleapis.com/minikube/releases/${MINIKUBE_VERSION}/minikube-linux-amd64"
 MINIKUBE_TMP=$(mktemp)
-fetch_verified "$MINIKUBE_URL" "${MINIKUBE_SHA256%% *}" "$MINIKUBE_TMP"
+fetch_verified "$MINIKUBE_URL" "$MINIKUBE_SHA256_LINUX_AMD64" "$MINIKUBE_TMP"
 install -o root -g root -m 0755 "$MINIKUBE_TMP" /usr/local/bin/minikube
 rm -f "$MINIKUBE_TMP"
-echo "  minikube installed (sha256 verified)"
+echo "  minikube ${MINIKUBE_VERSION} installed (sha256 verified)"
 
 # NOTE: istioctl is NOT installed here — startup.sh (Phase 9) calls the shared
 # ensure_istioctl, which auto-installs $ISTIO_VERSION to /usr/local/bin (as root
@@ -488,16 +495,26 @@ if [ "${AUTO_INIT:-false}" = "true" ]; then
 
   # init-platform reads DEPLOY_MODE/PIPELINE_VPC_ID/PIPELINE_SUBNET_IDS from the
   # environment (not .env) for its private-mode prerequisite gate — pass them through.
-  # PLATFORM_PASSWORD is passed explicitly (runuser does not carry the exported var).
+  # The admin password is NOT passed as a `PLATFORM_PASSWORD=…` argument: every
+  # `env`/`runuser` argument is world-readable in `ps`//proc/<pid>/cmdline for the
+  # whole (minutes-long) init. It goes in a 0600 file owned by minikube that
+  # init-platform reads via PLATFORM_PASSWORD_FILE, removed as soon as init exits
+  # (and by the EXIT trap if bootstrap dies first).
+  ADMIN_PW_FILE="$(mktemp /tmp/pb-admin-pw.XXXXXX)"
+  trap 'rm -f "${ADMIN_PW_FILE:-}"' EXIT
+  chmod 0600 "$ADMIN_PW_FILE"
+  chown minikube:minikube "$ADMIN_PW_FILE"
+  printf '%s' "$ADMIN_PASSWORD" > "$ADMIN_PW_FILE"
   runuser -u minikube -- env \
     LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y \
     PLATFORM_BASE_URL="https://${DOMAIN}" \
-    PLATFORM_PASSWORD="$ADMIN_PASSWORD" \
+    PLATFORM_PASSWORD_FILE="$ADMIN_PW_FILE" \
     DEPLOY_MODE="${DEPLOY_MODE:-private}" \
     PIPELINE_VPC_ID="${PIPELINE_VPC_ID:-}" \
     PIPELINE_SUBNET_IDS="${PIPELINE_SUBNET_IDS:-}" \
     bash "${INSTALL_DIR}/deploy/bin/init-platform.sh" --continue-on-build-failure ec2 \
     || echo "WARNING: auto-init exited non-zero — re-run on the box (the LOAD_* gates are REQUIRED; they default to OFF): sudo -iu minikube; cd ${INSTALL_DIR}; PLATFORM_BASE_URL=https://${DOMAIN} LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y ./deploy/bin/init-platform.sh ec2"
+  rm -f "$ADMIN_PW_FILE"
 fi
 
 # =============================================================================

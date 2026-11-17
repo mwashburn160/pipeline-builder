@@ -31,6 +31,7 @@
 import crypto from 'crypto';
 import { createLogger, paginationMeta, recordAuthzDenial, sendError, sendSuccess, isSystemAdmin, userHasPermission } from '@pipeline-builder/api-core';
 import type { Request } from 'express';
+import { hasMembershipOutsideAccount } from '../helpers/account-membership.js';
 import { audit } from '../helpers/audit.js';
 import { canAdministerOrg, ensureAuthenticated, forbid, isOrgAdmin, withController } from '../helpers/controller-helper.js';
 import { isTenantAdminOf, resolveImpersonationAuthority } from '../helpers/impersonation-authority.js';
@@ -129,6 +130,28 @@ export const impersonateUser = withController('Impersonate user', async (req, re
 
   const reason = typeof req.body?.reason === 'string' ? req.body.reason : undefined;
 
+  // The ancestor carve-out (below) rests on the parent administering the team.
+  // It does NOT administer what the person does in OTHER accounts, and their
+  // membership here may be the parent's own doing — so a target who also
+  // belongs to any org outside the caller's account must consent PERSONALLY:
+  // the request waits, routed to them, and only they may answer it
+  // (`subjectConsentRequired`, enforced in decideImpersonationRequest).
+  const subjectConsentRequired = authority.kind === 'ancestor'
+    && await hasMembershipOutsideAccount(targetUserId, authority.viaOrgId);
+  const ancestorSkipsConsent = authority.kind === 'ancestor' && !subjectConsentRequired;
+  if (subjectConsentRequired) {
+    const requested = req.body?.approverMode;
+    if (requested !== undefined && requested !== 'user') {
+      // Honoured or refused, never silently rerouted — and only the person can
+      // answer this one.
+      return sendError(
+        res, 400,
+        'This person also belongs to organizations outside yours, so they must approve access to their own account.',
+        'IMPERSONATION_SUBJECT_CONSENT_REQUIRED',
+      );
+    }
+  }
+
   // The org's EFFECTIVE policy (strictest across parent and team). An ancestor
   // admin isn't subject to it — a parent already administers its teams.
   //
@@ -140,8 +163,13 @@ export const impersonateUser = withController('Impersonate user', async (req, re
   // page otherwise reads as though it binds everyone. Making the team's policy
   // bind its own parent would invert the authority relationship the hierarchy
   // rests on everywhere else, so it stays a carve-out.
+  //
+  // A subject-consent request skips the policy too: the team's policy is one
+  // the parent controls, so it cannot stand in for the person's own consent.
   const policy = authority.kind === 'ancestor' ? undefined : await resolveEffectiveImpersonationPolicy(sessionOrgIdStr);
-  const decision = decideInitialApproval({ ancestorAuthority: authority.kind === 'ancestor', policy });
+  const decision = subjectConsentRequired
+    ? { kind: 'pending' as const }
+    : decideInitialApproval({ ancestorAuthority: ancestorSkipsConsent, policy });
 
   if (decision.kind === 'refused') {
     return forbid(
@@ -157,7 +185,9 @@ export const impersonateUser = withController('Impersonate user', async (req, re
   // default isn't a reroute, and without it an org that forbids self-approval
   // could never be asked from a UI that doesn't offer the choice.
   let route: ImpersonationApproverMode | undefined;
-  if (decision.kind === 'pending' && policy) {
+  if (subjectConsentRequired) {
+    route = 'user';
+  } else if (decision.kind === 'pending' && policy) {
     const requested = req.body?.approverMode;
     if (requested !== undefined && requested !== 'user' && requested !== 'org_admin') {
       return sendError(res, 400, 'approverMode must be "user" or "org_admin"');
@@ -184,6 +214,7 @@ export const impersonateUser = withController('Impersonate user', async (req, re
     decision,
     approverMode: route,
     approverUserId: route === 'user' ? targetUserId : undefined,
+    ...(subjectConsentRequired ? { subjectConsentRequired: true } : {}),
   });
 
   if (decision.kind === 'pending' && route) {
@@ -215,7 +246,12 @@ export const impersonateUser = withController('Impersonate user', async (req, re
       targetType: 'user',
       targetId: targetUserId,
       affectedOrgId: sessionOrgIdStr,
-      details: { impersonationRequestId: request.id, approverMode: route, delivered: delivery.delivered },
+      details: {
+        impersonationRequestId: request.id,
+        approverMode: route,
+        delivered: delivery.delivered,
+        ...(subjectConsentRequired ? { subjectConsentRequired: true } : {}),
+      },
     });
     // No token: the requester opens the session from Access requests once it's approved.
     return sendSuccess(res, 202, { requestId: request.id, status: 'pending', approverMode: route });
@@ -277,7 +313,9 @@ async function redeemAndIssue(
 
   // The session inherits the OPERATOR's assurance (amr/aal/auth_time) — an
   // impersonation token never raises it.
-  const { accessToken, expiresIn } = await issueImpersonationToken(target, requesterId, orgId, jti, authFromClaims(req.user));
+  const { accessToken, expiresIn } = await issueImpersonationToken(
+    target, requesterId, orgId, jti, authFromClaims(req.user), undefined, redeemed.expiresAt,
+  );
 
   // Filed under the org the session is PINNED to — not the requester's org — so
   // that org's admins see it in their own audit view, and the trail and the
@@ -339,7 +377,10 @@ export const decideImpersonationRequest = withController('Decide impersonation r
     // be an admin there, or the policy forbids nothing for admin accounts.
     const isNamedApprover = request.approverUserId != null && String(request.approverUserId) === actorId;
     const isSubject = String(request.targetUserId) === actorId;
-    const isTenantAdmin = !isSubject && request.organizationId != null
+    // A request that needs the PERSON's consent (an ancestor reaching a target
+    // who belongs to other accounts) is theirs alone to answer: an admin of the
+    // pinned org is a colleague of the requester, not the person consenting.
+    const isTenantAdmin = !isSubject && request.subjectConsentRequired !== true && request.organizationId != null
       && await isTenantAdminOf(req, String(request.organizationId));
     if (!isNamedApprover && !isTenantAdmin) {
       return forbid(req, res, 'impersonation:named-approver or org-admin', 'Forbidden: you were not asked to decide this request');

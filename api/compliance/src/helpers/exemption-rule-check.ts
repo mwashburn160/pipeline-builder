@@ -39,7 +39,11 @@ export async function checkExemptionRules(
   parentOrgId: string | undefined,
 ): Promise<ExemptionRuleRefusal | null> {
   const ids = [...new Set(refs.map((r) => r.ruleId.toLowerCase()))];
-  const rules = new Map((await complianceRuleService.findManyByIds(ids)).map((r) => [r.id.toLowerCase(), r]));
+  // Published rules, plus this org's and its parent's own (any scope) — the only
+  // rules the checks below can accept or answer 403 for. Another tenant's
+  // private rule is never fetched, so it reads as unknown.
+  const lookup = await complianceRuleService.findManyByIds(ids, { alsoOwnedBy: [orgId, parentOrgId] });
+  const rules = new Map(lookup.map((r) => [r.id.toLowerCase(), r]));
   for (const ref of refs) {
     const rule = rules.get(ref.ruleId.toLowerCase());
     if (rule && parentOrgId && rule.orgId === parentOrgId && rule.propagateToChildren) {

@@ -44,7 +44,7 @@ export interface SseTicketStore {
   issue(orgId: string, subject?: string): Promise<SseTicketIssueResult>;
   /** Redeem a ticket exactly once; null when unknown, expired or already spent. */
   consume(ticketId: string): Promise<SseTicketRecord | null>;
-  /** Record the org that owns `subject` for `ttlMs`. */
+  /** Record (or refresh) the org that owns `subject` for `ttlMs`. Throws when the backend can't record it. */
   bindOwner(subject: string, orgId: string, ttlMs: number): Promise<void>;
   /** The org that owns `subject`, or null when none is bound. Throws when the backend can't answer. */
   getOwner(subject: string): Promise<string | null>;
@@ -156,7 +156,10 @@ return 'ok'`;
  *
  * Fail-CLOSED: a Redis error makes `issue` reject (`total`), `consume` return
  * null and `getOwner` throw, so an outage degrades to "no live stream" rather
- * than handing out or accepting unvalidated tickets. `bindOwner` is best-effort.
+ * than handing out or accepting unvalidated tickets. `bindOwner` throws too:
+ * a subject with no bound owner can't be ticketed at all, so a producer must
+ * learn its bind failed (and fail or retry) rather than hand out a stream id
+ * nobody can open.
  */
 export function createRedisSseTicketStore(redis: SseTicketRedis, config: SseTicketStoreConfig): SseTicketStore {
   const ns = config.keyPrefix ? `${config.keyPrefix}:` : '';
@@ -209,6 +212,7 @@ export function createRedisSseTicketStore(redis: SseTicketRedis, config: SseTick
         await redis.set(ownerKey(subject), orgId, 'PX', Math.max(1, Math.ceil(ownerTtlMs)));
       } catch (err) {
         logger.warn('SSE stream-owner bind failed', { error: errorMessage(err) });
+        throw err;
       }
     },
     async getOwner(subject) {

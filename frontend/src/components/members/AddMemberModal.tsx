@@ -12,7 +12,7 @@ import { useToast } from '@/components/ui/Toast';
 import { useFetch } from '@/hooks/useFetch';
 import { useFormState } from '@/hooks/useFormState';
 import api from '@/lib/api';
-import { ApiError } from '@/lib/api/errors';
+import { ApiError, MEMBER_INVITATION_REQUIRED } from '@/lib/api/errors';
 
 interface AddMemberModalProps {
   /** The org the member joins. */
@@ -55,8 +55,10 @@ export function AddMemberModal({ orgId, offerTeams, canInvite, onClose, onAdded 
   const form = useFormState();
   const [email, setEmail] = useState('');
   const [selectedTeams, setSelectedTeams] = useState<Set<string>>(new Set());
-  /** The address has no account — "add" cannot serve it, an invitation can. */
-  const [unregistered, setUnregistered] = useState(false);
+  /** "Add" cannot serve this address but an invitation can: it has no account
+   *  (`unregistered`), or the person is outside the account and must consent
+   *  (`consent`, {@link MEMBER_INVITATION_REQUIRED}). */
+  const [inviteNeeded, setInviteNeeded] = useState<'unregistered' | 'consent' | null>(null);
 
   // Best-effort: no picker if the read fails, and the org add still works.
   const teamsQ = useFetch(
@@ -77,7 +79,7 @@ export function AddMemberModal({ orgId, offerTeams, canInvite, onClose, onAdded 
     // Enter is a second submit path beside the footer button (which `loading`
     // disables) — without this, a repeated Enter posts the add twice.
     if (!address || form.loading) return;
-    setUnregistered(false);
+    setInviteNeeded(null);
     await form.run(
       async () => {
         try {
@@ -87,7 +89,8 @@ export function AddMemberModal({ orgId, offerTeams, canInvite, onClose, onAdded 
           // satisfiable, just not by this endpoint. Flagged here (and rethrown
           // so the form still reports it) because `form.run` surfaces only a
           // message string, and the message alone cannot carry an action.
-          if (err instanceof ApiError && err.code === USER_NOT_REGISTERED) setUnregistered(true);
+          if (err instanceof ApiError && err.code === USER_NOT_REGISTERED) setInviteNeeded('unregistered');
+          else if (err instanceof ApiError && err.code === MEMBER_INVITATION_REQUIRED) setInviteNeeded('consent');
           throw err;
         }
       },
@@ -164,7 +167,7 @@ export function AddMemberModal({ orgId, offerTeams, canInvite, onClose, onAdded 
         </div>
       )}
       <ErrorAlert message={form.error} className="mt-3" />
-      {unregistered && (
+      {inviteNeeded && (
         <p className="mt-2 text-sm text-fg-muted">
           {canInvite ? (
             <>

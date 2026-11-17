@@ -72,7 +72,9 @@ function mockRes() {
 }
 
 const call = updateOrganizationSeatLimit as unknown as (req: any, res: any) => Promise<void>;
-const req = (body: unknown) => ({ user: { sub: 'svc', isSuperAdmin: true }, params: { id: 'root-1' }, body });
+/** The billing service — the one service the seat-limit sync admits. */
+const req = (body: unknown, user: Record<string, unknown> = { sub: 'service:billing', principalType: 'service' }) =>
+  ({ user, params: { id: 'root-1' }, body });
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -210,6 +212,20 @@ describe('updateOrganizationTier — audit records lost features on a downgrade'
     const auditCall = mockAudit.mock.calls.find((c) => c[1] === 'admin.org.tier.update');
     const auditDetails = (auditCall![2] as any).details;
     expect(auditDetails.featuresRemoved).toBeUndefined();
+  });
+});
+
+describe('updateOrganizationSeatLimit — caller allowlist', () => {
+  it('refuses a service principal that is not billing (403, nothing persisted)', async () => {
+    const res = mockRes();
+
+    // Any service token used to be able to push an account's seats, tier and
+    // feature entitlements; only billing may.
+    await call(req({ seats: 500, tier: 'enterprise' }, { sub: 'service:plugin', principalType: 'service' }), res);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockSetSeatLimit).not.toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
   });
 });
 

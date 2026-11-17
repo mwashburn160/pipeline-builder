@@ -2056,7 +2056,9 @@ services:
     container_name: mongo-express
     restart: always
     ports:
-      - '27081:8081'
+      # Loopback only: an admin UI for the whole Mongo deployment, behind basic
+      # auth at best — never on the host's LAN interfaces.
+      - '127.0.0.1:27081:8081'
     environment:
       ME_CONFIG_MONGODB_URL: ${ME_CONFIG_MONGODB_URL}
       ME_CONFIG_SITE_BASEURL: ${ME_CONFIG_SITE_BASEURL}
@@ -2091,7 +2093,8 @@ services:
     container_name: pgadmin
     restart: always
     ports:
-      - '5480:80'
+      # Loopback only: a PostgreSQL admin UI must not listen on the LAN.
+      - '127.0.0.1:5480:80'
     environment:
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
@@ -2341,7 +2344,9 @@ services:
     container_name: registry
     restart: always
     ports:
-      - '5000:5000'
+      # Loopback only (host docker clients push/pull via localhost:5000).
+      # Containers reach it as registry:5000 on the compose network.
+      - '127.0.0.1:5000:5000'
     environment:
       # Token-based auth — registry delegates to pipeline-image-registry's
       # /token endpoint. Every pull/push requires a valid bearer JWT signed
@@ -2789,6 +2794,13 @@ services:
       - '/etc/alloy/config.alloy'
     volumes:
       - './config/alloy/config.alloy:/etc/alloy/config.alloy:ro'
+      # SECURITY: `:ro` only makes the socket FILE read-only — it does NOT
+      # restrict the Docker API. Anything that can talk to this socket (i.e. a
+      # compromise of alloy) controls the host Docker daemon (= root on the
+      # host). Alloy only needs container discovery + log reads; to narrow it,
+      # front the socket with a filtering proxy (e.g. tecnativa/docker-socket-proxy
+      # with CONTAINERS=1, everything else 0) and point config.alloy's
+      # discovery.docker / loki.source.docker at tcp://<proxy>:2375. Local dev only.
       - '/var/run/docker.sock:/var/run/docker.sock:ro'
       - './data/alloy-data/:/tmp'
     networks:
@@ -2843,9 +2855,10 @@ services:
       # three k8s targets.)
       MEMORY_MAX_TRACES: "10000"
     ports:
-      # Query UI exposed to the host; OTLP ports stay on backend-network only
+      # Query UI exposed to the host on LOOPBACK only (it is unauthenticated
+      # and traces carry request data); OTLP ports stay on backend-network only
       # (services reach them via the `jaeger` hostname).
-      - '16686:16686'
+      - '127.0.0.1:16686:16686'
     networks:
       - backend-network
     # No container healthcheck: the all-in-one image is minimal and ships no

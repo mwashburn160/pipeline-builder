@@ -33,6 +33,7 @@ import {
   processMarketplaceEvent,
 } from '../helpers/marketplace-notifications.js';
 import { refuseTeamBilling } from '../helpers/root-org-guard.js';
+import { snsTimestampProblem } from '../helpers/sns-freshness.js';
 import { MANAGEABLE_SUBSCRIPTION_STATUSES } from '../helpers/subscription-status.js';
 import {
   MarketplacePendingRegistration,
@@ -423,6 +424,19 @@ export function createMarketplaceRoutes(): Router {
             received: snsMessage.TopicArn,
           });
           return sendError(res, 403, 'Unexpected SNS topic', ErrorCode.INSUFFICIENT_PERMISSIONS);
+        }
+
+        // Replay window: the MessageId dedupe below only remembers a message for
+        // the done-marker TTL, so a captured signed message replayed after that
+        // would be processed again. `Timestamp` is signed (verified above), so
+        // bound it to the dedupe window — and reject a forward-dated one.
+        const timestampProblem = snsTimestampProblem(snsMessage.Timestamp);
+        if (timestampProblem) {
+          logger.warn('SNS message outside the accepted Timestamp window — rejecting (possible replay)', {
+            messageId: snsMessage.MessageId, timestamp: snsMessage.Timestamp, problem: timestampProblem,
+          });
+          incCounter('billing_marketplace_sns_rejected_total', { reason: `timestamp_${timestampProblem}` });
+          return sendError(res, 403, 'SNS message timestamp outside the accepted window', ErrorCode.INSUFFICIENT_PERMISSIONS);
         }
 
         // Two-phase idempotency guard (crash-durable): SNS retries the same

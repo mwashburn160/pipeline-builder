@@ -13,7 +13,7 @@
  * interleaved with the tenant-facing CRUD.
  */
 
-import { createLogger, errorMessage, getParam, isServicePrincipal, isSystemAdmin, isValidFeatureFlag, sendError, sendSuccess, VALID_TIERS } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, getParam, isServicePrincipal, isServicePrincipalNamed, isValidFeatureFlag, sendError, sendSuccess, userHasPermission, VALID_TIERS } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import { canAdministerOrg, ensureAuthenticated, forbid, withController } from '../helpers/controller-helper.js';
 import { pooledFeatureEntitlements, pooledSeatUsage } from '../helpers/seats.js';
@@ -74,18 +74,33 @@ export const getOrganizationNames = withController('Get organization names', asy
   sendSuccess(res, 200, { names });
 });
 
+/** The one service that may read or write an account's seat / entitlement window. */
+const ENTITLEMENT_SERVICE = 'billing';
+
+/**
+ * A service token from anyone but billing is refused. The ROUTE enforces this
+ * (`requireInternalService({ callers: ['billing'] })` via `serviceOrUserGates`);
+ * re-checked here so the controller is never the weaker of the two.
+ */
+function isEntitlementService(req: Parameters<typeof isServicePrincipal>[0]): boolean {
+  return isServicePrincipal(req) && isServicePrincipalNamed(req, ENTITLEMENT_SERVICE);
+}
+
 /**
  * PUT /organization/:id/seat-limit — internal: set the account seat limit.
  *
  * `seats` is platform-owned (not a quota-service type), so the billing service
- * syncs the effective seat entitlement (tier base + bundles) here. Gated to a
- * service principal or a sysadmin; NO step-up (service-to-service). `:id` must
- * be the account ROOT — a team id is refused with 409 (never redirected).
+ * syncs the effective seat entitlement (tier base + bundles) here. Two callers:
+ * the BILLING service (no step-up — service-to-service), or a platform operator
+ * holding `orgs:manage` (route: system org + aal2 + step-up, like
+ * `PATCH /:id/tier`). Any other service is refused. `:id` must be the account
+ * ROOT — a team id is refused with 409 (never redirected).
  */
 export const updateOrganizationSeatLimit = withController('Update organization seat limit', async (req, res) => {
   if (!ensureAuthenticated(req, res)) return;
-  if (!isServicePrincipal(req) && !isSystemAdmin(req)) {
-    return forbid(req, res, 'internal-service or system-admin', 'Forbidden: service or system-admin only');
+  const allowed = isServicePrincipal(req) ? isEntitlementService(req) : userHasPermission(req, 'orgs:manage');
+  if (!allowed) {
+    return forbid(req, res, 'internal-service (billing) or orgs:manage', 'Forbidden: billing service or orgs:manage only');
   }
 
   const id = getParam(req.params, 'id')!;
@@ -216,8 +231,8 @@ export const getOrganizationSeatUsage = withController('Get organization seat us
   // Billing's over-cap gate calls this with a service token; an account admin
   // (or an ancestor-org admin) may also read their OWN pooled seat usage — it's
   // their own data. pooledSeatUsage resolves `id` to its root internally.
-  if (!isServicePrincipal(req) && !(await canAdministerOrg(req, id))) {
-    return forbid(req, res, 'internal-service or org-admin', 'Forbidden: service or organization-admin only');
+  if (isServicePrincipal(req) ? !isEntitlementService(req) : !(await canAdministerOrg(req, id))) {
+    return forbid(req, res, 'internal-service (billing) or org-admin', 'Forbidden: billing service or organization-admin only');
   }
   const usage = await pooledSeatUsage(id);
   sendSuccess(res, 200, usage);
@@ -234,8 +249,8 @@ export const getOrganizationSeatUsage = withController('Get organization seat us
 export const getOrganizationSupportUsage = withController('Get organization support usage', async (req, res) => {
   if (!ensureAuthenticated(req, res)) return;
   const id = getParam(req.params, 'id')!;
-  if (!isServicePrincipal(req) && !(await canAdministerOrg(req, id))) {
-    return forbid(req, res, 'internal-service or org-admin', 'Forbidden: service or organization-admin only');
+  if (isServicePrincipal(req) ? !isEntitlementService(req) : !(await canAdministerOrg(req, id))) {
+    return forbid(req, res, 'internal-service (billing) or org-admin', 'Forbidden: billing service or organization-admin only');
   }
   const { pooledSupportUsage } = await import('../helpers/support-entitlement.js');
   sendSuccess(res, 200, await pooledSupportUsage(id));
@@ -256,8 +271,8 @@ export const getOrganizationFeatureEntitlements = withController('Get organizati
   // Mirror the seat-usage gate exactly: billing calls with a service token; an
   // account (or ancestor-org) admin may also read their OWN entitlements.
   // pooledFeatureEntitlements resolves `id` to its root internally.
-  if (!isServicePrincipal(req) && !(await canAdministerOrg(req, id))) {
-    return forbid(req, res, 'internal-service or org-admin', 'Forbidden: service or organization-admin only');
+  if (isServicePrincipal(req) ? !isEntitlementService(req) : !(await canAdministerOrg(req, id))) {
+    return forbid(req, res, 'internal-service (billing) or org-admin', 'Forbidden: billing service or organization-admin only');
   }
   const featureEntitlements = await pooledFeatureEntitlements(id);
   sendSuccess(res, 200, { featureEntitlements });

@@ -128,6 +128,8 @@ describe('quota.reserve', () => {
     const result = await quotaService.reserve('org1', 'pipelines', AUTH);
 
     expect(result.exceeded).toBe(false);
+    // Marked: nothing was reserved, so a refund must not decrement it.
+    expect(result.failOpen).toBe(true);
     expect(result.quota).toEqual({ type: 'pipelines', limit: -1, used: 0, remaining: -1 });
   });
 

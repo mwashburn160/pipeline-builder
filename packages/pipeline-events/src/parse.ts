@@ -157,10 +157,26 @@ export async function parseRecord(record: SQSRecord): Promise<ParsedEvent | null
   // A malformed body is a dead message (retrying won't help) — log + skip it so
   // it can't fail the whole batch. Resolution errors below (e.g. AccessDenied)
   // are NOT caught here: those are transient/infra and must propagate to retry.
+  let parsed: unknown;
   try {
-    event = JSON.parse(record.body);
+    parsed = JSON.parse(record.body);
   } catch (err) {
     log.warn('Skipping SQS record with unparseable body', { messageId: record.messageId, error: String(err) });
+    return null;
+  }
+  // Valid JSON is not necessarily an event: `null`, `{}`, an array or a number
+  // made classifyEvent throw on the missing `detail-type`, and a throw is a
+  // RETRY — the same dead message redelivered until it reached the DLQ. Not an
+  // EventBridge envelope ⇒ skip it like an unparseable body.
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)
+    || typeof (parsed as { 'detail-type'?: unknown })['detail-type'] !== 'string') {
+    log.warn('Skipping SQS record that is not an EventBridge event (no string detail-type)', { messageId: record.messageId });
+    return null;
+  }
+  event = parsed as typeof event;
+  const rawDetail = (parsed as { detail?: unknown }).detail;
+  if (rawDetail !== undefined && (rawDetail === null || typeof rawDetail !== 'object' || Array.isArray(rawDetail))) {
+    log.warn('Skipping SQS record whose event detail is not an object', { messageId: record.messageId });
     return null;
   }
 

@@ -67,6 +67,7 @@ import {
   transferCaseToContact,
 } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
+import { authorizeCaseParticipant } from '../helpers/support-case-authz.js';
 import { resolveCasePage } from '../services/oncall-sweep.js';
 
 /** Longest a staff note may be. Generous — it is a working note, not a field. */
@@ -192,6 +193,10 @@ export function createSupportCaseRoutes(): Router {
       }
       const supportCase = await loadCase(threadId, orgId, staff, res);
       if (!supportCase) return undefined;
+      // Same-org is not enough on a `messages:read` route: any reader in the
+      // org passes it. A tenant must be the case's author or current contact —
+      // the reply route's rule. Staff are admitted as staff.
+      if (!staff && !authorizeCaseParticipant(res, supportCase, userId)) return undefined;
 
       // Reopening a CLOSED case is staff only — see TENANT_TERMINAL_STATUSES.
       // Checked on the CURRENT status rather than the target, because the rule
@@ -324,6 +329,9 @@ export function createSupportCaseRoutes(): Router {
       }
       const supportCase = await loadCase(threadId, orgId, false, res);
       if (!supportCase) return undefined;
+      // Only the author or the current owner may hand the case on — not any
+      // reader in the org. Tenant only, so there is no staff override.
+      if (!authorizeCaseParticipant(res, supportCase, userId)) return undefined;
 
       /**
        * The target must be a live designated contact OF THIS CASE'S OWN ORG.
@@ -499,7 +507,7 @@ export function createSupportCaseRoutes(): Router {
     '/support/:id/satisfaction',
     ...createAuthenticatedWithOrgRoute(),
     requirePermission('messages:read'),
-    withRoute(async ({ req, res, ctx, orgId }) => {
+    withRoute(async ({ req, res, ctx, orgId, userId }) => {
       const threadId = getParam(req.params, 'id');
       if (!threadId) return sendBadRequest(res, 'Case id is required', ErrorCode.MISSING_REQUIRED_FIELD);
       const body = (req.body ?? {}) as { satisfaction?: unknown; comment?: unknown };
@@ -516,6 +524,9 @@ export function createSupportCaseRoutes(): Router {
       // allowed to reach for a tenant, so there is no staff variant to admit.
       const supportCase = await loadCase(threadId, orgId, false, res);
       if (!supportCase) return undefined;
+      // The customer's rating is the author's or current owner's to give, not
+      // any reader's in the org.
+      if (!authorizeCaseParticipant(res, supportCase, userId)) return undefined;
 
       const rated = await rateCase(supportCase.id, score, comment || null);
       if (!rated) {

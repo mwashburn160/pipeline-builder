@@ -9,7 +9,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { AddToTeamModal } from '@/components/members/AddToTeamModal';
 import type { FormState } from '@/hooks/useFormState';
 
-const form = (loading: boolean) => ({ loading, error: null, success: null } as unknown as FormState);
+const form = (loading: boolean, error: string | null = null) => ({ loading, error, success: null } as unknown as FormState);
 
 describe('AddToTeamModal', () => {
   it('submits on Enter when idle', () => {
@@ -26,5 +26,27 @@ describe('AddToTeamModal', () => {
     expect(box).toBeDisabled();
     fireEvent.keyDown(box, { key: 'Enter' });
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  describe('a person outside the account (MEMBER_INVITATION_REQUIRED)', () => {
+    const refused = form(false, 'That person is not in your organization yet. Send them an invitation — they join when they accept.');
+
+    it('offers an invitation to the organization for the refused address', () => {
+      render(<AddToTeamModal target={{ orgId: 't1', orgName: 'Platform' }} email="out@other.io" onEmailChange={jest.fn()} form={refused} onSubmit={jest.fn()} onClose={jest.fn()} canInvite inviteEmail="out@other.io" />);
+      expect(screen.getByText(/not in your organization yet/i)).toBeInTheDocument();
+      const link = screen.getByRole('link', { name: /invite out@other.io to the organization/i });
+      expect(link).toHaveAttribute('href', '/dashboard/invitations?email=out%40other.io');
+    });
+
+    it('names who can invite (no link) without invitation access', () => {
+      render(<AddToTeamModal target={{ orgId: 't1', orgName: 'Platform' }} email="out@other.io" onEmailChange={jest.fn()} form={refused} onSubmit={jest.fn()} onClose={jest.fn()} inviteEmail="out@other.io" />);
+      expect(screen.getByText(/ask an admin with invitation access/i)).toBeInTheDocument();
+      expect(screen.queryByRole('link')).not.toBeInTheDocument();
+    });
+
+    it('drops the offer once the address is edited', () => {
+      render(<AddToTeamModal target={{ orgId: 't1', orgName: 'Platform' }} email="someone@else.io" onEmailChange={jest.fn()} form={refused} onSubmit={jest.fn()} onClose={jest.fn()} canInvite inviteEmail="out@other.io" />);
+      expect(screen.queryByRole('link')).not.toBeInTheDocument();
+    });
   });
 });

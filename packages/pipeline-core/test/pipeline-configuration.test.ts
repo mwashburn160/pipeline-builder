@@ -167,6 +167,21 @@ describe('PipelineConfiguration', () => {
       expect(config.pipelineName).toBe('my_org-my_project-pipeline');
     });
 
+    it('keeps a clean pair\'s pipeline name unhashed', () => {
+      const config = new PipelineConfiguration(validProps({ project: 'spring-boot', organization: 'acme' }));
+      expect(config.identityHash).toBeNull();
+      expect(config.pipelineName).toBe('acme-spring_boot-pipeline');
+    });
+
+    it('hashes the raw pair into the pipeline name when sanitizing is lossy (spring_boot vs spring-boot)', () => {
+      const lossy = new PipelineConfiguration(validProps({ project: 'spring_boot', organization: 'acme' }));
+      const clean = new PipelineConfiguration(validProps({ project: 'spring-boot', organization: 'acme' }));
+      expect(lossy.project).toBe(clean.project);
+      expect(lossy.identityHash).toMatch(/^[0-9a-f]{8}$/);
+      expect(lossy.pipelineName).toBe(`acme-spring_boot-pipeline-${lossy.identityHash}`);
+      expect(lossy.pipelineName).not.toBe(clean.pipelineName);
+    });
+
     it('uses custom pipeline name when provided', () => {
       const config = new PipelineConfiguration(
         validProps({ pipelineName: 'custom-name' } as any),

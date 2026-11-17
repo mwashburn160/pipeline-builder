@@ -2,11 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Representative bump-site test: a privilege change that bumps `tokenVersion`
+ * Representative bump-site test: an access change that bumps the access version
  * must PUBLISH the user's new version to the stateless services after the
  * transaction commits. We use OrgMembersService.removeMember and assert it calls
  * `publishUserRevocation(userId)` (the session-revocation helper is mocked so we
  * assert the call, not the Redis write — that's covered in session-revocation.test).
+ *
+ * removeMember's bump is a CLAIMS bump scoped to the org (the SCIM
+ * `endOrgAccess` approach) — never a `tokenVersion` bump + session wipe, which
+ * signed the person out of every OTHER org too. It also runs the Role-unassign
+ * guards (`assertActorMayStripMemberRoles`) before deleting anything, and
+ * re-derives `User.isSuperAdmin` when a superadmin-granting Role went with them.
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
@@ -34,7 +40,11 @@ jest.unstable_mockModule('../src/helpers/seats.js', () => seatsMock({
   seatCapacityStillWithinCap: jest.fn(async () => true),
   userHasSeatInAccount: jest.fn(async () => false),
 }));
-jest.unstable_mockModule('../src/services/roles-service.js', () => ({ assertActorMayAssignBuiltinAdmin: async () => undefined, ensureBaselineRole: jest.fn(async () => undefined), assignBuiltinAdminRole: jest.fn(async () => true), recomputeUserOrgRole: jest.fn(async () => undefined) }));
+const mockRecompute = jest.fn<(...a: unknown[]) => Promise<void>>(async () => undefined);
+jest.unstable_mockModule('../src/services/roles-service.js', () => ({ assertActorMayAssignBuiltinAdmin: async () => undefined, ensureBaselineRole: jest.fn(async () => undefined), assignBuiltinAdminRole: jest.fn(async () => true), recomputeUserOrgRole: (...a: unknown[]) => mockRecompute(...a) }));
+const mockStripGuard = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+jest.unstable_mockModule('../src/services/role-crud.js', () => ({ assertActorMayStripMemberRoles: (...a: unknown[]) => mockStripGuard(...a) }));
+jest.unstable_mockModule('../src/helpers/account-membership.js', () => ({ assertDirectAddConsented: jest.fn(async () => undefined) }));
 
 // The publisher under assertion — mocked so we verify the call, not the Redis I/O.
 jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({
@@ -67,30 +77,88 @@ const { orgMembersService } = await import('../src/services/org-members-service.
 
 const findOneResolving = (doc: unknown) => ({ session: () => Promise.resolve(doc) });
 
+const ADMIN = { isSuperAdmin: false, isOrgAdmin: true, permissions: [] as string[] };
+
 beforeEach(() => {
   jest.clearAllMocks();
   mockUserUpdateOne.mockResolvedValue(undefined);
   mockUoDeleteOne.mockReturnValue({ session: () => Promise.resolve(undefined) });
   mockRaDeleteMany.mockResolvedValue(undefined);
+  mockStripGuard.mockResolvedValue({ heldSuperadmin: false });
 });
 
 describe('OrgMembersService.removeMember → session-revocation publish', () => {
-  it('publishes the removed user tokenVersion after the transaction', async () => {
+  it('publishes the removed user\'s access version after an org-scoped CLAIMS bump', async () => {
     mockUoFindOne.mockReturnValue(findOneResolving({ _id: 'm1', role: 'member' }));
 
-    await orgMembersService.removeMember('org-1', 'user-1');
+    await orgMembersService.removeMember('org-1', 'user-1', ADMIN);
 
-    // The bump write happened...
-    const bump = mockUserUpdateOne.mock.calls.find((c) => (c[1] as any)?.$inc?.tokenVersion === 1);
+    // The claims bump happened...
+    const bump = mockUserUpdateOne.mock.calls.find((c) => (c[1] as any)?.$inc?.claimsVersion === 1);
     expect(bump).toBeDefined();
+    expect(bump![0]).toEqual({ _id: 'user-1' });
     // ...and the publisher was invoked for that user.
     expect(mockPublishUser).toHaveBeenCalledTimes(1);
     expect(mockPublishUser).toHaveBeenCalledWith('user-1');
   });
 
+  it('does NOT sign the person out globally (no tokenVersion bump, refresh sessions kept)', async () => {
+    mockUoFindOne.mockReturnValue(findOneResolving({ _id: 'm1', role: 'member' }));
+
+    await orgMembersService.removeMember('org-1', 'user-1', ADMIN);
+
+    for (const [, update] of mockUserUpdateOne.mock.calls) {
+      expect((update as any)?.$inc?.tokenVersion).toBeUndefined();
+      expect((update as any)?.$set?.refreshSessions).toBeUndefined();
+    }
+    // The pin to the removed org is still dropped.
+    const unpin = mockUserUpdateOne.mock.calls.find((c) => (c[0] as any)?.lastActiveOrgId === 'org-1');
+    expect((unpin![1] as any).$unset).toHaveProperty('lastActiveOrgId');
+  });
+
+  it('runs the Role-unassign guards with the actor BEFORE deleting anything', async () => {
+    mockUoFindOne.mockReturnValue(findOneResolving({ _id: 'm1', role: 'admin' }));
+    const peopleManager = { isSuperAdmin: false, isOrgAdmin: false, permissions: ['members:manage'] };
+    mockStripGuard.mockRejectedValue(new Error('RL_ASSIGN_EXCEEDS_CEILING'));
+
+    await expect(orgMembersService.removeMember('org-1', 'admin-1', peopleManager)).rejects.toThrow('RL_ASSIGN_EXCEEDS_CEILING');
+
+    expect(mockStripGuard).toHaveBeenCalledWith('org-1', 'admin-1', peopleManager, expect.anything());
+    expect(mockUoDeleteOne).not.toHaveBeenCalled();
+    expect(mockRaDeleteMany).not.toHaveBeenCalled();
+    expect(mockUserUpdateOne).not.toHaveBeenCalled();
+    expect(mockPublishUser).not.toHaveBeenCalled();
+  });
+
+  it('refuses to empty a privileged Role (last admin) — nothing is deleted', async () => {
+    mockUoFindOne.mockReturnValue(findOneResolving({ _id: 'm1', role: 'admin' }));
+    mockStripGuard.mockRejectedValue(new Error('RL_LAST_PRIVILEGED_MEMBER'));
+
+    await expect(orgMembersService.removeMember('org-1', 'admin-1', ADMIN)).rejects.toThrow('RL_LAST_PRIVILEGED_MEMBER');
+    expect(mockRaDeleteMany).not.toHaveBeenCalled();
+  });
+
+  it('re-derives User.isSuperAdmin when a superadmin-granting Role went with the membership', async () => {
+    mockUoFindOne.mockReturnValue(findOneResolving({ _id: 'm1', role: 'admin' }));
+    mockStripGuard.mockResolvedValue({ heldSuperadmin: true });
+
+    await orgMembersService.removeMember('system-org', 'sa-1', { isSuperAdmin: true, isOrgAdmin: true, permissions: [] });
+
+    expect(mockRaDeleteMany).toHaveBeenCalled();
+    expect(mockRecompute).toHaveBeenCalledWith('sa-1', 'system-org', expect.anything());
+    // After the assignments are gone, so the recompute sees none and clears the flag.
+    expect(mockRaDeleteMany.mock.invocationCallOrder[0]).toBeLessThan(mockRecompute.mock.invocationCallOrder[0]);
+  });
+
+  it('skips the recompute when no superadmin Role was held', async () => {
+    mockUoFindOne.mockReturnValue(findOneResolving({ _id: 'm1', role: 'member' }));
+    await orgMembersService.removeMember('org-1', 'user-1', ADMIN);
+    expect(mockRecompute).not.toHaveBeenCalled();
+  });
+
   it('does not publish when the member is missing (no bump)', async () => {
     mockUoFindOne.mockReturnValue(findOneResolving(null));
-    await expect(orgMembersService.removeMember('org-1', 'ghost')).rejects.toThrow();
+    await expect(orgMembersService.removeMember('org-1', 'ghost', ADMIN)).rejects.toThrow();
     expect(mockPublishUser).not.toHaveBeenCalled();
   });
 });
