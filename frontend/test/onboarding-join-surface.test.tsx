@@ -159,4 +159,21 @@ describe('onboarding page — first run', () => {
     // And it now says where the join flow lives afterwards.
     expect(screen.getByText(/Skipping is not final/i)).toBeInTheDocument();
   });
+
+  it('leaving the setup step holds the dashboard setup popup off for this org (no double prompt)', async () => {
+    user = { id: 'u1', organizationId: 'org-new', organizationName: 'Personal', needsOnboarding: true };
+    window.localStorage.clear();
+    render(<OnboardingPage />);
+    await screen.findByRole('heading', { name: /Welcome to Pipeline Builder/i });
+    const submit = screen.getByRole('button', { name: /continue to dashboard/i });
+    await waitFor(() => expect(submit).toBeEnabled());
+    fireEvent.click(submit);
+    await waitFor(() => expect(completeOnboarding).toHaveBeenCalled());
+    // Install phase: the same label, on the setup step's own button.
+    await screen.findByText(/1 · Install the CLI/i);
+    fireEvent.click(screen.getByRole('button', { name: /continue to dashboard/i }));
+    const { isSetupGuideSnoozed } = await import('../src/lib/setup-guide');
+    await waitFor(() => expect(isSetupGuideSnoozed('org-new')).toBe(true));
+    expect(isSetupGuideSnoozed('some-other-org')).toBe(false);
+  });
 });

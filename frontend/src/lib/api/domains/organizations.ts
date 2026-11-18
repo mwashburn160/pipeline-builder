@@ -12,6 +12,15 @@ import type { OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
  * org's roles, signs in with nothing (only `pb_sa_…` keys), consumes NO seat,
  * and has its own per-period token-exchange budget.
  */
+/** `GET/PATCH /organization/:id/setup-guide`. */
+export interface OrgSetupGuideState {
+  /** When an admin dismissed the setup popup; null = still to show. */
+  dismissedAt: string | null;
+  dismissedBy: string | null;
+  /** No parent org. Teams share the parent's setup, so they never get the popup. */
+  topLevel: boolean;
+}
+
 export interface ServiceAccount {
   id: string;
   organizationId: string;
@@ -831,6 +840,20 @@ export function organizationsApi(core: ApiCore) {
      *  governs, since a parent org's requirement also applies to its teams. */
     getMfaPolicy: async (orgId: string, opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<OrgMfaPolicy>>(`/api/organization/${orgId}/mfa-policy`, { signal: opts?.signal });
+    },
+
+    /** GET /organization/:id/setup-guide — whether an admin has dismissed the
+     *  "finish setting up" popup for this org (`org_settings:write`). */
+    getSetupGuide: async (orgId: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<OrgSetupGuideState>>(`/api/organization/${orgId}/setup-guide`, { signal: opts?.signal });
+    },
+    /** PATCH — `dismissed: true` stops the popup for every admin of the org;
+     *  `false` re-arms it. A UI preference, so no step-up. */
+    updateSetupGuide: async (orgId: string, body: { dismissed: boolean }) => {
+      return core.request<ApiResponse<OrgSetupGuideState>>(`/api/organization/${orgId}/setup-guide`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      });
     },
 
     /** GET /organization/:id/password-policy — the org's minimum password length

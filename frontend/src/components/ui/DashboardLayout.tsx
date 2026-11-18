@@ -23,6 +23,7 @@ import { ImpersonationBanner } from './ImpersonationBanner';
 import { AuthErrorBanner } from './AuthErrorBanner';
 import { MfaEnrolmentNudge } from './MfaEnrolmentNudge';
 import { MfaRequiredBanner } from './MfaRequiredBanner';
+import { SetupGuidePopup } from '@/components/onboarding/SetupGuidePopup';
 import { MfaRequiredDialog } from './MfaRequiredDialog';
 import { ErrorBoundary } from '../ErrorBoundary';
 import { FeatureLockedAction } from './FeatureLock';
@@ -394,6 +395,8 @@ function DashboardShell({
           <MfaEnrolmentNudge />
           {!enrolmentLimited && <QuotaBanner />}
           {!enrolmentLimited && <QuotaExceededNotice />}
+          {/* One-time org setup guide for admins of a new org (self-gating). */}
+          {!enrolmentLimited && <SetupGuidePopup user={user} />}
 
           <main id="main-content" tabIndex={-1} className={`page-reveal ${maxWidthClasses[maxWidth]} mx-auto w-full py-6 px-4 sm:px-6 lg:px-8 ${mainClassName}`}>
             {/* PAGE HEADER. One block, rendered for every route from the props

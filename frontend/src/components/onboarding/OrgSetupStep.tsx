@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useEffect, useState } from 'react';
-import { Download, Terminal, BarChart3, Package } from 'lucide-react';
+import { Download, Terminal, BarChart3, Package, KeyRound } from 'lucide-react';
 // SUBPATH, not the barrel: `@pipeline-builder/api-core` pulls in express
 // transitively, which has no TextDecoder under jsdom — importing it here took
 // out three component suites at LOAD with an error naming nothing to do with
@@ -11,33 +11,56 @@ import { TIER_FEATURES } from '@pipeline-builder/api-core/feature-flags';
 import { Button } from '@/components/ui/Button';
 import { LinkButton } from '@/components/ui/LinkButton';
 import { Checkbox } from '@/components/ui/Checkbox';
+import { Input } from '@/components/ui/Input';
+import { FormField } from '@/components/ui/FormField';
 import { InfoAlert } from '@/components/ui/InfoAlert';
 import { HelpCodeBlock } from '@/components/help/HelpCodeBlock';
+import { SetupStatusPanel } from '@/components/onboarding/SetupStatusPanel';
 import { DEFAULT_CLI_NPM_PACKAGE, DEFAULT_CLI_NPM_URL } from '@/lib/constants';
 import type { TierKey } from '@/lib/tiers';
 import { isAwsTarget } from '@/lib/deploy-target';
 import { ACCESS_KEYS_HREF } from '@/lib/security-links';
+import { CLI_MIN_NODE, DEFAULT_SETUP_REGION, isAwsRegion, setupCommands } from '@/lib/setup-guide';
 import { useFeatures } from '@/hooks/useFeatures';
+import type { User } from '@/types';
 
 
 interface OrgSetupStepProps {
-  /** The org's plan tier (e.g. 'enterprise') — drives the DORA "included vs add-on" hint. */
+  /** The org's plan tier (e.g. 'business') — drives the DORA "included vs add-on"
+   *  hint. When absent, the active org's own entitlements decide. */
   planTier?: string;
   /** Called by the final "Continue"/"Done" button. */
-  onDone: () => void;
+  onDone?: () => void;
   /** Label for the final button. Defaults to "Continue to dashboard". */
   doneLabel?: string;
-  /** 'page' (first-run onboarding) or 'modal' (post org-create). Layout only. */
+  /** 'page' (first-run onboarding, Downloads) or 'modal' (popup). Layout only. */
   variant?: 'page' | 'modal';
+  /** Render the final button. Off where the guide is reference material (Downloads). */
+  showDone?: boolean;
+  /** Show live progress (key issued, events arriving) for this org, read as
+   *  this user. Omitted on the first-run page, where the org is seconds old. */
+  status?: { orgId: string; user: User | null };
+  /** Extra controls beside the final button (the popup's "Remind me later"). */
+  secondaryAction?: React.ReactNode;
 }
 
 /**
- * The final org-setup step shown after a new (top-level) organization is created:
- * install the pipeline-manager CLI, and — on AWS targets — optionally set up the
- * per-org event-metrics infra (store-token → setup-events, ± DORA). Reused by the
- * first-run onboarding page and the dashboard "New Organization" flow.
+ * The org setup guide: install the pipeline-manager CLI and — on AWS targets —
+ * set up the per-org event-metrics infra (sign in → store the platform and
+ * reporting-ingest keys → setup-events, ± DORA). The commands come from
+ * `lib/setup-guide.ts`, so every surface that shows this guide (first-run
+ * onboarding, the dashboard popup, the Downloads page, the New Organization
+ * flow) shows the same, working, commands.
  */
-export function OrgSetupStep({ planTier, onDone, doneLabel = 'Continue to dashboard', variant = 'page' }: OrgSetupStepProps) {
+export function OrgSetupStep({
+  planTier,
+  onDone,
+  doneLabel = 'Continue to dashboard',
+  variant = 'page',
+  showDone = true,
+  status,
+  secondaryAction,
+}: OrgSetupStepProps) {
   // CLI_NPM_PACKAGE / CLI_NPM_URL, served at runtime by /config (see
   // platform `config.cli`) and falling back to the public npm package. They are
   // NOT module constants any more: a deployment that republishes the CLI under
@@ -54,21 +77,25 @@ export function OrgSetupStep({ planTier, onDone, doneLabel = 'Continue to dashbo
   const showEvents = isAwsTarget(deployTarget);
   const [wantEvents, setWantEvents] = useState(false);
   const [withDora, setWithDora] = useState(false);
-  // PLATFORM_BASE_URL for the setup-events command = the gateway origin the browser
-  // is on (nginx serves both the app and /api). Resolved client-side.
+  const [region, setRegion] = useState(DEFAULT_SETUP_REGION);
+  const regionValid = isAwsRegion(region);
+  // PLATFORM_BASE_URL = the gateway origin the browser is on (nginx serves both
+  // the app and /api). Resolved client-side.
   const [origin, setOrigin] = useState('https://your-platform.example.com');
   useEffect(() => { if (typeof window !== 'undefined') setOrigin(window.location.origin); }, []);
 
   // Derived from TIER_FEATURES rather than naming tiers: DORA is included in
   // Business as well as Enterprise (and in `unlimited`, the billing-off tier,
-  // where nothing is metered), and the hardcoded comparison silently told a
-  // Business admin their included feature was a paid add-on.
-  const doraIncluded = !!planTier && (TIER_FEATURES[planTier as TierKey] ?? []).includes('advanced_reporting');
-  const setupEventsCmd = `export PLATFORM_BASE_URL=${origin}\npipeline-manager infra setup-events --region us-east-1${withDora ? ' --with-dora' : ''}`;
+  // where nothing is metered). Without a tier (the popup, on an existing org)
+  // the org's live entitlements decide, which also counts a purchased add-on.
+  const doraIncluded = planTier
+    ? (TIER_FEATURES[planTier as TierKey] ?? []).includes('advanced_reporting')
+    : features.isEnabled('advanced_reporting');
+  const cmds = setupCommands({ origin, region, withDora });
 
   return (
-    <div className={variant === 'modal' ? '' : 'space-y-5'}>
-      {/* Overview highlight — the three steps at a glance. */}
+    <div className={variant === 'modal' ? 'space-y-4' : 'space-y-5'}>
+      {/* Overview highlight — the steps at a glance. */}
       <div className="rounded-lg border border-default bg-surface-muted p-3">
         <div className="text-sm font-semibold mb-2">Finish setting up</div>
         <ol className="space-y-1.5 text-sm text-fg-muted">
@@ -78,10 +105,12 @@ export function OrgSetupStep({ planTier, onDone, doneLabel = 'Continue to dashbo
         </ol>
       </div>
 
+      {status && <SetupStatusPanel orgId={status.orgId} user={status.user} showEvents={showEvents} />}
+
       {/* Step 1 — install the CLI. */}
       <div className="space-y-2">
         <div className="text-sm font-semibold">1 · Install the CLI</div>
-        <p className="text-xs text-fg-muted">Requires Node.js 24.21.0 or newer.</p>
+        <p className="text-xs text-fg-muted">Requires Node.js {CLI_MIN_NODE} or newer.</p>
         <HelpCodeBlock content={installCmd} language="bash" />
         <div className="flex flex-wrap items-center gap-2 pt-1">
           <LinkButton href={cliNpmUrl} target="_blank" rel="noopener noreferrer" variant="secondary" size="sm">
@@ -101,16 +130,43 @@ export function OrgSetupStep({ planTier, onDone, doneLabel = 'Continue to dashbo
           </label>
           {wantEvents && (
             <div className="space-y-3 pl-1">
-              <p className="text-xs text-fg-muted">Run these once per organization. Store the token first — the event ingestion reads it.</p>
-              <HelpCodeBlock content={'pipeline-manager infra store-token --expires-days 30 --schedule --region us-east-1'} language="bash" />
+              <p className="text-xs text-fg-muted">
+                Run these once per organization, in order. You need the AWS CLI with credentials for the target
+                account (CloudFormation and Secrets Manager access).
+              </p>
+
+              <FormField
+                label="AWS region"
+                error={regionValid ? undefined : `"${region}" is not an AWS region code (for example us-east-1).`}
+              >
+                <Input value={region} onChange={(e) => setRegion(e.target.value.trim())} className="max-w-[12rem] font-mono" spellCheck={false} />
+              </FormField>
+
+              <div className="text-xs font-semibold flex items-center gap-1.5"><KeyRound className="w-3.5 h-3.5" /> Sign in</div>
+              <p className="text-xs text-fg-muted">
+                <code>store-token</code> issues keys, which re-checks your account password — it is read without echo,
+                so it stays out of your shell history.
+              </p>
+              <HelpCodeBlock content={cmds.prerequisites} language="bash" />
+
+              <div className="text-xs font-semibold">Store the service tokens</div>
+              <p className="text-xs text-fg-muted">
+                Four least-privilege keys: the platform key (pipeline synth and deploy), the registry key (builds pull
+                their images with it), the registration key (deployed pipelines register with it) and the{' '}
+                <code>reporting:ingest</code> key — the only credential the reporting service accepts events from.{' '}
+                <code>--schedule</code> deploys a daily job that replaces each key before it expires.
+              </p>
+              <HelpCodeBlock content={cmds.tokens} language="bash" />
+
               <label className="flex items-center gap-2 text-sm cursor-pointer">
                 <Checkbox checked={withDora} onChange={(e) => setWithDora(e.target.checked)} />
                 Include DORA metrics (measured commit→deploy lead time)
               </label>
-              <HelpCodeBlock content={setupEventsCmd} language="bash" />
+              <div className="text-xs font-semibold">Deploy event ingestion</div>
+              <HelpCodeBlock content={cmds.setupEvents} language="bash" />
               <InfoAlert message={
                 doraIncluded
-                  ? 'DORA metrics are included in your Enterprise plan.'
+                  ? 'DORA metrics are included in your plan.'
                   : 'DORA metrics require the Advanced Reporting add-on (buy it anytime from Billing).'
               } />
             </div>
@@ -118,14 +174,19 @@ export function OrgSetupStep({ planTier, onDone, doneLabel = 'Continue to dashbo
         </div>
       )}
 
-      <div className="pt-1">
-        <Button onClick={onDone} className="w-full">{doneLabel}</Button>
-        {showEvents && (
-          <p className="text-xs text-fg-muted text-center mt-2">
-            You can run the metrics setup later — the commands are on the Downloads page.
-          </p>
-        )}
-      </div>
+      {showDone && onDone && (
+        <div className="pt-1">
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center">
+            {secondaryAction}
+            <Button onClick={onDone} className="w-full sm:flex-1">{doneLabel}</Button>
+          </div>
+          {showEvents && (
+            <p className="text-xs text-fg-muted text-center mt-2">
+              You can run the metrics setup later — the guide is on the Downloads page.
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

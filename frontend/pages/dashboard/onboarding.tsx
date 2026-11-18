@@ -17,6 +17,7 @@ import { formatError } from '@/lib/constants';
 import { DEFAULT_PLAN_ID } from '@/components/billing/helpers';
 import { SelectablePlanCard } from '@/components/billing/SelectablePlanCard';
 import { OrgSetupStep } from '@/components/onboarding/OrgSetupStep';
+import { snoozeSetupGuide } from '@/lib/setup-guide';
 import { usePlans } from '@/hooks/usePlans';
 import { useMutation } from '@/hooks/useMutation';
 
@@ -309,7 +310,16 @@ export default function OnboardingPage() {
             <p className="text-sm text-fg-muted mb-5">
               Your organization is ready. Install the CLI to start building pipelines.
             </p>
-            <OrgSetupStep planTier={planTier} onDone={() => void goToDashboard()} />
+            {/* Leaving here holds the dashboard popup off for a day: they have just
+                read this guide, and it comes back tomorrow with live progress so
+                they can confirm the steps worked (or say they're done). */}
+            <OrgSetupStep
+              planTier={planTier}
+              onDone={() => {
+                if (user?.organizationId) snoozeSetupGuide(user.organizationId);
+                void goToDashboard();
+              }}
+            />
           </Card>
         </div>
       </>

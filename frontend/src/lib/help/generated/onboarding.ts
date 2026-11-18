@@ -1,6 +1,6 @@
 // GENERATED FROM docs/onboarding.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 47b54463c0a9c9c511d988f5c536f5e0cdc882726161c378a7196f7b2a9fb8ac
+// SOURCE-SHA256: 1dcb4bb389fe7e135443076fbb83fe40f28727f8a9fd80c10b0399e8a223eb46
 // SPDX-License-Identifier: Apache-2.0
 import { Rocket } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -325,7 +325,7 @@ export const onboardingTopic: HelpTopic = {
         },
         {
           "type": "note",
-          "content": "The in-app onboarding step (shown after you create an organization) surfaces this same store-token → setup-events sequence, with a with/without-DORA toggle — but only on the AWS targets (DEPLOY_TARGET=aws-ec2/aws-eks)."
+          "content": "The in-app setup guide surfaces this same store-token → setup-events sequence, with a region field and a with/without-DORA toggle — on the AWS targets only (DEPLOY_TARGET=aws-ec2/aws-eks). Org admins see it once as a popup on the dashboard (until an admin chooses \"Done — don't show again\"; \"Remind me later\" holds it off for a day), and it stays on the Downloads page with live progress: which of the four keys below exist, and whether events are arriving."
         },
         {
           "type": "text",
@@ -333,12 +333,16 @@ export const onboardingTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "export PLATFORM_PASSWORD='…'\n\npipeline-manager infra store-token --expires-days 30 --schedule --region us-east-1\npipeline-manager infra store-token --scope registry:push --schedule --region us-east-1\npipeline-manager infra store-token --scope reporting:ingest --schedule --region us-east-1",
+          "content": "export PLATFORM_BASE_URL=https://pipeline.example.com\npipeline-manager auth login      # or export an access key as PLATFORM_TOKEN\nprintf 'Platform password: '; read -rs PLATFORM_PASSWORD; echo; export PLATFORM_PASSWORD\n\npipeline-manager infra store-token --expires-days 30 --schedule --region us-east-1\npipeline-manager infra store-token --scope registry:push --schedule --region us-east-1\npipeline-manager infra store-token --scope pipeline_registry:write --schedule --region us-east-1\npipeline-manager infra store-token --scope reporting:ingest --schedule --region us-east-1",
           "language": "bash"
         },
         {
           "type": "text",
           "content": "--schedule also installs a small daily key-rotation Lambda so the key never lapses — recommended, since the event Lambda depends on it. Without it, re-run store-token before expiry. Full detail: Store Service Credentials."
+        },
+        {
+          "type": "note",
+          "content": "The pipeline_registry:write key lets a deployed pipeline register itself (pipeline deploy --store-tokens); the platform key cannot, and event ingest attributes events to an org through that registry."
         },
         {
           "type": "note",
@@ -364,12 +368,12 @@ export const onboardingTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "export PLATFORM_BASE_URL=https://pipeline.example.com\npipeline-manager infra setup-events --region us-east-1",
+          "content": "export PLATFORM_BASE_URL=https://pipeline.example.com\npipeline-manager infra setup-events --scoped-ingest --region us-east-1",
           "language": "bash"
         },
         {
           "type": "text",
-          "content": "It creates the pipeline-builder-events stack (EventBridge rule + SQS + DLQ + Lambda). The Lambda authenticates with the reporting:ingest service-account key from Step 5 — which it exchanges for a short-lived token per batch — so run Step 5 first."
+          "content": "It creates the pipeline-builder-events stack (EventBridge rule + SQS + DLQ + Lambda). The Lambda authenticates with the reporting:ingest service-account key from Step 5 — which it exchanges for a short-lived token per batch — so run Step 5 first. --scoped-ingest is required: without it the Lambda reads the platform key, which carries no scope, and the reporting service refuses every batch with 403 (\"Token must carry the 'reporting:ingest' scope\")."
         },
         {
           "type": "note",

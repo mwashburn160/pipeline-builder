@@ -72,6 +72,7 @@ jest.unstable_mockModule('../src/controllers/org-idp-mappings.js', () => handler
 ]));
 jest.unstable_mockModule('../src/controllers/org-impersonation-policy.js', () => handlers(['getImpersonationPolicy', 'updateImpersonationPolicy']));
 jest.unstable_mockModule('../src/controllers/org-mfa-policy.js', () => handlers(['getMfaPolicy', 'updateMfaPolicy']));
+jest.unstable_mockModule('../src/controllers/org-setup-guide.js', () => handlers(['getSetupGuide', 'updateSetupGuide']));
 jest.unstable_mockModule('../src/controllers/org-security-policy.js', () => handlers([
   'getPasswordPolicy', 'updatePasswordPolicy', 'getAuthenticatorPolicy', 'updateAuthenticatorPolicy',
   'getSessionPolicy', 'updateSessionPolicy',
@@ -132,6 +133,16 @@ describe('step-up route gates', () => {
       expect(mw.indexOf('requireStepUp')).toBeGreaterThan(mw.indexOf('requireAuth'));
     }
     expect(routeChain(organizationRouter, 'get', '/:id/teams/deleted')).not.toContain('requireStepUp');
+  });
+
+  it('the setup-guide flag is deliberately NOT step-up gated (a UI preference, not a control)', () => {
+    for (const method of ['get', 'patch'] as const) {
+      const mw = routeChain(organizationRouter, method, '/:id/setup-guide');
+      expect(mw).toContain('requireAuth');
+      expect(mw).toContain('requirePermission');
+      expect(mw).not.toContain('requireStepUp');
+    }
+    expect(routeChain(organizationRouter, 'patch', '/:id/setup-guide')).toContain('audited');
   });
 
   it('PATCH /user/profile step-up gates an email CHANGE only — a username edit stays open', () => {

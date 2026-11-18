@@ -1,6 +1,6 @@
 // GENERATED FROM docs/dora-metrics.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: dd1e8d58cca92c567af333e463d1a22cf5fa6243ee378fd1852bead27a72d66d
+// SOURCE-SHA256: 7fe4f9f6b01bde08a97a139d139193cba5f0a8804452f9825b091117279d1fc4
 // SPDX-License-Identifier: Apache-2.0
 import { Gauge } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -104,7 +104,7 @@ export const doraMetricsTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "pipeline-manager infra setup-events --with-dora",
+          "content": "pipeline-manager infra setup-events --scoped-ingest --with-dora",
           "language": "bash"
         },
         {

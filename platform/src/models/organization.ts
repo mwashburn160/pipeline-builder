@@ -131,6 +131,17 @@ export interface OrganizationData {
    * `helpers/session-policy.ts`, which owns the ancestor walk (strictest wins).
    */
   sessionPolicy?: { maxAgeDays?: number; idleTimeoutDays?: number };
+  /**
+   * When an org admin dismissed the one-time "finish setting up your org" guide
+   * (install the CLI, store tokens, set up events) the dashboard offers org
+   * admins. A UI preference, not a control: absent means the guide is still
+   * offered. Written only by `PATCH /organization/:id/setup-guide`
+   * (controllers/org-setup-guide.ts); clearing it re-arms the guide.
+   */
+  setupGuideDismissedAt?: Date;
+  /** The user who dismissed the setup guide. Set and cleared together with
+   *  {@link setupGuideDismissedAt}. */
+  setupGuideDismissedBy?: Types.ObjectId;
   /** Denormalized reference to the owning user. Canonical ownership is in UserOrganization (role: 'owner'). */
   owner: Types.ObjectId;
   /**
@@ -408,6 +419,18 @@ const organizationSchema = new Schema<OrganizationData>(
         },
         { _id: false },
       ),
+      default: undefined,
+    },
+    // Setup-guide dismissal (a UI preference) — absent means the guide is still
+    // offered; no default, so an untouched org stores nothing. Set and cleared
+    // as a pair by the setup-guide route.
+    setupGuideDismissedAt: {
+      type: Date,
+      default: undefined,
+    },
+    setupGuideDismissedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
       default: undefined,
     },
     owner: {

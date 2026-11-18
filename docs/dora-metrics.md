@@ -55,7 +55,7 @@ Deploy attribution lives in synth-time tags, so an already-deployed pipeline con
 ### 3. Turn on lead time, if you want it
 
 ```bash
-pipeline-manager infra setup-events --with-dora
+pipeline-manager infra setup-events --scoped-ingest --with-dora
 ```
 
 Commit-timestamp resolution makes SCM calls and reads the org's `github-token` secret **in your AWS account**, so it is **off by default** and gated on the Lambda's `DORA_ENABLED` env var. It is only worthwhile for orgs holding the `advanced_reporting` add-on; re-run to toggle after a later purchase.

@@ -94,6 +94,10 @@ import {
   updatePasswordPolicy,
   updateSessionPolicy,
 } from '../controllers/org-security-policy.js';
+import {
+  getSetupGuide,
+  updateSetupGuide,
+} from '../controllers/org-setup-guide.js';
 import { completeSsoTest, startSsoTest } from '../controllers/sso-test.js';
 import { isBootstrapSetupRequest, resolveBootstrapSetupWindow } from '../helpers/bootstrap-admin.js';
 import { requireAuth } from '../middleware/index.js';
@@ -230,6 +234,17 @@ router.patch('/:id/impersonation-policy', requireAuth, requirePermission('org_im
  *  in the controller, as on the siblings. */
 router.get('/:id/mfa-policy', requireAuth, requirePermission('org_settings:write'), getMfaPolicy);
 router.patch('/:id/mfa-policy', requireAuth, requirePermission('org_settings:write'), requireStepUp, audited('org.mfa_policy.update'), updateMfaPolicy);
+
+/** GET/PATCH /organization/:id/setup-guide — whether an org admin has dismissed
+ *  the one-time "finish setting up your org" guide the dashboard offers
+ *  (`{ dismissed: boolean }`; `false` re-arms it).
+ *
+ *  Gated on `org_settings:write`, tenancy `canManageOrgScope` in the controller,
+ *  like the policies around it. Deliberately NO step-up on the write: it is a UI
+ *  preference, not a security control — dismissing it changes nothing about the
+ *  org's protection, so it must not cost an admin a re-authentication. */
+router.get('/:id/setup-guide', requireAuth, requirePermission('org_settings:write'), getSetupGuide);
+router.patch('/:id/setup-guide', requireAuth, requirePermission('org_settings:write'), audited('org.setup_guide.update'), updateSetupGuide);
 
 /** GET/PATCH /organization/:id/password-policy — the org's minimum password
  *  length (≥ the platform minimum, strictest wins down the org tree), and

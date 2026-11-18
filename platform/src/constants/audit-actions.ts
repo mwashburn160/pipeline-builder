@@ -145,6 +145,11 @@ export const PLATFORM_AUDIT_ACTIONS = [
   // sign-in / idle timeout, in days; null = the platform ceiling). `details`
   // carries both sides of each field.
   'org.session_policy.update',
+  // An org admin dismissed the one-time "finish setting up your org" guide, or
+  // re-armed it (controllers/org-setup-guide.ts). A UI preference, not a
+  // policy — audited so "who turned the guide off" has an answer.
+  // `details.dismissed` carries both sides ({ from, to }).
+  'org.setup_guide.update',
   // A password sign-in whose password no longer meets the person's org policy
   // opened NO session: a forced password change was required instead
   // (`details.minLength`), and completed by `user.password.change`.

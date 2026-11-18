@@ -54,7 +54,7 @@ export function CreateOrganizationFlow({ open, onClose, onCreated }: CreateOrgan
       {open && <CreateOrganizationModal onClose={onClose} onCreated={handleCreated} />}
 
       {setupOpen && (
-        <Modal title="Finish setting up your organization" onClose={() => setSetupOpen(false)} maxWidth="lg">
+        <Modal title="Finish setting up your organization" onClose={() => setSetupOpen(false)} maxWidth="max-w-lg">
           <OrgSetupStep planTier={setupTier} variant="modal" doneLabel="Done" onDone={() => setSetupOpen(false)} />
         </Modal>
       )}

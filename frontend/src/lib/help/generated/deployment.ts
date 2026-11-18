@@ -1,6 +1,6 @@
 // GENERATED FROM docs/aws-deployment.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 99a941d34f9e42b4b2c0aa0e950fe8366f5bb6d7b532e2512ab776b79b28e144
+// SOURCE-SHA256: e6b57dc547f98034252036ed80ff4758de33cf8de671cabf3e73214e8d654669
 // SPDX-License-Identifier: Apache-2.0
 import { Server } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1895,8 +1895,12 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "export PLATFORM_BASE_URL=https://pipeline.example.com\n\npipeline-manager infra setup-events --region us-east-1",
+          "content": "export PLATFORM_BASE_URL=https://pipeline.example.com\n\npipeline-manager infra setup-events --scoped-ingest --region us-east-1",
           "language": "bash"
+        },
+        {
+          "type": "text",
+          "content": "--scoped-ingest points the Lambda at the reporting:ingest key (store-token --scope reporting:ingest --schedule); without it the Lambda uses the unscoped platform key and every batch is refused with 403."
         },
         {
           "type": "text",

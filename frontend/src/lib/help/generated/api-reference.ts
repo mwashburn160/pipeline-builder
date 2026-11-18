@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 8fa67d02d63afb8513e91517c011c799c144e07b24127bf32f14a025a8398529
+// SOURCE-SHA256: 83303e26fa1e589c61d1ca7884922343424bc504a68ce98ca0aeed5bc8e9a9e3
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1503,6 +1503,13 @@ export const apiReferenceTopic: HelpTopic = {
               "PATCH",
               "/organization/:id/mfa-policy",
               "Read / change the org's two-factor requirement: requireMfa, a graceDays count the deadline is computed from server-side (0–90, default 14), and idpEnforcesMfa — the org's statement that its own IdP requires a second factor, which is what makes an SSO sign-in count as aal: 2. Enforced when a token is ISSUED, not per route: past the grace period a single-factor session is refused with 401 MFA_REQUIRED. The read returns both the org's own setting and what a parent org imposes (inheritedFrom + inheritedFromName, the parent's id and name, when a parent's requirement applies), plus enrolment: { members, enrolled } — how many ACTIVE members hold a passkey or a confirmed authenticator app, so an admin choosing a grace period can see how many people it would refuse (someone holding both factors counts once). Also adminActionsRequireMfa — the separate \"administrative actions require MFA\" policy (read returns adminActionsRequireMfa, adminActionsOwn, adminActionsInheritedFrom[Name]); turning it ON signs every other member of the org and its teams out so the org_admin_aal claim applies at once, while turning it off lets each token pick it up at its next refresh (sessionsRefreshed in the response). The write is step-up gated; LOOSENING anything (requirement off, admin-actions policy off, idpEnforcesMfa on) also needs an aal: 2 session (401 MFA_REQUIRED otherwise), while tightening does not. Refused (409 MFA_BOOTSTRAP_STILL_OPEN) for the system org while the bootstrap-admin exception is still open",
+              "org_settings:write"
+            ],
+            [
+              "GET \\",
+              "PATCH",
+              "/organization/:id/setup-guide",
+              "Read / change whether an org admin has dismissed the one-time \"finish setting up your org\" guide → { dismissedAt, dismissedBy, topLevel } (ISO timestamp / user id, null while the guide is still offered; topLevel is false for a team). PATCH { dismissed: boolean }: true stamps when and by whom (idempotent — dismissing again keeps the first stamp), false clears both so the guide is offered again. A UI preference, not a control: no step-up. Audited as org.setup_guide.update",
               "org_settings:write"
             ],
             [

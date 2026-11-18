@@ -1743,6 +1743,22 @@ const CONTROLS: Control[] = [
     },
   },
   {
+    control: "Dismiss the org setup guide popup (\"Done — don't show again\")",
+    file: 'src/components/onboarding/SetupGuidePopup.tsx',
+    permissions: ['org_settings:write'],
+    routes: ['platform PATCH /organization/:id/setup-guide'],
+    behaviour: {
+      renders: 'the popup on its own: DashboardLayout mounts it on every dashboard page with the guard\'s user, and the popup itself is the gate (it reads the user\'s own `org_settings:write` grant, not the superadmin-implicit `can()`).',
+      mount: (ctx) => comp('../src/components/onboarding/SetupGuidePopup', 'SetupGuidePopup', { user: ctx.user })(),
+      api: {
+        // A plain function: the proxy would otherwise resolve a (truthy) Promise.
+        isImpersonating: () => false,
+        getSetupGuide: { dismissedAt: null, dismissedBy: null, topLevel: true },
+      },
+      find: button(/done — don't show again/i),
+    },
+  },
+  {
     control: "Edit a team's impersonation policy (team settings drawer)",
     file: 'src/components/teams/TeamSettingsDrawer.tsx',
     gateFiles: ['src/components/settings/ImpersonationPolicySettings.tsx'],

@@ -63,6 +63,7 @@ jest.unstable_mockModule('../src/controllers/org-idp-mappings.js', () => recorde
 ]));
 jest.unstable_mockModule('../src/controllers/org-impersonation-policy.js', () => recorders(['getImpersonationPolicy', 'updateImpersonationPolicy']));
 jest.unstable_mockModule('../src/controllers/org-mfa-policy.js', () => recorders(['getMfaPolicy', 'updateMfaPolicy']));
+jest.unstable_mockModule('../src/controllers/org-setup-guide.js', () => recorders(['getSetupGuide', 'updateSetupGuide']));
 jest.unstable_mockModule('../src/controllers/org-security-policy.js', () => recorders([
   'getPasswordPolicy', 'updatePasswordPolicy', 'getAuthenticatorPolicy', 'updateAuthenticatorPolicy',
   'getSessionPolicy', 'updateSessionPolicy',
@@ -90,6 +91,8 @@ const ROUTES: Array<[string, string, string]> = [
   ['patch', '/:id/identity', 'org_settings:write'],
   ['get', '/:id/mfa-policy', 'org_settings:write'],
   ['patch', '/:id/mfa-policy', 'org_settings:write'],
+  ['get', '/:id/setup-guide', 'org_settings:write'],
+  ['patch', '/:id/setup-guide', 'org_settings:write'],
   ['patch', '/:id/password-policy', 'org_settings:write'],
   ['patch', '/:id/authenticator-policy', 'org_settings:write'],
   ['get', '/:id/session-policy', 'org_settings:write'],

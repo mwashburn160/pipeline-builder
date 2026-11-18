@@ -1097,8 +1097,10 @@ Set up pipeline execution reporting to track success rates, stage performance, a
 ```bash
 export PLATFORM_BASE_URL=https://pipeline.example.com
 
-pipeline-manager infra setup-events --region us-east-1
+pipeline-manager infra setup-events --scoped-ingest --region us-east-1
 ```
+
+`--scoped-ingest` points the Lambda at the `reporting:ingest` key (`store-token --scope reporting:ingest --schedule`); without it the Lambda uses the unscoped platform key and every batch is refused with 403.
 
 This creates a CloudFormation stack (`pipeline-builder-events`) containing:
 

@@ -311,6 +311,16 @@ export const updateMfaPolicySchema = z
   });
 
 /**
+ * `PATCH /organization/:id/setup-guide`. `true` dismisses the org's one-time
+ * setup guide (idempotent), `false` re-arms it.
+ */
+export const updateSetupGuideSchema = z
+  .object({
+    dismissed: z.boolean(),
+  })
+  .strict();
+
+/**
  * Second leg of a sign-in whose password no longer meets the org policy: the
  * challenge handle plus the NEW password (platform rules here; the org minimum
  * and the breach check run in the controller).

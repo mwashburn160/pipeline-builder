@@ -210,9 +210,12 @@ within 14 days, and one that has never been used.
 **Provisioned with `--with-events`?** This is already done — skip to
 [Step 7](#step-7--create-your-first-pipeline).
 
-> The in-app **onboarding step** (shown after you create an organization) surfaces
-> this same `store-token` → `setup-events` sequence, with a with/without-DORA toggle
-> — but only on the AWS targets (`DEPLOY_TARGET=aws-ec2`/`aws-eks`).
+> The in-app **setup guide** surfaces this same `store-token` → `setup-events`
+> sequence, with a region field and a with/without-DORA toggle — on the AWS targets
+> only (`DEPLOY_TARGET=aws-ec2`/`aws-eks`). Org admins see it once as a popup on the
+> dashboard (until an admin chooses "Done — don't show again"; "Remind me later"
+> holds it off for a day), and it stays on the **Downloads** page with live progress:
+> which of the four keys below exist, and whether events are arriving.
 
 CodeBuild and the event-ingestion Lambda each read a
 **service-account key** from AWS Secrets Manager (under `pipeline-builder/{orgId}/…`)
@@ -220,18 +223,25 @@ CodeBuild and the event-ingestion Lambda each read a
 `--with-events`, provision them by hand:
 
 ```bash
-# Log in first (or export an access key as PLATFORM_TOKEN). Issuing a key is
-# step-up gated, so the command needs your password too:
-export PLATFORM_PASSWORD='…'
+export PLATFORM_BASE_URL=https://pipeline.example.com
+pipeline-manager auth login      # or export an access key as PLATFORM_TOKEN
+# Issuing a key is step-up gated, so the command needs your password too
+# (read without echo, so it stays out of shell history):
+printf 'Platform password: '; read -rs PLATFORM_PASSWORD; echo; export PLATFORM_PASSWORD
 
 pipeline-manager infra store-token --expires-days 30 --schedule --region us-east-1
 pipeline-manager infra store-token --scope registry:push --schedule --region us-east-1
+pipeline-manager infra store-token --scope pipeline_registry:write --schedule --region us-east-1
 pipeline-manager infra store-token --scope reporting:ingest --schedule --region us-east-1
 ```
 
 `--schedule` also installs a small **daily key-rotation** Lambda so the key never
 lapses — recommended, since the event Lambda depends on it. Without it, re-run
 `store-token` before expiry. Full detail: [Store Service Credentials](aws-deployment.md#2-store-service-credentials).
+
+> The `pipeline_registry:write` key lets a deployed pipeline register itself
+> (`pipeline deploy --store-tokens`); the platform key cannot, and event ingest
+> attributes events to an org through that registry.
 
 > The `registry:push` one is not optional on AWS: synth wires that secret into
 > every build image's pull credentials, so a pipeline deployed without it cannot
@@ -253,11 +263,11 @@ CodePipeline/CodeBuild execution events into the reporting service — this powe
 
 ```bash
 export PLATFORM_BASE_URL=https://pipeline.example.com
-pipeline-manager infra setup-events --region us-east-1
+pipeline-manager infra setup-events --scoped-ingest --region us-east-1
 ```
 
 It creates the `pipeline-builder-events` stack (EventBridge rule + SQS + DLQ + Lambda).
-The Lambda authenticates with the `reporting:ingest` service-account key from Step 5 — which it exchanges for a short-lived token per batch — so run Step 5 first.
+The Lambda authenticates with the `reporting:ingest` service-account key from Step 5 — which it exchanges for a short-lived token per batch — so run Step 5 first. **`--scoped-ingest` is required:** without it the Lambda reads the platform key, which carries no scope, and the reporting service refuses every batch with 403 ("Token must carry the 'reporting:ingest' scope").
 
 > **Measured lead time (optional — `--with-dora`):** add `--with-dora` to also resolve
 > source commit timestamps in your AWS account, so the Reports page shows **measured**

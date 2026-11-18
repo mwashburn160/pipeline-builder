@@ -562,6 +562,8 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | platform | DELETE | `/organization/:id/service-accounts/:accountId/keys/:keyId` | `any(service_accounts:manage)` |
 | platform | GET | `/organization/:id/session-policy` | `any(org_settings:write)` |
 | platform | PATCH | `/organization/:id/session-policy` | `any(org_settings:write) + step-up(any)` |
+| platform | GET | `/organization/:id/setup-guide` | `any(org_settings:write)` |
+| platform | PATCH | `/organization/:id/setup-guide` | `any(org_settings:write)` |
 | platform | DELETE | `/organization/:id/teams/:teamId` | `any(org_settings:write) + step-up(any)` |
 | platform | GET | `/organization/:id/teams/deleted` | `any(org_settings:write)` |
 | platform | PATCH | `/organization/:id/tier` | `system-org + any(orgs:manage) + aal2 + step-up(any)` |
