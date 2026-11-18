@@ -156,25 +156,28 @@ spec:
           # Under Istio ambient the kubelet -> podIP probe path does not work on
           # EKS Auto Mode (verified: in-mesh pod -> this podIP:PORT succeeds, the
           # kubelet probe to the same address times out). 127.0.0.1 never leaves
-          # the pod netns so it bypasses ztunnel. `node` ships in every service
-          # image; this mirrors frontend/Dockerfile's own HEALTHCHECK.
+          # the pod netns so it bypasses ztunnel.
+          # busybox `wget`, not `node -e fetch(...)`: ~5ms CPU per probe vs ~195ms
+          # (measured 2026-11-18; the node probe throttled frontend at its 500m limit).
+          # wget exits 1 on refused/4xx/5xx, so /ready's 503 still gates. Image audited:
+          # /usr/bin/wget -> /bin/busybox. (plugin's image has no wget — it stays on node.)
           readinessProbe:
             exec:
-              command: ["node", "-e", "fetch('http://127.0.0.1:3000/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+              command: ["wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/ready"]
             initialDelaySeconds: 30
             periodSeconds: 30
             timeoutSeconds: 10
             failureThreshold: 5
           livenessProbe:
             exec:
-              command: ["node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+              command: ["wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/health"]
             initialDelaySeconds: 90
             periodSeconds: 30
             timeoutSeconds: 10
             failureThreshold: 5
           startupProbe:
             exec:
-              command: ["node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+              command: ["wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/health"]
             initialDelaySeconds: 5
             periodSeconds: 5
             timeoutSeconds: 3
