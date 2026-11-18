@@ -31,12 +31,8 @@ const mockUoFindOne = jest.fn<Fn>();
 const mockOrgFind = jest.fn<Fn>();
 const mockCascade = jest.fn<AFn>();
 const mockPublishDeletion = jest.fn<AFn>();
-const mockAnonymize = jest.fn<AFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
-jest.unstable_mockModule('../src/services/user-ecosystem-privacy.js', () => ({
-  anonymizeUserEcosystemContent: (...a: unknown[]) => mockAnonymize(...a),
-}));
 jest.unstable_mockModule('../src/services/user-cascade.js', () => ({
   deleteUserCascade: (...a: unknown[]) => mockCascade(...a),
 }));
@@ -90,7 +86,6 @@ beforeEach(() => {
   mockUoFind.mockReturnValue(queryChain([]));
   mockOrgFind.mockReturnValue(queryChain([]));
   mockPublishDeletion.mockResolvedValue(undefined);
-  mockAnonymize.mockResolvedValue(0);
 });
 
 describe('org-scope id lookups', () => {
@@ -200,18 +195,18 @@ describe('membership helpers', () => {
 });
 
 describe('deleteUserById', () => {
-  it('runs the cascade in a transaction, then revokes and anonymizes post-commit', async () => {
+  // The ecosystem erasure is no longer a post-commit call: the cascade enqueues
+  // its outbox leg inside the transaction (see user-cascade.test.ts).
+  it('runs the cascade in a transaction, then revokes post-commit', async () => {
     mockCascade.mockResolvedValue({ accessVersion: 7 });
     await userAdminService.deleteUserById('u');
     expect(mockCascade).toHaveBeenCalledWith(fakeSession, 'u');
     expect(mockPublishDeletion).toHaveBeenCalledWith('u', 7);
-    expect(mockAnonymize).toHaveBeenCalledWith('u');
   });
 
   it('throws UA_USER_NOT_FOUND and does nothing post-commit when the user is gone', async () => {
     mockCascade.mockResolvedValue(null);
     await expect(userAdminService.deleteUserById('u')).rejects.toThrow('UA_USER_NOT_FOUND');
     expect(mockPublishDeletion).not.toHaveBeenCalled();
-    expect(mockAnonymize).not.toHaveBeenCalled();
   });
 });

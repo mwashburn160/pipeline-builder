@@ -406,6 +406,12 @@ export const PLATFORM_AUDIT_ACTIONS = [
   // operator can manually schedule the external AWS key's deletion. Without
   // it the key (and anything wrapped under it) silently orphans.
   'org.kms.orphaned',
+  // A cascade-outbox leg (services/cascade-outbox.ts) exhausted its retries: an
+  // owning service still holds a purged org's — or an erased user's — data.
+  // System actor `cascade-outbox`; `details` = kind, service, attempts and the
+  // last HTTP status (never the error text). The operator-readable record that
+  // an erasure did not finish, alongside `platform_cascade_dead_total`.
+  'org.cascade.dead',
   // Org tier change. Emitted when a sysadmin moves an org between
   // pricing tiers (developer/pro/team/enterprise); reseeds quota limits as a
   // side-effect. `details` carries the previousTier so the transition

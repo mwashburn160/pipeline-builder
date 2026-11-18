@@ -172,14 +172,18 @@ export async function sweepDefinitions(): Promise<SweepDefinition[]> {
     });
   }
 
-  const [{ invitationReaperSweep }, { impersonationReaperSweep }, { orgPurgeSweep }, { softDeletePurgeSweep }, { deliveryHealthSweep }] = await Promise.all([
+  // The durable cascade outbox: delivers every downstream leg of an org purge or
+  // a user erasure (pipeline, plugin, compliance, message, reporting, quota,
+  // billing, the registry) with backoff, dead-lettering into an alert.
+  const [{ invitationReaperSweep }, { impersonationReaperSweep }, { orgPurgeSweep }, { softDeletePurgeSweep }, { deliveryHealthSweep }, { cascadeOutboxSweep }] = await Promise.all([
     import('./invitation-reaper.js'),
     import('./impersonation-reaper.js'),
     import('./org-purge.js'),
     import('./soft-delete-purge.js'),
     import('./alert-delivery-status.js'),
+    import('./cascade-outbox.js'),
   ]);
-  defs.push(invitationReaperSweep(), impersonationReaperSweep(), orgPurgeSweep(), softDeletePurgeSweep, deliveryHealthSweep());
+  defs.push(invitationReaperSweep(), impersonationReaperSweep(), orgPurgeSweep(), softDeletePurgeSweep, deliveryHealthSweep(), cascadeOutboxSweep());
   return defs;
 }
 

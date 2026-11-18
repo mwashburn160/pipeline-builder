@@ -428,6 +428,29 @@ spec:
         - operation:
             paths: ["/compliance/posture"]
 ---
+# POST /compliance/internal/orgs/:orgId/purge — platform's durable cascade
+# outbox tears a purged org's policies, rules, scans and their history out of
+# compliance's own tables. Platform only: it alone decides an org is purged.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: compliance-internal-org-purge
+  namespace: pipeline-builder
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: compliance
+  action: DENY
+  rules:
+    - from:
+        - source:
+            notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/platform
+      to:
+        - operation:
+            paths: ["/compliance/internal/*"]
+---
 # -- quota -------------------------------------------------------------------
 # POST /quotas/:orgId/increment and /decrement — the usage counters. Every
 # service meters its own inbound traffic, so the caller set is the whole internal
@@ -567,6 +590,29 @@ spec:
       to:
         - operation:
             paths: ["/reports/stakeholder-internal/*"]
+---
+# POST /reports/internal/orgs/:orgId/purge — platform's durable cascade outbox
+# tears a purged org's reports, share links, DORA data and ingested events out
+# of reporting's own tables. Platform only, like the owner-left leg above.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: reporting-internal-org-purge
+  namespace: pipeline-builder
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: reporting
+  action: DENY
+  rules:
+    - from:
+        - source:
+            notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/platform
+      to:
+        - operation:
+            paths: ["/reports/internal/*"]
 ---
 # -- image-registry ----------------------------------------------------------
 # POST /internal/plugin-signatures — image-registry cosign-signs a freshly pushed

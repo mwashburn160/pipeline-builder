@@ -45,6 +45,12 @@ jest.unstable_mockModule('../src/services/org-cascade-service.js', () => ({
 jest.unstable_mockModule('../src/services/organization-service.js', () => ({
   organizationService: { delete: (...a: unknown[]) => mockDelete(...a) },
 }));
+/** The cascade-outbox enqueue the hard delete runs inside its transaction. */
+const mockEnqueue = jest.fn<(...a: unknown[]) => Promise<string[]>>();
+jest.unstable_mockModule('../src/services/cascade-outbox.js', () => ({
+  enqueueCascade: (...a: unknown[]) => mockEnqueue(...a),
+}));
+const TX_SESSION = { id: 'tx' };
 // The purge records through the durable (spool-on-failure) local recorder.
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({
   recordAuditEvent: (...a: unknown[]) => mockCreateEvent(...a),
@@ -69,13 +75,15 @@ function stopOrgPurgeSweep(): void {
 
 /** `Organization.find(...).select(...).lean()` chain returning `rows`. */
 function okReport() {
-  return { postgres: {}, mongo: {}, mongoFailures: [] as string[], quota: { ok: true }, billing: { ok: true }, auditArchive: { ok: true } };
+  return { postgres: {}, mongo: {}, mongoFailures: [] as string[], auditArchive: { ok: true } };
 }
 
 beforeEach(() => {
   jest.clearAllMocks();
   mockCascade.mockResolvedValue(okReport());
-  mockDelete.mockResolvedValue(undefined);
+  // The real delete runs `withinTx` inside its transaction; so does the stub.
+  mockDelete.mockImplementation(async (_id: unknown, opts: any) => { await opts?.withinTx?.(TX_SESSION); });
+  mockEnqueue.mockResolvedValue(['pipeline', 'plugin', 'quota', 'billing']);
   mockCreateEvent.mockReturnValue(undefined);
   // Default: this runner wins every claim.
   mockOrgClaim.mockImplementation(async (filter: any) => ({ _id: filter?._id ?? 'org-1' }));
@@ -99,8 +107,8 @@ describe('purgeExpiredOrgs', () => {
     const res = await purgeExpiredOrgs();
 
     expect(mockCascade).toHaveBeenCalledTimes(2);
-    expect(mockDelete).toHaveBeenCalledWith('org-a');
-    expect(mockDelete).toHaveBeenCalledWith('org-b');
+    expect(mockDelete).toHaveBeenCalledWith('org-a', expect.anything());
+    expect(mockDelete).toHaveBeenCalledWith('org-b', expect.anything());
     expect(res).toMatchObject({ scanned: 2, purged: 2, deferred: 0, failed: 0 });
   });
 
@@ -131,8 +139,7 @@ describe('purgeExpiredOrgs', () => {
       trigger: 'purge-sweep',
       postgres: { pipelines: 3, pipeline_events: 0 },
       mongo: { invitations: 2, auditEvents: 5, idpConfigs: 1 },
-      quotaOk: true,
-      billingOk: true,
+      downstreamLegs: ['pipeline', 'plugin', 'quota', 'billing'],
       auditArchived: 5,
       kmsOrphanFlagged: true,
     });
@@ -143,7 +150,7 @@ describe('purgeExpiredOrgs', () => {
 
   it('does NOT audit admin.org.delete when the purge is deferred (fail-closed)', async () => {
     mockOrgFind.mockReturnValue(selectLean([{ _id: 'org-a' }]));
-    mockCascade.mockResolvedValue({ ...okReport(), billing: { ok: false } });
+    mockCascade.mockResolvedValue({ ...okReport(), auditArchive: { ok: false } });
 
     await purgeExpiredOrgs();
 
@@ -159,7 +166,7 @@ describe('purgeExpiredOrgs', () => {
 
     // A recorder that throws lands in the per-org catch AFTER the hard delete
     // committed; the delete itself stands.
-    expect(mockDelete).toHaveBeenCalledWith('org-a');
+    expect(mockDelete).toHaveBeenCalledWith('org-a', expect.anything());
     expect(res.scanned).toBe(1);
   });
 
@@ -189,17 +196,29 @@ describe('purgeExpiredOrgs', () => {
     expect(res).toMatchObject({ purged: 0, deferred: 1 });
   });
 
-  it('FAIL-CLOSED: defers the hard delete when a billing/quota leg failed', async () => {
+  it('enqueues every downstream leg IN the hard delete\'s transaction (the outbox, not inline calls)', async () => {
     mockOrgFind.mockReturnValue(selectLean([{ _id: 'org-a' }]));
-    mockCascade.mockResolvedValue({ ...okReport(), billing: { ok: false } });
 
     const res = await purgeExpiredOrgs();
 
-    // Cascade ran, but the org was NOT hard-deleted — it stays soft-deleted and
-    // retries next sweep (a live subscription must never outlive its org).
-    expect(mockCascade).toHaveBeenCalledTimes(1);
-    expect(mockDelete).not.toHaveBeenCalled();
-    expect(res).toMatchObject({ purged: 0, deferred: 1 });
+    // The org's row and the promise to propagate its deletion commit together:
+    // the enqueue runs with the delete's own session, inside `withinTx`.
+    expect(mockEnqueue).toHaveBeenCalledWith('org.deleted', 'org-a', TX_SESSION);
+    expect(res).toMatchObject({ purged: 1, deferred: 0 });
+  });
+
+  it('does NOT purge (and enqueues nothing) when the hard-delete transaction fails', async () => {
+    mockOrgFind.mockReturnValue(selectLean([{ _id: 'org-a' }]));
+    // The enqueue throws inside the transaction ⇒ the delete rolls back with it.
+    mockDelete.mockImplementation(async (_id: unknown, opts: any) => { await opts.withinTx(TX_SESSION); });
+    mockEnqueue.mockRejectedValue(new Error('write conflict'));
+
+    const res = await purgeExpiredOrgs();
+
+    expect(res).toMatchObject({ purged: 0, failed: 1 });
+    expect(mockCreateEvent).not.toHaveBeenCalled();
+    // The claim is handed back so the next window retries the whole purge.
+    expect(mockOrgRelease).toHaveBeenCalledTimes(1);
   });
 
   it('FAIL-CLOSED: defers the hard delete when the audit-trail archive failed', async () => {
@@ -223,7 +242,7 @@ describe('purgeExpiredOrgs', () => {
     const res = await purgeExpiredOrgs();
 
     // org-a threw; org-b still processed.
-    expect(mockDelete).toHaveBeenCalledWith('org-b');
+    expect(mockDelete).toHaveBeenCalledWith('org-b', expect.anything());
     expect(res).toMatchObject({ scanned: 2, purged: 1, failed: 1 });
   });
 
@@ -275,7 +294,7 @@ describe('purgeExpiredOrgs', () => {
 
   it('releases the claim when the purge DEFERS, so the retry is next window not 30 minutes later', async () => {
     mockOrgFind.mockReturnValue(selectLean([{ _id: 'org-1' }]));
-    mockCascade.mockResolvedValue({ ...okReport(), quota: { ok: false } });
+    mockCascade.mockResolvedValue({ ...okReport(), mongoFailures: ['invitations'] });
     const result = await purgeExpiredOrgs();
     expect(result.deferred).toBe(1);
     expect(mockOrgRelease).toHaveBeenCalledTimes(1);
@@ -340,7 +359,7 @@ describe('runOrgPurgeSweep', () => {
 
   it('throws when an org was deferred', async () => {
     mockOrgFind.mockReturnValue(selectLean([{ _id: 'org-a' }]));
-    mockCascade.mockResolvedValue({ ...okReport(), billing: { ok: false, error: 'billing down' } });
+    mockCascade.mockResolvedValue({ ...okReport(), auditArchive: { ok: false, error: 'archive down' } });
     await expect(runOrgPurgeSweep()).rejects.toThrow(/1 deferred/);
     expect(mockIncCounter).toHaveBeenCalledWith('org_purge_outcome_total', { result: 'deferred' });
   });

@@ -8,7 +8,6 @@ import { apiKeyService } from './api-key-service.js';
 import { authService } from './auth-service.js';
 import { deleteAllSlots, findSlot, listSlots, type RefreshSession } from './session/session-store.js';
 import { deleteUserCascade } from './user-cascade.js';
-import { anonymizeUserEcosystemContent } from './user-ecosystem-privacy.js';
 import { PROFILE_USER_NOT_FOUND, PROFILE_EMAIL_TAKEN, PROFILE_EMAIL_SSO_MANAGED, PROFILE_INVALID_CREDENTIALS, USER_OWNER_HAS_ORGS } from './user-errors.js';
 import { loadActiveOrgInfo } from '../helpers/active-org-info.js';
 import { toOrgId } from '../helpers/org-id.js';
@@ -425,21 +424,10 @@ class UserProfileService {
     if (!deleted) throw new Error(PROFILE_USER_NOT_FOUND);
     // Revoke the deleted user's outstanding tokens on the stateless services.
     await publishUserDeletionRevocation(userId, deleted.accessVersion);
-    // GDPR: scrub the person out of the ecosystem content they left behind.
-    //
-    // ON THIS PATH MOST OF ALL. This is the person exercising their own right
-    // to erasure, not an admin tidying up, so a cascade that skipped it here
-    // while running it on the admin route would fail precisely the case the
-    // obligation is about. (It did, briefly: the first wiring reached only
-    // `user-admin-service`.)
-    //
-    // POST-COMMIT for the same reason as there: `withMongoTransaction` RETRIES
-    // its body, so a Postgres write inside the cascade would run once per
-    // attempt and a terminal commit failure would scrub reviews for a user who
-    // was never deleted. The scrub is idempotent, so at-least-once out here is
-    // safe. No `req`: the actor is the user themselves and the audit row is
-    // written by the controller (`audit(req, 'user.delete')`).
-    await anonymizeUserEcosystemContent(userId);
+    // GDPR: the person's ecosystem content (listing reviews) is scrubbed by the
+    // plugin service through the cascade outbox leg `deleteUserCascade` wrote in
+    // the same transaction — on this self-service path exactly as on the admin
+    // one, because the cascade itself carries it.
     logger.info('Account deleted', { userId, orgsDeleted: orgsDeleted.map((o) => o.orgId) });
     return { orgsDeleted };
   }

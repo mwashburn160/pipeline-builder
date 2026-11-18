@@ -707,12 +707,26 @@ export const config = {
     // fail-closed cascade. Default hourly; the sweep is idempotent and never
     // throws (log + continue), so a transient failure retries next tick.
     purgeSweepIntervalMs: envInt('ORG_PURGE_SWEEP_INTERVAL_MS', 3600000),
-    // Timeout for the purge cascade's HTTP DELETEs to quota/billing/message.
+    // Per-call timeout for a cascade-outbox delivery to a downstream service.
     cascadeHttpTimeoutMs: envInt('ORG_CASCADE_HTTP_TIMEOUT_MS', 5000),
     // The registry leg walks every repo's tags and deletes per manifest, so it
     // is slower in kind than the other cascade calls — a correct purge of a
     // large namespace must not fail on the shared 5s budget.
     registryCascadeHttpTimeoutMs: envInt('ORG_CASCADE_REGISTRY_HTTP_TIMEOUT_MS', 120_000),
+    // The durable cascade outbox (services/cascade-outbox.ts): every downstream
+    // leg of an org purge / user erasure, delivered by one leader-locked
+    // dispatcher with exponential backoff until a 2xx or the attempt ceiling.
+    // Defaults: a 30s tick; backoff 30s doubling to a 6h cap; dead after 12
+    // attempts (~21h of retries). The lease keeps a leg from being delivered
+    // twice concurrently — it must exceed the slowest leg's timeout.
+    cascadeOutbox: {
+      intervalMs: envInt('CASCADE_OUTBOX_INTERVAL_MS', 30_000, { min: 1000 }),
+      batchSize: envInt('CASCADE_OUTBOX_BATCH_SIZE', 50, { min: 1 }),
+      maxAttempts: envInt('CASCADE_OUTBOX_MAX_ATTEMPTS', 12, { min: 1 }),
+      backoffBaseMs: envInt('CASCADE_OUTBOX_BACKOFF_BASE_MS', 30_000, { min: 1 }),
+      backoffMaxMs: envInt('CASCADE_OUTBOX_BACKOFF_MAX_MS', 6 * 60 * 60 * 1000, { min: 1 }),
+      leaseMs: envInt('CASCADE_OUTBOX_LEASE_MS', 10 * 60 * 1000, { min: 1000 }),
+    },
     // Domain-based join: how often the re-verification sweep runs (0 disables it)
     // and how long since the last successful DNS check before a domain is re-checked.
     domainReverifyIntervalMs: envInt('DOMAIN_REVERIFY_INTERVAL_MS', 24 * 60 * 60 * 1000),
@@ -942,6 +956,18 @@ export const config = {
   imageRegistry: {
     serviceHost: process.env.IMAGE_REGISTRY_SERVICE_HOST || 'image-registry',
     servicePort: envInt('IMAGE_REGISTRY_SERVICE_PORT', 3000),
+  },
+  // Reached by ONE caller: the cascade outbox's org-purge leg
+  // (`POST /pipelines/internal/orgs/:orgId/purge`).
+  pipeline: {
+    serviceHost: process.env.PIPELINE_SERVICE_HOST || 'pipeline',
+    servicePort: envInt('PIPELINE_SERVICE_PORT', 3000),
+  },
+  // Reached by the cascade outbox's org-purge and user-erasure legs
+  // (`/internal/plugins/orgs/:orgId/purge`, `/internal/plugins/users/:userId/erase`).
+  plugin: {
+    serviceHost: process.env.PLUGIN_SERVICE_HOST || 'plugin',
+    servicePort: envInt('PLUGIN_SERVICE_PORT', 3000),
   },
   reporting: {
     // Reached for exactly one thing: telling reporting that a member left, so the

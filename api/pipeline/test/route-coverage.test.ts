@@ -20,7 +20,9 @@ import {
   declaredAuditActions,
   findRouteCoverageViolations, findSystemOrgGuardViolations,
   findDynamicAuthzViolations,
+  findInternalRouteViolations,
   findQuotaCoverageViolations,
+  type InternalRouteDeclaration,
   type QuotaCoverageException,
   type RouteCoverageException,
 } from '@pipeline-builder/api-core/testing';
@@ -63,6 +65,16 @@ const EXCEPTIONS: RouteCoverageException[] = [
     waive: 'audit',
     reason: 'Read-only: reports whether a create would land and persists nothing. Its compliance check is a dryRun (no audit event, no notification) precisely so validating does not appear in the trail as a create attempt.',
   },
+];
+
+/**
+ * Every internal (service-to-service) route and the services allowed to call
+ * it. `findInternalRouteViolations` checks it against the code in both
+ * directions.
+ */
+const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
+  // platform's durable cascade outbox: tear a purged org's rows out of this service's own tables (idempotent).
+  { method: 'POST', path: '/pipelines/internal/orgs/:orgId/purge', callers: ['platform'] },
 ];
 
 /**
@@ -144,6 +156,10 @@ describe('pipeline route coverage', () => {
   it('declares only audit actions platform accepts from a service', () => {
     const unknown = declaredAuditActions(table).filter((a) => !(REMOTE_AUDIT_ACTIONS as readonly string[]).includes(a));
     expect(unknown).toEqual([]);
+  });
+
+  it('gates every internal route on requireInternalService, with the declared callers', () => {
+    expect(findInternalRouteViolations(table, INTERNAL_ROUTES)).toEqual([]);
   });
 
   it('matches the route table the frontend reads', () => {

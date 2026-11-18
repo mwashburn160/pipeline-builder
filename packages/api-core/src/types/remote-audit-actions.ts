@@ -200,6 +200,12 @@ export const REMOTE_AUDIT_ACTIONS = [
   // The platform org-delete cascade reclaiming an org's attachment BLOBS —
   // `details.blobsDeleted`, or a failure row when the reclaim did not complete.
   'message.org.purge',
+  // An owning service tearing its share of a deleted org out of its OWN tables,
+  // on delivery of platform's durable cascade-outbox leg (pipeline, plugin,
+  // compliance, message, reporting). `details.owner` names the slice and
+  // `details.tables` carries per-table row COUNTS only; a failure row names the
+  // tables that did not go (the leg is retried with backoff).
+  'org.data.purge',
   // Support cases (api/message). Distinct from the `message.*` family above
   // because a case is not an ordinary message: it carries a response-time
   // commitment, so WHO raised it and WHEN we first answered are the facts a

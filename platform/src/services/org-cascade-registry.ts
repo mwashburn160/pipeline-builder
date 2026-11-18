@@ -2,22 +2,27 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * WHAT the org teardown covers: the declarative registry of every Postgres
- * table and Mongo collection an org owns data in.
+ * WHAT the org teardown covers: the Postgres tables platform itself owns, every
+ * org-scoped table the read-only export walks, and the Mongo collections.
  *
  * Kept apart from `org-cascade-service` (which is HOW the teardown runs) for
  * one reason: this list is the thing that drifts. A new org-scoped table or
- * collection has to be added here or the org's rows outlive the org, so the
+ * collection has to be covered or the org's rows outlive the org, so the
  * registry is what the reflection drift-guards in
- * `test/org-cascade-service.test.ts` assert against — and it reads as a list
- * rather than as a detail of the sweep's control flow.
+ * `test/org-cascade-service.test.ts` assert against.
  *
- * ONE registry drives BOTH the destructive sweep and the read-only export, so
- * the soft-delete recovery snapshot and the GDPR portability artifact can never
- * silently omit a store the cascade removes.
+ * POSTGRES OWNERSHIP. Platform DELETES only its own tables (dashboards, alert
+ * routing, support contacts — the `platform` slice of pipeline-data's
+ * `ORG_DATA_OWNERSHIP`). Every other org-scoped table belongs to the service
+ * that writes it, which tears it down itself when platform's durable cascade
+ * outbox (`services/cascade-outbox.ts`) delivers its leg — platform never
+ * writes another service's tables. The EXPORT still reads every org-scoped
+ * table (a read-only GDPR portability artifact / recovery snapshot), so one
+ * ownership map drives both and the snapshot can never silently omit a store
+ * the cascade removes.
  */
 
-import { schema } from '@pipeline-builder/pipeline-data';
+import { ORG_DATA_OWNERSHIP, ORG_SCOPED_TABLE_NAMES, allOrgScopedTables, type OrgScopedTable } from '@pipeline-builder/pipeline-data';
 import type { Types } from 'mongoose';
 import { toOrgId } from '../helpers/org-id.js';
 import IdpGroupMapping from '../models/idp-group-mapping.js';
@@ -35,133 +40,24 @@ import ServiceAccount from '../models/service-account.js';
 import UserOrganization from '../models/user-organization.js';
 
 // ---------------------------------------------------------------------------
-// Table classification
+// Postgres
 // ---------------------------------------------------------------------------
-//
-// `SOFT_DELETE_TABLES` carry a `deleted_at` column — the cascade sets the
-// timestamp instead of dropping the row, so downstream readers that filter
-// by `deletedAt IS NULL` see the data disappear without losing the audit
-// trail of what existed.
-//
-// `HARD_DELETE_TABLES` have no `deleted_at` — most are derivative records
-// (events, scans, schedules) where retention provides no value once the
-// owning org is gone. For GDPR the distinction doesn't matter; both
-// approaches stop the data appearing in any product surface.
-export const SOFT_DELETE_TABLES = [
-  { table: schema.plugin, name: 'plugins' },
-  { table: schema.pipeline, name: 'pipelines' },
-  { table: schema.pipelineTemplate, name: 'pipeline_templates' },
-  { table: schema.message, name: 'messages' },
-  { table: schema.compliancePolicy, name: 'compliance_policies' },
-  { table: schema.complianceRule, name: 'compliance_rules' },
-  { table: schema.dashboard, name: 'dashboards' },
-  { table: schema.orgAlertDestination, name: 'org_alert_destinations' },
-  { table: schema.orgAlertRule, name: 'org_alert_rules' },
-  // Stakeholder reports. Definitions, runs and recipients carry `deleted_at`, so
-  // they soft-delete with the org and the reporting service's own purge sweep
-  // hard-removes them once `purge_after` passes. `report_runs` matters most: a
-  // published run is the frozen evidence of what an organization told its
-  // stakeholders, and dropping it the instant the org is torn down would destroy
-  // that inside the retention window everything else respects.
-  { table: schema.reportDefinition, name: 'report_definitions' },
-  { table: schema.reportRun, name: 'report_runs' },
-  { table: schema.reportRecipient, name: 'report_recipients' },
-  // Support cases carry `deleted_at` + `purge_after`, so they soft-delete with
-  // the org and ride the retention sweep like any other tenant record. The
-  // conversation itself lives in `messages`, which is already covered above.
-  { table: schema.supportCase, name: 'support_cases' },
-] as const;
 
-export const HARD_DELETE_TABLES = [
-  { table: schema.pipelineRegistry, name: 'pipeline_registry' },
-  { table: schema.pipelineEvent, name: 'pipeline_events' },
-  // DORA / reporting tables — all org-scoped (`org_id`), none carry a
-  // `deleted_at`, so they are hard-removed with the org. Without them the
-  // purge orphaned per-org DORA outcome markers, incidents, ingest-health rows
-  // and the per-org DORA settings override.
-  { table: schema.deploymentOutcome, name: 'deployment_outcomes' },
-  { table: schema.incident, name: 'incidents' },
-  { table: schema.ingestHealth, name: 'ingest_health' },
-  { table: schema.doraSettings, name: 'dora_settings' },
-  // Child rows of messages; no soft-delete columns of their own, so they are
-  // hard-removed with the org (parity with pipeline_events). This deletes only
-  // the METADATA rows — the MinIO blobs (keyed `<orgId>/...`) are reclaimed
-  // separately by the cascade's HTTP DELETE to the message service
-  // (`/messages/internal/org/:orgId/attachments` → `deleteAttachmentsByOrgPrefix`),
-  // since platform holds no object-storage client. That call is best-effort
-  // (`report.messageBlobs.ok`), so a MinIO lifecycle rule remains a sensible
-  // backstop against a failed purge.
-  { table: schema.messageAttachment, name: 'message_attachments' },
-  // Support contacts, the per-org case-number counter, and staff-only case
-  // notes. None carries a `deleted_at`, so all three are hard-removed with the
-  // org. The notes matter most here: they are the ONE support table the tenant
-  // can never read, so leaving them behind would orphan vendor-authored commentary
-  // about a customer who has exercised their right to be deleted — and the GDPR
-  // export would miss them too. The counter is dropped rather than preserved so a
-  // recreated org restarts at case 1 instead of inheriting a stranger's sequence.
-  { table: schema.supportContact, name: 'support_contacts' },
-  { table: schema.supportCaseCounter, name: 'support_case_counters' },
-  { table: schema.supportCaseNote, name: 'support_case_notes' },
-  { table: schema.complianceRuleHistory, name: 'compliance_rule_history' },
-  { table: schema.complianceAuditLog, name: 'compliance_audit_log' },
-  { table: schema.complianceExemption, name: 'compliance_exemptions' },
-  { table: schema.complianceRuleSubscription, name: 'compliance_rule_subscriptions' },
-  { table: schema.complianceScan, name: 'compliance_scans' },
-  { table: schema.complianceScanSchedule, name: 'compliance_scan_schedules' },
-  { table: schema.complianceNotificationPreference, name: 'compliance_notification_preferences' },
-  { table: schema.complianceNotificationLog, name: 'compliance_notification_log' },
-  // Plugin ecosystem, org-scoped half: the org's step manifests, installs,
-  // consumption policy and advisory-delivery ledger. The instance-wide
-  // directory tables (publishers, listings, reviews, …) carry no org_id and are
-  // deliberately NOT here: a publisher and its listed versions outlive the org
-  // (listings go `unmaintained`, installed versions keep resolving).
-  { table: schema.pipelineStepManifest, name: 'pipeline_step_manifests' },
-  { table: schema.pluginInstall, name: 'plugin_installs' },
-  { table: schema.pluginInstallPolicy, name: 'plugin_install_policies' },
-  { table: schema.pluginAdvisoryDelivery, name: 'plugin_advisory_deliveries' },
-  // The org's plugin security notification settings (webhook secret and
-  // external address are encrypted under the org's own key).
-  { table: schema.pluginSecurityNotificationPref, name: 'plugin_security_notification_prefs' },
-  // Public share links to the org's reports. No `deleted_at`, and deliberately
-  // HARD-deleted rather than soft: a soft-deleted link row is still a live token
-  // as far as the public route's hash lookup is concerned, so tombstoning them
-  // would leave an org's numbers readable after the org was torn down. Dropping
-  // the row is what makes the URL stop working.
-  { table: schema.reportShareLink, name: 'report_share_links' },
-  // The reporting ANALYTICS layer. All four are derived from events the cascade
-  // already removes, and none carries a `deleted_at`, so they go with the org.
-  // Leaving them would be the worst kind of orphan: another org's deploy cadence,
-  // failure mix and known plugin vulnerabilities, kept after the org that owned
-  // them was torn down.
-  { table: schema.doraDeployment, name: 'dora_deployments' },
-  { table: schema.executionDailyRollup, name: 'execution_daily_rollups' },
-  { table: schema.pipelinePluginResolution, name: 'pipeline_plugin_resolution' },
-  { table: schema.pluginVulnExposure, name: 'plugin_vuln_exposure' },
-  // Per-pipeline security state: what synth was told per step, and the
-  // pipeline's own artifact-scan reports (findings name the org's code).
-  { table: schema.pipelineStepLookup, name: 'pipeline_step_lookups' },
-  { table: schema.pipelineSecurityReport, name: 'pipeline_security_reports' },
-  // Gate-refused setup-catalog images. Written for the system org only, which
-  // this cascade never deletes — listed so the schema-reflection guard holds
-  // (no org-scoped table outside the cascade), not because a tenant has rows.
-  { table: schema.pluginKeptSetupImage, name: 'plugin_kept_setup_images' },
-  // Pipeline toolchain (docs/organization-benefits.md, "Pipeline toolchain default"). A purged
-  // org's canary membership and its own toolchain default go with it; the
-  // org's default history is the org's own record and goes too.
-  // `toolchain_release` / `_platform_default` / `_default_history` are
-  // platform-wide (no `org_id`) and are never cascaded.
-  { table: schema.toolchainRollout, name: 'toolchain_rollout' },
-  { table: schema.orgToolchainDefault, name: 'org_toolchain_default' },
-  { table: schema.orgToolchainDefaultHistory, name: 'org_toolchain_default_history' },
-] as const;
+/** Platform's OWN soft-delete tables (`deleted_at` + `purge_after`): tombstoned by the cascade. */
+export const SOFT_DELETE_TABLES: readonly OrgScopedTable[] = ORG_DATA_OWNERSHIP.platform.soft;
 
-/** Every DB table name the org cascade covers (soft + hard). Exported so a
- *  schema-reflection test can assert that EVERY org-scoped table is cascaded —
- *  turning "added a table, forgot the cascade" (which silently orphaned
- *  org_alert_rules + pipeline_templates) into a red test. */
-export const CASCADE_TABLE_NAMES: ReadonlySet<string> = new Set(
-  [...SOFT_DELETE_TABLES, ...HARD_DELETE_TABLES].map((t) => t.name),
-);
+/** Platform's OWN hard-delete tables (no `deleted_at`): removed by the cascade. */
+export const HARD_DELETE_TABLES: readonly OrgScopedTable[] = ORG_DATA_OWNERSHIP.platform.hard;
+
+/** Every org-scoped table, whoever owns it — what the read-only export walks. */
+export const EXPORT_TABLES: readonly OrgScopedTable[] = allOrgScopedTables();
+
+/** Every org-scoped table name that SOME owner tears down (platform or a
+ *  downstream service's outbox leg). Exported so a schema-reflection test can
+ *  assert that EVERY org-scoped table is covered — turning "added a table,
+ *  forgot the cascade" (which silently orphaned org_alert_rules +
+ *  pipeline_templates) into a red test. */
+export const CASCADE_TABLE_NAMES: ReadonlySet<string> = ORG_SCOPED_TABLE_NAMES;
 
 // ---------------------------------------------------------------------------
 // Mongo collections the org teardown covers

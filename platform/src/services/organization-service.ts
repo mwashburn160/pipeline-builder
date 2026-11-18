@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { isSystemOrgId, DEFAULT_TIER, PLAN_TIERS, SYSTEM_ORG_SLUG, tierAllowsTeams } from '@pipeline-builder/api-core';
-import type { Types } from 'mongoose';
+import type { ClientSession, Types } from 'mongoose';
 import { ORG_NOT_FOUND, SYSTEM_ORG_DELETE_FORBIDDEN, ORG_SLUG_TAKEN } from './org-errors.js';
 import { RESERVED_ORG_NAME } from './auth-errors.js';
 import { orgHierarchyService } from './org-hierarchy-service.js';
@@ -486,7 +486,7 @@ class OrganizationService {
    * Throws ORG_NOT_FOUND or SYSTEM_ORG_DELETE_FORBIDDEN  the controller maps
    * these to HTTP status via withController's error map.
    */
-  async delete(id: string): Promise<void> {
+  async delete(id: string, opts: { withinTx?: (session: ClientSession) => Promise<unknown> } = {}): Promise<void> {
     if (isSystemOrgId(id)) {
       throw new Error(SYSTEM_ORG_DELETE_FORBIDDEN);
     }
@@ -513,6 +513,10 @@ class OrganizationService {
       await User.updateMany({ [overridesPath]: { $exists: true } }, { $unset: { [overridesPath]: '' } }).session(session);
       const res = await Organization.deleteOne({ _id: queryId }).session(session);
       if (!res.deletedCount) throw new Error(ORG_NOT_FOUND);
+      // Anything the caller must commit WITH the hard delete — the purge's
+      // cascade-outbox legs, so "the org is gone" and "every service that holds
+      // its data has a pending leg" are one fact, not two.
+      if (opts.withinTx) await opts.withinTx(session);
     });
   }
 

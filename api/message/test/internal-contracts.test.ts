@@ -30,6 +30,10 @@ const SAMPLES: Record<keyof typeof MESSAGE_INTERNAL, ContractSample> = {
     params: { orgId: 'org-1' },
     response: { orgId: 'org-1', deleted: 3 },
   },
+  purgeOrgData: {
+    params: { orgId: 'org-1' },
+    response: { orgId: 'org-1', tables: { messages: 4, support_cases: 1 } },
+  },
   offersFrustration: {
     params: { orgId: 'org-1' },
     response: {

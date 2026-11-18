@@ -31,9 +31,14 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 // pipeline-data: exportOrg reads through these — return empty so the snapshot
 // resolves to an (empty) blob without a real DB.
 const mockSelectChain = { from: jest.fn<AnyFn>(), where: jest.fn<AnyFn>() };
+// The REAL ownership map (deep import — it loads nothing but the schema): the
+// snapshot export walks every org-scoped table it names.
+const ownership = await import('@pipeline-builder/pipeline-data/lib/api/org-data-ownership.js') as typeof import('@pipeline-builder/pipeline-data');
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   withTenantTx: (fn: (tx: unknown) => unknown) => fn({ update: jest.fn<AnyFn>(), delete: jest.fn<AnyFn>(), select: jest.fn(() => mockSelectChain) }),
-  schema: new Proxy({}, { get: (_t, name) => ({ orgId: `${String(name)}.org_id` }) }),
+  ORG_DATA_OWNERSHIP: ownership.ORG_DATA_OWNERSHIP,
+  ORG_SCOPED_TABLE_NAMES: ownership.ORG_SCOPED_TABLE_NAMES,
+  allOrgScopedTables: ownership.allOrgScopedTables,
   runWithTenantContext: <T>(_ctx: unknown, fn: () => Promise<T>): Promise<T> => fn(),
   // Shared row-level soft-delete window (SOFT_DELETE_RETENTION_DAYS, 30d) — the
   // FLOOR under the org's own purge deadline.

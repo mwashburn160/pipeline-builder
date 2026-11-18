@@ -19,22 +19,38 @@
  *    or an open deployed exposure; `findVersionReferences`, the rule every
  *    removal path asks). The purge refuses (409) while any does; there is no
  *    override.
+ *  - POST /internal/plugins/orgs/:orgId/purge — platform's durable cascade
+ *    outbox → tear a purged org's plugin rows (plugins, installs, policies,
+ *    advisory deliveries, notification prefs, toolchain default) out of this
+ *    service's own `plugin` slice. Idempotent; 2xx is the outbox's ack.
+ *  - POST /internal/plugins/users/:userId/erase — the same outbox, for a GDPR
+ *    user erasure → scrub the person out of the listing reviews they wrote
+ *    (author, display name, body go NULL; the rating stays). Idempotent: the
+ *    predicate is the author id, so a redelivery scrubs nothing.
  */
 
 import {
+  audited,
   contractErrorMessage,
   contractRoute,
+  createLogger,
   ErrorCode,
+  errorMessage,
   MAX_REFERENCE_DIGESTS,
+  parseContractParams,
   parseContractQuery,
   PLUGIN_INTERNAL,
+  recordAudit,
   requireInternalService,
   sendBadRequest,
+  sendError,
   sendSuccess,
   splitReferenceDigests,
+  SYSTEM_ACTOR_ID,
+  SYSTEM_ORG_ID,
 } from '@pipeline-builder/api-core';
-import { withRoute } from '@pipeline-builder/api-server';
-import { distinctPipelines, findVersionReferences, orgImageDigestsInUse, runWithTenantContext } from '@pipeline-builder/pipeline-data';
+import { handleOrgDataPurge, withRoute } from '@pipeline-builder/api-server';
+import { anonymizeReviewsByAuthor, distinctPipelines, findVersionReferences, orgImageDigestsInUse, runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { Router, type RequestHandler } from 'express';
 
 import { plugins } from '../services/ecosystem/store.js';
@@ -47,6 +63,8 @@ const MAX_NAMED_PIPELINES = 50;
 /** The endpoints this router serves, defined once in api-core. */
 const C = PLUGIN_INTERNAL;
 const MOUNT = '/internal';
+
+const logger = createLogger('plugin-internal');
 
 export function createInternalRoutes(): Router {
   const router: Router = Router();
@@ -97,6 +115,56 @@ export function createInternalRoutes(): Router {
       });
       return sendSuccess(res, 200, { references });
     }, { requireOrgId: false }),
+  );
+
+  router.post(
+    contractRoute(C.purgeOrg, MOUNT),
+    requireInternalService({ callers: [...C.purgeOrg.callers] }) as RequestHandler,
+    audited('org.data.purge'),
+    (async (req, res) => handleOrgDataPurge(req, res, { contract: C.purgeOrg, owner: 'plugin', auditAction: 'org.data.purge' })) as RequestHandler,
+  );
+
+  router.post(
+    contractRoute(C.eraseUser, MOUNT),
+    requireInternalService({ callers: [...C.eraseUser.callers] }) as RequestHandler,
+    audited('plugin.review.anonymize'),
+    // A plain handler (no `withRoute`): there is no tenant request context to
+    // build — the subject is the path's user, and every failure is answered here.
+    (async (req, res) => {
+      const p = parseContractParams(C.eraseUser, req);
+      if (!p.ok) return sendBadRequest(res, contractErrorMessage(p), ErrorCode.MISSING_REQUIRED_FIELD);
+      const { userId } = p.value;
+      let reviews: number;
+      try {
+        // SUPERADMIN scope, required rather than convenient: reviews are RLS-scoped
+        // by `authorOrgId`, and one person may have reviewed from several orgs. A
+        // scrub limited to one org would be a PARTIAL erasure nothing reports.
+        reviews = await runWithTenantContext({ isSuperAdmin: true }, () => anonymizeReviewsByAuthor(userId));
+      } catch (err) {
+        // Not an ack: platform's outbox keeps the leg pending and retries.
+        logger.warn('Failed to anonymize ecosystem content for a deleted user', { userId, error: errorMessage(err) });
+        return sendError(res, 500, 'User erasure failed', ErrorCode.INTERNAL_ERROR);
+      }
+      if (reviews > 0) {
+        logger.info('Anonymized ecosystem content for a deleted user', { userId, reviews });
+        // The COUNT only — never the prose removed, which would defeat the
+        // erasure the row is recording. A recorder failure must not turn the
+        // completed scrub into a non-ack (the outbox would redeliver forever).
+        try {
+          recordAudit({
+            action: 'plugin.review.anonymize',
+            actorId: SYSTEM_ACTOR_ID,
+            orgId: SYSTEM_ORG_ID,
+            targetType: 'user',
+            targetId: userId,
+            details: { reviews },
+          });
+        } catch (err) {
+          logger.warn('plugin.review.anonymize audit failed', { userId, error: errorMessage(err) });
+        }
+      }
+      return sendSuccess(res, 200, { userId, reviews });
+    }) as RequestHandler,
   );
 
   return router;

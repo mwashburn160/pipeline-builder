@@ -5,10 +5,13 @@
  * Internal endpoints SERVED BY plugin (router mounted at `/internal`, behind
  * `requireAuth`). All three are image-registry's reads of plugin facts it
  * cannot know: which of an org's plugins are public, which digests its
- * namespace still needs, and which pipelines reference given digests.
+ * namespace still needs, and which pipelines reference given digests. Plus
+ * platform's two cascade legs (its durable outbox): an org's plugin rows
+ * purged, and an erased user's listing reviews anonymized.
  */
 
 import { z } from 'zod';
+import { CASCADE_LEG_AUTH, CascadeOrgParams, CascadeUserParams, OrgPurgeResponse } from './cascade.js';
 import { defineInternalEndpoint } from './define.js';
 
 /** Digests one image-pipeline-references read may ask about (the caller chunks). */
@@ -97,5 +100,31 @@ export const PLUGIN_INTERNAL = {
         })),
       })),
     }),
+  }),
+  /** Idempotent: 200 `{ orgId, tables }`; 500 when any table failed (the leg retries). */
+  purgeOrg: defineInternalEndpoint({
+    id: 'plugin.purgeOrg',
+    service: 'plugin',
+    method: 'POST',
+    path: '/internal/plugins/orgs/:orgId/purge',
+    callers: ['platform'],
+    auth: CASCADE_LEG_AUTH,
+    params: CascadeOrgParams,
+    response: OrgPurgeResponse,
+  }),
+  /**
+   * GDPR erasure of a deleted user's listing reviews (author, display name and
+   * body go NULL; the rating stays). Idempotent — the predicate is the author
+   * id, so a redelivery scrubs nothing and still answers 200 `{ userId, reviews }`.
+   */
+  eraseUser: defineInternalEndpoint({
+    id: 'plugin.eraseUser',
+    service: 'plugin',
+    method: 'POST',
+    path: '/internal/plugins/users/:userId/erase',
+    callers: ['platform'],
+    auth: CASCADE_LEG_AUTH,
+    params: CascadeUserParams,
+    response: z.object({ userId: z.string(), reviews: z.number() }),
   }),
 } as const;

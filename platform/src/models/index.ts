@@ -57,3 +57,12 @@ export { default as DeletedOrgSnapshotChunk } from './deleted-org-snapshot-chunk
 export type { DeletedOrgSnapshotChunkDocument, DeletedOrgSnapshotChunkData } from './deleted-org-snapshot-chunk.js';
 export { default as AlertDestinationStatus, DELIVERY_ERROR_KINDS } from './alert-destination-status.js';
 export type { AlertDestinationStatusDocument, AlertDestinationStatusData, DeliveryErrorKind } from './alert-destination-status.js';
+export {
+  default as CascadeOutbox,
+  CASCADE_KINDS,
+  CASCADE_LEG_STATUSES,
+  type CascadeKind,
+  type CascadeLegStatus,
+  type CascadeOutboxData,
+  type CascadeOutboxDocument,
+} from './cascade-outbox.js';

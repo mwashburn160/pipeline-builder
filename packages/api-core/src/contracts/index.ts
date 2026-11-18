@@ -7,12 +7,15 @@
  */
 
 import { BILLING_INTERNAL } from './billing.js';
+import { COMPLIANCE_INTERNAL } from './compliance.js';
 import type { InternalEndpointContract } from './define.js';
 import { IMAGE_REGISTRY_INTERNAL } from './image-registry.js';
 import { MESSAGE_INTERNAL } from './message.js';
+import { PIPELINE_INTERNAL } from './pipeline.js';
 import { PLATFORM_INTERNAL } from './platform.js';
 import { PLUGIN_INTERNAL } from './plugin.js';
 import { QUOTA_INTERNAL } from './quota.js';
+import { REPORTING_INTERNAL } from './reporting.js';
 
 export {
   buildContractPath,
@@ -40,6 +43,12 @@ export {
   type InternalCallResult,
 } from './call.js';
 
+// ---- cascade legs (shared shapes) ----
+export { CASCADE_LEG_AUTH, CascadeOrgParams, CascadeUserParams, OrgPurgeResponse } from './cascade.js';
+// ---- pipeline / compliance / reporting ----
+export { PIPELINE_INTERNAL } from './pipeline.js';
+export { COMPLIANCE_INTERNAL } from './compliance.js';
+export { REPORTING_INTERNAL } from './reporting.js';
 // ---- billing ----
 export { BILLING_INTERNAL, INCIDENT_KEY_PATTERN } from './billing.js';
 // ---- message ----
@@ -92,6 +101,9 @@ export const INTERNAL_CONTRACTS: readonly InternalEndpointContract[] = [
   IMAGE_REGISTRY_INTERNAL,
   PLUGIN_INTERNAL,
   PLATFORM_INTERNAL,
+  PIPELINE_INTERNAL,
+  COMPLIANCE_INTERNAL,
+  REPORTING_INTERNAL,
 ].flatMap((area) => Object.values(area) as InternalEndpointContract[]);
 
 /** The contracts one service SERVES. */

@@ -1445,7 +1445,15 @@ Lower-level knobs read through api-core's shared env readers (`envInt` / `envBoo
 | `INVITATION_SWEEP_INTERVAL_MS` | `3600000` | Interval of the expired-invitation reaper (leader-locked) |
 | `ORG_DELETION_RETENTION_DAYS` | `7` | Grace period between a soft-deleted org and its hard purge |
 | `ORG_PURGE_SWEEP_INTERVAL_MS` | `3600000` | Interval of the org-purge sweep (leader-locked) |
-| `ORG_CASCADE_HTTP_TIMEOUT_MS` | `5000` | Per-service timeout for an org-cascade (delete/suspend) fan-out call |
+| `ORG_CASCADE_HTTP_TIMEOUT_MS` | `5000` | Per-call timeout for a cascade-outbox delivery to a downstream service |
+| `CASCADE_OUTBOX_INTERVAL_MS` | `30000` | Tick of the leader-locked **cascade outbox** dispatcher, which delivers every downstream leg of an org purge / user erasure (pipeline, plugin, compliance, message + blobs, reporting, quota, billing, registry) to the owning service's idempotent endpoint |
+| `CASCADE_OUTBOX_BATCH_SIZE` | `50` | Due legs one dispatcher pass delivers |
+| `CASCADE_OUTBOX_MAX_ATTEMPTS` | `12` | Deliveries before a leg is dead-lettered (`platform_cascade_dead_total`, alert `PlatformCascadeLegDead`, audit `org.cascade.dead`) |
+| `CASCADE_OUTBOX_BACKOFF_BASE_MS` | `30000` | First retry delay; doubles per failed attempt |
+| `CASCADE_OUTBOX_BACKOFF_MAX_MS` | `21600000` | Cap on the retry delay (6h) |
+| `CASCADE_OUTBOX_LEASE_MS` | `600000` | How long a leg in delivery is leased before another pass may retry it; must exceed the slowest leg's timeout |
+| `PIPELINE_SERVICE_HOST` / `PIPELINE_SERVICE_PORT` | `pipeline` / `3000` | Where platform's cascade outbox reaches the pipeline service's org-purge leg |
+| `PLUGIN_SERVICE_HOST` / `PLUGIN_SERVICE_PORT` | `plugin` / `3000` | Where platform's cascade outbox reaches the plugin service's org-purge and user-erasure legs |
 | `ORG_CASCADE_REGISTRY_HTTP_TIMEOUT_MS` | `120000` | Timeout for the org-delete cascade's **registry** leg, which purges the deleted org's private `org-<id>/*` images. Slower in kind than the other legs (it walks every repo's tags and deletes per manifest), so it gets its own budget rather than failing a correct purge on the shared one. Published `public/*` copies are never removed — other organizations install them |
 | `DOMAIN_REVERIFY_INTERVAL_MS` | `86400000` | Interval of the domain-ownership re-verification sweep |
 | `DOMAIN_REVERIFY_STALE_MS` | `604800000` | Age at which a verified domain is re-checked (7 days) |

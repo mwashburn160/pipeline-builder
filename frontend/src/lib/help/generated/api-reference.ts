@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 76ee7a351df18aef7a1609cbf884f34248131db561df1ec7d28a4f6fc2592468
+// SOURCE-SHA256: b5f28d97efdbdb9df5f4a1e5ce443b47f43331435dbbc12c2c91ec31ceb03a55
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1326,7 +1326,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "DELETE",
               "/organization/:id",
-              "Soft-delete an organization (+ step-up): recovery snapshot, purgeAfter retention window, sessions cut → 202 { deletedAt, purgeAfter, snapshotId }. The window is max(ORG_DELETION_RETENTION_DAYS, SOFT_DELETE_RETENTION_DAYS) — the org must outlive the rows its cascade tombstones. Refused (400) while it has live teams",
+              "Soft-delete an organization (+ step-up): recovery snapshot, purgeAfter retention window, sessions cut → 202 { deletedAt, purgeAfter, snapshotId }. The window is max(ORG_DELETION_RETENTION_DAYS, SOFT_DELETE_RETENTION_DAYS) — the org must outlive the rows its cascade tombstones. At purge, platform removes its own data and hands every other service's share to its durable cascade outbox (one retried, dead-letter-alerted leg per service, written in the hard delete's own transaction). Refused (400) while it has live teams",
               "orgs:manage"
             ],
             [

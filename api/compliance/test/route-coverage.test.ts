@@ -76,6 +76,8 @@ const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   // from the caller's token, not a path parameter, so there is nothing to disagree with;
   // nothing here can create a scan, evaluate a rule, or read a rule's conditions.
   { method: 'GET', path: '/compliance/posture', callers: ['reporting'] },
+  // platform's durable cascade outbox: tear a purged org's rows out of this service's own tables (idempotent).
+  { method: 'POST', path: '/compliance/internal/orgs/:orgId/purge', callers: ['platform'] },
 ];
 
 /**

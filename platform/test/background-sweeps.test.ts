@@ -51,6 +51,7 @@ jest.unstable_mockModule('../src/services/invitation-reaper.js', () => ({ invita
 jest.unstable_mockModule('../src/services/impersonation-reaper.js', () => ({ impersonationReaperSweep: def('impersonation-reaper') }));
 jest.unstable_mockModule('../src/services/org-purge.js', () => ({ orgPurgeSweep: def('org-purge-sweep') }));
 jest.unstable_mockModule('../src/services/alert-delivery-status.js', () => ({ deliveryHealthSweep: def('alert-delivery-health') }));
+jest.unstable_mockModule('../src/services/cascade-outbox.js', () => ({ cascadeOutboxSweep: def('cascade-outbox') }));
 let softDeleteScheduler: unknown = fakeScheduler();
 jest.unstable_mockModule('../src/services/soft-delete-purge.js', () => ({
   softDeletePurgeSweep: { name: 'soft-delete-purge', create: () => softDeleteScheduler },
@@ -73,6 +74,7 @@ describe('sweepDefinitions', () => {
     expect((await sweepDefinitions()).map((d) => d.name)).toEqual([
       'audit-local-spool-drain', 'audit-retention-prune', 'audit-head-export', 'billing-reconcile', 'domain-reverify',
       'invitation-reaper', 'impersonation-reaper', 'org-purge-sweep', 'soft-delete-purge', 'alert-delivery-health',
+      'cascade-outbox',
     ]);
   });
 
@@ -107,7 +109,7 @@ describe('buildSweep', () => {
 describe('registerBackgroundSweeps', () => {
   it('starts every applicable sweep and returns them for shutdown', async () => {
     const started = await registerBackgroundSweeps();
-    expect(started).toHaveLength(10);
+    expect(started).toHaveLength(11);
     for (const s of started) expect((s as unknown as { start: jest.Mock }).start).toHaveBeenCalledTimes(1);
   });
 
@@ -115,7 +117,7 @@ describe('registerBackgroundSweeps', () => {
     softDeleteScheduler = null;
     failBuild = 'org-purge-sweep';
     const started = await registerBackgroundSweeps();
-    expect(started).toHaveLength(8);
+    expect(started).toHaveLength(9);
     expect(lockedCalls.map((c) => c.name)).toContain('impersonation-reaper');
   });
 });

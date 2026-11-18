@@ -864,6 +864,27 @@
     }
   },
   {
+    "method": "POST",
+    "path": "/reports/internal/orgs/:orgId/purge",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "dynamicAuthz": [],
+    "internalCallers": [
+      "platform"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "org.data.purge"
+    ]
+  },
+  {
     "method": "GET",
     "path": "/reports/plugins/build-duration",
     "auth": true,

@@ -2818,6 +2818,14 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     'POST /messages/internal/notify',
     'DELETE /messages/internal/org/:orgId/attachments',
   ], { category: 'machine-only', why: 'Service-principal route called by platform (notifications, org purge); no user token is admitted.' }),
+  // Platform's durable cascade outbox: each owning service tears a purged org
+  // (or an erased user) out of its OWN tables. Nothing a person can do in the UI.
+  'compliance POST /compliance/internal/orgs/:orgId/purge': { category: 'machine-only', why: 'Internal route (callers: platform): the cascade outbox\'s org-purge leg; no user token is admitted.' },
+  'message POST /messages/internal/orgs/:orgId/purge': { category: 'machine-only', why: 'Internal route (callers: platform): the cascade outbox\'s org-purge leg; no user token is admitted.' },
+  'pipeline POST /pipelines/internal/orgs/:orgId/purge': { category: 'machine-only', why: 'Internal route (callers: platform): the cascade outbox\'s org-purge leg; no user token is admitted.' },
+  'plugin POST /internal/plugins/orgs/:orgId/purge': { category: 'machine-only', why: 'Internal route (callers: platform): the cascade outbox\'s org-purge leg; no user token is admitted.' },
+  'plugin POST /internal/plugins/users/:userId/erase': { category: 'machine-only', why: 'Internal route (callers: platform): the cascade outbox\'s GDPR user-erasure leg; no user token is admitted.' },
+  'reporting POST /reports/internal/orgs/:orgId/purge': { category: 'machine-only', why: 'Internal route (callers: platform): the cascade outbox\'s org-purge leg; no user token is admitted.' },
   ...group('platform', [
     'POST /audit/events',
     'POST /internal/notify-email',

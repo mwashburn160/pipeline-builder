@@ -4,11 +4,11 @@
 /**
  * GDPR erasure for ecosystem content a deleted person left behind.
  *
- * Its own module rather than a function on the reviews store, because the
- * CALLER is platform's user-deletion cascade and not the plugin service. The
- * reviews store (`api/plugin/src/services/ecosystem/reviews-store.ts`) belongs
- * to the plugin service, which platform cannot import; the erasure has to live
- * where both the schema and platform can reach it.
+ * The CALLER is the plugin service's `POST /internal/plugins/users/:userId/erase`,
+ * delivered by platform's durable cascade outbox when a user is deleted (the
+ * outbox leg is written in the deletion's own Mongo transaction and retried
+ * until the plugin service acks). Platform itself never runs it: it writes no
+ * other service's tables.
  *
  * Not `public-directory.ts` either: that module reads through
  * `getPublicReaderDb()`, a deliberately read-only connection for the
@@ -35,10 +35,8 @@ import { withTenantTx } from '../database/tenancy.js';
  * disarm those anti-gaming rules for every review the account ever left.
  *
  * IDEMPOTENT by construction: the predicate is `author_user_id = $1`, so a
- * second run matches nothing. That is what makes it safe to call POST-COMMIT
- * and at-least-once — which is where the caller must put it, because
- * `withMongoTransaction` RETRIES its body on a transient error and anything
- * inside it runs once per attempt.
+ * second run matches nothing. That is what makes it safe to deliver
+ * at-least-once: an outbox leg redelivered after a lost ack scrubs nothing twice.
  *
  * Returns how many reviews were scrubbed, so the caller can audit the figure and
  * skip the audit row entirely when there were none.

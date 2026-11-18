@@ -3,6 +3,7 @@
 
 import type { ClientSession } from 'mongoose';
 import { Types } from 'mongoose';
+import { enqueueCascade } from './cascade-outbox.js';
 import { assertNotLastPrivilegedMember } from './role-crud.js';
 import { deleteAllSlots } from './session/session-store.js';
 import { USER_OWNER_HAS_ORGS } from './user-errors.js';
@@ -86,5 +87,12 @@ export async function deleteUserCascade(
   // platform session). Left behind, an IdP-initiated logout could still match a
   // deleted account's rows until their TTL lapsed. `userId` is stored as a string.
   await SamlSession.deleteMany({ userId: String(uid) }, { session });
+  // GDPR: the person's data in OTHER services (their listing reviews in the
+  // plugin service). One durable outbox leg per service, IN THIS TRANSACTION —
+  // the erasure marker commits with the deletion or not at all, and the
+  // dispatcher delivers it with retry until the owning service acks. Inside the
+  // transaction is safe because it is a Mongo write; the Postgres scrub itself
+  // runs in the owning service, at-least-once and idempotent.
+  await enqueueCascade('user.erased', String(uid), session);
   return { accessVersion: (deleted.tokenVersion ?? 0) + (deleted.claimsVersion ?? 0) };
 }

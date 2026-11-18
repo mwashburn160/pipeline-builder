@@ -107,6 +107,8 @@ const EXCEPTIONS: RouteCoverageException[] = [
 const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   { method: 'POST', path: '/messages/internal/notify', callers: ['platform', 'billing', 'compliance', 'quota', 'reporting'] },
   { method: 'DELETE', path: '/messages/internal/org/:orgId/attachments', callers: ['platform'] },
+  // platform's durable cascade outbox: tear a purged org's rows out of this service's own tables (idempotent).
+  { method: 'POST', path: '/messages/internal/orgs/:orgId/purge', callers: ['platform'] },
   // The expansion-offers frustration signal.
   // ONE caller, and it must stay one: the route exists so support-case TEXT does
   // not travel, and a second consumer would be a second reason to widen it.

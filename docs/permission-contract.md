@@ -249,6 +249,7 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | compliance | GET | `/compliance/entitlements/:orgId` | `service-principal + internal(billing)` |
 | compliance | PUT | `/compliance/entitlements/:orgId` | `service-principal + internal(billing)` |
 | compliance | POST | `/compliance/events/entity` | `service-principal + internal(pipeline,plugin)` |
+| compliance | POST | `/compliance/internal/orgs/:orgId/purge` | `service-principal + internal(platform)` |
 | compliance | GET | `/compliance/exemptions` | `any(compliance:read)` |
 | compliance | POST | `/compliance/exemptions` | `any(compliance:read)` |
 | compliance | DELETE | `/compliance/exemptions/:id` | `any(compliance:write)` |
@@ -370,6 +371,7 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | message | POST | `/messages/internal/notify` | `service-principal + internal(billing,compliance,platform,quota,reporting)` |
 | message | GET | `/messages/internal/offers/frustration/:orgId` | `service-principal + internal(billing)` |
 | message | DELETE | `/messages/internal/org/:orgId/attachments` | `service-principal + internal(platform)` |
+| message | POST | `/messages/internal/orgs/:orgId/purge` | `service-principal + internal(platform)` |
 | message | POST | `/messages/notifications/ticket` | `any(messages:read)` |
 | message | GET | `/messages/recipients/orgs` | `any(messages:write)` |
 | message | POST | `/messages/support` | `any(messages:read)` |
@@ -385,6 +387,7 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | pipeline | GET | `/pipeline-templates/deleted` | `any(templates:read)` |
 | pipeline | GET | `/pipelines` | `any(pipelines:read)` |
 | pipeline | POST | `/pipelines` | `any(pipelines:write)` |
+| pipeline | POST | `/pipelines/internal/orgs/:orgId/purge` | `service-principal + internal(platform)` |
 | pipeline | DELETE | `/pipelines/:id` | `any(pipelines:write)` |
 | pipeline | GET | `/pipelines/:id` | `any(pipelines:read)` |
 | pipeline | PUT | `/pipelines/:id` | `any(pipelines:write)` |
@@ -572,6 +575,8 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | plugin | GET | `/internal/plugins/public-names` | `service-principal + internal(image-registry)` |
 | plugin | GET | `/internal/plugins/image-pipeline-references` | `service-principal + internal(image-registry)` |
 | plugin | GET | `/internal/plugins/image-references` | `service-principal + internal(image-registry)` |
+| plugin | POST | `/internal/plugins/orgs/:orgId/purge` | `service-principal + internal(platform)` |
+| plugin | POST | `/internal/plugins/users/:userId/erase` | `service-principal + internal(platform)` |
 | plugin | GET | `/plugins` | `any(plugins:read)` |
 | plugin | GET | `/plugins/storage` | `any(plugins:read)` |
 | plugin | POST | `/plugins/storage/prune` | `any(plugins:write)` |
@@ -747,6 +752,7 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | reporting | GET | `/reports/execution/success-rate` | `any(reports:read)` |
 | reporting | GET | `/reports/incidents` | `any(reports:read) + feature(advanced_reporting)` |
 | reporting | POST | `/reports/incidents/test` | `any(reports:read) + feature(advanced_reporting)` |
+| reporting | POST | `/reports/internal/orgs/:orgId/purge` | `service-principal + internal(platform)` |
 | reporting | GET | `/reports/ingest-health` | `any(reports:read)` |
 | reporting | GET | `/reports/plugins/build-duration` | `any(reports:read)` |
 | reporting | GET | `/reports/plugins/build-failures` | `system-org + any(reports:read) + any(orgs:read) + aal2` |

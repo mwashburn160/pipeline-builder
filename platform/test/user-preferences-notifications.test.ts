@@ -85,6 +85,8 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
 }));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({ validateBody: jest.fn(), updateProfileSchema: {}, changePasswordSchema: {} }));
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
+// The user cascade enqueues its erasure leg through the outbox (own suite).
+jest.unstable_mockModule('../src/services/cascade-outbox.js', () => ({ enqueueCascade: jest.fn(async () => []) }));
 
 const { userProfileService } = await import('../src/services/user-profile-service.js');
 const { updatePreferences } = await import('../src/controllers/user-profile.js');

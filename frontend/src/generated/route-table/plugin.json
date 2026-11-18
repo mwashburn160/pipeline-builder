@@ -55,6 +55,27 @@
     "audit": []
   },
   {
+    "method": "POST",
+    "path": "/internal/plugins/orgs/:orgId/purge",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "dynamicAuthz": [],
+    "internalCallers": [
+      "platform"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "org.data.purge"
+    ]
+  },
+  {
     "method": "GET",
     "path": "/internal/plugins/public-names",
     "auth": true,
@@ -72,6 +93,27 @@
     "features": [],
     "scopes": [],
     "audit": []
+  },
+  {
+    "method": "POST",
+    "path": "/internal/plugins/users/:userId/erase",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "dynamicAuthz": [],
+    "internalCallers": [
+      "platform"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "plugin.review.anonymize"
+    ]
   },
   {
     "method": "GET",

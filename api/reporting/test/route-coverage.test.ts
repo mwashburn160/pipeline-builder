@@ -144,6 +144,8 @@ const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   // The account gained or lost the Stakeholder Reports add-on. Pauses or resumes every
   // report in the ACCOUNT (root + teams); billing only.
   { method: 'PUT', path: '/reports/stakeholder-sync/:orgId', callers: ['billing'] },
+  // platform's durable cascade outbox: tear a purged org's rows out of this service's own tables (idempotent).
+  { method: 'POST', path: '/reports/internal/orgs/:orgId/purge', callers: ['platform'] },
 ];
 
 /**

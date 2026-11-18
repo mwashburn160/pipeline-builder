@@ -9,7 +9,8 @@
  *   - the user's domain-join requests go with the account (a leftover request
  *     could be approved into an orphan membership holding a seat);
  *   - their passkeys go too (a leftover credential keeps its unique id reserved);
- *   - the owner and last-privileged-member guards run BEFORE anything is deleted.
+ *   - the owner and last-privileged-member guards run BEFORE anything is deleted;
+ *   - the GDPR erasure leg for OTHER services is enqueued in the same session.
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
@@ -53,6 +54,10 @@ jest.unstable_mockModule('../src/models/saml-session.js', () => ({
   __esModule: true,
   default: { deleteMany: (...a: [unknown, { session?: unknown }]) => { mockSamlDeleteFilter(a[0]); return deleteMany('SamlSession')(...a); } },
 }));
+const mockEnqueue = jest.fn(async (..._a: unknown[]) => { calls.push('Outbox'); return ['plugin']; });
+jest.unstable_mockModule('../src/services/cascade-outbox.js', () => ({
+  enqueueCascade: (...a: unknown[]) => mockEnqueue(...a),
+}));
 jest.unstable_mockModule('../src/services/role-crud.js', () => ({
   assertNotLastPrivilegedMember: (...a: unknown[]) => mockAssertNotLast(...a),
 }));
@@ -85,6 +90,14 @@ describe('deleteUserCascade', () => {
     expect(mockAssertNotLast).toHaveBeenCalledWith(session, expect.any(Types.ObjectId), undefined, []);
   });
 
+  it('enqueues the user-erasure outbox leg IN the deletion\'s transaction', async () => {
+    await deleteUserCascade(session as never, userId);
+    // Same session ⇒ the erasure marker commits with the deletion or not at all.
+    expect(mockEnqueue).toHaveBeenCalledWith('user.erased', userId, session);
+    // After the account is gone (a refused deletion enqueues nothing — below).
+    expect(calls.indexOf('Outbox')).toBeGreaterThan(calls.indexOf('User'));
+  });
+
   it('an owned org that is already soft-deleted does not block, and its Roles are exempt from the lockout guard', async () => {
     ownedOrgIds = ['org-gone'];
     deletedOrgIds = ['org-gone'];
@@ -96,6 +109,7 @@ describe('deleteUserCascade', () => {
     ownedOrgIds = ['org-live'];
     await expect(deleteUserCascade(session as never, userId)).rejects.toThrow(USER_OWNER_HAS_ORGS);
     expect(calls).toEqual([]);
+    expect(mockEnqueue).not.toHaveBeenCalled();
   });
 
   it('refuses the last member of a privileged Role before deleting anything', async () => {
@@ -108,5 +122,6 @@ describe('deleteUserCascade', () => {
     mockFindByIdAndDelete.mockReturnValue({ select: async () => null });
     await expect(deleteUserCascade(session as never, userId)).resolves.toBeNull();
     expect(calls).toEqual(['User']);
+    expect(mockEnqueue).not.toHaveBeenCalled();
   });
 });

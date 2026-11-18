@@ -10,6 +10,7 @@ import { createCreatePipelineRoutes } from './routes/create-pipeline.js';
 import { createDeletePipelineRoutes } from './routes/delete-pipeline.js';
 import { createExecutionRoutes } from './routes/executions.js';
 import { createGeneratePipelineRoutes } from './routes/generate-pipeline.js';
+import { createInternalOrgPurgeRoutes } from './routes/internal-org-purge.js';
 import { createPipelineTemplateRoutes } from './routes/pipeline-template-routes.js';
 import { createPluginUpgradeRoutes } from './routes/plugin-upgrade-routes.js';
 import { createPurgePipelineRoutes } from './routes/purge-pipeline.js';
@@ -67,6 +68,9 @@ export function mountRoutes(app: Express, { quotaService }: PipelineRouteDeps): 
   //    None of their guards leak onto sibling reads, and their literal/two-segment
   //    paths (`/bulk/create`, `/:pipelineId/executions`) are claimed before the
   //    read router's `/:id`.
+  //    - internal org purge: platform's cascade outbox (service token only —
+  //      requireAuth + requireInternalService on the route), so no user chain.
+  app.use('/pipelines/internal', createInternalOrgPurgeRoutes());
   app.use('/pipelines', createCreatePipelineRoutes(quotaService));
   //    - validate: auth + orgId + pipelines:write per route. Writes nothing and
   //      reserves no 'pipelines' slot, so it is deliberately NOT behind the create mount's

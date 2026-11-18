@@ -46,6 +46,9 @@ export { isReady, setReady, readinessGuard } from './readiness.js';
 // Route wrapper
 export * from './route-wrapper.js';
 
+// The shared body of each owning service's org-purge cascade leg.
+export * from './org-data-purge-route.js';
+
 // Request/Response types. `createRequestContext` is the factory
 // `attachRequestContext` calls; it is not part of the public surface.
 export type { RequestLogger, RequestContext } from './request-types.js';

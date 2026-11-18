@@ -20,14 +20,14 @@ const mockAssignmentFind = jest.fn();
 const mockRoleFind = jest.fn();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
-jest.unstable_mockModule('../src/services/user-ecosystem-privacy.js', () => ({
-  // The GDPR erasure the delete paths call POST-COMMIT. Mocked here because the
-  // real module VALUE-imports `@pipeline-builder/pipeline-data` and the metrics
+jest.unstable_mockModule('../src/services/cascade-outbox.js', () => ({
+  // The GDPR erasure leg the user cascade enqueues IN its transaction. Mocked
+  // here because the real module VALUE-imports the config and the metrics
   // registry, which drags the real `src/config/index.ts` into a suite that never
   // loaded it -- and that surfaces as "SECRET_ENCRYPTION_KEY is required in
   // production", naming something entirely unrelated to the actual cause. The
-  // erasure has its own suite (`user-ecosystem-privacy.test.ts`).
-  anonymizeUserEcosystemContent: jest.fn(async () => 0),
+  // outbox has its own suite (`cascade-outbox.test.ts`).
+  enqueueCascade: jest.fn(async () => []),
 }));
 
 jest.unstable_mockModule('../src/models/index.js', () => ({

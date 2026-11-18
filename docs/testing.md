@@ -282,7 +282,7 @@ Found by looking, and recorded as `no-ui` dispositions. None is reachable from t
 | `compliance POST /compliance/validate/pipeline`, `POST /compliance/validate/plugin` | The enforcing (non dry-run) validation, called by the CDK at deploy time. The client layer only has the `/dry-run` variants. |
 | `plugin POST /plugins/lookup` | `pipeline-manager`'s plugin pre-resolution before synth. |
 | `ask POST /ask`, `POST /ask/stream` | API / CLI answer endpoints; the dashboard's Ask panel drives only `/ask/agent/stream`. |
-| `quota DELETE /quotas/:orgId` | The org-purge **cascade hook**, driven with a service token by `platform/src/services/org-cascade-service.ts`. A human sysadmin is admitted by the gate, but no control exists and none should: `quotaService.update()` and `.resetUsage()` both throw `OrgNotFoundError` on a missing document and never upsert, so dropping the row leaves the org unenforceable and unrepairable from the dashboard. |
+| `quota DELETE /quotas/:orgId` | The org-purge **cascade hook**, driven with a service token by platform's cascade outbox (`platform/src/services/cascade-legs.ts`). A human sysadmin is admitted by the gate, but no control exists and none should: `quotaService.update()` and `.resetUsage()` both throw `OrgNotFoundError` on a missing document and never upsert, so dropping the row leaves the org unenforceable and unrepairable from the dashboard. |
 
 `platform POST /organization/names` was on this list; it is now `machine-only` — the service-principal gate moved from the controller onto the route, so the route table advertises it and the machine-only assertion can check it.
 

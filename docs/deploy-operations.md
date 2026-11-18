@@ -701,7 +701,7 @@ accepts writes at all, because RustFS exposes no Prometheus endpoint of its own.
 
 #### Inhibition: suppressing consequences, and what cannot be suppressed
 
-At 229 rules one root cause is a pager flood, and a flood is functionally the same
+At 230 rules one root cause is a pager flood, and a flood is functionally the same
 as no alert. The inhibition tree in `alertmanager.yml` suppresses the consequences
 of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service
 being down.
@@ -808,9 +808,11 @@ asymmetries worth stating:
   a failed rebuild leaves the OLD definition in place and writes can keep failing
   against it.
 - **`user_erasure_incomplete_total` had an alert and no panel.** A user deletion whose
-  ecosystem-content scrub failed still deleted the user — the scrub is post-commit and
-  best-effort precisely so it cannot block the deletion — so the residue is the only
-  evidence the reviews were left behind.
+  ecosystem-content scrub failed still deleted the user — the scrub is a cascade-outbox
+  leg delivered after the deletion commits, retried with backoff — so once that leg is
+  dead-lettered the residue is the only evidence the reviews were left behind. Every
+  dead leg, org purges included, also counts in `platform_cascade_dead_total{service,kind}`
+  (alerted as `PlatformCascadeLegDead`).
 - **The *Alert delivery* row answers a question no other panel can**: whether
   anyone would hear any of them. `alert_delivery_enabled` and
   `alert_delivery_configured` are deliberately separate — the first is what a

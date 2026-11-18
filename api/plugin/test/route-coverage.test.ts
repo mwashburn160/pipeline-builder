@@ -93,6 +93,10 @@ const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   { method: 'GET', path: '/internal/plugins/image-references', callers: ['image-registry'] },
   // image-registry's manual purge: the pipelines still referencing each image (refused while any do).
   { method: 'GET', path: '/internal/plugins/image-pipeline-references', callers: ['image-registry'] },
+  // platform's durable cascade outbox: tear a purged org's rows out of this service's own tables (idempotent).
+  { method: 'POST', path: '/internal/plugins/orgs/:orgId/purge', callers: ['platform'] },
+  // The same outbox, for a GDPR user erasure: anonymize the person's listing reviews.
+  { method: 'POST', path: '/internal/plugins/users/:userId/erase', callers: ['platform'] },
   // The deploy scripts (init-platform.sh, from an operator's shell through the
   // ingress — no mesh principal): the fresh-install toolchain default.
   { method: 'POST', path: '/plugins/toolchain/initial-default', callers: ['deploy-bootstrap'] },

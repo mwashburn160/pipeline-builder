@@ -21,7 +21,7 @@ const mockHasMembershipInAccount = jest.fn<AnyFn>();
 const mockFindByIdAndUpdate = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
-jest.unstable_mockModule('../src/services/user-ecosystem-privacy.js', () => ({ anonymizeUserEcosystemContent: jest.fn(async () => 0) }));
+jest.unstable_mockModule('../src/services/cascade-outbox.js', () => ({ enqueueCascade: jest.fn(async () => []) }));
 jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({
   findSsoEnforcementForEmail: (...a: unknown[]) => mockFindSsoEnforcement(...a),
 }));

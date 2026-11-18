@@ -66,6 +66,20 @@ export {
 } from './api/alert-destinations.js';
 export { anonymizeReviewsByAuthor } from './api/ecosystem-privacy.js';
 export {
+  ORG_DATA_OWNERSHIP,
+  ORG_SCOPED_TABLE_NAMES,
+  allOrgScopedTables,
+  type OrgDataOwner,
+  type OrgDataSlice,
+  type OrgScopedTable,
+} from './api/org-data-ownership.js';
+export {
+  purgeOrgData,
+  purgeRowCounts,
+  type OrgDataPurgeResult,
+  type OrgTablePurgeOutcome,
+} from './api/org-data-purge.js';
+export {
   openSupportCase,
   findCaseByThread,
   listQueue,

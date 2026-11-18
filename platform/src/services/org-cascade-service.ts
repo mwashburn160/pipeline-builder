@@ -5,36 +5,41 @@
  * Org delete cascade + GDPR data export — HOW the teardown runs. WHAT it
  * covers is the registry in `org-cascade-registry.ts`.
  *
- * Orchestrates the destructive sweep across every store the platform owns data
- * in for a given org:
- * - Postgres (via pipeline-core): every org-scoped (`org_id`) table. Soft-deleted
- *   where `deleted_at` exists; hard-deleted otherwise.
+ * Orchestrates the destructive sweep across every store the platform ITSELF
+ * owns data in for a given org:
+ * - Postgres: platform's own org-scoped tables only (dashboards, alert routing,
+ *   support contacts — the `platform` slice of pipeline-data's
+ *   `ORG_DATA_OWNERSHIP`). Soft-deleted where `deleted_at` exists; hard-deleted
+ *   otherwise.
  * - Mongo (platform's own): every collection in `MONGO_CASCADE_COLLECTIONS`
  *   (invitations, IdP config + group mappings, domains, join requests, SAML SLO
  *   sessions, service accounts + their keys) plus AuditEvent (the org's own hash
  *   chain, archived first). Memberships, Role assignments and Roles are removed
  *   later by `organizationService.delete` (the purge sweep) rather than here, but
  *   they are in the same registry so the EXPORT still captures them.
- * - Quota service: HTTP DELETE /quotas/:orgId.
- * - Billing service: HTTP DELETE /billing/subscriptions/by-org/:orgId.
  *
- * Export mirrors the cascade in read-only mode: walks the same set and
- * returns a single JSON blob the operator can hand to the org (right-to-
- * portability) before pulling the trigger.
+ * Everything ELSE — other services' Postgres tables, quota, billing, message
+ * blobs, the registry namespace — is NOT torn down here. The purge sweep
+ * enqueues one durable outbox leg per owning service in the same transaction
+ * as the org's hard delete (`services/cascade-outbox.ts`), and each service
+ * deletes its own data on delivery, with retry, backoff and a dead-letter alert.
+ *
+ * Export mirrors the cascade in read-only mode across EVERY org-scoped table
+ * (whoever owns it) and returns a single JSON blob the operator can hand to the
+ * org (right-to-portability) before pulling the trigger.
  */
 
-import { isSystemOrgId, callInternal, createLogger, createSafeClient, errorMessage, getServiceAuthHeader, IMAGE_REGISTRY_INTERNAL, MESSAGE_INTERNAL, SYSTEM_ORG_ID, type InternalEndpointContract } from '@pipeline-builder/api-core';
-import { runWithTenantContext, softDeleteRetentionMs, withTenantTx } from '@pipeline-builder/pipeline-data';
-import { eq, sql } from 'drizzle-orm';
+import { isSystemOrgId, createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { purgeOrgData, runWithTenantContext, softDeleteRetentionMs, withTenantTx } from '@pipeline-builder/pipeline-data';
+import { eq } from 'drizzle-orm';
 import type { Types } from 'mongoose';
 import { auditService } from './audit-service.js';
 import { storeDeletedOrgSnapshot } from './deleted-org-snapshot-store.js';
 import {
   CASCADE_MONGO_COLLECTION_NAMES,
-  HARD_DELETE_TABLES,
+  EXPORT_TABLES,
   MONGO_CASCADE_COLLECTIONS,
   MONGO_REMOVABLE,
-  SOFT_DELETE_TABLES,
   type CascadeRemovedName,
 } from './org-cascade-registry.js';
 import {
@@ -75,45 +80,6 @@ const AUDIT_ARCHIVE_BATCH_SIZE = 1000;
 const AUDIT_EXPORT_CAP = 50_000;
 
 // ---------------------------------------------------------------------------
-// HTTP clients for downstream services
-// ---------------------------------------------------------------------------
-
-function quotaClient() {
-  return createSafeClient({
-    host: config.quota.serviceHost,
-    port: config.quota.servicePort,
-    timeout: config.organization.cascadeHttpTimeoutMs,
-  });
-}
-
-function billingClient() {
-  return createSafeClient({
-    host: config.billing.serviceHost,
-    port: config.billing.servicePort,
-    timeout: config.organization.cascadeHttpTimeoutMs,
-  });
-}
-
-function messageClient() {
-  return createSafeClient({
-    host: config.message.serviceHost,
-    port: config.message.servicePort,
-    timeout: config.organization.cascadeHttpTimeoutMs,
-  });
-}
-
-function imageRegistryClient() {
-  return createSafeClient({
-    host: config.imageRegistry.serviceHost,
-    port: config.imageRegistry.servicePort,
-    // A namespace teardown walks every repo's tags and deletes per manifest, so
-    // it is slower than the other legs — give it the dedicated budget rather
-    // than failing a correct purge on the shared 5s.
-    timeout: config.organization.registryCascadeHttpTimeoutMs,
-  });
-}
-
-// ---------------------------------------------------------------------------
 // Cascade
 // ---------------------------------------------------------------------------
 
@@ -130,23 +96,9 @@ export interface CascadeReport {
    *  the org doc while its rows remain would orphan them forever (nothing keys
    *  a retry off a missing org). */
   mongoFailures: string[];
-  quota: { ok: boolean; statusCode?: number };
-  billing: { ok: boolean; statusCode?: number };
-  /** Result of purging the org's MinIO attachment blobs via the message service
-   *  (platform holds no object-storage client, so the blobs — keyed `<orgId>/…`
-   *  — would orphan otherwise). Best-effort: unlike quota/billing this is NOT a
-   *  hard gate (an unreachable message service must not block the org delete),
-   *  but a false `ok` signals leftover blobs for out-of-band reclamation. */
-  messageBlobs: { ok: boolean; statusCode?: number; deleted?: number };
-  /** Result of purging the org's PRIVATE `org-<id>/*` registry namespace via
-   *  image-registry (platform holds no registry client). Published `public/*`
-   *  copies are deliberately retained — other orgs install them. Best-effort
-   *  like {@link messageBlobs}: a false `ok` signals images left on disk for the
-   *  operator's own garbage collection, and never blocks the org delete. */
-  registryImages: { ok: boolean; statusCode?: number; deleted?: number };
   /** Whether the org's audit trail was durably archived to
    *  `archived_audit_events` BEFORE the live rows were deleted. This is a HARD
-   *  GATE for the purge sweep exactly like billing/quota — a failed archive
+   *  GATE for the purge sweep exactly like a failed table — a failed archive
    *  leaves the audit rows intact and DEFERS the hard delete, so a forensic
    *  record is never destroyed without a durable copy. `archived` is how many
    *  events were copied. */
@@ -160,14 +112,13 @@ export interface CascadeReport {
 }
 
 /**
- * Soft- or hard-delete every row across the platform's own Postgres + Mongo
- * stores AND fire HTTP DELETEs at the quota / billing services. Returns a
- * report of what happened so the purge sweep can gate the hard delete on it and
- * summarize it in the `admin.org.delete` audit event.
+ * Soft- or hard-delete every row across the platform's OWN Postgres + Mongo
+ * stores. Returns a report of what happened so the purge sweep can gate the
+ * hard delete on it and summarize it in the `admin.org.delete` audit event.
+ * The downstream services are reached by the cascade outbox, not from here.
  *
- * `actorOrgId` is the actor org for the tenant-context scope (the purge sweep
- * passes the system org) so the soft-delete UPDATEs pass FORCE'd RLS on the
- * affected tables. Sysadmins bypass RLS via the `is_sysadmin` GUC.
+ * `actorOrgId` is the actor org for the KMS-orphan audit row; the Postgres
+ * purge runs under a sysadmin tenant context (FORCE'd RLS).
  */
 export async function cascadeDeleteOrg(orgId: string, actorOrgId: string): Promise<CascadeReport> {
   if (isSystemOrgId(orgId)) {
@@ -175,7 +126,7 @@ export async function cascadeDeleteOrg(orgId: string, actorOrgId: string): Promi
   }
 
   const report: CascadeReport = {
-    postgres: await cascadePostgres(orgId, actorOrgId),
+    postgres: await cascadePostgres(orgId),
     mongo: {
       invitations: 0,
       auditEvents: 0,
@@ -191,10 +142,6 @@ export async function cascadeDeleteOrg(orgId: string, actorOrgId: string): Promi
       serviceAccountKeys: 0,
     },
     mongoFailures: [],
-    quota: { ok: false },
-    billing: { ok: false },
-    messageBlobs: { ok: false },
-    registryImages: { ok: false },
     auditArchive: { ok: false },
   };
 
@@ -202,43 +149,6 @@ export async function cascadeDeleteOrg(orgId: string, actorOrgId: string): Promi
   const audit = await archiveAndDeleteAuditEvents(orgId);
   report.auditArchive = audit.archive;
   report.mongo.auditEvents = audit.deleted;
-
-  // NOTE: quota + billing `ok` are HARD GATES for the caller — the purge sweep
-  // defers the org-doc hard delete when either is false (a live subscription
-  // must never outlive its org). They are only recorded here so the cascade
-  // returns a full report; the caller decides.
-  report.quota = await deleteDownstream(quotaClient(), `/quotas/${encodeURIComponent(orgId)}`, orgId, 'Quota');
-  // Cancels any active subscription and drops its events + dedupe keys.
-  report.billing = await deleteDownstream(
-    billingClient(), `/billing/subscriptions/by-org/${encodeURIComponent(orgId)}`, orgId, 'Billing',
-  );
-  // The org's MinIO attachment blobs: platform hard-deletes the
-  // `message_attachments` rows but has no object-storage client, so the message
-  // service reclaims the blobs. Best-effort and NOT a hard gate — an unreachable
-  // message service must not block the org delete; a false `ok` flags leftover
-  // blobs for the out-of-band orgId-prefix sweep.
-  const blobs = await deleteViaContract(
-    messageClient(), MESSAGE_INTERNAL.purgeOrgAttachments, orgId, 'Message attachment-blob purge',
-  );
-  report.messageBlobs = { ok: blobs.ok, statusCode: blobs.statusCode, ...(blobs.deleted === undefined ? {} : { deleted: blobs.deleted }) };
-  // The org's PRIVATE container images (`org-<id>/*`). Platform holds no
-  // registry client of its own, so the registry reclaims its own namespace —
-  // the same shape as the message-blob leg above, and for the same reason: a
-  // deleted org's images otherwise sat on disk forever, billed to nobody, with
-  // no tenant left to prune them and scheduled GC off by default.
-  //
-  // PUBLISHED (`public/*`) copies are deliberately NOT removed: other
-  // organizations install those listings and their pipelines pin those digests,
-  // so withdrawing them is an ecosystem decision with notices attached, not a
-  // side effect of a teardown.
-  //
-  // Best-effort and NOT a hard gate, like the blob purge: an unreachable
-  // registry must not block the org delete, and a false `ok` flags leftover
-  // images for the operator's own GC.
-  const images = await deleteViaContract(
-    imageRegistryClient(), IMAGE_REGISTRY_INTERNAL.purgeOrgNamespace, orgId, 'Registry private-namespace purge',
-  );
-  report.registryImages = { ok: images.ok, statusCode: images.statusCode, ...(images.deleted === undefined ? {} : { deleted: images.deleted }) };
 
   const kms = await flagKmsOrphan(orgId, actorOrgId);
   if (kms) report.kms = kms;
@@ -248,51 +158,17 @@ export async function cascadeDeleteOrg(orgId: string, actorOrgId: string): Promi
 }
 
 /**
- * Tombstone (soft tables) or remove (hard tables) every org-scoped Postgres row.
- *
- * Runs under a sysadmin tenant context so the soft-delete UPDATEs pass FORCE'd
- * RLS without a per-table USING clause for the deletor. Each statement goes
- * through `withTenantTx`, which is what applies that context to the connection
- * — a bare `db` call runs with empty RLS settings, and under the non-superuser
- * app role it silently matches 0 rows. One transaction per table so one
- * table's failure doesn't roll back the rest.
+ * Tombstone (soft tables) or remove (hard tables) platform's OWN org-scoped
+ * Postgres rows — pipeline-data's `purgeOrgData('platform', …)`, the same
+ * executor every owning service runs for its own slice. Sysadmin tenant context,
+ * one transaction per table so one table's failure doesn't roll back the rest.
  */
-async function cascadePostgres(orgId: string, actorOrgId: string): Promise<CascadeReport['postgres']> {
-  const out: CascadeReport['postgres'] = {};
-  await runWithTenantContext({ orgId: actorOrgId, isSuperAdmin: true }, async () => {
-    const now = new Date();
-    for (const { table, name } of SOFT_DELETE_TABLES) {
-      try {
-        // Only rows not already tombstoned, so the row count is accurate.
-        //
-        // This is the TERMINAL org purge (it runs only from the purge sweep once
-        // the retention window has lapsed), so `purge_after = now` is stamped
-        // ALONGSIDE `deleted_at`: the owning service's retention sweep is keyed
-        // on `deleted_at IS NOT NULL AND purge_after < now`, and a NULL
-        // `purge_after` would leave the org's rows in Postgres forever (a GDPR
-        // erasure gap). The snapshot captured at soft-delete time remains the
-        // recovery source and is untouched here.
-        const result = await withTenantTx((tx) => tx.update(table)
-          .set({ deletedAt: now, purgeAfter: now })
-          .where(sql`${(table as { orgId: unknown }).orgId} = ${orgId} AND deleted_at IS NULL`));
-        out[name] = { ok: true, rowCount: (result as { rowCount?: number }).rowCount ?? 0 };
-      } catch (err) {
-        logger.error('Postgres soft-delete failed', { table: name, orgId, error: errorMessage(err) });
-        out[name] = { ok: false, error: errorMessage(err) };
-      }
-    }
-    for (const { table, name } of HARD_DELETE_TABLES) {
-      try {
-        const result = await withTenantTx((tx) => tx.delete(table)
-          .where(eq((table as { orgId: unknown }).orgId as never, orgId)));
-        out[name] = { ok: true, rowCount: (result as { rowCount?: number }).rowCount ?? 0 };
-      } catch (err) {
-        logger.error('Postgres hard-delete failed', { table: name, orgId, error: errorMessage(err) });
-        out[name] = { ok: false, error: errorMessage(err) };
-      }
-    }
-  });
-  return out;
+async function cascadePostgres(orgId: string): Promise<CascadeReport['postgres']> {
+  const result = await purgeOrgData('platform', orgId);
+  for (const name of result.failed) {
+    logger.error('Postgres teardown failed', { table: name, orgId, error: result.tables[name]?.error });
+  }
+  return result.tables;
 }
 
 /**
@@ -333,7 +209,7 @@ async function cascadeMongo(orgId: string, report: CascadeReport): Promise<void>
  * ARCHIVE the org's audit trail to a durable, TTL-free store, THEN delete the
  * live rows of its own hash chain.
  *
- * FAIL CLOSED (like the billing/quota hard gates): if the archive write fails
+ * FAIL CLOSED (like a failed Postgres table or Mongo leg): if the archive write fails
  * the audit rows are NOT deleted — they stay for a retry, `archive.ok` is false,
  * and the purge sweep defers the hard delete. A forensic record is never
  * destroyed without a durable copy.
@@ -410,65 +286,6 @@ async function archiveAndDeleteAuditEvents(
       { orgId, error: errorMessage(err) },
     );
     return { archive: { ok: false, error: errorMessage(err) }, deleted: 0 };
-  }
-}
-
-/**
- * HTTP DELETE `path` on a peer service with a platform service token. Never
- * throws: an unreachable service or a non-2xx answer is `ok: false`, and the
- * caller decides whether that gates the purge. `deleted` is the service's own
- * count when it reports one.
- */
-async function deleteDownstream(
-  client: ReturnType<typeof createSafeClient>,
-  path: string,
-  orgId: string,
-  label: string,
-): Promise<{ ok: boolean; statusCode?: number; deleted?: number }> {
-  try {
-    const auth = getServiceAuthHeader({ serviceName: 'platform', orgId: SYSTEM_ORG_ID, role: 'owner' });
-    const resp = await client.delete(path, { headers: { 'Authorization': auth, 'x-org-id': orgId } });
-    const ok = !!resp && resp.statusCode < 400;
-    if (!ok) logger.warn(`${label} returned non-2xx`, { orgId, statusCode: resp?.statusCode });
-    const deleted = (resp?.body as { data?: { deleted?: number } } | undefined)?.data?.deleted;
-    return { ok, statusCode: resp?.statusCode, ...(typeof deleted === 'number' ? { deleted } : {}) };
-  } catch (err) {
-    logger.warn(`${label} delete failed`, { orgId, error: errorMessage(err) });
-    return { ok: false };
-  }
-}
-
-/**
- * {@link deleteDownstream} for an INTERNAL endpoint with a contract (api-core
- * `*_INTERNAL`): the path is built from the contract's `:orgId` param and the
- * reply's `data` parsed with its response schema. Same platform token, same
- * `x-org-id`, same never-throws `{ ok, statusCode, deleted? }` — a 2xx whose
- * reply does not match the contract is still `ok` (the peer did the delete),
- * just without a count.
- */
-async function deleteViaContract(
-  client: ReturnType<typeof createSafeClient>,
-  contract: InternalEndpointContract,
-  orgId: string,
-  label: string,
-): Promise<{ ok: boolean; statusCode?: number; deleted?: number }> {
-  try {
-    const auth = getServiceAuthHeader({ serviceName: 'platform', orgId: SYSTEM_ORG_ID, role: 'owner' });
-    const result = await callInternal(client, contract, {
-      params: { orgId },
-      options: { headers: { 'Authorization': auth, 'x-org-id': orgId } },
-    });
-    if (!result.ok && result.reason === 'unreachable') {
-      logger.warn(`${label} returned non-2xx`, { orgId, statusCode: undefined });
-      return { ok: false, statusCode: undefined };
-    }
-    const ok = result.status < 400;
-    if (!ok) logger.warn(`${label} returned non-2xx`, { orgId, statusCode: result.status });
-    const deleted = result.ok ? (result.data as { deleted?: unknown }).deleted : undefined;
-    return { ok, statusCode: result.status, ...(typeof deleted === 'number' ? { deleted } : {}) };
-  } catch (err) {
-    logger.warn(`${label} delete failed`, { orgId, error: errorMessage(err) });
-    return { ok: false };
   }
 }
 
@@ -752,10 +569,10 @@ export async function exportOrg(
   };
 
   await runWithTenantContext({ orgId: actorOrgId, isSuperAdmin: true }, async () => {
-    for (const { table, name } of [...SOFT_DELETE_TABLES, ...HARD_DELETE_TABLES]) {
+    for (const { table, name } of EXPORT_TABLES) {
       try {
         const rows = await withTenantTx((tx) => tx.select().from(table)
-          .where(eq((table as { orgId: unknown }).orgId as never, orgId)));
+          .where(eq((table as unknown as { orgId: unknown }).orgId as never, orgId)));
         result.postgres[name] = rows as unknown[];
       } catch (err) {
         result.postgres[name] = [];

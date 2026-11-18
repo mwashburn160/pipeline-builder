@@ -13,12 +13,18 @@
  * Safety properties (mirrors the invitation reaper):
  *   - Idempotent: an org already mid-purge (cascade ran, hard delete pending) is
  *     picked up again next tick; a fully-purged org no longer matches the scan.
- *   - Fail-closed: EVERY cascade leg is a hard gate — billing, quota, the audit
- *     archive, each Postgres table and each Mongo collection. If any failed to
- *     tear down, the org is left soft-deleted (NOT hard-deleted) and retried
- *     next sweep: once the org doc is gone nothing keys a retry, so a row left
- *     behind then would be orphaned forever (and a live subscription would
- *     outlive its org). Only the message-blob purge stays best-effort.
+ *   - Fail-closed on PLATFORM'S OWN legs — the audit archive, each of its own
+ *     Postgres tables and each Mongo collection. If any failed to tear down,
+ *     the org is left soft-deleted (NOT hard-deleted) and retried next sweep:
+ *     those stores are keyed off the org document, so tearing it down first
+ *     would orphan them forever.
+ *   - Durable on EVERY OTHER leg. The downstream services (pipeline, plugin,
+ *     compliance, message + its blobs, reporting, quota, billing, the registry)
+ *     are not called from here: the hard delete writes one `cascade_outbox` row
+ *     per service IN ITS OWN TRANSACTION (services/cascade-outbox.ts), and the
+ *     dispatcher delivers each with retry and backoff — so a downstream outage
+ *     no longer holds the org hostage, yet nothing is forgotten either: a leg
+ *     that never lands goes `dead` and pages (`PlatformCascadeLegDead`).
  *   - Never throws: a per-org error is logged and the sweep continues; the
  *     interval can't be crashed by one bad org or a transient datastore blip.
  *   - Runs on `createScheduler` (same-pod re-entrancy guard: a sweep slower
@@ -29,6 +35,7 @@
 
 import { createLogger, errorMessage, SYSTEM_ORG_ID, leaderLockKey } from '@pipeline-builder/api-core';
 import type { IntervalSweepDefinition } from './background-sweeps.js';
+import { enqueueCascade } from './cascade-outbox.js';
 import { cascadeDeleteOrg, type CascadeReport } from './org-cascade-service.js';
 import { organizationService } from './organization-service.js';
 import { config } from '../config/index.js';
@@ -63,7 +70,7 @@ export interface PurgeSweepResult {
  * that could carry sensitive fragments — the audit trail records WHAT was purged,
  * not any credential/identifier.
  */
-function purgeAuditDetails(report: CascadeReport): Record<string, unknown> {
+function purgeAuditDetails(report: CascadeReport, downstreamLegs: string[]): Record<string, unknown> {
   const postgres: Record<string, number> = {};
   const postgresFailures: string[] = [];
   for (const [name, r] of Object.entries(report.postgres)) {
@@ -76,18 +83,17 @@ function purgeAuditDetails(report: CascadeReport): Record<string, unknown> {
     ...(postgresFailures.length > 0 ? { postgresFailures } : {}),
     mongo: report.mongo,
     ...(report.mongoFailures.length > 0 ? { mongoFailures: report.mongoFailures } : {}),
-    quotaOk: report.quota.ok,
-    billingOk: report.billing.ok,
+    // The legs handed to the cascade outbox in the hard delete's transaction;
+    // their delivery is recorded per leg (and `org.cascade.dead` if one never lands).
+    downstreamLegs,
     auditArchived: report.auditArchive.archived ?? 0,
     kmsOrphanFlagged: !!report.kms,
   };
 }
 
-/** Every cascade leg that failed and so blocks the hard delete. */
+/** Every platform-own cascade leg that failed and so blocks the hard delete. */
 function failedTeardownLegs(report: CascadeReport): string[] {
   return [
-    !report.billing.ok ? 'billing' : null,
-    !report.quota.ok ? 'quota' : null,
     !report.auditArchive.ok ? 'audit-archive' : null,
     ...Object.entries(report.postgres).filter(([, r]) => !r.ok).map(([name]) => `postgres:${name}`),
     ...report.mongoFailures.map((name) => `mongo:${name}`),
@@ -204,8 +210,13 @@ export async function purgeExpiredOrgs(run?: { signal: AbortSignal }): Promise<P
         continue;
       }
 
-      await organizationService.delete(orgId);
-      logger.info('Org purged (hard-deleted after retention window)', { orgId });
+      // The hard delete and the outbox legs commit TOGETHER: once the org row is
+      // gone, every downstream service holding its data has a pending leg.
+      let downstreamLegs: string[] = [];
+      await organizationService.delete(orgId, {
+        withinTx: async (session) => { downstreamLegs = await enqueueCascade('org.deleted', orgId, session); },
+      });
+      logger.info('Org purged (hard-deleted after retention window); downstream legs enqueued', { orgId, downstreamLegs });
       result.purged += 1;
       incCounter('org_purge_outcome_total', { result: 'purged' });
 
@@ -222,7 +233,7 @@ export async function purgeExpiredOrgs(run?: { signal: AbortSignal }): Promise<P
         orgId: SYSTEM_ORG_ID,
         affectedOrgId: orgId,
         outcome: 'success',
-        details: purgeAuditDetails(report),
+        details: purgeAuditDetails(report, downstreamLegs),
       });
     } catch (err) {
       // Per-org failure must not abort the sweep — log and move on. Release the

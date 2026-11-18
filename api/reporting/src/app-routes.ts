@@ -10,6 +10,7 @@ import { createEventIngestRoutes } from './routes/event-ingest.js';
 import { createExecutionReportRoutes } from './routes/execution-reports.js';
 import { createIncidentRoutes } from './routes/incidents.js';
 import { createIngestHealthRoutes } from './routes/ingest-health.js';
+import { createInternalOrgPurgeRoutes } from './routes/internal-org-purge.js';
 import { createPluginReportRoutes } from './routes/plugin-reports.js';
 import { createPublicReportRoutes } from './routes/public-reports.js';
 import { createReportPreviewRoutes } from './routes/report-preview.js';
@@ -174,6 +175,11 @@ export function mountRoutes(app: Express, { quotaService, sseManager, executionT
   // `:orgId` path param, and there is no user permission or feature entitlement to
   // check because there is no user.
   app.use('/reports/stakeholder-internal', requireAuth, createStakeholderInternalRoutes());
+
+  // Inbound platform → reporting org purge (the durable cascade outbox). The
+  // route carries `requireAuth` + `requireInternalService({ callers: ['platform'] })`
+  // itself and tears down only reporting's own tables (idempotent).
+  app.use('/reports/internal', createInternalOrgPurgeRoutes());
 
   // ── The public, UNAUTHENTICATED half ───────────────────────────────────────
   // A shared report and a recipient's own address confirmation, both authorized

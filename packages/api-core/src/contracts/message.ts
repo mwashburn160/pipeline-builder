@@ -8,11 +8,14 @@
  *    recipient org's inbox (api-core `sendSystemNotification`);
  *  - org attachments purge: the platform org-delete cascade reclaims a deleted
  *    org's attachment blobs;
+ *  - org data purge: the platform cascade outbox tears a deleted org's
+ *    messages, support cases and attachment metadata out of message's tables;
  *  - offers frustration: billing's expansion-offers scheduler asks whether an
  *    account is currently unhappy (a boolean, never the support text).
  */
 
 import { z } from 'zod';
+import { CASCADE_LEG_AUTH, CascadeOrgParams, OrgPurgeResponse } from './cascade.js';
 import { defineInternalEndpoint } from './define.js';
 import { MESSAGE_PRIORITIES, type MessagePriority } from '../types/wire-vocabulary.js';
 
@@ -128,6 +131,17 @@ export const MESSAGE_INTERNAL = {
     auth: 'Service token from platform (the org-delete cascade).',
     params: OrgIdParams,
     response: z.object({ orgId: z.string(), deleted: z.number() }),
+  }),
+  /** Idempotent: 200 `{ orgId, tables }`; 500 when any table failed (the leg retries). */
+  purgeOrgData: defineInternalEndpoint({
+    id: 'message.purgeOrgData',
+    service: 'message',
+    method: 'POST',
+    path: '/messages/internal/orgs/:orgId/purge',
+    callers: ['platform'],
+    auth: CASCADE_LEG_AUTH,
+    params: CascadeOrgParams,
+    response: OrgPurgeResponse,
   }),
   /**
    * The frustration signal for one org. Never fails for a reachable org: an AI

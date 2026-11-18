@@ -4,8 +4,10 @@
 /**
  * cascade + export tests.
  *
- * Focus: orchestration correctness  that the right tables are touched, the
- * right HTTP calls fire, and the system-org guard trips. Heavy mocking is
+ * Focus: orchestration correctness — that platform tears down only its OWN
+ * stores (no direct call to any downstream service: those are cascade-outbox
+ * legs), the export still walks every org-scoped table, and the system-org
+ * guard trips. Heavy mocking is
  * intentional; the integration path is exercised by the migration / e2e
  * environment, not by these unit tests.
  */
@@ -16,87 +18,46 @@ import { stubModule } from '@pipeline-builder/api-core/testing';
 import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 import { queryChain } from './helpers/query-chain.js';
+// Any HTTP client the cascade builds is a regression: downstream services are
+// reached ONLY through the cascade outbox now (see cascade-outbox.test.ts).
+const mockCreateSafeClient = jest.fn<AnyFn>();
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  createSafeClient: () => ({
-    delete: mockHttpDelete,
-  }),
-  getServiceAuthHeader: () => 'Bearer test-service-token',
+  createSafeClient: (...a: unknown[]) => mockCreateSafeClient(...a),
 }));
 
-const mockHttpDelete = jest.fn<AnyFn>();
+// The REAL ownership map (deep import — it loads nothing but the schema), so the
+// drift guard and the export walk reflect what production purges.
+const ownership = await import('@pipeline-builder/pipeline-data/lib/api/org-data-ownership.js') as typeof import('@pipeline-builder/pipeline-data');
 
-// `runWithTenantContext` is a pass-through in tests  we don't need RLS
-// behaviour, just the callback to run. Real RLS plumbing is covered by the
-// pipeline-data test suite.
-const mockUpdateChain = { set: jest.fn<AnyFn>(), where: jest.fn<AnyFn>() };
-const mockDeleteChain = { where: jest.fn<AnyFn>() };
+// Platform's own Postgres slice goes through pipeline-data's executor; its SQL
+// is pinned against a real Postgres in pipeline-data's org-data-purge.test.ts.
+const mockPurgeOrgData = jest.fn<AnyFn>();
+// The export's reads still run inside withTenantTx (which applies the RLS context).
 const mockSelectChain = { from: jest.fn<AnyFn>(), where: jest.fn<AnyFn>() };
-
-// Every statement must run inside withTenantTx (which applies the RLS context);
-// the transaction handle is the only way to reach the query builders here.
-const mockTx = {
-  update: jest.fn(() => mockUpdateChain),
-  delete: jest.fn(() => mockDeleteChain),
-  select: jest.fn((..._args: unknown[]) => mockSelectChain),
-};
+const mockTx = { select: jest.fn((..._args: unknown[]) => mockSelectChain) };
 const mockWithTenantTx = jest.fn(async (fn: (tx: typeof mockTx) => unknown) => fn(mockTx));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   withTenantTx: (fn: (tx: typeof mockTx) => unknown) => mockWithTenantTx(fn),
-  schema: {
-    plugin: { orgId: 'plugins.org_id' },
-    pipeline: { orgId: 'pipelines.org_id' },
-    pipelineTemplate: { orgId: 'pipeline_templates.org_id' },
-    message: { orgId: 'messages.org_id' },
-    messageAttachment: { orgId: 'message_attachments.org_id' },
-    supportCase: { orgId: 'support_cases.org_id' },
-    supportContact: { orgId: 'support_contacts.org_id' },
-    supportCaseCounter: { orgId: 'support_case_counters.org_id' },
-    supportCaseNote: { orgId: 'support_case_notes.org_id' },
-    pipelineRegistry: { orgId: 'pipeline_registry.org_id' },
-    pipelineEvent: { orgId: 'pipeline_events.org_id' },
-    deploymentOutcome: { orgId: 'deployment_outcomes.org_id' },
-    incident: { orgId: 'incidents.org_id' },
-    ingestHealth: { orgId: 'ingest_health.org_id' },
-    doraSettings: { orgId: 'dora_settings.org_id' },
-    dashboard: { orgId: 'dashboards.org_id' },
-    orgAlertDestination: { orgId: 'org_alert_destinations.org_id' },
-    orgAlertRule: { orgId: 'org_alert_rules.org_id' },
-    compliancePolicy: { orgId: 'compliance_policies.org_id' },
-    complianceRule: { orgId: 'compliance_rules.org_id' },
-    complianceRuleHistory: { orgId: 'compliance_rule_history.org_id' },
-    complianceAuditLog: { orgId: 'compliance_audit_log.org_id' },
-    complianceExemption: { orgId: 'compliance_exemptions.org_id' },
-    complianceRuleSubscription: { orgId: 'compliance_rule_subscriptions.org_id' },
-    complianceScan: { orgId: 'compliance_scans.org_id' },
-    complianceScanSchedule: { orgId: 'compliance_scan_schedules.org_id' },
-    complianceNotificationPreference: { orgId: 'compliance_notification_preferences.org_id' },
-    complianceNotificationLog: { orgId: 'compliance_notification_log.org_id' },
-    pipelineStepManifest: { orgId: 'pipeline_step_manifests.org_id' },
-    pluginInstall: { orgId: 'plugin_installs.org_id' },
-    pluginInstallPolicy: { orgId: 'plugin_install_policies.org_id' },
-    pluginAdvisoryDelivery: { orgId: 'plugin_advisory_deliveries.org_id' },
-    pluginSecurityNotificationPref: { orgId: 'plugin_security_notification_prefs.org_id' },
-    reportDefinition: { orgId: 'report_definitions.org_id' },
-    reportRun: { orgId: 'report_runs.org_id' },
-    reportRecipient: { orgId: 'report_recipients.org_id' },
-    reportShareLink: { orgId: 'report_share_links.org_id' },
-    doraDeployment: { orgId: 'dora_deployments.org_id' },
-    executionDailyRollup: { orgId: 'execution_daily_rollups.org_id' },
-    pipelinePluginResolution: { orgId: 'pipeline_plugin_resolution.org_id' },
-    pluginVulnExposure: { orgId: 'plugin_vuln_exposure.org_id' },
-    pipelineStepLookup: { orgId: 'pipeline_step_lookups.org_id' },
-    pipelineSecurityReport: { orgId: 'pipeline_security_reports.org_id' },
-    pluginKeptSetupImage: { orgId: 'plugin_kept_setup_images.org_id' },
-    toolchainRollout: { orgId: 'toolchain_rollout.org_id' },
-    orgToolchainDefault: { orgId: 'org_toolchain_default.org_id' },
-    orgToolchainDefaultHistory: { orgId: 'org_toolchain_default_history.org_id' },
-  },
+  purgeOrgData: (...a: unknown[]) => mockPurgeOrgData(...a),
+  ORG_DATA_OWNERSHIP: ownership.ORG_DATA_OWNERSHIP,
+  ORG_SCOPED_TABLE_NAMES: ownership.ORG_SCOPED_TABLE_NAMES,
+  allOrgScopedTables: ownership.allOrgScopedTables,
   runWithTenantContext: <T>(_ctx: unknown, fn: () => Promise<T>): Promise<T> => fn(),
   // Shared row-level soft-delete window (SOFT_DELETE_RETENTION_DAYS, 30d) — the
   // FLOOR under the org's own purge deadline.
   softDeleteRetentionMs: () => 30 * 24 * 60 * 60 * 1000,
 }));
+
+/** `purgeOrgData`'s result for platform's slice, every table ok with `rows` rows. */
+function platformPurge(rows = 1, failed: string[] = []) {
+  const tables: Record<string, { ok: boolean; rowCount?: number; error?: string }> = {};
+  const slice = ownership.ORG_DATA_OWNERSHIP.platform;
+  for (const { name } of [...slice.soft, ...slice.hard]) {
+    tables[name] = failed.includes(name) ? { ok: false, error: 'boom' } : { ok: true, rowCount: rows };
+  }
+  return { orgId: 'org-acme', owner: 'platform', tables, failed };
+}
 
 const mockInvitationDeleteMany = jest.fn<AnyFn>();
 const mockInvitationFind = jest.fn<AnyFn>();
@@ -229,15 +190,11 @@ jest.unstable_mockModule('../src/models/user-organization.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/config/index.js', () => mockConfig({
-  quota: { serviceHost: 'quota', servicePort: 3000 },
-  billing: { serviceHost: 'billing', servicePort: 3000 },
-  message: { serviceHost: 'message', servicePort: 3000 },
-  organization: { cascadeHttpTimeoutMs: 5000 },
   audit: { retentionDays: 90 },
 }));
 
 const { cascadeDeleteOrg, exportOrg, archivedAuditExpiry } = await import('../src/services/org-cascade-service.js');
-const { CASCADE_TABLE_NAMES, CASCADE_MONGO_COLLECTION_NAMES, SOFT_DELETE_TABLES, HARD_DELETE_TABLES } = await import('../src/services/org-cascade-registry.js');
+const { CASCADE_TABLE_NAMES, CASCADE_MONGO_COLLECTION_NAMES, EXPORT_TABLES, SOFT_DELETE_TABLES, HARD_DELETE_TABLES } = await import('../src/services/org-cascade-registry.js');
 const { SYSTEM_ORG_DELETE_FORBIDDEN } = await import('../src/services/org-errors.js');
 
 // The REAL drizzle schema (deep import — bypasses the barrel's DB pool, which is
@@ -249,13 +206,9 @@ const { PgTable } = await import('drizzle-orm/pg-core');
 
 beforeEach(() => {
   jest.clearAllMocks();
-  // drizzle chain stubs: each call resolves to a 1-row count by default
-  mockUpdateChain.set.mockReturnValue(mockUpdateChain);
-  mockUpdateChain.where.mockResolvedValue({ rowCount: 1 });
-  mockDeleteChain.where.mockResolvedValue({ rowCount: 1 });
+  mockPurgeOrgData.mockResolvedValue(platformPurge());
   mockSelectChain.from.mockReturnValue(mockSelectChain);
   mockSelectChain.where.mockResolvedValue([]);
-  mockHttpDelete.mockResolvedValue({ statusCode: 200, body: {} });
   mockInvitationDeleteMany.mockResolvedValue({ deletedCount: 0 });
   mockInvitationFind.mockReturnValue(findChain([]));
   mockAuditDeleteMany.mockResolvedValue({ deletedCount: 0 });
@@ -326,43 +279,33 @@ describe('cascadeDeleteOrg', () => {
     await expect(cascadeDeleteOrg('000000000000000000000001', '000000000000000000000001')).rejects.toThrow(SYSTEM_ORG_DELETE_FORBIDDEN);
   });
 
-  it('runs every Postgres statement inside withTenantTx — a bare db call has no RLS context', async () => {
-    await cascadeDeleteOrg('org-acme', '000000000000000000000001');
-    // One tenant transaction per soft-delete and hard-delete table.
-    expect(mockWithTenantTx.mock.calls.length).toBe(mockTx.update.mock.calls.length + mockTx.delete.mock.calls.length);
-    expect(mockTx.update).toHaveBeenCalledTimes(SOFT_DELETE_TABLES.length);
+  it('tears down ONLY platform\'s own Postgres slice, through the shared executor', async () => {
+    const report = await cascadeDeleteOrg('org-acme', '000000000000000000000001');
+    expect(mockPurgeOrgData).toHaveBeenCalledTimes(1);
+    expect(mockPurgeOrgData).toHaveBeenCalledWith('platform', 'org-acme');
+    // Its per-table outcome is the report's postgres section.
+    expect(Object.keys(report.postgres).sort()).toEqual([...SOFT_DELETE_TABLES, ...HARD_DELETE_TABLES].map((t) => t.name).sort());
   });
 
-  it('soft-deletes every table that has a deleted_at column', async () => {
-    await cascadeDeleteOrg('org-acme', '000000000000000000000001');
-    // One update per soft-delete table, counted from the registry.
-    expect(mockUpdateChain.set).toHaveBeenCalledTimes(SOFT_DELETE_TABLES.length);
-    expect(mockUpdateChain.where).toHaveBeenCalledTimes(SOFT_DELETE_TABLES.length);
-  });
-
-  it('stamps purge_after ALONGSIDE deleted_at on the soft-delete tables so the owning service reclaims them (GDPR)', async () => {
-    await cascadeDeleteOrg('org-acme', '000000000000000000000001');
-
-    // Terminal purge must set BOTH `deletedAt` and `purgeAfter` on every
-    // soft-delete row — leaving `purgeAfter` NULL would leave the rows
-    // (esp. compliance_policies / compliance_rules) lingering forever because
-    // the retention sweep is keyed on `deleted_at IS NOT NULL AND purge_after < now`.
-    expect(mockUpdateChain.set).toHaveBeenCalledTimes(SOFT_DELETE_TABLES.length);
-    for (const call of mockUpdateChain.set.mock.calls) {
-      const setArg = call[0] as { deletedAt?: unknown; purgeAfter?: unknown };
-      expect(setArg.deletedAt).toBeInstanceOf(Date);
-      expect(setArg.purgeAfter).toBeInstanceOf(Date);
-      // Same instant for both so the row is immediately eligible for reclamation.
-      expect(setArg.purgeAfter).toBe(setArg.deletedAt);
+  it('owns only platform tables — every other org-scoped table is a downstream service\'s outbox leg', () => {
+    const own = [...SOFT_DELETE_TABLES, ...HARD_DELETE_TABLES].map((t) => t.name).sort();
+    expect(own).toEqual(['dashboards', 'org_alert_destinations', 'org_alert_rules', 'support_contacts']);
+    // e.g. pipelines, compliance_rules, messages, report_runs are NOT platform's to write.
+    for (const foreign of ['pipelines', 'plugins', 'compliance_rules', 'messages', 'report_runs', 'support_cases', 'incidents']) {
+      expect(own).not.toContain(foreign);
     }
   });
 
-  it('hard-deletes every table without a deleted_at column', async () => {
+  it('makes NO direct call to any downstream service (they are reached through the outbox)', async () => {
     await cascadeDeleteOrg('org-acme', '000000000000000000000001');
-    // Counted from the registry rather than written out: the literal was already
-    // one ahead of the list (23 asserted against 22 entries), which made this
-    // assertion fail for a table nobody had removed. Derived, it cannot drift.
-    expect(mockDeleteChain.where).toHaveBeenCalledTimes(HARD_DELETE_TABLES.length);
+    expect(mockCreateSafeClient).not.toHaveBeenCalled();
+  });
+
+  it('reports a failed platform table as { ok: false } (the purge defers on it)', async () => {
+    mockPurgeOrgData.mockResolvedValue(platformPurge(1, ['dashboards']));
+    const report = await cascadeDeleteOrg('org-acme', '000000000000000000000001');
+    expect(report.postgres.dashboards).toEqual({ ok: false, error: 'boom' });
+    expect(report.postgres.support_contacts).toEqual({ ok: true, rowCount: 1 });
   });
 
   it("deletes members' org-scoped personal keys, MFA-reset and impersonation requests", async () => {
@@ -504,83 +447,6 @@ describe('cascadeDeleteOrg', () => {
     expect(report.mongo.idpConfigs).toBe(0);
   });
 
-  it('fires DELETE at the quota and billing services with a service token', async () => {
-    await cascadeDeleteOrg('org-acme', '000000000000000000000001');
-
-    const paths = mockHttpDelete.mock.calls.map((c: unknown[]) => c[0]);
-    expect(paths).toContain('/quotas/org-acme');
-    expect(paths).toContain('/billing/subscriptions/by-org/org-acme');
-
-    for (const call of mockHttpDelete.mock.calls) {
-      const opts = call[1] as { headers: Record<string, string> };
-      expect(opts.headers.Authorization).toBe('Bearer test-service-token');
-      expect(opts.headers['x-org-id']).toBe('org-acme');
-    }
-  });
-
-  it('reports quota/billing as ok when the downstream returns 2xx', async () => {
-    mockHttpDelete.mockResolvedValue({ statusCode: 200, body: {} });
-    const report = await cascadeDeleteOrg('org-acme', '000000000000000000000001');
-    expect(report.quota).toEqual({ ok: true, statusCode: 200 });
-    expect(report.billing).toEqual({ ok: true, statusCode: 200 });
-  });
-
-  it('reports ok=false when the downstream returns 5xx  but does not throw (best-effort)', async () => {
-    mockHttpDelete.mockResolvedValue({ statusCode: 503, body: {} });
-    const report = await cascadeDeleteOrg('org-acme', '000000000000000000000001');
-    expect(report.quota.ok).toBe(false);
-    expect(report.billing.ok).toBe(false);
-  });
-
-  it('fires the message-service attachment-blob purge with a service token', async () => {
-    await cascadeDeleteOrg('org-acme', '000000000000000000000001');
-    const paths = mockHttpDelete.mock.calls.map((c: unknown[]) => c[0]);
-    expect(paths).toContain('/messages/internal/org/org-acme/attachments');
-  });
-
-  it('reports messageBlobs ok + deleted count from the purge response', async () => {
-    mockHttpDelete.mockResolvedValue({ statusCode: 200, body: { data: { orgId: 'org-acme', deleted: 7 } } });
-    const report = await cascadeDeleteOrg('org-acme', '000000000000000000000001');
-    expect(report.messageBlobs).toEqual({ ok: true, statusCode: 200, deleted: 7 });
-  });
-
-  it('reports messageBlobs ok without a count when the purge reply is not the contract\'s shape', async () => {
-    mockHttpDelete.mockResolvedValue({ statusCode: 200, body: { data: { deleted: 'seven' } } });
-    const report = await cascadeDeleteOrg('org-acme', '000000000000000000000001');
-    expect(report.messageBlobs).toEqual({ ok: true, statusCode: 200 });
-  });
-
-  it('reports messageBlobs not ok when the purge is refused or unreachable', async () => {
-    mockHttpDelete.mockResolvedValue({ statusCode: 500, body: {} });
-    expect((await cascadeDeleteOrg('org-acme', '000000000000000000000001')).messageBlobs).toEqual({ ok: false, statusCode: 500 });
-    mockHttpDelete.mockResolvedValue(null);
-    expect((await cascadeDeleteOrg('org-acme', '000000000000000000000001')).messageBlobs).toEqual({ ok: false });
-  });
-
-  it('reports messageBlobs ok=false on a non-2xx purge (orphans flagged, not fatal)', async () => {
-    mockHttpDelete.mockResolvedValue({ statusCode: 500, body: {} });
-    const report = await cascadeDeleteOrg('org-acme', '000000000000000000000001');
-    expect(report.messageBlobs.ok).toBe(false);
-    expect(report.messageBlobs.statusCode).toBe(500);
-  });
-
-  it('continues past a Postgres delete failure on one table without aborting the rest', async () => {
-    // First update fails, the rest succeed.
-    mockUpdateChain.where
-      .mockRejectedValueOnce(new Error('connection refused'))
-      .mockResolvedValue({ rowCount: 1 });
-
-    const report = await cascadeDeleteOrg('org-acme', '000000000000000000000001');
-    // The first table reports { ok: false, error } (a structured failure
-    // marker, distinct from "deleted 0 rows"); others report ok=true.
-    const entries = Object.values(report.postgres);
-    expect(entries.some((e) => e.ok === false)).toBe(true);
-    expect(entries.filter((e) => e.ok === true).length).toBe(entries.length - 1);
-    // Other tables still got their delete chains called.
-    expect(mockUpdateChain.where).toHaveBeenCalledTimes(SOFT_DELETE_TABLES.length);
-    expect(mockDeleteChain.where).toHaveBeenCalledTimes(HARD_DELETE_TABLES.length);
-  });
-
   it('flags an orphaned per-org KMS key (audit event + report) but does NOT auto-delete it', async () => {
     mockOrgFindById.mockReturnValue(orgLean({ kmsConfig: { keyId: 'arn:aws:kms:us-east-1:key/abc', ciphertextBase64: 'd3JhcHBlZA==' } }));
 
@@ -617,7 +483,10 @@ describe('exportOrg', () => {
 
     const dump = await exportOrg('org-acme', '000000000000000000000001');
 
-    expect(Object.keys(dump.postgres).length).toBe(SOFT_DELETE_TABLES.length + HARD_DELETE_TABLES.length);
+    // EVERY org-scoped table, whoever owns it — the export is read-only, so the
+    // portability artifact / recovery snapshot still covers the whole org.
+    expect(Object.keys(dump.postgres).length).toBe(EXPORT_TABLES.length);
+    expect(Object.keys(dump.postgres)).toEqual(expect.arrayContaining(['pipelines', 'compliance_rules', 'messages', 'report_runs', 'dashboards']));
     expect(dump.mongo.invitations).toHaveLength(1);
     expect(dump.mongo.auditEvents).toHaveLength(1);
     expect(dump.orgId).toBe('org-acme');
@@ -731,8 +600,9 @@ describe('exportOrg — read failures', () => {
 
     const dump = await exportOrg('org-acme', '000000000000000000000001');
 
-    expect(dump.failed).toEqual({ postgres: ['plugins'], mongo: ['invitations'] });
-    expect(dump.postgres.plugins).toEqual([]);
+    const first = EXPORT_TABLES[0]!.name;
+    expect(dump.failed).toEqual({ postgres: [first], mongo: ['invitations'] });
+    expect(dump.postgres[first]).toEqual([]);
   });
 
   it('lenient: no `failed` marker when every store was read', async () => {
@@ -777,8 +647,10 @@ describe('cascadeDeleteOrg — audit archive is batched', () => {
 describe('org cascade drift guard (schema reflection)', () => {
   it('cascades EVERY org-scoped Postgres table', () => {
     // Reflect the real drizzle schema: any table with an `org_id` column MUST be
-    // in the cascade (soft or hard) or it orphans on org purge + is missing from
-    // the GDPR export. A failure here means: add the new table to SOFT/HARD_DELETE_TABLES.
+    // owned by SOME service's purge (platform's own, or a downstream outbox leg)
+    // or it orphans on org purge + is missing from the GDPR export. A failure
+    // here means: add the new table to its owner in pipeline-data's
+    // ORG_DATA_OWNERSHIP.
     const uncovered: string[] = [];
     for (const val of Object.values(realSchema)) {
       if (!is(val, PgTable)) continue;

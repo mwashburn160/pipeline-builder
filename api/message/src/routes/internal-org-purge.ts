@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { MESSAGE_INTERNAL, contractRoute, sendSuccess, sendError, sendBadRequest, ErrorCode, createLogger, requireAuth, requireInternalService, getParam, errorMessage, audited, recordAudit, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID, type RemoteAuditEvent } from '@pipeline-builder/api-core';
+import { handleOrgDataPurge } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { attachmentService } from '../services/attachment-service.js';
@@ -11,10 +12,11 @@ const logger = createLogger('internal-org-purge');
 /**
  * Internal org-purge route (service-to-service only).
  *
- * The platform org-delete cascade hard-deletes the `message_attachments`
- * metadata rows directly in postgres but holds no object-storage client, so the
- * MinIO blobs (keyed `<orgId>/…`) would orphan. This endpoint — called by the
- * cascade with a service JWT — reclaims them by org key-prefix. It is NOT
+ * Platform holds no object-storage client, so a purged org's MinIO blobs (keyed
+ * `<orgId>/…`) would orphan without this endpoint — platform's cascade outbox
+ * calls it (its `message-blobs` leg, with a service JWT, retried until it acks)
+ * to reclaim them by org key-prefix. The `message_attachments` METADATA rows go
+ * with the org-data leg below. It is NOT
  * user-facing: `requireAuth` + `requireInternalService` require a signed
  * service token from `platform` (the only caller), never a user session.
  *
@@ -24,6 +26,14 @@ const logger = createLogger('internal-org-purge');
  * orphaned-data case a later erasure question turns on.
  *
  * Registers: DELETE /internal/org/:orgId/attachments  →  { deleted: <count> }
+ *
+ * Plus the message service's org-DATA purge leg, delivered by platform's
+ * durable cascade outbox: messages and support cases (tombstoned for the
+ * retention sweep), attachment metadata, case counters and staff notes
+ * (removed) — this service's own `message` slice of pipeline-data's
+ * `ORG_DATA_OWNERSHIP`, so platform never writes these tables. Idempotent.
+ *
+ * Registers: POST /internal/orgs/:orgId/purge  →  { orgId, tables }
  */
 /** The fixed part of a `message.org.purge` row: the system purging one org's blobs. */
 function purgeAudit(orgId: string): Omit<RemoteAuditEvent, 'details'> {
@@ -39,6 +49,7 @@ function purgeAudit(orgId: string): Omit<RemoteAuditEvent, 'details'> {
 
 /** The route and its callers — defined once in api-core. */
 const PURGE = MESSAGE_INTERNAL.purgeOrgAttachments;
+const PURGE_DATA = MESSAGE_INTERNAL.purgeOrgData;
 
 export function createInternalOrgPurgeRoutes(): Router {
   const router = Router();
@@ -62,6 +73,14 @@ export function createInternalOrgPurgeRoutes(): Router {
       return sendError(res, 500, 'Attachment blob purge failed', ErrorCode.INTERNAL_ERROR);
     }
   });
+
+  router.post(
+    contractRoute(PURGE_DATA, '/messages'),
+    requireAuth,
+    requireInternalService({ callers: PURGE_DATA.callers }),
+    audited('org.data.purge'),
+    async (req: Request, res: Response) => handleOrgDataPurge(req, res, { contract: PURGE_DATA, owner: 'message', auditAction: 'org.data.purge' }),
+  );
 
   return router;
 }
