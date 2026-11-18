@@ -458,7 +458,9 @@ export async function gcSystemImage(imageRepository: string, digest: string, ver
 /**
  * The collection both namespaces share: refuse (409) a digest a tag still
  * resolves to — except `ownTag`, when given and not protected, which is
- * deleted first — then delete the manifest and its cosign companions.
+ * deleted first — then delete the manifest and its cosign companions. For a
+ * multi-arch index, its child manifests go too, except any a surviving tag
+ * still resolves to (directly or as a child of its own index).
  */
 async function collectDigest(
   imageRepository: string,
@@ -477,6 +479,10 @@ async function collectDigest(
     }
     const protectedTags = opts.ownTag === null ? null : protectedTagNames();
     let ownTagResolves = false;
+    // Every digest a SURVIVING tag still resolves to — directly or as a child of
+    // its index. The liveness rule for the collected index's own children: one
+    // still in this set is kept, the rest are collected with the index.
+    const liveDigests = new Set<string>();
     for (const tag of tags) {
       let m;
       try {
@@ -485,8 +491,12 @@ async function collectDigest(
         if (isNotFound(err)) continue;
         throw err;
       }
-      const children = ((m.body as { manifests?: Array<{ digest?: string }> }).manifests ?? []).map((c) => c.digest);
-      if (m.digest !== digest && !children.includes(digest)) continue;
+      const children = childDigests(m.body);
+      if (m.digest !== digest && !children.includes(digest)) {
+        liveDigests.add(m.digest);
+        for (const c of children) liveDigests.add(c);
+        continue;
+      }
       if (opts.ownTag !== null && tag === opts.ownTag && !protectedTags!.has(tag.toLowerCase())) {
         ownTagResolves = true;
         continue;
@@ -494,6 +504,16 @@ async function collectDigest(
       throw new PublicationConflictError(opts.ownTag === null
         ? `${imageRepository}@${digest} is still referenced by tag ${tag}; yank it first`
         : `${imageRepository}@${digest} is still referenced by tag ${tag}${protectedTags!.has(tag.toLowerCase()) ? ' (a protected floating tag)' : ''}; only its own version tag ${opts.ownTag} may point at a retired image`);
+    }
+
+    // Read the collected manifest's own children BEFORE it is deleted: for a
+    // multi-arch index, the per-architecture manifests it lists would otherwise
+    // be orphaned — untagged, unreachable, and never collected.
+    let ownChildren: string[] = [];
+    try {
+      ownChildren = childDigests((await getManifest(imageRepository, digest)).body);
+    } catch (err) {
+      if (!isNotFound(err)) throw err;
     }
 
     if (ownTagResolves) {
@@ -504,18 +524,38 @@ async function collectDigest(
       }
     }
     await deleteManifest(imageRepository, digest);
-    for (const companion of cosignCompanionTags(digest)) {
-      const c = await headManifest(imageRepository, companion);
-      if (!c) continue;
+    await deleteCompanions(imageRepository, digest);
+    for (const child of new Set(ownChildren)) {
+      if (child === digest || liveDigests.has(child)) continue;
       try {
-        await deleteManifest(imageRepository, c.digest);
+        await deleteManifest(imageRepository, child);
       } catch (err) {
         if (!isNotFound(err)) throw err;
       }
+      await deleteCompanions(imageRepository, child);
     }
     await onDeleted();
     return { deleted: true };
   });
+}
+
+/** The child manifest digests an index lists; none for a single-arch manifest. */
+function childDigests(body: unknown): string[] {
+  const manifests = (body as { manifests?: Array<{ digest?: string }> } | null)?.manifests ?? [];
+  return manifests.map((c) => c.digest).filter((d): d is string => typeof d === 'string');
+}
+
+/** Delete a digest's cosign signature / attestation, tolerating ones already gone. */
+async function deleteCompanions(imageRepository: string, digest: string): Promise<void> {
+  for (const companion of cosignCompanionTags(digest)) {
+    const c = await headManifest(imageRepository, companion);
+    if (!c) continue;
+    try {
+      await deleteManifest(imageRepository, c.digest);
+    } catch (err) {
+      if (!isNotFound(err)) throw err;
+    }
+  }
 }
 
 /** @internal Tests only. */

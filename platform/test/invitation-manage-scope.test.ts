@@ -45,7 +45,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 }));
 
 const { invitationService } = await import('../src/services/invitation-service.js');
-const { INV_NOT_FOUND } = await import('../src/services/invitation-errors.js');
+const { INV_NOT_FOUND, INV_ORG_NOT_FOUND } = await import('../src/services/invitation-errors.js');
 
 const INV_ID = '64b000000000000000000001';
 
@@ -139,6 +139,19 @@ describe('invitation revoke / resend reach', () => {
     await expect(invitationService.resend(INV_ID, 'parent-1', 'u1', true)).rejects.toThrow(INV_NOT_FOUND);
     expect(inv.save).not.toHaveBeenCalled();
     expect(mockInvUpdateOne).toHaveBeenCalledWith({ _id: INV_ID, status: 'pending' }, { $set: { expiresAt: expect.any(Date) } });
+    expect(mockSendInvitation).not.toHaveBeenCalled();
+  });
+
+  it('resend into a soft-deleted team is refused — neither re-armed nor re-mailed', async () => {
+    // Regression: `send` refused a soft-deleted org with INV_ORG_NOT_FOUND but
+    // `resend` did not, so a pending invite into a deleted team was re-armed
+    // (fresh expiry) and re-mailed — an invitation that can never be accepted.
+    mockInvFindOne.mockResolvedValue(pendingInvitation('team-1'));
+    mockIsAncestorOrg.mockResolvedValue(true);
+    mockOrgFindById.mockResolvedValue({ _id: 'team-1', name: 'Team', owner: { toString: () => 'someone-else' }, deletedAt: new Date() });
+
+    await expect(invitationService.resend(INV_ID, 'parent-1', 'u1', true)).rejects.toThrow(INV_ORG_NOT_FOUND);
+    expect(mockInvUpdateOne).not.toHaveBeenCalled();
     expect(mockSendInvitation).not.toHaveBeenCalled();
   });
 });

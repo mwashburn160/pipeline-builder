@@ -33,40 +33,6 @@ describe('ConnectionRetryStrategy', () => {
     });
   });
 
-  describe('execute', () => {
-    it('should return result on first success', async () => {
-      const result = await strategy.execute(async () => 'success');
-      expect(result).toBe('success');
-    });
-
-    it('should retry on failure and succeed', async () => {
-      let callCount = 0;
-      const result = await strategy.execute(async () => {
-        callCount++;
-        if (callCount < 2) throw new Error('fail');
-        return 'recovered';
-      });
-      expect(result).toBe('recovered');
-      expect(callCount).toBe(2);
-    });
-
-    it('should throw after max retries', async () => {
-      await expect(
-        strategy.execute(async () => { throw new Error('always fails'); }),
-      ).rejects.toThrow('always fails');
-    });
-
-    it('should reset attempts before executing', async () => {
-      await expect(
-        strategy.execute(async () => { throw new Error('fail'); }),
-      ).rejects.toThrow();
-
-      // Should be able to execute again since attempts reset
-      const result = await strategy.execute(async () => 'success');
-      expect(result).toBe('success');
-    });
-  });
-
   describe('handleConnectionError', () => {
     it('should increment attempts', async () => {
       await strategy.handleConnectionError(new Error('conn error'), async () => true);
@@ -92,35 +58,28 @@ describe('ConnectionRetryStrategy', () => {
     });
   });
 
-  // `maxRetries` means retries AFTER the initial attempt. The previous
-  // implementation's `while (attempts < maxRetries)` gave `maxRetries: 3` only
-  // TWO retries (three attempts); the backoff decision is api-core's now, so
-  // the budget is the documented one.
-  describe('retry budget (off-by-one regression)', () => {
-    it('makes maxRetries + 1 attempts before giving up', async () => {
-      let calls = 0;
-      await expect(
-        strategy.execute(async () => { calls++; throw new Error('always fails'); }),
-      ).rejects.toThrow('always fails');
-      expect(calls).toBe(4); // 1 initial + 3 retries
+  describe('retry budget', () => {
+    it('probes exactly maxRetries times across consecutive errors, then stops', async () => {
+      let probes = 0;
+      for (let i = 0; i < 5; i++) {
+        await strategy.handleConnectionError(new Error('e'), async () => { probes++; return false; });
+      }
+      expect(probes).toBe(3);
     });
 
-    it('honours a maxRetries of 1 as one retry', async () => {
-      const s = new ConnectionRetryStrategy({ maxRetries: 1, retryDelayMs: 1 });
-      let calls = 0;
-      await expect(
-        s.execute(async () => { calls++; throw new Error('nope'); }),
-      ).rejects.toThrow('nope');
-      expect(calls).toBe(2);
+    it('a successful probe restores the full budget', async () => {
+      let probes = 0;
+      await strategy.handleConnectionError(new Error('e'), async () => { probes++; return false; });
+      await strategy.handleConnectionError(new Error('e'), async () => { probes++; return true; });
+      expect(strategy.getAttempts()).toBe(0);
+      for (let i = 0; i < 5; i++) {
+        await strategy.handleConnectionError(new Error('e'), async () => { probes++; return false; });
+      }
+      expect(probes).toBe(2 + 3);
     });
 
-    it('a maxRetries of 0 makes exactly one attempt', async () => {
-      const s = new ConnectionRetryStrategy({ maxRetries: 0, retryDelayMs: 1 });
-      let calls = 0;
-      await expect(
-        s.execute(async () => { calls++; throw new Error('nope'); }),
-      ).rejects.toThrow('nope');
-      expect(calls).toBe(1);
+    it('has no generic operation-retry method (permanent errors must not be re-run)', () => {
+      expect((strategy as unknown as Record<string, unknown>).execute).toBeUndefined();
     });
 
     it('stops retrying handleConnectionError once the budget is spent', async () => {

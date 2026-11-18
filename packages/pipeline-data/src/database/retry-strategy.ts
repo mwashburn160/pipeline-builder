@@ -1,76 +1,33 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, getErrorRetryDecision, sleep, type RetryConfig, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, getErrorRetryDecision, sleep, type RetryConfig } from '@pipeline-builder/api-core';
 
 const logger = createLogger('retry-strategy');
 
 export type { RetryConfig };
 
 /**
- * Exponential-backoff retry for database connections.
+ * Retry tracking for the Postgres pool's health-probe recovery.
  *
- * The backoff DECISION (how many attempts, how long to wait, jitter) is
- * api-core's `getErrorRetryDecision` — this class owns only the connection-
- * specific concerns (attempt tracking, logging, the health-probe recovery
- * path). Delays are jittered so a pool of replicas doesn't retry in lockstep
- * after a database blip.
+ * When the pool reports an error, `handleConnectionError` waits a jittered
+ * exponential backoff and probes the connection; a healthy probe resets the
+ * budget. The backoff DECISION (how many attempts, how long to wait, jitter) is
+ * api-core's `getErrorRetryDecision` — this class owns only the attempt
+ * tracking and logging. Jitter keeps a pool of replicas from probing in
+ * lockstep after a database blip.
  *
- * `maxRetries` means what it says: N retries AFTER the initial attempt, so
- * `{ maxRetries: 3 }` makes up to 4 attempts total.
+ * `maxRetries` means what it says: N probes after errors before giving up until
+ * the next `reset()` or successful probe.
  *
- * @example
- * ```typescript
- * const strategy = new ConnectionRetryStrategy({ maxRetries: 3, retryDelayMs: 1000 });
- *
- * const result = await strategy.execute(async () => {
- *   return await db.query('SELECT 1');
- * });
- * ```
+ * There is deliberately no generic "retry this operation" method: retrying an
+ * arbitrary query on every error would re-run permanent failures (a unique
+ * violation, a constraint error) as if they were transient.
  */
 export class ConnectionRetryStrategy {
   private attempts = 0;
 
   constructor(private readonly config: RetryConfig) {}
-
-  /**
-   * Executes an operation, retrying transient failures with jittered
-   * exponential backoff.
-   *
-   * @param operation - Async function to execute with retries
-   * @returns Promise resolving to operation result
-   * @throws the last error once the retry budget is exhausted
-   */
-  async execute<T>(operation: () => Promise<T>): Promise<T> {
-    this.attempts = 0;
-
-    // `attempt` is ZERO-BASED and counts retries already made, matching
-    // getErrorRetryDecision's contract: it allows a retry while
-    // `attempt < maxRetries`, so the loop makes maxRetries + 1 attempts.
-    for (let attempt = 0; ; attempt++) {
-      try {
-        const result = await operation();
-        if (attempt > 0) {
-          logger.info('Operation succeeded after retry');
-        }
-        return result;
-      } catch (error) {
-        this.attempts = attempt + 1;
-        const decision = getErrorRetryDecision(attempt, this.config);
-        if (!decision.shouldRetry) {
-          logger.error(`Max retry attempts (${this.config.maxRetries}) reached`);
-          throw error;
-        }
-
-        logger.warn(
-          `Operation failed (attempt ${this.attempts}/${this.config.maxRetries}), retrying in ${decision.delayMs}ms...`,
-          { error: errorMessage(error) },
-        );
-
-        await sleep(decision.delayMs);
-      }
-    }
-  }
 
   /**
    * Handles connection errors with retry tracking.
@@ -80,7 +37,7 @@ export class ConnectionRetryStrategy {
    */
   async handleConnectionError(error: Error, testConnection: () => Promise<boolean>): Promise<void> {
     // Decide from the attempts already spent (zero-based), THEN record this one,
-    // so the budget matches `execute`'s.
+    // so `maxRetries: N` allows exactly N probes.
     const decision = getErrorRetryDecision(this.attempts, this.config);
     this.attempts++;
 

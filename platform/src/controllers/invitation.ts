@@ -452,6 +452,8 @@ export const resendInvitation = withController('Resend invitation', async (req, 
 }, {
   [INV_NOT_FOUND]: { status: 404, message: 'Pending invitation not found' },
   [INV_UNAUTHORIZED]: { status: 403, message: 'You are not authorized to resend invitations' },
+  // The invitation's org or team was soft-deleted — nothing left to join.
+  [INV_ORG_NOT_FOUND]: { status: 404, message: 'Organization not found' },
   [INV_INVITER_NOT_FOUND]: { status: 404, message: 'Inviter not found' },
   // Re-arming a LAPSED invitation re-reserves a seat; with none free this was
   // an unmapped sentinel, i.e. a 500.

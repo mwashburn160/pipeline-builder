@@ -18,6 +18,7 @@
  * access key and is never affected by whatever a developer's laptop has cached.
  */
 
+import { randomBytes } from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -91,9 +92,17 @@ function writeStore(store: StoreFile): void {
   fs.mkdirSync(STORE_DIR, { recursive: true, mode: 0o700 });
   // Write through a temp file so an interrupted write can't leave a truncated
   // store behind, and create it 0600 from the start (never briefly world-readable).
-  const tmp = `${STORE_FILE}.tmp`;
-  fs.writeFileSync(tmp, `${JSON.stringify(store, null, 2)}\n`, { mode: 0o600 });
-  fs.renameSync(tmp, STORE_FILE);
+  // The temp name is unique per write (pid + random suffix): with one shared
+  // name, a second CLI process writing between this write and rename would
+  // rename the shared file away and this rename would fail with ENOENT.
+  const tmp = `${STORE_FILE}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
+  try {
+    fs.writeFileSync(tmp, `${JSON.stringify(store, null, 2)}\n`, { mode: 0o600 });
+    fs.renameSync(tmp, STORE_FILE);
+  } catch (error) {
+    fs.rmSync(tmp, { force: true });
+    throw error;
+  }
 }
 
 /** The base URL in the form it is remembered as the active platform. */

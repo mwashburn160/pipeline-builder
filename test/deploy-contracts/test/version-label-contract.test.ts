@@ -276,9 +276,7 @@ describe('deploy/local/docker — compose service labels', () => {
  * The tag must be the version in the service's own package.json — the exact
  * tag the release will push, so the sync finds it.
  */
-const UNPUBLISHED: Record<string, string> = {
-  'ask-agent': 'api/ask-agent',
-};
+const UNPUBLISHED: Record<string, string> = {};
 
 describe('owned images are digest-pinned, except the documented unpublished set', () => {
   const OWNED = /ghcr\.io\/mwashburn160\/([a-z0-9-]+):([A-Za-z0-9._-]+)(@sha256:[0-9a-f]{64})?/g;
@@ -299,14 +297,18 @@ describe('owned images are digest-pinned, except the documented unpublished set'
     expect(tagOnly).toEqual([]);
   });
 
-  it.each(Object.entries(UNPUBLISHED))('%s: is tag-only on every target, at its package.json version', (svc, dir) => {
-    const version = (JSON.parse(read(`${dir}/package.json`)) as { version: string }).version;
-    const mine = refs.filter((r) => r.svc === svc);
-    // compose + the three k8s trees — and a tag-only ref for each.
-    expect(new Set(mine.map((r) => r.f.split('/k8s/')[0])).size).toBe(4);
-    // Stays honest: once the release pins it, this entry must go.
-    expect(mine.filter((r) => r.pinned).map((r) => r.f)).toEqual([]);
-    expect([...new Set(mine.map((r) => r.tag))]).toEqual([version]);
+  // A loop, not `it.each`: the list is empty between new services, and an empty
+  // `.each` table is an error rather than a no-op.
+  it('every documented unpublished service is tag-only on every target, at its package.json version', () => {
+    for (const [svc, dir] of Object.entries(UNPUBLISHED)) {
+      const version = (JSON.parse(read(`${dir}/package.json`)) as { version: string }).version;
+      const mine = refs.filter((r) => r.svc === svc);
+      // compose + the three k8s trees — and a tag-only ref for each.
+      expect(new Set(mine.map((r) => r.f.split('/k8s/')[0])).size).toBe(4);
+      // Stays honest: once the release pins it, this entry must go.
+      expect({ svc, pinned: mine.filter((r) => r.pinned).map((r) => r.f) }).toEqual({ svc, pinned: [] });
+      expect([...new Set(mine.map((r) => r.tag))]).toEqual([version]);
+    }
   });
 });
 

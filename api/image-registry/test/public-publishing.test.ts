@@ -537,6 +537,49 @@ describe('gcPublicImage', () => {
     expect(invalidateStorageCache).toHaveBeenCalledWith('public/');
   });
 
+  it('collecting a multi-arch index deletes its per-architecture child manifests', async () => {
+    // Regression: only the index itself was deleted, so every child manifest it
+    // listed stayed in the registry forever — untagged, unreachable, never GC'd.
+    const CHILD_AMD = `sha256:${hex('1')}`;
+    const CHILD_ARM = `sha256:${hex('2')}`;
+    const index = { body: { manifests: [{ digest: CHILD_AMD }, { digest: CHILD_ARM }] }, raw: Buffer.from('{}'), digest: DIGEST, mediaType: INDEX };
+    headManifest.mockImplementation(async (_n, ref) => (ref === DIGEST ? { digest: DIGEST } : null));
+    listTags.mockResolvedValue({ name: TARGET, tags: ['1.3.0'] });
+    getManifest.mockImplementation(async (_n, ref) => (ref === DIGEST ? index : { ...sourceManifest(), digest: OTHER }));
+
+    expect(await gcPublicImage(TARGET, DIGEST)).toEqual({ deleted: true });
+    expect(deleteManifest).toHaveBeenCalledWith(TARGET, DIGEST);
+    expect(deleteManifest).toHaveBeenCalledWith(TARGET, CHILD_AMD);
+    expect(deleteManifest).toHaveBeenCalledWith(TARGET, CHILD_ARM);
+  });
+
+  it('collecting a multi-arch index keeps a child manifest another live tagged index still references', async () => {
+    const CHILD_AMD = `sha256:${hex('1')}`;
+    const SHARED = `sha256:${hex('2')}`;
+    const collected = { body: { manifests: [{ digest: CHILD_AMD }, { digest: SHARED }] }, raw: Buffer.from('{}'), digest: DIGEST, mediaType: INDEX };
+    const live = { body: { manifests: [{ digest: SHARED }] }, raw: Buffer.from('{}'), digest: OTHER, mediaType: INDEX };
+    headManifest.mockImplementation(async (_n, ref) => (ref === DIGEST ? { digest: DIGEST } : null));
+    listTags.mockResolvedValue({ name: TARGET, tags: ['2.0.0'] });
+    getManifest.mockImplementation(async (_n, ref) => (ref === DIGEST ? collected : live));
+
+    expect(await gcPublicImage(TARGET, DIGEST)).toEqual({ deleted: true });
+    expect(deleteManifest).toHaveBeenCalledWith(TARGET, DIGEST);
+    expect(deleteManifest).toHaveBeenCalledWith(TARGET, CHILD_AMD);
+    expect(deleteManifest).not.toHaveBeenCalledWith(TARGET, SHARED);
+  });
+
+  it('collecting a multi-arch index keeps a child manifest a live tag resolves to directly', async () => {
+    const CHILD_AMD = `sha256:${hex('1')}`;
+    const collected = { body: { manifests: [{ digest: CHILD_AMD }] }, raw: Buffer.from('{}'), digest: DIGEST, mediaType: INDEX };
+    headManifest.mockImplementation(async (_n, ref) => (ref === DIGEST ? { digest: DIGEST } : null));
+    listTags.mockResolvedValue({ name: TARGET, tags: ['amd64-only'] });
+    getManifest.mockImplementation(async (_n, ref) => (ref === DIGEST ? collected : { ...sourceManifest(), digest: CHILD_AMD }));
+
+    expect(await gcPublicImage(TARGET, DIGEST)).toEqual({ deleted: true });
+    expect(deleteManifest).toHaveBeenCalledWith(TARGET, DIGEST);
+    expect(deleteManifest).not.toHaveBeenCalledWith(TARGET, CHILD_AMD);
+  });
+
   it('surfaces a non-404 companion delete failure', async () => {
     headManifest.mockImplementation(async (_n, ref) => (ref === DIGEST ? { digest: DIGEST } : { digest: SIG_DIGEST }));
     deleteManifest.mockImplementation(async (_n, d) => {

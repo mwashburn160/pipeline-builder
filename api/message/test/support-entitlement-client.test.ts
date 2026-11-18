@@ -22,6 +22,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockCacheGet = jest.fn<AnyFn>();
 const mockCacheSet = jest.fn<AnyFn>();
 const mockIncCounter = jest.fn<AnyFn>();
+const mockWarn = jest.fn<AnyFn>();
 
 /** Every request the client made through the shared http-client. */
 const httpCalls: Array<{ config: Record<string, unknown>; clientOpts: Record<string, unknown>; path: string; options: Record<string, any> }> = [];
@@ -36,7 +37,7 @@ class FakeHttpClient {
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   InternalHttpClient: FakeHttpClient,
-  createLogger: () => ({ warn: () => {}, info: () => {}, debug: () => {}, error: () => {} }),
+  createLogger: () => ({ warn: mockWarn, info: () => {}, debug: () => {}, error: () => {} }),
   createCacheService: () => ({ get: mockCacheGet, set: mockCacheSet, del: jest.fn<AnyFn>() }),
   getServiceAuthHeader: () => 'Bearer service-token',
   envInt: (_n: string, d: number) => d,
@@ -75,6 +76,7 @@ beforeEach(() => {
   mockCacheGet.mockReset().mockResolvedValue(null);
   mockCacheSet.mockReset().mockResolvedValue(undefined);
   mockIncCounter.mockReset();
+  mockWarn.mockReset();
 });
 
 describe('a healthy read', () => {
@@ -142,6 +144,55 @@ describe('degraded: the live read fails', () => {
     respond(new Error('platform down'));
     // Both the live read AND the cache are broken: still resolves.
     await expect(fetchSupportEntitlement('org-1')).resolves.toBeNull();
+  });
+});
+
+describe('the degraded log says what actually happens to the case', () => {
+  const NO_CASE = 'Support entitlement unavailable — message will be sent WITHOUT a case record';
+  const warnTexts = () => mockWarn.mock.calls.map((c) => c[0] as string);
+
+  it('a failed read served from the warm cache does not log "WITHOUT a case record"', async () => {
+    // Regression: the "WITHOUT a case record" warning fired BEFORE the cache
+    // was consulted, so a read the last-known-good cache resolved — and from
+    // which the case WAS created — still told staff no case was made.
+    mockCacheGet.mockResolvedValue(GRANT);
+    respond(new Error('ECONNREFUSED'));
+    await fetchSupportEntitlement('org-1');
+    expect(warnTexts()).not.toContain(NO_CASE);
+    expect(mockWarn).toHaveBeenCalledTimes(1);
+    expect(mockWarn).toHaveBeenCalledWith(
+      'Support entitlement unavailable — using the LAST-KNOWN-GOOD cached entitlement; the case decision is made from it',
+      expect.objectContaining({ reason: 'unreachable', orgId: 'org-1', error: 'Error: ECONNREFUSED', cache: 'hit', level: 'support_premium', canOpenCase: true }),
+    );
+  });
+
+  it('a non-2xx served from the warm cache logs the cached path, with the status', async () => {
+    mockCacheGet.mockResolvedValue(GRANT);
+    respond({ ok: false, status: 503 });
+    await fetchSupportEntitlement('org-1');
+    expect(warnTexts()).not.toContain(NO_CASE);
+    expect(mockWarn).toHaveBeenCalledWith(expect.stringContaining('LAST-KNOWN-GOOD'), expect.objectContaining({ reason: 'non_ok', status: 503, cache: 'hit' }));
+  });
+
+  it('a failed read with a COLD cache logs "WITHOUT a case record"', async () => {
+    mockCacheGet.mockResolvedValue(null);
+    respond(new Error('timeout'));
+    await fetchSupportEntitlement('org-1');
+    expect(mockWarn).toHaveBeenCalledTimes(1);
+    expect(mockWarn).toHaveBeenCalledWith(NO_CASE, expect.objectContaining({ reason: 'unreachable', orgId: 'org-1', cache: 'miss' }));
+  });
+
+  it('a malformed body logs "WITHOUT a case record" (the cache is never consulted)', async () => {
+    respond({ ok: true, body: {} });
+    await fetchSupportEntitlement('org-1');
+    expect(mockWarn).toHaveBeenCalledWith(NO_CASE, expect.objectContaining({ reason: 'malformed', orgId: 'org-1' }));
+  });
+
+  it('still counts every failed read as unavailable, cache hit or not', async () => {
+    mockCacheGet.mockResolvedValue(GRANT);
+    respond(new Error('ECONNREFUSED'));
+    await fetchSupportEntitlement('org-1');
+    expect(mockIncCounter).toHaveBeenCalledWith('support_entitlement_unavailable_total', { reason: 'unreachable' });
   });
 });
 

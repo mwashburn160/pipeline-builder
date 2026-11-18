@@ -84,7 +84,47 @@ describe('credential store', () => {
 
   it('leaves no temp file behind', () => {
     saveSession(URL_A, session());
-    expect(fs.existsSync(`${credentialStorePath()}.tmp`)).toBe(false);
+    expect(fs.readdirSync(path.dirname(credentialStorePath())).filter((f) => f.includes('.tmp'))).toEqual([]);
+  });
+
+  it('two concurrent writes both succeed — each atomic write uses its own temp file', () => {
+    // Regression: every write went through the one shared `credentials.json.tmp`.
+    // A second writer (another CLI process) landing between the first writer's
+    // write and rename renamed that shared temp file away, so the first rename
+    // failed with ENOENT. Reproduced deterministically by running the second
+    // write from inside the first one's temp-file write.
+    const realWrite = fs.writeFileSync;
+    const tempPaths: string[] = [];
+    let nested = false;
+    jest.spyOn(fs, 'writeFileSync').mockImplementation(((file: fs.PathOrFileDescriptor, data: string, opts?: fs.WriteFileOptions) => {
+      tempPaths.push(String(file));
+      realWrite(file, data, opts);
+      if (!nested) {
+        nested = true;
+        saveSession(URL_B, session({ accessToken: 'second.jwt' }));
+      }
+    }) as typeof fs.writeFileSync);
+
+    expect(() => saveSession(URL_A, session({ accessToken: 'first.jwt' }))).not.toThrow();
+
+    expect(tempPaths).toHaveLength(2);
+    expect(new Set(tempPaths).size).toBe(2);
+    // The final file is one complete JSON document (last rename wins).
+    const final = JSON.parse(fs.readFileSync(credentialStorePath(), 'utf-8'));
+    expect(final.version).toBe(1);
+    expect(fs.statSync(credentialStorePath()).mode.toString(8).slice(-3)).toBe('600');
+    expect(fs.readdirSync(path.dirname(credentialStorePath())).filter((f) => f.includes('.tmp'))).toEqual([]);
+  });
+
+  it('a failed atomic write removes its temp file and leaves the previous store intact', () => {
+    saveSession(URL_A, session({ accessToken: 'kept.jwt' }));
+    jest.spyOn(fs, 'renameSync').mockImplementation(() => { throw Object.assign(new Error('EXDEV'), { code: 'EXDEV' }); });
+
+    expect(() => saveSession(URL_B, session())).toThrow('EXDEV');
+
+    expect(fs.readdirSync(path.dirname(credentialStorePath())).filter((f) => f.includes('.tmp'))).toEqual([]);
+    jest.restoreAllMocks();
+    expect(loadSession(URL_A)?.accessToken).toBe('kept.jwt');
   });
 
   it('forgets one platform without touching the others', () => {

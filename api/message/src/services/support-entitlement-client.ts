@@ -141,16 +141,15 @@ export async function fetchSupportEntitlement(orgId: string): Promise<SupportEnt
       },
     });
     if (!res.ok && res.reason !== 'invalid-response') {
-      degraded('non_ok', { status: res.reason === 'status' ? res.status : undefined, orgId });
       // Awaited deliberately: inside the `try`, an un-awaited rejection would
       // escape the catch below and break this function's never-throws contract.
-      return await lastKnownGood(orgId, 'non_ok');
+      return await lastKnownGood(orgId, 'non_ok', { status: res.reason === 'status' ? res.status : undefined, orgId });
     }
     // Validate rather than trust: a shape change upstream must degrade, not
     // produce a case with `level: undefined` frozen onto it forever. The
     // contract requires every field platform's `SupportEntitlement` carries.
     if (!res.ok) {
-      degraded('malformed', { orgId });
+      degraded('malformed', { orgId }, null);
       return null; // NOT cached: a shape change is our bug, and masking it with a stale grant would hide a broken contract.
     }
     const resolved: SupportEntitlementView = { ...res.data };
@@ -160,8 +159,7 @@ export async function fetchSupportEntitlement(orgId: string): Promise<SupportEnt
     await entitlementCache.set(orgId, resolved).catch(() => undefined);
     return resolved;
   } catch (err) {
-    degraded('unreachable', { orgId, error: errorMessage(err) });
-    return lastKnownGood(orgId, 'unreachable');
+    return lastKnownGood(orgId, 'unreachable', { orgId, error: errorMessage(err) });
   }
 }
 
@@ -173,17 +171,11 @@ export async function fetchSupportEntitlement(orgId: string): Promise<SupportEnt
  * customer's case on the floor because of our own outage. Past it, we stop
  * guessing.
  */
-async function lastKnownGood(orgId: string, reason: string): Promise<SupportEntitlementView | null> {
+async function lastKnownGood(orgId: string, reason: string, fields: Record<string, unknown>): Promise<SupportEntitlementView | null> {
   const cached = await entitlementCache.get<SupportEntitlementView>(orgId).catch(() => null);
-  if (!cached) {
-    incCounter('support_entitlement_degraded_total', { reason, cache: 'miss' });
-    return null;
-  }
-  incCounter('support_entitlement_degraded_total', { reason, cache: 'hit' });
-  logger.warn('Serving LAST-KNOWN-GOOD support entitlement after a failed read', {
-    orgId, reason, level: cached.level, canOpenCase: cached.canOpenCase,
-  });
-  return cached;
+  incCounter('support_entitlement_degraded_total', { reason, cache: cached ? 'hit' : 'miss' });
+  degraded(reason, { ...fields, cache: cached ? 'hit' : 'miss' }, cached ?? null);
+  return cached ?? null;
 }
 
 /**
@@ -192,8 +184,18 @@ async function lastKnownGood(orgId: string, reason: string): Promise<SupportEnti
  * Counted AND logged: the metric makes a persistent failure alertable, and the
  * log carries the reason, because "support cases stopped being created" is
  * otherwise invisible — the messages keep arriving and look fine.
+ *
+ * Logged AFTER the cache is consulted, so the line says what actually happens:
+ * `served` is the last-known-good answer the case decision is then made from,
+ * or null when the message really goes out without a case record.
  */
-function degraded(reason: string, fields: Record<string, unknown>): void {
+function degraded(reason: string, fields: Record<string, unknown>, served: SupportEntitlementView | null): void {
   incCounter('support_entitlement_unavailable_total', { reason });
+  if (served) {
+    logger.warn('Support entitlement unavailable — using the LAST-KNOWN-GOOD cached entitlement; the case decision is made from it', {
+      reason, ...fields, level: served.level, canOpenCase: served.canOpenCase,
+    });
+    return;
+  }
   logger.warn('Support entitlement unavailable — message will be sent WITHOUT a case record', { reason, ...fields });
 }

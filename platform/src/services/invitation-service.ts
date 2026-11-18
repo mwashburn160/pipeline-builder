@@ -900,6 +900,9 @@ class InvitationService {
     const invitationOrgId = String(invitation.organizationId);
 
     const org = await Organization.findById(invitation.organizationId);
+    // Same rule as send/accept: a soft-deleted org or team takes no new members,
+    // so its pending invitation is neither re-armed nor re-mailed.
+    if (org && (org as { deletedAt?: Date | null }).deletedAt) throw new Error(INV_ORG_NOT_FOUND);
     if (!org || (org.owner.toString() !== userId && !canManage)) {
       throw new Error(INV_UNAUTHORIZED);
     }
