@@ -1,4 +1,5 @@
 import { useCallback, useState, useMemo } from 'react';
+import { useEventCallback } from '@/hooks/useLatest';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { UserPlus, Users, Building2, Mail } from 'lucide-react';
@@ -258,10 +259,11 @@ export default function MembersPage() {
     }
   };
 
-  const handleToggleActive = async (member: OrganizationMember) => {
+  // Stable identity (the memoised columns hold it), always the current closure.
+  const handleToggleActive = useEventCallback(async (member: OrganizationMember) => {
     if (member.isActive) { setDeactivateTarget(member); return; }
     await performToggleActive(member);
-  };
+  });
 
   const confirmDeactivate = async () => {
     if (!deactivateTarget) return;
@@ -292,11 +294,10 @@ export default function MembersPage() {
     onTransfer: (m) => setPendingTransfer(m),
     onManageRoles: memberRoles.openManageRoles,
     onToggleActive: handleToggleActive,
-    onRemove: (m) => removeMember.open(m),
+    onRemove: removeMember.open,
     ...(canResetMfa ? { onResetMfa: (m: OrganizationMember) => setResetMfaTarget(m) } : {}),
   }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the column builder closes over per-render handlers; the listed values are what change it
-    [user, isSuperAdmin, canOrgSettings, canManageMembers, canManageTeams, memberTeams.openManageTeams, canManageRoles, memberRoles.rolesForMember, memberRoles.openManageRoles, canResetMfa]);
+    [user, isSuperAdmin, canOrgSettings, canManageMembers, canManageTeams, memberTeams.openManageTeams, canManageRoles, memberRoles.rolesForMember, memberRoles.openManageRoles, canResetMfa, handleToggleActive, removeMember.open]);
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;

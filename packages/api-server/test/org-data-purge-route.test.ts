@@ -95,3 +95,79 @@ describe('handleOrgDataPurge', () => {
     expect(mockSendError).not.toHaveBeenCalled();
   });
 });
+
+describe('handleOrgDataPurge — a service\'s own `purge` callback (data outside ORG_DATA_OWNERSHIP)', () => {
+  const purge = jest.fn<AnyFn>();
+  const cbOpts = { contract, service: 'billing', purge, auditAction: 'org.data.purge' as never };
+
+  beforeEach(() => { purge.mockReset(); });
+
+  it('runs the callback (not purgeOrgData), audits the counts and acks 200 { orgId, tables }', async () => {
+    purge.mockResolvedValue({ tables: { subscriptions: 1, billingEvents: 3 } });
+    await handleOrgDataPurge(req('org-1'), res, cbOpts);
+    expect(purge).toHaveBeenCalledWith('org-1');
+    expect(mockPurge).not.toHaveBeenCalled();
+    expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, { orgId: 'org-1', tables: { subscriptions: 1, billingEvents: 3 } });
+    expect(mockRecordAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'org.data.purge',
+      affectedOrgId: 'org-1',
+      targetId: 'org-1',
+      details: { owner: 'billing', tables: { subscriptions: 1, billingEvents: 3 } },
+    }));
+    expect(mockRecordAudit.mock.calls[0][0]).not.toHaveProperty('outcome');
+  });
+
+  it('answers 500 (not an ack) with the failed list when the callback reports failed tables', async () => {
+    purge.mockResolvedValue({ tables: { a: 2 }, failed: ['b', 'c'] });
+    await handleOrgDataPurge(req('org-1'), res, cbOpts);
+    expect(mockSendSuccess).not.toHaveBeenCalled();
+    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'Org data purge incomplete: b, c', expect.anything());
+    expect(mockRecordAudit).toHaveBeenCalledWith(expect.objectContaining({
+      outcome: 'failure', details: { owner: 'billing', failed: ['b', 'c'], tables: { a: 2 } },
+    }));
+  });
+
+  it('answers 500 naming the service when the callback throws', async () => {
+    purge.mockRejectedValue(new Error('mongo down'));
+    await handleOrgDataPurge(req('org-1'), res, cbOpts);
+    expect(mockSendSuccess).not.toHaveBeenCalled();
+    expect(mockSendError).toHaveBeenCalledWith(res, 500, 'Org billing purge failed', expect.anything());
+    expect(mockRecordAudit).toHaveBeenCalledWith(expect.objectContaining({
+      outcome: 'failure', details: { owner: 'billing', error: 'mongo down' },
+    }));
+  });
+
+  it('passes an empty `remaining` through on a complete purge (a success row)', async () => {
+    purge.mockResolvedValue({ tables: { subscriptions: 1 }, remaining: {} });
+    await handleOrgDataPurge(req('org-1'), res, cbOpts);
+    expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, { orgId: 'org-1', tables: { subscriptions: 1 }, remaining: {} });
+    expect(mockRecordAudit).toHaveBeenCalledWith(expect.objectContaining({ details: { owner: 'billing', tables: { subscriptions: 1 } } }));
+    expect(mockRecordAudit.mock.calls[0][0]).not.toHaveProperty('outcome');
+  });
+
+  it('a non-zero `remaining` is still a 200 carrying it (the caller\'s hook reads it as not acked), audited as a failure', async () => {
+    purge.mockResolvedValue({ tables: { subscriptions: 1 }, remaining: { subscriptions: 2 } });
+    await handleOrgDataPurge(req('org-1'), res, cbOpts);
+    expect(mockSendError).not.toHaveBeenCalled();
+    expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, {
+      orgId: 'org-1', tables: { subscriptions: 1 }, remaining: { subscriptions: 2 },
+    });
+    expect(mockRecordAudit).toHaveBeenCalledWith(expect.objectContaining({
+      outcome: 'failure', details: { owner: 'billing', tables: { subscriptions: 1 }, remaining: { subscriptions: 2 } },
+    }));
+  });
+
+  it('400s a missing orgId without calling the callback', async () => {
+    await handleOrgDataPurge(req(''), res, cbOpts);
+    expect(mockSendBadRequest).toHaveBeenCalledWith(res, 'orgId is required', expect.anything());
+    expect(purge).not.toHaveBeenCalled();
+  });
+
+  it('still acks when the audit recorder throws', async () => {
+    purge.mockResolvedValue({ tables: { organizations: 1 } });
+    mockRecordAudit.mockImplementation(() => { throw new Error('audit sink down'); });
+    await handleOrgDataPurge(req('org-1'), res, cbOpts);
+    expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, expect.anything());
+    expect(mockSendError).not.toHaveBeenCalled();
+  });
+});

@@ -109,7 +109,6 @@ export function QuotaUsageBreakdown({ orgId, isTeam, periodDays }: {
   const usageQ = useFetch(async (signal) => {
     const res = await api.getQuotaUsage(orgId, params, { signal });
     return res.data ?? null;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- params is derived from these
   }, [orgId, type, effectiveGroupBy, rangeDays]);
   const groups: QuotaUsageGroup[] = usageQ.data?.groups ?? [];
   const totalNet = groups.reduce((sum, g) => sum + g.net, 0);

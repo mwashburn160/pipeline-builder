@@ -21,41 +21,20 @@
 
 import {
   audited,
-  contractErrorMessage,
   contractRoute,
-  createLogger,
-  ErrorCode,
-  errorMessage,
-  parseContractParams,
   QUOTA_INTERNAL,
-  recordAudit,
   requireAuth,
   requireInternalService,
-  sendBadRequest,
-  sendError,
-  sendSuccess,
-  SYSTEM_ACTOR_ID,
-  SYSTEM_ORG_ID,
 } from '@pipeline-builder/api-core';
+import { handleOrgDataPurge } from '@pipeline-builder/api-server';
 import { Router } from 'express';
-import type { Request, RequestHandler, Response } from 'express';
+import type { RequestHandler } from 'express';
 import { QuotaService, quotaService as defaultQuotaService } from '../services/quota-service.js';
-
-const logger = createLogger('quota-internal-org-purge');
 
 const PURGE = QUOTA_INTERNAL.purgeOrg;
 
 /** Where `app-routes.ts` mounts this router — the contract's path is under it. */
 export const QUOTA_MOUNT = '/quotas';
-
-/** Audit, never throw: a throwing recorder must not turn an ack into a 500. */
-function safeAudit(event: Parameters<typeof recordAudit>[0]): void {
-  try {
-    recordAudit(event);
-  } catch (err) {
-    logger.warn('Org purge audit failed', { error: errorMessage(err) });
-  }
-}
 
 export function createInternalOrgPurgeRoutes(svc: QuotaService = defaultQuotaService): Router {
   const router: Router = Router();
@@ -64,29 +43,12 @@ export function createInternalOrgPurgeRoutes(svc: QuotaService = defaultQuotaSer
     requireAuth as RequestHandler,
     requireInternalService({ callers: PURGE.callers }) as RequestHandler,
     audited('org.data.purge'),
-    async (req: Request, res: Response) => {
-      const params = parseContractParams(PURGE, req);
-      if (!params.ok) return sendBadRequest(res, contractErrorMessage(params), ErrorCode.MISSING_REQUIRED_FIELD);
-      const orgId = String((params.value as { orgId: string }).orgId);
-      const audit = {
-        action: 'org.data.purge',
-        actorId: SYSTEM_ACTOR_ID,
-        orgId: SYSTEM_ORG_ID,
-        affectedOrgId: orgId,
-        targetType: 'organization',
-        targetId: orgId,
-      } as const;
-
-      try {
-        const tables = await svc.purgeOrg(orgId);
-        safeAudit({ ...audit, details: { owner: 'quota', tables } });
-        return sendSuccess(res, 200, { orgId, tables });
-      } catch (err) {
-        logger.warn('Org quota purge failed', { orgId, error: errorMessage(err) });
-        safeAudit({ ...audit, outcome: 'failure', details: { owner: 'quota', error: errorMessage(err) } });
-        return sendError(res, 500, 'Org quota purge failed', ErrorCode.INTERNAL_ERROR);
-      }
-    },
+    async (req, res) => handleOrgDataPurge(req, res, {
+      contract: PURGE,
+      service: 'quota',
+      purge: async (orgId) => ({ tables: await svc.purgeOrg(orgId) }),
+      auditAction: 'org.data.purge',
+    }),
   );
   return router;
 }

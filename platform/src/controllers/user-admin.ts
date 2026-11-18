@@ -1,14 +1,13 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, paginationMeta, sendError, sendSuccess, resolveUserFeatures, isValidFeatureFlag, validateBulkArray, TIER_FEATURES, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, paginationMeta, sendError, sendSuccess, resolveUserFeatures, isValidFeatureFlag, validateBulkArray, TIER_FEATURES, errorMessage, listPage } from '@pipeline-builder/api-core';
 import type { PlanTier } from '@pipeline-builder/api-core';
 import { isOrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import { Types } from 'mongoose';
 import { audit } from '../helpers/audit.js';
 import { canManageOrgScope, forbid, isOrgAdmin, requireMemberManagementScope, withController } from '../helpers/controller-helper.js';
 import { toOrgId } from '../helpers/org-id.js';
-import { listPage } from '../helpers/pagination.js';
 import { formatUserResponse, orgFeatureOverrides, type OrgMembership, type OrgSummary, type StoredFeatureOverrides } from '../helpers/user-response.js';
 import { Organization } from '../models/index.js';
 import { userAdminService } from '../services/index.js';

@@ -3,7 +3,7 @@
 
 import crypto from 'crypto';
 import { ANONYMOUS_ACTOR_ID, assertJwtIssuerAudienceConfigured, JWKS_PATH, clientVersionGate, auditContextFromRequest, runWithAuditContext, sanitizeCorrelationId, createHealthRouter, createLogger, installCrashHandlers, setCounterEmitter, setGaugeEmitter, mongoSanitize, resolveRedisConnection, errorMessage, retryForever, type Scheduler, sleep } from '@pipeline-builder/api-core';
-import { withTenantContext, readinessGuard, setReady, isReady, mongoHealthCheck, registerSecretRotationGauge } from '@pipeline-builder/api-server';
+import { withTenantContext, readinessGuard, setReady, isReady, mongoHealthCheck, registerSecretRotationGauge, installGracefulShutdown, withReadinessState } from '@pipeline-builder/api-server';
 import cors from 'cors';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import helmet from 'helmet';
@@ -73,7 +73,7 @@ registerPlatformSecretRotationProbes();
 // to ops-center with the paging path.)
 const { startPlatformMetricsScraper, stopPlatformMetricsScraper } = await import('./observability/scraper.js');
 startPlatformMetricsScraper();
-// (stopped in the unified shutdown() below, alongside the other sweeps — not via
+// (stopped by the graceful-shutdown onStop hooks below, alongside the other sweeps — not via
 // a separate SIGTERM handler, so SIGINT also tears it down.)
 
 const httpRequestDuration = new Histogram({
@@ -99,6 +99,13 @@ const httpRequestsTotal = new Counter({
  * closed connection.
  */
 const backgroundSweeps: Scheduler[] = [];
+
+/**
+ * True once graceful shutdown has begun (bound in `startServer()`). The
+ * readiness monitor in `initDependencies()` checks it so a draining instance is
+ * never flipped back to ready by a Mongo probe that still sees a live connection.
+ */
+let shuttingDown: () => boolean = () => false;
 
 /**
  * Request ID — prefer the id nginx already stamped, otherwise mint one, so every
@@ -160,9 +167,12 @@ app.use(requestIdMiddleware);
 // bespoke /health): GET /health = liveness (200 while the process answers),
 // GET /ready = readiness (503 while Mongo is disconnected). Mounted before the
 // tenant/auth/rate-limit chain so probes are never gated or throttled.
+// /ready also reports api-server's readiness flag (withReadinessState), so the
+// instance leaves rotation while it bootstraps and the moment graceful shutdown
+// flips it NotReady — not only when Mongo drops.
 app.use(createHealthRouter({
   serviceName: 'platform',
-  checkDependencies: mongoHealthCheck(mongoose.connection),
+  checkDependencies: withReadinessState(mongoHealthCheck(mongoose.connection)),
 }));
 
 // The public key set every verifier in the fleet (and the CLI, image-registry's
@@ -403,6 +413,7 @@ async function initDependencies(): Promise<void> {
   const { registerBackgroundSweeps } = await import('./services/background-sweeps.js');
   backgroundSweeps.push(...await registerBackgroundSweeps());
 
+  if (shuttingDown()) return; // shutdown began during the bootstraps
   setReady(true);
   logger.info('Platform ready — dependencies connected');
 
@@ -410,6 +421,7 @@ async function initDependencies(): Promise<void> {
   // outage drains traffic (NotReady) and a recovery restores it — no restart.
   for (;;) {
     await sleep(config.server.readinessMonitorIntervalMs);
+    if (shuttingDown()) return; // draining: readiness stays NotReady
     const ok = mongoose.connection.readyState === 1;
     if (ok && !isReady()) {
       setReady(true);
@@ -472,37 +484,24 @@ async function startServer(): Promise<void> {
     logger.info(`Platform microservice listening on port: ${config.app.port}`);
   });
 
-  // Graceful shutdown
-  const shutdown = async (signal: string) => {
-    logger.info(`${signal} received, shutting down gracefully...`);
-
-    server.close(async () => {
-      logger.info('HTTP server closed');
-
+  // Graceful shutdown — api-server's shared routine (the same one startServer
+  // uses): re-entry guard, NotReady FIRST (the readiness guard and /ready use
+  // the same api-server flag), unref'd force-exit timer, server.close, then the
+  // platform stop steps, then the OpenTelemetry flush, then exit.
+  ({ isShuttingDown: shuttingDown } = installGracefulShutdown({
+    server,
+    name: 'platform',
+    timeoutMs: config.server.shutdownTimeoutMs,
+    onStop: [
       // Every background sweep stops BEFORE Mongo closes.
-      stopPlatformMetricsScraper();
-      for (const sweep of backgroundSweeps) sweep.stop();
-
-      try {
+      stopPlatformMetricsScraper,
+      () => { for (const sweep of backgroundSweeps) sweep.stop(); },
+      async () => {
         await mongoose.connection.close(false);
         logger.info('MongoDB connection closed');
-      } catch (error) {
-        logger.error('Error closing MongoDB:', error);
-      }
-
-      process.exit(0);
-    });
-
-    // Force shutdown after timeout (unref'd so it never itself keeps the
-    // process alive, matching api-server's startServer).
-    setTimeout(() => {
-      logger.error('Forced shutdown after timeout');
-      process.exit(1);
-    }, config.server.shutdownTimeoutMs).unref();
-  };
-
-  process.on('SIGINT', () => void shutdown('SIGINT'));
-  process.on('SIGTERM', () => void shutdown('SIGTERM'));
+      },
+    ],
+  }));
 
   // Establish Mongo + bootstraps in the background; readiness flips when done.
   void initDependencies();

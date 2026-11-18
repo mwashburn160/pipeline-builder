@@ -16,7 +16,10 @@ import {
   parseReportTimezone,
   parseWeekStart,
   parseOptionalDate,
+  listPage,
+  isReasonableString,
 } from '../src/utils/params.js';
+import { MAX_PAGE_LIMIT, MAX_PAGE_OFFSET } from '../src/validation/common-schemas.js';
 
 // Tests
 
@@ -356,5 +359,45 @@ describe('parseWeekStart', () => {
 
   it('exposes exactly the two supported starts', () => {
     expect(WEEK_STARTS).toEqual(['monday', 'sunday']);
+  });
+});
+
+describe('listPage (the platform / ops-center LIST window)', () => {
+  it('defaults to 10 rows from offset 0', () => {
+    expect(listPage({})).toEqual({ limit: 10, offset: 0 });
+  });
+
+  it('reads ?limit and ?offset (strings or numbers)', () => {
+    expect(listPage({ limit: '25', offset: '50' })).toEqual({ limit: 25, offset: 50 });
+    expect(listPage({ limit: 5, offset: 3 })).toEqual({ limit: 5, offset: 3 });
+  });
+
+  it('clamps limit to [1, MAX_PAGE_LIMIT] and offset to [0, MAX_PAGE_OFFSET]', () => {
+    expect(listPage({ limit: String(MAX_PAGE_LIMIT + 1) }).limit).toBe(MAX_PAGE_LIMIT);
+    expect(listPage({ limit: '0' }).limit).toBe(1);
+    expect(listPage({ offset: '-5' }).offset).toBe(0);
+    expect(listPage({ offset: String(MAX_PAGE_OFFSET + 1) }).offset).toBe(MAX_PAGE_OFFSET);
+  });
+
+  it('falls back to the default on garbage', () => {
+    expect(listPage({ limit: 'abc', offset: 'x' })).toEqual({ limit: 10, offset: 0 });
+  });
+});
+
+describe('isReasonableString', () => {
+  it('accepts a non-empty string within the default cap of 256', () => {
+    expect(isReasonableString('a')).toBe(true);
+    expect(isReasonableString('x'.repeat(256))).toBe(true);
+    expect(isReasonableString('x'.repeat(257))).toBe(false);
+  });
+
+  it('honours a custom cap', () => {
+    expect(isReasonableString('abcd', 4)).toBe(true);
+    expect(isReasonableString('abcde', 4)).toBe(false);
+  });
+
+  it('rejects the empty string and non-strings', () => {
+    expect(isReasonableString('')).toBe(false);
+    for (const v of [undefined, null, 1, {}, ['a'], true]) expect(isReasonableString(v)).toBe(false);
   });
 });

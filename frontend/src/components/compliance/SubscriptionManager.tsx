@@ -133,9 +133,11 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
     if (tab === 'subscriptions') void fetchSubscriptions();
     else void fetchCatalog();
     // Invalidate any in-flight fetch on unmount / tab switch so a late response
-    // can't clobber the newly-selected tab's state.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the cleanup WRITES the generation counter; it reads no value captured at effect time
-    return () => { reqRef.current++; };
+    // can't clobber the newly-selected tab's state. The cleanup WRITES the
+    // counter (it reads nothing captured at effect time), via a local handle so
+    // the "ref may have changed by cleanup" lint — aimed at DOM refs — stays quiet.
+    const generation = reqRef;
+    return () => { generation.current++; };
   }, [tab, fetchSubscriptions, fetchCatalog]);
 
   // Reset catalog offset when filters change

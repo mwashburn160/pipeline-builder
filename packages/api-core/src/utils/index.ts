@@ -38,6 +38,8 @@ export {
   parsePositiveInt,
   parseQueryIntClamped,
   parsePage,
+  listPage,
+  isReasonableString,
   validateBulkArray,
   parseReportInterval,
   parseReportTimezone,

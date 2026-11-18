@@ -57,6 +57,10 @@ deploy/pipeline-builder/
 /dist/
 !/projenrc/tsconfig.json
 !/.npmrc
+/*/pnpm-lock.yaml
+/*/*/pnpm-lock.yaml
+!/.nvmrc
+!/.node-version
 !/nx.json
 !/.vscode/settings.json
 !/.github/workflows/release.yml

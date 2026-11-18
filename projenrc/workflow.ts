@@ -60,6 +60,11 @@ export interface WorkflowOptions {
     /** PNPM version to use in CI/CD workflows. */
     readonly pnpmVersion: string;
     /**
+     * The exact Node every generated workflow's setup-node pins: the runtime the
+     * images ship (`nodeRuntimeVersion` in .projenrc.ts), not the engines floor.
+     */
+    readonly nodeVersion: string;
+    /**
      * Projects built as Docker images and pushed to the registry — derived in
      * .projenrc.ts from the projects that get docker scripts.
      */
@@ -83,12 +88,13 @@ export interface WorkflowOptions {
  * @example
  * ```typescript
  * // In .projenrc.ts
- * new Workflow(root, { pnpmVersion: '10.25.0', imageProjects, libraryProjects });
+ * new Workflow(root, { pnpmVersion: '10.25.0', nodeVersion: '26.13.1', imageProjects, libraryProjects });
  * ```
  */
 export class Workflow extends Component {
     /** PNPM version to use in CI/CD workflow */
     private readonly pnpmVersion: string;
+    private readonly nodeVersion: string;
     private readonly imageProjects: readonly string[];
     private readonly libraryProjects: readonly string[];
 
@@ -101,6 +107,7 @@ export class Workflow extends Component {
     constructor(root: TypeScriptProject, options: WorkflowOptions) {
         super(root);
         this.pnpmVersion = options.pnpmVersion;
+        this.nodeVersion = options.nodeVersion;
         this.imageProjects = options.imageProjects;
         this.libraryProjects = options.libraryProjects;
 
@@ -1379,7 +1386,6 @@ export class Workflow extends Component {
 
     /** Checkout + toolchain + frozen install — the side-effect-free CI prelude. */
     private ciSetupSteps(): JobStep[] {
-        const project = this.project as TypeScriptProject;
         return [
             {
                 name: 'Disable Nx telemetry and daemon',
@@ -1405,7 +1411,7 @@ export class Workflow extends Component {
                 uses: ACTIONS.setupNode,
                 with: {
                     cache: 'pnpm',
-                    'node-version': project.minNodeVersion,
+                    'node-version': this.nodeVersion,
                     'package-manager-cache': 'pnpm',
                 },
             },
@@ -1659,7 +1665,6 @@ export class Workflow extends Component {
      * @returns Array of job steps common to all jobs
      */
     private bootstrapSteps(): JobStep[] {
-        const project = this.project as TypeScriptProject;
 
         return [
             {
@@ -1691,7 +1696,7 @@ export class Workflow extends Component {
                 uses: ACTIONS.setupNode,
                 with: {
                     cache: 'pnpm',
-                    'node-version': project.minNodeVersion,
+                    'node-version': this.nodeVersion,
                     'package-manager-cache': 'pnpm',
                 },
             },

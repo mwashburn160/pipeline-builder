@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { runCancellableFetch } from './internal/fetchCore';
+import { useKeyedValue } from './useLatest';
 import { DEFAULT_PAGE_SIZE, usePagination } from './usePagination';
 import type { PaginationState } from '@/components/ui/Pagination';
 
@@ -71,10 +72,13 @@ export function useServerPagination<T, F extends Record<string, unknown>>(
     setShownFilterKey(filterKey);
     reset();
   }
+  // The filters as of their current JSON key — a new object only when the key
+  // changes, so the fetch effect can depend on it without identity churn.
+  const keyedFilters = useKeyedValue(filters, filterKey);
 
   useEffect(() => {
     return runCancellableFetch(
-      (signal) => fetcherRef.current({ offset, limit, filters, signal }),
+      (signal) => fetcherRef.current({ offset, limit, filters: keyedFilters, signal }),
       {
         onStart: () => {
           setLoading(true);
@@ -90,9 +94,7 @@ export function useServerPagination<T, F extends Record<string, unknown>>(
         onSettled: () => setLoading(false),
       },
     );
-    // filters is read via JSON key (avoids object-identity churn)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `filters` is tracked by its JSON key, which avoids object-identity churn
-  }, [offset, limit, filterKey, tick]);
+  }, [offset, limit, keyedFilters, tick]);
 
   const refetch = useCallback(() => setTick((t) => t + 1), []);
 

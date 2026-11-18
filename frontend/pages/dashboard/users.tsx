@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useEventCallback } from '@/hooks/useLatest';
 import { formatError } from '@/lib/constants';
 import { Users, UserPlus } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -350,19 +351,22 @@ export default function UsersPage() {
     setEditRole(userItem.role);
   }, []);
 
-  const handleEditUser = (userItem: UserListItem) => {
+  // Stable identity (the memoised columns hold it), always the current closure.
+  const handleEditUser = useEventCallback((userItem: UserListItem) => {
     editClose.cancel();
     fillEditor(userItem);
     setNewPassword('');
     editForm.reset();
-  };
+  });
 
   // Swap the row for the fresh record once it arrives (only for the user still
   // open — a late answer for a closed editor is dropped by the key change).
+  // `editingId` is a real dep: when it changes, `detail.data` (stamped by its
+  // deps in useFetch) is already null for the new id, so this cannot refill
+  // the editor from the previous user's record.
   useEffect(() => {
     if (detail.data && detail.data.id === editingId) fillEditor(toListItem(detail.data));
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the fetched record
-  }, [detail.data]);
+  }, [detail.data, editingId, fillEditor]);
 
   const handleSaveUser = async () => {
     if (!editingUser) return;
@@ -458,8 +462,7 @@ export default function UsersPage() {
     onDelete: (u) => setPendingDelete(u),
     onResetMfa: (u) => setResetMfaTarget(u),
   }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the column builder closes over per-render handlers; the listed values are what change it
-    [user, toggleSuperAdmin, selectedIds, toggleSelected, allVisibleSelected, toggleSelectAllVisible]);
+    [user, toggleSuperAdmin, selectedIds, toggleSelected, allVisibleSelected, toggleSelectAllVisible, handleEditUser]);
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;

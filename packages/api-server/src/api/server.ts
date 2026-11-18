@@ -6,8 +6,8 @@ import { assertJwtIssuerAudienceConfigured, buildRouteTable, createLogger, error
 import { Config } from '@pipeline-builder/pipeline-core';
 import { getConnection, closeConnection } from '@pipeline-builder/pipeline-data';
 import type { Express } from 'express';
+import { installGracefulShutdown } from './graceful-shutdown.js';
 import { setReady, isReady } from './readiness.js';
-import { shutdownTracing } from './tracing.js';
 import { SSEManager } from '../http/sse-connection-manager.js';
 
 const logger = createLogger('server');
@@ -211,8 +211,27 @@ export async function startServer(
     onStart?.(port);
   });
 
-  // Shutdown handler (guarded against concurrent signals)
-  let shuttingDown = false;
+  // The shared shutdown routine (graceful-shutdown.ts): re-entry guard,
+  // NotReady first, unref'd force-exit timer, then onShutdown + SSE close,
+  // server.close, quota flush + datastore close, tracing flush, exit.
+  const { shutdown, isShuttingDown } = installGracefulShutdown({
+    server,
+    name,
+    timeoutMs: shutdownTimeoutMs,
+    beforeClose: [
+      ...(onShutdown ? [onShutdown] : []),
+      ...(sseManager ? [() => { sseManager.shutdown(); logger.info('SSE connections closed'); }] : []),
+    ],
+    onStop: [
+      // Every in-flight request has now finished and buffered its metering unit;
+      // send them before exiting (api-core quota-increment-batcher). Never rejects.
+      () => flushQuotaIncrements(),
+      ...(closeDatabase === false ? [] : [async () => {
+        await (closeDatabase ? closeDatabase() : closeConnection());
+        logger.info('Database connection closed');
+      }]),
+    ],
+  });
 
   // Background dependency supervisor — established + monitored after listen,
   // stopped on shutdown so it never keeps a closing process alive. Guard the
@@ -221,79 +240,9 @@ export async function startServer(
   // rather than letting it become an unhandledRejection that crash-exits the
   // process (which would defeat the whole "never exit on dependency trouble"
   // goal).
-  superviseDependencies(name, onBeforeStart, testDatabase, () => shuttingDown).catch((error) => {
+  superviseDependencies(name, onBeforeStart, testDatabase, isShuttingDown).catch((error) => {
     logger.error('Dependency supervisor crashed; service will remain NotReady', { error: errorMessage(error) });
   });
-
-  const shutdown = async (signal?: string) => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-
-    // Drain FIRST: report NotReady before anything else, so the load balancer /
-    // readiness probe stops sending new work while the rest of shutdown runs.
-    // `onShutdown` can take seconds; readiness left green across it keeps new
-    // requests arriving at a process that is already tearing itself down.
-    setReady(false);
-
-    if (signal) {
-      logger.info(`${signal} received, shutting down gracefully...`);
-    }
-
-    // Arm the force-exit BEFORE awaiting anything: a hung onShutdown (a stuck
-    // queue close, a Redis quit that never answers) would otherwise block forever
-    // with the timer never started, so the pod would ignore SIGTERM until SIGKILL.
-    setTimeout(() => {
-      logger.error('Forced shutdown after timeout');
-      process.exit(1);
-    }, shutdownTimeoutMs).unref();
-
-    // Custom shutdown callback
-    if (onShutdown) {
-      try {
-        await onShutdown();
-      } catch (error) {
-        logger.error('Error in onShutdown callback', { error });
-      }
-    }
-
-    // Close SSE connections
-    if (sseManager) {
-      sseManager.shutdown();
-      logger.info('SSE connections closed');
-    }
-
-    // Close HTTP server
-    server.close(async () => {
-      logger.info('HTTP server closed');
-
-      // Every in-flight request has now finished and buffered its metering unit;
-      // send them before exiting (api-core quota-increment-batcher). Never rejects.
-      await flushQuotaIncrements();
-
-      // Shutdown OpenTelemetry tracing
-      await shutdownTracing().catch(err => logger.error('Error shutting down tracing', { error: err }));
-
-      // Close database connection
-      if (closeDatabase !== false) {
-        try {
-          if (closeDatabase) {
-            await closeDatabase();
-          } else {
-            await closeConnection();
-          }
-          logger.info('Database connection closed');
-        } catch (error) {
-          logger.error('Error closing database', { error });
-        }
-      }
-
-      process.exit(0);
-    });
-  };
-
-  // Register signal handlers
-  process.once('SIGINT', () => void shutdown('SIGINT'));
-  process.once('SIGTERM', () => void shutdown('SIGTERM'));
 
   return {
     server,

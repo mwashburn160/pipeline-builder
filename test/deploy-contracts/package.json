@@ -33,7 +33,7 @@
     "yaml": "2.9.1"
   },
   "engines": {
-    "node": ">= 26.13.1"
+    "node": ">= 26.13.0"
   },
   "devEngines": {
     "packageManager": {
@@ -144,6 +144,13 @@
           "{workspaceRoot}/platform/test/**/*",
           "{workspaceRoot}/frontend/src/**/*",
           "{workspaceRoot}/frontend/test/**/*",
+          "{workspaceRoot}/.nvmrc",
+          "{workspaceRoot}/.node-version",
+          "{workspaceRoot}/.npmrc",
+          "{workspaceRoot}/frontend/package.json",
+          "{workspaceRoot}/pnpm-lock.yaml",
+          "{workspaceRoot}/*/pnpm-lock.yaml",
+          "{workspaceRoot}/*/*/pnpm-lock.yaml",
           "!{projectRoot}/lib/**/*",
           "!{projectRoot}/dist/**/*"
         ]
@@ -179,6 +186,13 @@
           "{workspaceRoot}/platform/test/**/*",
           "{workspaceRoot}/frontend/src/**/*",
           "{workspaceRoot}/frontend/test/**/*",
+          "{workspaceRoot}/.nvmrc",
+          "{workspaceRoot}/.node-version",
+          "{workspaceRoot}/.npmrc",
+          "{workspaceRoot}/frontend/package.json",
+          "{workspaceRoot}/pnpm-lock.yaml",
+          "{workspaceRoot}/*/pnpm-lock.yaml",
+          "{workspaceRoot}/*/*/pnpm-lock.yaml",
           "!{projectRoot}/lib/**/*",
           "!{projectRoot}/dist/**/*"
         ]

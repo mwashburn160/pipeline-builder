@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, useId } from 'react';
+import { useState, useMemo, useCallback, useEffect, useEffectEvent, useId } from 'react';
 import { useRouter } from 'next/router';
 import { formatError, settledFailureMessage } from '@/lib/constants';
 import { Mail } from 'lucide-react';
@@ -114,15 +114,19 @@ export default function InvitationsPage() {
   // leave the handoff half-done.
   const router = useRouter();
   const prefillEmail = Array.isArray(router.query.email) ? router.query.email[0] : router.query.email;
-  useEffect(() => {
-    if (!router.isReady || !prefillEmail) return;
-    setSendEmail(prefillEmail);
+  // Fires on the `?email=` value only; the router (new identity per navigation)
+  // is read as it is now, via an Effect Event.
+  const openPrefilled = useEffectEvent((email: string) => {
+    setSendEmail(email);
     setSendModalOpen(true);
     setSendError(null);
     // Drop the param so a reload (or a later visit via Back) doesn't reopen it.
     const { email: _dropped, ...rest } = router.query;
     void router.replace({ pathname: router.pathname, query: rest }, undefined, { shallow: true });
-  }, [router.isReady, prefillEmail]); // eslint-disable-line react-hooks/exhaustive-deps -- `router` changes identity on every navigation
+  });
+  useEffect(() => {
+    if (router.isReady && prefillEmail) openPrefilled(prefillEmail);
+  }, [router.isReady, prefillEmail]);
   const [sendRole, setSendRole] = useState<'admin' | 'member'>('member');
   /** Roles the invitation grants on acceptance (optional, org-scoped). */
   const [sendRoleIds, setSendRoleIds] = useState<string[]>([]);

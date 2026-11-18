@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useMemo } from 'react';
+import { useEffect, useEffectEvent, useRef, useState, useMemo } from 'react';
 import { QUOTA_WARNING_THRESHOLD } from '@/lib/constants';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useDebounce } from '@/hooks/useDebounce';
@@ -180,12 +180,14 @@ export default function QuotasPage() {
 
   // A freshly read org seeds the view + the edit form.
   const loadedOrg = orgQ.data;
+  // Seeds on a NEW read only — a picker-page change (a new `platformOrgs`)
+  // must not reset edits, so the seeding itself is an Effect Event.
+  const seedFromRead = useEffectEvent((read: NonNullable<typeof loadedOrg>) => {
+    const sidebarOrg = platformOrgs.find((o) => o.id === read.orgId);
+    applyOrgData(read.quota, { orgId: read.orgId, sidebarName: sidebarOrg?.name, sidebarSlug: sidebarOrg?.slug });
+  });
   useEffect(() => {
-    if (!loadedOrg) return;
-    const sidebarOrg = platformOrgs.find((o) => o.id === loadedOrg.orgId);
-    applyOrgData(loadedOrg.quota, { orgId: loadedOrg.orgId, sidebarName: sidebarOrg?.name, sidebarSlug: sidebarOrg?.slug });
-    // Seeds on a NEW read only — a picker-page change must not reset edits.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- seeds on a NEW read only — a picker-page change must not reset edits
+    if (loadedOrg) seedFromRead(loadedOrg);
   }, [loadedOrg]);
 
   function applyOrgData(

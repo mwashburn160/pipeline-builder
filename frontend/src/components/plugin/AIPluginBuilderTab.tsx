@@ -1,4 +1,4 @@
-import { useState, useEffect, useId } from 'react';
+import { useState, useEffect, useEffectEvent, useId } from 'react';
 import { Sparkles, Rocket } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { FormField } from '@/components/ui/FormField';
@@ -142,17 +142,18 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
   const unmountedRef = useUnmountedRef();
   const autoClose = useAutoCloseTimer();
 
-  // Auto-complete on successful build
+  // Auto-complete on successful build. Fires on the status transition only;
+  // the config name and the parent's callbacks are read as they are now.
+  const completeBuild = useEffectEvent(() => {
+    setSuccess(`Plugin "${generatedConfig?.name}" deployed successfully!`);
+    onCreated();
+    setTimeout(() => {
+      if (unmountedRef.current) return;
+      onClose();
+    }, 2000);
+  });
   useEffect(() => {
-    if (buildStatus === 'completed') {
-      setSuccess(`Plugin "${generatedConfig?.name}" deployed successfully!`);
-      onCreated();
-      setTimeout(() => {
-        if (unmountedRef.current) return;
-        onClose();
-      }, 2000);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run when buildStatus changes; other deps are stable callbacks
+    if (buildStatus === 'completed') completeBuild();
   }, [buildStatus]);
 
   const handleGenerate = async () => {

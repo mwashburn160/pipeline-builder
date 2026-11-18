@@ -9,8 +9,10 @@
 /.github/workflows/release.yml linguist-generated
 /.github/workflows/test.yml linguist-generated
 /.gitignore linguist-generated
+/.node-version linguist-generated
 /.npmignore linguist-generated
 /.npmrc linguist-generated
+/.nvmrc linguist-generated
 /.projen/** linguist-generated
 /.projen/deps.json linguist-generated
 /.projen/files.json linguist-generated

@@ -1,11 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, ErrorCode, paginationMeta, sendError, sendSuccess, isServicePrincipal, getParam, isSystemAdmin } from '@pipeline-builder/api-core';
+import { createLogger, ErrorCode, paginationMeta, sendError, sendSuccess, isServicePrincipal, getParam, isSystemAdmin, listPage } from '@pipeline-builder/api-core';
 import { isOrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import { audit } from '../helpers/audit.js';
 import { canAccessOrg, ensureAuthenticated, forbid, getAdminContext, requireOrgScope, withController, roleAssignmentActor } from '../helpers/controller-helper.js';
-import { listPage } from '../helpers/pagination.js';
 import { orgMembersService } from '../services/index.js';
 import { OM_ORG_NOT_FOUND, OM_USER_NOT_FOUND, OM_ALREADY_MEMBER, OM_NOT_A_MEMBER, OM_CANNOT_REMOVE_OWNER, OM_OWNER_MEMBERSHIP_NOT_FOUND, OM_NEW_OWNER_MUST_BE_MEMBER, OM_ALREADY_OWNER, OM_MEMBERSHIP_NOT_FOUND, OM_ALREADY_INACTIVE, OM_ALREADY_ACTIVE, OM_TARGETS_OUT_OF_SCOPE, OM_SEAT_LIMIT, OM_CONSENT_REQUIRED } from '../services/org-members-errors.js';
 import { pauseFormerMemberReports } from '../services/report-ownership.js';

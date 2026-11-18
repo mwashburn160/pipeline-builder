@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useKeyedValue } from '@/hooks/useLatest';
 import { useRouter } from 'next/router';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
@@ -77,9 +78,9 @@ function isLogsPanel(panel: DashboardPanel): boolean {
 function LogFilterForm({ value, onApply }: { value: LogUrlFilters; onApply: (next: LogUrlFilters) => void }) {
   const [draft, setDraft] = useState<LogUrlFilters>(value);
   // Follow the URL when it changes underneath (Clear, back/forward).
-  const valueKey = JSON.stringify(value);
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- `value` is tracked by its JSON key; its identity would re-seed the draft every render
-  useEffect(() => { setDraft(value); }, [valueKey]);
+  // Keyed by content, so a re-rendered parent's fresh object doesn't re-seed.
+  const urlValue = useKeyedValue(value, JSON.stringify(value));
+  useEffect(() => { setDraft(urlValue); }, [urlValue]);
 
   const submit = (e: FormEvent) => {
     e.preventDefault();

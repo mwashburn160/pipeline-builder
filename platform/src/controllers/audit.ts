@@ -1,11 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { isRemoteAuditAction, isServicePrincipal, isSystemAdmin, isSystemOrgId, recordAuthzDenial, sanitizeCorrelationId, sanitizeUserAgent, parseQueryString, sendError, sendSuccess, createLogger, errorMessage, parseOptionalDate } from '@pipeline-builder/api-core';
+import { isRemoteAuditAction, isServicePrincipal, isSystemAdmin, isSystemOrgId, recordAuthzDenial, sanitizeCorrelationId, sanitizeUserAgent, parseQueryString, sendError, sendSuccess, createLogger, errorMessage, parseOptionalDate, listPage } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
 import { isAuditOutcome, type AuditOutcome } from '../constants/vocabulary.js';
 import { getAdminContext, requirePlatformPermission, withController } from '../helpers/controller-helper.js';
-import { listPage } from '../helpers/pagination.js';
 import { resolveServiceTenant } from '../helpers/service-tenant.js';
 import { verifyAuditChainAnchored } from '../services/audit-head-export.js';
 import { auditService, type AuditFilter } from '../services/audit-service.js';

@@ -1,14 +1,13 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, paginationMeta, sendError, sendSuccess, errorMessage, seatRemedy, isSystemAdmin, userHasPermission } from '@pipeline-builder/api-core';
+import { createLogger, paginationMeta, sendError, sendSuccess, errorMessage, seatRemedy, isSystemAdmin, userHasPermission, listPage } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
 import { config } from '../config/index.js';
 import { isAdminOrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import { audit } from '../helpers/audit.js';
 import { forbid, requireOrgMembership, withController, roleAssignmentActor } from '../helpers/controller-helper.js';
 import { isAncestorOrg } from '../helpers/org-hierarchy.js';
-import { listPage } from '../helpers/pagination.js';
 import { pooledSeatUsage } from '../helpers/seats.js';
 import { auditService, invitationService } from '../services/index.js';
 import { INVITATION_ACCEPT_ERRORS, INV_ADMIN_REQUIRES_ADMIN, INV_ALREADY_MEMBER, INV_ALREADY_SENT, INV_EMAIL_MISMATCH, INV_INVITER_NOT_FOUND, INV_MAX_REACHED, INV_NOT_FOUND, INV_NOT_PENDING, INV_ORG_NOT_FOUND, INV_SEAT_LIMIT, INV_UNAUTHORIZED } from '../services/invitation-errors.js';

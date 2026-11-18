@@ -71,8 +71,8 @@ export function useObservabilityResource<T>(
       abortRef.current?.abort();
       reportRef.current(cacheKey, false);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- cacheKey captures the relevant deps; fetchOnce follows it
-  }, [cacheKey]);
+    // `fetchOnce` is keyed on `cacheKey` alone, so this still re-binds once per key.
+  }, [cacheKey, fetchOnce]);
 
   // Refresh on the interval, and as soon as a hidden tab becomes visible again.
   usePolling(fetchOnce, intervalMs, { immediate: false });

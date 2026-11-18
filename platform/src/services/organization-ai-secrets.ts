@@ -1,10 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { AI_KEY_PROVIDER_IDS } from '@pipeline-builder/api-core';
+import { AI_KEY_PROVIDER_IDS, isReasonableString } from '@pipeline-builder/api-core';
 import { ORG_AI_KEY_TOO_LONG } from './org-errors.js';
 import { wrapEncrypted } from '../utils/secret-blob.js';
-import { isReasonableString } from '../utils/string-guards.js';
 
 /**
  * The providers an org can hold its own key for — the catalog's key-based ones

@@ -16,7 +16,7 @@ import { etagMiddleware } from './etag-middleware.js';
 import { createEnvRedisIdempotencyStore, setIdempotencyStore, type IdempotencyStore } from './idempotency-middleware.js';
 import { metricsMiddleware, metricsHandler, incCounter, setGauge } from './metrics.js';
 import { createSharedRateLimitStore } from './rate-limit-store.js';
-import { readinessGuard } from './readiness.js';
+import { readinessGuard, withReadinessState } from './readiness.js';
 import { currentTraceId } from './tracing.js';
 import { SSEManager, SSE_REQUEST_ID_RE } from '../http/sse-connection-manager.js';
 import { createEnvRedisSSERelay } from '../http/sse-relay.js';
@@ -189,9 +189,11 @@ function applyBodyParsing(app: Express, options: CreateAppOptions): void {
 function mountInfraEndpoints(app: Express, options: CreateAppOptions, serviceName: string, enableOpenApi: boolean): void {
   const { checkDependencies, openApiOptions, warmupHooks = [] } = options;
 
+  // /ready also reports the readiness flag, so the instance leaves rotation
+  // the moment graceful shutdown (or a dependency drop) flips it NotReady.
   app.use(createHealthRouter({
     serviceName,
-    checkDependencies,
+    checkDependencies: withReadinessState(checkDependencies),
   }));
 
   // Readiness guard — 503s business traffic while the service is NotReady

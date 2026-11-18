@@ -65,7 +65,7 @@ const jestVersion = '30.5.2';
 // @types/node for EVERY project — ONE constant, tracking the runtime.
 //
 // Now ^26 across the board, because the fleet is finally uniform: the container
-// images run node 26.13.1 (LTS Lithium) and AWS Lambda runs `nodejs26.x`.
+// images run node `nodeRuntimeVersion` (26.13, LTS Lithium) and AWS Lambda runs `nodejs26.x`.
 //
 // That Lambda runtime is a PUBLIC PREVIEW one (announced 2026-08). AWS does not
 // cover preview runtimes under the Lambda SLA or Support plans and advises
@@ -80,6 +80,19 @@ const jestVersion = '30.5.2';
 // this constant must never be AHEAD of the oldest runtime in the fleet. If the
 // Lambda is ever rolled back to nodejs24.x, this comes back to ^24 with it.
 const typesNode = '@types/node@^26';
+
+// Node, as TWO constants with one rule (held by test/deploy-contracts:
+// node-version-contract + toolchain-drift-contract):
+//
+// - `minNodeVersion` is the engines FLOOR, and it is a MAJOR.MINOR rule:
+//   `>= 26.13.0`, so ANY 26.13 patch is accepted. It is made binding by
+//   `engine-strict=true` (.npmrc: pnpm install refuses an older Node), stated
+//   for version managers in `.nvmrc` / `.node-version` (the bare MAJOR.MINOR,
+//   so they pick the newest patch of the line), and checked again by
+//   jest-env-guard.js, which reads `.nvmrc`.
+// - `nodeRuntimeVersion` is the EXACT Node the images ship and CI tests on. It
+//   must sit on the floor's MAJOR.MINOR line and never below it.
+const nodeRuntimeVersion = '26.13.1';
 
 // Internal package versions  `workspace:*` so pnpm always resolves from
 // the local workspace. Using a pinned npm version causes pnpm to install
@@ -105,10 +118,11 @@ const root = new TypeScriptProject({
   name: 'root',
   defaultReleaseBranch: branch,
   projenVersion: '0.104.20',
-  // The FLOOR: `engines.node` for every package. The whole fleet is on node 26
-  // now — images on 26.13.1, Lambda on the nodejs26.x preview — so the floor
-  // moves with it. It tracks the OLDEST runtime, not the newest; see `typesNode`.
-  minNodeVersion: '26.13.1',
+  // The FLOOR: `engines.node` for every package (`>= 26.13.0`, i.e. any 26.13
+  // patch). The whole fleet is on node 26 now — images on `nodeRuntimeVersion`,
+  // Lambda on the nodejs26.x preview — so the floor moves with it. It tracks the
+  // OLDEST runtime, not the newest; see `typesNode` and `nodeRuntimeVersion`.
+  minNodeVersion: '26.13.0',
   minMajorVersion: 4,
   packageManager: NodePackageManager.PNPM,
   // projen emits pnpm-workspace.yaml itself; our workspace settings (package
@@ -169,6 +183,21 @@ root.npmrc.addConfig('@pipeline-builder:registry', 'https://registry.npmjs.org/'
 // Redis DB, the local docker daemon, the same per-org KMS keys); serializing
 // trades wall-clock for reliability.
 root.npmrc.addConfig('workspace-concurrency', '1');
+// Make `engines.node` (the `minNodeVersion` floor) binding: without this pnpm
+// only WARNS on an older Node and installs anyway.
+root.npmrc.addConfig('engine-strict', 'true');
+// Nested lockfiles never belong in the tree: this is ONE workspace with ONE
+// shared lockfile at the root, and CI's `--frozen-lockfile` install reads only
+// that one. A `pnpm install` run inside a package without the workspace in view
+// writes its own, which then drifts silently (packages/api-core carried one from
+// the initial commit). test/deploy-contracts lockfile-contract holds this.
+root.gitignore.exclude('/*/pnpm-lock.yaml', '/*/*/pnpm-lock.yaml');
+// The floor for version managers (nvm, fnm, asdf): the bare MAJOR.MINOR of
+// `minNodeVersion`, so they install the newest patch of the line.
+const nodeMajorMinor = root.minNodeVersion!.split('.').slice(0, 2).join('.');
+for (const file of ['.nvmrc', '.node-version']) {
+  new TextFile(root, file, { lines: [nodeMajorMinor, ''] });
+}
 // NOTE: pnpm's `verifyDepsBeforeRun` is disabled in pnpm-workspace.yaml
 // (projenrc/pnpm.ts) — `.npmrc` is not consulted for it.
 
@@ -1808,7 +1837,11 @@ const REPO_FIXTURE_INPUTS: Record<string, string[]> = {
     '{workspaceRoot}/packages/*/package.json', '{workspaceRoot}/packages/*/.npmignore', '{workspaceRoot}/packages/*/src/**/*', '{workspaceRoot}/packages/*/test/**/*',
     '{workspaceRoot}/api/*/package.json', '{workspaceRoot}/api/*/src/**/*', '{workspaceRoot}/api/*/test/**/*', '{workspaceRoot}/api/*/scripts/**/*',
     '{workspaceRoot}/platform/package.json', '{workspaceRoot}/platform/src/**/*', '{workspaceRoot}/platform/test/**/*',
-    '{workspaceRoot}/frontend/src/**/*', '{workspaceRoot}/frontend/test/**/*'],
+    '{workspaceRoot}/frontend/src/**/*', '{workspaceRoot}/frontend/test/**/*',
+    // node-version-contract: the floor files projen writes; lockfile-contract:
+    // the one root lockfile and any nested one that should not exist.
+    '{workspaceRoot}/.nvmrc', '{workspaceRoot}/.node-version', '{workspaceRoot}/.npmrc', '{workspaceRoot}/frontend/package.json',
+    '{workspaceRoot}/pnpm-lock.yaml', '{workspaceRoot}/*/pnpm-lock.yaml', '{workspaceRoot}/*/*/pnpm-lock.yaml'],
   // org-namespace-template.test.ts: the served manifest vs the per-org templates.
   'platform': ['{workspaceRoot}/deploy/*/*/k8s/per-org/*'],
   // plugin-spec-smoke.test.ts: every catalog plugin spec, and the managed
@@ -1844,7 +1877,7 @@ new Nx(root);
 // Fills pnpmWorkspaceYamlOptions.packages — subprojects must already exist.
 setWorkspacePackages(root);
 new VscodeSettings(root);
-new Workflow(root, { pnpmVersion, imageProjects, libraryProjects });
+new Workflow(root, { pnpmVersion, nodeVersion: nodeRuntimeVersion, imageProjects, libraryProjects });
 
 // deploy/<target>/services.txt — the list the deploy scripts read
 // (sync-image-tags.sh, service-signing-keys.sh, verify-npm-deps.sh):

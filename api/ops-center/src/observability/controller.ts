@@ -24,7 +24,7 @@
  *   - Valid query returning empty result        → 200 with `{samples: []}` / `{series: []}` / `{entries: []}`
  */
 
-import { parsePage, parseQueryString, sendError, sendSuccess, isSystemAdmin } from '@pipeline-builder/api-core';
+import { parsePage, parseQueryString, sendError, sendSuccess, isSystemAdmin, isReasonableString } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
 import * as am from './alertmanager-client.js';
 import {
@@ -42,7 +42,6 @@ import { sendUpstreamFailure, upstreamFailureResult } from './upstream.js';
 import { audit } from '../helpers/audit.js';
 import { ensureAuthenticated, forbid, getAdminContext, withController } from '../helpers/controller-helper.js';
 import { queryAuditActivity } from '../services/platform-client.js';
-import { isReasonableString } from '../utils/string-guards.js';
 
 /**
  * Parse the `range` query param.

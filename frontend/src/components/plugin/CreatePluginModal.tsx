@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useId } from 'react';
+import { useState, useRef, useEffect, useEffectEvent, useId } from 'react';
 import { useMutation } from '@/hooks/useMutation';
 import { Upload, CheckCircle } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';
@@ -80,16 +80,18 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
   const isFailed = buildStatus === 'failed';
 
   // Close modal shortly after a successful build so the user sees the
-  // completion state before it disappears.
+  // completion state before it disappears. An Effect Event, so the timer
+  // calls the parent's CURRENT callbacks, and a re-rendered parent passing new
+  // ones neither restarts nor re-fires it (only `buildStatus` does).
+  const finishBuild = useEffectEvent(() => {
+    onCreated();
+    onClose();
+  });
   useEffect(() => {
     if (buildStatus === 'completed') {
-      const timer = setTimeout(() => {
-        onCreated();
-        onClose();
-      }, 2000);
+      const timer = setTimeout(() => finishBuild(), 2000);
       return () => clearTimeout(timer);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run when buildStatus changes; callbacks are stable.
   }, [buildStatus]);
 
   const upload = useMutation({

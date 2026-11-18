@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { NextRouter } from 'next/router';
 import type { MessagePriority } from '@/types';
 import type { MessageFilters, MessageView } from './useMessages';
+import { useKeyedValue } from './useLatest';
 
 export type ReadFilter = '' | 'unread' | 'read';
 export type PriorityFilter = '' | MessagePriority;
@@ -142,6 +143,7 @@ export function useInboxQuery(router: NextRouter): [InboxQuery, (patch: Partial<
   // issues a replace (which would loop through the router's own update).
   const entries = useMemo(() => toQueryEntries(query), [query]);
   const entriesKey = JSON.stringify(entries);
+  const keyedEntries = useKeyedValue(entries, entriesKey);
   const routerRef = useRef(router);
   routerRef.current = router;
   useEffect(() => {
@@ -149,12 +151,11 @@ export function useInboxQuery(router: NextRouter): [InboxQuery, (patch: Partial<
     if (!adopted.current || !r.isReady) return;
     const rest: Record<string, string | string[] | undefined> = { ...r.query };
     for (const k of Object.values(KEYS)) delete rest[k];
-    const next = { ...rest, ...entries };
+    const next = { ...rest, ...keyedEntries };
     const current = toQueryEntries(parseInboxQuery(r.query));
     if (JSON.stringify(current) === entriesKey) return;
     void r.replace({ pathname: r.pathname, query: next }, undefined, { shallow: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `entries` is captured by `entriesKey`
-  }, [entriesKey]);
+  }, [entriesKey, keyedEntries]);
 
   return [query, setQuery];
 }

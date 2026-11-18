@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import { Search, CornerDownLeft } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -46,19 +46,23 @@ export default function HelpPage() {
   // Holds off until a seeded `?q=` has reached `query`: the seed effect above
   // calls `setQuery(q)` in the same commit this first runs in, so that run still
   // sees the pre-seed '' and would strip the `?q=` the reader arrived with.
+  //
+  // The URL write is an Effect Event: it reads the CURRENT router, but `router`
+  // is not a trigger — it changes identity on every navigation, so as a dep
+  // the write's own `replace` would re-enter this effect.
+  const writeQueryToUrl = useEffectEvent((q: string) => {
+    const current = typeof router.query.q === 'string' ? router.query.q : '';
+    if (current === q) return;
+    const url = { pathname: router.pathname, query: q ? { q } : {}, hash: window.location.hash };
+    void router.replace(url, undefined, { shallow: true });
+  });
   useEffect(() => {
     if (!router.isReady) return;
     if (seedRef.current !== null) {
       if (query !== seedRef.current) return;
       seedRef.current = null;
     }
-    const current = typeof router.query.q === 'string' ? router.query.q : '';
-    if (current === query) return;
-    const url = { pathname: router.pathname, query: query ? { q: query } : {}, hash: window.location.hash };
-    void router.replace(url, undefined, { shallow: true });
-    // `router` is intentionally not a dependency: it changes identity on every
-    // navigation and would re-enter this effect in a loop.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    writeQueryToUrl(query);
   }, [query, router.isReady]);
 
   // Corpus load, search and miss reporting, shared with the Ask drawer's topics

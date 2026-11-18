@@ -26,7 +26,7 @@ import {
   type GetParentOrgId, type PluginScanSummary, type PluginToolchain, type ToolchainReleaseStatus, type ToolchainResolvedVia,
 } from '@pipeline-builder/api-core';
 import {
-  executeRows, loadReleaseHalves, readAffectedPipelines, readCanaryGate, readPlatformDefaultRelease, runWithTenantContext, schema,
+  executeRows, loadReleaseHalves, managedToolchainNamesSql, readAffectedPipelines, readCanaryGate, readPlatformDefaultRelease, runWithTenantContext, schema,
   toolchainCandidateProblems, toolchainOrgChain, withTenantTx,
   type CanaryGateParams, type CanaryGateResult,
 } from '@pipeline-builder/pipeline-data';
@@ -48,7 +48,6 @@ type TenantTx = Parameters<Parameters<typeof withTenantTx>[0]>[0];
 /** K: the Cleanup panel keeps every release no older than the last K platform defaults. */
 export const CLEANUP_KEEP_DEFAULTS = 5;
 
-const MANAGED_NAMES_SQL = sql.raw(MANAGED_TOOLCHAIN_PLUGINS.map((n) => `'${n}'`).join(', '));
 
 // -----------------------------------------------------------------------------
 // Dependencies (injectable for tests)
@@ -702,11 +701,11 @@ export async function getCleanupCandidates(): Promise<{ candidates: Array<{ rele
       tx.select({ releaseVersion: schema.toolchainRelease.releaseVersion, createdAt: schema.toolchainRelease.createdAt }).from(schema.toolchainRelease),
       executeRows<{ version: string; created_at: Date | string }>(tx, sql`
         SELECT version, min(created_at) AS created_at FROM plugins
-         WHERE org_id = ${SYSTEM_ORG_ID} AND name IN (${MANAGED_NAMES_SQL}) AND deleted_at IS NULL GROUP BY 1`),
+         WHERE org_id = ${SYSTEM_ORG_ID} AND name IN (${managedToolchainNamesSql}) AND deleted_at IS NULL GROUP BY 1`),
       executeRows<{ v: string }>(tx, sql`
-        SELECT plugin_version AS v FROM pipeline_step_manifests WHERE plugin_name IN (${MANAGED_NAMES_SQL}) AND plugin_publisher IS NULL
+        SELECT plugin_version AS v FROM pipeline_step_manifests WHERE plugin_name IN (${managedToolchainNamesSql}) AND plugin_publisher IS NULL
         UNION SELECT r.resolved_version FROM pipeline_plugin_resolution r JOIN pipelines lp ON lp.id::text = r.pipeline_id AND lp.deleted_at IS NULL
-               WHERE r.plugin_name IN (${MANAGED_NAMES_SQL}) AND r.plugin_publisher IS NULL AND r.resolved_version IS NOT NULL
+               WHERE r.plugin_name IN (${managedToolchainNamesSql}) AND r.plugin_publisher IS NULL AND r.resolved_version IS NOT NULL
         UNION SELECT props->'toolchain'->>'release' FROM pipelines WHERE deleted_at IS NULL AND props->'toolchain'->>'release' IS NOT NULL
         UNION SELECT release_version FROM org_toolchain_default
         UNION SELECT release_version FROM toolchain_rollout

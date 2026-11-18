@@ -30,13 +30,21 @@ import {
   MANAGED_TOOLCHAIN, MANAGED_TOOLCHAIN_PLUGINS, MAX_ORG_DEPTH, SYSTEM_ORG_ID, TOOLCHAIN_RELEASE_VERSION_PATTERN, toolchainFromMetadata, toOrgIdString,
   type GetParentOrgId, type ManagedToolchainPlugin, type PluginToolchain, type ToolchainResolvedVia,
 } from '@pipeline-builder/api-core';
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import type { CrudTx } from './crud-service.js';
 import type { ResolutionRefusal } from './plugin-resolution.js';
 import { schema, type OrgToolchainDefault, type Plugin, type ToolchainRelease } from '../database/drizzle-schema.js';
 import { runWithTenantContext, withTenantTx } from '../database/tenancy.js';
 
 const logger = createLogger('managed-toolchain');
+
+/**
+ * The managed toolchain names ({@link MANAGED_TOOLCHAIN_PLUGINS}) as a
+ * parameterised SQL list, for a raw `IN (…)` / `NOT IN (…)` fragment:
+ * `` sql`name IN (${managedToolchainNamesSql})` `` renders `name IN ($1, $2)`.
+ * Drizzle query-builder code uses `inArray(col, [...MANAGED_TOOLCHAIN_PLUGINS])`.
+ */
+export const managedToolchainNamesSql: SQL = sql.join(MANAGED_TOOLCHAIN_PLUGINS.map((n) => sql`${n}`), sql`, `);
 
 // -----------------------------------------------------------------------------
 // Public shapes

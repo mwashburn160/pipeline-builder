@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useEventCallback, useKeyedValue } from '@/hooks/useLatest';
 import { MESSAGE_PRIORITY_IDS, MESSAGE_PRIORITY_META } from '@/lib/message-priority';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/router';
@@ -132,8 +133,8 @@ export default function MessagesPage() {
   const messageFilter: MessageFilter = inboxQuery.tab;
   const removedView = inboxQuery.removed;
   const listFiltersKey = JSON.stringify(inboxListFilters(inboxQuery));
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the serialised filters, not the query object
-  const listFilters = useMemo(() => inboxListFilters(inboxQuery), [listFiltersKey]);
+  // Keyed on the serialised filters, not the query object's identity.
+  const listFilters = useKeyedValue(inboxListFilters(inboxQuery), listFiltersKey);
   const filtersActive = inboxFiltersActive(inboxQuery);
   const {
     messages,
@@ -212,13 +213,12 @@ export default function MessagesPage() {
   const headingCount = total;
 
   // Mirror the open message into the URL (shallow) so the view is linkable and
-  // Back closes it; `null` drops the key.
-  const writeMessageParam = useCallback((id: string | null) => {
+  // Back closes it; `null` drops the key. Stable identity; writes onto the CURRENT query.
+  const writeMessageParam = useEventCallback((id: string | null) => {
     const rest = { ...router.query };
     delete rest[MESSAGE_QUERY_KEY];
     void router.replace({ pathname: router.pathname, query: id ? { ...rest, [MESSAGE_QUERY_KEY]: id } : rest }, undefined, { shallow: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- router identity changes each render
-  }, [router.query, router.pathname]);
+  });
 
   /** Open a message: select it and mark it read for the current org. */
   const openMessage = useCallback((msg: Message) => {

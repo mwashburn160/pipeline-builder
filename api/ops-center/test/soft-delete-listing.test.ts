@@ -129,7 +129,6 @@ jest.unstable_mockModule('../src/services/promql-rewriter.js', () => ({
 
 jest.unstable_mockModule('../src/services/alert-relay.js', () => ({ relayWebhook: jest.fn() }));
 jest.unstable_mockModule('../src/utils/email-address.js', () => ({ isValidEmail: () => true, EMAIL_PATTERN: /.+/ }));
-jest.unstable_mockModule('../src/utils/string-guards.js', () => ({ isReasonableString: () => true }));
 
 const { listDeletedDashboards, purgeDashboard } = await import('../src/controllers/dashboards.js');
 const { listDeletedAlertRules, purgeAlertRule } = await import('../src/controllers/alert-rules.js');

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useEffectEvent, useState } from 'react';
 import { formatError } from '@/lib/constants';
 import { CheckCircle, MailWarning, User, Building2, Trash2, Clock } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -136,14 +136,18 @@ export default function SettingsPage() {
   };
 
   // Seed the form once per signed-in user — NOT on every profile refresh, which
-  // would overwrite whatever the user is typing.
-  useEffect(() => {
+  // would overwrite whatever the user is typing. The seed reads the current
+  // profile (an Effect Event); only a change of signed-in user triggers it.
+  const seedProfileForm = useEffectEvent(() => {
     if (user) {
       setUsername(user.username);
       setEmail(user.email);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- seed the form once per signed-in user, not on every profile refresh
-  }, [user?.id]);
+  });
+  const userId = user?.id;
+  useEffect(() => {
+    seedProfileForm();
+  }, [userId]);
 
   const handleProfileSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

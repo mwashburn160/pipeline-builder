@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
 import { LinkButton } from '@/components/ui/LinkButton';
 import { MessageSquare } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
@@ -89,14 +89,16 @@ export function ReviewsSection({ listing, initial }: { listing: ListingDetail; i
     }));
   }, [publisher, name, sort, ratingFilter]);
 
+  // Whether the server-rendered page already answers the current view. Read on
+  // the FIRST run only (an Effect Event): `initial` is the first render's server
+  // page, and a later change to it must not re-seed or re-trigger the list.
+  const initialCoversView = useEffectEvent(() => !!initial && sort === DEFAULT_REVIEW_SORT && ratingFilter === 0);
   useEffect(() => {
     if (!usedInitial.current) {
       usedInitial.current = true;
-      if (initial && sort === DEFAULT_REVIEW_SORT && ratingFilter === 0) return;
+      if (initialCoversView()) return;
     }
     void load(null, { fresh: reloadTick > 0 });
-    // `initial` is the first render's server page; later changes don't re-seed.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load, reloadTick]);
 
   const state = useFetch<ReviewState | null>(async (signal) => {

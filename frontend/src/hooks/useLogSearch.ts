@@ -1,7 +1,6 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback } from 'react';
 import { api } from '@/lib/api';
 import type { LogQueryParams, LogSearchResponse, LogVolumeResponse } from '@/types/logs';
 import { useObservabilityResource } from './useObservabilityResource';
@@ -20,15 +19,13 @@ function cacheKey(prefix: string, params: LogQueryParams): string {
 /** Log entries for the current query. */
 export function useLogSearch(params: LogQueryParams, enabled = true) {
   const key = cacheKey('search', params);
-  const fetcher = useCallback(
-    async (signal: AbortSignal): Promise<LogSearchResponse | undefined> => {
-      if (!enabled) return undefined;
-      const res = await api.logSearch(params, { signal });
-      return res.data;
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- params tracked via `key`
-    [key, enabled],
-  );
+  // No memo: the resource reads the fetcher through a ref and re-binds on its
+  // KEY, so this render's `params` are what the next read uses.
+  const fetcher = async (signal: AbortSignal): Promise<LogSearchResponse | undefined> => {
+    if (!enabled) return undefined;
+    const res = await api.logSearch(params, { signal });
+    return res.data;
+  };
   // `enabled` is part of the resource key: the resource re-binds (and fetches)
   // only when its key changes, so on a hard load — auth still initialising —
   // flipping `enabled` on must fetch at once rather than leave the Logs page at
@@ -39,15 +36,13 @@ export function useLogSearch(params: LogQueryParams, enabled = true) {
 /** Per-level volume for the histogram above the list. */
 export function useLogVolume(params: LogQueryParams, enabled = true) {
   const key = cacheKey('volume', params);
-  const fetcher = useCallback(
-    async (signal: AbortSignal): Promise<LogVolumeResponse | undefined> => {
-      if (!enabled) return undefined;
-      const res = await api.logVolume(params, { signal });
-      return res.data;
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- params tracked via `key`
-    [key, enabled],
-  );
+  // No memo: the resource reads the fetcher through a ref and re-binds on its
+  // KEY, so this render's `params` are what the next read uses.
+  const fetcher = async (signal: AbortSignal): Promise<LogVolumeResponse | undefined> => {
+    if (!enabled) return undefined;
+    const res = await api.logVolume(params, { signal });
+    return res.data;
+  };
   // `enabled` in the key for the same reason as useLogSearch.
   return useObservabilityResource<LogVolumeResponse>(fetcher, `${key}|${enabled ? 'on' : 'off'}`);
 }

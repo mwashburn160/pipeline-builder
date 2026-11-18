@@ -24,6 +24,34 @@
  * require path, and every package here is `"type": "module"`.
  */
 
+const fs = require('fs');
+const path = require('path');
+
+/**
+ * Node floor check, MAJOR.MINOR only (any patch of the floor's line passes).
+ * Returns the refusal message, or undefined when `found` is new enough.
+ *
+ * The floor comes from `.nvmrc`, which projen generates from `minNodeVersion`
+ * in .projenrc.ts — the same constant behind every `engines.node` and
+ * `.npmrc`'s `engine-strict`. Checked here as well because `engine-strict`
+ * only gates `pnpm install`: a suite run on an older Node (a stale nvm shell,
+ * an IDE runner) otherwise fails deep inside some unrelated API instead of
+ * saying what is wrong.
+ */
+function nodeVersionProblem(found, floor) {
+  const clean = String(found).replace(/^v/, '');
+  const [maj, min] = clean.split('.').map(Number);
+  const [fMaj, fMin] = String(floor).split('.').map(Number);
+  const ok = maj > fMaj || (maj === fMaj && min >= fMin);
+  return ok ? undefined : `Node >= ${fMaj}.${fMin} required (found ${clean})`;
+}
+
+const floor = fs.readFileSync(path.join(__dirname, '.nvmrc'), 'utf-8').trim();
+const problem = nodeVersionProblem(process.versions.node, floor);
+if (problem) throw new Error(problem);
+
+module.exports = { nodeVersionProblem };
+
 const snapshot = { ...process.env };
 
 afterAll(() => {

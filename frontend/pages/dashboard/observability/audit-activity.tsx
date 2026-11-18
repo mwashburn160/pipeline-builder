@@ -12,7 +12,7 @@
  * through, which the dashboard renderer reads directly.
  */
 
-import { useEffect } from 'react';
+import { useEffect, useEffectEvent } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -51,15 +51,17 @@ export default function AuditActivityResolver() {
     [ready],
   );
 
-  useEffect(() => {
-    if (!router.isReady || !targetId) return;
+  // The query is captured at redirect time (an Effect Event); re-renders and
+  // query changes don't re-trigger it — only readiness and the resolved id do.
+  const redirectTo = useEffectEvent((id: string) => {
     // Preserve every URL param except `id` (which would conflict with the
     // dashboard route). The DB-stored renderer reads `range` and the audit
     // filters (`event`, `actor`, `requestId`) directly.
     const { id: _ignored, ...passThrough } = router.query;
-    void router.replace({ pathname: `/dashboard/observability/${targetId}`, query: passThrough });
-    // Capture the query at redirect time; re-renders shouldn't re-trigger it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the query is captured at redirect time; re-renders must not re-trigger it
+    void router.replace({ pathname: `/dashboard/observability/${id}`, query: passThrough });
+  });
+  useEffect(() => {
+    if (router.isReady && targetId) redirectTo(targetId);
   }, [router.isReady, targetId]);
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;

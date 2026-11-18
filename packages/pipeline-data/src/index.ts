@@ -167,6 +167,7 @@ export {
   toolchainCandidateProblems,
   bootstrapToolchainOf,
   setManagedToolchainDepsForTests,
+  managedToolchainNamesSql,
   type ManagedToolchainResolution,
   type ManagedToolchainWarning,
   type ManagedToolchainCaller,

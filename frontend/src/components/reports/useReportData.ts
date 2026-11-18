@@ -18,6 +18,7 @@ import { useCallback, useMemo } from 'react';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 import { useFetch } from '@/hooks/useFetch';
+import { useStableDeps } from '@/hooks/useLatest';
 import { useQuery } from '@/hooks/useQuery';
 import { queries } from '@/lib/api-cache';
 import type { ExecutionCountRow } from '@/types';
@@ -139,11 +140,10 @@ function useSlice<T>(active: boolean, key: string, run: (signal: AbortSignal) =>
 function useTabStatus(slices: SliceStatus[]): TabDataStatus {
   const loading = slices.some((s) => s.loading);
   const failed = slices.find((s) => s.error)?.error ?? null;
-  const refetchers = slices.map((s) => s.refetch);
-  // The individual refetches are stable, so this is too — which matters: tabs
-  // report it up through an effect keyed on its identity.
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- the dep list IS the slice refetchers array — dynamic by construction
-  const refetch = useCallback(() => { refetchers.forEach((r) => r()); }, refetchers);
+  // The individual refetches are stable, so this list — and so `refetch` — is
+  // too, which matters: tabs report it up through an effect keyed on its identity.
+  const refetchers = useStableDeps(slices.map((s) => s.refetch)) as ReadonlyArray<() => void>;
+  const refetch = useCallback(() => { refetchers.forEach((r) => r()); }, [refetchers]);
   return { loading, error: failed ? formatError(failed, 'Failed to load report data') : null, refetch };
 }
 

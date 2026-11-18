@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { isUsableTimeZone } from './calendar.js';
-import { MAX_PAGE_OFFSET } from '../validation/common-schemas.js';
+import { MAX_PAGE_LIMIT, MAX_PAGE_OFFSET } from '../validation/common-schemas.js';
 
 /**
  * Shape convention for the inline parse-guard helpers below.
@@ -162,6 +162,31 @@ export function parsePage(query: Record<string, unknown>, opts: PageOptions): Pa
   const maxOffset = Math.max(0, rawMaxOffset ?? MAX_PAGE_OFFSET);
   const offset = Math.max(0, Math.min(parseQueryInt(query.offset, 0), maxOffset));
   return { limit, offset };
+}
+
+/** Rows a {@link listPage} route returns when the caller names no `?limit`. */
+const LIST_PAGE_DEFAULT_LIMIT = 10;
+
+/**
+ * The `?limit=&offset=` window for a platform / ops-center LIST route:
+ * {@link parsePage} (which clamps both bounds) with their ONE default page
+ * size (10) and the global `MAX_PAGE_LIMIT`. Routes whose page size is
+ * dictated by something else — the audit dashboards, the log reader, a role
+ * list capped by its own maximum — pass their own bounds to `parsePage`
+ * directly and say why.
+ */
+export function listPage(query: unknown): Page {
+  return parsePage(query as Record<string, unknown>, { def: LIST_PAGE_DEFAULT_LIMIT, max: MAX_PAGE_LIMIT });
+}
+
+/**
+ * Validate that a value is a non-empty string no longer than `max`. A
+ * lightweight defense-in-depth guard for free-text request fields (titles,
+ * labels, silence comments, matcher values): it bounds the input length and
+ * narrows the type in one check. Default cap is 256.
+ */
+export function isReasonableString(v: unknown, max = 256): v is string {
+  return typeof v === 'string' && v.length > 0 && v.length <= max;
 }
 
 /**

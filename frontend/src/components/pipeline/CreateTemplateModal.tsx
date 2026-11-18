@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { LayoutTemplate, Plus, Trash2, Wand2 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { useIsDirty } from '@/hooks/useIsDirty';
@@ -156,10 +156,14 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
   }, [pickerError]);
 
   // Preselected (Save-as-template): guarantee we have the full config (props),
-  // even if the caller passed a list-trimmed pipeline row.
+  // even if the caller passed a list-trimmed pipeline row. Runs once per
+  // preselection — an Effect Event, so a re-rendered `pipeline` prop or
+  // `selectPipeline` can't re-issue the fetch.
+  const loadPreselected = useEffectEvent(() => {
+    if (pipeline && !pipeline.props) void selectPipeline(pipeline.id);
+  });
   useEffect(() => {
-    if (preselected && pipeline && !pipeline.props) void selectPipeline(pipeline.id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once for the preselected pipeline.
+    if (preselected) loadPreselected();
   }, [preselected]);
 
   // Auto-parameterize the repository: once a source pipeline's props are loaded,

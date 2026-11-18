@@ -18,11 +18,10 @@
  * pulls to pick up operator-authored rules at runtime.
  */
 
-import { createLogger, getParam, paginationMeta, sendError, sendSuccess, isSystemAdmin } from '@pipeline-builder/api-core';
+import { createLogger, getParam, paginationMeta, sendError, sendSuccess, isSystemAdmin, listPage } from '@pipeline-builder/api-core';
 import { isUniqueViolation } from '@pipeline-builder/pipeline-data';
 import { audit } from '../helpers/audit.js';
 import { requireAuthContext, requireOrgMembership, withController } from '../helpers/controller-helper.js';
-import { listPage } from '../helpers/pagination.js';
 import { releaseFeatureQuota, withFeatureQuota } from '../middleware/quota.js';
 import { alertRuleService, prepareRuleExpr, renderRulesYaml, validateRule } from '../services/alert-rule-service.js';
 import { PromQLRewriteError } from '../services/promql-rewriter.js';

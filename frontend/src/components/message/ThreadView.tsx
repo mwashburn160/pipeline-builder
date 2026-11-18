@@ -224,7 +224,6 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
   useEffect(() => {
     // Mark thread as read when viewing.
     onThreadReadRef.current(rootMessage.id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-fetch only on thread id change; rootMessage is the fallback body.
   }, [rootMessage.id]);
 
   useEffect(() => {

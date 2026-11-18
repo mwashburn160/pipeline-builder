@@ -1,13 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, DEFAULT_TIER, getParam, isBillingEnabled, isSystemAdmin, paginationMeta, sendError, sendSuccess, SYSTEM_ORG_ID, userHasPermission, VALID_TIERS } from '@pipeline-builder/api-core';
+import { createLogger, DEFAULT_TIER, getParam, isBillingEnabled, isSystemAdmin, paginationMeta, sendError, sendSuccess, SYSTEM_ORG_ID, userHasPermission, VALID_TIERS, listPage } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import {
   canAccessOrg, canManageOrgScope, ensureAuthenticated, forbid, requirePlatformPermission, withController,
 } from '../helpers/controller-helper.js';
 import { expandOrgScope } from '../helpers/org-hierarchy.js';
-import { listPage } from '../helpers/pagination.js';
 import type { PlanTier } from '../models/organization.js';
 import { organizationService, orgHierarchyService, changedAiProviderFields } from '../services/index.js';
 import { exportOrg, softDeleteOrg } from '../services/org-cascade-service.js';

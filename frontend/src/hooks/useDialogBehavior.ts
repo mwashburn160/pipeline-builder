@@ -135,8 +135,8 @@ export function useDialogBehavior({ panelRef, onClose, initialFocusRef, active =
       // (.focus() on a detached node is a no-op but can throw under test runners).
       if (previouslyFocused instanceof HTMLElement && previouslyFocused.isConnected) previouslyFocused.focus();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- refs are stable; run once per open
-  }, [active]);
+    // The refs are `useRef` objects (stable identity), so this still runs once per open.
+  }, [active, panelRef, initialFocusRef]);
 
   // Late focus: the preferred element arrived after open (its content was still
   // loading). Deliberately NOT keyed on a dependency array — it has to notice a

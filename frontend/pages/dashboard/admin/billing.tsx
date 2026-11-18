@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useMemo, useState, useId } from 'react';
+import { useEventCallback } from '@/hooks/useLatest';
 import { formatError } from '@/lib/constants';
 import { CreditCard, Pencil, RefreshCw, ShieldAlert } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -155,14 +156,15 @@ export default function BillingAdminPage() {
   // is hidden meanwhile (one dialog at a time) and keeps its field values.
   const [pendingEdit, setPendingEdit] = useState<AdminSubscriptionUpdate | null>(null);
 
-  const openEdit = (sub: Subscription) => {
+  // Stable identity (the memoised columns hold it), always the current closure.
+  const openEdit = useEventCallback((sub: Subscription) => {
     setEditSub(sub);
     setEditPlanId(sub.planId);
     setEditStatus(sub.status);
     setEditInterval(sub.interval);
     setEditCancelAtPeriodEnd(sub.cancelAtPeriodEnd);
     editForm.reset();
-  };
+  });
 
   const handleEdit = async () => {
     if (!editSub) return;
@@ -286,8 +288,7 @@ export default function BillingAdminPage() {
         </div>
       ),
     } as Column<Subscription>] : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the row handlers it closes over are stable enough to build once
-  ], [canManageSubscriptions]);
+  ], [canManageSubscriptions, openEdit]);
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;

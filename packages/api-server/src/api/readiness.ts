@@ -32,6 +32,24 @@ export function setReady(ready: boolean): void {
   serviceReady = ready;
 }
 
+/** A `checkDependencies` callback, as `createHealthRouter` takes it. */
+export type DependencyCheck = () => Promise<Record<string, 'connected' | 'disconnected' | 'unknown'>>;
+
+/**
+ * Wrap a `checkDependencies` callback so `/ready` also reports the readiness
+ * FLAG (as the `readiness` dependency). Without it `/ready` only probes the
+ * datastore, so an instance that graceful shutdown has already flipped NotReady
+ * (or one still running its startup bootstraps) keeps passing the
+ * orchestrator's readiness probe and stays in rotation while it drains.
+ * `/health` (liveness) is unaffected — it always answers 200.
+ */
+export function withReadinessState(check?: DependencyCheck): DependencyCheck {
+  return async () => ({
+    ...(check ? await check() : {}),
+    readiness: serviceReady ? 'connected' : 'disconnected',
+  });
+}
+
 /**
  * Default infra endpoints that must stay reachable while NotReady, so
  * orchestrators can probe liveness/readiness, scrape metrics, warm pools,

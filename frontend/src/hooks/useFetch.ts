@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { runCancellableFetch } from './internal/fetchCore';
 import { useTagEpoch } from './internal/useTagEpoch';
+import { useStableDeps } from './useLatest';
 
 /**
  * Generic "fetch-once-or-on-deps-change" hook.
@@ -111,8 +112,11 @@ export function useFetch<T>(
   // `refetch()` callers waiting for the run they triggered (or a later one) to settle.
   const waitersRef = useRef<Array<(ok: boolean) => void>>([]);
 
+  // The caller's deps as ONE value whose identity changes exactly when an
+  // element does — so the effect below lists it rather than spreading `deps`.
+  const runDeps = useStableDeps(deps);
+
   useEffect(() => {
-    const runDeps = deps;
     if (!enabled) {
       setSettled(true);
       if (!keepPreviousData) { setLoaded(null); setFailed(null); }
@@ -153,8 +157,7 @@ export function useFetch<T>(
         for (const resolve of waiters) resolve(ok);
       },
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the caller's `deps` are spread in, so the list size is not statically known
-  }, [...deps, tick, tagEpoch, enabled, clearDataOnError, keepPreviousData]);
+  }, [runDeps, tick, tagEpoch, enabled, clearDataOnError, keepPreviousData]);
 
   const current = (s: Stamped<unknown> | null) =>
     !!s && (keepPreviousData || (enabled && sameDeps(s.deps, deps)));

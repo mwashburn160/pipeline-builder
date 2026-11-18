@@ -1,8 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
+import { useEventCallback, useKeyedValue } from './useLatest';
 
 /** How many frames to wait for a hash target that a tab has yet to render. */
 const HASH_SCROLL_FRAMES = 30;
@@ -52,6 +53,10 @@ export function useUrlTab<T extends string>(
   const router = useRouter();
   const [tab, setTab] = useState<T>(fallback);
 
+  // `valid` is static config, but callers pass an inline literal: key it by its
+  // contents so the URL→state effect depends on it without re-running per render.
+  const validTabs = useKeyedValue(valid, valid.join('\u0000'));
+
   const raw = router.query[key];
   const fromUrl = Array.isArray(raw) ? raw[0] : raw;
 
@@ -63,7 +68,7 @@ export function useUrlTab<T extends string>(
   // URL → state, including browser back/forward.
   useEffect(() => {
     if (!router.isReady) return;
-    if (fromUrl && (valid as readonly string[]).includes(fromUrl)) {
+    if (fromUrl && (validTabs as readonly string[]).includes(fromUrl)) {
       setTab((prev) => (prev === fromUrl ? prev : (fromUrl as T)));
       return;
     }
@@ -72,10 +77,7 @@ export function useUrlTab<T extends string>(
     const id = currentHashId();
     const owner = id ? hashTabsRef.current?.[id] : undefined;
     if (owner) setTab((prev) => (prev === owner ? prev : owner));
-    // `valid` is static config; depending on the array identity would re-run
-    // this on every render for callers passing an inline literal.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `valid` is static config; its array identity would re-run this every render
-  }, [router.isReady, fromUrl]);
+  }, [router.isReady, fromUrl, validTabs]);
 
   // Land on the section the fragment names. The browser's own fragment scroll
   // has already fired by now (against a tab that hadn't rendered yet), so this
@@ -102,8 +104,8 @@ export function useUrlTab<T extends string>(
     return () => cancelAnimationFrame(raf);
   }, [router.isReady, tab]);
 
-  // state → URL.
-  const select = useCallback((value: T) => {
+  // state → URL. Stable identity, and always writes onto the CURRENT query.
+  const select = useEventCallback((value: T) => {
     setTab(value);
     // A fragment names a section, and a section lives on ONE tab: keep it while
     // the user stays on that tab, drop it when they leave — otherwise it points
@@ -111,8 +113,7 @@ export function useUrlTab<T extends string>(
     const id = currentHashId();
     const hash = id && hashTabsRef.current?.[id] === value ? `#${id}` : '';
     void router.replace({ query: { ...router.query, [key]: value }, hash }, undefined, { shallow: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- router identity changes each render
-  }, [key, router.query]);
+  });
 
   return [tab, select];
 }

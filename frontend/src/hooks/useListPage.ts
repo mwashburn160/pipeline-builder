@@ -1,9 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useState, useCallback, useEffect, useEffectEvent, useMemo, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { useDebounce } from './useDebounce';
+import { useKeyedValue } from './useLatest';
 import { runCancellableFetch } from './internal/fetchCore';
 import { useTagEpoch } from './internal/useTagEpoch';
 import type { PaginationState } from '@/components/ui/Pagination';
@@ -119,11 +120,15 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
   // so the mirror-to-URL effect can't feed back into hydration and loop.
   const hydratedRef = useRef(false);
 
-  // Build initial filter state from field definitions
-  const initialFilters: Record<string, string> = {};
-  for (const f of fields) {
-    initialFilters[f.key] = f.defaultValue;
-  }
+  // Build initial filter state from field definitions. `fields` is usually an
+  // inline literal, so it is keyed by its contents: `clearFilters` then depends
+  // on the defaults themselves and is rebuilt only if they really change.
+  const fieldDefaults = useKeyedValue(fields, JSON.stringify(fields));
+  const initialFilters = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const f of fieldDefaults) out[f.key] = f.defaultValue;
+    return out;
+  }, [fieldDefaults]);
 
   const [filters, setFilters] = useState<Record<string, string>>(initialFilters);
   const [data, setData] = useState<T[]>([]);
@@ -184,12 +189,11 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
   // useEffect changed size between renders").
   const selectFilterKey = selectFieldKeys.map((k) => String(filters[k] ?? '')).join('\u0000');
 
-  useEffect(() => {
-    // Clear the initial loading state when disabled so a consumer gating on a
-    // non-auth condition (e.g. "wait for an id") doesn't render a spinner
-    // forever; `isLoading` inits true for the enabled-from-mount common case.
-    if (!enabled) { setIsLoading(false); return; }
-
+  // The fetch itself is an Effect Event: it reads THIS render's fields,
+  // filters, fetcher and buildParams (all rebuilt per render / per keystroke),
+  // while the effect below decides WHEN to run — on settled values only, so a
+  // keystroke in a text filter never fetches before the debounce elapses.
+  const startFetch = useEffectEvent(() => {
     // Build params from debounced filter values
     const params: Record<string, string> = {};
     for (const f of fields) {
@@ -228,15 +232,20 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
       onError: (err) => setError(formatError(err, 'Failed to load data')),
       onSettled: () => setIsLoading(false),
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- selectFieldKeys is static config; the dynamic filter values are folded into selectFilterKey
+  });
+
+  useEffect(() => {
+    // Clear the initial loading state when disabled so a consumer gating on a
+    // non-auth condition (e.g. "wait for an id") doesn't render a spinner
+    // forever; `isLoading` inits true for the enabled-from-mount common case.
+    if (!enabled) { setIsLoading(false); return; }
+    return startFetch();
   }, [enabled, debouncedTextValues, selectFilterKey, limit, offset, sortState.sortBy, sortState.sortOrder, fetchKey, tagEpoch]);
 
   // URL → state (once, when the router is ready). Reads any managed filter keys,
   // sortBy/sortOrder, and offset from the query so a refresh/shared link restores
   // the view. Runs before the write-back effect can fire (hydratedRef guard).
-  useEffect(() => {
-    if (!urlSync || !router.isReady || hydratedRef.current) return;
-    hydratedRef.current = true;
+  const hydrateFromUrl = useEffectEvent(() => {
     const q = router.query;
     const nextFilters: Record<string, string> = { ...initialFilters };
     let filtersChanged = false;
@@ -250,14 +259,17 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
     if (sb || so) setSortState({ sortBy: sb, sortOrder: so });
     const off = typeof q.offset === 'string' ? parseInt(q.offset, 10) : NaN;
     if (Number.isFinite(off) && off > 0) setOffset(off);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot hydration keyed on router readiness.
+  });
+  useEffect(() => {
+    if (!urlSync || !router.isReady || hydratedRef.current) return;
+    hydratedRef.current = true;
+    hydrateFromUrl();
   }, [urlSync, router.isReady]);
 
   // state → URL (after hydration). Mirrors the settled (debounced) filter/sort/
   // offset state into a shallow `router.replace`. Deps are the same settled values
   // the fetch uses, so it writes at most once per settled change — never per keystroke.
-  useEffect(() => {
-    if (!urlSync || !hydratedRef.current) return;
+  const writeToUrl = useEffectEvent(() => {
     const query: Record<string, string> = {};
     for (const f of fields) {
       const val = (f.type === 'text' ? debouncedFilters[f.key] : filters[f.key]) ?? '';
@@ -267,7 +279,10 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
     if (sortState.sortOrder) query.sortOrder = sortState.sortOrder;
     if (offset > 0) query.offset = String(offset);
     void router.replace({ pathname: router.pathname, query }, undefined, { shallow: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- select values are folded into selectFilterKey (fixed-size deps, same as the fetch effect).
+  });
+  useEffect(() => {
+    if (!urlSync || !hydratedRef.current) return;
+    writeToUrl();
   }, [urlSync, debouncedTextValues, selectFilterKey, sortState.sortBy, sortState.sortOrder, offset]);
 
   // A changed filter/sort returns to page 1 (offset 0) — `usePagination.reset`.
@@ -279,8 +294,7 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
   const clearFilters = useCallback(() => {
     setFilters(initialFilters);
     resetOffset();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- initialFilters is only used on mount to reset state
-  }, [resetOffset]);
+  }, [initialFilters, resetOffset]);
 
   const hasActiveFilters = useMemo(() => fields.some(f => {
     const val = filters[f.key];

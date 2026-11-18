@@ -31,17 +31,20 @@ export * from './ai-call-reservation.js';
 // inside this package and have no external caller.
 export { getIdempotencyStore, isIdempotentReplay, IDEMPOTENT_REPLAY_LOCAL, type IdempotencyStore } from './idempotency-middleware.js';
 
-// Observability. `shutdownTracing` is called by this package's own `server.js`
-// shutdown path, and the metrics middleware/handler are mounted by `createApp`.
+// Observability. `shutdownTracing` is called by this package's own
+// `graceful-shutdown.js`, and the metrics middleware/handler are mounted by `createApp`.
 export { withSpan, currentTraceId } from './tracing.js';
 export { registerSecretRotationGauge, incCounter, observe, setGauge, resetGauge, createMetricHelpers, type MetricHelpers } from './metrics.js';
 
 // Server utilities
 export * from './server.js';
+// The shared graceful-shutdown routine (startServer uses it; platform's own
+// entrypoint installs it directly).
+export * from './graceful-shutdown.js';
 
 // Readiness state + guard middleware. `DEFAULT_READINESS_BYPASS` is the guard's
 // own default — callers pass their own list or take the default implicitly.
-export { isReady, setReady, readinessGuard } from './readiness.js';
+export { isReady, setReady, readinessGuard, withReadinessState, type DependencyCheck } from './readiness.js';
 
 // Route wrapper
 export * from './route-wrapper.js';

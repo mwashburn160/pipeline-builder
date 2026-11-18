@@ -45,11 +45,12 @@
  * unanswerable check keeps the version.
  */
 
-import { isManagedToolchainPlugin, MANAGED_TOOLCHAIN_PLUGINS, SYSTEM_ORG_ID, compareSemverLenient, parseSemver } from '@pipeline-builder/api-core';
+import { isManagedToolchainPlugin, SYSTEM_ORG_ID, compareSemverLenient, parseSemver } from '@pipeline-builder/api-core';
 import {
   executeRows,
   implicitInstallRange,
   installAdmits,
+  managedToolchainNamesSql,
   OFFICIAL_PUBLISHER_HANDLE,
   versionReferencedPredicate,
   type InstallVersionPolicy,
@@ -250,7 +251,6 @@ export function decidePlugin(input: DecideInput): PluginDecision {
 
 const OFFICIAL = OFFICIAL_PUBLISHER_HANDLE;
 const SYSTEM = SYSTEM_ORG_ID.toLowerCase();
-const MANAGED_NAMES_SQL = sql.raw(MANAGED_TOOLCHAIN_PLUGINS.map((n) => `'${n}'`).join(', '));
 
 /** `LATERAL (…) AS refs`: one `ref` per plugin reference of the props column `props` (every stage step's plugin, plus synth's). */
 function pluginRefsOf(props: SQL): SQL {
@@ -294,7 +294,7 @@ export function retentionHoldSql(c: HoldColumns): SQL {
   const referenced = versionReferencedPredicate({ digest: c.digest, name: c.name, version: c.version, orgId: sql`${SYSTEM}` });
   const publicReferenced = versionReferencedPredicate({ digest: c.publicDigest, name: sql`NULL`, version: sql`NULL`, orgId: sql`NULL` });
   return sql`CASE
-    WHEN ${c.name} IN (${MANAGED_NAMES_SQL}) THEN 'managed_toolchain'
+    WHEN ${c.name} IN (${managedToolchainNamesSql}) THEN 'managed_toolchain'
     WHEN ${c.isDefault} THEN 'default_version'
     WHEN ${c.pausedAt} IS NOT NULL THEN 'paused'
     WHEN ${referenced} THEN 'pipeline_reference'
@@ -326,7 +326,7 @@ type Tx = Parameters<typeof executeRows>[0];
 export async function systemPluginNames(tx: Tx): Promise<string[]> {
   const rows = await executeRows<{ name: string }>(tx, sql`
     SELECT DISTINCT name FROM plugins
-     WHERE lower(org_id) = ${SYSTEM} AND deleted_at IS NULL AND name NOT IN (${MANAGED_NAMES_SQL})
+     WHERE lower(org_id) = ${SYSTEM} AND deleted_at IS NULL AND name NOT IN (${managedToolchainNamesSql})
      ORDER BY name`);
   return rows.map((r) => r.name).filter((n) => !isManagedToolchainPlugin(n));
 }

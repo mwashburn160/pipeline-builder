@@ -32,14 +32,13 @@
  */
 
 import {
-  BUILD_IMAGE_STEP_KEY, isManagedToolchainPlugin, isSystemOrgId, MANAGED_TOOLCHAIN_PLUGINS, SYSTEM_ORG_ID,
+  BUILD_IMAGE_STEP_KEY, isManagedToolchainPlugin, isSystemOrgId, SYSTEM_ORG_ID,
 } from '@pipeline-builder/api-core';
 import { sql, type SQL } from 'drizzle-orm';
+import { managedToolchainNamesSql } from './managed-toolchain.js';
 import { executeRows } from '../database/pg-result.js';
 import { withTenantTx } from '../database/tenancy.js';
 
-/** The managed toolchain names as an SQL list (constants, never input). */
-const MANAGED_NAMES_SQL = sql.raw(MANAGED_TOOLCHAIN_PLUGINS.map((n) => `'${n}'`).join(', '));
 const SYSTEM_ORG_ID_LOWER = SYSTEM_ORG_ID.toLowerCase();
 
 /**
@@ -51,12 +50,12 @@ const SYSTEM_ORG_ID_LOWER = SYSTEM_ORG_ID.toLowerCase();
 function managedReleaseReferenced(cols: { name: SQL; version: SQL; orgId: SQL }): SQL {
   // COALESCE: a caller passing NULL columns (the listing image GC) must read
   // FALSE here, never NULL — `NOT NULL` would silently keep every image.
-  return sql`COALESCE(lower(${cols.orgId}) = ${SYSTEM_ORG_ID_LOWER} AND ${cols.name} IN (${MANAGED_NAMES_SQL}) AND (
-      EXISTS (SELECT 1 FROM pipeline_step_manifests m WHERE m.plugin_name IN (${MANAGED_NAMES_SQL}) AND m.plugin_version = ${cols.version}
+  return sql`COALESCE(lower(${cols.orgId}) = ${SYSTEM_ORG_ID_LOWER} AND ${cols.name} IN (${managedToolchainNamesSql}) AND (
+      EXISTS (SELECT 1 FROM pipeline_step_manifests m WHERE m.plugin_name IN (${managedToolchainNamesSql}) AND m.plugin_version = ${cols.version}
                 AND m.plugin_publisher IS NULL)
       OR EXISTS (SELECT 1 FROM pipeline_plugin_resolution r JOIN pipelines lp ON lp.id::text = r.pipeline_id AND lp.deleted_at IS NULL
-                  WHERE r.plugin_name IN (${MANAGED_NAMES_SQL}) AND r.resolved_version = ${cols.version} AND r.plugin_publisher IS NULL)
-      OR EXISTS (SELECT 1 FROM plugin_vuln_exposure e WHERE e.plugin_name IN (${MANAGED_NAMES_SQL}) AND e.plugin_version = ${cols.version}
+                  WHERE r.plugin_name IN (${managedToolchainNamesSql}) AND r.resolved_version = ${cols.version} AND r.plugin_publisher IS NULL)
+      OR EXISTS (SELECT 1 FROM plugin_vuln_exposure e WHERE e.plugin_name IN (${managedToolchainNamesSql}) AND e.plugin_version = ${cols.version}
                   AND e.plugin_publisher IS NULL AND e.source = 'deployed' AND e.fixed_at IS NULL)), false)`;
 }
 
@@ -124,7 +123,7 @@ export async function findVersionReferences(
   const managed = isManagedReleaseTarget(target);
   // A managed half: either half of the release, at its version (module doc).
   const release = (alias: 'r' | 'm' | 'e', versionCol: string) => (managed
-    ? sql` OR (${sql.raw(`${alias}.plugin_name`)} IN (${MANAGED_NAMES_SQL}) AND ${sql.raw(`${alias}.${versionCol}`)} = ${target.pluginVersion} AND ${sql.raw(`${alias}.plugin_publisher`)} IS NULL)`
+    ? sql` OR (${sql.raw(`${alias}.plugin_name`)} IN (${managedToolchainNamesSql}) AND ${sql.raw(`${alias}.${versionCol}`)} = ${target.pluginVersion} AND ${sql.raw(`${alias}.plugin_publisher`)} IS NULL)`
     : sql``);
   const declaredMatch = digest
     ? sql`r.resolved_digest = ${digest}`

@@ -154,10 +154,11 @@ export default function BillingPage() {
   const [activeTab, selectTab] = useUrlTab<BillingTab>('tab', BILLING_TAB_IDS, 'overview');
   const changeTab = (id: string) => selectTab(id as BillingTab);
   // A `?highlight=<feature>` upsell link with no explicit tab targets an add-on,
-  // which lives on the Add-ons tab — land there.
+  // which lives on the Add-ons tab — land there. `selectTab` is stable
+  // (useUrlTab returns an event callback), so it is an honest, inert dep.
   useEffect(() => {
     if (router.isReady && !router.query.tab && router.query.highlight) selectTab('addons');
-  }, [router.isReady, router.query.tab, router.query.highlight]); // eslint-disable-line react-hooks/exhaustive-deps -- `selectTab` depends on router.query, so it changes identity on every navigation
+  }, [router.isReady, router.query.tab, router.query.highlight, selectTab]);
 
   // Deep-link: `?highlight=<feature>` (e.g. from the Reports DORA upsell CTA)
   // emphasizes + scrolls to the add-on bundle that grants that feature.

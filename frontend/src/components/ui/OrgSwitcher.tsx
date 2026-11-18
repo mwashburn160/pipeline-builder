@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useState, useRef, useEffect, useEffectEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useRouter } from 'next/router';
 import { ChevronsUpDown, Building2, Check, Users, ShieldCheck } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
@@ -135,7 +135,6 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
   useEffect(() => {
     if (!open || organizations.length <= 1) return;
     menuItems()[0]?.focus();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- menuItems() reads a ref
   }, [open, organizations.length]);
 
   /**
@@ -154,9 +153,10 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
    *
    * Keyed on the user object: `switchOrganization` resolves only after a forced
    * refresh, so the first render carrying the new `organizationId` is the one
-   * with the new permissions.
+   * with the new permissions. The landing is an Effect Event so the router and
+   * toast it uses are current without a navigation re-triggering it.
    */
-  useEffect(() => {
+  const landSwitch = useEffectEvent(() => {
     const pending = pendingSwitchRef.current;
     if (!pending || !user || user.organizationId !== pending.orgId) return;
     pendingSwitchRef.current = null;
@@ -174,7 +174,9 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
     }
     toast.success(`Switched to ${pending.orgName}`);
     void router.replace(router.asPath);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `router` and `toast` are stable for this effect's purpose; re-running on every router change would re-fire the landing
+  });
+  useEffect(() => {
+    landSwitch();
   }, [user]);
 
   // Close on outside click

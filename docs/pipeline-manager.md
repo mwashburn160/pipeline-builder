@@ -176,7 +176,7 @@ synth naming the plugin and the step.
 npm install -g @pipeline-builder/pipeline-manager
 ```
 
-Requires **Node.js 26.13.1+**. The binary is exposed as `pipeline-manager`.
+Requires **Node.js 26.13+** (any 26.13 patch or newer). The binary is exposed as `pipeline-manager`.
 
 ```bash
 pipeline-manager --help            # global help

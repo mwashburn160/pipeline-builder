@@ -244,11 +244,12 @@ export default function PluginsPage() {
 
   // Seed the name search from a `?q=` deep-link (e.g. ⌘K "find plugin X" or a
   // My Services plugin link) so the list lands filtered to that plugin.
+  // `updateFilter` is a stable callback (useListPage), so this fires on `?q=` only.
+  const { updateFilter } = list;
+  const seedQuery = router.query.q;
   useEffect(() => {
-    const q = router.query.q;
-    if (typeof q === 'string' && q) list.updateFilter('name', q);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `list.updateFilter` is recreated per render; the deep-link seeds on `?q=` only
-  }, [router.query.q]);
+    if (typeof seedQuery === 'string' && seedQuery) updateFilter('name', seedQuery);
+  }, [seedQuery, updateFilter]);
 
   // Server-side sort: translate a column click into sortBy/sortOrder query
   // params, instead of an in-memory reorder of one page.

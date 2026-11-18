@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useEffectEvent, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { useToast } from '@/components/ui/Toast';
 import { queries } from '@/lib/api-cache';
@@ -34,9 +34,10 @@ export function useCheckoutReturn(onActivated: () => Promise<void> | void): void
     return () => { unmountedRef.current = true; };
   }, []);
 
-  useEffect(() => {
-    const outcome = Array.isArray(router.query.checkout) ? router.query.checkout[0] : router.query.checkout;
-    if (!outcome) return;
+  // Runs on the `?checkout=` outcome only. An Effect Event, so it reads the
+  // current router/toast (whose identities change per navigation) without
+  // those changes re-firing the toast + poll.
+  const handleReturn = useEffectEvent((outcome: string) => {
     const cancelled = () => unmountedRef.current;
     if (outcome === 'success') {
       toast.success('Checkout complete — activating your subscription…');
@@ -55,5 +56,11 @@ export function useCheckoutReturn(onActivated: () => Promise<void> | void): void
     }
     const { checkout: _omit, ...rest } = router.query;
     void router.replace({ query: rest }, undefined, { shallow: true });
-  }, [router.query.checkout]); // eslint-disable-line react-hooks/exhaustive-deps -- runs on the `?checkout=` outcome only; router/toast identities change every render
+  });
+
+  const rawOutcome = router.query.checkout;
+  const outcome = Array.isArray(rawOutcome) ? rawOutcome[0] : rawOutcome;
+  useEffect(() => {
+    if (outcome) handleReturn(outcome);
+  }, [outcome]);
 }

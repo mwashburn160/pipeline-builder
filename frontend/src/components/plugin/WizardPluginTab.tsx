@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useEffectEvent, useRef, useCallback } from 'react';
 import { Rocket, Save, CheckCircle } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { FormField } from '@/components/ui/FormField';
@@ -244,19 +244,25 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
     }
   }, []);
 
+  // Triggered by entering Edit mode only. The list checks are an Effect Event:
+  // as real deps, an org with NO plugins would re-load forever (the load ends
+  // with `plugins.length === 0 && !pluginsLoading` — the very trigger).
+  const loadPluginsIfNeeded = useEffectEvent(() => {
+    if (plugins.length === 0 && !pluginsLoading) void loadPlugins();
+  });
   useEffect(() => {
-    if (mode === 'edit' && plugins.length === 0 && !pluginsLoading) void loadPlugins();
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- run when entering edit mode.
+    if (mode === 'edit') loadPluginsIfNeeded();
   }, [mode]);
 
-  // Auto-complete on successful build (create mode).
+  // Auto-complete on successful build (create mode). Fires on the status
+  // transition only; the name and callbacks are read as they are now.
+  const completeBuild = useEffectEvent(() => {
+    setSuccess(`Plugin "${name}" created successfully!`);
+    onCreated();
+    autoClose.schedule(onClose, 2000);
+  });
   useEffect(() => {
-    if (buildStatus === 'completed') {
-      setSuccess(`Plugin "${name}" created successfully!`);
-      onCreated();
-      autoClose.schedule(onClose, 2000);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run when buildStatus changes.
+    if (buildStatus === 'completed') completeBuild();
   }, [buildStatus]);
 
   // Prefill the form from a selected existing plugin (Edit mode).

@@ -66,10 +66,25 @@ describe('Go', () => {
 });
 
 describe('Node', () => {
-  const projenNode = grab('.projenrc.ts', /minNodeVersion:\s*'([0-9.]+)'/);
+  // Two projen constants, one rule. `minNodeVersion` is the engines FLOOR
+  // (MAJOR.MINOR.0 — any patch of the line is accepted; node-version-contract
+  // checks it). `nodeRuntimeVersion` is the EXACT Node the images ship and CI
+  // tests on. They must name the same MAJOR.MINOR line, and the runtime can
+  // never be below the floor.
+  const projenFloor = grab('.projenrc.ts', /minNodeVersion:\s*'([0-9.]+)'/);
+  const projenNode = grab('.projenrc.ts', /const nodeRuntimeVersion = '([0-9.]+)'/);
+  const parts = (v: string | undefined) => (v ?? '').split('.').map(Number);
 
-  it('every service image, pipeline-bootstrap, the plugin node base and cdk-deploy* ship projen\'s minNodeVersion', () => {
-    const pairs: Array<[string, string | undefined]> = [['.projenrc.ts minNodeVersion', projenNode]];
+  it('the runtime pin is an exact patch version on the floor\'s MAJOR.MINOR line, at or above it', () => {
+    expect(projenNode).toMatch(/^\d+\.\d+\.\d+$/);
+    const [rMaj, rMin, rPatch] = parts(projenNode);
+    const [fMaj, fMin, fPatch] = parts(projenFloor);
+    expect({ runtime: `${rMaj}.${rMin}`, floor: `${fMaj}.${fMin}` }).toEqual({ runtime: `${fMaj}.${fMin}`, floor: `${fMaj}.${fMin}` });
+    expect(rPatch).toBeGreaterThanOrEqual(fPatch!);
+  });
+
+  it('every service image, pipeline-bootstrap, the plugin node base and cdk-deploy* ship projen\'s nodeRuntimeVersion', () => {
+    const pairs: Array<[string, string | undefined]> = [['.projenrc.ts nodeRuntimeVersion', projenNode]];
     for (const df of [...SERVICE_DOCKERFILES, BOOTSTRAP_DF]) {
       pairs.push([`${df} NODE_IMAGE`, grab(df, /^ARG NODE_IMAGE=node:([0-9.]+)-/m)]);
     }
