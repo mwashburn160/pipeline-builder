@@ -84,6 +84,13 @@ export async function runCli(home: string, args: string[], options: RunOptions =
   for (const key of Object.keys(process.env)) {
     if (INHERITED_CLI_ENV.test(key)) delete process.env[key];
   }
+  // The stub listens on 127.0.0.1. A runner that sets HTTP(S)_PROXY (common on
+  // self-hosted CI) would otherwise send the CLI's requests to the proxy, which
+  // answers 404 for a loopback address — `auth login` then failed in CI only.
+  for (const key of ['NO_PROXY', 'no_proxy']) {
+    const current = process.env[key];
+    process.env[key] = [current, '127.0.0.1', 'localhost'].filter(Boolean).join(',');
+  }
   for (const [key, value] of Object.entries(options.env ?? {})) {
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;
