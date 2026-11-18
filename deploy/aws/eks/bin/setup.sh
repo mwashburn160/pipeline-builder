@@ -1008,6 +1008,54 @@ pb_apply_manifests "$K8S_DIR" \
   "s|[\$]{PG_READ_REPLICA_MIN}|${PB_PG_READ_REPLICA_MIN}|g; s|[\$]{PG_READ_REPLICA_MAX}|${PB_PG_READ_REPLICA_MAX}|g; s|[\$]{EFS_FILESYSTEM_ID}|${EFS_FILESYSTEM_ID}|g; s|[\$]{ACM_CERT_ARN}|${ACM_CERT_ARN}|g; s|[\$]{DOMAIN}|${DOMAIN}|g; s|[\$]{ALB_SCHEME}|${ALB_SCHEME}|g; s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g; s|[\$]{VPC_CIDR}|${PB_VPC_CIDR}|g; s|[\$]{DNS_CLUSTER_IP}|${PB_DNS_CLUSTER_IP}|g; s|[\$]{ASK_SCHEDULE_UP}|${PB_ASK_SCHEDULE_UP}|g; s|[\$]{ASK_SCHEDULE_DOWN}|${PB_ASK_SCHEDULE_DOWN}|g; s|[\$]{ASK_SCHEDULE_TIMEZONE}|${PB_ASK_SCHEDULE_TIMEZONE}|g; s|[\$]{ASK_SCHEDULE_SUSPEND}|${PB_ASK_SCHEDULE_SUSPEND}|g; s|[\$]{BACKUP_SCHEDULE}|${PB_BACKUP_SCHEDULE}|g; s|[\$]{BACKUP_SUSPEND}|${PB_BACKUP_SUSPEND}|g; s|[\$]{BACKUP_IMAGE_VERSION}|${PB_BACKUP_IMAGE_VERSION}|g; s|[\$]{BACKUP_IMAGE}|${PB_BACKUP_IMAGE}|g; s|: [\$]{BACKUP_RETENTION_DAYS}$|: \"${PB_BACKUP_RETENTION_DAYS}\"|; s|[\$]{BACKUP_RETENTION_DAYS}|${PB_BACKUP_RETENTION_DAYS}|g" \
   0
 
+# The API server, named EXPLICITLY for the pods that call it. Same VPC CNI
+# behaviour as the DNS rule above: allow-kube-api-egress is ports-only, and for
+# a pod that ALSO has an `except` policy (ops-center: allow-ops-center-
+# external-egress excepts 192.168.0.0/16) the `except` deny wins over the
+# `to`-less allow. The EKS control-plane ENIs live in the VPC (192.168.x), so
+# TLS to the API server is silently dropped — the Postgres rung controller and
+# PVC auto-expand failed with ECONNRESET (ztunnel: "deadline has elapsed"),
+# measured when they still ran in platform, which carried the same `except`.
+# MEASURED 2026-11-18: ClusterIP /32 alone did NOT work (ambient's ztunnel dials
+# the endpoint IP, not the ClusterIP); ClusterIP + endpoint /32s did.
+# The endpoint IPs are READ, never assumed. They can change when EKS replaces
+# its control-plane ENIs (version upgrades) — re-run this phase if the
+# PostgresRungErrorSummary alert returns with ECONNRESET in the platform logs.
+PB_KUBE_API_CLUSTER_IP=$($PB_KUBECTL -n default get svc kubernetes -o jsonpath='{.spec.clusterIP}' 2>/dev/null)
+PB_KUBE_API_ENDPOINT_IPS=$($PB_KUBECTL -n default get endpointslices -l kubernetes.io/service-name=kubernetes -o jsonpath='{range .items[*].endpoints[*]}{.addresses[0]}{"\n"}{end}' 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | sort -u)
+if [ -z "$PB_KUBE_API_CLUSTER_IP" ] || [ -z "$PB_KUBE_API_ENDPOINT_IPS" ]; then
+  echo "ERROR: could not read the API server ClusterIP/endpoints (got '$PB_KUBE_API_CLUSTER_IP' / '$PB_KUBE_API_ENDPOINT_IPS') — allow-kube-api-endpoints needs them." >&2
+  exit 1
+fi
+{
+  cat <<EOF
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-kube-api-endpoints
+  namespace: pipeline-builder
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: [alloy, prometheus, ops-center, kube-state-metrics]
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 443
+          protocol: TCP
+      to:
+        - ipBlock:
+            cidr: ${PB_KUBE_API_CLUSTER_IP}/32
+EOF
+  for ip in $PB_KUBE_API_ENDPOINT_IPS; do
+    printf '        - ipBlock:\n            cidr: %s/32\n' "$ip"
+  done
+} | $PB_KUBECTL apply -f - || exit 1
+echo "  API server egress allowed to: $PB_KUBE_API_CLUSTER_IP $(echo $PB_KUBE_API_ENDPOINT_IPS)"
+
 # -- Wait for pods ------------------------------------------------------------
 # minikube gates on this and eks did not, so `setup.sh` could print its summary
 # and exit 0 while workloads were still starting — or crash-looping. A phase
