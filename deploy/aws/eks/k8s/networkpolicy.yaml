@@ -1030,6 +1030,12 @@ spec:
         # kube-state-metrics joins them: its entire job is LISTing and WATCHing
         # this namespace's API objects, which is API-server traffic like theirs.
         values: [alloy, prometheus, ops-center, kube-state-metrics]
+  # NOT SUFFICIENT ON ITS OWN for ops-center: it is ports-only, and
+  # allow-ops-center-external-egress `except`s 192.168.0.0/16, where the EKS
+  # control-plane ENIs live — the `except` deny wins (see allow-dns-egress).
+  # bin/setup.sh applies allow-kube-api-endpoints right after this file, naming
+  # the live ClusterIP + endpoint IPs explicitly. It is generated there, not
+  # here, because the endpoint list has a variable length.
   policyTypes:
     - Egress
   egress:
