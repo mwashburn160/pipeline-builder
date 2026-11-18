@@ -32,10 +32,16 @@ import { EmptyState } from '@/components/ui/EmptyState';
  *
  * Gated on `roles:manage` (a mapping IS a role grant) and on the `sso`
  * entitlement, both enforced server-side; the caller passes `readOnly` for an
- * impersonated session. Providers with no group claim (Google) get an
+ * impersonated session. A group pushed by the org's SCIM client (`scimManaged`)
+ * keeps its name and cannot be deleted here — the server refuses both
+ * (`IGM_SCIM_MANAGED`) — but its roles stay editable. Providers with no group claim (Google) get an
  * explanation instead of the editor — see `providerSupportsGroups` on the API.
  */
 const NO_MAPPINGS: IdpGroupMappingDto[] = [];
+
+/** Why a SCIM-pushed row offers no delete (and, when edited, no rename): the
+ *  directory owns the group and would push it straight back. */
+const SCIM_MANAGED_NOTE = 'Managed by your identity provider through SCIM — rename or remove it there. You can still change the roles it grants.';
 const NO_ROLES: OrganizationRole[] = [];
 
 export function SsoGroupMappings({
@@ -60,6 +66,8 @@ export function SsoGroupMappings({
   // Draft state — `editing` holds the id of the mapping being edited, or null
   // for the "add" form. One form serves both so the two can't drift.
   const [editing, setEditing] = useState<string | null>(null);
+  /** The row being edited was pushed by SCIM — its group name is the IdP's. */
+  const [editingScim, setEditingScim] = useState(false);
   const [group, setGroup] = useState('');
   const [roleIds, setRoleIds] = useState<string[]>([]);
 
@@ -86,7 +94,7 @@ export function SsoGroupMappings({
   );
 
 
-  const resetDraft = () => { setEditing(null); setGroup(''); setRoleIds([]); };
+  const resetDraft = () => { setEditing(null); setEditingScim(false); setGroup(''); setRoleIds([]); };
 
   // `useFormState.run` owns the step-up replay: a write refused pending re-auth
   // finishes (reload + toast + draft reset) once the person confirms, instead of
@@ -120,6 +128,7 @@ export function SsoGroupMappings({
 
   const startEdit = (m: IdpGroupMappingDto) => {
     setEditing(m.id);
+    setEditingScim(m.scimManaged);
     setGroup(m.group);
     setRoleIds(m.roleIds);
   };
@@ -170,6 +179,11 @@ export function SsoGroupMappings({
                           ? <>Grants: {m.roles.map((r) => r.name).join(', ')}</>
                           : <em>Grants no existing role — the roles it named were deleted.</em>}
                       </div>
+                      {m.scimManaged && (
+                        <div className="mt-1 text-xs text-fg-muted">
+                          {SCIM_MANAGED_NOTE}
+                        </div>
+                      )}
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <button
@@ -184,8 +198,9 @@ export function SsoGroupMappings({
                       <button
                         type="button"
                         aria-label={`Delete ${m.group}`}
-                        className="text-fg-muted hover:text-danger"
-                        disabled={busy || readOnly}
+                        title={m.scimManaged ? 'Remove this group in your identity provider' : undefined}
+                        className="text-fg-muted hover:text-danger disabled:opacity-40"
+                        disabled={busy || readOnly || m.scimManaged}
                         onClick={() => del.open(m)}
                       >
                         <Trash2 className="w-4 h-4" />
@@ -209,7 +224,9 @@ export function SsoGroupMappings({
                   <FormField
                     label="IdP group"
                     id="mapping-group"
-                    hint="Exactly as your identity provider sends it. Matching ignores case."
+                    hint={editingScim
+                      ? 'This group is managed by your identity provider through SCIM — rename it in your identity provider. You can still change the roles it grants.'
+                      : 'Exactly as your identity provider sends it. Matching ignores case.'}
                   >
                     <Input
                       id="mapping-group"
@@ -217,7 +234,7 @@ export function SsoGroupMappings({
                       onChange={(e) => setGroup(e.target.value)}
                       placeholder="platform-engineers"
                       className="font-mono text-sm"
-                      disabled={busy}
+                      disabled={busy || editingScim}
                     />
                   </FormField>
 

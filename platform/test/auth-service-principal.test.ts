@@ -46,6 +46,12 @@ jest.unstable_mockModule('../src/utils/token.js', () => ({
   verifyRefreshToken: jest.fn(),
 }));
 
+// Slots live in their own collection behind session-store.ts — every user
+// session token names one, and requireAuth checks it is live.
+const { sessionStoreFake } = await import('./helpers/session-store-fake.js');
+const store = sessionStoreFake();
+jest.unstable_mockModule('../src/services/session/session-store.js', () => store);
+
 const { requireAuth, requireServiceAuth } = await import('../src/middleware/auth.js');
 // Deep path — not intercepted by the barrel mock. The slot is a plain
 // `res.locals` key, so arming through the real module is what the mount does.
@@ -114,7 +120,9 @@ describe('requireAuth — service principal branch', () => {
       amr: ['pwd'],
       aal: 1,
       auth_time: 1_700_000_000,
+      sid: 'slot-1',
     });
+    store.rows.push({ userId: 'user-1', id: 'slot-1', kind: 'interactive', tokenVersion: 1 });
     mockUserFindById.mockReturnValue({ select: () => ({ lean: () => Promise.resolve({ _id: 'user-1', tokenVersion: 1 }) }) });
     const next = jest.fn();
     const res = makeRes();
@@ -185,7 +193,9 @@ describe('requireAuth — deferred apiCalls quota check', () => {
     amr: ['pwd'],
     aal: 1,
     auth_time: 1_700_000_000,
+    sid: 'slot-1',
   };
+  beforeEach(() => { store.reset(); store.rows.push({ userId: 'user-1', id: 'slot-1', kind: 'interactive', tokenVersion: 1 }); });
   const resWithLocals = () => Object.assign(makeRes(), { locals: {} as Record<string, unknown> });
 
   it.each([

@@ -67,3 +67,18 @@ export async function revokeServiceAccountKeysForOrg(orgId: string): Promise<num
   await publishAccessKeyRevocation(live.map((k) => String(k._id)));
   return res.modifiedCount ?? 0;
 }
+
+/**
+ * Publish `revoke:key:<id>` for every live key of ONE account — the disable
+ * path. Disabling keeps the keys (it is reversible), so nothing in Mongo marks
+ * them revoked and the other services would keep honouring the tokens they
+ * already exchanged until those expired; platform itself re-reads the account's
+ * `disabled` flag in `requireAuth`. The entries lapse with the longest token
+ * they can name, so a re-enabled account's fresh tokens are honoured everywhere
+ * once that window passes. Best-effort; returns how many keys were named.
+ */
+export async function publishServiceAccountKeysRevocation(serviceAccountId: Types.ObjectId | string): Promise<number> {
+  const live = await PersonalAccessToken.find({ serviceAccountId, revoked: false }).select('_id').lean();
+  await publishAccessKeyRevocation(live.map((k) => String(k._id)));
+  return live.length;
+}

@@ -194,3 +194,32 @@ describe('BillingAdminPage purge', () => {
     }
   });
 });
+
+describe('BillingAdminPage subscriptions table', () => {
+  it('shows the server-supplied plan name (falling back to planId) and sorts the Plan column by it', async () => {
+    // The admin subscription views now carry planName from the server; the
+    // table must show it, not the raw planId, and order by what it shows.
+    apiMock.getAdminBillingSummary.mockResolvedValue({ success: true, data: null });
+    listPage.data = [
+      { id: 's1', orgId: 'org-1', planId: 'zeta', planName: 'Alpha Plan', status: 'active', interval: 'monthly', cancelAtPeriodEnd: false },
+      { id: 's2', orgId: 'org-2', planId: 'alpha', planName: 'Zulu Plan', status: 'active', interval: 'monthly', cancelAtPeriodEnd: false },
+      { id: 's3', orgId: 'org-3', planId: 'mid-plan', status: 'active', interval: 'monthly', cancelAtPeriodEnd: false },
+    ];
+    try {
+      render(<BillingAdminPage />);
+      expect(await screen.findByText('Alpha Plan')).toBeInTheDocument();
+      expect(screen.getByText('Zulu Plan')).toBeInTheDocument();
+      expect(screen.getByText('mid-plan')).toBeInTheDocument();
+      expect(screen.queryByText('zeta')).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: /^Plan/ }));
+      const shown = Array.from(document.querySelectorAll('td span.font-mono'))
+        .map((el) => el.textContent)
+        .filter((t) => ['Alpha Plan', 'Zulu Plan', 'mid-plan'].includes(t ?? ''));
+      // By name: Alpha Plan < mid-plan < Zulu Plan (by planId it would be Zulu, mid, Alpha).
+      expect(shown).toEqual(['Alpha Plan', 'mid-plan', 'Zulu Plan']);
+    } finally {
+      listPage.data = [];
+    }
+  });
+});

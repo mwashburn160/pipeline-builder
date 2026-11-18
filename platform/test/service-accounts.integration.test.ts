@@ -21,7 +21,7 @@
  * access-keys.integration.test.ts.
  */
 
-import { it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
+import { jest, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
 import { integrationSuite } from './helpers/integration-gate.js';
 
 process.env.SECRET_ENCRYPTION_KEY ||= '0000000000000000000000000000000000000000000000000000000000000000';
@@ -216,6 +216,29 @@ suite('service accounts (real Mongo)', () => {
     await m.Organization.updateOne({ _id: new mongoose.Types.ObjectId(orgId) }, { $set: { deletedAt: null } });
     await sa.revokeServiceAccountKey(orgId, account.id, view.id);
     expect(await apiKeyService.exchange(key)).toMatchObject({ ok: false, reason: 'revoked' });
+  });
+
+  it('DISABLING an account ends the tokens its keys already exchanged — and re-enabling restores fresh ones', async () => {
+    const { requireAuth } = await import('../src/middleware/auth.js');
+    const status = async (accessToken: string): Promise<number> => {
+      const r: any = {};
+      r.status = jest.fn(() => r);
+      r.json = jest.fn(() => r);
+      let admitted = false;
+      await requireAuth({ headers: { authorization: `Bearer ${accessToken}` }, method: 'GET' } as never, r, () => { admitted = true; });
+      return admitted ? 200 : r.status.mock.calls[0]?.[0];
+    };
+    const account = await createAccount();
+    const { key } = await sa.createServiceAccountKey(orgId, account.id, { name: 'k', expiresInSeconds: 86400 }, SUPER);
+    const exchanged = (await apiKeyService.exchange(key)).accessToken;
+    expect(await status(exchanged)).toBe(200);
+
+    await sa.updateServiceAccount(orgId, account.id, { disabled: true }, SUPER);
+    // The key record is untouched (a disable is reversible) — the account flag is what ends it.
+    expect(await status(exchanged)).toBe(401);
+
+    await sa.updateServiceAccount(orgId, account.id, { disabled: false }, SUPER);
+    expect(await status((await apiKeyService.exchange(key)).accessToken)).toBe(200);
   });
 
   it('enforces a key IP allowlist at exchange', async () => {

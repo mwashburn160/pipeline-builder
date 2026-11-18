@@ -15,6 +15,8 @@ import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 import { seatsMock } from './helpers/seats-mock.js';
 
+/** Fields merged into the fixture org (e.g. a `deletedAt` tombstone). */
+let orgOverride: Record<string, unknown> = {};
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 jest.unstable_mockModule('mongoose', () => {
   const api = { Types: { ObjectId: class {} } };
@@ -64,7 +66,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   // Linking stubs: user-profile/auth SUTs import these from the models barrel.
   PersonalAccessToken: {},
   UserPreferences: {},
-  Organization: { findById: () => sessionResolving({ _id: 'org-1', name: 'Acme', owner: { toString: () => 'owner-1' } }) },
+  Organization: { findById: () => sessionResolving({ _id: 'org-1', name: 'Acme', owner: { toString: () => 'owner-1' }, ...orgOverride }) },
   User: { findOne: () => sessionResolving(null), findById: () => sessionResolving({ username: 'inviter' }) },
   UserOrganization: { findOne: () => sessionResolving(null) },
   Invitation: {
@@ -75,6 +77,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 }));
 
 const { invitationService } = await import('../src/services/invitation-service.js');
+const { INV_ORG_NOT_FOUND } = await import('../src/services/invitation-errors.js');
 const { INV_MAX_REACHED, INV_UNAUTHORIZED, INV_ADMIN_REQUIRES_ADMIN } = await import('../src/services/invitation-errors.js');
 
 const baseInput = {
@@ -89,9 +92,18 @@ const baseInput = {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  orgOverride = {};
   countFilter = undefined;
   countReturn = 0;
   mockSeatCapacity.mockResolvedValue(true);
+});
+
+describe('invitationService.send — a soft-deleted team', () => {
+  it('refuses (INV_ORG_NOT_FOUND) to invite into a SOFT-DELETED team — the invite could never be accepted', async () => {
+    orgOverride = { deletedAt: new Date() };
+    await expect(invitationService.send(baseInput)).rejects.toThrow(INV_ORG_NOT_FOUND);
+    expect(mockCountDocuments).not.toHaveBeenCalled();
+  });
 });
 
 describe('invitationService.send — pending-cap counts only live invites', () => {

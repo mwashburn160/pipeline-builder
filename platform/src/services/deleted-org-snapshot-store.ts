@@ -92,6 +92,15 @@ export async function readDeletedOrgSnapshot(snapshotId: string): Promise<{ head
   return { header: header as unknown as Record<string, unknown>, snapshot: JSON.parse(payload.toString('utf8')) };
 }
 
+/** Remove a snapshot (header + chunks) — for a soft-delete that never committed,
+ *  so no recovery copy is kept of an org that was not deleted. */
+export async function discardDeletedOrgSnapshot(snapshotId: string): Promise<void> {
+  if (!Types.ObjectId.isValid(snapshotId)) return;
+  const id = new Types.ObjectId(snapshotId);
+  await DeletedOrgSnapshot.deleteOne({ _id: id });
+  await DeletedOrgSnapshotChunk.deleteMany({ snapshotId: id });
+}
+
 /** The newest snapshot id for an org, or null. */
 export async function latestSnapshotIdForOrg(organizationId: string): Promise<string | null> {
   if (!Types.ObjectId.isValid(organizationId)) return null;

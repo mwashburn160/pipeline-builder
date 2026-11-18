@@ -142,6 +142,20 @@ export async function resyncMemberRoles(orgId: string, userId: Types.ObjectId | 
 }
 
 /**
+ * Drop every Role the DIRECTORY granted this member in one org (`source: 'jit'`
+ * rows; hand-granted ones stay) and re-derive the cached coarse role — inside
+ * the deprovisioning transaction. Run after the commit instead, a failure here
+ * left the member deactivated with their mapped Roles intact, and the IdP's
+ * retry was a no-op (they were already inactive), so they were never stripped.
+ * No claims bump of its own: {@link endOrgAccess} in the same transaction does it.
+ */
+async function stripDirectoryRoles(userId: Types.ObjectId | string, orgId: string, session: ClientSession): Promise<void> {
+  const oid = toOrgId(orgId);
+  const { removed } = await syncMappedRoles(oid, userId, [], session);
+  if (removed.length > 0) await recomputeUserOrgRole(userId, oid, session);
+}
+
+/**
  * End a member's access to ONE org whose directory just withdrew it.
  *
  * `requireAuth` trusts an access token's claims and only re-reads the access
@@ -470,14 +484,15 @@ async function setActive(ctx: ScimContext, membership: UserOrganizationDocument,
   await withMongoTransaction(async (session) => {
     await UserOrganization.updateOne({ _id: membership._id }, { $set: { isActive: false } }, { session });
     await endOrgAccess(membership.userId, ctx.orgId, session);
+    // The directory says they are gone: the Roles it granted go with them, in
+    // the same transaction (see stripDirectoryRoles).
+    await stripDirectoryRoles(membership.userId, ctx.orgId, session);
     // Reassigned per attempt: a retried body re-reads the (rolled-back) rows.
     revokedInvitations = await revokePendingInvitationsSentBy(String(membership.userId), ctx.orgId, session);
   });
   membership.isActive = false;
   // Post-commit: make the revocation true on the stateless services too.
   await publishUserRevocation(String(membership.userId));
-  // The directory says they are gone: the Roles it granted go with them.
-  await resyncMemberRoles(ctx.orgId, membership.userId, []);
   logger.info('[SCIM] deactivated member and ended their access to the org', {
     orgId: ctx.orgId, userId: String(membership.userId), revokedInvitations: revokedInvitations.length,
   });
@@ -598,11 +613,11 @@ export async function deleteUser(ctx: ScimContext, id: string): Promise<ScimWrit
         { session },
       );
       await endOrgAccess(membership.userId, ctx.orgId, session);
+      await stripDirectoryRoles(membership.userId, ctx.orgId, session);
       // Reassigned per attempt: a retried body re-reads the (rolled-back) rows.
       revokedInvitations = await revokePendingInvitationsSentBy(String(membership.userId), ctx.orgId, session);
     });
     await publishUserRevocation(String(membership.userId));
-    await resyncMemberRoles(ctx.orgId, membership.userId, []);
     logger.info('[SCIM] removed member (deactivated + org access ended)', {
       orgId: ctx.orgId, userId: id, revokedInvitations: revokedInvitations.length,
     });

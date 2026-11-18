@@ -25,6 +25,7 @@ import {
   admitCaseSeverity,
   envInt,
   recordAudit,
+  refuseWeakSession,
   responseDueAt,
 } from '@pipeline-builder/api-core';
 import { withRoute, createAuthenticatedWithOrgRoute, incCounter, observe, rateLimitByOrg } from '@pipeline-builder/api-server';
@@ -726,6 +727,17 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
 
     if (!isSender && !isRecipient && !isBroadcast && !isSystem) {
       return sendError(res, 403, 'You are not a participant in this conversation', ErrorCode.INSUFFICIENT_PERMISSIONS);
+    }
+
+    // A STAFF reply on a support thread is a cross-tenant act: it stops the
+    // case's response clock and closes its on-call page. It is held to the
+    // staff routes' bar (`requireSystemOrgPermission` / the status route's
+    // staff branch) — a person's own aal2 session — and a weaker session is
+    // REFUSED with the same step-up error, never silently downgraded to a
+    // customer reply (that would put staff words in the thread unmarked).
+    if (isSupportStaff && rootMessage.channel?.toLowerCase() === SUPPORT_CHANNEL
+      && refuseWeakSession(req, res, { minAssurance: 2 })) {
+      return undefined;
     }
 
     // The support carve-out's own gate. This mount runs on `messages:read`, so

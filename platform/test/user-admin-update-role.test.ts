@@ -47,8 +47,14 @@ jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unkno
 jest.unstable_mockModule('../src/helpers/seats.js', () => seatsMock({ seatCapacityAvailable: jest.fn(async () => true), seatCapacityStillWithinCap: jest.fn(async () => true), userHasSeatInAccount: jest.fn(async () => false) }));
 jest.unstable_mockModule('../src/utils/regex.js', () => ({ escapeRegex: (s: string) => s }));
 
+/** How many times the mocked transaction runs its body (2 = one transient retry). */
+let txAttempts = 1;
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
-  withMongoTransaction: (fn: (s: unknown) => Promise<unknown>) => fn({ id: 'sess' }),
+  withMongoTransaction: async (fn: (s: unknown) => Promise<unknown>) => {
+    let result: unknown;
+    for (let i = 0; i < txAttempts; i++) result = await fn({ id: 'sess' });
+    return result;
+  },
 }));
 
 jest.unstable_mockModule('../src/services/role-crud.js', () => ({
@@ -105,6 +111,7 @@ const orgAdminOpts = { scopeOrgId: 'org-1', actor: { isSuperAdmin: false, isOrgA
 
 beforeEach(() => {
   jest.clearAllMocks();
+  txAttempts = 1;
   mockUserSave.mockResolvedValue(undefined);
   mockEnsureBaselineRole.mockResolvedValue(undefined);
   mockRecomputeUserOrgRole.mockResolvedValue(undefined);
@@ -168,6 +175,22 @@ describe('UserAdminService.updateUserById — role change', () => {
     expect(mockRemoveBuiltinAdminRole).not.toHaveBeenCalled();
     expect(mockEnsureBaselineRole).not.toHaveBeenCalled();
     expect(changes).not.toContain('role');
+  });
+});
+
+describe('UserAdminService.updateUserById — a RETRIED transaction body', () => {
+  it('reports each change ONCE when the body re-runs (the change list restarts per attempt)', async () => {
+    // Regression: `changes` lived outside the transaction body and was never
+    // reset, so a transient retry reported (and audited) every change twice.
+    txAttempts = 2;
+    const user: any = { _id: 'u1', tokenVersion: 3, save: mockUserSave, lastActiveOrgId: 'org-1' };
+    mockUserFindById.mockReturnValue(userFindByIdResolving(user));
+    mockUoFindOne.mockReturnValue(uoFindOneResolving({ role: 'member', save: jest.fn() }));
+
+    const { changes } = await userAdminService.updateUserById('u1', { role: 'admin' }, orgAdminOpts);
+
+    expect(mockAssignBuiltinAdminRole).toHaveBeenCalledTimes(2);
+    expect(changes.filter((c: string) => c === 'role')).toHaveLength(1);
   });
 });
 

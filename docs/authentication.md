@@ -867,7 +867,9 @@ What the resources mean here:
   roles**. What a group is worth stays a decision made here by someone holding
   `roles:manage`, so a stolen SCIM key can move people between groups but cannot
   invent a group that grants admin. A group the directory pushes grants nothing
-  until you map it.
+  until you map it. Because the directory owns it, the editor will not rename or
+  delete a SCIM-pushed group (`409` `IGM_SCIM_MANAGED` — do it in the identity
+  provider); you can still change the roles it grants.
 - **Roles follow group membership** through the same resolver JIT uses, and
   SCIM-driven assignments are sync-owned: a role an admin granted by hand is
   **never removed by a sync**.
@@ -2921,10 +2923,10 @@ collection, not a load of every device with the user.
 
 | Mechanism | What it ends | How it is checked |
 |---|---|---|
-| **`tokenVersion`** (user) | *Everything*: every access and refresh token and every slot. Bumped by sign-out-everywhere, a password change / reset, an MFA factor reset, a platform-admin flip, org soft-delete (members), and an admin password reset. | Access tokens carry `tokenVersion + claimsVersion`; refresh tokens carry `tokenVersion`. Each slot row stores the `tokenVersion` it was opened at and is live **only while it equals the user's current one** — so a bump strands every slot at once, even a row written concurrently with the bump. The bump sites also delete the rows (in the same transaction where there is one). |
-| **`claimsVersion`** (user) | Outstanding *access* tokens only — role, permission, membership, tier or feature changes. The sessions stay. | Part of the access token's version sum; a stale token is refused and the client's next refresh re-mints current claims. |
+| **`tokenVersion`** (user) | *Everything*: every access and refresh token and every slot. Bumped by sign-out-everywhere, a password change / reset, an MFA factor reset, a platform-admin flip, and an admin password reset. | Access tokens carry `tokenVersion + claimsVersion`; refresh tokens carry `tokenVersion`. Each slot row stores the `tokenVersion` it was opened at and is live **only while it equals the user's current one** — so a bump strands every slot at once, even a row written concurrently with the bump. The bump sites also delete the rows (in the same transaction where there is one). |
+| **`claimsVersion`** (user) | Outstanding *access* tokens only — role, permission, membership, tier or feature changes, and losing an org (removal, deactivation, a directory deprovision, or the org / team being soft-deleted — which ends access to that org only, never signs the person out of the others). The sessions stay. | Part of the access token's version sum; a stale token is refused and the client's next refresh re-mints current claims. |
 | **`credentialsEpoch`** (user) | Nothing by itself. A write-conflict counter so two concurrent sign-in-method removals cannot both succeed (`removeUnlessLastSignInMethod`). | — |
-| **Slot existence** (`sid`) | One device / one machine credential: logout, revoke from the Sessions page, eviction by the per-kind cap (10 interactive, newest kept; 10 machine, most recently used kept), refresh-token reuse, an expired session. | Platform's `requireAuth` checks the slot row (at the current `tokenVersion`) for every token carrying a `sid`; every other service reads **`revoke:sid:<sid>`**, which each of those paths publishes. |
+| **Slot existence** (`sid`) | One device / one machine credential: logout, revoke from the Sessions page, eviction by the per-kind cap (10 interactive, newest kept; 10 machine, most recently used kept), refresh-token reuse, an expired session. | Platform's `requireAuth` checks the slot row (at the current `tokenVersion`) for every user session token — and refuses one that names no `sid`, since it could never be signed out; every other service reads **`revoke:sid:<sid>`**, which each of those paths publishes. |
 | **Slot hash** | A refresh token that was already rotated away. | `/auth/refresh` swaps the slot's SHA-256 hash in one compare-and-set matched on `{ userId, id, tokenVersion, kind, scope, hash }` — of two racing uses exactly one wins. A miss is reuse: that slot (only) is revoked and audited (`user.session.revoke`, `reason: refresh_reuse`). |
 | **Refresh grace** (30 s) | — (it *prevents* a false reuse). | The winner of a rotation parks the new pair under the old token's hash for 30 seconds (`helpers/refresh-grace.ts`); a concurrent loser presenting that immediately-previous token gets the same pair instead of a revocation. |
 | **Session lifetime** | An interactive session that has run its course. | See below. |

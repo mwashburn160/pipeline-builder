@@ -53,6 +53,7 @@ const mockRevokeForSa = jest.fn<AFn>();
 // hierarchy
 const mockResolveLineage = jest.fn<AFn>();
 
+const mockPublishSaKeys = jest.fn(async (..._a: unknown[]) => 0);
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({}));
 jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ serviceAccounts: {} }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
@@ -78,6 +79,7 @@ jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
 jest.unstable_mockModule('../src/services/service-account-cascade.js', () => ({
   deleteServiceAccountsForOrg: async () => 0,
   revokeServiceAccountKeysForOrg: async () => 0,
+  publishServiceAccountKeysRevocation: (...a: unknown[]) => mockPublishSaKeys(...a),
 }));
 jest.unstable_mockModule('../src/models/organization.js', () => ({
   default: { findById: (...a: unknown[]) => mockOrgFindById(...a) },
@@ -148,6 +150,21 @@ beforeEach(() => {
   mockDeleteForSas.mockResolvedValue(undefined);
   mockRevokeForSa.mockResolvedValue({ id: 'k1' });
   mockResolveLineage.mockResolvedValue({ rootOrgId: 'root-1', parentOrgId: 'parent-1' });
+});
+
+describe('updateServiceAccount — disable', () => {
+  it('DISABLING an account publishes a revocation for every live key, so tokens already exchanged stop working on every service', async () => {
+    await svc.updateServiceAccount(ORG_ID, ACCOUNT_ID, { disabled: true }, ADMIN);
+    expect(mockPublishSaKeys).toHaveBeenCalledTimes(1);
+    expect(String(mockPublishSaKeys.mock.calls[0][0])).toBe(ACCOUNT_ID);
+  });
+
+  it('publishes nothing for an edit that does not newly disable the account', async () => {
+    await svc.updateServiceAccount(ORG_ID, ACCOUNT_ID, { description: 'x' }, ADMIN);
+    mockSaFindOne.mockReturnValue(queryChain(accountDoc({ disabled: true })));
+    await svc.updateServiceAccount(ORG_ID, ACCOUNT_ID, { disabled: true }, ADMIN);
+    expect(mockPublishSaKeys).not.toHaveBeenCalled();
+  });
 });
 
 describe('createServiceAccount', () => {

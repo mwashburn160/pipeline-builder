@@ -21,6 +21,13 @@ export const IGM_PROVIDER_UNSUPPORTED = 'IGM_PROVIDER_UNSUPPORTED';
 export const IGM_GROUP_TAKEN = 'IGM_GROUP_TAKEN';
 /** No such mapping in this org. */
 export const IGM_NOT_FOUND = 'IGM_NOT_FOUND';
+/**
+ * The mapping was pushed by the org's SCIM client (`scimManaged`), so its GROUP
+ * belongs to the identity provider: a rename or delete here would be undone —
+ * or orphan the directory's group — on the IdP's next push. Its ROLE set stays
+ * editable; only the name and the row's existence are refused.
+ */
+export const IGM_SCIM_MANAGED = 'IGM_SCIM_MANAGED';
 /** Cap on mapping rules per org. A directory can have thousands of groups, but a
  *  rule set that large is a sign of a misconfiguration, and the collection is
  *  tenant-writable — the login-path resolver must stay bounded. */
@@ -106,6 +113,10 @@ export const IDP_MAPPING_ERROR_MAP: ErrorMap = {
   },
   [IGM_GROUP_TAKEN]: { status: 409, message: 'A mapping for this group already exists' },
   [IGM_NOT_FOUND]: { status: 404, message: 'Group mapping not found' },
+  [IGM_SCIM_MANAGED]: {
+    status: 409,
+    message: 'This group is managed by your identity provider through SCIM. Rename or remove it in your identity provider; you can still change the roles it grants here.',
+  },
   [IGM_LIMIT]: { status: 409, message: `An organization can hold at most ${MAX_MAPPINGS_PER_ORG} group mappings` },
   [IGM_FORBIDDEN_GRANT]: { status: 403, message: 'A group mapping cannot grant organization ownership, platform-administrator or ecosystem-management authority' },
   [RL_ROLE_NOT_FOUND]: { status: 404, message: 'One or more roles do not exist in this organization' },

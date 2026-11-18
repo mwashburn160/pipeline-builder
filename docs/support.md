@@ -109,6 +109,13 @@ real ones.
 The clock stops when support **first replies**, stamped at that moment rather than
 inferred later from message timestamps. A second reply cannot move it.
 
+Only a reply from support staff (`support_cases:write`, in the system org) stops
+the clock, and it is held to the staff routes' bar: a person's own MFA-grade
+(aal2) session. A staff reply from a single-factor session is refused with the
+same step-up error (`MFA_REQUIRED`; an API key or service account gets
+`HUMAN_SESSION_REQUIRED`) — it is never saved as an ordinary reply instead.
+Customer replies have no such requirement.
+
 The reported figure is elapsed time **minus** the time the case spent waiting on
 you. A case answered in an hour, where the reply then took four days to come back,
 is not a four-day first response — in either direction.

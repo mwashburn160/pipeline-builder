@@ -139,6 +139,14 @@ const { createCreateMessageRoutes, announcementFollowUp } = await import('../src
 const mockSseManager = createMockSseManager();
 const createRouter = createCreateMessageRoutes(mockSseManager);
 
+/**
+ * The claims of a person's own session. A staff reply on a support thread is
+ * held to the staff routes' bar — a HUMAN principal at aal2 — so every fixture
+ * that replies as support staff carries `STAFF_SESSION`.
+ */
+const HUMAN_SESSION = { principalType: 'user', token_use: 'access' } as const;
+const STAFF_SESSION = { ...HUMAN_SESSION, aal: 2 } as const;
+
 describe('POST /messages (create)', () => {
   const handler = getHandler(createRouter, 'post', '/');
 
@@ -847,7 +855,7 @@ describe('POST /messages/:id/reply', () => {
       await handler(mockReq({
         params: { id: 'ann-1' },
         body: { content: 'Replying to everyone' },
-        user: { sub: 'staff-1', permissions: ['support_cases:write'] },
+        user: { sub: 'staff-1', permissions: ['support_cases:write'], ...STAFF_SESSION },
         context: { identity: { orgId: SYSTEM_ORG, userId: 'staff-1' } },
       }), res);
 
@@ -872,7 +880,7 @@ describe('POST /messages/:id/reply', () => {
       await handler(mockReq({
         params: { id: 'thread-new' },
         body: { content: 'Sunday is unaffected.' },
-        user: { sub: 'staff-1', permissions: ['support_cases:write'] },
+        user: { sub: 'staff-1', permissions: ['support_cases:write'], ...STAFF_SESSION },
         context: { identity: { orgId: SYSTEM_ORG, userId: 'staff-1' } },
       }), res);
 
@@ -1284,7 +1292,11 @@ describe('POST /messages/:id/reply — first-response measurement', () => {
    * `identity.userId` are kept in step, per the harness's own warning that a
    * mismatched pair is a request no real caller can produce.
    */
-  const reply = async (callerOrg: string, permissions: string[] = callerOrg === SYSTEM_ORG ? ['support_cases:write'] : []) => {
+  const reply = async (
+    callerOrg: string,
+    permissions: string[] = callerOrg === SYSTEM_ORG ? ['support_cases:write'] : [],
+    session: Record<string, unknown> = STAFF_SESSION,
+  ) => {
     mockFindVisibleById.mockResolvedValue(SUPPORT_ROOT);
     mockCreate.mockResolvedValue({ id: 'reply-1' });
     const res = mockRes();
@@ -1292,7 +1304,7 @@ describe('POST /messages/:id/reply — first-response measurement', () => {
     await handler(mockReq({
       params: { id: 'root-1' },
       body: { content: 'on it' },
-      user: { sub: who, permissions },
+      user: { sub: who, permissions, ...HUMAN_SESSION, ...session },
       context: { identity: { orgId: callerOrg, userId: who } },
     }), res);
     return res;
@@ -1363,6 +1375,34 @@ describe('POST /messages/:id/reply — first-response measurement', () => {
     mockFindCase.mockResolvedValue(null);
     await reply(SYSTEM_ORG);
     expect(mockStampFirst).not.toHaveBeenCalled();
+  });
+
+  it('REFUSES a STAFF reply from a single-factor (aal1) session with MFA_REQUIRED — nothing saved, clock not stopped, page left open', async () => {
+    // A staff reply stops the case's response clock and closes its on-call
+    // page — a cross-tenant act, held to the staff routes' aal2 bar. It is
+    // refused, NOT downgraded to a customer reply.
+    mockFindCase.mockResolvedValue({
+      id: 'case-1', level: 'support_premium', severity: 'high', createdAt: new Date().toISOString(), awaitingTotalSeconds: 0,
+    } as never);
+    mockStampFirst.mockResolvedValue(true as never);
+    const res = await reply(SYSTEM_ORG, ['support_cases:write'], { aal: 1 });
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'MFA_REQUIRED' }));
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockStampFirst).not.toHaveBeenCalled();
+    expect(mockResolveCasePage).not.toHaveBeenCalled();
+  });
+
+  it('REFUSES a STAFF reply from a machine credential (API key) with HUMAN_SESSION_REQUIRED', async () => {
+    const res = await reply(SYSTEM_ORG, ['support_cases:write'], { aal: 2, token_use: 'api_key' });
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'HUMAN_SESSION_REQUIRED' }));
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('leaves a CUSTOMER reply from a single-factor session unchanged (201)', async () => {
+    mockFindCase.mockResolvedValue(null);
+    expect((await reply('org-1', [], { aal: 1 })).status).toHaveBeenCalledWith(201);
   });
 
   it('still creates the reply when the stamp throws', async () => {
@@ -1460,10 +1500,25 @@ describe('POST /messages/support/:id/reply — the messages:read carve-out', () 
     await handler(mockReq({
       params: { id: 'root-1' },
       body: { content: 'looking into it' },
-      user: { sub: 'staff-1', permissions: ['support_cases:write'] },
+      user: { sub: 'staff-1', permissions: ['support_cases:write'], ...STAFF_SESSION },
       context: { identity: { orgId: SYSTEM_ORG, userId: 'staff-1' } },
     }), res);
     expect(res.status).toHaveBeenCalledWith(201);
+  });
+
+  it('REFUSES a STAFF reply on the support door from a single-factor (aal1) session — not downgraded to a tenant reply', async () => {
+    mockFindCase.mockResolvedValue({ id: 'case-1', tenantContact: 'opener-1' } as never);
+    mockFindVisibleById.mockResolvedValue(SUPPORT_ROOT);
+    const res = mockRes();
+    await handler(mockReq({
+      params: { id: 'root-1' },
+      body: { content: 'looking into it' },
+      user: { sub: 'staff-1', permissions: ['support_cases:write'], ...STAFF_SESSION, aal: 1 },
+      context: { identity: { orgId: SYSTEM_ORG, userId: 'staff-1' } },
+    }), res);
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'MFA_REQUIRED' }));
+    expect(mockCreate).not.toHaveBeenCalled();
   });
 
   it('REFUSES a system-org member who is not support staff (messages:read alone)', async () => {

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/authentication.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: ed1acc8c961aa47411e49ff41f41f15451b2e919e9f285d6f4a1bb55eedd703b
+// SOURCE-SHA256: 7f3947ecf9bc59c25fd02699611f5689430a33481b8423ab5d9a4959a11dda83
 // SPDX-License-Identifier: Apache-2.0
 import { Lock } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1354,7 +1354,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "above writes. SCIM owns the group's name and members; it never sets roles. What a group is worth stays a decision made here by someone holding roles:manage, so a stolen SCIM key can move people between groups but cannot invent a group that grants admin. A group the directory pushes grants nothing until you map it."
+          "content": "above writes. SCIM owns the group's name and members; it never sets roles. What a group is worth stays a decision made here by someone holding roles:manage, so a stolen SCIM key can move people between groups but cannot invent a group that grants admin. A group the directory pushes grants nothing until you map it. Because the directory owns it, the editor will not rename or delete a SCIM-pushed group (409 IGM_SCIM_MANAGED — do it in the identity provider); you can still change the roles it grants."
         },
         {
           "type": "list",
@@ -4439,12 +4439,12 @@ export const authenticationTopic: HelpTopic = {
           "rows": [
             [
               "tokenVersion (user)",
-              "Everything: every access and refresh token and every slot. Bumped by sign-out-everywhere, a password change / reset, an MFA factor reset, a platform-admin flip, org soft-delete (members), and an admin password reset.",
+              "Everything: every access and refresh token and every slot. Bumped by sign-out-everywhere, a password change / reset, an MFA factor reset, a platform-admin flip, and an admin password reset.",
               "Access tokens carry tokenVersion + claimsVersion; refresh tokens carry tokenVersion. Each slot row stores the tokenVersion it was opened at and is live only while it equals the user's current one — so a bump strands every slot at once, even a row written concurrently with the bump. The bump sites also delete the rows (in the same transaction where there is one)."
             ],
             [
               "claimsVersion (user)",
-              "Outstanding access tokens only — role, permission, membership, tier or feature changes. The sessions stay.",
+              "Outstanding access tokens only — role, permission, membership, tier or feature changes, and losing an org (removal, deactivation, a directory deprovision, or the org / team being soft-deleted — which ends access to that org only, never signs the person out of the others). The sessions stay.",
               "Part of the access token's version sum; a stale token is refused and the client's next refresh re-mints current claims."
             ],
             [
@@ -4455,7 +4455,7 @@ export const authenticationTopic: HelpTopic = {
             [
               "Slot existence (sid)",
               "One device / one machine credential: logout, revoke from the Sessions page, eviction by the per-kind cap (10 interactive, newest kept; 10 machine, most recently used kept), refresh-token reuse, an expired session.",
-              "Platform's requireAuth checks the slot row (at the current tokenVersion) for every token carrying a sid; every other service reads revoke:sid:<sid>, which each of those paths publishes."
+              "Platform's requireAuth checks the slot row (at the current tokenVersion) for every user session token — and refuses one that names no sid, since it could never be signed out; every other service reads revoke:sid:<sid>, which each of those paths publishes."
             ],
             [
               "Slot hash",

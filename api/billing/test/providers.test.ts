@@ -48,6 +48,7 @@ const mockStripeCustomersRetrieve = jest.fn<AnyFn>();
 const mockStripeSubscriptionsCreate = jest.fn<AnyFn>();
 const mockStripeSubscriptionsUpdate = jest.fn<AnyFn>();
 const mockStripeSubscriptionsRetrieve = jest.fn<AnyFn>();
+const mockStripeSubscriptionsCancel = jest.fn<AnyFn>();
 const mockStripePaymentMethodsList = jest.fn<AnyFn>();
 const mockStripePortalCreate = jest.fn<AnyFn>();
 const mockStripeCouponsCreate = jest.fn<AnyFn>();
@@ -62,6 +63,7 @@ jest.unstable_mockModule('stripe', () => {
       create: mockStripeSubscriptionsCreate,
       update: mockStripeSubscriptionsUpdate,
       retrieve: mockStripeSubscriptionsRetrieve,
+      cancel: mockStripeSubscriptionsCancel,
     },
     coupons: { create: mockStripeCouponsCreate },
     paymentMethods: { list: mockStripePaymentMethodsList },
@@ -657,6 +659,29 @@ describe('StripeProvider', () => {
       expect(mockStripeSubscriptionsUpdate).toHaveBeenCalledWith('sub_stripe_789', {
         cancel_at_period_end: true,
       });
+    });
+  });
+
+  describe('cancelSubscriptionNow', () => {
+    it('cancels IMMEDIATELY with no proration credit and no final invoice (org purge, duplicate cleanup)', async () => {
+      mockStripeSubscriptionsCancel.mockResolvedValue({});
+      await provider.cancelSubscriptionNow('sub_stripe_789');
+      expect(mockStripeSubscriptionsCancel).toHaveBeenCalledWith('sub_stripe_789', { prorate: false, invoice_now: false });
+      expect(mockStripeSubscriptionsUpdate).not.toHaveBeenCalled();
+    });
+
+    it('treats an incomplete_expired subscription Stripe refuses to cancel as already ended (else a purge retains it forever)', async () => {
+      // `mapStripeStatus` folds incomplete_expired into `incomplete`, so the
+      // purge's provider-view fallback cannot tell it is over — the provider must.
+      mockStripeSubscriptionsCancel.mockRejectedValue(Object.assign(new Error('cannot cancel'), { code: 'subscription_canceled' }));
+      mockStripeSubscriptionsRetrieve.mockResolvedValue({ status: 'incomplete_expired' });
+      await expect(provider.cancelSubscriptionNow('sub_exp')).resolves.toBeUndefined();
+    });
+
+    it('still throws when the cancel fails on a subscription that is live at Stripe', async () => {
+      mockStripeSubscriptionsCancel.mockRejectedValue(new Error('stripe down'));
+      mockStripeSubscriptionsRetrieve.mockResolvedValue({ status: 'incomplete' });
+      await expect(provider.cancelSubscriptionNow('sub_live')).rejects.toThrow('stripe down');
     });
   });
 

@@ -395,7 +395,8 @@ class UserProfileService {
    * Throws USER_OWNER_HAS_ORGS (an owned org has other members, has teams, or
    * is the system org), RL_LAST_PRIVILEGED_MEMBER, ORG_SNAPSHOT_FAILED (an org's
    * recovery snapshot could not be written — nothing is deleted), or
-   * PROFILE_USER_NOT_FOUND if the user is already gone.
+   * PROFILE_USER_NOT_FOUND if the user is already gone. The org tombstones and
+   * the account deletion are one transaction: any failure deletes nothing.
    */
   async deleteAccount(userId: string): Promise<{ orgsDeleted: Array<{ orgId: string; name: string; purgeAfter: Date; snapshotId: string }> }> {
     // Lazily imported: account deletion is the only caller of these here.
@@ -411,16 +412,23 @@ class UserProfileService {
     // exempt — nobody is left in that org to be locked out.
     await withMongoTransaction((session) => assertNotLastPrivilegedMember(session, new Types.ObjectId(userId), undefined, orgIds));
 
-    // Lazily imported: the cascade pulls in the Postgres + peer-service graph,
-    // which nothing else in this module needs.
-    const { softDeleteOrg } = await import('./org-cascade-service.js');
-    const orgsDeleted: Array<{ orgId: string; name: string; purgeAfter: Date; snapshotId: string }> = [];
-    for (const org of plan.orgsDeleted) {
-      const r = await softDeleteOrg(org.orgId, org.orgId, userId);
-      orgsDeleted.push({ ...org, purgeAfter: r.purgeAfter, snapshotId: r.snapshotId });
-    }
-
-    const deleted = await withMongoTransaction((session) => deleteUserCascade(session, userId));
+    // ONE transaction: the sole-owned orgs' tombstones and the account's own
+    // cascade commit together. Run as two steps, a cascade failure left the
+    // orgs tombstoned (their members cut off) under an account that still
+    // existed. The recovery snapshots are captured first, outside it; an
+    // aborted delete discards them. Lazily imported: the org cascade pulls in
+    // the Postgres + peer-service graph, which nothing else here needs.
+    const { softDeleteOrgsTogether } = await import('./org-cascade-service.js');
+    const { results, extra: deleted } = await softDeleteOrgsTogether(
+      plan.orgsDeleted.map((o) => ({ orgId: o.orgId, actorOrgId: o.orgId })),
+      userId,
+      async (session) => {
+        const gone = await deleteUserCascade(session, userId);
+        if (!gone) throw new Error(PROFILE_USER_NOT_FOUND);
+        return gone;
+      },
+    );
+    const orgsDeleted = plan.orgsDeleted.map((org, i) => ({ ...org, purgeAfter: results[i].purgeAfter, snapshotId: results[i].snapshotId }));
     if (!deleted) throw new Error(PROFILE_USER_NOT_FOUND);
     // Revoke the deleted user's outstanding tokens on the stateless services.
     await publishUserDeletionRevocation(userId, deleted.accessVersion);

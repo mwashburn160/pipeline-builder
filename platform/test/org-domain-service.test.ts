@@ -44,7 +44,12 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
     countDocuments: (...a: unknown[]) => mockDomainCount(...a),
   },
   JoinRequest: {
-    findOne: (...a: unknown[]) => mockJoinFindOne(...a),
+    // Awaited directly by some paths and `.lean()`-ed by the decision read.
+    findOne: (...a: unknown[]) => {
+      const out = mockJoinFindOne(...a) as { lean?: unknown } | Promise<unknown>;
+      if (out && typeof (out as { lean?: unknown }).lean === 'function') return out;
+      return Object.assign(Promise.resolve(out), { lean: () => Promise.resolve(out) });
+    },
     updateOne: (...a: unknown[]) => mockJoinUpdateOne(...a),
     updateMany: (...a: unknown[]) => mockJoinUpdateMany(...a),
     deleteMany: (...a: unknown[]) => mockJoinDeleteMany(...a),
@@ -107,7 +112,7 @@ beforeEach(() => {
   mockEnsureBaselineRole.mockResolvedValue();
   mockDomainCount.mockResolvedValue(0);
   mockDomainDeleteMany.mockResolvedValue({});
-  mockJoinUpdateOne.mockResolvedValue({});
+  mockJoinUpdateOne.mockResolvedValue({ matchedCount: 1 });
   mockJoinUpdateMany.mockResolvedValue({});
   mockJoinDeleteMany.mockResolvedValue({});
 });
@@ -466,5 +471,18 @@ describe('decideJoinRequest', () => {
   it('throws when the request is missing or already decided', async () => {
     mockJoinFindOne.mockResolvedValue(null);
     await expect(orgDomainService.decideJoinRequest('org-1', RID, 'approve', decider)).rejects.toThrow(JOIN_REQUEST_NOT_FOUND);
+    mockJoinFindOne.mockResolvedValue({ _id: 'r1', organizationId: 'org-1', userId: new Types.ObjectId(), email: 'jane@acme.com', status: 'denied' });
+    await expect(orgDomainService.decideJoinRequest('org-1', RID, 'approve', decider)).rejects.toThrow('JOIN_ALREADY_DECIDED');
+  });
+
+  it('decides with a write CONDITIONAL on the request still being pending; a lost race is JOIN_ALREADY_DECIDED', async () => {
+    mockJoinFindOne.mockResolvedValue({ _id: 'r1', organizationId: 'org-1', userId: new Types.ObjectId(), email: 'jane@acme.com', status: 'pending' });
+    mockJoinUpdateOne.mockResolvedValue({ matchedCount: 0 }); // another admin decided first
+    await expect(orgDomainService.decideJoinRequest('org-1', RID, 'deny', decider)).rejects.toThrow('JOIN_ALREADY_DECIDED');
+    expect(mockJoinUpdateOne).toHaveBeenCalledWith(
+      { _id: 'r1', status: 'pending' },
+      { $set: expect.objectContaining({ status: 'denied' }) },
+      {},
+    );
   });
 });

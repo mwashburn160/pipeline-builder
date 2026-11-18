@@ -9,8 +9,12 @@
  *   - A durable recovery snapshot is written BEFORE the org is tombstoned.
  *   - If the snapshot can't be persisted, the soft-delete ABORTS (throws
  *     ORG_SNAPSHOT_FAILED) and the org is NOT tombstoned.
- *   - On success it sets `deletedAt`/`purgeAfter` and bumps every active
- *     member's `tokenVersion` — it runs NO destructive cascade.
+ *   - On success it sets `deletedAt`/`purgeAfter` (conditionally on the org not
+ *     being deleted already) and bumps every active member's `claimsVersion` —
+ *     ending their access to THIS org without signing them out of their others.
+ *     It runs NO destructive cascade. (Real-Mongo semantics — sessions surviving,
+ *     the refresh landing elsewhere, the racing repeat delete, the account
+ *     self-delete's single transaction — are in org-soft-delete.integration.test.ts.)
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
@@ -87,7 +91,11 @@ jest.unstable_mockModule('../src/models/organization.js', () => ({
 }));
 // The chunked header+chunk writer (deleted-org-snapshot-store) is exercised
 // against real Mongo in deleted-org-snapshot.integration.test.ts.
-jest.unstable_mockModule('../src/services/deleted-org-snapshot-store.js', () => ({ storeDeletedOrgSnapshot: (...a: unknown[]) => mockSnapshotCreate(...a) }));
+const mockSnapshotDiscard = jest.fn(async (..._a: unknown[]) => undefined);
+jest.unstable_mockModule('../src/services/deleted-org-snapshot-store.js', () => ({
+  storeDeletedOrgSnapshot: (...a: unknown[]) => mockSnapshotCreate(...a),
+  discardDeletedOrgSnapshot: (...a: unknown[]) => mockSnapshotDiscard(...a),
+}));
 jest.unstable_mockModule('../src/models/user.js', () => ({
   __esModule: true,
   default: {
@@ -130,7 +138,7 @@ beforeEach(() => {
   mockSelectChain.where.mockResolvedValue([]);
   // Live org (not yet soft-deleted).
   mockOrgFindById.mockReturnValue({ select: () => ({ lean: () => ({ _id: 'org-acme', name: 'Acme', deletedAt: null }) }) });
-  mockOrgUpdateOne.mockReturnValue({ session: () => Promise.resolve({}) });
+  mockOrgUpdateOne.mockReturnValue({ session: () => Promise.resolve({ matchedCount: 1 }) });
   mockSnapshotCreate.mockResolvedValue('snap-1');
   // Chainable: the session cut-off reads `.select().session().lean()`, while the
   // snapshot export reads the same collection with a plain `.lean()`.
@@ -146,7 +154,7 @@ beforeEach(() => {
 });
 
 describe('softDeleteOrg', () => {
-  it('writes a recovery snapshot, tombstones the org, and bumps active members tokenVersion', async () => {
+  it('writes a recovery snapshot, tombstones the org, and bumps active members claimsVersion', async () => {
     const result = await softDeleteOrg('org-acme', SYSTEM_ORG_ID, 'admin-1');
 
     // Snapshot persisted (name denormalized, deletedBy captured).
@@ -161,26 +169,31 @@ describe('softDeleteOrg', () => {
     // the org must outlive the rows this same cascade tombstones, or they are
     // orphaned for the difference.
     const [filter, update] = mockOrgUpdateOne.mock.calls[0] as [any, any];
-    expect(filter).toEqual({ _id: 'org-acme' });
+    // Conditional: a racing repeat delete cannot reset purgeAfter.
+    expect(filter).toEqual({ _id: 'org-acme', deletedAt: null });
     expect(update.$set.deletedAt).toBeInstanceOf(Date);
     expect(update.$set.purgeAfter).toBeInstanceOf(Date);
     const windowMs = update.$set.purgeAfter.getTime() - update.$set.deletedAt.getTime();
     expect(Math.abs(windowMs - 30 * 86400_000)).toBeLessThan(5000);
 
-    // All active members invalidated.
+    // All active members' access to THIS org ends: a CLAIMS bump, never a
+    // sign-out — their sessions span their other orgs.
     const [uFilter, uUpdate] = mockUserUpdateMany.mock.calls[0] as [any, any];
     expect(uFilter).toEqual({ _id: { $in: ['u1', 'u2'] } });
-    expect(uUpdate.$inc).toEqual({ tokenVersion: 1 });
+    expect(uUpdate.$inc).toEqual({ claimsVersion: 1 });
     expect(uUpdate.$set).toBeUndefined();
-    // ...and every one of their refresh-session slots goes in the same transaction.
-    expect(store.deleteAllSlots).toHaveBeenCalledWith(['u1', 'u2'], expect.anything());
+    expect(store.deleteAllSlots).not.toHaveBeenCalled();
+    // ...and their pin on the dead org is dropped.
+    const [pinFilter, pinUpdate] = mockUserUpdateMany.mock.calls[1] as [any, any];
+    expect(pinFilter).toEqual({ _id: { $in: ['u1', 'u2'] }, lastActiveOrgId: 'org-acme' });
+    expect(pinUpdate).toEqual({ $unset: { lastActiveOrgId: '' } });
 
     expect(result.membersInvalidated).toBe(2);
     expect(result.snapshotId).toBe('snap-1');
     expect(result.purgeAfter).toBeInstanceOf(Date);
 
     // Members' PATs SCOPED TO THIS ORG are revoked in the same txn — a PAT's
-    // authority is decoupled from tokenVersion, so the bump above wouldn't reach
+    // authority is decoupled from the version bump, so the bump above wouldn't reach
     // it. Scoped by organizationId so PATs for other (live) orgs are untouched.
     const [patFilter, patUpdate] = mockPatUpdateMany.mock.calls[0] as [any, any];
     expect(patFilter).toEqual({ userId: { $in: ['u1', 'u2'] }, organizationId: 'org-acme', revoked: false });
@@ -259,6 +272,13 @@ describe('softDeleteOrg', () => {
     expect(mockSnapshotCreate).not.toHaveBeenCalled();
     expect(mockOrgUpdateOne).not.toHaveBeenCalled();
     expect(mockUserUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it('refuses (ORG_ALREADY_DELETED) when the conditional tombstone matches nothing — a racing delete got there first — and discards its snapshot', async () => {
+    mockOrgUpdateOne.mockReturnValue({ session: () => Promise.resolve({ matchedCount: 0 }) });
+    await expect(softDeleteOrg('org-acme', SYSTEM_ORG_ID, 'admin-1')).rejects.toThrow(ORG_ALREADY_DELETED);
+    expect(mockUserUpdateMany).not.toHaveBeenCalled();
+    expect(mockSnapshotDiscard).toHaveBeenCalledWith('snap-1');
   });
 
   it('rejects a second soft-delete of an already-tombstoned org', async () => {

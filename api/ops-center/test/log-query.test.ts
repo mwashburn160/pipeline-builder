@@ -90,6 +90,10 @@ describe('parseLogQuery', () => {
     expect(() => parseLogQuery('/error|timeout/')).not.toThrow();
   });
 
+  it('REGRESSION: rejects a credential regex whose literal is hidden behind backslash escapes', () => {
+    expect(() => parseLogQuery('/sk\\_live\\_51H8xQ2abcdefGHIJ/')).toThrow(/credential/);
+  });
+
   it('rejects an over-long query and over-long regex', () => {
     expect(() => parseLogQuery('x'.repeat(1001))).toThrow(/too long/i);
     expect(() => parseLogQuery(`/${'a'.repeat(201)}/`)).toThrow(/too long/i);

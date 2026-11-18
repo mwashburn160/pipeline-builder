@@ -116,6 +116,10 @@ export interface IdpGroupMappingDto {
   group: string;
   roleIds: string[];
   roles: Array<{ id: string; name: string; grantsRole: 'superadmin' | 'admin' | 'member' }>;
+  /** Pushed by the org's SCIM client: the group's NAME and its existence belong to
+   *  the identity provider (the API refuses a rename or delete with 409
+   *  `IGM_SCIM_MANAGED`); the Roles it grants stay editable here. */
+  scimManaged: boolean;
   updatedAt: string;
 }
 

@@ -41,8 +41,10 @@ export interface IdpGroupMappingData {
    * filter, and it grants nothing on its own.
    */
   scimExternalId?: string | null;
-  /** True when a SCIM client created this row. Display only: an admin may edit
-   *  the Roles of a SCIM-created group exactly as they would any other. */
+  /** True when a SCIM client created this row. Its group NAME and its existence
+   *  then belong to the directory — the editor refuses a rename or delete
+   *  (`IGM_SCIM_MANAGED`) — while an admin may edit its Roles exactly as they
+   *  would any other rule's. */
   scimManaged?: boolean;
   createdBy: string;
   updatedBy: string;

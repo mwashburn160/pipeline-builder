@@ -277,6 +277,43 @@ suite('SCIM 2.0 provisioning (real Mongo replica set)', () => {
     expect(membership.isActive).toBe(false);
   });
 
+  // The directory-Role strip used to run AFTER the deactivation committed: a
+  // failure there left the member deactivated but still holding their mapped
+  // Roles, and the IdP's retry was a no-op (already inactive / already
+  // removed), so the Roles were never stripped. It now commits with the
+  // deactivation or not at all.
+  it.each([
+    ['PATCH active:false', (id: string) => scim.patchUser(ctx, id, [{ op: 'replace', path: 'active', value: false }])],
+    ['DELETE', (id: string) => scim.deleteUser(ctx, id)],
+  ])('%s: when the Role strip fails, nothing commits and the IdP retry strips the mapped Roles', async (_label, deprovision) => {
+    const alice = (await createAlice()).resource.id;
+    await mapping.create(orgId, 'admin', { group: 'Engineering', roleIds: [engRoleId] }, ADMIN_ACTOR);
+    const group = (await scim.listGroups(ctx, { filter: 'displayName eq "Engineering"' })).Resources[0];
+    await scim.patchGroup(ctx, group.id, [{ op: 'add', path: 'members', value: [{ value: alice }] }]);
+    expect(await m.RoleAssignment.exists({ userId: alice, roleId: engRoleId, source: 'jit' })).not.toBeNull();
+
+    // The strip's delete fails once (a transient datastore error).
+    const realDeleteMany = m.RoleAssignment.deleteMany;
+    let failed = false;
+    m.RoleAssignment.deleteMany = function (this: unknown, ...args: unknown[]) {
+      if (!failed) { failed = true; throw new Error('transient datastore failure'); }
+      return realDeleteMany.apply(this, args);
+    };
+    try {
+      await expect(deprovision(alice)).rejects.toThrow('transient datastore failure');
+    } finally {
+      m.RoleAssignment.deleteMany = realDeleteMany;
+    }
+
+    // The IdP retries the same call.
+    await deprovision(alice);
+    const membership = await m.UserOrganization.findOne({ userId: alice, organizationId: orgId }).lean();
+    expect(membership.isActive).toBe(false);
+    expect(await m.RoleAssignment.exists({ userId: alice, roleId: engRoleId })).toBeNull();
+    // The hand-granted Member floor stays (manual rows are the admin's).
+    expect(await m.RoleAssignment.exists({ userId: alice, roleId: memberRoleId })).not.toBeNull();
+  });
+
   it('never deactivates or deletes the organization OWNER', async () => {
     const ownerMembership = await m.UserOrganization.findOne({ organizationId: orgId, role: 'owner' }).lean();
     const ownerId = String(ownerMembership.userId);
@@ -340,6 +377,33 @@ suite('SCIM 2.0 provisioning (real Mongo replica set)', () => {
     const row = await m.UserOrganization.collection.findOne({ userId: new mongoose.Types.ObjectId(created.resource.id), organizationId: new mongoose.Types.ObjectId(ctx.orgId) });
     expect(row.scim.displayName).toBe('Alice N.');
     expect(row.scim.groups).toContain('grp-late');
+  });
+
+  it('an attribute PUT keeps a group key a concurrent Group PATCH added after its read', async () => {
+    // Same regression on the PUT path: `replaceUser` also wrote the whole `scim`
+    // sub-document from its earlier read, dropping a concurrently-added group key.
+    const created = await createAlice();
+    const realFindOne = m.UserOrganization.findOne.bind(m.UserOrganization);
+    const spy = jest.spyOn(m.UserOrganization, 'findOne').mockImplementationOnce((async (...a: unknown[]) => {
+      const doc = await realFindOne(...a);
+      await m.UserOrganization.collection.updateOne({ _id: doc._id }, { $addToSet: { 'scim.groups': 'grp-late-put' } });
+      return doc;
+    }) as never);
+    try {
+      await scim.replaceUser(ctx, created.resource.id, {
+        schemas: ['urn:ietf:params:scim:schemas:core:2.0:User'],
+        userName: 'alice@acme.com',
+        externalId: '00u-alice',
+        name: { givenName: 'Alicia', familyName: 'Ng' },
+        emails: [{ value: 'alice@acme.com', primary: true, type: 'work' }],
+        active: true,
+      });
+    } finally {
+      spy.mockRestore();
+    }
+    const row = await m.UserOrganization.collection.findOne({ userId: new mongoose.Types.ObjectId(created.resource.id), organizationId: new mongoose.Types.ObjectId(ctx.orgId) });
+    expect(row.scim.givenName).toBe('Alicia');
+    expect(row.scim.groups).toContain('grp-late-put');
   });
 
   it('IGNORES attributes it does not model rather than failing the whole sync', async () => {

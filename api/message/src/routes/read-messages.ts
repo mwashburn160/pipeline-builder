@@ -86,7 +86,7 @@ export function createReadMessageRoutes(): Router {
   const protect = createAuthenticatedWithOrgRoute();
 
   // GET /messages — List inbox (root messages)
-  router.get('/', ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.get('/', ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const { limit, offset, sortBy, sortOrder } = parsePaginationParams(req.query);
 
     // Validate query params with Zod schema
@@ -105,9 +105,8 @@ export function createReadMessageRoutes(): Router {
     const filter: Partial<MessageFilter> = {
       isActive: true,
       threadId: resolvedThreadId ?? null,
-      // Scope per-user targeted messages to this viewer (org-wide rows are
-      // unaffected; a message addressed to another member won't surface here).
-      ...(userId && { viewerUserId: userId }),
+      // No `viewerUserId` here: the service stamps the viewer from the request's
+      // tenant context (`withViewerContext`), which refuses a filter naming one.
       ...(messageType && { messageType }),
       ...(priority && { priority }),
       ...(channel && { channel }),

@@ -2,8 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Tear one org's billing state down: cancel its billable subscriptions at the
- * payment provider, then drop its subscriptions and billing events.
+ * Tear one org's billing state down: cancel its live subscriptions at the
+ * payment provider, IMMEDIATELY, then drop its subscriptions and billing events.
+ *
+ * Immediate, not at period end: the cascade leg fires only at the FINAL purge
+ * (platform's `purgeExpiredOrgs`, after the soft-delete restore window has
+ * lapsed), so there is no org left to keep serving until the period ends — a
+ * period-end cancel kept charging an org that no longer exists. Stripe's
+ * `subscriptions.cancel` is called without proration or `invoice_now`, so no
+ * credit and no automatic refund is issued. "Live" is every status that is not
+ * terminal, `incomplete` included: cancelling an incomplete Stripe subscription
+ * voids its open first invoice, which dropping the row alone left payable.
  *
  * Shared by the org-purge cascade leg (`BILLING_INTERNAL.purgeOrg`, platform's
  * durable outbox) and the billing admin page's "Purge"
@@ -22,7 +31,7 @@
  */
 
 import { actorId as auditActorId, createLogger, errorMessage, recordAudit } from '@pipeline-builder/api-core';
-import { MANAGEABLE_SUBSCRIPTION_STATUSES } from './subscription-status.js';
+import { TERMINAL_SUBSCRIPTION_STATUSES } from './subscription-status.js';
 import { BillingEvent } from '../models/billing-event.js';
 import { Subscription } from '../models/subscription.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
@@ -46,13 +55,18 @@ export interface OrgBillingPurgeResult {
 }
 
 /**
- * Cancel at the provider; `true` when the subscription is no longer billing
- * there (cancelled now, or already ended), `false` to keep the local row.
+ * Cancel at the provider, immediately; `true` when the subscription is no longer
+ * billing there (cancelled now, or already ended), `false` to keep the local row.
+ *
+ * A provider with no immediate cancel (AWS Marketplace, where the BUYER owns the
+ * agreement and the seller cannot end it; the dev stub) gets its ordinary
+ * `cancelSubscription`, which on both is a logged no-op.
  */
 async function cancelAtProvider(orgId: string, subscriptionId: string, externalId: string): Promise<boolean> {
   const provider = getPaymentProvider();
   try {
-    await provider.cancelSubscription(externalId);
+    if (provider.cancelSubscriptionNow) await provider.cancelSubscriptionNow(externalId);
+    else await provider.cancelSubscription(externalId);
     return true;
   } catch (err) {
     // The provider may refuse because the subscription is already over (Stripe
@@ -79,12 +93,13 @@ async function cancelAtProvider(orgId: string, subscriptionId: string, externalI
  * the cascade). Throws only on a store failure.
  */
 export async function purgeOrgBilling(orgId: string, actor: string | undefined): Promise<OrgBillingPurgeResult> {
-  // Cancel every still-billable subscription at the provider first so we don't
+  // Cancel every still-live subscription at the provider first so we don't
   // leave billable state running after our local rows are gone. A trialing /
   // past_due row carries a live externalId at the provider just like an active
-  // one, so the manageable (non-terminal) set is what has to be cancelled.
+  // one, and an `incomplete` one has an open first invoice — so the whole
+  // non-terminal set is what has to be cancelled.
   const billable = await Subscription.find({
-    orgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] },
+    orgId, status: { $nin: [...TERMINAL_SUBSCRIPTION_STATUSES] },
   }).limit(MAX_BILLABLE);
 
   // A failed cancel keeps the row (it is not pushed here).
@@ -94,14 +109,14 @@ export async function purgeOrgBilling(orgId: string, actor: string | undefined):
   }
 
   // Delete only rows known not to be billing: the terminal ones, and the
-  // billable ones cancelled above. NOT a blanket `{ orgId }` — a row that turned
-  // billable after the sweep read (a checkout webhook activating an `incomplete`
-  // row mid-purge) was never cancelled, and dropping it would lose the only
-  // record of a live provider subscription. It survives and is reported below.
+  // live ones cancelled above. NOT a blanket `{ orgId }` — a row created after
+  // the sweep read (a checkout landing mid-purge) was never cancelled, and
+  // dropping it would lose the only record of a live provider subscription. It
+  // survives and is reported below.
   const subDelete = await Subscription.deleteMany({
     orgId,
     $or: [
-      { status: { $nin: [...MANAGEABLE_SUBSCRIPTION_STATUSES] } },
+      { status: { $in: [...TERMINAL_SUBSCRIPTION_STATUSES] } },
       { _id: { $in: removed.map((s) => s._id) } },
     ],
   });

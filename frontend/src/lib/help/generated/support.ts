@@ -1,6 +1,6 @@
 // GENERATED FROM docs/support.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 72e239de4e8ae75f9ec84bd870689e077d02f483f1996a1bf1847d756fd8ef56
+// SOURCE-SHA256: df15acd2140b13f1e8d7b219b54788e614bc46000341432cf6951812944c839f
 // SPDX-License-Identifier: Apache-2.0
 import { LifeBuoy } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -184,6 +184,10 @@ export const supportTopic: HelpTopic = {
         {
           "type": "text",
           "content": "The clock stops when support first replies, stamped at that moment rather than inferred later from message timestamps. A second reply cannot move it."
+        },
+        {
+          "type": "text",
+          "content": "Only a reply from support staff (support_cases:write, in the system org) stops the clock, and it is held to the staff routes' bar: a person's own MFA-grade (aal2) session. A staff reply from a single-factor session is refused with the same step-up error (MFA_REQUIRED; an API key or service account gets HUMAN_SESSION_REQUIRED) — it is never saved as an ordinary reply instead. Customer replies have no such requirement."
         },
         {
           "type": "text",

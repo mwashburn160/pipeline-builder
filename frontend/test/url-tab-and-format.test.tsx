@@ -14,7 +14,8 @@ import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals
 import type { AnyFn } from './helpers/mock-fn';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { useUrlTab } from '../src/hooks/useUrlTab';
-import { formatDate, formatDateLong, formatDateMedium, formatDateTime, formatTime, formatDuration, formatDurationSeconds } from '../src/lib/format';
+import { formatByteAmount } from '@pipeline-builder/api-core/quota-catalog';
+import { formatDate, formatDateLong, formatDateMedium, formatDateTime, formatTime, formatDuration, formatDurationSeconds, formatBytes } from '../src/lib/format';
 
 const replace = jest.fn<AnyFn>();
 let query: Record<string, string> = {};
@@ -197,5 +198,31 @@ describe('formatDuration — one duration vocabulary', () => {
     expect(formatDurationSeconds(45)).toBe(formatDuration(45_000));
     expect(formatDurationSeconds(3_720)).toBe(formatDuration(3_720_000));
     expect(formatDurationSeconds(null)).toBe('—');
+  });
+});
+
+describe('formatBytes — delegates to api-core', () => {
+  /**
+   * `formatBytes` is a thin wrapper over api-core's `formatByteAmount`, so a
+   * storage figure reads identically in the UI, a quota notice and a push
+   * refusal. If that export goes private (it did, and broke the build) this
+   * suite fails too, not only the type-check.
+   */
+  it('renders human byte sizes with the shared rounding rules', () => {
+    expect(formatBytes(0)).toBe('0.0 B');
+    expect(formatBytes(512)).toBe('512 B');
+    expect(formatBytes(1536)).toBe('1.5 KB');
+    expect(formatBytes(25 * 1024 ** 3)).toBe('25 GB');
+    expect(formatBytes(3 * 1024 ** 4)).toBe('3.0 TB');
+  });
+
+  it('reads a non-finite or negative input as 0 B rather than "NaN B"', () => {
+    expect(formatBytes(-1)).toBe('0 B');
+    expect(formatBytes(Number.NaN)).toBe('0 B');
+  });
+
+  it('matches the api-core formatter exactly', () => {
+    expect(typeof formatByteAmount).toBe('function');
+    for (const n of [0, 1023, 1024, 10 * 1024 ** 2, 7.25 * 1024 ** 3]) expect(formatBytes(n)).toBe(formatByteAmount(n));
   });
 });

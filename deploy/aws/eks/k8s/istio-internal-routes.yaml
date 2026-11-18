@@ -114,12 +114,15 @@ spec:
     # success, so nothing else surfaces it), and ops-center's alert-delivery
     # posture for the email channel. Reading the instance-wide switch is
     # strictly weaker than sending: `ask-agent` is admitted here, never above.
+    # reporting reads it before a stakeholder-report email delivery
+    # (api/reporting report-delivery.ts, PLATFORM_INTERNAL.notifyEmailStatus).
     - from:
         - source:
             notPrincipals:
               - cluster.local/ns/pipeline-builder/sa/ask-agent
               - cluster.local/ns/pipeline-builder/sa/ops-center
               - cluster.local/ns/pipeline-builder/sa/plugin
+              - cluster.local/ns/pipeline-builder/sa/reporting
       to:
         - operation:
             methods: ["GET"]

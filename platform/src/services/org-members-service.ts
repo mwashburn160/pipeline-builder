@@ -324,7 +324,9 @@ class OrgMembersService {
   ): Promise<void> {
     const notice = await withMongoTransaction(async (session) => {
       const org = await Organization.findById(toOrgId(orgId)).session(session);
-      if (!org) throw new Error(OM_ORG_NOT_FOUND);
+      // A soft-deleted (tombstoned) org or team is gone to every product
+      // surface — a membership written into it would hold a seat nobody can use.
+      if (!org || org.deletedAt) throw new Error(OM_ORG_NOT_FOUND);
       // Adding someone AS AN ADMIN grants the built-in Admin Role: the same
       // assignment ceiling as granting it through the Roles API, so a
       // `members:manage` delegate can't mint admins (themselves included).

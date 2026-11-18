@@ -24,16 +24,31 @@ const MONGOD_VERSION = process.env.MONGOMS_VERSION || '6.0.14';
 const suite = integrationSuite();
 
 // The org soft-delete's recovery snapshot reads Postgres, which this suite has
-// none of (it is covered by org-soft-delete-service.test.ts). Stand in for it
-// with the part the account deletion depends on: the org is tombstoned.
+// none of (it is covered by org-soft-delete-service.test.ts and, against real
+// Mongo, org-soft-delete.integration.test.ts). Stand in for it with the part the
+// account deletion depends on: the orgs are tombstoned IN the same transaction
+// as the caller's own write.
 const softDeleteCalls: string[] = [];
 jest.unstable_mockModule('../src/services/org-cascade-service.js', () => ({
-  softDeleteOrg: async (orgId: string) => {
-    softDeleteCalls.push(orgId);
+  softDeleteOrgsTogether: async (
+    targets: Array<{ orgId: string }>,
+    _deletedBy: string,
+    alsoInTransaction?: (session: unknown) => Promise<unknown>,
+  ) => {
     const { Organization } = await import('../src/models/index.js');
+    const { withMongoTransaction } = await import('../src/utils/mongo-tx.js');
     const purgeAfter = new Date(Date.now() + 30 * 86_400_000);
-    await Organization.updateOne({ _id: orgId }, { $set: { deletedAt: new Date(), purgeAfter } });
-    return { orgId, deletedAt: new Date(), purgeAfter, snapshotId: 'snap-1', membersInvalidated: 1 };
+    const extra = await withMongoTransaction(async (session) => {
+      for (const { orgId } of targets) {
+        await Organization.updateOne({ _id: orgId }, { $set: { deletedAt: new Date(), purgeAfter } }, { session });
+      }
+      return alsoInTransaction ? alsoInTransaction(session) : undefined;
+    });
+    softDeleteCalls.push(...targets.map((t) => t.orgId));
+    return {
+      results: targets.map(({ orgId }) => ({ orgId, deletedAt: new Date(), purgeAfter, snapshotId: 'snap-1', membersInvalidated: 1 })),
+      extra,
+    };
   },
 }));
 

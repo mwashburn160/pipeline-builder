@@ -14,6 +14,14 @@ import type { SubscriptionDocument } from '../models/subscription.js';
  */
 export const MANAGEABLE_SUBSCRIPTION_STATUSES = ['active', 'trialing', 'past_due'] as const;
 
+/**
+ * Statuses in which a subscription is OVER at the provider — nothing left to
+ * cancel. Everything else (the manageable set AND `incomplete`, whose first
+ * invoice is still open at Stripe) is still live there. The org purge cancels
+ * every non-terminal row and deletes only terminal or cancelled ones.
+ */
+export const TERMINAL_SUBSCRIPTION_STATUSES = ['canceled'] as const;
+
 /** The org's current manageable subscription, if any. */
 export async function loadManageableSubscription(orgId: string): Promise<SubscriptionDocument | null> {
   return Subscription.findOne({ orgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] } });

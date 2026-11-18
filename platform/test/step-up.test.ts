@@ -115,6 +115,8 @@ describe('stepUpVerify — durable password lockout', () => {
     const user = { comparePassword: jest.fn<AnyFn>().mockResolvedValue(true), email: 'a@b' };
     mockUserFindById.mockReturnValue({ select: jest.fn<AnyFn>().mockResolvedValue(user) });
     mockReserve.mockRejectedValue(new MockLockedOut(new Date(Date.now() + 60_000)));
+    // A mintable token, so a route that skipped the lockout would answer 200 here.
+    mockIssueStepUpToken.mockReturnValue({ token: 't', expiresAt: 1 });
     const res = mockRes();
     await (stepUpVerify as unknown as (req: any, res: any) => Promise<void>)({ body: { password: 'right' }, user: { sub: 'u1' } }, res);
     expect(res.status).toHaveBeenCalledWith(429);

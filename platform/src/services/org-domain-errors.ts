@@ -28,6 +28,10 @@ export const JOIN_REQUEST_NOT_FOUND = 'JOIN_REQUEST_NOT_FOUND';
 /** The requesting user's account was deleted before the request was decided —
  *  approving it would mint a membership (and a seat) for no one. */
 export const JOIN_REQUESTER_GONE = 'JOIN_REQUESTER_GONE';
+/** The request was already approved or denied — by another admin answering it at
+ *  the same moment, or earlier. The decision is a conditional write on
+ *  `status: 'pending'`, so exactly one decision ever lands. */
+export const JOIN_ALREADY_DECIDED = 'JOIN_ALREADY_DECIDED';
 
 /** Shared error map for the domain/join-request admin endpoints. */
 export const DOMAIN_ERROR_MAP: ErrorMap = {
@@ -42,6 +46,7 @@ export const DOMAIN_ERROR_MAP: ErrorMap = {
   [DOMAIN_SHARE_NOT_ROOT]: { status: 409, message: 'Only the account\'s top-level organization can share a domain with its teams' },
   [JOIN_NOT_ELIGIBLE]: { status: 409, message: 'This domain is no longer configured for join — the request can’t be approved' },
   [JOIN_REQUEST_NOT_FOUND]: { status: 404, message: 'Join request not found' },
+  [JOIN_ALREADY_DECIDED]: { status: 409, message: 'This join request has already been decided. Refresh to see its current status.' },
   [JOIN_REQUESTER_GONE]: { status: 410, message: 'The requesting user no longer exists' },
   [JOIN_SEAT_LIMIT]: { status: 409, message: 'Approving this request would exceed your seat limit' },
 };

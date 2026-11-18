@@ -213,6 +213,26 @@ async function isAccessKeyLive(keyId: string): Promise<boolean> {
 }
 
 /**
+ * Whether the service account a token names still exists and is NOT disabled.
+ * Disabling an account must end the tokens its keys ALREADY exchanged, not only
+ * the next exchange: the key records stay live (a disable is reversible), so
+ * `isAccessKeyLive` alone would admit them for the rest of their lifetime. The
+ * other services get the same effect from the `revoke:key:` entries the disable
+ * publishes. Loaded lazily — only a service-account request reaches it. A read
+ * error denies, like the key check.
+ */
+async function isServiceAccountEnabled(serviceAccountId: string | undefined): Promise<boolean> {
+  if (!serviceAccountId) return false;
+  try {
+    const { default: ServiceAccount } = await import('../models/service-account.js');
+    return !!(await ServiceAccount.exists({ _id: serviceAccountId, disabled: false }));
+  } catch (err) {
+    logger.warn('Service-account liveness check failed — denying', { error: String(err) });
+    return false;
+  }
+}
+
+/**
  * Middleware to authenticate requests using JWT access tokens.
  * Validates the Bearer token from the Authorization header and populates req.user.
  *
@@ -310,7 +330,9 @@ export async function requireAuth(
     if (decoded.token_use !== 'api_key' || !decoded.jti || !decoded.organizationId) {
       return sendError(res, 401, 'Token invalid', ErrorCode.TOKEN_INVALID);
     }
-    if (!(await isAccessKeyLive(decoded.jti))) return sendError(res, 401, 'Session invalid');
+    if (!(await isAccessKeyLive(decoded.jti)) || !(await isServiceAccountEnabled(decoded.sub))) {
+      return sendError(res, 401, 'Session invalid');
+    }
     req.user = decoded;
     return runDeferredQuotaCheck(req, res, next);
   }
@@ -433,10 +455,15 @@ async function userSessionRejection(decoded: AccessTokenPayload): Promise<Sessio
   // (tokenVersion) or claims change (claimsVersion) — the latter is cured by a
   // refresh, which re-mints current claims.
   if (decoded.tokenVersion !== accessTokenVersion(user)) return SESSION_INVALID;
+  // Every session token platform mints names its refresh-session slot (`sid`,
+  // set by `mintAccessToken`); one without it has no slot to check, so signing
+  // out every device could never end it. Refused outright — impersonation and
+  // exchanged-key tokens, which carry no slot by design, returned above.
+  if (!decoded.sid) return SESSION_INVALID;
   // Its slot was revoked (sign-out of that device / machine credential, an
   // eviction, reuse) or predates the user's last hard revocation. One indexed
   // read of the `refresh_sessions` row — the user document carries no slots.
-  if (decoded.sid && !(await slotIsLive(decoded.sub, decoded.sid, user.tokenVersion))) return SESSION_INVALID;
+  if (!(await slotIsLive(decoded.sub, decoded.sid, user.tokenVersion))) return SESSION_INVALID;
   return undefined;
 }
 

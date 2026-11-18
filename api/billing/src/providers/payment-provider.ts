@@ -175,9 +175,14 @@ export interface PaymentProvider {
   ): Promise<string>;
 
   /**
-   * Cancel a subscription IMMEDIATELY (not at period end) — to clean up a DUPLICATE
-   * subscription so the customer isn't billed twice. Optional: providers that can't
-   * produce a duplicate (stub, marketplace) omit it.
+   * Cancel a subscription IMMEDIATELY (not at period end), with no proration and
+   * no refund — to clean up a DUPLICATE subscription so the customer isn't billed
+   * twice, and at the final org purge (helpers/org-purge.ts), where no org is left
+   * to serve until period end. Resolves when the subscription is already over.
+   * Optional: the stub has nothing to cancel, and on AWS Marketplace the BUYER owns
+   * the agreement — the seller cannot end it, and it ends via a `License
+   * Deprovisioned` event — so both omit it and callers fall back to
+   * {@link cancelSubscription} (a logged no-op on both).
    */
   cancelSubscriptionNow?(externalId: string): Promise<void>;
 }

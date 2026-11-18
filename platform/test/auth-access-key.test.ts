@@ -53,6 +53,12 @@ jest.unstable_mockModule('../src/utils/token.js', () => ({
   verifyRefreshToken: jest.fn<AnyFn>(),
 }));
 
+// Slots live in their own collection behind session-store.ts — every user
+// session token names one, and requireAuth checks it is live.
+const { sessionStoreFake } = await import('./helpers/session-store-fake.js');
+const store = sessionStoreFake();
+jest.unstable_mockModule('../src/services/session/session-store.js', () => store);
+
 const { requireAuth } = await import('../src/middleware/auth.js');
 
 function makeRes() {
@@ -133,7 +139,9 @@ describe('requireAuth — opaque access key', () => {
       aal: 1,
       auth_time: 1_700_000_000,
       tokenVersion: 3,
+      sid: 'slot-1',
     });
+    store.rows.push({ userId: 'u1', id: 'slot-1', kind: 'interactive', tokenVersion: 3 });
     mockUserFindById.mockReturnValue({ select: () => ({ lean: () => Promise.resolve({ tokenVersion: 3 }) }) });
     const res = makeRes(); const next = jest.fn<AnyFn>();
 

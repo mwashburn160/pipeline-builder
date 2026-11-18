@@ -76,7 +76,7 @@ process.env.QUOTA_INCREMENT_FLUSH_MS = '0';
 const { installTestSigningKeys } = await import('./helpers/signing.js');
 installTestSigningKeys();
 const { signUserJwt } = await import('../src/services/token-signing/index.js');
-const { User } = await import('../src/models/index.js');
+const { User, RefreshSession } = await import('../src/models/index.js');
 const { userProfileService } = await import('../src/services/user-profile-service.js');
 const { mountApiRoutes } = await import('../src/routes/mount.js');
 
@@ -109,6 +109,8 @@ beforeEach(() => {
   quotaCalls.length = 0;
   // The session read `requireAuth` makes: a live user whose tokenVersion matches.
   jest.spyOn(User, 'findById').mockReturnValue(selectLean({ _id: USER_ID, tokenVersion: 0 }) as never);
+  // ...and the token's refresh-session slot is live (every session token names one).
+  jest.spyOn(RefreshSession, 'exists').mockResolvedValue({ _id: 'slot' } as never);
   getPreferences = jest.spyOn(userProfileService, 'getPreferences')
     .mockResolvedValue({ favorites: [], recents: [] } as never);
 });
@@ -121,6 +123,7 @@ function userToken(): Promise<string> {
     organizationId: ORG,
     permissions: [],
     tokenVersion: 0,
+    sid: 'slot-1',
     principalType: 'user',
     token_use: 'access',
     amr: ['pwd'],

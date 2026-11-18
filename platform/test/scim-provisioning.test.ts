@@ -635,17 +635,20 @@ describe('replaceUser (PUT)', () => {
     expect(out.action).toBe('deactivate');
     expect(out.resource.active).toBe(false);
     // `requireAuth` re-reads the access version, so without a bump a removed
-    // member keeps acting in this org until their token expires. Two CLAIMS
-    // bumps: one for the deactivation, one for the Role set the directory
-    // just dropped.
-    expect(db.users[0].claimsVersion).toBe(2);
+    // member keeps acting in this org until their token expires. ONE claims
+    // bump covers both the deactivation and the Role set the directory just
+    // dropped — the strip commits in the same transaction (a failure there
+    // used to leave the Roles behind with no retry able to remove them).
+    expect(db.users[0].claimsVersion).toBe(1);
+    expect(mockSyncMappedRoles).toHaveBeenCalledWith(expect.anything(), expect.anything(), [], expect.anything());
     // One org's directory never signs the person out of their OTHER orgs: the
     // hard version and the session slots are untouched — the next refresh
     // re-mints into an org they are still active in.
     expect(db.users[0].tokenVersion).toBe(1);
     expect(db.users[0].refreshSessions).toEqual([{ id: 'laptop' }]);
     expect(mockPublishRevocation).toHaveBeenCalledWith(ALICE);
-    expect(mockResolveMappedRoles).toHaveBeenCalledWith(ORG, []);
+    // The strip needs no resolver: an empty group set maps to nothing.
+    expect(mockResolveMappedRoles).not.toHaveBeenCalled();
     // Nothing pending → nothing for the controller to audit.
     expect(mockRevokeInvitations).toHaveBeenCalledWith(ALICE, ORG, { id: 'session' });
     expect(out.revokedInvitations).toBeUndefined();
@@ -1039,6 +1042,19 @@ describe('Groups', () => {
     // Both concurrent POSTs pass the `exists` pre-check; the loser hits the index.
     IdpGroupMapping.create.mockImplementationOnce(async () => { throw Object.assign(new Error('E11000 duplicate key'), { code: 11000 }); });
     expect((await refusal(scim.createGroup(ctx(), { displayName: 'Racers' }))).scimType).toBe('uniqueness');
+  });
+
+  it.each([
+    ['PUT', (id: string) => scim.replaceGroup(ctx(), id, { displayName: 'Racers' })],
+    ['PATCH', (id: string) => scim.patchGroup(ctx(), id, [{ op: 'replace', path: 'displayName', value: 'Racers' }])],
+  ])('a %s rename that loses a race on the unique group key answers uniqueness (409), not a 500', async (_verb, rename) => {
+    // Two concurrent renames to one name both pass the `exists` pre-check; the
+    // loser's key write hits the unique index (E11000) and must map to 409.
+    const group = seedGroup('Engineers');
+    IdpGroupMapping.updateOne.mockImplementationOnce(async () => { throw Object.assign(new Error('E11000 duplicate key'), { code: 11000 }); });
+    const out = await refusal(rename(String(group._id)));
+    expect(out.status).toBe(409);
+    expect(out.scimType).toBe('uniqueness');
   });
 
   it('PATCH adds, removes and replaces members — including Okta\'s filtered single removal', async () => {

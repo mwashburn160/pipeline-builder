@@ -352,6 +352,23 @@ describe('recovery codes for a passkey account (no authenticator app)', () => {
     expect(await peekMfaChallenge(challengeId)).toBeNull();
   });
 
+  it('does NOT spend a recovery code on a sign-in the SSO gate refuses (gate runs before the code)', async () => {
+    // Regression: the recovery code was verified — and so burned — before the
+    // SSO-enforcement re-check refused the sign-in, leaving the user one code
+    // short for a login that could never have completed.
+    mockVerifyRecoveryCode.mockResolvedValue(6);
+    mockRejectIfSsoEnforced.mockResolvedValue(true);
+    const { challengeId } = await createMfaChallenge(USER, 'org-1', { recoveryOnly: true, ...TV });
+    const res = makeRes();
+
+    await verifyMfaLogin(body({ challengeId, code: 'ABCDE-FGHIJ' }), res);
+
+    expect(mockVerifyRecoveryCode).not.toHaveBeenCalled();
+    expect(mockIssueTokens).not.toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalledWith(expect.anything(), 'user.mfa.recovery_used', expect.anything());
+    expect(await peekMfaChallenge(challengeId)).not.toBeNull();
+  });
+
   it('a wrong recovery code is the same opaque 401 and does not spend the challenge', async () => {
     mockVerifyRecoveryCode.mockRejectedValue(new Error(TOTP_INVALID_CODE));
     const { challengeId } = await createMfaChallenge(USER, 'org-1', { recoveryOnly: true, ...TV });

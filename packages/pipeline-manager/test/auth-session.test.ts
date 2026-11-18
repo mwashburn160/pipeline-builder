@@ -148,6 +148,18 @@ describe('auth login exit codes', () => {
     const err = await runAuth(login, ['login', '--url', baseUrl, '--no-browser']);
     expect((err as ExitError).code).toBe(ERROR_CODES.API_REQUEST);
   });
+
+  it('exits AUTHENTICATION (4) for a 401 and AUTHORIZATION (5) for a 403, not a blanket 4', async () => {
+    const { default: axios } = await import('axios');
+    const { ERROR_CODES } = await import('../src/utils/error-handler.js');
+    for (const [status, code] of [[401, ERROR_CODES.AUTHENTICATION], [403, ERROR_CODES.AUTHORIZATION]] as const) {
+      handler = (_req, _body, res) => json(res, status, { message: 'refused' });
+      const refused = await axios.post(`${baseUrl}/api/auth/device/token`, {}).catch((e: unknown) => e);
+      pollForDeviceToken.mockRejectedValueOnce(refused);
+      const err = await runAuth(login, ['login', '--url', baseUrl, '--no-browser']);
+      expect((err as ExitError).code).toBe(code);
+    }
+  });
 });
 
 describe('auth login --org', () => {

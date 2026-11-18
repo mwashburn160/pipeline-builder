@@ -158,6 +158,9 @@ export class AWSMarketplaceProvider implements PaymentProvider {
   /**
    * No-op — cancellations are driven by AWS Marketplace license events
    * (EventBridge `License Deprovisioned`, see marketplace-notifications.ts).
+   * There is deliberately no `cancelSubscriptionNow`: the buyer owns the AWS
+   * agreement and the seller has no API to end it, so an org purge falls back to
+   * this no-op and the agreement runs until the buyer cancels it in AWS.
    * @see https://docs.aws.amazon.com/marketplace/latest/userguide/saas-eventbridge-integration.html
    */
   async cancelSubscription(externalId: string): Promise<void> {

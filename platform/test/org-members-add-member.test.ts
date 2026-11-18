@@ -80,7 +80,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 }));
 
 const { orgMembersService } = await import('../src/services/org-members-service.js');
-const { OM_USER_NOT_FOUND, OM_ALREADY_MEMBER } = await import('../src/services/org-members-errors.js');
+const { OM_USER_NOT_FOUND, OM_ALREADY_MEMBER, OM_ORG_NOT_FOUND } = await import('../src/services/org-members-errors.js');
 
 /** `X.findOne(...)/findById(...)` returns a query whose `.session()` resolves to `doc`. */
 const sessionResolving = (doc: unknown) => ({ session: () => Promise.resolve(doc) });
@@ -103,6 +103,14 @@ beforeEach(() => {
 const ADMIN = { isSuperAdmin: false, isOrgAdmin: true, permissions: [] };
 
 describe('OrgMembersService.addMember', () => {
+  it('refuses (OM_ORG_NOT_FOUND) to add a member to a SOFT-DELETED team, before any write', async () => {
+    // A tombstoned team is gone to every product surface; a membership written
+    // into it would hold a seat for an org nobody can sign in to.
+    mockOrgFindById.mockReturnValue(sessionResolving({ _id: 'org-1', deletedAt: new Date() }));
+    await expect(orgMembersService.addMember('org-1', { userId: 'u1' }, ADMIN)).rejects.toThrow(OM_ORG_NOT_FOUND);
+    expect(mockUoCreate).not.toHaveBeenCalled();
+  });
+
   it('runs the Admin-Role assignment ceiling for an ADMIN add — and refuses before writing', async () => {
     const delegate = { isSuperAdmin: false, isOrgAdmin: false, permissions: ['members:manage'] };
     mockAssertMayAssignAdmin.mockRejectedValue(new Error('RL_ASSIGN_EXCEEDS_CEILING'));

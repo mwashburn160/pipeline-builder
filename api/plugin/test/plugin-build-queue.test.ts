@@ -1989,6 +1989,24 @@ describe('plugin-build-queue', () => {
       expect(mockIncrementQuota).not.toHaveBeenCalled();
     });
 
+    it('REGRESSION: a DLQ re-queue whose first add failed still refunds the slot when the re-queued build later fails', async () => {
+      queueModule.startWorker(makeSseManager(), makeQuotaService());
+      const job = makeDlqJob({ totalAttempts: 1 });
+      mockQueueAdd.mockRejectedValueOnce(new Error('redis down'));
+
+      await expect(getDlqProcessor()(job)).rejects.toThrow('redis down');
+      await getDlqProcessor()(job); // BullMQ's processor retry
+
+      const adds = mockQueueAdd.mock.calls.filter((c: any[]) => c[0] === 'retry-my-plugin');
+      const requeued = adds[adds.length - 1]![1] as PluginBuildJobData;
+
+      // The re-queued build reaches a terminal failure: its slot must go back.
+      const { releasePluginQuota } = await import('../src/queue/build-quota.js');
+      mockIncrementQuota.mockClear(); // decrementQuota is aliased to it
+      releasePluginQuota(makeJob({ ...requeued }) as any, makeQuotaService() as any);
+      expect(mockIncrementQuota).toHaveBeenCalledTimes(1);
+    });
+
     it('records actorId "system" when a DLQ-abandoned build carries no user (system-initiated)', async () => {
       const sse = makeSseManager();
       const quota = makeQuotaService();

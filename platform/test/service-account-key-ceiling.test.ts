@@ -22,6 +22,7 @@ let accountDoc: Record<string, unknown> = {};
 const mockCreateForSa = jest.fn<(...a: unknown[]) => Promise<unknown>>(async () => ({ key: 'pb_sa_x', view: { id: 'k1' } }));
 const mockSaUpdateOne = jest.fn<(...a: unknown[]) => Promise<unknown>>(async () => ({}));
 
+const mockPublishSaKeys = jest.fn(async (..._a: unknown[]) => 0);
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({}));
 jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ serviceAccounts: {} }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
@@ -47,6 +48,7 @@ jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
 jest.unstable_mockModule('../src/services/service-account-cascade.js', () => ({
   deleteServiceAccountsForOrg: async () => 0,
   revokeServiceAccountKeysForOrg: async () => 0,
+  publishServiceAccountKeysRevocation: (...a: unknown[]) => mockPublishSaKeys(...a),
 }));
 jest.unstable_mockModule('../src/models/organization.js', () => ({ default: { findById: () => ({ select: () => ({ lean: async () => ({}) }) }) } }));
 jest.unstable_mockModule('../src/models/service-account.js', () => ({

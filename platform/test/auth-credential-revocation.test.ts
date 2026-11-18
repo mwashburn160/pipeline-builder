@@ -23,6 +23,7 @@ process.env.SECRET_ENCRYPTION_KEY ||= '0'.repeat(64);
 const mockVerifyAccessToken = jest.fn<(...a: unknown[]) => unknown>();
 const mockUserFindById = jest.fn<(...a: unknown[]) => unknown>();
 const mockKeyExists = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockServiceAccountExists = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   isServiceTokenDenied: () => false,
@@ -36,6 +37,12 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   UserOrganization: { findOne: jest.fn() },
   ImpersonationRequest: { findOne: jest.fn() },
   PersonalAccessToken: { exists: (...a: unknown[]) => mockKeyExists(...a) },
+}));
+// The service-account record (read for its `disabled` flag on every request a
+// service-account token makes to platform).
+jest.unstable_mockModule('../src/models/service-account.js', () => ({
+  __esModule: true,
+  default: { exists: (...a: unknown[]) => mockServiceAccountExists(...a) },
 }));
 // Slots live in their own collection behind session-store.ts.
 const { sessionStoreFake } = await import('./helpers/session-store-fake.js');
@@ -66,6 +73,8 @@ async function run(): Promise<{ res: any; next: jest.Mock }> {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // A live (not disabled) service account unless a test says otherwise.
+  mockServiceAccountExists.mockResolvedValue({ _id: 'sa-1' });
 });
 
 describe('requireAuth — a session token dies with its slot', () => {
@@ -102,6 +111,37 @@ describe('requireAuth — a session token dies with its slot', () => {
   });
 });
 
+describe('requireAuth — every user session token names its slot', () => {
+  beforeEach(() => store.reset());
+
+  it('REJECTS a user session token that carries no sid — there is no slot to check, so it could never be signed out', async () => {
+    // Every session token platform mints names its refresh-session slot; one
+    // without `sid` skipped the slot check entirely and so survived sign-out
+    // of every device until expiry.
+    mockVerifyAccessToken.mockReturnValue({ type: 'access', sub: 'u1', token_use: 'access', tokenVersion: 1, ...identity });
+    mockUserFindById.mockReturnValue(selectLean({ _id: 'u1', tokenVersion: 1 }));
+    const { res, next } = await run();
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
+  });
+});
+
+describe('requireAuth — a disabled service account', () => {
+  it('REJECTS an already-exchanged service-account token once its account is disabled, though the key itself is live', async () => {
+    mockVerifyAccessToken.mockReturnValue({
+      type: 'access', sub: 'sa-1', token_use: 'api_key', jti: 'key-1', organizationId: 'org-1', principalType: 'service_account', amr: [], aal: 1, auth_time: 1,
+    });
+    mockKeyExists.mockResolvedValue({ _id: 'key-1' });
+    expect((await run()).next).toHaveBeenCalled();
+
+    mockServiceAccountExists.mockResolvedValue(null); // { _id: 'sa-1', disabled: false } no longer matches
+    const { res, next } = await run();
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
+    expect(mockServiceAccountExists).toHaveBeenCalledWith({ _id: 'sa-1', disabled: false });
+  });
+});
+
 describe('requireAuth — an exchanged key token dies with its key', () => {
   it.each([
     ['a person\'s key', { sub: 'u1', token_use: 'api_key', jti: 'key-1', tokenVersion: 1, ...identity }],
@@ -132,11 +172,14 @@ describe('requireAuth — an exchanged key token dies with its key', () => {
 });
 
 describe('requireAuth — claims version vs hard revocation', () => {
+  beforeEach(() => store.reset());
+
   it('admits a token carrying tokenVersion + claimsVersion, and rejects one minted before a CLAIMS bump', async () => {
     // Access tokens carry the SUM; a Role/tier/feature change bumps only
     // claimsVersion — the access token goes stale here, the refresh token
     // (bare tokenVersion) stays valid and re-mints current claims.
-    mockVerifyAccessToken.mockReturnValue({ type: 'access', sub: 'u1', token_use: 'access', tokenVersion: 5, ...identity });
+    store.rows.push({ userId: 'u1', id: 'slot-1', kind: 'interactive', tokenVersion: 2 });
+    mockVerifyAccessToken.mockReturnValue({ type: 'access', sub: 'u1', token_use: 'access', tokenVersion: 5, sid: 'slot-1', ...identity });
     mockUserFindById.mockReturnValue(selectLean({ _id: 'u1', tokenVersion: 2, claimsVersion: 3 }));
     expect((await run()).next).toHaveBeenCalled();
 

@@ -68,17 +68,27 @@ export function viewerCacheSegment(): string {
   return ctx?.userId ?? 'none';
 }
 
+/** The viewer fields only the request context may set. */
+const VIEWER_FIELDS = ['viewerUserId', 'viewerIsSuperAdmin'] as const satisfies ReadonlyArray<keyof ViewerScopedFilter>;
+
 /**
  * Stamp the request's viewer identity onto a filter.
  *
- * An EXPLICIT value on the filter always wins, so a caller that deliberately
- * scopes to a specific user (or a test that fixes the viewer) stays expressible;
- * the context only fills what the caller left blank.
+ * The viewer is IDENTITY, and identity comes only from the request: the
+ * `TenantContext` set at the request boundary from the validated JWT. A filter
+ * that names a viewer (`viewerUserId`, `viewerIsSuperAdmin`) is REFUSED with a
+ * thrown error rather than honoured — honoured, it let a caller read the rows
+ * addressed to another user, or lift the private rung for a non-super-admin,
+ * by putting a value in a filter. There is no workspace caller that needs to
+ * scope to a different viewer; one that does must get an explicit, typed
+ * option, not a filter field. An explicitly-`undefined` field counts as absent.
  *
  * Safe against `CrudService.runRead`'s sysadmin widening (the parent-org read
  * path, which re-enters the context with `isSuperAdmin: true`): conditions are
  * always built BEFORE that scope is entered, so the stamp reflects the real
  * caller, never the widened one.
+ *
+ * @throws Error when the filter carries a viewer field.
  *
  * @example
  * ```typescript
@@ -88,10 +98,16 @@ export function viewerCacheSegment(): string {
  * ```
  */
 export function withViewerContext<F extends ViewerScopedFilter>(filter: Partial<F>): Partial<F> {
+  const supplied = VIEWER_FIELDS.filter((field) => filter[field] !== undefined);
+  if (supplied.length > 0) {
+    throw new Error(
+      `withViewerContext: ${supplied.join(', ')} must not be set on a filter — the viewer comes only from the request's tenant context`,
+    );
+  }
   const ctx = getTenantContext();
   return {
     ...filter,
-    viewerUserId: filter.viewerUserId ?? ctx?.userId,
-    viewerIsSuperAdmin: filter.viewerIsSuperAdmin ?? ctx?.isSuperAdmin ?? false,
+    viewerUserId: ctx?.userId,
+    viewerIsSuperAdmin: ctx?.isSuperAdmin ?? false,
   };
 }

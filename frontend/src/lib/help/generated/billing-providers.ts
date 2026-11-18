@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-providers.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 91f1f562bafe8ff153d9520b65870ce5dca9a9391ed978b25f13a71790215151
+// SOURCE-SHA256: 878b12f6fc39c8572b2e0ba6bd835798206a92d362157895871e2b014787a133
 // SPDX-License-Identifier: Apache-2.0
 import { CreditCard } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -99,7 +99,8 @@ export const billingProvidersTopic: HelpTopic = {
             "Every state change — payment succeeded, subscription updated, cancelled — flows back through a signed webhook, which is what keeps the app's entitlements in step.",
             "Reductions never leave the app: discounts and combo savings are realized as customer-balance credits.",
             "A clawed-back promotion credit (a cancel, refund or dispute inside the clawback window) is taken back on both sides: the app's credit mirror, and the Stripe customer balance, as a positive balance transaction for the part of the grant still unused (min(grant, remaining credit)). The debit is queued in the same write that removes the grant and posted under a per-grant idempotency key; a debit Stripe refuses stays queued and the lifecycle reconciler re-posts it, counting billing_promotion_clawback_debit_failed_total on each failure.",
-            "A first invoice.payment_succeeded that arrives before its subscription's local row is bound — an in-app create still saving the Stripe id, or a Checkout subscription whose customer.subscription.created has not provisioned yet — answers 500 so Stripe redelivers once the row exists. An invoice for a subscription that will never have a row is acknowledged and logged."
+            "A first invoice.payment_succeeded that arrives before its subscription's local row is bound — an in-app create still saving the Stripe id, or a Checkout subscription whose customer.subscription.created has not provisioned yet — answers 500 so Stripe redelivers once the row exists. An invoice for a subscription that will never have a row is acknowledged and logged.",
+            "When a deleted organization is finally purged (after its restore window, never at the soft delete), every subscription that is not already canceled — incomplete included — is cancelled in Stripe immediately, not at period end, with no proration credit and no final invoice (so no automatic refund; cancelling an incomplete subscription voids its open first invoice). A subscription whose cancel fails is kept, with its events, and the purge retries it. The admin billing page's Purge does the same."
           ]
         },
         {
@@ -113,7 +114,8 @@ export const billingProvidersTopic: HelpTopic = {
             "The app calls ResolveCustomer to turn that token into the agreement's license ARN, which is bound to the purchaser's org when they sign in.",
             "Entitlement changes and cancellations arrive as EventBridge license events, forwarded through an SNS topic to a subscribed endpoint.",
             "Add-on charges go the other way, reported as metered usage via BatchMeterUsage once metering is enabled.",
-            "Because Marketplace has no customer-balance primitive, credits realize by withholding metered usage — see Billing Discounts."
+            "Because Marketplace has no customer-balance primitive, credits realize by withholding metered usage — see Billing Discounts.",
+            "An org purge cannot cancel a Marketplace agreement: the buyer owns it and the seller has no API to end it. The purge drops the app's rows; the agreement runs until the buyer cancels it in AWS."
           ]
         },
         {

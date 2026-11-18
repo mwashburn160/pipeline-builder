@@ -47,6 +47,7 @@ This page is the setup walkthrough for the two real providers. For what billing 
 4. Reductions never leave the app: discounts and combo savings are realized as customer-balance credits.
 5. A clawed-back promotion credit (a cancel, refund or dispute inside the clawback window) is taken back on **both** sides: the app's credit mirror, and the Stripe customer balance, as a positive balance transaction for the part of the grant still unused (`min(grant, remaining credit)`). The debit is queued in the same write that removes the grant and posted under a per-grant idempotency key; a debit Stripe refuses stays queued and the lifecycle reconciler re-posts it, counting `billing_promotion_clawback_debit_failed_total` on each failure.
 6. A first `invoice.payment_succeeded` that arrives before its subscription's local row is bound — an in-app create still saving the Stripe id, or a Checkout subscription whose `customer.subscription.created` has not provisioned yet — answers 500 so Stripe redelivers once the row exists. An invoice for a subscription that will never have a row is acknowledged and logged.
+7. When a deleted organization is finally **purged** (after its restore window, never at the soft delete), every subscription that is not already `canceled` — `incomplete` included — is cancelled in Stripe **immediately**, not at period end, with no proration credit and no final invoice (so no automatic refund; cancelling an `incomplete` subscription voids its open first invoice). A subscription whose cancel fails is kept, with its events, and the purge retries it. The admin billing page's **Purge** does the same.
 
 **AWS Marketplace** — AWS pushes, the app follows:
 
@@ -55,6 +56,7 @@ This page is the setup walkthrough for the two real providers. For what billing 
 3. Entitlement changes and cancellations arrive as **EventBridge license events**, forwarded through an SNS topic to a subscribed endpoint.
 4. Add-on charges go the other way, reported as **metered usage** via `BatchMeterUsage` once metering is enabled.
 5. Because Marketplace has no customer-balance primitive, credits realize by *withholding* metered usage — see [Billing Discounts](billing-discounts.md#aws-marketplace--withheld-metered-usage).
+6. An org purge cannot cancel a Marketplace agreement: the buyer owns it and the seller has no API to end it. The purge drops the app's rows; the agreement runs until the buyer cancels it in AWS.
 
 ### What the provider owns, and what this app deliberately does not
 

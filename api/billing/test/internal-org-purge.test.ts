@@ -39,13 +39,19 @@ jest.unstable_mockModule('../src/models/billing-event.js', () => ({
   BillingEvent: { deleteMany: mockEventDeleteMany },
 }));
 
+/** The IMMEDIATE cancel — what a purge uses (the org is past its restore window). */
 const mockCancel = jest.fn<AnyFn>();
+/** The period-end cancel — only the fallback for a provider with no immediate cancel. */
+const mockCancelAtPeriodEnd = jest.fn<AnyFn>();
 const mockGetSubscription = jest.fn<AnyFn>();
 let providerHasGet = true;
+let providerHasNow = true;
 jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({
-  getPaymentProvider: () => (providerHasGet
-    ? { cancelSubscription: mockCancel, getSubscription: mockGetSubscription }
-    : { cancelSubscription: mockCancel }),
+  getPaymentProvider: () => ({
+    cancelSubscription: mockCancelAtPeriodEnd,
+    ...(providerHasNow ? { cancelSubscriptionNow: mockCancel } : {}),
+    ...(providerHasGet ? { getSubscription: mockGetSubscription } : {}),
+  }),
 }));
 
 const { createInternalOrgPurgeRoutes } = await import('../src/routes/internal-org-purge.js');
@@ -63,7 +69,7 @@ const sub = (id: string, externalId?: string) => ({ _id: id, planId: 'pro', exte
 /** The purge's subscription delete: terminal rows, plus the billable rows it cancelled. */
 const subDeleteFilter = (...cancelled: string[]) => ({
   orgId: 'org-9',
-  $or: [{ status: { $nin: ['active', 'trialing', 'past_due'] } }, { _id: { $in: cancelled } }],
+  $or: [{ status: { $in: ['canceled'] } }, { _id: { $in: cancelled } }],
 });
 /** What is left after the delete. */
 const survivors = (...ids: string[]) => mockSubscriptionDistinct.mockResolvedValue(ids);
@@ -77,7 +83,9 @@ const call = async (orgId = 'org-9') => {
 beforeEach(() => {
   jest.clearAllMocks();
   providerHasGet = true;
+  providerHasNow = true;
   mockCancel.mockResolvedValue(undefined);
+  mockCancelAtPeriodEnd.mockResolvedValue(undefined);
   mockGetSubscription.mockResolvedValue({ status: 'active' });
   mockSubscriptionDeleteMany.mockResolvedValue({ deletedCount: 1 });
   mockSubscriptionDistinct.mockResolvedValue([]);
@@ -89,10 +97,9 @@ describe('POST /billing/internal/orgs/:orgId/purge', () => {
     billable(sub('sub-1', 'ext-1'));
     const res = await call();
 
-    expect(mockSubscriptionFind).toHaveBeenCalledWith({
-      orgId: 'org-9', status: { $in: expect.arrayContaining(['active', 'trialing', 'past_due']) },
-    });
+    expect(mockSubscriptionFind).toHaveBeenCalledWith({ orgId: 'org-9', status: { $nin: ['canceled'] } });
     expect(mockCancel).toHaveBeenCalledWith('ext-1');
+    expect(mockCancelAtPeriodEnd).not.toHaveBeenCalled();
     expect(mockSubscriptionDeleteMany).toHaveBeenCalledWith(subDeleteFilter('sub-1'));
     expect(mockEventDeleteMany).toHaveBeenCalledWith({ orgId: 'org-9' });
     expect(res.status).toHaveBeenCalledWith(200);
@@ -203,5 +210,78 @@ describe('POST /billing/internal/orgs/:orgId/purge', () => {
     await handler({ params: {} }, res);
     expect(res.status).toHaveBeenCalledWith(400);
     expect(mockSubscriptionFind).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The purge against a small FAKE store that evaluates the filters the helper
+ * builds, so these pin behaviour (which rows are cancelled, which survive)
+ * rather than the shape of a query.
+ */
+describe('purgeOrgBilling — which subscriptions are cancelled, and how', () => {
+  type Row = { _id: string; status: string; externalId?: string; planId: string };
+  let store: Row[] = [];
+  const matches = (filter: any, row: Row): boolean => {
+    if (filter.$or) return (filter.$or as any[]).some((f) => matches(f, row));
+    if (filter.status?.$in && !filter.status.$in.includes(row.status)) return false;
+    if (filter.status?.$nin && filter.status.$nin.includes(row.status)) return false;
+    if (filter._id?.$in && !filter._id.$in.map(String).includes(row._id)) return false;
+    return true;
+  };
+  const seed = (...rows: Row[]) => { store = rows; };
+
+  beforeEach(() => {
+    mockSubscriptionFind.mockImplementation((f: any) => ({
+      limit: jest.fn<AnyFn>().mockResolvedValue(store.filter((r) => matches(f, r))),
+    }));
+    mockSubscriptionDeleteMany.mockImplementation(async (f: any) => {
+      const before = store.length;
+      store = store.filter((r) => !matches(f, r));
+      return { deletedCount: before - store.length };
+    });
+    mockSubscriptionDistinct.mockImplementation(async () => store.map((r) => r._id));
+  });
+
+  it('cancels an INCOMPLETE subscription at the provider before deleting it (an uncancelled one left the first invoice open)', async () => {
+    seed({ _id: 'sub-inc', status: 'incomplete', externalId: 'ext-inc', planId: 'pro' });
+    const res = await call();
+    expect(mockCancel).toHaveBeenCalledWith('ext-inc');
+    expect(store).toEqual([]);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ remaining: {} }) }));
+  });
+
+  it('cancels IMMEDIATELY at the provider, not at period end — the org is past its restore window', async () => {
+    seed({ _id: 'sub-a', status: 'active', externalId: 'ext-a', planId: 'pro' });
+    await call();
+    expect(mockCancel).toHaveBeenCalledWith('ext-a');
+    expect(mockCancelAtPeriodEnd).not.toHaveBeenCalled();
+  });
+
+  it('KEEPS an incomplete subscription whose immediate cancel failed and reports it in `remaining`', async () => {
+    seed(
+      { _id: 'sub-inc', status: 'incomplete', externalId: 'ext-inc', planId: 'pro' },
+      { _id: 'sub-old', status: 'canceled', externalId: 'ext-old', planId: 'pro' },
+    );
+    mockCancel.mockRejectedValue(new Error('stripe down'));
+    const res = await call();
+    expect(store.map((r) => r._id)).toEqual(['sub-inc']);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ remaining: { subscriptions: 1 } }),
+    }));
+  });
+
+  it('does not call the provider for an already-terminal (canceled) row, and drops it', async () => {
+    seed({ _id: 'sub-old', status: 'canceled', externalId: 'ext-old', planId: 'pro' });
+    await call();
+    expect(mockCancel).not.toHaveBeenCalled();
+    expect(store).toEqual([]);
+  });
+
+  it('falls back to the period-end cancel on a provider with no immediate cancel (marketplace, stub)', async () => {
+    providerHasNow = false;
+    seed({ _id: 'sub-a', status: 'active', externalId: 'ext-a', planId: 'pro' });
+    await call();
+    expect(mockCancelAtPeriodEnd).toHaveBeenCalledWith('ext-a');
+    expect(store).toEqual([]);
   });
 });

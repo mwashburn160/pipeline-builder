@@ -296,8 +296,15 @@ describe('the per-run authority recheck', () => {
     expect(mockComposeRun).not.toHaveBeenCalled();
     expect(mockDeliver).not.toHaveBeenCalled();
     expect(store.pauseDefinition).not.toHaveBeenCalled();
-    // ...and BEFORE the claim: the claim advances lastRunAt, which the owed periods are
-    // counted from, so a team-list blip read after it lost the period for good.
+  });
+
+  it('REGRESSION: an unreadable rollup team list leaves the definition UNCLAIMED (still due) and counts report_rollup_unavailable_total', async () => {
+    store.dueDefinitions.mockResolvedValue([definition({ scope: { kind: 'rollup' }, autoSend: true })]);
+    mockAuthority.mockResolvedValue({ active: true, permissions: ['reports:write', 'reports:rollup', 'reports:publish'], features: ['stakeholder_reports'] });
+    mockRollup.mockRejectedValue(new Error('platform unreachable'));
+    await cycle();
+    // The team list is read BEFORE the claim: the claim advances lastRunAt, which the
+    // owed periods are counted from, so a team-list blip read after it lost the period for good.
     expect(store.claimDefinition).not.toHaveBeenCalled();
     expect(mockEmit).toHaveBeenCalledWith('report_rollup_unavailable_total', {});
 

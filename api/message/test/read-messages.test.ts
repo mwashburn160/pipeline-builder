@@ -733,6 +733,18 @@ describe('inbox total — the COUNT the dashboard is sized by', () => {
 
   beforeEach(() => { jest.clearAllMocks(); });
 
+  it('does NOT name a viewer on the inbox filter — withViewerContext refuses one; the viewer comes from the request', () => {
+    // pipeline-data's `withViewerContext` throws on a filter carrying
+    // `viewerUserId` / `viewerIsSuperAdmin`, so a route that still set one
+    // would 500 every inbox read.
+    mockFindPaginated.mockResolvedValue({ data: [], total: 0, limit: 25, offset: 0, hasMore: false });
+    void handler(mockReq({ query: {} }), mockRes());
+
+    const [filter] = mockFindPaginated.mock.calls[0] as [Record<string, unknown>];
+    expect(filter).not.toHaveProperty('viewerUserId');
+    expect(filter).not.toHaveProperty('viewerIsSuperAdmin');
+  });
+
   it('asks the service for the total, which is opt-in and was never opted into', () => {
     // `findPaginated` runs its COUNT(*) only when `includeTotal` is set, and no
     // message route passed it — so `pagination.total` was omitted from every

@@ -164,13 +164,33 @@ describe('useFetch options and awaitable refetch', () => {
     );
     let pending!: Promise<boolean>;
     act(() => { pending = result.current.refetch(); });
-    let ok: boolean | undefined;
-    await act(async () => { ok = await pending; });
+    // Race a short sentinel so a regression fails fast instead of at the 30s
+    // test timeout.
+    let ok: boolean | 'still pending' | undefined;
+    await act(async () => {
+      ok = await Promise.race([pending, new Promise<'still pending'>((r) => setTimeout(() => r('still pending'), 100))]);
+    });
     expect(ok).toBe(false);
     expect(fetcher).not.toHaveBeenCalled();
     // Enabling later runs normally and is not attributed to the old refetch.
     rerender({ enabled: true });
     await waitFor(() => expect(result.current.data).toBe('loaded'));
+  });
+
+  it('a refetch made while disabled is not later resolved by the unrelated run that enabling starts', async () => {
+    // Before the fix the disabled refetch's waiter sat in the queue until the
+    // NEXT run settled, so a caller was told `true` for a fetch it never caused.
+    const fetcher = jest.fn<AnyFn>().mockResolvedValue('loaded');
+    const { result, rerender } = renderHook(
+      ({ enabled }: { enabled: boolean }) => useFetch(fetcher, [], { enabled }),
+      { initialProps: { enabled: false } },
+    );
+    const outcomes: boolean[] = [];
+    act(() => { void result.current.refetch().then((v) => { outcomes.push(v); }); });
+    rerender({ enabled: true });
+    await waitFor(() => expect(result.current.data).toBe('loaded'));
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(outcomes).toEqual([false]);
   });
 });
 

@@ -3,7 +3,8 @@
 
 /**
  * `GET /internal/offers/seat-activity/:orgId` (controllers/offers-internal.ts):
- * seats held, members active in the window, and members who JOINED in the
+ * seats held (distinct PEOPLE — the per-person semantics run against real Mongo
+ * in offers-seat-activity.integration.test.ts), people active in the window, and people who JOINED in the
  * window without being active in it — so a just-added member (no `lastActiveAt`
  * yet) is not read as a disengaging seat. Inactive = held − active − new.
  */
@@ -16,14 +17,15 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const ORG = 'aaaaaaaaaaaaaaaaaaaaaaaa';
 const SCOPE = [ORG, 'team-1'];
-const mockCount = jest.fn<(filter: Record<string, any>) => Promise<number>>();
+const mockAggregate = jest.fn<(pipeline: Array<Record<string, any>>) => Promise<unknown[]>>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: (res: any, status: number, data: unknown) => res.status(status).json({ success: true, data }),
 }));
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ expandOrgScope: async () => SCOPE }));
+jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: string) => v }));
 jest.unstable_mockModule('../src/models/user-organization.js', () => ({
-  default: { countDocuments: (f: Record<string, any>) => mockCount(f) },
+  default: { aggregate: (p: Array<Record<string, any>>) => mockAggregate(p) },
 }));
 
 const { getOrgSeatActivity } = await import('../src/controllers/offers-internal.js');
@@ -35,13 +37,9 @@ function mockRes() {
   return res;
 }
 
-/** Answer each of the three counts by which filter it is. */
+/** Answer the one per-person aggregation with these three counts. */
 function counts(held: number, active: number, fresh: number): void {
-  mockCount.mockImplementation(async (f) => {
-    if (f.createdAt) return fresh;
-    if (f.lastActiveAt) return active;
-    return held;
-  });
+  mockAggregate.mockResolvedValue([{ _id: null, seatsHeld: held, activeMembers: active, newMembers: fresh }]);
 }
 
 beforeEach(() => {
@@ -60,21 +58,26 @@ describe('GET /internal/offers/seat-activity/:orgId', () => {
     expect(() => PLATFORM_INTERNAL.offerSeatActivity.response!.parse(res.body.data)).not.toThrow();
   });
 
-  it('counts a new member as JOINED inside the window and NOT active in it (missing lastActiveAt included)', async () => {
+  it('groups by PERSON across the subtree, then counts new = joined in the window and not active in it', async () => {
     const before = Date.now();
     await getOrgSeatActivity({ params: { orgId: ORG }, query: { windowDays: '7' } } as any, mockRes());
-    const filters = mockCount.mock.calls.map(([f]) => f);
-    const fresh = filters.find((f) => f.createdAt)!;
-    const active = filters.find((f) => f.lastActiveAt && !f.createdAt)!;
+    const [pipeline] = mockAggregate.mock.calls[0];
 
-    expect(fresh.organizationId).toEqual({ $in: SCOPE });
-    expect(fresh.isActive).toBe(true);
-    const since = fresh.createdAt.$gte as Date;
+    expect(pipeline[0]).toEqual({ $match: { organizationId: { $in: SCOPE }, isActive: true } });
+    // One row per user: their latest activity, their earliest join.
+    expect(pipeline[1].$group).toEqual({ _id: '$userId', lastActiveAt: { $max: '$lastActiveAt' }, joinedAt: { $min: '$createdAt' } });
+    const totals = pipeline[2].$group;
+    const since = totals.activeMembers.$sum.$cond[0].$gte[1] as Date;
     expect(Math.abs(before - 7 * 86_400_000 - since.getTime())).toBeLessThan(5_000);
-    // `$not: { $gte }` matches a missing / null `lastActiveAt` as well as an old
-    // one — exactly the complement of the active filter, so the counts are disjoint.
-    expect(fresh.lastActiveAt).toEqual({ $not: { $gte: since } });
-    expect(active.lastActiveAt).toEqual({ $gte: since });
+    // `new` is exactly "not active" AND joined since — disjoint from active.
+    expect(totals.newMembers.$sum.$cond[0]).toEqual({ $and: [{ $not: [{ $gte: ['$lastActiveAt', since] }] }, { $gte: ['$joinedAt', since] }] });
+  });
+
+  it('reports zeros for an account with no active members (the aggregation yields no row)', async () => {
+    mockAggregate.mockResolvedValue([]);
+    const res = mockRes();
+    await getOrgSeatActivity({ params: { orgId: ORG }, query: {} } as any, res);
+    expect(res.body.data.seatActivity).toMatchObject({ seatsHeld: 0, activeMembers: 0, newMembers: 0 });
   });
 
   it('requires newMembers in the contract', () => {

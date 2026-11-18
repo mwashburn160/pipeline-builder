@@ -32,9 +32,9 @@
 import { isSystemOrgId, createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { purgeOrgData, runWithTenantContext, softDeleteRetentionMs, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { eq } from 'drizzle-orm';
-import type { Types } from 'mongoose';
+import type { ClientSession, Types } from 'mongoose';
 import { auditService } from './audit-service.js';
-import { storeDeletedOrgSnapshot } from './deleted-org-snapshot-store.js';
+import { discardDeletedOrgSnapshot, storeDeletedOrgSnapshot } from './deleted-org-snapshot-store.js';
 import {
   CASCADE_MONGO_COLLECTION_NAMES,
   EXPORT_TABLES,
@@ -49,7 +49,6 @@ import {
   ORG_SNAPSHOT_FAILED,
 } from './org-errors.js';
 import { deleteServiceAccountsForOrg, revokeServiceAccountKeysForOrg } from './service-account-cascade.js';
-import { deleteAllSlots } from './session/session-store.js';
 import { config } from '../config/index.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { publishAccessKeyRevocation, publishUsersRevocation } from '../helpers/session-revocation.js';
@@ -365,29 +364,27 @@ export interface SoftDeleteResult {
   purgeAfter: Date;
   /** Id of the durable recovery snapshot persisted before the tombstone. */
   snapshotId: string;
-  /** How many active members had their sessions invalidated (tokenVersion bump). */
+  /** How many people had their access to the org ended (claimsVersion bump). */
   membersInvalidated: number;
+}
+
+/** One org {@link softDeleteOrgsTogether} is to tombstone. */
+export interface SoftDeleteTarget {
+  orgId: string;
+  /** The org whose RLS scope the snapshot export reads with. */
+  actorOrgId: string;
 }
 
 /**
  * SOFT-delete an org: capture a durable recovery snapshot, tombstone the org
- * (`deletedAt`/`purgeAfter`), and invalidate every active member's session so
- * access is cut off immediately. Runs NO destructive cascade — the purge sweep
+ * (`deletedAt`/`purgeAfter`), and end every member's access to it so it is cut
+ * off immediately. Runs NO destructive cascade — the purge sweep
  * ({@link import('./org-purge.js').purgeExpiredOrgs}) does that once the
  * retention window lapses.
  *
- * Ordering is safety-critical:
- *   1. Export the org (`exportOrg`) + persist it to `deleted_org_snapshots`
- *      BEFORE anything else. If either fails we throw {@link ORG_SNAPSHOT_FAILED}
- *      and the org is NOT tombstoned — we never lose an org without a snapshot.
- *   2. In one transaction: set the tombstone AND bump `tokenVersion` (+ clear
- *      refresh tokens) for every active member, mirroring removeMember/
- *      deactivateMember. The tokenVersion bump makes outstanding access tokens
- *      fail `requireAuth`; the token chokepoint (`resolveMembership`) then
- *      refuses to re-issue a token scoped to the soft-deleted org.
- *
  * `actorOrgId` is the sysadmin's own org (for the export's RLS scope);
- * `deletedBy` is the sysadmin user id (stored on the snapshot).
+ * `deletedBy` is the sysadmin user id (stored on the snapshot). See
+ * {@link softDeleteOrgsTogether} for the ordering and what "access ends" means.
  *
  * Throws SYSTEM_ORG_DELETE_FORBIDDEN / ORG_NOT_FOUND / ORG_ALREADY_DELETED /
  * ORG_SNAPSHOT_FAILED — the controller maps these to HTTP status.
@@ -397,31 +394,111 @@ export async function softDeleteOrg(
   actorOrgId: string,
   deletedBy: string,
 ): Promise<SoftDeleteResult> {
-  if (isSystemOrgId(orgId)) {
-    throw new Error(SYSTEM_ORG_DELETE_FORBIDDEN);
+  const { results } = await softDeleteOrgsTogether([{ orgId, actorOrgId }], deletedBy);
+  return results[0];
+}
+
+/**
+ * Soft-delete several orgs AND run `alsoInTransaction` in ONE transaction — so a
+ * caller whose own write must not happen without the tombstones (account
+ * self-delete: the account goes only if its sole-owned orgs go) gets all of it
+ * or none of it.
+ *
+ * Ordering is safety-critical:
+ *   1. Every org's recovery snapshot is captured and persisted FIRST (strict
+ *      export). If any fails we throw {@link ORG_SNAPSHOT_FAILED} and NOTHING is
+ *      tombstoned — we never lose an org without a snapshot. The snapshots
+ *      already written are discarded.
+ *   2. One transaction: each org's tombstone — conditional on the org NOT being
+ *      deleted already, so a racing repeat delete cannot reset `purgeAfter`
+ *      (the loser is ORG_ALREADY_DELETED) — plus ending every member's access
+ *      to it, plus `alsoInTransaction`. If any of it fails, the snapshots are
+ *      discarded and nothing is left half-done.
+ *   3. Post-commit (best-effort): revocation publishes and the org's
+ *      service-account keys.
+ *
+ * ENDING ACCESS is a CLAIMS bump, never a sign-out (mirrors removeMember /
+ * deactivateMember). A member's sessions are theirs and span every org they
+ * belong to; deleting one org or team must not sign them out of the others.
+ * The bump makes every outstanding access token fail `requireAuth` at once;
+ * the token chokepoint (`resolveOrgMembership`) then refuses to re-issue one
+ * scoped to the soft-deleted org, so the next refresh lands in an org they are
+ * still in. Their pin on it (`lastActiveOrgId`) is dropped so a new sign-in
+ * never aims there. Their PATs SCOPED TO THIS ORG are revoked: a PAT's
+ * authority is decoupled from the version bump.
+ */
+export async function softDeleteOrgsTogether<T = undefined>(
+  targets: readonly SoftDeleteTarget[],
+  deletedBy: string,
+  alsoInTransaction?: (session: ClientSession) => Promise<T>,
+): Promise<{ results: SoftDeleteResult[]; extra: T | undefined }> {
+  const now = new Date();
+  const purgeAfter = new Date(now.getTime() + orgPurgeRetentionMs());
+
+  // 1. Recovery snapshots FIRST.
+  const captured: Array<SoftDeleteTarget & { snapshotId: string }> = [];
+  try {
+    for (const target of targets) {
+      captured.push({ ...target, snapshotId: await captureRecoverySnapshot(target, deletedBy, now, purgeAfter) });
+    }
+  } catch (err) {
+    await discardSnapshots(captured.map((c) => c.snapshotId));
+    throw err;
   }
 
+  // 2. Tombstones + access cut-off (+ the caller's write), atomically.
+  let tombstoned: Array<{ orgId: string; memberIds: Types.ObjectId[]; revokedPatIds: string[] }> = [];
+  let extra: T | undefined;
+  try {
+    await withMongoTransaction(async (session) => {
+      // Reassigned per attempt: a retried body re-reads the (rolled-back) rows.
+      tombstoned = [];
+      for (const { orgId } of captured) {
+        tombstoned.push({ orgId, ...await tombstoneOrg(orgId, now, purgeAfter, session) });
+      }
+      extra = alsoInTransaction ? await alsoInTransaction(session) : undefined;
+    });
+  } catch (err) {
+    await discardSnapshots(captured.map((c) => c.snapshotId));
+    throw err;
+  }
+
+  // 3. Post-commit.
+  for (const { orgId, memberIds, revokedPatIds } of tombstoned) {
+    await afterTombstone(orgId, memberIds, revokedPatIds);
+  }
+  const results = captured.map(({ orgId, snapshotId }, i) => {
+    const membersInvalidated = tombstoned[i].memberIds.length;
+    logger.info('Org soft-deleted', { orgId, purgeAfter, snapshotId, membersInvalidated });
+    return { orgId, deletedAt: now, purgeAfter, snapshotId, membersInvalidated };
+  });
+  return { results, extra };
+}
+
+/**
+ * Check the org may be soft-deleted and persist its recovery snapshot (STRICT
+ * export: any unreadable table or collection aborts, rather than persisting a
+ * snapshot with silently empty stores). The snapshot is a copy of deleted data,
+ * so it expires when the org is due to be purged (the TTL index on its header
+ * and chunks) — see the model.
+ */
+async function captureRecoverySnapshot(
+  { orgId, actorOrgId }: SoftDeleteTarget,
+  deletedBy: string,
+  deletedAt: Date,
+  purgeAfter: Date,
+): Promise<string> {
+  if (isSystemOrgId(orgId)) throw new Error(SYSTEM_ORG_DELETE_FORBIDDEN);
   const org = await Organization.findById(toOrgId(orgId)).select('name deletedAt').lean();
   if (!org) throw new Error(ORG_NOT_FOUND);
   if ((org as { deletedAt?: Date | null }).deletedAt) throw new Error(ORG_ALREADY_DELETED);
-
-  // 1. Recovery snapshot FIRST — abort the whole soft-delete if we can't capture
-  // + persist it. Losing an org without a snapshot is the one outcome we refuse.
-  // STRICT export: any unreadable table or collection aborts, rather than
-  // persisting a snapshot with silently empty stores.
-  //
-  // The snapshot is a copy of deleted data, so it expires when the org is due to
-  // be purged (the TTL index on its header and chunks) — see the model.
-  const now = new Date();
-  const purgeAfter = new Date(now.getTime() + orgPurgeRetentionMs());
-  let snapshotId: string;
   try {
     const snapshot = await exportOrg(orgId, actorOrgId, { strict: true });
-    snapshotId = await storeDeletedOrgSnapshot({
+    return await storeDeletedOrgSnapshot({
       organizationId: String(orgId),
       name: org.name,
       snapshot,
-      deletedAt: now,
+      deletedAt,
       deletedBy,
       expiresAt: purgeAfter,
     });
@@ -431,79 +508,94 @@ export async function softDeleteOrg(
     });
     throw new Error(ORG_SNAPSHOT_FAILED);
   }
+}
 
-  // 2. Tombstone + session cut-off, atomically.
+/** Best-effort removal of snapshots whose soft-delete did not commit (the TTL
+ *  index removes any this misses). */
+async function discardSnapshots(snapshotIds: readonly string[]): Promise<void> {
+  for (const id of snapshotIds) {
+    await discardDeletedOrgSnapshot(id).catch((err: unknown) => logger.warn(
+      'Could not discard the snapshot of an aborted soft-delete (its TTL will)', { snapshotId: id, error: errorMessage(err) },
+    ));
+  }
+}
 
-  let bumpedMemberIds: Types.ObjectId[] = [];
-  let revokedPatIds: string[] = [];
-  const membersInvalidated = await withMongoTransaction(async (session) => {
-    await Organization.updateOne(
-      { _id: toOrgId(orgId) },
-      { $set: { deletedAt: now, purgeAfter } },
-    ).session(session);
+/**
+ * Inside the caller's transaction: tombstone ONE org — conditionally, so a
+ * repeat delete cannot reset `purgeAfter` (ORG_ALREADY_DELETED) — and end the
+ * access of everyone in it (see {@link softDeleteOrgsTogether}).
+ */
+async function tombstoneOrg(
+  orgId: string,
+  deletedAt: Date,
+  purgeAfter: Date,
+  session: ClientSession,
+): Promise<{ memberIds: Types.ObjectId[]; revokedPatIds: string[] }> {
+  const tomb = await Organization.updateOne(
+    { _id: toOrgId(orgId), deletedAt: null },
+    { $set: { deletedAt, purgeAfter } },
+  ).session(session);
+  if (tomb.matchedCount === 0) throw new Error(ORG_ALREADY_DELETED);
 
-    // Bump tokenVersion for every ACTIVE member (mirrors removeMember): their
-    // outstanding access tokens are rejected on the next request, and clearing
-    // the refresh-session slots blocks a silent re-issue.
-    const memberships = await UserOrganization.find({ organizationId: toOrgId(orgId), isActive: true })
-      .select('userId').session(session).lean();
-    // Plus anyone working in the org on INHERITED authority (a parent-org admin
-    // who opened this team — no membership row, see helpers/org-authority.ts):
-    // their session is pinned by `lastActiveOrgId`, and must be cut just the same.
-    const inheritedSessions = await User.find({ lastActiveOrgId: String(orgId) })
-      .select('_id').session(session).lean();
-    const byId = new Map<string, Types.ObjectId>();
-    for (const m of memberships) byId.set(String(m.userId), m.userId);
-    for (const u of inheritedSessions) byId.set(String(u._id), u._id as Types.ObjectId);
-    bumpedMemberIds = [...byId.values()];
-    if (bumpedMemberIds.length > 0) {
-      await User.updateMany(
-        { _id: { $in: bumpedMemberIds } },
-        { $inc: { tokenVersion: 1 } },
-      ).session(session);
-      await deleteAllSlots(bumpedMemberIds, session);
+  // Every ACTIVE member, plus anyone working in the org on INHERITED authority
+  // (a parent-org admin who opened this team — no membership row, see
+  // helpers/org-authority.ts), whose session is pinned by `lastActiveOrgId`.
+  const memberships = await UserOrganization.find({ organizationId: toOrgId(orgId), isActive: true })
+    .select('userId').session(session).lean();
+  const inheritedSessions = await User.find({ lastActiveOrgId: String(orgId) })
+    .select('_id').session(session).lean();
+  const byId = new Map<string, Types.ObjectId>();
+  for (const mem of memberships) byId.set(String(mem.userId), mem.userId);
+  for (const u of inheritedSessions) byId.set(String(u._id), u._id as Types.ObjectId);
+  const memberIds = [...byId.values()];
+  if (memberIds.length === 0) return { memberIds, revokedPatIds: [] };
 
-      // Revoke every member's PAT scoped to THIS org. A PAT's authority is
-      // decoupled from tokenVersion (a session logout must not kill a durable CI
-      // credential), so the tokenVersion bump above does NOT reach it — an
-      // automation PAT would otherwise keep read+write on the tombstoned org
-      // until purge. Scope the revoke to `organizationId === orgId` so a member's
-      // PATs for OTHER (still-live) orgs are untouched. requireAuth also read-
-      // guards this on `org.deletedAt`, so the two together fail closed.
-      const patFilter = { userId: { $in: bumpedMemberIds }, organizationId: orgId, revoked: false };
-      revokedPatIds = (await PersonalAccessToken.find(patFilter).select('_id').session(session).lean())
-        .map((k) => String(k._id));
-      await PersonalAccessToken.updateMany(
-        patFilter,
-        { $set: { revoked: true, revokedAt: now } },
-      ).session(session);
-    }
-    return bumpedMemberIds.length;
-  });
-  // Post-commit: publish each member's now-current tokenVersion so the stateless
-  // services cut them off from the tombstoned org immediately (best-effort) —
-  // and each revoked PAT, whose exchanged tokens the version bump doesn't reach.
-  await publishUsersRevocation(bumpedMemberIds);
+  // A CLAIMS bump: outstanding access tokens are refused now; sessions survive
+  // and re-mint into a live org. The pin on the dead org is dropped.
+  await User.updateMany({ _id: { $in: memberIds } }, { $inc: { claimsVersion: 1 } }).session(session);
+  await User.updateMany(
+    { _id: { $in: memberIds }, lastActiveOrgId: String(orgId) },
+    { $unset: { lastActiveOrgId: '' } },
+  ).session(session);
+
+  // Revoke every member's PAT scoped to THIS org. A PAT's authority is
+  // decoupled from the version bump (a durable CI credential outlives a
+  // session), so the bump does NOT reach it — an automation PAT would otherwise
+  // keep read+write on the tombstoned org until purge. Scoped by
+  // `organizationId` so a member's PATs for OTHER (still-live) orgs are untouched.
+  const patFilter = { userId: { $in: memberIds }, organizationId: orgId, revoked: false };
+  const revokedPatIds = (await PersonalAccessToken.find(patFilter).select('_id').session(session).lean())
+    .map((k) => String(k._id));
+  await PersonalAccessToken.updateMany(
+    patFilter,
+    { $set: { revoked: true, revokedAt: deletedAt } },
+  ).session(session);
+  return { memberIds, revokedPatIds };
+}
+
+/** Post-commit, best-effort: make one tombstone's cut-off true everywhere. */
+async function afterTombstone(orgId: string, memberIds: Types.ObjectId[], revokedPatIds: string[]): Promise<void> {
+  // Each member's now-current access version, so the stateless services cut
+  // them off from the tombstoned org immediately — and each revoked PAT, whose
+  // exchanged tokens the version bump doesn't reach.
+  await publishUsersRevocation(memberIds);
   await publishAccessKeyRevocation(revokedPatIds);
 
-  // Service-account keys, for the same reason member PATs are revoked above: an
-  // account has no session and no `tokenVersion`, so the bump doesn't reach it,
+  // Service-account keys, for the same reason member PATs are revoked: an
+  // account has no session and no access version, so the bump doesn't reach it,
   // and its automation would otherwise keep writing to a tombstoned org for the
   // whole retention window. Revoked (not deleted) — a restore within the window
   // leaves the accounts and their Roles intact, and the operator reissues keys.
   // Best-effort: a failure here leaves the exchange's own live-org check as the
   // backstop (it refuses a soft-deleted org), so it must not abort the delete.
-  let serviceAccountKeysRevoked = 0;
   try {
-    serviceAccountKeysRevoked = await revokeServiceAccountKeysForOrg(orgId);
+    const revoked = await revokeServiceAccountKeysForOrg(orgId);
+    if (revoked > 0) logger.info('Revoked the soft-deleted org\'s service-account keys', { orgId, revoked });
   } catch (err) {
     logger.warn('Service-account key revoke on soft-delete failed (exchange still refuses the tombstoned org)', {
       orgId, error: errorMessage(err),
     });
   }
-
-  logger.info('Org soft-deleted', { orgId, purgeAfter, snapshotId, membersInvalidated, serviceAccountKeysRevoked });
-  return { orgId, deletedAt: now, purgeAfter, snapshotId, membersInvalidated };
 }
 
 // ---------------------------------------------------------------------------

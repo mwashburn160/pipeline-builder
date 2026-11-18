@@ -64,6 +64,9 @@ async function tracked<T>(op: string, fn: () => Promise<T>): Promise<T> {
   }
 }
 
+/** Stripe statuses in which a subscription is over and cannot be cancelled again. */
+const STRIPE_ENDED_STATUSES: ReadonlySet<string> = new Set(['canceled', 'incomplete_expired']);
+
 export class StripeProvider implements PaymentProvider {
   private readonly stripe: Stripe;
   private readonly stripeConfig: StripeConfig;
@@ -209,11 +212,29 @@ export class StripeProvider implements PaymentProvider {
   /**
    * Cancel a Stripe subscription IMMEDIATELY (not at period end). Used to clean up
    * a DUPLICATE subscription (two checkouts completed for one org) so the customer
-   * isn't billed twice — the keeper is the org's existing bound subscription.
+   * isn't billed twice — the keeper is the org's existing bound subscription — and
+   * by the final org purge. `prorate: false` / `invoice_now: false` are pinned (the
+   * API defaults, stated so they cannot drift): no unused-time credit, no final
+   * invoice, and so no automatic refund. Cancelling an `incomplete` subscription
+   * voids its open first invoice.
+   *
+   * A refusal on a subscription that is already over at Stripe (`canceled`, or
+   * `incomplete_expired` — which `mapStripeStatus` folds into `incomplete`, so a
+   * caller reading {@link getSubscription} cannot tell) resolves: there is
+   * nothing left to cancel.
    */
   async cancelSubscriptionNow(externalId: string): Promise<void> {
-    logger.warn('Canceling duplicate Stripe subscription immediately', { externalId });
-    await tracked('subscriptions.cancel', () => this.stripe.subscriptions.cancel(externalId));
+    logger.warn('Canceling Stripe subscription immediately', { externalId });
+    try {
+      await tracked('subscriptions.cancel', () => this.stripe.subscriptions.cancel(externalId, { prorate: false, invoice_now: false }));
+    } catch (err) {
+      const current = await tracked('subscriptions.retrieve', () => this.stripe.subscriptions.retrieve(externalId)).catch(() => undefined);
+      if (current && STRIPE_ENDED_STATUSES.has(current.status)) {
+        logger.info('Stripe subscription already ended — nothing to cancel', { externalId, status: current.status });
+        return;
+      }
+      throw err;
+    }
   }
 
   /**

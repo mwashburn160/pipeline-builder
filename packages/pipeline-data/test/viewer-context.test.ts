@@ -5,7 +5,8 @@
  * The viewer stamp is a security primitive: it is what makes the per-user rungs
  * (template `private`, message per-user targeting) resolve on paths that have
  * nowhere to pass a viewer. These tests pin its two safety properties — it fails
- * CLOSED without a scope, and an explicit value always wins over the context.
+ * CLOSED without a scope, and the viewer comes ONLY from the request context (a
+ * filter that names one is refused).
  */
 
 import { jest, describe, it, expect } from '@jest/globals';
@@ -54,15 +55,33 @@ describe('withViewerContext', () => {
     expect(stamped.viewerUserId).toBeUndefined();
   });
 
-  it('lets an EXPLICIT viewer win over the context', () => {
-    // Keeps deliberate scoping (and fixed-viewer tests) expressible; the context
-    // only fills what the caller left blank.
+  it('REFUSES a viewer id supplied in the filter instead of letting it override the request (impersonating another user)', () => {
+    // The viewer is identity, and identity comes only from the request. A filter
+    // that names a viewer is a caller bug at best and an impersonation at worst
+    // (user-1 reading the rows addressed to someone-else) — refused, loudly.
+    expect(() => runWithTenantContext(
+      { orgId: 'org-1', userId: 'user-1', isSuperAdmin: false },
+      () => withViewerContext({ viewerUserId: 'someone-else' }),
+    )).toThrow(/viewerUserId.*request/);
+  });
+
+  it('REFUSES a super-admin flag supplied in the filter instead of lifting the private rung for a non-super-admin', () => {
+    expect(() => runWithTenantContext(
+      { orgId: 'org-1', userId: 'user-1', isSuperAdmin: false },
+      () => withViewerContext({ viewerIsSuperAdmin: true }),
+    )).toThrow(/viewerIsSuperAdmin.*request/);
+  });
+
+  it('REFUSES a filter-supplied viewer even OUTSIDE a tenant scope (it would otherwise open the per-user rung for a scopeless job)', () => {
+    expect(() => withViewerContext({ viewerUserId: 'someone-else', viewerIsSuperAdmin: false })).toThrow(/viewerUserId/);
+  });
+
+  it('treats an explicitly-undefined viewer field as absent', () => {
     const stamped = runWithTenantContext(
       { orgId: 'org-1', userId: 'user-1', isSuperAdmin: false },
-      () => withViewerContext({ viewerUserId: 'someone-else', viewerIsSuperAdmin: true }),
+      () => withViewerContext({ viewerUserId: undefined, viewerIsSuperAdmin: undefined }),
     );
-    expect(stamped.viewerUserId).toBe('someone-else');
-    expect(stamped.viewerIsSuperAdmin).toBe(true);
+    expect(stamped).toEqual({ viewerUserId: 'user-1', viewerIsSuperAdmin: false });
   });
 
   it('does not mutate the filter it was given', () => {

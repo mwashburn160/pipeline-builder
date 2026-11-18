@@ -22,9 +22,9 @@
  */
 
 import { createLogger, type RoleGrant } from '@pipeline-builder/api-core';
-import { IGM_GROUP_TAKEN, IGM_LIMIT, IGM_NOT_CONFIGURED, IGM_NOT_FOUND, IGM_PROVIDER_UNSUPPORTED, MAX_MAPPINGS_PER_ORG } from './idp-mapping-errors.js';
+import { IGM_GROUP_TAKEN, IGM_LIMIT, IGM_NOT_CONFIGURED, IGM_NOT_FOUND, IGM_PROVIDER_UNSUPPORTED, IGM_SCIM_MANAGED, MAX_MAPPINGS_PER_ORG } from './idp-mapping-errors.js';
 import { assertMappableRoleSet, type MappableRole } from './mapped-roles.js';
-import type { RoleAssignmentActor } from './role-authority.js';
+import { carriesSystemOrgOnlyPermission, effectiveRolePermissions, ROLE_PERMISSION_FIELDS, type RoleAssignmentActor } from './role-authority.js';
 import { groupKey, providerSupportsGroups } from '../helpers/idp-claims.js';
 import { toOrgId } from '../helpers/org-id.js';
 import IdpGroupMapping, { type IdpGroupMappingDocument } from '../models/idp-group-mapping.js';
@@ -40,6 +40,10 @@ export interface IdpGroupMappingDto {
   group: string;
   roleIds: string[];
   roles: MappableRole[];
+  /** Pushed by the org's SCIM client: the group name and the row itself are the
+   *  identity provider's (rename/delete refused with `IGM_SCIM_MANAGED`); the
+   *  Roles it grants remain the admin's to edit. */
+  scimManaged: boolean;
   updatedAt: string;
 }
 
@@ -52,6 +56,7 @@ function toDto(doc: IdpGroupMappingDocument, byRoleId: Map<string, MappableRole>
     // A Role deleted after the mapping was written simply drops out of the
     // display — the resolver ignores it too, so the two agree.
     roles: roleIds.map((id) => byRoleId.get(id)).filter((r): r is MappableRole => !!r),
+    scimManaged: doc.scimManaged === true,
     updatedAt: doc.updatedAt.toISOString(),
   };
 }
@@ -126,7 +131,8 @@ export class IdpGroupMappingService {
   }
 
   /**
-   * Update a mapping's group and/or Role set. The Role ceiling is applied to the
+   * Update a mapping's group and/or Role set. A SCIM-pushed group keeps its name
+   * (`IGM_SCIM_MANAGED` on a rename); its Roles are editable. The Role ceiling is applied to the
    * INCOMING set and to the set being REMOVED — symmetry with the direct
    * assignment path, so a delegate can't strip a capability they don't hold from
    * everyone the group covers by editing the rule instead of the Role.
@@ -142,6 +148,11 @@ export class IdpGroupMappingService {
 
     const doc = await IdpGroupMapping.findOne({ _id: mappingId, organizationId: orgId });
     if (!doc) throw new Error(IGM_NOT_FOUND);
+    // A SCIM-pushed group's NAME is the directory's: re-sending the same name
+    // (the editor always sends it) is fine, changing it is not.
+    if (doc.scimManaged === true && input.group !== undefined && input.group.trim() !== doc.group) {
+      throw new Error(IGM_SCIM_MANAGED);
+    }
 
     if (input.roleIds !== undefined) {
       // What it grants today — checked before any mutation, so a refused edit
@@ -169,15 +180,18 @@ export class IdpGroupMappingService {
   }
 
   /**
-   * Delete a mapping. The actor must be allowed to grant what it granted (same
+   * Delete a mapping (refused with `IGM_SCIM_MANAGED` for a SCIM-pushed group —
+   * remove it in the identity provider). The actor must be allowed to grant what it granted (same
    * ceiling as an update) — otherwise a `roles:manage` delegate could revoke a
    * capability they don't hold from every member of the group by deleting the
    * rule. Existing assignments are NOT swept here: they fall away on each
    * member's next sign-in, which is when the rule set is evaluated.
    */
   async delete(orgId: string, mappingId: string, actor: RoleAssignmentActor): Promise<void> {
-    const doc = await IdpGroupMapping.findOne({ _id: mappingId, organizationId: orgId }).select('roleIds');
+    const doc = await IdpGroupMapping.findOne({ _id: mappingId, organizationId: orgId }).select('roleIds scimManaged');
     if (!doc) throw new Error(IGM_NOT_FOUND);
+    // The directory pushed this group and would push it straight back.
+    if (doc.scimManaged === true) throw new Error(IGM_SCIM_MANAGED);
     await assertMappableRoleSet(orgId, (doc.roleIds ?? []).map(String), actor);
     await IdpGroupMapping.deleteOne({ _id: doc._id });
     logger.info('IdP group mapping deleted', { orgId, mappingId });
@@ -188,7 +202,8 @@ export class IdpGroupMappingService {
    * principal carrying `groups`, plus which groups actually matched.
    *
    * Matching is case-insensitive ({@link groupKey}). Roles that no longer exist,
-   * that have moved out of the org, or that confer `superadmin` are dropped —
+   * that have moved out of the org, that confer `superadmin`, or that carry a
+   * system-org-only permission are dropped —
    * the same fail-closed reading the editor enforces at write time, re-applied
    * here because a Role can change after a rule was authored. No groups, or no
    * matching rule, means an EMPTY set: JIT then grants the plain-member floor
@@ -207,9 +222,15 @@ export class IdpGroupMappingService {
 
     const candidateIds = [...new Set(docs.flatMap((d) => (d.roleIds ?? []).map(String)))];
     const roles = await Role.find({ _id: { $in: candidateIds }, organizationId: toOrgId(orgId) })
-      .select('_id grantsRole').lean();
+      .select(`_id ${ROLE_PERMISSION_FIELDS}`).lean();
+    // The editor's two actor-independent refusals (`assertMappableRoleSet`):
+    // no superadmin grant, and no system-org-only permission (Ecosystem
+    // Manager). The actor ceiling has no counterpart here — there is no actor at
+    // sign-in; it was applied when the rule was authored.
     const grantable = new Set(
-      roles.filter((r) => r.grantsRole !== 'superadmin').map((r) => String(r._id)),
+      roles
+        .filter((r) => r.grantsRole !== 'superadmin' && !carriesSystemOrgOnlyPermission(effectiveRolePermissions(r)))
+        .map((r) => String(r._id)),
     );
 
     const roleIds = candidateIds.filter((id) => grantable.has(id));

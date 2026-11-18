@@ -42,8 +42,12 @@ const mapping = {
   group: 'platform-engineers',
   roleIds: ['r1'],
   roles: [{ id: 'r1', name: 'Engineering', grantsRole: 'member' as const }],
+  scimManaged: false,
   updatedAt: '2026-01-01T00:00:00.000Z',
 };
+
+/** A row the org's SCIM client pushed: its name and existence are the IdP's. */
+const scimMapping = { ...mapping, id: 'm2', group: 'Directory-Eng', scimManaged: true };
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -128,6 +132,33 @@ describe('SsoGroupMappings', () => {
   it('asks for an identity provider first when none is configured', async () => {
     render(<SsoGroupMappings orgId="org-1" provider={null} />);
     expect(await screen.findByText(/Configure an identity provider/i)).toBeInTheDocument();
+  });
+
+  it('a SCIM-managed group cannot be deleted here, and says to remove it in the identity provider', async () => {
+    listIdpGroupMappings.mockResolvedValue({ success: true, data: { mappings: [scimMapping, mapping] } });
+    render(<SsoGroupMappings orgId="org-1" provider="generic-oidc" />);
+
+    expect(await screen.findByLabelText('Delete Directory-Eng')).toBeDisabled();
+    expect(screen.getByText(/managed by your identity provider/i)).toBeInTheDocument();
+    // An admin-authored rule beside it is unaffected.
+    expect(screen.getByLabelText('Delete platform-engineers')).not.toBeDisabled();
+  });
+
+  it('editing a SCIM-managed group locks its NAME but still saves a Role change', async () => {
+    listIdpGroupMappings.mockResolvedValue({ success: true, data: { mappings: [scimMapping] } });
+    getOrganizationRoles.mockResolvedValue({ success: true, data: { roles: [role('r1', 'Engineering'), role('r2', 'SRE')] } });
+    updateIdpGroupMapping.mockResolvedValue({ success: true, data: { mapping: scimMapping } });
+    render(<SsoGroupMappings orgId="org-1" provider="generic-oidc" />);
+
+    fireEvent.click(await screen.findByLabelText('Edit Directory-Eng'));
+    const name = screen.getByPlaceholderText('platform-engineers');
+    expect(name).toBeDisabled();
+    expect(name).toHaveValue('Directory-Eng');
+    expect(screen.getByText(/rename it in your identity provider/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText('SRE'));
+    fireEvent.click(screen.getByRole('button', { name: /save mapping/i }));
+    await waitFor(() => expect(updateIdpGroupMapping).toHaveBeenCalledWith('org-1', 'm2', { group: 'Directory-Eng', roleIds: ['r1', 'r2'] }));
   });
 
   it('disables every control in a read-only (impersonated) session', async () => {

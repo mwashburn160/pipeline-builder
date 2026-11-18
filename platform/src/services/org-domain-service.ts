@@ -5,8 +5,8 @@ import crypto from 'crypto';
 import { promises as dns } from 'dns';
 import { createLogger, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID, TIER_FEATURES, type PlanTier } from '@pipeline-builder/api-core';
 import { ADMIN_ORG_ROLES } from '@pipeline-builder/api-core/wire-vocabulary';
-import { Types, isValidObjectId, type QueryFilter } from 'mongoose';
-import { DOMAIN_TAKEN, DOMAIN_NOT_FOUND, DOMAIN_NOT_VERIFIED, DOMAIN_VERIFY_FAILED, DOMAIN_NOT_ENTITLED, DOMAIN_LIMIT, DOMAIN_PUBLIC, DOMAIN_SHARE_NOT_ROOT, DOMAIN_SHARE_UNVERIFIED, JOIN_NOT_ELIGIBLE, JOIN_SEAT_LIMIT, JOIN_REQUEST_NOT_FOUND, JOIN_REQUESTER_GONE } from './org-domain-errors.js';
+import { Types, isValidObjectId, type ClientSession, type QueryFilter } from 'mongoose';
+import { DOMAIN_TAKEN, DOMAIN_NOT_FOUND, DOMAIN_NOT_VERIFIED, DOMAIN_VERIFY_FAILED, DOMAIN_NOT_ENTITLED, DOMAIN_LIMIT, DOMAIN_PUBLIC, DOMAIN_SHARE_NOT_ROOT, DOMAIN_SHARE_UNVERIFIED, JOIN_NOT_ELIGIBLE, JOIN_SEAT_LIMIT, JOIN_REQUEST_NOT_FOUND, JOIN_REQUESTER_GONE, JOIN_ALREADY_DECIDED } from './org-domain-errors.js';
 import { ensureBaselineRole } from './roles-service.js';
 import type { DomainJoinMode } from '../constants/vocabulary.js';
 import { resolveOrgLineage } from '../helpers/org-hierarchy.js';
@@ -554,25 +554,26 @@ class OrgDomainService {
     deciderId: string,
   ): Promise<{ userId: string; status: 'approved' | 'denied' }> {
     if (!isValidObjectId(requestId)) throw new Error(JOIN_REQUEST_NOT_FOUND);
-    const reqDoc = await JoinRequest.findOne({ _id: requestId, organizationId: orgId });
-    if (!reqDoc || reqDoc.status !== 'pending') throw new Error(JOIN_REQUEST_NOT_FOUND);
+    const reqDoc = await JoinRequest.findOne({ _id: requestId, organizationId: orgId }).lean();
+    if (!reqDoc) throw new Error(JOIN_REQUEST_NOT_FOUND);
+    if (reqDoc.status !== 'pending') throw new Error(JOIN_ALREADY_DECIDED);
 
+    const status = decision === 'approve' ? 'approved' as const : 'denied' as const;
+    const decided = { requestId: reqDoc._id as Types.ObjectId, status, deciderId };
     if (decision === 'approve') {
       // Re-validate at DECISION time — the domain may have been set `off`/deleted
       // or the tier downgraded since the request was filed, and the email must
       // still be on a discoverable domain for this org.
       const stillEligible = (await this.findDiscoverableOrgsByEmail(reqDoc.email)).some((o) => o.orgId === orgId);
       if (!stillEligible) throw new Error(JOIN_NOT_ELIGIBLE);
-      const alreadyMember = await UserOrganization.findOne({ userId: reqDoc.userId, organizationId: orgId, isActive: true }).lean();
-      // Admin explicitly approved → reactivation of a prior membership is allowed.
-      if (!alreadyMember) await this.createMembership(orgId, reqDoc.userId, { allowReactivate: true });
+      // The decision commits WITH the membership (admin approved → reactivating
+      // a prior membership is allowed; an already-active one is left alone).
+      await this.createMembership(orgId, reqDoc.userId, { allowReactivate: true, decided });
+    } else {
+      await markDecided(decided);
     }
-    reqDoc.status = decision === 'approve' ? 'approved' : 'denied';
-    reqDoc.decidedBy = new Types.ObjectId(deciderId);
-    reqDoc.decidedAt = new Date();
-    await reqDoc.save();
     void this.notifyDecision(String(reqDoc.userId), reqDoc.email, orgId, decision === 'approve'); // fire-and-forget
-    return { userId: String(reqDoc.userId), status: reqDoc.status };
+    return { userId: String(reqDoc.userId), status };
   }
 
   /**
@@ -585,8 +586,17 @@ class OrgDomainService {
    * DEACTIVATED membership exists (an admin removed the user) so the caller can
    * downgrade to a request; `true` (admin approval) resets it to a clean member.
    */
-  private async createMembership(orgId: string, userId: Types.ObjectId, opts: { allowReactivate: boolean }): Promise<void> {
+  private async createMembership(
+    orgId: string,
+    userId: Types.ObjectId,
+    opts: { allowReactivate: boolean; decided?: JoinDecision },
+  ): Promise<void> {
     await withMongoTransaction(async (session) => {
+      // An admin approval: claim the request FIRST, conditionally on it still
+      // being pending, so a concurrent deny (or second approve) and this
+      // membership can never both land — the loser's write conflicts or matches
+      // nothing, and is answered JOIN_ALREADY_DECIDED.
+      if (opts.decided) await markDecided(opts.decided, session);
       // The account may have been deleted since the request was filed (account
       // deletion removes its join requests, but a decision can race it). Read in
       // the transaction so the membership is never created for a missing user.
@@ -614,6 +624,26 @@ class OrgDomainService {
       });
     });
   }
+}
+
+/** What a decision writes onto its join request. */
+interface JoinDecision {
+  requestId: Types.ObjectId;
+  status: 'approved' | 'denied';
+  deciderId: string;
+}
+
+/**
+ * Record a decision on a join request — CONDITIONALLY on it still being
+ * pending. Throws JOIN_ALREADY_DECIDED when another decision got there first.
+ */
+async function markDecided(d: JoinDecision, session?: ClientSession): Promise<void> {
+  const res = await JoinRequest.updateOne(
+    { _id: d.requestId, status: 'pending' },
+    { $set: { status: d.status, decidedBy: new Types.ObjectId(d.deciderId), decidedAt: new Date() } },
+    session ? { session } : {},
+  );
+  if (res.matchedCount === 0) throw new Error(JOIN_ALREADY_DECIDED);
 }
 
 export const orgDomainService = new OrgDomainService();

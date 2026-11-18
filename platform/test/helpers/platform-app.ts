@@ -22,6 +22,7 @@
  * after the env is set and mongoose is connected: it pulls in the config.
  */
 
+import crypto from 'node:crypto';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import express, { type NextFunction, type Request, type Response } from 'express';
@@ -29,7 +30,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import { notFoundHandler, errorHandler } from '../../src/middleware/index.js';
 import { peekJwtClaims } from '../../src/middleware/rate-limit-keys.js';
 import { denyReadOnlyImpersonationWrite, isWriteBlockedByImpersonation } from '../../src/middleware/require-write-access.js';
-import { User } from '../../src/models/index.js';
+import { RefreshSession, User } from '../../src/models/index.js';
 import { mountApiRoutes } from '../../src/routes/mount.js';
 import { createAccessTokenPayload, type SessionAuth } from '../../src/services/session/access-tokens.js';
 import { resolveOrgMembership } from '../../src/services/session/membership-context.js';
@@ -85,15 +86,31 @@ export const weakAuth = (): SessionAuth => ({ amr: ['pwd'], aal: 1, authTime: ne
 
 /**
  * Mint a session ACCESS token for `userId` scoped to `orgId`, with the real
- * payload builder and the real signer — the same claims a sign-in would carry,
- * WITHOUT a refresh-session slot (`sid`), so these suites never depend on how
- * refresh sessions are stored.
+ * payload builder and the real signer — the same claims a sign-in would carry.
+ * Every session token names a live refresh-session slot (`requireAuth` refuses
+ * one that names none), so a bare slot row is written for it directly — these
+ * suites still never depend on how refresh tokens rotate.
  */
 export async function mintAccessToken(userId: string, orgId: string | undefined, auth: SessionAuth = strongAuth()): Promise<string> {
   const user = await User.findById(userId).select('+tokenVersion +isSuperAdmin');
   if (!user) throw new Error(`mintAccessToken: no user ${userId}`);
   const membership = orgId ? await resolveOrgMembership(userId, orgId) : undefined;
-  const payload = createAccessTokenPayload(user, membership, { auth, tokenUse: 'access' });
+  const sessionId = crypto.randomBytes(12).toString('hex');
+  const now = new Date();
+  await RefreshSession.create({
+    userId: user._id,
+    id: sessionId,
+    kind: 'interactive',
+    tokenVersion: user.tokenVersion,
+    hash: crypto.randomBytes(16).toString('hex'),
+    createdAt: now,
+    lastUsedAt: now,
+    purgeAt: new Date(now.getTime() + 86_400_000),
+    amr: auth.amr,
+    aal: auth.aal,
+    authTime: auth.authTime,
+  });
+  const payload = createAccessTokenPayload(user, membership, { auth, tokenUse: 'access', sessionId });
   return signUserJwt(payload, { expiresIn: 900 });
 }
 

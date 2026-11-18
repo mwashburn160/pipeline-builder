@@ -116,7 +116,8 @@ jest.unstable_mockModule('../src/helpers/password-policy.js', () => ({
 }));
 
 const { userAdminService } = await import('../src/services/user-admin-service.js');
-const { UA_USERNAME_TAKEN, UA_EMAIL_TAKEN, UA_ORG_NOT_FOUND, UA_ROLES_NEED_ORG } = await import('../src/services/user-errors.js');
+const { UA_USERNAME_TAKEN, UA_EMAIL_TAKEN, UA_ORG_NOT_FOUND, UA_ROLES_NEED_ORG, UA_SEAT_LIMIT } = await import('../src/services/user-errors.js');
+const seats = await import('../src/helpers/seats.js') as unknown as { seatCapacityAvailable: jest.Mock<(...a: unknown[]) => Promise<boolean>> };
 
 /** `User.exists(...)` returns a query with a `.session()` that resolves to `val`. */
 const existsResolving = (val: unknown) => ({ session: () => Promise.resolve(val) });
@@ -266,6 +267,30 @@ describe('UserAdminService.createUser', () => {
     // Role derivation is delegated to recomputeUserOrgRole — called exactly once.
     expect(mockRecomputeUserOrgRole).toHaveBeenCalledTimes(1);
     expect((mockRecomputeUserOrgRole.mock.calls[0] as any)[1]).toBe('org-9');
+  });
+
+  // Every path that writes a membership takes a seat: supplying explicit Roles
+  // used to skip the pooled seat cap entirely, and skip the Member floor.
+  it.each([
+    ['with explicit roleIds', { roleIds: ['g1'] }],
+    ['without roleIds', {}],
+  ])('createUser %s refuses past the account seat limit (UA_SEAT_LIMIT), writing no membership', async (_label, extra) => {
+    mockOrgFindById.mockReturnValue(findByIdResolving({ _id: 'org-9' }));
+    seats.seatCapacityAvailable.mockResolvedValueOnce(false);
+
+    await expect(userAdminService.createUser({ ...base, organizationId: 'org-9', ...extra }))
+      .rejects.toThrow(UA_SEAT_LIMIT);
+    expect(mockUserOrgCreate).not.toHaveBeenCalled();
+    expect(mockGroupMembershipUpdateOne).not.toHaveBeenCalled();
+  });
+
+  it('createUser with explicit roleIds still grants the built-in Member floor', async () => {
+    mockOrgFindById.mockReturnValue(findByIdResolving({ _id: 'org-9' }));
+
+    await userAdminService.createUser({ ...base, organizationId: 'org-9', roleIds: ['g1'] });
+
+    expect(mockEnsureBaselineRole).toHaveBeenCalledWith(expect.anything(), 'org-9', fakeSession);
+    expect(mockGroupMembershipUpdateOne).toHaveBeenCalledTimes(1);
   });
 
   it('throws UA_ROLES_NEED_ORG when roleIds are given without an org (no DB work)', async () => {

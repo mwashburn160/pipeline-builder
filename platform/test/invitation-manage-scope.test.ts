@@ -60,6 +60,9 @@ function pendingInvitation(organizationId: string) {
     token: 'tok',
     expiresAt: new Date(Date.now() + 86_400_000),
     invitationType: 'email',
+    // A document `save()` (filters on `_id` only) — present so the pre-fix
+    // unconditional write would SUCCEED here; the fix must not use it.
+    save: jest.fn(async () => undefined),
   };
 }
 
@@ -119,18 +122,22 @@ describe('invitation revoke / resend reach', () => {
     // Regression: `invitation.save()` filtered on `_id` only, so an accept that
     // committed between the read and the write was flipped to `revoked`.
     const { INV_NOT_PENDING } = await import('../src/services/invitation-errors.js');
-    mockInvFindOne.mockResolvedValue(pendingInvitation('parent-1'));
+    const inv = pendingInvitation('parent-1');
+    mockInvFindOne.mockResolvedValue(inv);
     mockInvUpdateOne.mockResolvedValueOnce({ matchedCount: 0 });
 
     await expect(invitationService.revoke(INV_ID, 'parent-1', 'u1', true)).rejects.toThrow(INV_NOT_PENDING);
+    expect(inv.save).not.toHaveBeenCalled();
     expect(mockInvUpdateOne).toHaveBeenCalledWith({ _id: INV_ID, status: 'pending' }, { $set: { status: 'revoked' } });
   });
 
   it('re-arms CONDITIONALLY — an invitation no longer pending is neither re-armed nor re-mailed', async () => {
-    mockInvFindOne.mockResolvedValue(pendingInvitation('parent-1'));
+    const inv = pendingInvitation('parent-1');
+    mockInvFindOne.mockResolvedValue(inv);
     mockInvUpdateOne.mockResolvedValueOnce({ matchedCount: 0 });
 
     await expect(invitationService.resend(INV_ID, 'parent-1', 'u1', true)).rejects.toThrow(INV_NOT_FOUND);
+    expect(inv.save).not.toHaveBeenCalled();
     expect(mockInvUpdateOne).toHaveBeenCalledWith({ _id: INV_ID, status: 'pending' }, { $set: { expiresAt: expect.any(Date) } });
     expect(mockSendInvitation).not.toHaveBeenCalled();
   });

@@ -422,7 +422,9 @@ class InvitationService {
   async send(input: SendInvitationInput): Promise<SendInvitationResult> {
     const { invitation, inviterName, organizationName, allowedOAuthProviders } = await withMongoTransaction(async (session) => {
       const org = await Organization.findById(toOrgId(input.orgId)).session(session);
-      if (!org) throw new Error(INV_ORG_NOT_FOUND);
+      // Same rule as accept: a soft-deleted org or team takes no new members, so
+      // an invitation into one could never be accepted.
+      if (!org || (org as { deletedAt?: Date | null }).deletedAt) throw new Error(INV_ORG_NOT_FOUND);
 
       const isOwner = org.owner.toString() === input.inviterId;
       if (!isOwner && !input.inviterCanManage) {

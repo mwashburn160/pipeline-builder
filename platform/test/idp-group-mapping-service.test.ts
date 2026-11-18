@@ -69,7 +69,8 @@ jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
 
 const { idpGroupMappingService } = await import('../src/services/idp-group-mapping-service.js');
 const {
-  IGM_FORBIDDEN_GRANT, IGM_GROUP_TAKEN, IGM_NOT_CONFIGURED, IGM_NOT_FOUND, IGM_PROVIDER_UNSUPPORTED,
+  IGM_FORBIDDEN_GRANT, IGM_GROUP_TAKEN, IGM_NOT_CONFIGURED, IGM_NOT_FOUND, IGM_PROVIDER_UNSUPPORTED, IGM_SCIM_MANAGED,
+  IDP_MAPPING_ERROR_MAP,
 } = await import('../src/services/idp-mapping-errors.js');
 const { RL_ASSIGN_EXCEEDS_CEILING, RL_ROLE_NOT_FOUND } = await import('../src/services/roles-errors.js');
 
@@ -105,6 +106,15 @@ describe('resolveMappedRoles', () => {
   it('drops a mapped Role that no longer exists in the org', async () => {
     mappingFind.mockReturnValue(query([{ group: 'eng', groupKey: 'eng', roleIds: ['r1', 'deleted'] }]));
     roleFind.mockReturnValue(query([role('r1')]));
+    expect((await idpGroupMappingService.resolveMappedRoles(ORG, ['eng'])).roleIds).toEqual(['r1']);
+  });
+
+  it('never resolves a Role carrying a system-org-only permission — sign-in never grants what the editor refuses', async () => {
+    // A Role edited AFTER the rule was authored (or a hand-written document) can
+    // carry an Ecosystem-Manager permission the editor's assertMappableRoleSet
+    // refuses outright; the resolver must drop it the same way.
+    mappingFind.mockReturnValue(query([{ group: 'eng', groupKey: 'eng', roleIds: ['r1', 'eco'] }]));
+    roleFind.mockReturnValue(query([role('r1'), role('eco', { permissions: ['plugins:moderate'] })]));
     expect((await idpGroupMappingService.resolveMappedRoles(ORG, ['eng'])).roleIds).toEqual(['r1']);
   });
 
@@ -214,6 +224,45 @@ describe('update / delete (guardrails)', () => {
   it('404s on a mapping id from another org (the query is org-scoped)', async () => {
     mappingFindOne.mockReturnValue(query(null));
     await expect(idpGroupMappingService.delete(ORG, 'foreign', ADMIN)).rejects.toThrow(IGM_NOT_FOUND);
+  });
+
+  // A SCIM-pushed row's NAME belongs to the directory: renaming it here would be
+  // silently undone (or orphaned) on the IdP's next push, and deleting it would
+  // reappear on the next sync. Its ROLES are the admin's to decide.
+  const scimRow = (roleIds: string[]) => ({ ...stored(roleIds), group: 'Engineering', groupKey: 'engineering', scimManaged: true });
+
+  it('refuses to RENAME a SCIM-managed group with IGM_SCIM_MANAGED (409), leaving the row untouched', async () => {
+    const doc = scimRow(['r1']);
+    mappingFindOne.mockReturnValue(query(doc));
+    roleFind.mockReturnValue(query([role('r1')]));
+    await expect(idpGroupMappingService.update(ORG, 'm1', 'u1', { group: 'eng-renamed', roleIds: ['r1'] }, ADMIN))
+      .rejects.toThrow(IGM_SCIM_MANAGED);
+    expect(doc.save).not.toHaveBeenCalled();
+    expect(IDP_MAPPING_ERROR_MAP[IGM_SCIM_MANAGED].status).toBe(409);
+    expect(IDP_MAPPING_ERROR_MAP[IGM_SCIM_MANAGED].message).toMatch(/identity provider/i);
+  });
+
+  it('refuses to DELETE a SCIM-managed group with IGM_SCIM_MANAGED', async () => {
+    mappingFindOne.mockReturnValue(query(scimRow(['r1'])));
+    roleFind.mockReturnValue(query([role('r1')]));
+    await expect(idpGroupMappingService.delete(ORG, 'm1', ADMIN)).rejects.toThrow(IGM_SCIM_MANAGED);
+    expect(mappingDeleteOne).not.toHaveBeenCalled();
+  });
+
+  it('still lets an admin edit the ROLES of a SCIM-managed group (same group name re-sent)', async () => {
+    const doc = scimRow([]);
+    mappingFindOne.mockReturnValue(query(doc));
+    roleFind.mockReturnValue(query([role('r1')]));
+    const out = await idpGroupMappingService.update(ORG, 'm1', 'u1', { group: 'Engineering', roleIds: ['r1'] }, ADMIN);
+    expect(doc.save).toHaveBeenCalled();
+    expect(out.roleIds).toEqual(['r1']);
+    expect(out.scimManaged).toBe(true);
+  });
+
+  it('exposes scimManaged on the listed DTO', async () => {
+    mappingFind.mockReturnValue(query([scimRow([]), stored([])]));
+    const out = await idpGroupMappingService.list(ORG);
+    expect(out.map((m) => m.scimManaged)).toEqual([true, false]);
   });
 
   it('deletes a rule an admin is allowed to grant', async () => {

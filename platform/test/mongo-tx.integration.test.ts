@@ -36,7 +36,7 @@ const suite = integrationSuite();
 suite('withMongoTransaction retries (real Mongo replica set)', () => {
   let replSet: { getUri: () => string; stop: () => Promise<boolean> };
   /* eslint-disable @typescript-eslint/no-explicit-any */
-  let mongoose: any, m: any, withMongoTransaction: any, updateRole: any, setTier: any;
+  let mongoose: any, m: any, withMongoTransaction: any, updateRole: any, setTier: any, authService: any;
   /* eslint-enable @typescript-eslint/no-explicit-any */
   /** Commands the server failed, by name — proves the failpoint really fired. */
   const failed: string[] = [];
@@ -58,6 +58,7 @@ suite('withMongoTransaction retries (real Mongo replica set)', () => {
     ({ withMongoTransaction } = await import('../src/utils/mongo-tx.js'));
     ({ updateRole } = await import('../src/services/role-crud.js'));
     ({ setTier } = await import('../src/services/organization-quota.js'));
+    ({ authService } = await import('../src/services/auth-service.js'));
   }, 180_000);
 
   afterAll(async () => {
@@ -216,5 +217,29 @@ suite('withMongoTransaction retries (real Mongo replica set)', () => {
     expect(out).toEqual(expect.objectContaining({ previousTier: 'team', tier: 'pro' }));
     expect((await m.Organization.findById(root._id).lean()).tier).toBe('pro');
     expect((await m.Organization.findById(team._id).lean()).tier).toBe('pro');
+  });
+
+  it.each([
+    ['the body\'s first write (insert)', 'insert'],
+    ['the commit (no mongoose reset on this path)', 'commitTransaction'],
+  ])('OAuth sign-up commits the NEW account with its org + owner membership when the server fails %s', async (_label, command) => {
+    // Regression: the new User was built ONCE, outside the transaction body. On a
+    // commit retry (no mongoose reset) the re-run `save()` saw a document the
+    // aborted attempt had "already saved" and ran it as an UPDATE of a row that
+    // never committed (DocumentNotFoundError) — the sign-up failed outright.
+    await failPoint({ times: 1 }, { failCommands: [command], errorCode: 112, errorLabels: ['TransientTransactionError'] });
+
+    const out = await authService.findOrCreateOAuthUser('google', { id: 'g-new-1', email: 'Newbie@Example.com', name: 'New Bie' });
+
+    expect(failed).toContain(command);
+    const stored = await m.User.findOne({ email: 'newbie@example.com' }).lean();
+    expect(stored).not.toBeNull();
+    expect(String(stored._id)).toBe(String(out._id));
+    const membership = await m.UserOrganization.findOne({ userId: stored._id, role: 'owner' }).lean();
+    expect(membership).not.toBeNull();
+    expect(await m.Organization.countDocuments({ _id: membership.organizationId })).toBe(1);
+    // Exactly one of each: the aborted attempt left nothing behind.
+    expect(await m.Organization.countDocuments({})).toBe(1);
+    expect(await m.UserOrganization.countDocuments({})).toBe(1);
   });
 });

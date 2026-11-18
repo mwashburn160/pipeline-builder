@@ -37,6 +37,7 @@ import { Types, type ClientSession } from 'mongoose';
 import { apiKeyService, type AccessKeyView } from './api-key-service.js';
 import { assertActorMayAssignRole, type RoleAssignmentActor } from './role-authority.js';
 import { RL_REQUIRES_SUPERADMIN } from './roles-errors.js';
+import { publishServiceAccountKeysRevocation } from './service-account-cascade.js';
 import {
   SA_INVALID_BUDGET,
   SA_INVALID_NAME,
@@ -404,7 +405,9 @@ async function assertActorMayMintScope(orgId: string, scope: TokenScope | undefi
  * Update an account's description, budget, disabled flag and/or Role set.
  * `roleIds` REPLACES the Role set (through the ceiling); omit it to leave Roles
  * untouched. Disabling stops every exchange immediately without destroying the
- * keys, so a suspected-compromise can be contained and then reversed.
+ * keys, so a suspected-compromise can be contained and then reversed — and it
+ * ends the tokens already exchanged too (`requireAuth` reads the flag; the other
+ * services get `revoke:key:` entries for each live key).
  */
 export async function updateServiceAccount(
   orgId: string,
@@ -442,6 +445,16 @@ export async function updateServiceAccount(
       await ServiceAccount.updateOne({ _id: existing._id }, { $set: set }, { session });
     }
   });
+  // Newly DISABLED: end the tokens its keys already exchanged, not just the
+  // next exchange (post-commit, best-effort — platform's own requireAuth reads
+  // the flag regardless).
+  if (patch.disabled === true && existing.disabled !== true) {
+    await publishServiceAccountKeysRevocation(existing._id as Types.ObjectId).catch((err: unknown) => {
+      logger.warn('Could not publish the disabled account\'s key revocations (other services honour its tokens until they expire)', {
+        serviceAccountId: id, error: String(err),
+      });
+    });
+  }
   logger.info('Updated service account', { organizationId: orgId, serviceAccountId: id, fields: Object.keys(set) });
   return { account: await viewOf(await requireAccount(orgId, id)), before };
 }

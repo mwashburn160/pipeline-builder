@@ -155,12 +155,15 @@ jest.unstable_mockModule('../src/helpers/addon-prune.js', () => ({
 // Payment provider — an admin plan change must push the new price to the
 // provider (provider-first), mirroring the user-facing PUT /subscriptions/:id.
 const mockUpdateSubscription = jest.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
-// The admin Purge provider-cancels every billable sub before the local delete.
+// The admin Purge provider-cancels every live sub IMMEDIATELY before the local
+// delete (`cancelSubscriptionNow`); the period-end cancel must not be used.
 const mockCancelSubscription = jest.fn<(...args: unknown[]) => Promise<unknown>>();
+const mockCancelAtPeriodEnd = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({
   getPaymentProvider: () => ({
     updateSubscription: mockUpdateSubscription,
-    cancelSubscription: mockCancelSubscription,
+    cancelSubscription: mockCancelAtPeriodEnd,
+    cancelSubscriptionNow: mockCancelSubscription,
   }),
 }));
 
@@ -817,6 +820,40 @@ describe('PUT /admin/subscriptions/:id', () => {
 
     expect(mockSendBadRequest).toHaveBeenCalledWith(res, 'Invalid field', 'VALIDATION_ERROR');
   });
+
+  it('REGRESSION: the update response names the NEW plan and tier after a plan change', async () => {
+    const sub = makeSubscription({ planId: 'developer' });
+    mockSubscriptionFindById.mockResolvedValue(sub);
+    mockPlanFindOne.mockResolvedValue({ _id: 'pro', name: 'Pro', tier: 'pro', isActive: true });
+    mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'pro' } });
+
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), mockRes());
+
+    expect(mockBuildSubscriptionResponse).toHaveBeenLastCalledWith(sub, 'Pro', 'pro');
+  });
+
+  it('REGRESSION: a status-only update response reads the CURRENT plan for its name and tier', async () => {
+    const sub = makeSubscription({ status: 'active', planId: 'team' });
+    mockSubscriptionFindById.mockResolvedValue(sub);
+    mockPlanFindById.mockResolvedValue({ _id: 'team', name: 'Team', tier: 'team', isActive: true });
+    mockValidateBody.mockReturnValue({ ok: true, value: { status: 'trialing' } });
+
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), mockRes());
+
+    expect(mockPlanFindById).toHaveBeenCalledWith('team');
+    expect(mockBuildSubscriptionResponse).toHaveBeenLastCalledWith(sub, 'Team', 'team');
+  });
+
+  it('REGRESSION: an update response for a subscription whose plan is gone shows the plan id', async () => {
+    const sub = makeSubscription({ status: 'active', planId: 'ghost-plan' });
+    mockSubscriptionFindById.mockResolvedValue(sub);
+    mockPlanFindById.mockResolvedValue(null);
+    mockValidateBody.mockReturnValue({ ok: true, value: { status: 'trialing' } });
+
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), mockRes());
+
+    expect(mockBuildSubscriptionResponse).toHaveBeenLastCalledWith(sub, 'ghost-plan', undefined);
+  });
 });
 
 describe('GET /subscriptions/by-org/:orgId/billable (org-move guard)', () => {
@@ -881,14 +918,28 @@ describe('DELETE /subscriptions/by-org/:orgId (admin Purge)', () => {
     expect(JSON.stringify(event)).not.toContain('cus_LEAKED');
   });
 
-  it('looks up the manageable (non-terminal) set, not just active, for the provider-cancel sweep', async () => {
+  it('looks up every NON-TERMINAL subscription (incomplete included), not just active, for the provider-cancel sweep', async () => {
     mockSubscriptionFind.mockReturnValue({ limit: jest.fn<AnyFn>().mockResolvedValue([]) });
     const req = mockReq({ params: { orgId: 'org-9' }, user: { organizationId: 'sys-org', sub: 'sysadmin-1' } });
     await handler(req, mockRes());
 
-    expect(mockSubscriptionFind).toHaveBeenCalledWith({
+    expect(mockSubscriptionFind).toHaveBeenCalledWith({ orgId: 'org-9', status: { $nin: ['canceled'] } });
+  });
+
+  it('cancels an INCOMPLETE sub IMMEDIATELY at the provider on Purge (not at period end, not dropped uncancelled)', async () => {
+    const incomplete = makeSubscription({
+      _id: { toString: () => 'sub-inc' }, orgId: 'org-9', status: 'incomplete', externalId: 'ext-inc-1',
+    });
+    mockSubscriptionFind.mockReturnValue({ limit: jest.fn<AnyFn>().mockResolvedValue([incomplete]) });
+    mockCancelSubscription.mockResolvedValue(undefined);
+    const req = mockReq({ params: { orgId: 'org-9' }, user: { organizationId: 'sys-org', sub: 'sysadmin-1' } });
+    await handler(req, mockRes());
+
+    expect(mockCancelSubscription).toHaveBeenCalledWith('ext-inc-1');
+    expect(mockCancelAtPeriodEnd).not.toHaveBeenCalled();
+    expect(mockSubscriptionDeleteMany).toHaveBeenCalledWith({
       orgId: 'org-9',
-      status: { $in: expect.arrayContaining(['active', 'trialing', 'past_due']) },
+      $or: [{ status: { $in: ['canceled'] } }, { _id: { $in: [incomplete._id] } }],
     });
   });
 
@@ -911,7 +962,7 @@ describe('DELETE /subscriptions/by-org/:orgId (admin Purge)', () => {
     expect(mockCancelSubscription).toHaveBeenCalledWith('ext-trial-1');
     expect(mockSubscriptionDeleteMany).toHaveBeenCalledWith({
       orgId: 'org-9',
-      $or: [{ status: { $nin: ['active', 'trialing', 'past_due'] } }, { _id: { $in: [trialing._id] } }],
+      $or: [{ status: { $in: ['canceled'] } }, { _id: { $in: [trialing._id] } }],
     });
   });
 
@@ -936,7 +987,7 @@ describe('DELETE /subscriptions/by-org/:orgId (admin Purge)', () => {
 
     expect(mockSubscriptionDeleteMany).toHaveBeenCalledWith({
       orgId: 'org-9',
-      $or: [{ status: { $nin: ['active', 'trialing', 'past_due'] } }, { _id: { $in: [] } }],
+      $or: [{ status: { $in: ['canceled'] } }, { _id: { $in: [] } }],
     });
     // Its own events stay with it.
     expect(mockBillingEventDeleteMany).toHaveBeenCalledWith({ orgId: 'org-9', subscriptionId: { $nin: ['sub-trial'] } });

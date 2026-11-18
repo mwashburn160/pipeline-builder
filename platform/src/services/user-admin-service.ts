@@ -216,10 +216,15 @@ class UserAdminService {
       if (input.organizationId) {
         const org = await Organization.findById(toOrgId(input.organizationId)).session(session);
         if (!org) throw new Error(UA_ORG_NOT_FOUND);
-        await UserOrganization.create(
-          [{ userId: user._id, organizationId: org._id, role: input.role ?? 'member' }],
-          { session },
-        );
+        // The account's pooled seat cap applies to EVERY path that writes a
+        // membership — explicit Roles or not, a sysadmin create included
+        // (the same guard updateUserById's org assignment applies).
+        await withSeatGuard({ userId: user._id, orgId: String(org._id), session, errorCode: UA_SEAT_LIMIT }, async () => {
+          await UserOrganization.create(
+            [{ userId: user._id, organizationId: org._id, role: input.role ?? 'member' }],
+            { session },
+          );
+        });
         user.lastActiveOrgId = String(org._id);
         orgObjectId = org._id;
       }
@@ -227,6 +232,11 @@ class UserAdminService {
       // Persist the user before group assignment so recomputeUserOrgRole can
       // read/flip its `isSuperAdmin` + tokenVersion (it queries the User doc).
       await user.save({ session });
+
+      // Single-source RBAC: a role-less membership resolves to ZERO permissions,
+      // so EVERY membership gets the built-in Member Role floor — on the
+      // explicit-Roles path too (the supplied Roles add to it, never replace it).
+      if (orgObjectId) await ensureBaselineRole(user._id, orgObjectId, session);
 
       // Optional role assignment. Guarded above to require an org; each role
       // must belong to that org. Mirrors addUserToRole's upsert + recompute.
@@ -247,19 +257,14 @@ class UserAdminService {
         // Super Admin role, and bumps tokenVersion once — do NOT set the role
         // manually or double-bump tokenVersion for this path.
         await recomputeUserOrgRole(user._id, orgObjectId, session);
-      } else if (orgObjectId) {
-        // No explicit Roles supplied. Single-source RBAC: a role-less membership
-        // resolves to ZERO permissions, so give EVERY membership the built-in
-        // Member Role floor. An admin/owner ALSO gets the built-in Admin Role so
-        // their effective PERMISSIONS match the coarse role — setting
+      } else if (orgObjectId && isAdminOrgRole(input.role)) {
+        // No explicit Roles supplied: an admin/owner ALSO gets the built-in Admin
+        // Role so their effective PERMISSIONS match the coarse role — setting
         // `membership.role='admin'` alone yields coarse-admin/zero-perms and is
         // reverted by the next recomputeUserOrgRole. We assign Roles and let
         // recompute DERIVE the cached role (it preserves the 'owner' label).
-        await ensureBaselineRole(user._id, orgObjectId, session);
-        if (isAdminOrgRole(input.role)) {
-          await assignBuiltinAdminRole(user._id, orgObjectId, session);
-          await recomputeUserOrgRole(user._id, orgObjectId, session);
-        }
+        await assignBuiltinAdminRole(user._id, orgObjectId, session);
+        await recomputeUserOrgRole(user._id, orgObjectId, session);
       }
 
       return {
