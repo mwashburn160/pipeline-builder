@@ -276,9 +276,7 @@ describe('deploy/local/docker — compose service labels', () => {
  * The tag must be the version in the service's own package.json — the exact
  * tag the release will push, so the sync finds it.
  */
-const UNPUBLISHED: Record<string, string> = {
-  'ask-agent': 'api/ask-agent',
-};
+const UNPUBLISHED: Record<string, string> = {};
 
 describe('owned images are digest-pinned, except the documented unpublished set', () => {
   const OWNED = /ghcr\.io\/mwashburn160\/([a-z0-9-]+):([A-Za-z0-9._-]+)(@sha256:[0-9a-f]{64})?/g;
@@ -299,7 +297,10 @@ describe('owned images are digest-pinned, except the documented unpublished set'
     expect(tagOnly).toEqual([]);
   });
 
-  it.each(Object.entries(UNPUBLISHED))('%s: is tag-only on every target, at its package.json version', (svc, dir) => {
+  // jest's it.each throws on an empty table, and the set is empty whenever
+  // every owned service has shipped — the normal state between new services.
+  const unpublished = Object.entries(UNPUBLISHED);
+  (unpublished.length ? it.each(unpublished) : it.skip.each([['(none unpublished)', '']]))('%s: is tag-only on every target, at its package.json version', (svc, dir) => {
     const version = (JSON.parse(read(`${dir}/package.json`)) as { version: string }).version;
     const mine = refs.filter((r) => r.svc === svc);
     // compose + the three k8s trees — and a tag-only ref for each.
