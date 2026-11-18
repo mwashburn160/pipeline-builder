@@ -130,25 +130,29 @@ spec:
           # Under Istio ambient the kubelet -> podIP probe path does not work on
           # EKS Auto Mode (verified: in-mesh pod -> this podIP:PORT succeeds, the
           # kubelet probe to the same address times out). 127.0.0.1 never leaves
-          # the pod netns so it bypasses ztunnel. `node` ships in every service
-          # image; this mirrors frontend/Dockerfile's own HEALTHCHECK.
+          # the pod netns so it bypasses ztunnel.
+          # busybox `wget`, NOT `node -e fetch(...)`: a node probe costs ~195ms CPU
+          # (process start + loading fetch) vs ~5ms for wget, measured in-pod
+          # 2026-11-18. Against the 500m limit that burst was throttled in ~half of
+          # all CFS periods (ContainerCpuThrottling). wget exits 1 on refused/4xx/5xx.
+          # Audited: /usr/bin/wget -> /bin/busybox in frontend 6.0.0 (node alpine).
           readinessProbe:
             exec:
-              command: ["node", "-e", "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+              command: ["wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/"]
             initialDelaySeconds: 15
             periodSeconds: 30
             timeoutSeconds: 10
             failureThreshold: 3
           livenessProbe:
             exec:
-              command: ["node", "-e", "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+              command: ["wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/"]
             initialDelaySeconds: 45
             periodSeconds: 30
             timeoutSeconds: 10
             failureThreshold: 3
           startupProbe:
             exec:
-              command: ["node", "-e", "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+              command: ["wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/"]
             initialDelaySeconds: 5
             periodSeconds: 5
             timeoutSeconds: 3
