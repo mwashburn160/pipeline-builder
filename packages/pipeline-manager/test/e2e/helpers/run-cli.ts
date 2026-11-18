@@ -43,6 +43,22 @@ const ANSI = /\u001b\[[0-9;]*m/g;
 
 const HANDLED_SIGNALS = ['uncaughtException', 'unhandledRejection', 'SIGINT', 'SIGTERM'] as const;
 
+/** Variables the CLI reads that must never leak in from the developer's shell. */
+const INHERITED_CLI_ENV = /^(PLATFORM_|CLI_CONFIG_PATH$|PIPELINE_ID$|AI_|AWS_PROFILE$|IMAGE_REGISTRY_PULL_HOST$|DEBUG$|NO_UPDATE_CHECK)/;
+
+/**
+ * Assert a CLI run's exit code, showing what the CLI printed when it differs —
+ * a bare `expect(code).toBe(0)` hid the reason (e.g. the stub's
+ * "no route for <method> <path>" 404).
+ */
+export function expectExit(res: CliResult, expected: number): void {
+  if (res.code !== expected) {
+    throw new Error(
+      `CLI exited ${res.code}, expected ${expected}.\n--- stderr ---\n${res.stderr.slice(-4000)}\n--- stdout ---\n${res.stdout.slice(-2000)}`,
+    );
+  }
+}
+
 export async function runCli(home: string, args: string[], options: RunOptions = {}): Promise<CliResult> {
   const out: string[] = [];
   const err: string[] = [];
@@ -62,6 +78,12 @@ export async function runCli(home: string, args: string[], options: RunOptions =
   ];
 
   process.env.HOME = home;
+  // Hermetic: a developer's shell often exports CLI settings (PLATFORM_*,
+  // CLI_CONFIG_PATH, …) that would otherwise steer the CLI under test away from
+  // the stub. A test that needs one passes it through `options.env`.
+  for (const key of Object.keys(process.env)) {
+    if (INHERITED_CLI_ENV.test(key)) delete process.env[key];
+  }
   for (const [key, value] of Object.entries(options.env ?? {})) {
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;

@@ -25,7 +25,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, jest } from '@jest/globals';
 import { STEP_MANIFEST_FILE } from '@pipeline-builder/pipeline-core';
 import { installCdkShim, type CdkShim } from './helpers/cdk-shim.js';
-import { runCli, type RunOptions } from './helpers/run-cli.js';
+import { expectExit, runCli, type RunOptions } from './helpers/run-cli.js';
 import { startStubPlatform, TOOLCHAIN, type StubPlatform } from './helpers/stub-platform.js';
 
 // The only seam: the CLI probes for `cdk` with an execSync that does not pass
@@ -106,7 +106,7 @@ describe('pipeline-manager e2e (stub platform)', () => {
     const before = Date.now();
     const res = await cli(['auth', 'login', '--url', stub.url, '--no-browser', '--org', 'org-2']);
 
-    expect(res.code).toBe(0);
+    expectExit(res, 0);
     expect(res.stdout).toContain('Your code:  WXYZ-1234');
     expect(res.stdout).toContain(`${stub.url}/device?code=WXYZ-1234`);
     expect(res.stdout).toContain('Switched to organization org-2');
@@ -145,7 +145,7 @@ describe('pipeline-manager e2e (stub platform)', () => {
   it('status --json: reports the stored session and that the platform accepts it', async () => {
     const res = await cli(['status', '--json']);
 
-    expect(res.code).toBe(0);
+    expectExit(res, 0);
     const out = JSON.parse(res.stdout) as Record<string, string>;
     expect(out).toMatchObject({
       'success': true as unknown as string,
@@ -174,7 +174,7 @@ describe('pipeline-manager e2e (stub platform)', () => {
 
     const res = await cli(['pipeline', 'create', '-f', 'props.json']);
 
-    expect(res.code).toBe(0);
+    expectExit(res, 0);
     const [create] = stub.calls('/api/pipelines', 'POST');
     expect(create!.query).toEqual({});
     expect(create!.headers.authorization).toBe('Bearer at-2');
@@ -202,14 +202,14 @@ describe('pipeline-manager e2e (stub platform)', () => {
     // "Not signed in" on an expired session — only the async path renewed. The
     // CLI now renews an expired stored session before ANY command runs.
     const listed = await cli(['pipeline', 'list', '--format', 'json']);
-    expect(listed.code).toBe(0);
+    expectExit(listed, 0);
     const [refresh] = stub.calls('/api/auth/refresh', 'POST');
     expect(refresh!.headers['x-pb-client']).toBe('cli');
     expect(stub.calls('/api/pipelines', 'GET').length).toBeGreaterThan(0);
 
     // The renewed pair was stored, so the async path needs no second refresh.
     const res = await cli(['pipeline', 'synth', '--id', pipelineId, '--show-resolved']);
-    expect(res.code).toBe(0);
+    expectExit(res, 0);
     expect(refresh!.body).toEqual({ refreshToken: 'rt-1' });
     // Renewed by the pre-command hook on the earlier `pipeline list`, so this run
     // simply uses the stored pair.
@@ -229,7 +229,7 @@ describe('pipeline-manager e2e (stub platform)', () => {
 
     // And with a fresh session the synchronous path works again.
     const list = await cli(['pipeline', 'list', '--format', 'json', '--project', 'checkout']);
-    expect(list.code).toBe(0);
+    expectExit(list, 0);
     const query = stub.calls('/api/pipelines', 'GET').at(-1);
     expect(query!.query).toMatchObject({ project: 'checkout', limit: '50', offset: '0' });
     expect(list.stdout).toContain(pipelineId);
@@ -245,7 +245,7 @@ describe('pipeline-manager e2e (stub platform)', () => {
       env: { IMAGE_REGISTRY_PULL_HOST: 'registry.acme.test' },
     });
 
-    expect(res.code).toBe(0);
+    expectExit(res, 0);
     synthStdout = res.stdout;
     const out = JSON.parse(res.stdout.slice(res.stdout.lastIndexOf('{\n  "success"'))) as { success: boolean; output: string };
     expect(out).toMatchObject({ success: true, output: outDir });
@@ -299,7 +299,7 @@ describe('pipeline-manager e2e (stub platform)', () => {
     const res = await cli(['pipeline', 'synth', '--id', pipelineId, '--show-resolved']);
 
     // Signed out is an AUTHENTICATION failure (exit 4), not an API error (3).
-    expect(res.code).toBe(4);
+    expectExit(res, 4);
     expect(res.stderr).toContain('could not be renewed');
     expect(res.stderr).toContain('Authentication required');
     expect(session()).toBeUndefined();
@@ -311,7 +311,7 @@ describe('pipeline-manager e2e (stub platform)', () => {
   it('PLATFORM_TOKEN wins over the store, and a key the platform rejects exits 4 (auth)', async () => {
     const res = await cli(['pipeline', 'list', '--format', 'json'], { env: { PLATFORM_TOKEN: 'pb_pat_not-a-real-key' } });
 
-    expect(res.code).toBe(4);
+    expectExit(res, 4);
     const last = stub.requests[stub.requests.length - 1]!;
     expect(last.path).toBe('/api/pipelines');
     expect(last.headers.authorization).toBe('Bearer pb_pat_not-a-real-key');
@@ -321,7 +321,7 @@ describe('pipeline-manager e2e (stub platform)', () => {
     stub.state.pendingPolls = 0;
     const res = await cli(['auth', 'login', '--url', stub.url, '--no-browser', '--token']);
 
-    expect(res.code).toBe(0);
+    expectExit(res, 0);
     const token = session()!.accessToken;
     expect(res.stdout).toBe(`${token}\n`);
     // The approval prompt still reaches the person — on stderr, out of the capture.
