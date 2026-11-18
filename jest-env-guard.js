@@ -27,6 +27,12 @@
 const snapshot = { ...process.env };
 
 afterAll(() => {
+  // `process.exitCode` is process-global too: a file whose code path calls
+  // `handleError` (which sets it before exiting) left it behind for every later
+  // file in the worker — a CLI suite reading it then saw a successful command
+  // "exit 6" (CI-only, depending on which files shared the worker), and under
+  // --runInBand jest itself would exit non-zero with every test passing.
+  process.exitCode = undefined;
   for (const key of Object.keys(process.env)) {
     if (!(key in snapshot)) delete process.env[key];
   }

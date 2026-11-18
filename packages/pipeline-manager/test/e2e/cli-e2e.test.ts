@@ -327,4 +327,13 @@ describe('pipeline-manager e2e (stub platform)', () => {
     // The approval prompt still reaches the person — on stderr, out of the capture.
     expect(res.stderr).toContain('WXYZ-1234');
   }, 30_000);
+
+  it('a successful command reads as exit 0 even if an earlier test left process.exitCode set', async () => {
+    // Regression: CI-only "exit 6" after a clean login — another test file in the
+    // same jest worker had left process.exitCode = 6 (handleError on a 404).
+    process.exitCode = 6;
+    stub.state.pendingPolls = 0;
+    const res = await cli(['auth', 'login', '--url', stub.url, '--no-browser', '--token']);
+    expectExit(res, 0);
+  }, 30_000);
 });

@@ -96,6 +96,12 @@ export async function runCli(home: string, args: string[], options: RunOptions =
     else process.env[key] = value;
   }
 
+  // Start from a clean exit code. Jest runs several test files in ONE worker
+  // process, and any earlier file that went through `handleError` (which sets
+  // `process.exitCode` before exiting) left it behind — a later, fully
+  // successful command then read as failed (seen in CI as "exit 6" after a
+  // clean login, depending on which files shared the worker).
+  process.exitCode = undefined;
   let code = 0;
   try {
     jest.resetModules();
