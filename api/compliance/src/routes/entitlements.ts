@@ -20,7 +20,7 @@ import { Router } from 'express';
 import { subscriptionService } from '../services/subscription-service.js';
 
 /** The router's mount (app-routes), which the contract paths sit under. */
-const MOUNT = '/compliance/entitlements';
+const MOUNT = '/compliance/internal/entitlements';
 
 /**
  * The api-core contracts. The push body is the compliance content sets the org
@@ -58,7 +58,7 @@ const requireBillingService = requireInternalService({ callers: SYNC.callers });
  * reconciler.
  *
  * AUTH: an INTERNAL route, identical to the reporting
- * `PUT /reports/retention-sync/:orgId` leg — only `billing`'s own signed token
+ * `PUT /reports/internal/retention-sync/:orgId` leg — only `billing`'s own signed token
  * passes. It carries NO org-user permission and NO feature scope, so the guard
  * must require neither. The `:orgId` path param is the target ROOT org (billing
  * resolves to root before calling), NOT the token's org — so the route runs with

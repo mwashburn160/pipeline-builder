@@ -21,9 +21,11 @@ import {
   assertActorMayAssignRole,
   assertSystemOrgOnlyRoleInSystemOrg,
   carriesSystemOrgOnlyPermission,
+  effectiveRolePermissions,
+  ROLE_PERMISSION_FIELDS,
   sanitizePermissions,
 } from './role-authority.js';
-import type { ActorPermissionCeiling, RoleAssignmentActor, UserId } from './role-authority.js';
+import type { ActorPermissionCeiling, RoleAssignmentActor, RolePermissionSource, UserId } from './role-authority.js';
 import {
   RL_CANNOT_REMOVE_OWNER_ADMIN,
   RL_CANNOT_REMOVE_SELF,
@@ -83,14 +85,16 @@ export async function listRolesWithMembers(
   }
 
   return {
-    roles: roles.map((g) => ({
-      id: String(g._id),
-      name: g.name,
-      ...(g.description ? { description: g.description as string } : {}),
-      grantsRole: g.grantsRole as RoleGrant,
-      permissions: (g.permissions as string[]) ?? [],
-      system: !!g.system,
-      members: byRole.get(String(g._id)) ?? [],
+    // `permissions` is the RESOLVED grant — for a built-in Role, the catalog's
+    // bundle (it stores none), so the UI shows what the Role actually confers.
+    roles: roles.map((role) => ({
+      id: String(role._id),
+      name: role.name,
+      ...(role.description ? { description: role.description as string } : {}),
+      grantsRole: role.grantsRole as RoleGrant,
+      permissions: effectiveRolePermissions(role),
+      system: !!role.system,
+      members: byRole.get(String(role._id)) ?? [],
     })),
     total,
   };
@@ -172,14 +176,15 @@ export async function updateRole(
   const role = await Role.findOne({ _id: roleId, organizationId: oid });
   if (!role) throw new Error(RL_ROLE_NOT_FOUND);
   if (role.system) throw new Error(RL_SYSTEM_IMMUTABLE);
+  const granted = effectiveRolePermissions(role);
   const before: RoleSnapshot = {
     name: role.name,
     ...(role.description ? { description: role.description } : {}),
-    permissions: [...(role.permissions ?? [])],
+    permissions: granted,
   };
   // Ceiling against what the role ALREADY grants — checked before any mutation
   // so a refused edit leaves the role untouched.
-  assertActorMayAssignRole(role.permissions as string[] | undefined, actor);
+  assertActorMayAssignRole(granted, actor);
 
   // The edit as a QUERY-level update, not `role.save({ session })`: the
   // transaction body may be re-run on a transient error, and a re-run `save()`
@@ -204,9 +209,10 @@ export async function updateRole(
   }
 
   let permsChanged = false;
+  let nextPermissions = granted;
   if (input.permissions !== undefined) {
-    role.permissions = sanitizePermissions(input.permissions, actor, String(role.organizationId));
-    $set.permissions = role.permissions;
+    nextPermissions = sanitizePermissions(input.permissions, actor, String(role.organizationId));
+    $set.permissions = nextPermissions;
     permsChanged = true;
   }
 
@@ -247,7 +253,7 @@ export async function updateRole(
       name: role.name,
       ...(role.description ? { description: role.description } : {}),
       grantsRole: role.grantsRole as RoleGrant,
-      permissions: role.permissions ?? [],
+      permissions: nextPermissions,
       system: !!role.system,
       members: [],
     },
@@ -279,16 +285,17 @@ export async function deleteRole(
   actor: RoleAssignmentActor,
 ): Promise<RoleSnapshot & { affectedMembers: number }> {
   const oid = toOrgId(orgId);
-  const role = await Role.findOne({ _id: roleId, organizationId: oid }).select('system permissions name');
+  const role = await Role.findOne({ _id: roleId, organizationId: oid }).select(`name ${ROLE_PERMISSION_FIELDS}`);
   if (!role) throw new Error(RL_ROLE_NOT_FOUND);
   if (role.system) throw new Error(RL_SYSTEM_IMMUTABLE);
+  const granted = effectiveRolePermissions(role);
   // Apply the same actor ceiling as add/remove-member and create/update: a
   // delegated non-admin (e.g. a custom `roles:manage` holder) must not delete a
   // Role granting permissions beyond their own set — otherwise they could strip
   // capabilities they don't hold (e.g. billing:manage) from every member, a
   // griefing/privilege vector the symmetric remove-member path already blocks.
   // Superadmins and org admins/owners bypass (they hold the full bundle).
-  assertActorMayAssignRole(role.permissions as string[] | undefined, actor);
+  assertActorMayAssignRole(granted, actor);
 
   let bumpedMemberIds: mongoose.Types.ObjectId[] = [];
   await withMongoTransaction(async (session) => {
@@ -306,7 +313,7 @@ export async function deleteRole(
   // Post-commit: publish the affected members' now-current access version.
   await publishUsersRevocation(bumpedMemberIds);
   logger.info('Deleted custom Role', { organizationId: orgId, roleId });
-  return { name: role.name, permissions: [...(role.permissions ?? [])], affectedMembers: bumpedMemberIds.length };
+  return { name: role.name, permissions: granted, affectedMembers: bumpedMemberIds.length };
 }
 
 /**
@@ -359,8 +366,9 @@ export async function addUserToRole(
   // ceiling `sanitizePermissions` enforces). Prevents a `roles:manage` holder
   // from self-granting Admin's `members:manage`/`org_settings:write`/`billing:manage`.
   // Also refuses a non-superadmin on an ecosystem (system-org-only) Role.
-  assertActorMayAssignRole(role.permissions as string[] | undefined, actor);
-  assertSystemOrgOnlyRoleInSystemOrg(role.permissions as string[] | undefined, oid);
+  const granted = effectiveRolePermissions(role);
+  assertActorMayAssignRole(granted, actor);
+  assertSystemOrgOnlyRoleInSystemOrg(granted, oid);
 
   const user = target.userId
     ? await User.findById(target.userId).select('_id')
@@ -406,8 +414,8 @@ export async function addUserToRole(
  * with `details.role` and announced as the `N23` ecosystem notice.
  */
 export async function ecosystemRoleName(orgId: string, roleId: string): Promise<string | undefined> {
-  const role = await Role.findOne({ _id: roleId, organizationId: toOrgId(orgId) }).select('name permissions').lean();
-  if (!role || !carriesSystemOrgOnlyPermission(role.permissions as string[] | undefined)) return undefined;
+  const role = await Role.findOne({ _id: roleId, organizationId: toOrgId(orgId) }).select(`name ${ROLE_PERMISSION_FIELDS}`).lean();
+  if (!role || !carriesSystemOrgOnlyPermission(effectiveRolePermissions(role))) return undefined;
   return role.name as string;
 }
 
@@ -473,7 +481,7 @@ export interface UnassignActorOpts {
  * Pure — no reads.
  */
 export function assertActorMayUnassignRole(
-  role: { grantsRole?: string | null; permissions?: readonly string[] | string[] | null },
+  role: RolePermissionSource,
   opts: UnassignActorOpts,
 ): void {
   // Role-ceiling: only a platform superadmin may change assignment of a
@@ -481,7 +489,7 @@ export function assertActorMayUnassignRole(
   if (role.grantsRole === 'superadmin' && !opts.actorIsSuperAdmin) {
     throw new Error(RL_REQUIRES_SUPERADMIN);
   }
-  const permissions = (role.permissions ?? undefined) as string[] | undefined;
+  const permissions = effectiveRolePermissions(role);
   // Unassigning an ecosystem (system-org-only) Role is superadmin-only too —
   // checked unconditionally, not only when the actor context is supplied.
   if (carriesSystemOrgOnlyPermission(permissions) && !opts.actorIsSuperAdmin) {
@@ -538,19 +546,19 @@ export async function assertActorMayWieldMemberRoles(
   userId: UserId,
   actor: RoleAssignmentActor,
   session: mongoose.ClientSession,
-): Promise<Array<{ _id: unknown; grantsRole?: string | null; permissions?: string[] }>> {
+): Promise<Array<{ _id: unknown; grantsRole?: string | null }>> {
   const held = await RoleAssignment.find({ userId, organizationId: toOrgId(orgId) })
     .select('roleId').session(session).lean();
   if (held.length === 0) return [];
   const roles = await Role.find({ _id: { $in: held.map((a) => a.roleId) } })
-    .select('_id grantsRole permissions').session(session).lean();
+    .select(`_id ${ROLE_PERMISSION_FIELDS}`).session(session).lean();
   const opts: UnassignActorOpts = {
     actorIsSuperAdmin: actor.isSuperAdmin,
     actorIsOrgAdmin: actor.isOrgAdmin,
     actorPermissions: actor.permissions,
   };
-  for (const role of roles) assertActorMayUnassignRole(role as { grantsRole?: string; permissions?: string[] }, opts);
-  return roles as Array<{ _id: unknown; grantsRole?: string | null; permissions?: string[] }>;
+  for (const role of roles) assertActorMayUnassignRole(role, opts);
+  return roles as Array<{ _id: unknown; grantsRole?: string | null }>;
 }
 
 /**
@@ -592,7 +600,7 @@ export async function removeUserFromRole(
 ): Promise<void> {
   const oid = toOrgId(orgId);
 
-  const role = await Role.findOne({ _id: roleId, organizationId: oid }).select('grantsRole name permissions system');
+  const role = await Role.findOne({ _id: roleId, organizationId: oid }).select(`name ${ROLE_PERMISSION_FIELDS}`);
   if (!role) throw new Error(RL_ROLE_NOT_FOUND);
 
   assertActorMayUnassignRole(role, opts);

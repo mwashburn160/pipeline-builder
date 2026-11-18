@@ -42,7 +42,7 @@ const SAMPLES: Record<keyof typeof PLATFORM_INTERNAL, ContractSample> = {
   offerSeatActivity: {
     params: { orgId: ORG },
     query: { windowDays: 30 },
-    response: { seatActivity: { orgId: ORG, windowDays: 30, seatsHeld: 5, activeMembers: 3 } },
+    response: { seatActivity: { orgId: ORG, windowDays: 30, seatsHeld: 5, activeMembers: 3, newMembers: 1 } },
   },
   reportAuthority: {
     params: { orgId: ORG, userId: 'user_1' },

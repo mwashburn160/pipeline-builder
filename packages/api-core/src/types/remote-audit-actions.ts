@@ -95,8 +95,6 @@ export const REMOTE_AUDIT_ACTIONS = [
   // `details` carries the quotaType + old/new value.
   'quota.reset',
   'quota.limit.update',
-  // A superadmin deleting an org's entire quota document.
-  'quota.delete',
   // An account's quota threshold-notice settings (opt-out + the
   // `quota.threshold` webhook URL) — where usage warnings go.
   'quota.notice_settings.update',

@@ -278,7 +278,7 @@ function accessToken(permissions: string[] = ['messages:read', 'messages:write']
 }
 
 function stepUpToken(sub = 'user-1'): string {
-  return signUserJwt({ type: 'step-up', sub, jti: `su-${uniq()}` }, 60);
+  return signUserJwt({ type: 'step-up', sub, method: 'totp', jti: `su-${uniq()}` }, 60);
 }
 
 /**
@@ -439,7 +439,7 @@ describe('internal routes + idempotency: each request passes one chain', () => {
   });
 
   it('REJECTS an HS256 STEP-UP token forged with the shared secret', async () => {
-    const forged = signHs256Jwt({ type: 'step-up', sub: 'user-1', jti: `su-${uniq()}` }, 60);
+    const forged = signHs256Jwt({ type: 'step-up', sub: 'user-1', method: 'totp', jti: `su-${uniq()}` }, 60);
     const res = await call('POST', '/messages/msg-1/purge', {
       'authorization': `Bearer ${await accessToken()}`, 'x-step-up-token': forged,
     });

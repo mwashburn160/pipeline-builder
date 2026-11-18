@@ -33,7 +33,7 @@ import { uuidParam } from '../helpers/uuid-param.js';
 import { complianceRuleService } from '../services/compliance-rule-service.js';
 import { subscriptionService } from '../services/subscription-service.js';
 
-/** Platform's onboarding auto-subscribe (an internal route on this router). */
+/** Platform's onboarding auto-subscribe (the internal router below). */
 const AUTO_SUBSCRIBE = COMPLIANCE_INTERNAL.autoSubscribe;
 
 /** Compliance-write gate, built once. */
@@ -138,6 +138,45 @@ export function createPublishedRulesCatalogRoutes(): Router {
   return router;
 }
 
+/** Where app-routes mounts {@link createAutoSubscribeRoutes} (the contract path sits under it). */
+const AUTO_SUBSCRIBE_MOUNT = '/compliance/internal/subscriptions';
+
+/**
+ * The INTERNAL half of the subscription surface, mounted under
+ * `/compliance/internal/subscriptions` (auth + org) — never on the user-facing
+ * `/compliance/subscriptions` router.
+ */
+export function createAutoSubscribeRoutes(): Router {
+  const router = Router();
+
+  // POST /auto-subscribe — subscribe org to all published rules (inactive).
+  // The platform service calls this during org onboarding with a
+  // service JWT (`getServiceAuthHeader`). `requireInternalService` rejects any
+  // interactive user token — so a member can't bulk-mint subscriptions — and
+  // any service other than `platform`. The api-core contract
+  // (`COMPLIANCE_INTERNAL.autoSubscribe`) is the one definition of the path,
+  // its caller and the `{ subscribed }` reply; the route reads no body.
+  router.post(contractRoute(AUTO_SUBSCRIBE, AUTO_SUBSCRIBE_MOUNT), requireInternalService({ callers: AUTO_SUBSCRIBE.callers }), audited('compliance.subscription.auto-subscribe'), withRoute(async ({ res, ctx, orgId, userId }) => {
+    const count = await subscriptionService.autoSubscribeToPublished(orgId, userId);
+    ctx.log('COMPLETED', 'Auto-subscribed to published rules', { count });
+    // The subscriptions are INACTIVE (nothing enforces until an audited
+    // activate), but they decide which rules an org can switch on with one
+    // click — so the onboarding grant is on the trail, by count.
+    if (count > 0) {
+      recordAudit({
+        action: 'compliance.subscription.auto-subscribe',
+        actorId: actorId({ userId }),
+        orgId,
+        targetType: 'subscription',
+        details: { subscribed: count, active: false },
+      });
+    }
+    return sendSuccess(res, 200, { subscribed: count });
+  }));
+
+  return router;
+}
+
 /**
  * Routes for managing rule subscriptions: `compliance:read` for the opt-in
  * actions, `compliance:write` for the posture-weakening and authoring ones
@@ -166,31 +205,6 @@ export function createSubscriptionRoutes(): Router {
     return sendPaginatedNested(res, 'subscriptions', result, {
       total, limit, offset,
     });
-  }));
-
-  // POST /auto-subscribe — subscribe org to all published rules (inactive).
-  // Internal-only: the platform service calls this during org onboarding with a
-  // service JWT (`getServiceAuthHeader`). `requireInternalService` rejects any
-  // interactive user token — so a member can't bulk-mint subscriptions — and
-  // any service other than `platform`. The api-core contract
-  // (`COMPLIANCE_INTERNAL.autoSubscribe`) is the one definition of the path,
-  // its caller and the `{ subscribed }` reply; the route reads no body.
-  router.post(contractRoute(AUTO_SUBSCRIBE, '/compliance/subscriptions'), requireInternalService({ callers: AUTO_SUBSCRIBE.callers }), audited('compliance.subscription.auto-subscribe'), withRoute(async ({ res, ctx, orgId, userId }) => {
-    const count = await subscriptionService.autoSubscribeToPublished(orgId, userId);
-    ctx.log('COMPLETED', 'Auto-subscribed to published rules', { count });
-    // The subscriptions are INACTIVE (nothing enforces until an audited
-    // activate), but they decide which rules an org can switch on with one
-    // click — so the onboarding grant is on the trail, by count.
-    if (count > 0) {
-      recordAudit({
-        action: 'compliance.subscription.auto-subscribe',
-        actorId: actorId({ userId }),
-        orgId,
-        targetType: 'subscription',
-        details: { subscribed: count, active: false },
-      });
-    }
-    return sendSuccess(res, 200, { subscribed: count });
   }));
 
   // PATCH /:ruleId — activate or deactivate a subscribed rule

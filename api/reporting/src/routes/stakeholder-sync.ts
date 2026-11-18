@@ -63,7 +63,7 @@ const SYNC = REPORTING_INTERNAL.syncStakeholderEntitlement;
 export function createStakeholderSyncRoutes(): Router {
   const router: Router = Router();
 
-  router.put(contractRoute(SYNC, '/reports/stakeholder-sync'),
+  router.put(contractRoute(SYNC, '/reports/internal/stakeholder-sync'),
     requireInternalService({ callers: SYNC.callers }),
     // Two actions, because the route does two things and a reviewer asks about each
     // separately: "when did this account's reporting stop" and "when did it resume".

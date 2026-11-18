@@ -77,6 +77,8 @@ const INTERNAL_ROUTES: InternalRouteDeclaration[] = (() => {
     // from. Billing only: the offers
     // scheduler runs there until Phase 5 extracts it.
     { method: 'GET', path: '/quotas/internal/:orgId/profile', callers: ['billing'] },
+    // platform's durable cascade outbox: drop a purged org's quota document (idempotent).
+    { method: 'POST', path: '/quotas/internal/orgs/:orgId/purge', callers: ['platform'] },
   ];
 })();
 

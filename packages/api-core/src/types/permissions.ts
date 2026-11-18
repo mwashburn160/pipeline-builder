@@ -564,11 +564,12 @@ export function intersectPermissions(
 // =============================================================================
 
 /**
- * Permission bundles used to SEED the built-in Roles ("Admin", "Member").
+ * Permission bundles for the built-in Roles ("Admin", "Member").
  *
- * This is the single definition of what those built-in Roles grant — it is used
- * when a Role record is created (and by the startup backfill) to populate that
- * Role's own `permissions[]`. It is NOT a runtime permission source: a user's
+ * This is the single definition of what those built-in Roles grant — the
+ * platform resolves a built-in Role's permissions from it at read time (sign-in,
+ * token refresh, key exchange), so a change here reaches every org on the next
+ * token refresh. It is NOT a baseline: a user's
  * effective permissions come ONLY from the Roles assigned to them (see
  * {@link resolveUserPermissions}). The coarse `role` label (owner/admin/member)
  * survives only for `isAdmin`/ownership/display, never to grant permissions.
@@ -601,9 +602,9 @@ const MEMBER_PERMISSIONS: readonly Permission[] = [
 const ADMIN_PERMISSIONS: readonly Permission[] = [...ORG_ASSIGNABLE_PERMISSIONS];
 
 /**
- * Seed bundle for each built-in Role, keyed by the coarse role it grants.
- * Consumed by the Role seeder + the startup backfill to populate a built-in
- * Role's `permissions[]`. NOT consulted at request time — see
+ * Bundle for each built-in Role, keyed by the coarse role it grants. The
+ * platform resolves a built-in Role's permissions from it whenever the Role is
+ * read (`effectiveRolePermissions`); it is never a baseline on its own — see
  * {@link resolveUserPermissions}.
  */
 export const ROLE_PERMISSIONS: Record<OrgRole, readonly Permission[]> = {
@@ -893,8 +894,7 @@ export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
     // CONSEQUENCE, stated rather than discovered: a new org no longer has a Role
     // that grants `reports:write` to a non-admin. An admin holds both permissions
     // (they are in the admin bundle) and instantiates this template to delegate
-    // them — the same shape as the four below. Orgs that already have the seeded
-    // Role keep it, and the backfill keeps its bundle current.
+    // them — the same shape as the four below.
     id: 'team-lead',
     name: 'Team Lead',
     description: 'Authors and shares stakeholder reports for a team, without org-admin access.',
@@ -1189,8 +1189,7 @@ export function hasPermission(
  * WHAT WENT WRONG WITHOUT IT. The platform resolved a bundle through a
  * nine-branch `if` chain with a fall-through to the coarse `grantsRole` bundle.
  * Every job Role grants `member`, so a bundle added to the id list WITHOUT its
- * branch did not fail — it silently seeded the plain Member bundle, and the
- * startup backfill then re-synced it to that wrong value on every boot. The
+ * branch did not fail — it silently resolved to the plain Member bundle. The
  * Role existed, was assignable from the staffing panel, and granted fifteen
  * tenant permissions instead of its job. Nothing anywhere exercised the
  * resolver per bundle.
@@ -1247,8 +1246,7 @@ export const SYSTEM_ORG_JOB_BUNDLES: readonly SeedBundleId[] = SEED_BUNDLE_IDS.f
  *
  * Seeded rather than offered as a {@link ROLE_TEMPLATES} entry, unlike the
  * tenant job presets, because they are structural: the CLI grants one to the
- * account it creates and the startup backfill moves existing accounts onto it,
- * and both have to find it in EVERY org by a stable identity. A template leaves
+ * account it creates, and has to find it in EVERY org by a stable identity. A template leaves
  * nothing to find until somebody instantiates it.
  */
 export const ORG_AUTOMATION_BUNDLES: readonly SeedBundleId[] = SEED_BUNDLE_IDS.filter((id) => SEED_BUNDLES[id].seededIn === 'org');
@@ -1258,9 +1256,7 @@ export const ORG_AUTOMATION_BUNDLES: readonly SeedBundleId[] = SEED_BUNDLE_IDS.f
  * account name, and the built-in Role each holds — `null` for an account whose
  * key carries a capability SCOPE (a `TokenScope`) and so needs no Role at all.
  *
- * One table for the CLI (which Role to grant a NEW account) and the platform's
- * startup backfill (which Role to move an EXISTING account onto, off the org
- * admin Role these accounts were once given). A rename here moves both.
+ * One table for which Role the CLI grants each account it provisions.
  */
 export const AUTOMATION_ACCOUNT_BUNDLES = {
   'platform-automation': 'pipeline_automation',

@@ -3,8 +3,6 @@
 
 import {
   audited,
-  gateWhen,
-  isServicePrincipal,
   requireAuth,
   requirePermission,
   requireSystemOrgPermission,
@@ -14,7 +12,6 @@ import {
   sendBadRequest,
   ErrorCode,
   createLogger,
-  errorMessage,
   getParam,
   parseQueryString,
   validateBody,
@@ -30,6 +27,7 @@ import { isValidObjectId } from 'mongoose';
 import { applyPlanTierChange, applyTierIncludedAddonPrune, syncProviderAddons } from '../helpers/addon-prune.js';
 import { billingServiceAuth, createBillingEvent, recordReactivatePlanMissing } from '../helpers/billing-helpers.js';
 import { syncEntitlements } from '../helpers/entitlement-sync.js';
+import { purgeOrgBilling } from '../helpers/org-purge.js';
 import { buildSubscriptionResponse } from '../helpers/subscription-response.js';
 import { MANAGEABLE_SUBSCRIPTION_STATUSES } from '../helpers/subscription-status.js';
 import { BillingEvent } from '../models/billing-event.js';
@@ -87,7 +85,7 @@ function toBillingEventResponse(event: {
  * - PUT /admin/subscriptions/:id/support-floor -- negotiated support floor (set / clear)
  * - PUT /admin/subscriptions/:id  -- admin override on a subscription
  * - GET /subscriptions/by-org/:orgId/billable -- org-move guard (sysadmin / service token)
- * - DELETE /subscriptions/by-org/:orgId -- org-cascade hook (sysadmin / service token)
+ * - DELETE /subscriptions/by-org/:orgId -- the admin "Purge" (sysadmin, step-up)
  * - GET /admin/events             -- list billing events (paginated)
  * - GET /events                   -- the caller's own org's billing events (paginated)
  * @returns Express Router
@@ -467,87 +465,25 @@ export function createAdminSubscriptionRoutes(): Router {
     }, { requireOrgId: false }),
   );
 
-  // DELETE /billing/subscriptions/by-org/:orgId — org-cascade hook.
-  // Sysadmin / service-token only. Cancels and removes every subscription
-  // + event for the org. Idempotent: missing org → 200 with `deleted: 0`.
-  //
-  // The platform's org-cascade-service calls this with a service-minted
-  // token; user-initiated org deletes go through admin.org.delete on
-  // platform, which fires us internally. A system-org USER can also reach it
-  // directly (the billing admin page's "Purge"), and for that caller it is
-  // the most destructive action billing has — so a user must step up, here
-  // on the server, not only in the page's modal. The service cascade has no
-  // person to re-verify and is exempt by the predicate.
+  // DELETE /billing/subscriptions/by-org/:orgId — the billing admin page's
+  // "Purge": cancels and removes every subscription + event for the org
+  // (`purgeOrgBilling`, the same teardown as the org-purge cascade leg, which
+  // is `BILLING_INTERNAL.purgeOrg` — not this route). Idempotent: an org with
+  // nothing left answers 200 with `deleted: 0`. `retained` counts subscriptions
+  // kept because their provider cancel failed; clicking Purge again retries
+  // them. The most destructive action billing has, so the user must step up
+  // here on the server, not only in the page's modal.
   router.delete(
     '/subscriptions/by-org/:orgId',
     requireAuth(AUTH_OPTS) as RequestHandler,
     ...requireSystemOrgPermission('subscriptions:manage'),
-    gateWhen('caller is a user, not a service principal', (req) => !isServicePrincipal(req), requireStepUp as RequestHandler),
+    requireStepUp as RequestHandler,
     audited('billing.subscription.delete'),
     withRoute(async ({ req, res, userId }) => {
       const targetOrgId = getParam(req.params, 'orgId');
       if (!targetOrgId) return sendError(res, 400, 'orgId is required', ErrorCode.MISSING_REQUIRED_FIELD);
-
-      // Cancel every still-billable subscription at the provider first so we
-      // don't leave billable state running after our local rows are gone.
-      // A trialing / past_due row carries a live externalId at the provider
-      // just like an active one; cancelling only status:'active' meant the
-      // deleteMany below wiped the local row while the provider kept billing,
-      // with nothing left to reconcile. Match the manageable (non-terminal)
-      // set so the provider-cancel covers what deleteMany removes. Fail-soft:
-      // a provider-cancel failure is logged but never blocks the local cascade.
-      // An org realistically holds a single active subscription; a hard cap
-      // keeps this cascade sweep bounded even against pathological data (the
-      // provider-cancel loop + audit mirror below iterate this set).
-      const billable = await Subscription.find({
-        orgId: targetOrgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] },
-      }).limit(1000);
-      for (const sub of billable) {
-        if (sub.externalId) {
-          try {
-            await getPaymentProvider().cancelSubscription(sub.externalId);
-          } catch (err) {
-            logger.warn('Provider cancel failed during cascade — continuing with local delete', {
-              orgId: targetOrgId,
-              subscriptionId: sub._id?.toString(),
-              error: errorMessage(err),
-            });
-          }
-        }
-      }
-
-      const subDelete = await Subscription.deleteMany({ orgId: targetOrgId });
-
-      // Drop billing events too — they're scoped to the org and have no
-      // independent purpose once the subscription is gone. Audit retention
-      // lives in platform's audit_events collection, not here.
-      const eventDelete = await BillingEvent.deleteMany({ orgId: targetOrgId });
-
-      // Mirror each removed (billable) subscription to the CENTRAL audit trail,
-      // ALONGSIDE the local billing_events rows we just dropped. Fire-and-forget;
-      // details are an explicit id-only whitelist so no provider/card secret or
-      // AWS account id leaks. `billable` holds the org's live (non-terminal)
-      // subscription(s) loaded before deletion, each carrying its own id + plan.
-      for (const sub of billable) {
-        recordAudit({
-          action: 'billing.subscription.delete',
-          actorId: actorId({ userId }),
-          orgId: targetOrgId,
-          targetId: sub._id?.toString(),
-          details: { planId: sub.planId, orgId: targetOrgId },
-        });
-      }
-
-      logger.info('Subscription cascade complete', {
-        orgId: targetOrgId,
-        subscriptions: subDelete.deletedCount ?? 0,
-        events: eventDelete.deletedCount ?? 0,
-      });
-
-      return sendSuccess(res, 200, {
-        deleted: subDelete.deletedCount ?? 0,
-        events: eventDelete.deletedCount ?? 0,
-      });
+      const result = await purgeOrgBilling(targetOrgId, userId);
+      return sendSuccess(res, 200, { deleted: result.subscriptions, events: result.billingEvents, retained: result.retained });
     }, { requireOrgId: false }),
   );
 

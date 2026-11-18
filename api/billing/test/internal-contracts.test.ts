@@ -27,6 +27,10 @@ const SAMPLES: Record<keyof typeof BILLING_INTERNAL, ContractSample> = {
     body: { idempotencyKey: 'case-key-0001' },
     response: { refunded: false, balance: null },
   },
+  purgeOrg: {
+    params: { orgId: 'org-1' },
+    response: { orgId: 'org-1', tables: { subscriptions: 1, billingEvents: 4 }, remaining: { subscriptions: 1 } },
+  },
 };
 
 let table: RouteTableEntry[];

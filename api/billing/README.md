@@ -53,6 +53,7 @@ All paths are under `/billing`. `GET /billing/config` (enabled flag + provider n
 | Method | Path | Purpose |
 |--------|------|---------|
 | POST | `/internal/support-incidents/:orgId/consume`, `/internal/support-incidents/:orgId/refund` | Spend / refund one support incident (message service) |
+| POST | `/internal/orgs/:orgId/purge` | Org-purge cascade leg: provider-cancel, then drop, the org's subscriptions + events; a failed cancel keeps the row and reports it in `remaining` (platform) |
 
 **System org** (system-org permissions)
 
@@ -62,7 +63,7 @@ All paths are under `/billing`. `GET /billing/config` (enabled flag + provider n
 | PUT | `/admin/subscriptions/:id` | Override plan / status / interval |
 | PUT | `/admin/subscriptions/:id/support-floor` | Set a negotiated support-floor override |
 | GET | `/subscriptions/by-org/:orgId/billable` | Whether an org still holds a billable subscription (org-move guard) |
-| DELETE | `/subscriptions/by-org/:orgId` | Delete an org's subscription (org cascade) |
+| DELETE | `/subscriptions/by-org/:orgId` | The admin "Purge": provider-cancel, then delete, an org's subscriptions + events (step-up) |
 | GET | `/admin/events`, `/admin/summary` | Billing events and ledger totals across orgs |
 | * | `/admin/discounts…`, `/admin/promotions…`, `/admin/campaigns…` | Discount, promotion and campaign management (`billing:operate`) |
 | * | `/admin/offers…` | Offer history, exclusions, withdraw, manual trigger |

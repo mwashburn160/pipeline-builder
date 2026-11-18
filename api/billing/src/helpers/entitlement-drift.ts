@@ -20,8 +20,8 @@
  *                       (`GET /organization/:orgId/support-usage`)
  *                       and the account FEATURE entitlements
  *                       (`GET /organization/:orgId/feature-entitlements`)
- *   - compliance     → the active content sets (`GET /compliance/entitlements/:orgId`)
- *   - reporting      → the enforced retention (`GET /reports/retention-sync/:orgId`)
+ *   - compliance     → the active content sets (`GET /compliance/internal/entitlements/:orgId`)
+ *   - reporting      → the enforced retention (`GET /reports/internal/retention-sync/:orgId`)
  *
  * Feature entitlements are compared as an unordered set: the expected set is the
  * bundle-granted features from `effectiveEntitlements`. Any difference is drift
@@ -121,7 +121,7 @@ async function readEnforcedFeatureEntitlements(orgId: string, auth: string): Pro
 
 /**
  * Read the compliance service's CURRENTLY-ACTIVE content sets for an org:
- * `GET /compliance/entitlements/:orgId` → `data.sets`, the distinct `set:<x>`
+ * `GET /compliance/internal/entitlements/:orgId` → `data.sets`, the distinct `set:<x>`
  * values among the org's ACTIVE published-rule subscriptions. Same service-token
  * handshake `pushComplianceSetsToCompliance` uses. Returns `null` on any read
  * failure so the drift reconciler treats an unreachable compliance service as a
@@ -137,7 +137,7 @@ async function readEnforcedComplianceSets(orgId: string, auth: string): Promise<
 
 /**
  * Read the reporting service's ENFORCED retention (the `dora_settings` values the
- * sweep + query cap obey) for an org: `GET /reports/retention-sync/:orgId` →
+ * sweep + query cap obey) for an org: `GET /reports/internal/retention-sync/:orgId` →
  * `{ eventRetentionDays, doraRetentionDays }` (`null` = no override stored, the
  * reporting env default applies). Same service-token handshake as the push leg.
  * Returns `null` on any read failure so the reconciler SKIPS (never false-drifts).

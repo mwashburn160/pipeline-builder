@@ -46,7 +46,7 @@ interface EvaluationResult {
 
 /**
  * Evaluate compliance rules against an entity event, for the internal
- * entity-events route (`POST /compliance/events/entity`).
+ * entity-events route (`POST /compliance/internal/events/entity`).
  */
 export async function evaluateEntityEvent(event: EntityEventInput): Promise<EvaluationResult> {
   const ruleTarget = ruleTargetOf(event.target);

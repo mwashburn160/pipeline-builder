@@ -212,7 +212,14 @@ export default function BillingAdminPage() {
     try {
       const res = await api.deleteSubscriptionByOrg(purgeSub.orgId, stepUpToken);
       if (!res.success) throw new Error(res.message || 'Purge failed');
-      toast.success(`Purged ${res.data?.deleted ?? 0} subscription(s) and ${res.data?.events ?? 0} event(s)`);
+      const retained = res.data?.retained ?? 0;
+      if (retained > 0) {
+        // The provider cancel failed for these, so they were kept (dropping
+        // them would leave the provider charging, untracked). Purge again to retry.
+        toast.warning(`Purged ${res.data?.deleted ?? 0} subscription(s); ${retained} kept because the payment provider did not cancel them — purge again to retry`);
+      } else {
+        toast.success(`Purged ${res.data?.deleted ?? 0} subscription(s) and ${res.data?.events ?? 0} event(s)`);
+      }
       list.refresh();
       void loadSummary();
     } catch (err) {

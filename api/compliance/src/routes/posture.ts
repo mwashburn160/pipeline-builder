@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * `GET /compliance/posture` — the compliance half of a stakeholder report's
+ * `GET /compliance/internal/posture` — the compliance half of a stakeholder report's
  * posture panel.
  *
  * READ-ONLY, and the only compliance endpoint the `reporting` service may reach. That
@@ -74,7 +74,7 @@ async function effectiveActiveRules(orgId: string, now: Date) {
 export function createPostureRoutes(): Router {
   const router: Router = Router();
 
-  router.get(contractRoute(POSTURE, '/compliance/posture'), requireReportingService, withRoute(async ({ res, orgId }) => {
+  router.get(contractRoute(POSTURE, '/compliance/internal/posture'), requireReportingService, withRoute(async ({ res, orgId }) => {
     const now = new Date();
     try {
       const data = await runWithTenantContext({ orgId, isSuperAdmin: false }, async () => {

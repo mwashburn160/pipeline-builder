@@ -46,7 +46,7 @@ export {
 } from './call.js';
 
 // ---- cascade legs (shared shapes) ----
-export { CASCADE_LEG_AUTH, CascadeOrgParams, CascadeUserParams, OrgPurgeResponse } from './cascade.js';
+export { CASCADE_LEG_AUTH, CascadeOrgParams, CascadeUserParams, OrgPurgeResponse, OrgPurgeWithRemainderResponse } from './cascade.js';
 // ---- pipeline / compliance / reporting ----
 export { PIPELINE_INTERNAL } from './pipeline.js';
 export { COMPLIANCE_INTERNAL } from './compliance.js';

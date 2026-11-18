@@ -357,7 +357,7 @@ export const complianceNotificationLog = pgTable('compliance_notification_log', 
 //
 // `compliance_reports` was DELETED here too: report_type, compare_from/to and a JSONB
 // `data` blob for a report nothing generated and no route served. Compliance posture is
-// read live (`GET /compliance/posture`) and the manager-facing report is the stakeholder
+// read live (`GET /compliance/internal/posture`) and the manager-facing report is the stakeholder
 // report, which owns its own snapshots in `report_runs`.
 
 // `compliance_report_schedules` was DELETED here. It was declared (cron,

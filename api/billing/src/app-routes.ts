@@ -10,6 +10,7 @@ import { createAdminSubscriptionRoutes } from './routes/admin-subscriptions.js';
 import { createBillingSummaryRoutes } from './routes/billing-summary.js';
 import { createCampaignRoutes } from './routes/campaigns.js';
 import { createDiscountRoutes } from './routes/discounts.js';
+import { BILLING_MOUNT, createInternalOrgPurgeRoutes } from './routes/internal-org-purge.js';
 import { createMarketplaceRoutes } from './routes/marketplace.js';
 import { createOfferRoutes } from './routes/offers.js';
 import { createPromotionRoutes } from './routes/promotions.js';
@@ -59,6 +60,7 @@ export function mountRoutes(app: Express): void {
   // service calls when an org has no contact seat, plus the system-org grant
   // that makes a concession grantable at all.
   app.use('/billing', createSupportIncidentRoutes());
+  app.use(BILLING_MOUNT, createInternalOrgPurgeRoutes());
   // Expansion offers: the account's own surface (read / decline / dismiss) and
   // the system-org view of what the agent has been doing. Served HERE rather
   // than by the decision process, which is internal only.

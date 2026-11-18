@@ -19,7 +19,7 @@
 import { createLogger, errorMessage, ORG_AUTOMATION_BUNDLES, type RoleGrant, SEED_BUNDLES, type SeedBundleId, SYSTEM_ORG_JOB_BUNDLES } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
 import type { Types } from 'mongoose';
-import { assertActorMayAssignRole, builtinRolePermissions } from './role-authority.js';
+import { assertActorMayAssignRole, effectiveRolePermissions, ROLE_PERMISSION_FIELDS } from './role-authority.js';
 import type { OrgId, RoleAssignmentActor, UserId } from './role-authority.js';
 import { RL_ROLE_NOT_FOUND, RL_SUPERADMIN_ROLE_NOT_INVITABLE } from './roles-errors.js';
 import { Role, RoleAssignment, User, UserOrganization } from '../models/index.js';
@@ -42,11 +42,10 @@ export interface RoleWithMembers {
  *  `grantsRole` one (see `builtinRolePermissions`). */
 export interface BuiltinRoleSpec { name: string; grantsRole: RoleGrant; seedBundle?: SeedBundleId }
 
-/** Default Roles seeded into every new org. */
 /**
- * The built-in Roles EVERY org gets. Exported so the startup backfill can create
- * one that is missing: a Role added to this list after a deployment was
- * installed simply would not be there, and its permissions would have no carrier.
+ * The built-in Roles EVERY org gets, seeded when the org is created. Only the
+ * Role SET is fixed at seed time — what each one grants is resolved from the
+ * catalog on every read (`effectiveRolePermissions`).
  */
 export const DEFAULT_ORG_ROLES: BuiltinRoleSpec[] = [
   { name: 'Admin', grantsRole: 'admin' },
@@ -54,9 +53,8 @@ export const DEFAULT_ORG_ROLES: BuiltinRoleSpec[] = [
   // `Team Lead` WAS here. It is a TEMPLATE now (api-core `ROLE_TEMPLATES`) —
   // the only built-in that was a job description rather than a structural
   // requirement, and so the only one an org could reasonably not want while
-  // being unable to delete it. Orgs that already hold the seeded Role keep it,
-  // and Pass A keeps its bundle current, which is why `TEAM_LEAD_PERMISSIONS`
-  // and the `team_lead` seed bundle both remain.
+  // being unable to delete it. `TEAM_LEAD_PERMISSIONS` and the
+  // `team_lead` seed bundle stay in api-core's catalog.
   //
   // The MACHINE Roles (`Pipeline Automation`, `Pipeline Registration`): what the
   // service accounts `pipeline-manager infra store-token` provisions hold instead
@@ -143,13 +141,7 @@ const SYSTEM_ORG_JOB_ROLE_SPECS: BuiltinRoleSpec[] = SYSTEM_ORG_JOB_BUNDLES.map(
   seedBundle: bundle,
 }));
 
-/**
- * Every built-in Role the SYSTEM org has, in seed order.
- *
- * Exported so the startup backfill can ensure a missing one exists rather than
- * leaving a newly-added Role to fresh installs only — which would leave its
- * permissions with no carrier on every deployment that already ran.
- */
+/** Every built-in Role the SYSTEM org has, in seed order. */
 export const SYSTEM_ORG_ROLES: readonly BuiltinRoleSpec[] = [
   SUPERADMINS_ROLE, ...DEFAULT_ORG_ROLES, ...SYSTEM_ORG_JOB_ROLE_SPECS,
 ];
@@ -175,16 +167,15 @@ export async function seedDefaultRoles(
   const specs = opts.isSystemOrg ? SYSTEM_ORG_ROLES : DEFAULT_ORG_ROLES;
 
   const created = await Role.create(
-    // Each built-in Role is seeded WITH its own explicit permission bundle
-    // (Admin/Super Admin → admin bundle, Member → member bundle, Ecosystem
-    // Manager → its named bundle) so a fresh org's Roles are self-describing —
-    // the runtime resolver reads a Role's own `permissions[]`, never a
-    // role-derived baseline.
+    // A built-in Role stores NO permission list: `effectiveRolePermissions`
+    // resolves it from the catalog (`grantsRole` + `seedBundle`) on every read,
+    // so a release's catalog change reaches every org on the next token refresh
+    // and there is no copy to drift from it.
     specs.map((s) => ({
       organizationId,
       name: s.name,
       grantsRole: s.grantsRole,
-      permissions: builtinRolePermissions(s),
+      permissions: [],
       system: true,
       ...(s.seedBundle ? { seedBundle: s.seedBundle } : {}),
     })),
@@ -362,8 +353,8 @@ export async function assertActorMayAssignBuiltinAdmin(
 ): Promise<void> {
   if (actor.isSuperAdmin || actor.isOrgAdmin) return;
   const adminRole = await Role.findOne({ organizationId, grantsRole: 'admin', system: true })
-    .session(session ?? null).select('permissions').lean();
-  assertActorMayAssignRole(adminRole?.permissions as string[] | undefined, actor);
+    .session(session ?? null).select(ROLE_PERMISSION_FIELDS).lean();
+  assertActorMayAssignRole(adminRole ? effectiveRolePermissions(adminRole) : undefined, actor);
 }
 
 /**
@@ -422,7 +413,7 @@ export async function partitionAssignableRoles(
   const valid = wanted.filter((id) => mongoose.Types.ObjectId.isValid(id));
   const found = valid.length > 0
     ? await Role.find({ _id: { $in: valid.map((id) => new mongoose.Types.ObjectId(id)) }, organizationId })
-      .session(session ?? null).select('_id grantsRole permissions').lean()
+      .session(session ?? null).select(`_id ${ROLE_PERMISSION_FIELDS}`).lean()
     : [];
   const byId = new Map(found.map((r) => [String(r._id), r]));
 
@@ -436,7 +427,7 @@ export async function partitionAssignableRoles(
       continue;
     }
     try {
-      assertActorMayAssignRole(role.permissions as string[] | undefined, actor);
+      assertActorMayAssignRole(effectiveRolePermissions(role), actor);
     } catch (err) {
       rejected.push({ roleId: id, reason: errorMessage(err) });
       continue;

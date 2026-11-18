@@ -13,18 +13,14 @@
  *    Stakeholder Reports add-on (pauses / resumes every report in it).
  *  - owner left: platform pauses the report definitions a departing member owns.
  *
- * All but the purge predate the `/internal` path convention and are served on
- * their original public-prefix paths (see `outsideInternalPath`).
+ * Every one is served under `/reports/internal/…`, which the gateway never
+ * routes from outside.
  */
 
 import { z } from 'zod';
 import { CASCADE_LEG_AUTH, CascadeOrgParams, OrgPurgeResponse } from './cascade.js';
 import { defineInternalEndpoint } from './define.js';
 import { normalizeRetentionDays, RETENTION_MAX_DAYS } from '../utils/retention.js';
-
-/** Why the pre-convention reporting routes keep their paths. */
-const LEGACY_PATH = 'Predates the /internal convention; the path is pinned by the route-table snapshot, '
-  + 'the gateway routes and the mesh policy, so the contract records it rather than moving it.';
 
 const BILLING_SYNC_AUTH = "billing's own service token (no user token, however privileged). "
   + 'The org is the PATH param — the account root billing resolved — not the token org.';
@@ -98,8 +94,7 @@ export const REPORTING_INTERNAL = {
     id: 'reporting.syncRetention',
     service: 'reporting',
     method: 'PUT',
-    path: '/reports/retention-sync/:orgId',
-    outsideInternalPath: LEGACY_PATH,
+    path: '/reports/internal/retention-sync/:orgId',
     callers: ['billing'],
     auth: BILLING_SYNC_AUTH,
     params: SyncOrgParams,
@@ -120,8 +115,7 @@ export const REPORTING_INTERNAL = {
     id: 'reporting.readRetention',
     service: 'reporting',
     method: 'GET',
-    path: '/reports/retention-sync/:orgId',
-    outsideInternalPath: LEGACY_PATH,
+    path: '/reports/internal/retention-sync/:orgId',
     callers: ['billing'],
     auth: BILLING_SYNC_AUTH,
     params: SyncOrgParams,
@@ -143,8 +137,7 @@ export const REPORTING_INTERNAL = {
     id: 'reporting.syncStakeholderEntitlement',
     service: 'reporting',
     method: 'PUT',
-    path: '/reports/stakeholder-sync/:orgId',
-    outsideInternalPath: LEGACY_PATH,
+    path: '/reports/internal/stakeholder-sync/:orgId',
     callers: ['billing'],
     auth: BILLING_SYNC_AUTH,
     params: SyncOrgParams,
@@ -171,8 +164,7 @@ export const REPORTING_INTERNAL = {
     id: 'reporting.ownerLeft',
     service: 'reporting',
     method: 'POST',
-    path: '/reports/stakeholder-internal/owner-left/:orgId/:userId',
-    outsideInternalPath: LEGACY_PATH,
+    path: '/reports/internal/stakeholder/owner-left/:orgId/:userId',
     callers: ['platform'],
     auth: "platform's service token (system-org member); the org is the PATH param.",
     params: z.object({

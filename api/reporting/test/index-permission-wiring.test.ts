@@ -260,7 +260,7 @@ describe('src/index.ts — reports:read enforcement', () => {
 
   it('mounts the platform-only internal leg behind plain requireAuth', () => {
     const mount = mountFor(ROUTERS.stakeholderInternal);
-    expect(mount[0]).toBe('/reports/stakeholder-internal');
+    expect(mount[0]).toBe('/reports/internal/stakeholder');
     // Auth, then the router: the internal-service gate is inside the router, so
     // there is no permission or feature gate on the mount.
     expect(mount).toHaveLength(3);

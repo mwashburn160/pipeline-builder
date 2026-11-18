@@ -83,7 +83,7 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
   //
   // INTERNAL: only billing's own signed token passes, and no user token does,
   // however privileged. Same shape as the reporting and compliance legs
-  // (`PUT /reports/retention-sync/:orgId`, `PUT /compliance/entitlements/:orgId`)
+  // (`PUT /reports/internal/retention-sync/:orgId`, `PUT /compliance/internal/entitlements/:orgId`)
   // and billing's `GET /:orgId/own-usage` read here. Billing cannot use the
   // staff route above: it has no system-org session or MFA, and its token is
   // minted for the TARGET org, so `requireSystemOrg` refuses it.
@@ -95,51 +95,6 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
     requireInternalService({ callers: ['billing'] }) as RequestHandler,
     audited('quota.limit.update'),
     updateQuota('billing'),
-  );
-
-  // DELETE /quotas/:orgId — cascade hook, `quotas:manage` + aal2. Drops the
-  // org's quota document. Idempotent: returns 200 with `deleted: false` when
-  // the org was already gone, which lets the platform cascade run repeatedly
-  // without orchestration babysitting.
-
-  router.delete( '/:orgId',
-    requireAuth as RequestHandler,
-    // `requireSystemOrg` + aal2 beside the permission, the same AND the console
-    // and ecosystem routes take: `quotas:manage` is system-org-only, so the
-    // caller's ACTIVE org must be the system org too. `requireSystemOrgPermission`
-    // would compose all three, but `authorizeOrg` has to stay — it canonicalizes
-    // the `:orgId` param, and without that a mixed-case id resolves to "no such
-    // org" downstream.
-    requireSystemOrg as RequestHandler,
-    authorizeOrg({ permission: 'quotas:manage' }) as RequestHandler,
-    requireAssurance({ minAssurance: 2 }) as RequestHandler,
-    // Destructive: drops the org's quota doc (removes enforcement). Step-up
-    // re-verifies the human sysadmin; the platform cascade's service token is
-    // exempt (requireStepUp skips verified service principals) so org-delete
-    // still works unattended.
-    requireStepUp as RequestHandler,
-    audited('quota.delete'),
-    withRoute(async ({ req, res, ctx, userId }) => {
-      const targetOrgId = getParam(req.params, 'orgId')!;
-      const deleted = await svc.delete(targetOrgId);
-      ctx.log('COMPLETED', deleted ? 'Quota org deleted': 'Quota org delete: not found', { orgId: targetOrgId });
-
-      // Best-effort attributed audit — emitted only when a quota document was
-      // actually dropped (the idempotent no-op path mutates nothing). This is a
-      // cross-tenant sysadmin op, so `affectedOrgId` records the target org.
-      if (deleted) {
-        recordAudit({
-          action: 'quota.delete',
-          actorId: actorId({ userId }),
-          // The actor is system-org staff (`requireSystemOrg`) acting on a tenant.
-          orgId: SYSTEM_ORG_ID,
-          affectedOrgId: targetOrgId,
-          details: { deleted: true },
-        });
-      }
-
-      return sendSuccess(res, 200, { deleted }, deleted ? 'Quota org deleted': 'Quota org was already absent');
-    }),
   );
 
   // POST /quotas/:orgId/reset — reset usage counters. `quotas:manage` + aal2.

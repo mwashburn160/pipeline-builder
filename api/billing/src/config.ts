@@ -132,7 +132,7 @@ export interface AppConfig {
   };
   /**
    * Reporting service — receives the retention-entitlement sync leg
-   * (`PUT /reports/retention-sync/:orgId`). Retention is NOT a quota-service
+   * (`PUT /reports/internal/retention-sync/:orgId`). Retention is NOT a quota-service
    * type; billing pushes the effective event/dora retention here so the reporting
    * sweep + query cap honor the account's tier baseline + purchased bundles.
    */
@@ -142,7 +142,7 @@ export interface AppConfig {
   };
   /**
    * Compliance service — receives the compliance-content entitlement sync leg
-   * (`PUT /compliance/entitlements/:orgId`). The curated compliance rule
+   * (`PUT /compliance/internal/entitlements/:orgId`). The curated compliance rule
    * libraries (standard / advanced) are content sets, not a quota-service type;
    * billing derives the entitled `sets` from the effective feature flags
    * (`compliance_standard`→'standard', `compliance_advanced`→'advanced') and

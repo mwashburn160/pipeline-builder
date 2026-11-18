@@ -643,10 +643,12 @@ export function billingApi(core: ApiCore) {
       return core.request<ApiResponse<AdminBillingSummary>>(`/api/billing/admin/summary${buildQuery(params)}`, { signal: opts?.signal });
     },
 
-    /** Purge every subscription + billing event for an org (cascade hook; destructive).
-     *  Step-up gated for a user caller: confirm in a `StepUpModal` first and forward its token. */
+    /** Purge every subscription + billing event for an org (destructive). Step-up
+     *  gated: confirm in a `StepUpModal` first and forward its token. `retained`
+     *  counts subscriptions KEPT because their provider cancel failed — purging
+     *  again retries them. */
     deleteSubscriptionByOrg: async (orgId: string, stepUpToken: string) => {
-      return core.request<ApiResponse<{ deleted: number; events: number }>>(`/api/billing/subscriptions/by-org/${orgId}`, {
+      return core.request<ApiResponse<{ deleted: number; events: number; retained: number }>>(`/api/billing/subscriptions/by-org/${orgId}`, {
         method: 'DELETE',
         headers: core.stepUpHeader(stepUpToken),
       });

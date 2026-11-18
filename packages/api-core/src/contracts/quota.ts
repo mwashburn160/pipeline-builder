@@ -5,10 +5,13 @@
  * Internal endpoints SERVED BY quota.
  *
  *  - usage profile: the POOLED per-dimension usage picture billing's
- *    expansion-offers profile is built from, with both consent switches.
+ *    expansion-offers profile is built from, with both consent switches;
+ *  - org purge: platform's cascade outbox drops a deleted org's quota
+ *    document (its enforcement record).
  */
 
 import { z } from 'zod';
+import { CASCADE_LEG_AUTH, CascadeOrgParams, OrgPurgeResponse } from './cascade.js';
 import { defineInternalEndpoint } from './define.js';
 
 /** One quota dimension as the profile read returns it. */
@@ -47,5 +50,20 @@ export const QUOTA_INTERNAL = {
         dimensions: z.record(z.string(), ProfileDimension),
       }),
     }),
+  }),
+  /**
+   * Idempotent: 200 `{ orgId, tables: { organizations } }` — 1 when the quota
+   * document was dropped, 0 when it was already gone. One `deleteOne`, so there
+   * is no partial outcome: a failure is a 500 and the leg retries.
+   */
+  purgeOrg: defineInternalEndpoint({
+    id: 'quota.purgeOrg',
+    service: 'quota',
+    method: 'POST',
+    path: '/quotas/internal/orgs/:orgId/purge',
+    callers: ['platform'],
+    auth: CASCADE_LEG_AUTH,
+    params: CascadeOrgParams,
+    response: OrgPurgeResponse,
   }),
 } as const;

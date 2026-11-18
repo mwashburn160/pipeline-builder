@@ -99,8 +99,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
     return {
       post: (...a: unknown[]) => mockMessagePost(...a),
       get: jest.fn((path: string) => {
-        if (path.includes('/compliance/entitlements/')) return mockReadCompliance();
-        if (path.includes('/reports/retention-sync/')) return mockReadRetention();
+        if (path.includes('/compliance/internal/entitlements/')) return mockReadCompliance();
+        if (path.includes('/reports/internal/retention-sync/')) return mockReadRetention();
         if (path.includes('/feature-entitlements')) return mockReadFeatures();
         if (path.includes('/seat-usage')) return mockReadSeat();
         if (path.includes('/support-usage')) return mockReadSupport();

@@ -41,11 +41,8 @@ export type OrgId = string | mongoose.Types.ObjectId;
 export type UserId = string | mongoose.Types.ObjectId;
 
 /**
- * The built-in Role's own `permissions[]` bundle for a coarse `grantsRole`.
- *
- * Single-source model: a built-in Role carries its permissions EXPLICITLY
- * (seeded from api-core `ROLE_PERMISSIONS`), so it is self-describing and the
- * runtime resolver reads only the Role's own list.
+ * The catalog bundle for a coarse `grantsRole` — what a built-in Role with no
+ * named `seedBundle` grants.
  *
  * `superadmin` maps to the full `admin` bundle; `member` to the member bundle.
  * There is no `owner` case, which this comment claimed for a while: `ROLE_GRANTS`
@@ -59,20 +56,21 @@ export function permissionsForGrantsRole(role: RoleGrant): string[] {
 }
 
 /**
- * The permission bundle a BUILT-IN Role carries: its named `seedBundle` when it
- * has one, otherwise the bundle for its coarse `grantsRole`. Used by the seeder
- * and the startup re-sync, so neither can flatten a job Role's bundle into the
- * plain Member bundle it shares a `grantsRole` with.
+ * The permission bundle a BUILT-IN Role grants: its named `seedBundle` when it
+ * has one, otherwise the bundle for its coarse `grantsRole`. Read through
+ * {@link effectiveRolePermissions} on every resolution, so a job Role's bundle
+ * can never be flattened into the plain Member bundle it shares a `grantsRole`
+ * with.
  *
  * A KEYED LOOKUP, not a chain of `if`s. It was nine branches over string
  * literals ending in the `grantsRole` fall-through, and every job Role grants
  * `member` — so a bundle added to the id list without its branch did not fail,
- * it silently resolved to the Member bundle and the backfill re-synced it to
- * that on every boot. `SEED_BUNDLES` (api-core) is now the one table, and a
- * missing entry is a compile error there rather than a quiet downgrade here.
+ * it silently resolved to the Member bundle. `SEED_BUNDLES` (api-core) is now
+ * the one table, and a missing entry is a compile error there rather than a
+ * quiet downgrade here.
  *
- * An UNKNOWN id still falls through, because this runs during boot and throwing
- * would take the deployment down over one hand-edited row — but it says so
+ * An UNKNOWN id still falls through, because this runs on every sign-in and
+ * throwing would lock an org out over one hand-edited row — but it says so
  * loudly, where the old shape said nothing. Mongoose enum-validates the field,
  * so reaching this means the document was written around the model.
  */
@@ -88,6 +86,58 @@ export function builtinRolePermissions(role: { grantsRole: RoleGrant; seedBundle
     return permissionsForGrantsRole(role.grantsRole);
   }
   return [...bundle.permissions];
+}
+
+/**
+ * The Role fields {@link effectiveRolePermissions} reads. Every Role query whose
+ * result feeds a permission decision selects THESE (plus whatever else it
+ * needs) — a projection that drops `system` would make a built-in Role look
+ * custom and resolve to its (empty) stored list. `test/role-permission-readers.test.ts`
+ * fails the build on a Role query that selects `permissions` by hand.
+ */
+export const ROLE_PERMISSION_FIELDS = 'system grantsRole seedBundle permissions';
+
+/** The shape {@link effectiveRolePermissions} needs — a Role document, lean or hydrated. */
+export interface RolePermissionSource {
+  system?: boolean | null;
+  grantsRole?: string | null;
+  seedBundle?: string | null;
+  permissions?: readonly string[] | null;
+}
+
+/**
+ * THE one answer to "what does this Role grant?" — every reader that turns a
+ * Role into permissions (token minting, service-account key exchange, the
+ * assignment ceilings, Role list/detail responses, IdP mapping and SCIM grant
+ * checks, notification fan-out) goes through here, never `role.permissions`.
+ *
+ * - A BUILT-IN Role (`system: true`) is resolved from the catalog at read time
+ *   ({@link builtinRolePermissions}). It stores no list (seeded with
+ *   `permissions: []`), and anything a hand-written document does store is
+ *   ignored — so a release that changes a catalog bundle reaches every existing
+ *   org on its members' next token refresh, with no re-sync job and no copy to
+ *   drift. Built-ins are immutable (`RL_SYSTEM_IMMUTABLE`), so nothing an org
+ *   does is lost by ignoring it.
+ * - A CUSTOM Role grants exactly its stored list.
+ *
+ * A built-in Role read WITHOUT its `grantsRole` (a projection that skipped
+ * {@link ROLE_PERMISSION_FIELDS}) fails CLOSED to no permissions and logs — an
+ * under-grant is a visible bug, an over-grant is not.
+ */
+export function effectiveRolePermissions(role: RolePermissionSource): string[] {
+  if (role.system === true) {
+    if (!role.grantsRole) {
+      logger.error('Built-in Role read without its grantsRole — resolving to no permissions', {
+        fix: 'Select ROLE_PERMISSION_FIELDS on the Role query.',
+      });
+      return [];
+    }
+    return builtinRolePermissions({
+      grantsRole: role.grantsRole as RoleGrant,
+      seedBundle: (role.seedBundle ?? null) as SeedBundleId | null,
+    });
+  }
+  return [...(role.permissions ?? [])];
 }
 
 /** Whether a Role's permission list carries any system-org-only permission

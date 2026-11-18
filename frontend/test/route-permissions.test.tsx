@@ -2744,7 +2744,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     category: 'machine-only',
     why: 'Service-principal routes (callers: reporting): a SCHEDULED stakeholder report is authorized as its definition\'s OWNER, so the reporting service asks platform whether that person is still an active member holding reports:write / reports:publish and whether the org still holds the add-on (api/reporting/src/services/report-identity.ts), and whether ONE named address is a member. No user token is admitted, and neither answer carries a member list.',
   }),
-  'reporting POST /reports/stakeholder-internal/owner-left/:orgId/:userId': {
+  'reporting POST /reports/internal/stakeholder/owner-left/:orgId/:userId': {
     category: 'machine-only',
     why: 'Service-principal route (callers: platform): deactivating or removing a member pauses the stakeholder reports they OWNED (platform/src/services/report-ownership.ts, from the deactivate / remove member controllers), because a run computes with the owner\'s access. No user token is admitted.',
   },
@@ -2756,7 +2756,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     category: 'pre-session',
     why: 'A report recipient stopping email they did not ask for: the not-signed-in /reports/unsubscribe page (pages/reports/unsubscribe.tsx via unsubscribeFromReports) POSTs the recipient\'s own token, and the same URL is what the List-Unsubscribe header carries so the mail client\'s own button works. The address\'s owner usually has no account here, so no permission applies; requiring one would make the only way out of the mail a spam complaint. POST, not GET, so a corporate mail gateway prefetching links cannot silently remove managers from the list.',
   },
-  'reporting PUT /reports/stakeholder-sync/:orgId': {
+  'reporting PUT /reports/internal/stakeholder-sync/:orgId': {
     category: 'machine-only',
     why: 'Service-principal route (callers: billing): the account gained or lost the Stakeholder Reports add-on, so every report in it — root org and teams — pauses with reason `entitlement` or resumes. No user token is admitted; a customer who cancels must not be able to keep their reports running, and a lead must not be able to restart them by hand.',
   },
@@ -2827,9 +2827,9 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   },
   // ── Internal, service-principal only ──────────────────────────────────────
   ...group('compliance', [
-    'PUT /compliance/entitlements/:orgId',
-    'POST /compliance/events/entity',
-    'POST /compliance/subscriptions/auto-subscribe',
+    'PUT /compliance/internal/entitlements/:orgId',
+    'POST /compliance/internal/events/entity',
+    'POST /compliance/internal/subscriptions/auto-subscribe',
   ], { category: 'machine-only', why: 'Service-principal route (billing / pipeline / plugin / platform call it); the route table lists its internal callers and no user token is admitted.' }),
   ...group('message', [
     'POST /messages/internal/notify',
@@ -2843,6 +2843,8 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   'plugin POST /internal/plugins/orgs/:orgId/purge': { category: 'machine-only', why: 'Internal route (callers: platform): the cascade outbox\'s org-purge leg; no user token is admitted.' },
   'plugin POST /internal/plugins/users/:userId/erase': { category: 'machine-only', why: 'Internal route (callers: platform): the cascade outbox\'s GDPR user-erasure leg; no user token is admitted.' },
   'reporting POST /reports/internal/orgs/:orgId/purge': { category: 'machine-only', why: 'Internal route (callers: platform): the cascade outbox\'s org-purge leg; no user token is admitted.' },
+  'quota POST /quotas/internal/orgs/:orgId/purge': { category: 'machine-only', why: 'Internal route (callers: platform): the cascade outbox\'s org-purge leg (drops the org\'s quota document); no user token is admitted, and no person should drop a live org\'s enforcement record.' },
+  'billing POST /billing/internal/orgs/:orgId/purge': { category: 'machine-only', why: 'Internal route (callers: platform): the cascade outbox\'s org-purge leg (provider-cancels, then drops, the org\'s subscriptions + billing events); no user token is admitted. The admin page\'s "Purge" is the separate `DELETE /billing/subscriptions/by-org/:orgId`.' },
   'ops-center POST /ops/internal/orgs/:orgId/purge': { category: 'machine-only', why: 'Internal route (callers: platform): the cascade outbox\'s org-purge leg (dashboards, alert rules/destinations); no user token is admitted, and nginx does not proxy /ops at all.' },
   'platform POST /internal/ops/audit-activity': { category: 'machine-only', why: 'Internal route (callers: ops-center): a READ on POST — one audit-trail aggregation for an Audit Activity panel, scoped to the identity ops-center verified; no user token is admitted.' },
   ...group('platform', [
@@ -2911,8 +2913,8 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   'image-registry GET /internal/storage-breakdown/:orgId': { category: 'machine-only', why: 'Service-principal route (callers: plugin): api/plugin/src/services/storage-reclaim.ts reads per-version storage attribution — what each image version costs and what deleting it would actually free — to join against the versions a pipeline still references. The tenant-facing surface is `plugin GET /plugins/storage`; no user token is admitted here.' },
   'image-registry DELETE /internal/storage-prune/:orgId': { category: 'machine-only', why: 'Service-principal route (callers: plugin): the registry drops ONE version tag so its layers leave the org\'s storage total, after the plugin service has proved the version is eligible. Confined to the token\'s own `org-<id>/*` namespace — public/*, system/* and quarantine/* are refused. The tenant-facing surface is `plugin POST /plugins/storage/prune`; no user token is admitted here.' },
   'image-registry DELETE /internal/org-namespace/:orgId': { category: 'machine-only', why: 'Service-principal route (callers: platform): the org-delete cascade (platform/src/services/org-cascade-service.ts) reclaims a DELETED org\'s private `org-<id>/*` images, which otherwise stayed on disk billed to nobody. Published `public/*` copies are deliberately kept — other orgs install them. No user token is admitted, and by this point the org no longer exists to own one.' },
-  'reporting PUT /reports/retention-sync/:orgId': { category: 'machine-only', why: 'Service-principal route: billing pushes the org\'s effective retention here when a plan or retention pack changes.' },
-  'reporting GET /reports/retention-sync/:orgId': { category: 'machine-only', why: 'Service-principal route (callers: billing): the entitlement drift reconciler (api/billing/src/helpers/entitlement-drift.ts) reads the retention reporting enforces to compare it with the plan; no user token is admitted.' },
+  'reporting PUT /reports/internal/retention-sync/:orgId': { category: 'machine-only', why: 'Service-principal route: billing pushes the org\'s effective retention here when a plan or retention pack changes.' },
+  'reporting GET /reports/internal/retention-sync/:orgId': { category: 'machine-only', why: 'Service-principal route (callers: billing): the entitlement drift reconciler (api/billing/src/helpers/entitlement-drift.ts) reads the retention reporting enforces to compare it with the plan; no user token is admitted.' },
   'image-registry POST /internal/plugin-images/discard': { category: 'machine-only', why: 'Service-principal route (callers: plugin): api/plugin/src/helpers/supply-chain.ts asks image-registry to delete a pushed, signed image (and its cosign .sig/.att companions) that the scan gates or compliance refused; no user token is admitted.' },
   'image-registry POST /internal/quarantine/:submissionId/credential': { category: 'machine-only', why: 'Service-principal route (callers: plugin): api/plugin/src/services/ecosystem/registry.ts asks for a short-lived, registry-only pull credential scoped to one anonymous submission\'s quarantine image, for the submission build; no user token is admitted.' },
   'plugin GET /internal/plugins/image-references': { category: 'machine-only', why: 'Service-principal route (callers: image-registry): api/image-registry/src/services/plugin-image-references.ts reads the digests an org\'s namespace still needs (plugin rows, pipelines declaring / running them, open deployed exposures) before the age GC deletes anything; no user token is admitted.' },
@@ -3057,7 +3059,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     'POST /billing/admin/promotions/:id/activate', 'POST /billing/admin/promotions/:id/grant',
     'POST /billing/admin/promotions/:id/preview',
   ], { category: 'sysadmin-console', why: 'Promotions console (pages/dashboard/promotions.tsx): New promotion, Activate/Revoke, grant-to-existing-base, manual grant, preview reach.' }),
-  'billing DELETE /billing/subscriptions/by-org/:orgId': { category: 'sysadmin-console', why: '"Purge" row action on pages/dashboard/admin/billing.tsx, behind a StepUpModal whose token it forwards — the route steps up user callers (conditionalGates on the table; pinned in CONDITIONAL_STEP_UP_CONTROLS).' },
+  'billing DELETE /billing/subscriptions/by-org/:orgId': { category: 'sysadmin-console', why: '"Purge" row action on pages/dashboard/admin/billing.tsx, behind a StepUpModal whose token it forwards — the route always steps up (only a person calls it; the org-purge cascade has its own internal contract).' },
   'billing PUT /billing/admin/subscriptions/:id': { category: 'sysadmin-console', why: 'Billing-admin page — fleet-wide subscription edit; subscriptions:manage + system-org + aal2 + step-up.' },
   'message PATCH /messages/support/:id/satisfaction': {
     category: 'same-control',
@@ -3288,7 +3290,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     category: 'no-ui',
     why: 'Least-privilege internal read (service principal OR org admin) for peer services: api/compliance/src/helpers/org-hierarchy-client.ts needs the parent to evaluate `propagateToChildren` rules on scheduled scans that run detached from any request JWT. No frontend reference exists.',
   },
-  'compliance GET /compliance/posture': {
+  'compliance GET /compliance/internal/posture': {
     category: 'machine-only',
     why: 'Service-principal route (callers: reporting): a stakeholder report\'s compliance panel reads the COUNTS behind an org\'s posture — rules active, exemptions in force, the last completed scan\'s verdicts, and the frameworks its rules cite. No user token is admitted, and nothing here returns a rule name, an entity id or an exemption reason; whoever needs those opens the compliance dashboard, where the permission to see them is already enforced.',
   },
@@ -3304,7 +3306,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     category: 'machine-only',
     why: 'Service-principal route (callers: ask, pipeline, plugin, reporting): the DECRYPTED org provider key, so an AI call on the org\'s behalf is billed to the org\'s own provider account. Audited per read (org.ai-key.read, provider name only). No user token is admitted, and no browser surface may ever read a key back — Settings shows configured/not-configured only.',
   },
-  'compliance GET /compliance/entitlements/:orgId': {
+  'compliance GET /compliance/internal/entitlements/:orgId': {
     category: 'no-ui',
     why: 'The billing↔compliance entitlement sync leg: api/compliance/src/routes/entitlements.ts gates it with `requireBillingService`, so only the billing service reads it. The dashboard reads subscriptions, not the synced entitlement row.',
   },
@@ -3318,23 +3320,6 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     category: 'no-ui',
     why: 'The enforcing (non dry-run) validation, called by the CDK / service principals at deploy time. The client layer only has the /dry-run variants.',
   }),
-
-  // Filed as `sysadmin-console` beside POST /quotas/:orgId/reset — "Quota admin
-  // — delete an org's quota row / reset a period". Reset has that control;
-  // delete never did, and should not. api/quota/src/routes/update-quota.ts
-  // calls it a CASCADE HOOK and platform/src/services/org-cascade-service.ts
-  // drives it with a service token during org purge (requireStepUp waives the
-  // factor for a verified service principal, which is why the cascade runs
-  // unattended). Offering it to a person would be a one-way door: quotaService
-  // .update() and .resetUsage() both throw OrgNotFoundError on a missing
-  // document and never upsert, and findByOrgId then serves READ-ONLY defaults
-  // — so an org whose row a sysadmin dropped reads plausible numbers, cannot
-  // reserve or enforce anything, and cannot be repaired from the dashboard at
-  // all. The recreate path belongs to org creation in the platform service.
-  'quota DELETE /quotas/:orgId': {
-    category: 'no-ui',
-    why: 'Org-purge CASCADE hook, not a product capability: platform/src/services/org-cascade-service.ts DELETEs it with a service token while purging an org (idempotent, returns deleted:false when already gone). A human sysadmin is admitted by the gate but no control exists and none should — dropping the document leaves the org unenforceable and unrepairable from the UI (update/reset both throw OrgNotFoundError and never upsert).',
-  },
 };
 
 /**
@@ -3714,10 +3699,10 @@ describe('no write route lands unmapped', () => {
 
   it('a disposition that NAMES a surface can really reach the route', () => {
     // The other direction of the same rule, and the one that catches a false
-    // "there is a control for this". `DELETE /quotas/:orgId` sat in the
-    // sysadmin-console group next to `POST /quotas/:orgId/reset` — "delete an
-    // org's quota row / reset a period" — while no frontend caller for the
-    // delete has ever existed. A category that claims a person drives the route
+    // "there is a control for this". The old `DELETE /quotas/:orgId` cascade
+    // hook sat in the sysadmin-console group next to `POST /quotas/:orgId/reset`
+    // — "delete an org's quota row / reset a period" — while no frontend caller
+    // for the delete ever existed. A category that claims a person drives the route
     // is only true if the api client can reach it at all.
     // `server-supplied-url` is deliberately NOT here: it claims a surface, but the URL
     // comes off an API response, so there is no literal for the index to find. Its own
@@ -3939,7 +3924,6 @@ describe('MFA refusals are handled app-wide', () => {
  * for as one, or the user meets a password prompt the server then refuses.
  */
 const CONDITIONAL_STEP_UP_CONTROLS: Record<string, { file: string; when: string }> = {
-  'billing DELETE /billing/subscriptions/by-org/:orgId': { file: 'pages/dashboard/admin/billing.tsx', when: 'caller is a user, not a service principal' },
   'platform PATCH /user/profile': { file: 'pages/dashboard/settings.tsx', when: 'changes the sign-in email' },
   'platform POST /user/generate-token': { file: 'pages/dashboard/security.tsx', when: 'opens a new machine credential' },
   'platform POST /users': { file: 'pages/dashboard/users.tsx', when: 'creates a platform super-admin' },

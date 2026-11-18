@@ -3261,31 +3261,6 @@ groups:
           summary: "{{ $labels.level }} first response is past a business day"
           description: "p90 first response for {{ $labels.level }} is {{ $value | humanizeDuration }} over 6h. Priority sells a next-business-day response and standard two business days, so 24h of OUR time (customer wait excluded) is not itself a breach — it is the point past which the queue is plainly not being worked, which is a different and earlier signal. For the contractual check on these two levels, measure against the business calendar, not this alert."
 
-      # ---- GDPR: an erasure that did not finish ----
-      #
-      # Deleting a user removes them from Mongo and, IN THE SAME TRANSACTION,
-      # writes a `user.erased` leg to platform's cascade outbox; the plugin
-      # service scrubs their authorship out of `plugin_reviews` when the leg is
-      # delivered, retried with backoff until it lands.
-      #
-      # An increment here means every retry FAILED and the leg was dead-lettered
-      # (the same event also counts in `platform_cascade_dead_total`, below). It
-      # is a legal obligation left unfinished — personal data still sitting in
-      # `plugin_reviews` for an account that no longer exists — and nothing
-      # retries it any more. `for: 0m` because one is already one too many, and
-      # WARNING rather than critical because the fix is a deliberate re-drive of
-      # the leg, not a 3am page.
-      - alert: UserErasureIncomplete
-        expr: sum (increase(user_erasure_incomplete_total[1h])) > 0
-        for: 0m
-        labels:
-          severity: warning
-          component: platform
-          tenancy: platform
-        annotations:
-          summary: "A user deletion did not finish erasing their data"
-          description: "{{ $value | humanize }} user erasure(s) in the last hour exhausted every cascade-outbox retry, so the person's review authorship and prose are still in plugin_reviews. Nothing retries this any more. Find the userId in the platform logs ('Cascade leg DEAD', kind user.erased) or the org.cascade.dead audit row, fix the plugin service, then set the cascade_outbox row back to status 'pending' — the scrub is idempotent, so redelivering it is safe."
-
       # ---- Cascade outbox: a downstream leg that never landed ----
       #
       # An org purge and a user erasure reach every OTHER service that holds the
@@ -3297,7 +3272,9 @@ groups:
       # (about a day of retries by default) — the service still holds a purged
       # org's or an erased user's data and nothing will try again. `for: 0m`
       # because it is already final; WARNING because the fix is a re-drive after
-      # the owning service is repaired, not a page.
+      # the owning service is repaired, not a page. A `kind="user.erased"` leg
+      # is a GDPR erasure left unfinished: personal data (e.g. review authorship
+      # in plugin_reviews) still held for an account that no longer exists.
       - alert: PlatformCascadeLegDead
         expr: sum by (service, kind) (increase(platform_cascade_dead_total[1h])) > 0
         for: 0m

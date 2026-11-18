@@ -43,9 +43,11 @@ import { Schema, model, Types, type HydratedDocument } from 'mongoose';
  *   org's Super Admin) confer a base org role, which drives the cached
  *   `UserOrganization.role` and the `superadmin` bootstrap. Custom Roles leave
  *   this at the default `'member'` (no role escalation).
- * - `permissions` — a fine-grained `Permission[]` set (api-core catalog) that is
- *   ADDED to the member's effective permissions. This is what custom,
- *   user-defined Roles use.
+ * - fine-grained permissions (api-core catalog), ADDED to the member's
+ *   effective permissions. Read ONLY through `effectiveRolePermissions`
+ *   (services/role-authority.ts): a built-in (`system`) Role's come from the
+ *   catalog at read time (`grantsRole` + `seedBundle`) and it stores none; a
+ *   custom Role's are its stored `permissions` list.
  */
 export interface RoleData {
   /** Owning org/team id. */
@@ -54,7 +56,10 @@ export interface RoleData {
   /** Optional operator-facing description (custom Roles). */
   description?: string;
   grantsRole: RoleGrant;
-  /** Fine-grained permissions this Role grants (api-core `Permission` strings). */
+  /** CUSTOM Roles only: the fine-grained permissions this Role grants (api-core
+   *  `Permission` strings). Empty and IGNORED on a built-in (`system`) Role,
+   *  whose grant is resolved from the catalog — never read this directly; use
+   *  `effectiveRolePermissions`. */
   permissions: string[];
   /** Seeded default Role — protected from deletion/rename in the API. */
   system: boolean;

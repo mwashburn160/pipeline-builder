@@ -128,6 +128,17 @@ describe('holdersOfPermission', () => {
     expect((await holdersOfPermission(SYSTEM, 'plugins:moderate')).sort()).toEqual(['mod1', 'mod2']);
     expect(await holdersOfPermission(PUB, 'plugins:moderate')).toEqual([]);
   });
+
+  // A built-in Role stores no permission list — its grant is the catalog's —
+  // so the holders are found through the resolver, not a `permissions` query.
+  it('finds the holders of a BUILT-IN Role, which stores no permission list', async () => {
+    db.roles[0] = { _id: 'rEM', organizationId: SYSTEM, system: true, grantsRole: 'member', seedBundle: 'ecosystem_manager', permissions: [] };
+    expect((await holdersOfPermission(SYSTEM, 'plugins:moderate')).sort()).toEqual(['mod1', 'mod2']);
+    // A built-in Member Role in PUB grants `billing:read` from the catalog.
+    db.roles.push({ _id: 'rPubMember', organizationId: PUB, system: true, grantsRole: 'member', permissions: [] });
+    db.assignments.push({ userId: 'pubOwner', roleId: 'rPubMember', organizationId: PUB });
+    expect(await holdersOfPermission(PUB, 'billing:read')).toEqual(['pubOwner']);
+  });
 });
 
 describe('countEcosystemApprovers', () => {

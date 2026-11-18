@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 14983d25b1d12c3b6b513016b909e58d206d49fcb01cc52f5026bbc9b2ec2a5b
+// SOURCE-SHA256: 94643b4396d4589e191388e97dafabe0f4db4ea8b01238074e044b79e4f69e13
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -3527,7 +3527,7 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Billing computes the effective window (tierBase + Σ pack grant, -1 = unlimited passthrough) and pushes it to the reporting service (PUT /api/reports/retention-sync/:orgId, writing dora_settings). The per-org report-query window tracks this effective retention (min(730, orgRetentionDays), absolute ceiling 730 days); an unlimited-tier org queries up to the 730-day ceiling."
+          "content": "Billing computes the effective window (tierBase + Σ pack grant, -1 = unlimited passthrough) and pushes it to the reporting service (PUT /reports/internal/retention-sync/:orgId, writing dora_settings). The per-org report-query window tracks this effective retention (min(730, orgRetentionDays), absolute ceiling 730 days); an unlimited-tier org queries up to the 730-day ceiling."
         }
       ]
     },

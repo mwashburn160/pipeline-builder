@@ -19,6 +19,7 @@ Per-organization quota tracking and enforcement for the pipeline-builder platfor
 | GET | `/quotas/all` | All orgs with quotas (`orgs:read`, system org) |
 | GET | `/quotas/at-risk` | Accounts at/above a usage threshold, default 80% (`orgs:read`, system org) |
 | GET | `/quotas/internal/:orgId/profile` | Per-dimension usage + projection for the expansion-offers profile (internal: billing) |
+| POST | `/quotas/internal/orgs/:orgId/purge` | Org-purge cascade leg: drop the org's quota doc, idempotent (internal: platform) |
 | GET | `/quotas/:orgId` | All quotas for a specific org (authorized) |
 | GET | `/quotas/:orgId/at-risk` | One org's at-risk dimensions (authorized, `quotas:read`) |
 | GET | `/quotas/:orgId/usage` | Usage-ledger breakdown, JSON or CSV (authorized, `quotas:read`) |
@@ -28,7 +29,6 @@ Per-organization quota tracking and enforcement for the pipeline-builder platfor
 | GET | `/quotas/:orgId/:quotaType` | Status for a single quota type (authorized) |
 | PUT | `/quotas/:orgId` | Update name / slug / tier / limits (`quotas:manage`, system org, aal2) |
 | PUT | `/quotas/entitlement-sync/:orgId` | Billing's entitlement sync (internal: billing) |
-| DELETE | `/quotas/:orgId` | Cascade-delete an org's quota doc, idempotent (`quotas:manage`, system org, aal2, step-up) |
 | POST | `/quotas/:orgId/reset` | Reset usage counters (`quotas:manage`, system org, aal2, step-up) |
 | POST | `/quotas/:orgId/increment` | Reserve usage, apply a metered batch (`meter: true`), or record an AI usage report (`report: true`) (internal service-to-service) |
 | POST | `/quotas/:orgId/decrement` | Roll back a reserved increment (internal service-to-service) |

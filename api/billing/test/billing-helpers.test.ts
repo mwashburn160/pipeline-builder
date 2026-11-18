@@ -436,7 +436,7 @@ describe('syncEntitlements durable-bus retry', () => {
     }
     const { occurredAt } = mockPublish.mock.calls[0][1] as { occurredAt: string };
     const complianceBody = (call: unknown[]) => call[1] as { occurredAt?: string };
-    const inline = mockClientPut.mock.calls.find((c) => String(c[0]).includes('/compliance/entitlements/'));
+    const inline = mockClientPut.mock.calls.find((c) => String(c[0]).includes('/compliance/internal/entitlements/'));
     // The inline attempt and the queued retry share one timestamp …
     expect(complianceBody(inline!).occurredAt).toBe(occurredAt);
 
@@ -446,7 +446,7 @@ describe('syncEntitlements durable-bus retry', () => {
     mockClientPut.mockClear();
     mockClientPut.mockResolvedValue({ statusCode: 200 });
     await handler!({ payload: mockPublish.mock.calls[0][1] });
-    const replay = mockClientPut.mock.calls.find((c) => String(c[0]).includes('/compliance/entitlements/'));
+    const replay = mockClientPut.mock.calls.find((c) => String(c[0]).includes('/compliance/internal/entitlements/'));
     expect(complianceBody(replay!).occurredAt).toBe(occurredAt);
     mockSubscriptionRow.mockReturnValue(null);
   });
@@ -553,7 +553,7 @@ describe('syncEntitlements reporting retention leg', () => {
   /** The PUT call for the reporting retention-sync leg (or undefined). */
   const retentionCall = () =>
     mockClientPut.mock.calls.find(
-      (c) => typeof c[0] === 'string' && (c[0] as string).includes('/reports/retention-sync/'),
+      (c) => typeof c[0] === 'string' && (c[0] as string).includes('/reports/internal/retention-sync/'),
     );
 
   it('pushes the tier-baseline retention (30/180) to reporting with the org path + service auth headers', async () => {
@@ -565,7 +565,7 @@ describe('syncEntitlements reporting retention leg', () => {
     const call = retentionCall();
     expect(call).toBeDefined();
     // Path carries the root orgId (mirrors platform's seat-limit route shape).
-    expect(call![0]).toBe('/reports/retention-sync/org-1');
+    expect(call![0]).toBe('/reports/internal/retention-sync/org-1');
     // Body carries the EFFECTIVE event/dora retention days.
     expect(call![1]).toEqual({ eventRetentionDays: 30, doraRetentionDays: 180, occurredAt: expect.any(String) });
     // Same auth mechanism as the seat leg: threaded bearer + x-org-id.
@@ -627,7 +627,7 @@ describe('syncEntitlements reporting retention leg', () => {
     // (returns false) and the durable-bus retry is covered in the bus-retry suite.
     mockClientPut.mockImplementation((...args: unknown[]) => {
       const path = args[0] as string;
-      if (path.includes('/reports/retention-sync/')) return Promise.resolve({ statusCode: 500 });
+      if (path.includes('/reports/internal/retention-sync/')) return Promise.resolve({ statusCode: 500 });
       return Promise.resolve({ statusCode: 200 });
     });
 
@@ -641,7 +641,7 @@ describe('syncEntitlements reporting retention leg', () => {
   it('never fails the sync when the reporting leg THROWS (fail-open)', async () => {
     mockClientPut.mockImplementation((...args: unknown[]) => {
       const path = args[0] as string;
-      if (path.includes('/reports/retention-sync/')) return Promise.reject(new Error('reporting down'));
+      if (path.includes('/reports/internal/retention-sync/')) return Promise.reject(new Error('reporting down'));
       return Promise.resolve({ statusCode: 200 });
     });
 
@@ -661,7 +661,7 @@ describe('syncEntitlements compliance content-set leg', () => {
   /** The PUT call for the compliance entitlements leg (or undefined). */
   const complianceCall = () =>
     mockClientPut.mock.calls.find(
-      (c) => typeof c[0] === 'string' && (c[0] as string).includes('/compliance/entitlements/'),
+      (c) => typeof c[0] === 'string' && (c[0] as string).includes('/compliance/internal/entitlements/'),
     );
 
   it('pushes an EMPTY set for a plain tier with no compliance entitlement', async () => {
@@ -673,7 +673,7 @@ describe('syncEntitlements compliance content-set leg', () => {
     const call = complianceCall();
     expect(call).toBeDefined();
     // Path carries the root orgId (mirrors reporting's retention-sync shape).
-    expect(call![0]).toBe('/compliance/entitlements/org-1');
+    expect(call![0]).toBe('/compliance/internal/entitlements/org-1');
     // Body carries the derived sets PLUS the entitlement-change `occurredAt`
     // (handshake #1) — an ISO string the compliance watermark orders pushes by.
     expect(call![1]).toMatchObject({ sets: [] });
@@ -728,7 +728,7 @@ describe('syncEntitlements compliance content-set leg', () => {
     // fails open; the durable-bus retry is covered in the bus-retry suite.
     mockClientPut.mockImplementation((...args: unknown[]) => {
       const path = args[0] as string;
-      if (path.includes('/compliance/entitlements/')) return Promise.resolve({ statusCode: 500 });
+      if (path.includes('/compliance/internal/entitlements/')) return Promise.resolve({ statusCode: 500 });
       return Promise.resolve({ statusCode: 200 });
     });
 
@@ -742,7 +742,7 @@ describe('syncEntitlements compliance content-set leg', () => {
   it('never fails the sync when the compliance leg THROWS (fail-open)', async () => {
     mockClientPut.mockImplementation((...args: unknown[]) => {
       const path = args[0] as string;
-      if (path.includes('/compliance/entitlements/')) return Promise.reject(new Error('compliance down'));
+      if (path.includes('/compliance/internal/entitlements/')) return Promise.reject(new Error('compliance down'));
       return Promise.resolve({ statusCode: 200 });
     });
 

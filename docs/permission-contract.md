@@ -139,14 +139,13 @@ Some requirements depend on the body in a way the route gate cannot express, and
 
 ### Gates that apply to only some requests
 
-`gateWhen` applies gates to only the requests a predicate selects, and the route table records them under `conditionalGates` with the route's own description of those requests. A row renders each one with its condition (`aal2(when …)`, `step-up(…when …)`), on top of what every request meets. Four routes use it:
+`gateWhen` applies gates to only the requests a predicate selects, and the route table records them under `conditionalGates` with the route's own description of those requests. A row renders each one with its condition (`aal2(when …)`, `step-up(…when …)`), on top of what every request meets. Three routes use it:
 
 - **`platform POST /users`**: a body with `isSuperAdmin: true` IS a platform-admin grant, so it also needs `aal2 + step-up(totp,webauthn)`, the same as `POST /admin/users/:id/grants`. An ordinary account create needs neither.
 - **`platform PATCH /user/profile`**: CHANGING the sign-in email also needs a step-up, because the email is where a password reset is sent. A username edit stays authenticated-only. The conditional gate is what puts this route in the table at all.
 - **`platform POST /user/generate-token`**: OPENING a new machine credential needs a step-up, the same as `POST /user/keys`, because it mints a refresh token that lives up to 365 days. Without it, a stolen 15-minute access token converts into a year-long credential. Renewal by the machine session itself (the caller's slot is already a machine slot) stays ungated so unattended renewal keeps working.
-- **`billing DELETE /billing/subscriptions/by-org/:orgId`**: the billing admin page's "Purge" deletes every subscription and billing event of an org, so a system-org USER must step up on the server, not only in the page's modal. The platform org-cascade calls the same route with a service token, which has no person to re-verify, so the gate selects user callers only.
 
-Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any other gate. Which requests each predicate selects is pinned in `platform/test/step-up-route-gates.test.ts` (platform) and `api/billing/test/admin-subscriptions.test.ts` (billing), and the gates' behaviour in `platform/test/gate-when.test.ts`.
+Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any other gate. Which requests each predicate selects is pinned in `platform/test/step-up-route-gates.test.ts`, and the gates' behaviour in `platform/test/gate-when.test.ts`.
 
 ## Notation
 
@@ -218,6 +217,7 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | billing | POST | `/billing/admin/orgs/:orgId/support-incidents` | `system-org + any(support_cases:write) + aal2 + step-up(any)` |
 | billing | GET | `/billing/support-incidents` | `any(messages:read)` |
 | billing | PUT | `/billing/admin/subscriptions/:id/support-floor` | `system-org + any(subscriptions:manage) + aal2 + step-up(any)` |
+| billing | POST | `/billing/internal/orgs/:orgId/purge` | `service-principal + internal(platform)` |
 | billing | POST | `/billing/internal/support-incidents/:orgId/consume` | `service-principal + internal(message)` |
 | billing | POST | `/billing/internal/support-incidents/:orgId/refund` | `service-principal + internal(message)` |
 | billing | GET | `/billing/bundles` | `any(billing:read)` |
@@ -238,7 +238,7 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | billing | DELETE | `/billing/subscriptions/:id/discounts/:discountId` | `any(billing:manage) + org-admin-assurance` |
 | billing | POST | `/billing/subscriptions/:id/discounts/preview` | `any(billing:read)` |
 | billing | POST | `/billing/subscriptions/:id/reactivate` | `any(billing:manage) + org-admin-assurance` |
-| billing | DELETE | `/billing/subscriptions/by-org/:orgId` | `system-org + any(subscriptions:manage) + aal2 + step-up(any when caller is a user, not a service principal)` |
+| billing | DELETE | `/billing/subscriptions/by-org/:orgId` | `system-org + any(subscriptions:manage) + aal2 + step-up(any)` |
 | billing | GET | `/billing/subscriptions/by-org/:orgId/billable` | `system-org + any(subscriptions:read) + aal2` |
 | billing | POST | `/billing/subscriptions/checkout` | `any(billing:manage) + org-admin-assurance` |
 | billing | GET | `/billing/summary` | `any(billing:read)` |
@@ -246,9 +246,9 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | billing | GET | `/billing/summary/usage-by-team` | `any(billing:read) + feature(team_usage_analytics)` |
 | billing | GET | `/billing/usage` | `any(billing:read)` |
 | compliance | GET | `/compliance/audit` | `any(compliance:read)` |
-| compliance | GET | `/compliance/entitlements/:orgId` | `service-principal + internal(billing)` |
-| compliance | PUT | `/compliance/entitlements/:orgId` | `service-principal + internal(billing)` |
-| compliance | POST | `/compliance/events/entity` | `service-principal + internal(pipeline,plugin)` |
+| compliance | GET | `/compliance/internal/entitlements/:orgId` | `service-principal + internal(billing)` |
+| compliance | PUT | `/compliance/internal/entitlements/:orgId` | `service-principal + internal(billing)` |
+| compliance | POST | `/compliance/internal/events/entity` | `service-principal + internal(pipeline,plugin)` |
 | compliance | POST | `/compliance/internal/orgs/:orgId/purge` | `service-principal + internal(platform)` |
 | compliance | GET | `/compliance/exemptions` | `any(compliance:read)` |
 | compliance | POST | `/compliance/exemptions` | `any(compliance:read)` |
@@ -258,7 +258,7 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | compliance | POST | `/compliance/exemptions/bulk` | `any(compliance:read)` |
 | compliance | GET | `/compliance/notification-preferences` | `any(compliance:read)` |
 | compliance | PUT | `/compliance/notification-preferences` | `any(compliance:write)` |
-| compliance | GET | `/compliance/posture` | `service-principal + internal(reporting)` |
+| compliance | GET | `/compliance/internal/posture` | `service-principal + internal(reporting)` |
 | compliance | GET | `/compliance/policies` | `any(compliance:read)` |
 | compliance | POST | `/compliance/policies` | `any(compliance:write)` |
 | compliance | DELETE | `/compliance/policies/:id` | `any(compliance:write)` |
@@ -292,7 +292,7 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | compliance | PATCH | `/compliance/subscriptions/:ruleId` | `any(compliance:read)` |
 | compliance | DELETE | `/compliance/subscriptions/:ruleId/pin` | `any(compliance:write)` |
 | compliance | POST | `/compliance/subscriptions/:ruleId/pin` | `any(compliance:write)` |
-| compliance | POST | `/compliance/subscriptions/auto-subscribe` | `service-principal + internal(platform)` |
+| compliance | POST | `/compliance/internal/subscriptions/auto-subscribe` | `service-principal + internal(platform)` |
 | compliance | POST | `/compliance/subscriptions/bulk` | `any(compliance:read)` |
 | compliance | POST | `/compliance/subscriptions/clone` | `any(compliance:write)` |
 | compliance | GET | `/compliance/subscriptions/enforced` | `any(compliance:read)` |
@@ -724,7 +724,6 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | plugin | GET | `/plugins/vulnerabilities/:advisoryId` | `any(plugins:read)` |
 | plugin | GET | `/plugins/vulnerabilities/fleet` | `system-org + any(platform:read|plugins:moderate) + aal2` |
 | quota | GET | `/quotas` | `any(quotas:read)` |
-| quota | DELETE | `/quotas/:orgId` | `system-org + any(quotas:manage) + aal2 + step-up(any)` |
 | quota | GET | `/quotas/:orgId` | `any(quotas:read)+svc` |
 | quota | PUT | `/quotas/:orgId` | `system-org + any(quotas:manage) + aal2` |
 | quota | GET | `/quotas/:orgId/:quotaType` | `any(quotas:read)+svc` |
@@ -736,6 +735,7 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | quota | GET | `/quotas/:orgId/own-usage` | `service-principal + internal(billing)` |
 | quota | PUT | `/quotas/entitlement-sync/:orgId` | `service-principal + internal(billing)` |
 | quota | GET | `/quotas/internal/:orgId/profile` | `service-principal + internal(billing)` |
+| quota | POST | `/quotas/internal/orgs/:orgId/purge` | `service-principal + internal(platform)` |
 | quota | POST | `/quotas/:orgId/reset` | `system-org + any(quotas:manage) + aal2 + step-up(any)` |
 | quota | GET | `/quotas/:orgId/usage` | `any(quotas:read)` |
 | quota | GET | `/quotas/all` | `system-org + any(orgs:read) + aal2` |
@@ -769,12 +769,12 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | reporting | GET | `/reports/plugins/summary` | `any(reports:read)` |
 | reporting | GET | `/reports/plugins/versions` | `any(reports:read)` |
 | reporting | GET | `/reports/retention` | `any(reports:read)` |
-| reporting | PUT | `/reports/retention-sync/:orgId` | `service-principal + internal(billing)` |
-| reporting | PUT | `/reports/stakeholder-sync/:orgId` | `service-principal + internal(billing)` |
-| reporting | GET | `/reports/retention-sync/:orgId` | `service-principal + internal(billing)` |
+| reporting | PUT | `/reports/internal/retention-sync/:orgId` | `service-principal + internal(billing)` |
+| reporting | PUT | `/reports/internal/stakeholder-sync/:orgId` | `service-principal + internal(billing)` |
+| reporting | GET | `/reports/internal/retention-sync/:orgId` | `service-principal + internal(billing)` |
 | reporting | GET | `/reports/settings/incidents` | `any(reports:read) + feature(advanced_reporting)` |
 | reporting | PUT | `/reports/settings/incidents` | `any(reports:read) + any(org_settings:write) + feature(advanced_reporting)` |
-| reporting | POST | `/reports/stakeholder-internal/owner-left/:orgId/:userId` | `service-principal + internal(platform)` |
+| reporting | POST | `/reports/internal/stakeholder/owner-left/:orgId/:userId` | `service-principal + internal(platform)` |
 | reporting | GET | `/reports/stakeholder/definitions` | `any(reports:read) + feature(stakeholder_reports)` |
 | reporting | POST | `/reports/stakeholder/definitions` | `any(reports:write) + feature(stakeholder_reports)` |
 | reporting | DELETE | `/reports/stakeholder/definitions/:id` | `any(reports:write) + feature(stakeholder_reports)` |

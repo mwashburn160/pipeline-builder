@@ -1318,7 +1318,7 @@
   {
    "id": 34,
    "type": "timeseries",
-   "title": "Ecosystem content erasure that did not complete",
+   "title": "User erasure that did not complete",
    "datasource": {
     "type": "prometheus",
     "uid": "${datasource}"
@@ -1336,8 +1336,8 @@
       "type": "prometheus",
       "uid": "${datasource}"
      },
-     "expr": "sum by (store) (increase(user_erasure_incomplete_total[24h]))",
-     "legendFormat": "{{store}}"
+     "expr": "sum by (service) (increase(platform_cascade_dead_total{kind=\"user.erased\"}[24h]))",
+     "legendFormat": "{{service}}"
     }
    ],
    "fieldConfig": {
@@ -1355,7 +1355,7 @@
      "sort": "desc"
     }
    },
-   "description": "A user deletion whose ecosystem-content scrub failed. The deletion itself still succeeded — the scrub is post-commit and best-effort precisely so it cannot block it — which is exactly why the residue has to be counted: nothing else would say the reviews were left behind. UserErasureIncomplete alerts on it."
+   "description": "User erasures whose cascade leg ran out of retries (platform_cascade_dead_total{kind=\"user.erased\"}), by the service that still holds the data. The deletion itself still succeeded — the erasure reaches other services through the cascade outbox after commit, precisely so it cannot block it — which is exactly why the residue has to be counted: nothing else would say the data was left behind. The counter is per platform pod and resets on restart, so read it as a recent-events signal; GET /api/admin/cascade?status=dead is the durable list. PlatformCascadeLegDead alerts on it."
   },
   {
    "id": 35,

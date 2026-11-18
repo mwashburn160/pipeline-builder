@@ -94,7 +94,7 @@ describe('registerComplianceEventSubscriber', () => {
   it('forwards the event to the compliance entity-events route', async () => {
     await emit();
     expect(post).toHaveBeenCalledTimes(1);
-    expect(post.mock.calls[0][0]).toBe('/compliance/events/entity');
+    expect(post.mock.calls[0][0]).toBe('/compliance/internal/events/entity');
     expect(post.mock.calls[0][1]).toEqual(event);
   });
 

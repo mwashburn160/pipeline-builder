@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-bundles.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: c1291d92e0862fe7bdbe64a69e910c80fc56f1212a548718376ed1e26e450bc4
+// SOURCE-SHA256: 099f2939aebd53f31b4d80258e4c91c0b36a0cad468454963a6d9cb231c60b95
 // SPDX-License-Identifier: Apache-2.0
 import { Package } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -93,7 +93,7 @@ export const billingBundlesTopic: HelpTopic = {
             [
               "Effective retention windows",
               "reporting service",
-              "PUT /api/reports/retention-sync/{orgId}, writing dora_settings"
+              "PUT /reports/internal/retention-sync/{orgId}, writing dora_settings"
             ]
           ]
         },

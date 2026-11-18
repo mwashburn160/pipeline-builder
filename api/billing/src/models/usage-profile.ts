@@ -56,6 +56,10 @@ export interface ProfileValue {
   /** Members with any activity in the period, against seats paid for. */
   activeMembers: number;
   seatsHeld: number;
+  /** Members who JOINED inside the period and have not been active in it —
+   *  onboarding, not disengagement. Inactive seats are
+   *  `seatsHeld − activeMembers − newMembers`. */
+  newMembers: number;
   /** Successful pipeline executions in the period. */
   successfulRuns: number;
   /** Builds that failed permanently — frustration rather than usage. */
@@ -116,6 +120,7 @@ const usageProfileSchema = new Schema<UsageProfileDocument>(
     value: {
       activeMembers: { type: Number, default: 0, min: 0 },
       seatsHeld: { type: Number, default: 0, min: 0 },
+      newMembers: { type: Number, default: 0, min: 0 },
       successfulRuns: { type: Number, default: 0, min: 0 },
       failedBuilds: { type: Number, default: 0, min: 0 },
     },

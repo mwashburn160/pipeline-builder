@@ -80,12 +80,15 @@ Routes marked **+ step-up** additionally require a short-lived step-up token in 
 ### Internal routes are not part of this API
 
 A handful of endpoints exist ONLY for service-to-service calls and are **closed
-to every user token**, including a superadmin's: `/internal/*`, the quota usage
-counters (`POST /quotas/:orgId/{increment,decrement}`), the entity-event ingest
-(`POST /compliance/events/entity`), the audit ingest (`POST /audit/events`), the
-org-onboarding hook (`POST /compliance/subscriptions/auto-subscribe`) and the
-entitlement sync legs (`/compliance/entitlements/:orgId`,
-`PUT /reports/retention-sync/:orgId`).
+to every user token**, including a superadmin's: every internal contract
+(`/internal/*` and `/<service>/internal/*` — e.g. the entity-event ingest
+`POST /compliance/internal/events/entity`, the org-onboarding hook
+`POST /compliance/internal/subscriptions/auto-subscribe`, and the entitlement
+sync legs `/compliance/internal/entitlements/:orgId` and
+`/reports/internal/retention-sync/:orgId`), plus the quota usage counters
+(`POST /quotas/:orgId/{increment,decrement}`) and the audit ingest
+(`POST /audit/events`). The gateway does not route an `internal` path segment
+at all — `/api/<service>/internal/*` answers `404` from outside.
 
 They require a token signed by one of a named set of internal services, so there
 is no credential a client can hold that reaches them — a request with any user

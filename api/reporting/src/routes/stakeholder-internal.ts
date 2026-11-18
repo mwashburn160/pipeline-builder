@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * `/reports/stakeholder-internal/*` — the one call platform makes into reporting.
+ * `/reports/internal/stakeholder/*` — the one call platform makes into reporting.
  *
  * A report definition names its OWNER, and a scheduled run is authorized as that
  * person. When they leave the organization, their reports have to stop: the run
@@ -64,7 +64,7 @@ export function createStakeholderInternalRoutes(): Router {
    * a deactivate-reactivate-deactivate sequence) neither double-audits nor
    * overwrites the reason a definition was first paused.
    */
-  router.post(contractRoute(OWNER_LEFT, '/reports/stakeholder-internal'),
+  router.post(contractRoute(OWNER_LEFT, '/reports/internal/stakeholder'),
     requireInternalService({ callers: OWNER_LEFT.callers }),
     audited('reporting.report.paused'),
     withRoute(async ({ req, res, ctx }) => {

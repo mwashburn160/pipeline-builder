@@ -22,7 +22,7 @@ Access control is **permission-based and single-source**: a user's effective per
 - **The system org staffs its jobs with Roles, not the flag.** Support, subscriptions, the org lifecycle, quotas, the build queue and the operator consoles are each a permission a Super Admin can grant on its own. Three routes still need the flag: granting or revoking Super Admin itself, and the single-person MFA reset.
 - **A cross-tenant surface takes three things, not one**: the permission, the system org as your *active* org, and an MFA-grade session. A repo-wide test fails any route that gates on a system-org-only permission without all three.
 - **Writes are gated; reads mostly ride the page.** That convention is deliberate and is what the route-coverage tests check.
-- **Built-in Roles are seeded at org creation** from the current catalog, inside the transaction that creates the org.
+- **Built-in Roles are created with the org; their permissions are resolved from the catalog at sign-in**, so a release's catalog change reaches every org on the next token refresh. A built-in Role stores no permission list of its own.
 - **Impersonation is consent-gated and read-only**, and every session is recorded.
 - **Teams do not inherit member authority upward.** A parent admin administers its teams; a team member gets nothing over the parent.
 
@@ -66,8 +66,13 @@ Read [The model](#the-model) first, then the [permission catalog](#permission-ca
 - **Built-in Roles** — every org seeds **Admin** and **Member**; the system org
   also seeds **Super Admin**, **Ecosystem Manager**, **Publisher Verifier** and
   the job Roles (see
-  [Ecosystem Manager](#ecosystem-manager-system-org-only)). Each built-in Role's permission set is seeded from
-  the catalog when the org is created.
+  [Ecosystem Manager](#ecosystem-manager-system-org-only)). The Roles themselves are
+  created with the org, but each built-in Role's permission set is resolved from the
+  catalog at sign-in, so a release's catalog change reaches every org on the next
+  token refresh (no claims bump is needed or made — tokens pick it up as they
+  refresh). A built-in Role stores no permission list; the Role list and detail
+  responses fill `permissions` from the catalog. A custom Role grants exactly its
+  stored list.
 - **Custom Roles** — admins with `roles:manage` can author additional Roles from
   the org-assignable catalog (see the carve-out below), bounded by a **permission
   ceiling**: an author may only grant permissions they themselves hold, so a
@@ -299,7 +304,7 @@ system-org-only permissions without the flag, alongside
 | Property | Value |
 |---|---|
 | Exists in | **The system org only.** Seeded by `seedDefaultRoles` next to Super Admin, Admin and Member when the system org is created; never seeded in a tenant org or team. The org creator is **not** added to it. |
-| Immutable | `system: true` — it can't be renamed, edited or deleted (`RL_SYSTEM_IMMUTABLE`). It is seeded from `ECOSYSTEM_MANAGER_PERMISSIONS` (it is marked `seedBundle: 'ecosystem_manager'`, which is also what keeps it out of the Member-floor lookups it shares `grantsRole: 'member'` with). |
+| Immutable | `system: true` — it can't be renamed, edited or deleted (`RL_SYSTEM_IMMUTABLE`). Its permissions are resolved from `ECOSYSTEM_MANAGER_PERMISSIONS` (it is marked `seedBundle: 'ecosystem_manager'`, which is also what keeps it out of the Member-floor lookups it shares `grantsRole: 'member'` with). |
 | `grantsRole` | `member` — no admin rights over the system org, and it **never** sets `User.isSuperAdmin`. |
 | Permissions | `plugins:read`, `plugins:moderate`, `publishers:verify`, `messages:read` (in-app notices), `observability:read` (the moderation-SLA dashboard). Nothing tenant-facing: no `registry:*`, no `members:manage`. |
 | Who can assign it | **Super Admins only.** Assigning **or** unassigning any Role that carries a system-org-only permission is refused for everyone else — an admin or owner of the system org included — with `RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN` (403). Such a Role can only be held inside the system org (`RL_SYSTEM_ORG_ROLE_OUTSIDE_SYSTEM_ORG`, 400). The same ceiling applies to service-account Role sets, and an IdP group mapping can never grant it (`IGM_FORBIDDEN_GRANT`, like the Super Admin Role). |
@@ -323,7 +328,7 @@ impersonation and a database shell at the same time.
 | Property | Value |
 |---|---|
 | Exists in | **The system org only**, seeded next to Super Admin, Admin, Member and Ecosystem Manager when the system org is created. The org creator is **not** added to it. |
-| Immutable | `system: true`, seeded from `PLATFORM_OPERATOR_PERMISSIONS` (`seedBundle: 'platform_operator'`). |
+| Immutable | `system: true`, its permissions resolved from `PLATFORM_OPERATOR_PERMISSIONS` (`seedBundle: 'platform_operator'`). |
 | `grantsRole` | `member` — no admin rights over the system org, and it **never** sets `User.isSuperAdmin`. |
 | Permissions | `platform:read`, `orgs:read`, `oncall:manage`, `observability_console:open`, `quotas:manage`, `plugin_queue:manage`, `toolchain:operate`, plus the reads that make those views usable: `registry:read`, `observability:read`, `dashboards:read`, `subscriptions:read`. (`billing:operate` moved to Account Manager — minting a discount token is commercial, not operational.) |
 | Deliberately **not** carrying | `database_console:open` and `objectstore_console:open` (staffing an operator must not hand over a data shell as a side effect), and `plugins:moderate` / `publishers:verify` (a different job with its own Role). |

@@ -32,6 +32,10 @@ const SAMPLES: Record<keyof typeof QUOTA_INTERNAL, ContractSample> = {
       },
     },
   },
+  purgeOrg: {
+    params: { orgId: 'org-1' },
+    response: { orgId: 'org-1', tables: { organizations: 1 } },
+  },
 };
 
 let table: RouteTableEntry[];

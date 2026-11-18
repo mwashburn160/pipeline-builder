@@ -15,7 +15,12 @@
 import type { RoleGrant } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
 import { IGM_FORBIDDEN_GRANT } from './idp-mapping-errors.js';
-import { assertActorMayAssignRole, carriesSystemOrgOnlyPermission } from './role-authority.js';
+import {
+  assertActorMayAssignRole,
+  carriesSystemOrgOnlyPermission,
+  effectiveRolePermissions,
+  ROLE_PERMISSION_FIELDS,
+} from './role-authority.js';
 import type { OrgId, RoleAssignmentActor, UserId } from './role-authority.js';
 import { RL_ROLE_NOT_FOUND } from './roles-errors.js';
 import { toOrgId } from '../helpers/org-id.js';
@@ -60,7 +65,7 @@ export async function assertMappableRoleSet(
   if (requested.length === 0) return [];
 
   const roles = await Role.find({ _id: { $in: requested }, organizationId: oid })
-    .session(session ?? null).select('name grantsRole permissions').lean();
+    .session(session ?? null).select(`name ${ROLE_PERMISSION_FIELDS}`).lean();
   if (roles.length !== requested.length) throw new Error(RL_ROLE_NOT_FOUND);
 
   for (const role of roles) {
@@ -68,8 +73,9 @@ export async function assertMappableRoleSet(
     // Ecosystem governance (the system org's Ecosystem Manager) is a deliberate
     // superadmin act on a named member, never something a directory keeps
     // granting — refused for everyone, like the superadmin grant.
-    if (carriesSystemOrgOnlyPermission(role.permissions as string[] | undefined)) throw new Error(IGM_FORBIDDEN_GRANT);
-    assertActorMayAssignRole(role.permissions as string[] | undefined, actor);
+    const granted = effectiveRolePermissions(role);
+    if (carriesSystemOrgOnlyPermission(granted)) throw new Error(IGM_FORBIDDEN_GRANT);
+    assertActorMayAssignRole(granted, actor);
   }
   return roles.map((r) => ({ id: String(r._id), name: r.name, grantsRole: r.grantsRole as RoleGrant }));
 }

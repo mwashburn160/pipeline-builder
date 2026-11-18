@@ -64,9 +64,9 @@ export function mountRoutes(app: Express, { quotaService, sseManager, executionT
   app.use('/reports/events', meterQuotaOnSuccess(quotaService, 'apiCalls'));
   app.use('/reports/ingest-health', meterQuotaOnSuccess(quotaService, 'apiCalls'));
   app.use('/reports/incidents', meterQuotaOnSuccess(quotaService, 'apiCalls'));
-  // Not mounted: /reports/retention-sync, /reports/stakeholder-sync and
-  // /reports/stakeholder-internal are peer-service legs (requireInternalService —
-  // service principals are never metered), and /public is unauthenticated.
+  // Not mounted: /reports/internal/* carries only peer-service legs
+  // (requireInternalService — service principals are never metered), and /public
+  // is unauthenticated.
 
   // Event ingest endpoint — auth required but no orgId (Lambda service account).
   // Mounted at a distinct prefix so requireAuth doesn't double-run for
@@ -124,18 +124,20 @@ export function mountRoutes(app: Express, { quotaService, sseManager, executionT
   // The org's effective retention horizon, read-only. `reports:read` only — NOT
   // `advanced_reporting`: the Retention Pack is sold to every tier and widens the
   // standard reports, so the Reports date-range cap must be readable without the
-  // DORA entitlement. Distinct from `/reports/retention-sync` (express matches
-  // whole path segments, so this mount never sees the machine sync leg).
+  // DORA entitlement. Distinct from `/reports/internal/retention-sync`, the machine
+  // sync leg.
   app.use('/reports/retention', ...createAuthenticatedWithOrgRoute(), requirePermission('reports:read'), createRetentionRoutes());
 
   // Inbound billing → reporting retention sync. MACHINE write: billing pushes the
   // account's effective retention entitlement (tier baseline + purchased retention
   // bundles) onto the root org's `dora_settings`. Mounted at a bare `requireAuth`
-  // machine prefix (like /reports/events, /reports/incidents) — the internal-service
-  // guard (billing's own signed token only) runs INSIDE the router. NOT gated by
-  // reports:read / advanced_reporting / an org-user permission: the caller is the
-  // billing service token, not a user, and the target org is the `:orgId` path param.
-  app.use('/reports/retention-sync', requireAuth, createRetentionSyncRoutes());
+  // machine prefix under /reports/internal (which the gateway never routes from
+  // outside) — the internal-service guard (billing's own signed token only) runs
+  // INSIDE the router. NOT gated by reports:read / advanced_reporting / an org-user
+  // permission: the caller is the billing service token, not a user, and the target
+  // org is the `:orgId` path param. Each internal router is mounted at its OWN
+  // sub-prefix, so one router's `requireAuth` never runs for another's routes.
+  app.use('/reports/internal/retention-sync', requireAuth, createRetentionSyncRoutes());
 
   // Post-deploy outcome markers (mark failed/restored). A user-facing DORA WRITE
   // that changes the org's change-failure rate + MTTR, so it is gated by a WRITE
@@ -163,18 +165,19 @@ export function mountRoutes(app: Express, { quotaService, sseManager, executionT
 
   // Inbound billing → reporting: the account gained or lost the add-on. Pauses or
   // resumes every report in the ACCOUNT (root + teams). MACHINE write on the same bare
-  // `requireAuth` machine prefix as /reports/retention-sync — the internal-service guard
-  // runs inside the router and the target root org is the `:orgId` path param.
-  app.use('/reports/stakeholder-sync', requireAuth, createStakeholderSyncRoutes());
+  // `requireAuth` machine prefix as /reports/internal/retention-sync — the
+  // internal-service guard runs inside the router and the target root org is the
+  // `:orgId` path param.
+  app.use('/reports/internal/stakeholder-sync', requireAuth, createStakeholderSyncRoutes());
 
   // Inbound platform → reporting: a member was deactivated or removed, so the
   // report definitions they OWN must stop (a scheduled run is authorized as its
   // owner). MACHINE write on a bare `requireAuth` machine prefix like
-  // /reports/events and /reports/retention-sync — the internal-service guard
+  // /reports/internal/retention-sync — the internal-service guard
   // (platform's own signed token) runs INSIDE the router, the target org is the
   // `:orgId` path param, and there is no user permission or feature entitlement to
   // check because there is no user.
-  app.use('/reports/stakeholder-internal', requireAuth, createStakeholderInternalRoutes());
+  app.use('/reports/internal/stakeholder', requireAuth, createStakeholderInternalRoutes());
 
   // Inbound platform → reporting org purge (the durable cascade outbox). The
   // route carries `requireAuth` + `requireInternalService({ callers: ['platform'] })`

@@ -13,7 +13,7 @@
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { mockAuthGuard } from './helpers/pageMocks';
+import { mockAuthGuard, pageToast } from './helpers/pageMocks';
 import DiscountsPage from '../pages/dashboard/discounts';
 import PromotionsPage from '../pages/dashboard/promotions';
 import BillingAdminPage from '../pages/dashboard/admin/billing';
@@ -175,6 +175,20 @@ describe('BillingAdminPage purge', () => {
       fireEvent.click(await screen.findByRole('button', { name: 'Purge' }));
       fireEvent.click(await screen.findByRole('button', { name: 'Confirm step-up' }));
       await waitFor(() => expect(apiMock.deleteSubscriptionByOrg).toHaveBeenCalledWith('org-9', 'step-up-tok'));
+    } finally {
+      listPage.data = [];
+    }
+  });
+
+  it('warns (not success) when the server KEPT subscriptions whose provider cancel failed', async () => {
+    apiMock.getAdminBillingSummary.mockResolvedValue({ success: true, data: null });
+    apiMock.deleteSubscriptionByOrg.mockResolvedValue({ success: true, data: { deleted: 0, events: 1, retained: 1 } });
+    listPage.data = [{ id: 's1', orgId: 'org-9', planId: 'pro', status: 'active', interval: 'monthly', cancelAtPeriodEnd: false }];
+    try {
+      render(<BillingAdminPage />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Purge' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Confirm step-up' }));
+      await waitFor(() => expect(pageToast.warning).toHaveBeenCalledWith(expect.stringContaining('1 kept')));
     } finally {
       listPage.data = [];
     }

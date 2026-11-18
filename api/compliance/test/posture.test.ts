@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * `GET /compliance/posture` — the compliance half of a stakeholder report's
+ * `GET /compliance/internal/posture` — the compliance half of a stakeholder report's
  * posture panel.
  *
  * Two things are worth pinning, and neither is the arithmetic:
@@ -147,7 +147,7 @@ beforeEach(() => {
   parentLookupFails = false;
 });
 
-describe('GET /compliance/posture', () => {
+describe('GET /compliance/internal/posture', () => {
   it('returns the counts, the frameworks and the last scan', async () => {
     enforced = RULES;
     results.push(EXEMPTIONS, SCANS);

@@ -107,7 +107,7 @@ Inline validation on upload or create is synchronous and blocking. Existing enti
 | `GET` | `/compliance/subscriptions` | List org's subscriptions (with rule details) |
 | `POST` | `/compliance/subscriptions` | Subscribe to a published rule |
 | `POST` | `/compliance/subscriptions/clone` | Clone a published rule into an editable org rule |
-| `POST` | `/compliance/subscriptions/auto-subscribe` | Subscribe to all published rules (inactive; used at org onboarding) |
+| `POST` | `/compliance/internal/subscriptions/auto-subscribe` | Subscribe to all published rules (inactive; used at org onboarding) |
 | `PATCH` | `/compliance/subscriptions/:ruleId` | Activate or deactivate a subscription (`{ isActive: boolean }`) |
 | `POST` | `/compliance/subscriptions/bulk` | Activate/deactivate many subscriptions at once (`{ ruleIds, isActive }`) |
 | `GET` | `/compliance/subscriptions/enforced` | Merged view of all currently-enforced rules (org + active subscriptions) |
@@ -302,7 +302,7 @@ Buying an add-on adds **zero content** to your org — it grants **access** to t
 
 ### Entitlement lifecycle (auto-subscribe / deactivate)
 
-Entitlement changes drive the subscriptions automatically via a billing → compliance sync leg (`PUT /api/compliance/entitlements/:orgId`, service-principal-authenticated, body `{ sets }`). It runs on every entitlement change — purchase, cancel, renewal — and via the billing drift reconciler:
+Entitlement changes drive the subscriptions automatically via a billing → compliance sync leg (`PUT /compliance/internal/entitlements/:orgId`, service-principal-authenticated, body `{ sets }`). It runs on every entitlement change — purchase, cancel, renewal — and via the billing drift reconciler:
 
 - **On gain** (purchase or tier inclusion) — the org is **auto-subscribed and activated** to every rule tagged for each entitled set, so the curated library begins enforcing immediately. No manual subscribe step is needed.
 - **On loss** (cancel or downgrade) — the set's subscriptions are **deactivated**, so those rules stop enforcing. Pointers are **retained**, so re-buying reactivates them (no re-subscribe).

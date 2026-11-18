@@ -6,11 +6,11 @@
  * erasure, one entry per owning service.
  *
  * Every leg is delivered by the durable outbox (services/cascade-outbox.ts),
- * never inline, so each one has the same retry, backoff, dead-letter metric
- * and alert. Before the outbox there were two integration styles — platform
- * wrote ~45 other services' Postgres tables directly, and reached quota,
- * billing, message blobs and the registry over HTTP — and neither retried once
- * the org document was gone.
+ * never inline, and every one through a typed internal contract, so each has
+ * the same retry, backoff, dead-letter metric and alert. Before the outbox
+ * there were two integration styles — platform wrote ~45 other services'
+ * Postgres tables directly, and reached quota, billing, message blobs and the
+ * registry over HTTP — and neither retried once the org document was gone.
  *
  * A leg's `deliver` NEVER throws and answers `ok` only for a 2xx: that is the
  * ack. Every handler it calls is idempotent, so redelivering an acked leg (a
@@ -18,6 +18,7 @@
  */
 
 import {
+  BILLING_INTERNAL,
   callInternal,
   COMPLIANCE_INTERNAL,
   createSafeClient,
@@ -28,6 +29,7 @@ import {
   OPS_CENTER_INTERNAL,
   PIPELINE_INTERNAL,
   PLUGIN_INTERNAL,
+  QUOTA_INTERNAL,
   REPORTING_INTERNAL,
   SYSTEM_ORG_ID,
   type InternalEndpointContract,
@@ -67,8 +69,8 @@ function client(endpoint: Endpoint, timeout = config.organization.cascadeHttpTim
 /**
  * The platform service token every leg sends: system-org bound (the purge is
  * the platform acting, not a tenant), with `x-org-id` naming the org being
- * torn down — exactly what the HTTP cascade legs always sent, so quota's and
- * billing's existing system-org gates admit it unchanged.
+ * torn down. Every receiving route gates on `requireInternalService` naming
+ * `platform`; the target org is the PATH param.
  */
 function headers(orgId: string): Record<string, string> {
   return {
@@ -111,17 +113,18 @@ function viaContract(
   };
 }
 
-/** Deliver as a plain DELETE (quota and billing predate the contracts). */
-function viaDelete(endpoint: () => Endpoint, path: (orgId: string) => string): (orgId: string) => Promise<CascadeDelivery> {
-  return async (orgId) => {
-    try {
-      const resp = await client(endpoint()).delete(path(orgId), { headers: headers(orgId) });
-      if (!resp) return { ok: false, error: 'unreachable' };
-      const ok = resp.statusCode >= 200 && resp.statusCode < 300;
-      return ok ? { ok, statusCode: resp.statusCode } : { ok, statusCode: resp.statusCode, error: `HTTP ${resp.statusCode}` };
-    } catch (err) {
-      return { ok: false, error: errorMessage(err) };
-    }
+/**
+ * The `incomplete` hook for a leg answering `OrgPurgeWithRemainderResponse`:
+ * any non-zero `remaining` count is a partial purge (not an ack).
+ */
+function remainingAfterPurge(service: string): (data: unknown) => string | null {
+  return (data) => {
+    const remaining = (data as { remaining?: unknown }).remaining;
+    if (!remaining || typeof remaining !== 'object') return null;
+    const left = Object.entries(remaining as Record<string, unknown>)
+      .filter(([, n]) => typeof n === 'number' && n > 0)
+      .map(([table, n]) => `${n} ${table}`);
+    return left.length > 0 ? `${service} purge incomplete: ${left.join(', ')} left` : null;
   };
 }
 
@@ -141,11 +144,19 @@ export const CASCADE_LEGS: readonly CascadeLeg[] = [
   // Dashboards, alert rules + destinations and their delivery status (the
   // operations control plane, split out of platform).
   { kind: 'org.deleted', service: 'ops-center', deliver: viaContract(() => config.opsCenter, OPS_CENTER_INTERNAL.purgeOrg, 'orgId') },
-  // ---- org.deleted: the legs that were already HTTP ----
-  // The quota document (enforcement for the org).
-  { kind: 'org.deleted', service: 'quota', deliver: viaDelete(() => config.quota, (o) => `/quotas/${encodeURIComponent(o)}`) },
+  // ---- org.deleted: Mongo documents, deleted by their owning service ----
+  // The quota document (enforcement for the org). One deleteOne: no partial outcome.
+  { kind: 'org.deleted', service: 'quota', deliver: viaContract(() => config.quota, QUOTA_INTERNAL.purgeOrg, 'orgId') },
   // Cancels any billable subscription at the provider, then drops it + its events.
-  { kind: 'org.deleted', service: 'billing', deliver: viaDelete(() => config.billing, (o) => `/billing/subscriptions/by-org/${encodeURIComponent(o)}`) },
+  {
+    kind: 'org.deleted',
+    service: 'billing',
+    deliver: viaContract(() => config.billing, BILLING_INTERNAL.purgeOrg, 'orgId', {
+      // A 200 that KEPT subscriptions (their provider cancel failed) is a partial
+      // purge: the provider is still charging, and the retry cancels them again.
+      incomplete: remainingAfterPurge('billing'),
+    }),
+  },
   // The org's MinIO attachment blobs (`<orgId>/…`) — platform holds no object-storage client.
   { kind: 'org.deleted', service: 'message-blobs', deliver: viaContract(() => config.message, MESSAGE_INTERNAL.purgeOrgAttachments, 'orgId') },
   // The org's PRIVATE `org-<id>/*` registry namespace. Published `public/*`

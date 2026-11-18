@@ -27,6 +27,7 @@ import {
   type EcosystemNotifyRequest,
   type EcosystemRecipientSpec,
 } from '@pipeline-builder/api-core';
+import { effectiveRolePermissions, ROLE_PERMISSION_FIELDS } from './role-authority.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { Role, RoleAssignment, User, UserOrganization, UserPreferences } from '../models/index.js';
 import { incCounter } from '../observability/metrics.js';
@@ -75,7 +76,11 @@ async function activeMembers(orgId: string, userIds?: string[]): Promise<string[
  */
 export async function holdersOfPermission(orgId: string, permission: string): Promise<string[]> {
   const oid = toOrgId(orgId);
-  const roles = await Role.find({ organizationId: oid, permissions: permission }).select('_id').lean();
+  // Filtered in memory, not by a `permissions` query: a built-in Role stores no
+  // list (its grant is resolved from the catalog), so only the resolver knows
+  // which Roles carry `permission`. An org has a handful of Roles.
+  const roles = (await Role.find({ organizationId: oid }).select(`_id ${ROLE_PERMISSION_FIELDS}`).lean())
+    .filter((role) => effectiveRolePermissions(role).includes(permission));
   if (roles.length === 0) return [];
   const assignments = await RoleAssignment.find({
     organizationId: oid,

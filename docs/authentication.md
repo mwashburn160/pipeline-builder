@@ -2319,9 +2319,12 @@ pod may take minutes to schedule).
 
 ### Internal routes
 
-A handful of routes exist ONLY for service-to-service calls — `/internal/*`, the
-quota usage counters, the entity-event and audit ingests, and the billing→
-compliance / billing→reporting entitlement legs. They go through one shared gate,
+A handful of routes exist ONLY for service-to-service calls — every internal
+contract (api-core `INTERNAL_CONTRACTS`), plus the quota usage counters and the
+audit ingest. Every internal contract is served under `/internal/*` or
+`/<service>/internal/*` (`defineInternalEndpoint` refuses any other path), and the
+gateway refuses that segment from outside (`/api/<service>/internal/*` → `404`),
+so one rule takes all of them off the external surface. They go through one shared gate,
 `requireInternalService({ callers: [...] })`, which:
 
 - **refuses every user token outright** — not a member's, not a superadmin's, not

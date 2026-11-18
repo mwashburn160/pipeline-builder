@@ -216,7 +216,6 @@ describe('dispatchCascadeOutbox', () => {
 
     expect(legOf('quota')).toMatchObject({ status: 'dead', attempts: 4, lastError: 'HTTP 500', lastStatusCode: 500 });
     expect(mockIncCounter).toHaveBeenCalledWith('platform_cascade_dead_total', { service: 'quota', kind: 'org.deleted' });
-    expect(mockIncCounter).not.toHaveBeenCalledWith('user_erasure_incomplete_total', expect.anything());
     expect(mockAudit).toHaveBeenCalledTimes(1);
     expect(mockAudit.mock.calls[0]![0]).toMatchObject({
       action: 'org.cascade.dead',
@@ -234,7 +233,7 @@ describe('dispatchCascadeOutbox', () => {
     expect(mockDeliver).not.toHaveBeenCalled();
   });
 
-  it('a dead user-erasure leg also counts as an incomplete erasure (its alert keeps firing)', async () => {
+  it('a dead user-erasure leg counts once, under its own kind (the one erasure signal)', async () => {
     rows.length = 0;
     await enqueueCascade('user.erased', 'u-9', SESSION as never, now());
     mockDeliver.mockResolvedValue({ ok: false, error: 'unreachable' });
@@ -243,7 +242,9 @@ describe('dispatchCascadeOutbox', () => {
 
     expect(legOf('plugin', 'user.erased').status).toBe('dead');
     expect(mockIncCounter).toHaveBeenCalledWith('platform_cascade_dead_total', { service: 'plugin', kind: 'user.erased' });
-    expect(mockIncCounter).toHaveBeenCalledWith('user_erasure_incomplete_total', { store: 'postgres' });
+    // No second, erasure-only counter: platform_cascade_dead_total{kind="user.erased"} IS the signal.
+    const counters = mockIncCounter.mock.calls.map((c) => c[0]).filter((n) => n !== 'platform_cascade_delivery_total');
+    expect(counters).toEqual(['platform_cascade_dead_total']);
     expect(mockAudit.mock.calls[0]![0]).toMatchObject({ targetType: 'user', targetId: 'u-9' });
     expect(mockAudit.mock.calls[0]![0]).not.toHaveProperty('affectedOrgId');
   });

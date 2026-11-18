@@ -24,7 +24,7 @@ import { createRestorePolicyRoutes } from './routes/restore-policies.js';
 import { createRestoreRuleRoutes } from './routes/restore-rules.js';
 import { createScanScheduleRoutes } from './routes/scan-schedules.js';
 import { createScanRoutes } from './routes/scans.js';
-import { createPublishedRulesCatalogRoutes, createSubscriptionRoutes } from './routes/subscriptions.js';
+import { createAutoSubscribeRoutes, createPublishedRulesCatalogRoutes, createSubscriptionRoutes } from './routes/subscriptions.js';
 import { createTemplateRoutes } from './routes/templates.js';
 import { createUpdatePolicyRoutes } from './routes/update-policies.js';
 import { createUpdateRuleRoutes } from './routes/update-rules.js';
@@ -120,29 +120,37 @@ export function mountRoutes(app: Express, { quotaService }: ComplianceRouteDeps)
   // Rule templates (auth + org)
   app.use('/compliance/templates', ...createAuthenticatedWithOrgRoute(), createTemplateRoutes());
 
-  // Internal entity event receiver. The route itself runs `requireAuth` +
+  // ---- Internal (service-to-service) routes: all under /compliance/internal ----
+  // The gateway never routes an `internal` segment from outside, and each route
+  // runs `requireInternalService` with its contract's callers, so no user token
+  // reaches any of them. Each router is mounted at its OWN sub-prefix so one
+  // router's prefix middleware never runs for another's routes.
+
+  // Entity event receiver. The route itself runs `requireAuth` +
   // `requireInternalService({ callers: ['pipeline', 'plugin'] })`, so only those
   // two services' own signed tokens reach it — no user token, and no other
   // service.
-  app.use('/compliance/events/entity', createEntityEventRoutes());
+  app.use('/compliance/internal/events/entity', createEntityEventRoutes());
 
-  // Internal billing → compliance entitlement sync (curated content sets). Bare
-  // `requireAuth` prefix (like reporting's /reports/retention-sync); the route
-  // itself enforces `requireInternalService({ callers: ['billing'] })`, so
-  // requireAuth doesn't double-run and no org-user permission/feature gate
-  // applies. Resolves to `/api/compliance/entitlements/:orgId` behind the
-  // gateway.
-  app.use('/compliance/entitlements', requireAuth, createEntitlementSyncRoutes());
+  // Platform's onboarding auto-subscribe: auth + org (the org is the token's),
+  // then `requireInternalService({ callers: ['platform'] })` on the route.
+  app.use('/compliance/internal/subscriptions', ...createAuthenticatedWithOrgRoute(), createAutoSubscribeRoutes());
 
-  // Internal compliance → reporting posture read (a stakeholder report's compliance
+  // Billing → compliance entitlement sync (curated content sets). Bare
+  // `requireAuth` prefix (like reporting's retention sync); the route itself
+  // enforces `requireInternalService({ callers: ['billing'] })`, so requireAuth
+  // doesn't double-run and no org-user permission/feature gate applies.
+  app.use('/compliance/internal/entitlements', requireAuth, createEntitlementSyncRoutes());
+
+  // Compliance → reporting posture read (a stakeholder report's compliance
   // panel). Bare `requireAuth` prefix like the entitlement sync above; the route
   // enforces `requireInternalService({ callers: ['reporting'] })` itself and takes the
   // org from the caller's token, so no user permission or feature gate applies and
   // there is no path parameter to disagree with. Read-only: counts and a scan date.
-  app.use('/compliance/posture', requireAuth, createPostureRoutes());
+  app.use('/compliance/internal/posture', requireAuth, createPostureRoutes());
 
-  // Internal platform → compliance org purge (the durable cascade outbox). The
-  // route runs `requireAuth` + `requireInternalService({ callers: ['platform'] })`
-  // itself and tears down only this service's own tables (idempotent).
+  // Platform → compliance org purge (the durable cascade outbox). The route runs
+  // `requireAuth` + `requireInternalService({ callers: ['platform'] })` itself
+  // and tears down only this service's own tables (idempotent).
   app.use('/compliance/internal', createInternalOrgPurgeRoutes());
 }

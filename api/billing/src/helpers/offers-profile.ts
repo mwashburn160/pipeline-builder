@@ -89,7 +89,7 @@ export async function buildProfile(input: {
     period: string;
     tier: PlanTier;
     dimensions: Record<string, ProfileDimension>;
-    value: { activeMembers: number; seatsHeld: number; successfulRuns: number; failedBuilds: number };
+    value: { activeMembers: number; seatsHeld: number; newMembers: number; successfulRuns: number; failedBuilds: number };
     addonsHeld: string[];
     spendCents: number;
     subscriptionAgeDays: number;
@@ -137,6 +137,9 @@ export async function buildProfile(input: {
     value: {
       activeMembers: seats?.activeMembers ?? 0,
       seatsHeld,
+      // Just-joined members not yet active, so a fresh hire is not read as a
+      // disengaging seat (inactive = seatsHeld − activeMembers − newMembers).
+      newMembers: seats?.newMembers ?? 0,
       // Not yet collected: the run/build counts need reporting reads this phase
       // does not open. Recorded as 0 with the gap named, rather than omitted —
       // a rule that needs them can check `incompleteReasons` instead of reading

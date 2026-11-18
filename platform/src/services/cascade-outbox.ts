@@ -263,9 +263,6 @@ async function deliver(leg: Pick<CascadeOutboxData, 'kind' | 'service' | 'subjec
  */
 function deadLetter(leg: Pick<CascadeOutboxData, 'kind' | 'service' | 'subjectId'>, attempts: number, lastError: string, statusCode?: number): void {
   count('platform_cascade_dead_total', { service: leg.service, kind: leg.kind });
-  // The pre-outbox erasure signal, kept so its alert and panel still read a
-  // user erasure that did not finish — now only after every retry failed.
-  if (leg.kind === 'user.erased') count('user_erasure_incomplete_total', { store: 'postgres' });
   logger.error('Cascade leg DEAD — retries exhausted; the subject\'s data remains in the owning service', {
     kind: leg.kind, subjectId: leg.subjectId, service: leg.service, attempts, lastError, statusCode,
   });

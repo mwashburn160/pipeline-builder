@@ -59,6 +59,9 @@ const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   // router-relative path the handler file shows is not what the guard compares.
   { method: 'POST', path: '/billing/internal/support-incidents/:orgId/consume', callers: ['message'] },
   { method: 'POST', path: '/billing/internal/support-incidents/:orgId/refund', callers: ['message'] },
+  // platform's durable cascade outbox: cancel a purged org's billable
+  // subscriptions at the provider and drop them + their events (idempotent).
+  { method: 'POST', path: '/billing/internal/orgs/:orgId/purge', callers: ['platform'] },
 ];
 
 /** Routes that legitimately can't satisfy a rule, each with its reason. */

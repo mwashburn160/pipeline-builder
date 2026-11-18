@@ -75,7 +75,7 @@ describe('pauseFormerMemberReports', () => {
   it('asks reporting to pause, naming the org, the user and the reason', async () => {
     await pauseFormerMemberReports(ORG, USER);
     expect(mockPost).toHaveBeenCalledWith(
-      `/reports/stakeholder-internal/owner-left/${ORG}/${USER}`,
+      `/reports/internal/stakeholder/owner-left/${ORG}/${USER}`,
       { reason: 'owner_inactive' },
       expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer service-token' }) }),
     );

@@ -18,7 +18,7 @@ Built on the shared core packages: `@pipeline-builder/api-core` (auth, quota, re
 
 ## Endpoints
 
-The service listens on port `3000`. The API gateway (nginx) routes `/api/compliance/*` here, rewriting to the internal `/compliance/*` paths below.
+The service listens on port `3000`. The API gateway (nginx) routes `/api/compliance/*` here, rewriting to the `/compliance/*` paths below — except `/api/compliance/internal/*`, which the gateway refuses (404): the `/compliance/internal/*` routes are service-to-service only.
 
 | Method | Path | Purpose |
 |--------|------|---------|
@@ -34,7 +34,6 @@ The service listens on port `3000`. The API gateway (nginx) routes `/api/complia
 | GET | `/compliance/subscriptions` | List the org's subscriptions |
 | POST | `/compliance/subscriptions` | Subscribe to a published rule |
 | POST | `/compliance/subscriptions/bulk` | Bulk activate/deactivate subscriptions |
-| POST | `/compliance/subscriptions/auto-subscribe` | Auto-subscribe at org onboarding |
 | POST | `/compliance/subscriptions/clone` | Clone a published rule into org scope |
 | GET | `/compliance/subscriptions/enforced` | List enforced (active) subscriptions |
 | POST | `/compliance/subscriptions/preview` | Preview a rule against sample attributes |
@@ -62,9 +61,10 @@ The service listens on port `3000`. The API gateway (nginx) routes `/api/complia
 | POST | `/compliance/templates/apply` | Apply a template to bootstrap rules |
 | GET | `/compliance/audit` | Query the compliance audit log |
 | GET/PUT | `/compliance/notification-preferences` | Read / upsert the org's notification preference (PUT is org-admin; webhook secret never returned) |
-| POST | `/compliance/events/entity` | Internal entity-event receiver (`pipeline` / `plugin` service tokens only; the body `orgId` must match the token org; the parent org is resolved server-side and the audit actor is the calling service) |
-| PUT/GET | `/compliance/entitlements/:orgId` | Internal billing entitlement sync / drift read (`billing` service token only) |
-| GET | `/compliance/posture` | Internal posture counts for stakeholder reports (`reporting` service token only) |
+| POST | `/compliance/internal/subscriptions/auto-subscribe` | Internal auto-subscribe at org onboarding (`platform` service token only) |
+| POST | `/compliance/internal/events/entity` | Internal entity-event receiver (`pipeline` / `plugin` service tokens only; the body `orgId` must match the token org; the parent org is resolved server-side and the audit actor is the calling service) |
+| PUT/GET | `/compliance/internal/entitlements/:orgId` | Internal billing entitlement sync / drift read (`billing` service token only) |
+| GET | `/compliance/internal/posture` | Internal posture counts for stakeholder reports (`reporting` service token only) |
 
 ## Configuration
 

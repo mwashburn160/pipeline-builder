@@ -6,10 +6,13 @@
  *
  *  - support incidents: the message service spends an org's one-time support
  *    incident when a case is opened against no contact seat, and refunds it
- *    when that case did not open (or the consume's outcome was unknown).
+ *    when that case did not open (or the consume's outcome was unknown);
+ *  - org purge: platform's cascade outbox cancels a deleted org's billable
+ *    subscriptions at the payment provider and drops them + their events.
  */
 
 import { z } from 'zod';
+import { CASCADE_LEG_AUTH, CascadeOrgParams, OrgPurgeWithRemainderResponse } from './cascade.js';
 import { defineInternalEndpoint } from './define.js';
 
 /** A support-incident idempotency key: the caller's per-submission id. */
@@ -60,5 +63,26 @@ export const BILLING_INTERNAL = {
     params: OrgIdParams,
     body: IncidentKeyBody,
     response: z.object({ refunded: z.boolean(), balance: z.number().nullable() }),
+  }),
+  /**
+   * Cancel every billable subscription of the org at the provider, then drop
+   * the org's subscriptions and billing events. 200
+   * `{ orgId, tables: { subscriptions, billingEvents }, remaining: { subscriptions } }`.
+   *
+   * A subscription whose provider cancel FAILED is kept (with its events), and
+   * counted in `remaining`: dropping it would leave the provider charging with
+   * nothing left to reconcile against. Such a 200 is not an ack — the leg
+   * retries, and the retry cancels it again. Idempotent; a store failure is a
+   * 500.
+   */
+  purgeOrg: defineInternalEndpoint({
+    id: 'billing.purgeOrg',
+    service: 'billing',
+    method: 'POST',
+    path: '/billing/internal/orgs/:orgId/purge',
+    callers: ['platform'],
+    auth: CASCADE_LEG_AUTH,
+    params: CascadeOrgParams,
+    response: OrgPurgeWithRemainderResponse,
   }),
 } as const;

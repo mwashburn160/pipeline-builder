@@ -132,7 +132,7 @@ describe('platform step-up tokens under api-core requireStepUp', () => {
   it('rejects an HS256 step-up token forged with the shared service secret', async () => {
     // Every service used to hold one shared secret; that alone was enough to clear a
     // step-up gate on any of them.
-    const forged = jwt.sign({ type: 'step-up', sub: 'u1', jti: 'forged' }, SECRET, { algorithm: 'HS256', expiresIn: 60 });
+    const forged = jwt.sign({ type: 'step-up', sub: 'u1', method: 'totp', jti: 'forged' }, SECRET, { algorithm: 'HS256', expiresIn: 60 });
     const { next, code } = await run(mockReq({ sub: 'u1', token: forged }));
     expect(next).not.toHaveBeenCalled();
     expect(code).toBe('STEP_UP_INVALID');

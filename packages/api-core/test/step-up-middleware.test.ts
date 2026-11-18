@@ -38,7 +38,7 @@ afterAll(() => uninstallTestJwks());
 let jtiSeq = 0;
 /** Sign a step-up token with a unique jti (so single-use tests don't collide). */
 function signStepUp(overrides: Record<string, unknown> = {}, key: TestSigningKey = signingKey): string {
-  return signTestUserToken({ type: 'step-up', sub: 'user-1', jti: `jti-${jtiSeq++}`, ...overrides }, { key, expiresIn: 60 });
+  return signTestUserToken({ type: 'step-up', sub: 'user-1', method: 'totp', jti: `jti-${jtiSeq++}`, ...overrides }, { key, expiresIn: 60 });
 }
 
 function mockReq(overrides: Partial<Request> = {}): Request {
@@ -68,8 +68,13 @@ describe('verifyStepUpToken', () => {
   });
 
   it('rejects a step-up token missing a jti', async () => {
-    const noJti = await signTestUserToken({ type: 'step-up', sub: 'abc' }, { key: signingKey, expiresIn: 60 });
+    const noJti = await signTestUserToken({ type: 'step-up', sub: 'abc', method: 'totp' }, { key: signingKey, expiresIn: 60 });
     await expect(verifyStepUpToken(noJti)).rejects.toThrow();
+  });
+
+  it('rejects a step-up token without a method (platform always sets one)', async () => {
+    const noMethod = await signTestUserToken({ type: 'step-up', sub: 'abc', jti: 'j-nomethod' }, { key: signingKey, expiresIn: 60 });
+    await expect(verifyStepUpToken(noMethod)).rejects.toThrow('INVALID_STEP_UP_TOKEN');
   });
 
   it('rejects a bad signature', async () => {
@@ -77,7 +82,7 @@ describe('verifyStepUpToken', () => {
   });
 
   it('rejects an HS256 step-up token signed with the shared JWT_SECRET', async () => {
-    const forged = jwt.sign({ type: 'step-up', sub: 'abc', jti: 'j-hs' }, SECRET, { expiresIn: 60 });
+    const forged = jwt.sign({ type: 'step-up', sub: 'abc', method: 'totp', jti: 'j-hs' }, SECRET, { expiresIn: 60 });
     await expect(verifyStepUpToken(forged)).rejects.toThrow();
   });
 
@@ -136,6 +141,16 @@ describe('requireStepUp middleware', () => {
     const res = mockRes();
     const next = jest.fn<AnyFn>();
     await requireStepUp(mockReq({ user: okUser as never, headers: { 'x-step-up-token': 'not-a-jwt' } }), res, next);
+    expect(res._status).toBe(401);
+    expect(res._json.code).toBe('STEP_UP_INVALID');
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('401 STEP_UP_INVALID for a token without a method, even on a gate with no { methods }', async () => {
+    const res = mockRes();
+    const next = jest.fn<AnyFn>();
+    const token = await signTestUserToken({ type: 'step-up', sub: 'user-1', jti: `jti-${jtiSeq++}` }, { key: signingKey, expiresIn: 60 });
+    await requireStepUp(mockReq({ user: okUser as never, headers: { 'x-step-up-token': token } }), res, next);
     expect(res._status).toBe(401);
     expect(res._json.code).toBe('STEP_UP_INVALID');
     expect(next).not.toHaveBeenCalled();

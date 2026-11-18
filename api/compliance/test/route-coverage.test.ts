@@ -37,7 +37,7 @@ const EXCEPTIONS: RouteCoverageException[] = [
   ...INFRA_ROUTE_EXCEPTIONS,
   {
     method: 'POST',
-    path: '/compliance/events/entity',
+    path: '/compliance/internal/events/entity',
     waive: 'all',
     reason: 'INTERNAL entity-event ingest: requireAuth + requireInternalService({ callers: [pipeline, plugin] }), no user token accepted; the rule evaluation it runs writes the compliance check log, not an admin audit event.',
   },
@@ -68,14 +68,14 @@ const EXCEPTIONS: RouteCoverageException[] = [
  * against the code in both directions.
  */
 const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
-  { method: 'POST', path: '/compliance/events/entity', callers: ['pipeline', 'plugin'] },
-  { method: 'POST', path: '/compliance/subscriptions/auto-subscribe', callers: ['platform'] },
-  { method: 'PUT', path: '/compliance/entitlements/:orgId', callers: ['billing'] },
-  { method: 'GET', path: '/compliance/entitlements/:orgId', callers: ['billing'] },
+  { method: 'POST', path: '/compliance/internal/events/entity', callers: ['pipeline', 'plugin'] },
+  { method: 'POST', path: '/compliance/internal/subscriptions/auto-subscribe', callers: ['platform'] },
+  { method: 'PUT', path: '/compliance/internal/entitlements/:orgId', callers: ['billing'] },
+  { method: 'GET', path: '/compliance/internal/entitlements/:orgId', callers: ['billing'] },
   // Read-only posture counts for a stakeholder report's compliance panel. The org comes
   // from the caller's token, not a path parameter, so there is nothing to disagree with;
   // nothing here can create a scan, evaluate a rule, or read a rule's conditions.
-  { method: 'GET', path: '/compliance/posture', callers: ['reporting'] },
+  { method: 'GET', path: '/compliance/internal/posture', callers: ['reporting'] },
   // platform's durable cascade outbox: tear a purged org's rows out of this service's own tables (idempotent).
   { method: 'POST', path: '/compliance/internal/orgs/:orgId/purge', callers: ['platform'] },
 ];

@@ -76,7 +76,7 @@ const token = (permissions: readonly string[], opts: { org?: string; aal?: numbe
   aal: opts.aal ?? 2,
   amr: ['pwd', 'mfa'],
 }, { key: userKey });
-const stepUpToken = () => signTestUserToken({ type: 'step-up', sub: 'u-mod', jti: randomUUID() }, { key: userKey, expiresIn: 60 });
+const stepUpToken = () => signTestUserToken({ type: 'step-up', sub: 'u-mod', method: 'totp', jti: randomUUID() }, { key: userKey, expiresIn: 60 });
 const MODERATOR = ['plugins:moderate'];
 
 async function call(method: string, path: string, tok: string, stepUp?: string): Promise<{ status: number; body: any }> {

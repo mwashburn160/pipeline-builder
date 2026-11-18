@@ -88,7 +88,7 @@ describe('putContractJson', () => {
   it('PUTs the contract path and the validated body with tenant headers', async () => {
     clientPut.mockReturnValue({ statusCode: 200, body: { data: { ok: true, activated: 1, deactivated: 0 } } });
     expect(await putContractJson(TARGET, SYNC, { sets: ['standard'] }, 'org-1', 'Bearer x')).toEqual({ statusCode: 200 });
-    expect(clientPut).toHaveBeenCalledWith('/compliance/entitlements/org-1', { sets: ['standard'] }, { headers: { 'Authorization': 'Bearer x', 'x-org-id': 'org-1' } });
+    expect(clientPut).toHaveBeenCalledWith('/compliance/internal/entitlements/org-1', { sets: ['standard'] }, { headers: { 'Authorization': 'Bearer x', 'x-org-id': 'org-1' } });
   });
 
   it('reports a refusal, and a 2xx whose body is not the contract\'s, by status', async () => {

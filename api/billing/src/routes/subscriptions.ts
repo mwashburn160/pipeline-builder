@@ -170,7 +170,8 @@ function findManageableSubscription(id: string | undefined, orgId: string, extra
  * - POST /subscriptions/:id/cancel -- cancel at period end (admin)
  * - POST /subscriptions/:id/reactivate -- undo pending cancellation (admin)
  *
- * The org-cascade DELETE /subscriptions/by-org/:orgId lives in the admin router.
+ * The admin Purge (DELETE /subscriptions/by-org/:orgId) lives in the admin router;
+ * the org-purge cascade leg in routes/internal-org-purge.ts.
  * @returns Express Router
  */
 export function createSubscriptionRoutes(): Router {

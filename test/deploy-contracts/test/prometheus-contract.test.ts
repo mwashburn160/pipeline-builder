@@ -598,8 +598,9 @@ describe('plugin ecosystem operations', () => {
       // One metric per question the dashboard exists to answer. The last two are
       // the deliberate asymmetries worth protecting: `mongo_index_unknown` is
       // reported WITHOUT an alert (an operator's hand-added index is expected, and
-      // index-reconcile.ts leaves it alone), while `user_erasure_incomplete_total`
-      // has an alert and would otherwise have had no panel at all.
+      // index-reconcile.ts leaves it alone), while `platform_cascade_dead_total`
+      // (read for kind="user.erased": a GDPR erasure that ran out of retries) has
+      // an alert and would otherwise have had no panel at all.
       metrics: [
         'pipeline_executions_total', 'plugin_builds_total',
         'plugin_build_duration_seconds_bucket', 'plugin_job_wait_seconds_bucket',
@@ -627,7 +628,7 @@ describe('plugin ecosystem operations', () => {
         // propose tool refused (alerted as AskProposalRefusedFields).
         'ai_tool_generation_charged_total', 'ask_turn_generation_budget_refused_total', 'ask_proposal_refused_fields_total',
         'billing_invoice_ingested_total',
-        'mongo_index_unknown', 'user_erasure_incomplete_total',
+        'mongo_index_unknown', 'platform_cascade_dead_total',
         // Alert delivery. `alert_delivery_enabled` is the one panel that answers
         // "would anyone hear this?" — and `oncall_pages_total` separates an
         // accepted page from a disabled one, which is what keeps the

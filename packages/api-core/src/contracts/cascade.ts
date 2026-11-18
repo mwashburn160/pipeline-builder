@@ -30,6 +30,18 @@ export const OrgPurgeResponse = z.object({
   tables: z.record(z.string(), z.number()),
 });
 
+/**
+ * The org-purge success `data` of a leg whose teardown can be PARTIAL without
+ * being a failure of the service itself: `tables` is what went, `remaining`
+ * what is still there and why the leg must be redelivered (billing keeps a
+ * subscription whose provider cancel failed, so the retry can cancel it again).
+ * A 200 with any non-zero `remaining` count is NOT an ack — the caller's
+ * `incomplete` hook reads it. An empty `remaining` is the complete purge.
+ */
+export const OrgPurgeWithRemainderResponse = OrgPurgeResponse.extend({
+  remaining: z.record(z.string(), z.number()),
+});
+
 /** The auth prose every cascade leg shares. */
 export const CASCADE_LEG_AUTH = 'Service token from platform (the durable cascade outbox), system-org binding. '
   + 'The target is the PATH param; the handler runs under a sysadmin tenant context and is idempotent.';

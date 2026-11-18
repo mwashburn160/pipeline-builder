@@ -264,6 +264,8 @@ export interface SeatActivityRead {
   windowDays: number;
   seatsHeld: number;
   activeMembers: number;
+  /** Joined inside the window and not active in it (inactive = seatsHeld − activeMembers − newMembers). */
+  newMembers: number;
 }
 
 /**

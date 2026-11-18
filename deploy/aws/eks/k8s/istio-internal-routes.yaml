@@ -2,9 +2,10 @@
 # =============================================================================
 # Mesh identity for INTERNAL routes
 # =============================================================================
-# The internal routes — `/internal/*`, the quota usage counters, the entity-event
-# and audit ingests, and the billing→compliance / billing→reporting entitlement
-# legs — are enforced IN THE APPLICATION by api-core's `requireInternalService`,
+# The internal routes — every internal contract (all under `/internal/*` or
+# `/<service>/internal/*`, a segment the nginx gateway refuses from outside), the
+# quota usage counters and the audit ingest — are enforced IN THE APPLICATION by
+# api-core's `requireInternalService`,
 # which refuses every user token and admits only the named calling services,
 # whose names are cryptographically bound to their signing keys. That check is
 # the enforcement, and it has to be: docker compose runs no mesh at all, and the
@@ -370,7 +371,7 @@ spec:
               - "/messages/internal/offers/frustration/*"
 ---
 # -- compliance --------------------------------------------------------------
-# POST /compliance/events/entity — entity lifecycle events from pipeline/plugin.
+# POST /compliance/internal/events/entity — entity lifecycle events from pipeline/plugin.
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
@@ -391,9 +392,9 @@ spec:
       to:
         - operation:
             methods: ["POST"]
-            paths: ["/compliance/events/entity"]
+            paths: ["/compliance/internal/events/entity"]
 ---
-# POST /compliance/subscriptions/auto-subscribe — org onboarding, platform only.
+# POST /compliance/internal/subscriptions/auto-subscribe — org onboarding, platform only.
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
@@ -413,9 +414,9 @@ spec:
       to:
         - operation:
             methods: ["POST"]
-            paths: ["/compliance/subscriptions/auto-subscribe"]
+            paths: ["/compliance/internal/subscriptions/auto-subscribe"]
 ---
-# PUT + GET /compliance/entitlements/:orgId — the billing→compliance entitlement
+# PUT + GET /compliance/internal/entitlements/:orgId — the billing→compliance entitlement
 # sync and its drift read. Billing owns entitlement; nothing else may write what
 # an org's enforced compliance content is.
 apiVersion: security.istio.io/v1
@@ -436,9 +437,9 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/billing
       to:
         - operation:
-            paths: ["/compliance/entitlements/*"]
+            paths: ["/compliance/internal/entitlements/*"]
 ---
-# GET /compliance/posture — the read-only counts behind a stakeholder report's
+# GET /compliance/internal/posture — the read-only counts behind a stakeholder report's
 # compliance panel. Reporting only, and reporting cannot reach anything else here:
 # nothing on this path creates a scan, evaluates a rule, or discloses a rule's
 # conditions, which are the org's own policy text.
@@ -460,11 +461,13 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/reporting
       to:
         - operation:
-            paths: ["/compliance/posture"]
+            paths: ["/compliance/internal/posture"]
 ---
 # POST /compliance/internal/orgs/:orgId/purge — platform's durable cascade
 # outbox tears a purged org's policies, rules, scans and their history out of
 # compliance's own tables. Platform only: it alone decides an org is purged.
+# Scoped to `/compliance/internal/orgs/*`, not the whole `/compliance/internal/*`
+# prefix, which also carries the legs above (other callers).
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
@@ -483,7 +486,7 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/platform
       to:
         - operation:
-            paths: ["/compliance/internal/*"]
+            paths: ["/compliance/internal/orgs/*"]
 ---
 # -- quota -------------------------------------------------------------------
 # POST /quotas/:orgId/increment and /decrement — the usage counters. Every
@@ -553,9 +556,21 @@ spec:
         - operation:
             methods: ["GET"]
             paths: ["*/profile"]
+    # POST /quotas/internal/orgs/:orgId/purge — platform's durable cascade outbox
+    # drops a purged org's quota document (its enforcement record). Platform
+    # only: it alone decides an org is purged. POST-only so the GET profile read
+    # above (`/quotas/internal/:orgId/profile`) is never matched by this rule.
+    - from:
+        - source:
+            notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/platform
+      to:
+        - operation:
+            methods: ["POST"]
+            paths: ["/quotas/internal/orgs/*"]
 ---
 # -- reporting ---------------------------------------------------------------
-# PUT + GET /reports/retention-sync/:orgId — the billing→reporting retention
+# PUT + GET /reports/internal/retention-sync/:orgId — the billing→reporting retention
 # sync and its drift read. A retention reduction destroys data on the next
 # sweep, so only billing may drive it.
 apiVersion: security.istio.io/v1
@@ -577,9 +592,9 @@ spec:
       to:
         - operation:
             methods: ["PUT", "GET"]
-            paths: ["/reports/retention-sync/*"]
+            paths: ["/reports/internal/retention-sync/*"]
 ---
-# PUT /reports/stakeholder-sync/:orgId — the account gained or lost the Stakeholder
+# PUT /reports/internal/stakeholder-sync/:orgId — the account gained or lost the Stakeholder
 # Reports add-on, so every report in it pauses or resumes. Billing owns entitlement;
 # nothing else may stop (or restart) a customer's scheduled reports.
 apiVersion: security.istio.io/v1
@@ -600,9 +615,9 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/billing
       to:
         - operation:
-            paths: ["/reports/stakeholder-sync/*"]
+            paths: ["/reports/internal/stakeholder-sync/*"]
 ---
-# POST /reports/stakeholder-internal/owner-left/:orgId/:userId — platform tells
+# POST /reports/internal/stakeholder/owner-left/:orgId/:userId — platform tells
 # reporting that a member was deactivated or removed, so the stakeholder reports
 # they OWNED stop (a scheduled run is authorized as its owner). Only platform
 # knows when a membership changed, and only platform may assert that it did.
@@ -624,11 +639,13 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/platform
       to:
         - operation:
-            paths: ["/reports/stakeholder-internal/*"]
+            paths: ["/reports/internal/stakeholder/*"]
 ---
 # POST /reports/internal/orgs/:orgId/purge — platform's durable cascade outbox
 # tears a purged org's reports, share links, DORA data and ingested events out
 # of reporting's own tables. Platform only, like the owner-left leg above.
+# Scoped to `/reports/internal/orgs/*`, not the whole `/reports/internal/*`
+# prefix, which also carries billing's sync legs above.
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
@@ -647,7 +664,7 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/platform
       to:
         - operation:
-            paths: ["/reports/internal/*"]
+            paths: ["/reports/internal/orgs/*"]
 ---
 # -- ops-center ----------------------------------------------------------
 # POST /ops/internal/orgs/:orgId/purge — platform's durable cascade outbox tears

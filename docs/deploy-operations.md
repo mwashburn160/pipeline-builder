@@ -701,7 +701,7 @@ accepts writes at all, because RustFS exposes no Prometheus endpoint of its own.
 
 #### Inhibition: suppressing consequences, and what cannot be suppressed
 
-At 229 rules one root cause is a pager flood, and a flood is functionally the same
+At 228 rules one root cause is a pager flood, and a flood is functionally the same
 as no alert. The inhibition tree in `alertmanager.yml` suppresses the consequences
 of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service
 being down.
@@ -807,12 +807,14 @@ asymmetries worth stating:
   an expected state. Its sibling `mongo_index_reconcile_failed` *is* alerted, because
   a failed rebuild leaves the OLD definition in place and writes can keep failing
   against it.
-- **`user_erasure_incomplete_total` had an alert and no panel.** A user deletion whose
-  ecosystem-content scrub failed still deleted the user — the scrub is a cascade-outbox
-  leg delivered after the deletion commits, retried with backoff — so once that leg is
-  dead-lettered the residue is the only evidence the reviews were left behind. Every
-  dead leg, org purges included, also counts in `platform_cascade_dead_total{service,kind}`
-  (alerted as `PlatformCascadeLegDead`). Once the owning service is fixed, a dead leg is
+- **`platform_cascade_dead_total{kind="user.erased"}` has an alert and would otherwise
+  have no panel.** A user deletion whose erasure leg failed still deleted the user — the
+  erasure is a cascade-outbox leg delivered after the deletion commits, retried with
+  backoff — so once that leg is dead-lettered the count is the only evidence the data
+  was left behind. The panel groups it by `service`. The same counter covers org purges
+  and is alerted, for every kind, as `PlatformCascadeLegDead`. It is per platform pod
+  and resets on restart, so `GET /api/admin/cascade?status=dead` is the durable list.
+  Once the owning service is fixed, a dead leg is
   put back in the queue with `POST /api/admin/cascade/:id/redrive` (find it with
   `GET /api/admin/cascade?status=dead`) rather than by editing `cascade_outbox` in Mongo.
 - **The *Alert delivery* row answers a question no other panel can**: whether

@@ -93,7 +93,7 @@ beforeEach(() => {
   mockNotifyPaused.mockResolvedValue(undefined);
 });
 
-describe('PUT /reports/stakeholder-sync/:orgId', () => {
+describe('PUT /reports/internal/stakeholder-sync/:orgId', () => {
   it('pauses on a lapse and reports the count', async () => {
     mockSync.mockResolvedValue({ skipped: false, paused: [definition()], resumed: [] });
     await call({ entitled: false });

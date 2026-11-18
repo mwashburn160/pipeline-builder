@@ -15,17 +15,13 @@
  *  - posture: reporting reads the counts behind a stakeholder report's
  *    compliance panel.
  *
- * All but the purge predate the `/internal` path convention and are served on
- * their original public-prefix paths (see `outsideInternalPath`).
+ * Every one is served under `/compliance/internal/…`, which the gateway never
+ * routes from outside.
  */
 
 import { z } from 'zod';
 import { CASCADE_LEG_AUTH, CascadeOrgParams, OrgPurgeResponse } from './cascade.js';
 import { defineInternalEndpoint } from './define.js';
-
-/** Why the pre-convention compliance routes keep their paths. */
-const LEGACY_PATH = 'Predates the /internal convention; the path is pinned by the route-table snapshot, '
-  + 'the gateway routes and the mesh policy, so the contract records it rather than moving it.';
 
 /**
  * The entity-event body. Producers send their whole `EntityEvent` (its
@@ -93,8 +89,7 @@ export const COMPLIANCE_INTERNAL = {
     id: 'compliance.entityEvent',
     service: 'compliance',
     method: 'POST',
-    path: '/compliance/events/entity',
-    outsideInternalPath: LEGACY_PATH,
+    path: '/compliance/internal/events/entity',
     callers: ['pipeline', 'plugin'],
     auth: "The producer's service token minted for the EVENT's org; the body's orgId must equal the token org (else 403).",
     params: z.object({}),
@@ -116,8 +111,7 @@ export const COMPLIANCE_INTERNAL = {
     id: 'compliance.autoSubscribe',
     service: 'compliance',
     method: 'POST',
-    path: '/compliance/subscriptions/auto-subscribe',
-    outsideInternalPath: LEGACY_PATH,
+    path: '/compliance/internal/subscriptions/auto-subscribe',
     callers: ['platform'],
     auth: "platform's service token minted for the NEW org (plus `x-org-id`); the org is the token's.",
     params: z.object({}),
@@ -134,8 +128,7 @@ export const COMPLIANCE_INTERNAL = {
     id: 'compliance.syncEntitlements',
     service: 'compliance',
     method: 'PUT',
-    path: '/compliance/entitlements/:orgId',
-    outsideInternalPath: LEGACY_PATH,
+    path: '/compliance/internal/entitlements/:orgId',
     callers: ['billing'],
     auth: BILLING_ENTITLEMENT_AUTH,
     params: EntitlementOrgParams,
@@ -155,8 +148,7 @@ export const COMPLIANCE_INTERNAL = {
     id: 'compliance.readEntitlements',
     service: 'compliance',
     method: 'GET',
-    path: '/compliance/entitlements/:orgId',
-    outsideInternalPath: LEGACY_PATH,
+    path: '/compliance/internal/entitlements/:orgId',
     callers: ['billing'],
     auth: BILLING_ENTITLEMENT_AUTH,
     params: EntitlementOrgParams,
@@ -172,8 +164,7 @@ export const COMPLIANCE_INTERNAL = {
     id: 'compliance.posture',
     service: 'compliance',
     method: 'GET',
-    path: '/compliance/posture',
-    outsideInternalPath: LEGACY_PATH,
+    path: '/compliance/internal/posture',
     callers: ['reporting'],
     auth: "reporting's service token minted for the report's org; the org is the token's (no path param to disagree with).",
     params: z.object({}),

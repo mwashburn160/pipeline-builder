@@ -5,10 +5,10 @@
  * The cascade legs: WHERE each downstream half of an org purge / user erasure
  * is delivered, and what counts as the ack.
  *
- *  - every service holding org data has an `org.deleted` leg — the five whose
- *    Postgres tables platform used to write directly (pipeline, plugin,
- *    compliance, message, reporting), plus the four that were already HTTP
- *    (quota, billing, message blobs, the registry);
+ *  - every service holding org data has an `org.deleted` leg — the Postgres
+ *    owners (pipeline, plugin, compliance, message, reporting, ops-center), the
+ *    Mongo owners (quota, billing), message blobs and the registry — each
+ *    delivered through its typed internal contract;
  *  - the contract legs call exactly the contract's method + path, with the
  *    platform service token and the purged org in `x-org-id`;
  *  - the ack is a 2xx and nothing else; an unreachable service, a non-2xx, or a
@@ -82,6 +82,8 @@ describe('contract legs', () => {
     ['message', 'message', '/messages/internal/orgs/org-acme/purge'],
     ['reporting', 'reporting', '/reports/internal/orgs/org-acme/purge'],
     ['ops-center', 'ops-center', '/ops/internal/orgs/org-acme/purge'],
+    ['quota', 'quota', '/quotas/internal/orgs/org-acme/purge'],
+    ['billing', 'billing', '/billing/internal/orgs/org-acme/purge'],
   ])('%s: POSTs its own purge contract with the platform token', async (service, host, path) => {
     const res = await findLeg('org.deleted', service)!.deliver(ORG);
     expect(res).toEqual({ ok: true, statusCode: 200 });
@@ -134,26 +136,36 @@ describe('contract legs', () => {
   });
 });
 
-describe('plain-DELETE legs (quota, billing)', () => {
-  it('DELETE the existing cascade hooks with the platform token and x-org-id', async () => {
-    mockDelete.mockResolvedValue({ statusCode: 200, body: {} });
-    expect(await findLeg('org.deleted', 'quota')!.deliver(ORG)).toEqual({ ok: true, statusCode: 200 });
-    expect(await findLeg('org.deleted', 'billing')!.deliver(ORG)).toEqual({ ok: true, statusCode: 200 });
-    expect(mockDelete.mock.calls.map((c) => c[0])).toEqual(['/quotas/org-acme', '/billing/subscriptions/by-org/org-acme']);
-    for (const call of mockDelete.mock.calls) {
-      expect((call[1] as { headers: Record<string, string> }).headers).toEqual({ 'Authorization': 'Bearer platform-service-token', 'x-org-id': ORG });
-    }
+describe('the billing leg (provider cancellation can be partial)', () => {
+  const billing = () => findLeg('org.deleted', 'billing')!;
+
+  it('acks a complete purge (nothing remaining)', async () => {
+    mockPost.mockResolvedValue(ok({ orgId: ORG, tables: { subscriptions: 1, billingEvents: 4 }, remaining: {} }));
+    expect(await billing().deliver(ORG)).toEqual({ ok: true, statusCode: 200 });
+    mockPost.mockResolvedValue(ok({ orgId: ORG, tables: { subscriptions: 0, billingEvents: 0 }, remaining: { subscriptions: 0 } }));
+    expect(await billing().deliver(ORG)).toEqual({ ok: true, statusCode: 200 });
   });
 
-  it('only a 2xx acks: a 3xx/4xx/5xx, null or a throw is a failure', async () => {
+  it('a 200 that KEPT subscriptions (provider cancel failed) is not an ack — the leg retries', async () => {
+    mockPost.mockResolvedValue(ok({ orgId: ORG, tables: { subscriptions: 0, billingEvents: 0 }, remaining: { subscriptions: 2 } }));
+    expect(await billing().deliver(ORG))
+      .toEqual({ ok: false, statusCode: 200, error: 'billing purge incomplete: 2 subscriptions left' });
+  });
+
+  it('a 500 (store failure) is a retry', async () => {
+    mockPost.mockResolvedValue({ statusCode: 500, headers: {}, body: {} });
+    expect(await billing().deliver(ORG)).toEqual({ ok: false, statusCode: 500, error: 'HTTP 500' });
+  });
+});
+
+describe('the quota leg', () => {
+  it('acks either outcome of the single deleteOne (dropped, or already gone)', async () => {
     const quota = findLeg('org.deleted', 'quota')!;
-    mockDelete.mockResolvedValue({ statusCode: 302, body: {} });
-    expect(await quota.deliver(ORG)).toEqual({ ok: false, statusCode: 302, error: 'HTTP 302' });
-    mockDelete.mockResolvedValue({ statusCode: 503, body: {} });
+    mockPost.mockResolvedValue(ok({ orgId: ORG, tables: { organizations: 1 } }));
+    expect(await quota.deliver(ORG)).toEqual({ ok: true, statusCode: 200 });
+    mockPost.mockResolvedValue(ok({ orgId: ORG, tables: { organizations: 0 } }));
+    expect(await quota.deliver(ORG)).toEqual({ ok: true, statusCode: 200 });
+    mockPost.mockResolvedValue({ statusCode: 503, headers: {}, body: {} });
     expect(await quota.deliver(ORG)).toEqual({ ok: false, statusCode: 503, error: 'HTTP 503' });
-    mockDelete.mockResolvedValue(null);
-    expect(await quota.deliver(ORG)).toEqual({ ok: false, error: 'unreachable' });
-    mockDelete.mockRejectedValue(new Error('ECONNREFUSED'));
-    expect(await quota.deliver(ORG)).toEqual({ ok: false, error: 'ECONNREFUSED' });
   });
 });

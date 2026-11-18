@@ -1,6 +1,6 @@
 // GENERATED FROM docs/compliance.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 6418b79572de9b1b4bc08578c5ee9092016f857584886689fd58cf4df1d7153f
+// SOURCE-SHA256: 711ddec81a777326b76e2935e88fa64f8166e70f6acc022eb6c3b2edffcb277d
 // SPDX-License-Identifier: Apache-2.0
 import { ShieldCheck } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -223,7 +223,7 @@ export const complianceTopic: HelpTopic = {
             ],
             [
               "POST",
-              "/compliance/subscriptions/auto-subscribe",
+              "/compliance/internal/subscriptions/auto-subscribe",
               "Subscribe to all published rules (inactive; used at org onboarding)"
             ],
             [
@@ -844,7 +844,7 @@ export const complianceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Entitlement changes drive the subscriptions automatically via a billing → compliance sync leg (PUT /api/compliance/entitlements/:orgId, service-principal-authenticated, body { sets }). It runs on every entitlement change — purchase, cancel, renewal — and via the billing drift reconciler:"
+          "content": "Entitlement changes drive the subscriptions automatically via a billing → compliance sync leg (PUT /compliance/internal/entitlements/:orgId, service-principal-authenticated, body { sets }). It runs on every entitlement change — purchase, cancel, renewal — and via the billing drift reconciler:"
         },
         {
           "type": "list",

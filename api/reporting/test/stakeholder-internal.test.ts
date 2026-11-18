@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * `POST /reports/stakeholder-internal/owner-left/:orgId/:userId`.
+ * `POST /reports/internal/stakeholder/owner-left/:orgId/:userId`.
  *
  * The one call platform makes into reporting. It has no user, no orgId claim and
  * no feature entitlement, so everything that makes it safe is in this route:

@@ -3,7 +3,7 @@
 
 /**
  * Tests for the inbound billing → reporting retention-sync route:
- * `PUT /reports/retention-sync/:orgId`. It is an INTERNAL route — only
+ * `PUT /reports/internal/retention-sync/:orgId`. It is an INTERNAL route — only
  * `billing`'s own signed token passes, and no user token does, however
  * privileged — and it clamps/validates the two retention windows before
  * upserting them into `dora_settings`.
@@ -47,7 +47,7 @@ const { createRetentionSyncRoutes } = await import('../src/routes/retention-sync
 // → sub: 'service:billing'); carries NO scope / permission.
 const billingPrincipal = { sub: 'service:billing', principalType: 'service', role: 'owner' };
 
-describe('PUT /reports/retention-sync/:orgId', () => {
+describe('PUT /reports/internal/retention-sync/:orgId', () => {
   let router: any;
 
   beforeEach(() => {
@@ -64,7 +64,7 @@ describe('PUT /reports/retention-sync/:orgId', () => {
    */
   async function run(body: unknown, user: unknown, orgId = 'root-1') {
     const stack = router.stack.find((l: any) => l.route?.path === '/:orgId')?.route?.stack ?? [];
-    const req = { params: { orgId }, body, user, method: 'PUT', originalUrl: `/reports/retention-sync/${orgId}` };
+    const req = { params: { orgId }, body, user, method: 'PUT', originalUrl: `/reports/internal/retention-sync/${orgId}` };
     const res = {};
     for (const layer of stack) {
       let advanced = false;
@@ -158,11 +158,11 @@ describe('PUT /reports/retention-sync/:orgId', () => {
   });
 });
 
-describe('GET /reports/retention-sync/:orgId (billing drift read)', () => {
+describe('GET /reports/internal/retention-sync/:orgId (billing drift read)', () => {
   async function runGet(user: unknown, orgId = 'root-1') {
     const router: any = createRetentionSyncRoutes();
     const stack = router.stack.find((l: any) => l.route?.path === '/:orgId' && l.route?.methods?.get)?.route?.stack ?? [];
-    const req = { params: { orgId }, user, method: 'GET', originalUrl: `/reports/retention-sync/${orgId}` };
+    const req = { params: { orgId }, user, method: 'GET', originalUrl: `/reports/internal/retention-sync/${orgId}` };
     for (const layer of stack) {
       let advanced = false;
       await layer.handle(req, {}, () => { advanced = true; });

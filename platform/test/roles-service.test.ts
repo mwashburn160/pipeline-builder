@@ -100,6 +100,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 const { seedDefaultRoles, recomputeUserOrgRole, ensureBaselineRole, assertActorMayAssignBuiltinAdmin } = await import('../src/services/roles-service.js');
 const { listRolesWithMembers, addUserToRole, removeUserFromRole, updateRole } = await import('../src/services/role-crud.js');
 const { rolePermissionsFor } = await import('../src/services/role-permissions.js');
+const { effectiveRolePermissions } = await import('../src/services/role-authority.js');
 const { grantPlatformAdmin, revokePlatformAdmin } = await import('../src/services/platform-admin-roles.js');
 const { RL_ROLE_NOT_FOUND, RL_USER_NOT_FOUND, RL_NOT_ORG_MEMBER, RL_CANNOT_REMOVE_SELF, RL_CANNOT_REMOVE_OWNER_ADMIN, RL_LAST_PRIVILEGED_MEMBER, RL_REQUIRES_SUPERADMIN, RL_SUPERADMIN_ROLE_MISSING, RL_ASSIGN_EXCEEDS_CEILING, RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN, RL_SYSTEM_ORG_ROLE_OUTSIDE_SYSTEM_ORG } = await import('../src/services/roles-errors.js');
 const { ECOSYSTEM_MANAGER_PERMISSIONS } = await import('@pipeline-builder/api-core') as unknown as { ECOSYSTEM_MANAGER_PERMISSIONS: readonly string[] };
@@ -197,10 +198,17 @@ describe('seedDefaultRoles', () => {
     expect(seeded.map((g) => g.name)).not.toContain('Team Lead');
   });
 
-  it('seeds each built-in Role WITH its own permission bundle (self-describing Roles)', async () => {
+  /**
+   * A built-in Role stores NO permission list — its grant is resolved from the
+   * catalog on every read, so a release's catalog change reaches existing orgs
+   * on the next token refresh and there is no copy to drift.
+   */
+  it('seeds each built-in Role with NO stored permissions; the resolver supplies its bundle', async () => {
     await seedDefaultRoles('org-1', 'u1', {});
 
-    const seeded = mockGroupCreate.mock.calls[0][0] as Array<{ name: string; grantsRole: string; permissions: string[] }>;
+    const docs = mockGroupCreate.mock.calls[0][0] as Array<{ name: string; grantsRole: string; permissions: string[]; system: boolean }>;
+    expect(docs.every((g) => g.permissions.length === 0)).toBe(true);
+    const seeded = docs.map((g) => ({ ...g, permissions: effectiveRolePermissions(g) }));
     const admins = seeded.find((g) => g.name === 'Admin')!;
     const devs = seeded.find((g) => g.name === 'Member')!;
 
@@ -219,10 +227,11 @@ describe('seedDefaultRoles', () => {
   it('seeds the Super Admin Role with the admin bundle (system org)', async () => {
     await seedDefaultRoles('000000000000000000000001', 'u1', { isSystemOrg: true });
 
-    const seeded = mockGroupCreate.mock.calls[0][0] as Array<{ name: string; grantsRole: string; permissions: string[] }>;
+    const seeded = mockGroupCreate.mock.calls[0][0] as Array<{ name: string; grantsRole: string; permissions: string[]; system: boolean }>;
     const superadmins = seeded.find((g) => g.name === 'Super Admin')!;
-    expect(superadmins.permissions).toContain('org_settings:write');
-    expect(superadmins.permissions).toContain('roles:manage');
+    expect(superadmins.permissions).toEqual([]);
+    expect(effectiveRolePermissions(superadmins)).toContain('roles:manage');
+    expect(effectiveRolePermissions(superadmins)).toContain('org_settings:write');
   });
 
   it('seeds Super Admin for the system org; creator joins Super Admin + Admin and is flagged isSuperAdmin', async () => {
@@ -267,9 +276,9 @@ describe('seedDefaultRoles', () => {
   it('seeds the two ecosystem Roles ONLY in the system org: member grant, own bundles, creator not added', async () => {
     await seedDefaultRoles('000000000000000000000001', 'u1', { isSystemOrg: true });
 
-    const seeded = mockGroupCreate.mock.calls[0][0] as Array<{
+    const seeded = (mockGroupCreate.mock.calls[0][0] as Array<{
       name: string; grantsRole: string; permissions: string[]; system: boolean; seedBundle?: string;
-    }>;
+    }>).map((g) => ({ ...g, permissions: effectiveRolePermissions(g) }));
     const em = seeded.find((g) => g.name === 'Ecosystem Manager')!;
     expect(em.grantsRole).toBe('member'); // never admin, never superadmin
     expect(em.system).toBe(true); // immutable like every built-in Role
@@ -1116,6 +1125,17 @@ describe('listRolesWithMembers — paging', () => {
     expect(out.total).toBe(7);
     expect(out.roles.map((r: any) => r.id)).toEqual(['r-admin', 'r-qa']);
     expect(out.roles[1].members).toEqual([{ id: 'u1', username: 'ann', email: 'ann@x.io' }]);
+  });
+
+  // The UI shows what a Role CONFERS: a built-in's `permissions` come from the
+  // catalog (its stored copy — here a stale one-permission list — is ignored),
+  // a custom Role's from its stored list.
+  it('fills a built-in Role\'s permissions from the catalog, a custom Role\'s from its list', async () => {
+    const out = await listRolesWithMembers('org-1');
+    const admin = out.roles.find((r: any) => r.id === 'r-admin')!;
+    expect(admin.permissions).toEqual(effectiveRolePermissions({ system: true, grantsRole: 'admin' }));
+    expect(admin.permissions).toContain('roles:manage');
+    expect(out.roles.find((r: any) => r.id === 'r-qa')!.permissions).toEqual([]);
   });
 
   it('pages the Roles and loads members only for the page\'s Roles', async () => {

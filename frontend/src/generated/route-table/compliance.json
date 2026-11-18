@@ -34,90 +34,6 @@
   },
   {
     "method": "GET",
-    "path": "/compliance/entitlements/:orgId",
-    "auth": true,
-    "permissions": [],
-    "systemAdmin": false,
-    "servicePrincipal": true,
-    "dynamicAuthz": [],
-    "internalCallers": [
-      "billing"
-    ],
-    "stepUp": false,
-    "stepUpMethods": [],
-    "minAssurance": 0,
-    "conditionalGates": [],
-    "features": [],
-    "scopes": [],
-    "audit": [],
-    "quota": {
-      "metered": [
-        "apiCalls"
-      ],
-      "checked": [
-        "apiCalls"
-      ]
-    }
-  },
-  {
-    "method": "PUT",
-    "path": "/compliance/entitlements/:orgId",
-    "auth": true,
-    "permissions": [],
-    "systemAdmin": false,
-    "servicePrincipal": true,
-    "dynamicAuthz": [],
-    "internalCallers": [
-      "billing"
-    ],
-    "stepUp": false,
-    "stepUpMethods": [],
-    "minAssurance": 0,
-    "conditionalGates": [],
-    "features": [],
-    "scopes": [],
-    "audit": [
-      "compliance.rule.toggle"
-    ],
-    "quota": {
-      "metered": [
-        "apiCalls"
-      ],
-      "checked": [
-        "apiCalls"
-      ]
-    }
-  },
-  {
-    "method": "POST",
-    "path": "/compliance/events/entity",
-    "auth": true,
-    "permissions": [],
-    "systemAdmin": false,
-    "servicePrincipal": true,
-    "dynamicAuthz": [],
-    "internalCallers": [
-      "pipeline",
-      "plugin"
-    ],
-    "stepUp": false,
-    "stepUpMethods": [],
-    "minAssurance": 0,
-    "conditionalGates": [],
-    "features": [],
-    "scopes": [],
-    "audit": [],
-    "quota": {
-      "metered": [
-        "apiCalls"
-      ],
-      "checked": [
-        "apiCalls"
-      ]
-    }
-  },
-  {
-    "method": "GET",
     "path": "/compliance/exemptions",
     "auth": true,
     "permissions": [
@@ -326,6 +242,90 @@
     }
   },
   {
+    "method": "GET",
+    "path": "/compliance/internal/entitlements/:orgId",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "dynamicAuthz": [],
+    "internalCallers": [
+      "billing"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
+    "method": "PUT",
+    "path": "/compliance/internal/entitlements/:orgId",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "dynamicAuthz": [],
+    "internalCallers": [
+      "billing"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "compliance.rule.toggle"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/compliance/internal/events/entity",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "dynamicAuthz": [],
+    "internalCallers": [
+      "pipeline",
+      "plugin"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
     "method": "POST",
     "path": "/compliance/internal/orgs/:orgId/purge",
     "auth": true,
@@ -344,6 +344,62 @@
     "scopes": [],
     "audit": [
       "org.data.purge"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/compliance/internal/posture",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "dynamicAuthz": [],
+    "internalCallers": [
+      "reporting"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/compliance/internal/subscriptions/auto-subscribe",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "dynamicAuthz": [],
+    "internalCallers": [
+      "platform"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "compliance.subscription.auto-subscribe"
     ],
     "quota": {
       "metered": [
@@ -680,33 +736,6 @@
     "servicePrincipal": false,
     "dynamicAuthz": [],
     "internalCallers": [],
-    "stepUp": false,
-    "stepUpMethods": [],
-    "minAssurance": 0,
-    "conditionalGates": [],
-    "features": [],
-    "scopes": [],
-    "audit": [],
-    "quota": {
-      "metered": [
-        "apiCalls"
-      ],
-      "checked": [
-        "apiCalls"
-      ]
-    }
-  },
-  {
-    "method": "GET",
-    "path": "/compliance/posture",
-    "auth": true,
-    "permissions": [],
-    "systemAdmin": false,
-    "servicePrincipal": true,
-    "dynamicAuthz": [],
-    "internalCallers": [
-      "reporting"
-    ],
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
@@ -1570,35 +1599,6 @@
     "scopes": [],
     "audit": [
       "compliance.rule.toggle"
-    ],
-    "quota": {
-      "metered": [
-        "apiCalls"
-      ],
-      "checked": [
-        "apiCalls"
-      ]
-    }
-  },
-  {
-    "method": "POST",
-    "path": "/compliance/subscriptions/auto-subscribe",
-    "auth": true,
-    "permissions": [],
-    "systemAdmin": false,
-    "servicePrincipal": true,
-    "dynamicAuthz": [],
-    "internalCallers": [
-      "platform"
-    ],
-    "stepUp": false,
-    "stepUpMethods": [],
-    "minAssurance": 0,
-    "conditionalGates": [],
-    "features": [],
-    "scopes": [],
-    "audit": [
-      "compliance.subscription.auto-subscribe"
     ],
     "quota": {
       "metered": [

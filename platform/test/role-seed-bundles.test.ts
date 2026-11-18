@@ -33,7 +33,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   UserOrganization: {},
 }));
 
-const { builtinRolePermissions } = await import('../src/services/role-authority.js');
+const { builtinRolePermissions, effectiveRolePermissions } = await import('../src/services/role-authority.js');
 const { SYSTEM_ORG_ROLES, DEFAULT_ORG_ROLES } = await import('../src/services/roles-service.js');
 
 const sorted = (xs: readonly string[]) => [...xs].sort();
@@ -113,5 +113,56 @@ describe('the seeded Role set is derived from the one table', () => {
     expect(SYSTEM_ORG_JOB_BUNDLES).not.toContain('team_lead');
     expect(SYSTEM_ORG_ROLES.map((r) => r.seedBundle)).not.toContain('team_lead');
     expect(SEED_BUNDLE_IDS).toContain('team_lead');
+  });
+});
+
+/**
+ * `effectiveRolePermissions` — the ONE reader every permission decision goes
+ * through. A built-in Role resolves from the catalog whatever it stores; a
+ * custom Role grants its stored list.
+ */
+describe('effectiveRolePermissions — built-ins from the catalog, custom Roles from their list', () => {
+  it.each(SEED_BUNDLE_IDS)('built-in Role with seedBundle %s resolves to a non-empty list', (bundle) => {
+    const resolved = effectiveRolePermissions({ system: true, grantsRole: 'member', seedBundle: bundle, permissions: [] });
+    expect(resolved.length).toBeGreaterThan(0);
+    expect(sorted(resolved)).toEqual(sorted(SEED_BUNDLES[bundle].permissions));
+  });
+
+  it.each(ROLE_GRANTS)('built-in Role granting %s (no seedBundle) resolves to a non-empty list', (grantsRole) => {
+    const resolved = effectiveRolePermissions({ system: true, grantsRole, permissions: [] });
+    expect(resolved.length).toBeGreaterThan(0);
+    expect(sorted(resolved)).toEqual(sorted(builtinRolePermissions({ grantsRole })));
+  });
+
+  it('every seeded built-in Role resolves to a non-empty list', () => {
+    for (const spec of [...SYSTEM_ORG_ROLES, ...DEFAULT_ORG_ROLES]) {
+      expect({ name: spec.name, empty: effectiveRolePermissions({ ...spec, system: true }).length === 0 })
+        .toEqual({ name: spec.name, empty: false });
+    }
+  });
+
+  it('IGNORES a built-in Role\'s stale stored list', () => {
+    const resolved = effectiveRolePermissions({
+      system: true, grantsRole: 'member', permissions: ['pipelines:read', 'billing:manage'],
+    });
+    expect(sorted(resolved)).toEqual(sorted(ROLE_PERMISSIONS.member));
+    expect(resolved).not.toContain('billing:manage');
+  });
+
+  it('a custom Role grants exactly its stored list (and nothing for an empty one)', () => {
+    expect(effectiveRolePermissions({ system: false, grantsRole: 'member', permissions: ['billing:read'] })).toEqual(['billing:read']);
+    expect(effectiveRolePermissions({ grantsRole: 'member', permissions: ['billing:read'] })).toEqual(['billing:read']);
+    expect(effectiveRolePermissions({ system: false, grantsRole: 'member' })).toEqual([]);
+  });
+
+  it('returns a copy — mutating the answer cannot edit the catalog', () => {
+    const resolved = effectiveRolePermissions({ system: true, grantsRole: 'member' });
+    resolved.push('billing:manage');
+    expect(effectiveRolePermissions({ system: true, grantsRole: 'member' })).not.toContain('billing:manage');
+  });
+
+  // A projection that dropped `grantsRole` must under-grant, never guess.
+  it('fails CLOSED for a built-in Role read without its grantsRole', () => {
+    expect(effectiveRolePermissions({ system: true, permissions: ['billing:manage'] })).toEqual([]);
   });
 });

@@ -12,7 +12,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, expect, beforeAll } from '@jest/globals';
-import { PLUGIN_INTERNAL, buildRouteTable, internalContractsServedBy, type RouteTableEntry } from '@pipeline-builder/api-core';
+import { INTERNAL_CONTRACTS, PLUGIN_INTERNAL, buildRouteTable, internalContractsServedBy, type RouteTableEntry } from '@pipeline-builder/api-core';
 import { findContractMountViolations, roundTripContractSample, type ContractSample } from '@pipeline-builder/api-core/testing';
 
 process.env.JWT_SECRET ||= 'internal-contracts-test-secret';
@@ -25,7 +25,6 @@ const SAMPLES: Record<keyof typeof PLUGIN_INTERNAL, ContractSample> = {
   orgImageReferences: { query: { orgId: 'acme' }, response: { digests: [DIGEST] } },
   purgeOrg: { params: { orgId: 'acme' }, response: { orgId: 'acme', tables: { plugins: 3, plugin_installs: 1 } } },
   eraseUser: { params: { userId: 'u-1' }, response: { userId: 'u-1', reviews: 2 } },
-  initialToolchainDefault: { body: { releaseVersion: '1.4.0', acceptVulnerabilities: 'CVE-2026-1 has no fix yet' }, response: { releaseVersion: '1.4.0' } },
   imagePipelineReferences: {
     query: { digests: `${DIGEST},${DIGEST}` },
     response: {
@@ -69,15 +68,35 @@ describe('plugin internal endpoint contracts', () => {
     const tooMany = Array.from({ length: 51 }, (_, i) => `sha256:${i.toString(16).padStart(64, '0')}`).join(',');
     expect(msg(PLUGIN_INTERNAL.imagePipelineReferences.query!.safeParse({ digests: tooMany })))
       .toBe('digests must be 1-50 comma-separated sha256 digests');
-    const initial = PLUGIN_INTERNAL.initialToolchainDefault.body!;
+  });
+});
+
+/**
+ * `POST /plugins/toolchain/initial-default` is reached by an operator shell
+ * THROUGH the gateway (init-platform.sh, no mesh principal), so it is an
+ * ingress route and deliberately not an internal contract: those all live
+ * under `/internal`, which the gateway never routes from outside.
+ */
+describe('the deploy-bootstrap initial-default ingress route', () => {
+  it('is served at the path init-platform.sh posts (behind the /api gateway prefix), deploy-bootstrap only', async () => {
+    const { INITIAL_DEFAULT_PATH, TOOLCHAIN_MOUNT, DEPLOY_BOOTSTRAP_SERVICE } = await import('../src/routes/toolchain.js');
+    const path = `${TOOLCHAIN_MOUNT}${INITIAL_DEFAULT_PATH}`;
+    expect(path).toBe('/plugins/toolchain/initial-default');
+    const entry = table.find((e) => e.method === 'POST' && e.path === path);
+    expect(entry?.internalCallers).toEqual([DEPLOY_BOOTSTRAP_SERVICE]);
+  });
+
+  it('is not an internal contract (it is reachable through the gateway)', () => {
+    expect(INTERNAL_CONTRACTS.some((c) => c.path.startsWith('/plugins/toolchain'))).toBe(false);
+  });
+
+  it('keeps the route\'s own refusal messages in its body schema', async () => {
+    const { InitialToolchainDefaultBody: initial } = await import('../src/routes/toolchain.js');
+    const msg = (r: { error?: { issues: Array<{ message: string }> } }) => r.error?.issues[0]?.message;
     expect(msg(initial.safeParse({ releaseVersion: 'v1.4' }))).toBe('releaseVersion must be a plain MAJOR.MINOR.PATCH release');
     expect(msg(initial.safeParse({ releaseVersion: '1.4.0', acceptVulnerabilities: ' ' }))).toBe('acceptVulnerabilities needs a reason');
     expect(initial.safeParse({ releaseVersion: '1.4.0', force: true }).success).toBe(false);
-  });
-
-  it('serves the deploy-bootstrap route at the path init-platform.sh posts (behind the /api gateway prefix)', async () => {
-    const { INITIAL_DEFAULT_PATH, TOOLCHAIN_MOUNT, DEPLOY_BOOTSTRAP_SERVICE } = await import('../src/routes/toolchain.js');
-    expect(`${TOOLCHAIN_MOUNT}${INITIAL_DEFAULT_PATH}`).toBe(PLUGIN_INTERNAL.initialToolchainDefault.path);
-    expect(PLUGIN_INTERNAL.initialToolchainDefault.callers).toEqual([DEPLOY_BOOTSTRAP_SERVICE]);
+    expect(initial.parse({ releaseVersion: ' 1.4.0 ', acceptVulnerabilities: 'CVE-2026-1 has no fix yet' }))
+      .toEqual({ releaseVersion: '1.4.0', acceptVulnerabilities: 'CVE-2026-1 has no fix yet' });
   });
 });

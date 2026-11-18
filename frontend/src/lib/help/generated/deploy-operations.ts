@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: c8f24c94557e5a80ec8ee9ca662e7f2871a79cbf623284ddd05b1754e8f6352e
+// SOURCE-SHA256: 8b761ba4b69a5d0b041d0aa5aa5353bbd834370590189612b222f771d13d3b34
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1433,7 +1433,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "At 229 rules one root cause is a pager flood, and a flood is functionally the same as no alert. The inhibition tree in alertmanager.yml suppresses the consequences of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service being down."
+          "content": "At 228 rules one root cause is a pager flood, and a flood is functionally the same as no alert. The inhibition tree in alertmanager.yml suppresses the consequences of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service being down."
         },
         {
           "type": "text",
@@ -1554,12 +1554,12 @@ export const deployOperationsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "user_erasure_incomplete_total had an alert and no panel. A user deletion whose"
+            "**platform_cascade_dead_total{kind=\"user.erased\"} has an alert and would otherwise"
           ]
         },
         {
           "type": "text",
-          "content": "ecosystem-content scrub failed still deleted the user — the scrub is a cascade-outbox leg delivered after the deletion commits, retried with backoff — so once that leg is dead-lettered the residue is the only evidence the reviews were left behind. Every dead leg, org purges included, also counts in platform_cascade_dead_total{service,kind} (alerted as PlatformCascadeLegDead). Once the owning service is fixed, a dead leg is put back in the queue with POST /api/admin/cascade/:id/redrive (find it with GET /api/admin/cascade?status=dead) rather than by editing cascade_outbox in Mongo."
+          "content": "have no panel.** A user deletion whose erasure leg failed still deleted the user — the erasure is a cascade-outbox leg delivered after the deletion commits, retried with backoff — so once that leg is dead-lettered the count is the only evidence the data was left behind. The panel groups it by service. The same counter covers org purges and is alerted, for every kind, as PlatformCascadeLegDead. It is per platform pod and resets on restart, so GET /api/admin/cascade?status=dead is the durable list. Once the owning service is fixed, a dead leg is put back in the queue with POST /api/admin/cascade/:id/redrive (find it with GET /api/admin/cascade?status=dead) rather than by editing cascade_outbox in Mongo."
         },
         {
           "type": "list",

@@ -43,7 +43,7 @@ Written for org **admins and owners** buying extra capacity, and for operators c
 |---|---|---|
 | The nine tracked quota types | quota service | quota sync |
 | `seats` and purchased features (e.g. `advanced_reporting`) | platform service | `PUT /organization/{orgId}/seat-limit` |
-| Effective **retention** windows | reporting service | `PUT /api/reports/retention-sync/{orgId}`, writing `dora_settings` |
+| Effective **retention** windows | reporting service | `PUT /reports/internal/retention-sync/{orgId}`, writing `dora_settings` |
 
 All three target the account root. Retention is not one of the nine flow quotas — it reuses the tier-baseline + bundle-grant math but rides its own reporting sync leg.
 

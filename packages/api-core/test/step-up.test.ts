@@ -20,6 +20,7 @@
 import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
 import type { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
+import { setAuthzDenialAuditor, type AuthzDenialInfo } from '../src/middleware/permission-gates.js';
 import { verifyStepUpToken, consumeStepUpJti, requireStepUp } from '../src/middleware/step-up.js';
 import type { AnyFn } from '../src/testing/any-fn.js';
 import {
@@ -56,7 +57,7 @@ function stepUpToken(
 ): string {
   jtiSeq += 1;
   return signTestUserToken(
-    { type: 'step-up', sub: 'user-1', jti: `jti-${jtiSeq}`, ...over },
+    { type: 'step-up', sub: 'user-1', method: 'totp', jti: `jti-${jtiSeq}`, ...over },
     { key: signOpts.key ?? signingKey, expiresIn: signOpts.expiresIn ?? 60, ...signOpts },
   );
 }
@@ -74,8 +75,16 @@ describe('verifyStepUpToken', () => {
   });
 
   it('rejects a step-up token missing its jti', async () => {
-    const noJti = await signTestUserToken({ type: 'step-up', sub: 'user-1' }, { key: signingKey, expiresIn: 60 });
+    const noJti = await signTestUserToken({ type: 'step-up', sub: 'user-1', method: 'totp' }, { key: signingKey, expiresIn: 60 });
     await expect(verifyStepUpToken(noJti)).rejects.toThrow(/INVALID_STEP_UP_TOKEN/);
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['unknown', 'sms'],
+  ])('rejects a step-up token whose method is %s — it proves no factor', async (_label, method) => {
+    const bad = await stepUpToken({ method });
+    await expect(verifyStepUpToken(bad)).rejects.toThrow('INVALID_STEP_UP_TOKEN');
   });
 
   it('rejects a token signed with an unpublished key', async () => {
@@ -85,7 +94,7 @@ describe('verifyStepUpToken', () => {
   it('REJECTS an HS256 step-up token minted with a shared secret', async () => {
     // Before #5 any service holding JWT_SECRET could mint a step-up token and
     // clear its own step-up gates.
-    const forged = jwt.sign({ type: 'step-up', sub: 'user-1', jti: 'jti-hs256' }, SECRET, { expiresIn: '60s' });
+    const forged = jwt.sign({ type: 'step-up', sub: 'user-1', method: 'totp', jti: 'jti-hs256' }, SECRET, { expiresIn: '60s' });
     await expect(verifyStepUpToken(forged)).rejects.toThrow();
   });
 
@@ -214,6 +223,26 @@ describe('requireStepUp', () => {
     await requireStepUp(req({ headers: { 'x-step-up-token': await stepUpToken() } }), r, next as never);
     expect(next).not.toHaveBeenCalled();
     expect(r.statusCode).toBe(401);
+  });
+
+  it('a plain requireStepUp() refuses a token without `method` as STEP_UP_INVALID, on the trail, without consuming it', async () => {
+    const denials: AuthzDenialInfo[] = [];
+    setAuthzDenialAuditor((d) => denials.push(d));
+    try {
+      const jti = `jti-nomethod-${Date.now()}`;
+      const token = await stepUpToken({ sub: 'user-1', method: undefined, jti });
+      const next = jest.fn<AnyFn>();
+      const r = res();
+      await requireStepUp(req({ method: 'POST', url: '/x', user: { sub: 'user-1' }, headers: { 'x-step-up-token': token } }), r, next as never);
+      expect(next).not.toHaveBeenCalled();
+      expect(r.statusCode).toBe(401);
+      expect(r.body).toMatchObject({ code: 'STEP_UP_INVALID' });
+      expect(denials).toEqual([expect.objectContaining({ required: 'step-up (STEP_UP_INVALID)' })]);
+      // Refused before the single-use consume: the jti is still unclaimed.
+      expect(await consumeStepUpJti(jti, Math.floor(Date.now() / 1000) + 60)).toBe(true);
+    } finally {
+      setAuthzDenialAuditor(undefined);
+    }
   });
 
   it('EXEMPTS a verified service principal — step-up is a re-verify-the-human gate', async () => {

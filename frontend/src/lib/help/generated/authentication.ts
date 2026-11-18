@@ -1,6 +1,6 @@
 // GENERATED FROM docs/authentication.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: fed4a8f3863f0c868880f7e4efb65c43b0da4468f2099c600a544c95ea1d2b0e
+// SOURCE-SHA256: ed1acc8c961aa47411e49ff41f41f15451b2e919e9f285d6f4a1bb55eedd703b
 // SPDX-License-Identifier: Apache-2.0
 import { Lock } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -3629,7 +3629,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "A handful of routes exist ONLY for service-to-service calls — /internal/*, the quota usage counters, the entity-event and audit ingests, and the billing→ compliance / billing→reporting entitlement legs. They go through one shared gate, requireInternalService({ callers: [...] }), which:"
+          "content": "A handful of routes exist ONLY for service-to-service calls — every internal contract (api-core INTERNAL_CONTRACTS), plus the quota usage counters and the audit ingest. Every internal contract is served under /internal/* or /<service>/internal/* (defineInternalEndpoint refuses any other path), and the gateway refuses that segment from outside (/api/<service>/internal/* → 404), so one rule takes all of them off the external surface. They go through one shared gate, requireInternalService({ callers: [...] }), which:"
         },
         {
           "type": "list",

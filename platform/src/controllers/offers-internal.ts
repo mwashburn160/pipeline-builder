@@ -25,8 +25,13 @@ const { offerSeatActivity: SEAT_ACTIVITY } = PLATFORM_INTERNAL;
  * only the root's own memberships would report a parent org with all its people
  * in teams as having nobody active.
  *
- * A membership whose seat has not been used in the window — including one never
- * used since joining, which carries no `lastActiveAt` stamp — is inactive.
+ * Three counts, so the caller can tell disengagement from onboarding:
+ *   - `activeMembers` — a session inside the window (`lastActiveAt >= since`);
+ *   - `newMembers` — JOINED inside the window (`createdAt >= since`) and not
+ *     active in it (no `lastActiveAt`, or one before the window). A member added
+ *     yesterday who has not signed in yet is not a disengaging seat;
+ *   - inactive = `seatsHeld − activeMembers − newMembers` — held since before
+ *     the window and unused throughout it. The three are disjoint.
  */
 export async function getOrgSeatActivity(req: Request, res: Response): Promise<void> {
   const orgId = getParam(req.params, 'orgId')!;
@@ -37,12 +42,18 @@ export async function getOrgSeatActivity(req: Request, res: Response): Promise<v
   const scope = await expandOrgScope(orgId);
   const match = { organizationId: { $in: scope }, isActive: true };
 
-  const [seatsHeld, activeMembers] = await Promise.all([
+  const [seatsHeld, activeMembers, newMembers] = await Promise.all([
     UserOrganization.countDocuments(match),
     UserOrganization.countDocuments({ ...match, lastActiveAt: { $gte: since } }),
+    UserOrganization.countDocuments({
+      ...match,
+      createdAt: { $gte: since },
+      // `$not: { $gte }` also matches a missing/null `lastActiveAt`.
+      lastActiveAt: { $not: { $gte: since } },
+    }),
   ]);
 
-  logger.debug('Served seat-activity read', { orgId, seatsHeld, activeMembers });
+  logger.debug('Served seat-activity read', { orgId, seatsHeld, activeMembers, newMembers });
   sendSuccess(res, 200, {
     seatActivity: {
       orgId,
@@ -51,6 +62,8 @@ export async function getOrgSeatActivity(req: Request, res: Response): Promise<v
       seatsHeld,
       /** Those with a session inside the window. */
       activeMembers,
+      /** Joined inside the window and not active in it (see above). */
+      newMembers,
     },
   });
 }

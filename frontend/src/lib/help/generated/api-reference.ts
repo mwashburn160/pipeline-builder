@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: b5f28d97efdbdb9df5f4a1e5ce443b47f43331435dbbc12c2c91ec31ceb03a55
+// SOURCE-SHA256: 78a1f3087cf65cfa5ec594c6b3881dfc234aad879f8c8143c902102221fb91ef
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -179,7 +179,7 @@ export const apiReferenceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "A handful of endpoints exist ONLY for service-to-service calls and are closed to every user token, including a superadmin's: /internal/*, the quota usage counters (POST /quotas/:orgId/{increment,decrement}), the entity-event ingest (POST /compliance/events/entity), the audit ingest (POST /audit/events), the org-onboarding hook (POST /compliance/subscriptions/auto-subscribe) and the entitlement sync legs (/compliance/entitlements/:orgId, PUT /reports/retention-sync/:orgId)."
+          "content": "A handful of endpoints exist ONLY for service-to-service calls and are closed to every user token, including a superadmin's: every internal contract (/internal/* and /<service>/internal/* — e.g. the entity-event ingest POST /compliance/internal/events/entity, the org-onboarding hook POST /compliance/internal/subscriptions/auto-subscribe, and the entitlement sync legs /compliance/internal/entitlements/:orgId and /reports/internal/retention-sync/:orgId), plus the quota usage counters (POST /quotas/:orgId/{increment,decrement}) and the audit ingest (POST /audit/events). The gateway does not route an internal path segment at all — /api/<service>/internal/* answers 404 from outside."
         },
         {
           "type": "text",

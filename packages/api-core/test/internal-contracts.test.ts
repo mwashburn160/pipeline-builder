@@ -82,22 +82,21 @@ describe('defineInternalEndpoint', () => {
     expect(() => defineInternalEndpoint({ ...GET, callers: [] })).toThrow(/names its callers/);
   });
 
-  it('refuses a path outside the /internal convention unless it says why', () => {
+  it('refuses a path outside the /internal convention, with no way to opt out', () => {
     expect(() => defineInternalEndpoint({ ...GET, path: '/svc/things' })).toThrow(/outside the \/internal convention/);
-    expect(() => defineInternalEndpoint({ ...GET, path: '/svc/things', outsideInternalPath: '  ' })).toThrow(/outsideInternalPath/);
-    const legacy = defineInternalEndpoint({ ...GET, path: '/svc/things', outsideInternalPath: 'predates the convention' });
-    expect(legacy.path).toBe('/svc/things');
-    expect(contractRoute(legacy, '/svc')).toBe('/things');
+    expect(() => defineInternalEndpoint({ ...GET, path: '/svc/a/internal/things' })).toThrow(/outside the \/internal convention/);
+    // The escape hatch is gone: an unknown key cannot smuggle a legacy path through.
+    expect(() => defineInternalEndpoint({ ...GET, path: '/svc/things', outsideInternalPath: 'predates' } as never)).toThrow(/outside the \/internal convention/);
+    expect(contractRoute(defineInternalEndpoint({ ...GET, path: '/svc/internal/things' }), '/svc/internal')).toBe('/things');
   });
 
-  it('refuses a stale outsideInternalPath on a conventional path', () => {
-    expect(() => defineInternalEndpoint({ ...GET, outsideInternalPath: 'not needed' })).toThrow(/drop outsideInternalPath/);
-  });
-
-  it('reads the convention as an `internal` path SEGMENT, not a substring', () => {
+  it('reads the convention as an `internal` FIRST or SECOND path segment, not a substring', () => {
     expect(isInternalConventionPath('/internal/x')).toBe(true);
+    expect(isInternalConventionPath('/internal')).toBe(true);
     expect(isInternalConventionPath('/billing/internal/x')).toBe(true);
     expect(isInternalConventionPath('/x/internal')).toBe(true);
+    expect(isInternalConventionPath('/Billing/INTERNAL/x')).toBe(true);
+    expect(isInternalConventionPath('/a/b/internal/x')).toBe(false);
     expect(isInternalConventionPath('/reports/stakeholder-internal/x')).toBe(false);
     expect(isInternalConventionPath('/internals/x')).toBe(false);
   });
@@ -274,33 +273,34 @@ describe('the contract registry', () => {
     expect(new Set(routes).size).toBe(routes.length);
   });
 
-  it('names every contract after the service that serves it, and serves it on an internal path or says why not', () => {
+  it('names every contract after the service that serves it', () => {
+    for (const c of INTERNAL_CONTRACTS) expect(c.id.startsWith(`${c.service}.`)).toBe(true);
+  });
+
+  // ONE rule covers every internal contract: the gateway refuses an `internal`
+  // first or second segment (deploy/*/nginx/nginx.conf; pinned for all four
+  // targets by test/deploy-contracts internal-gateway-contract.test.ts), so a
+  // contract served anywhere else would be reachable from outside.
+  it('serves EVERY contract under /internal — `/internal/…` or `/<service-prefix>/internal/…`', () => {
+    const outside = INTERNAL_CONTRACTS.filter((c) => !/^\/(?:[^/]+\/)?internal\//.test(c.path))
+      .map((c) => `${c.id} ${c.method} ${c.path}`);
+    expect(outside).toEqual([]);
+    expect(INTERNAL_CONTRACTS.some((c) => 'outsideInternalPath' in c)).toBe(false);
+  });
+
+  it('puts every contract behind the gateway\'s refusal once it carries the /api prefix', () => {
+    // The same pattern as the nginx `location ~* ^/api/(?:[^/]+/)?internal(?:/|$)`.
+    const GATEWAY_REFUSES = /^\/api\/(?:[^/]+\/)?internal(?:\/|$)/i;
     for (const c of INTERNAL_CONTRACTS) {
-      expect(c.id.startsWith(`${c.service}.`)).toBe(true);
-      if (c.outsideInternalPath === undefined) expect(c.path).toMatch(/(^|\/)internal(\/|$)/);
-      else expect(c.outsideInternalPath.trim()).not.toBe('');
+      // nginx maps `/api/<prefix>/…` onto the service's `/<prefix>/…` (the
+      // prefix's spelling may differ, e.g. /api/quota → /quotas, but it is
+      // ONE segment either way), so the internal segment keeps its position.
+      expect(`/api${c.path}`).toMatch(GATEWAY_REFUSES);
     }
   });
 
-  it('records the pre-convention internal routes at their existing paths', () => {
-    const legacy = INTERNAL_CONTRACTS.filter((c) => c.outsideInternalPath !== undefined)
-      .map((c) => `${c.method} ${c.path}`).sort();
-    expect(legacy).toEqual([
-      'GET /compliance/entitlements/:orgId',
-      'GET /compliance/posture',
-      'GET /reports/retention-sync/:orgId',
-      'POST /compliance/events/entity',
-      'POST /compliance/subscriptions/auto-subscribe',
-      'POST /plugins/toolchain/initial-default',
-      'POST /reports/stakeholder-internal/owner-left/:orgId/:userId',
-      'PUT /compliance/entitlements/:orgId',
-      'PUT /reports/retention-sync/:orgId',
-      'PUT /reports/stakeholder-sync/:orgId',
-    ]);
-  });
-
   it('filters by serving service', () => {
-    expect(internalContractsServedBy('billing').map((c) => c.id)).toEqual(['billing.consumeSupportIncident', 'billing.refundSupportIncident']);
+    expect(internalContractsServedBy('billing').map((c) => c.id)).toEqual(['billing.consumeSupportIncident', 'billing.refundSupportIncident', 'billing.purgeOrg']);
     expect(internalContractsServedBy('nobody')).toEqual([]);
   });
 });

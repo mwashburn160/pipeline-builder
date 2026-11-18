@@ -1,6 +1,6 @@
 // GENERATED FROM docs/permissions.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: b0d7f37b8650f19c08d3404d22dcc0e0918bebbfe8924ebc616fd21f60e6272d
+// SOURCE-SHA256: 1e9f4be9a442cfb5a7d2e5669a6a0c24feb8108aa6a3a29d8561afd3b10a5402
 // SPDX-License-Identifier: Apache-2.0
 import { UserCog } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -35,7 +35,7 @@ export const permissionsTopic: HelpTopic = {
             "The system org staffs its jobs with Roles, not the flag. Support, subscriptions, the org lifecycle, quotas, the build queue and the operator consoles are each a permission a Super Admin can grant on its own. Three routes still need the flag: granting or revoking Super Admin itself, and the single-person MFA reset.",
             "A cross-tenant surface takes three things, not one: the permission, the system org as your active org, and an MFA-grade session. A repo-wide test fails any route that gates on a system-org-only permission without all three.",
             "Writes are gated; reads mostly ride the page. That convention is deliberate and is what the route-coverage tests check.",
-            "Built-in Roles are seeded at org creation from the current catalog, inside the transaction that creates the org.",
+            "Built-in Roles are created with the org; their permissions are resolved from the catalog at sign-in, so a release's catalog change reaches every org on the next token refresh. A built-in Role stores no permission list of its own.",
             "Impersonation is consent-gated and read-only, and every session is recorded.",
             "Teams do not inherit member authority upward. A parent admin administers its teams; a team member gets nothing over the parent."
           ]
@@ -133,7 +133,7 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "also seeds Super Admin, Ecosystem Manager, Publisher Verifier and the job Roles (see Ecosystem Manager). Each built-in Role's permission set is seeded from the catalog when the org is created."
+          "content": "also seeds Super Admin, Ecosystem Manager, Publisher Verifier and the job Roles (see Ecosystem Manager). The Roles themselves are created with the org, but each built-in Role's permission set is resolved from the catalog at sign-in, so a release's catalog change reaches every org on the next token refresh (no claims bump is needed or made — tokens pick it up as they refresh). A built-in Role stores no permission list; the Role list and detail responses fill permissions from the catalog. A custom Role grants exactly its stored list."
         },
         {
           "type": "list",
@@ -606,7 +606,7 @@ export const permissionsTopic: HelpTopic = {
             ],
             [
               "Immutable",
-              "system: true — it can't be renamed, edited or deleted (RL_SYSTEM_IMMUTABLE). It is seeded from ECOSYSTEM_MANAGER_PERMISSIONS (it is marked seedBundle: 'ecosystem_manager', which is also what keeps it out of the Member-floor lookups it shares grantsRole: 'member' with)."
+              "system: true — it can't be renamed, edited or deleted (RL_SYSTEM_IMMUTABLE). Its permissions are resolved from ECOSYSTEM_MANAGER_PERMISSIONS (it is marked seedBundle: 'ecosystem_manager', which is also what keeps it out of the Member-floor lookups it shares grantsRole: 'member' with)."
             ],
             [
               "grantsRole",
@@ -659,7 +659,7 @@ export const permissionsTopic: HelpTopic = {
             ],
             [
               "Immutable",
-              "system: true, seeded from PLATFORM_OPERATOR_PERMISSIONS (seedBundle: 'platform_operator')."
+              "system: true, its permissions resolved from PLATFORM_OPERATOR_PERMISSIONS (seedBundle: 'platform_operator')."
             ],
             [
               "grantsRole",

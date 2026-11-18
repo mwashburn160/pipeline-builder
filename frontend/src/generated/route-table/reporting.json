@@ -886,6 +886,89 @@
   },
   {
     "method": "GET",
+    "path": "/reports/internal/retention-sync/:orgId",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "dynamicAuthz": [],
+    "internalCallers": [
+      "billing"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "PUT",
+    "path": "/reports/internal/retention-sync/:orgId",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "dynamicAuthz": [],
+    "internalCallers": [
+      "billing"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "reporting.retention.sync"
+    ]
+  },
+  {
+    "method": "PUT",
+    "path": "/reports/internal/stakeholder-sync/:orgId",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "dynamicAuthz": [],
+    "internalCallers": [
+      "billing"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "reporting.report.paused",
+      "reporting.report.resumed"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/reports/internal/stakeholder/owner-left/:orgId/:userId",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "dynamicAuthz": [],
+    "internalCallers": [
+      "platform"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "reporting.report.paused"
+    ]
+  },
+  {
+    "method": "GET",
     "path": "/reports/plugins/build-duration",
     "auth": true,
     "permissions": [
@@ -1191,46 +1274,6 @@
   },
   {
     "method": "GET",
-    "path": "/reports/retention-sync/:orgId",
-    "auth": true,
-    "permissions": [],
-    "systemAdmin": false,
-    "servicePrincipal": true,
-    "dynamicAuthz": [],
-    "internalCallers": [
-      "billing"
-    ],
-    "stepUp": false,
-    "stepUpMethods": [],
-    "minAssurance": 0,
-    "conditionalGates": [],
-    "features": [],
-    "scopes": [],
-    "audit": []
-  },
-  {
-    "method": "PUT",
-    "path": "/reports/retention-sync/:orgId",
-    "auth": true,
-    "permissions": [],
-    "systemAdmin": false,
-    "servicePrincipal": true,
-    "dynamicAuthz": [],
-    "internalCallers": [
-      "billing"
-    ],
-    "stepUp": false,
-    "stepUpMethods": [],
-    "minAssurance": 0,
-    "conditionalGates": [],
-    "features": [],
-    "scopes": [],
-    "audit": [
-      "reporting.retention.sync"
-    ]
-  },
-  {
-    "method": "GET",
     "path": "/reports/settings/incidents",
     "auth": true,
     "permissions": [
@@ -1309,27 +1352,6 @@
     }
   },
   {
-    "method": "POST",
-    "path": "/reports/stakeholder-internal/owner-left/:orgId/:userId",
-    "auth": true,
-    "permissions": [],
-    "systemAdmin": false,
-    "servicePrincipal": true,
-    "dynamicAuthz": [],
-    "internalCallers": [
-      "platform"
-    ],
-    "stepUp": false,
-    "stepUpMethods": [],
-    "minAssurance": 0,
-    "conditionalGates": [],
-    "features": [],
-    "scopes": [],
-    "audit": [
-      "reporting.report.paused"
-    ]
-  },
-  {
     "method": "GET",
     "path": "/reports/stakeholder-preview",
     "auth": true,
@@ -1394,28 +1416,6 @@
         "apiCalls"
       ]
     }
-  },
-  {
-    "method": "PUT",
-    "path": "/reports/stakeholder-sync/:orgId",
-    "auth": true,
-    "permissions": [],
-    "systemAdmin": false,
-    "servicePrincipal": true,
-    "dynamicAuthz": [],
-    "internalCallers": [
-      "billing"
-    ],
-    "stepUp": false,
-    "stepUpMethods": [],
-    "minAssurance": 0,
-    "conditionalGates": [],
-    "features": [],
-    "scopes": [],
-    "audit": [
-      "reporting.report.paused",
-      "reporting.report.resumed"
-    ]
   },
   {
     "method": "GET",

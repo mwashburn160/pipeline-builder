@@ -97,7 +97,7 @@ beforeEach(() => {
 const userToken = (permissions: string[], extra: Record<string, unknown> = {}) => signTestUserToken({
   ...testUserIdentityClaims(), sub: 'u-1', role: 'member', organizationId: ORG, permissions, ...extra,
 }, { key: userKey });
-const stepUpToken = (sub = 'u-1') => signTestUserToken({ type: 'step-up', sub, jti: randomUUID() }, { key: userKey, expiresIn: 60 });
+const stepUpToken = (sub = 'u-1') => signTestUserToken({ type: 'step-up', sub, method: 'totp', jti: randomUUID() }, { key: userKey, expiresIn: 60 });
 
 async function call(method: string, path: string, token: string, opts: { body?: unknown; stepUp?: string } = {}): Promise<{ status: number; body: any }> {
   const res = await fetch(`${base}${path}`, {

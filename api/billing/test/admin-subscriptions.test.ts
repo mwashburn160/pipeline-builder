@@ -152,7 +152,7 @@ jest.unstable_mockModule('../src/helpers/addon-prune.js', () => ({
 // Payment provider — an admin plan change must push the new price to the
 // provider (provider-first), mirroring the user-facing PUT /subscriptions/:id.
 const mockUpdateSubscription = jest.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
-// The org-cascade DELETE provider-cancels every billable sub before the local delete.
+// The admin Purge provider-cancels every billable sub before the local delete.
 const mockCancelSubscription = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({
   getPaymentProvider: () => ({
@@ -817,7 +817,7 @@ describe('GET /subscriptions/by-org/:orgId/billable (org-move guard)', () => {
   });
 });
 
-describe('DELETE /subscriptions/by-org/:orgId (cascade)', () => {
+describe('DELETE /subscriptions/by-org/:orgId (admin Purge)', () => {
   const handler = getHandler('delete', '/subscriptions/by-org/:orgId');
 
   beforeEach(() => {
@@ -885,7 +885,10 @@ describe('DELETE /subscriptions/by-org/:orgId (cascade)', () => {
     expect(mockSubscriptionDeleteMany).toHaveBeenCalledWith({ orgId: 'org-9' });
   });
 
-  it('continues the local cascade when a provider-cancel fails (fail-soft)', async () => {
+  it('KEEPS a subscription whose provider cancel failed, and reports it as retained', async () => {
+    // Dropping it anyway would wipe the only record of the provider's
+    // externalId while the provider kept billing. Kept, the next Purge (or the
+    // next delivery of the cascade leg) cancels it again.
     const trialing = makeSubscription({
       _id: { toString: () => 'sub-trial' },
       orgId: 'org-9',
@@ -894,24 +897,43 @@ describe('DELETE /subscriptions/by-org/:orgId (cascade)', () => {
     });
     mockSubscriptionFind.mockReturnValue({ limit: jest.fn<AnyFn>().mockResolvedValue([trialing]) });
     mockCancelSubscription.mockRejectedValue(new Error('provider down'));
+    mockSubscriptionDeleteMany.mockResolvedValue({ deletedCount: 0 });
 
     const req = mockReq({ params: { orgId: 'org-9' }, user: { organizationId: 'sys-org', sub: 'sysadmin-1' } });
     const res = mockRes();
     await handler(req, res);
 
-    // Provider failure is swallowed; the local delete still runs and the route
-    // returns 200 (not 500).
-    expect(mockSubscriptionDeleteMany).toHaveBeenCalledWith({ orgId: 'org-9' });
-    expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, expect.objectContaining({ deleted: 1 }));
+    expect(mockSubscriptionDeleteMany).toHaveBeenCalledWith({ orgId: 'org-9', _id: { $nin: ['sub-trial'] } });
+    // Its own events stay with it.
+    expect(mockBillingEventDeleteMany).toHaveBeenCalledWith({ orgId: 'org-9', subscriptionId: { $nin: ['sub-trial'] } });
+    expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, { deleted: 0, events: 2, retained: 1 });
+    // Nothing was removed, so no removal is mirrored to the audit trail.
+    expect(mockAuditRecord).not.toHaveBeenCalled();
+  });
+
+  it('answers the counts it removed (nothing retained)', async () => {
+    mockSubscriptionFind.mockReturnValue({ limit: jest.fn<AnyFn>().mockResolvedValue([]) });
+    const req = mockReq({ params: { orgId: 'org-9' }, user: { organizationId: 'sys-org', sub: 'sysadmin-1' } });
+    const res = mockRes();
+    await handler(req, res);
+    expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, { deleted: 1, events: 2, retained: 0 });
+  });
+
+  it('400s without an org id', async () => {
+    const res = mockRes();
+    await handler(mockReq({ params: {}, user: { organizationId: 'sys-org', sub: 'sysadmin-1' } }), res);
+    expect(mockSendError).toHaveBeenCalledWith(res, 400, 'orgId is required', expect.anything());
+    expect(mockSubscriptionDeleteMany).not.toHaveBeenCalled();
   });
 });
 
-describe('DELETE /subscriptions/by-org/:orgId — server-side step-up for USER callers', () => {
-  /** The route's conditional step-up layer, run alone. */
+describe('DELETE /subscriptions/by-org/:orgId — server-side step-up', () => {
+  // The cascade no longer calls this route (it has its own internal contract),
+  // so the step-up is unconditional: only a person reaches it.
   const stepUpLayer = (): ((req: any, res: any, next: (err?: unknown) => void) => void) => {
     const layer = (router as any).stack.find((l: any) => l.route?.path === '/subscriptions/by-org/:orgId' && l.route?.methods?.delete);
-    const gate = layer.route.stack.find((l: any) => l.handle.name === 'gateWhenRoute');
-    if (!gate) throw new Error('DELETE /subscriptions/by-org/:orgId carries no conditional step-up');
+    const gate = layer.route.stack.find((l: any) => l.handle === stepUpStandIn);
+    if (!gate) throw new Error('DELETE /subscriptions/by-org/:orgId carries no step-up');
     return gate.handle;
   };
   const run = async (req: any) => {
@@ -933,15 +955,6 @@ describe('DELETE /subscriptions/by-org/:orgId — server-side step-up for USER c
       params: { orgId: 'org-9' },
       headers: { 'authorization': 'Bearer tok', 'x-step-up-token': 'valid-step-up' },
       user: { organizationId: 'sys-org', sub: 'sysadmin-1' },
-    }));
-    expect(next).toHaveBeenCalledWith();
-    expect(res.status).not.toHaveBeenCalled();
-  });
-
-  it('leaves the org-cascade SERVICE token unaffected (no person to re-verify)', async () => {
-    const { res, next } = await run(mockReq({
-      params: { orgId: 'org-9' },
-      user: { organizationId: 'sys-org', sub: 'service:platform', principalType: 'service' },
     }));
     expect(next).toHaveBeenCalledWith();
     expect(res.status).not.toHaveBeenCalled();

@@ -282,7 +282,8 @@ Found by looking, and recorded as `no-ui` dispositions. None is reachable from t
 | `compliance POST /compliance/validate/pipeline`, `POST /compliance/validate/plugin` | The enforcing (non dry-run) validation, called by the CDK at deploy time. The client layer only has the `/dry-run` variants. |
 | `plugin POST /plugins/lookup` | `pipeline-manager`'s plugin pre-resolution before synth. |
 | `ask POST /ask`, `POST /ask/stream` | API / CLI answer endpoints; the dashboard's Ask panel drives only `/ask/agent/stream`. |
-| `quota DELETE /quotas/:orgId` | The org-purge **cascade hook**, driven with a service token by platform's cascade outbox (`platform/src/services/cascade-legs.ts`). A human sysadmin is admitted by the gate, but no control exists and none should: `quotaService.update()` and `.resetUsage()` both throw `OrgNotFoundError` on a missing document and never upsert, so dropping the row leaves the org unenforceable and unrepairable from the dashboard. |
+
+`quota DELETE /quotas/:orgId` was on this list; it is gone — the org-purge cascade drops the quota document through the platform-only internal contract `POST /quotas/internal/orgs/:orgId/purge`, and no user route can.
 
 `platform POST /organization/names` was on this list; it is now `machine-only` — the service-principal gate moved from the controller onto the route, so the route table advertises it and the machine-only assertion can check it.
 
@@ -294,7 +295,7 @@ The same treatment for reads. Each was looked up, and each is a peer-service or 
 |---|---|
 | `pipeline GET /pipelines/find`, `plugin GET /plugins/find` | Exact-match lookup by project/name, documented in `docs/api-reference.md` as a curl/CLI surface. The dashboard filters the list endpoints instead. |
 | `compliance GET /compliance/rules/:id`, `GET /compliance/policies/:id` | Read-one-by-id for API / CLI callers; the dashboard's list response already carries the whole row. |
-| `compliance GET /compliance/entitlements/:orgId` | The billing↔compliance entitlement sync leg, gated with `requireBillingService`. |
+| `compliance GET /compliance/internal/entitlements/:orgId` | The billing↔compliance entitlement sync leg, gated with `requireBillingService`. |
 | `billing GET /billing/subscriptions/by-org/:orgId/billable` | Pre-flight for nesting a root under another org (`platform/src/services/org-hierarchy-service.ts`). |
 | `quota GET /quotas/:orgId/:quotaType` | Single-dimension status read by `packages/api-core/src/services/quota.ts`. |
 | `platform GET /organization/:id/descendants`, `GET /organization/:id/members/:userId/exists`, `GET /organization/:id/parent` | Org-hierarchy reads for peer services (`packages/api-core/src/helpers/org-hierarchy-http.ts`, `api/compliance/src/helpers/org-hierarchy-client.ts`). The dashboard had a `getOrganizationDescendants` client method with zero callers; it was deleted rather than left looking like a product capability. |

@@ -10,7 +10,7 @@
  * already include the read, so built-in roles are unaffected.
  *
  * Gated (plain `requirePermission('billing:read')` — NO internal service reads
- * these; platform only POSTs /subscriptions and DELETEs by-org, so none needs
+ * these; platform only POSTs /subscriptions and its org-purge leg, so none needs
  * `requirePermissionOrService`):
  *   - GET /billing/usage
  *   - GET /billing/subscriptions

@@ -117,7 +117,7 @@ const token = (permissions: readonly string[], opts: { org?: string; aal?: numbe
   aal: opts.aal ?? 2,
   amr: ['pwd', 'mfa'],
 }, { key: userKey });
-const stepUpToken = (sub = 'u-op') => signTestUserToken({ type: 'step-up', sub, jti: randomUUID() }, { key: userKey, expiresIn: 60 });
+const stepUpToken = (sub = 'u-op') => signTestUserToken({ type: 'step-up', sub, method: 'totp', jti: randomUUID() }, { key: userKey, expiresIn: 60 });
 const OPERATOR = ['toolchain:operate'];
 
 async function call(method: string, path: string, tok: string, opts: { body?: unknown; stepUp?: string } = {}): Promise<{ status: number; body: any }> {

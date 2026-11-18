@@ -13,7 +13,12 @@
 
 import { createLogger, isValidPermission, type RoleGrant } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
-import { assertActorMayAssignRole, assertSystemOrgOnlyRoleInSystemOrg } from './role-authority.js';
+import {
+  assertActorMayAssignRole,
+  assertSystemOrgOnlyRoleInSystemOrg,
+  effectiveRolePermissions,
+  ROLE_PERMISSION_FIELDS,
+} from './role-authority.js';
 import type { OrgId, RoleAssignmentActor, UserId } from './role-authority.js';
 import { RL_REQUIRES_SUPERADMIN, RL_ROLE_NOT_FOUND } from './roles-errors.js';
 import { toOrgId } from '../helpers/org-id.js';
@@ -63,12 +68,12 @@ export async function serviceAccountRolesFor(
   if (assignments.length === 0) return byAccount;
 
   const roles = await Role.find({ _id: { $in: [...new Set(assignments.map((a) => String(a.roleId)))] } })
-    .session(session ?? null).select('name grantsRole permissions').lean();
-  const byRoleId = new Map(roles.map((r) => [String(r._id), {
-    id: String(r._id),
-    name: r.name,
-    grantsRole: r.grantsRole as RoleGrant,
-    permissions: ((r.permissions as string[]) ?? []).filter((p) => isValidPermission(p)),
+    .session(session ?? null).select(`name ${ROLE_PERMISSION_FIELDS}`).lean();
+  const byRoleId = new Map(roles.map((role) => [String(role._id), {
+    id: String(role._id),
+    name: role.name,
+    grantsRole: role.grantsRole as RoleGrant,
+    permissions: effectiveRolePermissions(role).filter((p) => isValidPermission(p)),
   }]));
 
   for (const assignment of assignments) {
@@ -115,23 +120,26 @@ export async function setServiceAccountRoles(
 
   const roles = requested.length > 0
     ? await Role.find({ _id: { $in: requested }, organizationId: oid })
-      .session(session ?? null).select('grantsRole permissions').lean()
+      .session(session ?? null).select(ROLE_PERMISSION_FIELDS).lean()
     : [];
   if (roles.length !== requested.length) throw new Error(RL_ROLE_NOT_FOUND);
 
   for (const role of roles) {
     if (role.grantsRole === 'superadmin' && !actor.isSuperAdmin) throw new Error(RL_REQUIRES_SUPERADMIN);
-    assertActorMayAssignRole(role.permissions as string[] | undefined, actor);
-    assertSystemOrgOnlyRoleInSystemOrg(role.permissions as string[] | undefined, oid);
+    const granted = effectiveRolePermissions(role);
+    assertActorMayAssignRole(granted, actor);
+    assertSystemOrgOnlyRoleInSystemOrg(granted, oid);
   }
 
   // Removals are subject to the same ceiling (symmetry with removeUserFromRole):
   // a delegate must not be able to strip a capability they don't hold.
   const current = await serviceAccountRoles(oid, serviceAccountId, session);
-  for (const role of current) {
-    if (requested.includes(role.id)) continue;
-    if (role.grantsRole === 'superadmin' && !actor.isSuperAdmin) throw new Error(RL_REQUIRES_SUPERADMIN);
-    assertActorMayAssignRole(role.permissions, actor);
+  // (`held` entries are already resolved — `serviceAccountRolesFor` ran each
+  // Role through `effectiveRolePermissions`.)
+  for (const held of current) {
+    if (requested.includes(held.id)) continue;
+    if (held.grantsRole === 'superadmin' && !actor.isSuperAdmin) throw new Error(RL_REQUIRES_SUPERADMIN);
+    assertActorMayAssignRole(held.permissions, actor);
   }
 
   await RoleAssignment.deleteMany({ serviceAccountId, organizationId: oid }, { session });

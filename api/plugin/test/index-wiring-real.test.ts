@@ -270,7 +270,7 @@ function accessToken(claims: Record<string, unknown> = {}): string {
 }
 
 function stepUpToken(sub = 'user-1'): string {
-  return signTestUserToken({ type: 'step-up', sub, jti: randomUUID() }, { key: signingKey, expiresIn: 60 });
+  return signTestUserToken({ type: 'step-up', sub, method: 'totp', jti: randomUUID() }, { key: signingKey, expiresIn: 60 });
 }
 
 /**

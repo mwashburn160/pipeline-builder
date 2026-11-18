@@ -386,6 +386,9 @@ export const PLATFORM_INTERNAL = {
         windowDays: z.number(),
         seatsHeld: z.number(),
         activeMembers: z.number(),
+        /** Joined inside the window and not yet active in it — counted apart
+         *  so a just-added member does not read as a disengaging seat. */
+        newMembers: z.number(),
       }),
     }),
   }),

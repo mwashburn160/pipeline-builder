@@ -40,6 +40,9 @@ const HEADER = 'x-step-up-token';
  */
 export type StepUpMethod = 'password' | 'webauthn' | 'totp' | 'reauth';
 
+/** Every {@link StepUpMethod}, for the runtime check that a token names one. */
+const STEP_UP_METHODS: readonly StepUpMethod[] = ['password', 'webauthn', 'totp', 'reauth'];
+
 /**
  * The factors that count as a SECOND FACTOR, for routes that may only be
  * unlocked by one (impersonation, KMS, IdP settings, platform admin).
@@ -56,9 +59,9 @@ export interface StepUpTokenPayload {
   type: 'step-up';
   sub: string;
   jti: string;
-  /** Which factor earned it. Absent only on a token minted before the claim
-   *  existed, which a method-restricted gate treats as "not proven". */
-  method?: StepUpMethod;
+  /** Which factor earned it. Required: platform always sets it, and a token
+   *  without a known method is refused as not proven by every gate. */
+  method: StepUpMethod;
   iat: number;
   exp: number;
 }
@@ -75,7 +78,8 @@ export interface RequireStepUpOptions {
  * published signing keys, issuer and audience when configured, AND the
  * `type: 'step-up'` + `jti` claims — a plain access token is signed by the same
  * key and carries the same `sub`, so without asserting the step-up shape it
- * would bypass the gate. Throws on any failure (an unfetchable key set included:
+ * would bypass the gate — and a known `method`: a token that does not say which
+ * factor earned it proves nothing, on ANY gate, not only a `{ methods }` one. Throws on any failure (an unfetchable key set included:
  * an unverifiable token is not a step-up). Does NOT bind to a caller —
  * `requireStepUp` does the `sub` match and single-use consume.
  *
@@ -87,7 +91,7 @@ export interface RequireStepUpOptions {
 export async function verifyStepUpToken(token: string): Promise<StepUpTokenPayload> {
   const payload = await verifyUserJwt<StepUpTokenPayload>(token);
 
-  if (payload.type !== 'step-up' || !payload.jti || !payload.sub) {
+  if (payload.type !== 'step-up' || !payload.jti || !payload.sub || !STEP_UP_METHODS.includes(payload.method)) {
     throw new Error('INVALID_STEP_UP_TOKEN');
   }
   return payload;
@@ -202,8 +206,8 @@ async function _requireStepUp(options: RequireStepUpOptions, req: Request, res: 
   // HUMAN gate (they replay a password-reverify token), which a service token
   // structurally cannot produce. Services already bypass `requirePermission` on
   // the same trust basis (a signed service JWT), and internal callers of a
-  // step-up-gated route — e.g. the platform org-cascade's `DELETE /quotas/:orgId`
-  // or the billing→quota entitlement sync — would otherwise be hard-blocked.
+  // step-up-gated route — e.g. the billing→quota entitlement sync — would
+  // otherwise be hard-blocked.
   // Safe: a service token can only be minted with a SERVICE's own ES256 key,
   // which no external client holds, so this can't be spoofed to skip
   // step-up.
@@ -258,8 +262,8 @@ async function _requireStepUp(options: RequireStepUpOptions, req: Request, res: 
   // Factor restriction. Checked BEFORE the jti is consumed, so a token
   // earned by the wrong factor can still be spent on a route that accepts it —
   // burning it here would make the refusal destructive as well as confusing.
-  if (options.methods && !(payload.method && options.methods.includes(payload.method))) {
-    recordAuthzDenial(req, `step-up (STEP_UP_METHOD_REQUIRED: ${options.methods.join(' or ')}, got ${payload.method ?? 'none'})`);
+  if (options.methods && !options.methods.includes(payload.method)) {
+    recordAuthzDenial(req, `step-up (STEP_UP_METHOD_REQUIRED: ${options.methods.join(' or ')}, got ${payload.method})`);
     sendError(
       res, 401,
       'This action must be confirmed with a passkey or an authenticator code',

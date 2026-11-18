@@ -65,7 +65,7 @@ const USAGE = {
   },
 };
 
-const SEATS = { orgId: 'acme', windowDays: 30, seatsHeld: 12, activeMembers: 9 };
+const SEATS = { orgId: 'acme', windowDays: 30, seatsHeld: 12, activeMembers: 9, newMembers: 1 };
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -160,17 +160,33 @@ describe('buildProfile — fails CLOSED on an incomplete read', () => {
 
 describe('buildProfile — seat activity', () => {
   it('reports an account whose seats went unused as dormant, and complete', async () => {
-    mockFetchSeatActivity.mockResolvedValue({ orgId: 'acme', windowDays: 30, seatsHeld: 12, activeMembers: 0 });
+    mockFetchSeatActivity.mockResolvedValue({ orgId: 'acme', windowDays: 30, seatsHeld: 12, activeMembers: 0, newMembers: 0 });
     const p = await buildProfile(BASE);
-    expect(p.value).toMatchObject({ activeMembers: 0, seatsHeld: 12 });
+    expect(p.value).toMatchObject({ activeMembers: 0, seatsHeld: 12, newMembers: 0 });
     expect(p.incompleteReasons).toEqual([]);
   });
 
   it('carries partial activity through as read', async () => {
-    mockFetchSeatActivity.mockResolvedValue({ orgId: 'acme', windowDays: 30, seatsHeld: 12, activeMembers: 4 });
+    mockFetchSeatActivity.mockResolvedValue({ orgId: 'acme', windowDays: 30, seatsHeld: 12, activeMembers: 4, newMembers: 0 });
     const p = await buildProfile(BASE);
     expect(p.complete).toBe(true);
     expect(p.value).toMatchObject({ activeMembers: 4, seatsHeld: 12 });
+  });
+
+  // A just-added member has no `lastActiveAt` yet. Counted apart, so an account
+  // that is onboarding does not read as one that is disengaging.
+  it('carries just-joined members through as newMembers, apart from the active count', async () => {
+    mockFetchSeatActivity.mockResolvedValue({ orgId: 'acme', windowDays: 30, seatsHeld: 12, activeMembers: 4, newMembers: 5 });
+    const p = await buildProfile(BASE);
+    expect(p.value).toMatchObject({ activeMembers: 4, seatsHeld: 12, newMembers: 5 });
+    // Inactive = held − active − new.
+    expect(p.value.seatsHeld - p.value.activeMembers - p.value.newMembers).toBe(3);
+  });
+
+  it('records newMembers as 0 when the seat read fails', async () => {
+    mockFetchSeatActivity.mockRejectedValue(new Error('down'));
+    const p = await buildProfile(BASE);
+    expect(p.value.newMembers).toBe(0);
   });
 });
 

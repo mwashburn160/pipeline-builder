@@ -138,12 +138,12 @@ const EXCEPTIONS: RouteCoverageException[] = [
  * against the code in both directions.
  */
 const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
-  { method: 'PUT', path: '/reports/retention-sync/:orgId', callers: ['billing'] },
-  { method: 'GET', path: '/reports/retention-sync/:orgId', callers: ['billing'] },
-  { method: 'POST', path: '/reports/stakeholder-internal/owner-left/:orgId/:userId', callers: ['platform'] },
+  { method: 'PUT', path: '/reports/internal/retention-sync/:orgId', callers: ['billing'] },
+  { method: 'GET', path: '/reports/internal/retention-sync/:orgId', callers: ['billing'] },
+  { method: 'POST', path: '/reports/internal/stakeholder/owner-left/:orgId/:userId', callers: ['platform'] },
   // The account gained or lost the Stakeholder Reports add-on. Pauses or resumes every
   // report in the ACCOUNT (root + teams); billing only.
-  { method: 'PUT', path: '/reports/stakeholder-sync/:orgId', callers: ['billing'] },
+  { method: 'PUT', path: '/reports/internal/stakeholder-sync/:orgId', callers: ['billing'] },
   // platform's durable cascade outbox: tear a purged org's rows out of this service's own tables (idempotent).
   { method: 'POST', path: '/reports/internal/orgs/:orgId/purge', callers: ['platform'] },
 ];

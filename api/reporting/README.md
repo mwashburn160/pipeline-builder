@@ -25,10 +25,12 @@ Analytics and reporting for pipeline executions, plugin builds and DORA, plus th
 | `/reports/deployments/:executionId/outcome` | `pipelines:write` + `advanced_reporting` | Mark a deployment failed / restored |
 | `/reports/stakeholder/*` | `stakeholder_reports` feature + `reports:read` / `reports:write` / `reports:publish` per route; `PUT /policy` needs `org_settings:write` | Definitions, runs, notes, summary, publish, redeliver, PDF, share links, recipients, policy, delivery status |
 | `/reports/stakeholder-preview` | `reports:write` (`GET`: `reports:read`) | The one-off watermarked preview for orgs without the add-on |
-| `/reports/retention-sync/:orgId` | internal, `billing` only | Billing pushes / reads the root org's retention |
-| `/reports/stakeholder-sync/:orgId` | internal, `billing` only | Pause / resume an account's reports on add-on loss / regain |
-| `/reports/stakeholder-internal/owner-left/:orgId/:userId` | internal, `platform` only | Pause the reports a departed member owns |
+| `/reports/internal/retention-sync/:orgId` | internal, `billing` only | Billing pushes / reads the root org's retention |
+| `/reports/internal/stakeholder-sync/:orgId` | internal, `billing` only | Pause / resume an account's reports on add-on loss / regain |
+| `/reports/internal/stakeholder/owner-left/:orgId/:userId` | internal, `platform` only | Pause the reports a departed member owns |
 | `/public/*` | the token in the request | Shared report (`/reports/:token`, `/reports/:token/pdf`), recipient `verify` and `unsubscribe` |
+
+Everything under `/reports/internal/*` is service-to-service only (a named caller's service token; no user token is admitted), and the gateway refuses `/api/reports/internal/*` from outside (404).
 
 Time-ranged report endpoints accept `from`/`to`; the operator error/failure endpoints accept `limit`.
 

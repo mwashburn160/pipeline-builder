@@ -67,7 +67,7 @@ const accessBody = {
 function routed(compliance: unknown, access: unknown): void {
   mockGet.mockImplementation((path: unknown) => {
     const p = String(path);
-    const answer = p.includes('/compliance/posture') ? compliance : access;
+    const answer = p.includes('/compliance/internal/posture') ? compliance : access;
     return answer instanceof Error ? Promise.reject(answer) : Promise.resolve(answer);
   });
 }
@@ -127,7 +127,7 @@ describe('readPosture', () => {
     const compliancePath = mockGet.mock.calls.map((c) => String(c[0])).find((p) => p.includes('compliance'));
     // The org travels in the token, so a reporting bug cannot read a second org's posture
     // by building the wrong URL.
-    expect(compliancePath).toBe('/compliance/posture');
+    expect(compliancePath).toBe('/compliance/internal/posture');
     expect(mockServiceAuth).toHaveBeenCalledWith(expect.objectContaining({ serviceName: 'reporting', orgId: 'acme' }));
   });
 

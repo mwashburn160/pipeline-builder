@@ -35,7 +35,7 @@ import { Router } from 'express';
  */
 const SYNC = REPORTING_INTERNAL.syncRetention;
 const READ = REPORTING_INTERNAL.readRetention;
-const MOUNT = '/reports/retention-sync';
+const MOUNT = '/reports/internal/retention-sync';
 
 export function createRetentionSyncRoutes(): Router {
   const router = Router();

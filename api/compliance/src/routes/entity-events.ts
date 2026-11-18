@@ -41,7 +41,7 @@ const ENTITY_EVENT = COMPLIANCE_INTERNAL.entityEvent;
 export function createEntityEventRoutes(): Router {
   const router = Router();
 
-  router.post(contractRoute(ENTITY_EVENT, '/compliance/events/entity'), requireAuth, requireInternalService({ callers: ENTITY_EVENT.callers }), async (req: Request, res: Response) => {
+  router.post(contractRoute(ENTITY_EVENT, '/compliance/internal/events/entity'), requireAuth, requireInternalService({ callers: ENTITY_EVENT.callers }), async (req: Request, res: Response) => {
     const validation = parseContractBody(ENTITY_EVENT, req);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);

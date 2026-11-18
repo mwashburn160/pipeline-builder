@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Tests for the entitlement-sync hardening on `/compliance/entitlements/:orgId`:
+ * Tests for the entitlement-sync hardening on `/compliance/internal/entitlements/:orgId`:
  *  - sync-race watermark: a push with a STALE `occurredAt` is skipped
  *    (`{ ok:true, skipped:true }`) and never reconciles; a newer one applies and
  *    advances the watermark; a push with no `occurredAt` always applies.

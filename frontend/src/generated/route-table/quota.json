@@ -59,34 +59,6 @@
     "audit": []
   },
   {
-    "method": "DELETE",
-    "path": "/quotas/:orgId",
-    "auth": true,
-    "permissions": [
-      {
-        "mode": "any",
-        "permissions": [
-          "quotas:manage"
-        ],
-        "allowService": false
-      }
-    ],
-    "systemAdmin": false,
-    "servicePrincipal": false,
-    "dynamicAuthz": [],
-    "internalCallers": [],
-    "stepUp": true,
-    "stepUpMethods": [],
-    "minAssurance": 2,
-    "conditionalGates": [],
-    "features": [],
-    "scopes": [],
-    "audit": [
-      "quota.delete"
-    ],
-    "systemOrg": true
-  },
-  {
     "method": "GET",
     "path": "/quotas/:orgId",
     "auth": true,
@@ -462,6 +434,27 @@
     "features": [],
     "scopes": [],
     "audit": []
+  },
+  {
+    "method": "POST",
+    "path": "/quotas/internal/orgs/:orgId/purge",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "dynamicAuthz": [],
+    "internalCallers": [
+      "platform"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "org.data.purge"
+    ]
   },
   {
     "method": "GET",
