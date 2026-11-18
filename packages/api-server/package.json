@@ -128,7 +128,7 @@
     "registry": "https://registry.npmjs.org/",
     "provenance": true
   },
-  "version": "4.5.5",
+  "version": "5.0.0",
   "bugs": {
     "url": "https://github.com/mwashburn160/pipeline-builder/issues"
   },
