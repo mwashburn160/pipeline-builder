@@ -278,7 +278,6 @@ describe('deploy/local/docker — compose service labels', () => {
  */
 const UNPUBLISHED: Record<string, string> = {
   'ask-agent': 'api/ask-agent',
-  'ops-center': 'api/ops-center',
 };
 
 describe('owned images are digest-pinned, except the documented unpublished set', () => {
