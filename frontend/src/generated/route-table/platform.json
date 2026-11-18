@@ -704,7 +704,7 @@
     "servicePrincipal": true,
     "dynamicAuthz": [],
     "internalCallers": [
-      "ask",
+      "ask-agent",
       "billing",
       "compliance",
       "image-registry",
@@ -1838,7 +1838,7 @@
     "servicePrincipal": true,
     "dynamicAuthz": [],
     "internalCallers": [
-      "ask",
+      "ask-agent",
       "pipeline",
       "plugin",
       "reporting"
@@ -1860,7 +1860,7 @@
     "servicePrincipal": true,
     "dynamicAuthz": [],
     "internalCallers": [
-      "ask",
+      "ask-agent",
       "pipeline",
       "plugin",
       "reporting"
@@ -1944,7 +1944,7 @@
     "servicePrincipal": true,
     "dynamicAuthz": [],
     "internalCallers": [
-      "ask",
+      "ask-agent",
       "ops-center",
       "plugin",
       "reporting"

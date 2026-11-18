@@ -71,7 +71,7 @@ describe.each(K8S_TARGETS)('%s bring-up', (target) => {
   it('never scales a service on memory utilization', () => {
     // These services carry a large baseline heap, so a memory target pins the
     // HPA to maxReplicas forever.
-    for (const f of ['platform', 'pipeline', 'plugin', 'billing', 'compliance', 'message', 'quota', 'reporting', 'ops-center', 'image-registry', 'ask']) {
+    for (const f of ['platform', 'pipeline', 'plugin', 'billing', 'compliance', 'message', 'quota', 'reporting', 'ops-center', 'image-registry', 'ask-agent']) {
       for (const doc of yamlDocs<K8sDoc>(`${target}/k8s/${f}.yaml`)) {
         if (doc.kind !== 'HorizontalPodAutoscaler') continue;
         const metrics = (doc.spec?.metrics ?? []) as Array<{ resource?: { name?: string } }>;
@@ -184,7 +184,7 @@ describe('services.txt', () => {
 
   it('lists every backend service, and each has its own signing-key Secret mount on every k8s target', () => {
     const services = rows.filter(([kind]) => kind === 'service').map(([, name]) => name!);
-    expect(services).toEqual(expect.arrayContaining(['platform', 'pipeline', 'plugin', 'quota', 'billing', 'message', 'compliance', 'reporting', 'ops-center', 'image-registry', 'ask']));
+    expect(services).toEqual(expect.arrayContaining(['platform', 'pipeline', 'plugin', 'quota', 'billing', 'message', 'compliance', 'reporting', 'ops-center', 'image-registry', 'ask-agent']));
     for (const target of K8S_TARGETS) {
       for (const svc of services) expect([target, svc, read(`${target}/k8s/${svc}.yaml`).includes(`secretName: service-key-${svc}`)]).toEqual([target, svc, true]);
     }

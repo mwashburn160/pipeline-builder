@@ -16,7 +16,7 @@ packages:
   - api/pipeline
   - api/message
   - api/reporting
-  - api/ask
+  - api/ask-agent
   - api/compliance
   - api/ops-center
   - api/image-registry

@@ -7,15 +7,15 @@ const tags = ['Ask'];
 const auth = [{ bearerAuth: [] }];
 
 /**
- * OpenAPI definitions for the "Ask" assistant service (api/ask), mounted at
- * `/ask`. All routes are gated by the `ai_generation` feature and are READ /
+ * OpenAPI definitions for the "Ask" assistant service (api/ask-agent), mounted at
+ * `/ask-agent`. All routes are gated by the `ai_generation` feature and are READ /
  * PROPOSE only — the agent never mutates; `propose_*` tool results are drafts the
  * user confirms in the UI.
  */
-export function registerAskRoutes(): void {
+export function registerAskAgentRoutes(): void {
   registry.registerPath({
     method: 'get',
-    path: '/ask/providers',
+    path: '/ask-agent/providers',
     summary: 'List configured AI providers',
     description: 'The AI providers/models available to the Ask assistant (from server env — cloud keys and/or the OpenAI-compatible local endpoint).',
     tags,
@@ -25,7 +25,7 @@ export function registerAskRoutes(): void {
 
   registry.registerPath({
     method: 'post',
-    path: '/ask',
+    path: '/ask-agent',
     summary: 'Grounded how-to answer (non-streaming)',
     description: 'Answer a platform how-to question grounded in the docs corpus. Reserves one aiCalls quota slot.',
     tags,
@@ -39,9 +39,9 @@ export function registerAskRoutes(): void {
 
   registry.registerPath({
     method: 'post',
-    path: '/ask/stream',
+    path: '/ask-agent/stream',
     summary: 'Grounded how-to answer (SSE stream)',
-    description: 'Same as POST /ask but streams the grounded sources then answer tokens as Server-Sent Events.',
+    description: 'Same as POST /ask-agent but streams the grounded sources then answer tokens as Server-Sent Events.',
     tags,
     security: auth,
     responses: {
@@ -53,7 +53,7 @@ export function registerAskRoutes(): void {
 
   registry.registerPath({
     method: 'post',
-    path: '/ask/agent/stream',
+    path: '/ask-agent/agent/stream',
     summary: 'Tool-calling Ask agent (SSE stream)',
     description: 'Runs the tool-calling assistant loop and streams reasoning tokens, tool-call events, and reviewable `propose_*` drafts (pipeline/plugin/template) as SSE. Read-only: proposals are confirmed separately in the UI.',
     tags,

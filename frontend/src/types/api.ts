@@ -19,7 +19,7 @@
  * - `help-topics` help topics only — no question box, no model calls
  *
  * Separate from the schedule fallback: with `ask-agent` configured the panel
- * still falls back to help topics when `GET /ask/availability` reports the
+ * still falls back to help topics when `GET /ask-agent/availability` reports the
  * self-hosted model scaled to zero, or no provider configured at all.
  */
 export type AskUiMode = 'ask-agent' | 'help-topics';

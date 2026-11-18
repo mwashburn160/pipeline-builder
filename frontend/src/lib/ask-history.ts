@@ -3,7 +3,7 @@
 
 import type { AskTurn } from '@/lib/api/domains/ask';
 
-/** The ask service's `history` bounds (api/ask request-schema): at most 20
+/** The ask-agent service's `history` bounds (api/ask-agent request-schema): at most 20
  *  turns, 8000 characters each, 32,000 in all. A request over any of them is a
  *  400, which would fail every question after a long enough conversation. */
 const HISTORY_MAX_TURNS = 20;

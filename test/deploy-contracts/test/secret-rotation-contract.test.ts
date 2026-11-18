@@ -125,7 +125,7 @@ describe('secret-rotation shell plumbing', () => {
     expect(generator).toContain('--rotate');
     expect(generator).toContain('refusing to rotate');
     for (const target of K8S_TARGETS) {
-      for (const svc of ['platform', 'plugin', 'pipeline', 'quota', 'reporting', 'ops-center', 'billing', 'message', 'compliance', 'image-registry', 'ask']) {
+      for (const svc of ['platform', 'plugin', 'pipeline', 'quota', 'reporting', 'ops-center', 'billing', 'message', 'compliance', 'image-registry', 'ask-agent']) {
         const manifest = read(`${target}/k8s/${svc}.yaml`);
         expect(manifest).toContain(`secretName: service-key-${svc}`);
         expect(manifest).toContain('secretName: service-key-bundle');
@@ -295,7 +295,7 @@ describe('the AWS Marketplace billing provider carries its IAM grant', () => {
 });
 
 /**
- * `ASK_SERVICE_HOST` / `ASK_SERVICE_PORT` are honoured, not just documented.
+ * `ASK_AGENT_SERVICE_HOST` / `ASK_AGENT_SERVICE_PORT` are honoured, not just documented.
  *
  * They were documented knobs that NOTHING read. The `<NAME>_SERVICE_HOST/PORT`
  * convention is consumer-side discovery honoured by the api-core service clients,
@@ -303,32 +303,32 @@ describe('the AWS Marketplace billing provider carries its IAM grant', () => {
  * had the address hard-coded. nginx is therefore Ask's only caller, and that is
  * where the pair is now rendered.
  */
-describe('the ask service address is configurable, not hard-coded', () => {
+describe('the ask-agent service address is configurable, not hard-coded', () => {
   const NGINX_TARGETS = ['deploy/aws/eks', 'deploy/aws/ec2', 'deploy/local/minikube'];
 
-  it.each(NGINX_TARGETS)('%s proxies ask through the generated upstream', (target) => {
+  it.each(NGINX_TARGETS)('%s proxies ask-agent through the generated upstream', (target) => {
     const conf = read(`${target}/nginx/nginx.conf`);
-    expect(conf).toContain('include /etc/nginx/ask-upstream.conf;');
-    expect(conf).toContain('proxy_pass http://pb_ask;');
+    expect(conf).toContain('include /etc/nginx/ask-agent-upstream.conf;');
+    expect(conf).toContain('proxy_pass http://pb_ask_agent;');
     // The literal it replaced must be gone, or the knob is bypassed.
-    expect(conf).not.toMatch(/proxy_pass http:\/\/ask[.:]/);
+    expect(conf).not.toMatch(/proxy_pass http:\/\/ask-agent[.:]/);
   });
 
   it('generates that file from the two env vars, with the documented defaults', () => {
     const sh = read('deploy/bin/k8s-resources.sh');
-    expect(sh).toContain('ask-upstream.conf');
-    expect(sh).toContain('ASK_SERVICE_HOST');
-    expect(sh).toContain('ASK_SERVICE_PORT');
-    expect(sh).toContain('upstream pb_ask { server ');
+    expect(sh).toContain('ask-agent-upstream.conf');
+    expect(sh).toContain('ASK_AGENT_SERVICE_HOST');
+    expect(sh).toContain('ASK_AGENT_SERVICE_PORT');
+    expect(sh).toContain('upstream pb_ask_agent { server ');
     // Both values are rendered into nginx config, so both are validated — a host
     // carrying a `;` or a space would inject directives.
-    expect(sh).toMatch(/ASK_SERVICE_PORT='\$_ask_port' is not a port number/);
-    expect(sh).toMatch(/ASK_SERVICE_HOST='\$_ask_host' is not a bare hostname/);
+    expect(sh).toMatch(/ASK_AGENT_SERVICE_PORT='\$_ask_port' is not a port number/);
+    expect(sh).toMatch(/ASK_AGENT_SERVICE_HOST='\$_ask_host' is not a bare hostname/);
   });
 
   it.each(NGINX_TARGETS)('%s declares both keys so pb_sync_env_keys adds them', (target) => {
     const env = read(`${target}/.env.example`);
-    for (const key of ['ASK_SERVICE_HOST', 'ASK_SERVICE_PORT']) {
+    for (const key of ['ASK_AGENT_SERVICE_HOST', 'ASK_AGENT_SERVICE_PORT']) {
       expect([key, env.includes(key)]).toEqual([key, true]);
     }
   });

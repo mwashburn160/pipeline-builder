@@ -326,7 +326,7 @@ export const PLATFORM_INTERNAL = {
     service: 'platform',
     method: 'GET',
     path: '/internal/notify-email/status',
-    callers: ['ask', 'ops-center', 'plugin', 'reporting'],
+    callers: ['ask-agent', 'ops-center', 'plugin', 'reporting'],
     auth: SERVICE_TOKEN,
     params: z.object({}),
     response: z.object({ enabled: z.boolean() }),
@@ -476,7 +476,7 @@ export const PLATFORM_INTERNAL = {
     service: 'platform',
     method: 'GET',
     path: '/internal/ai/access/:orgId',
-    callers: ['ask', 'pipeline', 'plugin', 'reporting'],
+    callers: ['ask-agent', 'pipeline', 'plugin', 'reporting'],
     auth: AI_AUTH,
     params: z.object({
       orgId: z.string({ error: ORG_ID_MESSAGE }).regex(AI_ORG_ID, ORG_ID_MESSAGE).transform((s) => s.toLowerCase()),
@@ -492,7 +492,7 @@ export const PLATFORM_INTERNAL = {
     service: 'platform',
     method: 'GET',
     path: '/internal/ai/keys/:orgId/:provider',
-    callers: ['ask', 'pipeline', 'plugin', 'reporting'],
+    callers: ['ask-agent', 'pipeline', 'plugin', 'reporting'],
     auth: AI_AUTH,
     params: z.object({
       orgId: z.string({ error: ORG_ID_MESSAGE }).regex(AI_ORG_ID, ORG_ID_MESSAGE).transform((s) => s.toLowerCase()),

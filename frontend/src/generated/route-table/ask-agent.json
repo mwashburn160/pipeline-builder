@@ -1,7 +1,7 @@
 [
   {
     "method": "POST",
-    "path": "/ask",
+    "path": "/ask-agent",
     "auth": true,
     "permissions": [
       {
@@ -40,7 +40,7 @@
   },
   {
     "method": "POST",
-    "path": "/ask/agent/stream",
+    "path": "/ask-agent/agent/stream",
     "auth": true,
     "permissions": [
       {
@@ -79,7 +79,7 @@
   },
   {
     "method": "GET",
-    "path": "/ask/availability",
+    "path": "/ask-agent/availability",
     "auth": true,
     "permissions": [
       {
@@ -116,7 +116,7 @@
   },
   {
     "method": "POST",
-    "path": "/ask/feedback",
+    "path": "/ask-agent/feedback",
     "auth": true,
     "permissions": [
       {
@@ -153,7 +153,7 @@
   },
   {
     "method": "GET",
-    "path": "/ask/providers",
+    "path": "/ask-agent/providers",
     "auth": true,
     "permissions": [
       {
@@ -190,7 +190,7 @@
   },
   {
     "method": "POST",
-    "path": "/ask/stream",
+    "path": "/ask-agent/stream",
     "auth": true,
     "permissions": [
       {

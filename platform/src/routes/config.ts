@@ -75,7 +75,7 @@ router.get('/', (_req, res) => {
     // Which assistant surface the dashboard offers (ASK_UI_MODE): 'ask-agent'
     // (default) or 'help-topics'. Runtime for the same reason as deployTarget —
     // one prebuilt frontend image serves every target. The schedule fallback is
-    // separate and lives on the ask service (GET /ask/availability).
+    // separate and lives on the ask-agent service (GET /ask-agent/availability).
     askUiMode: config.askUiMode,
     // Effective per-tier quota presets (honors PLAN_TIER_* env overrides) so the
     // quota-admin editor prefills from real limits, not a drifting hardcoded copy.

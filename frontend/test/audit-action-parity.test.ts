@@ -39,7 +39,7 @@ const TABLE_DIR = resolve(ROOT, 'frontend/src/generated/route-table');
 
 /** service name (matching its route-table file) → its source root. */
 const SERVICE_SRC: Record<string, string> = {
-  ask: 'api/ask/src',
+  'ask-agent': 'api/ask-agent/src',
   billing: 'api/billing/src',
   compliance: 'api/compliance/src',
   'image-registry': 'api/image-registry/src',

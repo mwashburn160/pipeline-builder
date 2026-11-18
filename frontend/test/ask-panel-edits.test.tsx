@@ -605,7 +605,7 @@ describe('AskPanel remediation proposals', () => {
 
   it('a read-only impersonation session cannot ask in the first place', async () => {
     // The composer used to accept input and every send answered 403: the turn is
-    // POST /ask/agent/stream and `requireAuth` refuses every non-GET under a
+    // POST /ask-agent/agent/stream and `requireAuth` refuses every non-GET under a
     // read-only impersonation token — documentation lookups included.
     mockAuthGuard({ can: () => true, isReadOnly: true });
     render(<AskPanel onClose={jest.fn<AnyFn>()} />);

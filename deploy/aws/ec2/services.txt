@@ -7,7 +7,7 @@ service plugin api/plugin
 service pipeline api/pipeline
 service message api/message
 service reporting api/reporting
-service ask api/ask
+service ask-agent api/ask-agent
 service compliance api/compliance
 service ops-center api/ops-center
 service image-registry api/image-registry

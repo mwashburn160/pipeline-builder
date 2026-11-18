@@ -49,7 +49,7 @@ spec:
     # Counted from the rendered manifests rather than estimated. At every
     # autoscaler maximum the namespace holds 66 workload pods:
     #   quota 2→6, image-registry 1→5, platform 1→5, frontend 1→4, pipeline 1→4,
-    #   ask/compliance/message/nginx/ops-center/reporting 1→3 each (HPAs), plugin 1→2
+    #   ask-agent/compliance/message/nginx/ops-center/reporting 1→3 each (HPAs), plugin 1→2
     #   (a KEDA ScaledObject, NOT an HPA — easy to miss when tallying), plus the
     #   ~22 single-replica services, DBs and buildkitd tiers.
     # On top of that init-platform.sh spawns short-lived crane push/check and

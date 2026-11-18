@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 94643b4396d4589e191388e97dafabe0f4db4ea8b01238074e044b79e4f69e13
+// SOURCE-SHA256: 6c8c731d19c552e0987429a2480421e23002a14ce8d99510947f1c80bc8ec79f
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -2769,12 +2769,12 @@ export const envVariablesTopic: HelpTopic = {
               "ops-center port"
             ],
             [
-              "ASK_SERVICE_HOST",
+              "ASK_AGENT_SERVICE_HOST",
               "in-cluster FQDN",
-              "Where nginx proxies /api/ask. Unlike the pairs above — which the api-core service clients read so one service can call another — nothing in the fleet calls Ask: the browser reaches it through nginx. So nginx is its only caller, and these are honoured there, rendered by pb_nginx_config into the upstream pb_ask block nginx.conf includes. Unset = the address that used to be hard-coded, so leaving it alone changes nothing. Kubernetes targets only; on docker the host is the compose service name, fixed by the compose file."
+              "Where nginx proxies /api/ask-agent. Unlike the pairs above — which the api-core service clients read so one service can call another — nothing in the fleet calls Ask: the browser reaches it through nginx. So nginx is its only caller, and these are honoured there, rendered by pb_nginx_config into the upstream pb_ask_agent block nginx.conf includes. Unset = the address that used to be hard-coded, so leaving it alone changes nothing. Kubernetes targets only; on docker the host is the compose service name, fixed by the compose file."
             ],
             [
-              "ASK_SERVICE_PORT",
+              "ASK_AGENT_SERVICE_PORT",
               "3000",
               "Port for the above. Rejected at deploy time if not numeric; a host that is not a bare hostname is rejected too, since both are rendered into nginx config."
             ]
@@ -4225,7 +4225,7 @@ export const envVariablesTopic: HelpTopic = {
           "items": [
             "aws/ec2, aws/eks (deploy/aws/{ec2,eks}/k8s/ask-model.yaml) — deployed by default (listed in kustomization.yaml), with OPENAI_COMPATIBLE_BASE_URL=http://ask-model:11434/v1 + OPENAI_COMPATIBLE_MODELS=qwen2.5-coder:7b|Qwen 2.5 Coder already set on the ask Deployment. A 7B tool-capable model needs ~6–8Gi RAM (CPU) or a GPU (uncomment the nodeSelector/tolerations + nvidia.com/gpu limit). On ec2, LEAN=1 drops it — at 6Gi it does not fit the t3.xlarge that LEAN targets — along with the ask env that points at it.",
             "local/minikube — opt-in, because a 6Gi request will not schedule on a laptop-sized VM: ASK_MODEL=1 deploy/local/minikube/bin/setup.sh (or the same flag on startup.sh for an already-provisioned cluster) applies the manifest and wires the two env vars into the app-env ConfigMap. The minikube copy runs the 1.5B at a 1536Mi request.",
-            "local/docker (deploy/local/docker/docker-compose.yml) — behind the ask-model compose profile: docker compose --profile ask-model up -d, then uncomment OPENAI_COMPATIBLE_BASE_URL/OPENAI_COMPATIBLE_MODELS in .env and docker compose up -d ask so the change reaches the service."
+            "local/docker (deploy/local/docker/docker-compose.yml) — behind the ask-model compose profile: docker compose --profile ask-model up -d, then uncomment OPENAI_COMPATIBLE_BASE_URL/OPENAI_COMPATIBLE_MODELS in .env and docker compose up -d ask-agent so the change reaches the service."
           ]
         },
         {
@@ -4417,7 +4417,7 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "api/ask reads the same variable, so the 503 and the availability check below name the window in that zone, using its current abbreviation — \"EDT\" in summer, \"EST\" in winter. A deployment that sets spec.timeZone without telling the service, or the reverse, would describe a window the cluster is not keeping."
+          "content": "api/ask-agent reads the same variable, so the 503 and the availability check below name the window in that zone, using its current abbreviation — \"EDT\" in summer, \"EST\" in winter. A deployment that sets spec.timeZone without telling the service, or the reverse, would describe a window the cluster is not keeping."
         },
         {
           "type": "text",
@@ -4436,11 +4436,11 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Two consequences worth knowing before enabling it. Outside the window ask-model has no replicas, so Ask's model calls fail — they do not queue, and nothing wakes the model on demand (ask itself stays up and its non-model routes keep working). The failure is at least explained: the ask service reads these same three variables and answers 503 with \"The Ask assistant's self-hosted model runs 07:45-17:00 UTC and is switched off right now\", rather than surfacing the raw AI_APICallError: Cannot connect to API: other side closed it used to. That notice is deliberately narrow — it appears only when the self-hosted provider failed to connect and a schedule is configured, so a cloud provider's outage is never misattributed to the window, and a model that is unreachable inside its window is reported as \"scheduled to be running now ... may still be starting up\" instead."
+          "content": "Two consequences worth knowing before enabling it. Outside the window ask-model has no replicas, so Ask's model calls fail — they do not queue, and nothing wakes the model on demand (ask-agent itself stays up and its non-model routes keep working). The failure is at least explained: the ask service reads these same three variables and answers 503 with \"The Ask assistant's self-hosted model runs 07:45-17:00 UTC and is switched off right now\", rather than surfacing the raw AI_APICallError: Cannot connect to API: other side closed it used to. That notice is deliberately narrow — it appears only when the self-hosted provider failed to connect and a schedule is configured, so a cloud provider's outage is never misattributed to the window, and a model that is unreachable inside its window is reported as \"scheduled to be running now ... may still be starting up\" instead."
         },
         {
           "type": "text",
-          "content": "The dashboard no longer waits for that failed turn to find out. Opening Ask calls GET /ask/availability first — a configuration-only read that never opens a socket to the model — and when the answer is \"scheduled off\" (or no provider is configured at all) the panel opens straight into help topics, carrying the same sentence and the time the assistant returns. The check shares its window arithmetic with the 503 above, so the two cannot disagree. It fails open: a probe that errors leaves the assistant on offer, because a transient gateway error must not quietly replace it."
+          "content": "The dashboard no longer waits for that failed turn to find out. Opening Ask calls GET /ask-agent/availability first — a configuration-only read that never opens a socket to the model — and when the answer is \"scheduled off\" (or no provider is configured at all) the panel opens straight into help topics, carrying the same sentence and the time the assistant returns. The check shares its window arithmetic with the 503 above, so the two cannot disagree. It fails open: a probe that errors leaves the assistant on offer, because a transient gateway error must not quietly replace it."
         },
         {
           "type": "text",

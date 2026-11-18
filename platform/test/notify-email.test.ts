@@ -409,7 +409,7 @@ describe('notifyEmailStatus', () => {
 // The ROUTE-LEVEL caller gate — who may read the switch, and who may send.
 //
 // Reading the switch and sending mail are separate authorities and are gated
-// separately: `ask` (the agent's notification diagnosis) reads
+// separately: `ask-agent` (the agent's notification diagnosis) reads
 // GET /status, and must NEVER be admitted to POST / — a model, or a
 // prompt-injected message, would otherwise be one step from making the instance
 // send mail to an address it chose. `requireServiceAuth` is a pass-through here;
@@ -439,8 +439,8 @@ function drive(method: 'GET' | 'POST', url: string, user: unknown, body: unknown
 describe('internal caller gate', () => {
   beforeEach(() => { mockEmailConfig.enabled = true; });
 
-  it('admits `ask` to GET /status — the agent diagnoses "nothing arrives" off this switch', async () => {
-    const res = await drive('GET', '/status', servicePrincipal('ask'));
+  it('admits `ask-agent` to GET /status — the agent diagnoses "nothing arrives" off this switch', async () => {
+    const res = await drive('GET', '/status', servicePrincipal('ask-agent'));
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ data: { enabled: true } }));
   });
@@ -463,8 +463,8 @@ describe('internal caller gate', () => {
     expect(res.status).toHaveBeenCalledWith(403);
   });
 
-  it('SECURITY: `ask` may read the switch but may NOT send — POST / refuses it', async () => {
-    const res = await drive('POST', '/', servicePrincipal('ask'), { orgId: 'org-1', subject: 'S', text: 'T' });
+  it('SECURITY: `ask-agent` may read the switch but may NOT send — POST / refuses it', async () => {
+    const res = await drive('POST', '/', servicePrincipal('ask-agent'), { orgId: 'org-1', subject: 'S', text: 'T' });
     expect(res.status).toHaveBeenCalledWith(403);
     expect(mockSend).not.toHaveBeenCalled();
     expect(mockDeliver).not.toHaveBeenCalled();

@@ -114,7 +114,7 @@ describe('meterQuotaOnSuccess', () => {
   it('does NOT meter an on-behalf hop signed by ask for this user, but DOES meter a forged one', async () => {
     const { onBehalfHeaders } = await import('@pipeline-builder/api-core');
     const prev = process.env.SERVICE_NAME;
-    process.env.SERVICE_NAME = 'ask';
+    process.env.SERVICE_NAME = 'ask-agent';
     let marker: string | undefined;
     try {
       marker = onBehalfHeaders({ sub: 'user-1', organizationId: 'org-1' })['x-pb-on-behalf'];

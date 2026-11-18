@@ -144,7 +144,7 @@ async function readCheck(quotaService: QuotaService, orgId: string, quotaType: Q
  *   its limit must not break the internal calls its own earlier actions caused);
  * - for `apiCalls`: an IMPERSONATION session (vendor staff diagnosing an
  *   exhausted org must not be locked out by it) and an ON-BEHALF hop (a user
- *   token forwarded by ask/pipeline with a signed marker — the originating
+ *   token forwarded by ask-agent/pipeline with a signed marker — the originating
  *   request was already gated and metered);
  * - an `apiCalls` request on the fleet-wide `QUOTA_EXEMPT_ROUTES` (console
  *   polling — an exhausted org must still render the banner saying so);

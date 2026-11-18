@@ -81,7 +81,7 @@ const quota = client();
 const selection = { model: { id: 'm' }, provider: 'anthropic', modelId: 'claude-sonnet-5-5', keySource: 'platform' } as never;
 
 // The instance-wide email switch, read from platform's AUTHORITATIVE internal
-// status route on ask's own service token (`readInstanceEmailStatus`). Injected,
+// status route on ask-agent's own service token (`readInstanceEmailStatus`). Injected,
 // so the suite can drive all three states — including the one that matters most,
 // `unknown` ("could not determine"), which is NOT "disabled".
 const emailStatus = jest.fn<() => Promise<'enabled' | 'disabled' | 'unknown'>>(async () => 'enabled');

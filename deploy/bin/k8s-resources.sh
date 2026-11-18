@@ -413,25 +413,25 @@ pb_nginx_config() {
     done
     _args+=(--from-literal=real-ip.conf="$_realip")
   fi
-  # ask-upstream.conf  the `upstream pb_ask` block, from ASK_SERVICE_HOST /
-  # ASK_SERVICE_PORT. These two were DOCUMENTED knobs that nothing read: the
+  # ask-agent-upstream.conf  the `upstream pb_ask_agent` block, from ASK_AGENT_SERVICE_HOST /
+  # ASK_AGENT_SERVICE_PORT. These two were DOCUMENTED knobs that nothing read: the
   # convention elsewhere is that `<NAME>_SERVICE_HOST/PORT` is consumer-side
   # discovery honoured by the api-core service clients, and nothing in the fleet
-  # calls ask — the browser reaches it through nginx, which had the address
-  # hard-coded. So nginx is ask's only caller, and this is where the knobs become
+  # calls ask-agent — the browser reaches it through nginx, which had the address
+  # hard-coded. So nginx is ask-agent's only caller, and this is where the knobs become
   # real. Defaults match the documented ones, so an install that sets neither
   # produces exactly the literal that was there before.
-  if grep -q 'include /etc/nginx/ask-upstream.conf' "$_nginx/nginx.conf"; then
-    local _ask_host="${ASK_SERVICE_HOST:-ask.${PB_NAMESPACE:-pipeline-builder}.svc.cluster.local}"
-    local _ask_port="${ASK_SERVICE_PORT:-3000}"
+  if grep -q 'include /etc/nginx/ask-agent-upstream.conf' "$_nginx/nginx.conf"; then
+    local _ask_host="${ASK_AGENT_SERVICE_HOST:-ask-agent.${PB_NAMESPACE:-pipeline-builder}.svc.cluster.local}"
+    local _ask_port="${ASK_AGENT_SERVICE_PORT:-3000}"
     case "$_ask_port" in
-      ''|*[!0-9]*) echo "ERROR: ASK_SERVICE_PORT='$_ask_port' is not a port number" >&2; return 1 ;;
+      ''|*[!0-9]*) echo "ERROR: ASK_AGENT_SERVICE_PORT='$_ask_port' is not a port number" >&2; return 1 ;;
     esac
     # A host with a space / quote / semicolon would inject nginx directives.
     case "$_ask_host" in
-      ''|*[!a-zA-Z0-9.-]*) echo "ERROR: ASK_SERVICE_HOST='$_ask_host' is not a bare hostname" >&2; return 1 ;;
+      ''|*[!a-zA-Z0-9.-]*) echo "ERROR: ASK_AGENT_SERVICE_HOST='$_ask_host' is not a bare hostname" >&2; return 1 ;;
     esac
-    _args+=(--from-literal=ask-upstream.conf="upstream pb_ask { server ${_ask_host}:${_ask_port}; }
+    _args+=(--from-literal=ask-agent-upstream.conf="upstream pb_ask_agent { server ${_ask_host}:${_ask_port}; }
 ")
   fi
   pb_configmap nginx-config "${_args[@]}"
@@ -590,7 +590,7 @@ pb_install_istio_ambient() {
 # ServiceAccount that no longer existed to scale a Deployment that was never
 # applied: pure noise in a cluster the operator had deliberately slimmed.
 #
-# When ask-model is dropped, ask.yaml's two env vars that POINT at it go too: a
+# When ask-model is dropped, ask-agent.yaml's two env vars that POINT at it go too: a
 # set OPENAI_COMPATIBLE_BASE_URL registers a provider, so every Ask turn would
 # dial a Service that no longer exists instead of falling back to a cloud key
 # (or reporting "AI is not configured"). Unambiguous at that point in the pipe —

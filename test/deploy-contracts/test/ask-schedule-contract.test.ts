@@ -125,7 +125,7 @@ describe.each(TARGETS)('$target — ask-model schedule', ({ target, applyScript,
     // `spec.timeZone` is what makes a BUSINESS-HOURS window hold across
     // daylight saving. Without it the expressions are read as UTC, so an
     // 08:00-17:00 Eastern day is an hour late for the eight months the US is
-    // on EDT — and `api/ask`'s own notice would name a window the cluster is
+    // on EDT — and `api/ask-agent`'s own notice would name a window the cluster is
     // not keeping, because it reads the same variable.
     expect(up.spec.timeZone).toBe('${ASK_SCHEDULE_TIMEZONE}');
     expect(down.spec.timeZone).toBe('${ASK_SCHEDULE_TIMEZONE}');

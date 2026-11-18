@@ -5,7 +5,7 @@
  * The `POST /compliance/exemptions` request body.
  *
  * It lives here because it crosses a SERVICE boundary: the Ask agent drafts one
- * (`api/ask` — a proposal the user reviews and commits through their own
+ * (`api/ask-agent` — a proposal the user reviews and commits through their own
  * session) and the compliance service inserts it (`api/compliance`). Each side
  * had its own six-field declaration, so a field added on one side was invisible
  * to the other until a request failed validation at runtime.

@@ -11,6 +11,14 @@ breaking changes in the public surface only.
 
 - `QUOTA_INTERNAL.purgeOrg` (`POST /quotas/internal/orgs/:orgId/purge`) and `BILLING_INTERNAL.purgeOrg` (`POST /billing/internal/orgs/:orgId/purge`): the org-purge cascade legs for quota and billing, callable by `platform` only. They were the last two cascade legs without a typed contract (plain `DELETE`s to user routes). Quota answers the shared `OrgPurgeResponse`. Billing answers the new `OrgPurgeWithRemainderResponse` (`{ orgId, tables, remaining }`): a subscription whose provider cancel failed is kept and counted in `remaining`, and a 200 with any non-zero count there is not an ack, so the leg retries.
 
+### BREAKING CHANGES — The `ask` service is renamed `ask-agent`.
+
+- `INTERNAL_SERVICES` lists `'ask-agent'` instead of `'ask'`, so `InternalService` no longer accepts `'ask'`. A service signing as `ask` (`SERVICE_NAME=ask`, `sub: service:ask`) is no longer a known caller: set `SERVICE_NAME=ask-agent` and mint its key as `ask-agent.key`.
+- `serviceEndpoint('ask-agent')` reads `ASK_AGENT_SERVICE_HOST` / `ASK_AGENT_SERVICE_PORT` (default host `ask-agent`); `ASK_SERVICE_HOST` / `ASK_SERVICE_PORT` are no longer read anywhere.
+- `ON_BEHALF_CALLERS` is `['ask-agent', 'pipeline']`: an on-behalf marker signed by `ask` is ignored.
+- `PLATFORM_INTERNAL.notifyEmailStatus`, `.orgAIAccess` and `.orgAIKey` name `ask-agent` (not `ask`) in `callers`.
+- OpenAPI: the Ask routes are registered under `/ask-agent/*` (the service's mount; the public path is `/api/ask-agent/*`).
+
 ### BREAKING CHANGES — Backward-compatibility shims removed.
 
 Installs are new-install only, so the compatibility paths for older callers, producers and env names are gone.

@@ -20,10 +20,10 @@ import { resetCounterEmitter, setCounterEmitter } from '../src/utils/metric-emit
 let keys: TestServiceKeysHandle;
 let rejections: string[];
 
-beforeAll(() => { keys = installTestServiceKeys(['ask', 'pipeline', 'billing']); });
+beforeAll(() => { keys = installTestServiceKeys(['ask-agent', 'pipeline', 'billing']); });
 afterAll(() => { keys.uninstall(); resetCounterEmitter(); });
 beforeEach(() => {
-  keys.becomeService('ask');
+  keys.becomeService('ask-agent');
   rejections = [];
   setCounterEmitter((name, labels = {}) => {
     if (name === 'quota_on_behalf_rejected_total') rejections.push(labels.reason ?? '');
@@ -38,22 +38,22 @@ function req(marker: string | undefined, user: Record<string, unknown> = USER): 
 }
 
 describe('onBehalfHeaders + onBehalfCaller', () => {
-  it('a marker minted by ask for this user and org is honoured', () => {
+  it('a marker minted by ask-agent for this user and org is honoured', () => {
     const marker = onBehalfHeaders({ sub: 'user-1', organizationId: 'org-1' })[ON_BEHALF_HEADER];
     expect(marker).toBeTruthy();
-    expect(onBehalfCaller(req(marker))).toBe('ask');
+    expect(onBehalfCaller(req(marker))).toBe('ask-agent');
     expect(callQuotaExemption(req(marker) as never)).toBe('on_behalf');
     expect(rejections).toEqual([]);
   });
 
   it('is minted for the ambient verified principal when no subject is passed', () => {
     const headers = runWithAuditContext({ principal: () => USER as never }, () => onBehalfHeaders());
-    expect(onBehalfCaller(req(headers[ON_BEHALF_HEADER]))).toBe('ask');
+    expect(onBehalfCaller(req(headers[ON_BEHALF_HEADER]))).toBe('ask-agent');
   });
 
   it('mints nothing without a user to vouch for (the hop is then billed)', () => {
     expect(onBehalfHeaders()).toEqual({});
-    const headers = runWithAuditContext({ principal: () => ({ sub: 'service:ask', principalType: 'service', organizationId: 'o' }) as never }, () => onBehalfHeaders());
+    const headers = runWithAuditContext({ principal: () => ({ sub: 'service:ask-agent', principalType: 'service', organizationId: 'o' }) as never }, () => onBehalfHeaders());
     expect(headers).toEqual({});
   });
 
@@ -61,16 +61,16 @@ describe('onBehalfHeaders + onBehalfCaller', () => {
     const marker = onBehalfHeaders({ sub: 'user-1', organizationId: 'org-1' })[ON_BEHALF_HEADER]!;
     const claims = jwt.decode(marker) as Record<string, unknown>;
     expect(claims.type).toBe('on_behalf');
-    expect(claims.sub).toBe('service:ask');
+    expect(claims.sub).toBe('service:ask-agent');
     expect((claims.exp as number) - (claims.iat as number)).toBe(120);
   });
 
   it('IGNORES a header a user forged — garbage, an HMAC token, or a self-signed ES256 token', () => {
     expect(onBehalfCaller(req('forged'))).toBeUndefined();
-    const hmac = jwt.sign({ type: 'on_behalf', principalType: 'service', sub: 'service:ask', obo: 'user-1', organizationId: 'org-1' }, 'guess');
+    const hmac = jwt.sign({ type: 'on_behalf', principalType: 'service', sub: 'service:ask-agent', obo: 'user-1', organizationId: 'org-1' }, 'guess');
     expect(onBehalfCaller(req(hmac))).toBeUndefined();
     const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
-    const selfSigned = jwt.sign({ type: 'on_behalf', principalType: 'service', sub: 'service:ask', obo: 'user-1', organizationId: 'org-1' }, privateKey, { algorithm: 'ES256', keyid: 'made-up' });
+    const selfSigned = jwt.sign({ type: 'on_behalf', principalType: 'service', sub: 'service:ask-agent', obo: 'user-1', organizationId: 'org-1' }, privateKey, { algorithm: 'ES256', keyid: 'made-up' });
     expect(onBehalfCaller(req(selfSigned))).toBeUndefined();
     expect(callQuotaExemption(req(selfSigned) as never)).toBeUndefined();
     expect(rejections).toEqual(['invalid', 'invalid', 'invalid', 'invalid']);
@@ -81,7 +81,7 @@ describe('onBehalfHeaders + onBehalfCaller', () => {
     expect(onBehalfCaller(req(marker, { ...USER, sub: 'user-2' }))).toBeUndefined();
     expect(onBehalfCaller(req(marker, { ...USER, organizationId: 'org-2' }))).toBeUndefined();
     // The org comparison is case-insensitive, like the normalized request identity.
-    expect(onBehalfCaller(req(marker, { ...USER, organizationId: 'ORG-1' }))).toBe('ask');
+    expect(onBehalfCaller(req(marker, { ...USER, organizationId: 'ORG-1' }))).toBe('ask-agent');
     expect(rejections).toEqual(['subject', 'org']);
   });
 
@@ -95,7 +95,7 @@ describe('onBehalfHeaders + onBehalfCaller', () => {
   });
 
   it('refuses a real ACCESS-typed service token passed as the marker', () => {
-    expect(onBehalfCaller(req(keys.sign('ask', { obo: 'user-1', organizationId: 'org-1' })))).toBeUndefined();
+    expect(onBehalfCaller(req(keys.sign('ask-agent', { obo: 'user-1', organizationId: 'org-1' })))).toBeUndefined();
     expect(rejections).toEqual(['invalid']);
   });
 

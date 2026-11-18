@@ -33,7 +33,7 @@ router.get('/verify', requireAuth, requirePermission('audit:read'), verifyAuditC
  * entries into it is a route that lets a person fabricate that evidence.
  */
 router.post('/events', requireServiceAuth, requireInternalService({
-  callers: ['ask', 'billing', 'compliance', 'image-registry', 'message', 'ops-center', 'pipeline', 'plugin', 'quota', 'reporting'],
+  callers: ['ask-agent', 'billing', 'compliance', 'image-registry', 'message', 'ops-center', 'pipeline', 'plugin', 'quota', 'reporting'],
 }), ingestAuditEvent);
 
 export default router;

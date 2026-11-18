@@ -9,7 +9,7 @@ import { requireServiceAuth } from '../middleware/index.js';
 /**
  * `/internal/ai/*` — an org's AI switch, which providers it holds its own key for, and
  * (audited) the decrypted key itself (controllers/ai-internal.ts). INTERNAL: only the
- * four services that make AI calls reach it — `ask` (Ask + the agent), `pipeline` and
+ * four services that make AI calls reach it — `ask-agent` (Ask + the agent), `pipeline` and
  * `plugin` (generation), `reporting` (report summaries). The mesh policy on the Istio
  * targets names the same callers; compose relies on this gate alone.
  */

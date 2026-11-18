@@ -3,7 +3,7 @@
 
 /**
  * Coverage guard for the generated OpenAPI document: assert the services that
- * were previously ABSENT from the spec (ask, image-registry) are now registered,
+ * were previously ABSENT from the spec (ask-agent, image-registry) are now registered,
  * and that the long-standing ones stay covered. Fails if a service's registration
  * is dropped or throws at generation time.
  */
@@ -15,8 +15,8 @@ describe('generated OpenAPI spec coverage', () => {
   const paths = Object.keys(spec.paths ?? {});
 
   it('covers the Ask assistant service', () => {
-    expect(paths).toContain('/ask/providers');
-    expect(paths).toContain('/ask/agent/stream');
+    expect(paths).toContain('/ask-agent/providers');
+    expect(paths).toContain('/ask-agent/agent/stream');
   });
 
   it('covers the image-registry service', () => {

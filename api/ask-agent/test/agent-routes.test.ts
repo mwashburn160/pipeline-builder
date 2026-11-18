@@ -65,7 +65,7 @@ const mockReserveQuota = jest.fn<AnyFn>(() =>
   Promise.resolve({ exceeded: false, quota: { type: 'aiCalls', resetAt: '2026-09-01T00:00:00Z' } }));
 const mockDecrementQuota = jest.fn<AnyFn>();
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  recordAudit: (event: unknown) => auditRecord(event, 'ask'),
+  recordAudit: (event: unknown) => auditRecord(event, 'ask-agent'),
   createLogger: () => ({ info: jest.fn<AnyFn>(), warn: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), debug: jest.fn<AnyFn>() }),
   getServiceAuthHeader: mockGetServiceAuthHeader,
   reserveQuota: mockReserveQuota,
@@ -118,7 +118,7 @@ const platformClient = jest.fn((..._args: unknown[]) => stubClient());
 const complianceClient = jest.fn((..._args: unknown[]) => stubClient());
 const reportingClient = jest.fn((..._args: unknown[]) => stubClient());
 const quotaClient = jest.fn((..._args: unknown[]) => stubClient());
-// The email switch is read on ask's OWN service token (not the caller's), so it
+// The email switch is read on ask-agent's OWN service token (not the caller's), so it
 // is a plain function here rather than a client factory.
 const readInstanceEmailStatus = jest.fn(async () => 'enabled' as const);
 jest.unstable_mockModule('../src/services/internal-http.js', () => ({
@@ -162,7 +162,7 @@ beforeEach(() => {
   streamParts = [];
 });
 
-describe('POST /ask/agent/stream', () => {
+describe('POST /ask-agent/agent/stream', () => {
   it('forwards the USER token to the tools and reserves quota with a SERVICE header', async () => {
     streamParts = turn(...text('hi'));
     await handler(mockReq({ query: 'help me' }), mockRes());
@@ -174,7 +174,7 @@ describe('POST /ask/agent/stream', () => {
       expect(client).toHaveBeenCalledWith('Bearer USER-tok', undefined, expect.any(AbortSignal));
     }
     expect(buildAgentTools).toHaveBeenCalled();
-    expect(mockGetServiceAuthHeader).toHaveBeenCalledWith({ serviceName: 'ask', orgId: 'org-1', role: 'member' });
+    expect(mockGetServiceAuthHeader).toHaveBeenCalledWith({ serviceName: 'ask-agent', orgId: 'org-1', role: 'member' });
     expect(mockReserveQuota).toHaveBeenCalledWith(mockQuotaService, 'org-1', 'aiCalls', SERVICE_TOKEN, 1, expect.objectContaining({ keySource: 'platform' }));
   });
 
@@ -232,7 +232,7 @@ describe('POST /ask/agent/stream', () => {
           quota: expect.objectContaining({ type: 'aiCalls', slot: 'kept' }),
         }),
       }),
-      'ask',
+      'ask-agent',
     );
     const audited = JSON.stringify(auditRecord.mock.calls[0]?.[0]);
     expect(audited).not.toContain('create a pipeline'); // raw query text never audited
@@ -243,12 +243,12 @@ describe('POST /ask/agent/stream', () => {
     await handler(mockReq({ query: 'do something' }), mockRes());
     expect(auditRecord).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'ask.agent.turn', outcome: 'failure' }),
-      'ask',
+      'ask-agent',
     );
   });
 });
 
-describe('POST /ask/agent/stream — aiCalls refund boundary', () => {
+describe('POST /ask-agent/agent/stream — aiCalls refund boundary', () => {
   /**
    * The platform rule: the slot is consumed when the request is SENT to the
    * provider (just before `streamText`), not when it answers — a provider bills
@@ -280,7 +280,7 @@ describe('POST /ask/agent/stream — aiCalls refund boundary', () => {
     expect(mockDecrementQuota).not.toHaveBeenCalled();
     expect(auditRecord).toHaveBeenCalledWith(
       expect.objectContaining({ outcome: 'failure', details: expect.objectContaining({ quota: expect.objectContaining({ slot: 'kept' }) }) }),
-      'ask',
+      'ask-agent',
     );
   });
 
@@ -353,7 +353,7 @@ describe('POST /ask/agent/stream — aiCalls refund boundary', () => {
   });
 });
 
-describe('POST /ask/agent/stream — refused-field signal (the injection signal)', () => {
+describe('POST /ask-agent/agent/stream — refused-field signal (the injection signal)', () => {
   it('counts, logs and AUDITS a proposal that named fields outside the allowlist', async () => {
     // A propose tool that refuses fields does so DURING the turn, so drive the
     // callback from the tool-building step the way a real tool would.
@@ -379,7 +379,7 @@ describe('POST /ask/agent/stream — refused-field signal (the injection signal)
         action: 'ask.agent.turn',
         details: expect.objectContaining({ refusedFields: ['mfaRequired', 'ssoRequired'] }),
       }),
-      'ask',
+      'ask-agent',
     );
   });
 
@@ -391,7 +391,7 @@ describe('POST /ask/agent/stream — refused-field signal (the injection signal)
   });
 });
 
-describe('POST /ask/agent/stream — BYOK and in-process tool usage', () => {
+describe('POST /ask-agent/agent/stream — BYOK and in-process tool usage', () => {
   it('a BYOK turn reserves nothing — for the turn AND its in-process tool generation', async () => {
     const aiCore = await import('@pipeline-builder/ai-core');
     (aiCore.resolveOrgModelSelection as unknown as jest.Mock<AnyFn>).mockResolvedValueOnce({ model: { id: 'model' }, provider: 'anthropic', modelId: 'claude-sonnet-5-5', keySource: 'request' });
@@ -406,7 +406,7 @@ describe('POST /ask/agent/stream — BYOK and in-process tool usage', () => {
     expect(mockDecrementQuota).not.toHaveBeenCalled();
     expect(auditRecord).toHaveBeenCalledWith(
       expect.objectContaining({ details: expect.objectContaining({ quota: { type: 'aiCalls', slot: 'waived', waived: 'byok', amount: 0 } }) }),
-      'ask',
+      'ask-agent',
     );
   });
 
@@ -427,7 +427,7 @@ describe('POST /ask/agent/stream — BYOK and in-process tool usage', () => {
           toolGenerations: [{ tool: 'propose_template', slot: 'kept', tokens: { inputTokens: 300, outputTokens: 90, cachedInputTokens: 0 }, promptVersion: 'ask-template@2' }],
         }),
       }),
-      'ask',
+      'ask-agent',
     );
     expect(mockIncCounter).toHaveBeenCalledWith('ai_tokens_total', expect.objectContaining({ route: 'agent-tool:propose_template', kind: 'input' }), 300);
   });
@@ -439,7 +439,7 @@ function doneData(res: { write: { mock: { calls: unknown[][] } } }): Record<stri
   return frame ? (JSON.parse(frame.replace(/^data: /, '').trim()) as { data: Record<string, unknown> }).data : undefined;
 }
 
-describe('POST /ask/agent/stream — cost controls (client disconnect, generation budget, token accounting)', () => {
+describe('POST /ask-agent/agent/stream — cost controls (client disconnect, generation budget, token accounting)', () => {
   it('binds every forwarded client to the SAME turn signal the tools abort with', async () => {
     streamParts = turn(...text('hi'));
     await handler(mockReq({ query: 'help me' }), mockRes());
@@ -533,6 +533,6 @@ describe('POST /ask/agent/stream — cost controls (client disconnect, generatio
     await handler(mockReq({ query: 'help me' }), res);
     expect(doneData(res)).toBeUndefined();
     expect(mockIncCounter).toHaveBeenCalledWith('ai_tokens_total', expect.objectContaining({ route: 'agent', kind: 'input' }), 250);
-    expect(auditRecord).toHaveBeenCalledWith(expect.objectContaining({ action: 'ask.agent.turn', outcome: 'failure' }), 'ask');
+    expect(auditRecord).toHaveBeenCalledWith(expect.objectContaining({ action: 'ask.agent.turn', outcome: 'failure' }), 'ask-agent');
   });
 });

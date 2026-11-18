@@ -3,7 +3,7 @@
 
 /**
  * `/internal/ai/*` — the org half of every AI call, for the services that make one
- * (ask, pipeline, plugin, reporting). INTERNAL: their signed service tokens only
+ * (ask-agent, pipeline, plugin, reporting). INTERNAL: their signed service tokens only
  * (`requireInternalService`), and the mesh names the same callers on the Istio targets.
  *
  *  - `GET /internal/ai/access/:orgId` — the org's AI switch and WHICH providers it holds

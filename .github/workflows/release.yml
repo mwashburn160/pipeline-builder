@@ -97,7 +97,7 @@ jobs:
       - name: Affected projects and images
         id: affected
         env:
-          IMAGE_PROJECTS: '["platform","frontend","quota","billing","plugin","pipeline","message","reporting","ask","compliance","ops-center","image-registry"]'
+          IMAGE_PROJECTS: '["platform","frontend","quota","billing","plugin","pipeline","message","reporting","ask-agent","compliance","ops-center","image-registry"]'
           REBUILD_ALL: ${{ inputs.rebuild_all }}
         run: |-
           set -euo pipefail

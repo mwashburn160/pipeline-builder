@@ -398,7 +398,7 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/reporting
               - cluster.local/ns/pipeline-builder/sa/ops-center
               - cluster.local/ns/pipeline-builder/sa/image-registry
-              - cluster.local/ns/pipeline-builder/sa/ask
+              - cluster.local/ns/pipeline-builder/sa/ask-agent
               - cluster.local/ns/pipeline-builder/sa/redis
               - cluster.local/ns/pipeline-builder/sa/redis-sentinel
       to:
@@ -440,7 +440,7 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/reporting
               - cluster.local/ns/pipeline-builder/sa/ops-center
               - cluster.local/ns/pipeline-builder/sa/image-registry
-              - cluster.local/ns/pipeline-builder/sa/ask
+              - cluster.local/ns/pipeline-builder/sa/ask-agent
               - cluster.local/ns/pipeline-builder/sa/redis
               - cluster.local/ns/pipeline-builder/sa/redis-sentinel
       to:
@@ -853,21 +853,21 @@ spec:
 ---
 # =============================================================================
 # "Ask" agent — ServiceAccount + istio authz (appended; additive to the per-
-# service policies above so ask's egress to quota/platform is permitted).
+# service policies above so ask-agent's egress to quota/platform is permitted).
 # =============================================================================
 apiVersion: v1
 kind: ServiceAccount
-metadata: { name: ask, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
+metadata: { name: ask-agent, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
 ---
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
-  name: ask-allow
+  name: ask-agent-allow
   namespace: pipeline-builder
 spec:
   selector:
     matchLabels:
-      app: ask
+      app: ask-agent
   action: ALLOW
   rules:
     - from:
@@ -879,11 +879,11 @@ spec:
         - operation:
             ports: ["3000"]
 ---
-# ask -> quota (aiCalls reservation). Unions with quota-allow.
+# ask-agent -> quota (aiCalls reservation). Unions with quota-allow.
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
-  name: quota-allow-ask
+  name: quota-allow-ask-agent
   namespace: pipeline-builder
 spec:
   selector:
@@ -894,18 +894,18 @@ spec:
     - from:
         - source:
             principals:
-              - cluster.local/ns/pipeline-builder/sa/ask
+              - cluster.local/ns/pipeline-builder/sa/ask-agent
       to:
         - operation:
             ports: ["3000"]
 ---
-# ask -> platform (audit ingest, the org-facing reads the agent forwards the
+# ask-agent -> platform (audit ingest, the org-facing reads the agent forwards the
 # user's token for, and GET /internal/notify-email/status + /internal/ai/* with
-# ask's own service token). Unions with platform-allow.
+# ask-agent's own service token). Unions with platform-allow.
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
-  name: platform-allow-ask
+  name: platform-allow-ask-agent
   namespace: pipeline-builder
 spec:
   selector:
@@ -916,17 +916,17 @@ spec:
     - from:
         - source:
             principals:
-              - cluster.local/ns/pipeline-builder/sa/ask
+              - cluster.local/ns/pipeline-builder/sa/ask-agent
       to:
         - operation:
             ports: ["3000"]
 ---
-# ask -> pipeline (propose_pipeline / list_pipelines forward the user token).
+# ask-agent -> pipeline (propose_pipeline / list_pipelines forward the user token).
 # Additive; unions with pipeline-allow.
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
-  name: pipeline-allow-ask
+  name: pipeline-allow-ask-agent
   namespace: pipeline-builder
 spec:
   selector:
@@ -937,16 +937,16 @@ spec:
     - from:
         - source:
             principals:
-              - cluster.local/ns/pipeline-builder/sa/ask
+              - cluster.local/ns/pipeline-builder/sa/ask-agent
       to:
         - operation:
             ports: ["3000"]
 ---
-# ask -> plugin (propose_plugin forwards the user token). Additive; unions with plugin-allow.
+# ask-agent -> plugin (propose_plugin forwards the user token). Additive; unions with plugin-allow.
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
-  name: plugin-allow-ask
+  name: plugin-allow-ask-agent
   namespace: pipeline-builder
 spec:
   selector:
@@ -957,7 +957,7 @@ spec:
     - from:
         - source:
             principals:
-              - cluster.local/ns/pipeline-builder/sa/ask
+              - cluster.local/ns/pipeline-builder/sa/ask-agent
       to:
         - operation:
             ports: ["3000"]
@@ -1202,7 +1202,7 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/ops-center
               - cluster.local/ns/pipeline-builder/sa/compliance
               - cluster.local/ns/pipeline-builder/sa/image-registry
-              - cluster.local/ns/pipeline-builder/sa/ask
+              - cluster.local/ns/pipeline-builder/sa/ask-agent
       to:
         - operation:
             ports: ["4317", "4318"]

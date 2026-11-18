@@ -45,7 +45,7 @@ function mockRes() {
   return res;
 }
 
-const svc = (orgId = ORG) => ({ principalType: 'service', sub: 'service:ask', organizationId: orgId });
+const svc = (orgId = ORG) => ({ principalType: 'service', sub: 'service:ask-agent', organizationId: orgId });
 const call = async (fn: unknown, params: Record<string, string>, user: unknown = svc()) => {
   const res = mockRes();
   const req: any = { params, user, headers: {} };

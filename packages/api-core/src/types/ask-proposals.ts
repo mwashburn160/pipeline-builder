@@ -4,7 +4,7 @@
 /**
  * The shared contract between the ask agent's PROPOSE tools and the browser's
  * CONFIRM handlers. Two things live here, and they live here because BOTH sides
- * need them: `api/ask` builds its tool schema from this module, the frontend's
+ * need them: `api/ask-agent` builds its tool schema from this module, the frontend's
  * confirm handler builds its request from it, and the tests of both assert
  * against it. A second copy would be a second policy.
  *
@@ -197,7 +197,7 @@ export type AskProposalKind =
 
 /**
  * The permission a caller needs to COMMIT each proposal kind — the one fact the
- * ask service and the dashboard must agree on, so it lives here rather than in
+ * ask-agent service and the dashboard must agree on, so it lives here rather than in
  * either of them.
  *
  * `org-settings-edit` is null because it has no single answer: its requirement

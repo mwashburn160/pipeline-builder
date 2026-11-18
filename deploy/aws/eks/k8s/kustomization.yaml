@@ -39,7 +39,7 @@ resources:
   - message.yaml
   - reporting.yaml
   - ops-center.yaml
-  - ask.yaml
+  - ask-agent.yaml
   - ask-model.yaml  # self-hosted model (Ollama) backing the Ask assistant
   # Scales ask-model to 0 outside the ASK_SCHEDULE_* window (default Mon-Fri
   # 07:45-17:00 UTC), letting Karpenter deprovision the GPU node — the biggest

@@ -42,7 +42,7 @@ import { getDocsIndex } from '../services/docs-index.js';
 import { askModelAvailability, sendAskFailure } from '../services/model-window.js';
 import { ASK_MAX_OUTPUT_TOKENS, ASK_TEMPERATURE } from '../services/model.js';
 
-const logger = createLogger('ask');
+const logger = createLogger('ask-agent');
 
 /**
  * Fire-and-forget audit of a read-only how-to turn — SAFE METADATA ONLY (query length,
@@ -154,12 +154,12 @@ export function askQuotaDetail(slot: Pick<AiCallSlot, 'reservation' | 'waived' |
 export function createAskRoutes(quotaService: QuotaService): Router {
   const router: Router = Router();
 
-  // -- GET /ask/providers  list configured AI providers ----------------------
+  // -- GET /ask-agent/providers  list configured AI providers ----------------------
   router.get('/providers', requireAskAccess, requireFeature('ai_generation'), withRoute(async ({ res }) => {
     return sendSuccess(res, 200, { providers: getAvailableProviders() });
   }));
 
-  // -- GET /ask/availability  can the assistant answer right now? ------------
+  // -- GET /ask-agent/availability  can the assistant answer right now? ------------
   //
   // Asked by the panel BEFORE the user types, so it can open straight into help
   // topics rather than inviting a question that is going to fail. Outside its
@@ -200,7 +200,7 @@ export function createAskRoutes(quotaService: QuotaService): Router {
     return sendSuccess(res, 200, askModelAvailability(predicted.provider));
   }));
 
-  // -- POST /ask/feedback  was that answer any good? -------------------------
+  // -- POST /ask-agent/feedback  was that answer any good? -------------------------
   //
   // The one thing a turn cannot tell you about itself. `ask.query` already
   // records that a question was asked and that it succeeded, but "succeeded"
@@ -251,7 +251,7 @@ export function createAskRoutes(quotaService: QuotaService): Router {
     return sendSuccess(res, 200, { recorded: true });
   }));
 
-  // -- POST /ask  grounded how-to answer (non-streaming) ---------------------
+  // -- POST /ask-agent  grounded how-to answer (non-streaming) ---------------------
   router.post('/', requireAskAccess, requireFeature('ai_generation'), requireOrgAIEnabled, audited('ask.query'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const parsed = validateBody(req, AskBodySchema);
     if (!parsed.ok) return sendBadRequest(res, parsed.error);
@@ -270,7 +270,7 @@ export function createAskRoutes(quotaService: QuotaService): Router {
     await withAiCallReservation({
       quotaService,
       orgId,
-      serviceName: 'ask',
+      serviceName: 'ask-agent',
       res,
       logWarn: ctx.log.bind(null, 'WARN'),
       req,
@@ -338,7 +338,7 @@ export function createAskRoutes(quotaService: QuotaService): Router {
     });
   }));
 
-  // -- POST /ask/stream  grounded how-to answer as SSE -----------------------
+  // -- POST /ask-agent/stream  grounded how-to answer as SSE -----------------------
   router.post('/stream', requireAskAccess, requireFeature('ai_generation'), requireOrgAIEnabled, audited('ask.query'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const parsed = validateBody(req, AskBodySchema);
     if (!parsed.ok) return sendBadRequest(res, parsed.error);
@@ -356,7 +356,7 @@ export function createAskRoutes(quotaService: QuotaService): Router {
     await withAiCallReservation({
       quotaService,
       orgId,
-      serviceName: 'ask',
+      serviceName: 'ask-agent',
       res,
       logWarn: ctx.log.bind(null, 'WARN'),
       req,

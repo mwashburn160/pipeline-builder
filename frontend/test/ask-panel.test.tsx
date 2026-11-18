@@ -295,7 +295,7 @@ describe('AskPanel model + repository controls', () => {
     askAgentStream.mockReturnValue(gen([{ type: 'token', data: 'ok' }, { type: 'done' }]));
   });
 
-  it('offers the ask service\'s providers and models', async () => {
+  it('offers the ask-agent service\'s providers and models', async () => {
     render(<AskPanel onClose={jest.fn<AnyFn>()} />);
     const provider = await screen.findByLabelText('Provider');
     expect(await within(provider).findByRole('option', { name: /Anthropic/ })).toBeInTheDocument();

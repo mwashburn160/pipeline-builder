@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 78a1f3087cf65cfa5ec594c6b3881dfc234aad879f8c8143c902102221fb91ef
+// SOURCE-SHA256: 8fa67d02d63afb8513e91517c011c799c144e07b24127bf32f14a025a8398529
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -935,7 +935,7 @@ export const apiReferenceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Ask Service"
+          "content": "Ask Agent Service"
         },
         {
           "type": "text",
@@ -955,34 +955,34 @@ export const apiReferenceTopic: HelpTopic = {
           "rows": [
             [
               "GET",
-              "/ask/providers",
+              "/ask-agent/providers",
               "{ providers } — the AI providers this deployment can answer with"
             ],
             [
               "GET",
-              "/ask/availability",
+              "/ask-agent/availability",
               "{ available: true }, or `{ available: false, reason: 'disabled' \\",
               "'not-configured' \\",
               "'scheduled-off', message, resumesAt?, window? }` — asked when the panel opens; reads no key"
             ],
             [
               "POST",
-              "/ask",
+              "/ask-agent",
               "One JSON answer: { text, sources: [{ id, title?, url? }] } (the docs it cited). Audited ask.query"
             ],
             [
               "POST",
-              "/ask/stream",
+              "/ask-agent/stream",
               "The same answer as SSE: { type: 'sources' }, then { type: 'token', data } deltas, then { type: 'done', data: { servedBy: { provider, model, fallbackFrom? }, usage } } and [DONE]. A scheduled-off model mid-stream ends with { type: 'error', message }. Audited ask.query"
             ],
             [
               "POST",
-              "/ask/agent/stream",
+              "/ask-agent/agent/stream",
               "One agent turn as SSE: token, tool-call ({ toolName }), sources, proposal (a draft pipeline, plugin or template for the user to review — the agent writes nothing; the client applies a draft through the owning service), then done and [DONE]. Tools run as the caller, with the caller's own token and permissions. Each generating tool reserves its own aiCalls slot on top of the turn's. Audited ask.agent.turn"
             ],
             [
               "POST",
-              "/ask/feedback",
+              "/ask-agent/feedback",
               "`{ kind: 'answer' \\",
               "'help-search-miss', rating?: 'up' \\",
               "'down' (required for an answer), sources?: string[] (doc ids, ≤ 20) } → { recorded: true }. Carries no free text by construction. An answer rating is audited ask.feedback`"
@@ -2010,7 +2010,7 @@ export const apiReferenceTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Every route of the Pipeline, Plugin and Ask services, generated from the route-table snapshots each service's route-coverage test writes — so no route can be missing here, even when the tables above don't describe it yet. Requires is everything the route demands of the caller (or = any one of; + = all of). Probes (/health, /ready, /metrics, /warmup) and the internal-only routes are left out. Regenerate with npm run generate:api-reference in frontend/; a test fails when it is stale."
+          "content": "Every route of the Pipeline, Plugin and Ask Agent services, generated from the route-table snapshots each service's route-coverage test writes — so no route can be missing here, even when the tables above don't describe it yet. Requires is everything the route demands of the caller (or = any one of; + = all of). Probes (/health, /ready, /metrics, /warmup) and the internal-only routes are left out. Regenerate with npm run generate:api-reference in frontend/; a test fails when it is stale."
         },
         {
           "type": "text",
@@ -3419,11 +3419,11 @@ export const apiReferenceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Ask Service — every route"
+          "content": "Ask Agent Service — every route"
         },
         {
           "type": "text",
-          "content": "6 routes, from frontend/src/generated/route-table/ask.json."
+          "content": "6 routes, from frontend/src/generated/route-table/ask-agent.json."
         },
         {
           "type": "table",
@@ -3437,42 +3437,42 @@ export const apiReferenceTopic: HelpTopic = {
           "rows": [
             [
               "POST",
-              "/ask",
+              "/ask-agent",
               "pipelines:read or plugins:read or templates:read; feature ai_generation",
               "apiCalls",
               "ask.query"
             ],
             [
               "POST",
-              "/ask/agent/stream",
+              "/ask-agent/agent/stream",
               "pipelines:read or plugins:read or templates:read; feature ai_generation",
               "apiCalls",
               "ask.agent.turn"
             ],
             [
               "GET",
-              "/ask/availability",
+              "/ask-agent/availability",
               "pipelines:read or plugins:read or templates:read; feature ai_generation",
               "apiCalls",
               "—"
             ],
             [
               "POST",
-              "/ask/feedback",
+              "/ask-agent/feedback",
               "pipelines:read or plugins:read or templates:read",
               "apiCalls",
               "ask.feedback"
             ],
             [
               "GET",
-              "/ask/providers",
+              "/ask-agent/providers",
               "pipelines:read or plugins:read or templates:read; feature ai_generation",
               "apiCalls",
               "—"
             ],
             [
               "POST",
-              "/ask/stream",
+              "/ask-agent/stream",
               "pipelines:read or plugins:read or templates:read; feature ai_generation",
               "apiCalls",
               "ask.query"

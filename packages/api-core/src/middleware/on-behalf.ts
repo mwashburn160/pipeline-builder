@@ -54,7 +54,7 @@ export const ON_BEHALF_HEADER = 'x-pb-on-behalf';
  * signature or not — is ignored, so a compromised peer that never forwards user
  * tokens cannot start waiving its tenants' meters.
  */
-export const ON_BEHALF_CALLERS: readonly string[] = ['ask', 'pipeline'];
+export const ON_BEHALF_CALLERS: readonly string[] = ['ask-agent', 'pipeline'];
 
 /** Marker lifetime. Minted per outbound call, so it only has to outlive one hop. */
 const ON_BEHALF_TTL_SECONDS = 120;

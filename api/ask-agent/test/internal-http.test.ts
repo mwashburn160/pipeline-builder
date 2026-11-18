@@ -208,9 +208,9 @@ describe('internal-http — timeouts and the turn\'s abort signal', () => {
 //
 // `GET /internal/notify-email/status` is platform's AUTHORITATIVE answer to
 // "can this instance send email at all", and it is `requireInternalService`, so
-// it takes ask's OWN service identity. That is safe precisely because the answer
+// it takes ask-agent's OWN service identity. That is safe precisely because the answer
 // is one instance-wide boolean — no org, no recipient, no provider — and because
-// ask is NOT a caller of the send route, so the same identity can never make
+// ask-agent is NOT a caller of the send route, so the same identity can never make
 // platform send anything.
 // ---------------------------------------------------------------------------
 
@@ -221,15 +221,15 @@ function claimsOf(header: string): Record<string, unknown> {
 }
 
 describe('readInstanceEmailStatus — the authoritative email switch', () => {
-  it('asks platform\'s INTERNAL status route with ask\'s own SERVICE token, not a user bearer', async () => {
+  it('asks platform\'s INTERNAL status route with ask-agent\'s own SERVICE token, not a user bearer', async () => {
     handler = reply({ data: { enabled: true } });
     await readInstanceEmailStatus();
     expect(seen[0]).toMatchObject({ port: PLATFORM, url: '/internal/notify-email/status' });
     const auth = seen[0]!.headers.authorization!;
     expect(auth).not.toBe('Bearer USER');
     // A service principal naming THIS service — the claim the route's caller
-    // list matches, cryptographically bound to ask's signing key.
-    expect(claimsOf(auth)).toMatchObject({ sub: 'service:ask', principalType: 'service', role: 'member' });
+    // list matches, cryptographically bound to ask-agent's signing key.
+    expect(claimsOf(auth)).toMatchObject({ sub: 'service:ask-agent', principalType: 'service', role: 'member' });
   });
 
   it.each([

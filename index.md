@@ -331,7 +331,7 @@ pnpm build            # compile, test, and lint every package
 | Path | Contains |
 |------|----------|
 | `packages/` | Shared libraries: `api-core`, `api-server`, `ai-core`, `pipeline-data`, `pipeline-core`, `pipeline-events`, `pipeline-manager` (the CLI) |
-| `api/` | Backend services: pipeline, plugin, image-registry, compliance, reporting, ask, quota, billing, message |
+| `api/` | Backend services: pipeline, plugin, image-registry, compliance, reporting, ask-agent, quota, billing, message |
 | `platform/` | Identity, organizations, users, audit, and the observability proxy |
 | `frontend/` | Next.js dashboard and public plugin directory |
 | `deploy/` | Per-target install (`local/docker`, `local/minikube`, `aws/ec2`, `aws/eks`) and the plugin catalog (`deploy/plugins`) |

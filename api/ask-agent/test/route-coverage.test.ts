@@ -28,7 +28,7 @@ import {
 process.env.JWT_SECRET ||= 'route-coverage-test-secret';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const snapshotFile = resolve(here, '../../../frontend/src/generated/route-table/ask.json');
+const snapshotFile = resolve(here, '../../../frontend/src/generated/route-table/ask-agent.json');
 
 /** Routes that legitimately can't satisfy a rule, each with its reason. */
 const EXCEPTIONS: RouteCoverageException[] = [
@@ -37,7 +37,7 @@ const EXCEPTIONS: RouteCoverageException[] = [
 
 /**
  * User routes that deliberately do not meter and/or check apiCalls, each with
- * its reason (docs/quotas.md). None: `/ask` mounts `apiCallsQuota` once, ahead
+ * its reason (docs/quotas.md). None: `/ask-agent` mounts `apiCallsQuota` once, ahead
  * of both routers, so every Ask costs one apiCall on top of its aiCalls
  * reservation.
  */
@@ -56,7 +56,7 @@ beforeAll(async () => {
   table = buildRouteTable(app);
 });
 
-describe('ask route coverage', () => {
+describe('ask-agent route coverage', () => {
   it('meters and checks apiCalls on every user route, and meters none twice', () => {
     const { violations } = findQuotaCoverageViolations(table, QUOTA_EXCEPTIONS);
     expect(violations).toEqual([]);

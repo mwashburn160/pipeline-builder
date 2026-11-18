@@ -27,7 +27,7 @@ MK_PROFILE_DIR="${MINIKUBE_HOME:-$HOME/.minikube}/profiles/$PROFILE"
 # ASK_MODEL=1 — enable the self-hosted Ask model on an ALREADY-PROVISIONED
 # cluster, without a full re-provision. Additive and idempotent: it applies
 # k8s/ask-model.yaml, adds the OPENAI_COMPATIBLE_* keys to the app-env ConfigMap
-# the ask service already reads, and restarts ask to pick them up.
+# the ask-agent service already reads, and restarts ask-agent to pick them up.
 #
 # (LEAN is a PROVISION-time choice — what setup.sh applied — so it has no effect
 # here; a warning below says so rather than letting it look honoured.)
@@ -122,14 +122,14 @@ if [ "$ASK_MODEL" = "1" ]; then
     exit 1
   fi
   kubectl apply -n "$NAMESPACE" -f "$DEPLOY_DIR/k8s/ask-model.yaml"
-  # `ask` reads app-env via envFrom, so patching the ConfigMap is all the
+  # `ask-agent` reads app-env via envFrom, so patching the ConfigMap is all the
   # service needs — no manifest edit. Merge-patch keeps every other key.
   kubectl patch configmap app-env -n "$NAMESPACE" --type merge -p \
     '{"data":{"OPENAI_COMPATIBLE_BASE_URL":"http://ask-model:11434/v1","OPENAI_COMPATIBLE_MODELS":"qwen2.5-coder:1.5b|Qwen 2.5 Coder"}}' >/dev/null
-  # envFrom values are injected at pod START — an existing ask pod keeps the old
+  # envFrom values are injected at pod START — an existing ask-agent pod keeps the old
   # (absent) env until it is replaced.
-  kubectl rollout restart deployment/ask -n "$NAMESPACE" >/dev/null
-  echo "  ask-model applied; ask restarted. First start pulls the model (~1GB);"
+  kubectl rollout restart deployment/ask-agent -n "$NAMESPACE" >/dev/null
+  echo "  ask-model applied; ask-agent restarted. First start pulls the model (~1GB);"
   echo "  the pod stays NotReady until the model is actually present (startupProbe)."
 fi
 if [ "${LEAN:-}" = "1" ]; then

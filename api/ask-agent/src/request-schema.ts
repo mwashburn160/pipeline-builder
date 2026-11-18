@@ -12,8 +12,8 @@ import { z } from 'zod';
 export const MAX_HISTORY_CHARS = 32_000;
 
 /**
- * Request body shared by the read-only how-to routes (`/ask`, `/ask/stream`) and the
- * tool-calling agent (`/ask/agent/stream`). `history` is the client-held transcript
+ * Request body shared by the read-only how-to routes (`/ask-agent`, `/ask-agent/stream`) and the
+ * tool-calling agent (`/ask-agent/agent/stream`). `history` is the client-held transcript
  * (v1 has no server-side conversation store); it is bounded to keep the prompt sane.
  */
 export const AskBodySchema = z.object({
@@ -37,7 +37,7 @@ export const AskBodySchema = z.object({
 });
 
 /**
- * `POST /ask/feedback` — a reader rating an answer, or a help search that found
+ * `POST /ask-agent/feedback` — a reader rating an answer, or a help search that found
  * nothing.
  *
  * Carries NO free text, by construction rather than by convention: there is no

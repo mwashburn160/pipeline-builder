@@ -5,11 +5,11 @@
 // STRICTLY on behalf of the calling user by forwarding their bearer token to the
 // existing service routes, so compliance, quota, permissions, and tenancy apply
 // exactly as they do for the user's own requests. Exactly ONE call leaves on
-// ask's own service identity instead — `readInstanceEmailStatus` at the bottom,
+// ask-agent's own service identity instead — `readInstanceEmailStatus` at the bottom,
 // which reads a single instance-wide boolean that carries no tenant data at all;
 // every other call in this file is the caller's, and a new one must stay so.
 //
-// Every forwarded call also carries ask's signed ON-BEHALF marker (api-core
+// Every forwarded call also carries ask-agent's signed ON-BEHALF marker (api-core
 // `onBehalfHeaders`, bound to the caller and org): the agent turn was already
 // metered (and AI-reserved) when it arrived here, so the peer's apiCalls meter
 // and check skip the hop instead of billing the user 10-20 calls per turn. It
@@ -170,7 +170,7 @@ export function pluginClient(authHeader: string, onBehalf?: OnBehalfSubject, sig
  * `/observability/alert-destinations` + `/organization/*` (the caller's own
  * permissions decide). Platform's `/internal/*` routes are service-token-only
  * and are NOT reachable this way. The ONE internal route this service calls
- * goes through {@link readInstanceEmailStatus}, on ask's own service identity —
+ * goes through {@link readInstanceEmailStatus}, on ask-agent's own service identity —
  * see the reasoning there.
  */
 export function platformClient(authHeader: string, onBehalf?: OnBehalfSubject, signal?: AbortSignal): ServiceClient {
@@ -207,12 +207,12 @@ export type EmailSwitch = 'enabled' | 'disabled' | 'unknown';
  * can send email at all (EMAIL_ENABLED).
  *
  * THE EXCEPTION to this module's forward-the-caller's-token rule, and the only
- * one. It is sent with ASK'S OWN service token (`wireServiceSecurity('ask')` in
- * index.ts; `SERVICE_NAME=ask` + ask's signing key in every deploy target), not
+ * one. It is sent with ASK-AGENT'S OWN service token (`wireServiceSecurity('ask-agent')` in
+ * index.ts; `SERVICE_NAME=ask-agent` + ask-agent's signing key in every deploy target), not
  * the caller's bearer, because the route is `requireInternalService`. Safe to
  * read on any caller's behalf, and NOT a tenancy hole, because the answer is one
  * instance-wide boolean: no org, no recipient, no provider, nothing the asking
- * member could not be told. Platform's send route does NOT list `ask`, so this
+ * member could not be told. Platform's send route does NOT list `ask-agent`, so this
  * identity can read the switch and can never make the instance send mail.
  *
  * Why it matters enough to justify that: `platform/src/utils/email.ts` returns
@@ -234,9 +234,9 @@ export async function readInstanceEmailStatus(): Promise<EmailSwitch> {
     const client = makeClient(
       platformHost,
       platformPort,
-      getServiceAuthHeader({ serviceName: 'ask', orgId: SYSTEM_ORG_ID, role: 'member' }),
+      getServiceAuthHeader({ serviceName: 'ask-agent', orgId: SYSTEM_ORG_ID, role: 'member' }),
     );
-    // Through ask's own client (no retries, the per-call timeout, status → throw),
+    // Through ask-agent's own client (no retries, the per-call timeout, status → throw),
     // with the path and the reply's shape from the endpoint's contract.
     const status = PLATFORM_INTERNAL.notifyEmailStatus;
     const reply = parseContractResponse(status, await client.get(buildContractPath(status)));

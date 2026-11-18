@@ -2049,9 +2049,9 @@ tests:
       - series: 'kube_pod_container_status_restarts_total{namespace="pipeline-builder",pod="reporting-abc-123",container="reporting"}'
         values: '0+0x10 1+0x80'
       # Killed long ago, no restart in the window: must NOT fire.
-      - series: 'kube_pod_container_status_last_terminated_reason{namespace="pipeline-builder",pod="ask-abc-123",container="ask",reason="OOMKilled"}'
+      - series: 'kube_pod_container_status_last_terminated_reason{namespace="pipeline-builder",pod="ask-agent-abc-123",container="ask-agent",reason="OOMKilled"}'
         values: '1+0x90'
-      - series: 'kube_pod_container_status_restarts_total{namespace="pipeline-builder",pod="ask-abc-123",container="ask"}'
+      - series: 'kube_pod_container_status_restarts_total{namespace="pipeline-builder",pod="ask-agent-abc-123",container="ask-agent"}'
         values: '1+0x90'
     alert_rule_test:
       - eval_time: 20m

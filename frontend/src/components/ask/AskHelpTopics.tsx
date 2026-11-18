@@ -34,7 +34,7 @@ export interface AskHelpTopicsProps {
  *      about a deliberate configuration invites a support ticket.
  *   2. The agent is enabled but cannot answer right now — its self-hosted model
  *      is outside its business-hours window, or no provider is configured.
- *      `GET /ask/availability` supplies the sentence, which already states
+ *      `GET /ask-agent/availability` supplies the sentence, which already states
  *      times as UTC and, when the schedule is the cause, when it returns.
  *
  * The corpus is ~1 MB of generated source behind a dynamic import, so it is

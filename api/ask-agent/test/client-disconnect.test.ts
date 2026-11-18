@@ -88,7 +88,7 @@ jest.unstable_mockModule('@pipeline-builder/ai-core', () => stubModule('@pipelin
 
 const mockDecrementQuota = jest.fn();
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  recordAudit: (event: unknown) => auditRecord(event, 'ask'),
+  recordAudit: (event: unknown) => auditRecord(event, 'ask-agent'),
   createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
   getServiceAuthHeader: jest.fn(() => 'Bearer service'),
   reserveQuota: jest.fn(async () => ({ exceeded: false, quota: { type: 'aiCalls', resetAt: '2026-09-01T00:00:00Z' } })),
@@ -154,7 +154,7 @@ beforeAll(async () => {
     req.context = { log: jest.fn(), requestId: 'r1', identity: { orgId: 'org-1' }, done: resolve };
     next();
   });
-  app.use('/ask', createAskRoutes({} as never), createAgentRoutes({} as never));
+  app.use('/ask-agent', createAskRoutes({} as never), createAgentRoutes({} as never));
   server = http.createServer(app);
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   port = (server.address() as AddressInfo).port;
@@ -193,8 +193,8 @@ function post(path: string, disconnectOnFirstChunk: boolean): Promise<string> {
 }
 
 describe.each([
-  ['/ask/agent/stream'],
-  ['/ask/stream'],
+  ['/ask-agent/agent/stream'],
+  ['/ask-agent/stream'],
 ])('%s client disconnect', (path) => {
   it('aborts the provider call when the client disconnects mid-stream (and keeps the paid slot)', async () => {
     mode = 'hang';
@@ -205,7 +205,7 @@ describe.each([
     expect(seenSignal!.aborted).toBe(true);
     // The provider had already responded ('start-step' / first token) — keep the slot.
     expect(mockDecrementQuota).not.toHaveBeenCalled();
-    expect(auditRecord).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'failure' }), 'ask');
+    expect(auditRecord).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'failure' }), 'ask-agent');
   });
 
   it('does NOT abort on a normal completion', async () => {
@@ -218,6 +218,6 @@ describe.each([
     expect(text).toContain('[DONE]');
     expect(seenSignal!.aborted).toBe(false);
     expect(mockDecrementQuota).not.toHaveBeenCalled();
-    expect(auditRecord).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'success' }), 'ask');
+    expect(auditRecord).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'success' }), 'ask-agent');
   });
 });

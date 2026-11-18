@@ -36,8 +36,8 @@ export interface AIProviderInfo {
 
 /**
  * Synthetic provider id for "Ask agent": generation is drafted by the Ask
- * agent (the `ask` service's tool-calling loop) instead of calling the
- * pipeline/plugin generator directly. Its "models" are the ask service's
+ * agent (the `ask-agent` service's tool-calling loop) instead of calling the
+ * pipeline/plugin generator directly. Its "models" are the ask-agent service's
  * server-configured models, each identified by a composite
  * `provider|model` id — see {@link askAgentModelId}.
  */

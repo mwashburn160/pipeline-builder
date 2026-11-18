@@ -64,7 +64,7 @@ export function AiProviderModelPicker({ ai, disabled }: AiProviderModelPickerPro
         </FormField>
       </div>
 
-      {/* Ask agent drafts with the ask service's server-configured keys — no
+      {/* Ask agent drafts with the ask-agent service's server-configured keys — no
           per-request key override (its delegated generation can't forward one). */}
       {ai.currentSource === 'agent' ? (
         <p className="text-xs text-fg-muted">

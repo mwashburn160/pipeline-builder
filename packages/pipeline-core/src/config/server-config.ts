@@ -59,7 +59,7 @@ export function loadServerConfig(): ServerConfig {
       ...endpoint('image-registry', 'imageRegistry'),
       ...endpoint('quota', 'quota'),
       ...endpoint('reporting', 'reporting'),
-      ...endpoint('ask', 'ask'),
+      ...endpoint('ask-agent', 'askAgent'),
       billingTimeoutMs: envInt('BILLING_SERVICE_TIMEOUT_MS', 5000, { min: 1 }),
     },
   };

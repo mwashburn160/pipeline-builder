@@ -428,7 +428,7 @@ bash "$BIN_DIR/verify-image-signatures.sh"
 # kustomize stream, LEAN steady state is 3.60 cpu / 11.56Gi WITH it and
 # 3.35 cpu / 5.56Gi without — it alone is 52% of the LEAN memory footprint (a 7B
 # model asks for 6Gi), and LEAN targets a t3.xlarge (4 vCPU / 16Gi) where that
-# plus istiod/ztunnel/KEDA does not fit. It degrades cleanly: `ask` falls back to
+# plus istiod/ztunnel/KEDA does not fit. It degrades cleanly: `ask-agent` falls back to
 # whatever cloud provider key is in .env, and with none the assistant reports
 # "AI is not configured". Downsizing in place leaves it running (the apply does
 # not prune): kubectl delete -n pipeline-builder deploy/ask-model pvc/ask-model-models

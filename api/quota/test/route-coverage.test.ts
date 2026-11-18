@@ -64,7 +64,7 @@ const EXCEPTIONS: RouteCoverageException[] = [
  * outright) and anything without a service identity.
  */
 const INTERNAL_ROUTES: InternalRouteDeclaration[] = (() => {
-  const fleet = ['ask', 'billing', 'compliance', 'image-registry', 'message',
+  const fleet = ['ask-agent', 'billing', 'compliance', 'image-registry', 'message',
     'ops-center', 'pipeline', 'platform', 'plugin', 'quota', 'reporting'];
   return [
     { method: 'POST', path: '/quotas/:orgId/increment', callers: fleet },

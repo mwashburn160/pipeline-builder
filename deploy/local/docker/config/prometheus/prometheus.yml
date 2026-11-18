@@ -66,13 +66,13 @@ scrape_configs:
     static_configs:
       - targets: ['ops-center:3000']
 
-  # `ask` exposes the same api-server /metrics on :3000 as the other services.
-  # It was the one application service with no job here, so every ask-specific
+  # `ask-agent` exposes the same api-server /metrics on :3000 as the other services.
+  # It was the one application service with no job here, so every ask-agent-specific
   # rule (and every rule that matches on service= across the fleet) simply had
   # no series for it on this target.
-  - job_name: 'ask'
+  - job_name: 'ask-agent'
     static_configs:
-      - targets: ['ask:3000']
+      - targets: ['ask-agent:3000']
 
   # image-registry exposes the same api-server /metrics on :3000 as the other
   # services. Without this job, alert-rules.yml's RegistryErrorBurst (which

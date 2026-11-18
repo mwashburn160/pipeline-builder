@@ -41,17 +41,17 @@ provider:
 docker compose --profile ask-model up -d
 ```
 
-Then uncomment both lines in `.env` and restart `ask` so it picks them up:
+Then uncomment both lines in `.env` and restart `ask-agent` so it picks them up:
 
 ```bash
 OPENAI_COMPATIBLE_BASE_URL=http://ask-model:11434/v1
 OPENAI_COMPATIBLE_MODELS=qwen2.5-coder:7b|Qwen 2.5 Coder
 
-docker compose up -d ask
+docker compose up -d ask-agent
 ```
 
 The first start downloads ~4.7GB, and the container stays **unhealthy** until the
-model is actually present — that is deliberate, so `ask` is never pointed at a
+model is actually present — that is deliberate, so `ask-agent` is never pointed at a
 server whose catalogue is still empty. The 7B needs ~6-8Gi of RAM to serve; on a
 smaller machine set `OLLAMA_MODEL=qwen2.5-coder:1.5b` and change
 `OPENAI_COMPATIBLE_MODELS` to match. The two must always name the same model.
@@ -125,7 +125,7 @@ targets instead.
 | plugin | 3000 (internal) | Plugin CRUD + builds |
 | buildkitd | 1234 (internal, TCP) | Rootless BuildKit daemon for tenant plugin builds |
 | buildkitd-quarantine | 1234 (quarantine-network) | Isolated BuildKit for anonymous submissions |
-| ask | 3000 (internal) | AI assistant |
+| ask-agent | 3000 (internal) | AI assistant |
 | image-registry | 3000 (internal) | Registry token-auth issuer + image management API |
 | pgbouncer | 6432 (internal) | Connection pooler — every service's `DB_HOST` |
 | rustfs | 9000 (internal) | S3-compatible object storage (attachments, registry, loki, thanos, plugin build contexts) |

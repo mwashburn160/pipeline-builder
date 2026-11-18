@@ -345,7 +345,7 @@ const IMAGE_DESCRIPTIONS: Record<string, string> = {
   compliance: 'Pipeline Builder compliance service — policy rules, plugin/pipeline validation, exemptions, and scans.',
   'ops-center': 'Pipeline Builder ops-center — observability proxy, dashboards, alerting, on-call and storage/Postgres auto-scaling.',
   'image-registry': 'Pipeline Builder image-registry service — Docker registry token authorization for plugin images.',
-  ask: 'Pipeline Builder ask service — the documentation-grounded assistant and its proposal agent.',
+  'ask-agent': 'Pipeline Builder ask-agent service — the documentation-grounded assistant and its proposal agent.',
 };
 
 /**
@@ -1362,7 +1362,7 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
     // Uses ai-core for model resolution + the grounding / answer-how-to core. No DB
     // (v1 conversation is client-held) and no pipeline-data, so no pg/drizzle. The
     // service image must bundle the repo's docs/*.md (grounding corpus; ASK_DOCS_DIR).
-    name: 'ask',
+    name: 'ask-agent',
     deps: [`@pipeline-builder/ai-core@${pkg.aiCore}`, 'zod@4.6.7'],
     devDeps: [],
   },
@@ -1411,8 +1411,8 @@ for (const svc of services) {
   });
   const scripts = dockerScripts(svc.name);
   addImageDescription(project, svc.name);
-  if (svc.name === 'ask') {
-    // The ask image bundles the docs grounding corpus. buildx's context is the
+  if (svc.name === 'ask-agent') {
+    // The ask-agent image bundles the docs grounding corpus. buildx's context is the
     // service dir, so stage the repo's docs/ into ./docs before the build (the
     // leading rm clears a stale copy; ./docs is gitignored). The Dockerfile then
     // `COPY docs/ /app/docs` and points ASK_DOCS_DIR at it.
@@ -1611,7 +1611,7 @@ const COVERAGE_THRESHOLDS: Record<string, {
       'src/services/api-key-service.ts': { statements: 95, branches: 95, functions: 95, lines: 95 },
     },
   },
-  'ask': {
+  'ask-agent': {
     // Re-measured 2026-11-07 and found WELL above these: 98.27 statements,
     // 86.57 branches, 96.87 functions. The old figures were not a coverage gap,
     // they were a stale floor — which is worse than a low one, because the

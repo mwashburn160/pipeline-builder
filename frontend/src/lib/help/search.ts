@@ -67,7 +67,7 @@ export function sectionText(section: HelpSection): string {
  *
  * The agent grounds with BM25 over tokens while this searched for one exact
  * substring, so the two surfaces disagreed about the same corpus: `sign-in` did
- * not match "sign in", `api/ask` did not match "api ask", and any two-word
+ * not match "sign in", `api/ask-agent` did not match "api ask agent", and any two-word
  * query failed unless the docs happened to contain that exact run of
  * characters. Folding both sides removes the punctuation disagreement; the term
  * matching below removes the word-order one.

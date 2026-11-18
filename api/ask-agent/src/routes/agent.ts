@@ -223,7 +223,7 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
     await withAiCallReservation({
       quotaService,
       orgId,
-      serviceName: 'ask',
+      serviceName: 'ask-agent',
       res,
       logWarn,
       req,
@@ -234,7 +234,7 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
       ctx.log('INFO', 'Ask agent turn requested', { queryLength: query.length, provider, model, waived: slot.waived });
       const index = await getDocsIndex();
       served = selection;
-      // Each forwarded call also carries ask's signed on-behalf marker for THIS
+      // Each forwarded call also carries ask-agent's signed on-behalf marker for THIS
       // verified caller, so the peers don't bill the turn's tool calls as
       // separate apiCalls (api-core `onBehalfHeaders`).
       const onBehalf = req.user?.sub && req.user.organizationId
@@ -258,7 +258,7 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
         quota: quotaClient(userAuth, onBehalf, turnSignal),
         // The ONE read that does not ride the caller's token: platform's
         // internal email-status route answers with a single instance-wide
-        // boolean, so ask's own service identity asks for it (see
+        // boolean, so ask-agent's own service identity asks for it (see
         // readInstanceEmailStatus).
         emailStatus: readInstanceEmailStatus,
         selection,
@@ -277,7 +277,7 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
         // when the turn's is. The handle settles by the same rule as every slot:
         // kept once the tool's request was sent, refunded otherwise.
         chargeAiCall: async (toolName, promptVersion) => {
-          const reserved = await reserveAiCallSlot({ quotaService, orgId, serviceName: 'ask', logWarn, req, feature: `agent-tool:${toolName}` }, selection);
+          const reserved = await reserveAiCallSlot({ quotaService, orgId, serviceName: 'ask-agent', logWarn, req, feature: `agent-tool:${toolName}` }, selection);
           if (reserved.status === 'denied') return null;
           const toolSlot = reserved.slot;
           if (!toolSlot.waived) incCounter('ai_tool_generation_charged_total', { tool: toolName });

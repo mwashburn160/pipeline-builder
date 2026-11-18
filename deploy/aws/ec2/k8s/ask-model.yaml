@@ -3,10 +3,10 @@
 # Ask model — the self-hosted, OpenAI-compatible model (Ollama) that backs the
 # Ask assistant on this target.
 #
-# APPLIED BY DEFAULT here (listed in kustomization.yaml), and the `ask`
+# APPLIED BY DEFAULT here (listed in kustomization.yaml), and the `ask-agent`
 # Deployment points at it via OPENAI_COMPATIBLE_BASE_URL / _MODELS. The two go
 # together: with no cloud provider key configured, removing either leaves the
-# ask service with NO provider and every turn fails with "AI is not configured".
+# ask-agent service with NO provider and every turn fails with "AI is not configured".
 #
 # (The minikube target keeps this opt-in — a 6Gi request will not schedule
 # beside the rest of the namespace on a typical laptop-sized cluster.)
@@ -14,7 +14,7 @@
 # Sizing: a 7B tool-capable model needs ~6-8Gi RAM (CPU) or a GPU. For GPU,
 # uncomment the nodeSelector/tolerations + resources.limits `nvidia.com/gpu` below.
 # Self-contained: bundles its ServiceAccount + istio authz + NetworkPolicy so
-# `kubectl apply -f ask-model.yaml` brings everything ask needs to reach it.
+# `kubectl apply -f ask-model.yaml` brings everything ask-agent needs to reach it.
 # =============================================================================
 apiVersion: v1
 kind: ServiceAccount
@@ -242,7 +242,7 @@ spec:
           persistentVolumeClaim:
             claimName: ask-model-models
 ---
-# ask -> ask-model (OpenAI-compatible inference). Additive istio authz.
+# ask-agent -> ask-model (OpenAI-compatible inference). Additive istio authz.
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
@@ -257,7 +257,7 @@ spec:
     - from:
         - source:
             principals:
-              - cluster.local/ns/pipeline-builder/sa/ask
+              - cluster.local/ns/pipeline-builder/sa/ask-agent
       to:
         - operation:
             ports: ["11434"]
@@ -265,7 +265,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-ask-model-from-ask
+  name: allow-ask-model-from-ask-agent
 spec:
   podSelector:
     matchLabels:
@@ -276,7 +276,7 @@ spec:
     - from:
         - podSelector:
             matchLabels:
-              app: ask
+              app: ask-agent
       ports:
         - port: 11434
 ---

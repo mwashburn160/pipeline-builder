@@ -168,8 +168,8 @@ describe('validateServerConfig', () => {
     quotaPort: 3000,
     reportingHost: 'reporting',
     reportingPort: 3000,
-    askHost: 'ask',
-    askPort: 3000,
+    askAgentHost: 'ask-agent',
+    askAgentPort: 3000,
   };
 
   it('does not throw for valid config', () => {

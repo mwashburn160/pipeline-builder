@@ -1,6 +1,6 @@
 // GENERATED FROM docs/audit-events.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: a078020d048c77037a3b6d0b15bb89cdb2ee5fb7968e15056f1287504e418691
+// SOURCE-SHA256: bd88b8d397f6564750a1da5049df8b5ba2ccd09b50db7cf520aac326ce1f6f1a
 // SPDX-License-Identifier: Apache-2.0
 import { ScrollText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -733,7 +733,7 @@ export const auditEventsTopic: HelpTopic = {
             ],
             [
               "Ask (assistant)",
-              "ask.query (read-only how-to turn), ask.agent.turn (tool-calling turn) — one per turn on POST /ask, /ask/stream, /ask/agent/stream respectively; both carry an outcome (success/failure, incl. client-abort) and details with SAFE METADATA ONLY (tools used, proposal kinds, source count, query length, the RESOLVED provider and model, and quota — the aiCalls slot the turn reserved: slot = kept once the request was sent to the provider or refunded when the turn failed before the send, plus the reservation's used/limit) — never the raw query text. Confirmed drafts commit through the normal create routes, so the resource itself is audited as pipeline.create / pipeline_template.create / plugin.deploy. ask.feedback records a reader's verdict on an answer (details.rating = up/down) together with the DOC IDS it cited (details.sources, e.g. authentication.md) — the doc is what gets corrected, and unlike the question it is not the user's own words. A help search that found nothing is counted in the help_search_miss_total metric only, never here: the search text would be the one actionable field and it is user-entered"
+              "ask.query (read-only how-to turn), ask.agent.turn (tool-calling turn) — one per turn on POST /ask-agent, /ask-agent/stream, /ask-agent/agent/stream respectively; both carry an outcome (success/failure, incl. client-abort) and details with SAFE METADATA ONLY (tools used, proposal kinds, source count, query length, the RESOLVED provider and model, and quota — the aiCalls slot the turn reserved: slot = kept once the request was sent to the provider or refunded when the turn failed before the send, plus the reservation's used/limit) — never the raw query text. Confirmed drafts commit through the normal create routes, so the resource itself is audited as pipeline.create / pipeline_template.create / plugin.deploy. ask.feedback records a reader's verdict on an answer (details.rating = up/down) together with the DOC IDS it cited (details.sources, e.g. authentication.md) — the doc is what gets corrected, and unlike the question it is not the user's own words. A help search that found nothing is counted in the help_search_miss_total metric only, never here: the search text would be the one actionable field and it is user-entered"
             ],
             [
               "AI generation",

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { registerAskRoutes } from './ask-routes.js';
+import { registerAskAgentRoutes } from './ask-agent-routes.js';
 import { registerBillingRoutes } from './billing-routes.js';
 import { registerImageRegistryRoutes } from './image-registry-routes.js';
 import { registerMessageRoutes } from './message-routes.js';
@@ -15,7 +15,7 @@ import { registerQuotaRoutes } from './quota-routes.js';
  * Call this once during spec generation initialization.
  */
 export function registerAllRoutes(): void {
-  registerAskRoutes();
+  registerAskAgentRoutes();
   registerBillingRoutes();
   registerImageRegistryRoutes();
   registerMessageRoutes();

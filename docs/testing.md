@@ -281,7 +281,7 @@ Found by looking, and recorded as `no-ui` dispositions. None is reachable from t
 | `platform POST /auth/key/rotate`, `POST /auth/key/revoke` | Unattended service-account key self-rotation/revocation — the audit-event text says explicitly that no person is present. |
 | `compliance POST /compliance/validate/pipeline`, `POST /compliance/validate/plugin` | The enforcing (non dry-run) validation, called by the CDK at deploy time. The client layer only has the `/dry-run` variants. |
 | `plugin POST /plugins/lookup` | `pipeline-manager`'s plugin pre-resolution before synth. |
-| `ask POST /ask`, `POST /ask/stream` | API / CLI answer endpoints; the dashboard's Ask panel drives only `/ask/agent/stream`. |
+| `ask-agent POST /ask-agent`, `POST /ask-agent/stream` | API / CLI answer endpoints; the dashboard's Ask panel drives only `/ask-agent/agent/stream`. |
 
 `quota DELETE /quotas/:orgId` was on this list; it is gone — the org-purge cascade drops the quota document through the platform-only internal contract `POST /quotas/internal/orgs/:orgId/purge`, and no user route can.
 

@@ -37,7 +37,7 @@ const router: Router = Router();
  * targets names the same callers; compose has no mesh, so this gate is the
  * enforcement.
  *
- * `ask` is deliberately NOT here, though it is a caller of /status below: the
+ * `ask-agent` is deliberately NOT here, though it is a caller of /status below: the
  * agent may learn WHETHER email works, never make this instance send mail to an
  * address a model (or a prompt-injected message) chose.
  */
@@ -59,7 +59,7 @@ router.post(contractRoute(SEND, NOTIFY_EMAIL_MOUNT), requireServiceAuth, require
  *    none), and the schedule form warns the lead before they choose email. A
  *    disabled send reports SUCCESS (utils/email.ts), so without this switch the
  *    report would be recorded as delivered to managers who never got it.
- *  - `ask`: `diagnose_notifications` answers "we configured notifications and
+ *  - `ask-agent`: `diagnose_notifications` answers "we configured notifications and
  *    nothing arrives", and a disabled send REPORTS SUCCESS (utils/email.ts), so
  *    this switch is the whole diagnosis. It read the PUBLIC `/config` before —
  *    a silent coupling that would have gone dark the day `/config` narrowed.
@@ -71,7 +71,7 @@ router.post(contractRoute(SEND, NOTIFY_EMAIL_MOUNT), requireServiceAuth, require
  *
  * Reading it is strictly weaker than sending: the answer is one instance-wide
  * boolean with no tenant, recipient or provider detail in it (see
- * `notifyEmailStatus`), which is why `ask` — an agent acting for whichever
+ * `notifyEmailStatus`), which is why `ask-agent` — an agent acting for whichever
  * member is asking — may read it while it may NOT appear on the send route
  * above. Same service-only gate either way.
  */

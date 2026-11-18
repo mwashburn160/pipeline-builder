@@ -277,6 +277,7 @@ describe('deploy/local/docker — compose service labels', () => {
  * tag the release will push, so the sync finds it.
  */
 const UNPUBLISHED: Record<string, string> = {
+  'ask-agent': 'api/ask-agent',
   'ops-center': 'api/ops-center',
 };
 

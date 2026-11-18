@@ -42,7 +42,7 @@ describe('mergeAIProviders', () => {
     expect(merged).toHaveLength(5);
   });
 
-  it('omits Ask agent when the ask service reports no models', () => {
+  it('omits Ask agent when the ask-agent service reports no models', () => {
     expect(mergeAIProviders(null, null, { data: { providers: [] } }).some((p) => p.id === 'ask-agent')).toBe(false);
   });
 });

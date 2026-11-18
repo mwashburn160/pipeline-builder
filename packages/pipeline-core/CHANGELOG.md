@@ -5,6 +5,10 @@ breaking changes in the public surface only.
 
 ## 5.0.0 (unreleased)
 
+### BREAKING CHANGES — The `ask` service is renamed `ask-agent`.
+
+- `ServerConfig.services.askHost` / `askPort` are now `askAgentHost` / `askAgentPort`, read from `ASK_AGENT_SERVICE_HOST` / `ASK_AGENT_SERVICE_PORT` (default `ask-agent:3000`).
+
 ### BREAKING CHANGES — Backward-compatibility shims removed.
 
 - `unwrapLookup` reads only the platform's `{ success, statusCode, data: { plugin, warnings, toolchain? } }` envelope. It no longer accepts `{ plugin }`, `{ data: Plugin }` or a bare plugin body. It also no longer strips `RESOLVED_PLUGIN_OMITTED_FIELDS` from the answer: `/plugins/lookup` already answers the slim record, and the client-side copy only covered a plugin service that still sent the full one. `toResolvedPlugin` is unchanged.

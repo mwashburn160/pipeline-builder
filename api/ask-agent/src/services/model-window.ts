@@ -118,7 +118,7 @@ function asClock(minutes: number): string {
  * failure.
  *
  * Extracted so the reactive path (a model call that just failed) and the
- * proactive one (`GET /ask/availability`, which the panel calls before the user
+ * proactive one (`GET /ask-agent/availability`, which the panel calls before the user
  * types) cannot disagree about whether the model is scheduled off. A second
  * implementation — in particular one in the browser, computing the window from
  * `ASK_SCHEDULE_*` shipped to the client — would duplicate this cron reading AND
@@ -255,7 +255,7 @@ export type AskUnavailableReason =
   /** The organization's administrators switched AI features off. */
   | 'disabled';
 
-/** The answer `GET /ask/availability` serves. */
+/** The answer `GET /ask-agent/availability` serves. */
 export type AskAvailability =
   | { readonly available: true }
   | {

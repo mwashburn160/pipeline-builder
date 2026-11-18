@@ -168,8 +168,8 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
   const { askUiMode } = useFeatures();
   // The stream has always accepted `provider` / `model` / `apiKey`; only the
   // pipeline and plugin AI tabs offered the choice. Same hook, same picker, so
-  // the three surfaces stay identical — here the "server" providers are the ask
-  // service's own (`GET /ask/providers`), merged with the org's saved keys and
+  // the three surfaces stay identical — here the "server" providers are the ask-agent
+  // service's own (`GET /ask-agent/providers`), merged with the org's saved keys and
   // the rest of the catalog (selectable with a key of your own).
   const ai = useAIProviders(api.getAskProviders);
   // Forwarded to the agent's repo-analysis tool, never shown to the model, and
@@ -652,7 +652,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
         </div>
 
         {/* Which model answers, and what it may read. Collapsed by default —
-            the defaults are the ask service's own and work untouched. */}
+            the defaults are the ask-agent service's own and work untouched. */}
         <Disclosure
           title="Model and repository access"
           className="group mt-3 border border-default rounded-xl"
@@ -699,7 +699,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
             />
             <button
               type="submit"
-              // A turn is POST /ask/agent/stream, and `requireAuth` refuses every
+              // A turn is POST /ask-agent/agent/stream, and `requireAuth` refuses every
               // non-GET under a read-only impersonation token — so the whole
               // assistant, documentation lookups included, is unavailable here.
               // Without this the composer accepted input and every send 403'd.

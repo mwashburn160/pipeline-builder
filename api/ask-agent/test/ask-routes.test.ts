@@ -52,7 +52,7 @@ const mockReserveQuota = jest.fn<(...a: any[]) => any>(() =>
 const mockDecrementQuota = jest.fn();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  recordAudit: (event: unknown) => auditRecord(event, 'ask'),
+  recordAudit: (event: unknown) => auditRecord(event, 'ask-agent'),
   createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
   getServiceAuthHeader: mockGetServiceAuthHeader,
   reserveQuota: mockReserveQuota,
@@ -169,7 +169,7 @@ function failsBeforeSend(err: Error) {
 
 // -- Tests --------------------------------------------------------------------
 
-describe('GET /ask/providers', () => {
+describe('GET /ask-agent/providers', () => {
   it('returns the configured providers', async () => {
     const res = mockRes();
     await getHandler('get', '/providers')(mockReq(undefined), res);
@@ -178,7 +178,7 @@ describe('GET /ask/providers', () => {
   });
 });
 
-describe('GET /ask/availability', () => {
+describe('GET /ask-agent/availability', () => {
   const availability = async () => {
     const res = mockRes();
     await getHandler('get', '/availability')(mockReq(undefined), res);
@@ -217,14 +217,14 @@ describe('failover is logged', () => {
   });
 });
 
-describe('POST /ask', () => {
+describe('POST /ask-agent', () => {
   const handler = getHandler('post', '/');
 
   it('reserves aiCalls with a SERVICE-minted header, not the user bearer', async () => {
     answersWith({ text: 'answer', sources: [{ id: 'deployment.md#x' }] });
     await handler(mockReq({ query: 'how do I deploy', provider: 'anthropic', model: 'claude-sonnet-5' }), mockRes());
 
-    expect(mockGetServiceAuthHeader).toHaveBeenCalledWith({ serviceName: 'ask', orgId: 'org-1', role: 'member' });
+    expect(mockGetServiceAuthHeader).toHaveBeenCalledWith({ serviceName: 'ask-agent', orgId: 'org-1', role: 'member' });
     expect(mockReserveQuota).toHaveBeenCalledWith(mockQuotaService, 'org-1', 'aiCalls', SERVICE_TOKEN, 1, expect.objectContaining({ keySource: 'platform' }));
     expect(mockReserveQuota).not.toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.anything(), 'Bearer USER-BEARER-tok');
     expect(mockStreamHowTo).toHaveBeenCalled();
@@ -241,7 +241,7 @@ describe('POST /ask', () => {
         outcome: 'success',
         details: expect.objectContaining({ queryLength: 'how do I deploy my app'.length, sources: 1, streamed: false }),
       }),
-      'ask',
+      'ask-agent',
     );
     expect(JSON.stringify(auditRecord.mock.calls[0]?.[0])).not.toContain('how do I deploy my app');
   });
@@ -257,7 +257,7 @@ describe('POST /ask', () => {
           quota: { type: 'aiCalls', slot: 'kept', amount: 1, used: 1, limit: 100 },
         }),
       }),
-      'ask',
+      'ask-agent',
     );
   });
 
@@ -266,7 +266,7 @@ describe('POST /ask', () => {
     await handler(mockReq({ query: 'anything here' }), mockRes());
     expect(auditRecord).toHaveBeenCalledWith(
       expect.objectContaining({ outcome: 'failure', details: expect.objectContaining({ quota: expect.objectContaining({ slot: 'refunded' }) }) }),
-      'ask',
+      'ask-agent',
     );
   });
 
@@ -275,7 +275,7 @@ describe('POST /ask', () => {
     await handler(mockReq({ query: 'anything here' }), mockRes());
     expect(auditRecord).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'ask.query', outcome: 'failure' }),
-      'ask',
+      'ask-agent',
     );
   });
 
@@ -336,7 +336,7 @@ describe('POST /ask', () => {
     expect(mockDecrementQuota).not.toHaveBeenCalled();
     expect(auditRecord).toHaveBeenCalledWith(
       expect.objectContaining({ outcome: 'failure', details: expect.objectContaining({ quota: expect.objectContaining({ slot: 'kept' }) }) }),
-      'ask',
+      'ask-agent',
     );
   });
 
@@ -350,7 +350,7 @@ describe('POST /ask', () => {
   });
 });
 
-describe('POST /ask/stream', () => {
+describe('POST /ask-agent/stream', () => {
   const handler = getHandler('post', '/stream');
 
   it('emits sources, then tokens, then done — and keeps the reserved slot', async () => {
@@ -387,7 +387,7 @@ describe('POST /ask/stream', () => {
     const frames = res.write.mock.calls.map((c: any[]) => String(c[0]));
     expect(frames.some((f: string) => f.includes('[DONE]'))).toBe(false);
     expect(mockDecrementQuota).not.toHaveBeenCalled();
-    expect(auditRecord).toHaveBeenCalledWith(expect.objectContaining({ action: 'ask.query', outcome: 'failure' }), 'ask');
+    expect(auditRecord).toHaveBeenCalledWith(expect.objectContaining({ action: 'ask.query', outcome: 'failure' }), 'ask-agent');
   });
 
   it('refunds when the stream turn fails BEFORE the send', async () => {
@@ -419,7 +419,7 @@ describe('POST /ask/stream', () => {
 
 // -- BYOK / impersonation: no aiCalls unit ------------------------------------
 
-describe('POST /ask — a call that spends no aiCalls unit', () => {
+describe('POST /ask-agent — a call that spends no aiCalls unit', () => {
   const handler = getHandler('post', '/');
   const usageReport = jest.fn<(...a: any[]) => Promise<void>>(async () => undefined);
   const resolveSel = async () => (await import('@pipeline-builder/ai-core')).resolveOrgModelSelection as unknown as jest.Mock<(...a: any[]) => any>;
@@ -434,7 +434,7 @@ describe('POST /ask — a call that spends no aiCalls unit', () => {
     expect(mockDecrementQuota).not.toHaveBeenCalled();
     expect(auditRecord).toHaveBeenCalledWith(
       expect.objectContaining({ details: expect.objectContaining({ quota: { type: 'aiCalls', slot: 'waived', waived: 'byok', amount: 0 } }) }),
-      'ask',
+      'ask-agent',
     );
     expect(usageReport).toHaveBeenCalledWith('org-1', 'aiCalls', SERVICE_TOKEN, expect.any(Object), expect.objectContaining({ feature: 'ask', keySource }));
   });
@@ -445,7 +445,7 @@ describe('POST /ask — a call that spends no aiCalls unit', () => {
     expect(mockReserveQuota).not.toHaveBeenCalled();
     expect(auditRecord).toHaveBeenCalledWith(
       expect.objectContaining({ details: expect.objectContaining({ quota: expect.objectContaining({ slot: 'waived', waived: 'impersonation' }) }) }),
-      'ask',
+      'ask-agent',
     );
   });
 

@@ -274,7 +274,7 @@ Every route: active org = the system org, `plugins:moderate` and/or `publishers:
 | `POST` | `/plugins/ecosystem/reviews/:id/remove` | `{ reason }` — remove for good; the author is told why (N18) |
 | `POST` | `/plugins/ecosystem/reviews/:id/remove-reply` | `{ reason }` — delete the publisher's reply |
 
-### Ask Service
+### Ask Agent Service
 
 The docs-grounded assistant (how-to answers) and its agent (read tools plus reviewable drafts). Every route needs one of `pipelines:read`, `plugins:read` or `templates:read`; the answering routes also need the `ai_generation` feature and AI enabled for the org. Requests are rate limited per org (`ASK_RATE_LIMIT_PER_MIN`, default 30 a minute) and each costs one `apiCalls`. Each answer also reserves an `aiCalls` slot (the model's weight; nothing when the caller's or org's own key pays): kept once the request is sent to the provider (an abort, timeout or provider error afterwards does not refund), refunded only when the call failed before the send.
 
@@ -282,12 +282,12 @@ The three answering routes take one body: `{ query (1–6000 chars), provider?, 
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/ask/providers` | `{ providers }` — the AI providers this deployment can answer with |
-| `GET` | `/ask/availability` | `{ available: true }`, or `{ available: false, reason: 'disabled' \| 'not-configured' \| 'scheduled-off', message, resumesAt?, window? }` — asked when the panel opens; reads no key |
-| `POST` | `/ask` | One JSON answer: `{ text, sources: [{ id, title?, url? }] }` (the docs it cited). Audited `ask.query` |
-| `POST` | `/ask/stream` | The same answer as SSE: `{ type: 'sources' }`, then `{ type: 'token', data }` deltas, then `{ type: 'done', data: { servedBy: { provider, model, fallbackFrom? }, usage } }` and `[DONE]`. A scheduled-off model mid-stream ends with `{ type: 'error', message }`. Audited `ask.query` |
-| `POST` | `/ask/agent/stream` | One agent turn as SSE: `token`, `tool-call` (`{ toolName }`), `sources`, `proposal` (a draft pipeline, plugin or template for the user to review — the agent writes nothing; the client applies a draft through the owning service), then `done` and `[DONE]`. Tools run as the caller, with the caller's own token and permissions. Each generating tool reserves its own `aiCalls` slot on top of the turn's. Audited `ask.agent.turn` |
-| `POST` | `/ask/feedback` | `{ kind: 'answer' \| 'help-search-miss', rating?: 'up' \| 'down' (required for an answer), sources?: string[] (doc ids, ≤ 20) }` → `{ recorded: true }`. Carries no free text by construction. An answer rating is audited `ask.feedback` |
+| `GET` | `/ask-agent/providers` | `{ providers }` — the AI providers this deployment can answer with |
+| `GET` | `/ask-agent/availability` | `{ available: true }`, or `{ available: false, reason: 'disabled' \| 'not-configured' \| 'scheduled-off', message, resumesAt?, window? }` — asked when the panel opens; reads no key |
+| `POST` | `/ask-agent` | One JSON answer: `{ text, sources: [{ id, title?, url? }] }` (the docs it cited). Audited `ask.query` |
+| `POST` | `/ask-agent/stream` | The same answer as SSE: `{ type: 'sources' }`, then `{ type: 'token', data }` deltas, then `{ type: 'done', data: { servedBy: { provider, model, fallbackFrom? }, usage } }` and `[DONE]`. A scheduled-off model mid-stream ends with `{ type: 'error', message }`. Audited `ask.query` |
+| `POST` | `/ask-agent/agent/stream` | One agent turn as SSE: `token`, `tool-call` (`{ toolName }`), `sources`, `proposal` (a draft pipeline, plugin or template for the user to review — the agent writes nothing; the client applies a draft through the owning service), then `done` and `[DONE]`. Tools run as the caller, with the caller's own token and permissions. Each generating tool reserves its own `aiCalls` slot on top of the turn's. Audited `ask.agent.turn` |
+| `POST` | `/ask-agent/feedback` | `{ kind: 'answer' \| 'help-search-miss', rating?: 'up' \| 'down' (required for an answer), sources?: string[] (doc ids, ≤ 20) }` → `{ recorded: true }`. Carries no free text by construction. An answer rating is audited `ask.feedback` |
 
 ### Compliance Service
 
@@ -526,7 +526,7 @@ split; `switch-org` issues no refresh token at all (access token only). See
 
 ## Route index
 
-Every route of the Pipeline, Plugin and Ask services, generated from the route-table snapshots each service's route-coverage test writes — so no route can be missing here, even when the tables above don't describe it yet. **Requires** is everything the route demands of the caller (`or` = any one of; `+` = all of). Probes (`/health`, `/ready`, `/metrics`, `/warmup`) and the internal-only routes are left out. Regenerate with `npm run generate:api-reference` in `frontend/`; a test fails when it is stale.
+Every route of the Pipeline, Plugin and Ask Agent services, generated from the route-table snapshots each service's route-coverage test writes — so no route can be missing here, even when the tables above don't describe it yet. **Requires** is everything the route demands of the caller (`or` = any one of; `+` = all of). Probes (`/health`, `/ready`, `/metrics`, `/warmup`) and the internal-only routes are left out. Regenerate with `npm run generate:api-reference` in `frontend/`; a test fails when it is stale.
 
 <!-- BEGIN GENERATED: route-index (frontend/scripts/generate-api-reference.mjs) -->
 
@@ -739,18 +739,18 @@ Every route of the Pipeline, Plugin and Ask services, generated from the route-t
 | `GET` | `/public/plugins/categories` | no bearer token | — | — |
 | `GET` | `/public/plugins/sitemap` | no bearer token | — | — |
 
-### Ask Service — every route
+### Ask Agent Service — every route
 
-6 routes, from `frontend/src/generated/route-table/ask.json`.
+6 routes, from `frontend/src/generated/route-table/ask-agent.json`.
 
 | Method | Endpoint | Requires | Meters | Audit action |
 |--------|----------|----------|--------|--------------|
-| `POST` | `/ask` | `pipelines:read` or `plugins:read` or `templates:read`; feature `ai_generation` | `apiCalls` | `ask.query` |
-| `POST` | `/ask/agent/stream` | `pipelines:read` or `plugins:read` or `templates:read`; feature `ai_generation` | `apiCalls` | `ask.agent.turn` |
-| `GET` | `/ask/availability` | `pipelines:read` or `plugins:read` or `templates:read`; feature `ai_generation` | `apiCalls` | — |
-| `POST` | `/ask/feedback` | `pipelines:read` or `plugins:read` or `templates:read` | `apiCalls` | `ask.feedback` |
-| `GET` | `/ask/providers` | `pipelines:read` or `plugins:read` or `templates:read`; feature `ai_generation` | `apiCalls` | — |
-| `POST` | `/ask/stream` | `pipelines:read` or `plugins:read` or `templates:read`; feature `ai_generation` | `apiCalls` | `ask.query` |
+| `POST` | `/ask-agent` | `pipelines:read` or `plugins:read` or `templates:read`; feature `ai_generation` | `apiCalls` | `ask.query` |
+| `POST` | `/ask-agent/agent/stream` | `pipelines:read` or `plugins:read` or `templates:read`; feature `ai_generation` | `apiCalls` | `ask.agent.turn` |
+| `GET` | `/ask-agent/availability` | `pipelines:read` or `plugins:read` or `templates:read`; feature `ai_generation` | `apiCalls` | — |
+| `POST` | `/ask-agent/feedback` | `pipelines:read` or `plugins:read` or `templates:read` | `apiCalls` | `ask.feedback` |
+| `GET` | `/ask-agent/providers` | `pipelines:read` or `plugins:read` or `templates:read`; feature `ai_generation` | `apiCalls` | — |
+| `POST` | `/ask-agent/stream` | `pipelines:read` or `plugins:read` or `templates:read`; feature `ai_generation` | `apiCalls` | `ask.query` |
 
 <!-- END GENERATED: route-index -->
 

@@ -15,12 +15,12 @@ export interface AskRouteDeps {
 }
 
 /**
- * Mount every ask-service route on `app`. Shared by `index.ts` (the running
+ * Mount every ask-agent route on `app`. Shared by `index.ts` (the running
  * service) and the route-coverage test, so the route table the test checks is
  * the one production serves.
  */
 export function mountRoutes(app: Express, { quotaService }: AskRouteDeps): void {
-  // -- /ask routes --------------------------------------------------------------
+  // -- /ask-agent routes --------------------------------------------------------
   // Auth + orgId at the mount; each handler adds its own capability gate
   // (`requireAskAccess`) and `requireFeature('ai_generation')`.
   // rateLimitByOrg caps LLM spend per tenant (keyed on the verified org, service
@@ -31,9 +31,9 @@ export function mountRoutes(app: Express, { quotaService }: AskRouteDeps): void 
   // after requireAuth (docs/quotas.md): an Ask costs ONE apiCall on top of the
   // aiCalls reservation each handler makes for the LLM spend itself. Mounted
   // ONCE ahead of both routers so no route meters twice.
-  app.use('/ask', ...apiCallsQuota(quotaService));
+  app.use('/ask-agent', ...apiCallsQuota(quotaService));
   app.use(
-    '/ask',
+    '/ask-agent',
     ...createAuthenticatedWithOrgRoute(),
     rateLimitByOrg({
       name: 'ask',

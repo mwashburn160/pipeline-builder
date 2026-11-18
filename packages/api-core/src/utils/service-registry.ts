@@ -8,7 +8,7 @@ import { envInt, envStr } from './env.js';
  * tokens with (`SERVICE_NAME`) and the default in-cluster hostnames.
  */
 export const INTERNAL_SERVICES = [
-  'ask', 'billing', 'compliance', 'image-registry', 'message',
+  'ask-agent', 'billing', 'compliance', 'image-registry', 'message',
   'ops-center', 'pipeline', 'platform', 'plugin', 'quota', 'reporting',
 ] as const;
 

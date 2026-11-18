@@ -270,7 +270,7 @@ x-plan-tier-developer-env: &plan-tier-developer-env
 # -- Env for services that use AI generation --
 # Everything the shared AI provider registry (packages/ai-core) reads: the
 # per-provider keys, the Bedrock opt-in and the self-hosted OpenAI-compatible
-# endpoint. Used by ask, pipeline, plugin and reporting (report summaries) alike,
+# endpoint. Used by ask-agent, pipeline, plugin and reporting (report summaries) alike,
 # so a provider configured once in .env is available to every AI surface.
 x-ai-env: &ai-env
   ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -366,23 +366,23 @@ services:
   # ---------------------------------------------------------------------------
   # Infrastructure
   # ---------------------------------------------------------------------------
-  ask:
-    image: 'ghcr.io/mwashburn160/ask:5.0.0@sha256:30b9b696b4fefc96666c390a5ac243d00827861fcc318d3c914c12c4b568e105'
+  ask-agent:
+    image: 'ghcr.io/mwashburn160/ask-agent:5.0.0'
     labels:
       version: "5.0.0"
       track: stable
-    container_name: ask
+    container_name: ask-agent
     restart: always
     stop_grace_period: 10s
     environment:
       # Redis (x-redis-env) is how this service learns an impersonation session
       # was ended; without it impersonation tokens are rejected.
       <<: [*common-env, *server-env, *redis-env, *ai-env, *tunables-env]
-      SERVICE_NAME: ask
+      SERVICE_NAME: ask-agent
     volumes:
       - *service-key-bundle
       - *dev-ca
-      - ./certs/service-keys/ask.key:/etc/pipeline-builder/service-keys/service.key:ro
+      - ./certs/service-keys/ask-agent.key:/etc/pipeline-builder/service-keys/service.key:ro
     networks:
       - backend-network
     healthcheck: *api-healthcheck
@@ -441,7 +441,7 @@ services:
     # GATE HEALTH ON THE MODEL, NOT THE SERVER. A probe that only reaches the
     # HTTP server passes the moment it binds — while the pull above is still
     # downloading — so the container reports healthy with an EMPTY catalogue,
-    # `ask` sends a completion for a model that does not exist and ollama closes
+    # `ask-agent` sends a completion for a model that does not exist and ollama closes
     # the connection ("AI_APICallError: Cannot connect to API: other side
     # closed"). Grep for the configured model instead. Mirrors the startupProbe
     # on all three k8s targets.
@@ -496,7 +496,7 @@ services:
       - proxy-network
       - backend-network
     depends_on:
-      ask:            { condition: service_started }
+      ask-agent:      { condition: service_started }
       billing:        { condition: service_started }
       compliance:     { condition: service_started }
       frontend:       { condition: service_started }

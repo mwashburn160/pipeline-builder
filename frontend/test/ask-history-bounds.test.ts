@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The ask service refuses a `history` over 20 turns, 8000 characters a turn, or
+ * The ask-agent service refuses a `history` over 20 turns, 8000 characters a turn, or
  * 32,000 in all (a 400) — so without bounding, every question after a long
  * enough conversation failed. `boundAskHistory` keeps the NEWEST turns that fit.
  */

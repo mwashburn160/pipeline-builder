@@ -1996,7 +1996,7 @@ groups:
       # marker that did not verify (packages/api-core/src/middleware/on-behalf.ts),
       # so the hop was billed as an ordinary call. A trickle of `invalid` is a
       # user trying to forge it (harmless — it is ignored); a sustained rate
-      # from real traffic means ask/pipeline's signing key is missing from the
+      # from real traffic means ask-agent/pipeline's signing key is missing from the
       # service-key bundle, and every Ask tool call is being double-billed.
       - alert: QuotaOnBehalfMarkersRejected
         expr: sum by (service, reason) (rate(quota_on_behalf_rejected_total[10m])) > 0.05
@@ -2007,7 +2007,7 @@ groups:
           tenancy: platform
         annotations:
           summary: "On-behalf quota markers rejected on {{ $labels.service }} ({{ $labels.reason }})"
-          description: "{{ $value | humanize }} rejected on-behalf markers/sec over 10m at service={{ $labels.service }}, reason={{ $labels.reason }}, sustained 15m. Forwarded user calls from ask/pipeline are being billed against apiCalls again. Check that the caller's service key is in SERVICE_KEY_BUNDLE_FILE and that SERVICE_NAME is set on ask and pipeline."
+          description: "{{ $value | humanize }} rejected on-behalf markers/sec over 10m at service={{ $labels.service }}, reason={{ $labels.reason }}, sustained 15m. Forwarded user calls from ask-agent/pipeline are being billed against apiCalls again. Check that the caller's service key is in SERVICE_KEY_BUNDLE_FILE and that SERVICE_NAME is set on ask-agent and pipeline."
 
       # `quota_usage_event_write_failed_total` — the quota service could not
       # write a usage-ledger event (api/quota/src/services/usage-ledger.ts).
@@ -3121,11 +3121,11 @@ groups:
           tenancy: platform
         annotations:
           summary: "AI provider {{ $labels.provider }} erroring"
-          description: "{{ $value | humanize }} failed AI turns/sec for provider {{ $labels.provider }} over 5m sustained for 10m — likely a provider brownout or credential issue. Check the ask/generation logs."
+          description: "{{ $value | humanize }} failed AI turns/sec for provider {{ $labels.provider }} over 5m sustained for 10m — likely a provider brownout or credential issue. Check the ask-agent/generation logs."
 
       # ---- Ask agent: prompt-injection signal ----
       # ask_proposal_refused_fields_total{tool} counts field names a propose_*
-      # tool REFUSED because they are outside its allowlist (api/ask
+      # tool REFUSED because they are outside its allowlist (api/ask-agent
       # routes/agent.ts, design rule 10). A legitimate user never produces one:
       # the model only names a security setting (MFA, SSO, ownership, AI
       # credentials) when a message, document or repository told it to. The

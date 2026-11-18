@@ -13,7 +13,7 @@
  * ASK's service identity (`readInstanceEmailStatus`), because that route is the
  * authoritative source and it is service-only. It returns a single boolean about
  * the INSTANCE — no tenant, no recipient, no provider — so no user's permissions
- * or tenancy are bypassed by reading it, and ask is not a caller of the send
+ * or tenancy are bypassed by reading it, and ask-agent is not a caller of the send
  * route, so the same identity cannot make the instance send anything.
  *
  * One rule governs every return value here: these tools SHAPE, they do not
@@ -181,7 +181,7 @@ export function diagnoseTools(deps: AgentToolDeps): ToolSet {
       execute: async () => {
         const [authoritative, instance, destinations, pluginPrefs, compliancePrefs] = await Promise.all([
           // THE authoritative source: platform's own
-          // `GET /internal/notify-email/status`, read with ask's SERVICE token
+          // `GET /internal/notify-email/status`, read with ask-agent's SERVICE token
           // (see `readInstanceEmailStatus`). Never throws; `unknown` when it
           // could not be asked.
           emailStatus(),

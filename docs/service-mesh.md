@@ -175,7 +175,7 @@ ops-center for node-disk auto-expansion) gets a
 separate `/32` rule on :80 for its credential endpoint (Pod Identity on EKS,
 IMDS on ec2). Public legs: alertmanager 443 (Slack), platform 443 + SMTP,
 ops-center 443 (org Slack/webhook destinations, PagerDuty, dead-man URL),
-pipeline 443, ask 443, compliance 443 + SMTP, billing 443, plugin 443/80.
+pipeline 443, ask-agent 443, compliance 443 + SMTP, billing 443, plugin 443/80.
 Mesh hops to istio-system (prometheus, kiali, the waypoint) stay ports-only —
 their destinations are cluster pod IPs, which RFC1918 would exclude.
 

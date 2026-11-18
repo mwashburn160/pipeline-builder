@@ -33,7 +33,7 @@ resources:
   - message.yaml
   - reporting.yaml
   - ops-center.yaml
-  - ask.yaml
+  - ask-agent.yaml
   # - ask-model.yaml  # opt-in self-hosted model (Ollama); see file header
   - quota.yaml
   - billing.yaml

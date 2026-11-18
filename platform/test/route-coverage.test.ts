@@ -337,8 +337,8 @@ const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   { method: 'POST', path: '/internal/notify-email', callers: ['billing', 'compliance', 'ops-center', 'plugin', 'quota', 'reporting'] },
   // Whether outbound email is on — the anonymous-submission API's precondition,
   // and the whole of the ask agent's notification diagnosis. Reading the switch
-  // is strictly weaker than sending, so `ask` is here but not on the send route.
-  { method: 'GET', path: '/internal/notify-email/status', callers: ['ask', 'ops-center', 'plugin', 'reporting'] },
+  // is strictly weaker than sending, so `ask-agent` is here but not on the send route.
+  { method: 'GET', path: '/internal/notify-email/status', callers: ['ask-agent', 'ops-center', 'plugin', 'reporting'] },
   // The identity facts the operations control plane reads from platform: an
   // org's account root (feature quotas), the audit-activity aggregations its
   // dashboards render, and the live org ids a sysadmin's `orgs=all` log view lists.
@@ -364,14 +364,14 @@ const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   { method: 'GET', path: '/internal/reporting/access-posture/:orgId', callers: ['reporting'] },
   // The org half of every AI call: the AI switch + configured provider names, and the
   // org's decrypted provider key (audited). The four services that make AI calls.
-  { method: 'GET', path: '/internal/ai/access/:orgId', callers: ['ask', 'pipeline', 'plugin', 'reporting'] },
-  { method: 'GET', path: '/internal/ai/keys/:orgId/:provider', callers: ['ask', 'pipeline', 'plugin', 'reporting'] },
+  { method: 'GET', path: '/internal/ai/access/:orgId', callers: ['ask-agent', 'pipeline', 'plugin', 'reporting'] },
+  { method: 'GET', path: '/internal/ai/keys/:orgId/:provider', callers: ['ask-agent', 'pipeline', 'plugin', 'reporting'] },
   // Every non-platform service forwards its audit trail here; platform writes
   // its own events locally and never calls this.
   {
     method: 'POST',
     path: '/audit/events',
-    callers: ['ask', 'billing', 'compliance', 'image-registry', 'message',
+    callers: ['ask-agent', 'billing', 'compliance', 'image-registry', 'message',
       'ops-center', 'pipeline', 'plugin', 'quota', 'reporting'],
   },
 ];

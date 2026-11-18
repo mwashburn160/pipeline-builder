@@ -28,7 +28,7 @@ export interface AskStreamOptions {
 }
 
 /**
- * Whether the assistant can answer right now, from `GET /ask/availability`.
+ * Whether the assistant can answer right now, from `GET /ask-agent/availability`.
  *
  * The panel asks BEFORE offering the question box, so a deployment whose
  * self-hosted model is scaled to zero by its business-hours schedule opens
@@ -58,7 +58,7 @@ export type AskAvailability =
 
 /**
  * "Ask" agent client — read-only, grounded how-to over the platform docs. Talks to
- * the `ask` service via nginx (`/api/ask/*`).
+ * the `ask-agent` service via nginx (`/api/ask-agent/*`).
  */
 export function askApi(core: ApiCore) {
   return {
@@ -68,7 +68,7 @@ export function askApi(core: ApiCore) {
      * to the model, so this neither wakes nor probes it.
      */
     getAskAvailability: async () => {
-      return core.request<ApiResponse<AskAvailability>>('/api/ask/availability');
+      return core.request<ApiResponse<AskAvailability>>('/api/ask-agent/availability');
     },
 
     /**
@@ -82,12 +82,12 @@ export function askApi(core: ApiCore) {
     sendAskFeedback: async (body:
       | { kind: 'answer'; rating: 'up' | 'down'; sources?: string[] }
       | { kind: 'help-search-miss' }) => {
-      return core.request<ApiResponse<{ recorded: boolean }>>('/api/ask/feedback', { method: 'POST', body: JSON.stringify(body) });
+      return core.request<ApiResponse<{ recorded: boolean }>>('/api/ask-agent/feedback', { method: 'POST', body: JSON.stringify(body) });
     },
 
-    /** List the AI providers (and their models) configured on the ask service. */
+    /** List the AI providers (and their models) configured on the ask-agent service. */
     getAskProviders: async () => {
-      return core.request<ApiResponse<{ providers: Array<{ id: string; name: string; models: Array<{ id: string; name: string }> }> }>>('/api/ask/providers');
+      return core.request<ApiResponse<{ providers: Array<{ id: string; name: string; models: Array<{ id: string; name: string }> }> }>>('/api/ask-agent/providers');
     },
 
     /**
@@ -97,7 +97,7 @@ export function askApi(core: ApiCore) {
      * until the user commits it via the normal create API).
      */
     askAgentStream: async function* (query: string, opts: AskStreamOptions = {}) {
-      yield* core.streamRequest('/api/ask/agent/stream', {
+      yield* core.streamRequest('/api/ask-agent/agent/stream', {
         query,
         ...(opts.provider ? { provider: opts.provider } : {}),
         ...(opts.model ? { model: opts.model } : {}),

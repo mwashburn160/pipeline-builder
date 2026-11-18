@@ -192,6 +192,15 @@ for entry in "${SERVICES[@]+"${SERVICES[@]}"}"; do
     err=$(cat "$inspect_err"); rm -f "$inspect_err"
     echo "$err" >&2
     case "$err" in
+      *"anonymous token"*)
+        # No credential was sent, so this is not a stale login: GHCR refuses an
+        # anonymous pull of a PRIVATE (or never-published) package. A package's
+        # first publish creates it private, and user-owned package visibility
+        # cannot be changed through the API.
+        echo "ERROR: ghcr.io refused an ANONYMOUS pull of $ref, so the package" >&2
+        echo "       '${svc}' is private or has never been published." >&2
+        echo "       Fix: GitHub → Packages → ${svc} → Package settings → Change" >&2
+        echo "       visibility → Public (needed once, after the first release)." >&2 ;;
       *"failed to authorize"*|*401*|*403*|*unauthorized*|*"denied:"*)
         echo "ERROR: registry REFUSED the request for $ref (auth), so it could not be" >&2
         echo "       checked. The images are public — a stale ghcr.io credential is the" >&2

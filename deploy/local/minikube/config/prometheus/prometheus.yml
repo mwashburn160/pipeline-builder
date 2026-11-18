@@ -263,13 +263,13 @@ scrape_configs:
         regex: 'pipeline-builder'
       - source_labels: [pod]
         action: keep
-        regex: '(ask|billing|compliance|frontend|image-registry|message|nginx|ops-center|pipeline|platform|plugin|quota|reporting)-.*'
+        regex: '(ask-agent|billing|compliance|frontend|image-registry|message|nginx|ops-center|pipeline|platform|plugin|quota|reporting)-.*'
       # The service container only. cAdvisor emits these names for the pod
       # sandbox (container="") and the cgroup hierarchy too, which would make the
       # ratio wrong; container name equals service name on every one of these.
       - source_labels: [container]
         action: keep
-        regex: 'ask|billing|compliance|frontend|image-registry|message|nginx|ops-center|pipeline|platform|plugin|quota|reporting'
+        regex: 'ask-agent|billing|compliance|frontend|image-registry|message|nginx|ops-center|pipeline|platform|plugin|quota|reporting'
 
   - job_name: 'kubernetes-pods'
     kubernetes_sd_configs:

@@ -126,8 +126,8 @@ export const config = {
   // `help-topics` is for a deployment that does not want to run the assistant at
   // all — no GPU node, no provider key, or a policy against sending questions to
   // a model. It is NOT the switch for the business-hours window: that is
-  // ASK_SCHEDULE_* on the ask service, and the panel falls back to help topics on
-  // its own via GET /ask/availability.
+  // ASK_SCHEDULE_* on the ask-agent service, and the panel falls back to help topics on
+  // its own via GET /ask-agent/availability.
   //
   // Anything other than the two known values reads as the default rather than
   // failing a boot over a UI preference; the deploy-contract test keeps every

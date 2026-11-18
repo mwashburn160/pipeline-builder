@@ -45,9 +45,9 @@ let server: import('http').Server;
 
 beforeAll(async () => {
   // `quota` is the process serving the route; `pipeline` is an allowed caller,
-  // `ask` is a real service that is NOT allowed here, `evil` stands in for any
+  // `ask-agent` is a real service that is NOT allowed here, `evil` stands in for any
   // workload that got hold of some other service's key.
-  keys = installTestServiceKeys(['quota', 'pipeline', 'ask', 'evil']);
+  keys = installTestServiceKeys(['quota', 'pipeline', 'ask-agent', 'evil']);
   keys.becomeService('quota');
   jwks = installTestJwks();
 
@@ -103,7 +103,7 @@ describe('internal route with no service mesh', () => {
   });
 
   it('refuses a valid token from a service that is not an allowed caller', async () => {
-    const token = keys.sign('ask', { organizationId: 'org-1' });
+    const token = keys.sign('ask-agent', { organizationId: 'org-1' });
     keys.becomeService('quota');
     expect((await post(`Bearer ${token}`)).status).toBe(403);
   });

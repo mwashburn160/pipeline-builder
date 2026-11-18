@@ -8,7 +8,7 @@
  *
  * Platform holds both facts (the org's `aiEnabled` switch and its encrypted
  * `aiProviderKeys`), so they are two INTERNAL reads on platform, gated by
- * `requireInternalService` to the four AI callers (ask, pipeline, plugin,
+ * `requireInternalService` to the four AI callers (ask-agent, pipeline, plugin,
  * reporting) and by the mesh on the Istio targets:
  *
  *  - `GET /internal/ai/access/:orgId`         → `{ aiEnabled, providers: string[] }`

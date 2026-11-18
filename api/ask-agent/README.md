@@ -1,12 +1,12 @@
-# ask
+# ask-agent
 
-The Ask assistant: documentation-grounded how-to answers, and a tool-calling agent that reads the platform as the calling user and DRAFTS changes for them to review. The API gateway (nginx) routes `/api/ask/*` here. The service has no database — conversation state is client-held and the grounding corpus is the bundled `docs/` tree.
+The Ask assistant: documentation-grounded how-to answers, and a tool-calling agent that reads the platform as the calling user and DRAFTS changes for them to review. The API gateway (nginx) routes `/api/ask-agent/*` here. The service has no database — conversation state is client-held and the grounding corpus is the bundled `docs/` tree.
 
 ## Responsibilities
 
 - Answers how-to questions from a BM25 index over the product docs (`docs/**/*.md`, minus the contributor-only docs), plain or streamed over SSE.
 - Runs the agent: diagnosis tools (pipeline runs, plugin builds, notification delivery, plugin installs, quota headroom, DORA drivers), a compliance dry-run, and `propose_*` tools that return reviewable drafts — new pipelines/plugins/templates, edits, install changes, compliance exemptions and allowlisted org settings. Nothing is written here; the user applies a draft through their own session.
-- Every agent tool forwards the CALLER's bearer token (plus a signed on-behalf marker so peers do not bill the hop as extra apiCalls), so the owning service re-checks permissions, tenancy, compliance and quota. The one exception is the instance-wide email switch, read on ask's own service identity.
+- Every agent tool forwards the CALLER's bearer token (plus a signed on-behalf marker so peers do not bill the hop as extra apiCalls), so the owning service re-checks permissions, tenancy, compliance and quota. The one exception is the instance-wide email switch, read on ask-agent's own service identity.
 - Meters AI spend: each turn resolves its model first, then reserves its `aiCalls` slot (the model's weight; nothing for a BYOK key, an impersonation session or a weight-0 model), keeps it once the request is sent to the provider (an abort, a timeout or a provider error afterwards does not refund) and refunds it only on a failure before the send. Secret values in tool results (pipeline `env`/`buildArgs`, source tokens, secret-named fields) never reach the model: they are replaced with `[REDACTED:<tag>]` placeholders, and an edit draft restores the real values behind them — a placeholder that matches no current secret, or a model-written value over an existing secret, declines the draft. Delegated and in-process generations pay their own slots, capped per turn.
 - Explains a self-hosted model that is off on its business-hours schedule instead of surfacing a raw connection error.
 
@@ -16,18 +16,18 @@ All routes require auth + org and any of `pipelines:read` / `plugins:read` / `te
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/ask/providers` | Configured AI providers (`ai_generation`) |
-| GET | `/ask/availability` | Whether the assistant can answer right now — a prediction, no provider is contacted (`ai_generation`) |
-| POST | `/ask/feedback` | Rate an answer, or count a help search that found nothing. No free text by construction |
-| POST | `/ask` | Grounded how-to answer (`ai_generation`, org AI enabled) |
-| POST | `/ask/stream` | The same, as SSE: `sources`, `token`…, `done` |
-| POST | `/ask/agent/stream` | The agent turn as SSE: `token`, `tool-call`, `sources`, `proposal`, `done` |
+| GET | `/ask-agent/providers` | Configured AI providers (`ai_generation`) |
+| GET | `/ask-agent/availability` | Whether the assistant can answer right now — a prediction, no provider is contacted (`ai_generation`) |
+| POST | `/ask-agent/feedback` | Rate an answer, or count a help search that found nothing. No free text by construction |
+| POST | `/ask-agent` | Grounded how-to answer (`ai_generation`, org AI enabled) |
+| POST | `/ask-agent/stream` | The same, as SSE: `sources`, `token`…, `done` |
+| POST | `/ask-agent/agent/stream` | The agent turn as SSE: `token`, `tool-call`, `sources`, `proposal`, `done` |
 
 ## Configuration
 
 | Variable | Purpose | Default |
 |----------|---------|---------|
-| `ASK_RATE_LIMIT_PER_MIN` | Per-org request cap on `/ask` | `30` |
+| `ASK_RATE_LIMIT_PER_MIN` | Per-org request cap on `/ask-agent` | `30` |
 | `ASK_MAX_OUTPUT_TOKENS` | Output-token cap per model call | `2048` |
 | `ASK_MAX_TURN_GENERATIONS` | Charged generations one agent turn may start | `2` |
 | `ASK_HTTP_TIMEOUT_MS` | Timeout for an agent tool's downstream call (delegated generations get the AI budget plus a margin) | `30000` |

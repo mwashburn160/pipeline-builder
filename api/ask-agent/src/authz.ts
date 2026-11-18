@@ -4,7 +4,7 @@
 import { requirePermission } from '@pipeline-builder/api-core';
 
 /**
- * Capability gate for every `/ask` route.
+ * Capability gate for every `/ask-agent` route.
  *
  * There is no `ask:*` capability — Ask is not a resource of its own but a
  * read-only assistant OVER the build catalogs: it answers how-to questions

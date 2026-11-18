@@ -58,16 +58,16 @@
 # warm-up is ollama loading the model from the instance's own disk; the model
 # is ready well before 08:00 and the fifteen minutes costs nothing.
 #
-# WHAT HAPPENS OUTSIDE THE WINDOW. `ask-model` has zero replicas, so the `ask`
+# WHAT HAPPENS OUTSIDE THE WINDOW. `ask-model` has zero replicas, so the `ask-agent`
 # service's model calls FAIL — they do not queue, and nothing wakes the model on
-# demand. `ask` itself stays up and its non-model routes keep working. If
+# demand. `ask-agent` itself stays up and its non-model routes keep working. If
 # out-of-hours use matters, this schedule is the wrong mechanism.
 #
-# The failure is EXPLAINED rather than raw: ask reads the three variables below
+# The failure is EXPLAINED rather than raw: ask-agent reads the three variables below
 # (they reach the pod through the app-env ConfigMap) and answers 503 with "runs
 # 07:45-17:00 UTC and is switched off right now" instead of leaking
 # `AI_APICallError: Cannot connect to API: other side closed`. See
-# api/ask/src/services/model-window.ts — it only speaks when the self-hosted
+# api/ask-agent/src/services/model-window.ts — it only speaks when the self-hosted
 # provider failed to CONNECT and a schedule is configured, so a cloud
 # provider's outage is never blamed on this window.
 #

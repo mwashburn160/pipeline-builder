@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * RUNTIME apiCalls quota enforcement through the REAL `/ask` mount.
+ * RUNTIME apiCalls quota enforcement through the REAL `/ask-agent` mount.
  *
  * The route-coverage test only trusts route-gate TAGS: a router that
  * authenticated some other way could show "checked" while the deferred check
@@ -98,7 +98,7 @@ function userToken(): string {
 }
 
 async function getProviders() {
-  const res = await fetch(`${baseUrl}/ask/providers`, { headers: { authorization: `Bearer ${userToken()}` } });
+  const res = await fetch(`${baseUrl}/ask-agent/providers`, { headers: { authorization: `Bearer ${userToken()}` } });
   return { status: res.status, json: await res.json() as any };
 }
 
@@ -123,7 +123,7 @@ async function waitForMeteredUnits(expected: number, timeoutMs = 3000): Promise<
 /** Long enough for a `finish` listener (and an unbatched send) to have run. */
 const settle = () => new Promise((resolve) => setTimeout(resolve, 100));
 
-describe('ask apiCalls quota at runtime', () => {
+describe('ask-agent apiCalls quota at runtime', () => {
   it('refuses an org at its apiCalls limit with 429 QUOTA_EXCEEDED before the handler runs', async () => {
     usage.used = usage.limit;
 

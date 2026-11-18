@@ -113,11 +113,11 @@ spec:
     # of the ask agent's notification diagnosis (a disabled send reports
     # success, so nothing else surfaces it), and ops-center's alert-delivery
     # posture for the email channel. Reading the instance-wide switch is
-    # strictly weaker than sending: `ask` is admitted here, never above.
+    # strictly weaker than sending: `ask-agent` is admitted here, never above.
     - from:
         - source:
             notPrincipals:
-              - cluster.local/ns/pipeline-builder/sa/ask
+              - cluster.local/ns/pipeline-builder/sa/ask-agent
               - cluster.local/ns/pipeline-builder/sa/ops-center
               - cluster.local/ns/pipeline-builder/sa/plugin
       to:
@@ -177,7 +177,7 @@ spec:
 # GET /internal/ai/* — the org half of every AI call: the org's AI switch and
 # which providers it holds its own key for, and the DECRYPTED org provider key
 # (audited on platform as org.ai-key.read). Only the four services that make AI
-# calls: ask (Ask + the agent), pipeline and plugin (generation), reporting
+# calls: ask-agent (Ask + the agent), pipeline and plugin (generation), reporting
 # (report summaries).
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
@@ -194,7 +194,7 @@ spec:
     - from:
         - source:
             notPrincipals:
-              - cluster.local/ns/pipeline-builder/sa/ask
+              - cluster.local/ns/pipeline-builder/sa/ask-agent
               - cluster.local/ns/pipeline-builder/sa/pipeline
               - cluster.local/ns/pipeline-builder/sa/plugin
               - cluster.local/ns/pipeline-builder/sa/reporting
@@ -301,7 +301,7 @@ spec:
     - from:
         - source:
             notPrincipals:
-              - cluster.local/ns/pipeline-builder/sa/ask
+              - cluster.local/ns/pipeline-builder/sa/ask-agent
               - cluster.local/ns/pipeline-builder/sa/billing
               - cluster.local/ns/pipeline-builder/sa/compliance
               - cluster.local/ns/pipeline-builder/sa/image-registry
@@ -508,7 +508,7 @@ spec:
     - from:
         - source:
             notPrincipals:
-              - cluster.local/ns/pipeline-builder/sa/ask
+              - cluster.local/ns/pipeline-builder/sa/ask-agent
               - cluster.local/ns/pipeline-builder/sa/billing
               - cluster.local/ns/pipeline-builder/sa/compliance
               - cluster.local/ns/pipeline-builder/sa/image-registry

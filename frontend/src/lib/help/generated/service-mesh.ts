@@ -1,6 +1,6 @@
 // GENERATED FROM docs/service-mesh.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: cf90e8a29ca73ce6e4cb579e92590daa4f5e9635b66c32843980a8827d93ee35
+// SOURCE-SHA256: c3b8a5566a8f003b171460d436520cdf33ddd10d8f833b56845af6449c317c96
 // SPDX-License-Identifier: Apache-2.0
 import { Network } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -302,7 +302,7 @@ export const serviceMeshTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Every pod is egress-restricted (DNS + same-namespace only) and gets exactly the external legs it needs, all in ONE ipBlock shape: 0.0.0.0/0 except RFC1918, CGNAT, 169.254.169.254/32 (IMDS) and 169.254.170.0/24 (container-credential agents). It excepts those credential addresses exactly, not all of 169.254.0.0/16 — ambient's node-side plumbing uses link-local addresses, and excepting the whole range severed TLS for the model server. A workload holding an AWS grant (platform, pipeline, image-registry in kms mode, db-backup, and on ec2 ops-center for node-disk auto-expansion) gets a separate /32 rule on :80 for its credential endpoint (Pod Identity on EKS, IMDS on ec2). Public legs: alertmanager 443 (Slack), platform 443 + SMTP, ops-center 443 (org Slack/webhook destinations, PagerDuty, dead-man URL), pipeline 443, ask 443, compliance 443 + SMTP, billing 443, plugin 443/80. Mesh hops to istio-system (prometheus, kiali, the waypoint) stay ports-only — their destinations are cluster pod IPs, which RFC1918 would exclude."
+          "content": "Every pod is egress-restricted (DNS + same-namespace only) and gets exactly the external legs it needs, all in ONE ipBlock shape: 0.0.0.0/0 except RFC1918, CGNAT, 169.254.169.254/32 (IMDS) and 169.254.170.0/24 (container-credential agents). It excepts those credential addresses exactly, not all of 169.254.0.0/16 — ambient's node-side plumbing uses link-local addresses, and excepting the whole range severed TLS for the model server. A workload holding an AWS grant (platform, pipeline, image-registry in kms mode, db-backup, and on ec2 ops-center for node-disk auto-expansion) gets a separate /32 rule on :80 for its credential endpoint (Pod Identity on EKS, IMDS on ec2). Public legs: alertmanager 443 (Slack), platform 443 + SMTP, ops-center 443 (org Slack/webhook destinations, PagerDuty, dead-man URL), pipeline 443, ask-agent 443, compliance 443 + SMTP, billing 443, plugin 443/80. Mesh hops to istio-system (prometheus, kiali, the waypoint) stay ports-only — their destinations are cluster pod IPs, which RFC1918 would exclude."
         },
         {
           "type": "text",

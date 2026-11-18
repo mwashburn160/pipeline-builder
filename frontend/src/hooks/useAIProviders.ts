@@ -67,7 +67,7 @@ export interface UseAIProvidersOptions {
   /**
    * Offer "Ask agent" as the first — and therefore default — provider: drafts
    * are routed through the Ask agent (see `streamAgentDraft`). Its models are
-   * the ask service's server-configured ones. Omitted when the ask service
+   * the ask-agent service's server-configured ones. Omitted when the ask-agent service
    * reports no configured provider or is unreachable, so the picker falls back
    * to the direct providers.
    */
@@ -76,7 +76,7 @@ export interface UseAIProvidersOptions {
 
 type ProvidersResponse = { data?: { providers?: Array<{ id: string; name: string; models: Array<{ id: string; name: string }> }> } };
 
-/** Build the synthetic "Ask agent" entry from the ask service's providers. */
+/** Build the synthetic "Ask agent" entry from the ask-agent service's providers. */
 function askAgentEntry(res: ProvidersResponse): AIProviderInfo | null {
   const models = (res.data?.providers ?? []).flatMap((p) =>
     p.models.map((m) => ({ id: askAgentModelId(p.id, m.id), name: `${m.name} (${p.name})` })));

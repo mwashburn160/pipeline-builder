@@ -170,12 +170,12 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 
 | Service | Method | Path | Required authorization |
 |---|---|---|---|
-| ask | POST | `/ask` | `any(pipelines:read|plugins:read|templates:read) + feature(ai_generation)` |
-| ask | POST | `/ask/agent/stream` | `any(pipelines:read|plugins:read|templates:read) + feature(ai_generation)` |
-| ask | GET | `/ask/availability` | `any(pipelines:read|plugins:read|templates:read) + feature(ai_generation)` |
-| ask | POST | `/ask/feedback` | `any(pipelines:read|plugins:read|templates:read)` |
-| ask | GET | `/ask/providers` | `any(pipelines:read|plugins:read|templates:read) + feature(ai_generation)` |
-| ask | POST | `/ask/stream` | `any(pipelines:read|plugins:read|templates:read) + feature(ai_generation)` |
+| ask-agent | POST | `/ask-agent` | `any(pipelines:read|plugins:read|templates:read) + feature(ai_generation)` |
+| ask-agent | POST | `/ask-agent/agent/stream` | `any(pipelines:read|plugins:read|templates:read) + feature(ai_generation)` |
+| ask-agent | GET | `/ask-agent/availability` | `any(pipelines:read|plugins:read|templates:read) + feature(ai_generation)` |
+| ask-agent | POST | `/ask-agent/feedback` | `any(pipelines:read|plugins:read|templates:read)` |
+| ask-agent | GET | `/ask-agent/providers` | `any(pipelines:read|plugins:read|templates:read) + feature(ai_generation)` |
+| ask-agent | POST | `/ask-agent/stream` | `any(pipelines:read|plugins:read|templates:read) + feature(ai_generation)` |
 | billing | GET | `/billing/admin/campaigns` | `system-org + any(billing:operate) + aal2` |
 | billing | POST | `/billing/admin/campaigns` | `system-org + any(billing:operate) + aal2` |
 | billing | GET | `/billing/admin/campaigns/:id` | `system-org + any(billing:operate) + aal2` |
@@ -443,15 +443,15 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | platform | POST | `/admin/users/:id/grants` | `sysadmin + aal2 + step-up(totp,webauthn)` |
 | platform | POST | `/admin/users/:id/mfa-reset` | `sysadmin + aal2 + step-up(totp,webauthn)` |
 | platform | GET | `/audit` | `any(audit:read)` |
-| platform | POST | `/audit/events` | `service-principal + internal(ask,billing,compliance,image-registry,message,ops-center,pipeline,plugin,quota,reporting)` |
+| platform | POST | `/audit/events` | `service-principal + internal(ask-agent,billing,compliance,image-registry,message,ops-center,pipeline,plugin,quota,reporting)` |
 | platform | GET | `/audit/verify` | `any(audit:read)` |
 | ops-center | GET | `/dashboards` | `any(dashboards:read)` |
 | ops-center | POST | `/dashboards` | `any(dashboards:write)` |
 | ops-center | GET | `/dashboards/:id` | `any(dashboards:read)` |
 | ops-center | POST | `/dashboards/:id/clone` | `any(dashboards:write)` |
 | ops-center | GET | `/dashboards/deleted` | `any(dashboards:read)` |
-| platform | GET | `/internal/ai/access/:orgId` | `service-principal + internal(ask,pipeline,plugin,reporting)` |
-| platform | GET | `/internal/ai/keys/:orgId/:provider` | `service-principal + internal(ask,pipeline,plugin,reporting)` |
+| platform | GET | `/internal/ai/access/:orgId` | `service-principal + internal(ask-agent,pipeline,plugin,reporting)` |
+| platform | GET | `/internal/ai/keys/:orgId/:provider` | `service-principal + internal(ask-agent,pipeline,plugin,reporting)` |
 | platform | GET | `/internal/ecosystem/approvers` | `service-principal + internal(plugin)` |
 | platform | GET | `/internal/ecosystem/publisher-eligibility/:orgId` | `service-principal + internal(plugin)` |
 | platform | POST | `/internal/notify-email` | `service-principal + internal(billing,compliance,ops-center,plugin,quota,reporting)` |
@@ -463,7 +463,7 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | platform | GET | `/internal/reporting/recipient-check/:orgId` | `service-principal + internal(reporting)` |
 | platform | GET | `/internal/reporting/report-authority/:orgId/:userId` | `service-principal + internal(reporting)` |
 | platform | GET | `/internal/support/entitlement/:orgId` | `service-principal + internal(message)` |
-| platform | GET | `/internal/notify-email/status` | `service-principal + internal(ask,ops-center,plugin,reporting)` |
+| platform | GET | `/internal/notify-email/status` | `service-principal + internal(ask-agent,ops-center,plugin,reporting)` |
 | platform | GET | `/invitation` | `any(invitations:manage)` |
 | platform | DELETE | `/invitation/:invitationId` | `any(invitations:manage) + org-admin-assurance` |
 | platform | POST | `/invitation/:invitationId/resend` | `any(invitations:manage) + org-admin-assurance` |
@@ -728,8 +728,8 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | quota | PUT | `/quotas/:orgId` | `system-org + any(quotas:manage) + aal2` |
 | quota | GET | `/quotas/:orgId/:quotaType` | `any(quotas:read)+svc` |
 | quota | GET | `/quotas/:orgId/at-risk` | `any(quotas:read)` |
-| quota | POST | `/quotas/:orgId/decrement` | `service-principal + internal(ask,billing,compliance,image-registry,message,ops-center,pipeline,platform,plugin,quota,reporting)` |
-| quota | POST | `/quotas/:orgId/increment` | `service-principal + internal(ask,billing,compliance,image-registry,message,ops-center,pipeline,platform,plugin,quota,reporting)` |
+| quota | POST | `/quotas/:orgId/decrement` | `service-principal + internal(ask-agent,billing,compliance,image-registry,message,ops-center,pipeline,platform,plugin,quota,reporting)` |
+| quota | POST | `/quotas/:orgId/increment` | `service-principal + internal(ask-agent,billing,compliance,image-registry,message,ops-center,pipeline,platform,plugin,quota,reporting)` |
 | quota | GET | `/quotas/:orgId/notice-settings` | `any(quotas:read)` |
 | quota | PUT | `/quotas/:orgId/notice-settings` | `any(billing:manage)` |
 | quota | GET | `/quotas/:orgId/own-usage` | `service-principal + internal(billing)` |

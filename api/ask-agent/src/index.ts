@@ -7,23 +7,23 @@ import { createApp, runServer, attachRequestContext } from '@pipeline-builder/ap
 import { mountRoutes } from './app-routes.js';
 import { getDocsIndex } from './services/docs-index.js';
 
-const logger = createLogger('ask');
+const logger = createLogger('ask-agent');
 const quotaService = createQuotaService();
 
-// The ask service has no database — v1 conversation state is client-held and the
+// The ask-agent service has no database — v1 conversation state is client-held and the
 // grounding corpus is read from the filesystem — so it needs no dependency health
 // check beyond the app's own liveness.
 const { app, sseManager } = createApp();
 
 // Forward denied (non-GET) requests to the shared authz.denied audit sink.
-wireServiceSecurity('ask');
+wireServiceSecurity('ask-agent');
 
 // Attach request context (identity + logging) to all requests.
 app.use(attachRequestContext(sseManager));
 
 mountRoutes(app, { quotaService });
 
-logger.info('All /ask routes registered');
+logger.info('All /ask-agent routes registered');
 
 // Warm the docs grounding index at boot so the first request isn't slow (and so a
 // missing/empty corpus is visible in the logs immediately).
@@ -34,5 +34,5 @@ getDocsIndex()
 // No datastore (see above): skip runServer's default PostgreSQL readiness probe.
 // Left on, the readiness guard would 503 every request until a Postgres
 // connection the service never uses succeeds — and the mesh (correctly) doesn't
-// let ask reach Postgres, so it never would.
-runServer(app, { name: 'Ask Service', testDatabase: false, closeDatabase: false });
+// let ask-agent reach Postgres, so it never would.
+runServer(app, { name: 'Ask Agent Service', testDatabase: false, closeDatabase: false });

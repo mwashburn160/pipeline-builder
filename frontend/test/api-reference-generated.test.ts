@@ -45,7 +45,7 @@ describe('docs/api-reference.md route index', () => {
     expect(r.status).toBe(0);
   });
 
-  it.each(['pipeline', 'plugin', 'ask'])('names every public %s route', (service) => {
+  it.each(['pipeline', 'plugin', 'ask-agent'])('names every public %s route', (service) => {
     const doc = readFileSync(DOC, 'utf8');
     const routes = JSON.parse(readFileSync(join(TABLES, `${service}.json`), 'utf8')) as Route[];
     const missing = routes
@@ -68,7 +68,7 @@ describe('docs/api-reference.md route index', () => {
     const current = readFileSync(DOC, 'utf8');
     // Drop one row from INSIDE the generated section (the hand-written Ask table
     // above it names the same route, so take the last occurrence).
-    const at = current.lastIndexOf('| `GET` | `/ask/providers` |');
+    const at = current.lastIndexOf('| `GET` | `/ask-agent/providers` |');
     writeFileSync(stale, current.slice(0, at) + current.slice(current.indexOf('\n', at) + 1));
 
     expect(run(['--check'], stale).status).toBe(1);

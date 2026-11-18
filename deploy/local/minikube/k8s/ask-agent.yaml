@@ -1,14 +1,14 @@
 ---
 # =============================================================================
-# Ask Service — read-only "Ask" agent (grounded how-to). No datastore; the docs
+# Ask Agent Service — read-only "Ask" agent (grounded how-to). No datastore; the docs
 # grounding corpus is baked into the image (ASK_DOCS_DIR=/app/docs).
 # =============================================================================
 apiVersion: v1
 kind: Service
 metadata:
-  name: ask
+  name: ask-agent
   labels:
-    app: ask
+    app: ask-agent
 spec:
   type: ClusterIP
   ports:
@@ -17,26 +17,26 @@ spec:
       protocol: TCP
       name: http
   selector:
-    app: ask
+    app: ask-agent
 
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ask
+  name: ask-agent
   labels:
-    app: ask
+    app: ask-agent
     app.kubernetes.io/component: backend
 spec:
   replicas: 1
   revisionHistoryLimit: 3
   selector:
     matchLabels:
-      app: ask
+      app: ask-agent
   template:
     metadata:
       labels:
-        app: ask
+        app: ask-agent
         app.kubernetes.io/component: backend
         version: "5.0.0"
         track: stable
@@ -45,7 +45,7 @@ spec:
         prometheus.io/port: "3000"
         prometheus.io/path: "/metrics"
     spec:
-      serviceAccountName: ask
+      serviceAccountName: ask-agent
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
@@ -58,13 +58,13 @@ spec:
               podAffinityTerm:
                 labelSelector:
                   matchLabels:
-                    app: ask
+                    app: ask-agent
                 topologyKey: kubernetes.io/hostname
-      # No initContainer: the ask service has no datastore dependency (v1
+      # No initContainer: the ask-agent service has no datastore dependency (v1
       # conversation state is client-held; the docs corpus is in the image).
       containers:
-        - name: ask
-          image: ghcr.io/mwashburn160/ask:5.0.0@sha256:30b9b696b4fefc96666c390a5ac243d00827861fcc318d3c914c12c4b568e105
+        - name: ask-agent
+          image: ghcr.io/mwashburn160/ask-agent:5.0.0
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
@@ -83,15 +83,12 @@ spec:
                 name: app-secrets
           env:
             - name: SERVICE_NAME
-              value: "ask"
-            # Self-hosted model (deploy/*/k8s/ask-model.yaml, deployed alongside).
-            # This is what the Ask assistant runs on: without it the service has
-            # NO provider (no cloud API key is set by default) and every turn
-            # fails with "AI is not configured".
-            - name: OPENAI_COMPATIBLE_BASE_URL
-              value: "http://ask-model:11434/v1"
-            - name: OPENAI_COMPATIBLE_MODELS
-              value: "qwen2.5-coder:7b|Qwen 2.5 Coder"
+              value: "ask-agent"
+            # Self-hosted model (deploy/*/k8s/ask-model.yaml, opt-in) — uncomment to route:
+            # - name: OPENAI_COMPATIBLE_BASE_URL
+            #   value: "http://ask-model:11434/v1"
+            # - name: OPENAI_COMPATIBLE_MODELS
+            #   value: "qwen2.5-coder:7b|Qwen 2.5 Coder"
           resources:
             limits:
               cpu: "350m"
@@ -142,7 +139,7 @@ spec:
       volumes:
         - name: service-signing-key
           secret:
-            secretName: service-key-ask
+            secretName: service-key-ask-agent
             defaultMode: 0444
         - name: service-key-bundle
           secret:
@@ -152,14 +149,14 @@ spec:
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: ask
+  name: ask-agent
   labels:
-    app: ask
+    app: ask-agent
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: ask
+    name: ask-agent
   minReplicas: 1
   maxReplicas: 3
   metrics:
@@ -179,11 +176,11 @@ spec:
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: ask
+  name: ask-agent
   labels:
-    app: ask
+    app: ask-agent
 spec:
   minAvailable: 1
   selector:
     matchLabels:
-      app: ask
+      app: ask-agent

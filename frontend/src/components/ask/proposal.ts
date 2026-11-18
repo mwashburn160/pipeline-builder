@@ -7,7 +7,7 @@
  * writes — a proposal is data until the user commits it (`proposal-commit.ts`),
  * through their own session and their own permissions.
  *
- * The wire shape is `api/ask/src/services/proposals.ts` (`AskProposal`). It is
+ * The wire shape is `api/ask-agent/src/services/proposals.ts` (`AskProposal`). It is
  * mirrored here as an all-optional structural type on purpose: what arrives is
  * JSON off an SSE stream, so every field is read defensively and an unknown
  * `kind` renders nothing rather than crashing the transcript.
@@ -373,7 +373,7 @@ export function proposalDiff(p: Proposal): ProposalDiff {
  */
 export function requiredPermissions(p: Proposal): Permission[] {
   const out = new Set<Permission>();
-  // From api-core's shared table, not a copy here: the ask service reads the
+  // From api-core's shared table, not a copy here: the ask-agent service reads the
   // same one to tell the caller whether a draft is appliable, and two tables
   // would drift into the dashboard disabling a button the service called fine.
   const base = ASK_PROPOSAL_PERMISSION[p.kind];

@@ -45,7 +45,7 @@ interface FeaturesContextType {
    *  because one prebuilt frontend image serves every deploy target.
    *
    *  Distinct from the SCHEDULE fallback: with `ask-agent` set, the panel
-   *  still shows help topics when `GET /ask/availability` reports the model
+   *  still shows help topics when `GET /ask-agent/availability` reports the model
    *  scaled to zero or no provider configured. */
   askUiMode: AskUiMode;
   /** CLI package the onboarding step installs (CLI_NPM_PACKAGE), and where to

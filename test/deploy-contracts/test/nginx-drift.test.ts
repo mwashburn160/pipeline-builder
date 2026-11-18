@@ -60,7 +60,7 @@ const TARGET_SPECIFIC: { scope: Scope; item: string; targets: Target[]; why: str
   { scope: 'http', item: 'resolver kube-dns.kube-system.svc.cluster.local valid=30s ipv6=off;', targets: ['deploy/local/minikube', ...AWS], why: 'cluster DNS' },
   { scope: 'http', item: 'js_import registry_auth from registry-auth.js;', targets: AWS, why: 'registry token-realm rewrite for the public /v2/ route' },
   { scope: 'http', item: 'include /etc/nginx/real-ip.conf;', targets: AWS, why: 'trusted ALB CIDRs, generated per deploy' },
-  { scope: 'http', item: 'include /etc/nginx/ask-upstream.conf;', targets: K8S, why: 'ASK_SERVICE_HOST/PORT, rendered by pb_nginx_config; docker has no config generator' },
+  { scope: 'http', item: 'include /etc/nginx/ask-agent-upstream.conf;', targets: K8S, why: 'ASK_AGENT_SERVICE_HOST/PORT, rendered by pb_nginx_config; docker has no config generator' },
   { scope: 'http', item: 'real_ip_header X-Forwarded-For;', targets: AWS, why: 'client IP behind the ALB' },
   { scope: 'http', item: 'real_ip_recursive on;', targets: AWS, why: 'client IP behind the ALB' },
   { scope: 'http', item: 'map $http_cookie $pb_cookie_without_console', targets: AWS, why: 'admin-consoles.conf strips the console cookie' },
@@ -88,11 +88,11 @@ const LOCATION_BODY_VARIES: Record<string, string> = {
   // Local targets resolve the registry lazily through a variable so nginx
   // still boots when the registry container is absent; aws always runs it.
   '/registry/': 'lazy upstream variable on local targets',
-  // ASK_SERVICE_HOST/PORT are honoured through a generated `upstream pb_ask`
+  // ASK_AGENT_SERVICE_HOST/PORT are honoured through a generated `upstream pb_ask_agent`
   // block, which only the pb_nginx_config targets can render. On docker the host
   // is the compose service name, fixed by the compose file, so there is no knob
   // to honour and the literal stays.
-  '~ ^/api/ask(/.*)?$': 'generated pb_ask upstream on the k8s targets; docker keeps the compose service name',
+  '~ ^/api/ask-agent(/.*)?$': 'generated pb_ask_agent upstream on the k8s targets; docker keeps the compose service name',
 };
 
 // -- A minimal nginx config parser --------------------------------------------
@@ -253,7 +253,7 @@ describe('nginx.conf cross-target drift', () => {
  *
  * A MISSING INCLUDE FILE IS FATAL TO NGINX, not a warning: it exits with
  * `open() "/etc/nginx/x.conf" failed (2: No such file or directory)` and the whole
- * ingress never starts. That is exactly what shipped when `ask-upstream.conf` was
+ * ingress never starts. That is exactly what shipped when `ask-agent-upstream.conf` was
  * added to nginx.conf and to pb_nginx_config's generated keys, but not to
  * nginx.yaml's volumeMounts — the ConfigMap had the key, the container never saw
  * it, and nginx CrashLooped on every target at once.

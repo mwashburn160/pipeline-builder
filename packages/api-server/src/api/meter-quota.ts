@@ -46,7 +46,7 @@ const logger = createLogger('meter-quota');
  *   and IS metered — on `automationCalls` instead of `apiCalls`
  *   ({@link meteredQuotaTypeFor});
  * - for `apiCalls`, an IMPERSONATION session and an ON-BEHALF hop (a user token
- *   forwarded by ask/pipeline with a signed marker) are skipped too — see
+ *   forwarded by ask-agent/pipeline with a signed marker) are skipped too — see
  *   api-core `callQuotaExemption`;
  * - an `apiCalls` request on the fleet-wide `QUOTA_EXEMPT_ROUTES` (console
  *   polling) is skipped.

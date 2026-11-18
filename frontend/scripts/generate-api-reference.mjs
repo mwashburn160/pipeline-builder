@@ -40,7 +40,7 @@ export const END = '<!-- END GENERATED: route-index -->';
 const SERVICES = [
   ['pipeline', 'Pipeline Service'],
   ['plugin', 'Plugin Service'],
-  ['ask', 'Ask Service'],
+  ['ask-agent', 'Ask Agent Service'],
 ];
 
 const PROBES = new Set(['/health', '/ready', '/metrics', '/warmup']);

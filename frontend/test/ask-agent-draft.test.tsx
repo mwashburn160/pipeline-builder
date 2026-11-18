@@ -4,8 +4,8 @@
 /**
  * "Ask agent" as the default AI provider in the create dialogs:
  *  - useAIProviders puts the Ask-agent entry first (so it's selected by default),
- *    with composite provider|model ids built from the ask service's providers,
- *    and omits it when the ask service has nothing configured.
+ *    with composite provider|model ids built from the ask-agent service's providers,
+ *    and omits it when the ask-agent service has nothing configured.
  *  - streamAgentDraft adapts an agent turn to the generation-tab event stream:
  *    the matching proposal becomes `done`, a repo analysis becomes `analyzed`,
  *    and a turn with no usable draft becomes an `error` quoting the agent.
@@ -64,7 +64,7 @@ describe('useAIProviders({ askAgent: true })', () => {
     expect(result.current.currentSource).toBe('agent');
   });
 
-  it('falls back to the direct providers when the ask service is unavailable', async () => {
+  it('falls back to the direct providers when the ask-agent service is unavailable', async () => {
     getAskProviders.mockRejectedValue(new Error('503'));
     const { result } = renderHook(() => useAIProviders(serverProviders, { askAgent: true }));
     await waitFor(() => expect(result.current.loading).toBe(false));
@@ -73,7 +73,7 @@ describe('useAIProviders({ askAgent: true })', () => {
     expect(result.current.selectedProvider).toBe('amazon-bedrock');
   });
 
-  it('does not query the ask service unless asked to', async () => {
+  it('does not query the ask-agent service unless asked to', async () => {
     const { result } = renderHook(() => useAIProviders(serverProviders));
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(getAskProviders).not.toHaveBeenCalled();

@@ -29,12 +29,12 @@ const PLATFORM = { provider: 'anthropic', modelId: 'claude-opus-4-1', keySource:
 const mockReport = jest.fn<AnyFn>();
 
 function req(user: Record<string, unknown> = { sub: 'u1', principalType: 'user' }) {
-  return { method: 'POST', baseUrl: '/ask', route: { path: '/' }, params: {}, headers: {}, user } as never;
+  return { method: 'POST', baseUrl: '/ask-agent', route: { path: '/' }, params: {}, headers: {}, user } as never;
 }
 const opts = (over: Record<string, unknown> = {}) => ({
   quotaService: { reportUsage: mockReport } as never,
   orgId: 'org-1',
-  serviceName: 'ask',
+  serviceName: 'ask-agent',
   logWarn: jest.fn(),
   feature: 'ask' as const,
   req: req(),
@@ -64,7 +64,7 @@ describe('withAiCallReservation', () => {
     expect(order).toEqual(['resolve', 'reserve']);
     const [, org, type, , amount, attribution] = mockReserveQuota.mock.calls[0]!;
     expect([org, type, amount]).toEqual(['org-1', 'aiCalls', 3]);
-    expect(attribution).toMatchObject({ route: 'POST /ask/', principalId: 'u1', principalType: 'user', feature: 'ask', model: 'claude-opus-4-1', keySource: 'platform' });
+    expect(attribution).toMatchObject({ route: 'POST /ask-agent/', principalId: 'u1', principalType: 'user', feature: 'ask', model: 'claude-opus-4-1', keySource: 'platform' });
   });
 
   it.each([
@@ -84,7 +84,7 @@ describe('withAiCallReservation', () => {
     expect(mockReserveQuota).not.toHaveBeenCalled();
     expect(mockDecrementQuota).not.toHaveBeenCalled();
     expect(mockReport).toHaveBeenCalledTimes(1);
-    expect(mockReport).toHaveBeenCalledWith('org-1', 'aiCalls', 'Bearer svc-ask', { tokensIn: 10, tokensOut: 5 }, expect.objectContaining({ keySource: selection.keySource, feature: 'ask' }));
+    expect(mockReport).toHaveBeenCalledWith('org-1', 'aiCalls', 'Bearer svc-ask-agent', { tokensIn: 10, tokensOut: 5 }, expect.objectContaining({ keySource: selection.keySource, feature: 'ask' }));
   });
 
   it('a resolution failure goes to onError with no slot taken', async () => {

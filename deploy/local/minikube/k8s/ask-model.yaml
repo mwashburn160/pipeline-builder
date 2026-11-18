@@ -7,7 +7,7 @@
 #     ASK_MODEL=1 ./bin/setup.sh
 #
 # which applies this file AND adds OPENAI_COMPATIBLE_BASE_URL / _MODELS to the
-# app-env ConfigMap the `ask` Deployment already reads. Without it (and with no
+# app-env ConfigMap the `ask-agent` Deployment already reads. Without it (and with no
 # cloud provider key in .env) the Ask assistant has NO provider and every turn
 # fails with "AI is not configured".
 #
@@ -22,7 +22,7 @@
 # OPENAI_COMPATIBLE_MODELS to `qwen2.5-coder:7b`. For a GPU, uncomment the
 # nodeSelector/tolerations + resources.limits `nvidia.com/gpu` below.
 # Self-contained: bundles its ServiceAccount + istio authz + NetworkPolicy so
-# `kubectl apply -f ask-model.yaml` brings everything ask needs to reach it.
+# `kubectl apply -f ask-model.yaml` brings everything ask-agent needs to reach it.
 # =============================================================================
 apiVersion: v1
 kind: ServiceAccount
@@ -255,7 +255,7 @@ spec:
           persistentVolumeClaim:
             claimName: ask-model-models
 ---
-# ask -> ask-model (OpenAI-compatible inference). Additive istio authz.
+# ask-agent -> ask-model (OpenAI-compatible inference). Additive istio authz.
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
@@ -270,7 +270,7 @@ spec:
     - from:
         - source:
             principals:
-              - cluster.local/ns/pipeline-builder/sa/ask
+              - cluster.local/ns/pipeline-builder/sa/ask-agent
       to:
         - operation:
             ports: ["11434"]
@@ -278,7 +278,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-ask-model-from-ask
+  name: allow-ask-model-from-ask-agent
 spec:
   podSelector:
     matchLabels:
@@ -289,7 +289,7 @@ spec:
     - from:
         - podSelector:
             matchLabels:
-              app: ask
+              app: ask-agent
       ports:
         - port: 11434
 ---

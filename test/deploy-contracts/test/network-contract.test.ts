@@ -240,7 +240,7 @@ describe.each(K8S_TARGETS)('network contract — %s', (target) => {
 
   it('opens the external legs each service needs', () => {
     expect(publicEgressPorts(docs, { app: 'pipeline' })).toContain(443);
-    expect(publicEgressPorts(docs, { app: 'ask' })).toContain(443);
+    expect(publicEgressPorts(docs, { app: 'ask-agent' })).toContain(443);
     expect(publicEgressPorts(docs, { app: 'compliance' })).toEqual(expect.arrayContaining([443, 587, 465, 25]));
     expect(publicEgressPorts(docs, { app: 'platform' })).toEqual(expect.arrayContaining([443, 587, 465, 25]));
     // Slack / webhook alert destinations, PagerDuty and the dead-man URL.
@@ -261,7 +261,7 @@ describe.each(K8S_TARGETS)('network contract — %s', (target) => {
     // does it hold an AWS grant.
     const opsGranted = target.endsWith('ec2');
     const granted = ['platform', 'pipeline', ...(billingGranted ? ['billing'] : []), ...(opsGranted ? ['ops-center'] : [])];
-    const denied = ['plugin', 'plugin-quarantine-builder', 'ask', 'compliance', 'alertmanager', ...(billingGranted ? [] : ['billing']), ...(opsGranted ? [] : ['ops-center'])];
+    const denied = ['plugin', 'plugin-quarantine-builder', 'ask-agent', 'compliance', 'alertmanager', ...(billingGranted ? [] : ['billing']), ...(opsGranted ? [] : ['ops-center'])];
     for (const app of granted) expect([app, reaches(app)]).toEqual([app, true]);
     for (const app of denied) expect([app, reaches(app)]).toEqual([app, false]);
   });

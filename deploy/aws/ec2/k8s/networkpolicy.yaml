@@ -79,7 +79,7 @@ spec:
     matchExpressions:
       - key: app
         operator: In
-        values: [platform, pipeline, plugin, message, quota, billing, frontend, compliance, reporting, ops-center, image-registry, ask]
+        values: [platform, pipeline, plugin, message, quota, billing, frontend, compliance, reporting, ops-center, image-registry, ask-agent]
   policyTypes:
     - Ingress
   ingress:
@@ -1048,12 +1048,12 @@ spec:
 ---
 # =============================================================================
 # Ask agent -> pipeline (token-forwarded propose/list). Without this, default-deny
-# drops ask->pipeline and the agent's create-pipeline drafts fail.
+# drops ask-agent->pipeline and the agent's create-pipeline drafts fail.
 # =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-pipeline-from-ask
+  name: allow-pipeline-from-ask-agent
 spec:
   podSelector:
     matchLabels:
@@ -1064,18 +1064,18 @@ spec:
     - from:
         - podSelector:
             matchLabels:
-              app: ask
+              app: ask-agent
       ports:
         - port: 3000
 ---
 # =============================================================================
 # Ask agent -> plugin (token-forwarded propose). Without this, default-deny drops
-# ask->plugin and the agent's create-plugin drafts fail.
+# ask-agent->plugin and the agent's create-plugin drafts fail.
 # =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-plugin-from-ask
+  name: allow-plugin-from-ask-agent
 spec:
   podSelector:
     matchLabels:
@@ -1086,7 +1086,7 @@ spec:
     - from:
         - podSelector:
             matchLabels:
-              app: ask
+              app: ask-agent
       ports:
         - port: 3000
 ---
@@ -1471,11 +1471,11 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-ask-external-egress
+  name: allow-ask-agent-external-egress
 spec:
   podSelector:
     matchLabels:
-      app: ask
+      app: ask-agent
   policyTypes:
     - Egress
   egress:

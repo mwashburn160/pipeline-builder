@@ -74,8 +74,8 @@ export interface ServerConfig {
     readonly quotaPort: number;
     readonly reportingHost: string;
     readonly reportingPort: number;
-    readonly askHost: string;
-    readonly askPort: number;
+    readonly askAgentHost: string;
+    readonly askAgentPort: number;
   };
 }
 

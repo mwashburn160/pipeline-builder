@@ -83,7 +83,7 @@ function DashboardShell({
 }: DashboardLayoutProps) {
   const { user, isReady, isSuperAdmin, isAdmin, logout } = useAuthGuard();
   const toast = useToast();
-  // Ask rides the ai_generation entitlement (the ask service enforces it too).
+  // Ask rides the ai_generation entitlement (the ask-agent service enforces it too).
   const askGate = useFeatureGate('ai_generation');
   // On a `help-topics` deployment the drawer shows DOCS — no model is called and
   // no AI entitlement applies. Gating the launcher on ai_generation there sold an
@@ -364,7 +364,7 @@ function DashboardShell({
                 {/* Ask — the platform assistant; the
                     full help reference is one click away inside the panel. The one
                     colored (brand-blue) call-to-action in the otherwise-neutral
-                    topbar. Gated on the ai_generation entitlement (the ask service
+                    topbar. Gated on the ai_generation entitlement (the ask-agent service
                     enforces it too). Without it the entry stays visible but
                     locked, leading to the plan that includes it — hiding it left
                     people unaware the assistant exists. */}

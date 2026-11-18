@@ -30,7 +30,7 @@ export interface AgentToolDeps {
    * The instance-wide outbound-email switch, from platform's AUTHORITATIVE
    * `GET /internal/notify-email/status` (`readInstanceEmailStatus`). Injected
    * rather than imported because it is the one call that does NOT ride the
-   * caller's token — it uses ask's service identity — so the tool layer stays
+   * caller's token — it uses ask-agent's service identity — so the tool layer stays
    * honest about it and the suites can drive all three states. Resolves
    * `unknown` (never throws) when platform could not be asked.
    */

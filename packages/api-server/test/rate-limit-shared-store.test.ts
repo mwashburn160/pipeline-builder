@@ -124,7 +124,7 @@ async function runOnce(mw: (req: unknown, res: unknown, next: (err?: unknown) =>
 
 describe('Redis-backed per-org limiter (rateLimitByOrg)', () => {
   it('namespaces by service AND limiter name, sharing the one rate-limit connection', async () => {
-    process.env.SERVICE_NAME = 'ask';
+    process.env.SERVICE_NAME = 'ask-agent';
     const commands: string[][] = [];
     createEnvRedisClient.mockImplementation((label) => (label === 'rate-limit' ? {
       on: jest.fn(),
@@ -135,7 +135,7 @@ describe('Redis-backed per-org limiter (rateLimitByOrg)', () => {
     expect(await runOnce(rateLimitByOrg({ name: 'ask', max: 5, windowMs: 60_000 }) as never)).toBe(true);
     rateLimitByOrg({ name: 'other', max: 5, windowMs: 60_000 });
 
-    expect(commands.find((c) => c[0] === 'EVALSHA')![3]).toBe('rl:ask:ask:org:org-1');
+    expect(commands.find((c) => c[0] === 'EVALSHA')![3]).toBe('rl:ask-agent:ask:org:org-1');
     expect(createEnvRedisClient.mock.calls.filter(([l]) => l === 'rate-limit')).toHaveLength(1);
   });
 

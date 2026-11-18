@@ -24,7 +24,7 @@ PROFILE="pipeline-builder"
 # machines.
 LEAN="${LEAN:-0}"
 # ASK_MODEL=1 additionally deploys the self-hosted Ask model (k8s/ask-model.yaml,
-# Ollama) and points the ask service at it. OFF by default because it is the one
+# Ollama) and points the ask-agent service at it. OFF by default because it is the one
 # workload that may not fit: it asks for 2Gi on a VM that is already tight (see
 # the sizing warning below). The AWS targets ship it enabled — only minikube
 # makes it a choice.
@@ -377,8 +377,8 @@ pb_kube_apply create namespace "$NAMESPACE"
 # then diverge. `grep -E '^[[:space:]]*(#|$)'` is POSIX (`\s` is a GNU extension).
 CLEAN_ENV=$(mktemp); trap 'rm -f "$CLEAN_ENV"' EXIT
 grep -Ev '^[[:space:]]*(#|$)' "$ENV_FILE" | sed "s|[\$]{PLATFORM_FRONTEND_URL}|${PLATFORM_FRONTEND_URL}|g" > "$CLEAN_ENV"
-# ASK_MODEL=1: point the ask service at the self-hosted model. Appended to the
-# app-env source rather than edited into k8s/ask.yaml because `ask` already
+# ASK_MODEL=1: point the ask-agent service at the self-hosted model. Appended to the
+# app-env source rather than edited into k8s/ask-agent.yaml because `ask-agent` already
 # consumes app-env via `envFrom`, so one knob covers both the manifest and the
 # ConfigMap. A cloud key in .env still wins — the registry lists key-based
 # providers first, and this only ADDS the local one.
@@ -474,11 +474,11 @@ pb_apply_manifests "$K8S_DIR" "s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_L
 # NOT in kustomization.yaml) because it is the one optional workload whose 2Gi
 # request may not fit beside the core stack on a small VM. The file is
 # self-contained — Deployment + Service + PVC + ServiceAccount + Istio AuthZ +
-# NetworkPolicy — so a plain apply brings everything `ask` needs to reach it.
+# NetworkPolicy — so a plain apply brings everything `ask-agent` needs to reach it.
 if [ "$ASK_MODEL" = "1" ]; then
   echo "  Deploying self-hosted Ask model (ASK_MODEL=1)..."
   kubectl apply -n "$NAMESPACE" -f "$K8S_DIR/ask-model.yaml"
-  echo "  NOTE: first start pulls the model (~1GB); the ask pod answers once ask-model is Ready."
+  echo "  NOTE: first start pulls the model (~1GB); the ask-agent pod answers once ask-model is Ready."
 fi
 
 log "Post-deploy fixups"

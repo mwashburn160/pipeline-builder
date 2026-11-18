@@ -1,6 +1,6 @@
 // GENERATED FROM docs/architecture-flow.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: a68651fc3912dbedcbb25f56cd6c1c064fbf26585635aaee3d61c84a45660361
+// SOURCE-SHA256: 26b26623954358334942df2af60f2ff48c94356d5e30276a4a0ae40bb407c819
 // SPDX-License-Identifier: Apache-2.0
 import { Workflow } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -161,7 +161,7 @@ export const architectureFlowTopic: HelpTopic = {
               "PostgreSQL only — dashboards, dashboard_panels, org_alert_rules, org_alert_destinations, alert_destination_status"
             ],
             [
-              "pipeline, plugin, compliance, message, reporting, quota, billing, ask, image-registry",
+              "pipeline, plugin, compliance, message, reporting, quota, billing, ask-agent, image-registry",
               "See each service's README",
               "PostgreSQL / MongoDB per service"
             ]
