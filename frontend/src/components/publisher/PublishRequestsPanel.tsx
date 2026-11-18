@@ -15,6 +15,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { useToast } from '@/components/ui/Toast';
 import { EcosystemActionDialog } from '@/components/ecosystem/EcosystemActionDialog';
 import { useFetch } from '@/hooks/useFetch';
+import { useMutation } from '@/hooks/useMutation';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 import { REQUEST_KIND_LABELS, REQUEST_STATUS_COLORS, REQUEST_STATUS_LABELS, isOpenRequest } from '@/lib/ecosystem';
@@ -119,24 +120,28 @@ export function PublishRequestsPanel({ canPublish, canManage }: Props) {
   }, [canManage]);
 
   const [withdrawing, setWithdrawing] = useState<PublishRequestView | null>(null);
-  const [busy, setBusy] = useState(false);
   const [responding, setResponding] = useState<{ request: PublishRequestView; accept: boolean } | null>(null);
 
   const canWithdraw = (r: PublishRequestView) => isOpenRequest(r.status) && (MANAGE_KINDS.has(r.kind) ? canManage : canPublish);
 
-  const withdraw = async () => {
-    if (!withdrawing) return;
-    setBusy(true);
-    try {
-      await api.withdrawPublishRequest(withdrawing.id);
-      toast.success('Request withdrawn');
+  const withdrawMutation = useMutation({
+    fn: (id: string) => api.withdrawPublishRequest(id),
+    errorFallback: 'Could not withdraw the request',
+    toast: { success: 'Request withdrawn', error: true },
+    onSuccess: () => {
       setWithdrawing(null);
       void requestsQ.refetch();
-    } catch (err) {
-      toast.error(formatError(err, 'Could not withdraw the request'));
-    } finally {
-      setBusy(false);
-    }
+    },
+    onStepUpResumed: () => {
+      setWithdrawing(null);
+      void requestsQ.refetch();
+    },
+  });
+  const busy = withdrawMutation.pending;
+
+  const withdraw = async () => {
+    if (!withdrawing) return;
+    await withdrawMutation.run(withdrawing.id);
   };
 
   const requests = [...(requestsQ.data?.requests ?? []), ...(more?.requests ?? [])];

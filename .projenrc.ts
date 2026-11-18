@@ -1581,11 +1581,14 @@ const COVERAGE_THRESHOLDS: Record<string, {
   },
   'ops-center': {
     // Split out of platform 2026-11-17 with its suites (plus new ones for the
-    // relay, the autoscaling webhooks and the platform contracts). Measured
-    // 85.1 / 89.4 / 88.1 / 85.1, pinned at floor - 1. The thin spots are the
-    // alerting controllers' CRUD paths and the Loki/EC2 clients, untested in
-    // platform too — raise as suites land.
-    global: { statements: 84, branches: 88, functions: 87, lines: 84 },
+    // relay, the autoscaling webhooks and the platform contracts). The alerting
+    // CRUD paths now run against PGlite under RLS (alert-rules-/alert-
+    // destinations-/dashboards-restore-pglite), with on-call, loki-client and
+    // the EC2/PVC actuators unit-tested on stubbed clients. Measured
+    // 94.9 / 91.5 / 94.8 / 94.9, pinned at floor - 1. What remains is mostly
+    // src/index.ts (boot wiring, 0%) and the observability/log controllers'
+    // export + batch paths.
+    global: { statements: 93, branches: 90, functions: 93, lines: 93 },
   },
   'platform': {
     global: { statements: 87, branches: 85, functions: 83, lines: 87 },

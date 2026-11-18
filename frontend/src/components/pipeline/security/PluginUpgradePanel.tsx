@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Callout } from '@/components/ui/Callout';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { useToast } from '@/components/ui/Toast';
+import { useMutation } from '@/hooks/useMutation';
 import { VulnWarningList } from '@/components/plugin/VulnSeverity';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
@@ -74,7 +75,6 @@ export function PluginUpgradePanel({ pipelineId, canWrite, onApplied }: {
   const [preview, setPreview] = useState<PluginUpgradePreview | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
-  const [applying, setApplying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<PluginUpgradeApplyResult | null>(null);
 
@@ -112,25 +112,32 @@ export function PluginUpgradePanel({ pipelineId, canWrite, onApplied }: {
     return next;
   });
 
-  const apply = async () => {
-    if (!preview || selected.size === 0) return;
-    setApplying(true);
-    setError(null);
-    try {
-      const res = await api.applyPluginUpgrades({ pipelineIds: [pipelineId], widen, steps: [...selected], redeploy });
+  const applyMutation = useMutation({
+    fn: async (steps: string[]) => {
+      const res = await api.applyPluginUpgrades({ pipelineIds: [pipelineId], widen, steps, redeploy });
       if (!res.success || !res.data) throw new Error(res.message || 'Failed to apply upgrades');
-      setResult(res.data);
-      const outcome = res.data.results[0];
+      return res.data;
+    },
+    // A result for the previous pipeline must not land on this one.
+    scopeKey: pipelineId,
+    errorFallback: 'Failed to apply upgrades',
+    onSuccess: (data) => {
+      setResult(data);
+      const outcome = data.results[0];
       if (outcome?.status === 'failed') setError(outcome.error);
       else if (outcome?.status === 'upgraded') toast.success(`Upgraded ${outcome.applied.length} step${outcome.applied.length === 1 ? '' : 's'}`);
       else toast.info('Nothing to upgrade');
       setPreview(null);
       onApplied?.();
-    } catch (err) {
-      setError(formatError(err, 'Failed to apply upgrades'));
-    } finally {
-      setApplying(false);
-    }
+    },
+    onError: (_err, message) => setError(message),
+  });
+  const applying = applyMutation.pending;
+
+  const apply = async () => {
+    if (!preview || selected.size === 0) return;
+    setError(null);
+    await applyMutation.run([...selected]);
   };
 
   const upgradable = preview?.upgrades.filter((u) => upgradeTarget(u, widen) !== null) ?? [];

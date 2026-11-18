@@ -7,6 +7,8 @@ import { pageGateRefuses } from '@/lib/page-access';
 import { isSystemAdmin, isOrgAdmin, hasPermission } from '@/lib/auth-helpers';
 import { useToast } from '@/components/ui/Toast';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { OrgReauthDialog } from '@/components/ui/OrgReauthDialog';
+import { isSessionPolicyReauth } from '@/lib/sign-in-reason';
 import type { UserOrgMembership } from '@/types';
 import { formatError } from '@/lib/constants';
 
@@ -89,6 +91,9 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [switching, setSwitching] = useState(false);
+  // The org whose session policy refused this session (switch-org 403
+  // SESSION_POLICY_REAUTH_REQUIRED): a prompt to sign in again, not an error.
+  const [reauthFor, setReauthFor] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   /** The switch awaiting its new identity — see the landing effect below. */
   const pendingSwitchRef = useRef<{ orgId: string; orgName: string } | null>(null);
@@ -220,10 +225,21 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
       setOpen(false);
     } catch (err) {
       pendingSwitchRef.current = null;
-      toast.error(formatError(err, 'Failed to switch organization'));
+      // Nothing moved: the session is still in the current org. Entering this
+      // one needs a fresh sign-in, which refreshing can't give — so offer it.
+      if (isSessionPolicyReauth(err)) {
+        setOpen(false);
+        setReauthFor(orgName);
+      } else {
+        toast.error(formatError(err, 'Failed to switch organization'));
+      }
       setSwitching(false);
     }
   };
+
+  const reauthDialog = reauthFor && (
+    <OrgReauthDialog orgName={reauthFor} currentOrgName={activeName} onClose={() => setReauthFor(null)} />
+  );
 
   // Shared dropdown menu (same content across variants; only the anchoring
   // differs: header pops down left-aligned at a fixed width, the collapsed rail
@@ -325,6 +341,7 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
           {canSwitch && <ChevronsUpDown className="w-3.5 h-3.5 shrink-0 text-white/80" />}
         </button>
         {menu}
+        {reauthDialog}
       </div>
     );
   }
@@ -352,6 +369,7 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
           </button>
         </Tooltip>
         {menu}
+        {reauthDialog}
       </div>
     );
   }
@@ -388,6 +406,7 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
         {canSwitch && <ChevronsUpDown className="w-4 h-4 text-fg-subtle group-hover:text-brand shrink-0 transition-colors" />}
       </button>
       {menu}
+      {reauthDialog}
     </div>
   );
 }

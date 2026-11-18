@@ -19,10 +19,12 @@
  */
 
 import {
+  callInternal,
   createLogger,
   errorMessage,
   getServiceAuthHeader,
   InternalHttpClient,
+  REPORTING_INTERNAL,
   SYSTEM_ORG_ID,
 } from '@pipeline-builder/api-core';
 import { holdersOfPermission } from './ecosystem-notifications.js';
@@ -50,18 +52,16 @@ function client(): InternalHttpClient {
 
 /** Ask reporting to pause the definitions this person owns. Returns what stopped. */
 async function pauseAtReporting(orgId: string, userId: string, reason: ReportPauseCause): Promise<PausedReport[]> {
-  const res = await client().post<{ data?: { paused?: unknown } }>(
-    `/reports/stakeholder-internal/owner-left/${encodeURIComponent(orgId)}/${encodeURIComponent(userId)}`,
-    { reason },
-    { headers: { Authorization: getServiceAuthHeader({ serviceName: 'platform', orgId: SYSTEM_ORG_ID, role: 'member' }) } },
-  );
-  if (res.statusCode >= 400) throw new Error(`reporting responded ${res.statusCode}`);
-  const paused = res.body?.data?.paused;
-  if (!Array.isArray(paused)) return [];
-  return paused.filter((p): p is PausedReport =>
-    !!p && typeof p === 'object'
-    && typeof (p as PausedReport).id === 'string'
-    && typeof (p as PausedReport).name === 'string');
+  const res = await callInternal(client(), REPORTING_INTERNAL.ownerLeft, {
+    params: { orgId, userId },
+    body: { reason },
+    options: { headers: { Authorization: getServiceAuthHeader({ serviceName: 'platform', orgId: SYSTEM_ORG_ID, role: 'member' }) } },
+  });
+  if (!res.ok && res.reason === 'status') throw new Error(`reporting responded ${res.status}`);
+  if (!res.ok && res.reason === 'unreachable') throw new Error('reporting unreachable');
+  // The contract keeps only the entries shaped like a report (a non-list reads
+  // as none); a 2xx with no readable data paused nothing we can name.
+  return res.ok ? res.data.paused : [];
 }
 
 /**

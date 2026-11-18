@@ -19,6 +19,7 @@
  */
 
 import { createLogger, getParam, paginationMeta, sendError, sendSuccess, isSystemAdmin } from '@pipeline-builder/api-core';
+import { isUniqueViolation } from '@pipeline-builder/pipeline-data';
 import { audit } from '../helpers/audit.js';
 import { requireAuthContext, requireOrgMembership, withController } from '../helpers/controller-helper.js';
 import { listPage } from '../helpers/pagination.js';
@@ -85,7 +86,18 @@ export const createAlertRule = withController('Create alert rule', async (req, r
 
   // Per-org cap on alert rules; reserve atomically before insert.
   await withFeatureQuota(res, orgId, 'alertRules', async () => {
-    const rule = await alertRuleService.create(orgId, userId, create);
+    let rule;
+    try {
+      rule = await alertRuleService.create(orgId, userId, create);
+    } catch (err) {
+      // (org_id, name) is unique among live rules — a duplicate name is the
+      // caller's conflict (409), not a server fault. `false` gives the slot back.
+      if (isUniqueViolation(err)) {
+        sendError(res, 409, 'An alert rule with this name already exists.');
+        return false;
+      }
+      throw err;
+    }
 
     audit(req, 'alert.rule.create', {
       targetType: 'alert-rule',
@@ -95,6 +107,7 @@ export const createAlertRule = withController('Create alert rule', async (req, r
     });
 
     sendSuccess(res, 201, { rule });
+    return true;
   });
 });
 
@@ -120,7 +133,14 @@ export const updateAlertRule = withController('Update alert rule', async (req, r
   const validation = validateRule(orgId, patch);
   if (!validation.ok) return sendError(res, 400, validation.message);
 
-  const rule = await alertRuleService.update(orgId, id, userId, patch);
+  let rule;
+  try {
+    rule = await alertRuleService.update(orgId, id, userId, patch);
+  } catch (err) {
+    // A rename onto a live namesake collides on the (org_id, name) index.
+    if (isUniqueViolation(err)) return sendError(res, 409, 'An alert rule with this name already exists.');
+    throw err;
+  }
   if (!rule) return sendError(res, 404, 'Alert rule not found');
 
   audit(req, 'alert.rule.update', {
@@ -176,7 +196,9 @@ export const restoreAlertRule = withController('Restore alert rule', async (req,
     } catch (err) {
       // (org_id, name) unique index is partial (WHERE deleted_at IS NULL) — a live
       // namesake can coexist with this tombstone, so restore can collide → 409.
-      if ((err as { code?: string }).code === '23505') {
+      // Drizzle wraps the driver error (the SQLSTATE is on `cause`), so match
+      // through the chain rather than on the top-level `code`.
+      if (isUniqueViolation(err)) {
         sendError(res, 409, 'An alert rule with this name already exists — rename it and try again.');
         return false;
       }

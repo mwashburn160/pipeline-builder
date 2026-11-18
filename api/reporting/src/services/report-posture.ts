@@ -24,6 +24,7 @@
 
 import {
   callInternal,
+  COMPLIANCE_INTERNAL,
   createLogger,
   errorMessage,
   getServiceAuthHeader,
@@ -90,9 +91,6 @@ const num = (v: unknown): number => {
   return Number.isFinite(n) && n >= 0 ? n : 0;
 };
 
-const strings = (v: unknown): string[] =>
-  (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
-
 /**
  * Read the compliance half, or null.
  *
@@ -104,27 +102,14 @@ const strings = (v: unknown): string[] =>
  */
 async function readCompliance(orgId: string): Promise<CompliancePosture | null> {
   try {
-    const res = await client('compliance').get<{ data?: Record<string, unknown> }>(
-      '/compliance/posture',
-      { headers: auth(orgId), timeout: REPORTING_HTTP_TIMEOUT_MS },
-    );
-    const d = res.body?.data;
-    if (res.statusCode >= 400 || !d) return null;
-    const scan = d.lastScan as Record<string, unknown> | null | undefined;
-    return {
-      activeRules: num(d.activeRules),
-      activeExemptions: num(d.activeExemptions),
-      frameworks: strings(d.frameworks),
-      lastScan: scan && typeof scan.at === 'string'
-        ? {
-          at: scan.at,
-          entities: num(scan.entities),
-          passed: num(scan.passed),
-          warnings: num(scan.warnings),
-          blocked: num(scan.blocked),
-        }
-        : null,
-    };
+    const res = await callInternal(client('compliance'), COMPLIANCE_INTERNAL.posture, {
+      options: { headers: auth(orgId), timeout: REPORTING_HTTP_TIMEOUT_MS },
+    });
+    // A non-2xx, or a reply with no data, is "unavailable" — never an empty
+    // posture, which would read as "no rules". The contract floors each count
+    // at 0, keeps only string frameworks, and reads a scan without an `at` as none.
+    if (!res.ok) return null;
+    return res.data;
   } catch (err) {
     logger.warn('Compliance posture unavailable for report', { orgId, error: errorMessage(err) });
     return null;

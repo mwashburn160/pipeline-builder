@@ -1493,12 +1493,20 @@ const CONTROLS: Control[] = [
     },
   },
   {
-    control: 'Edit the password policy / approved authenticators (Settings → Organization)',
+    control: 'Edit the password / approved-authenticator / session policy (Settings → Organization)',
     file: 'pages/dashboard/settings.tsx',
-    gateFiles: ['src/components/settings/PasswordPolicySettings.tsx', 'src/components/settings/AuthenticatorPolicySettings.tsx'],
+    gateFiles: [
+      'src/components/settings/PasswordPolicySettings.tsx',
+      'src/components/settings/AuthenticatorPolicySettings.tsx',
+      'src/components/settings/SessionPolicySettings.tsx',
+    ],
     permissions: ['org_settings:write'],
     stepUp: true,
-    routes: ['platform PATCH /organization/:id/password-policy', 'platform PATCH /organization/:id/authenticator-policy'],
+    routes: [
+      'platform PATCH /organization/:id/password-policy',
+      'platform PATCH /organization/:id/authenticator-policy',
+      'platform PATCH /organization/:id/session-policy',
+    ],
     behaviour: {
       mount: page('../pages/dashboard/settings'),
       router: { query: { tab: 'organization' }, pathname: '/dashboard/settings' },
@@ -2571,6 +2579,14 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     category: 'sysadmin-console',
     why: 'getAdminSummary in pages/dashboard/admin/settings.tsx and src/components/dashboard/SysadminHome.tsx, gated on platform:read.',
   },
+  'platform GET /admin/cascade': {
+    category: 'no-ui',
+    why: 'Operator runbook surface for the cascade outbox (org purge / user erasure legs): the PlatformCascadeLegDead alert points at `GET /api/admin/cascade?status=dead`. No dashboard page lists legs yet; system-org + platform:read + aal2, read with curl or the API.',
+  },
+  'platform POST /admin/cascade/:id/redrive': {
+    category: 'no-ui',
+    why: 'The PlatformCascadeLegDead runbook step: once the owning service is fixed, an operator redrives the dead leg through the API (system-org + orgs:manage + aal2 + step-up; audited admin.cascade.redrive). No dashboard control drives it yet — it replaced hand-editing cascade_outbox in Mongo.',
+  },
   'platform GET /organizations': {
     category: 'sysadmin-console',
     why: 'listOrganizations in pages/dashboard/organizations.tsx (also the quotas page and OrgPicker), gated on orgs:read — the roster, split out of platform:read.',
@@ -2599,14 +2615,6 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     category: 'same-control',
     coveredBy: 'Run / cancel a pipeline execution',
     why: 'Accept risk / False positive / Reopen on an exposure in the pipeline detail page\'s Plugin security tab (src/components/pipeline/security/PipelineSecurityTab.tsx → ExposureTriageModal.tsx, api.triagePipelineExposure). Disabled with a reason unless canWritePipeline (pipelines:write + ownership) — the same gate and page as Run pipeline. Audited pipeline.vuln.accepted / .false_positive / .reopened; KEV acceptance needs the explicit checkbox (kev: true).',
-  },
-  'platform GET /organization/:id/session-policy': {
-    category: 'no-ui',
-    why: 'Read side of the org session-lifetime policy (effective maximum age / idle timeout, the org\'s own values, the platform ceiling, any stricter ancestor). No settings panel reads it yet; API callers with org_settings:write do.',
-  },
-  'platform PATCH /organization/:id/session-policy': {
-    category: 'no-ui',
-    why: 'The org session-lifetime policy (maximum age from sign-in / idle timeout, days; may only tighten SESSION_MAX_AGE_DAYS / SESSION_IDLE_TIMEOUT_DAYS) has no settings panel yet — set through the API (org_settings:write + step-up, aal2 to lengthen; audited org.session_policy.update). Enforced at every refresh by platform (helpers/session-policy.ts).',
   },
   'plugin POST /plugins/runtime-check': {
     category: 'no-ui',

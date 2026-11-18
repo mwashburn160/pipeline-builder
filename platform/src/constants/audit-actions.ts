@@ -389,6 +389,11 @@ export const PLATFORM_AUDIT_ACTIONS = [
   // last HTTP status (never the error text). The operator-readable record that
   // an erasure did not finish, alongside `platform_cascade_dead_total`.
   'org.cascade.dead',
+  // An operator put a cascade-outbox leg back in the queue
+  // (POST /admin/cascade/:id/redrive) — the runbook step after
+  // `org.cascade.dead`. `details` = legId, kind, service, previousStatus,
+  // previousAttempts, resetAttempts and the operator's optional `reason`.
+  'admin.cascade.redrive',
   // Org tier change. Emitted when a sysadmin moves an org between
   // pricing tiers (developer/pro/team/enterprise); reseeds quota limits as a
   // side-effect. `details` carries the previousTier so the transition

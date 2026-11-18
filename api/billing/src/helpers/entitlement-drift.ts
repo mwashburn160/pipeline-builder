@@ -29,10 +29,12 @@
  * lifecycle pass that runs the comparison and re-drives the sync on drift.
  */
 
-import { clampRetentionDays, complianceSetsForFeatures, createLogger, errorMessage, VALID_QUOTA_TYPES } from '@pipeline-builder/api-core';
+import {
+  clampRetentionDays, COMPLIANCE_INTERNAL, complianceSetsForFeatures, createLogger, errorMessage, REPORTING_INTERNAL, VALID_QUOTA_TYPES,
+} from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { billingServiceAuth, getBundleCatalog } from './billing-helpers.js';
-import { fetchQuotaSnapshot, fetchSeatUsage, fetchSupportUsage, getJson } from './downstream-client.js';
+import { fetchQuotaSnapshot, fetchSeatUsage, fetchSupportUsage, getContractJson, getJson } from './downstream-client.js';
 import {
   currentSubscriptionEntitlement,
   effectiveFeatureSet,
@@ -126,14 +128,11 @@ async function readEnforcedFeatureEntitlements(orgId: string, auth: string): Pro
  * SKIP, never as drift.
  */
 async function readEnforcedComplianceSets(orgId: string, auth: string): Promise<string[] | null> {
-  const body = await getJson<{ data?: { sets?: unknown } }>(
-    config.complianceService, `/compliance/entitlements/${encodeURIComponent(orgId)}`, orgId, auth,
-  );
-  const sets = body?.data?.sets;
-  // A missing / non-string-array payload can't be safely compared — treat the
-  // read as failed so an incomplete response never false-drifts (an org with no
-  // active sets still returns `[]`).
-  return isStringArray(sets) ? sets : null;
+  // The contract requires `sets` to be a string array: a missing / malformed
+  // payload can't be safely compared, so it reads as a failed read (null) and
+  // never false-drifts (an org with no active sets still returns `[]`).
+  const data = await getContractJson(config.complianceService, COMPLIANCE_INTERNAL.readEntitlements, orgId, auth);
+  return data ? data.sets : null;
 }
 
 /**
@@ -147,12 +146,10 @@ async function readEnforcedRetention(
   orgId: string,
   auth: string,
 ): Promise<{ eventRetentionDays: number | null; doraRetentionDays: number | null } | null> {
-  const body = await getJson<{ data?: { eventRetentionDays?: unknown; doraRetentionDays?: unknown } }>(
-    config.reportingService, `/reports/retention-sync/${encodeURIComponent(orgId)}`, orgId, auth,
-  );
-  const data = body?.data;
-  const valid = (v: unknown): v is number | null => v === null || (typeof v === 'number' && Number.isInteger(v));
-  if (!data || !valid(data.eventRetentionDays) || !valid(data.doraRetentionDays)) return null;
+  // The contract requires each value to be an integer or null; anything else is
+  // a failed read (null), never drift.
+  const data = await getContractJson(config.reportingService, REPORTING_INTERNAL.readRetention, orgId, auth);
+  if (!data) return null;
   return { eventRetentionDays: data.eventRetentionDays, doraRetentionDays: data.doraRetentionDays };
 }
 

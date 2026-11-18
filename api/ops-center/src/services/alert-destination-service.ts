@@ -3,7 +3,7 @@
 
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import type { AlertChannel, AlertRuleSeverity } from '@pipeline-builder/api-core/wire-vocabulary';
-import { schema, withTenantTx, softDeleteRetentionMs } from '@pipeline-builder/pipeline-data';
+import { runWithTenantContext, schema, withTenantTx, softDeleteRetentionMs } from '@pipeline-builder/pipeline-data';
 import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
 
 import { getNotificationChannel, plainTextBody, severityToPriority, subjectLine, type AlertNotification } from './notification-channels.js';
@@ -211,7 +211,15 @@ export class AlertDestinationService {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TEST_DELIVERY_TIMEOUT_MS);
     try {
-      const res = await channel.deliver(msg, { value: dest.target, orgId: dest.orgId }, controller.signal);
+      // Deliver under the same privileged context the relay uses: the in-app
+      // channel writes a `messages` row AUTHORED BY THE SYSTEM ORG, which the
+      // caller's own tenant context cannot insert under FORCE'd RLS — without
+      // this every in-app test send failed. The destination was already
+      // resolved org-scoped above, so nothing else widens.
+      const res = await runWithTenantContext(
+        { isSuperAdmin: true },
+        () => channel.deliver(msg, { value: dest.target, orgId: dest.orgId }, controller.signal),
+      );
       if (res.ok && !res.skipped) return { delivered: true };
       if (res.skipped) return { delivered: false, error: res.error || 'Delivery skipped' };
       return {

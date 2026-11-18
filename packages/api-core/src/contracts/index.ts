@@ -23,6 +23,7 @@ export {
   contractErrorMessage,
   contractRoute,
   defineInternalEndpoint,
+  isInternalConventionPath,
   parseContractBody,
   parseContractParams,
   parseContractQuery,
@@ -49,7 +50,7 @@ export { CASCADE_LEG_AUTH, CascadeOrgParams, CascadeUserParams, OrgPurgeResponse
 // ---- pipeline / compliance / reporting ----
 export { PIPELINE_INTERNAL } from './pipeline.js';
 export { COMPLIANCE_INTERNAL } from './compliance.js';
-export { REPORTING_INTERNAL } from './reporting.js';
+export { REPORTING_INTERNAL, OWNER_LEFT_PAUSE_REASONS } from './reporting.js';
 export { OPS_CENTER_INTERNAL } from './ops-center.js';
 // ---- billing ----
 export { BILLING_INTERNAL, INCIDENT_KEY_PATTERN } from './billing.js';

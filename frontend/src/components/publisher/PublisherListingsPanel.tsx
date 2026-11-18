@@ -18,6 +18,7 @@ import { EcosystemActionDialog } from '@/components/ecosystem/EcosystemActionDia
 import { TrustTierBadge } from '@/components/public-directory/TrustTierBadge';
 import { VulnSummary } from '@/components/plugin/VulnSummary';
 import { useFetch } from '@/hooks/useFetch';
+import { useMutation } from '@/hooks/useMutation';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 import { isInPublicDirectory, LISTING_STATE_COLORS, LISTING_STATE_LABELS } from '@/lib/ecosystem';
@@ -56,24 +57,31 @@ export function PublisherListingsPanel({ canPublish, canManage }: Props) {
     return res.data.listings;
   }, []);
   const [pending, setPending] = useState<Pending | null>(null);
-  const [busy, setBusy] = useState(false);
   const [targetHandle, setTargetHandle] = useState('');
 
   const close = () => { setPending(null); setTargetHandle(''); };
 
-  const pause = async () => {
-    if (pending?.kind !== 'pause') return;
-    setBusy(true);
-    try {
-      await api.pauseListing(pending.listing.id, pending.version?.version);
-      toast.success(pending.version ? `Paused ${pending.listing.name} v${pending.version.version}` : `Paused ${pending.listing.name}`);
+  const pauseMutation = useMutation({
+    fn: (target: { id: string; name: string; version?: string }) => api.pauseListing(target.id, target.version),
+    errorFallback: 'Could not pause',
+    toast: {
+      success: (_res, target) => (target.version ? `Paused ${target.name} v${target.version}` : `Paused ${target.name}`),
+      error: true,
+    },
+    onSuccess: () => {
       close();
       void listingsQ.refetch();
-    } catch (err) {
-      toast.error(formatError(err, 'Could not pause'));
-    } finally {
-      setBusy(false);
-    }
+    },
+    onStepUpResumed: () => {
+      close();
+      void listingsQ.refetch();
+    },
+  });
+  const busy = pauseMutation.pending;
+
+  const pause = async () => {
+    if (pending?.kind !== 'pause') return;
+    await pauseMutation.run({ id: pending.listing.id, name: pending.listing.name, version: pending.version?.version });
   };
 
   const requested = (what: string) => {

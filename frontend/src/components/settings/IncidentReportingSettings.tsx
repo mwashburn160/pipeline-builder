@@ -24,6 +24,7 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { useToast } from '@/components/ui/Toast';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { useFetch } from '@/hooks/useFetch';
+import { useMutation } from '@/hooks/useMutation';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
 import type { IncidentSettings, IncidentListItem, IncidentTestResult } from '@/lib/api/domains/reporting';
@@ -145,23 +146,23 @@ export function IncidentReportingSettings({ readOnly }: { readOnly: boolean }) {
   });
   const settings = settingsLoaded ?? null;
   const [windowInput, setWindowInput] = useState('');
-  const [savingWindow, setSavingWindow] = useState(false);
   const effectiveWindow = settings?.incidentWindowHours ?? settings?.defaultWindowHours ?? 24;
+
+  const windowSave = useMutation({
+    fn: (h: number) => api.putReportingSettings({ incidentWindowHours: h }),
+    errorFallback: 'Failed to update window',
+    toast: { success: 'Correlation window updated', error: true },
+    onSuccess: () => {
+      setWindowInput('');
+      void reloadSettings();
+    },
+  });
+  const savingWindow = windowSave.pending;
 
   const saveWindow = async () => {
     const h = Math.floor(Number(windowInput));
     if (!Number.isFinite(h) || h < 1 || h > 720) { toast.error('Window must be 1–720 hours'); return; }
-    setSavingWindow(true);
-    try {
-      await api.putReportingSettings({ incidentWindowHours: h });
-      toast.success('Correlation window updated');
-      setWindowInput('');
-      void reloadSettings();
-    } catch (err) {
-      toast.error(formatError(err, 'Failed to update window'));
-    } finally {
-      setSavingWindow(false);
-    }
+    await windowSave.run(h);
   };
 
   // ── Per-org retention windows — READ-ONLY ──
@@ -175,7 +176,6 @@ export function IncidentReportingSettings({ readOnly }: { readOnly: boolean }) {
   // ── Self-serve webhook key (reuses access-key issuance; copy-once + step-up) ──
   const [newToken, setNewToken] = useState<string | null>(null);
   const [pendingCreate, setPendingCreate] = useState<{ name: string; expiresIn: number; scope: string } | null>(null);
-  const [creating, setCreating] = useState(false);
 
   const requestToken = () => {
     // 1-year token, org-bound + least-privilege (the `reporting:ingest` scope
@@ -183,22 +183,24 @@ export function IncidentReportingSettings({ readOnly }: { readOnly: boolean }) {
     setPendingCreate({ name: `incident-webhook-${localDay(new Date())}`, expiresIn: 365 * 86400, scope: REPORTING_INGEST_SCOPE });
   };
 
+  const createToken = useMutation({
+    fn: async (request: { name: string; expiresIn: number; scope: string }, stepUpToken: string) => {
+      const res = await api.createAccessKey(request, stepUpToken);
+      if (!res.success || !res.data) throw new Error('Failed to create token');
+      return res.data.key;
+    },
+    errorFallback: 'Failed to create token',
+    toast: { success: 'Webhook token created', error: true },
+    onSuccess: (key) => setNewToken(key),
+  });
+  const creating = createToken.pending;
+
   const executeCreate = async (stepUpToken: string) => {
     if (!pendingCreate) return;
-    setCreating(true);
     setNewToken(null);
     try {
-      const res = await api.createAccessKey(pendingCreate, stepUpToken);
-      if (res.success && res.data) {
-        setNewToken(res.data.key);
-        toast.success('Webhook token created');
-      } else {
-        toast.error('Failed to create token');
-      }
-    } catch (err) {
-      toast.error(formatError(err, 'Failed to create token'));
+      await createToken.run(pendingCreate, stepUpToken);
     } finally {
-      setCreating(false);
       setPendingCreate(null);
     }
   };
@@ -209,24 +211,24 @@ export function IncidentReportingSettings({ readOnly }: { readOnly: boolean }) {
 
   // ── Send test incident (non-persisting dry-run) ──
   const [testEnv, setTestEnv] = useState('production');
-  const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<IncidentTestResult | null>(null);
 
+  const testIncident = useMutation({
+    fn: (environment: string) => api.sendTestIncident(environment),
+    errorFallback: 'Test failed',
+    toast: { error: true },
+    onSuccess: (r) => {
+      if (!r) return;
+      setTestResult(r);
+      if (r.correlated) toast.success('Test incident correlated to a recent deploy');
+      else toast.warning('No recent deploy correlated — check the environment name + window');
+    },
+  });
+  const testing = testIncident.pending;
+
   const sendTest = async () => {
-    setTesting(true);
     setTestResult(null);
-    try {
-      const r = await api.sendTestIncident(testEnv.trim() || 'production');
-      if (r) {
-        setTestResult(r);
-        if (r.correlated) toast.success('Test incident correlated to a recent deploy');
-        else toast.warning('No recent deploy correlated — check the environment name + window');
-      }
-    } catch (err) {
-      toast.error(formatError(err, 'Test failed'));
-    } finally {
-      setTesting(false);
-    }
+    await testIncident.run(testEnv.trim() || 'production');
   };
 
   // ── Recent incidents list (paged; the backend reports `hasMore`) ──

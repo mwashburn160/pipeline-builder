@@ -10,6 +10,7 @@ import { useToast } from '@/components/ui/Toast';
 import api from '@/lib/api';
 import { ApiError, MEMBER_INVITATION_REQUIRED } from '@/lib/api/errors';
 import { formatError } from '@/lib/constants';
+import { isSessionPolicyReauth } from '@/lib/sign-in-reason';
 
 interface UseMemberTeamsPanelOptions {
   /** The active org (the potential parent). */
@@ -75,9 +76,14 @@ export function useMemberTeamsPanel({
       toast.success(`Switched to ${team.orgName}`);
       void router.replace(router.asPath);
     } catch (err) {
-      toast.error(`Couldn't open ${team.orgName}: ${formatError(err, 'the switch was refused')}`);
+      // The team's session policy needs a fresh sign-in: offer one (the panel
+      // renders `reauthFor`) instead of an error — nothing moved meanwhile.
+      if (isSessionPolicyReauth(err)) setReauthFor(team.orgName);
+      else toast.error(`Couldn't open ${team.orgName}: ${formatError(err, 'the switch was refused')}`);
     }
   };
+  /** The team whose session policy refused the switch, for {@link OrgReauthDialog}. */
+  const [reauthFor, setReauthFor] = useState<string | null>(null);
 
   // Add a user (by email) straight to one team, without switching context.
   const [addToTeam, setAddToTeam] = useState<{ orgId: string; orgName: string } | null>(null);
@@ -124,6 +130,8 @@ export function useMemberTeamsPanel({
     deletedTeams: deletedTeamsQ.data ?? [],
     refreshTeams,
     switchTeam,
+    reauthFor,
+    clearReauth: () => setReauthFor(null),
     addToTeam,
     setAddToTeam,
     teamMemberEmail,

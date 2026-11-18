@@ -7,12 +7,15 @@
  * cannot know: which of an org's plugins are public, which digests its
  * namespace still needs, and which pipelines reference given digests. Plus
  * platform's two cascade legs (its durable outbox): an org's plugin rows
- * purged, and an erased user's listing reviews anonymized.
+ * purged, and an erased user's listing reviews anonymized. And the deploy
+ * scripts' one-time fresh-install toolchain default, which predates the
+ * `/internal` convention and keeps its `/plugins/toolchain` path.
  */
 
 import { z } from 'zod';
 import { CASCADE_LEG_AUTH, CascadeOrgParams, CascadeUserParams, OrgPurgeResponse } from './cascade.js';
 import { defineInternalEndpoint } from './define.js';
+import { TOOLCHAIN_RELEASE_VERSION_PATTERN } from '../validation/pipeline-schemas.js';
 
 /** Digests one image-pipeline-references read may ask about (the caller chunks). */
 export const MAX_REFERENCE_DIGESTS = 50;
@@ -126,5 +129,29 @@ export const PLUGIN_INTERNAL = {
     auth: CASCADE_LEG_AUTH,
     params: CascadeUserParams,
     response: z.object({ userId: z.string(), reviews: z.number() }),
+  }),
+  /**
+   * The fresh-install platform toolchain default, set ONCE by
+   * `deploy/bin/init-platform.sh` (a shell client, not a TS one). 200
+   * `{ releaseVersion }`; a second call is 409 TOOLCHAIN_INITIAL_ALREADY_SET.
+   * `acceptVulnerabilities` (a reason) is the only override of the
+   * vulnerability floor.
+   */
+  initialToolchainDefault: defineInternalEndpoint({
+    id: 'plugin.initialToolchainDefault',
+    service: 'plugin',
+    method: 'POST',
+    path: '/plugins/toolchain/initial-default',
+    outsideInternalPath: 'Reached from an operator shell through the ingress (no mesh principal), under the '
+      + 'public /plugins prefix; predates the /internal convention and is pinned by the route-table snapshot.',
+    callers: ['deploy-bootstrap'],
+    auth: 'The deploy-bootstrap ES256 service token — an OPT-IN signer this route alone accepts '
+      + '(`requireAuth({ acceptServices })`). No step-up, no tenant org.',
+    params: z.object({}),
+    body: z.object({
+      releaseVersion: z.string().trim().regex(TOOLCHAIN_RELEASE_VERSION_PATTERN, 'releaseVersion must be a plain MAJOR.MINOR.PATCH release'),
+      acceptVulnerabilities: z.string().trim().min(1, 'acceptVulnerabilities needs a reason').max(1000).optional(),
+    }).strict(),
+    response: z.object({ releaseVersion: z.string() }),
   }),
 } as const;

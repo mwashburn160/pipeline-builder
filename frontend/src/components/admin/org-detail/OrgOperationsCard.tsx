@@ -9,6 +9,7 @@ import { invalidate } from '@/lib/api-cache';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useMutation } from '@/hooks/useMutation';
 import { LinkButton } from '@/components/ui/LinkButton';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { useToast } from '@/components/ui/Toast';
@@ -41,25 +42,24 @@ export function OrgOperationsCard({ org }: { org: OrganizationDetail }) {
   const router = useRouter();
   const toast = useToast();
   const [error, setError] = useState<string | null>(null);
-  const [exporting, setExporting] = useState(false);
   // Both operations are step-up gated, so each is ONE dialog that states what
   // it costs and takes the factor — no confirm modal in front of it.
   const [pendingOp, setPendingOp] = useState<'delete' | 'yaml' | null>(null);
 
   // GDPR portability dump. The endpoint streams raw JSON (not an ApiResponse
   // envelope); the client method returns the body text, saved here as a file.
-  const exportData = async () => {
-    setExporting(true);
-    try {
-      const json = await api.exportOrganization(org.id);
+  const exportM = useMutation({
+    fn: () => api.exportOrganization(org.id),
+    scopeKey: org.id,
+    errorFallback: 'Failed to export organization data',
+    toast: { success: 'Organization data exported' },
+    onSuccess: (json) => {
       triggerBlobDownload(new Blob([json], { type: 'application/json' }), `org-${org.slug ?? org.id}-export.json`);
-      toast.success('Organization data exported');
-    } catch (e) {
-      setError(formatError(e, 'Failed to export organization data'));
-    } finally {
-      setExporting(false);
-    }
-  };
+    },
+    onError: (_e, message) => setError(message),
+  });
+  const exporting = exportM.pending;
+  const exportData = () => exportM.run();
 
   const onStepUpConfirmed = async (stepUpToken: string) => {
     const op = pendingOp;

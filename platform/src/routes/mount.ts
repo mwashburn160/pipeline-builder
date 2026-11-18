@@ -25,7 +25,7 @@ import {
   offersInternalRoutes,
   NOTIFY_EMAIL_MOUNT, ECOSYSTEM_INTERNAL_MOUNT, REPORTING_INTERNAL_MOUNT, AI_INTERNAL_MOUNT, SUPPORT_INTERNAL_MOUNT,
   OFFERS_INTERNAL_MOUNT, opsInternalRoutes, OPS_INTERNAL_MOUNT,
-  supportContactRoutes,
+  supportContactRoutes, cascadeAdminRoutes,
 } from './index.js';
 
 import { platformApiCallsQuota as apiCallsQuota } from '../middleware/quota.js';
@@ -105,4 +105,6 @@ export function mountApiRoutes(app: Express, limiters: RouteLimiters): void {
   app.use('/admin/console-session', adminConsoleSessionRouter);
   app.use('/admin/summary', adminSummaryRoutes);
   app.use('/admin/impersonate', impersonateRoutes);
+  // The cascade outbox's operator view and redrive (org purge / user erasure legs).
+  app.use('/admin/cascade', cascadeAdminRoutes);
 }

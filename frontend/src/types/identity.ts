@@ -269,6 +269,28 @@ export interface OrgPasswordPolicy {
   inheritedFromName?: string;
 }
 
+/** The two interactive-session lifetime bounds, in whole days. */
+export interface SessionLifetimeLimits {
+  /** Maximum age, counted from the sign-in that opened the session. */
+  maxAgeDays: number;
+  /** Idle timeout, counted from the session's last use. */
+  idleTimeoutDays: number;
+}
+
+/** GET/PATCH /organization/:id/session-policy. The top-level bounds are what
+ *  applies here: min(platform ceiling, this org's own, every ancestor's). */
+export interface OrgSessionPolicy extends SessionLifetimeLimits {
+  /** This org's OWN bounds; null = not set (the platform / a parent's applies). */
+  own: { maxAgeDays: number | null; idleTimeoutDays: number | null };
+  /** The platform ceiling an org may only tighten. */
+  platform: SessionLifetimeLimits;
+  maxAgeInheritedFrom?: string;
+  maxAgeInheritedFromName?: string;
+  idleTimeoutInheritedFrom?: string;
+  idleTimeoutInheritedFromName?: string;
+  enforcement?: 'interactive-sessions-at-next-refresh';
+}
+
 /** One authenticator model on an allowlist, with its FIDO MDS name if known. */
 export interface AuthenticatorModelRef {
   aaguid: string;

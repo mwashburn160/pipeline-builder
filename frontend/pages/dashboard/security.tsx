@@ -25,6 +25,7 @@ import { ChevronRight, History, KeyRound, Lock, RefreshCw, ShieldCheck } from 'l
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFetch } from '@/hooks/useFetch';
 import { useFormState } from '@/hooks/useFormState';
+import { useMutation } from '@/hooks/useMutation';
 import { useUrlTab } from '@/hooks/useUrlTab';
 import { LoadingPage , LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -305,8 +306,6 @@ const DEFAULT_TOKEN_DAYS = 30;
  * life and re-intersected with the person's roles at every renewal.
  */
 function MachineTokenSection({ readOnly, held }: { readOnly: boolean; held: readonly string[] }) {
-  const [generating, setGenerating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [token, setToken] = useState<{ value: string; lifetimeSeconds: number; scope: string; permissions?: string[] } | null>(null);
   const [days, setDays] = useState<number>(DEFAULT_TOKEN_DAYS);
   const [scope, setScope] = useState('');
@@ -314,6 +313,27 @@ function MachineTokenSection({ readOnly, held }: { readOnly: boolean; held: read
   const [selectedPerms, setSelectedPerms] = useState<Set<string> | null>(null);
   const selected = selectedPerms ?? new Set(readOnlyPreset(held));
   const permissions = scope ? undefined : permissionsForRequest(permMode, selected);
+
+  const mint = useMutation({
+    fn: async (stepUpToken: string) => {
+      const res = await api.generateNewToken({
+        expiresIn: days * 86400,
+        ...(scope ? { scope } : {}),
+        ...(permissions ? { permissions } : {}),
+      }, stepUpToken);
+      if (!res.success || !res.data?.refreshToken) throw new Error('Failed to generate token');
+      return res.data.refreshToken;
+    },
+    errorFallback: 'Failed to generate token',
+    onSuccess: (refreshToken) => {
+      // The REFRESH token is the stored credential: it renews the short-lived
+      // access token (POST /auth/refresh) until the credential's lifetime ends.
+      setToken({ value: refreshToken, lifetimeSeconds: days * 86400, scope, ...(permissions ? { permissions } : {}) });
+      // A new issuance belongs in the history list below.
+      window.dispatchEvent(new Event(TOKEN_ISSUED_EVENT));
+    },
+  });
+  const { pending: generating, error, setError } = mint;
 
   // Minting a machine credential is step-up gated (it opens a long-lived
   // session). Validate, then re-confirm in StepUpModal before the request.
@@ -329,26 +349,8 @@ function MachineTokenSection({ readOnly, held }: { readOnly: boolean; held: read
 
   const generate = async (stepUpToken: string) => {
     setConfirming(false);
-    setGenerating(true);
-    setError(null);
     setToken(null);
-    try {
-      const res = await api.generateNewToken({
-        expiresIn: days * 86400,
-        ...(scope ? { scope } : {}),
-        ...(permissions ? { permissions } : {}),
-      }, stepUpToken);
-      if (!res.success || !res.data?.refreshToken) throw new Error('Failed to generate token');
-      // The REFRESH token is the stored credential: it renews the short-lived
-      // access token (POST /auth/refresh) until the credential's lifetime ends.
-      setToken({ value: res.data.refreshToken, lifetimeSeconds: days * 86400, scope, ...(permissions ? { permissions } : {}) });
-      // A new issuance belongs in the history list below.
-      window.dispatchEvent(new Event(TOKEN_ISSUED_EVENT));
-    } catch (err) {
-      setError(formatError(err, 'Failed to generate token'));
-    } finally {
-      setGenerating(false);
-    }
+    await mint.run(stepUpToken);
   };
 
   return (

@@ -582,3 +582,12 @@ export {
   REPORT_EMAIL_MAX_RECIPIENTS,
 } from '@pipeline-builder/api-core';
 
+
+/**
+ * POST /admin/cascade/:id/redrive. `resetAttempts` defaults to true (a fresh
+ * retry budget); `reason` is the operator's note, carried into the audit row.
+ */
+export const cascadeRedriveSchema = z.object({
+  resetAttempts: z.boolean().optional(),
+  reason: z.string().trim().min(1).max(500).optional(),
+}).strict();

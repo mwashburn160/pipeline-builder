@@ -30,28 +30,29 @@ import {
   ErrorCode,
   actorId,
   audited,
+  contractErrorMessage,
+  contractRoute,
+  parseContractBody,
+  parseContractParams,
   recordAudit,
+  REPORTING_INTERNAL,
   requireInternalService,
   sendBadRequest,
   sendSuccess,
-  getParam,
-  validateBody,
   SYSTEM_ACTOR_ID,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import { REPORT_PAUSE_REASONS, runWithTenantContext, stakeholderReportStore } from '@pipeline-builder/pipeline-data';
+import { runWithTenantContext, stakeholderReportStore } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
-import { z } from 'zod';
 
-const bodySchema = z.object({
-  /**
-   * Why the owner can no longer run reports. Recorded on the definition rather
-   * than inferred, because the three causes need different fixes and the lead
-   * reads this string. The store's pause vocabulary minus `entitlement`, which
-   * is billing's to declare (the stakeholder-sync leg), never platform's.
-   */
-  reason: z.enum(REPORT_PAUSE_REASONS).exclude(['entitlement']),
-}).strict();
+/**
+ * The api-core contract. Its body's `reason` is why the owner can no longer run
+ * reports — recorded on the definition rather than inferred, because the causes
+ * need different fixes and the lead reads this string. It is the store's pause
+ * vocabulary minus `entitlement`, which is billing's to declare (the
+ * stakeholder-sync leg), never platform's.
+ */
+const OWNER_LEFT = REPORTING_INTERNAL.ownerLeft;
 
 export function createStakeholderInternalRoutes(): Router {
   const router = Router();
@@ -63,14 +64,14 @@ export function createStakeholderInternalRoutes(): Router {
    * a deactivate-reactivate-deactivate sequence) neither double-audits nor
    * overwrites the reason a definition was first paused.
    */
-  router.post('/owner-left/:orgId/:userId',
-    requireInternalService({ callers: ['platform'] }),
+  router.post(contractRoute(OWNER_LEFT, '/reports/stakeholder-internal'),
+    requireInternalService({ callers: OWNER_LEFT.callers }),
     audited('reporting.report.paused'),
     withRoute(async ({ req, res, ctx }) => {
-      const orgId = (getParam(req.params, 'orgId') ?? '').toLowerCase();
-      const userId = getParam(req.params, 'userId') ?? '';
-      if (!orgId || !userId) return sendBadRequest(res, 'orgId and userId are required', ErrorCode.VALIDATION_ERROR);
-      const validation = validateBody(req, bodySchema);
+      const params = parseContractParams(OWNER_LEFT, req);
+      if (!params.ok) return sendBadRequest(res, contractErrorMessage(params), ErrorCode.VALIDATION_ERROR);
+      const { orgId, userId } = params.value;
+      const validation = parseContractBody(OWNER_LEFT, req);
       if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
       const { reason } = validation.value;
 

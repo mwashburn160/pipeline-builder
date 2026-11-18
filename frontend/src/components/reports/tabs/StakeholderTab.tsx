@@ -88,7 +88,7 @@ export function StakeholderTab({
   const [editing, setEditing] = useState<ReportDefinition | null>(null);
   /** The definition whose ownership is being handed over, if any. */
   const [transferring, setTransferring] = useState<ReportDefinition | null>(null);
-  const [creating, setCreating] = useState(false);
+  const [draftingNew, setDraftingNew] = useState(false);
   const action = useFormState();
 
   // One load for the three things every panel needs. Nothing fires while the tab
@@ -257,11 +257,11 @@ export function StakeholderTab({
       <div {...tabPanelProps('stakeholder', inner)}>
         {inner === 'reports' && (
           <div className="space-y-4">
-            {canAuthor && !creating && !editing && (
-              <Button size="sm" onClick={() => setCreating(true)} readOnly={readOnly}>New report</Button>
+            {canAuthor && !draftingNew && !editing && (
+              <Button size="sm" onClick={() => setDraftingNew(true)} readOnly={readOnly}>New report</Button>
             )}
 
-            {(creating || editing) && (
+            {(draftingNew || editing) && (
               <ReportDefinitionForm
                 {...(editing ? { definition: editing } : {})}
                 recipients={recipients.data ?? []}
@@ -269,22 +269,22 @@ export function StakeholderTab({
                 emailAvailable={delivery.data ?? true}
                 readOnly={readOnly}
                 onSaved={(saved) => {
-                  setCreating(false);
+                  setDraftingNew(false);
                   setEditing(null);
                   setSelectedId(saved.id);
                   void definitions.refetch();
                 }}
-                onCancel={() => { setCreating(false); setEditing(null); }}
+                onCancel={() => { setDraftingNew(false); setEditing(null); }}
               />
             )}
 
-            {!loading && list.length === 0 && !creating && (
+            {!loading && list.length === 0 && !draftingNew && (
               <EmptyState
                 compact
                 icon={CalendarClock}
                 title="No saved reports yet"
                 description="A saved report runs on a schedule and freezes each period's numbers, so a manager who reads it on Monday sees the same figures on Friday."
-                {...(canAuthor ? { actionLabel: 'New report', onAction: () => setCreating(true) } : {})}
+                {...(canAuthor ? { actionLabel: 'New report', onAction: () => setDraftingNew(true) } : {})}
               />
             )}
 

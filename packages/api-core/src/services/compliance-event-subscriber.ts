@@ -4,6 +4,8 @@
 import { entityEvents, type EntityEvent, type EntityEventSubscriber } from './entity-events.js';
 import { InternalHttpClient } from './http-client.js';
 import { serviceIdentity } from './service-keys.js';
+import { callInternal } from '../contracts/call.js';
+import { COMPLIANCE_INTERNAL } from '../contracts/compliance.js';
 import { getServiceAuthHeader } from '../middleware/service-tokens.js';
 import { type ServiceConfig } from '../types/common.js';
 import { createLogger } from '../utils/logger.js';
@@ -53,19 +55,27 @@ export function registerComplianceEventSubscriber(
         // retry-safe in the http-client, so a transient 5xx/timeout is retried
         // rather than dropped on the first attempt; compliance re-evaluation is
         // naturally idempotent, so a duplicate delivery is harmless.
-        const response = await client.post('/compliance/events/entity', event, {
-          headers: {
-            'Authorization': getServiceAuthHeader({ serviceName, orgId: event.orgId, role: 'member' }),
-            'Idempotency-Key': `${event.target}:${event.entityId}:${event.eventType}:${event.timestamp.toISOString()}`,
+        const result = await callInternal(client, COMPLIANCE_INTERNAL.entityEvent, {
+          // The whole event (its timestamp included); the contract passes unknown keys through.
+          body: { ...event },
+          options: {
+            headers: {
+              'Authorization': getServiceAuthHeader({ serviceName, orgId: event.orgId, role: 'member' }),
+              'Idempotency-Key': `${event.target}:${event.entityId}:${event.eventType}:${event.timestamp.toISOString()}`,
+            },
           },
         });
         // The client RETURNS a terminal 4xx/5xx (retries exhausted) rather than
         // throwing, so an unchecked call counted every rejection as delivered:
         // a 403 from a mis-provisioned service identity, or a 500 from a broken
         // compliance deploy, dropped every re-validation with no metric and no
-        // log. Route it through the same drop path as a transport error.
-        if (response.statusCode < 200 || response.statusCode >= 300) {
-          throw new Error(`compliance rejected the entity event with HTTP ${response.statusCode}`);
+        // log. Route it through the same drop path as a transport error. A 2xx
+        // IS delivery, whatever its body says (the verdict is compliance's to
+        // log), so an unreadable 2xx reply is not a drop.
+        if (!result.ok && result.reason !== 'invalid-response') {
+          throw new Error(result.reason === 'status'
+            ? `compliance rejected the entity event with HTTP ${result.status}`
+            : 'compliance unreachable');
         }
       } catch (err) {
         // Fire-and-forget: log + a drop metric so sustained loss is alertable

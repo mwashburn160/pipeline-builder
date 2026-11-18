@@ -131,8 +131,8 @@ it('creates the dedicated account on FIRST use and mints a scim-scoped key — e
   // A step-up token is single-use: the key mint asks again rather than
   // replaying the one the account creation spent (STEP_UP_REPLAY).
   expect(createServiceAccountKey).not.toHaveBeenCalled();
-  const second = await screen.findByTestId('stepup-modal');
-  await waitFor(() => expect(second.getAttribute('data-action')).toBe('Issue a SCIM provisioning key'));
+  // Re-queried each time: the step-2 dialog is a NEW element (keyed per stage).
+  await waitFor(() => expect(screen.getByTestId('stepup-modal').getAttribute('data-action')).toBe('Issue a SCIM provisioning key'));
   fireEvent.click(screen.getByTestId('stepup-modal'));
 
   await waitFor(() => expect(createServiceAccountKey).toHaveBeenCalled());
@@ -151,9 +151,13 @@ it('reuses the existing account rather than creating a second one', async () => 
   createServiceAccountKey.mockResolvedValue({ success: true, data: { key: 'pb_sa_x', accessKey: key() } });
 
   render(<ScimProvisioning orgId="org-1" readOnly={false} />);
-  await waitFor(() => expect(listServiceAccounts).toHaveBeenCalled());
+  // Wait for the list to LAND (not just be requested): the stage is chosen from it.
+  await screen.findByText('No SCIM keys yet. Issue one to connect your identity provider.');
+  await waitFor(() => expect(screen.getByRole('button', { name: /issue a scim key/i })).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: /issue a scim key/i }));
-  fireEvent.click(await screen.findByTestId('stepup-modal'));
+  const dialog = await screen.findByTestId('stepup-modal');
+  expect(dialog.getAttribute('data-action')).toBe('Issue a SCIM provisioning key');
+  fireEvent.click(dialog);
 
   await waitFor(() => expect(createServiceAccountKey).toHaveBeenCalled());
   expect(createServiceAccount).not.toHaveBeenCalled();

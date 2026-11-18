@@ -16,6 +16,7 @@ import { Select } from '@/components/ui/Select';
 import { ToggleRow } from '@/components/ui/SettingRow';
 import { useToast } from '@/components/ui/Toast';
 import { useFetch } from '@/hooks/useFetch';
+import { useMutation } from '@/hooks/useMutation';
 import api from '@/lib/api';
 import { queries } from '@/lib/api-cache';
 import { formatError } from '@/lib/constants';
@@ -102,10 +103,6 @@ export function PluginSecurityNotificationSettings({ orgId, canEdit, readOnly }:
   const [secret, setSecret] = useState('');
   const [clearSecret, setClearSecret] = useState(false);
   const [newEmail, setNewEmail] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [resending, setResending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const apply = useCallback((p: PluginSecurityNotificationPrefs) => {
     setPrefs(p);
@@ -146,76 +143,61 @@ export function PluginSecurityNotificationSettings({ orgId, canEdit, readOnly }:
     || secret.trim() !== '' || clearSecret || newEmail.trim() !== ''
   );
 
-  const save = async () => {
-    if (!draft || !prefs || urlProblem || emailProblem || usersMissing) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const body: PluginSecurityNotificationPrefsWrite = {
-        recipientMode: draft.recipientMode,
-        targetUsers: draft.recipientMode === 'users' ? draft.targetUsers : [],
-        notifyRescan: draft.notifyRescan,
-        notifyPipelineOwners: draft.notifyPipelineOwners,
-        digestMode: draft.digestMode,
-        webhookUrl: draft.webhookUrl.trim() || null,
-      };
-      if (secret.trim()) body.webhookSecret = secret.trim();
-      else if (clearSecret) body.webhookSecret = null;
-      if (newEmail.trim()) body.externalEmail = newEmail.trim();
-      const res = await api.updatePluginSecurityNotifications(body);
+  /** A write that returns the stored preferences; applied when they come back. */
+  const prefsWrite = (errorFallback: string, success: (body: PluginSecurityNotificationPrefsWrite) => string) => ({
+    fn: (body: PluginSecurityNotificationPrefsWrite) => api.updatePluginSecurityNotifications(body),
+    scopeKey: orgId,
+    errorFallback,
+    onSuccess: (res: Awaited<ReturnType<typeof api.updatePluginSecurityNotifications>>, body: PluginSecurityNotificationPrefsWrite) => {
       if (res.data?.preferences) apply(res.data.preferences);
-      toast.success(newEmail.trim()
-        ? 'Saved. We sent a confirmation link to the new address; it gets nothing until it is confirmed.'
-        : 'Plugin security notifications saved');
-    } catch (err) {
-      setError(formatError(err, 'Could not save the notification settings'));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const removeEmail = async () => {
-    setSaving(true);
-    setError(null);
-    try {
-      const res = await api.updatePluginSecurityNotifications({ externalEmail: null });
-      if (res.data?.preferences) apply(res.data.preferences);
-      toast.success('External address removed');
-    } catch (err) {
-      setError(formatError(err, 'Could not remove the address'));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const resend = async () => {
-    setResending(true);
-    setError(null);
-    try {
-      const res = await api.updatePluginSecurityNotifications({ resendConfirmation: true });
-      if (res.data?.preferences) apply(res.data.preferences);
-      toast.success('Confirmation link sent again');
-    } catch (err) {
-      setError(formatError(err, 'Could not resend the confirmation'));
-    } finally {
-      setResending(false);
-    }
-  };
-
-  const sendTest = async () => {
-    setTesting(true);
-    setError(null);
-    try {
-      const res = await api.sendPluginSecurityNotificationTest();
+      toast.success(success(body));
+    },
+  });
+  const saveM = useMutation(prefsWrite('Could not save the notification settings', (body) => (body.externalEmail
+    ? 'Saved. We sent a confirmation link to the new address; it gets nothing until it is confirmed.'
+    : 'Plugin security notifications saved')));
+  const removeM = useMutation(prefsWrite('Could not remove the address', () => 'External address removed'));
+  const resendM = useMutation(prefsWrite('Could not resend the confirmation', () => 'Confirmation link sent again'));
+  const testM = useMutation({
+    fn: () => api.sendPluginSecurityNotificationTest(),
+    scopeKey: orgId,
+    errorFallback: 'Could not send the test notice',
+    onSuccess: (res) => {
       const problems = testProblems(res.data?.result);
       if (problems.length > 0) toast.warning(`Test sent, but ${problems.join('; ')}`);
       else toast.success('Test notice sent to every configured channel');
-    } catch (err) {
-      setError(formatError(err, 'Could not send the test notice'));
-    } finally {
-      setTesting(false);
-    }
+    },
+  });
+  const mutations = [saveM, removeM, resendM, testM];
+  // One banner for the card: the latest action's failure (each run clears the others').
+  const error = mutations.map((m) => m.error).find((e) => e !== null) ?? null;
+  const saving = saveM.pending || removeM.pending;
+  const resending = resendM.pending;
+  const testing = testM.pending;
+  const runOnly = <A extends unknown[]>(m: { run: (...a: A) => Promise<unknown> }, ...args: A) => {
+    for (const other of mutations) if (other !== m) other.reset();
+    void m.run(...args);
   };
+
+  const save = () => {
+    if (!draft || !prefs || urlProblem || emailProblem || usersMissing) return;
+    const body: PluginSecurityNotificationPrefsWrite = {
+      recipientMode: draft.recipientMode,
+      targetUsers: draft.recipientMode === 'users' ? draft.targetUsers : [],
+      notifyRescan: draft.notifyRescan,
+      notifyPipelineOwners: draft.notifyPipelineOwners,
+      digestMode: draft.digestMode,
+      webhookUrl: draft.webhookUrl.trim() || null,
+    };
+    if (secret.trim()) body.webhookSecret = secret.trim();
+    else if (clearSecret) body.webhookSecret = null;
+    if (newEmail.trim()) body.externalEmail = newEmail.trim();
+    runOnly(saveM, body);
+  };
+
+  const removeEmail = () => runOnly(removeM, { externalEmail: null });
+  const resend = () => runOnly(resendM, { resendConfirmation: true });
+  const sendTest = () => runOnly(testM);
 
   const toggleUser = (id: string) => {
     if (!draft) return;

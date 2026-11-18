@@ -701,7 +701,7 @@ accepts writes at all, because RustFS exposes no Prometheus endpoint of its own.
 
 #### Inhibition: suppressing consequences, and what cannot be suppressed
 
-At 230 rules one root cause is a pager flood, and a flood is functionally the same
+At 231 rules one root cause is a pager flood, and a flood is functionally the same
 as no alert. The inhibition tree in `alertmanager.yml` suppresses the consequences
 of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service
 being down.
@@ -812,7 +812,9 @@ asymmetries worth stating:
   leg delivered after the deletion commits, retried with backoff — so once that leg is
   dead-lettered the residue is the only evidence the reviews were left behind. Every
   dead leg, org purges included, also counts in `platform_cascade_dead_total{service,kind}`
-  (alerted as `PlatformCascadeLegDead`).
+  (alerted as `PlatformCascadeLegDead`). Once the owning service is fixed, a dead leg is
+  put back in the queue with `POST /api/admin/cascade/:id/redrive` (find it with
+  `GET /api/admin/cascade?status=dead`) rather than by editing `cascade_outbox` in Mongo.
 - **The *Alert delivery* row answers a question no other panel can**: whether
   anyone would hear any of them. `alert_delivery_enabled` and
   `alert_delivery_configured` are deliberately separate — the first is what a

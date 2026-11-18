@@ -163,6 +163,23 @@ groups:
           summary: "{{ $labels.job }} is not responding to scrapes"
           description: "Prometheus has failed to scrape {{ $labels.job }} ({{ $labels.instance }}) for 5m. The target is configured but unreachable — restart loop, OOM, or a hung process. Check: docker compose ps && docker compose logs {{ $labels.job }}"
 
+      # PLATFORM, by name. On this target ServiceDown already covers a stopped
+      # container (static targets keep their series), so the extra case here is
+      # the job vanishing from prometheus.yml; the rule exists mainly so every
+      # target carries the same alert name, and so the page says what is down.
+      # Platform issues and verifies every session and serves identity to every
+      # other service, so its absence is a whole-product outage.
+      - alert: PlatformDown
+        expr: absent(up{job="platform"}) == 1 or max(up{job="platform"}) == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: platform
+          tenancy: platform
+        annotations:
+          summary: "No platform replica is answering scrapes"
+          description: "Prometheus has had no reachable platform target for 5m. Platform issues and verifies sessions and serves identity to every service, so logins and most authenticated traffic fail while this fires. Check: docker compose ps platform && docker compose logs platform"
+
       # ---- Gateway (nginx) ----
       # From nginx/metrics.js: real per-route counters recorded at log time
       # (nginx_http_requests_total{service,status_class} and the
@@ -1761,15 +1778,15 @@ groups:
       # degradation rather than outage. Both are worth knowing about, for
       # different reasons, so they are two alerts rather than one.
       - alert: PooledQuotaResolutionDenying
-        expr: sum by (quotaType) (rate(quota_pool_resolution_failed_total{outcome="denied"}[5m])) > 0
+        expr: sum by (quota_type) (rate(quota_pool_resolution_failed_total{outcome="denied"}[5m])) > 0
         for: 10m
         labels:
           severity: critical
           component: quota
           tenancy: org
         annotations:
-          summary: "Team orgs are refused quota because their root is unresolvable ({{ $labels.quotaType }})"
-          description: "{{ $value | humanize }} denials/sec over 5m sustained for 10m on quotaType={{ $labels.quotaType }}. A team org cannot resolve its pooled root cap, and because its own limits are -1 the reservation is refused with QuotaPoolUnavailableError instead of being allowed through unmetered. This is tenant-visible and the tenant has done nothing wrong, so it is a refusal we are causing. Check the platform org-hierarchy read path that resolves the root."
+          summary: "Team orgs are refused quota because their root is unresolvable ({{ $labels.quota_type }})"
+          description: "{{ $value | humanize }} denials/sec over 5m sustained for 10m on quota_type={{ $labels.quota_type }}. A team org cannot resolve its pooled root cap, and because its own limits are -1 the reservation is refused with QuotaPoolUnavailableError instead of being allowed through unmetered. This is tenant-visible and the tenant has done nothing wrong, so it is a refusal we are causing. Check the platform org-hierarchy read path that resolves the root."
 
       - alert: PooledQuotaResolutionDegraded
         expr: sum(rate(quota_pool_resolution_failed_total[15m])) > 0.05
@@ -3347,7 +3364,7 @@ groups:
           tenancy: platform
         annotations:
           summary: "A {{ $labels.kind }} cascade leg to {{ $labels.service }} ran out of retries"
-          description: "{{ $value | humanize }} {{ $labels.kind }} leg(s) to {{ $labels.service }} were dead-lettered in the last hour: that service still holds the purged org's (or erased user's) data. The subject id is in the platform logs ('Cascade leg DEAD') and the org.cascade.dead audit row; the leg's lastError and lastStatusCode are on its cascade_outbox row. Fix the service, then set the row's status back to 'pending' with nextAttemptAt now — every leg's handler is idempotent, so redelivering is safe."
+          description: "{{ $value | humanize }} {{ $labels.kind }} leg(s) to {{ $labels.service }} were dead-lettered in the last hour: that service still holds the purged org's (or erased user's) data. The subject id is in the platform logs ('Cascade leg DEAD') and the org.cascade.dead audit row; GET /api/admin/cascade?status=dead lists the dead legs with their lastError and lastStatusCode. Fix the service, then POST /api/admin/cascade/<leg id>/redrive (orgs:manage + step-up; resets attempts unless resetAttempts=false) — every leg's handler is idempotent, so redelivering is safe."
 
       # ---- Support: cases opened that nothing can serve ----
       # An `unentitled` send is normal for an org with no support add-on. A

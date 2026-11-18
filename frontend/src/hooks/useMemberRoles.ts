@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useToast } from '@/components/ui/Toast';
+import { useMutation } from '@/hooks/useMutation';
 import api from '@/lib/api';
 import type { OrganizationMember, OrganizationRole } from '@/types';
 import { formatError, settledFailureMessage } from '@/lib/constants';
@@ -36,7 +37,6 @@ export function useMemberRoles({ orgId, canManageRoles, isAuthenticated, onRoles
   // Manage-Roles modal (multi-select of the org's Roles for one member).
   const [rolesTarget, setRolesTarget] = useState<OrganizationMember | null>(null);
   const [selectedRoleIds, setSelectedRoleIds] = useState<Set<string>>(new Set());
-  const [rolesSaving, setRolesSaving] = useState(false);
   const [rolesError, setRolesError] = useState<string | null>(null);
 
   // The org's full Role catalog — needed only for the manage-Roles modal's
@@ -83,6 +83,55 @@ export function useMemberRoles({ orgId, canManageRoles, isAuthenticated, onRoles
     return next;
   });
 
+  type RoleOp = { roleId: string; kind: 'add' | 'remove' };
+  const saveRoles = useMutation({
+    fn: (member: OrganizationMember, ops: RoleOp[], _currentIds: Set<string>) => {
+      if (!orgId) throw new Error('No organization');
+      return Promise.allSettled(ops.map((op) =>
+        op.kind === 'add'
+          ? api.addRoleMember(orgId, op.roleId, { userId: member.id })
+          : api.removeRoleMember(orgId, op.roleId, member.id),
+      ));
+    },
+    scopeKey: orgId,
+    errorFallback: 'Failed to update roles',
+    onError: (_err, message) => setRolesError(message),
+    onSuccess: (results, member, ops, currentIds) => {
+      const failures: string[] = [];
+      const nextRoleIds = new Set(currentIds);
+      results.forEach((r, i) => {
+        const { roleId, kind } = ops[i];
+        const ok = r.status === 'fulfilled' && r.value.success;
+        if (ok) {
+          if (kind === 'add') nextRoleIds.add(roleId); else nextRoleIds.delete(roleId);
+          return;
+        }
+        const msg = settledFailureMessage(r);
+        failures.push(`${kind} ${roleDisplayById(roleId)}: ${msg}`);
+      });
+
+      // Reflect whatever actually applied (updates chips + coarse badge).
+      onRolesChanged();
+
+      if (failures.length === 0) {
+        toast.success(`Updated ${member.username}'s roles`);
+        setRolesTarget(null);
+        return;
+      }
+      // Rebase the target on the applied state so a re-save diffs correctly and
+      // re-attempts only the failures (never a role that was already added/removed).
+      const nextRoles = [...nextRoleIds].map((id) => ({ id, name: roles.find(r => r.id === id)?.name ?? id }));
+      setRolesTarget({ ...member, roles: nextRoles });
+      const applied = ops.length - failures.length;
+      setRolesError(
+        `${applied} change${applied === 1 ? '' : 's'} applied, ${failures.length} failed:\n`
+        + failures.join('\n')
+        + `\nRe-save to retry just the failed change${failures.length === 1 ? '' : 's'}.`,
+      );
+    },
+  });
+  const rolesSaving = saveRoles.pending;
+
   // Diff the desired Role set against the member's current one and apply the
   // adds/removes independently (allSettled) so a mid-flight failure doesn't
   // abort the rest or leave a half-applied set behind a generic error. On
@@ -96,51 +145,13 @@ export function useMemberRoles({ orgId, canManageRoles, isAuthenticated, onRoles
     const toAdd = [...selectedRoleIds].filter((id) => !currentIds.has(id));
     const toRemove = [...currentIds].filter((id) => !selectedRoleIds.has(id));
     if (toAdd.length === 0 && toRemove.length === 0) { setRolesTarget(null); return; }
-    setRolesSaving(true);
     setRolesError(null);
 
-    const ops = [
+    const ops: RoleOp[] = [
       ...toAdd.map((roleId) => ({ roleId, kind: 'add' as const })),
       ...toRemove.map((roleId) => ({ roleId, kind: 'remove' as const })),
     ];
-    const results = await Promise.allSettled(ops.map((op) =>
-      op.kind === 'add'
-        ? api.addRoleMember(orgId, op.roleId, { userId: member.id })
-        : api.removeRoleMember(orgId, op.roleId, member.id),
-    ));
-
-    const failures: string[] = [];
-    const nextRoleIds = new Set(currentIds);
-    results.forEach((r, i) => {
-      const { roleId, kind } = ops[i];
-      const ok = r.status === 'fulfilled' && r.value.success;
-      if (ok) {
-        if (kind === 'add') nextRoleIds.add(roleId); else nextRoleIds.delete(roleId);
-        return;
-      }
-      const msg = settledFailureMessage(r);
-      failures.push(`${kind} ${roleDisplayById(roleId)}: ${msg}`);
-    });
-
-    setRolesSaving(false);
-    // Reflect whatever actually applied (updates chips + coarse badge).
-    onRolesChanged();
-
-    if (failures.length === 0) {
-      toast.success(`Updated ${member.username}'s roles`);
-      setRolesTarget(null);
-      return;
-    }
-    // Rebase the target on the applied state so a re-save diffs correctly and
-    // re-attempts only the failures (never a role that was already added/removed).
-    const nextRoles = [...nextRoleIds].map((id) => ({ id, name: roles.find(r => r.id === id)?.name ?? id }));
-    setRolesTarget({ ...member, roles: nextRoles });
-    const applied = ops.length - failures.length;
-    setRolesError(
-      `${applied} change${applied === 1 ? '' : 's'} applied, ${failures.length} failed:\n`
-      + failures.join('\n')
-      + `\nRe-save to retry just the failed change${failures.length === 1 ? '' : 's'}.`,
-    );
+    await saveRoles.run(member, ops, currentIds);
   };
 
   return {

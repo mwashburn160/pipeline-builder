@@ -8,13 +8,13 @@ import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { IconButton } from '@/components/ui/IconButton';
 import { useToast } from '@/components/ui/Toast';
-import { formatError } from '@/lib/constants';
 import { Pagination } from '@/components/ui/Pagination';
 import { StatusPill } from '@/components/ui/StatusPill';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { TextEmptyState } from '@/components/ui/EmptyState';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { useServerPagination } from '@/hooks/useServerPagination';
+import { useMutation } from '@/hooks/useMutation';
 import type { ComplianceScan } from '@/types/compliance';
 import { SCAN_STATUS_CONFIG as STATUS_CONFIG, RULE_TARGET_IDS, RULE_TARGET_LABELS, SCAN_STATUS_IDS } from '@/lib/compliance-styles';
 import { formatDateTime } from '@/lib/format';
@@ -27,14 +27,11 @@ interface ScanManagerProps {
 
 export default function ScanManager({ onViewScan, readOnly = false }: ScanManagerProps) {
   const toast = useToast();
-  const [triggering, setTriggering] = useState(false);
   const [targetFilter, setTargetFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [triggeredByFilter, setTriggeredByFilter] = useState('');
-  // A running scan awaiting the "stop it?" confirmation, and whether that stop
-  // is in flight.
+  // A running scan awaiting the "stop it?" confirmation.
   const [cancelTarget, setCancelTarget] = useState<ComplianceScan | null>(null);
-  const [cancelling, setCancelling] = useState(false);
 
   const {
     items: scans,
@@ -65,32 +62,30 @@ export default function ScanManager({ onViewScan, readOnly = false }: ScanManage
 
 
 
-  const handleTrigger = async (target: 'plugin' | 'pipeline' | 'all', dryRun = false) => {
-    setTriggering(true);
-    try {
-      await api.triggerScan(target, dryRun ? { dryRun: true } : undefined);
+  const triggerM = useMutation({
+    fn: (target: 'plugin' | 'pipeline' | 'all', dryRun: boolean) =>
+      api.triggerScan(target, dryRun ? { dryRun: true } : undefined),
+    errorFallback: 'Failed to trigger scan',
+    toast: { error: true },
+    onSuccess: (_res, _target, dryRun) => {
       if (dryRun) toast.success('Dry run started — it evaluates everything against the current rules without blocking or notifying.');
       fetchScans();
-    } catch (err) {
-      toast.error(formatError(err, 'Failed to trigger scan'));
-    } finally {
-      setTriggering(false);
-    }
-  };
+    },
+  });
+  const triggering = triggerM.pending;
+  const handleTrigger = (target: 'plugin' | 'pipeline' | 'all', dryRun = false) => triggerM.run(target, dryRun);
 
-  const confirmCancel = async () => {
-    if (!cancelTarget) return;
-    setCancelling(true);
-    try {
-      await api.cancelScan(cancelTarget.id);
+  const cancelM = useMutation({
+    fn: (scan: ComplianceScan) => api.cancelScan(scan.id),
+    errorFallback: 'Failed to cancel scan',
+    toast: { error: true },
+    onSuccess: () => {
       setCancelTarget(null);
       fetchScans();
-    } catch (err) {
-      toast.error(formatError(err, 'Failed to cancel scan'));
-    } finally {
-      setCancelling(false);
-    }
-  };
+    },
+  });
+  const cancelling = cancelM.pending;
+  const confirmCancel = () => (cancelTarget ? cancelM.run(cancelTarget) : undefined);
 
   const columns: Column<ComplianceScan>[] = [
     {

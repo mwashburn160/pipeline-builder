@@ -18,6 +18,7 @@ import { SectionCard } from '@/components/ui/SectionCard';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useToast } from '@/components/ui/Toast';
 import { useAuth } from '@/hooks/useAuth';
+import { useMutation } from '@/hooks/useMutation';
 import { useQuery } from '@/hooks/useQuery';
 import api from '@/lib/api';
 import { invalidate, queries } from '@/lib/api-cache';
@@ -78,83 +79,86 @@ export function TotpSection({ readOnly }: { readOnly: boolean }) {
   // abandoned. Never written anywhere but component state.
   const [enrolment, setEnrolment] = useState<TotpEnrolment | null>(null);
   const [code, setCode] = useState('');
-  const [activating, setActivating] = useState(false);
 
   // Which step-up the modal is currently being opened for (null = closed). The
   // dialog states the consequence itself — see the module note on the one-dialog
   // rule — so there is no separate confirm step in front of it.
   const [pendingStepUp, setPendingStepUp] = useState<'enrol' | 'disable' | 'regenerate' | null>(null);
-  const [busy, setBusy] = useState(false);
 
   // A freshly minted set, shown once. Separate from `enrolment` because
   // regeneration produces one without any enrolment in flight.
   const [freshCodes, setFreshCodes] = useState<string[] | null>(null);
 
-  const startEnrol = async (stepUpToken: string) => {
-    setBusy(true);
-    try {
+  const startEnrolM = useMutation({
+    fn: async (stepUpToken: string) => {
       const res = await api.enrolTotp(stepUpToken);
-      if (!res.success || !res.data) { toast.error(res.message || 'Could not start setup'); return; }
+      if (!res.success || !res.data) throw new Error(res.message || 'Could not start setup');
+      return res.data;
+    },
+    errorFallback: 'Could not start setup',
+    toast: { error: true },
+    onSuccess: (started) => {
       setCode('');
-      setEnrolment(res.data);
-    } catch (err) {
-      toast.error(formatError(err, 'Could not start setup'));
-    } finally {
-      setBusy(false);
-    }
-  };
+      setEnrolment(started);
+    },
+  });
+  const startEnrol = startEnrolM.run;
+
+  const activateM = useMutation({
+    fn: async (trimmed: string) => {
+      const res = await api.activateTotp(trimmed);
+      if (!res.success || !res.data) throw new Error(res.message || 'That code isn\'t right');
+      return res.data;
+    },
+    // The server distinguishes a wrong code from a lockout; show its wording.
+    errorFallback: 'That code isn\'t right',
+    toast: { success: 'Two-factor authentication is on', error: true },
+    onSuccess: (activated) => {
+      setEnrolment(null);
+      setCode('');
+      // Recovery codes come only with the account's FIRST second factor; an
+      // account that already has a set (from a passkey) keeps it.
+      if (activated.recoveryCodes.length > 0) setFreshCodes(activated.recoveryCodes);
+      void reload();
+    },
+  });
+  const activating = activateM.pending;
 
   const activate = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const trimmed = code.trim();
     if (!trimmed) { toast.error('Enter the 6-digit code from your authenticator app'); return; }
-    setActivating(true);
-    try {
-      const res = await api.activateTotp(trimmed);
-      if (!res.success || !res.data) { toast.error(res.message || 'That code isn\'t right'); return; }
-      setEnrolment(null);
-      setCode('');
-      // Recovery codes come only with the account's FIRST second factor; an
-      // account that already has a set (from a passkey) keeps it.
-      if (res.data.recoveryCodes.length > 0) setFreshCodes(res.data.recoveryCodes);
-      toast.success('Two-factor authentication is on');
-      void reload();
-    } catch (err) {
-      // The server distinguishes a wrong code from a lockout; show its wording.
-      toast.error(formatError(err, 'That code isn\'t right'));
-    } finally {
-      setActivating(false);
-    }
+    await activateM.run(trimmed);
   };
 
-  const disable = async (stepUpToken: string) => {
-    setBusy(true);
-    try {
+  const disableM = useMutation({
+    fn: async (stepUpToken: string) => {
       const res = await api.disableTotp(stepUpToken);
-      if (!res.success) { toast.error(res.message || 'Could not turn two-factor off'); return; }
-      toast.success('Two-factor authentication is off');
-      void reload();
-    } catch (err) {
-      // Includes the server's "this is the only way you can sign in" refusal.
-      toast.error(formatError(err, 'Could not turn two-factor off'));
-    } finally {
-      setBusy(false);
-    }
-  };
+      if (!res.success) throw new Error(res.message || 'Could not turn two-factor off');
+    },
+    // Includes the server's "this is the only way you can sign in" refusal.
+    errorFallback: 'Could not turn two-factor off',
+    toast: { success: 'Two-factor authentication is off', error: true },
+    onSuccess: () => { void reload(); },
+  });
+  const disable = disableM.run;
 
-  const regenerate = async (stepUpToken: string) => {
-    setBusy(true);
-    try {
+  const regenerateM = useMutation({
+    fn: async (stepUpToken: string) => {
       const res = await api.regenerateRecoveryCodes(stepUpToken);
-      if (!res.success || !res.data) { toast.error(res.message || 'Could not create new recovery codes'); return; }
-      setFreshCodes(res.data.recoveryCodes);
+      if (!res.success || !res.data) throw new Error(res.message || 'Could not create new recovery codes');
+      return res.data.recoveryCodes;
+    },
+    errorFallback: 'Could not create new recovery codes',
+    toast: { error: true },
+    onSuccess: (codes) => {
+      setFreshCodes(codes);
       void reload();
-    } catch (err) {
-      toast.error(formatError(err, 'Could not create new recovery codes'));
-    } finally {
-      setBusy(false);
-    }
-  };
+    },
+  });
+  const regenerate = regenerateM.run;
+
+  const busy = startEnrolM.pending || disableM.pending || regenerateM.pending;
 
   /** Route the step-up token to whichever action asked for it. */
   const onStepUpConfirmed = async (token: string) => {

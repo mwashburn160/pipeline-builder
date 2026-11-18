@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: d3c70472b73e01fd27d0c17d98347c34010e6117609f164e90fd537444c1dea8
+// SOURCE-SHA256: d624a8c7a06acad1953c1b71d8c0681adfd4997c854347cb9328574b1c49bf4b
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1433,7 +1433,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "At 230 rules one root cause is a pager flood, and a flood is functionally the same as no alert. The inhibition tree in alertmanager.yml suppresses the consequences of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service being down."
+          "content": "At 231 rules one root cause is a pager flood, and a flood is functionally the same as no alert. The inhibition tree in alertmanager.yml suppresses the consequences of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service being down."
         },
         {
           "type": "text",
@@ -1559,7 +1559,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "ecosystem-content scrub failed still deleted the user — the scrub is a cascade-outbox leg delivered after the deletion commits, retried with backoff — so once that leg is dead-lettered the residue is the only evidence the reviews were left behind. Every dead leg, org purges included, also counts in platform_cascade_dead_total{service,kind} (alerted as PlatformCascadeLegDead)."
+          "content": "ecosystem-content scrub failed still deleted the user — the scrub is a cascade-outbox leg delivered after the deletion commits, retried with backoff — so once that leg is dead-lettered the residue is the only evidence the reviews were left behind. Every dead leg, org purges included, also counts in platform_cascade_dead_total{service,kind} (alerted as PlatformCascadeLegDead). Once the owning service is fixed, a dead leg is put back in the queue with POST /api/admin/cascade/:id/redrive (find it with GET /api/admin/cascade?status=dead) rather than by editing cascade_outbox in Mongo."
         },
         {
           "type": "list",

@@ -136,6 +136,60 @@ tests:
       - eval_time: 10m
         alertname: ServiceDown
         exp_alerts: []
+
+  # 8a. PlatformDown closes case 8's gap for platform: NO platform `up` series
+  #     at all (scaled to zero, label changed) fires via the absent() half,
+  #     which carries the matcher's labels.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="kubernetes-pods",service="pipeline",pod="pipeline-1"}'
+        values: '1+0x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: PlatformDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: platform
+              tenancy: platform
+              job: kubernetes-pods
+              service: platform
+            exp_annotations:
+              summary: "No platform replica is answering scrapes"
+              description: "Prometheus has had no reachable platform pod for 5m — either every replica fails its scrape or none is discovered at all. Platform issues and verifies sessions and serves identity to every service, so logins and most authenticated traffic fail while this fires. Check: kubectl get deploy,pods -n pipeline-builder -l app=platform && kubectl describe deploy platform -n pipeline-builder"
+
+  # 8b. Every replica discovered and failing fires via the max() half — no labels
+  #     beyond the rule's own.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="kubernetes-pods",service="platform",pod="platform-a"}'
+        values: '0+0x20'
+      - series: 'up{job="kubernetes-pods",service="platform",pod="platform-b"}'
+        values: '0+0x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: PlatformDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: platform
+              tenancy: platform
+            exp_annotations:
+              summary: "No platform replica is answering scrapes"
+              description: "Prometheus has had no reachable platform pod for 5m — either every replica fails its scrape or none is discovered at all. Platform issues and verifies sessions and serves identity to every service, so logins and most authenticated traffic fail while this fires. Check: kubectl get deploy,pods -n pipeline-builder -l app=platform && kubectl describe deploy platform -n pipeline-builder"
+
+  # 8c. One replica of two down is ServiceDown's page, not PlatformDown's: the
+  #     service still answers.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="kubernetes-pods",service="platform",pod="platform-a"}'
+        values: '0+0x20'
+      - series: 'up{job="kubernetes-pods",service="platform",pod="platform-b"}'
+        values: '1+0x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: PlatformDown
+        exp_alerts: []
   # 9-11. Datastore reachability. Distinct from ServiceDown: the exporter is UP
   #       and reporting, but its target is not answering.
   - interval: 1m
@@ -2456,7 +2510,7 @@ tests:
   # ---------------------------------------------------------------------------
   - interval: 1m
     input_series:
-      - series: 'quota_pool_resolution_failed_total{outcome="denied",quotaType="pipelines",service="quota",pod="quota-aaa"}'
+      - series: 'quota_pool_resolution_failed_total{outcome="denied",quota_type="pipelines",service="quota",pod="quota-aaa"}'
         values: '0+6x30'
     alert_rule_test:
       # 5 minutes in, the `for: 10m` has not elapsed.
@@ -2466,10 +2520,10 @@ tests:
       - eval_time: 20m
         alertname: PooledQuotaResolutionDenying
         exp_alerts:
-          - exp_labels: { severity: critical, component: quota, tenancy: org, quotaType: pipelines }
+          - exp_labels: { severity: critical, component: quota, tenancy: org, quota_type: pipelines }
             exp_annotations:
               summary: "Team orgs are refused quota because their root is unresolvable (pipelines)"
-              description: "100m denials/sec over 5m sustained for 10m on quotaType=pipelines. A team org cannot resolve its pooled root cap, and because its own limits are -1 the reservation is refused with QuotaPoolUnavailableError instead of being allowed through unmetered. This is tenant-visible and the tenant has done nothing wrong, so it is a refusal we are causing. Check the platform org-hierarchy read path that resolves the root."
+              description: "100m denials/sec over 5m sustained for 10m on quota_type=pipelines. A team org cannot resolve its pooled root cap, and because its own limits are -1 the reservation is refused with QuotaPoolUnavailableError instead of being allowed through unmetered. This is tenant-visible and the tenant has done nothing wrong, so it is a refusal we are causing. Check the platform org-hierarchy read path that resolves the root."
 
   # 15. The negative control for 14, and the positive case for the degraded
   # alert at the same time: serving the LAST-KNOWN caps is real enforcement, so
@@ -2477,7 +2531,7 @@ tests:
   # failing, which is what the degraded alert is for.
   - interval: 1m
     input_series:
-      - series: 'quota_pool_resolution_failed_total{outcome="cached",quotaType="pipelines",service="quota",pod="quota-aaa"}'
+      - series: 'quota_pool_resolution_failed_total{outcome="cached",quota_type="pipelines",service="quota",pod="quota-aaa"}'
         values: '0+6x45'
     alert_rule_test:
       - eval_time: 35m
@@ -2495,7 +2549,7 @@ tests:
   # root read takes during a platform restart — quiet.
   - interval: 1m
     input_series:
-      - series: 'quota_pool_resolution_failed_total{outcome="cached",quotaType="pipelines",service="quota",pod="quota-aaa"}'
+      - series: 'quota_pool_resolution_failed_total{outcome="cached",quota_type="pipelines",service="quota",pod="quota-aaa"}'
         values: '0+1x45'
     alert_rule_test:
       - eval_time: 35m

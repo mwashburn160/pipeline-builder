@@ -17,7 +17,7 @@ const mockRouter = { push: mockPush, asPath: '/dashboard/executions?status=faile
 jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => mockRouter));
 jest.mock('@/lib/passkeys', () => ({ signInWithPasskey: jest.fn<AnyFn>(async () => undefined) }));
 
-let expire: (() => void) | null = null;
+let expire: ((reason?: string) => void) | null = null;
 const mockApi = {
   isAuthenticated: jest.fn<AnyFn>(() => true),
   restoreSession: jest.fn<AnyFn>(async () => true),
@@ -31,7 +31,7 @@ const mockApi = {
   onAccessTokenChange: () => () => undefined,
   onOrganizationChange: () => () => undefined,
   onIdentityChange: () => () => undefined,
-  onSessionExpired: jest.fn<AnyFn>((cb: () => void) => { expire = cb; return () => { expire = null; }; }),
+  onSessionExpired: jest.fn<AnyFn>((cb: (reason?: string) => void) => { expire = cb; return () => { expire = null; }; }),
   login: jest.fn<AnyFn>(async () => ({ success: true, data: {} })),
   verifyMfaLogin: jest.fn<AnyFn>(async () => ({ success: true })),
   logout: jest.fn<AnyFn>(async () => undefined),
@@ -71,6 +71,13 @@ describe('useAuth return-to', () => {
     expect(mockPush).toHaveBeenCalledWith('/?expired=1');
   });
 
+  it('a session that outlived its policy lands on the sign-in page with that reason', async () => {
+    await mounted();
+    act(() => { expire?.('session-expired'); });
+    expect(window.sessionStorage.getItem(POST_SIGN_IN_KEY)).toBe('/dashboard/executions?status=failed');
+    expect(mockPush).toHaveBeenCalledWith('/?reason=session-expired');
+  });
+
   it.each([
     ['password', (r: ReturnType<typeof useAuth>) => r.login('ada@example.com', 'pw')],
     ['mfa', (r: ReturnType<typeof useAuth>) => r.completeMfaLogin('chal', '123456')],
@@ -95,5 +102,14 @@ describe('useAuth return-to', () => {
     await act(async () => { await result.current.logout(); });
     await waitFor(() => expect(window.sessionStorage.getItem(POST_SIGN_IN_KEY)).toBeNull());
     expect(mockPush).toHaveBeenCalledWith('/');
+  });
+
+  it('a sign-out with a reason carries it to the sign-in page; a click event is not a reason', async () => {
+    const result = await mounted();
+    await act(async () => { await result.current.logout({ reason: 'org-reauth' }); });
+    expect(mockPush).toHaveBeenLastCalledWith('/?reason=org-reauth');
+    // `logout` is wired straight to onClick — the event it receives must not leak into the URL.
+    await act(async () => { await result.current.logout({ reason: 'bogus' } as never); });
+    expect(mockPush).toHaveBeenLastCalledWith('/');
   });
 });

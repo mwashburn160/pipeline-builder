@@ -186,16 +186,28 @@ export async function* iterateLogs(
   while (emitted < opts.maxEntries) {
     if (Date.now() - startedAt > opts.deadlineMs) return;
 
+    const limit = Math.min(opts.pageSize, opts.maxEntries - emitted + seenAtCursor.size);
     const page = await queryLogs(logQL, tenants, {
       startMs: cursorMs,
       endMs: opts.endMs,
-      limit: Math.min(opts.pageSize, opts.maxEntries - emitted + seenAtCursor.size),
+      limit,
       direction: 'forward',
     });
     if (page.length === 0) return;
 
     const fresh = page.filter((e) => !(e.time === cursorMs && seenAtCursor.has(e.line)));
-    if (fresh.length === 0) return; // whole page was the boundary instant we already sent
+    if (fresh.length === 0) {
+      // A SHORT page of nothing new: the window is exhausted.
+      if (page.length < limit) return;
+      // A FULL page of nothing new: at least `limit` lines share the boundary
+      // instant, so re-querying from it can never get past them (the limit is
+      // capped at Loki's per-query maximum). Step past the instant rather than
+      // ending the walk — ending it silently truncated the export of EVERY
+      // later line, where stepping loses at most the rest of this millisecond.
+      cursorMs += 1;
+      seenAtCursor = new Set();
+      continue;
+    }
 
     const slice = fresh.slice(0, opts.maxEntries - emitted);
     emitted += slice.length;

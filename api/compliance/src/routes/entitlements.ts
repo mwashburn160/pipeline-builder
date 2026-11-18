@@ -6,30 +6,32 @@ import {
   sendBadRequest,
   ErrorCode,
   audited,
-  getParam,
-  normalizeOrgId,
+  COMPLIANCE_INTERNAL,
+  contractErrorMessage,
+  contractRoute,
+  parseContractBody,
+  parseContractParams,
   requireInternalService,
-  validateBody,
   COMPLIANCE_CONTENT_SETS,
   recordAudit,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
-import { z } from 'zod';
 import { subscriptionService } from '../services/subscription-service.js';
 
+/** The router's mount (app-routes), which the contract paths sit under. */
+const MOUNT = '/compliance/entitlements';
+
 /**
- * Body of the entitlement-sync push: the compliance content sets the org is
- * currently ENTITLED to, plus the OPTIONAL `occurredAt` timestamp of the
+ * The api-core contracts. The push body is the compliance content sets the org
+ * is currently ENTITLED to, plus the OPTIONAL `occurredAt` timestamp of the
  * entitlement change (billing stamps it). Unknown set names are accepted by the
  * schema but filtered out below, so a future billing-side set can't error this
  * leg before the compliance side learns about it (forward-compatible, no
- * coupling).
+ * coupling). The `:orgId` param parses canonical (trimmed, lowercased).
  */
-const EntitlementsSchema = z.object({
-  sets: z.array(z.string()).max(16),
-  occurredAt: z.string().datetime().optional(),
-});
+const SYNC = COMPLIANCE_INTERNAL.syncEntitlements;
+const READ = COMPLIANCE_INTERNAL.readEntitlements;
 
 /**
  * Machine-only auth for the entitlement-sync legs: the SPECIFIC billing service
@@ -43,7 +45,7 @@ const EntitlementsSchema = z.object({
  * reconcile is billing's drift reconciler, which re-drives the push on its own
  * schedule.
  */
-const requireBillingService = requireInternalService({ callers: ['billing'] });
+const requireBillingService = requireInternalService({ callers: SYNC.callers });
 
 /**
  * Inbound billing → compliance entitlement sync.
@@ -65,14 +67,15 @@ const requireBillingService = requireInternalService({ callers: ['billing'] });
 export function createEntitlementSyncRoutes(): Router {
   const router = Router();
 
-  router.put('/:orgId', requireBillingService, audited('compliance.rule.toggle'), withRoute(async ({ req, res, ctx }) => {
+  router.put(contractRoute(SYNC, MOUNT), requireBillingService, audited('compliance.rule.toggle'), withRoute(async ({ req, res, ctx }) => {
     // Canonical (trimmed, lowercased) like quota's `authorizeOrg`: subscriptions,
     // the watermark and the advisory lock all key on the stored lowercase id, so
     // a mixed-case push would reconcile — and lock — a different org key.
-    const orgId = normalizeOrgId(getParam(req.params, 'orgId'));
-    if (!orgId) return sendBadRequest(res, 'orgId path parameter is required', ErrorCode.VALIDATION_ERROR);
+    const params = parseContractParams(SYNC, req);
+    if (!params.ok) return sendBadRequest(res, contractErrorMessage(params), ErrorCode.VALIDATION_ERROR);
+    const { orgId } = params.value;
 
-    const validation = validateBody(req, EntitlementsSchema);
+    const validation = parseContractBody(SYNC, req);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
 
     // Clamp to the sets the compliance side actually curates — an unknown/removed
@@ -130,12 +133,12 @@ export function createEntitlementSyncRoutes(): Router {
   // Billing's drift reconciler GETs this and diffs against the sets it expects
   // the org to hold, re-driving the PUT push on mismatch. Same internal-route
   // guard as the PUT — the `:orgId` is the target root org, not the token's org.
-  router.get('/:orgId', requireBillingService, withRoute(async ({ req, res, ctx }) => {
-    // Canonical (trimmed, lowercased) like quota's `authorizeOrg`: subscriptions,
-    // the watermark and the advisory lock all key on the stored lowercase id, so
-    // a mixed-case push would reconcile — and lock — a different org key.
-    const orgId = normalizeOrgId(getParam(req.params, 'orgId'));
-    if (!orgId) return sendBadRequest(res, 'orgId path parameter is required', ErrorCode.VALIDATION_ERROR);
+  router.get(contractRoute(READ, MOUNT), requireBillingService, withRoute(async ({ req, res, ctx }) => {
+    // Canonical (trimmed, lowercased) like the PUT: the subscriptions key on the
+    // stored lowercase id.
+    const params = parseContractParams(READ, req);
+    if (!params.ok) return sendBadRequest(res, contractErrorMessage(params), ErrorCode.VALIDATION_ERROR);
+    const { orgId } = params.value;
 
     const sets = await subscriptionService.getActiveEntitledSets(orgId);
     ctx.log('COMPLETED', 'Read active compliance entitlement sets', { orgId, sets });

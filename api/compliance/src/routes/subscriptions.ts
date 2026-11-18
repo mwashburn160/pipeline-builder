@@ -13,7 +13,9 @@ import {
   requirePermission,
   requireInternalService,
   actorId,
+  COMPLIANCE_INTERNAL,
   complianceFeatureForTags,
+  contractRoute,
   type FeatureFlag,
   recordAudit,
   type RuleSeverity,
@@ -30,6 +32,9 @@ import { withInheritedSource } from '../helpers/inherited-source.js';
 import { uuidParam } from '../helpers/uuid-param.js';
 import { complianceRuleService } from '../services/compliance-rule-service.js';
 import { subscriptionService } from '../services/subscription-service.js';
+
+/** Platform's onboarding auto-subscribe (an internal route on this router). */
+const AUTO_SUBSCRIBE = COMPLIANCE_INTERNAL.autoSubscribe;
 
 /** Compliance-write gate, built once. */
 const requireComplianceWrite = requirePermission('compliance:write');
@@ -167,8 +172,10 @@ export function createSubscriptionRoutes(): Router {
   // Internal-only: the platform service calls this during org onboarding with a
   // service JWT (`getServiceAuthHeader`). `requireInternalService` rejects any
   // interactive user token — so a member can't bulk-mint subscriptions — and
-  // any service other than `platform`.
-  router.post('/auto-subscribe', requireInternalService({ callers: ['platform'] }), audited('compliance.subscription.auto-subscribe'), withRoute(async ({ res, ctx, orgId, userId }) => {
+  // any service other than `platform`. The api-core contract
+  // (`COMPLIANCE_INTERNAL.autoSubscribe`) is the one definition of the path,
+  // its caller and the `{ subscribed }` reply; the route reads no body.
+  router.post(contractRoute(AUTO_SUBSCRIBE, '/compliance/subscriptions'), requireInternalService({ callers: AUTO_SUBSCRIBE.callers }), audited('compliance.subscription.auto-subscribe'), withRoute(async ({ res, ctx, orgId, userId }) => {
     const count = await subscriptionService.autoSubscribeToPublished(orgId, userId);
     ctx.log('COMPLETED', 'Auto-subscribed to published rules', { count });
     // The subscriptions are INACTIVE (nothing enforces until an audited

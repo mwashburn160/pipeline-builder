@@ -8,6 +8,7 @@ import { takeReturnPath } from '@/lib/return-to';
 import Link from 'next/link';
 import { XCircle, ArrowLeft } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { useMutation } from '@/hooks/useMutation';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Card } from '@/components/ui/Card';
 import { LinkButton } from '@/components/ui/LinkButton';
@@ -59,7 +60,6 @@ export default function OAuthCallbackPage() {
   // The account owes its authenticator code before the session opens.
   const [mfaChallenge, setMfaChallenge] = useState<string | null>(null);
   const [mfaCode, setMfaCode] = useState('');
-  const [mfaBusy, setMfaBusy] = useState(false);
   // Both factors verified, but the password is below the org policy: the same
   // new-password step the sign-in card shows, else the person is stuck here.
   const passwordChange = useRequiredPasswordChange({
@@ -68,24 +68,26 @@ export default function OAuthCallbackPage() {
   });
   const { pwChange, takeLoginResult } = passwordChange;
 
-  const submitMfa = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!mfaChallenge || !mfaCode.trim()) return;
-    setMfaBusy(true);
-    setError(null);
-    try {
-      // Handled exactly as the sign-in card's MFA leg: a result that owes a new
-      // password swaps the code form for that step.
-      const result = await completeMfaLogin(mfaChallenge, mfaCode.trim());
+  const mfa = useMutation({
+    // Handled exactly as the sign-in card's MFA leg: a result that owes a new
+    // password swaps the code form for that step.
+    fn: (challengeId: string, code: string) => completeMfaLogin(challengeId, code),
+    errorFallback: 'That code did not work. Try again.',
+    onSuccess: (result) => {
       if (takeLoginResult(result)) {
         setMfaChallenge(null);
         setMfaCode('');
       }
-    } catch (err) {
-      setError(formatError(err, 'That code did not work. Try again.'));
-    } finally {
-      setMfaBusy(false);
-    }
+    },
+    onError: (_err, message) => setError(message),
+  });
+  const mfaBusy = mfa.pending;
+
+  const submitMfa = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!mfaChallenge || !mfaCode.trim()) return;
+    setError(null);
+    await mfa.run(mfaChallenge, mfaCode.trim());
   };
 
   useEffect(() => {

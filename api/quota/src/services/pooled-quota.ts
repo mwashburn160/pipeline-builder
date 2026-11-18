@@ -302,13 +302,13 @@ async function denyPooledFailure(orgId: string, label: string, err: unknown, isT
     logger.error('Pooled root cap unresolvable for a team — DENYING (its own limits are -1)', {
       orgId, quotaType: label, err: String(err),
     });
-    emitCounter(POOL_FAILURE_METRIC, { quotaType: label, outcome: 'denied' });
+    emitCounter(POOL_FAILURE_METRIC, { quota_type: label, outcome: 'denied' });
     throw new QuotaPoolUnavailableError(orgId);
   }
   logger.warn('Pooled root cap unresolvable; enforcing the org\'s own limits', {
     orgId, quotaType: label, err: String(err),
   });
-  emitCounter(POOL_FAILURE_METRIC, { quotaType: label, outcome: 'own_limits' });
+  emitCounter(POOL_FAILURE_METRIC, { quota_type: label, outcome: 'own_limits' });
   return null;
 }
 
@@ -327,7 +327,7 @@ async function pooledFallbackStatus(
     logger.warn('Pooled root cap unresolvable; serving the last-known cap', {
       orgId, quotaType, err: String(err),
     });
-    emitCounter(POOL_FAILURE_METRIC, { quotaType, outcome: 'cached' });
+    emitCounter(POOL_FAILURE_METRIC, { quota_type: quotaType, outcome: 'cached' });
     return cached;
   }
   return denyPooledFailure(orgId, quotaType, err, isTeam);
@@ -356,7 +356,7 @@ async function pooledReadFallback(
   }
   if (served > 0) {
     logger.warn('Pooled quota read failed; serving the last-known caps', { orgId, dimensions: served, err: String(err) });
-    emitCounter(POOL_FAILURE_METRIC, { quotaType: 'all', outcome: 'cached' });
+    emitCounter(POOL_FAILURE_METRIC, { quota_type: 'all', outcome: 'cached' });
     return own;
   }
   await denyPooledFailure(orgId, 'all', err, isTeam);

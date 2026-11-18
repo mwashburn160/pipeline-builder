@@ -97,12 +97,6 @@ describe('buildSweep', () => {
     expect(lockedCalls.map((c) => c.name)).toEqual(['locked']);
     expect(mockCreateScheduler).toHaveBeenCalledWith(expect.objectContaining({ name: 'every-pod' }));
   });
-
-  it('builds a custom sweep through its own factory (null = disabled)', () => {
-    const own = fakeScheduler();
-    expect(buildSweep({ name: 'custom', create: () => own as never })).toBe(own);
-    expect(buildSweep({ name: 'off', create: () => null })).toBeNull();
-  });
 });
 
 describe('registerBackgroundSweeps', () => {

@@ -15,6 +15,7 @@ import { Textarea } from '@/components/ui/Textarea';
 import { formatError } from '@/lib/constants';
 import { installActionState, VERSION_POLICY_LABELS } from '@/lib/plugin-installs';
 import { majorOf } from '@/lib/public-directory/links';
+import { useMutation } from '@/hooks/useMutation';
 import type { CatalogEntry, InstallUpgrade, InstallView, UpdateInstallBody } from '@/types/plugin-installs';
 import { InstallPolicyDialog } from './InstallPolicyDialog';
 
@@ -44,7 +45,6 @@ export function InstallControls({
 }) {
   const state = installActionState(entry);
   const { listing } = entry;
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
@@ -53,19 +53,20 @@ export function InstallControls({
   // approver (`POST /plugins/installs/:id/change-requests`).
   const [requesting, setRequesting] = useState<{ install: InstallView; body: UpdateInstallBody; what: string } | null>(null);
 
+  const action = useMutation({
+    fn: (fn: () => Promise<string | null>) => fn(),
+    errorFallback: 'The install action failed',
+    onSuccess: (message) => { setNotice(message); onChanged(); },
+    onError: (_e, message) => setError(message),
+    onStepUpResumed: () => onChanged(),
+  });
+  const busy = action.pending;
+
   const run = async (fn: () => Promise<string | null>) => {
-    setBusy(true);
     setError(null);
     setNotice(null);
-    try {
-      setNotice(await fn());
-      onChanged();
-    } catch (e) {
-      setError(formatError(e, 'The install action failed'));
-    } finally {
-      setBusy(false);
-      setConfirm(null);
-    }
+    await action.run(fn);
+    setConfirm(null);
   };
 
   const install = () => run(async () => {
@@ -314,22 +315,21 @@ function RequestChangeDialog({ listingName, what, onSubmit, onClose }: {
   onClose: () => void;
 }) {
   const [note, setNote] = useState('');
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const noteId = useId();
+  const request = useMutation({
+    fn: (n: string) => onSubmit(n),
+    errorFallback: 'Could not request the change',
+    formatError: (e) => (e instanceof ApiError && e.code === 'DUPLICATE_ENTRY'
+      ? 'A change to this install is already waiting for approval.'
+      : formatError(e, 'Could not request the change')),
+    onSuccess: () => onClose(),
+    onError: (_e, message) => setError(message),
+  });
+  const busy = request.pending;
   const submit = async () => {
-    setBusy(true);
     setError(null);
-    try {
-      await onSubmit(note.trim());
-      onClose();
-    } catch (e) {
-      setError(e instanceof ApiError && e.code === 'DUPLICATE_ENTRY'
-        ? 'A change to this install is already waiting for approval.'
-        : formatError(e, 'Could not request the change'));
-    } finally {
-      setBusy(false);
-    }
+    await request.run(note.trim());
   };
   return (
     <Modal

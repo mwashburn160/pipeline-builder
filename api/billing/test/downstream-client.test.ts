@@ -45,7 +45,8 @@ jest.unstable_mockModule('../src/config.js', () => ({
   },
 }));
 
-const { fetchOwnQuotaSnapshot, fetchQuotaSnapshot, fetchQuotaTypeUsage, fetchSeatUsage, fetchSupportUsage, getJson, putJson } = await import('../src/helpers/downstream-client.js');
+const { fetchOwnQuotaSnapshot, fetchQuotaSnapshot, fetchQuotaTypeUsage, fetchSeatUsage, fetchSupportUsage, getJson, putContractJson, putJson } = await import('../src/helpers/downstream-client.js');
+const { COMPLIANCE_INTERNAL } = await import('@pipeline-builder/api-core');
 
 beforeEach(() => { clientGet.mockReset(); clientPut.mockReset(); });
 
@@ -78,6 +79,34 @@ describe('putJson', () => {
   it('returns null on a transport failure', async () => {
     clientPut.mockReturnValue(null);
     expect(await putJson(TARGET, '/y', {}, 'org-1', 'Bearer x')).toBeNull();
+  });
+});
+
+describe('putContractJson', () => {
+  const SYNC = COMPLIANCE_INTERNAL.syncEntitlements;
+
+  it('PUTs the contract path and the validated body with tenant headers', async () => {
+    clientPut.mockReturnValue({ statusCode: 200, body: { data: { ok: true, activated: 1, deactivated: 0 } } });
+    expect(await putContractJson(TARGET, SYNC, { sets: ['standard'] }, 'org-1', 'Bearer x')).toEqual({ statusCode: 200 });
+    expect(clientPut).toHaveBeenCalledWith('/compliance/entitlements/org-1', { sets: ['standard'] }, { headers: { 'Authorization': 'Bearer x', 'x-org-id': 'org-1' } });
+  });
+
+  it('reports a refusal, and a 2xx whose body is not the contract\'s, by status', async () => {
+    clientPut.mockReturnValue({ statusCode: 409, body: {} });
+    expect(await putContractJson(TARGET, SYNC, { sets: [] }, 'org-1', 'Bearer x')).toEqual({ statusCode: 409 });
+    clientPut.mockReturnValue({ statusCode: 200, body: {} });
+    expect(await putContractJson(TARGET, SYNC, { sets: [] }, 'org-1', 'Bearer x')).toEqual({ statusCode: 200 });
+  });
+
+  it('returns null on a transport failure', async () => {
+    clientPut.mockReturnValue(null);
+    expect(await putContractJson(TARGET, SYNC, { sets: [] }, 'org-1', 'Bearer x')).toBeNull();
+  });
+
+  it('throws (never sends) a body the contract refuses', async () => {
+    await expect(putContractJson(TARGET, SYNC, { sets: Array.from({ length: 17 }, () => 'x') }, 'org-1', 'Bearer x'))
+      .rejects.toThrow(/Invalid request for internal endpoint compliance.syncEntitlements/);
+    expect(clientPut).not.toHaveBeenCalled();
   });
 });
 

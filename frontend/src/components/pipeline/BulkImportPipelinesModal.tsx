@@ -8,11 +8,11 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { Modal } from '@/components/ui/Modal';
 import { Textarea } from '@/components/ui/Textarea';
 import { useToast } from '@/components/ui/Toast';
+import { useMutation } from '@/hooks/useMutation';
 import { VulnWarningList } from '@/components/plugin/VulnSeverity';
 import api from '@/lib/api';
 import { ApiError } from '@/lib/api/errors';
 import { invalidate } from '@/lib/api-cache';
-import { formatError } from '@/lib/constants';
 import type { BulkCreateResult, BulkPipelineSpec } from '@/lib/api/domains/pipelines';
 
 /**
@@ -61,22 +61,25 @@ export default function BulkImportPipelinesModal({ onClose, onImported }: {
 }) {
   const toast = useToast();
   const [text, setText] = useState('');
-  const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<BulkCreateResult | null>(null);
 
-  const handleImport = async () => {
-    setError(null);
-    setResult(null);
-    const parsed = parseBulkPipelineSpecs(text);
-    if ('error' in parsed) {
-      setError(parsed.error);
-      return;
-    }
-
-    setCreating(true);
-    try {
-      const res = await api.bulkCreatePipelines(parsed.specs);
+  const importMutation = useMutation({
+    fn: async (specs: BulkPipelineSpec[]) => {
+      try {
+        return await api.bulkCreatePipelines(specs);
+      } catch (err) {
+        // Every spec refused is a RESULT (per-item reasons), not a banner error.
+        const allFailed = bulkResultFromError(err);
+        if (!allFailed) throw err;
+        setResult(allFailed);
+        toast.error(`0 created, ${allFailed.failed} failed`);
+        return null;
+      }
+    },
+    errorFallback: 'Bulk create failed',
+    onSuccess: (res) => {
+      if (!res) return;
       if (res.success && res.data) {
         setResult(res.data);
         invalidate.pipelines();
@@ -91,17 +94,21 @@ export default function BulkImportPipelinesModal({ onClose, onImported }: {
       } else {
         setError(res.message || 'Bulk create failed');
       }
-    } catch (err) {
-      const allFailed = bulkResultFromError(err);
-      if (allFailed) {
-        setResult(allFailed);
-        toast.error(`0 created, ${allFailed.failed} failed`);
-      } else {
-        setError(formatError(err, 'Bulk create failed'));
-      }
-    } finally {
-      setCreating(false);
+    },
+    onError: (_err, message) => setError(message),
+  });
+  const creating = importMutation.pending;
+
+  const handleImport = async () => {
+    setError(null);
+    setResult(null);
+    const parsed = parseBulkPipelineSpecs(text);
+    if ('error' in parsed) {
+      setError(parsed.error);
+      return;
     }
+
+    await importMutation.run(parsed.specs);
   };
 
   return (

@@ -30,7 +30,9 @@ const mockFetchSeatActivity = jest.fn<AnyFn>();
 // other readers of this module are pulled in through billing-helpers).
 jest.unstable_mockModule('../src/helpers/downstream-client.js', () => ({
   getJson: jest.fn<AnyFn>(),
+  getContractJson: jest.fn<AnyFn>(),
   putJson: jest.fn<AnyFn>(),
+  putContractJson: jest.fn<AnyFn>(),
   fetchQuotaSnapshot: jest.fn<AnyFn>(),
   fetchOwnQuotaSnapshot: jest.fn<AnyFn>(),
   fetchQuotaTypeUsage: jest.fn<AnyFn>(),

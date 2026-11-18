@@ -22,6 +22,7 @@
  */
 
 import { createLogger, getParam, sendError, sendSuccess, userHasPermission, isSystemAdmin } from '@pipeline-builder/api-core';
+import { isUniqueViolation } from '@pipeline-builder/pipeline-data';
 import type { Response } from 'express';
 import { audit } from '../helpers/audit.js';
 import { forbid, getAdminContext, requireAuthContext, withController } from '../helpers/controller-helper.js';
@@ -132,19 +133,31 @@ export const createDashboard = withController('Create dashboard', async (req, re
 
   // Per-org cap on dashboards; reserve atomically before insert.
   await withFeatureQuota(res, orgId, 'dashboards', async () => {
-    const created = await dashboardService.create(
-      {
-        name: body.name,
-        description: body.description ?? undefined,
-        visibility,
-        layoutJson: body.layoutJson ?? {},
-        panels,
-      },
-      { orgId, userId },
-    );
+    let created: Awaited<ReturnType<typeof dashboardService.create>>;
+    try {
+      created = await dashboardService.create(
+        {
+          name: body.name,
+          description: body.description ?? undefined,
+          visibility,
+          layoutJson: body.layoutJson ?? {},
+          panels,
+        },
+        { orgId, userId },
+      );
+    } catch (err) {
+      // (org_id, name) is unique among live dashboards — a duplicate name is the
+      // caller's conflict (409), not a server fault. `false` gives the slot back.
+      if (isUniqueViolation(err)) {
+        sendError(res, 409, 'A dashboard with this name already exists.');
+        return false;
+      }
+      throw err;
+    }
 
     audit(req, 'dashboard.create', { targetType: 'dashboard', targetId: created.id, details: { name: created.name, visibility } });
     sendSuccess(res, 201, { dashboard: created });
+    return true;
   });
 });
 
@@ -180,17 +193,24 @@ export const updateDashboard = withController('Update dashboard', async (req, re
     panels = checked;
   }
 
-  const updated = await dashboardService.update(
-    getParam(req.params, 'id')!,
-    {
-      name: body.name,
-      description: body.description,
-      visibility: body.visibility,
-      layoutJson: body.layoutJson,
-      panels,
-    },
-    { userId },
-  );
+  let updated: Awaited<ReturnType<typeof dashboardService.update>>;
+  try {
+    updated = await dashboardService.update(
+      getParam(req.params, 'id')!,
+      {
+        name: body.name,
+        description: body.description,
+        visibility: body.visibility,
+        layoutJson: body.layoutJson,
+        panels,
+      },
+      { userId },
+    );
+  } catch (err) {
+    // A rename onto a live namesake collides on the (org_id, name) index.
+    if (isUniqueViolation(err)) return sendError(res, 409, 'A dashboard with this name already exists.');
+    throw err;
+  }
   if (!updated) return sendError(res, 404, 'Dashboard not found');
 
   // canWrite lets sysadmins edit any dashboard, so the affected org may
@@ -338,8 +358,9 @@ export const restoreDashboard = withController('Restore dashboard', async (req, 
     } catch (err) {
       // The (org_id, name) unique index is partial (WHERE deleted_at IS NULL), so a
       // live namesake can coexist with this tombstone; restoring then collides.
-      // Surface as 409, not a raw 500.
-      if ((err as { code?: string }).code === '23505') {
+      // Surface as 409, not a raw 500. Drizzle wraps the driver error (the
+      // SQLSTATE is on `cause`), so match through the chain.
+      if (isUniqueViolation(err)) {
         sendError(res, 409, 'A dashboard with this name already exists — rename it and try again.');
         return false;
       }

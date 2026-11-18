@@ -11,6 +11,7 @@ import { useAuth } from '@/hooks/useAuth';
 import type { MemberOption } from '@/components/message/RecipientPicker';
 import api from '@/lib/api';
 import { useFetch } from '@/hooks/useFetch';
+import { useMutation } from '@/hooks/useMutation';
 import type { Message, MessageAttachment, SupportCaseSummary } from '@/types';
 import { scrollBehavior } from '@/lib/motion';
 import { SYSTEM_ORG_ID, formatError } from '@/lib/constants';
@@ -196,10 +197,8 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
   // edited; `editText` its working copy; `editError` a failed-save message.
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
-  const [savingEdit, setSavingEdit] = useState(false);
   const [editError, setEditError] = useState('');
   const [replyAttachments, setReplyAttachments] = useState<MessageAttachment[]>([]);
-  const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Monotonic counter for optimistic temp ids — stable within this mount and
@@ -325,23 +324,41 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
   };
 
   /** Persist a content edit, then patch the bubble in place (content + editedAt). */
-  const saveEdit = async (id: string) => {
-    const content = editText.trim();
-    if (!content || savingEdit) return;
-    setSavingEdit(true);
-    setEditError('');
-    try {
+  const editMutation = useMutation({
+    fn: async (id: string, content: string) => {
       const res = await api.editMessage(id, content);
       const updated = res.data?.message;
       if (!updated) throw new Error('Edit failed');
+      return updated;
+    },
+    scopeKey: rootMessage.id,
+    errorFallback: 'Failed to save edit',
+    onSuccess: (updated, id) => {
       setThread((prev) => prev.map((m) => (m.id === id ? { ...m, content: updated.content, editedAt: updated.editedAt } : m)));
       cancelEdit();
-    } catch (err) {
-      setEditError(formatError(err, 'Failed to save edit'));
-    } finally {
-      setSavingEdit(false);
-    }
+    },
+    onError: (_err, message) => setEditError(message),
+  });
+  const savingEdit = editMutation.pending;
+  const saveEdit = async (id: string) => {
+    const content = editText.trim();
+    if (!content) return;
+    setEditError('');
+    await editMutation.run(id, content);
   };
+
+  const upload = useMutation({
+    fn: async (files: File[]) => {
+      for (const file of files) {
+        const res = isSupportThread ? await api.uploadSupportAttachment(file) : await api.uploadAttachment(file);
+        if (res.data?.attachment) setReplyAttachments((cur) => [...cur, res.data!.attachment]);
+      }
+    },
+    scopeKey: rootMessage.id,
+    errorFallback: 'Attachment upload failed',
+    onError: (_err, message) => setUploadError(message),
+  });
+  const uploading = upload.pending;
 
   const handleFilesSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
@@ -352,17 +369,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
     // thread — the general route needs `messages:write` and would 403.
     if (!canReply || files.length === 0) return;
     setUploadError('');
-    setUploading(true);
-    try {
-      for (const file of files) {
-        const res = isSupportThread ? await api.uploadSupportAttachment(file) : await api.uploadAttachment(file);
-        if (res.data?.attachment) setReplyAttachments((cur) => [...cur, res.data!.attachment]);
-      }
-    } catch (err) {
-      setUploadError(formatError(err, 'Attachment upload failed'));
-    } finally {
-      setUploading(false);
-    }
+    await upload.run(files);
   };
 
   const removeReplyAttachment = (id: string) => setReplyAttachments((cur) => cur.filter((a) => a.id !== id));

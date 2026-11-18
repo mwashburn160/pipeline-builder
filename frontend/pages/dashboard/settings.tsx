@@ -27,6 +27,7 @@ import { DOMAIN_SETTINGS_ANCHOR } from '@/components/sso/VerifiedDomainPicker';
 import { ImpersonationPolicySettings } from '@/components/settings/ImpersonationPolicySettings';
 import { MfaPolicySettings } from '@/components/settings/MfaPolicySettings';
 import { PasswordPolicySettings } from '@/components/settings/PasswordPolicySettings';
+import { SessionPolicySettings } from '@/components/settings/SessionPolicySettings';
 import { AuthenticatorPolicySettings } from '@/components/settings/AuthenticatorPolicySettings';
 import { PluginSecurityNotificationSettings } from '@/components/settings/PluginSecurityNotificationSettings';
 import { PipelineToolchainSettings } from '@/components/settings/PipelineToolchainSettings';
@@ -278,7 +279,7 @@ export default function SettingsPage() {
                 controls. These cards were gated on `can()`, which is false for any
                 mutation permission under read-only impersonation — so a sysadmin
                 investigating "why can't this user sign in" found the identity,
-                domain, impersonation, MFA, password and authenticator policies
+                domain, impersonation, MFA, password, authenticator and session policies
                 simply GONE instead of shown disabled, and the `readOnly` props below
                 could never be true. members.tsx already fixed this the same way. */}
             {/* Organization Identity (owner/admin self-serve) */}
@@ -325,6 +326,12 @@ export default function SettingsPage() {
             )}
             {canSeeOrgSettings && user.organizationId && (
               <AuthenticatorPolicySettings orgId={user.organizationId} readOnly={isReadOnly} />
+            )}
+            {/* Session lifetime (maximum age / idle timeout). Same capability and
+                step-up as the password minimum; LENGTHENING also needs a second
+                factor. It can only shorten the platform defaults. */}
+            {canSeeOrgSettings && user.organizationId && (
+              <SessionPolicySettings orgId={user.organizationId} readOnly={isReadOnly} />
             )}
 
             {/* Notifications: who hears about plugin versions the scan gates

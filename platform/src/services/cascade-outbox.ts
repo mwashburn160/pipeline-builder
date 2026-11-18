@@ -25,6 +25,12 @@
  *    `org.cascade.dead` audit row — the operator-readable trail of an erasure
  *    that did not finish. {@link cascadeStatus} reads a subject's legs back.
  *
+ *  - The operator half: {@link listCascadeLegs} (GET /admin/cascade) lists legs
+ *    fleet-wide by status/kind/subject/service, and {@link redriveCascadeLeg}
+ *    (POST /admin/cascade/:id/redrive) puts a `dead` or stuck `pending` leg back
+ *    in the queue once its service is fixed — the supported replacement for
+ *    editing the row in Mongo.
+ *
  * A crash between the commit and the first delivery loses nothing: the rows
  * are pending in Mongo and the next tick (on whichever pod holds the lock)
  * delivers them. A crash between a 2xx and the `done` write redelivers once,
@@ -32,12 +38,12 @@
  */
 
 import { createLogger, errorMessage, leaderLockKey, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
-import type { ClientSession } from 'mongoose';
+import { isValidObjectId, type ClientSession, type QueryFilter } from 'mongoose';
 import type { IntervalSweepDefinition } from './background-sweeps.js';
 import { findLeg, legsFor, type CascadeDelivery } from './cascade-legs.js';
 import { config } from '../config/index.js';
 import { recordAuditEvent } from '../helpers/audit.js';
-import CascadeOutbox, { type CascadeKind, type CascadeOutboxData } from '../models/cascade-outbox.js';
+import CascadeOutbox, { type CascadeKind, type CascadeLegStatus, type CascadeOutboxData } from '../models/cascade-outbox.js';
 import { incCounter } from '../observability/metrics.js';
 
 const logger = createLogger('cascade-outbox');
@@ -291,6 +297,125 @@ export async function cascadeStatus(subjectId: string, kind?: CascadeKind): Prom
     completedAt: r.completedAt ?? null,
     createdAt: r.createdAt,
   }));
+}
+
+/** One leg as the fleet-wide admin listing reports it. */
+export interface CascadeLegAdminView extends CascadeLegStatusView {
+  id: string;
+  kind: CascadeKind;
+  subjectId: string;
+  updatedAt: Date;
+}
+
+function adminView(r: CascadeOutboxData & { _id: unknown }): CascadeLegAdminView {
+  return {
+    id: String(r._id),
+    kind: r.kind,
+    subjectId: r.subjectId,
+    service: r.service,
+    status: r.status,
+    attempts: r.attempts,
+    nextAttemptAt: r.nextAttemptAt,
+    lastError: r.lastError ?? null,
+    lastStatusCode: r.lastStatusCode ?? null,
+    completedAt: r.completedAt ?? null,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  };
+}
+
+/** Filters for {@link listCascadeLegs}; every one optional, all ANDed. */
+export interface CascadeLegFilter {
+  status?: CascadeLegStatus;
+  kind?: CascadeKind;
+  subjectId?: string;
+  service?: string;
+}
+
+/**
+ * Every leg matching `filter`, newest first, one page at a time — the operator's
+ * view of the outbox across every subject (dead legs to redrive, pending legs
+ * that are not draining). `done` rows are there too until their TTL lapses.
+ */
+export async function listCascadeLegs(
+  filter: CascadeLegFilter,
+  page: { limit: number; offset: number },
+): Promise<{ legs: CascadeLegAdminView[]; total: number }> {
+  const q: QueryFilter<CascadeOutboxData> = {};
+  if (filter.status) q.status = filter.status;
+  if (filter.kind) q.kind = filter.kind;
+  if (filter.subjectId) q.subjectId = filter.subjectId;
+  if (filter.service) q.service = filter.service;
+  const [rows, total] = await Promise.all([
+    CascadeOutbox.find(q).sort({ updatedAt: -1, _id: -1 }).skip(page.offset).limit(page.limit)
+      .lean<Array<CascadeOutboxData & { _id: unknown }>>(),
+    CascadeOutbox.countDocuments(q),
+  ]);
+  return { legs: rows.map(adminView), total };
+}
+
+/** Why {@link redriveCascadeLeg} refused. */
+export type CascadeRedriveRefusal = 'not_found' | 'already_done';
+
+/** The outcome of {@link redriveCascadeLeg}. */
+export type CascadeRedriveResult =
+  | { ok: true; previous: { status: CascadeLegStatus; attempts: number }; leg: CascadeLegAdminView }
+  | { ok: false; reason: CascadeRedriveRefusal };
+
+/**
+ * Put one leg back in the dispatcher's queue: `status: 'pending'`,
+ * `nextAttemptAt: now`, `completedAt: null`, so the next outbox tick delivers it.
+ *
+ * Accepts a `dead` leg (retries exhausted — fix the owning service first) or a
+ * `pending` one (a stuck leg: a long backoff or a lease left by a dispatcher that
+ * died mid-delivery). Refuses a `done` leg — there is nothing to redeliver.
+ *
+ * ATTEMPTS: reset to 0 by default, so the redriven leg gets the full
+ * `maxAttempts` budget with the normal backoff — the case this exists for is
+ * "the service was broken, it is fixed now". `resetAttempts: false` keeps the
+ * count instead, which for a dead leg means exactly ONE more delivery before it
+ * dead-letters (and re-alerts) again — a probe, not a retry budget.
+ *
+ * `lastError` / `lastStatusCode` are kept as the diagnostic of the failure that
+ * prompted the redrive; the next attempt overwrites them. Safe against a
+ * concurrent dispatcher: every leg's handler is idempotent, so at worst a leased
+ * leg is delivered twice.
+ */
+export async function redriveCascadeLeg(
+  id: string,
+  opts: { resetAttempts?: boolean; now?: Date } = {},
+): Promise<CascadeRedriveResult> {
+  if (!isValidObjectId(id)) return { ok: false, reason: 'not_found' };
+  const now = opts.now ?? new Date();
+  const reset = opts.resetAttempts !== false;
+  // Atomic on status: of a redrive racing a dispatcher's `done` write, the
+  // `done` wins and the redrive reports `already_done` rather than resurrecting it.
+  const before = await CascadeOutbox.findOneAndUpdate(
+    { _id: id, status: { $in: ['dead', 'pending'] } },
+    { $set: { status: 'pending', nextAttemptAt: now, completedAt: null, ...(reset ? { attempts: 0 } : {}) } },
+    { new: false },
+  ).lean<CascadeOutboxData & { _id: unknown }>();
+  if (!before) {
+    const exists = await CascadeOutbox.exists({ _id: id });
+    return { ok: false, reason: exists ? 'already_done' : 'not_found' };
+  }
+  const leg = adminView({
+    ...before,
+    status: 'pending',
+    nextAttemptAt: now,
+    completedAt: null,
+    attempts: reset ? 0 : before.attempts,
+    updatedAt: now,
+  });
+  logger.info('Cascade leg redriven', {
+    kind: before.kind,
+    subjectId: before.subjectId,
+    service: before.service,
+    previousStatus: before.status,
+    previousAttempts: before.attempts,
+    resetAttempts: reset,
+  });
+  return { ok: true, previous: { status: before.status, attempts: before.attempts }, leg };
 }
 
 /**

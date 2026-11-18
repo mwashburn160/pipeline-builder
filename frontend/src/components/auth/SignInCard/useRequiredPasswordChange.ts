@@ -3,6 +3,7 @@
 
 import { useCallback, useState } from 'react';
 import { useAuth, type LoginResult } from '@/hooks/useAuth';
+import { useMutation } from '@/hooks/useMutation';
 import { formatError } from '@/lib/constants';
 import { rateLimitedMessage } from '@/lib/rate-limit-message';
 
@@ -35,7 +36,16 @@ export function useRequiredPasswordChange({ setError, onCancel }: Options) {
   const [pwChange, setPwChange] = useState<{ challengeId: string; minLength: number } | null>(null);
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
-  const [pwChangeBusy, setPwChangeBusy] = useState(false);
+  const change = useMutation({
+    fn: (challengeId: string, password: string) => completeRequiredPasswordChange(challengeId, password),
+    formatError: (err) => signInError(err, 'Could not change your password'),
+    onError: (err, message) => {
+      // A dead handle can't be retried — back to the previous step.
+      if ((err as { code?: string } | null)?.code === 'PASSWORD_CHANGE_CHALLENGE_INVALID') setPwChange(null);
+      setError(message);
+    },
+  });
+  const pwChangeBusy = change.pending;
 
   const takeLoginResult = useCallback((result: LoginResult | null | undefined): boolean => {
     if (result?.status !== 'password_change_required') return false;
@@ -55,16 +65,7 @@ export function useRequiredPasswordChange({ setError, onCancel }: Options) {
       return;
     }
     if (newPassword !== confirmNewPassword) { setError('Passwords do not match'); return; }
-    setPwChangeBusy(true);
-    try {
-      await completeRequiredPasswordChange(pwChange.challengeId, newPassword);
-    } catch (err) {
-      // A dead handle can't be retried — back to the previous step.
-      if ((err as { code?: string } | null)?.code === 'PASSWORD_CHANGE_CHALLENGE_INVALID') setPwChange(null);
-      setError(signInError(err, 'Could not change your password'));
-    } finally {
-      setPwChangeBusy(false);
-    }
+    await change.run(pwChange.challengeId, newPassword);
   };
 
   const cancelPasswordChange = () => {

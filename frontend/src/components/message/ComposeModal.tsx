@@ -3,6 +3,7 @@ import { useIsDirty } from '@/hooks/useIsDirty';
 import { Send, Paperclip, X } from 'lucide-react';
 import type { MessageType, MessagePriority, MessageAttachment } from '@/types';
 import { useAsyncCallback } from '@/hooks/useAsync';
+import { useMutation } from '@/hooks/useMutation';
 import { useFeatureGate } from '@/hooks/useFeatureGate';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
@@ -141,7 +142,6 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
   // Attachments uploaded (pending) for this compose — their ids are linked on send.
   const [attachments, setAttachments] = useState<MessageAttachment[]>([]);
   const dirty = useIsDirty({ content, recipientUserId, recipientOrgId, channel, severity, attachmentCount: attachments.length });
-  const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Apply the configured alias to the To fields when the modal opens — the
@@ -192,6 +192,18 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
   const premiumGate = useFeatureGate('support_premium');
   const isSupportCompose = !isAnnouncement
     && (!canWrite || aliasSet.has((canWrite ? recipientOrgId : supportAlias).trim().toLowerCase()));
+
+  const upload = useMutation({
+    fn: async (files: File[]) => {
+      for (const file of files) {
+        const uploaded = await onUploadAttachment!(file);
+        setAttachments((cur) => [...cur, uploaded]);
+      }
+    },
+    errorFallback: 'Attachment upload failed',
+    onError: (_err, message) => setValidationError(message),
+  });
+  const uploading = upload.pending;
 
   if (!isOpen) return null;
 
@@ -294,17 +306,7 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
     e.target.value = ''; // allow re-selecting the same file
     if (!onUploadAttachment || files.length === 0) return;
     setValidationError('');
-    setUploading(true);
-    try {
-      for (const file of files) {
-        const uploaded = await onUploadAttachment(file);
-        setAttachments((cur) => [...cur, uploaded]);
-      }
-    } catch (err) {
-      setValidationError(formatError(err, 'Attachment upload failed'));
-    } finally {
-      setUploading(false);
-    }
+    await upload.run(files);
   };
 
   const removeAttachment = (id: string) => setAttachments((cur) => cur.filter((a) => a.id !== id));

@@ -52,6 +52,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
     },
   },
   withTenantTx: (fn: (tx: unknown) => unknown) => mockWithTenantTx(fn),
+  runWithTenantContext: (_ctx: unknown, fn: () => unknown) => fn(),
 }));
 
 jest.unstable_mockModule('drizzle-orm', () => drizzleMock({

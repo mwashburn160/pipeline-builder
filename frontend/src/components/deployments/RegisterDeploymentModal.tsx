@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import api from '@/lib/api';
-import { formatError } from '@/lib/constants';
+import { useMutation } from '@/hooks/useMutation';
 import type { PipelineDeployment } from '@/lib/api/domains/pipelines';
 import type { Pipeline } from '@/types';
 
@@ -27,10 +27,26 @@ export function RegisterDeploymentModal({
   const [pipelineId, setPipelineId] = useState('');
   const [region, setRegion] = useState('');
   const [stackName, setStackName] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
 
   const selected = configs.find((c) => c.id === pipelineId);
+
+  const register = useMutation({
+    fn: async (config: PipelineConfig) => {
+      const res = await api.registerPipelineDeployment({
+        pipelineId: config.id,
+        pipelineName: config.pipelineName || config.id,
+        ...(region.trim() ? { region: region.trim() } : {}),
+        ...(config.project ? { project: config.project } : {}),
+        ...(config.organization ? { organization: config.organization } : {}),
+        ...(stackName.trim() ? { stackName: stackName.trim() } : {}),
+      });
+      if (!res.success || !res.data) throw new Error(res.message || 'Failed to register deployment');
+      return res.data.registry;
+    },
+    errorFallback: 'Failed to register deployment',
+    onSuccess: (row) => onRegistered(row),
+  });
+  const { pending: submitting, error: err, setError: setErr } = register;
 
   const handleSubmit = async () => {
     setErr(null);
@@ -42,26 +58,7 @@ export function RegisterDeploymentModal({
       setErr('Selected pipeline is no longer available. Refresh and try again.');
       return;
     }
-    setSubmitting(true);
-    try {
-      const res = await api.registerPipelineDeployment({
-        pipelineId,
-        pipelineName: selected.pipelineName || pipelineId,
-        ...(region.trim() ? { region: region.trim() } : {}),
-        ...(selected.project ? { project: selected.project } : {}),
-        ...(selected.organization ? { organization: selected.organization } : {}),
-        ...(stackName.trim() ? { stackName: stackName.trim() } : {}),
-      });
-      if (res.success && res.data) {
-        onRegistered(res.data.registry);
-      } else {
-        setErr(res.message || 'Failed to register deployment');
-      }
-    } catch (e) {
-      setErr(formatError(e, 'Failed to register deployment'));
-    } finally {
-      setSubmitting(false);
-    }
+    await register.run(selected);
   };
 
   return (

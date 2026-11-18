@@ -45,17 +45,8 @@ export interface IntervalSweepDefinition {
   concurrencySafe?: boolean;
 }
 
-/** A sweep whose owner builds its own scheduler (null = disabled in this deployment). */
-export interface CustomSweepDefinition {
-  name: string;
-  create: () => Scheduler | null;
-}
-
-export type SweepDefinition = IntervalSweepDefinition | CustomSweepDefinition;
-
-/** Build (not start) the scheduler for one definition; null when it is disabled. */
-export function buildSweep(def: SweepDefinition): Scheduler | null {
-  if ('create' in def) return def.create();
+/** Build (not start) the scheduler for one definition. */
+export function buildSweep(def: IntervalSweepDefinition): Scheduler {
   const { name, lockKey, intervalMs, runOnStart, run, concurrencySafe } = def;
   return lockKey
     ? createLockedSweep({
@@ -70,8 +61,8 @@ export function buildSweep(def: SweepDefinition): Scheduler | null {
 }
 
 /** The sweeps that apply to this deployment. */
-export async function sweepDefinitions(): Promise<SweepDefinition[]> {
-  const defs: SweepDefinition[] = [];
+export async function sweepDefinitions(): Promise<IntervalSweepDefinition[]> {
+  const defs: IntervalSweepDefinition[] = [];
 
   // Re-append platform-local audit events whose write failed (spooled to Redis
   // by `recordAuditEvent`). Every replica drains — the spool's atomic LMOVE
@@ -167,7 +158,6 @@ export async function registerBackgroundSweeps(): Promise<Scheduler[]> {
   for (const def of await sweepDefinitions()) {
     try {
       const sweep = buildSweep(def);
-      if (!sweep) continue;
       sweep.start();
       started.push(sweep);
     } catch (err) {

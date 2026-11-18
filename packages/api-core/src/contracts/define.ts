@@ -57,6 +57,14 @@ export interface InternalEndpointContract<
    * client sends exactly this path, with the params substituted.
    */
   readonly path: string;
+  /**
+   * Set ONLY for a route served outside the `/internal` path convention (no
+   * `internal` segment in {@link path}): why it lives where it does. These
+   * routes predate the convention and are pinned by the route-table
+   * snapshots, the gateway and the Istio policy, so the contract records the
+   * existing path rather than moving it. Prose, for reviewers.
+   */
+  readonly outsideInternalPath?: string;
   /** The services `requireInternalService({ callers })` admits on the route. */
   readonly callers: readonly string[];
   /**
@@ -89,10 +97,16 @@ export function pathParamNames(path: string): string[] {
   return [...path.matchAll(/:([A-Za-z0-9_]+)/g)].map((m) => m[1]!);
 }
 
+/** Whether a path carries an `internal` segment (`/internal/…`, `/billing/internal/…`). */
+export function isInternalConventionPath(path: string): boolean {
+  return /(^|\/)internal(\/|$)/.test(path);
+}
+
 /**
- * Define an internal endpoint. Checks at module load that the path is absolute
- * and that every caller is named — a contract that is wrong fails every
- * import, not one request in production.
+ * Define an internal endpoint. Checks at module load that the path is absolute,
+ * that every caller is named, and that a path outside the `/internal`
+ * convention says why ({@link InternalEndpointContract.outsideInternalPath}) —
+ * a contract that is wrong fails every import, not one request in production.
  */
 export function defineInternalEndpoint<
   P extends AnySchema,
@@ -102,6 +116,13 @@ export function defineInternalEndpoint<
 >(contract: InternalEndpointContract<P, Q, B, R>): InternalEndpointContract<P, Q, B, R> {
   if (!contract.path.startsWith('/')) throw new Error(`Contract ${contract.id}: path must start with '/'`);
   if (contract.callers.length === 0) throw new Error(`Contract ${contract.id}: an internal endpoint names its callers`);
+  const internalPath = isInternalConventionPath(contract.path);
+  if (!internalPath && !contract.outsideInternalPath?.trim()) {
+    throw new Error(`Contract ${contract.id}: ${contract.path} is outside the /internal convention; say why in outsideInternalPath`);
+  }
+  if (internalPath && contract.outsideInternalPath !== undefined) {
+    throw new Error(`Contract ${contract.id}: ${contract.path} follows the /internal convention; drop outsideInternalPath`);
+  }
   return Object.freeze({ ...contract, callers: Object.freeze([...contract.callers]) });
 }
 

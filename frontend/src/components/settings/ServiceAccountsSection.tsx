@@ -22,6 +22,7 @@ import { ServiceAccountDetails } from '@/components/settings/ServiceAccountDetai
 import { ServiceAccountKeys } from '@/components/settings/ServiceAccountKeys';
 import type { ServiceAccountAction } from '@/components/settings/service-account-actions';
 import { useFetch } from '@/hooks/useFetch';
+import { useMutation } from '@/hooks/useMutation';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
 import type { ServiceAccount, ServiceAccountBilling } from '@/lib/api/domains/organizations';
@@ -100,7 +101,6 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
   const [keyForm, setKeyForm] = useState<{ accountId: string; open: number } | null>(null);
   // The account open in the detail drawer.
   const [viewingId, setViewingId] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
   const [newKey, setNewKey] = useState<string | null>(null);
   const [pending, setPending] = useState<ServiceAccountAction | null>(null);
   const [pendingKeyRevoke, setPendingKeyRevoke] = useState<{ account: ServiceAccount; keyId: string; keyName: string } | null>(null);
@@ -121,84 +121,94 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
   };
 
   /** Run the held action with the freshly-minted step-up token. */
-  const execute = async (stepUpToken: string) => {
-    if (!pending) return;
-    setBusy(true);
-    try {
-      if (pending.kind === 'create') {
+  const executeM = useMutation({
+    fn: async (action: ServiceAccountAction, stepUpToken: string) => {
+      if (action.kind === 'create') {
         const res = await api.createServiceAccount(orgId, {
-          name: pending.name,
-          ...(pending.description ? { description: pending.description } : {}),
-          roleIds: pending.roleIds,
-          tokenBudget: pending.tokenBudget,
+          name: action.name,
+          ...(action.description ? { description: action.description } : {}),
+          roleIds: action.roleIds,
+          tokenBudget: action.tokenBudget,
         }, stepUpToken);
         if (res.success) {
           toast.success('Service account created');
           setCreateFormKey((k) => k + 1);
         } else {toast.error('Failed to create service account');}
-      } else if (pending.kind === 'details') {
-        const res = await api.updateServiceAccount(orgId, pending.accountId, pending.changes, stepUpToken);
+      } else if (action.kind === 'details') {
+        const res = await api.updateServiceAccount(orgId, action.accountId, action.changes, stepUpToken);
         if (res.success) {
           toast.success('Service account updated');
           setDetailsEditor(null);
         } else {toast.error('Failed to update service account');}
-      } else if (pending.kind === 'key') {
+      } else if (action.kind === 'key') {
         setNewKey(null);
-        const res = await api.createServiceAccountKey(orgId, pending.accountId, {
-          name: pending.name,
-          expiresIn: pending.expiresIn,
-          ...(pending.ipAllowlist.length > 0 ? { ipAllowlist: pending.ipAllowlist } : {}),
-          ...(pending.scope ? { scope: pending.scope } : {}),
+        const res = await api.createServiceAccountKey(orgId, action.accountId, {
+          name: action.name,
+          expiresIn: action.expiresIn,
+          ...(action.ipAllowlist.length > 0 ? { ipAllowlist: action.ipAllowlist } : {}),
+          ...(action.scope ? { scope: action.scope } : {}),
         }, stepUpToken);
         if (res.success && res.data) {
           setNewKey(res.data.key);
           setKeyForm(null);
-          toast.success(`Key created for ${pending.accountName}`);
+          toast.success(`Key created for ${action.accountName}`);
         } else {toast.error('Failed to create key');}
-      } else if (pending.kind === 'toggle') {
-        const res = await api.updateServiceAccount(orgId, pending.accountId, { disabled: pending.disabled }, stepUpToken);
-        if (res.success) toast.success(pending.disabled ? 'Service account disabled' : 'Service account enabled');
+      } else if (action.kind === 'toggle') {
+        const res = await api.updateServiceAccount(orgId, action.accountId, { disabled: action.disabled }, stepUpToken);
+        if (res.success) toast.success(action.disabled ? 'Service account disabled' : 'Service account enabled');
         else toast.error('Failed to update service account');
-      } else if (pending.kind === 'roles') {
-        const res = await api.updateServiceAccount(orgId, pending.accountId, { roleIds: pending.roleIds }, stepUpToken);
+      } else if (action.kind === 'roles') {
+        const res = await api.updateServiceAccount(orgId, action.accountId, { roleIds: action.roleIds }, stepUpToken);
         if (res.success) {
           toast.success('Roles updated');
           // The saved set is the stored set; drop the draft so the Save
           // button goes away instead of offering to re-send what just landed.
           setRoleDrafts((prev) => {
             const next = { ...prev };
-            delete next[pending.accountId];
+            delete next[action.accountId];
             return next;
           });
         } else {toast.error('Failed to update roles');}
       } else {
-        const res = await api.deleteServiceAccount(orgId, pending.accountId, stepUpToken);
-        if (res.success) toast.success(`${pending.name} deleted`);
+        const res = await api.deleteServiceAccount(orgId, action.accountId, stepUpToken);
+        if (res.success) toast.success(`${action.name} deleted`);
         else toast.error('Failed to delete service account');
       }
       await reload();
-    } catch (err) {
-      toast.error(formatError(err, 'Action failed'));
+    },
+    scopeKey: orgId,
+    errorFallback: 'Action failed',
+    toast: { error: true },
+  });
+  const execute = async (stepUpToken: string) => {
+    if (!pending) return;
+    try {
+      await executeM.run(pending, stepUpToken);
     } finally {
-      setBusy(false);
       setPending(null);
     }
   };
 
+  const revokeM = useMutation({
+    fn: async (account: ServiceAccount, keyId: string) => {
+      const res = await api.revokeServiceAccountKey(orgId, account.id, keyId);
+      if (!res.success) throw new Error('Failed to revoke key');
+    },
+    scopeKey: orgId,
+    errorFallback: 'Failed to revoke key',
+    toast: { success: 'Key revoked', error: true },
+    onSuccess: async () => { await reload(); },
+  });
   const revokeKey = async (account: ServiceAccount, keyId: string) => {
     setRevokingKeyId(keyId);
-    setBusy(true);
     try {
-      const res = await api.revokeServiceAccountKey(orgId, account.id, keyId);
-      if (res.success) { toast.success('Key revoked'); await reload(); }
-      else {toast.error('Failed to revoke key');}
-    } catch (err) {
-      toast.error(formatError(err, 'Failed to revoke key'));
+      await revokeM.run(account, keyId);
     } finally {
-      setBusy(false);
       setRevokingKeyId(null);
     }
   };
+
+  const busy = executeM.pending || revokeM.pending;
 
   const keyFormAccount = keyForm ? data.accounts.find((a) => a.id === keyForm.accountId) : undefined;
 

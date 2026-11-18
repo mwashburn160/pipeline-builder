@@ -15,6 +15,7 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { Input } from '@/components/ui/Input';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { useToast } from '@/components/ui/Toast';
+import { useMutation } from '@/hooks/useMutation';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
 import type { AdminOffer, AdminOfferSummary, OfferExclusion, OfferLiftArm } from '@/types';
@@ -47,7 +48,6 @@ export default function AdminOffersPage() {
   const [error, setError] = useState<string | null>(null);
   /** The first read has settled (either way). */
   const [loaded, setLoaded] = useState(false);
-  const [busy, setBusy] = useState(false);
 
   // The veto form. A reason is required by the server, so the button stays
   // disabled without one rather than letting the 400 explain it.
@@ -74,45 +74,43 @@ export default function AdminOffersPage() {
 
   useEffect(() => { void load(); }, [load]);
 
-  async function exclude() {
-    setBusy(true);
-    try {
-      await api.setOfferExclusion(excludeOrg.trim(), excludeReason.trim());
+  const excludeM = useMutation({
+    fn: () => api.setOfferExclusion(excludeOrg.trim(), excludeReason.trim()),
+    errorFallback: 'Could not exclude that account',
+    toast: { error: true },
+    onSuccess: async () => {
       setExcludeOrg(''); setExcludeReason('');
       await load();
       toast.success('Account excluded from offers');
-    } catch (err) {
-      toast.error(formatError(err, 'Could not exclude that account'));
-    } finally { setBusy(false); }
-  }
+    },
+  });
 
-  async function lift(orgId: string) {
-    setBusy(true);
-    try {
-      await api.clearOfferExclusion(orgId);
+  const liftM = useMutation({
+    fn: (orgId: string) => api.clearOfferExclusion(orgId),
+    errorFallback: 'Could not lift that exclusion',
+    toast: { error: true },
+    onSuccess: async () => {
       await load();
       toast.success('Exclusion lifted');
-    } catch (err) {
-      toast.error(formatError(err, 'Could not lift that exclusion'));
-    } finally { setBusy(false); }
-  }
+    },
+  });
 
-  async function recall() {
-    setBusy(true);
-    try {
-      const res = await api.withdrawOffers(Number(recallMinutes));
+  const recallM = useMutation({
+    fn: () => api.withdrawOffers(Number(recallMinutes)),
+    errorFallback: 'Could not recall those offers',
+    toast: { error: true },
+    onSuccess: async (res) => {
       await load();
       const n = res.data?.withdrawn ?? 0;
       toast.success(n === 0 ? 'No unanswered offers in that window' : `Recalled ${n} offer${n === 1 ? '' : 's'}`);
-    } catch (err) {
-      toast.error(formatError(err, 'Could not recall those offers'));
-    } finally { setBusy(false); }
-  }
+    },
+  });
 
-  async function trigger() {
-    setBusy(true);
-    try {
-      const res = await api.triggerOffer(triggerOrg.trim());
+  const triggerM = useMutation({
+    fn: () => api.triggerOffer(triggerOrg.trim()),
+    errorFallback: 'Could not evaluate that account',
+    toast: { error: true },
+    onSuccess: async (res) => {
       const d = res.data?.decision ?? null;
       await load();
       // A suppression is a legitimate ANSWER, not a failure: the trigger runs
@@ -121,10 +119,15 @@ export default function AdminOffersPage() {
       if (!d) toast.info('That account could not be evaluated yet (no plan or no usage profile).');
       else if (d.status === 'sent') toast.success(`Offer made: ${d.offerType ?? 'offer'}`);
       else toast.info(`No offer: ${d.reason ?? 'the rules refused'}`);
-    } catch (err) {
-      toast.error(formatError(err, 'Could not evaluate that account'));
-    } finally { setBusy(false); }
-  }
+    },
+  });
+
+  /** One write at a time across the four operator actions. */
+  const busy = excludeM.pending || liftM.pending || recallM.pending || triggerM.pending;
+  const exclude = () => excludeM.run();
+  const lift = (orgId: string) => liftM.run(orgId);
+  const recall = () => recallM.run();
+  const trigger = () => triggerM.run();
 
   const columns: Column<AdminOffer>[] = [
     { id: 'orgId', header: 'Account', render: (r) => <span className="font-mono text-xs">{r.orgId}</span> },

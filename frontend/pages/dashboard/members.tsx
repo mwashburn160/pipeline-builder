@@ -14,6 +14,7 @@ import { useDelete } from '@/hooks/useDelete';
 import { useMemberRoles } from '@/hooks/useMemberRoles';
 import { useMemberTeams } from '@/hooks/useMemberTeams';
 import { useMemberTeamsPanel } from '@/hooks/internal/useMemberTeamsPanel';
+import { OrgReauthDialog } from '@/components/ui/OrgReauthDialog';
 import { TeamMemberAccess } from '@/components/members/TeamMemberAccess';
 import { TeamsCard } from '@/components/teams/TeamsCard';
 import { useToast } from '@/components/ui/Toast';
@@ -169,7 +170,7 @@ export default function MembersPage() {
   // The Teams panel — both team lists, their reload, switching into a team and
   // adding someone straight to one.
   const {
-    teams, teamsLoadWarning, childTeamCount, deletedTeams, refreshTeams, switchTeam,
+    teams, teamsLoadWarning, childTeamCount, deletedTeams, refreshTeams, switchTeam, reauthFor, clearReauth,
     addToTeam, setAddToTeam, teamMemberEmail, setTeamMemberEmail, teamAddForm, teamAddInviteEmail, handleAddToTeam,
   } = useMemberTeamsPanel({ orgId: orgId ?? '', canManageMembers, canOrgSettings, activeOrgIsRoot, hasChildOrgs });
 
@@ -652,6 +653,9 @@ export default function MembersPage() {
             reactivated.
           </p>
         </ConfirmDialog>
+      )}
+      {reauthFor && (
+        <OrgReauthDialog orgName={reauthFor} currentOrgName={activeOrg?.name} onClose={clearReauth} />
       )}
     </DashboardLayout>
   );

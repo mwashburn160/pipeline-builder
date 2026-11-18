@@ -17,6 +17,7 @@ import { RelativeTime } from '@/components/ui/RelativeTime';
 import { useToast } from '@/components/ui/Toast';
 import { TrustTierBadge } from '@/components/public-directory/TrustTierBadge';
 import { useFetch } from '@/hooks/useFetch';
+import { useMutation } from '@/hooks/useMutation';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 import { pluginPagePath } from '@/lib/public-directory/links';
@@ -210,7 +211,9 @@ function ReasonDialog({ title, confirmLabel, onConfirm, onClose }: {
   onClose: () => void;
 }) {
   const [reason, setReason] = useState('');
-  const [busy, setBusy] = useState(false);
+  // The dialog closes once the write settles, whatever its outcome (the
+  // caller reports it); the mutation only holds the in-flight lock.
+  const submit = useMutation({ fn: (r: string) => onConfirm(r) });
   return (
     <Modal
       title={title}
@@ -221,11 +224,8 @@ function ReasonDialog({ title, confirmLabel, onConfirm, onClose }: {
           onCancel={onClose}
           confirmLabel={confirmLabel}
           confirmVariant="danger"
-          loading={busy}
-          onConfirm={() => {
-            setBusy(true);
-            void onConfirm(reason.trim()).finally(() => { setBusy(false); onClose(); });
-          }}
+          loading={submit.pending}
+          onConfirm={() => { void submit.run(reason.trim()).then(() => onClose()); }}
         />
       )}
     >
@@ -242,7 +242,9 @@ function DenyDialog({ install, onDeny, onClose }: {
   onClose: () => void;
 }) {
   const [reason, setReason] = useState('');
-  const [busy, setBusy] = useState(false);
+  // The dialog closes once the write settles, whatever its outcome (the
+  // caller reports it); the mutation only holds the in-flight lock.
+  const submit = useMutation({ fn: (r: string) => onDeny(r) });
   return (
     <Modal
       title={`Deny ${install.name}?`}
@@ -253,11 +255,8 @@ function DenyDialog({ install, onDeny, onClose }: {
           onCancel={onClose}
           confirmLabel="Deny"
           confirmVariant="danger"
-          loading={busy}
-          onConfirm={() => {
-            setBusy(true);
-            void onDeny(reason.trim()).finally(() => { setBusy(false); onClose(); });
-          }}
+          loading={submit.pending}
+          onConfirm={() => { void submit.run(reason.trim()).then(() => onClose()); }}
         />
       )}
     >

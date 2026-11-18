@@ -21,7 +21,10 @@
  */
 
 import {
+  COMPLIANCE_INTERNAL,
+  contractRoute,
   createLogger,
+  type ContractResponse,
   ErrorCode,
   errorMessage,
   requireInternalService,
@@ -38,8 +41,11 @@ import { complianceRuleService } from '../services/compliance-rule-service.js';
 
 const logger = createLogger('compliance-posture');
 
+/** The api-core contract: the path, the caller and the counts reporting parses. */
+const POSTURE = COMPLIANCE_INTERNAL.posture;
+
 /** Only reporting, and only its own signed token. No user token qualifies. */
-const requireReportingService = requireInternalService({ callers: ['reporting'] });
+const requireReportingService = requireInternalService({ callers: POSTURE.callers });
 
 /**
  * The rules ACTIVE for the org right now: the EFFECTIVE set enforcement evaluates,
@@ -68,7 +74,7 @@ async function effectiveActiveRules(orgId: string, now: Date) {
 export function createPostureRoutes(): Router {
   const router: Router = Router();
 
-  router.get('/', requireReportingService, withRoute(async ({ res, orgId }) => {
+  router.get(contractRoute(POSTURE, '/compliance/posture'), requireReportingService, withRoute(async ({ res, orgId }) => {
     const now = new Date();
     try {
       const data = await runWithTenantContext({ orgId, isSuperAdmin: false }, async () => {
@@ -110,7 +116,7 @@ export function createPostureRoutes(): Router {
         const scan = (scans as Array<{
           completedAt: Date | null; total: number; pass: number; warn: number; block: number;
         }>)[0];
-        return {
+        const posture: ContractResponse<typeof POSTURE> = {
           activeRules: rules.length,
           activeExemptions: (exemptions as Array<{ n: number }>)[0]?.n ?? 0,
           frameworks,
@@ -124,6 +130,7 @@ export function createPostureRoutes(): Router {
             }
             : null,
         };
+        return posture;
       });
       return sendSuccess(res, 200, data);
     } catch (err) {

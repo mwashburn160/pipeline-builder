@@ -27,6 +27,7 @@ import { CopyableId } from '@/components/ui/CopyableId';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { useDelete } from '@/hooks/useDelete';
+import { useMutation } from '@/hooks/useMutation';
 import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
 import { AlertDeliveryStatus } from '@/components/observability/AlertDeliveryStatus';
 import { api } from '@/lib/api';
@@ -58,7 +59,7 @@ export default function AlertDestinationsPage() {
   const toast = useToast();
   const ready = isReady && isAuthenticated;
   const [editing, setEditing] = useState<AlertDestination | null>(null);
-  const [creating, setCreating] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
   // Sysadmin cross-tenant view (read-only).
   const [allOrgs, setAllOrgs] = useState(false);
   const viewingAll = allOrgs && isSuperAdmin;
@@ -197,7 +198,7 @@ export default function AlertDestinationsPage() {
             <Button
               variant="secondary"
               size="xs"
-              onClick={() => setCreating(true)}
+              onClick={() => setCreateOpen(true)}
               className="gap-1"
             >
               <Plus className="w-3.5 h-3.5" /> Add destination
@@ -271,11 +272,11 @@ export default function AlertDestinationsPage() {
         </div>
       )}
 
-      {(creating || editing) && (
+      {(createOpen || editing) && (
         <DestinationModal
           existing={editing}
-          onClose={() => { setCreating(false); setEditing(null); }}
-          onSaved={async () => { await refresh(); setCreating(false); setEditing(null); }}
+          onClose={() => { setCreateOpen(false); setEditing(null); }}
+          onSaved={async () => { await refresh(); setCreateOpen(false); setEditing(null); }}
         />
       )}
 
@@ -311,8 +312,22 @@ function DestinationModal(props: {
   const [target, setTarget] = useState('');
   const [minSeverity, setMinSeverity] = useState<AlertRuleSeverity>(existing?.minSeverity ?? 'warning');
   const [enabled, setEnabled] = useState(existing?.enabled ?? true);
-  const [saving, setSaving] = useState(false);
   const channelMeta = alertChannelMeta(channel);
+  const save = useMutation({
+    fn: async (body: AlertDestinationWrite) => {
+      if (existing) await api.updateAlertDestination(existing.id, body);
+      else await api.createAlertDestination(body);
+    },
+    scopeKey: existing?.id,
+    toast: { error: true },
+    // Toasted here, not via `toast.success`: `onSaved` closes (unmounts) this
+    // modal, which would drop a toast queued after it.
+    onSuccess: async () => {
+      toast.success(existing ? 'Destination updated' : 'Destination created');
+      await onSaved();
+    },
+  });
+  const saving = save.pending;
 
   const onSubmit = async () => {
     if (!label.trim()) { toast.error('Label is required'); return; }
@@ -320,30 +335,15 @@ function DestinationModal(props: {
       toast.error(channel === 'email' ? 'Email address is required' : 'Target URL is required for new Slack / webhook destinations');
       return;
     }
-    setSaving(true);
-    try {
-      const body: AlertDestinationWrite = {
-        channel,
-        label: label.trim(),
-        minSeverity,
-        enabled,
-        // Empty string on edit means "keep existing secret"; server skips
-        // the update of `target` in that case.
-        target: target.trim(),
-      };
-      if (existing) {
-        await api.updateAlertDestination(existing.id, body);
-        toast.success('Destination updated');
-      } else {
-        await api.createAlertDestination(body);
-        toast.success('Destination created');
-      }
-      await onSaved();
-    } catch (err) {
-      toast.error(formatError(err));
-    } finally {
-      setSaving(false);
-    }
+    void save.run({
+      channel,
+      label: label.trim(),
+      minSeverity,
+      enabled,
+      // Empty string on edit means "keep existing secret"; server skips
+      // the update of `target` in that case.
+      target: target.trim(),
+    });
   };
 
   return (

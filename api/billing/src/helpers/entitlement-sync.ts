@@ -12,12 +12,14 @@
 import { randomBytes } from 'node:crypto';
 import { hostname } from 'node:os';
 import type { PlanTier, DurableEventBus, EventSubscription } from '@pipeline-builder/api-core';
-import { clampRetentionDays, complianceSetsForFeatures, createLogger, errorMessage, TIER_FEATURES, VALID_QUOTA_TYPES } from '@pipeline-builder/api-core';
+import {
+  clampRetentionDays, COMPLIANCE_INTERNAL, complianceSetsForFeatures, createLogger, errorMessage, REPORTING_INTERNAL, TIER_FEATURES, VALID_QUOTA_TYPES,
+} from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { effectiveEntitlements } from '../config/entitlements.js';
 import { config } from '../config.js';
 import { billingServiceAuth, createBillingEvent, getBundleCatalog } from './billing-helpers.js';
-import { fetchQuotaTypeUsage, fetchSeatUsage, fetchSupportUsage, putJson, type ServiceTarget } from './downstream-client.js';
+import { fetchQuotaTypeUsage, fetchSeatUsage, fetchSupportUsage, putContractJson, putJson } from './downstream-client.js';
 import { MANAGEABLE_SUBSCRIPTION_STATUSES, isGraceDowngraded } from './subscription-status.js';
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
@@ -34,22 +36,25 @@ const logger = createLogger('entitlement-sync');
  * `authHeader || billingServiceAuth(orgId)` service-token fallback (system paths
  * pass `''`) — so they live here once. `logFields` are folded
  * into both the log lines and the audit-row details. Best-effort; never throws.
+ *
+ * `put` sends the body: a plain {@link putJson} for a leg without an api-core
+ * contract, or {@link putContractJson} for one with (path built and body
+ * validated by the contract).
  */
 async function pushEntitlementLeg(opts: {
   orgId: string;
-  service: ServiceTarget;
-  path: string;
-  body: Record<string, unknown>;
+  put: (auth: string) => Promise<{ statusCode: number } | null>;
   authHeader: string;
   failReason: string;
   logLabel: string;
   logFields: Record<string, unknown>;
   subscriptionId?: string;
 }): Promise<boolean> {
-  const { orgId, service, path, body, authHeader, failReason, logLabel, logFields, subscriptionId } = opts;
+  const { orgId, put, authHeader, failReason, logLabel, logFields, subscriptionId } = opts;
   try {
-    // Inside the try so a config-access / token-mint error stays in the fail-open path.
-    const response = await putJson(service, path, body, orgId, authHeader || billingServiceAuth(orgId));
+    // Inside the try so a config-access / token-mint error (or a body the
+    // contract refuses) stays in the fail-open path.
+    const response = await put(authHeader || billingServiceAuth(orgId));
     if (response && response.statusCode < 400) {
       logger.info(`Synced ${logLabel}`, { orgId, ...logFields });
       return true;
@@ -93,9 +98,7 @@ export async function syncTierToQuotaService(
   // gives the quota service a real tenant identity for RLS/audit attribution.
   return pushEntitlementLeg({
     orgId,
-    service: config.quotaService,
-    path: `/quotas/entitlement-sync/${orgId}`,
-    body: quotas ? { tier, quotas, occurredAt } : { tier, occurredAt },
+    put: (auth) => putJson(config.quotaService, `/quotas/entitlement-sync/${orgId}`, quotas ? { tier, quotas, occurredAt } : { tier, occurredAt }, orgId, auth),
     authHeader,
     failReason: 'quota_sync_failed',
     logLabel: 'tier to quota service',
@@ -143,9 +146,10 @@ async function pushPlatformLimits(
   // row records `seats` only, so keep logFields tight.
   return pushEntitlementLeg({
     orgId,
-    service: config.platformService,
-    path: `/organization/${orgId}/seat-limit`,
-    body: { seats, supportContacts, supportPremiumContacts, features, tier, occurredAt },
+    put: (auth) => putJson(
+      config.platformService, `/organization/${orgId}/seat-limit`,
+      { seats, supportContacts, supportPremiumContacts, features, tier, occurredAt }, orgId, auth,
+    ),
     authHeader,
     failReason: 'seat_sync_failed',
     logLabel: 'platform limits (seats + support contacts)',
@@ -175,9 +179,9 @@ async function pushRetentionToReporting(
   const doraRetentionDays = clampRetentionDays(limits.doraRetentionDays);
   return pushEntitlementLeg({
     orgId,
-    service: config.reportingService,
-    path: `/reports/retention-sync/${orgId}`,
-    body: { eventRetentionDays, doraRetentionDays, occurredAt },
+    put: (auth) => putContractJson(
+      config.reportingService, REPORTING_INTERNAL.syncRetention, { eventRetentionDays, doraRetentionDays, occurredAt }, orgId, auth,
+    ),
     authHeader,
     failReason: 'retention_sync_failed',
     logLabel: 'retention to reporting',
@@ -213,9 +217,9 @@ async function pushReportEntitlementToReporting(
   const entitled = features.includes('stakeholder_reports');
   return pushEntitlementLeg({
     orgId,
-    service: config.reportingService,
-    path: `/reports/stakeholder-sync/${orgId}`,
-    body: { entitled, occurredAt },
+    put: (auth) => putContractJson(
+      config.reportingService, REPORTING_INTERNAL.syncStakeholderEntitlement, { entitled, occurredAt }, orgId, auth,
+    ),
     authHeader,
     failReason: 'report_entitlement_sync_failed',
     logLabel: 'report entitlement to reporting',
@@ -267,9 +271,7 @@ export async function pushComplianceSetsToCompliance(
   const sets = complianceSetsForFeatures(features);
   return pushEntitlementLeg({
     orgId,
-    service: config.complianceService,
-    path: `/compliance/entitlements/${orgId}`,
-    body: { sets, occurredAt },
+    put: (auth) => putContractJson(config.complianceService, COMPLIANCE_INTERNAL.syncEntitlements, { sets, occurredAt }, orgId, auth),
     authHeader,
     failReason: 'compliance_sync_failed',
     logLabel: 'compliance sets to compliance service',

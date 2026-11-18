@@ -9,6 +9,7 @@ import {
   contractErrorMessage,
   contractRoute,
   defineInternalEndpoint,
+  isInternalConventionPath,
   parseContractBody,
   parseContractParams,
   parseContractQuery,
@@ -79,6 +80,26 @@ describe('defineInternalEndpoint', () => {
   it('refuses a relative path or an empty caller list', () => {
     expect(() => defineInternalEndpoint({ ...GET, path: 'internal/list' })).toThrow(/must start with/);
     expect(() => defineInternalEndpoint({ ...GET, callers: [] })).toThrow(/names its callers/);
+  });
+
+  it('refuses a path outside the /internal convention unless it says why', () => {
+    expect(() => defineInternalEndpoint({ ...GET, path: '/svc/things' })).toThrow(/outside the \/internal convention/);
+    expect(() => defineInternalEndpoint({ ...GET, path: '/svc/things', outsideInternalPath: '  ' })).toThrow(/outsideInternalPath/);
+    const legacy = defineInternalEndpoint({ ...GET, path: '/svc/things', outsideInternalPath: 'predates the convention' });
+    expect(legacy.path).toBe('/svc/things');
+    expect(contractRoute(legacy, '/svc')).toBe('/things');
+  });
+
+  it('refuses a stale outsideInternalPath on a conventional path', () => {
+    expect(() => defineInternalEndpoint({ ...GET, outsideInternalPath: 'not needed' })).toThrow(/drop outsideInternalPath/);
+  });
+
+  it('reads the convention as an `internal` path SEGMENT, not a substring', () => {
+    expect(isInternalConventionPath('/internal/x')).toBe(true);
+    expect(isInternalConventionPath('/billing/internal/x')).toBe(true);
+    expect(isInternalConventionPath('/x/internal')).toBe(true);
+    expect(isInternalConventionPath('/reports/stakeholder-internal/x')).toBe(false);
+    expect(isInternalConventionPath('/internals/x')).toBe(false);
   });
 });
 
@@ -253,11 +274,29 @@ describe('the contract registry', () => {
     expect(new Set(routes).size).toBe(routes.length);
   });
 
-  it('names every contract after the service that serves it, and serves it on an internal path', () => {
+  it('names every contract after the service that serves it, and serves it on an internal path or says why not', () => {
     for (const c of INTERNAL_CONTRACTS) {
       expect(c.id.startsWith(`${c.service}.`)).toBe(true);
-      expect(c.path).toMatch(/(^|\/)internal(\/|$)/);
+      if (c.outsideInternalPath === undefined) expect(c.path).toMatch(/(^|\/)internal(\/|$)/);
+      else expect(c.outsideInternalPath.trim()).not.toBe('');
     }
+  });
+
+  it('records the pre-convention internal routes at their existing paths', () => {
+    const legacy = INTERNAL_CONTRACTS.filter((c) => c.outsideInternalPath !== undefined)
+      .map((c) => `${c.method} ${c.path}`).sort();
+    expect(legacy).toEqual([
+      'GET /compliance/entitlements/:orgId',
+      'GET /compliance/posture',
+      'GET /reports/retention-sync/:orgId',
+      'POST /compliance/events/entity',
+      'POST /compliance/subscriptions/auto-subscribe',
+      'POST /plugins/toolchain/initial-default',
+      'POST /reports/stakeholder-internal/owner-left/:orgId/:userId',
+      'PUT /compliance/entitlements/:orgId',
+      'PUT /reports/retention-sync/:orgId',
+      'PUT /reports/stakeholder-sync/:orgId',
+    ]);
   });
 
   it('filters by serving service', () => {

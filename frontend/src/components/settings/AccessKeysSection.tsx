@@ -18,6 +18,7 @@ import { TokenPermissionPicker, permissionsForRequest } from '@/components/setti
 import { readOnlyPreset, type PermissionMode } from '@/components/settings/token-scopes';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFetch } from '@/hooks/useFetch';
+import { useMutation } from '@/hooks/useMutation';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
 
@@ -94,7 +95,6 @@ export function AccessKeysSection({ readOnly }: { readOnly: boolean }) {
   const [permMode, setPermMode] = useState<PermissionMode>('selected');
   const [selectedPerms, setSelectedPerms] = useState<Set<string> | null>(null);
   const selected = selectedPerms ?? new Set(readOnlyPreset(held));
-  const [creating, setCreating] = useState(false);
   const [newKey, setNewKey] = useState<string | null>(null);
   const [revoking, setRevoking] = useState<string | null>(null);
   // Revoking is immediate and irreversible — a live key in CI stops working
@@ -115,26 +115,30 @@ export function AccessKeysSection({ readOnly }: { readOnly: boolean }) {
     setPendingCreate({ name: name.trim(), expiresIn: d * 86400, ...(permissions ? { permissions } : {}) });
   };
 
+  const create = useMutation({
+    fn: async (request: { name: string; expiresIn: number; permissions?: string[] }, stepUpToken: string) => {
+      const res = await api.createAccessKey(request, stepUpToken);
+      if (!res.success || !res.data) throw new Error('Failed to create access key');
+      return res.data.key;
+    },
+    errorFallback: 'Failed to create access key',
+    toast: { success: 'Access key created', error: true },
+    onSuccess: (key) => {
+      setNewKey(key);
+      setName('');
+      setPermMode('selected');
+      setSelectedPerms(null);
+      void load();
+    },
+  });
+  const creating = create.pending;
+
   const executeCreate = async (stepUpToken: string) => {
     if (!pendingCreate) return;
-    setCreating(true);
     setNewKey(null);
     try {
-      const res = await api.createAccessKey(pendingCreate, stepUpToken);
-      if (res.success && res.data) {
-        setNewKey(res.data.key);
-        setName('');
-        setPermMode('selected');
-        setSelectedPerms(null);
-        toast.success('Access key created');
-        void load();
-      } else {
-        toast.error('Failed to create access key');
-      }
-    } catch (err) {
-      toast.error(formatError(err, 'Failed to create access key'));
+      await create.run(pendingCreate, stepUpToken);
     } finally {
-      setCreating(false);
       setPendingCreate(null);
     }
   };

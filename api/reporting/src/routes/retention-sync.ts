@@ -3,8 +3,8 @@
 
 import {
   sendSuccess, sendBadRequest, ErrorCode,
-  getParam, requireInternalService, audited,
-  actorId, normalizeRetentionDays, RETENTION_MAX_DAYS,
+  requireInternalService, audited,
+  actorId, contractErrorMessage, contractRoute, parseContractBody, parseContractParams, REPORTING_INTERNAL,
   recordAudit,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
@@ -27,27 +27,27 @@ import { Router } from 'express';
  * escape hatch: an internal route refuses every user token, however privileged. The `:orgId` path param carries the target ROOT org
  * (billing resolves the org to its root before calling) — NOT the token's org.
  */
-/** Billing's `occurredAt`, only when it is a real ISO instant (it is copied into the audit row). */
-function billingOccurredAt(value: unknown): string | undefined {
-  return typeof value === 'string' && value.length <= 40 && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : undefined;
-}
+/**
+ * The api-core contracts. The push body validates each retention (`-1` or an
+ * integer ≥ 1, clamped to the ceiling — anything else is a 400 naming the
+ * field) and keeps billing's `occurredAt` only when it is a real instant (it is
+ * copied into the audit row; a bad one is dropped, never a 400).
+ */
+const SYNC = REPORTING_INTERNAL.syncRetention;
+const READ = REPORTING_INTERNAL.readRetention;
+const MOUNT = '/reports/retention-sync';
 
 export function createRetentionSyncRoutes(): Router {
   const router = Router();
 
-  router.put('/:orgId', requireInternalService({ callers: ['billing'] }), audited('reporting.retention.sync'), withRoute(async ({ req, res, ctx, userId }) => {
-    const orgId = getParam(req.params, 'orgId');
-    if (!orgId) return sendBadRequest(res, 'orgId path parameter is required', ErrorCode.VALIDATION_ERROR);
+  router.put(contractRoute(SYNC, MOUNT), requireInternalService({ callers: SYNC.callers }), audited('reporting.retention.sync'), withRoute(async ({ req, res, ctx, userId }) => {
+    const params = parseContractParams(SYNC, req);
+    if (!params.ok) return sendBadRequest(res, contractErrorMessage(params), ErrorCode.VALIDATION_ERROR);
+    const { orgId } = params.value;
 
-    const body = (req.body ?? {}) as { eventRetentionDays?: unknown; doraRetentionDays?: unknown; occurredAt?: unknown };
-    const eventRetentionDays = normalizeRetentionDays(body.eventRetentionDays);
-    const doraRetentionDays = normalizeRetentionDays(body.doraRetentionDays);
-    if (eventRetentionDays === null) {
-      return sendBadRequest(res, `eventRetentionDays must be -1 or an integer in [1, ${RETENTION_MAX_DAYS}]`, ErrorCode.VALIDATION_ERROR);
-    }
-    if (doraRetentionDays === null) {
-      return sendBadRequest(res, `doraRetentionDays must be -1 or an integer in [1, ${RETENTION_MAX_DAYS}]`, ErrorCode.VALIDATION_ERROR);
-    }
+    const body = parseContractBody(SYNC, req);
+    if (!body.ok) return sendBadRequest(res, contractErrorMessage(body), ErrorCode.VALIDATION_ERROR);
+    const { eventRetentionDays, doraRetentionDays, occurredAt: billingOccurredAt } = body.value;
 
     // The enforced values BEFORE this push, for the audit row: a retention CUT is
     // data-destroying at the next sweep, and "cut from what" is the half nobody
@@ -76,7 +76,7 @@ export function createRetentionSyncRoutes(): Router {
         // Billing's own instant for the entitlement change it is pushing — the
         // correlation key back to the billing_events row that caused it (the
         // request id rides the audit context).
-        ...(billingOccurredAt(body.occurredAt) ? { billingOccurredAt: billingOccurredAt(body.occurredAt) } : {}),
+        ...(billingOccurredAt ? { billingOccurredAt } : {}),
       },
     });
     return sendSuccess(res, 200, { orgId, eventRetentionDays, doraRetentionDays, ok: true });
@@ -86,9 +86,10 @@ export function createRetentionSyncRoutes(): Router {
   // reporting is ENFORCING for the root org (`null` = none stored, the env
   // default applies). Same internal billing-only guard as the PUT; the `:orgId`
   // is the target root org, so the read runs scoped to that org explicitly.
-  router.get('/:orgId', requireInternalService({ callers: ['billing'] }), withRoute(async ({ req, res }) => {
-    const orgId = getParam(req.params, 'orgId');
-    if (!orgId) return sendBadRequest(res, 'orgId path parameter is required', ErrorCode.VALIDATION_ERROR);
+  router.get(contractRoute(READ, MOUNT), requireInternalService({ callers: READ.callers }), withRoute(async ({ req, res }) => {
+    const params = parseContractParams(READ, req);
+    if (!params.ok) return sendBadRequest(res, contractErrorMessage(params), ErrorCode.VALIDATION_ERROR);
+    const { orgId } = params.value;
     const settings = await runWithTenantContext({ orgId, isSuperAdmin: false }, () => reportingService.getReportingSettings(orgId));
     return sendSuccess(res, 200, {
       orgId,

@@ -21,6 +21,7 @@ import { ReadOnlyNotice } from '@/components/ui/ReadOnlyNotice';
 import { useToast } from '@/components/ui/Toast';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { useFetch } from '@/hooks/useFetch';
+import { useMutation } from '@/hooks/useMutation';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
 import type { ServiceAccount } from '@/lib/api/domains/organizations';
@@ -82,7 +83,6 @@ export function ScimProvisioning({ orgId, readOnly }: { orgId: string; readOnly:
   const accounts = accountsLoaded ?? NO_ACCOUNTS;
   const error = errorFailure ? formatError(errorFailure, 'Failed to load SCIM credentials') : null;
 
-  const [busy, setBusy] = useState(false);
   const [newKey, setNewKey] = useState<string | null>(null);
   const [days, setDays] = useState(365);
   const [pendingIssue, setPendingIssue] = useState<'account' | 'key' | null>(null);
@@ -120,10 +120,8 @@ export function ScimProvisioning({ orgId, readOnly }: { orgId: string; readOnly:
   const [createdAccountId, setCreatedAccountId] = useState<string | null>(null);
 
   /** Step 1 (first use only): the account the key will belong to. */
-  const createAccount = async (stepUpToken: string) => {
-    setBusy(true);
-    let nextStage: typeof pendingIssue = null;
-    try {
+  const createAccountM = useMutation({
+    fn: async (stepUpToken: string) => {
       const created = await api.createServiceAccount(orgId, {
         name: SCIM_ACCOUNT_NAME,
         description: 'SCIM 2.0 provisioning from your identity provider',
@@ -131,57 +129,65 @@ export function ScimProvisioning({ orgId, readOnly }: { orgId: string; readOnly:
         // role-less account can do nothing either.
         roleIds: [],
       }, stepUpToken);
-      if (!created.success || !created.data) { toast.error('Failed to create the SCIM service account'); return; }
-      setCreatedAccountId(created.data.serviceAccount.id);
-      nextStage = 'key';
+      if (!created.success || !created.data) throw new Error('Failed to create the SCIM service account');
+      return created.data.serviceAccount.id;
+    },
+    scopeKey: orgId,
+    errorFallback: 'Failed to create the SCIM service account',
+    toast: { error: true },
+    onSuccess: (id) => {
+      setCreatedAccountId(id);
+      // On to step 2, with its own confirmation.
+      setPendingIssue('key');
       void reload();
-    } catch (err) {
-      toast.error(formatError(err, 'Failed to create the SCIM service account'));
-    } finally {
-      setBusy(false);
-      setPendingIssue(nextStage);
-    }
-  };
+    },
+    onError: () => setPendingIssue(null),
+  });
+  const createAccount = async (stepUpToken: string) => { await createAccountM.run(stepUpToken); };
 
   /** Step 2: mint the key, with a confirmation of its own. */
-  const issueKey = async (stepUpToken: string) => {
-    const accountId = scimAccount?.id ?? createdAccountId;
-    if (!accountId) { setPendingIssue('account'); return; }
-    setBusy(true);
-    setNewKey(null);
-    try {
+  const issueKeyM = useMutation({
+    fn: async (accountId: string, stepUpToken: string) => {
       const res = await api.createServiceAccountKey(orgId, accountId, {
         name: `scim-${localDay(new Date())}`,
         expiresIn: Math.floor(days) * 86400,
         scope: SCIM_SCOPE,
       }, stepUpToken);
-      if (res.success && res.data) {
-        setNewKey(res.data.key);
-        toast.success('SCIM key issued');
-      } else {
-        toast.error('Failed to issue the SCIM key');
-      }
+      if (!res.success || !res.data) throw new Error('Failed to issue the SCIM key');
+      return res.data.key;
+    },
+    scopeKey: orgId,
+    errorFallback: 'Failed to issue the SCIM key',
+    toast: { success: 'SCIM key issued', error: true },
+    onSuccess: async (key) => {
+      setNewKey(key);
       await reload();
-    } catch (err) {
-      toast.error(formatError(err, 'Failed to issue the SCIM key'));
+    },
+  });
+  const issueKey = async (stepUpToken: string) => {
+    const accountId = scimAccount?.id ?? createdAccountId;
+    if (!accountId) { setPendingIssue('account'); return; }
+    setNewKey(null);
+    try {
+      await issueKeyM.run(accountId, stepUpToken);
     } finally {
-      setBusy(false);
       setPendingIssue(null);
     }
   };
 
-  const revokeKey = async (key: ScimKey) => {
-    setBusy(true);
-    try {
+  const revokeM = useMutation({
+    fn: async (key: ScimKey) => {
       const res = await api.revokeServiceAccountKey(orgId, key.accountId, key.id);
-      if (res.success) { toast.success('SCIM key revoked'); await reload(); }
-      else {toast.error('Failed to revoke the key');}
-    } catch (err) {
-      toast.error(formatError(err, 'Failed to revoke the key'));
-    } finally {
-      setBusy(false);
-    }
-  };
+      if (!res.success) throw new Error('Failed to revoke the key');
+    },
+    scopeKey: orgId,
+    errorFallback: 'Failed to revoke the key',
+    toast: { success: 'SCIM key revoked', error: true },
+    onSuccess: async () => { await reload(); },
+  });
+  const revokeKey = (key: ScimKey) => revokeM.run(key);
+
+  const busy = createAccountM.pending || issueKeyM.pending || revokeM.pending;
 
   return (
     <SectionCard

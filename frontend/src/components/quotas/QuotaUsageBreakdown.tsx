@@ -7,8 +7,8 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
-import { useToast } from '@/components/ui/Toast';
 import { useFetch } from '@/hooks/useFetch';
+import { useMutation } from '@/hooks/useMutation';
 import { formatError } from '@/lib/constants';
 import { triggerBlobDownload } from '@/lib/download';
 import { fmtNum } from '@/lib/format';
@@ -95,11 +95,9 @@ export function QuotaUsageBreakdown({ orgId, isTeam, periodDays }: {
   isTeam: boolean;
   periodDays?: number;
 }) {
-  const toast = useToast();
   const [type, setType] = useState<QuotaType>('apiCalls');
   const [groupBy, setGroupBy] = useState<QuotaUsageGroupBy>('principal');
   const [rangeDays, setRangeDays] = useState<number>(0);
-  const [exporting, setExporting] = useState(false);
 
   const isAI = type === 'aiCalls';
   // Feature / model groupings exist only for AI calls; switching to another quota
@@ -116,17 +114,16 @@ export function QuotaUsageBreakdown({ orgId, isTeam, periodDays }: {
   const groups: QuotaUsageGroup[] = usageQ.data?.groups ?? [];
   const totalNet = groups.reduce((sum, g) => sum + g.net, 0);
 
-  async function exportCsv() {
-    setExporting(true);
-    try {
-      const { blob, filename } = await api.downloadQuotaUsageCsv(orgId, params);
-      triggerBlobDownload(blob, filename);
-    } catch (err) {
-      toast.error(formatError(err, 'Usage export failed'));
-    } finally {
-      setExporting(false);
-    }
-  }
+  const exportMutation = useMutation({
+    fn: (p: QuotaUsageParams) => api.downloadQuotaUsageCsv(orgId, p),
+    // A download for the previous org must not be saved under this one.
+    scopeKey: orgId,
+    errorFallback: 'Usage export failed',
+    toast: { error: true },
+    onSuccess: ({ blob, filename }) => triggerBlobDownload(blob, filename),
+  });
+  const exporting = exportMutation.pending;
+  const exportCsv = () => { void exportMutation.run(params); };
 
   return (
     <Card className="mt-6">

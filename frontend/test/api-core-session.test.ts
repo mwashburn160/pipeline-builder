@@ -135,6 +135,38 @@ describe('ApiCore token refresh', () => {
     expect(expired).toHaveBeenCalledTimes(1);
   });
 
+  it('names the reason when /auth/refresh answers 401 SESSION_EXPIRED (the session outlived its policy)', async () => {
+    const core = signedInCore();
+    const expired = jest.fn<AnyFn>();
+    core.onSessionExpired(expired);
+    fetchMock.mockResolvedValue(res(401, { code: 'SESSION_EXPIRED', message: 'Your session has expired — please sign in again' }));
+
+    await expect(settle(refresh(core))).resolves.toBe(false);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(core.getAccessToken()).toBeNull();
+    expect(expired).toHaveBeenCalledTimes(1);
+    expect(expired).toHaveBeenCalledWith('session-expired');
+  });
+
+  it.each([
+    ['another 401 code', 401, { code: 'REFRESH_TOKEN_REUSED' }],
+    ['a 400 carrying SESSION_EXPIRED', 400, { code: 'SESSION_EXPIRED' }],
+    ['a 401 without a JSON body', 401, undefined],
+  ])('a generic rejection (%s) ends the session without a reason', async (_label, status, body) => {
+    const core = signedInCore();
+    const expired = jest.fn<AnyFn>();
+    core.onSessionExpired(expired);
+    fetchMock.mockResolvedValue(body === undefined
+      ? ({ ok: false, status, headers: new Headers(), json: () => Promise.reject(new SyntaxError('no body')) } as unknown as Response)
+      : res(status, body));
+
+    await expect(settle(refresh(core))).resolves.toBe(false);
+
+    expect(core.getAccessToken()).toBeNull();
+    expect(expired).toHaveBeenCalledWith(undefined);
+  });
+
   it.each([
     ['a network error', () => Promise.reject(new TypeError('Failed to fetch'))],
     ['a 502', () => Promise.resolve(res(502))],

@@ -5,12 +5,12 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import type { BuilderProps } from '@/types';
 import { useAIProviders } from '@/hooks/useAIProviders';
 import { useAiStreamGeneration } from '@/hooks/useAiStreamGeneration';
+import { useMutation } from '@/hooks/useMutation';
 import api from '@/lib/api';
 import { isAskAgentProvider } from '@/lib/ai-constants';
 import { streamAgentDraft } from '@/lib/ask-agent-draft';
-import { formatError, formatJSON } from '@/lib/constants';
+import { formatJSON } from '@/lib/constants';
 import { useUnmountedRef } from '../useUnmountedRef';
-import { invalidate } from '@/lib/api-cache';
 import type { AIServedByInfo, AIUsageInfo } from '@/components/ui/AIServedBy';
 
 /** Analysis data returned by the backend analyzing event. */
@@ -75,7 +75,6 @@ export function useRepoAnalysis({ initialUrl, autoGenerate }: UseRepoAnalysisOpt
   const [generatedKeywords, setGeneratedKeywords] = useState('');
   const [checkingPlugins, setCheckingPlugins] = useState(false);
   const [missingPlugins, setMissingPlugins] = useState<MissingPluginProposal | null>(null);
-  const [creatingPlugins, setCreatingPlugins] = useState(false);
   const [pluginStatus, setPluginStatus] = useState<PluginCreationStatus | null>(null);
   const [served, setServed] = useState<{ servedBy?: AIServedByInfo; usage?: AIUsageInfo } | null>(null);
   const [projectOverride, setProjectOverride] = useState('');
@@ -176,22 +175,24 @@ export function useRepoAnalysis({ initialUrl, autoGenerate }: UseRepoAnalysisOpt
    * only on this explicit action: a model's output never creates anything by
    * itself. The server re-checks each name and creates it as the user.
    */
-  const confirmMissingPlugins = useCallback(async (names: string[]) => {
-    if (names.length === 0) return;
-    setCreatingPlugins(true);
-    setError(null);
-    try {
-      const res = await api.createMissingPlugins(names);
-      if (cancelledRef.current) return;
+  const createPlugins = useMutation({
+    fn: (names: string[]) => api.createMissingPlugins(names),
+    invalidates: ['plugins'],
+    errorFallback: 'Failed to create the plugins.',
+    onSuccess: (res) => {
       if (res.data) setPluginStatus(res.data);
       setMissingPlugins(null);
-      invalidate.plugins();
-    } catch (err) {
-      if (!cancelledRef.current) setError(formatError(err, 'Failed to create the plugins.'));
-    } finally {
-      if (!cancelledRef.current) setCreatingPlugins(false);
-    }
-  }, [setError, cancelledRef]);
+    },
+    // The run's error banner is the stream's; a failed creation shows there too.
+    onError: (_err, message) => setError(message),
+  });
+  const creatingPlugins = createPlugins.pending;
+  const { run: runCreatePlugins } = createPlugins;
+  const confirmMissingPlugins = useCallback(async (names: string[]) => {
+    if (names.length === 0) return;
+    setError(null);
+    await runCreatePlugins(names);
+  }, [setError, runCreatePlugins]);
 
   // Auto-generate when initialUrl + autoGenerate are set. Fires exactly once,
   // when both provider and model are non-empty AND providers have finished

@@ -164,6 +164,28 @@ groups:
           summary: "{{ $labels.service }} is not responding to scrapes"
           description: "Prometheus has failed to scrape {{ $labels.service }} (pod {{ $labels.pod }}) for 5m. The pod exists but is unreachable — crashloop, OOM, or a hung process. Check: kubectl get pods -n pipeline-builder | grep {{ $labels.service }}"
 
+      # PLATFORM, by name, for the case ServiceDown cannot see (its own test
+      # case 8 pins that gap). ServiceDown is per-pod `up == 0`, so it needs a
+      # discovered target whose scrape FAILED; every platform replica gone —
+      # scaled to zero, deleted, a pod label changed, an image that never
+      # schedules — leaves no `up` series at all and ServiceDown goes silent in
+      # exactly the worst case. Platform is singled out because it issues and
+      # verifies every session and serves identity to every other service, so
+      # its total absence is a whole-product outage rather than one feature.
+      # `absent()` as well as `max(...) == 0`, the same shape as
+      # CoreDnsUnreachable; the absent() half carries job/service, the max half
+      # carries no labels.
+      - alert: PlatformDown
+        expr: absent(up{job="kubernetes-pods",service="platform"}) == 1 or max(up{job="kubernetes-pods",service="platform"}) == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: platform
+          tenancy: platform
+        annotations:
+          summary: "No platform replica is answering scrapes"
+          description: "Prometheus has had no reachable platform pod for 5m — either every replica fails its scrape or none is discovered at all. Platform issues and verifies sessions and serves identity to every service, so logins and most authenticated traffic fail while this fires. Check: kubectl get deploy,pods -n pipeline-builder -l app=platform && kubectl describe deploy platform -n pipeline-builder"
+
       # ---- Gateway (nginx) ----
       # From nginx/metrics.js: real per-route counters recorded at log time
       # (nginx_http_requests_total{service,status_class} and the
@@ -2071,15 +2093,15 @@ groups:
       # degradation rather than outage. Both are worth knowing about, for
       # different reasons, so they are two alerts rather than one.
       - alert: PooledQuotaResolutionDenying
-        expr: sum by (quotaType) (rate(quota_pool_resolution_failed_total{outcome="denied"}[5m])) > 0
+        expr: sum by (quota_type) (rate(quota_pool_resolution_failed_total{outcome="denied"}[5m])) > 0
         for: 10m
         labels:
           severity: critical
           component: quota
           tenancy: org
         annotations:
-          summary: "Team orgs are refused quota because their root is unresolvable ({{ $labels.quotaType }})"
-          description: "{{ $value | humanize }} denials/sec over 5m sustained for 10m on quotaType={{ $labels.quotaType }}. A team org cannot resolve its pooled root cap, and because its own limits are -1 the reservation is refused with QuotaPoolUnavailableError instead of being allowed through unmetered. This is tenant-visible and the tenant has done nothing wrong, so it is a refusal we are causing. Check the platform org-hierarchy read path that resolves the root."
+          summary: "Team orgs are refused quota because their root is unresolvable ({{ $labels.quota_type }})"
+          description: "{{ $value | humanize }} denials/sec over 5m sustained for 10m on quota_type={{ $labels.quota_type }}. A team org cannot resolve its pooled root cap, and because its own limits are -1 the reservation is refused with QuotaPoolUnavailableError instead of being allowed through unmetered. This is tenant-visible and the tenant has done nothing wrong, so it is a refusal we are causing. Check the platform org-hierarchy read path that resolves the root."
 
       - alert: PooledQuotaResolutionDegraded
         expr: sum(rate(quota_pool_resolution_failed_total[15m])) > 0.05
@@ -4344,7 +4366,7 @@ groups:
           tenancy: platform
         annotations:
           summary: "A {{ $labels.kind }} cascade leg to {{ $labels.service }} ran out of retries"
-          description: "{{ $value | humanize }} {{ $labels.kind }} leg(s) to {{ $labels.service }} were dead-lettered in the last hour: that service still holds the purged org's (or erased user's) data. The subject id is in the platform logs ('Cascade leg DEAD') and the org.cascade.dead audit row; the leg's lastError and lastStatusCode are on its cascade_outbox row. Fix the service, then set the row's status back to 'pending' with nextAttemptAt now — every leg's handler is idempotent, so redelivering is safe."
+          description: "{{ $value | humanize }} {{ $labels.kind }} leg(s) to {{ $labels.service }} were dead-lettered in the last hour: that service still holds the purged org's (or erased user's) data. The subject id is in the platform logs ('Cascade leg DEAD') and the org.cascade.dead audit row; GET /api/admin/cascade?status=dead lists the dead legs with their lastError and lastStatusCode. Fix the service, then POST /api/admin/cascade/<leg id>/redrive (orgs:manage + step-up; resets attempts unless resetAttempts=false) — every leg's handler is idempotent, so redelivering is safe."
 
       # ---- Support: cases opened that nothing can serve ----
       # An `unentitled` send is normal for an org with no support add-on. A

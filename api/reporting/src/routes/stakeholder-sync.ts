@@ -30,21 +30,23 @@
 import {
   actorId,
   audited,
+  contractErrorMessage,
+  contractRoute,
   createLogger,
   ErrorCode,
   errorMessage,
-  getParam,
+  parseContractBody,
+  parseContractParams,
   recordAudit,
+  REPORTING_INTERNAL,
   requireInternalService,
   sendBadRequest,
   sendError,
   sendSuccess,
-  validate,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { runWithTenantContext, stakeholderReportStore, type ReportDefinition } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
-import { z } from 'zod';
 import { resolveOrgSubtree } from '../helpers/report-helpers.js';
 import { notifyPaused } from '../services/report-delivery.js';
 import { nextRunFor } from '../services/report-schedule.js';
@@ -52,34 +54,30 @@ import { nextRunFor } from '../services/report-schedule.js';
 const logger = createLogger('stakeholder-sync');
 
 /**
- * `{ entitled, occurredAt? }` — billing's entitlement edge. `occurredAt` is any
- * string `Date` parses (billing sends ISO), and orders this edge against a
- * newer one already applied.
+ * The api-core contract. Its body `{ entitled, occurredAt? }` is billing's
+ * entitlement edge: `occurredAt` is any string `Date` parses (billing sends
+ * ISO), and orders this edge against a newer one already applied.
  */
-const bodySchema = z.object({
-  entitled: z.boolean({ error: 'must be a boolean' }),
-  occurredAt: z.string({ error: 'must be an ISO timestamp' })
-    .refine((v) => !Number.isNaN(new Date(v).getTime()), 'must be an ISO timestamp')
-    .transform((v) => new Date(v))
-    .optional(),
-}).strict();
+const SYNC = REPORTING_INTERNAL.syncStakeholderEntitlement;
 
 export function createStakeholderSyncRoutes(): Router {
   const router: Router = Router();
 
-  router.put('/:orgId',
-    requireInternalService({ callers: ['billing'] }),
+  router.put(contractRoute(SYNC, '/reports/stakeholder-sync'),
+    requireInternalService({ callers: SYNC.callers }),
     // Two actions, because the route does two things and a reviewer asks about each
     // separately: "when did this account's reporting stop" and "when did it resume".
     audited('reporting.report.paused', 'reporting.report.resumed'),
     withRoute(async ({ req, res, ctx, userId }) => {
-      const rootOrgId = getParam(req.params, 'orgId');
-      if (!rootOrgId) return sendBadRequest(res, 'orgId path parameter is required', ErrorCode.VALIDATION_ERROR);
+      const params = parseContractParams(SYNC, req);
+      if (!params.ok) return sendBadRequest(res, contractErrorMessage(params), ErrorCode.VALIDATION_ERROR);
+      const rootOrgId = params.value.orgId;
 
       // An absent body is an empty one, so a missing `entitled` is named as such.
-      const validation = validate(req.body ?? {}, bodySchema);
+      const validation = parseContractBody(SYNC, req);
       if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
-      const { entitled, occurredAt } = validation.value;
+      const { entitled } = validation.value;
+      const occurredAt = validation.value.occurredAt === undefined ? undefined : new Date(validation.value.occurredAt);
 
       // `[root, ...descendants]`, or undefined when the org has no hierarchy. A THROWN
       // failure here is a refusal, not a fallback to the single org: see the header.

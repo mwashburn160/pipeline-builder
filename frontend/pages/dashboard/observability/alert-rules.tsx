@@ -8,6 +8,7 @@ import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useFetch } from '@/hooks/useFetch';
 import { usePagination } from '@/hooks/usePagination';
+import { useMutation } from '@/hooks/useMutation';
 import { useToast } from '@/components/ui/Toast';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -61,9 +62,8 @@ export default function AlertRulesPage() {
   const toast = useToast();
   const ready = isReady && isAuthenticated;
   const [editing, setEditing] = useState<AlertRule | null>(null);
-  const [creating, setCreating] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
   const [deleting, setDeleting] = useState<AlertRule | null>(null);
-  const [deleteBusy, setDeleteBusy] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const page = usePagination();
 
@@ -82,20 +82,16 @@ export default function AlertRulesPage() {
   const total = pagination.total;
   const refresh = async () => { void refetch(); };
 
-  const onDelete = async () => {
-    if (!deleting) return;
-    setDeleteBusy(true);
-    try {
-      await api.deleteAlertRule(deleting.id);
-      toast.success('Alert rule deleted');
+  const del = useMutation({
+    fn: (rule: AlertRule) => api.deleteAlertRule(rule.id),
+    toast: { success: 'Alert rule deleted', error: true },
+    onSuccess: async () => {
       setDeleting(null);
       await refresh();
-    } catch (err) {
-      toast.error(formatError(err));
-    } finally {
-      setDeleteBusy(false);
-    }
-  };
+    },
+  });
+  const deleteBusy = del.pending;
+  const onDelete = () => (deleting ? del.run(deleting) : undefined);
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !isAuthenticated) return <LoadingPage />;
@@ -121,7 +117,7 @@ export default function AlertRulesPage() {
               <Button
                 variant="secondary"
                 size="xs"
-                onClick={() => setCreating(true)}
+                onClick={() => setCreateOpen(true)}
                 className="gap-1"
               >
                 <Plus className="w-3.5 h-3.5" /> Add rule
@@ -221,11 +217,11 @@ export default function AlertRulesPage() {
         </div>
       )}
 
-      {(creating || editing) && (
+      {(createOpen || editing) && (
         <RuleModal
           existing={editing}
-          onClose={() => { setCreating(false); setEditing(null); }}
-          onSaved={async () => { await refresh(); setCreating(false); setEditing(null); }}
+          onClose={() => { setCreateOpen(false); setEditing(null); }}
+          onSaved={async () => { await refresh(); setCreateOpen(false); setEditing(null); }}
         />
       )}
 
@@ -290,7 +286,22 @@ function RuleModal(props: {
   const [summary, setSummary] = useState(existing?.summary ?? '');
   const [description, setDescription] = useState(existing?.description ?? '');
   const [enabled, setEnabled] = useState(existing?.enabled ?? true);
-  const [saving, setSaving] = useState(false);
+  const save = useMutation({
+    fn: async (body: AlertRuleWrite) => {
+      if (existing) await api.updateAlertRule(existing.id, body);
+      else await api.createAlertRule(body);
+    },
+    scopeKey: existing?.id,
+    // The backend returns a descriptive 400 for PromQL / tenancy / duration
+    // validation failures; surface it verbatim so operators can fix the expr.
+    toast: { error: true },
+    // Toasted before `onSaved`, which closes (unmounts) this modal.
+    onSuccess: async () => {
+      toast.success(existing ? 'Alert rule updated' : 'Alert rule created');
+      await onSaved();
+    },
+  });
+  const saving = save.pending;
 
   const canSubmit = name.trim() && expr.trim() && summary.trim();
 
@@ -298,32 +309,15 @@ function RuleModal(props: {
     if (!name.trim()) { toast.error('Name is required'); return; }
     if (!expr.trim()) { toast.error('PromQL expression is required'); return; }
     if (!summary.trim()) { toast.error('Summary is required'); return; }
-    setSaving(true);
-    try {
-      const body: AlertRuleWrite = {
-        name: name.trim(),
-        expr: expr.trim(),
-        forDuration: forDuration.trim() || '5m',
-        severity,
-        summary: summary.trim(),
-        description: description.trim(),
-        enabled,
-      };
-      if (existing) {
-        await api.updateAlertRule(existing.id, body);
-        toast.success('Alert rule updated');
-      } else {
-        await api.createAlertRule(body);
-        toast.success('Alert rule created');
-      }
-      await onSaved();
-    } catch (err) {
-      // The backend returns a descriptive 400 for PromQL / tenancy / duration
-      // validation failures; surface it verbatim so operators can fix the expr.
-      toast.error(formatError(err));
-    } finally {
-      setSaving(false);
-    }
+    void save.run({
+      name: name.trim(),
+      expr: expr.trim(),
+      forDuration: forDuration.trim() || '5m',
+      severity,
+      summary: summary.trim(),
+      description: description.trim(),
+      enabled,
+    });
   };
 
   return (

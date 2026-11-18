@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ErrorCode, createLogger, sendError, sendSuccess, createSafeClient, getServiceAuthHeader, isSystemOrgId, errorMessage, userHasPermission } from '@pipeline-builder/api-core';
+import { COMPLIANCE_INTERNAL, ErrorCode, callInternal, createLogger, sendError, sendSuccess, createSafeClient, getServiceAuthHeader, isSystemOrgId, errorMessage, userHasPermission } from '@pipeline-builder/api-core';
 import { config } from '../config/index.js';
 import type { RefreshSessionKind } from '../constants/vocabulary.js';
 import { audit } from '../helpers/audit.js';
@@ -36,15 +36,19 @@ async function autoSubscribeToPublishedRules(orgId: string): Promise<void> {
       timeout: config.compliance.serviceTimeoutMs,
     });
 
-    const res = await client.post('/compliance/subscriptions/auto-subscribe', {}, {
-      headers: {
-        'x-org-id': orgId,
-        'authorization': getServiceAuthHeader({ serviceName: 'platform', orgId, role: 'member' }),
+    const res = await callInternal(client, COMPLIANCE_INTERNAL.autoSubscribe, {
+      body: {},
+      options: {
+        headers: {
+          'x-org-id': orgId,
+          'authorization': getServiceAuthHeader({ serviceName: 'platform', orgId, role: 'member' }),
+        },
       },
     });
-    // The safe client resolves null / an error status instead of throwing.
-    if (!res || res.statusCode < 200 || res.statusCode >= 300) {
-      throw new Error(res ? `Compliance service returned ${res.statusCode}` : 'Compliance service unreachable');
+    // The safe client resolves null / an error status instead of throwing. A
+    // 2xx is a done subscribe whatever its body says.
+    if (!res.ok && res.reason !== 'invalid-response') {
+      throw new Error(res.reason === 'status' ? `Compliance service returned ${res.status}` : 'Compliance service unreachable');
     }
 
     logger.info('Auto-subscribed org to published compliance rules', { orgId });

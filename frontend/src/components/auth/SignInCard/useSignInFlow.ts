@@ -5,10 +5,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '@/hooks/useAuth';
 import { useFetch } from '@/hooks/useFetch';
+import { useMutation } from '@/hooks/useMutation';
 import api from '@/lib/api';
 import { storeSsoIntent } from '@/lib/sso-intent';
 import { startOAuthLogin } from '@/lib/oauth-intent';
 import { peekReturnPath } from '@/lib/return-to';
+import { parseSignInReason } from '@/lib/sign-in-reason';
 import { formatError, providerLabel } from '@/lib/constants';
 import { rateLimitedMessage } from '@/lib/rate-limit-message';
 import { useRequiredPasswordChange, signInError } from './useRequiredPasswordChange';
@@ -54,7 +56,6 @@ export function useSignInFlow() {
   // back to the password form with nothing else disturbed.
   const [mfaChallengeId, setMfaChallengeId] = useState<string | null>(null);
   const [mfaCode, setMfaCode] = useState('');
-  const [mfaBusy, setMfaBusy] = useState(false);
   // "I have no code and no recovery code left" — the operator-recovery panel.
   const [lostFactorOpen, setLostFactorOpen] = useState(false);
   // Set when the org's MFA requirement refused the sign-in itself (401
@@ -80,7 +81,9 @@ export function useSignInFlow() {
   // request and the server decides — a non-owner gets SSO_REQUIRED back.
   const [breakGlass, setBreakGlass] = useState(false);
   const [ssoAccount, setSsoAccount] = useState<{ orgId: string; provider?: string } | null>(null);
-  const [ssoBusy, setSsoBusy] = useState(false);
+  // Set once the browser is being handed to the IdP: the button stays busy
+  // through the navigation (the URL fetch itself is `sso.pending`).
+  const [leavingForSso, setLeavingForSso] = useState(false);
   // One answer per domain per page load — typing an address must not spend the
   // pre-auth rate-limit budget a keystroke at a time. A failed lookup caches
   // `false`: discovery is a hint, and the password path still refuses a covered
@@ -97,8 +100,11 @@ export function useSignInFlow() {
   // is a separate, narrower question (Safari and Firefox had WebAuthn for years
   // without it), asked inside the effect that arms autofill.
   const [passkeySupported, setPasskeySupported] = useState(false);
-  const [passkeyBusy, setPasskeyBusy] = useState(false);
-  const sessionExpired = router.query.expired === '1';
+  // Why they are here, when the app sent them: a session past its lifetime
+  // (`reason=session-expired`), an org that needs a fresh sign-in
+  // (`reason=org-reauth`), or the generic refresh rejection (`expired=1`).
+  const signInReason = parseSignInReason(router.query.reason);
+  const sessionExpired = router.query.expired === '1' && signInReason === null;
 
   // Fail-soft: no answer means no social buttons, never a broken sign-in form.
   const oauthProviders = useFetch<string[]>(
@@ -234,48 +240,59 @@ export function useSignInFlow() {
    * `/auth/sso/[orgId]/callback` for OIDC, `/auth/sso/[orgId]/saml` for SAML —
    * is decided by what the backend registered with the IdP, not by us.
    */
-  const startSso = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    cancelPasskeyCeremony();
-    setSsoBusy(true);
-    try {
+  const sso = useMutation({
+    fn: async () => {
       const res = ssoAccount?.orgId
         ? await api.getSsoUrl(ssoAccount.orgId)
         : await api.startSsoByEmail(identifier.trim());
       const url = res.data?.url;
       const state = res.data?.state;
       if (!url || !state) throw new Error('Your organization’s identity provider could not be reached.');
+      return { url, state };
+    },
+    formatError: (err) => signInError(err, 'Could not start single sign-on'),
+    onSuccess: ({ url, state }) => {
       // The landing page completes only a sign-in this tab started (login CSRF).
       storeSsoIntent(state);
+      setLeavingForSso(true);
       window.location.href = url;
-    } catch (err) {
-      setError(signInError(err, 'Could not start single sign-on'));
-      setSsoBusy(false);
-    }
+    },
+    onError: (_err, message) => setError(message),
+  });
+  const ssoBusy = sso.pending || leavingForSso;
+
+  const startSso = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    cancelPasskeyCeremony();
+    await sso.run();
   };
 
   /** Second leg: the code from the authenticator app, or a recovery code. */
-  const handleMfaSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    if (!mfaChallengeId || !mfaCode.trim()) { setError('Enter the code from your authenticator app'); return; }
-    setMfaBusy(true);
-    try {
-      const result = await completeMfaLogin(mfaChallengeId, mfaCode.trim());
+  const mfa = useMutation({
+    fn: (challengeId: string, code: string) => completeMfaLogin(challengeId, code),
+    formatError: (err) => signInError(err, 'Verification failed'),
+    onSuccess: (result) => {
       if (takeLoginResult(result)) {
         setMfaChallengeId(null);
         setMfaCode('');
       }
-    } catch (err) {
+    },
+    onError: (err, message) => {
       // A dead challenge is the one refusal that isn't opaque, and the one case
       // where retrying the code is pointless — drop back to the password form
       // rather than keep asking for codes nothing will accept.
       if ((err as { code?: string } | null)?.code === 'TOTP_INVALID_CHALLENGE') setMfaChallengeId(null);
-      setError(signInError(err, 'Verification failed'));
-    } finally {
-      setMfaBusy(false);
-    }
+      setError(message);
+    },
+  });
+  const mfaBusy = mfa.pending;
+
+  const handleMfaSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    if (!mfaChallengeId || !mfaCode.trim()) { setError('Enter the code from your authenticator app'); return; }
+    await mfa.run(mfaChallengeId, mfaCode.trim());
   };
 
   /** Abandon the code step and start over with the password. */
@@ -288,19 +305,21 @@ export function useSignInFlow() {
 
   /** The explicit "Sign in with a passkey" path, for browsers without autofill
    *  (and for anyone who'd rather click than find the dropdown). */
+  const passkey = useMutation({
+    fn: () => loginWithPasskey(),
+    onError: (err) => {
+      // A dismissed ceremony has no message — nothing to show.
+      const message = passkeyError(err);
+      if (message) setError(message);
+    },
+  });
+  const passkeyBusy = passkey.pending;
+
   const handlePasskeySignIn = async () => {
     setError(null);
     // Replaces the waiting autofill request, which would otherwise refuse this one.
     cancelPasskeyCeremony();
-    setPasskeyBusy(true);
-    try {
-      await loginWithPasskey();
-    } catch (err) {
-      const message = passkeyError(err);
-      if (message) setError(message);
-    } finally {
-      setPasskeyBusy(false);
-    }
+    await passkey.run();
   };
 
   // Either signal means the same thing to this card: this identifier signs in
@@ -343,7 +362,7 @@ export function useSignInFlow() {
   };
 
   return {
-    isSubmitting, sessionExpired, error,
+    isSubmitting, sessionExpired, signInReason, error,
     identifier, changeIdentifier, password, setPassword, showPassword, setShowPassword, handleSignIn,
     mfaChallengeId, mfaCode, setMfaCode, mfaBusy, handleMfaSubmit, cancelMfa, lostFactorOpen, setLostFactorOpen,
     mfaPolicyBlocked,

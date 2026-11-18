@@ -29,3 +29,4 @@ export { default as adminConsoleRoutes, adminConsoleSessionRouter } from './admi
 export { default as adminSummaryRoutes } from './admin-summary.js';
 export { default as impersonateRoutes } from './impersonate.js';
 export { default as mfaResetAdminRoutes } from './mfa-reset-admin.js';
+export { default as cascadeAdminRoutes } from './cascade-admin.js';

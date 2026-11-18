@@ -1,24 +1,22 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, sendError, ErrorCode, createLogger, requireAuth, requireInternalService, serviceNameOf, SYSTEM_ACTOR_ID, validateBody } from '@pipeline-builder/api-core';
+import {
+  COMPLIANCE_INTERNAL, contractRoute, createLogger, ErrorCode, parseContractBody, requireAuth, requireInternalService,
+  sendBadRequest, sendError, sendSuccess, serviceNameOf, SYSTEM_ACTOR_ID,
+} from '@pipeline-builder/api-core';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { Router, type Request, type Response } from 'express';
-import { z } from 'zod';
 import { evaluateEntityEvent } from '../helpers/entity-event-handler.js';
 
 const logger = createLogger('compliance-entity-events');
 
-const EntityEventSchema = z.object({
-  entityId: z.string().min(1),
-  orgId: z.string().min(1),
-  target: z.string().min(1),
-  eventType: z.string().min(1),
-  /** The user the producer says performed the mutation — logged as "requested
-   *  by", never trusted as the audit actor. */
-  userId: z.string().optional(),
-  attributes: z.record(z.string(), z.unknown()).optional(),
-});
+/**
+ * The api-core contract (`COMPLIANCE_INTERNAL.entityEvent`). Its body's
+ * `userId` is the user the producer says performed the mutation — logged as
+ * "requested by", never trusted as the audit actor.
+ */
+const ENTITY_EVENT = COMPLIANCE_INTERNAL.entityEvent;
 
 /**
  * Internal endpoint for receiving entity lifecycle events from other services.
@@ -43,8 +41,8 @@ const EntityEventSchema = z.object({
 export function createEntityEventRoutes(): Router {
   const router = Router();
 
-  router.post('/', requireAuth, requireInternalService({ callers: ['pipeline', 'plugin'] }), async (req: Request, res: Response) => {
-    const validation = validateBody(req, EntityEventSchema);
+  router.post(contractRoute(ENTITY_EVENT, '/compliance/events/entity'), requireAuth, requireInternalService({ callers: ENTITY_EVENT.callers }), async (req: Request, res: Response) => {
+    const validation = parseContractBody(ENTITY_EVENT, req);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }

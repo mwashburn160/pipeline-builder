@@ -14,6 +14,7 @@ import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { useToast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useDelete } from '@/hooks/useDelete';
+import { useMutation } from '@/hooks/useMutation';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Card } from '@/components/ui/Card';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
@@ -312,31 +313,28 @@ export default function MessagesPage() {
     await Promise.all([fetchMessages(), fetchUnreadCount()]);
   }, [clearSelection, fetchMessages, fetchUnreadCount]);
 
-  const [bulkBusy, setBulkBusy] = useState(false);
-
   /** Put rows back into the inbox (Restore in the Removed view, and Undo). */
-  const restoreToInbox = useCallback(async (ids: string[]) => {
-    setBulkBusy(true);
-    try {
+  const restoreM = useMutation({
+    fn: async (ids: string[]) => {
       let restored = 0;
       for (const part of chunks(ids)) restored += (await api.unhideMessages(part)).data?.restored ?? 0;
+      return restored;
+    },
+    errorFallback: 'Could not restore those messages',
+    toast: { error: true },
+    onSuccess: async (restored, ids) => {
       toast.success(`Restored ${plural(restored)} to your inbox`);
       if (removedView) closeIfAffected(ids);
       await afterBulk();
-    } catch (err) {
-      toast.error(formatError(err, 'Could not restore those messages'));
-    } finally {
-      setBulkBusy(false);
-    }
-  }, [toast, removedView, closeIfAffected, afterBulk]);
+    },
+  });
+  const { run: restoreToInbox } = restoreM;
 
   // Remove-from-inbox. Its own confirm rather than `useDelete`, which keys on a
   // single target id — this one acts on a selection or a whole filter.
   const [pendingRemove, setPendingRemove] = useState<RemoveScope | null>(null);
-  const [hiding, setHiding] = useState(false);
-  const removeFromInbox = useCallback(async (scope: RemoveScope) => {
-    setHiding(true);
-    try {
+  const removeM = useMutation({
+    fn: async (scope: RemoveScope) => {
       // A selection sends ONLY its ids: the rows were picked off this screen,
       // and a filter added on top could silently skip one whose read state
       // moved since. "All matching" sends the filters the list is showing.
@@ -346,6 +344,11 @@ export default function MessagesPage() {
       } else {
         removed = (await api.hideMessages(activeHideFilters)).data?.hidden ?? 0;
       }
+      return removed;
+    },
+    errorFallback: 'Could not remove those messages',
+    toast: { error: true },
+    onSuccess: async (removed, scope) => {
       // Undo for a selection (the ids are known); for "all matching" the ids
       // never reached the client, so point at the Removed view instead.
       toast.success(
@@ -358,62 +361,65 @@ export default function MessagesPage() {
       setPendingRemove(null);
       closeIfAffected(scope.kind === 'ids' ? scope.ids : 'all');
       await afterBulk();
-    } catch (err) {
-      toast.error(formatError(err, 'Could not remove those messages'));
-    } finally {
-      setHiding(false);
-    }
-  }, [activeHideFilters, toast, restoreToInbox, setQuery, closeIfAffected, afterBulk]);
+    },
+  });
+  const { run: removeFromInbox, pending: hiding } = removeM;
   const removeSelected = useCallback(() => {
     setPendingRemove(allMatching ? { kind: 'matching', count: total ?? messages.length } : { kind: 'ids', ids: [...selectedIds] });
   }, [allMatching, total, messages.length, selectedIds]);
   const removeCount = pendingRemove ? (pendingRemove.kind === 'ids' ? pendingRemove.ids.length : pendingRemove.count) : 0;
 
   /** Bulk read / unread for the ticked rows — no confirm: it is reversible view state. */
-  const setReadState = useCallback(async (isRead: boolean) => {
-    const ids = [...selectedIds];
-    setBulkBusy(true);
-    try {
+  const readStateM = useMutation({
+    fn: async (ids: string[], isRead: boolean) => {
       for (const part of chunks(ids)) await api.setMessagesReadState(part, isRead);
+    },
+    onSuccess: async (_r, ids, isRead) => {
       toast.success(`Marked ${plural(ids.length)} ${isRead ? 'read' : 'unread'}`);
       await afterBulk();
-    } catch (err) {
+    },
+    onError: (err, _message, _ids, isRead) => {
       toast.error(formatError(err, `Could not mark those messages ${isRead ? 'read' : 'unread'}`));
-    } finally {
-      setBulkBusy(false);
-    }
-  }, [selectedIds, toast, afterBulk]);
+    },
+  });
+  const setReadState = (isRead: boolean) => readStateM.run([...selectedIds], isRead);
+  const bulkBusy = restoreM.pending || readStateM.pending;
 
   // Bulk delete — the ticked rows only, and only when EVERY one is deletable by
   // this viewer (the bar disables it otherwise). One `POST /messages/delete`
   // per chunk: the server runs the same per-row rule as the single delete and
   // reports any row it refused instead of failing the whole call.
   const [pendingBulkDelete, setPendingBulkDelete] = useState<string[] | null>(null);
-  const [bulkDeleting, setBulkDeleting] = useState(false);
   const canDeleteSelected = selectedMessages.length > 0 && selectedMessages.every(canDeleteMessage);
-  const deleteSelected = useCallback(async (ids: string[]) => {
-    setBulkDeleting(true);
-    const deleted: string[] = [];
-    let leftOver = 0;
-    let failure: unknown = null;
-    try {
-      for (const part of chunks(ids)) {
-        const res = await api.deleteMessages(part);
-        deleted.push(...(res.data?.deleted ?? []));
-        leftOver += (res.data?.refused?.length ?? 0) + (res.data?.notFound?.length ?? 0);
+  // A PARTIAL outcome, not a pass/fail: chunks that landed stay deleted even
+  // when a later one fails, so `fn` reports what happened rather than throwing.
+  const bulkDeleteM = useMutation({
+    fn: async (ids: string[]) => {
+      const deleted: string[] = [];
+      let leftOver = 0;
+      let failure: unknown = null;
+      try {
+        for (const part of chunks(ids)) {
+          const res = await api.deleteMessages(part);
+          deleted.push(...(res.data?.deleted ?? []));
+          leftOver += (res.data?.refused?.length ?? 0) + (res.data?.notFound?.length ?? 0);
+        }
+      } catch (err) {
+        failure = err;
       }
-    } catch (err) {
-      failure = err;
-    }
-    setBulkDeleting(false);
-    setPendingBulkDelete(null);
-    closeIfAffected(deleted);
-    if (deleted.length > 0) toast.success(`Deleted ${plural(deleted.length)}`);
-    const notDeleted = ids.length - deleted.length;
-    if (failure) toast.error(`${formatError(failure, 'Delete failed')} — ${plural(notDeleted)} not deleted`);
-    else if (leftOver > 0) toast.error(`${plural(leftOver)} could not be deleted (already gone, or not yours to delete)`);
-    await afterBulk();
-  }, [closeIfAffected, toast, afterBulk]);
+      return { deleted, leftOver, failure };
+    },
+    onSuccess: async ({ deleted, leftOver, failure }, ids) => {
+      setPendingBulkDelete(null);
+      closeIfAffected(deleted);
+      if (deleted.length > 0) toast.success(`Deleted ${plural(deleted.length)}`);
+      const notDeleted = ids.length - deleted.length;
+      if (failure) toast.error(`${formatError(failure, 'Delete failed')} — ${plural(notDeleted)} not deleted`);
+      else if (leftOver > 0) toast.error(`${plural(leftOver)} could not be deleted (already gone, or not yours to delete)`);
+      await afterBulk();
+    },
+  });
+  const { run: deleteSelected, pending: bulkDeleting } = bulkDeleteM;
 
   // ── Sender / counterparty filter options ───────────────────────────────────
   // Teammates for "Sent by <person>": fetched on first use of the sender

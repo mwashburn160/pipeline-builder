@@ -10,6 +10,7 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Modal } from '@/components/ui/Modal';
 import { useFetch } from '@/hooks/useFetch';
+import { useMutation } from '@/hooks/useMutation';
 import { formatError, providerLabel } from '@/lib/constants';
 import { PASSKEY_ENROLMENT_HREF } from '@/lib/security-links';
 import { stepUpWithPasskey } from '@/lib/passkeys';
@@ -107,7 +108,6 @@ function optionLabel(option: ReauthProvider): string {
  */
 export function StepUpModal({ action, title, details, onConfirmed, requireStrongFactor = false, confirmDisabledReason = null, onClose }: Props) {
   const [password, setPassword] = useState('');
-  const [submitting, setSubmitting] = useState(false);
   const [pendingProvider, setPendingProvider] = useState<string | null>(null);
   const [passkeyPending, setPasskeyPending] = useState(false);
   const [totpCode, setTotpCode] = useState('');
@@ -138,6 +138,18 @@ export function StepUpModal({ action, title, details, onConfirmed, requireStrong
     onClose();
   }, [onConfirmed, onClose]);
 
+  // The password path. (Passkey / TOTP / provider ceremonies keep their own
+  // pending flags: each waits on a browser prompt or popup, not just a write.)
+  const passwordConfirm = useMutation({
+    fn: async (pw: string) => {
+      const res = await api.stepUpVerify(pw);
+      if (!res.success || !res.data?.stepUpToken) throw new Error(res.message || 'Verification failed');
+      await finish(res.data.stepUpToken);
+    },
+    onError: (_err, message) => setError(message),
+  });
+  const { run: runPasswordConfirm, pending: submitting } = passwordConfirm;
+
   const handleSubmit = useCallback(async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (confirmDisabledReason) return;
@@ -145,21 +157,9 @@ export function StepUpModal({ action, title, details, onConfirmed, requireStrong
       setError('Password is required');
       return;
     }
-    setSubmitting(true);
     setError(null);
-    try {
-      const res = await api.stepUpVerify(password);
-      if (res.success && res.data?.stepUpToken) {
-        await finish(res.data.stepUpToken);
-      } else {
-        setError(res.message || 'Verification failed');
-      }
-    } catch (err) {
-      setError(formatError(err));
-    } finally {
-      setSubmitting(false);
-    }
-  }, [password, finish, confirmDisabledReason]);
+    await runPasswordConfirm(password);
+  }, [password, runPasswordConfirm, confirmDisabledReason]);
 
   const handlePasskey = useCallback(async () => {
     setPasskeyPending(true);

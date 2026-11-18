@@ -7,11 +7,11 @@ import { LoadingSpinner } from '@/components/ui/Loading';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { StepUpModal } from '@/components/admin/StepUpModal';
-import { useToast } from '@/components/ui/Toast';
+import { useMutation } from '@/hooks/useMutation';
 import { Card } from '@/components/ui/Card';
 import { RetryError } from '@/components/ui/RetryError';
 import { FilterSelect } from '@/components/ui/FilterSelect';
-import { formatError, QUOTA_WARNING_THRESHOLD } from '@/lib/constants';
+import { QUOTA_WARNING_THRESHOLD } from '@/lib/constants';
 import type { OrgQuotaResponse, QuotaType, PlanTier, DisplayedQuotaType, User } from '@/types';
 import type { AtRiskDimension } from '@/lib/api/domains/admin';
 import { QUOTA_TYPE_LABEL } from '@/lib/quota-pressure';
@@ -109,7 +109,6 @@ export function QuotasAdmin({
    *  the confirm modal can surface the error and stay open. */
   onResetUsage: (stepUpToken: string) => Promise<void>;
 }) {
-  const toast = useToast();
   // A TEAM's tier is inherited and its limits are pooled at the root (the quota
   // service rejects tier/limit writes to a team) — show it read-only with a
   // jump to the root instead of the editors.
@@ -117,18 +116,16 @@ export function QuotasAdmin({
   const canEdit = canEditQuotas && !pooledTeam;
   // Usage-reset confirm modal (sysadmin operational action).
   const [resetOpen, setResetOpen] = useState(false);
-  const [resetting, setResetting] = useState(false);
-  const doReset = async (stepUpToken: string) => {
-    setResetting(true);
-    try {
-      await onResetUsage(stepUpToken);
-      setResetOpen(false);
-    } catch (err) {
-      toast.error(formatError(err, 'Failed to reset usage'));
-    } finally {
-      setResetting(false);
-    }
-  };
+  const resetMutation = useMutation({
+    fn: (stepUpToken: string) => onResetUsage(stepUpToken),
+    // A reset confirmed for one org must not close (or toast into) the next one's view.
+    scopeKey: orgData?.orgId,
+    errorFallback: 'Failed to reset usage',
+    toast: { error: true },
+    onSuccess: () => setResetOpen(false),
+  });
+  const resetting = resetMutation.pending;
+  const doReset = async (stepUpToken: string) => { await resetMutation.run(stepUpToken); };
   const titleExtra = !loading && orgData ? (
     <div className="hidden sm:flex items-center gap-2">
       <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-info-bg text-info-strong font-mono">

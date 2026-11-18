@@ -14,7 +14,9 @@
  *  - a user deletion writes its erasure leg in the same transaction, and a
  *    refused deletion writes none;
  *  - the unique (kind, subjectId, service) index makes a re-enqueue a no-op;
- *  - backoff and dead-lettering persist across passes.
+ *  - backoff and dead-lettering persist across passes;
+ *  - the operator listing filters and pages, and a redrive puts a dead leg back
+ *    in the queue (and refuses a delivered one), after which it delivers.
  *
  * Gated behind RUN_MONGO_INTEGRATION=1 (skipped by default) — mirrors
  * user-cascade.integration.test.ts. The downstream HTTP is stood in for by the
@@ -192,6 +194,56 @@ suite('cascade outbox (real Mongo replica set)', () => {
     const status = await outbox.cascadeStatus(orgId, 'org.deleted');
     expect(status.filter((s: { status: string }) => s.status === 'dead').map((s: { service: string }) => s.service)).toEqual(['billing']);
     expect(status.filter((s: { status: string }) => s.status === 'done')).toHaveLength(8);
+  });
+
+  it('lists legs by filter, pages them, and redrives a dead leg to delivery', async () => {
+    const orgId = await expiredOrg();
+    await purgeExpiredOrgs();
+    answers.set('billing', { ok: false, statusCode: 503, error: 'HTTP 503' });
+    const opts = { maxAttempts: 1 };
+    await outbox.dispatchCascadeOutbox(undefined, opts);
+
+    const dead = await outbox.listCascadeLegs({ status: 'dead' }, { limit: 50, offset: 0 });
+    expect(dead.total).toBe(1);
+    expect(dead.legs[0]).toMatchObject({ subjectId: orgId, kind: 'org.deleted', service: 'billing', status: 'dead', attempts: 1, lastStatusCode: 503 });
+    expect((await outbox.listCascadeLegs({ subjectId: orgId, kind: 'org.deleted' }, { limit: 50, offset: 0 })).total).toBe(9);
+    expect((await outbox.listCascadeLegs({ service: 'billing', status: 'done' }, { limit: 50, offset: 0 })).total).toBe(0);
+    const page = await outbox.listCascadeLegs({ subjectId: orgId }, { limit: 4, offset: 8 });
+    expect(page).toMatchObject({ total: 9 });
+    expect(page.legs).toHaveLength(1);
+
+    // A delivered leg is refused; an unknown or malformed id is not found.
+    const doneLeg = (await outbox.listCascadeLegs({ service: 'pipeline' }, { limit: 1, offset: 0 })).legs[0];
+    expect(await outbox.redriveCascadeLeg(doneLeg.id)).toEqual({ ok: false, reason: 'already_done' });
+    expect(await outbox.redriveCascadeLeg(String(new mongoose.Types.ObjectId()))).toEqual({ ok: false, reason: 'not_found' });
+    expect(await outbox.redriveCascadeLeg('not-an-id')).toEqual({ ok: false, reason: 'not_found' });
+
+    answers.delete('billing');
+    const redriven = await outbox.redriveCascadeLeg(dead.legs[0].id);
+    expect(redriven).toMatchObject({ ok: true, previous: { status: 'dead', attempts: 1 }, leg: { status: 'pending', attempts: 0, completedAt: null } });
+    const row = await m.CascadeOutbox.findById(dead.legs[0].id).lean();
+    expect(row).toMatchObject({ status: 'pending', attempts: 0, completedAt: null, lastStatusCode: 503 });
+
+    const res = await outbox.dispatchCascadeOutbox(undefined, opts);
+    expect(res).toMatchObject({ scanned: 1, delivered: 1 });
+    expect(await m.CascadeOutbox.findById(dead.legs[0].id).lean()).toMatchObject({ status: 'done', attempts: 1 });
+  });
+
+  it('redrive with resetAttempts=false keeps the count, so a dead leg gets exactly one more try', async () => {
+    const orgId = await expiredOrg();
+    await purgeExpiredOrgs();
+    answers.set('quota', { ok: false, statusCode: 500, error: 'HTTP 500' });
+    await outbox.dispatchCascadeOutbox(undefined, { maxAttempts: 2 });
+    // Make the retry due now rather than after its backoff.
+    await m.CascadeOutbox.updateOne({ subjectId: orgId, service: 'quota' }, { $set: { nextAttemptAt: new Date() } });
+    await outbox.dispatchCascadeOutbox(undefined, { maxAttempts: 2 });
+    const leg = await m.CascadeOutbox.findOne({ subjectId: orgId, service: 'quota' }).lean();
+    expect(leg).toMatchObject({ status: 'dead', attempts: 2 });
+
+    const redriven = await outbox.redriveCascadeLeg(String(leg._id), { resetAttempts: false });
+    expect(redriven).toMatchObject({ ok: true, leg: { status: 'pending', attempts: 2 } });
+    await outbox.dispatchCascadeOutbox(undefined, { maxAttempts: 2 });
+    expect(await m.CascadeOutbox.findById(leg._id).lean()).toMatchObject({ status: 'dead', attempts: 3 });
   });
 
   it('a user deletion writes its erasure leg in the same transaction; a refused one writes none', async () => {

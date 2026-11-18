@@ -36,45 +36,12 @@ const FRONTEND_DIR = resolve(__dirname, '..');
 
 /** Files that still hand-roll a write flag. MAY ONLY SHRINK. */
 const UNMIGRATED: ReadonlySet<string> = new Set([
-  'pages/auth/callback/[provider].tsx',
-  'pages/dashboard/admin/offers.tsx',
-  'pages/dashboard/messages.tsx',
-  'pages/dashboard/observability/alert-destinations.tsx',
-  'pages/dashboard/observability/alert-rules.tsx',
-  'pages/dashboard/security.tsx',
-  'src/components/admin/OrgIdpConfigModal.tsx',
-  'src/components/admin/StepUpModal.tsx',
-  'src/components/admin/org-detail/OrgOperationsCard.tsx',
+  // Streaming agent answer: tokens patch the last bubble mid-flight, a cancel ref aborts the iterator, and a partial answer is kept on error.
   'src/components/ask/AskPanel.tsx',
-  'src/components/auth/SignInCard/useRequiredPasswordChange.ts',
-  'src/components/auth/SignInCard/useSignInFlow.ts',
-  'src/components/compliance/ScanDetail.tsx',
-  'src/components/compliance/ScanManager.tsx',
-  'src/components/deployments/RegisterDeploymentModal.tsx',
-  'src/components/message/ComposeModal.tsx',
-  'src/components/message/ThreadView.tsx',
-  'src/components/pipeline/BulkImportPipelinesModal.tsx',
-  'src/components/pipeline/security/PluginUpgradePanel.tsx',
-  'src/components/plugin-installs/ApprovalsTab.tsx',
-  'src/components/plugin-installs/InstallControls.tsx',
-  'src/components/publisher/PublishRequestsPanel.tsx',
-  'src/components/publisher/PublisherListingsPanel.tsx',
-  'src/components/publisher/PublisherProfilePanel.tsx',
-  'src/components/quotas/QuotaUsageBreakdown.tsx',
-  'src/components/quotas/QuotasAdmin.tsx',
-  'src/components/reports/tabs/StakeholderTab.tsx',
-  'src/components/settings/AccessKeysSection.tsx',
-  'src/components/settings/IncidentReportingSettings.tsx',
-  'src/components/settings/PluginSecurityNotificationSettings.tsx',
-  'src/components/settings/ScimProvisioning.tsx',
-  'src/components/settings/ServiceAccountsSection.tsx',
-  'src/components/settings/TotpSection.tsx',
-  'src/components/sso/SsoSetupWizard.tsx',
-  'src/hooks/internal/useRepoAnalysis.ts',
+  // SSE generation: `generating` spans a stream whose error events arrive mid-stream without throwing, with caller-owned cancellation.
   'src/hooks/useAiStreamGeneration.ts',
+  // Context-wide `isSubmitting` shared by five sign-in ceremonies (useLoginActions) that rethrow to their callers; passkey autofill raises it mid-ceremony.
   'src/hooks/useAuth.tsx',
-  'src/hooks/useMemberRoles.ts',
-  'src/hooks/useMemberTeams.ts',
 ]);
 
 /** `const [name, setName] = useState(false)` / `useState<boolean>(false)`. */

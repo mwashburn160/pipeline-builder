@@ -4,7 +4,7 @@
 import type { AccessKeyMeta } from './auth';
 import type { ApiCore } from '../core';
 import { buildQuery } from '../util';
-import type { ApiResponse, Organization, OrganizationMember, MemberTeam, OrganizationRole, OrgAIConfig, Invitation, InvitationDelivery, OrgIdpConfigDto, OrgIdpConfigCreate, IdpSaveWarning, IdpGroupMappingDto, OrgMfaPolicy, OrgPasswordPolicy, OrgAuthenticatorPolicy, MfaResetRequest, ParsedIdpMetadata, PlanTier, SsoSpInfo, SsoTestReport } from '@/types';
+import type { ApiResponse, Organization, OrganizationMember, MemberTeam, OrganizationRole, OrgAIConfig, Invitation, InvitationDelivery, OrgIdpConfigDto, OrgIdpConfigCreate, IdpSaveWarning, IdpGroupMappingDto, OrgMfaPolicy, OrgPasswordPolicy, OrgAuthenticatorPolicy, OrgSessionPolicy, MfaResetRequest, ParsedIdpMetadata, PlanTier, SsoSpInfo, SsoTestReport } from '@/types';
 import type { OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 
 /**
@@ -840,6 +840,27 @@ export function organizationsApi(core: ApiCore) {
      *  LOWERING it also needs a session opened with a second factor. */
     updatePasswordPolicy: async (orgId: string, body: { minLength: number | null }, stepUpToken?: string) => {
       return core.request<ApiResponse<OrgPasswordPolicy>>(`/api/organization/${orgId}/password-policy`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+        headers: core.stepUpHeader(stepUpToken),
+      });
+    },
+
+    /** GET /organization/:id/session-policy — the interactive-session lifetime
+     *  (maximum age / idle timeout, days): effective, the org's own, the
+     *  platform ceiling, and any stricter ancestor. */
+    getSessionPolicy: async (orgId: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<OrgSessionPolicy>>(`/api/organization/${orgId}/session-policy`, { signal: opts?.signal });
+    },
+    /** PATCH — each field 1–365 days, `null` clears it, absent = unchanged (at
+     *  least one must be sent). Step-up gated; LENGTHENING (a bound raised or
+     *  cleared) also needs a session opened with a second factor. */
+    updateSessionPolicy: async (
+      orgId: string,
+      body: { maxAgeDays?: number | null; idleTimeoutDays?: number | null },
+      stepUpToken?: string,
+    ) => {
+      return core.request<ApiResponse<OrgSessionPolicy>>(`/api/organization/${orgId}/session-policy`, {
         method: 'PATCH',
         body: JSON.stringify(body),
         headers: core.stepUpHeader(stepUpToken),

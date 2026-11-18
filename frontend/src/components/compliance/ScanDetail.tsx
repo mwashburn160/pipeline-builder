@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
 import { useServerPagination } from '@/hooks/useServerPagination';
+import { useMutation } from '@/hooks/useMutation';
 import type { ComplianceScan, ComplianceAuditEntry, RuleTarget } from '@/types/compliance';
 import { SCAN_STATUS_CONFIG as STATUS_CONFIG, resultStyle } from '@/lib/compliance-styles';
 import { formatDateTime, formatTime } from '@/lib/format';
@@ -58,14 +59,12 @@ export default function ScanDetail({ scanId, onBack, readOnly = false, sessionRe
   const [scan, setScan] = useState<ComplianceScan | null>(null);
   const [scanLoading, setScanLoading] = useState(true);
   const [scanError, setScanError] = useState<string | null>(null);
-  const [cancelling, setCancelling] = useState(false);
   // Cancel-scan confirmation, shown as an in-app modal.
   const [confirmCancel, setConfirmCancel] = useState(false);
 
   // Exemption request modal, opened from a violating row.
   const [exemptTarget, setExemptTarget] = useState<ExemptTarget | null>(null);
   const [exemptForm, setExemptForm] = useState<{ ruleId: string; reason: string; expiresAt: string }>({ ruleId: '', reason: '', expiresAt: '' });
-  const [exemptSubmitting, setExemptSubmitting] = useState(false);
 
   // The scan-detail page has two parallel fetches: the scan record itself
   // (one-shot, no pagination) and the per-entity audit log (paginated).
@@ -116,24 +115,22 @@ export default function ScanDetail({ scanId, onBack, readOnly = false, sessionRe
   // A scan cancel is NOT a delete (the record persists as `cancelled`), so this
   // uses the generic in-app Modal below rather than DeleteConfirmModal, whose
   // fixed "delete … cannot be undone" copy would misdescribe the action.
-  const executeCancel = async () => {
-    if (!scan) return;
-    setCancelling(true);
-    try {
-      const res = await api.cancelScan(scan.id);
-      if (res.success) {
-        toast.success('Scan cancelled');
-        setConfirmCancel(false);
-        await fetchScan();
-      } else {
-        toast.error(res.message || 'Failed to cancel scan');
-      }
-    } catch (err) {
-      toast.error(formatError(err, 'Failed to cancel scan'));
-    } finally {
-      setCancelling(false);
-    }
-  };
+  const cancelM = useMutation({
+    fn: async (id: string) => {
+      const res = await api.cancelScan(id);
+      if (!res.success) throw new Error(res.message || 'Failed to cancel scan');
+    },
+    scopeKey: scanId,
+    errorFallback: 'Failed to cancel scan',
+    toast: { error: true },
+    onSuccess: async () => {
+      toast.success('Scan cancelled');
+      setConfirmCancel(false);
+      await fetchScan();
+    },
+  });
+  const cancelling = cancelM.pending;
+  const executeCancel = () => (scan ? cancelM.run(scan.id) : undefined);
 
   // Open the exemption request modal, pre-filled from a violating row.
   const openExempt = (entry: ComplianceAuditEntry) => {
@@ -147,32 +144,32 @@ export default function ScanDetail({ scanId, onBack, readOnly = false, sessionRe
     setExemptForm({ ruleId: rules[0]?.ruleId ?? '', reason: '', expiresAt: '' });
   };
 
-  const handleExemptSubmit = async () => {
-    if (!exemptTarget || !exemptForm.ruleId || !exemptForm.reason.trim()) return;
-    setExemptSubmitting(true);
-    try {
+  const exemptM = useMutation({
+    fn: async (target: ExemptTarget, form: { ruleId: string; reason: string; expiresAt: string }) => {
       const res = await api.createExemption({
-        ruleId: exemptForm.ruleId,
-        entityType: exemptTarget.entityType,
-        entityId: exemptTarget.entityId,
-        entityName: exemptTarget.entityName || undefined,
-        reason: exemptForm.reason.trim(),
+        ruleId: form.ruleId,
+        entityType: target.entityType,
+        entityId: target.entityId,
+        entityName: target.entityName || undefined,
+        reason: form.reason.trim(),
         // A local `YYYY-MM-DD` day; the API takes an ISO instant (a bare day is
         // a 400). The exemption holds through the end of the chosen day.
-        expiresAt: exemptForm.expiresAt ? localDayEndIso(exemptForm.expiresAt) : undefined,
+        expiresAt: form.expiresAt ? localDayEndIso(form.expiresAt) : undefined,
       });
-      if (res.success) {
-        toast.success('Exemption requested');
-        setExemptTarget(null);
-        refetchAudit();
-      } else {
-        toast.error(res.message || 'Failed to request exemption');
-      }
-    } catch (err) {
-      toast.error(formatError(err, 'Failed to request exemption'));
-    } finally {
-      setExemptSubmitting(false);
-    }
+      if (!res.success) throw new Error(res.message || 'Failed to request exemption');
+    },
+    scopeKey: scanId,
+    errorFallback: 'Failed to request exemption',
+    toast: { success: 'Exemption requested', error: true },
+    onSuccess: () => {
+      setExemptTarget(null);
+      refetchAudit();
+    },
+  });
+  const exemptSubmitting = exemptM.pending;
+  const handleExemptSubmit = () => {
+    if (!exemptTarget || !exemptForm.ruleId || !exemptForm.reason.trim()) return;
+    void exemptM.run(exemptTarget, exemptForm);
   };
 
   if (loading) {

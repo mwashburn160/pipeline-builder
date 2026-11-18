@@ -29,6 +29,7 @@ import {
   createSafeClient,
   errorMessage,
   type ContractResponse,
+  type InternalCallInput,
   type InternalEndpointContract,
   type PlanTier,
   type QueryValue,
@@ -118,6 +119,29 @@ export async function putJson(
 ): Promise<{ statusCode: number } | null> {
   const resp = await clientFor(service).put(path, body, { headers: tenantHeaders(orgId, auth) });
   return resp ? { statusCode: resp.statusCode } : null;
+}
+
+/**
+ * {@link putJson} for an INTERNAL endpoint with a contract (api-core
+ * `*_INTERNAL`): the path is built from the contract with `params: { orgId }`
+ * and the body is validated against the contract before it is sent (a body
+ * the contract refuses throws `ContractRequestError`). Returns the response
+ * status like {@link putJson} — any reply status, a 2xx whose body does not
+ * match the contract included (the push landed) — or `null` on a transport
+ * failure. A thrown error propagates, as from {@link putJson}.
+ */
+export async function putContractJson<C extends InternalEndpointContract>(
+  service: ServiceTarget,
+  contract: C,
+  body: InternalCallInput<C>['body'],
+  orgId: string,
+  auth: string,
+): Promise<{ statusCode: number } | null> {
+  const result = await callInternal(clientFor(service), contract, {
+    params: { orgId }, body, options: { headers: tenantHeaders(orgId, auth) },
+  });
+  if (!result.ok && result.reason === 'unreachable') return null;
+  return { statusCode: result.status };
 }
 
 /**

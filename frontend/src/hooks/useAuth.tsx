@@ -8,6 +8,7 @@ import { syncAdminConsoleCookie } from '@/lib/admin-console';
 import { clearQueryCache } from '@/lib/query-cache';
 import { isEnrolmentPendingSession } from '@/lib/enrolment-session';
 import { setUnreadCount } from '@/lib/unread-count-store';
+import { parseSignInReason, signInHref, type SignInReason } from '@/lib/sign-in-reason';
 import { clearImageTagsCache } from './useImageTags';
 import { resetTranscriptSession } from '@/components/ask/transcript-store';
 import { useLoginActions, type LoginResult } from './internal/useLoginActions';
@@ -84,7 +85,11 @@ interface AuthContextType {
   /** Resolves `invitationAccepted: true` when an `invitationToken` registration joined that
    *  org server-side (no separate accept needed). */
   register: (username: string, email: string, password: string, organizationName?: string, planId?: string, opts?: { redirect?: boolean; invitationToken?: string }) => Promise<{ invitationAccepted: boolean }>;
-  logout: () => Promise<void>;
+  /**
+   * Sign out and go to the sign-in page. `reason` is shown there (e.g. the
+   * org-switch prompt's "this organization requires a fresh sign-in").
+   */
+  logout: (opts?: { reason?: SignInReason }) => Promise<void>;
   refreshUser: (opts?: { force?: boolean }) => Promise<void>;
   /** Switch active organization. Re-issues tokens and refreshes user profile with the new org's role. */
   switchOrganization: (orgId: string) => Promise<void>;
@@ -399,14 +404,16 @@ export function AuthProvider({ children, deferInit = false }: { children: ReactN
    * Redirects to login page and clears local state.
    */
   useEffect(() => {
-    return api.onSessionExpired(() => {
+    return api.onSessionExpired((reason) => {
       abandonInFlightRefresh();
       clearSessionCaches();
       setUser(null);
       setOrganizations([]);
       // Remember where they were so signing back in returns them there.
       rememberReturnPath(router.asPath);
-      void router.push('/?expired=1');
+      // A session that ran its course (maximum age / idle timeout) says so in
+      // plain words; any other rejection keeps the generic notice.
+      void router.push(reason === 'session-expired' ? signInHref('session-expired') : '/?expired=1');
     });
   }, [router, abandonInFlightRefresh]);
 
@@ -439,7 +446,10 @@ export function AuthProvider({ children, deferInit = false }: { children: ReactN
   /**
    * Logout user
    */
-  const logout = useCallback(async () => {
+  const logout = useCallback(async (opts?: { reason?: SignInReason }) => {
+    // Parsed, not trusted: `logout` is also wired straight to click handlers,
+    // which hand it the event.
+    const reason = parseSignInReason(opts?.reason);
     setIsLoading(true);
     
     try {
@@ -453,7 +463,7 @@ export function AuthProvider({ children, deferInit = false }: { children: ReactN
       // Navigate to landing page. A deliberate sign-out returns nowhere: the
       // auth guard remembers the page it bounces from as `user` clears, so the
       // remembered path is dropped once the navigation has happened.
-      void Promise.resolve(router.push('/')).finally(forgetReturnPath);
+      void Promise.resolve(router.push(reason ? signInHref(reason) : '/')).finally(forgetReturnPath);
     }
   }, [router, abandonInFlightRefresh]);
 

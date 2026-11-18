@@ -12,11 +12,11 @@ import { Input } from '@/components/ui/Input';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { Textarea } from '@/components/ui/Textarea';
 import { useToast } from '@/components/ui/Toast';
+import { useMutation } from '@/hooks/useMutation';
 import { EcosystemActionDialog } from '@/components/ecosystem/EcosystemActionDialog';
 import { TrustTierBadge } from '@/components/public-directory/TrustTierBadge';
 import api from '@/lib/api';
 import { ApiError } from '@/lib/api/errors';
-import { formatError } from '@/lib/constants';
 import { formatListingsQuota, isListingsQuotaFull } from '@/lib/ecosystem';
 import type { PublisherContext } from '@/types/ecosystem';
 import { describePublishError } from './PublishRequestForm';
@@ -39,35 +39,36 @@ function CreatePublisherForm({ ctx, canManage, onChanged }: Props) {
   const [description, setDescription] = useState('');
   const [homepageUrl, setHomepageUrl] = useState('');
   const [terms, setTerms] = useState(false);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reserved, setReserved] = useState<string | null>(null);
-  const [claiming, setClaiming] = useState(false);
+  const [claimOpen, setClaimOpen] = useState(false);
 
   const handleOk = HANDLE_PATTERN.test(handle.trim());
+
+  const createMutation = useMutation({
+    fn: (body: Parameters<typeof api.createPublisher>[0]) => api.createPublisher(body),
+    toast: { success: (_res, body) => `Publisher ${body.handle} created` },
+    onSuccess: () => onChanged(),
+    onStepUpResumed: () => onChanged(),
+    onError: (err, _message, body) => {
+      if (err instanceof ApiError && err.code === 'PUBLISHER_HANDLE_RESERVED') setReserved(body.handle);
+      else if (err instanceof ApiError && err.code === 'DUPLICATE_ENTRY') setError('That handle is already taken. Choose another.');
+      else setError(describePublishError(err).message);
+    },
+  });
+  const busy = createMutation.pending;
   const canSubmit = canManage && handleOk && !!displayName.trim() && terms && !busy;
 
   const create = async () => {
-    setBusy(true);
     setError(null);
     setReserved(null);
-    try {
-      await api.createPublisher({
-        handle: handle.trim(),
-        displayName: displayName.trim(),
-        ...(description.trim() ? { description: description.trim() } : {}),
-        ...(homepageUrl.trim() ? { homepageUrl: homepageUrl.trim() } : {}),
-        termsVersion: ctx.terms.currentVersion,
-      });
-      toast.success(`Publisher ${handle.trim()} created`);
-      onChanged();
-    } catch (err) {
-      if (err instanceof ApiError && err.code === 'PUBLISHER_HANDLE_RESERVED') setReserved(handle.trim());
-      else if (err instanceof ApiError && err.code === 'DUPLICATE_ENTRY') setError('That handle is already taken. Choose another.');
-      else setError(describePublishError(err).message);
-    } finally {
-      setBusy(false);
-    }
+    await createMutation.run({
+      handle: handle.trim(),
+      displayName: displayName.trim(),
+      ...(description.trim() ? { description: description.trim() } : {}),
+      ...(homepageUrl.trim() ? { homepageUrl: homepageUrl.trim() } : {}),
+      termsVersion: ctx.terms.currentVersion,
+    });
   };
 
   return (
@@ -97,7 +98,7 @@ function CreatePublisherForm({ ctx, canManage, onChanged }: Props) {
               request it: the ecosystem team reviews the claim.
             </p>
             <div className="mt-2">
-              <Button size="xs" variant="secondary" onClick={() => setClaiming(true)}>Request this handle</Button>
+              <Button size="xs" variant="secondary" onClick={() => setClaimOpen(true)}>Request this handle</Button>
             </div>
           </Callout>
         )}
@@ -107,7 +108,7 @@ function CreatePublisherForm({ ctx, canManage, onChanged }: Props) {
         <Button onClick={() => void create()} loading={busy} disabled={!canSubmit}>Create publisher</Button>
       </div>
 
-      {claiming && reserved && (
+      {claimOpen && reserved && (
         <EcosystemActionDialog
           title="Request a reserved handle"
           action={`Claim the handle ${reserved}`}
@@ -125,7 +126,7 @@ function CreatePublisherForm({ ctx, canManage, onChanged }: Props) {
             toast.success('Claim submitted. The ecosystem team will review it.');
             onChanged();
           }}
-          onClose={() => setClaiming(false)}
+          onClose={() => setClaimOpen(false)}
         />
       )}
     </SectionCard>
@@ -144,13 +145,29 @@ export function PublisherProfilePanel({ ctx, canManage, onChanged }: Props) {
   const p = ctx.publisher;
   const [description, setDescription] = useState(p?.description ?? '');
   const [homepageUrl, setHomepageUrl] = useState(p?.homepageUrl ?? '');
-  const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [acceptingTerms, setAcceptingTerms] = useState(false);
   const [dialog, setDialog] = useState<ProfileDialog>(null);
   const [newHandle, setNewHandle] = useState('');
   const [newDisplayName, setNewDisplayName] = useState('');
   const [domain, setDomain] = useState('');
+
+  const saveMutation = useMutation({
+    fn: (body: { description: string | null; homepageUrl: string | null }) => api.updatePublisher(body),
+    errorFallback: 'Could not save the profile',
+    toast: { success: 'Publisher profile saved' },
+    onSuccess: () => onChanged(),
+    onStepUpResumed: () => onChanged(),
+    onError: (_err, message) => setSaveError(message),
+  });
+  const saving = saveMutation.pending;
+  const acceptTermsMutation = useMutation({
+    fn: (version: string) => api.acceptPublisherTerms(version),
+    errorFallback: 'Could not accept the terms',
+    toast: { success: 'Publisher terms accepted', error: true },
+    onSuccess: () => onChanged(),
+    onStepUpResumed: () => onChanged(),
+  });
+  const acceptingTerms = acceptTermsMutation.pending;
 
   if (!ctx.publishingEnabled) {
     return (
@@ -181,30 +198,12 @@ export function PublisherProfilePanel({ ctx, canManage, onChanged }: Props) {
   const writable = canManage && ctx.isRootOrg;
 
   const save = async () => {
-    setSaving(true);
     setSaveError(null);
-    try {
-      await api.updatePublisher({ description: description.trim() || null, homepageUrl: homepageUrl.trim() || null });
-      toast.success('Publisher profile saved');
-      onChanged();
-    } catch (err) {
-      setSaveError(formatError(err, 'Could not save the profile'));
-    } finally {
-      setSaving(false);
-    }
+    await saveMutation.run({ description: description.trim() || null, homepageUrl: homepageUrl.trim() || null });
   };
 
   const acceptTerms = async () => {
-    setAcceptingTerms(true);
-    try {
-      await api.acceptPublisherTerms(ctx.terms.currentVersion);
-      toast.success('Publisher terms accepted');
-      onChanged();
-    } catch (err) {
-      toast.error(formatError(err, 'Could not accept the terms'));
-    } finally {
-      setAcceptingTerms(false);
-    }
+    await acceptTermsMutation.run(ctx.terms.currentVersion);
   };
 
   const submitRequest = async (fn: () => Promise<unknown>, what: string) => {

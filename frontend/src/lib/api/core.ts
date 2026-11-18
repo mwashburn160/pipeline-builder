@@ -77,6 +77,17 @@ type AuthBroadcast =
 /** `ApiError.code` when a request needed a token refresh that failed transiently. */
 export const SESSION_REFRESH_UNAVAILABLE = 'SESSION_REFRESH_UNAVAILABLE';
 
+/** `/auth/refresh`'s 401 code when the session ran its course (the org's or the
+ *  platform's maximum age / idle timeout) — not revoked, not stolen: just over. */
+export const SESSION_EXPIRED_CODE = 'SESSION_EXPIRED';
+
+/**
+ * Why a session ended, when the server said. `session-expired`: it outlived
+ * the session policy (maximum age / idle timeout). Absent: the refresh cookie
+ * was rejected for any other reason (revoked, signed out elsewhere, reuse).
+ */
+export type SessionEndReason = 'session-expired';
+
 /** Storage accessors that never throw (Safari private mode, blocked cookies/storage). */
 function readStore(store: 'local' | 'session', key: string): string | null {
   if (typeof window === 'undefined') return null;
@@ -211,7 +222,7 @@ export class ApiCore {
    *  abandons its result (an HttpOnly refresh cookie can't be asked "is this
    *  still my token?"). */
   private sessionGeneration = 0;
-  private sessionExpiredCallbacks: Set<() => void> = new Set();
+  private sessionExpiredCallbacks: Set<(reason?: SessionEndReason) => void> = new Set();
   private accessTokenListeners: Set<(token: string | null) => void> = new Set();
   private organizationChangeListeners: Set<() => void> = new Set();
   private identityChangeListeners: Set<() => void> = new Set();
@@ -224,10 +235,12 @@ export class ApiCore {
   /**
    * Register a callback invoked when the session expires — the server rejected
    * the refresh token (401/400), or an impersonation token ran out. A refresh
-   * that fails transiently (network, 5xx) does NOT fire this.
+   * that fails transiently (network, 5xx) does NOT fire this. The callback is
+   * handed a {@link SessionEndReason} when the server named one (a session
+   * past its maximum age / idle timeout).
    * Returns an unsubscribe function.
    */
-  onSessionExpired(callback: () => void): () => void {
+  onSessionExpired(callback: (reason?: SessionEndReason) => void): () => void {
     this.sessionExpiredCallbacks.add(callback);
     return () => { this.sessionExpiredCallbacks.delete(callback); };
   }
@@ -261,9 +274,9 @@ export class ApiCore {
     });
   }
 
-  private notifySessionExpired(): void {
+  private notifySessionExpired(reason?: SessionEndReason): void {
     this.sessionExpiredCallbacks.forEach(cb => {
-      try { cb(); } catch { /* ignore listener errors */ }
+      try { cb(reason); } catch { /* ignore listener errors */ }
     });
   }
 
@@ -906,9 +919,9 @@ export class ApiCore {
       // The session changed underneath us (logout, re-login, another tab):
       // this refresh no longer speaks for the current session.
       if (this.sessionGeneration !== generation) return false;
-      if (outcome === 'rejected') {
+      if (outcome === 'rejected' || outcome === 'expired') {
         this.clearTokens();
-        this.notifySessionExpired();
+        this.notifySessionExpired(outcome === 'expired' ? 'session-expired' : undefined);
         return false;
       }
       if (outcome === 'throttled') {
@@ -975,13 +988,16 @@ export class ApiCore {
    *
    *  - `ok`        a new access token was stored (the cookie rotated with it)
    *  - `rejected`  401/400 — the refresh cookie is no good
+   *  - `expired`   401 `SESSION_EXPIRED` — the cookie was fine, but the session
+   *                outlived its policy (maximum age / idle timeout); the person
+   *                is told so rather than shown a generic sign-out
    *  - `throttled` 429 — retrying SPENDS MORE of the bucket that just refused
    *                us, so this one backs off for as long as the server asked
    *  - `transient` network error or 5xx — worth retrying
    *  - `failed`    anything else (other 4xx, 2xx without a token) — not retried,
    *                but not proof the session is over either
    */
-  private async attemptRefresh(): Promise<'ok' | 'rejected' | 'throttled' | 'transient' | 'failed'> {
+  private async attemptRefresh(): Promise<'ok' | 'rejected' | 'expired' | 'throttled' | 'transient' | 'failed'> {
     let response: Response;
     // Bounded: this runs inside the cross-tab lock, so a request that never
     // settles would hold it for good (see REFRESH_REQUEST_TIMEOUT_MS). A timeout
@@ -1004,7 +1020,12 @@ export class ApiCore {
     // Decide from the REAL HTTP status, never a body `statusCode` field — a proxy
     // may inject/lie about it (mirrors request()).
     const statusCode = response.status;
-    if (statusCode === 401 || statusCode === 400) return 'rejected';
+    if (statusCode === 401 || statusCode === 400) {
+      // The body only refines WHY; any 401/400 ends the session either way.
+      let code: unknown;
+      try { code = ((await response.json()) as { code?: unknown } | null)?.code; } catch { /* no/odd body */ }
+      return statusCode === 401 && code === SESSION_EXPIRED_CODE ? 'expired' : 'rejected';
+    }
     if (statusCode === 429) {
       this.throttledForMs = retryAfterMs(response);
       return 'throttled';

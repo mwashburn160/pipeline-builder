@@ -434,6 +434,8 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | platform | GET | `/admin/orgs/:orgId/kms-config` | `any(org_kms:write)` |
 | platform | PUT | `/admin/orgs/:orgId/kms-config` | `any(org_kms:write) + aal2 + step-up(totp,webauthn)` |
 | platform | POST | `/admin/orgs/:orgId/kms-config/test` | `any(org_kms:write)` |
+| platform | GET | `/admin/cascade` | `system-org + any(platform:read) + aal2` |
+| platform | POST | `/admin/cascade/:id/redrive` | `system-org + any(orgs:manage) + aal2 + step-up(any)` |
 | platform | GET | `/admin/console-check` | `system-org + dynamic(gateway,superadmin,system-org:database_console:open|objectstore_console:open|observability_console:open) + aal2` |
 | platform | POST | `/admin/console-session` | `system-org + dynamic(superadmin,system-org:database_console:open|objectstore_console:open|observability_console:open) + aal2` |
 | platform | GET | `/admin/summary` | `system-org + any(platform:read) + aal2` |

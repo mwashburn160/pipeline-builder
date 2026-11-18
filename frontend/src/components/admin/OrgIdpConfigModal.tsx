@@ -5,6 +5,7 @@ import { useCallback, useState, useId } from 'react';
 import { ShieldCheck } from 'lucide-react';
 import api from '@/lib/api';
 import { useFetch } from '@/hooks/useFetch';
+import { useMutation } from '@/hooks/useMutation';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Checkbox } from '@/components/ui/Checkbox';
@@ -54,7 +55,6 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
   const [userPoolId, setUserPoolId] = useState('');
   const [allowedEmailDomains, setAllowedEmailDomains] = useState<string[]>([]);
   const [enabled, setEnabled] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
   // Remove-config confirmation — the strong-factor step-up dialog IS it.
   const [confirmRemove, setConfirmRemove] = useState(false);
   // Every write is strong-factor step-up gated on the server. The validated
@@ -86,6 +86,16 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
     },
   });
 
+  // The validated write (built by `handleSave`) runs through here once the
+  // step-up dialog confirms.
+  const save = useMutation({
+    fn: (write: () => Promise<void>) => write(),
+    scopeKey: org.id,
+    onSuccess: () => { onSaved?.(); onClose(); },
+    onError: (_e, message) => setError(message),
+  });
+  const { run: runSave } = save;
+
   const handleSave = useCallback(async () => {
     setError(null);
     if (!clientId.trim()) { setError('Client ID is required'); return; }
@@ -108,8 +118,7 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
       : { discoveryUrl: provider === 'generic-oidc' ? (discoveryUrl || undefined) : undefined, region: undefined, userPoolId: undefined };
 
     setPendingWrite(() => async (stepUpToken: string) => {
-      setSubmitting(true);
-      try {
+      await runSave(async () => {
         if (existing) {
           // PATCH — only send the fields that changed; clientSecret only when supplied.
           const patch: Partial<{ provider: Provider; clientId: string; clientSecret: string; discoveryUrl: string; region: string; userPoolId: string; allowedEmailDomains: string[]; enabled: boolean }> = {
@@ -129,30 +138,22 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
           if (!res.success) throw new Error(res.message || 'Create failed');
           showIdpSaveWarnings(res, toast);
         }
-        onSaved?.();
-        onClose();
-      } catch (e) {
-        setError(formatError(e));
-      } finally {
-        setSubmitting(false);
-        setPendingWrite(null);
-      }
+      });
+      setPendingWrite(null);
     });
-  }, [org.id, provider, clientId, clientSecret, discoveryUrl, region, userPoolId, allowedEmailDomains, enabled, existing, onSaved, onClose, toast]);
+  }, [org.id, provider, clientId, clientSecret, discoveryUrl, region, userPoolId, allowedEmailDomains, enabled, existing, toast, runSave]);
 
-  const handleDelete = useCallback(async (stepUpToken: string) => {
-    setSubmitting(true);
-    try {
+  const remove = useMutation({
+    fn: async (stepUpToken: string) => {
       const res = await api.deleteOrgIdpConfig(org.id, stepUpToken);
       if (!res.success) throw new Error(res.message || 'Delete failed');
-      onSaved?.();
-      onClose();
-    } catch (e) {
-      setError(formatError(e));
-      setSubmitting(false);
-      setConfirmRemove(false);
-    }
-  }, [org.id, onSaved, onClose]);
+    },
+    scopeKey: org.id,
+    onSuccess: () => { onSaved?.(); onClose(); },
+    onError: (_e, message) => { setError(message); setConfirmRemove(false); },
+  });
+  const handleDelete = remove.run;
+  const submitting = save.pending || remove.pending;
 
   const stepUpOpen = pendingWrite !== null || confirmRemove;
 

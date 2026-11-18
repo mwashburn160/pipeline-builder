@@ -12,6 +12,7 @@ import { Callout } from '@/components/ui/Callout';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { useToast } from '@/components/ui/Toast';
+import { useMutation } from '@/hooks/useMutation';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 import { showIdpSaveWarnings } from '@/lib/idp-save-warnings';
@@ -294,36 +295,33 @@ function StepDomains({
 }) {
   const [domains, setDomains] = useState<string[]>(config.allowedEmailDomains);
   const [pending, setPending] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const toast = useToast();
   const verified = useVerifiedDomains(orgId);
   useEffect(() => { setDomains(config.allowedEmailDomains); }, [config.allowedEmailDomains]);
 
   // The step-up modal closes the moment it hands the token over, so without a
   // busy flag the button is live again while the PATCH is still on the wire —
-  // a second click re-opens step-up and sends the write twice. The ref stops a
-  // late failure writing state into an unmounted step (the success path
-  // advances the wizard, which unmounts this one).
-  const alive = useRef(true);
-  useEffect(() => () => { alive.current = false; }, []);
+  // a second click re-opens step-up and sends the write twice. `useMutation`
+  // holds that lock, and drops a late failure for an unmounted step (the
+  // success path advances the wizard, which unmounts this one).
+  const saveM = useMutation({
+    fn: (next: string[], stepUpToken: string) => api.patchOwnOrgIdpConfig(orgId, { allowedEmailDomains: next }, stepUpToken),
+    scopeKey: orgId,
+    errorFallback: 'Could not save the domains',
+    onSuccess: (res) => {
+      if (res.data?.config) onSaved(res.data.config);
+      showIdpSaveWarnings(res, toast);
+      onContinue();
+    },
+  });
+  const saving = saveM.pending;
+  const error = saveM.error;
 
   const changed = [...domains].sort().join(',') !== [...config.allowedEmailDomains].sort().join(',');
 
   const save = async (stepUpToken: string) => {
     setPending(false);
-    setSaving(true);
-    setError(null);
-    try {
-      const res = await api.patchOwnOrgIdpConfig(orgId, { allowedEmailDomains: domains }, stepUpToken);
-      if (res.data?.config) onSaved(res.data.config);
-      showIdpSaveWarnings(res, toast);
-      onContinue();
-    } catch (err) {
-      if (alive.current) setError(formatError(err, 'Could not save the domains'));
-    } finally {
-      if (alive.current) setSaving(false);
-    }
+    await saveM.run(domains, stepUpToken);
   };
 
   return (
@@ -340,7 +338,7 @@ function StepDomains({
           <Link href={DOMAIN_SETTINGS_HREF} className="underline">Verify a domain</Link>.
         </p>
       )}
-      <ErrorAlert message={error} onDismiss={() => setError(null)} />
+      <ErrorAlert message={error} onDismiss={saveM.reset} />
       <Button
         size="sm"
         readOnly={readOnly}
