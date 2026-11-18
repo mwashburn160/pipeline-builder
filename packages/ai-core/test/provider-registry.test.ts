@@ -76,7 +76,6 @@ describe('ai-core provider-registry', () => {
     // clear it so the fixed-provider counts are deterministic; its own tests set it.
     delete process.env.OPENAI_COMPATIBLE_BASE_URL;
     delete process.env.OPENAI_COMPATIBLE_MODELS;
-    delete process.env.OPENAI_COMPATIBLE_MODEL;
     delete process.env.OPENAI_COMPATIBLE_NAME;
     delete process.env.OPENAI_COMPATIBLE_API_KEY;
     jest.clearAllMocks();

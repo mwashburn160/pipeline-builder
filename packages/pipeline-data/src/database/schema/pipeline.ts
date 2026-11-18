@@ -232,7 +232,7 @@ export const pipelineEvent = pgTable('pipeline_events', {
   completedAt: timestamp('completed_at', { withTimezone: true }),
   durationMs: integer('duration_ms'),
   // DORA deploy-attribution (all nullable; populated at ingest when the source
-  // event carries them — legacy/CI-only events leave them NULL). `environment`
+  // event carries them — events without deploy context leave them NULL). `environment`
   // is the deploy target (e.g. "production"); its presence marks an execution
   // as a real deployment, letting DORA scope past generic pipeline runs.
   // `commitSha`/`commitRef` capture the source revision for lead-time work.
@@ -337,8 +337,8 @@ export const pipelineEvent = pgTable('pipeline_events', {
   // deploy environment. `event_type` is in the index because the events Lambda
   // tags EVERY event of a deployed pipeline (STAGE/ACTION too), while the DORA
   // scan wants only `event_type='PIPELINE'` — including it restores selectivity.
-  // Partial (environment IS NOT NULL) keeps it small — legacy/CI-only events
-  // aren't indexed. The default run-based DORA path (no environment) can't use
+  // Partial (environment IS NOT NULL) keeps it small — events without a deploy
+  // environment aren't indexed. The default run-based DORA path (no environment) can't use
   // this partial index; it relies on event_pipeline_type_started_idx below.
   // Created by postgres-init.sql.
   // The canary gate's scan: one release's stamped toolchain runs over a window.

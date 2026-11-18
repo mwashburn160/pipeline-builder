@@ -26,8 +26,9 @@ interface QuotaUsage {
    * mid-month downgrade could otherwise refuse every build until the window
    * rolled: a month-long outage caused by a billing click.
    *
-   * Absent on a counter that predates this field, which reads as "no snapshot"
-   * and falls back to the current limit — the behaviour before it existed.
+   * Absent on a counter platform created (its org defaults seed only `used` +
+   * `resetAt`) until the first increment rolls or fills it; absent reads as
+   * "no snapshot" and falls back to the current limit.
    */
   limitAtPeriodStart?: number;
 }

@@ -32,16 +32,15 @@ function bodyFingerprint(body: unknown): string {
  * - `string`: a string body (`res.send('<html>')`, `res.end('text')`) — replayed as-is,
  *   never re-encoded as a JSON string literal
  * - `buffer`: binary (`res.send(Buffer)`), stored base64 so it survives JSON storage
- * - `empty`: no body (204, `res.end()`)
- * Entries written before this field existed are treated as `json`.
+ * - `empty`: no body (204, `res.end()`, and the in-flight reservation placeholder)
  */
 type CachedBodyKind = 'json' | 'string' | 'buffer' | 'empty';
 
 interface CachedEntry {
   statusCode: number;
   body: unknown;
-  /** See {@link CachedBodyKind}; absent on legacy entries (→ `json`). */
-  bodyKind?: CachedBodyKind;
+  /** See {@link CachedBodyKind}. */
+  bodyKind: CachedBodyKind;
   /** The original `Content-Type`, replayed for `string`/`buffer` bodies. */
   contentType?: string;
   expiresAt: number;
@@ -293,7 +292,7 @@ function encodeBody(body: unknown, viaJson: boolean): Pick<CachedEntry, 'body' |
  */
 function replayCached(res: Response, cached: CachedEntry): void {
   res.status(cached.statusCode);
-  const kind = cached.bodyKind ?? 'json';
+  const kind = cached.bodyKind;
   if (kind === 'json') {
     res.json(cached.body);
     return;
@@ -408,7 +407,7 @@ export function idempotencyMiddleware(options: IdempotencyMiddlewareOptions = {}
       // with the same key got there first and is in-flight → 409.
       const won = await store.reserve(
         fullKey,
-        { statusCode: 0, body: null, pending: true, expiresAt: Date.now() + pendingTtlMs },
+        { statusCode: 0, body: null, bodyKind: 'empty', pending: true, expiresAt: Date.now() + pendingTtlMs },
         pendingTtlSec,
       );
       if (!won) {

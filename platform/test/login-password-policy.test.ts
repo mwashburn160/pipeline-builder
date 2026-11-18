@@ -54,6 +54,9 @@ jest.unstable_mockModule('../src/helpers/password-lockout.js', () => ({
   assertPasswordNotLocked: jest.fn(async () => undefined),
   recordPasswordFailure: jest.fn(async () => undefined),
   clearPasswordFailures: jest.fn(async () => undefined),
+  reservePasswordAttempt: jest.fn(async (userId: string) => ({ userId, reservationId: 'r1' })),
+  completePasswordAttempt: jest.fn(async () => undefined),
+  releasePasswordAttempt: jest.fn(async () => undefined),
 }));
 jest.unstable_mockModule('../src/helpers/password-policy.js', () => ({
   passwordShortfall: (...a: unknown[]) => mockShortfall(...a),
@@ -64,6 +67,7 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
   authService: {
     findForTokenIssue: async (id: string) => ({ _id: { toString: () => id }, email: 'p@example.com', lastActiveOrgId: 'org-1', tokenVersion: 2 }),
     findByCredentials: (...a: unknown[]) => mockFindByCredentials(...a),
+    resolveIdentifier: async () => null,
   },
   auditService: { createEvent: jest.fn(async () => undefined) },
 }));

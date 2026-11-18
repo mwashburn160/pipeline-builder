@@ -25,11 +25,8 @@ const { offerSeatActivity: SEAT_ACTIVITY } = PLATFORM_INTERNAL;
  * only the root's own memberships would report a parent org with all its people
  * in teams as having nobody active.
  *
- * `unknownActivity` is reported SEPARATELY from inactive, and the distinction is
- * load-bearing: `lastActiveAt` is absent for every membership that predates the
- * field, and treating absent as inactive would make every established account
- * look dormant — which argues against exactly the offers it should receive.
- * A caller that cannot tell the two apart should skip the signal, not use it.
+ * A membership whose seat has not been used in the window — including one never
+ * used since joining, which carries no `lastActiveAt` stamp — is inactive.
  */
 export async function getOrgSeatActivity(req: Request, res: Response): Promise<void> {
   const orgId = getParam(req.params, 'orgId')!;
@@ -40,13 +37,12 @@ export async function getOrgSeatActivity(req: Request, res: Response): Promise<v
   const scope = await expandOrgScope(orgId);
   const match = { organizationId: { $in: scope }, isActive: true };
 
-  const [seatsHeld, activeMembers, unknownActivity] = await Promise.all([
+  const [seatsHeld, activeMembers] = await Promise.all([
     UserOrganization.countDocuments(match),
     UserOrganization.countDocuments({ ...match, lastActiveAt: { $gte: since } }),
-    UserOrganization.countDocuments({ ...match, lastActiveAt: { $exists: false } }),
   ]);
 
-  logger.debug('Served seat-activity read', { orgId, seatsHeld, activeMembers, unknownActivity });
+  logger.debug('Served seat-activity read', { orgId, seatsHeld, activeMembers });
   sendSuccess(res, 200, {
     seatActivity: {
       orgId,
@@ -55,8 +51,6 @@ export async function getOrgSeatActivity(req: Request, res: Response): Promise<v
       seatsHeld,
       /** Those with a session inside the window. */
       activeMembers,
-      /** Those with NO stamp at all — unknown, not inactive. */
-      unknownActivity,
     },
   });
 }

@@ -965,7 +965,7 @@ export interface OrgDomainDto {
   autoJoin: 'off' | 'request' | 'auto';
   /** A ROOT org's verified domain shared with its teams: their IdPs / SCIM may
    *  vouch for addresses at it. Off by default; always false on a team. */
-  sharedWithTeams?: boolean;
+  sharedWithTeams: boolean;
   /** DNS TXT record to publish — present only while unverified. */
   verification?: { host: string; type: string; value: string };
 }

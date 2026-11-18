@@ -18,7 +18,7 @@ jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastMod
 jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ asPath: '/dashboard', replace: jest.fn<AnyFn>() })));
 
 const org = (over: Partial<UserOrgMembership>): UserOrgMembership => ({
-  id: 'own', name: 'Own Org', role: 'owner', childOrgCount: 0, ...over,
+  id: 'own', name: 'Own Org', role: 'owner', childOrgCount: 0, roleNames: [], ...over,
 });
 
 describe('OrgSwitcher — orphan team caption', () => {

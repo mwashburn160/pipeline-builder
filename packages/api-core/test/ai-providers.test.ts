@@ -105,7 +105,6 @@ describe('getOpenAICompatibleProvider', () => {
   const keys = [
     'OPENAI_COMPATIBLE_BASE_URL',
     'OPENAI_COMPATIBLE_MODELS',
-    'OPENAI_COMPATIBLE_MODEL',
     'OPENAI_COMPATIBLE_NAME',
   ] as const;
   const saved: Record<string, string | undefined> = {};

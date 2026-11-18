@@ -5,8 +5,10 @@
  * `/auth/login` with the DURABLE per-account password lockout
  * (helpers/password-lockout.ts; the helper itself: password-lockout.integration.test.ts).
  *
- *  - a wrong password for a REAL account counts toward the lockout; an unknown
- *    identifier counts nothing (there is nothing to lock);
+ *  - a REAL account reserves an attempt BEFORE the password is compared; a
+ *    refused reservation answers the lockout's 429 without comparing anything;
+ *  - a wrong password turns the reservation into a failure; an unknown
+ *    identifier reserves and counts nothing (there is nothing to lock);
  *  - while locked, BOTH a wrong and a right password get the same 429 the Redis
  *    bucket gives (RATE_LIMIT_EXCEEDED + retryAfterSeconds) — a correct guess
  *    during a lockout reveals nothing and opens no session;
@@ -57,15 +59,18 @@ class MockLockedOut extends Error {
   retryAfterSeconds = 42;
   constructor() { super('PASSWORD_LOCKED_OUT'); }
 }
-const mockAssertNotLocked = jest.fn<(id: string) => Promise<void>>(async () => undefined);
-const mockRecordFailure = jest.fn<(id: string) => Promise<void>>(async () => undefined);
-const mockClearFailures = jest.fn<(id: string) => Promise<void>>(async () => undefined);
+type Attempt = { userId: string; reservationId: string };
+const mockReserve = jest.fn<(id: string) => Promise<Attempt>>(async (userId) => ({ userId, reservationId: 'r1' }));
+const mockRecordFailure = jest.fn<(id: string, rid?: string) => Promise<void>>(async () => undefined);
+const mockComplete = jest.fn<(a: Attempt) => Promise<void>>(async () => undefined);
+const mockRelease = jest.fn<(a: Attempt) => Promise<void>>(async () => undefined);
 jest.unstable_mockModule('../src/helpers/password-lockout.js', () => ({
   PASSWORD_LOCKOUT_MESSAGE: 'Too many failed sign-in attempts for this account.',
   PasswordLockedOutError: MockLockedOut,
-  assertPasswordNotLocked: (id: string) => mockAssertNotLocked(id),
-  recordPasswordFailure: (id: string) => mockRecordFailure(id),
-  clearPasswordFailures: (id: string) => mockClearFailures(id),
+  reservePasswordAttempt: (id: string) => mockReserve(id),
+  recordPasswordFailure: (id: string, rid?: string) => mockRecordFailure(id, rid),
+  completePasswordAttempt: (a: Attempt) => mockComplete(a),
+  releasePasswordAttempt: (a: Attempt) => mockRelease(a),
 }));
 jest.unstable_mockModule('../src/helpers/password-policy.js', () => ({
   passwordShortfall: (...a: unknown[]) => mockShortfall(...a),
@@ -136,8 +141,9 @@ beforeEach(() => {
   _resetAllPendingStoresForTests();
   mockHasActiveTotp.mockResolvedValue(false);
   mockShortfall.mockResolvedValue(null);
-  mockAssertNotLocked.mockResolvedValue(undefined);
-  mockResolveIdentifier.mockResolvedValue(null);
+  mockReserve.mockImplementation(async (userId) => ({ userId, reservationId: 'r1' }));
+  mockComplete.mockResolvedValue(undefined);
+  mockResolveIdentifier.mockResolvedValue({ userId: 'u1', orgId: 'org-1' });
   mockFindByCredentials.mockResolvedValue({
     _id: { toString: () => 'u1' }, email: 'p@example.com', lastActiveOrgId: { toString: () => 'org-1' },
   });
@@ -151,67 +157,92 @@ function expectLockedOut(res: any): void {
 }
 
 describe('POST /auth/login — durable password lockout', () => {
-  it('a wrong password for a real account counts toward the lockout and answers 401', async () => {
+  it('reserves BEFORE comparing; a wrong password turns the reservation into a failure and answers 401', async () => {
     mockFindByCredentials.mockResolvedValue(null);
-    mockResolveIdentifier.mockResolvedValue({ userId: 'u1', orgId: 'org-1' });
     const res = makeRes();
     await login(req({ identifier: 'p@example.com', password: 'wrong' }), res);
     expect(res.status).toHaveBeenCalledWith(401);
-    expect(mockAssertNotLocked).toHaveBeenCalledWith('u1');
-    expect(mockRecordFailure).toHaveBeenCalledWith('u1');
+    expect(mockReserve).toHaveBeenCalledWith('u1');
+    expect(mockReserve.mock.invocationCallOrder[0]).toBeLessThan(mockFindByCredentials.mock.invocationCallOrder[0]);
+    expect(mockRecordFailure).toHaveBeenCalledWith('u1', 'r1');
+    expect(mockRelease).not.toHaveBeenCalled();
     expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'user.login.failed', expect.objectContaining({
-      details: expect.objectContaining({ reason: 'bad-password' }),
+      targetId: 'u1', details: expect.objectContaining({ reason: 'bad-password' }),
     }));
   });
 
-  it('an unknown identifier counts nothing — there is no account to lock', async () => {
+  it('an unknown identifier reserves and counts nothing — there is no account to lock', async () => {
+    mockResolveIdentifier.mockResolvedValue(null);
     mockFindByCredentials.mockResolvedValue(null);
     const res = makeRes();
     await login(req({ identifier: 'nobody@example.com', password: 'wrong' }), res);
     expect(res.status).toHaveBeenCalledWith(401);
-    expect(mockAssertNotLocked).not.toHaveBeenCalled();
+    expect(mockFindByCredentials).toHaveBeenCalled();
+    expect(mockReserve).not.toHaveBeenCalled();
     expect(mockRecordFailure).not.toHaveBeenCalled();
+    expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'user.login.failed', expect.objectContaining({
+      details: expect.objectContaining({ reason: 'unknown-identifier' }),
+    }));
   });
 
-  it('while locked, a wrong password gets the bucket\'s 429 and is not counted again', async () => {
-    mockFindByCredentials.mockResolvedValue(null);
-    mockResolveIdentifier.mockResolvedValue({ userId: 'u1', orgId: 'org-1' });
-    mockAssertNotLocked.mockRejectedValue(new MockLockedOut());
+  it('a refused reservation gets the bucket\'s 429 WITHOUT the password ever being compared', async () => {
+    mockReserve.mockRejectedValue(new MockLockedOut());
     const res = makeRes();
-    await login(req({ identifier: 'p@example.com', password: 'wrong' }), res);
+    await login(req({ identifier: 'p@example.com', password: 'right' }), res);
     expectLockedOut(res);
+    expect(mockFindByCredentials).not.toHaveBeenCalled();
     expect(mockRecordFailure).not.toHaveBeenCalled();
+    expect(mockIssueTokens).not.toHaveBeenCalled();
     expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'user.login.failed', expect.objectContaining({
       targetId: 'u1', affectedOrgId: 'org-1', details: expect.objectContaining({ reason: 'locked-out' }),
     }));
   });
 
-  it('while locked, the RIGHT password gets the same 429 and opens no session', async () => {
-    mockAssertNotLocked.mockRejectedValue(new MockLockedOut());
+  it('the RIGHT password with a lockout that landed mid-check gets the same 429 and opens no session', async () => {
+    mockComplete.mockRejectedValue(new MockLockedOut());
     const res = makeRes();
     await login(req({ identifier: 'p@example.com', password: 'right' }), res);
     expectLockedOut(res);
     expect(mockIssueTokens).not.toHaveBeenCalled();
-    expect(mockClearFailures).not.toHaveBeenCalled();
+    expect(mockRelease).not.toHaveBeenCalled();
   });
 
-  it('a right password on an unlocked account clears the run and signs in', async () => {
+  it('a right password completes the reservation (ends the run) and signs in', async () => {
     const res = makeRes();
     await login(req({ identifier: 'p@example.com', password: 'right' }), res);
-    expect(mockClearFailures).toHaveBeenCalledWith('u1');
+    expect(mockComplete).toHaveBeenCalledWith({ userId: 'u1', reservationId: 'r1' });
     expect(mockIssueTokens).toHaveBeenCalled();
   });
 
+  it('an account that appeared between the lookups is reserved for at completion', async () => {
+    mockResolveIdentifier.mockResolvedValue(null);
+    const res = makeRes();
+    await login(req({ identifier: 'p@example.com', password: 'right' }), res);
+    expect(mockReserve).toHaveBeenCalledWith('u1');
+    expect(mockComplete).toHaveBeenCalledWith({ userId: 'u1', reservationId: 'r1' });
+    expect(mockIssueTokens).toHaveBeenCalled();
+  });
+
+  it('a compare that throws gives the reservation back', async () => {
+    mockFindByCredentials.mockRejectedValue(new Error('bcrypt exploded'));
+    const res = makeRes();
+    await login(req({ identifier: 'p@example.com', password: 'x' }), res);
+    expect(mockRelease).toHaveBeenCalledWith({ userId: 'u1', reservationId: 'r1' });
+    expect(mockRecordFailure).not.toHaveBeenCalled();
+    expect(mockIssueTokens).not.toHaveBeenCalled();
+  });
+
   it('an unexpected lockout-store error is not swallowed (fails the sign-in, never opens it)', async () => {
-    mockAssertNotLocked.mockRejectedValue(new Error('mongo down'));
+    mockReserve.mockRejectedValue(new Error('mongo down'));
     const res = makeRes();
     await expect(login(req({ identifier: 'p@example.com', password: 'right' }), res)).resolves.toBeUndefined();
+    expect(mockFindByCredentials).not.toHaveBeenCalled();
     expect(mockIssueTokens).not.toHaveBeenCalled();
 
-    mockFindByCredentials.mockResolvedValue(null);
-    mockResolveIdentifier.mockResolvedValue({ userId: 'u1' });
+    mockReserve.mockImplementation(async (userId) => ({ userId, reservationId: 'r1' }));
+    mockComplete.mockRejectedValue(new Error('mongo down'));
     const res2 = makeRes();
-    await login(req({ identifier: 'p@example.com', password: 'wrong' }), res2);
-    expect(mockRecordFailure).not.toHaveBeenCalled();
+    await login(req({ identifier: 'p@example.com', password: 'right' }), res2);
+    expect(mockIssueTokens).not.toHaveBeenCalled();
   });
 });

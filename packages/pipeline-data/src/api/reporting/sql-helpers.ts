@@ -131,9 +131,7 @@ export const nonOutcomeStatusList = sql.join(NON_OUTCOME_EVENT_STATUSES.map((s) 
  * sibling stage. Ordered by AWS's event time (`completed_at` on a terminal row,
  * `started_at` on a RESUMED row — the events Lambda stamps the resume time
  * there), NOT by ingest time: a dead-letter redrive inserts events hours late and
- * out of order. A RESUMED row from an older Lambda carries the execution's start,
- * which is never later, so it overtakes nothing and the outcome stands as
- * before. A non-terminal row (no `completed_at`) and a row with no execution id
+ * out of order. A non-terminal row (no `completed_at`) and a row with no execution id
  * always pass. Served by `event_execution_id_idx`.
  */
 export const notOvertaken = sql`NOT EXISTS (

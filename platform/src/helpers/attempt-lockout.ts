@@ -34,6 +34,10 @@ export interface RecordFailureOptions {
   windowMs?: number;
   /** The audit action the lockout is filed as. Default `user.mfa.locked_out`. */
   auditAction?: 'user.mfa.locked_out' | 'user.login.locked_out';
+  /** A `$pull` applied in the SAME atomic update as the increment — password
+   *  sign-in uses it to turn its in-flight reservation into the failure, so the
+   *  attempt is never counted twice nor, for an instant, not at all. */
+  pull?: Record<string, unknown>;
 }
 
 /** Refuse every verification while a lockout is live. Throws `TOTP_LOCKED_OUT`. */
@@ -57,7 +61,7 @@ export async function recordFailure(
   limits: { maxFailures: number; lockoutMs: number },
   options: RecordFailureOptions = {},
 ): Promise<void> {
-  const { upsert = false, windowMs, auditAction = 'user.mfa.locked_out' } = options;
+  const { upsert = false, windowMs, auditAction = 'user.mfa.locked_out', pull } = options;
   const updated = await model.findOneAndUpdate(
     { userId },
     {
@@ -67,6 +71,7 @@ export async function recordFailure(
       // from `lockedUntil` to the end of a shorter window — the record, and so
       // the lockout, would expire early.
       ...(windowMs !== undefined ? { $max: { expiresAt: new Date(Date.now() + windowMs) } } : {}),
+      ...(pull ? { $pull: pull } : {}),
     },
     { new: true, projection: { failedAttempts: 1 }, ...(upsert ? { upsert: true } : {}) },
   ).lean();

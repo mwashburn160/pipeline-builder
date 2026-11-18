@@ -153,8 +153,8 @@ export const updateOrganizationSeatLimit = withController('Update organization s
     }
     supportContacts = body.supportContacts;
   }
-  // The premium UPGRADE cap. Optional and validated the same way, so a producer
-  // that predates premium syncs the other limits without zeroing this one.
+  // The premium UPGRADE cap. Optional and validated the same way; absent leaves
+  // the stored cap as it is.
   let supportPremiumContacts: number | undefined;
   if (body.supportPremiumContacts !== undefined) {
     if (typeof body.supportPremiumContacts !== 'number'

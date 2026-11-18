@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import crypto from 'crypto';
-import { ANONYMOUS_ACTOR_ID, assertJwtIssuerAudienceConfigured, JWKS_PATH, clientVersionGate, auditContextFromRequest, runWithAuditContext, sanitizeCorrelationId, createHealthRouter, createLogger, emitCounter, installCrashHandlers, setCounterEmitter, setGaugeEmitter, mongoSanitize, resolveRedisConnection, errorMessage, retryForever, type Scheduler, sleep } from '@pipeline-builder/api-core';
+import { ANONYMOUS_ACTOR_ID, assertJwtIssuerAudienceConfigured, JWKS_PATH, clientVersionGate, auditContextFromRequest, runWithAuditContext, sanitizeCorrelationId, createHealthRouter, createLogger, installCrashHandlers, setCounterEmitter, setGaugeEmitter, mongoSanitize, resolveRedisConnection, errorMessage, retryForever, type Scheduler, sleep } from '@pipeline-builder/api-core';
 import { withTenantContext, readinessGuard, setReady, isReady, mongoHealthCheck, registerSecretRotationGauge } from '@pipeline-builder/api-server';
 import cors from 'cors';
 import express, { type Request, type Response, type NextFunction } from 'express';
@@ -361,26 +361,6 @@ async function initDependencies(): Promise<void> {
     await bootstrapSuperAdmins();
   } catch (err) {
     logger.error('Super-admin bootstrap failed (service will still come ready)', {
-      error: errorMessage(err),
-    });
-  }
-
-  // Backfill the single-source RBAC "Roles" model (idempotent, cheap on a
-  // no-op): populate built-in Roles' permission bundles and ensure every active
-  // member holds the Role matching their coarse role, so users who relied on the
-  // now-removed role baseline keep their permissions. Guarded — a partial
-  // failure logs and boot continues (this is never fatal).
-  const { backfillRbacRoles } = await import('./services/rbac-backfill.js');
-  try {
-    await backfillRbacRoles();
-  } catch (err) {
-    // Counted as well as logged. Boot deliberately continues, which means a
-    // backfill that fails on EVERY start is invisible unless something records
-    // it — and the thing it is failing to do is keep built-in Roles current, so
-    // the symptom is somebody quietly holding no permissions.
-    // `RbacBackfillFailing` in the deploy alert rules watches this.
-    emitCounter('platform_rbac_backfill_runs_total', { result: 'error' });
-    logger.error('RBAC Roles backfill failed (service will still come ready)', {
       error: errorMessage(err),
     });
   }

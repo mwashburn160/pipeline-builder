@@ -259,9 +259,6 @@ const postureCount = z.unknown().optional().transform((v): number => {
 // /internal/support/entitlement
 // ---------------------------------------------------------------------------
 
-/** A count a platform predating the premium upgrade omits: absent reads as 0. */
-const countOr0 = z.unknown().optional().transform((v): number => (typeof v === 'number' ? v : 0));
-
 // ---------------------------------------------------------------------------
 // /internal/ai
 // ---------------------------------------------------------------------------
@@ -389,7 +386,6 @@ export const PLATFORM_INTERNAL = {
         windowDays: z.number(),
         seatsHeld: z.number(),
         activeMembers: z.number(),
-        unknownActivity: z.number(),
       }),
     }),
   }),
@@ -451,11 +447,7 @@ export const PLATFORM_INTERNAL = {
       permissionChanges: postureCount,
     }),
   }),
-  /**
-   * An org's support entitlement. `level` (string | null) and `canOpenCase`
-   * are load-bearing; the premium/contact counts default when absent (a
-   * platform predating the upgrade omits them).
-   */
+  /** An org's support entitlement (platform's `SupportEntitlement`; `-1` = unlimited on the limits). */
   supportEntitlement: defineInternalEndpoint({
     id: 'platform.supportEntitlement',
     service: 'platform',
@@ -466,12 +458,12 @@ export const PLATFORM_INTERNAL = {
     params: z.object({ orgId: orgIdParam }),
     response: z.object({
       level: z.string().nullable(),
-      premium: z.unknown().optional().transform((v) => v === true),
-      premiumLimit: countOr0,
-      limit: countOr0,
-      used: countOr0,
-      ownOrgContacts: countOr0,
-      canDesignate: z.unknown().optional().transform((v) => v === true),
+      premium: z.boolean(),
+      premiumLimit: z.number(),
+      limit: z.number(),
+      used: z.number(),
+      ownOrgContacts: z.number(),
+      canDesignate: z.boolean(),
       canOpenCase: z.boolean(),
     }),
   }),

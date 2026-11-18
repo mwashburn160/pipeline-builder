@@ -16,6 +16,7 @@ import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockOrgFind = jest.fn<AnyFn>();
 const mockOrgFindById = jest.fn<AnyFn>();
+const mockOrgUpdateOne = jest.fn<AnyFn>();
 const mockOrgFindOne = jest.fn<AnyFn>();
 const mockOrgCount = jest.fn<AnyFn>();
 const mockUserOrgCount = jest.fn<AnyFn>();
@@ -93,14 +94,11 @@ jest.unstable_mockModule('mongoose', () => {
     set() { /* no-op */ }
     static Types = { Mixed: class {}, ObjectId: class {} };
   }
-  // setTier/setSeatLimit now wrap their writes in withMongoTransaction, which
-  // calls mongoose.startSession().withTransaction(cb) — return a session whose
-  // withTransaction just runs the callback (no real Mongo tx in unit tests).
-  const startSession = jest.fn(async () => ({
-    withTransaction: async (cb: () => Promise<unknown>) => cb(),
-    endSession: jest.fn<AnyFn>(),
-  }));
-  return { default: { startSession }, Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn<AnyFn>() };
+  // setTier/setSeatLimit wrap their writes in withMongoTransaction, which calls
+  // mongoose.connection.transaction(fn) — run the body once with a fake session
+  // (no real Mongo tx in unit tests).
+  const connection = { transaction: async (fn: (s: unknown) => Promise<unknown>) => fn({ id: 'test-session' }) };
+  return { default: { connection }, Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn<AnyFn>() };
 });
 
 jest.unstable_mockModule('../src/middleware/quota.js', () => ({
@@ -129,6 +127,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
     findById: (...a: unknown[]) => mockOrgFindById(...a),
     findOne: (...a: unknown[]) => mockOrgFindOne(...a),
     countDocuments: (...a: unknown[]) => mockOrgCount(...a),
+    updateOne: (...a: unknown[]) => mockOrgUpdateOne(...a),
   },
   User: { updateOne: jest.fn<AnyFn>() },
   UserOrganization: { countDocuments: (...a: unknown[]) => mockUserOrgCount(...a), create: jest.fn<AnyFn>(), distinct: () => ({ session: () => Promise.resolve([]) }), aggregate: (...a: unknown[]) => mockUserOrgAggregate(...a) },
@@ -264,8 +263,17 @@ describe('organizationService.list — tier filter + derived facets', () => {
 });
 
 describe('organizationService.setTier', () => {
+  beforeEach(() => { mockOrgUpdateOne.mockReset().mockResolvedValue({ matchedCount: 1 }); });
+  /** The `$set` of the root's own tier write (a query update, not `org.save`). */
+  const tierSet = () => {
+    const call = mockOrgUpdateOne.mock.calls.find((c) => (c[1] as { $set?: { tier?: unknown } })?.$set?.tier !== undefined);
+    expect(call).toBeDefined();
+    expect(call![2]).toEqual(expect.objectContaining({ session: { id: 'test-session' } }));
+    return (call![1] as { $set: Record<string, unknown> }).$set;
+  };
   // Helper: build a Mongoose-shaped doc with markModified + save spies so we
-  // can assert the writes actually fired (not just the in-memory mutation).
+  // can assert the doc is NOT saved (the write is a query-level update a
+  // retried transaction body re-applies).
   function makeOrgDoc(initial: { _id: string; tier?: string; quotas?: unknown }) {
     return {
       _id: initial._id,
@@ -290,7 +298,7 @@ describe('organizationService.setTier', () => {
 
     expect(result).toEqual({ id: 'o1', previousTier: 'pro', tier: 'pro' });
     expect(org.save).not.toHaveBeenCalled();
-    expect(org.markModified).not.toHaveBeenCalled();
+    expect(mockOrgUpdateOne).not.toHaveBeenCalled();
   });
 
   it('updates tier and reseeds quotas from the new tier config', async () => {
@@ -316,8 +324,8 @@ describe('organizationService.setTier', () => {
       idpConfigs: 5,
       seats: 3,
     });
-    expect(org.markModified).toHaveBeenCalledWith('quotas');
-    expect(org.save).toHaveBeenCalled();
+    expect(org.save).not.toHaveBeenCalled();
+    expect(tierSet()).toEqual({ tier: 'pro', quotas: org.quotas });
   });
 
   it('preserves a bundle-raised seat cap while lowering non-purchased dims on a tier change', async () => {
@@ -334,7 +342,7 @@ describe('organizationService.setTier', () => {
     expect((org.quotas as { seats: number }).seats).toBe(15);
     // a non-purchased dim reseeds down to the new tier base (pro plugins = 100).
     expect((org.quotas as { plugins: number }).plugins).toBe(100);
-    expect(org.markModified).toHaveBeenCalledWith('quotas');
+    expect((tierSet().quotas as { seats: number }).seats).toBe(15);
   });
 
   it('preserves an unlimited (-1) seat cap across a tier reseed', async () => {
@@ -392,8 +400,7 @@ describe('organizationService.setTier', () => {
     expect(result?.tier).toBe('ghost-tier');
     // quotas unchanged since the tier config lookup returned undefined.
     expect(org.quotas).toEqual({ plugins: 10 });
-    expect(org.markModified).not.toHaveBeenCalledWith('quotas');
-    expect(org.save).toHaveBeenCalled();
+    expect(tierSet()).toEqual({ tier: 'ghost-tier' });
   });
 });
 

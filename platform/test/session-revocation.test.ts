@@ -70,9 +70,12 @@ jest.unstable_mockModule('../src/models/user.js', () => ({
   },
 }));
 
+/** The model's connection state — the sweep's no-hang guard reads it. */
+const mockImpDb = { readyState: 1 };
 jest.unstable_mockModule('../src/models/impersonation-request.js', () => ({
   __esModule: true,
   default: {
+    db: mockImpDb,
     find: (...a: unknown[]) => mockImpFind(...a),
     updateOne: (...a: unknown[]) => mockImpUpdateOne(...a),
   },
@@ -102,6 +105,7 @@ const impFindResolves = (rows: unknown[]) =>
 beforeEach(() => {
   jest.clearAllMocks();
   mockGetRedis.mockResolvedValue(fakeRedis);
+  mockImpDb.readyState = 1;
   // No live impersonation sessions unless a test seeds some.
   impFindResolves([]);
   mockImpUpdateOne.mockResolvedValue({ modifiedCount: 1 });
@@ -379,5 +383,88 @@ describe('operator revocation reaches the impersonation sessions they opened', (
     await expect(publishUserRevocation('op1')).resolves.toBeUndefined();
     // The user's own version still landed first.
     expect(fakeRedis.set).toHaveBeenCalledWith('authrev:tv:op1', '5', 'EX', 3600);
+  });
+});
+
+describe('the operator-session sweep is independent of the Redis publish', () => {
+  beforeEach(() => { fakeRedis.set.mockReset().mockImplementation(async () => 'OK'); });
+  const live = () => impFindResolves([{
+    _id: 'req-1',
+    jti: 'sess-1',
+    consumedAt: new Date(Date.now() - 60_000),
+    requesterId: 'op1',
+    targetUserId: 'target',
+    organizationId: 'org-a',
+    requesterTokenVersion: 5,
+    requesterClaimsVersion: 2,
+    requesterSuperAdmin: false,
+  }]);
+  const revokeAudits = () => mockRecordAudit.mock.calls.filter((c) => (c[0] as { action: string }).action === 'admin.impersonate.revoke');
+
+  it('no Redis configured: the session is still marked revoked and audited (revokedEverywhere: false)', async () => {
+    mockGetRedis.mockResolvedValue(null);
+    live();
+    findResolves([{ _id: 'op1', tokenVersion: 6 }]);
+    await publishUserRevocation('op1', 8);
+    expect(mockImpUpdateOne).toHaveBeenCalledWith({ _id: 'req-1', status: 'consumed' }, expect.anything());
+    expect(revokeAudits()).toHaveLength(1);
+    expect((revokeAudits()[0]![0] as { details: unknown }).details).toMatchObject({ revokedEverywhere: false });
+    expect(fakeRedis.set).not.toHaveBeenCalled();
+  });
+
+  it('the user-version publish FAILS: the sweep still runs', async () => {
+    live();
+    findResolves([{ _id: 'op1', tokenVersion: 6 }]);
+    fakeRedis.set.mockImplementationOnce(async () => { throw new Error('redis down'); });
+    await expect(publishUserRevocation('op1', 8)).resolves.toBeUndefined();
+    expect(revokeAudits()).toHaveLength(1);
+  });
+
+  it('the re-read finds no user: the sweep still runs (an operator row that is gone ends the session)', async () => {
+    findByIdResolves(null);
+    live();
+    findResolves([]);
+    await publishUserRevocation('op1');
+    expect(fakeRedis.set.mock.calls.filter((c) => String(c[0]).startsWith('authrev:tv:'))).toHaveLength(0);
+    expect(revokeAudits()).toHaveLength(1);
+  });
+
+  it('batch and deletion publishers sweep with no Redis, too', async () => {
+    mockGetRedis.mockResolvedValue(null);
+    live();
+    findResolves([]);
+    await publishUsersRevocation(['op1']);
+    expect(revokeAudits()).toHaveLength(1);
+
+    mockRecordAudit.mockClear();
+    mockImpUpdateOne.mockClear();
+    await publishUserDeletionRevocation('op1', 7);
+    expect(mockUserFind).toHaveBeenCalledTimes(1); // only the batch run read operators
+    expect(revokeAudits()).toHaveLength(1);
+  });
+
+  it('a Redis publish failure in the batch / deletion publishers never stops the sweep', async () => {
+    mockGetRedis.mockRejectedValue(new Error('redis down'));
+    live();
+    findResolves([]);
+    await expect(publishUsersRevocation(['op1'])).resolves.toBeUndefined();
+    await expect(publishUserDeletionRevocation('op1', 7)).resolves.toBeUndefined();
+    expect(revokeAudits()).toHaveLength(2);
+  });
+
+  it('NO-HANG GUARD: with Mongo not connected the sweep queries nothing', async () => {
+    mockImpDb.readyState = 0;
+    live();
+    await expect(endOperatorImpersonationSessions(['op1'])).resolves.toBe(0);
+    await publishUserRevocation('op1', 8);
+    expect(mockImpFind).not.toHaveBeenCalled();
+    expect(revokeAudits()).toHaveLength(0);
+  });
+
+  it('a sweep failure in a publisher is logged and swallowed', async () => {
+    mockGetRedis.mockResolvedValue(null);
+    mockImpFind.mockImplementation(() => { throw new Error('mongo down'); });
+    await expect(publishUsersRevocation(['op1'])).resolves.toBeUndefined();
+    await expect(publishUserDeletionRevocation('op1', 1)).resolves.toBeUndefined();
   });
 });

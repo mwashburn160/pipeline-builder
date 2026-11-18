@@ -35,7 +35,8 @@ export type BuildStatus = 'idle' | 'building' | 'completed' | 'failed';
  * Whether an ERROR event ends the build. The worker attaches an explicit
  * `final` flag (authoritative: a permanent failure ends before the attempt
  * budget) plus `{ attemptsMade, maxAttempts }`; without `final`, an attempt
- * below the budget is retried. Events without those fields are terminal.
+ * below the budget is retried. Events without those fields (an ERROR logged on
+ * the request path, before any job was enqueued) are terminal.
  */
 export function isFinalErrorAttempt(event: BuildEvent): boolean {
   const final = event.data?.final;
@@ -84,7 +85,7 @@ export function useBuildStatus(requestId: string | null) {
         case 'ERROR':
           // The worker emits ERROR on every failed attempt. A non-final attempt
           // will be retried, so stay 'building' and keep listening; only the
-          // final attempt (or a legacy event without attempt counts) is terminal.
+          // final attempt (or a request-path ERROR, which carries no attempt counts) is terminal.
           if (!isFinalErrorAttempt(parsed)) return false;
           setStatus('failed');
           return true; // terminal — close the stream

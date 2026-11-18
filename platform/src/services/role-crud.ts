@@ -181,19 +181,32 @@ export async function updateRole(
   // so a refused edit leaves the role untouched.
   assertActorMayAssignRole(role.permissions as string[] | undefined, actor);
 
+  // The edit as a QUERY-level update, not `role.save({ session })`: the
+  // transaction body may be re-run on a transient error, and a re-run `save()`
+  // of a document already saved in the aborted attempt can write nothing while
+  // the members' claimsVersion bump re-applies. The in-memory `role` is still
+  // mutated so the response reflects the edit.
+  const $set: Record<string, unknown> = {};
+  const $unset: Record<string, 1> = {};
   if (input.name !== undefined) {
     const name = input.name.trim();
     if (name !== role.name) {
       const clash = await Role.findOne({ organizationId: oid, name, _id: { $ne: role._id } }).select('_id').lean();
       if (clash) throw new Error(RL_NAME_TAKEN);
       role.name = name;
+      $set.name = name;
     }
   }
-  if (input.description !== undefined) role.description = input.description.trim() || undefined;
+  if (input.description !== undefined) {
+    role.description = input.description.trim() || undefined;
+    if (role.description) $set.description = role.description;
+    else $unset.description = 1;
+  }
 
   let permsChanged = false;
   if (input.permissions !== undefined) {
     role.permissions = sanitizePermissions(input.permissions, actor, String(role.organizationId));
+    $set.permissions = role.permissions;
     permsChanged = true;
   }
 
@@ -203,7 +216,13 @@ export async function updateRole(
   // stale-permission window. Mirrors how `deleteRole` already threads a session.
   let bumpedMemberIds: mongoose.Types.ObjectId[] = [];
   await withMongoTransaction(async (session) => {
-    await role.save({ session });
+    if (Object.keys($set).length > 0 || Object.keys($unset).length > 0) {
+      await Role.updateOne(
+        { _id: role._id, organizationId: oid },
+        { ...(Object.keys($set).length > 0 ? { $set } : {}), ...(Object.keys($unset).length > 0 ? { $unset } : {}) },
+        { session, runValidators: true },
+      );
+    }
     // Permission change must reach members' JWTs — invalidate their access tokens.
     if (permsChanged) {
       // USERS only: a service account assigned to this Role holds no session and

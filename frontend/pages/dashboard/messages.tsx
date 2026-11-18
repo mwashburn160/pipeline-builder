@@ -455,7 +455,7 @@ export default function MessagesPage() {
 
   // A failed send REJECTS with the server's reason; letting it propagate is
   // what puts that reason in the composer's alert (ComposeModal's
-  // useAsyncCallback surfaces it) while the form stays open for a retry.
+  // send mutation surfaces it) while the form stays open for a retry.
   const handleSend = useCallback(async (data: Parameters<typeof sendMessage>[0]): Promise<boolean> => {
     const result = await sendMessage(data);
     return result !== null;

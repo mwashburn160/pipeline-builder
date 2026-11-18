@@ -80,7 +80,7 @@ jest.unstable_mockModule('../src/services/secret-reencrypt.js', () => ({
   reencryptOrgSecrets: jest.fn<AnyFn>(),
 }));
 
-// Post-zod migration the controller validates via utils/validation.js. The
+// The controller validates via utils/validation.js. The
 // real module transitively loads config + the Mongoose user model; mock it
 // with a faithful stand-in (same schema shape + 400-on-fail behavior) so this
 // suite stays a focused unit test. The schema itself is covered in

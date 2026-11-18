@@ -418,7 +418,6 @@ export function QuotasAdmin({
                       canManage={canEdit}
                       editVal={editValues[key]}
                       onEditChange={handleEditChange}
-                      periodDays={orgData.periodDays}
                       tier={orgData.tier}
                     />
                   ))}

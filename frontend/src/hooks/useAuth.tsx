@@ -82,9 +82,9 @@ interface AuthContextType {
    *  instead of opening a prompt. Post-sign-in handling (profile refresh,
    *  redirect) is identical to `login`. */
   loginWithPasskey: (opts?: { autofill?: boolean; redirect?: boolean }) => Promise<void>;
-  /** Resolves `invitationAccepted: true` when an `invitationToken` registration joined that
-   *  org server-side (no separate accept needed). */
-  register: (username: string, email: string, password: string, organizationName?: string, planId?: string, opts?: { redirect?: boolean; invitationToken?: string }) => Promise<{ invitationAccepted: boolean }>;
+  /** With an `invitationToken`, the registration joins that org server-side
+   *  (the invitation is accepted in the same transaction; no separate accept). */
+  register: (username: string, email: string, password: string, organizationName?: string, planId?: string, opts?: { redirect?: boolean; invitationToken?: string }) => Promise<void>;
   /**
    * Sign out and go to the sign-in page. `reason` is shown there (e.g. the
    * org-switch prompt's "this organization requires a fresh sign-in").
@@ -272,10 +272,10 @@ export function AuthProvider({ children, deferInit = false }: { children: ReactN
               parentOrgName: o.parentOrgName,
               ...(o.viaAncestor ? { viaAncestor: true } : {}),
               tier: o.tier as UserOrgMembership['tier'],
-              childOrgCount: o.childOrgCount ?? 0,
+              childOrgCount: o.childOrgCount,
               // The Roles the person actually holds there — what the switcher
               // labels each row with, in place of the coarse `role` word.
-              roleNames: o.roleNames ?? [],
+              roleNames: o.roleNames,
               ...(o.requiresMfa ? { requiresMfa: true } : {}),
             }));
             setOrganizations((prev) => keepIfUnchanged(prev, orgs));

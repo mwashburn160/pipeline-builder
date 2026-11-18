@@ -170,7 +170,7 @@ describe('Ask drawer — the probe fails open', () => {
   });
 
   it('keeps the agent when the payload has no `available` field at all', async () => {
-    // An older ask service, or any envelope that does not carry the field.
+    // A proxy's generic envelope, or any payload that does not carry the field.
     // `!data.available` would read this as unavailable and silently swap the
     // assistant for a help page; only an EXPLICIT false may do that.
     getAskAvailability.mockResolvedValue({ success: true, data: { somethingElse: 1 } });

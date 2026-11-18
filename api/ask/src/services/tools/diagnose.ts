@@ -212,7 +212,7 @@ export function diagnoseTools(deps: AgentToolDeps): ToolSet {
             // Channel + state only. `target` is masked by the API and is STILL
             // withheld: a Slack incoming-webhook URL is bearer-equivalent and
             // has no place in a model's context.
-            return { channel: r.channel ?? r.type, enabled: r.enabled !== false, minSeverity: r.minSeverity ?? null };
+            return { channel: r.channel ?? null, enabled: r.enabled !== false, minSeverity: r.minSeverity ?? null };
           })
           : null;
 

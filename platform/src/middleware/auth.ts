@@ -608,7 +608,7 @@ export async function requireRefreshSession(
     // exactly as a device does, until the slot's fixed end — which the handler
     // enforces (`renewSessionTokens`).
     // The slot's own org (each device / tab / CLI keeps its own) — absent on a
-    // slot that predates it, which falls back to lastActiveOrgId.
+    // slot opened outside any org, which falls back to lastActiveOrgId.
     await populateRequestUser(req, user, slot, slot.activeOrgId);
     res.locals.refreshSessionId = decoded.sid;
     res.locals.refreshSessionKind = slot.kind;

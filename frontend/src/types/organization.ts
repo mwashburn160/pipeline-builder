@@ -61,9 +61,8 @@ export interface UserOrgMembership {
    *
    * Empty for an inherited-authority row (no membership, so no Roles) and for an
    * org whose Roles are not assigned yet; the switcher falls back to `role`.
-   * Optional on the type because an older cached payload may not carry it.
    */
-  roleNames?: string[];
+  roleNames: string[];
   /** The org's `adminActionsRequireMfa` policy (its own or an ancestor's) would
    *  refuse an aal-1 session switching into it. */
   requiresMfa?: boolean;
@@ -143,11 +142,8 @@ export interface QuotaSummary {
    * `OrgQuotaResponse.periodDays` — against the wrong window a credits forecast
    * is wrong by a factor of ten, and the forecast is the mechanism the monthly
    * period leans on.
-   *
-   * Optional only for responses predating the field; treat absent as "no
-   * forecast" rather than substituting the global window.
    */
-  periodDays?: number;
+  periodDays: number;
 }
 
 /**
@@ -179,7 +175,7 @@ export interface OrgQuotaResponse {
   orgId: string;
   name: string;
   slug: string;
-  tier?: PlanTier;
+  tier: PlanTier;
   quotas: Record<QuotaType, QuotaSummary>;
   /**
    * Length of the GLOBAL usage period in days (`QUOTA_RESET_DAYS`, default 3).
@@ -187,10 +183,9 @@ export interface OrgQuotaResponse {
    * Correct for every flow quota but `cpuCredits`, which is monthly — so this is
    * for org-level copy only and is NOT the figure to compute a reset date or a
    * forecast from. Each entry in `quotas` carries its own `periodDays`; read
-   * that. An earlier version of this comment said "every counter rolls over on
-   * this one period", which stopped being true when credits arrived.
+   * that.
    */
-  periodDays?: number;
+  periodDays: number;
   isDefault?: boolean;
   /**
    * Present when the org belongs to an org → team pool (a root with teams, or a

@@ -374,8 +374,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
   }, [askUiMode]);
 
   // `available === false` EXPLICITLY, not `!available`. A payload that does not
-  // carry the field (an older ask service, a proxy's generic envelope, a shape
-  // change) would otherwise read as unavailable and replace the assistant with
+  // carry the field (a proxy's generic envelope) would otherwise read as unavailable and replace the assistant with
   // a help page — failing CLOSED, which is the opposite of what the probe
   // promises everywhere else.
   // Rating an answer. Fire-and-forget on purpose: the verdict is recorded

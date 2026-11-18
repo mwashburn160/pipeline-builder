@@ -52,8 +52,17 @@ jest.unstable_mockModule('mongoose', () => {
 });
 
 // Run the transaction body inline with a fake session (no live Mongo).
+// `txRuns` > 1 models the driver's retry of the WHOLE body after a
+// TransientTransactionError (the earlier attempt rolled back).
+let txRuns = 1;
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
-  withMongoTransaction: (cb: (s: unknown) => unknown) => cb({ id: 'test-session' }),
+  withMongoTransaction: async (cb: (s: unknown) => unknown) => {
+    const runs = txRuns;
+    txRuns = 1;
+    let out: unknown;
+    for (let i = 0; i < runs; i += 1) out = await cb({ id: 'test-session' });
+    return out;
+  },
 }));
 
 jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ quota: { tier: { developer: {}, pro: {}, team: {}, enterprise: {} } } }));
@@ -111,7 +120,6 @@ function makeOrgDoc(initial: { _id: string; tier?: string; parentOrgId?: string;
     tier: initial.tier,
     parentOrgId: initial.parentOrgId,
     quotas: initial.quotas,
-    markModified: jest.fn<AnyFn>(),
     save: jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined),
   };
 }
@@ -132,6 +140,49 @@ beforeEach(() => {
 });
 
 describe('setTier — tier downgrade invalidation', () => {
+  /** The root's own tier write (`updateOne({ _id }, { $set: { tier, ... } })`). */
+  const tierWrites = () => mockOrgUpdateOne.mock.calls.filter((c) => (c[1] as any)?.$set?.tier !== undefined
+    && (c[0] as any)?._id?.toString?.() === 'root-1');
+
+  it('writes the tier + reseeded quotas as a query update in the session (no doc.save)', async () => {
+    const doc = makeOrgDoc({ _id: 'root-1', tier: 'team', quotas: { plugins: 500 } });
+    mockOrgFindById.mockResolvedValue(doc);
+
+    await setTier('root-1', 'pro');
+
+    expect(doc.save).not.toHaveBeenCalled();
+    const writes = tierWrites();
+    expect(writes).toHaveLength(1);
+    expect((writes[0][1] as any).$set.tier).toBe('pro');
+    expect((writes[0][1] as any).$set.quotas).toEqual(tierBaseQuotaSet('pro' as never, undefined));
+    expect(writes[0][2]).toEqual(expect.objectContaining({ session: { id: 'test-session' } }));
+  });
+
+  it('a TEAM writes only its tier label (quotas stay pooled)', async () => {
+    mockOrgFindById.mockResolvedValue(makeOrgDoc({ _id: 'root-1', tier: 'team', parentOrgId: 'p-1', quotas: { plugins: -1 } }));
+
+    await setTier('root-1', 'pro');
+
+    expect((tierWrites()[0][1] as any).$set).toEqual({ tier: 'pro' });
+  });
+
+  it('REGRESSION: a RETRIED transaction body re-applies the root tier write with the propagation', async () => {
+    // The driver re-runs the body after a TransientTransactionError. The old
+    // `org.save({ session })` of the pre-loaded doc wrote nothing on the re-run
+    // (mongoose considered it saved by the rolled-back attempt) while the
+    // member bump / team propagation re-applied — teams on the new tier, the
+    // root on the old. Every attempt must carry the root's own write.
+    mockOrgFindById.mockResolvedValue(makeOrgDoc({ _id: 'root-1', tier: 'team', quotas: { plugins: 500 } }));
+    txRuns = 2;
+
+    await setTier('root-1', 'pro');
+
+    const writes = tierWrites();
+    expect(writes).toHaveLength(2);
+    for (const w of writes) expect((w[1] as any).$set.tier).toBe('pro');
+    expect(mockUserUpdateMany.mock.calls.filter((c) => (c[1] as any)?.$inc?.claimsVersion === 1)).toHaveLength(2);
+  });
+
   it('bumps every active member on a DOWNGRADE (team → pro)', async () => {
     mockOrgFindById.mockResolvedValue(makeOrgDoc({ _id: 'root-1', tier: 'team', quotas: { plugins: 500 } }));
 

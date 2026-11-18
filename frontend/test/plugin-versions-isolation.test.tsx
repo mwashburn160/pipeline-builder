@@ -12,8 +12,8 @@ import { render, screen } from '@testing-library/react';
 import { PluginVersions } from '../src/components/reports/PluginVersions';
 import type { PluginVersion } from '../src/components/reports/types';
 
-const withDefault: PluginVersion = { name: 'alpha', version_count: 3, latest_version: '1.2.0', has_default: true };
-const stale: PluginVersion = { name: 'beta', version_count: 2, latest_version: '0.9.0', has_default: false };
+const withDefault: PluginVersion = { name: 'alpha', version_count: 3, latest_version: '1.2.0', has_default: true, managed: false };
+const stale: PluginVersion = { name: 'beta', version_count: 2, latest_version: '0.9.0', has_default: false, managed: false };
 
 describe('PluginVersions (isolation)', () => {
   it('renders the skeleton while loading with no data', () => {

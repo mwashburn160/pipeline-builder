@@ -28,7 +28,7 @@ jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuard
 jest.mock('@/lib/api', () => ({ __esModule: true, default: { getStorageReclaim: jest.fn<AnyFn>(async () => ({ data: null })) } }));
 jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>() })));
 
-const summary = (limit: number, used: number) => ({ limit, used, remaining: Math.max(0, limit - used), unlimited: false, resetAt: '' });
+const summary = (limit: number, used: number) => ({ limit, used, remaining: Math.max(0, limit - used), unlimited: false, resetAt: '', periodDays: 3 });
 const quotas = {
   plugins: summary(100, 90),
   pipelines: summary(20, 3),
@@ -38,7 +38,7 @@ const quotas = {
 } as unknown as OrgQuotaResponse['quotas'];
 
 function org(pool?: OrgQuotaResponse['pool']): OrgQuotaResponse {
-  return { orgId: pool && !pool.isRoot ? 'team-1' : 'root-1', name: pool && !pool.isRoot ? 'Team A' : 'Acme', slug: 'x', tier: 'team', quotas, pool };
+  return { orgId: pool && !pool.isRoot ? 'team-1' : 'root-1', name: pool && !pool.isRoot ? 'Team A' : 'Acme', slug: 'x', tier: 'team', quotas, periodDays: 3, pool };
 }
 
 describe('QuotasReadOnly — pooled labelling', () => {

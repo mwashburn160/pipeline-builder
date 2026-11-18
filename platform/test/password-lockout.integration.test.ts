@@ -6,7 +6,9 @@
  * — the backstop that bounds password guessing when the per-account Redis
  * limiter fails open. Counts only into a real collection: the upserted counter,
  * the lock at `maxFailures`, the TTL stamp, a correct password never lifting a
- * live lock, and a password reset lifting it.
+ * live lock, and a password reset lifting it. Plus the RESERVE-BEFORE-CHECK
+ * step: a burst of parallel wrong guesses runs at most `maxFailures` password
+ * checks, and a right guess inside a burst past the limit is refused unchecked.
  *
  * Gated behind RUN_MONGO_INTEGRATION (skipped by default).
  */
@@ -111,5 +113,108 @@ suite('Durable password lockout (real Mongo)', () => {
     await expect(lockout.assertPasswordNotLocked(userId)).resolves.toBeUndefined();
     await lockout.clearPasswordFailures(userId);
     expect(await m.PasswordLoginLockout.countDocuments({ userId })).toBe(0);
+  });
+
+  /**
+   * The login controller's shape (controllers/auth.ts): reserve, and only with a
+   * reservation run the (slow) password check, then settle it. `checks` counts
+   * how many passwords were actually compared.
+   */
+  function signIn(password: string, counter: { checks: number }): Promise<'ok' | 'bad' | 'refused'> {
+    return (async () => {
+      let attempt;
+      try {
+        attempt = await lockout.reservePasswordAttempt(userId);
+      } catch (err) {
+        if (err instanceof lockout.PasswordLockedOutError) return 'refused';
+        throw err;
+      }
+      counter.checks++;
+      await new Promise((r) => setTimeout(r, 20)); // a bcrypt-ish compare, so the burst overlaps
+      if (password === 'right') {
+        try {
+          await lockout.completePasswordAttempt(attempt);
+          return 'ok';
+        } catch (err) {
+          if (err instanceof lockout.PasswordLockedOutError) return 'refused';
+          throw err;
+        }
+      }
+      await lockout.recordPasswordFailure(attempt.userId, attempt.reservationId);
+      return 'bad';
+    })();
+  }
+
+  it('a burst of N parallel wrong guesses runs at most maxFailures password checks, then locks', async () => {
+    const counter = { checks: 0 };
+    const results = await Promise.all(Array.from({ length: 20 }, () => signIn('wrong', counter)));
+    expect(counter.checks).toBe(3);
+    expect(results.filter((r) => r === 'bad')).toHaveLength(3);
+    expect(results.filter((r) => r === 'refused')).toHaveLength(17);
+    await expect(lockout.assertPasswordNotLocked(userId)).rejects.toBeInstanceOf(lockout.PasswordLockedOutError);
+    const doc = await m.PasswordLoginLockout.findOne({ userId }).lean();
+    expect(doc.reservations).toEqual([]);
+  });
+
+  it('a RIGHT guess fired inside a burst past the limit is refused without being checked', async () => {
+    const counter = { checks: 0 };
+    // Fill every slot with in-flight wrong guesses, then fire the right one.
+    const wrong = Array.from({ length: 3 }, () => signIn('wrong', counter));
+    await new Promise((r) => setTimeout(r, 5));
+    const right = signIn('right', counter);
+    const more = Array.from({ length: 5 }, () => signIn('wrong', counter));
+    const [rightResult, ...rest] = await Promise.all([right, ...wrong, ...more]);
+    expect(rightResult).toBe('refused');
+    expect(counter.checks).toBe(3);
+    expect(rest.filter((r) => r === 'bad')).toHaveLength(3);
+    // And the account is now locked: the right password still gets nothing.
+    expect(await signIn('right', counter)).toBe('refused');
+    expect(counter.checks).toBe(3);
+  });
+
+  it('a right password inside the limit signs in and ends the run', async () => {
+    const counter = { checks: 0 };
+    expect(await signIn('wrong', counter)).toBe('bad');
+    expect(await signIn('right', counter)).toBe('ok');
+    expect(await m.PasswordLoginLockout.countDocuments({ userId })).toBe(0);
+  });
+
+  it('a right password with another check in flight keeps that check\'s slot and resets the count', async () => {
+    await lockout.recordPasswordFailure(userId);
+    const other = await lockout.reservePasswordAttempt(userId);
+    const mine = await lockout.reservePasswordAttempt(userId);
+    await lockout.completePasswordAttempt(mine);
+    const doc = await m.PasswordLoginLockout.findOne({ userId }).lean();
+    expect(doc.failedAttempts).toBe(0);
+    expect(doc.reservations.map((r: { id: string }) => r.id)).toEqual([other.reservationId]);
+  });
+
+  it('a reservation leaked by a crash mid-check frees itself once it expires', async () => {
+    await m.PasswordLoginLockout.collection.insertOne({
+      userId: new mongoose.Types.ObjectId(userId),
+      failedAttempts: 2,
+      lockedUntil: null,
+      reservations: [{ id: 'crashed', exp: new Date(Date.now() - 1) }],
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    const attempt = await lockout.reservePasswordAttempt(userId);
+    const doc = await m.PasswordLoginLockout.findOne({ userId }).lean();
+    expect(doc.reservations.map((r: { id: string }) => r.id)).toEqual([attempt.reservationId]);
+    // ...while a LIVE reservation still holds its slot.
+    await expect(lockout.reservePasswordAttempt(userId)).rejects.toBeInstanceOf(lockout.PasswordLockedOutError);
+  });
+
+  it('the first reservation stamps a TTL that outlives it, and never shortens a lock', async () => {
+    const before = Date.now();
+    await lockout.reservePasswordAttempt(userId);
+    const doc = await m.PasswordLoginLockout.findOne({ userId }).lean();
+    expect(doc.failedAttempts).toBe(0);
+    expect(doc.expiresAt.getTime()).toBeGreaterThanOrEqual(before + lockout.PASSWORD_ATTEMPT_RESERVATION_MS);
+  });
+
+  it('parallel first-ever reservations do not trip over the unique index', async () => {
+    const got = await Promise.allSettled(Array.from({ length: 10 }, () => lockout.reservePasswordAttempt(userId)));
+    expect(got.filter((g) => g.status === 'fulfilled')).toHaveLength(3);
+    for (const g of got) if (g.status === 'rejected') expect(g.reason).toBeInstanceOf(lockout.PasswordLockedOutError);
   });
 });

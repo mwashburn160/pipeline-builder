@@ -352,12 +352,12 @@ const organizationSchema = new Schema<OrganizationData>(
       default: [],
     },
     // Whether platform operators may view as this org's members, and on what
-    // terms. NO Mongoose `default:` here, deliberately — orgs are read through
-    // `.lean()`, which bypasses hydration, so a schema default never fires for an
-    // existing document and the EFFECTIVE default would be whatever each call
-    // site happened to write. The default lives in exactly one place instead:
-    // `resolveImpersonationPolicy` (helpers/impersonation-policy.ts). Read the
-    // field only through that resolver.
+    // terms. NO Mongoose `default:` here, deliberately — an org that never chose
+    // a policy stores nothing, and the default lives in exactly one place:
+    // `resolveImpersonationPolicy` (helpers/impersonation-policy.ts). A schema
+    // default would be a second copy of it (and `.lean()` reads and partial
+    // projections would still see the field absent). Read the field only
+    // through that resolver.
     impersonationPolicy: {
       type: String,
       enum: [...IMPERSONATION_POLICIES],
@@ -368,9 +368,8 @@ const organizationSchema = new Schema<OrganizationData>(
     allowSelfApproval: {
       type: Boolean,
     },
-    // Org policy "require MFA". Same no-default rule as the two above:
-    // orgs are read with `.lean()`, so a schema default would never fire for an
-    // existing document. The default lives in `resolveEffectiveMfaPolicy`.
+    // Org policy "require MFA". Same no-default rule as the two above: the
+    // default lives in `resolveEffectiveMfaPolicy`.
     requireMfa: {
       type: Boolean,
     },

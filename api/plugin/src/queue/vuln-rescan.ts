@@ -29,11 +29,10 @@
  * and that summary is the next pass's BASELINE: "new" means a finding identity
  * (advisory × package × version) the previous summary did not carry, never "a
  * bigger count" (one CVE fixed and another published leaves the count flat).
- * A version with NO previous summary (scanned before summaries existed) has no
- * baseline: its first rescan only ESTABLISHES one, and reports nothing as new
- * unless that rescan newly flags it — then the flag's findings are the news.
- * Otherwise the first pass after an upgrade would notify every finding of every
- * old version at once.
+ * A version with NO previous summary (persisted unscanned under
+ * `PLUGIN_ALLOW_UNSCANNED`) has no baseline: its first rescan only ESTABLISHES
+ * one, and reports nothing as new unless that rescan newly flags it — then the
+ * flag's findings are the news.
  *
  * The fresh summary is then fanned out to the pipelines on the version
  * (`syncVersionExposures`): exposures opened / refreshed for every pipeline
@@ -315,7 +314,7 @@ function evaluate(
 
 /**
  * The findings this rescan reports as NEW. Against the previous summary when
- * there is one; without one (a version scanned before summaries existed) the
+ * there is one; without one (a version persisted unscanned) the
  * rescan only establishes the baseline, and the news is the version NEWLY
  * flagged — its gated findings — or nothing.
  */

@@ -21,6 +21,7 @@ const mockGroupFind = jest.fn<AnyFn>();
 const mockGroupFindOne = jest.fn<AnyFn>();
 const mockGroupExists = jest.fn<AnyFn>();
 const mockGroupCount = jest.fn<AnyFn>();
+const mockGroupUpdateOne = jest.fn<AnyFn>();
 const mockGmCreate = jest.fn<AnyFn>();
 const mockGmFind = jest.fn<AnyFn>();
 const mockGmUpdateOne = jest.fn<AnyFn>();
@@ -52,8 +53,18 @@ jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: stri
 // Run the transaction body inline with a fake session — unit tests have no
 // live Mongo connection, so we bypass startSession/withTransaction and just
 // invoke the callback. The session is threaded into the write + recompute.
+//
+// `txRuns` > 1 models the driver's retry: `withTransaction` re-runs the WHOLE
+// body on a TransientTransactionError (the earlier attempt rolled back).
+let txRuns = 1;
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
-  withMongoTransaction: (cb: (s: unknown) => unknown) => cb({ id: 'test-session' }),
+  withMongoTransaction: async (cb: (s: unknown) => unknown) => {
+    const runs = txRuns;
+    txRuns = 1;
+    let out: unknown;
+    for (let i = 0; i < runs; i += 1) out = await cb({ id: 'test-session' });
+    return out;
+  },
 }));
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
@@ -66,6 +77,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
     findOne: (...a: unknown[]) => mockGroupFindOne(...a),
     exists: (...a: unknown[]) => mockGroupExists(...a),
     countDocuments: (...a: unknown[]) => mockGroupCount(...a),
+    updateOne: (...a: unknown[]) => mockGroupUpdateOne(...a),
   },
   RoleAssignment: {
     create: (...a: unknown[]) => mockGmCreate(...a),
@@ -820,7 +832,8 @@ describe('removeUserFromRole', () => {
 });
 
 describe('updateRole (atomic permission edit + member tokenVersion bump)', () => {
-  /** A custom (non-system) Role doc with a spyable `.save()`. */
+  /** A custom (non-system) Role doc. `.save()` is a spy that must stay unused:
+   *  the edit is a query-level `Role.updateOne` so a retried body re-applies it. */
   const roleDoc = () => ({
     _id: 'gCustom',
     name: 'Deployers',
@@ -829,7 +842,9 @@ describe('updateRole (atomic permission edit + member tokenVersion bump)', () =>
     save: jest.fn<AnyFn>().mockResolvedValue(undefined),
   });
 
-  it('wraps role.save + the members tokenVersion bump in ONE transaction (session threaded)', async () => {
+  beforeEach(() => { mockGroupUpdateOne.mockReset().mockResolvedValue({ matchedCount: 1 }); });
+
+  it('wraps the Role update + the members tokenVersion bump in ONE transaction (session threaded)', async () => {
     const doc = roleDoc();
     mockGroupFindOne.mockResolvedValue(doc);
     // RoleAssignment.find({ roleId }).session().select('userId').lean() → members.
@@ -837,9 +852,14 @@ describe('updateRole (atomic permission edit + member tokenVersion bump)', () =>
 
     await updateRole('org-1', 'gCustom', { permissions: ['pipelines:write'] }, { permissions: [], isSuperAdmin: true, isOrgAdmin: false });
 
-    // The Role edit is persisted WITH the transaction session ...
-    expect(doc.save).toHaveBeenCalledTimes(1);
-    expect(doc.save).toHaveBeenCalledWith({ session: expect.anything() });
+    // The Role edit is persisted WITH the transaction session, as a query update ...
+    expect(doc.save).not.toHaveBeenCalled();
+    expect(mockGroupUpdateOne).toHaveBeenCalledTimes(1);
+    expect(mockGroupUpdateOne).toHaveBeenCalledWith(
+      { _id: 'gCustom', organizationId: 'org-1' },
+      { $set: { permissions: ['pipelines:write'] } },
+      expect.objectContaining({ session: expect.anything() }),
+    );
     // ... and the members' access tokens are invalidated in the SAME session,
     // so the new grants can't diverge from the persisted permissions.
     expect(mockUserUpdateMany).toHaveBeenCalledWith(
@@ -855,8 +875,42 @@ describe('updateRole (atomic permission edit + member tokenVersion bump)', () =>
 
     await updateRole('org-1', 'gCustom', { description: 'renamed' }, { permissions: [], isSuperAdmin: true, isOrgAdmin: false });
 
-    expect(doc.save).toHaveBeenCalledWith({ session: expect.anything() });
+    expect(mockGroupUpdateOne).toHaveBeenCalledWith(
+      { _id: 'gCustom', organizationId: 'org-1' },
+      { $set: { description: 'renamed' } },
+      expect.objectContaining({ session: expect.anything() }),
+    );
     expect(mockUserUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it('clears the description with $unset when it is set to blank', async () => {
+    mockGroupFindOne.mockResolvedValue({ ...roleDoc(), description: 'old' });
+
+    const { role } = await updateRole('org-1', 'gCustom', { description: '   ' }, { permissions: [], isSuperAdmin: true, isOrgAdmin: false });
+
+    expect(mockGroupUpdateOne).toHaveBeenCalledWith(expect.anything(), { $unset: { description: 1 } }, expect.anything());
+    expect(role.description).toBeUndefined();
+  });
+
+  it('REGRESSION: a RETRIED transaction body re-applies the Role edit alongside the claims bump', async () => {
+    // The driver re-runs the whole body after a TransientTransactionError (the
+    // first attempt rolled back). A `role.save({ session })` of the pre-loaded
+    // doc wrote nothing on the re-run — mongoose believed it already saved —
+    // while the members' claimsVersion bump re-applied: the commit held the bump
+    // but not the new permissions. Every attempt must carry the full edit.
+    const doc = roleDoc();
+    mockGroupFindOne.mockResolvedValue(doc);
+    findReturns(mockGmFind, [{ userId: 'm1' }]);
+    txRuns = 2;
+
+    await updateRole('org-1', 'gCustom', { description: 'ships things', permissions: ['pipelines:write'] }, { permissions: [], isSuperAdmin: true, isOrgAdmin: false });
+
+    expect(mockGroupUpdateOne).toHaveBeenCalledTimes(2);
+    for (const call of mockGroupUpdateOne.mock.calls) {
+      expect(call[1]).toEqual({ $set: { description: 'ships things', permissions: ['pipelines:write'] } });
+    }
+    expect(mockUserUpdateMany).toHaveBeenCalledTimes(2);
+    expect(doc.save).not.toHaveBeenCalled();
   });
 
   describe('permission ceiling on the EXISTING permission set (strip guard)', () => {
@@ -882,7 +936,7 @@ describe('updateRole (atomic permission edit + member tokenVersion bump)', () =>
 
       // Refused BEFORE any write — and crucially before the member tokenVersion
       // bump, so no one's grants are disturbed by the refused edit.
-      expect(doc.save).not.toHaveBeenCalled();
+      expect(mockGroupUpdateOne).not.toHaveBeenCalled();
       expect(mockUserUpdateMany).not.toHaveBeenCalled();
     });
 
@@ -892,7 +946,7 @@ describe('updateRole (atomic permission edit + member tokenVersion bump)', () =>
 
       await expect(updateRole('org-1', 'gBilling', { name: 'Renamed' }, delegate(['roles:manage'])))
         .rejects.toThrow(RL_ASSIGN_EXCEEDS_CEILING);
-      expect(doc.save).not.toHaveBeenCalled();
+      expect(mockGroupUpdateOne).not.toHaveBeenCalled();
     });
 
     it('allows a delegate to edit a role whose existing permissions are within their own set', async () => {
@@ -902,7 +956,7 @@ describe('updateRole (atomic permission edit + member tokenVersion bump)', () =>
 
       await updateRole('org-1', 'gCustom', { permissions: ['pipelines:read'] }, delegate(['pipelines:read', 'roles:manage']));
 
-      expect(doc.save).toHaveBeenCalledWith({ session: expect.anything() });
+      expect(mockGroupUpdateOne).toHaveBeenCalledWith(expect.anything(), { $set: { permissions: ['pipelines:read'] } }, expect.anything());
     });
 
     it('an org admin/owner bypasses the ceiling, as on the delete path', async () => {
@@ -914,7 +968,7 @@ describe('updateRole (atomic permission edit + member tokenVersion bump)', () =>
       // lookup, which isn't what this test is about.
       await updateRole('org-1', 'gBilling', { description: 'still billing' }, { permissions: [], isSuperAdmin: false, isOrgAdmin: true });
 
-      expect(doc.save).toHaveBeenCalledWith({ session: expect.anything() });
+      expect(mockGroupUpdateOne).toHaveBeenCalledWith(expect.anything(), { $set: { description: 'still billing' } }, expect.anything());
     });
   });
 });

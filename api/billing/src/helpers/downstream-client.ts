@@ -264,17 +264,11 @@ export interface SeatActivityRead {
   windowDays: number;
   seatsHeld: number;
   activeMembers: number;
-  /** Memberships with NO activity stamp — unknown, not inactive. */
-  unknownActivity: number;
 }
 
 /**
- * The VALUE signal (`GET /internal/offers/seat-activity/:orgId`).
- *
- * `unknownActivity` is carried through rather than folded into the inactive
- * count: the stamp is absent for every membership predating it, and treating
- * absent as inactive would make established accounts look dormant — which
- * argues against exactly the offers they should receive.
+ * The VALUE signal (`GET /internal/offers/seat-activity/:orgId`): seats held
+ * across the account and how many of them were used inside the window.
  */
 export async function fetchSeatActivity(
   orgId: string,

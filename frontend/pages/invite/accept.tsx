@@ -168,12 +168,7 @@ export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial
       // of its own. `redirect: false` keeps register from navigating to
       // /dashboard before `finish()` runs. Naming the invitation also makes the
       // inviting org's password policy apply.
-      const { invitationAccepted } = await register(username.trim(), email, password, undefined, undefined, { redirect: false, invitationToken: token });
-      // Only an older backend leaves the accept to us (it created an org instead).
-      if (!invitationAccepted) {
-        const res = await api.acceptInvitation(token);
-        if (!res.success) throw new Error(res.message || 'Failed to accept invitation');
-      }
+      await register(username.trim(), email, password, undefined, undefined, { redirect: false, invitationToken: token });
       await finish();
     },
     scopeKey: token,

@@ -77,19 +77,22 @@ const submission = {
   id: 'sub-1',
   status: 'pending_review',
   newListing: true,
-  gates: [
-    { id: 'spec', ok: true, message: 'Spec and contract are valid' },
-    { id: 'heuristics', ok: true, message: 'No high-severity findings' },
-    { id: 'smoke_test', ok: true, message: 'Smoke test passed' },
-  ],
-  heuristics: [
+  gateReport: {
+    gates: [
+      { id: 'spec', ok: true, message: 'Spec and contract are valid' },
+      { id: 'heuristics', ok: true, message: 'No high-severity findings' },
+      { id: 'smoke_test', ok: true, message: 'Smoke test passed' },
+    ],
+    facts: { imageRepository: 'registry:5000/quarantine/sub-1:1.2.0', digest: 'sha256:q', vulnCritical: null, vulnHigh: null, vulnMedium: null, vulnLow: null, scannedAt: null, runAsRoot: false },
+    completedAt: '2026-09-20T00:04:00Z',
+  },
+  heuristics: { findings: [
     // `message` is what the rule MEANS; the server sends it on every finding, and
     // the fixture carries it because the moderator reads it rather than the id.
     { id: 'obfuscation.base64-blob', severity: 'medium', path: 'scripts/setup.sh', line: 12, message: 'Encoded payload decoded straight into a shell or eval', excerpt: 'echo aGVsbG8= | base64 -d' },
-  ],
+  ] },
   sbomUrl: '/api/plugins/ecosystem/submissions/sub-1/sbom',
   scanUrl: '/api/plugins/ecosystem/submissions/sub-1/scan',
-  quarantineImage: 'registry:5000/quarantine/sub-1:1.2.0@sha256:q',
   submittedAt: '2026-09-20T00:00:00Z',
   verifiedAt: '2026-09-20T00:05:00Z',
 };

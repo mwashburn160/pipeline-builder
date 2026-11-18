@@ -109,20 +109,16 @@ export function FeaturesProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
         if (res.success && res.data) {
           setServiceFeatures(res.data.serviceFeatures);
-          if (res.data.supportAlias) setSupportAlias(res.data.supportAlias);
-          if (res.data.supportAliases?.length) setSupportAliases(res.data.supportAliases);
-          if (res.data.deployTarget) setDeployTarget(res.data.deployTarget);
-          if (res.data.tierPresets) setTierPresets(res.data.tierPresets);
-          // Explicit undefined check, not truthiness: `false` is the value that
-          // has to get through, and `if (res.data.adminConsolesEnabled)` would
-          // drop exactly the case this field exists for.
-          if (res.data.adminConsolesEnabled !== undefined) setAdminConsolesEnabled(res.data.adminConsolesEnabled);
-          // Each guarded independently: a deployment that sets only the package
-          // name still gets the DERIVED url from the server, and an older
-          // platform that serves neither keeps both defaults.
-          if (res.data.cli?.npmPackage) setCliNpmPackage(res.data.cli.npmPackage);
-          if (res.data.cli?.npmUrl) setCliNpmUrl(res.data.cli.npmUrl);
-          if (res.data.askUiMode) setAskUiMode(res.data.askUiMode);
+          setSupportAlias(res.data.supportAlias);
+          setSupportAliases(res.data.supportAliases);
+          setDeployTarget(res.data.deployTarget);
+          setTierPresets(res.data.tierPresets);
+          setAdminConsolesEnabled(res.data.adminConsolesEnabled);
+          // The server derives the url from the package name when only the
+          // package is configured, so both always arrive.
+          setCliNpmPackage(res.data.cli.npmPackage);
+          setCliNpmUrl(res.data.cli.npmUrl);
+          setAskUiMode(res.data.askUiMode);
           setIsLoaded(true);
         } else {
           // 200 but `success:false` (no data): still release the loading gate so

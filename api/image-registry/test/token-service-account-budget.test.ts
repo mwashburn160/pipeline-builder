@@ -2,19 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The storage push-gate with `QUOTA_STORAGE_ACCOUNT_BUDGET=true` — storage
- * enforced against the whole account's budget.
+ * The storage push-gate's account budget — storage enforced against the whole
+ * account's total.
  *
- * Storage is the ONLY quota without pooling's joint-overshoot guarantee: every
- * namespace is measured against the same pooled cap, so a five-team Pro account
- * could hold 5 × 25 GB against a headline 25 GB, and one Storage Pack raised
- * every namespace's ceiling at once. With the flag on, the gate decides against
- * the ACCOUNT's total, which the quota service's status now carries.
- *
- * A separate file because the flag is read once at module load.
+ * Storage would otherwise be the ONLY quota without pooling's joint-overshoot
+ * guarantee: every namespace measured against the same pooled cap, so a
+ * five-team Pro account could hold 5 × 25 GB against a headline 25 GB, and one
+ * Storage Pack raised every namespace's ceiling at once. The gate decides
+ * against the ACCOUNT's total, which the quota service's status carries.
  */
-
-process.env.QUOTA_STORAGE_ACCOUNT_BUDGET = 'true';
 
 import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
 import { OUTSIDE_BLOB_GC_WINDOW_MS } from './helpers/blob-gc-clock.js';

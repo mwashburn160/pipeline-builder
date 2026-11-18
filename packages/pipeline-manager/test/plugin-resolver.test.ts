@@ -56,24 +56,6 @@ describe('resolvePluginsForProps — lookup response unwrapping', () => {
     expect(sent[0]!.version).toBe('1.0.0');
   });
 
-  it('tolerates { plugin } (single nesting)', async () => {
-    const client = clientReturning({ plugin: PLUGIN });
-    const resolved = await resolvePluginsForProps(client, propsWithPlugin('java-corretto'));
-    expect((resolved['java-corretto-alias'] as { name?: string })?.name).toBe('java-corretto');
-  });
-
-  it('tolerates { data: Plugin } (plugin directly under data)', async () => {
-    const client = clientReturning({ data: PLUGIN });
-    const resolved = await resolvePluginsForProps(client, propsWithPlugin('java-corretto'));
-    expect((resolved['java-corretto-alias'] as { name?: string })?.name).toBe('java-corretto');
-  });
-
-  it('tolerates a bare Plugin body', async () => {
-    const client = clientReturning(PLUGIN);
-    const resolved = await resolvePluginsForProps(client, propsWithPlugin('java-corretto'));
-    expect((resolved['java-corretto-alias'] as { name?: string })?.name).toBe('java-corretto');
-  });
-
   // An unresolved plugin fails the synth: a step without its record has no
   // image or commands, and a placeholder step would only fail later.
   it('is FATAL when the record is absent (PLUGIN_NOT_FOUND)', async () => {

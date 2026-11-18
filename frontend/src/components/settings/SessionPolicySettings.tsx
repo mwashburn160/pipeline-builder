@@ -58,11 +58,9 @@ export function SessionPolicySettings({ orgId, readOnly }: { orgId: string; read
   const read = useFetch(
     async (signal): Promise<OrgSessionPolicy | null> => {
       const data = (await api.getSessionPolicy(orgId, { signal })).data;
-      // A payload without the shape this panel edits (an older server) is a
-      // failed read — shown with a retry — not a half-rendered form.
-      if (!data?.own || !data.platform || typeof data.maxAgeDays !== 'number' || typeof data.idleTimeoutDays !== 'number') {
-        throw new Error('The session policy could not be read');
-      }
+      // An envelope with no policy is a failed read — shown with a retry — not
+      // a half-rendered form.
+      if (!data) throw new Error('The session policy could not be read');
       return data;
     },
     [orgId],

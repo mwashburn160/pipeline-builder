@@ -43,12 +43,6 @@ const CLIENT_TYPE = 'web';
 const SESSION_MARKER_KEY = 'pb.session';
 
 /**
- * Where an older build kept the impersonation access token. Nothing writes it
- * any more; the constructor deletes it so a token from before the upgrade does
- * not sit in storage until the tab closes.
- */
-const LEGACY_IMPERSONATION_TOKEN_KEY = 'impersonation.accessToken';
-/**
  * The id of the impersonation session open in this tab — NOT a credential (it
  * authorizes nothing; revoking needs the operator's own token). Kept in
  * tab-scoped sessionStorage only so that, when a reload throws the in-memory
@@ -190,6 +184,11 @@ function stripTags(message: unknown): string {
   return typeof message === 'string' ? message.replace(/<[^>]*>/g, '') : '';
 }
 
+/** True for a method that changes server state, which the client never re-issues on its own. */
+function isMutatingMethod(method: string | undefined): boolean {
+  return /POST|PUT|PATCH|DELETE/i.test(method ?? '');
+}
+
 /** API client for communicating with the backend. */
 export class ApiCore {
   /** In memory only — never localStorage. A reload starts with none and calls
@@ -290,7 +289,6 @@ export class ApiCore {
     // back the operator's own session — the impersonation has ended. Its
     // request id survives the reload (it is not a credential) so the restored
     // session can revoke it on the server; see `revokeOrphanedImpersonation`.
-    writeStore('session', LEGACY_IMPERSONATION_TOKEN_KEY, null);
     this.orphanedImpersonationRequestId = readStore('session', IMPERSONATION_REQUEST_KEY);
     if (this.orphanedImpersonationRequestId) writeStore('session', IMPERSONATION_REQUEST_KEY, null);
     this.openAuthChannel();
@@ -739,6 +737,9 @@ export class ApiCore {
     }
 
     const url = `${API_URL}${endpoint}`;
+    // The credential this attempt goes out with — compared on a 401 to tell a
+    // stale-identity refusal from a genuinely expired session.
+    const sentToken = this.accessToken;
 
     const headers: Record<string, string> = {
       // A multipart body sets its own Content-Type (with the boundary).
@@ -836,6 +837,16 @@ export class ApiCore {
         // already prevents a refresh loop.
         return this.send(endpoint, options, read, _retryCount, true);
       }
+      // The refresh was dropped because the session's identity changed while
+      // it was out (org switch, impersonation start, a new sign-in): this 401
+      // answered the OLD token, and a session token is already current. Retry
+      // once with it rather than reporting an outage. Only for idempotent
+      // methods — a mutation is never silently re-issued under a different
+      // identity than the one it was made as. `_refreshed = true` makes it
+      // one-shot, and a logout leaves no token, so it can't fire after one.
+      if (this.accessToken && this.accessToken !== sentToken && !isMutatingMethod(options.method)) {
+        return this.send(endpoint, options, read, _retryCount, true);
+      }
       this.throwIfRefreshUnavailable();
     }
 
@@ -851,7 +862,7 @@ export class ApiCore {
     // Retry on 503 (server overloaded / request timeout) — up to 2 retries with
     // backoff. Only for idempotent methods: PATCH is non-idempotent (e.g. a tier
     // or role mutation), so auto-retrying its 503 could apply the change twice.
-    if (statusCode === 503 && _retryCount < 2 && !options.method?.match(/POST|PUT|PATCH|DELETE/i)) {
+    if (statusCode === 503 && _retryCount < 2 && !isMutatingMethod(options.method)) {
       await new Promise(r => setTimeout(r, 1000 * (_retryCount + 1)));
       return this.send(endpoint, options, read, _retryCount + 1, _refreshed);
     }

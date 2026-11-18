@@ -47,7 +47,7 @@ jest.mock('@/lib/api', () => ({
 
 const RESET = '2026-11-05T00:00:00.000Z';
 const summary = (over: Partial<QuotaSummary> = {}): QuotaSummary => ({
-  limit: 200, used: 13, remaining: 187, unlimited: false, resetAt: RESET, ...over,
+  limit: 200, used: 13, remaining: 187, unlimited: false, resetAt: RESET, periodDays: 3, ...over,
 });
 const quotaResponse = (s: QuotaSummary, tier = 'pro') => ({
   success: true,

@@ -319,6 +319,8 @@ class UserAdminService {
     // role updated but the seat-capped org assignment then throws) would leave
     // the user record inconsistent otherwise.
     const updatedUser = await withMongoTransaction(async (session) => {
+      // The body may re-run on a transient error: start each attempt clean.
+      changes.length = 0;
       const user = await User.findById(id).select('+password +tokenVersion +emailVerificationToken +emailVerificationExpires').session(session);
       if (!user) throw new Error(UA_USER_NOT_FOUND);
 

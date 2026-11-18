@@ -10,8 +10,8 @@ import { TOOLCHAIN_METADATA_PREFIX, TOOLCHAIN_RESOLVED_VIA, type ToolchainResolv
  * uses (every stage's steps, the synth plugin, the build image): display text
  * (README, changelog, icons), the build's Dockerfile, and the last scan's
  * findings list (up to 500 Critical/High findings, tens of KB per image).
- * `/plugins/lookup` leaves them out of its answer and every parsed answer drops
- * them, because the resolved records travel into the CDK app's props whole: a
+ * `/plugins/lookup` leaves them out of its answer, because the resolved
+ * records travel into the CDK app's props whole: a
  * few large summaries once made the props exceed what a single process
  * environment variable can hold (E2BIG).
  */
@@ -119,23 +119,21 @@ export function parseLookupToolchain(raw: unknown, plugin?: unknown): LookupTool
 }
 
 /**
- * Unwrap a `/plugins/lookup` answer. The platform's success envelope is
- * `{ success, statusCode, data: { plugin, warnings } }` (note the double
- * nesting: `data.plugin`); `{ data: Plugin }`, `{ plugin }` and a bare Plugin
- * are tolerated too. Returns the plugin (null when absent or nameless) and the
- * graded warnings (lifecycle, vulnerability, compliance) that ride beside it,
- * and — for a managed toolchain name — the release it resolved to (`toolchain`).
- * The plugin comes back without {@link RESOLVED_PLUGIN_OMITTED_FIELDS}, whatever
- * the platform sent.
+ * Unwrap a `/plugins/lookup` answer — the platform's success envelope
+ * `{ success, statusCode, data: { plugin, warnings, toolchain? } }`. Returns the
+ * plugin (null when absent or nameless; `/plugins/lookup` already answers it
+ * without {@link RESOLVED_PLUGIN_OMITTED_FIELDS}) and the graded warnings
+ * (lifecycle, vulnerability, compliance) that ride beside it, and — for a
+ * managed toolchain name — the release it resolved to (`toolchain`).
  */
 export function unwrapLookup(body: unknown): { plugin: ResolvedPlugin | null; warnings: LookupWarning[]; toolchain?: LookupToolchain } {
-  if (!body || typeof body !== 'object') return { plugin: null, warnings: [] };
-  const inner = (body as { data?: unknown }).data;
-  const container = (inner && typeof inner === 'object' ? inner : body) as { plugin?: unknown; warnings?: unknown; toolchain?: unknown };
-  const candidate = container.plugin ?? container;
+  const inner = body && typeof body === 'object' ? (body as { data?: unknown }).data : undefined;
+  if (!inner || typeof inner !== 'object') return { plugin: null, warnings: [] };
+  const container = inner as { plugin?: unknown; warnings?: unknown; toolchain?: unknown };
+  const candidate = container.plugin;
   const plugin = candidate && typeof candidate === 'object' && typeof (candidate as { name?: unknown }).name === 'string'
     && (candidate as { name: string }).name.length > 0
-    ? toResolvedPlugin(candidate as Plugin)
+    ? candidate as ResolvedPlugin
     : null;
   const warnings: LookupWarning[] = [];
   if (Array.isArray(container.warnings)) {

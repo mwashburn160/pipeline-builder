@@ -22,7 +22,7 @@ Access control is **permission-based and single-source**: a user's effective per
 - **The system org staffs its jobs with Roles, not the flag.** Support, subscriptions, the org lifecycle, quotas, the build queue and the operator consoles are each a permission a Super Admin can grant on its own. Three routes still need the flag: granting or revoking Super Admin itself, and the single-person MFA reset.
 - **A cross-tenant surface takes three things, not one**: the permission, the system org as your *active* org, and an MFA-grade session. A repo-wide test fails any route that gates on a system-org-only permission without all three.
 - **Writes are gated; reads mostly ride the page.** That convention is deliberate and is what the route-coverage tests check.
-- **A startup backfill keeps built-in Roles synced** to the current catalog, so a new permission reaches the built-ins without a migration.
+- **Built-in Roles are seeded at org creation** from the current catalog, inside the transaction that creates the org.
 - **Impersonation is consent-gated and read-only**, and every session is recorded.
 - **Teams do not inherit member authority upward.** A parent admin administers its teams; a team member gets nothing over the parent.
 
@@ -66,8 +66,8 @@ Read [The model](#the-model) first, then the [permission catalog](#permission-ca
 - **Built-in Roles** — every org seeds **Admin** and **Member**; the system org
   also seeds **Super Admin**, **Ecosystem Manager**, **Publisher Verifier** and
   the job Roles (see
-  [Ecosystem Manager](#ecosystem-manager-system-org-only)). A startup backfill re-syncs each built-in Role's
-  permission set to the current catalog, so new permissions reach existing orgs.
+  [Ecosystem Manager](#ecosystem-manager-system-org-only)). Each built-in Role's permission set is seeded from
+  the catalog when the org is created.
 - **Custom Roles** — admins with `roles:manage` can author additional Roles from
   the org-assignable catalog (see the carve-out below), bounded by a **permission
   ceiling**: an author may only grant permissions they themselves hold, so a
@@ -257,7 +257,7 @@ could try — custom Role, assignment, invitation, IdP mapping, token):
 
 Every org seeds only the Roles it cannot work without: **Member** and **Admin**
 for people, plus the two machine Roles (**Pipeline Automation** and **Pipeline
-Registration**). `infra store-token` and the startup backfill need to find those
+Registration**). `infra store-token` needs to find those
 two in every org. A built-in is `system: true` and therefore undeletable, so an
 org should not carry rows for jobs it does not have.
 
@@ -299,7 +299,7 @@ system-org-only permissions without the flag, alongside
 | Property | Value |
 |---|---|
 | Exists in | **The system org only.** Seeded by `seedDefaultRoles` next to Super Admin, Admin and Member when the system org is created; never seeded in a tenant org or team. The org creator is **not** added to it. |
-| Immutable | `system: true` — it can't be renamed, edited or deleted (`RL_SYSTEM_IMMUTABLE`). The startup backfill re-syncs it to `ECOSYSTEM_MANAGER_PERMISSIONS` (it is marked `seedBundle: 'ecosystem_manager'`, which is also what keeps it out of the Member-floor lookups it shares `grantsRole: 'member'` with). |
+| Immutable | `system: true` — it can't be renamed, edited or deleted (`RL_SYSTEM_IMMUTABLE`). It is seeded from `ECOSYSTEM_MANAGER_PERMISSIONS` (it is marked `seedBundle: 'ecosystem_manager'`, which is also what keeps it out of the Member-floor lookups it shares `grantsRole: 'member'` with). |
 | `grantsRole` | `member` — no admin rights over the system org, and it **never** sets `User.isSuperAdmin`. |
 | Permissions | `plugins:read`, `plugins:moderate`, `publishers:verify`, `messages:read` (in-app notices), `observability:read` (the moderation-SLA dashboard). Nothing tenant-facing: no `registry:*`, no `members:manage`. |
 | Who can assign it | **Super Admins only.** Assigning **or** unassigning any Role that carries a system-org-only permission is refused for everyone else — an admin or owner of the system org included — with `RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN` (403). Such a Role can only be held inside the system org (`RL_SYSTEM_ORG_ROLE_OUTSIDE_SYSTEM_ORG`, 400). The same ceiling applies to service-account Role sets, and an IdP group mapping can never grant it (`IGM_FORBIDDEN_GRANT`, like the Super Admin Role). |
@@ -323,7 +323,7 @@ impersonation and a database shell at the same time.
 | Property | Value |
 |---|---|
 | Exists in | **The system org only**, seeded next to Super Admin, Admin, Member and Ecosystem Manager when the system org is created. The org creator is **not** added to it. |
-| Immutable | `system: true`, re-synced to `PLATFORM_OPERATOR_PERMISSIONS` by the startup backfill (`seedBundle: 'platform_operator'`). |
+| Immutable | `system: true`, seeded from `PLATFORM_OPERATOR_PERMISSIONS` (`seedBundle: 'platform_operator'`). |
 | `grantsRole` | `member` — no admin rights over the system org, and it **never** sets `User.isSuperAdmin`. |
 | Permissions | `platform:read`, `orgs:read`, `oncall:manage`, `observability_console:open`, `quotas:manage`, `plugin_queue:manage`, `toolchain:operate`, plus the reads that make those views usable: `registry:read`, `observability:read`, `dashboards:read`, `subscriptions:read`. (`billing:operate` moved to Account Manager — minting a discount token is commercial, not operational.) |
 | Deliberately **not** carrying | `database_console:open` and `objectstore_console:open` (staffing an operator must not hand over a data shell as a side effect), and `plugins:moderate` / `publishers:verify` (a different job with its own Role). |
@@ -1027,49 +1027,14 @@ None of them needs `pipelines:write`.
 mints a sibling key on the same account through `/auth/key/rotate`. Roles belong
 to the account, not the key, so every rotated key has the same authority.
 
-**Existing installs are narrowed at boot.** The platform's startup RBAC backfill
-does two things:
-
-- **Pass 0** creates the two machine Roles in every org that was seeded before
-  they existed. **Pass A** keeps their bundles current.
-- **Pass C** moves an existing automation account off an admin-granting Role
-  (Admin, or Super Admin in the system org):
-  - `platform-automation` goes to Pipeline Automation;
-  - `pipeline-register` goes to Pipeline Registration;
-  - `reporting-ingest` and `registry-push` lose the admin Role and get no
-    replacement.
-
-Pass C follows these rules:
-
-- **It only touches an account that still holds an admin-granting Role.** An
-  account you narrowed by hand is left alone, and so is one Pass C already
-  moved. That is also why a repeat run is a no-op.
-- **It removes only the admin assignment.** Custom Roles you added stay.
-- **It grants before it revokes.** A crash in between leaves the account with
-  both Roles, never neither.
-- **It never reads or writes a person's assignment.**
-- **It keeps the admin Role when the org has no target Role.** The account is
-  counted in `serviceAccountsUnnarrowed` (gauge
-  `platform_rbac_backfill_service_accounts_unnarrowed`) and logged at warn. The
-  move is counted in `serviceAccountsNarrowed`
-  (`platform_rbac_backfill_service_accounts_narrowed`).
-- **There is no session to revoke.** A service account has no `claimsVersion`.
-  Every key exchange re-reads its Roles, so a live key loses the admin
-  permissions within one exchanged-token lifetime (5 minutes).
-
-**What still needs `store-token`.** You do not need to re-run it to narrow
-existing accounts; the backfill does that. Run it once for the new registration
-key:
+**What needs `store-token`.** Run it once for the registration key:
 
 ```bash
 PLATFORM_PASSWORD=*** pipeline-manager infra store-token --scope pipeline_registry:write --schedule
 ```
 
-Until that key exists, a self-mutating synth keeps building but stops refreshing
-the platform's step manifest, and says so in the build log. A pipeline
-synthesized before this change also lacks the `GetSecretValue` grant on the new
-secret. Its first run after the upgrade skips the registration with that warning.
-The same run's self-mutation applies the grant, so later runs register.
+Until that key exists, a self-mutating synth keeps building but does not refresh
+the platform's step manifest, and says so in the build log.
 
 ### SCIM (`/api/scim/v2`) — a capability SCOPE, not a permission
 

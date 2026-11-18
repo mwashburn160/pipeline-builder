@@ -27,6 +27,12 @@
  * keyed by the session's `jti`, NOT the impersonated subject's id, so the subject
  * stays signed in to their own sessions.
  *
+ * That sweep is INDEPENDENT of the Redis publish: it runs whether the user-version
+ * publish landed, failed, or had no Redis to go to (and whether the re-read found
+ * the user), because its Mongo half — the `revoked` flip and the
+ * `admin.impersonate.revoke` audit — is the record of the session ending and
+ * must not depend on a cache. Only its per-session `jti` publish is best-effort.
+ *
  * Ordering: call these AFTER the transaction/commit that bumped a version —
  * they publish the value the `$inc` returned (or re-read the now-current one);
  * the store's atomic set-if-greater means the highest version always wins.
@@ -53,7 +59,8 @@ const logger = createLogger('session-revocation');
  * `config` is) so that merely importing this helper — which every instrumented
  * service does transitively — never forces a real model / config / mongoose load.
  * That keeps the helper linkable under every suite's mock strategy. Only the live
- * publish path (Redis configured) ever reaches this.
+ * publish path and the operator-session sweep (which first checks Mongo is
+ * connected — see {@link endOperatorImpersonationSessions}) ever reach this.
  */
 async function getUserModel() {
   return (await import('../models/user.js')).default;
@@ -106,22 +113,42 @@ export async function revocationTtlSeconds(): Promise<number> {
  */
 export async function publishUserRevocation(userId: string, accessVersion?: number): Promise<void> {
   try {
-    const redis = await getRedisClient();
-    if (!redis) return; // no Redis configured — services fall back to token expiry
-
-    if (typeof accessVersion === 'number') {
-      await publishTokenRevocation(redis, String(userId), accessVersion, await revocationTtlSeconds());
-    } else {
-      const User = await getUserModel();
-      const user = await User.findById(userId).select('+tokenVersion').lean();
-      if (!user || typeof user.tokenVersion !== 'number') return;
-
-      await publishTokenRevocation(redis, String(userId), accessTokenVersion(user), await revocationTtlSeconds());
-    }
-    await endOperatorImpersonationSessions([String(userId)]);
+    await publishUserVersion(userId, accessVersion);
   } catch (err) {
     logger.warn('publishUserRevocation failed (best-effort; falling back to token expiry)', {
       userId, error: errorMessage(err),
+    });
+  }
+  // Whatever the publish did — see the file header.
+  await sweepOperatorSessions([String(userId)]);
+}
+
+/** The Redis half of {@link publishUserRevocation}. Throws; the caller swallows. */
+async function publishUserVersion(userId: string, accessVersion?: number): Promise<void> {
+  const redis = await getRedisClient();
+  if (!redis) return; // no Redis configured — services fall back to token expiry
+
+  if (typeof accessVersion === 'number') {
+    await publishTokenRevocation(redis, String(userId), accessVersion, await revocationTtlSeconds());
+    return;
+  }
+  const User = await getUserModel();
+  const user = await User.findById(userId).select('+tokenVersion').lean();
+  if (!user || typeof user.tokenVersion !== 'number') return;
+  await publishTokenRevocation(redis, String(userId), accessTokenVersion(user), await revocationTtlSeconds());
+}
+
+/**
+ * Run {@link endOperatorImpersonationSessions} for the publishers: never throws
+ * (a sweep failure is logged; the platform's per-request operator check still
+ * refuses a stale session), and never couples to the Redis outcome.
+ */
+async function sweepOperatorSessions(operatorIds: readonly string[], opts: { operatorGone?: boolean } = {}): Promise<void> {
+  try {
+    await endOperatorImpersonationSessions(operatorIds, opts);
+  } catch (err) {
+    logger.warn('Ending a revoked operator\'s impersonation sessions failed (the platform still refuses them per request)', {
+      count: operatorIds.length, error: errorMessage(err),
     });
   }
 }
@@ -132,29 +159,30 @@ export async function publishUserRevocation(userId: string, accessVersion?: numb
  * effort — swallows every error.
  */
 export async function publishUsersRevocation(userIds: Array<string | { toString(): string }>): Promise<void> {
+  if (!userIds || userIds.length === 0) return;
+  const ids = userIds.map((id) => String(id));
   try {
-    if (!userIds || userIds.length === 0) return;
     const redis = await getRedisClient();
-    if (!redis) return;
+    if (redis) {
+      const ttl = await revocationTtlSeconds();
+      const User = await getUserModel();
+      const users = await User.find({ _id: { $in: ids } }).select('+tokenVersion').lean();
 
-    const ids = userIds.map((id) => String(id));
-    const ttl = await revocationTtlSeconds();
-    const User = await getUserModel();
-    const users = await User.find({ _id: { $in: ids } }).select('+tokenVersion').lean();
-
-    await Promise.all(
-      users.map((u) =>
-        typeof u.tokenVersion === 'number'
-          ? publishTokenRevocation(redis, String(u._id), accessTokenVersion(u), ttl)
-          : Promise.resolve(),
-      ),
-    );
-    await endOperatorImpersonationSessions(ids);
+      await Promise.all(
+        users.map((u) =>
+          typeof u.tokenVersion === 'number'
+            ? publishTokenRevocation(redis, String(u._id), accessTokenVersion(u), ttl)
+            : Promise.resolve(),
+        ),
+      );
+    }
   } catch (err) {
     logger.warn('publishUsersRevocation failed (best-effort; falling back to token expiry)', {
-      count: userIds?.length, error: errorMessage(err),
+      count: ids.length, error: errorMessage(err),
     });
   }
+  // Whatever the publish did — see the file header.
+  await sweepOperatorSessions(ids);
 }
 
 /**
@@ -170,15 +198,16 @@ export async function publishUsersRevocation(userIds: Array<string | { toString(
 export async function publishUserDeletionRevocation(userId: string, accessVersion: number): Promise<void> {
   try {
     const redis = await getRedisClient();
-    if (!redis) return; // no Redis configured — services fall back to token expiry
-    await publishTokenRevocation(redis, String(userId), accessVersion + 1, await revocationTtlSeconds());
-    // The operator is gone, so every session they opened ends unconditionally.
-    await endOperatorImpersonationSessions([String(userId)], { operatorGone: true });
+    // No Redis configured — services fall back to token expiry.
+    if (redis) await publishTokenRevocation(redis, String(userId), accessVersion + 1, await revocationTtlSeconds());
   } catch (err) {
     logger.warn('publishUserDeletionRevocation failed (best-effort; falling back to token expiry)', {
       userId, error: errorMessage(err),
     });
   }
+  // The operator is gone, so every session they opened ends unconditionally —
+  // whatever the publish did.
+  await sweepOperatorSessions([String(userId)], { operatorGone: true });
 }
 
 /**
@@ -238,9 +267,18 @@ export async function publishImpersonationSessionRevocation(jti: string, consume
  * operator was deleted) ends them all without reading the operator.
  *
  * Called from the user-version publishers, i.e. every tokenVersion /
- * claimsVersion bump site, after commit. THROWS on a DB error — the callers'
- * best-effort wrappers log and swallow it; the platform's own per-request check
- * still refuses the session either way.
+ * claimsVersion bump site, after commit — ALWAYS, not only when their Redis
+ * publish landed. THROWS on a DB error — the callers' best-effort wrappers log
+ * and swallow it; the platform's own per-request check still refuses the session
+ * either way.
+ *
+ * NO-HANG GUARD. Returns 0 without querying when the model's Mongo connection
+ * is not open. The bump sites run under hundreds of unit suites with no Mongo at
+ * all, and a query on an unconnected mongoose model doesn't fail — it BUFFERS
+ * (until `bufferTimeoutMS`), stalling the suite. (This used to be implied by
+ * running only after a live Redis publish, which unit suites never have.) In a
+ * running platform Mongo is connected; a sweep skipped during a reconnect is
+ * covered by the per-request check.
  */
 export async function endOperatorImpersonationSessions(
   operatorIds: readonly string[],
@@ -248,6 +286,10 @@ export async function endOperatorImpersonationSessions(
 ): Promise<number> {
   if (operatorIds.length === 0) return 0;
   const ImpersonationRequest = await getImpersonationRequestModel();
+  if (ImpersonationRequest.db?.readyState !== 1) {
+    logger.debug('Mongo not connected — operator impersonation-session sweep skipped', { count: operatorIds.length });
+    return 0;
+  }
   const now = new Date();
   const live = await ImpersonationRequest.find({
     requesterId: { $in: [...operatorIds] },

@@ -34,8 +34,6 @@ function StatusBadge({ used, limit }: { used: number; limit: number }) {
  * @param canManage - Whether to show the limit editing controls.
  * @param editVal - The current edited limit value.
  * @param onEditChange - Callback when the admin changes the limit.
- * @param periodDays - The ORG-LEVEL usage period, used only as a fallback: the
- *   period is per type now and arrives on each `QuotaSummary`.
  * @param tier - The org's tier: a trial tier's AI calls are labelled as a trial.
  */
 export function QuotaCard({
@@ -44,7 +42,6 @@ export function QuotaCard({
   canManage,
   editVal,
   onEditChange,
-  periodDays,
   tier,
   bundles,
   interval = 'monthly',
@@ -54,7 +51,6 @@ export function QuotaCard({
   canManage: boolean;
   editVal: number;
   onEditChange: (key: DisplayedQuotaType, val: number) => void;
-  periodDays?: number;
   /** The org's tier: a trial tier's AI calls are labelled as a trial, and a pack
    *  is only priced when it is actually sold to this tier. */
   tier?: PlanTier;
@@ -77,9 +73,8 @@ export function QuotaCard({
   // three-day window except `cpuCredits`, which is monthly — so a forecast or a
   // "resets in N days" line computed from the org-level figure is wrong by a
   // factor of ten for the one dimension whose forecast the monthly window leans
-  // on. The org-level prop is the fallback for responses predating the per-type
-  // field, and `undefined` correctly renders no forecast rather than a wrong one.
-  const effectivePeriodDays = quota.periodDays ?? periodDays;
+  // on.
+  const effectivePeriodDays = quota.periodDays;
   // A byte quota is edited in its PACK unit (GB), not in bytes — an operator
   // should not have to type 26843545600. `editVal`/`onEditChange` stay in RAW
   // units so the parent's `editValues` contract is unchanged; only this input

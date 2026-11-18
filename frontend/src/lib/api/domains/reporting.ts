@@ -374,7 +374,7 @@ export function reportingApi(core: ApiCore) {
 
     /** Plugin version counts. */
     getPluginVersions: async (opts?: { signal?: AbortSignal }) => {
-      return core.request<ApiResponse<{ plugins: Array<{ name: string; version_count: number; latest_version: string; has_default: boolean; managed?: boolean }> }>>('/api/reports/plugins/versions', { signal: opts?.signal });
+      return core.request<ApiResponse<{ plugins: Array<{ name: string; version_count: number; latest_version: string; has_default: boolean; managed: boolean }> }>>('/api/reports/plugins/versions', { signal: opts?.signal });
     },
 
     /** Plugin build success rate over time. */

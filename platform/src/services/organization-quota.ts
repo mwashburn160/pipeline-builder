@@ -244,8 +244,8 @@ export async function setSeatLimit(
   const { rootOrgId } = await resolveOrgLineage(orgId);
   if (String(rootOrgId) !== String(orgId)) throw new Error(ORG_SEAT_LIMIT_NOT_ROOT);
   const set: Record<string, unknown> = { 'quotas.seats': seats };
-  // Optional so a producer that predates support can still sync seats alone
-  // without silently zeroing an org's contact allowance.
+  // Optional so a sync that carries only seats leaves the org's contact
+  // allowance as it is rather than zeroing it.
   if (supportContacts !== undefined) set['quotas.supportContacts'] = supportContacts;
   if (supportPremiumContacts !== undefined) set['quotas.supportPremiumContacts'] = supportPremiumContacts;
   // Account-level purchased feature entitlements (bundles) also live on the
@@ -478,6 +478,12 @@ export async function setTier(id: string, newTier: PlanTier): Promise<{ id: stri
     featuresRemoved = computeFeatureDelta(TIER_FEATURES[previousTier] ?? [], TIER_FEATURES[newTier] ?? []).removed;
   }
 
+  // Written as a QUERY-level update inside the transaction, not `org.save()`:
+  // the body may re-run on a transient error, and a re-run `save()` of this
+  // pre-loaded document (already saved by the aborted attempt) can write
+  // nothing while the propagation below re-applies — teams on the new tier, the
+  // root on the old. The in-memory doc is updated too, for the response.
+  const $set: Record<string, unknown> = { tier: newTier };
   org.tier = newTier;
   if (org.parentOrgId) {
     // Team: tier is derived (display-only). Its quotas stay pooled (-1) so the
@@ -488,7 +494,7 @@ export async function setTier(id: string, newTier: PlanTier): Promise<{ id: stri
     // top-level field, so this never touches it.
     const reseeded = tierBaseQuotaSet(newTier, org.quotas?.seats);
     org.quotas = reseeded;
-    org.markModified('quotas');
+    $set.quotas = reseeded;
   }
 
   // Members whose claimsVersion was bumped by a downgrade — published post-commit.
@@ -497,7 +503,7 @@ export async function setTier(id: string, newTier: PlanTier): Promise<{ id: stri
   // descendant teams must both land or neither — a failure between them would
   // otherwise leave the root on the new tier while teams keep the old.
   await withMongoTransaction(async (session) => {
-    await org.save({ session });
+    await Organization.updateOne({ _id: org._id }, { $set }, { session, runValidators: true });
 
     // A root propagates the tier label to its descendant teams (their quotas
     // stay pooled at -1); a team or flat org has nothing below it.

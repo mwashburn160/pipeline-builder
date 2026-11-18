@@ -125,14 +125,14 @@ describe('credential revocation (revoke:sid / revoke:key)', () => {
   it('reader: any present entry among sid/key ids ⇒ revoked', async () => {
     const get = jest.fn(async (k: string) => (k === 'revoke:key:k2' ? '1' : null));
     const store = createRedisTokenRevocationStore(fakeRedis({ get }));
-    await expect(store.isCredentialRevoked!({ sid: 's1', keyIds: ['k1', 'k2'] })).resolves.toBe(true);
-    await expect(store.isCredentialRevoked!({ sid: 's1', keyIds: ['k1'] })).resolves.toBe(false);
+    await expect(store.isCredentialRevoked({ sid: 's1', keyIds: ['k1', 'k2'] })).resolves.toBe(true);
+    await expect(store.isCredentialRevoked({ sid: 's1', keyIds: ['k1'] })).resolves.toBe(false);
     expect(get).toHaveBeenCalledWith('revoke:sid:s1');
   });
 
   it('reader: fail-open on a Redis error', async () => {
     const store = createRedisTokenRevocationStore(fakeRedis({ get: jest.fn(async () => { throw new Error('down'); }) }));
-    await expect(store.isCredentialRevoked!({ sid: 's1', keyIds: [] })).resolves.toBe(false);
+    await expect(store.isCredentialRevoked({ sid: 's1', keyIds: [] })).resolves.toBe(false);
   });
 
   it('publisher writes the key with a ceil TTL and reports the outcome', async () => {
@@ -172,20 +172,20 @@ describe('session revocation — Redis reader', () => {
   it('reads a present key as revoked and an absent key as live', async () => {
     const redis = fakeRedis({ get: jest.fn(async (k: string) => (k === sessionRevocationKey('ended') ? '1' : null)) });
     const store = createRedisTokenRevocationStore(redis);
-    await expect(store.getSessionRevocation!('ended')).resolves.toBe('revoked');
-    await expect(store.getSessionRevocation!('running')).resolves.toBe('live');
+    await expect(store.getSessionRevocation('ended')).resolves.toBe('revoked');
+    await expect(store.getSessionRevocation('running')).resolves.toBe('live');
   });
 
   it('reads a Redis error as UNAVAILABLE, not live — this reader does not fail open', async () => {
     const store = createRedisTokenRevocationStore(fakeRedis({ get: jest.fn(async () => { throw new Error('down'); }) }));
-    await expect(store.getSessionRevocation!('s')).resolves.toBe('unavailable');
+    await expect(store.getSessionRevocation('s')).resolves.toBe('unavailable');
   });
 
   it('reads "no Redis configured" as UNAVAILABLE for sessions', async () => {
     const saved = { url: process.env.REDIS_URL, sent: process.env.REDIS_SENTINELS };
     delete process.env.REDIS_URL; delete process.env.REDIS_SENTINELS;
     try {
-      await expect(createEnvRedisTokenRevocationStore().getSessionRevocation!('s')).resolves.toBe('unavailable');
+      await expect(createEnvRedisTokenRevocationStore().getSessionRevocation('s')).resolves.toBe('unavailable');
     } finally {
       if (saved.url !== undefined) process.env.REDIS_URL = saved.url;
       if (saved.sent !== undefined) process.env.REDIS_SENTINELS = saved.sent;

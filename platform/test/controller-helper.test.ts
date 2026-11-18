@@ -10,13 +10,9 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   // The helpers gate on api-core's `isSystemAdmin`; mock it to match the
   // production semantics (sysadmin iff JWT claim).
   isSystemAdmin: jest.fn((req: any) => req?.user?.isSuperAdmin === true),
-  // `isOrgAdmin` uses `isSystemOrgId(orgId, orgName)` to exclude the system
-  // content-holder org from being treated as a real tenant. The org's id is
-  // now the fixed ObjectId (SYSTEM_ORG_ID); only its name/slug stays 'system'.
-  isSystemOrgId: jest.fn(
-    (orgId?: string, orgName?: string) =>
-      orgId?.toLowerCase() === '000000000000000000000001' || orgName?.toLowerCase() === 'system',
-  ),
+  // `isOrgAdmin` uses `isSystemOrgId(orgId)` to exclude the system
+  // content-holder org (the fixed SYSTEM_ORG_ID) from being treated as a real tenant.
+  isSystemOrgId: jest.fn((orgId?: string) => orgId?.toLowerCase() === '000000000000000000000001'),
 }));
 
 jest.unstable_mockModule('mongoose', () => {

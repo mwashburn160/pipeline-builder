@@ -159,9 +159,9 @@ describe('publisher profile', () => {
   });
 
   it('keeps the Official publisher on this instance\'s system org', async () => {
-    const created = await publishersSvc.ensureOfficialPublisher();
-    expect(created).toMatchObject({ handle: 'pipeline-builder', tier: 'official', ownerOrgId: SYSTEM_ORG });
-    created.ownerOrgId = 'wrong';
+    await expect(publishersSvc.ensureOfficialPublisher()).rejects.toThrow(/missing/);
+    db.seed('publishers', { handle: 'pipeline-builder', ownerOrgId: '000000000000000000000001', displayName: 'Pipeline Builder', tier: 'official' });
+    expect(await publishersSvc.ensureOfficialPublisher()).toMatchObject({ handle: 'pipeline-builder', tier: 'official', ownerOrgId: SYSTEM_ORG });
     db.tables.publishers![0]!.ownerOrgId = 'wrong';
     expect((await publishersSvc.ensureOfficialPublisher()).ownerOrgId).toBe(SYSTEM_ORG);
     expect((await publishersSvc.ensureOfficialPublisher()).ownerOrgId).toBe(SYSTEM_ORG);

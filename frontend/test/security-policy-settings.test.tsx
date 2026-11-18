@@ -242,8 +242,8 @@ describe('SessionPolicySettings', () => {
   });
 
   it('offers a retry when the policy cannot be read', async () => {
-    // A payload without the policy's shape (an older server) counts as a failed read too.
-    getSessionPolicy.mockResolvedValueOnce({ success: true, data: {} }).mockResolvedValue({ success: true, data: policy() });
+    // An envelope that carries no policy counts as a failed read.
+    getSessionPolicy.mockResolvedValueOnce({ success: true }).mockResolvedValue({ success: true, data: policy() });
     render(<SessionPolicySettings orgId="org-1" readOnly={false} />);
     fireEvent.click(await screen.findByRole('button', { name: /retry/i }));
     expect(await screen.findByLabelText('Idle timeout (days)')).toBeInTheDocument();

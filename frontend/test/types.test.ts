@@ -24,9 +24,8 @@ function mockUser(overrides: Partial<User> = {}): User {
 // ---------------------------------------------------------------------------
 
 describe('isSystemAdmin', () => {
-  // Sysadmin authority now keys on the `isSuperAdmin` flag carried in the
-  // JWT. The legacy "user is admin/owner in the well-known 'system' org"
-  // branch was removed alongside the backend cutover.
+  // Sysadmin authority keys on the `isSuperAdmin` flag carried in the JWT,
+  // never on membership of the 'system' org.
 
   it('returns true when isSuperAdmin is true, regardless of role', () => {
     expect(isSystemAdmin(mockUser({ role: 'member', isSuperAdmin: true }))).toBe(true);

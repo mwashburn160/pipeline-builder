@@ -289,20 +289,14 @@ export async function pause(caller: Caller, listingId: string, version: string |
 
 /**
  * Keep the Official publisher pointed at THIS instance's system org (the SQL
- * seed uses the default id; SYSTEM_ORG_ID may differ) — and create it when an
- * install predates the seed. Idempotent; run at boot.
+ * seed in postgres-init.sql creates the row under the default id; SYSTEM_ORG_ID
+ * may differ). Idempotent; run at boot. A missing row is a broken install —
+ * the seed always creates it — so it throws rather than inventing one.
  */
 export async function ensureOfficialPublisher(): Promise<Publisher> {
   const existing = await publishers.byHandle(OFFICIAL_PUBLISHER_HANDLE);
   if (!existing) {
-    return publishers.insert({
-      handle: OFFICIAL_PUBLISHER_HANDLE,
-      ownerOrgId: SYSTEM_ORG_ID,
-      displayName: 'Pipeline Builder',
-      description: 'The Official plugin catalog, maintained with the platform.',
-      tier: 'official',
-      verifiedAt: new Date(),
-    });
+    throw new Error(`The Official publisher '${OFFICIAL_PUBLISHER_HANDLE}' is missing; postgres-init.sql seeds it`);
   }
   if (existing.ownerOrgId !== SYSTEM_ORG_ID || existing.tier !== 'official') {
     return (await publishers.update(existing.id, { ownerOrgId: SYSTEM_ORG_ID, tier: 'official' }))!;

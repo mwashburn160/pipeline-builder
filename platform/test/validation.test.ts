@@ -264,8 +264,8 @@ describe('transferOwnershipSchema', () => {
   });
 });
 
-// Org IdP / KMS schemas (post-zod migration — Task 1). These guard that the
-// controllers still 400 on the same invalid bodies the hand-rolled parsers did.
+// Org IdP / KMS schemas. These guard that the controllers 400 on invalid
+// bodies.
 
 describe('orgIdpCreateSchema', () => {
   const valid = {

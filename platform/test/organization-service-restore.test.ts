@@ -38,11 +38,9 @@ jest.unstable_mockModule('mongoose', () => {
     set() { /* no-op */ }
     static Types = { Mixed: class {}, ObjectId: class {} };
   }
-  const startSession = jest.fn(async () => ({
-    withTransaction: async (cb: () => Promise<unknown>) => cb(),
-    endSession: jest.fn<AnyFn>(),
-  }));
-  return { default: { startSession }, Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn<AnyFn>() };
+  // withMongoTransaction → mongoose.connection.transaction(fn): run the body once.
+  const connection = { transaction: async (fn: (s: unknown) => Promise<unknown>) => fn({}) };
+  return { default: { connection }, Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn<AnyFn>() };
 });
 
 jest.unstable_mockModule('../src/middleware/quota.js', () => ({ getOrganizationQuotaStatus: jest.fn<AnyFn>(), QuotaType: {} }));

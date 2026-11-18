@@ -58,7 +58,7 @@ jest.mock('@/lib/api', () => {
 });
 
 const root = (over: Partial<UserOrgMembership> = {}): UserOrgMembership => ({
-  id: 'org-1', name: 'Acme', role: 'owner', tier: 'team', childOrgCount: 2, ...over,
+  id: 'org-1', name: 'Acme', role: 'owner', tier: 'team', childOrgCount: 2, roleNames: [], ...over,
 });
 
 const ADMIN_PERMS = ['members:manage', 'org_settings:write', 'org_impersonation:write', 'org_idp:write'];

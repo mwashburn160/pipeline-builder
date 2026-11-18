@@ -469,7 +469,7 @@ export interface EcosystemRequestDetail {
   eligibility: VerifiedEligibility | null;
   /**
    * `submission` requests: the gate report, heuristics, quarantine image
-   * and scans. Read through `normalizeSubmissionModeration`, which also takes
+   * and scans. Read through `normalizeSubmissionModeration`, which takes
    * the server's raw `{ gateReport: { gates, facts }, heuristics: { findings } }`.
    */
   submission?: SubmissionModerationView | Record<string, unknown> | null;

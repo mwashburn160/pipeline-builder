@@ -1,6 +1,6 @@
 // GENERATED FROM docs/audit-events.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 980b581f9bd080f1360b2a50e18ebacb10d89f62d60fb8f8814476ce4357f0f7
+// SOURCE-SHA256: 26e19935a553a05a48139127dec2190f52a760a705331ca7ed7f19b331f67fd3
 // SPDX-License-Identifier: Apache-2.0
 import { ScrollText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -552,7 +552,7 @@ export const auditEventsTopic: HelpTopic = {
             ],
             [
               "Permission roles",
-              "org.role.create, org.role.update, org.role.delete, org.role.member.add, org.role.member.remove. org.role.update carries details.before/after (name, description, permissions); org.role.delete the permissions the Role granted and affectedMembers. A refused grant above the actor's own ceiling is an authz.denied naming the refusal code. The boot-time RBAC backfill writes these same actions under the system actor with details.reason: 'rbac-backfill': a missing built-in Role created, a drifted built-in bundle rewritten (before/after permissions), a membership's built-in Role assignment added, and an automation service account moved off an admin Role (org.role.member.remove + org.role.member.add, targetType: 'service-account')"
+              "org.role.create, org.role.update, org.role.delete, org.role.member.add, org.role.member.remove. org.role.update carries details.before/after (name, description, permissions); org.role.delete the permissions the Role granted and affectedMembers. A refused grant above the actor's own ceiling is an authz.denied naming the refusal code."
             ],
             [
               "Service accounts",

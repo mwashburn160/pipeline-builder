@@ -27,14 +27,13 @@ const asLine = (v: unknown): number | null => (typeof v === 'number' && Number.i
 function normalizeLint(raw: unknown): SubmissionLintIssue[] {
   if (!Array.isArray(raw)) return [];
   return raw.map((item): SubmissionLintIssue => {
-    if (typeof item === 'string') return { rule: null, message: item, severity: 'warning', path: null, line: null };
+    // api-core's PluginLintFinding: `{ level, message }`.
     const o = (item ?? {}) as Record<string, unknown>;
     return {
-      rule: asString(o.rule) ?? asString(o.id),
-      message: asString(o.message) ?? String(o.rule ?? 'Lint issue'),
-      // api-core's PluginLintFinding says `level`; accept `severity` too.
-      severity: (o.level ?? o.severity) === 'error' ? 'error' : 'warning',
-      path: asString(o.path) ?? asString(o.file),
+      rule: asString(o.rule),
+      message: asString(o.message) ?? 'Lint issue',
+      severity: o.level === 'error' ? 'error' : 'warning',
+      path: asString(o.path),
       line: asLine(o.line),
     };
   });
@@ -57,11 +56,10 @@ export function normalizeGate(raw: unknown): SubmissionGate | null {
   return { id: String(o.id ?? 'gate'), ok: o.ok === true, message: String(o.message ?? '') };
 }
 
-/** Normalize the inspect payload (the spec summary may come as `plugin` or `spec`). */
+/** Normalize the inspect payload (`{ plugin, fields, lint, heuristics, name }`). */
 function normalizeInspect(raw: unknown): SubmissionInspectResult {
   const o = (raw ?? {}) as Record<string, unknown>;
-  const spec = (o.plugin ?? o.spec ?? {}) as Record<string, unknown>;
-  const lintSource = o.lint ?? o.lintWarnings ?? o.warnings;
+  const spec = (o.plugin ?? {}) as Record<string, unknown>;
   return {
     plugin: {
       name: String(spec.name ?? ''),
@@ -71,9 +69,9 @@ function normalizeInspect(raw: unknown): SubmissionInspectResult {
       smokeTest: typeof spec.smokeTest === 'boolean' ? spec.smokeTest : null,
     },
     fields: Array.isArray(o.fields) ? (o.fields as PluginInspectField[]) : [],
-    lint: normalizeLint(Array.isArray(lintSource) ? lintSource : (lintSource as { warnings?: unknown })?.warnings),
+    lint: normalizeLint(o.lint),
     heuristics: normalizeFindings(o.heuristics),
-    nameCheck: normalizeGate(o.name ?? o.nameCheck),
+    nameCheck: normalizeGate(o.name),
   };
 }
 

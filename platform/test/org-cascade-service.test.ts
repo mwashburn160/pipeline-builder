@@ -8,8 +8,8 @@
  * stores (no direct call to any downstream service: those are cascade-outbox
  * legs), the export still walks every org-scoped table, and the system-org
  * guard trips. Heavy mocking is
- * intentional; the integration path is exercised by the migration / e2e
- * environment, not by these unit tests.
+ * intentional; the integration path is exercised by the e2e environment, not
+ * by these unit tests.
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/permissions.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 87d3debfe0b18fbe3f573b63c4e30777370060f5617b2fa76e97bd5543661b6b
+// SOURCE-SHA256: b0d7f37b8650f19c08d3404d22dcc0e0918bebbfe8924ebc616fd21f60e6272d
 // SPDX-License-Identifier: Apache-2.0
 import { UserCog } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -35,7 +35,7 @@ export const permissionsTopic: HelpTopic = {
             "The system org staffs its jobs with Roles, not the flag. Support, subscriptions, the org lifecycle, quotas, the build queue and the operator consoles are each a permission a Super Admin can grant on its own. Three routes still need the flag: granting or revoking Super Admin itself, and the single-person MFA reset.",
             "A cross-tenant surface takes three things, not one: the permission, the system org as your active org, and an MFA-grade session. A repo-wide test fails any route that gates on a system-org-only permission without all three.",
             "Writes are gated; reads mostly ride the page. That convention is deliberate and is what the route-coverage tests check.",
-            "A startup backfill keeps built-in Roles synced to the current catalog, so a new permission reaches the built-ins without a migration.",
+            "Built-in Roles are seeded at org creation from the current catalog, inside the transaction that creates the org.",
             "Impersonation is consent-gated and read-only, and every session is recorded.",
             "Teams do not inherit member authority upward. A parent admin administers its teams; a team member gets nothing over the parent."
           ]
@@ -133,7 +133,7 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "also seeds Super Admin, Ecosystem Manager, Publisher Verifier and the job Roles (see Ecosystem Manager). A startup backfill re-syncs each built-in Role's permission set to the current catalog, so new permissions reach existing orgs."
+          "content": "also seeds Super Admin, Ecosystem Manager, Publisher Verifier and the job Roles (see Ecosystem Manager). Each built-in Role's permission set is seeded from the catalog when the org is created."
         },
         {
           "type": "list",
@@ -538,7 +538,7 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Every org seeds only the Roles it cannot work without: Member and Admin for people, plus the two machine Roles (Pipeline Automation and Pipeline Registration). infra store-token and the startup backfill need to find those two in every org. A built-in is system: true and therefore undeletable, so an org should not carry rows for jobs it does not have."
+          "content": "Every org seeds only the Roles it cannot work without: Member and Admin for people, plus the two machine Roles (Pipeline Automation and Pipeline Registration). infra store-token needs to find those two in every org. A built-in is system: true and therefore undeletable, so an org should not carry rows for jobs it does not have."
         },
         {
           "type": "text",
@@ -606,7 +606,7 @@ export const permissionsTopic: HelpTopic = {
             ],
             [
               "Immutable",
-              "system: true — it can't be renamed, edited or deleted (RL_SYSTEM_IMMUTABLE). The startup backfill re-syncs it to ECOSYSTEM_MANAGER_PERMISSIONS (it is marked seedBundle: 'ecosystem_manager', which is also what keeps it out of the Member-floor lookups it shares grantsRole: 'member' with)."
+              "system: true — it can't be renamed, edited or deleted (RL_SYSTEM_IMMUTABLE). It is seeded from ECOSYSTEM_MANAGER_PERMISSIONS (it is marked seedBundle: 'ecosystem_manager', which is also what keeps it out of the Member-floor lookups it shares grantsRole: 'member' with)."
             ],
             [
               "grantsRole",
@@ -659,7 +659,7 @@ export const permissionsTopic: HelpTopic = {
             ],
             [
               "Immutable",
-              "system: true, re-synced to PLATFORM_OPERATOR_PERMISSIONS by the startup backfill (seedBundle: 'platform_operator')."
+              "system: true, seeded from PLATFORM_OPERATOR_PERMISSIONS (seedBundle: 'platform_operator')."
             ],
             [
               "grantsRole",
@@ -1605,89 +1605,7 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Existing installs are narrowed at boot. The platform's startup RBAC backfill does two things:"
-        },
-        {
-          "type": "list",
-          "items": [
-            "Pass 0 creates the two machine Roles in every org that was seeded before"
-          ]
-        },
-        {
-          "type": "text",
-          "content": "they existed. Pass A keeps their bundles current."
-        },
-        {
-          "type": "list",
-          "items": [
-            "Pass C moves an existing automation account off an admin-granting Role"
-          ]
-        },
-        {
-          "type": "text",
-          "content": "(Admin, or Super Admin in the system org):"
-        },
-        {
-          "type": "list",
-          "items": [
-            "platform-automation goes to Pipeline Automation;",
-            "pipeline-register goes to Pipeline Registration;",
-            "reporting-ingest and registry-push lose the admin Role and get no"
-          ]
-        },
-        {
-          "type": "text",
-          "content": "replacement."
-        },
-        {
-          "type": "text",
-          "content": "Pass C follows these rules:"
-        },
-        {
-          "type": "list",
-          "items": [
-            "It only touches an account that still holds an admin-granting Role. An"
-          ]
-        },
-        {
-          "type": "text",
-          "content": "account you narrowed by hand is left alone, and so is one Pass C already moved. That is also why a repeat run is a no-op."
-        },
-        {
-          "type": "list",
-          "items": [
-            "It removes only the admin assignment. Custom Roles you added stay.",
-            "It grants before it revokes. A crash in between leaves the account with"
-          ]
-        },
-        {
-          "type": "text",
-          "content": "both Roles, never neither."
-        },
-        {
-          "type": "list",
-          "items": [
-            "It never reads or writes a person's assignment.",
-            "It keeps the admin Role when the org has no target Role. The account is"
-          ]
-        },
-        {
-          "type": "text",
-          "content": "counted in serviceAccountsUnnarrowed (gauge platform_rbac_backfill_service_accounts_unnarrowed) and logged at warn. The move is counted in serviceAccountsNarrowed (platform_rbac_backfill_service_accounts_narrowed)."
-        },
-        {
-          "type": "list",
-          "items": [
-            "There is no session to revoke. A service account has no claimsVersion."
-          ]
-        },
-        {
-          "type": "text",
-          "content": "Every key exchange re-reads its Roles, so a live key loses the admin permissions within one exchanged-token lifetime (5 minutes)."
-        },
-        {
-          "type": "text",
-          "content": "What still needs store-token. You do not need to re-run it to narrow existing accounts; the backfill does that. Run it once for the new registration key:"
+          "content": "What needs store-token. Run it once for the registration key:"
         },
         {
           "type": "code",
@@ -1696,7 +1614,7 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Until that key exists, a self-mutating synth keeps building but stops refreshing the platform's step manifest, and says so in the build log. A pipeline synthesized before this change also lacks the GetSecretValue grant on the new secret. Its first run after the upgrade skips the registration with that warning. The same run's self-mutation applies the grant, so later runs register."
+          "content": "Until that key exists, a self-mutating synth keeps building but does not refresh the platform's step manifest, and says so in the build log."
         },
         {
           "type": "text",

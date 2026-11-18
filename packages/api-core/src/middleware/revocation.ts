@@ -26,20 +26,19 @@ export interface TokenRevocationStore {
   /**
    * Whether one IMPERSONATION session (by token `jti`) has been ended early.
    *
-   * Optional so a store that predates it still links — but a store WITHOUT it
-   * cannot answer, and an impersonation token is then REJECTED. Unlike
-   * `getCurrentVersion`, this is deliberately not fail-open: the platform ends a
-   * session when someone withdraws consent, and a withdrawn consent that keeps
-   * working in every other service is not withdrawn.
+   * When it cannot answer (`unavailable`, or a throw) an impersonation token is
+   * REJECTED. Unlike `getCurrentVersion`, this is deliberately not fail-open: the
+   * platform ends a session when someone withdraws consent, and a withdrawn
+   * consent that keeps working in every other service is not withdrawn.
    */
-  getSessionRevocation?(jti: string): Promise<SessionRevocationState>;
+  getSessionRevocation(jti: string): Promise<SessionRevocationState>;
   /**
    * Whether ONE credential the token rides on has been revoked — its session
    * slot (`sid`) or the access key it was exchanged from / derived from (see
    * {@link credentialRevocationRefs}). Fail-open like `getCurrentVersion`: a
    * store that can't answer returns `false`.
    */
-  isCredentialRevoked?(refs: CredentialRevocationRefs): Promise<boolean>;
+  isCredentialRevoked(refs: CredentialRevocationRefs): Promise<boolean>;
 }
 
 /** The single-credential ids a token can be revoked by (`revoke:sid:` / `revoke:key:`). */
@@ -117,14 +116,12 @@ async function isTokenRevoked(decoded: JwtPayload): Promise<boolean> {
     warnIfStoreMissing(decoded);
     return false;
   }
-  if (store.isCredentialRevoked) {
-    const refs = credentialRevocationRefs(decoded);
-    if (refs) {
-      try {
-        if (await store.isCredentialRevoked(refs)) return true;
-      } catch {
-        // Fail-open, as below.
-      }
+  const refs = credentialRevocationRefs(decoded);
+  if (refs) {
+    try {
+      if (await store.isCredentialRevoked(refs)) return true;
+    } catch {
+      // Fail-open, as below.
     }
   }
   if (!decoded.sub || typeof decoded.tokenVersion !== 'number') return false;
@@ -145,7 +142,7 @@ function hasRevocationCheck(decoded: JwtPayload): boolean {
     return false;
   }
   if (decoded.sub && typeof decoded.tokenVersion === 'number') return true;
-  return !!store.isCredentialRevoked && credentialRevocationRefs(decoded) !== null;
+  return credentialRevocationRefs(decoded) !== null;
 }
 
 /** Methods a read-only impersonation token may use. */
@@ -169,7 +166,7 @@ export function isImpersonationWriteBlocked(
  */
 async function sessionRevocationState(jti: string): Promise<SessionRevocationState> {
   const store = tokenRevocationStore;
-  if (!store?.getSessionRevocation) return 'unavailable';
+  if (!store) return 'unavailable';
   try {
     return await store.getSessionRevocation(jti);
   } catch {

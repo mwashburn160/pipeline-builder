@@ -315,6 +315,26 @@ suite('impersonation flow (real routes, real Mongo)', () => {
       ended(await call('GET', '/user/profile', { token: accessToken }));
     });
 
+    it('the bump-site publisher ends + audits the session in Mongo even with NO Redis to publish to', async () => {
+      const { requestId } = await openConsentedSession();
+      await m.User.updateOne({ _id: operatorId }, { $inc: { tokenVersion: 1 } });
+      const { publishUserRevocation } = await import('../src/helpers/session-revocation.js');
+      await publishUserRevocation(operatorId);
+
+      const row = await m.ImpersonationRequest.findById(requestId).lean();
+      expect(row.status).toBe('revoked');
+      expect(row.revokedAt).toBeInstanceOf(Date);
+      // The audit write is fire-and-forget: give it a moment to land.
+      let audit = null;
+      for (let i = 0; i < 50 && !audit; i++) {
+        audit = await m.AuditEvent.findOne({ 'action': 'admin.impersonate.revoke', 'details.impersonationRequestId': requestId }).lean();
+        if (!audit) await new Promise((r) => setTimeout(r, 20));
+      }
+      expect(audit).not.toBeNull();
+      expect(audit.targetId).toBe(targetId);
+      expect(audit.details).toMatchObject({ reason: 'operator-revoked', revokedEverywhere: false });
+    });
+
     it('a superadmin-opened session when the operator loses the flag', async () => {
       const { accessToken } = await openConsentedSession();
       await m.User.updateOne({ _id: operatorId }, { $set: { isSuperAdmin: false } });

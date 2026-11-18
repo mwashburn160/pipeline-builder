@@ -53,16 +53,25 @@ export function InstallControls({
   // approver (`POST /plugins/installs/:id/change-requests`).
   const [requesting, setRequesting] = useState<{ install: InstallView; body: UpdateInstallBody; what: string } | null>(null);
 
+  // Every action goes through ONE mutation, so they share its in-flight lock
+  // (a double click, or two different buttons, start one write) and a step-up
+  // refusal is handed to the global dialog instead of shown as an error. An
+  // action resolves with the notice to show, or `undefined` when nothing
+  // changed (the change was turned into a request instead) — no notice, no re-read.
   const action = useMutation({
-    fn: (fn: () => Promise<string | null>) => fn(),
+    fn: (fn: () => Promise<string | null | undefined>) => fn(),
     errorFallback: 'The install action failed',
-    onSuccess: (message) => { setNotice(message); onChanged(); },
+    onSuccess: (message) => {
+      if (message === undefined) return;
+      setNotice(message);
+      onChanged();
+    },
     onError: (_e, message) => setError(message),
     onStepUpResumed: () => onChanged(),
   });
   const busy = action.pending;
 
-  const run = async (fn: () => Promise<string | null>) => {
+  const run = async (fn: () => Promise<string | null | undefined>) => {
     setError(null);
     setNotice(null);
     await action.run(fn);
@@ -88,20 +97,18 @@ export function InstallControls({
     return target.status === 'denied' ? 'Request removed.' : 'Install request withdrawn.';
   });
 
-  const upgrade = async (target: InstallView, u: InstallUpgrade) => {
+  const upgrade = (target: InstallView, u: InstallUpgrade) => run(async () => {
     try {
       await api.updatePluginInstall(target.id as string, { version: u.version });
-      setNotice(`Upgraded to ${u.version}.`);
-      onChanged();
     } catch (e) {
       // The server decides whether an approver is needed; when it says the
       // change can be requested instead, offer exactly that.
-      if (isRequestable(e)) setRequesting({ install: target, body: { version: u.version }, what: `Upgrade to ${u.version}` });
-      else setError(formatError(e, 'The install action failed'));
-    } finally {
-      setConfirm(null);
+      if (!isRequestable(e)) throw e;
+      setRequesting({ install: target, body: { version: u.version }, what: `Upgrade to ${u.version}` });
+      return undefined;
     }
-  };
+    return `Upgraded to ${u.version}.`;
+  });
 
   const wrap = align === 'end' ? 'items-start sm:items-end' : 'items-start';
   const install_ = 'install' in state ? state.install : null;

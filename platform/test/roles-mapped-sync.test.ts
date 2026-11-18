@@ -102,7 +102,7 @@ describe('syncMappedRoles', () => {
   });
 
   it('treats an assignment with NO source (the Member floor) as manual', async () => {
-    assignmentFind.mockReturnValue(query([{ roleId: 'legacy' }]));
+    assignmentFind.mockReturnValue(query([{ roleId: 'floor' }]));
     const out = await syncMappedRoles(ORG, 'u1', [], SESSION);
 
     expect(out.removed).toEqual([]);

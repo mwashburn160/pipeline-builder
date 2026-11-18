@@ -217,10 +217,7 @@ export function useLoginActions({ refreshUser, setIsSubmitting, router }: UseLog
 
       // A registration carrying an invitation JOINS that org: the backend accepts
       // the invitation inside the same transaction and creates no org of its
-      // own. Reported back so the caller does not accept it a second time.
-      // (Absent from an older backend, which created an org and left the accept
-      // to the caller — so the caller still accepts when this is false.)
-      const invitationAccepted = !!(response.data as { user?: { invitation?: unknown } } | undefined)?.user?.invitation;
+      // own, so the caller never accepts it a second time.
 
       // `POST /auth/register` creates the user+org but does NOT issue tokens
       // (it returns `{ user }`, 201 — no accessToken/cookie). Without this the
@@ -230,7 +227,6 @@ export function useLoginActions({ refreshUser, setIsSubmitting, router }: UseLog
       // pair + refreshes the profile). `login` also routes to the return-to path
       // (unless the caller opted out via `redirect: false`).
       await login(email, password, { redirect: opts?.redirect });
-      return { invitationAccepted };
     } finally {
       setIsSubmitting(false);
     }

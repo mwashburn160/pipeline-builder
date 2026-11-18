@@ -136,7 +136,7 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
         // keyed on the first requestId).
         const won = await idemStore.reserve(
           idemKey,
-          { statusCode: 202, body: { requestId: ctx.requestId }, pending: true, expiresAt: Date.now() + idemTtlMs },
+          { statusCode: 202, body: { requestId: ctx.requestId }, bodyKind: 'json', pending: true, expiresAt: Date.now() + idemTtlMs },
           Math.floor(idemTtlMs / 1000),
         );
         if (!won) {

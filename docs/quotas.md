@@ -234,7 +234,7 @@ Every other budget on this page is a per-period **flow**: it resets on `QUOTA_RE
 
 A **Storage Pack** adds 10 GB on any tier, including Developer, and stacks (with a volume discount from four packs). Operators can override a tier with `PLAN_TIER_<TIER>_STORAGE_BYTES` or a single org through the quota API.
 
-**With teams, the figure is the account's.** Limits pool at the account root, so the number above is what the root and all its teams hold **together** — the usage shown on your Quotas page is the whole account's, and the 80% / 100% notices are computed from it. (Enforcement at push time follows the same figure once the operator enables `QUOTA_STORAGE_ACCOUNT_BUDGET`; until then each namespace is checked against the pooled number on its own, which is more generous.)
+**With teams, the figure is the account's.** Limits pool at the account root, so the number above is what the root and all its teams hold **together** — the usage shown on your Quotas page is the whole account's, and the 80% / 100% notices are computed from it. Enforcement at push time follows the same figure: a push is refused once the account's total, not just the pushing namespace's, is over the cap.
 
 #### How the number is calculated — and why it is in your favour
 

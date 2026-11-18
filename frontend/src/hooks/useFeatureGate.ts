@@ -77,10 +77,7 @@ export function useFeatureGate(flag: FeatureFlag): FeatureGateState {
     includedFromPlan: FEATURE_GATES[flag].acquiredVia === 'tier'
       ? FEATURE_GATES[flag].includedFrom ?? null
       : null,
-    // `?? false` keeps a lock honest against a context that predates the field
-    // (or a test double that doesn't set it): the worst case is the advice copy,
-    // never a link to a page the viewer can't open.
-    canUpsell: canReachBilling ?? false,
+    canUpsell: canReachBilling,
     upsellAdvice: featureUpsellAdvice(flag),
     reason: `${meta.label} isn't included in your current plan`,
   };

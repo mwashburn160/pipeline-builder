@@ -62,6 +62,7 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
       ? null
       : { _id: { toString: () => id }, email: 'person@example.com', lastActiveOrgId: 'org-1', tokenVersion: currentTokenVersion }),
     findByCredentials: (...a: unknown[]) => mockFindByCredentials(...a),
+    resolveIdentifier: async () => null,
   },
   auditService: { createEvent: jest.fn(async () => undefined) },
 }));
@@ -80,6 +81,9 @@ jest.unstable_mockModule('../src/helpers/password-lockout.js', () => ({
   assertPasswordNotLocked: jest.fn(async () => undefined),
   recordPasswordFailure: jest.fn(async () => undefined),
   clearPasswordFailures: jest.fn(async () => undefined),
+  reservePasswordAttempt: jest.fn(async (userId: string) => ({ userId, reservationId: 'r1' })),
+  completePasswordAttempt: jest.fn(async () => undefined),
+  releasePasswordAttempt: jest.fn(async () => undefined),
 }));
 jest.unstable_mockModule('../src/helpers/password-policy.js', () => ({
   passwordShortfall: async () => null,
@@ -390,12 +394,12 @@ describe('the challenge is bound to the tokenVersion at first-factor proof', () 
     expect(mockVerifyRecoveryCode).not.toHaveBeenCalled();
   });
 
-  it('refuses a challenge recorded without a tokenVersion (minted before the binding)', async () => {
+  it('refuses a challenge recorded without a tokenVersion (fail closed)', async () => {
     const { challengeId } = await createMfaChallenge(USER, 'org-1', TV);
     const pending = await claimMfaChallenge(challengeId);
-    const { tokenVersion: _drop, ...legacy } = pending!;
+    const { tokenVersion: _drop, ...unbound } = pending!;
     void _drop;
-    await restoreMfaChallenge(challengeId, legacy);
+    await restoreMfaChallenge(challengeId, unbound);
     const res = makeRes();
     await verifyMfaLogin(body({ challengeId, code: '123456' }), res);
     expect(res.json.mock.calls[0][0].code).toBe('TOTP_INVALID_CHALLENGE');

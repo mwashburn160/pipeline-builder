@@ -18,7 +18,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@p
 
 const { createMemoryStore } = await import('../src/api/idempotency-middleware.js');
 
-const entry = (n: number) => ({ statusCode: 200, body: { n }, expiresAt: Date.now() + 60000 });
+const entry = (n: number) => ({ statusCode: 200, body: { n }, bodyKind: 'json' as const, expiresAt: Date.now() + 60000 });
 
 describe('in-memory idempotency store eviction (bounded, oldest-first)', () => {
   it('evicts the oldest entry at capacity instead of dropping the NEW key', async () => {

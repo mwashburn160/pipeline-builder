@@ -188,7 +188,6 @@ export function QuotasReadOnly({
                 canManage={false}
                 editVal={orgData.quotas[key].limit}
                 onEditChange={() => {}}
-                periodDays={orgData.periodDays}
                 tier={orgData.tier}
                 bundles={bundles}
                 interval={interval}

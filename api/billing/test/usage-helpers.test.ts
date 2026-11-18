@@ -149,7 +149,7 @@ describe('buildUsageRollup', () => {
     expect(rollup.usage.storageBytes.percentOfLimit).toBe(20);
   });
 
-  it('handles a partial summary (missing `used`) by reporting 0 used (defensive vs older quota docs)', () => {
+  it('handles a partial summary (missing `used`) by reporting 0 used', () => {
     const rollup = buildUsageRollup( null,
       null,
       {

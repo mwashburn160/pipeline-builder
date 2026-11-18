@@ -11,9 +11,9 @@ describe('isSystemOrgId', () => {
   });
 
   it('never matches on an org NAME — a tenant called "system" is not the system org', () => {
-    expect(isSystemOrgId('65f0000000000000000000aa', 'system')).toBe(false);
-    expect(isSystemOrgId(undefined, 'System')).toBe(false);
+    expect(isSystemOrgId('65f0000000000000000000aa')).toBe(false);
     expect(isSystemOrgId('system')).toBe(false);
+    expect(isSystemOrgId('System')).toBe(false);
   });
 
   it('is false for an absent id', () => {

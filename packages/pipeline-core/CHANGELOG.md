@@ -5,6 +5,10 @@ breaking changes in the public surface only.
 
 ## 5.0.0 (unreleased)
 
+### BREAKING CHANGES — Backward-compatibility shims removed.
+
+- `unwrapLookup` reads only the platform's `{ success, statusCode, data: { plugin, warnings, toolchain? } }` envelope. It no longer accepts `{ plugin }`, `{ data: Plugin }` or a bare plugin body. It also no longer strips `RESOLVED_PLUGIN_OMITTED_FIELDS` from the answer: `/plugins/lookup` already answers the slim record, and the client-side copy only covered a plugin service that still sent the full one. `toResolvedPlugin` is unchanged.
+
 ### BREAKING CHANGES — Explicit `exports` map; `./lib/*` removed; new `./runtime` entry.
 
 The package's public surface is now exactly its `exports` map. Anything not listed below cannot be imported (`ERR_PACKAGE_PATH_NOT_EXPORTED`).

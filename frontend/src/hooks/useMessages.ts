@@ -13,7 +13,7 @@ import { continueAfterStepUp } from '@/lib/api/errors';
 import type { MessageListFilters } from '@/lib/api/domains/messages';
 import type { Message, MessageType, MessagePriority } from '@/types';
 import { acquireLiveUnreadSource, setUnreadCount, useUnreadCount } from '@/lib/unread-count-store';
-import { useAsyncCallback } from './useAsync';
+import { useMutation } from './useMutation';
 import { useMessageNotifications } from './useMessageNotifications';
 import { usePolling } from './usePolling';
 
@@ -268,16 +268,18 @@ export function useMessages(orgId?: string | null, search = '', view: MessageVie
     }
   }, [sendMessageRequest]);
 
-  const { execute: replyRaw } = useAsyncCallback(async (threadId: string, content: string, attachmentIds?: string[]): Promise<Message | null> => {
-    const result = await api.replyToMessage(threadId, content, attachmentIds);
-    return result.data || null;
+  const { run: replyRun } = useMutation({
+    fn: async (threadId: string, content: string, attachmentIds?: string[]): Promise<Message | null> => {
+      const result = await api.replyToMessage(threadId, content, attachmentIds);
+      return result.data || null;
+    },
   });
 
   const replyToMessage = useCallback(async (threadId: string, content: string, attachmentIds?: string[]): Promise<Message | null> => {
-    const result = await replyRaw(threadId, content, attachmentIds);
+    const result = (await replyRun(threadId, content, attachmentIds)) ?? null;
     if (!result) setError('Failed to send reply');
     return result;
-  }, [replyRaw]);
+  }, [replyRun]);
 
   const markAsRead = useCallback(async (id: string) => {
     try {

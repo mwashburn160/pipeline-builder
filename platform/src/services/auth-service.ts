@@ -500,7 +500,10 @@ class AuthService {
       username = `${baseUsername}${suffix++}`;
     }
 
-    const newUser = new User({
+    // BUILT inside the transaction body, once per attempt: the body may be re-run
+    // on a transient error, and re-saving a document an aborted attempt already
+    // saved can be treated as an update of a row that never committed.
+    const buildUser = () => new User({
       username,
       email: userInfo.email.toLowerCase(),
       isEmailVerified: true,
@@ -516,7 +519,9 @@ class AuthService {
     // transaction (mirrors register()): a partial apply would leave an org with
     // no owner membership or no permission Roles. `save()` happens inside the
     // tx so the whole identity lands atomically.
+    let newUser!: UserDocument;
     await withMongoTransaction(async (session) => {
+      newUser = buildUser();
       // Same well-known-slug handling as register() (via the shared helper): if
       // the derived org name is 'system', create it as the system tenant. The
       // username-probe loop above already folded 'system' to a namespaced form

@@ -148,9 +148,7 @@ export async function fetchSupportEntitlement(orgId: string): Promise<SupportEnt
     }
     // Validate rather than trust: a shape change upstream must degrade, not
     // produce a case with `level: undefined` frozen onto it forever. The
-    // contract requires `canOpenCase` (boolean) and `level` (string | null) and
-    // DEFAULTS the rest — a platform that predates the upgrade answers without
-    // them, and reading that as "no premium" is correct and safe.
+    // contract requires every field platform's `SupportEntitlement` carries.
     if (!res.ok) {
       degraded('malformed', { orgId });
       return null; // NOT cached: a shape change is our bug, and masking it with a stale grant would hide a broken contract.

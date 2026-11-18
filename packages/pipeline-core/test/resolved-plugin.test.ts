@@ -5,8 +5,7 @@
  * Resolved plugin records come without the fields no pipeline build reads.
  * They travel to the CDK app whole, and a couple of 500-finding scan summaries once
  * pushed the props past what one environment variable can hold (E2BIG).
- * `unwrapLookup` drops them whatever the platform sent, so an older plugin
- * service that still answers the full record doesn't bring the size back.
+ * The plugin service's `/plugins/lookup` answers through {@link toResolvedPlugin}.
  */
 
 import { describe, it, expect } from '@jest/globals';
@@ -35,9 +34,11 @@ describe('resolved plugin records', () => {
     expect(full).toHaveProperty('scanSummary');
   });
 
-  it('unwrapLookup slims a full record from the platform', () => {
-    const { plugin } = unwrapLookup({ success: true, data: { plugin: full, warnings: [] } });
-    for (const field of RESOLVED_PLUGIN_OMITTED_FIELDS) expect(plugin).not.toHaveProperty(field);
-    expect(plugin).toMatchObject({ name: 'go', imageDigest: full.imageDigest });
+  it('unwrapLookup reads the plugin from the platform envelope only', () => {
+    const slim = toResolvedPlugin(full);
+    expect(unwrapLookup({ success: true, data: { plugin: slim, warnings: [] } }).plugin).toEqual(slim);
+    expect(unwrapLookup({ plugin: slim }).plugin).toBeNull();
+    expect(unwrapLookup({ data: slim }).plugin).toBeNull();
+    expect(unwrapLookup(slim).plugin).toBeNull();
   });
 });

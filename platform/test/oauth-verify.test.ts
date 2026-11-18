@@ -581,15 +581,15 @@ describe('PKCE on social sign-in', () => {
   });
 
   it('REFUSES a PKCE provider\'s exchange when the state carries no verifier', async () => {
-    // A state minted before PKCE shipped (in flight across the deploy) — the
-    // store is written directly to simulate it. No silent unprotected exchange.
+    // A state entry with no verifier — the store is written directly to
+    // simulate it. No silent unprotected exchange.
     const { createPendingStateStore } = await import('../src/helpers/pending-state-store.js');
     const store = createPendingStateStore<{ provider: string }>({
       prefix: 'oauth:state:', ttlMs: 600000, cleanupIntervalMs: 600000, maxEntries: 1000,
     });
-    await store.put('legacy-state', { provider: 'google' });
+    await store.put('no-verifier-state', { provider: 'google' });
 
-    await expect(verifyOAuthCode('google', 'code', 'legacy-state', browser())).rejects.toThrow(OAUTH_INVALID_STATE);
+    await expect(verifyOAuthCode('google', 'code', 'no-verifier-state', browser())).rejects.toThrow(OAUTH_INVALID_STATE);
   });
 
   it('omits PKCE for LinkedIn, whose ordinary endpoint rejects the extra params', async () => {

@@ -42,7 +42,7 @@ import { OrgAdminHome } from '../src/components/dashboard/OrgAdminHome';
 import { POOLING_TITLE } from '../src/components/quotas/constants';
 
 const org = (over: Partial<UserOrgMembership>): UserOrgMembership => ({
-  id: 'root', name: 'Root', role: 'owner', childOrgCount: 0, ...over,
+  id: 'root', name: 'Root', role: 'owner', childOrgCount: 0, roleNames: [], ...over,
 });
 
 describe('useOrgHierarchy', () => {

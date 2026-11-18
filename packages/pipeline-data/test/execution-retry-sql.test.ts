@@ -207,11 +207,6 @@ describe('RESUMED rows (accepted at ingest from now on)', () => {
     expect(await count()).toBeUndefined();
     expect(await reportingService.getSuccessRate(ORG, 'day', FROM, TO)).toEqual([]);
   });
-
-  it('a RESUMED row from an older Lambda (execution start time) changes no outcome', async () => {
-    await seed('exec-old', [...failedNoRetry, { type: 'PIPELINE', status: 'RESUMED', start: RUN_START }]);
-    expect((await list())[0]).toMatchObject({ status: 'failed', failing_stage: 'Build' });
-  });
 });
 
 describe('what must NOT change', () => {

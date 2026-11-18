@@ -65,7 +65,7 @@ const USAGE = {
   },
 };
 
-const SEATS = { orgId: 'acme', windowDays: 30, seatsHeld: 12, activeMembers: 9, unknownActivity: 0 };
+const SEATS = { orgId: 'acme', windowDays: 30, seatsHeld: 12, activeMembers: 9 };
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -158,29 +158,19 @@ describe('buildProfile — fails CLOSED on an incomplete read', () => {
   });
 });
 
-describe('buildProfile — UNKNOWN activity is not inactivity', () => {
-  it('marks a wholly unstamped account incomplete rather than reporting it dormant', async () => {
-    // `lastActiveAt` is absent for every membership predating the field, so an
-    // account whose members are all unstamped tells us nothing about engagement.
-    // Recording it as zero active would argue against exactly the offers it
-    // should receive — and the seat offer's disqualifier would fire wrongly.
-    mockFetchSeatActivity.mockResolvedValue({ orgId: 'acme', windowDays: 30, seatsHeld: 12, activeMembers: 0, unknownActivity: 12 });
+describe('buildProfile — seat activity', () => {
+  it('reports an account whose seats went unused as dormant, and complete', async () => {
+    mockFetchSeatActivity.mockResolvedValue({ orgId: 'acme', windowDays: 30, seatsHeld: 12, activeMembers: 0 });
     const p = await buildProfile(BASE);
-    expect(p.complete).toBe(false);
-    expect(p.incompleteReasons).toContain('seat_activity_unstamped');
+    expect(p.value).toMatchObject({ activeMembers: 0, seatsHeld: 12 });
+    expect(p.incompleteReasons).toEqual([]);
   });
 
-  it('accepts a PARTIALLY stamped account: some evidence is evidence', async () => {
-    mockFetchSeatActivity.mockResolvedValue({ orgId: 'acme', windowDays: 30, seatsHeld: 12, activeMembers: 4, unknownActivity: 5 });
+  it('carries partial activity through as read', async () => {
+    mockFetchSeatActivity.mockResolvedValue({ orgId: 'acme', windowDays: 30, seatsHeld: 12, activeMembers: 4 });
     const p = await buildProfile(BASE);
     expect(p.complete).toBe(true);
     expect(p.value).toMatchObject({ activeMembers: 4, seatsHeld: 12 });
-  });
-
-  it('does not flag an account with no seats at all', async () => {
-    mockFetchSeatActivity.mockResolvedValue({ orgId: 'acme', windowDays: 30, seatsHeld: 0, activeMembers: 0, unknownActivity: 0 });
-    const p = await buildProfile(BASE);
-    expect(p.incompleteReasons).not.toContain('seat_activity_unstamped');
   });
 });
 

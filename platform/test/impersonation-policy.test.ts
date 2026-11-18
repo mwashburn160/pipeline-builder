@@ -44,10 +44,10 @@ beforeEach(() => {
 
 describe('resolveImpersonationPolicy', () => {
   it('resolves an org document with NEITHER field to the documented defaults', () => {
-    // Exactly what `.lean()` returns for an org created before the field existed.
-    const legacyLeanDoc: { _id: string; name: string; impersonationPolicy?: unknown } = { _id: 'org-a', name: 'Org A' };
+    // Exactly what `.lean()` returns for an org that never chose a policy.
+    const untouchedLeanDoc: { _id: string; name: string; impersonationPolicy?: unknown } = { _id: 'org-a', name: 'Org A' };
 
-    expect(resolveImpersonationPolicy(legacyLeanDoc)).toEqual({
+    expect(resolveImpersonationPolicy(untouchedLeanDoc)).toEqual({
       policy: 'consent',
       allowSelfApproval: true,
     });
@@ -148,11 +148,11 @@ describe('resolveEffectiveImpersonationPolicy', () => {
   });
 
   it('a parent that never set a policy still binds its teams to the consent DEFAULT', async () => {
-    // The absent-field default and strictest-wins interact: a legacy parent with
-    // no stored policy resolves to `consent`, so its team's `open` does not stand.
+    // The absent-field default and strictest-wins interact: a parent with no
+    // stored policy resolves to `consent`, so its team's `open` does not stand.
     orgs({
-      'team': { impersonationPolicy: 'open', parentOrgId: 'legacy-parent' },
-      'legacy-parent': { name: 'predates the field' },
+      'team': { impersonationPolicy: 'open', parentOrgId: 'unset-parent' },
+      'unset-parent': { name: 'never chose a policy' },
     });
 
     await expect(resolveEffectiveImpersonationPolicy('team')).resolves.toMatchObject({ policy: 'consent' });

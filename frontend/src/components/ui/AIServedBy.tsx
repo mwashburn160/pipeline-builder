@@ -33,7 +33,7 @@ const tokensOf = (u?: AIUsageInfo | null) => (u ? (u.totalTokens ?? u.inputToken
  * that ACTUALLY served it (which can differ from the one picked — the org's own
  * key, or a platform failover), the failover when there was one, and what it cost
  * in tokens. Renders nothing when the response carried no `servedBy` (the Ask
- * agent drafting path, an older service).
+ * agent drafting path).
  *
  * The Ask agent turn also reports `toolUsage` (tokens its in-process tool
  * generations spent, added to the shown total) and `aiCalls` (the `aiCalls`

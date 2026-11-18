@@ -296,6 +296,122 @@ describe('ApiCore token refresh', () => {
   });
 });
 
+describe('ApiCore request(): a 401 that lands across an identity change', () => {
+  let fetchMock: jest.Mock<AnyFn>;
+  const NEW_SESSION = { accessToken: accessToken('u2', 3600, 'org-2') };
+  const IMPERSONATION = accessToken('target', 3600, 'org-t');
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    fetchMock = jest.fn<AnyFn>();
+    global.fetch = fetchMock as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+    localStorage.clear();
+    sessionStorage.clear();
+  });
+
+  const authOf = (call: unknown[]) =>
+    ((call[1] as RequestInit).headers as Record<string, string>).Authorization;
+
+  /**
+   * The first call 401s; the refresh it triggers is held open until `change`
+   * runs (an identity change), then lands — and is dropped, because the
+   * session generation moved. Every later non-refresh call answers `after`.
+   */
+  function scenario(core: ApiCore, change: () => void, after: Response = res(200, { success: true, data: { ok: 1 } })) {
+    let landRefresh!: (r: Response) => void;
+    let first = true;
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith('/api/auth/refresh')) {
+        return new Promise<Response>((r) => { landRefresh = (x) => { change(); r(x); }; });
+      }
+      if (first) { first = false; return Promise.resolve(res(401, { message: 'jwt expired' })); }
+      return Promise.resolve(after);
+    });
+    return () => landRefresh(res(200, { data: ROTATED }));
+  }
+
+  async function run<T>(p: Promise<T>, land: () => void): Promise<T> {
+    await jest.advanceTimersByTimeAsync(0);
+    land();
+    await jest.advanceTimersByTimeAsync(totalBackoff + 1);
+    return p;
+  }
+
+  it('retries a GET once with the token that is now current (new sign-in / org switch)', async () => {
+    const core = signedInCore();
+    const land = scenario(core, () => core.setTokens(NEW_SESSION));
+
+    await expect(run(core.request('/api/pipelines'), land)).resolves.toEqual({ success: true, data: { ok: 1 } });
+
+    const calls = fetchMock.mock.calls.filter(([u]) => !(u as string).endsWith('/api/auth/refresh'));
+    expect(calls).toHaveLength(2);
+    expect(authOf(calls[0])).toBe(`Bearer ${FIRST.accessToken}`);
+    expect(authOf(calls[1])).toBe(`Bearer ${NEW_SESSION.accessToken}`);
+    // The dropped refresh never displaced the new session.
+    expect(core.getAccessToken()).toBe(NEW_SESSION.accessToken);
+  });
+
+  it('retries a GET with the impersonation token when impersonation started mid-refresh', async () => {
+    const core = signedInCore();
+    const land = scenario(core, () => core.startImpersonation(IMPERSONATION));
+
+    await expect(run(core.request('/api/pipelines'), land)).resolves.toEqual({ success: true, data: { ok: 1 } });
+
+    const last = fetchMock.mock.calls[fetchMock.mock.calls.length - 1];
+    expect(authOf(last)).toBe(`Bearer ${IMPERSONATION}`);
+  });
+
+  it('retries only once: a second 401 under the current token surfaces as itself', async () => {
+    const core = signedInCore();
+    const land = scenario(core, () => core.setTokens(NEW_SESSION), res(401, { message: 'nope' }));
+
+    const err = await run(core.request('/api/pipelines').catch((e) => e), land);
+
+    expect((err as ApiError).statusCode).toBe(401);
+    // original + refresh + one retry — no second refresh, no loop.
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('never re-issues a mutation under a different identity: keeps the retryable refresh error', async () => {
+    const core = signedInCore();
+    const land = scenario(core, () => core.setTokens(NEW_SESSION));
+
+    const err = await run(core.request('/api/pipelines', { method: 'POST', body: '{}' }).catch((e) => e), land);
+
+    expect((err as ApiError).statusCode).toBe(503);
+    expect((err as ApiError).code).toBe(SESSION_REFRESH_UNAVAILABLE);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry after a logout: no token, the 401 surfaces', async () => {
+    const core = signedInCore();
+    const land = scenario(core, () => core.clearTokens());
+
+    const err = await run(core.request('/api/pipelines').catch((e) => e), land);
+
+    expect((err as ApiError).statusCode).toBe(401);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(core.getAccessToken()).toBeNull();
+  });
+
+  it('keeps today\'s behaviour when the token did not change (a plain transient refresh failure)', async () => {
+    const core = signedInCore();
+    // Bump the generation without changing the token: the refresh is dropped,
+    // but there is no newer credential to retry with.
+    const land = scenario(core, () => core.setTokens(FIRST));
+
+    const err = await run(core.request('/api/pipelines').catch((e) => e), land);
+
+    expect((err as ApiError).code).toBe(SESSION_REFRESH_UNAVAILABLE);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('ApiCore.restoreSession', () => {
   let fetchMock: jest.Mock<AnyFn>;
 

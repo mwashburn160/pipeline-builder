@@ -53,7 +53,7 @@ function parseModelList(raw: string): AIModelInfo[] {
  * Resolve the OpenAI-compatible (local / self-hosted) provider from env, or `null`
  * when no endpoint is configured. Enabled by `OPENAI_COMPATIBLE_BASE_URL`; the model
  * list comes from `OPENAI_COMPATIBLE_MODELS` (comma list of `id[|Display Name]`),
- * falling back to `OPENAI_COMPATIBLE_MODEL`, then a generic `local` id. The display
+ * defaulting to a generic `local` id. The display
  * name is overridable via `OPENAI_COMPATIBLE_NAME`.
  *
  * @returns Provider info for the configured local endpoint, or null if unset
@@ -61,7 +61,7 @@ function parseModelList(raw: string): AIModelInfo[] {
 export function getOpenAICompatibleProvider(): AIProviderInfo | null {
   const baseURL = process.env.OPENAI_COMPATIBLE_BASE_URL;
   if (!baseURL) return null;
-  const raw = process.env.OPENAI_COMPATIBLE_MODELS ?? process.env.OPENAI_COMPATIBLE_MODEL ?? 'local|Local model';
+  const raw = process.env.OPENAI_COMPATIBLE_MODELS ?? 'local|Local model';
   const models = parseModelList(raw);
   return {
     id: OPENAI_COMPATIBLE_PROVIDER_ID,

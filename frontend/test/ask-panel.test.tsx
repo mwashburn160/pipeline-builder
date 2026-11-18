@@ -298,9 +298,9 @@ describe('AskPanel model + repository controls', () => {
   it('offers the ask service\'s providers and models', async () => {
     render(<AskPanel onClose={jest.fn<AnyFn>()} />);
     const provider = await screen.findByLabelText('Provider');
-    expect(within(provider).getByRole('option', { name: /Anthropic/ })).toBeInTheDocument();
-    expect(within(await screen.findByLabelText('Model')).getAllByRole('option').map((o) => o.textContent))
-      .toEqual(['Claude X', 'Claude Y']);
+    expect(await within(provider).findByRole('option', { name: /Anthropic/ })).toBeInTheDocument();
+    const model = await screen.findByLabelText('Model');
+    await waitFor(() => expect(within(model).getAllByRole('option').map((o) => o.textContent)).toEqual(['Claude X', 'Claude Y']));
   });
 
   it('sends the chosen model with the turn', async () => {

@@ -12,7 +12,6 @@ import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { useMutation } from '../src/hooks/useMutation';
-import { useAsyncCallback } from '../src/hooks/useAsync';
 import { useFetch } from '../src/hooks/useFetch';
 import { StepUpRequiredError } from '../src/lib/api/errors';
 import { invalidate, queryTags } from '../src/lib/api-cache';
@@ -362,29 +361,3 @@ describe('getTagEpoch', () => {
   });
 });
 
-describe('useAsyncCallback (adapter over useMutation)', () => {
-  it('keeps the execute/loading/error/clearError shape, with null on failure', async () => {
-    const fn = jest.fn<(n: number) => Promise<number>>().mockRejectedValueOnce(new Error('fail')).mockResolvedValueOnce(7);
-    const { result } = renderHook(() => useAsyncCallback(fn));
-    let out: number | null = 0;
-    await act(async () => { out = await result.current.execute(1); });
-    expect(out).toBeNull();
-    expect(result.current.error).toBe('fail');
-    act(() => result.current.clearError());
-    expect(result.current.error).toBeNull();
-    await act(async () => { out = await result.current.execute(2); });
-    expect(out).toBe(7);
-    expect(result.current.loading).toBe(false);
-  });
-
-  it('inherits the in-flight lock', async () => {
-    const d = deferred<number>();
-    const fn = jest.fn<() => Promise<number>>().mockReturnValue(d.promise);
-    const { result } = renderHook(() => useAsyncCallback(fn));
-    act(() => { void result.current.execute(); void result.current.execute(); });
-    expect(fn).toHaveBeenCalledTimes(1);
-    expect(result.current.loading).toBe(true);
-    await act(async () => { d.resolve(1); await d.promise; });
-    expect(result.current.loading).toBe(false);
-  });
-});

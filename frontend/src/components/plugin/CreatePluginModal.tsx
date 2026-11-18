@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useId } from 'react';
-import { useAsyncCallback } from '@/hooks/useAsync';
+import { useMutation } from '@/hooks/useMutation';
 import { Upload, CheckCircle } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { formatBytes } from '@/lib/format';
@@ -92,8 +92,8 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
   // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run when buildStatus changes; callbacks are stable.
   }, [buildStatus]);
 
-  const { execute: uploadAsync, loading, error: uploadError, clearError } = useAsyncCallback(
-    async (f: File, a: Visibility, edits: PluginCatalogEdits, cls: BuildClass, size: BuildSize) => {
+  const upload = useMutation({
+    fn: async (f: File, a: Visibility, edits: PluginCatalogEdits, cls: BuildClass, size: BuildSize) => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), PLUGIN_BUILD_TIMEOUT_MS);
       try {
@@ -107,8 +107,9 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
         clearTimeout(timeoutId);
       }
     },
-  );
-  const error = validationError || uploadError;
+  });
+  const loading = upload.pending;
+  const error = validationError || upload.error;
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0];
@@ -138,7 +139,7 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
     setSuccess(null);
     setRequestId(null);
 
-    const response = await uploadAsync(file, access, catalogEdits, buildClass, buildSize);
+    const response = await upload.run(file, access, catalogEdits, buildClass, buildSize);
 
     if (response) {
       if (response.statusCode === 202 && response.data?.requestId) {
@@ -149,8 +150,8 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
         setCatalogEdits({});
         if (fileInputRef.current) fileInputRef.current.value = '';
       } else if (response.success) {
-        // Fallback: synchronous response (shouldn't happen with queue, but
-        // some deployments may bypass it).
+        // Synchronous 201: a metadata-only plugin (no image to build) is
+        // registered without going through the build queue.
         setSuccess('Plugin uploaded successfully!');
         setFile(null);
         setCatalogEdits({});
@@ -171,7 +172,7 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
   /** Shared reset run when switching tabs — keeps the inactive tab clean. */
   const resetUploadState = () => {
     setValidationError(null);
-    clearError();
+    upload.reset();
     setSuccess(null);
     setFile(null);
     setCatalogEdits({});

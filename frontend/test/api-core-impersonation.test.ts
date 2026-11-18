@@ -140,13 +140,6 @@ describe('ApiCore.startImpersonation', () => {
     expect(tokenOf(core)).toBe(IMPERSONATION_TOKEN);
     expect(core.isImpersonating()).toBe(true);
   });
-
-  it('removes a token an older build left in sessionStorage', () => {
-    sessionStorage.setItem('impersonation.accessToken', IMPERSONATION_TOKEN);
-    const core = new ApiCore();
-    expect(sessionStorage.getItem('impersonation.accessToken')).toBeNull();
-    expect(core.isImpersonating()).toBe(false);
-  });
 });
 
 describe('ApiCore.endImpersonation', () => {

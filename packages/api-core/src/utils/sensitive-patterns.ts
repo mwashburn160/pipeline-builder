@@ -16,8 +16,9 @@
  * secret is still in Loki and still matchable, so a user can search a candidate
  * value and learn from the hit that it is present, even though the line renders
  * `[REDACTED]`. Repeat that and search becomes an oracle. Masking therefore has
- * to happen before storage for anything the search path can match; L4 exists to
- * cover history written before L3 shipped, and as defense in depth.
+ * to happen before storage for anything the search path can match; L4 exists as
+ * defense in depth (a line promtail did not ingest, a pattern added after a line
+ * was stored).
  *
  * Because L3 runs inside promtail (Go / RE2) and L1/L2/L4 run in Node, each
  * pattern carries BOTH forms and a generator emits the promtail YAML from this

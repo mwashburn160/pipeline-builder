@@ -57,9 +57,8 @@ export interface UserOrganizationData {
    * those two accounts apart.
    *
    * Stamped at most once a day per membership (see `stampMembershipActivity`),
-   * so it costs no write on the hot path. Absent means "not since this field
-   * shipped", which the profile reads as unknown rather than as inactive —
-   * treating a missing stamp as idle would suppress every offer for a period.
+   * so it costs no write on the hot path. Absent means the member has not used
+   * the seat since joining, which counts as inactive.
    */
   lastActiveAt?: Date;
   /** Present only on memberships an IdP's SCIM client has touched. */
@@ -95,10 +94,10 @@ const userOrganizationSchema = new Schema<UserOrganizationData>(
       type: Date,
       default: Date.now,
     },
-    // No default: absent means "not seen since this field shipped", which the
-    // offers profile reads as UNKNOWN. Defaulting it to now would mark every
-    // existing membership active without evidence, which is the direction that
-    // argues FOR a seat offer the account may not want.
+    // No default: the stamp is evidence of USE, and creating a membership is not
+    // use (an admin add, an invitation, SCIM or domain-join provisioning all
+    // seat someone who may never sign in). Absent = not used since joining =
+    // inactive. The first session in the org stamps it.
     lastActiveAt: { type: Date, default: undefined },
     // SCIM. Absent until an IdP's SCIM client writes the membership; no
     // sub-document default, so a membership created by any other path stays

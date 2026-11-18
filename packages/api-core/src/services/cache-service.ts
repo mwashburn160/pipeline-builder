@@ -46,7 +46,8 @@ interface CacheEntry<T> {
  * mutating a "cached" object silently corrupts the shared cache.
  *
  * Primitives are returned as-is. Prefers the structured-clone algorithm; falls
- * back to a JSON round-trip on older runtimes or exotic values.
+ * back to a JSON round-trip for values it rejects (functions, class instances
+ * with non-cloneable members).
  */
 function cloneValue<T>(value: T): T {
   if (value === null || typeof value !== 'object') return value;

@@ -42,7 +42,7 @@ const SAMPLES: Record<keyof typeof PLATFORM_INTERNAL, ContractSample> = {
   offerSeatActivity: {
     params: { orgId: ORG },
     query: { windowDays: 30 },
-    response: { seatActivity: { orgId: ORG, windowDays: 30, seatsHeld: 5, activeMembers: 3, unknownActivity: 1 } },
+    response: { seatActivity: { orgId: ORG, windowDays: 30, seatsHeld: 5, activeMembers: 3 } },
   },
   reportAuthority: {
     params: { orgId: ORG, userId: 'user_1' },
@@ -156,8 +156,7 @@ describe('platform internal endpoint contracts', () => {
   it('normalizes replies the way their clients always read them', () => {
     expect(PLATFORM_INTERNAL.orgAIAccess.response.parse({ aiEnabled: true, providers: ['anthropic', 7] }))
       .toEqual({ aiEnabled: true, providers: ['anthropic'] });
-    expect(PLATFORM_INTERNAL.supportEntitlement.response.parse({ level: null, canOpenCase: false }))
-      .toEqual({ level: null, premium: false, premiumLimit: 0, limit: 0, used: 0, ownOrgContacts: 0, canDesignate: false, canOpenCase: false });
+    expect(PLATFORM_INTERNAL.supportEntitlement.response.safeParse({ level: null, canOpenCase: false }).success).toBe(false);
     expect(PLATFORM_INTERNAL.offerSeatActivity.query!.parse({ windowDays: '9999' })).toEqual({ windowDays: 365 });
     expect(PLATFORM_INTERNAL.offerSeatActivity.query!.parse({ windowDays: 'abc' })).toEqual({ windowDays: 30 });
   });

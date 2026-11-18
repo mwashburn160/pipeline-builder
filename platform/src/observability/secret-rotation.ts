@@ -4,7 +4,7 @@
 /**
  * Platform's `secret_rotation_previous_set` probes — the secrets only platform
  * holds. api-core registers `SERVICE_SIGNING_KEY` for every service (its own
- * internal-token key); these three are platform-only:
+ * internal-token key); these two are platform-only:
  *
  *   - `TOKEN_SIGNING_KEY` — the ES256 user-token key. There is no `*_PREVIOUS`
  *     env value to read here: the overlap is a RETIRING `kid` still published in
@@ -15,11 +15,8 @@
  *     accepted (decrypt-only) until `scripts/reencrypt-secrets.js` has rewritten
  *     every stored blob under the new one.
  *
- * (`ALERT_WEBHOOK_INSTANCE_TOKEN`, the Alertmanager relay bearer, moved to
- * ops-center with the relay.)
- *
- * `REFRESH_TOKEN_SECRET` is gone: refresh tokens are user tokens now, signed
- * with (and rotated by) the same ES256 key as everything else.
+ * Refresh tokens are user tokens, signed with (and rotated by) the same ES256
+ * key as everything else, so they need no probe of their own.
  *
  * Registered at startup (index.ts) alongside the gauge. See
  * docs/runbooks/secret-rotation.md.

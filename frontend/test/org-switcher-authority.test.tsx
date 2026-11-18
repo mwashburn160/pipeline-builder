@@ -75,7 +75,7 @@ describe('OrgSwitcher — a row names the Roles, not the coarse role', () => {
     expect(screen.getByRole('button', { name: /Organization: Own Org/ })).toBeInTheDocument();
   });
 
-  it('falls back to `role` when the org has no Roles assigned (or an older cached payload)', () => {
+  it('falls back to `role` when the org has no Roles assigned', () => {
     mockAuth = {
       user: { organizationId: 'own' },
       organizations: [org({ roleNames: [] }), org({ id: 'acme', name: 'Acme', role: 'admin' })],

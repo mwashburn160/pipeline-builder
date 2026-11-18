@@ -47,8 +47,8 @@ describe('PluginVersions default-status dot', () => {
       <PluginVersions
         loading={false}
         pluginVersions={[
-          { name: 'alpha', version_count: 1, latest_version: '1.0.0', has_default: true },
-          { name: 'beta', version_count: 1, latest_version: '0.1.0', has_default: false },
+          { name: 'alpha', version_count: 1, latest_version: '1.0.0', has_default: true, managed: false },
+          { name: 'beta', version_count: 1, latest_version: '0.1.0', has_default: false, managed: false },
         ]}
       />,
     );

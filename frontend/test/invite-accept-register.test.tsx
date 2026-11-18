@@ -7,9 +7,7 @@
  * Registering with the invitation token now JOINS the inviting org server-side
  * (POST /auth/register accepts the invitation in the same transaction and
  * creates no org of its own). The page must then not accept a second time —
- * that call would answer "already accepted". Against an older backend, which
- * created an org and left the accept to the page, `register` reports
- * `invitationAccepted: false` and the page still accepts.
+ * that call would answer "already accepted".
  */
 
 import { it, expect, jest, beforeEach } from '@jest/globals';
@@ -59,21 +57,13 @@ async function submitRegistration() {
 }
 
 it('registers WITH the invitation token, and does not accept a second time once the backend has', async () => {
-  mockRegister.mockResolvedValue({ invitationAccepted: true });
+  mockRegister.mockResolvedValue(undefined);
 
   await submitRegistration();
 
   expect(mockRegister).toHaveBeenCalledWith('newbie', 'new@example.com', 'Passw0rdPassw0rd', undefined, undefined, { redirect: false, invitationToken: 'tok-1' });
   await waitFor(() => expect(mockRefreshUser).toHaveBeenCalled());
   expect(mockApi.acceptInvitation).not.toHaveBeenCalled();
-});
-
-it('still accepts when an older backend left that to the page', async () => {
-  mockRegister.mockResolvedValue({ invitationAccepted: false });
-
-  await submitRegistration();
-
-  await waitFor(() => expect(mockApi.acceptInvitation).toHaveBeenCalledWith('tok-1'));
 });
 
 function oauthOnlyInvite(acceptProviders: string[]) {

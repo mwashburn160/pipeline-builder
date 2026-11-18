@@ -235,8 +235,9 @@ export function gatedFixableCount(
  *
  * A summary carries the digest of the image it described. A version rebuilt on
  * a patched base is a different artifact, so a summary naming another digest is
- * about something else. But a summary may also carry NO digest (an older row),
- * and that is where the two callers legitimately part company:
+ * about something else. But either side may carry NO digest to compare (the
+ * version record has none, or the stored jsonb is malformed), and that is where
+ * the two callers legitimately part company:
  *
  *  - {@link summaryDescribes} — "can this summary be SHOWN to describe this
  *    image?" Unknown counts as no. The publish gate asks this, because its

@@ -471,17 +471,6 @@ export function storageGateReason(d: StorageGateDecision): string {
 const STORAGE_FAIL_OPEN = (process.env.QUOTA_STORAGE_FAIL_OPEN || '').toLowerCase() === 'true';
 
 /**
- * When true the push gate decides against the ACCOUNT's total storage (the pool
- * root's whole subtree) instead of the pushing org's own namespace — making a
- * tier's storage figure an account budget rather than a per-namespace ceiling.
- *
- * Off by default because it can newly refuse a push that works today for a
- * multi-team account sitting above its true tier figure. See the note at the
- * decision site for the measure → notify → enforce sequence.
- */
-const ACCOUNT_BUDGET = (process.env.QUOTA_STORAGE_ACCOUNT_BUDGET || '').toLowerCase() === 'true';
-
-/**
  * Compare an org's measured registry storage against its `storageBytes` quota.
  * The decision's `overBudget` is true when the push should be DENIED.
  *
@@ -533,23 +522,17 @@ async function isStorageOverBudget(orgId: string): Promise<StorageGateDecision> 
     // `automationCalls` does.
     const enforced = enforcedQuotaLimit('storageBytes', limit);
 
-    // THE ACCOUNT BUDGET. The quota service's status now carries the whole
-    // pool's measured storage against the pooled cap, so when this is on the
-    // gate decides against the ACCOUNT's total rather than this one namespace.
+    // THE ACCOUNT BUDGET. The quota service's status carries the whole pool's
+    // measured storage against the pooled cap, so the gate decides against the
+    // ACCOUNT's total rather than this one namespace. Storage would otherwise be
+    // the only quota without the joint-overshoot guarantee pooling exists to
+    // give: a five-team Pro account could hold 5 × 25 GB against a headline
+    // 25 GB, and a single Storage Pack would raise every namespace's ceiling.
     //
-    // Why it is a flag and not simply the behaviour: storage is the only quota
-    // without the joint-overshoot guarantee pooling exists to give — a five-team
-    // Pro account could hold 5 × 25 GB against a headline 25 GB, and a single
-    // $19.99 Storage Pack raised every namespace's ceiling at once. Closing that
-    // is right, and it can newly refuse a push that works today. So the sequence
-    // that has to hold is measure → notify → enforce, and this flag is the
-    // last step: the account total is already measured and already reported on
-    // the dashboard, and the sweep already notifies at 80%/100% against it.
-    // Turn this on once affected accounts have had a reminder window to act.
-    //
-    // For a FLAT org (no teams) the account total is its own namespace, so this
-    // changes nothing for the great majority.
-    if (ACCOUNT_BUDGET && typeof status.used === 'number' && status.used > 0) {
+    // For a FLAT org (no teams) the account total is its own namespace. A
+    // `used` of 0 is what a quota service that could not measure returns, so
+    // it falls through to the namespace walk below rather than reading as empty.
+    if (typeof status.used === 'number' && status.used > 0) {
       const decision: StorageGateDecision = {
         overBudget: status.used >= enforced,
         reason: status.used >= enforced ? 'over_budget' : 'under_budget',

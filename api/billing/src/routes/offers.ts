@@ -385,12 +385,10 @@ export function createOfferRoutes(): Router {
     ...requireSystemOrgPermission('subscriptions:manage'),
     audited('billing.offer.exclusion.cleared'),
     withRoute(async ({ req, res, ctx, userId }) => {
-      const raw = getParam(req.params, 'orgId')?.trim();
-      const target = normalizeOrgId(raw);
-      if (!raw || !target) return sendBadRequest(res, 'orgId is required', ErrorCode.MISSING_REQUIRED_FIELD);
-      // Canonical id, as the PUT now stores it — plus the exact raw spelling, so
-      // a row written with its URL casing before normalization can still be lifted.
-      const removed = await OfferExclusion.findOneAndDelete({ orgId: { $in: [...new Set([target, raw])] } }).lean();
+      // Canonical id, as the PUT stores it.
+      const target = normalizeOrgId(getParam(req.params, 'orgId'));
+      if (!target) return sendBadRequest(res, 'orgId is required', ErrorCode.MISSING_REQUIRED_FIELD);
+      const removed = await OfferExclusion.findOneAndDelete({ orgId: target }).lean();
       if (!removed) return sendError(res, 404, 'That account is not excluded', ErrorCode.NOT_FOUND);
       recordAudit({
         action: 'billing.offer.exclusion.cleared',

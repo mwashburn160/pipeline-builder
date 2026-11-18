@@ -46,9 +46,9 @@ const ROLE_CHIPS = 2;
  * alone. A row labelled "member" for somebody holding a `Release Manager` Role
  * names the one field that grants nothing.
  *
- * Three fallbacks, in order: an inherited-authority row has no membership and so
+ * Two fallbacks, in order: an inherited-authority row has no membership and so
  * no Roles (the authority is the parent's); an org whose Roles are not assigned
- * yet, or a cached payload from before `roleNames` existed, still has `role`.
+ * yet still has `role`.
  */
 function authorityLabel(org: UserOrgMembership, isTeamRow: boolean): { text: string; title?: string } {
   if (org.viaAncestor) {
@@ -57,7 +57,7 @@ function authorityLabel(org: UserOrgMembership, isTeamRow: boolean): { text: str
       title: 'Admin access through the parent organization — not a member of this team',
     };
   }
-  const roles = org.roleNames ?? [];
+  const roles = org.roleNames;
   if (roles.length === 0) return { text: isTeamRow ? 'team' : org.role };
   if (roles.length <= ROLE_CHIPS) return { text: roles.join(' · '), title: roles.join(', ') };
   return {

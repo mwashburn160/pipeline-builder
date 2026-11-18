@@ -54,6 +54,8 @@ const { fetchSupportEntitlement } = await import('../src/services/support-entitl
 
 const GRANT = {
   level: 'support_premium',
+  premium: false,
+  premiumLimit: 0,
   limit: 5,
   used: 3,
   ownOrgContacts: 2,

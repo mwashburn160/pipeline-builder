@@ -281,47 +281,68 @@ export const login = withController('Login', async (req, res) => {
     });
   };
 
-  const user = await authService.findByCredentials(body.identifier, body.password);
-  if (!user) {
-    // Emit a failed-login audit + counter so brute-force / credential-stuffing
-    // attempts are visible to security teams + the Platform Overview
-    // dashboard. Captures `identifier` (not the password) — same shape
-    // as a typical SIEM auth-failure signal.
-    // When the identifier names a real account, file the failure against it
-    // (and its org) so a guessing run shows on that account's trail.
-    const named = await authService.resolveIdentifier(body.identifier).catch(() => null);
-    if (named) {
-      // A locked account answers 429 for a wrong password exactly as for a right
-      // one; otherwise the failure counts toward the lockout.
-      try {
-        await lockout.assertPasswordNotLocked(named.userId);
-      } catch (err) {
-        if (err instanceof lockout.PasswordLockedOutError) return refuseLocked(err, named.userId, named.orgId);
-        throw err;
-      }
-      await lockout.recordPasswordFailure(named.userId);
+  // RESERVE BEFORE COMPARING. For a real account, an attempt is reserved
+  // atomically BEFORE the password is checked, and only while the account is not
+  // locked and has attempts left (failures + checks in flight < the limit). So a
+  // burst of parallel guesses runs at most `maxFailures` password checks, and a
+  // right guess inside a burst past the limit is refused unchecked. A refusal is
+  // the lockout's own 429. An unknown identifier reserves nothing (there is no
+  // account to lock) and falls through to the same 401 as before.
+  const named = await authService.resolveIdentifier(body.identifier);
+  let attempt: Awaited<ReturnType<typeof lockout.reservePasswordAttempt>> | null = null;
+  if (named) {
+    try {
+      attempt = await lockout.reservePasswordAttempt(named.userId);
+    } catch (err) {
+      if (err instanceof lockout.PasswordLockedOutError) return refuseLocked(err, named.userId, named.orgId);
+      throw err;
     }
-    audit(req, 'user.login.failed', {
-      targetType: 'user',
-      ...(named ? { targetId: named.userId, ...(named.orgId ? { affectedOrgId: named.orgId } : {}) } : {}),
-      outcome: 'failure',
-      details: { identifier: body.identifier, method: 'password', reason: named ? 'bad-password' : 'unknown-identifier' },
-    });
-    incCounter('platform_logins_failed_total');
-    return sendError(res, 401, 'Invalid credentials');
   }
 
-  // The right password does not lift a live lockout — that is the point of it.
+  // Set once the reservation is handed to the call that settles it; until then
+  // an error (a failed compare / lookup) gives it straight back.
+  let settled = false;
+  let user: Awaited<ReturnType<typeof authService.findByCredentials>>;
   try {
-    await lockout.assertPasswordNotLocked(user._id.toString());
-  } catch (err) {
-    if (err instanceof lockout.PasswordLockedOutError) {
-      return refuseLocked(err, user._id.toString(), user.lastActiveOrgId?.toString());
+    user = await authService.findByCredentials(body.identifier, body.password);
+    if (!user) {
+      // Emit a failed-login audit + counter so brute-force / credential-stuffing
+      // attempts are visible to security teams + the Platform Overview
+      // dashboard. Captures `identifier` (not the password) — same shape
+      // as a typical SIEM auth-failure signal.
+      // When the identifier names a real account, file the failure against it
+      // (and its org) so a guessing run shows on that account's trail.
+      if (attempt) {
+        settled = true;
+        // The reservation becomes the failure, in one atomic update.
+        await lockout.recordPasswordFailure(attempt.userId, attempt.reservationId);
+      }
+      audit(req, 'user.login.failed', {
+        targetType: 'user',
+        ...(named ? { targetId: named.userId, ...(named.orgId ? { affectedOrgId: named.orgId } : {}) } : {}),
+        outcome: 'failure',
+        details: { identifier: body.identifier, method: 'password', reason: named ? 'bad-password' : 'unknown-identifier' },
+      });
+      incCounter('platform_logins_failed_total');
+      return sendError(res, 401, 'Invalid credentials');
     }
-    throw err;
+
+    // The password was right: drop the reservation and end the failure run —
+    // unless a lockout is live after all, which the right password never lifts.
+    // (No reservation only when the account appeared between the two lookups —
+    // reserve for it now so the same rules apply.)
+    settled = true;
+    try {
+      await lockout.completePasswordAttempt(attempt ?? await lockout.reservePasswordAttempt(user._id.toString()));
+    } catch (err) {
+      if (err instanceof lockout.PasswordLockedOutError) {
+        return refuseLocked(err, user._id.toString(), user.lastActiveOrgId?.toString());
+      }
+      throw err;
+    }
+  } finally {
+    if (attempt && !settled) await lockout.releasePasswordAttempt(attempt).catch(() => undefined);
   }
-  // The password was right: the failure run is over.
-  await lockout.clearPasswordFailures(user._id.toString());
 
   // Post-credential gate: closes the username-login bypass of the email-identifier
   // early gate above — a covered account can't password-login by username either.
@@ -429,8 +450,8 @@ export const refresh = withController('Refresh', async (req, res) => {
 
   const user = await authService.findForTokenIssue(req.user.sub);
   // The slot's own `activeOrgId` wins inside `renewSessionTokens`; this is the
-  // fallback for a slot that predates it (`requireRefreshSession` resolved it
-  // from the slot, else lastActiveOrgId).
+  // fallback for a slot opened outside any org (`requireRefreshSession`
+  // resolved it from the slot, else lastActiveOrgId).
   let tokens;
   try {
     tokens = user && await renewSessionTokens(
@@ -617,7 +638,7 @@ export const switchOrg = withController('Switch org', async (req, res) => {
   // CLI's stored token) is unchanged and now renews into this org.
   sendSuccess(res, 200, { accessToken: switchedTo.accessToken, expiresIn: switchedTo.expiresIn });
 }, {
-  // A caller whose token predates the identity claims can't have its assurance
+  // A caller token without the identity claims can't have its assurance
   // inherited — fail closed and make it re-authenticate.
   [SESSION_AUTH_MISSING]: { status: 401, message: 'Session cannot be re-issued — please sign in again' },
   // A machine slot past its fixed end.

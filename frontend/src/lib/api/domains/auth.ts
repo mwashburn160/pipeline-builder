@@ -130,19 +130,19 @@ export function authApi(core: ApiCore) {
     getConfig: async () => {
       return core.request<ApiResponse<{
         serviceFeatures: Record<string, boolean>;
-        supportAlias?: string;
-        supportAliases?: string[];
-        deployTarget?: string;
+        supportAlias: string;
+        supportAliases: string[];
+        deployTarget: string;
         /** Whether the gateway serves the operator consoles (ADMIN_CONSOLES_ENABLED). */
-        adminConsolesEnabled?: boolean;
+        adminConsolesEnabled: boolean;
         /** Which assistant surface the dashboard offers (ASK_UI_MODE):
          *  'ask-agent' (default) or 'help-topics'. */
-        askUiMode?: AskUiMode;
+        askUiMode: AskUiMode;
         /** Effective per-tier quota presets (honors PLAN_TIER_* env overrides).
          *  Keyed by tier → the four displayed flow dimensions. */
-        tierPresets?: Record<string, { plugins: number; pipelines: number; apiCalls: number; automationCalls: number; aiCalls: number }>;
-        /** CLI package name + docs link (CLI_NPM_PACKAGE / CLI_NPM_URL). */
-        cli?: { npmPackage?: string; npmUrl?: string };
+        tierPresets: Record<string, { plugins: number; pipelines: number; apiCalls: number; automationCalls: number; aiCalls: number }>;
+        /** CLI package name + docs link (CLI_NPM_PACKAGE / CLI_NPM_URL; the server derives the url). */
+        cli: { npmPackage: string; npmUrl: string };
       }>>('/api/config');
     },
 
@@ -325,7 +325,7 @@ export function authApi(core: ApiCore) {
 
     /** List all organizations the current user belongs to. */
     getUserOrganizations: async () => {
-      return core.request<ApiResponse<{ organizations: Array<{ organizationId: string; organizationName: string; slug?: string; role: string; joinedAt: string; parentOrgId?: string; parentOrgName?: string; tier?: string; childOrgCount: number; viaAncestor?: boolean; roleNames?: string[]; requiresMfa?: boolean }> }>>('/api/user/organizations');
+      return core.request<ApiResponse<{ organizations: Array<{ organizationId: string; organizationName: string; slug?: string; role: string; joinedAt: string; parentOrgId?: string; parentOrgName?: string; tier?: string; childOrgCount: number; viaAncestor?: boolean; roleNames: string[]; requiresMfa?: boolean }> }>>('/api/user/organizations');
     },
 
     /**

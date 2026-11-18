@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react';
 import { useIsDirty } from '@/hooks/useIsDirty';
 import { Send, Paperclip, X } from 'lucide-react';
 import type { MessageType, MessagePriority, MessageAttachment } from '@/types';
-import { useAsyncCallback } from '@/hooks/useAsync';
 import { useMutation } from '@/hooks/useMutation';
 import { useFeatureGate } from '@/hooks/useFeatureGate';
 import { Modal } from '@/components/ui/Modal';
@@ -30,7 +29,7 @@ interface ComposeModalProps {
   onClose: () => void;
   /** Callback to send the composed message; resolves to `true` on success
    *  and `false` on a recoverable failure (the modal stays open so the user
-   *  can edit and retry). Throws bubble up to `useAsyncCallback`'s `error`. */
+   *  can edit and retry). Throws surface as the send mutation's `error`. */
   onSend: (data: {
     recipientOrgId: string;
     recipientUserId?: string;
@@ -167,9 +166,9 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
     setIsAnnouncement(false);
   }, [isOpen]);
 
-  const { execute: sendAsync, loading: sending, error: sendError } = useAsyncCallback(
-    (data: Parameters<typeof onSend>[0]) => onSend(data),
-  );
+  const send = useMutation({ fn: (data: Parameters<typeof onSend>[0]) => onSend(data) });
+  const sending = send.pending;
+  const sendError = send.error;
 
   const error = validationError || sendError || '';
 
@@ -269,7 +268,7 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
         ? recipientUserId.trim()
         : undefined;
 
-    const result = await sendAsync({
+    const result = await send.run({
       // Carried for the non-support path only: the support route ignores it
       // (and the client drops it), because the server decides the recipient.
       recipientOrgId: recipient,
@@ -285,10 +284,10 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
       ...(attachments.length ? { attachmentIds: attachments.map((a) => a.id) } : {}),
     });
 
-    // useAsyncCallback wraps a thrown rejection by surfacing it via `error`
-    // and returning `null` from `execute`. Treat both `null` (thrown) and
-    // an explicit `false` from `onSend` as "stay open"; only a truthy
-    // boolean closes the modal and resets the form.
+    // `run` surfaces a thrown rejection via `error` and resolves `undefined`.
+    // Treat both `undefined` (thrown / step-up / unmounted) and an explicit
+    // `false` from `onSend` as "stay open"; only `true` closes the modal and
+    // resets the form.
     if (result === true) {
       setContent('');
       setRecipientOrgId(supportAlias);

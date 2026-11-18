@@ -37,8 +37,6 @@ export { idpGroupMappingService } from './idp-group-mapping-service.js';
 export type { IdpGroupMappingDto } from './idp-group-mapping-service.js';
 export { assertJitSeatAvailable, provisionJitMembership } from './sso-jit-service.js';
 export type { JitProvisionResult, JitSkipReason } from './sso-jit-service.js';
-export { backfillRbacRoles } from './rbac-backfill.js';
-export type { RbacBackfillSummary } from './rbac-backfill.js';
 export { impersonationService, BREAKGLASS_CAP, BREAKGLASS_WINDOW_DAYS } from './impersonation-service.js';
 export type { FourEyesReason } from './impersonation-service.js';
 export type { CreateImpersonationRequestInput } from './impersonation-service.js';

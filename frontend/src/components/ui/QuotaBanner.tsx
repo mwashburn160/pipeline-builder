@@ -121,9 +121,8 @@ export function QuotaBanner({ className = '' }: QuotaBannerProps = {}) {
       <Icon className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
       {/* The PRESSURE's period, not the org's: the banner names whichever
           dimension is most pressured, and that dimension's window may not be
-          the global one. Falls back to the org figure for responses predating
-          the per-type field. */}
-      <span className="flex-1">{MESSAGE[pressure.level](pressure, pressure.periodDays ?? quota.periodDays)}</span>
+          the global one. */}
+      <span className="flex-1">{MESSAGE[pressure.level](pressure, pressure.periodDays)}</span>
       <Link
         href={style.href}
         className="font-medium underline underline-offset-2 hover:no-underline"

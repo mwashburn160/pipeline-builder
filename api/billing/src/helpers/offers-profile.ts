@@ -127,15 +127,7 @@ export async function buildProfile(input: {
   const plan = getBillingConfig().plans.find((p) => p.tier === tier);
   const spendCents = plan ? currentSpendCents(plan, addons, getBundleCatalog(), interval) : 0;
 
-  // UNKNOWN activity is not inactivity. A membership with no stamp predates the
-  // field, so an account whose members are all unstamped tells us nothing about
-  // engagement — recording it as zero active would argue against exactly the
-  // offers it should receive.
   const seatsHeld = seats?.seatsHeld ?? 0;
-  const unknown = seats?.unknownActivity ?? 0;
-  if (seats && seatsHeld > 0 && unknown === seatsHeld) {
-    incompleteReasons.push('seat_activity_unstamped');
-  }
 
   return {
     orgId,

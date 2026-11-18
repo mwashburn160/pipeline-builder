@@ -579,9 +579,9 @@ export async function verifyOAuthCode(
   // browser is refused.
   if (!isBoundToThisBrowser(browser, pending.binding)) throw new Error(OAUTH_INVALID_STATE);
   // No silent downgrade: a PKCE-capable provider's flow ALWAYS starts with a
-  // challenge, so an entry without a verifier is one this build never minted
-  // (a state in flight across the deploy). Refuse it rather than exchange
-  // unprotected — the user retries and gets a PKCE-protected flow.
+  // challenge, so an entry without a verifier is not one this flow minted.
+  // Refuse it rather than exchange unprotected — the user retries and gets a
+  // PKCE-protected flow.
   if (provider.supportsPkce && !pending.codeVerifier) throw new Error(OAUTH_INVALID_STATE);
 
   const { accessToken } = await provider.exchangeCode(code, pending.codeVerifier);

@@ -45,7 +45,7 @@ describe('lazy env Redis accessors keep the readiness gate on', () => {
 
   it('token-revocation reader', async () => {
     const store = createEnvRedisTokenRevocationStore();
-    await expect(store.getSessionRevocation!('jti-1')).resolves.toBe('live');
+    await expect(store.getSessionRevocation('jti-1')).resolves.toBe('live');
     await expect(store.getCurrentVersion('user-1')).resolves.toBeNull();
     expect(gateKeptOn('revocation-reader')).toBe(true);
   });

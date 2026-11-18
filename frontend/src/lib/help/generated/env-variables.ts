@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 1ac90e9647ad631b58495693eed0eb5679fbe81719662260a3f12136f69ea77a
+// SOURCE-SHA256: 14983d25b1d12c3b6b513016b909e58d206d49fcb01cc52f5026bbc9b2ec2a5b
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -2101,11 +2101,6 @@ export const envVariablesTopic: HelpTopic = {
               "Soft band above the storageBytes cap, in percent: the 100% notice fires at the limit, the registry strips push only past limit × (100 + pct) / 100. Storage is a stock, so this is a one-time buffer rather than a per-period one — it exists because a downgrade or a cancelled Storage Pack otherwise flips an account from working to refused with no room to prune or buy. 0 makes it a hard cap (max 100)"
             ],
             [
-              "QUOTA_STORAGE_ACCOUNT_BUDGET",
-              "false",
-              "Enforce a tier's storage figure as an account budget (the pool root's whole subtree) instead of a per-namespace ceiling. Off by default because it can newly refuse a push that works today: without it a five-team Pro account may hold 5 × 25 GB against a headline 25 GB, and one Storage Pack raises every namespace's ceiling at once. The account total is already measured, already shown on the dashboard, and already what the 80% / 100% notices are computed from — turn this on once affected accounts have had a reminder window to act. For a flat org (no teams) it changes nothing"
-            ],
-            [
               "QUOTA_STORAGE_SWEEP_ENABLED",
               "true",
               "Run the storage threshold-notice sweep. It is the ONLY path that can send an 80% / 100% notice for storageBytes: storage is measured by the registry rather than incremented, so the notifier every other quota reaches on its increment is never reached for it. false leaves storage unwarned"
@@ -3397,7 +3392,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "REPORTING_ROLLUP_SETTLE_HOURS",
               "6",
-              "How long after a UTC day closes before it is rolled up into execution_daily_rollups. Rolling a day up at 00:01 counts every execution still running at midnight as neither a success nor a failure. Matches the report scheduler's own settle delay — a rollup that lagged it would make a scheduled report read a half-built day."
+              "How long after a UTC day closes before its rollup row in execution_daily_rollups is final. Each pass rebuilds the window ending at the day that contains now − settle, so the still-open day is also rebuilt for live analytics (partial, refreshed every pass); a day is final once the settle window has passed its end. Matches the report scheduler's own settle delay, so a scheduled report — which reads only closed periods — always reads a finished day."
             ],
             [
               "REPORTING_ROLLUP_BATCH_DAYS",

@@ -17,6 +17,14 @@ jest.unstable_mockModule('../src/utils/logger.js', () => ({
 }));
 
 const { needsRevocationCheck, setTokenRevocationStore } = await import('../src/middleware/revocation.js');
+type TokenRevocationStore = import('../src/middleware/revocation.js').TokenRevocationStore;
+
+/** A full {@link TokenRevocationStore} from the methods a test cares about (the rest answer "live" / "not revoked"). */
+const revocationStore = (s: Partial<TokenRevocationStore> & Pick<TokenRevocationStore, 'getCurrentVersion'>): TokenRevocationStore => ({
+  getSessionRevocation: async () => 'live',
+  isCredentialRevoked: async () => false,
+  ...s,
+});
 
 const revocable = { sub: 'user1', tokenVersion: 3 } as Parameters<typeof needsRevocationCheck>[0];
 
@@ -24,7 +32,7 @@ describe('revocation store missing', () => {
   beforeEach(() => {
     warn.mockClear();
     // Registering then clearing re-arms the one-shot warning.
-    setTokenRevocationStore({ getCurrentVersion: async () => null });
+    setTokenRevocationStore(revocationStore({ getCurrentVersion: async () => null }));
     setTokenRevocationStore(undefined);
   });
 
@@ -41,7 +49,7 @@ describe('revocation store missing', () => {
   });
 
   it('stays quiet once a store is registered', () => {
-    setTokenRevocationStore({ getCurrentVersion: async () => null });
+    setTokenRevocationStore(revocationStore({ getCurrentVersion: async () => null }));
     expect(needsRevocationCheck(revocable)).toBe(true);
     expect(warn).not.toHaveBeenCalled();
     setTokenRevocationStore(undefined);

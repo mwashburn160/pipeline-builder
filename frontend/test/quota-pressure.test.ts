@@ -14,6 +14,7 @@ const summary = (overrides: Partial<QuotaSummary> = {}): QuotaSummary => ({
   remaining: 100,
   unlimited: false,
   resetAt: '2026-12-31T00:00:00Z',
+  periodDays: 3,
   ...overrides,
 });
 
@@ -22,6 +23,8 @@ describe('highestPressure', () => {
     orgId: 'org-1',
     name: 'Acme',
     slug: 'acme',
+    tier: 'developer',
+    periodDays: 3,
     quotas: Object.fromEntries(
       Object.entries(quotas).map(([k, v]) => [k, summary(v)]),
     ) as OrgQuotaResponse['quotas'],

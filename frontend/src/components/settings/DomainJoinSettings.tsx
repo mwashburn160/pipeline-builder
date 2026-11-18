@@ -236,7 +236,7 @@ export function DomainJoinSettings({ orgId, readOnly = false }: { orgId: string;
                     <Switch
                       id={`share-${d.id}`}
                       aria-label={`Share ${d.domain} with teams`}
-                      checked={d.sharedWithTeams === true}
+                      checked={d.sharedWithTeams}
                       disabled={locked}
                       onChange={(next) => setPendingShare({ domain: d, shared: next })}
                     />

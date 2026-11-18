@@ -34,16 +34,13 @@ export const SYSTEM_ORG_SLUG = 'system';
  * Check if an org **id** is the system org's ({@link SYSTEM_ORG_ID}). Use this
  * instead of comparing directly.
  *
- * IDs ONLY. It used to also return true for an org NAME of 'system' — but a
- * name is a display string another org can carry (or be renamed to), so any
- * tenant called "system" was treated as the system tenant. The second
- * parameter is kept only so existing two-argument callers still compile; it is
- * IGNORED — drop it at the call site.
+ * IDs ONLY — never an org NAME: a name is a display string another org can
+ * carry (or be renamed to), so matching on it would treat any tenant called
+ * "system" as the system tenant.
  *
  * @param orgId - The org id to test.
- * @param _orgName - Deprecated, ignored.
  */
-export function isSystemOrgId(orgId?: string, _orgName?: string): boolean {
+export function isSystemOrgId(orgId?: string): boolean {
   return orgId?.trim().toLowerCase() === SYSTEM_ORG_ID;
 }
 

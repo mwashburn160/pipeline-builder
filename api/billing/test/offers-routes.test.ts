@@ -378,14 +378,10 @@ describe('the do-not-offer veto', () => {
     expect(mockAuditRecord).toHaveBeenCalledWith(expect.objectContaining({ affectedOrgId: 'acct-9', targetId: 'acct-9' }));
   });
 
-  it('lifts a veto by its canonical id, or by a pre-normalization raw spelling', async () => {
+  it('lifts a veto by its canonical id, whatever the URL casing', async () => {
     mockExclusionDelete.mockReturnValue({ lean: async () => ({ reason: 'old' }) });
-    await call(handler('delete', '/admin/offers/exclusions/:orgId'), { params: { orgId: 'ACCT-9' } });
-    expect(mockExclusionDelete).toHaveBeenCalledWith({ orgId: { $in: ['acct-9', 'ACCT-9'] } });
-
-    mockExclusionDelete.mockClear();
-    await call(handler('delete', '/admin/offers/exclusions/:orgId'), { params: { orgId: 'acct-9' } });
-    expect(mockExclusionDelete).toHaveBeenCalledWith({ orgId: { $in: ['acct-9'] } });
+    await call(handler('delete', '/admin/offers/exclusions/:orgId'), { params: { orgId: ' ACCT-9 ' } });
+    expect(mockExclusionDelete).toHaveBeenCalledWith({ orgId: 'acct-9' });
   });
 
   it('404s when lifting a veto that is not there, rather than reporting success', async () => {

@@ -42,7 +42,7 @@ const api = {
 jest.mock('@/lib/api', () => ({ __esModule: true, default: new Proxy({}, { get: (_t, k: string) => (api as Record<string, unknown>)[k] }) }));
 
 import { InstallControls } from '../src/components/plugin-installs/InstallControls';
-import { ApiError } from '../src/lib/api/errors';
+import { ApiError, StepUpRequiredError } from '../src/lib/api/errors';
 import { PolicyTab } from '../src/components/plugin-installs/PolicyTab';
 import { ApprovalsTab } from '../src/components/plugin-installs/ApprovalsTab';
 import { CatalogTab } from '../src/components/plugin-installs/CatalogTab';
@@ -141,6 +141,61 @@ describe('InstallControls', () => {
     const install = installView({ upgrade: { version: '1.9.0', breaking: false, changelog: null, vulnDelta: { newCritical: 0, newHigh: 0 } } });
     render(<InstallControls entry={catalogEntry({ install, needsApproval: true })} canInstall onChanged={() => undefined} />);
     expect(screen.getByRole('button', { name: /Upgrade to 1.9.0/ })).toBeInTheDocument();
+  });
+
+  describe('upgrade goes through the shared mutation', () => {
+    const minor = { version: '1.9.0', breaking: false, changelog: null, vulnDelta: { newCritical: 0, newHigh: 0 } };
+    const openUpgrade = async (onChanged: () => void = () => undefined) => {
+      render(<InstallControls entry={catalogEntry({ install: installView({ upgrade: minor }) })} canInstall onChanged={onChanged} />);
+      fireEvent.click(screen.getByRole('button', { name: /Upgrade to 1.9.0/ }));
+      return within(await screen.findByRole('dialog')).getByRole('button', { name: 'Upgrade' });
+    };
+
+    it('a double click on Upgrade sends ONE request', async () => {
+      let land!: (v: unknown) => void;
+      api.updatePluginInstall.mockReturnValue(new Promise((r) => { land = r; }));
+      const onChanged = jest.fn<AnyFn>();
+      const confirm = await openUpgrade(onChanged);
+      fireEvent.click(confirm);
+      fireEvent.click(confirm);
+      land({ success: true, statusCode: 200, data: {} });
+      expect(await screen.findByRole('status')).toHaveTextContent('Upgraded to 1.9.0.');
+      expect(api.updatePluginInstall).toHaveBeenCalledTimes(1);
+      expect(onChanged).toHaveBeenCalledTimes(1);
+    });
+
+    it('a step-up refusal is handed to the global step-up flow, not shown as an error', async () => {
+      let confirmStepUp!: (v: unknown) => void;
+      const refusal = new StepUpRequiredError('Confirm it is you', 'STEP_UP_REQUIRED');
+      refusal.attachResume(new Promise((r) => { confirmStepUp = r; }));
+      api.updatePluginInstall.mockReturnValue(Promise.reject(refusal));
+      const onChanged = jest.fn<AnyFn>();
+      fireEvent.click(await openUpgrade(onChanged));
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(onChanged).not.toHaveBeenCalled();
+      // The person confirms in the global dialog and the replay lands: the owner re-reads.
+      confirmStepUp({ success: true });
+      await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+    });
+
+    it('a requestable refusal opens the change request (no error, no re-read)', async () => {
+      api.updatePluginInstall.mockReturnValue(Promise.reject(new ApiError('needs approver', 403, 'INSUFFICIENT_PERMISSIONS', { requestable: true })));
+      const onChanged = jest.fn<AnyFn>();
+      fireEvent.click(await openUpgrade(onChanged));
+      const req = await screen.findByRole('dialog', { name: /request a change/i });
+      expect(req).toHaveTextContent('Upgrade to 1.9.0');
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+      expect(onChanged).not.toHaveBeenCalled();
+    });
+
+    it('any other refusal shows as the error', async () => {
+      api.updatePluginInstall.mockReturnValue(Promise.reject(new ApiError('Version 1.9.0 was yanked', 409, 'CONFLICT')));
+      fireEvent.click(await openUpgrade());
+      expect(await screen.findByRole('alert')).toHaveTextContent('Version 1.9.0 was yanked');
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
   });
 
   it('pending: withdraw; inherited installs are read-only', async () => {

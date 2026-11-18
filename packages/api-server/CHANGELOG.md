@@ -5,6 +5,10 @@ breaking changes in the public surface only.
 
 ## 5.0.0 (unreleased)
 
+### BREAKING CHANGES — Backward-compatibility shims removed.
+
+- The idempotency `CachedEntry.bodyKind` is required on every entry an `IdempotencyStore` is given or returns, the reservation placeholder included (`'empty'`, or `'json'` for a placeholder that carries a JSON body). An entry without it used to replay as `json`. That fallback served entries cached before the field existed, and it is gone.
+
 ### BREAKING CHANGES — Explicit `exports` map; new `./markdown` and `./otel-bootstrap` entries.
 
 The package's public surface is now exactly its `exports` map. Anything not listed below cannot be imported (`ERR_PACKAGE_PATH_NOT_EXPORTED`).

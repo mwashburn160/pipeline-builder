@@ -48,7 +48,7 @@ import type {
   PluginScanSummary,
   PluginSecurityRecipientMode,
   PluginSecurityDigestMode,
-  HealthComponentScore,
+  HealthBreakdown,
 } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
 import {
@@ -57,14 +57,8 @@ import {
 } from 'drizzle-orm/pg-core';
 import type { PluginIcon, PluginSecret, PluginUploadedIcon } from './plugin.js';
 
-/**
- * Per-component health scores, as STORED. The component score shape is
- * api-core's `HealthComponentScore` — only the key is widened to `string`,
- * because drizzle's `$type<>()` on a jsonb column must accept whatever
- * component set a row was written with (api-core's `HealthBreakdown` keys on
- * the current `HealthComponent` union and would reject an older row).
- */
-export type HealthBreakdown = Record<string, HealthComponentScore>;
+/** Per-component health scores, as stored — api-core's {@link HealthBreakdown}. */
+export type { HealthBreakdown };
 
 /** Postgres `tsvector`, which drizzle-orm has no native column for. */
 const tsvector = customType<{ data: string }>({

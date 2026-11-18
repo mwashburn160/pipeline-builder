@@ -9,7 +9,7 @@ import { requireAuth } from '../src/middleware/auth.js';
 import { armDeferredQuotaCheck } from '../src/middleware/deferred-quota-check.js';
 import { isSystemAdmin, requirePermission, requireSystemAdmin, setAuthzDenialAuditor, requireAllPermissions, requireFeature } from '../src/middleware/permission-gates.js';
 import type { AuthzDenialInfo } from '../src/middleware/permission-gates.js';
-import { setTokenRevocationStore, isAccessTokenRevoked } from '../src/middleware/revocation.js';
+import { setTokenRevocationStore, isAccessTokenRevoked, type TokenRevocationStore } from '../src/middleware/revocation.js';
 import { signServiceToken, getServiceAuthHeader, isServicePrincipal, verifyServicePrincipal } from '../src/middleware/service-tokens.js';
 import { verifyServiceJwt } from '../src/services/service-keys.js';
 import type { AnyFn } from '../src/testing/any-fn.js';
@@ -98,6 +98,14 @@ const USER_CLAIMS = {
 } as const;
 
 // requireAuth
+
+
+/** A full {@link TokenRevocationStore} from the methods a test cares about (the rest answer "live" / "not revoked"). */
+const revocationStore = (s: Partial<TokenRevocationStore> & Pick<TokenRevocationStore, 'getCurrentVersion'>): TokenRevocationStore => ({
+  getSessionRevocation: async () => 'live',
+  isCredentialRevoked: async () => false,
+  ...s,
+});
 
 describe('requireAuth', () => {
   it('should reject request with no Authorization header', () => {
@@ -695,24 +703,24 @@ describe('setTokenRevocationStore + requireAuth revocation check', () => {
   }
 
   it('rejects a token whose tokenVersion is behind the store (revoked) with 401 TOKEN_REVOKED', async () => {
-    setTokenRevocationStore({ getCurrentVersion: async () => 5 });
+    setTokenRevocationStore(revocationStore({ getCurrentVersion: async () => 5 }));
     const out = await runAuth(await authReq(3));
     expect(out.passed).toBe(false);
     expect(out.status).toBe(401);
   });
 
   it('allows a token whose tokenVersion matches the store', async () => {
-    setTokenRevocationStore({ getCurrentVersion: async () => 4 });
+    setTokenRevocationStore(revocationStore({ getCurrentVersion: async () => 4 }));
     expect((await runAuth(await authReq(4))).passed).toBe(true);
   });
 
   it('allows on a store miss (null → no known revocation, fail-open)', async () => {
-    setTokenRevocationStore({ getCurrentVersion: async () => null });
+    setTokenRevocationStore(revocationStore({ getCurrentVersion: async () => null }));
     expect((await runAuth(await authReq(2))).passed).toBe(true);
   });
 
   it('allows when the store throws (fail-open, no lockout on Redis outage)', async () => {
-    setTokenRevocationStore({ getCurrentVersion: async () => { throw new Error('redis down'); } });
+    setTokenRevocationStore(revocationStore({ getCurrentVersion: async () => { throw new Error('redis down'); } }));
     expect((await runAuth(await authReq(2))).passed).toBe(true);
   });
 
@@ -722,7 +730,7 @@ describe('setTokenRevocationStore + requireAuth revocation check', () => {
 
   it('skips the check for a token with no tokenVersion (e.g. service tokens)', async () => {
     const store = { getCurrentVersion: jest.fn(async () => 9) };
-    setTokenRevocationStore(store);
+    setTokenRevocationStore(revocationStore(store));
     expect((await runAuth(await authReq(undefined))).passed).toBe(true);
     expect(store.getCurrentVersion).not.toHaveBeenCalled();
   });
@@ -747,23 +755,23 @@ describe('requireAuth — impersonation session revocation (cross-service)', () 
   }
 
   it('allows a live session', async () => {
-    setTokenRevocationStore({ getCurrentVersion: async () => 1, getSessionRevocation: async () => 'live' });
+    setTokenRevocationStore(revocationStore({ getCurrentVersion: async () => 1, getSessionRevocation: async () => 'live' }));
     expect((await runAuth(await impersonation())).passed).toBe(true);
   });
 
   it('REJECTS a session that was ended — the point of cross-service revocation', async () => {
-    setTokenRevocationStore({ getCurrentVersion: async () => 1, getSessionRevocation: async () => 'revoked' });
+    setTokenRevocationStore(revocationStore({ getCurrentVersion: async () => 1, getSessionRevocation: async () => 'revoked' }));
     const out = await runAuth(await impersonation());
     expect(out).toEqual({ status: 401, passed: false });
   });
 
   it('REJECTS when the store cannot answer — an outage must not read as "not revoked"', async () => {
-    setTokenRevocationStore({ getCurrentVersion: async () => 1, getSessionRevocation: async () => 'unavailable' });
+    setTokenRevocationStore(revocationStore({ getCurrentVersion: async () => 1, getSessionRevocation: async () => 'unavailable' }));
     expect((await runAuth(await impersonation())).passed).toBe(false);
   });
 
   it('REJECTS when the store throws', async () => {
-    setTokenRevocationStore({ getCurrentVersion: async () => 1, getSessionRevocation: async () => { throw new Error('redis down'); } });
+    setTokenRevocationStore(revocationStore({ getCurrentVersion: async () => 1, getSessionRevocation: async () => { throw new Error('redis down'); } }));
     expect((await runAuth(await impersonation())).passed).toBe(false);
   });
 
@@ -774,25 +782,20 @@ describe('requireAuth — impersonation session revocation (cross-service)', () 
     expect((await runAuth(await tokenReq({}))).passed).toBe(true);
   });
 
-  it('REJECTS when the registered store predates session revocation', async () => {
-    setTokenRevocationStore({ getCurrentVersion: async () => 1 });
-    expect((await runAuth(await impersonation())).passed).toBe(false);
-  });
-
   it('still applies the tokenVersion check to a live session', async () => {
-    setTokenRevocationStore({ getCurrentVersion: async () => 7, getSessionRevocation: async () => 'live' });
+    setTokenRevocationStore(revocationStore({ getCurrentVersion: async () => 7, getSessionRevocation: async () => 'live' }));
     expect((await runAuth(await impersonation())).passed).toBe(false);
   });
 
   it('does not treat a Personal Access Token (token_use api_key, no impersonatorId) as a session', async () => {
     const store = { getCurrentVersion: async () => 1, getSessionRevocation: jest.fn(async () => 'revoked' as const) };
-    setTokenRevocationStore(store);
+    setTokenRevocationStore(revocationStore(store));
     expect((await runAuth(await tokenReq({ jti: 'pat-1', token_use: 'api_key' }))).passed).toBe(true);
     expect(store.getSessionRevocation).not.toHaveBeenCalled();
   });
 
   it('leaves ordinary sessions fail-open on a store outage', async () => {
-    setTokenRevocationStore({ getCurrentVersion: async () => { throw new Error('down'); }, getSessionRevocation: async () => 'unavailable' });
+    setTokenRevocationStore(revocationStore({ getCurrentVersion: async () => { throw new Error('down'); }, getSessionRevocation: async () => 'unavailable' }));
     expect((await runAuth(await tokenReq({}))).passed).toBe(true);
   });
 });
@@ -815,19 +818,19 @@ describe('requireAuth — read-only impersonation (S1)', () => {
   const ro = { impersonatorId: 'sysadmin', impersonationReadOnly: true, jti: 'sess-ro' };
 
   it.each(['POST', 'PUT', 'PATCH', 'DELETE'])('refuses %s with 403 IMPERSONATION_READ_ONLY', async (method) => {
-    setTokenRevocationStore({ getCurrentVersion: async () => 1, getSessionRevocation: async () => 'live' });
+    setTokenRevocationStore(revocationStore({ getCurrentVersion: async () => 1, getSessionRevocation: async () => 'live' }));
     const out = await runAuth(await reqWith(method, ro));
     expect(out.status).toBe(403);
     expect(JSON.stringify(out.body)).toContain('IMPERSONATION_READ_ONLY');
   });
 
   it.each(['GET', 'HEAD', 'OPTIONS', 'get'])('allows %s', async (method) => {
-    setTokenRevocationStore({ getCurrentVersion: async () => 1, getSessionRevocation: async () => 'live' });
+    setTokenRevocationStore(revocationStore({ getCurrentVersion: async () => 1, getSessionRevocation: async () => 'live' }));
     expect((await runAuth(await reqWith(method, ro))).passed).toBe(true);
   });
 
   it('fails closed when the method is unknown', async () => {
-    setTokenRevocationStore({ getCurrentVersion: async () => 1, getSessionRevocation: async () => 'live' });
+    setTokenRevocationStore(revocationStore({ getCurrentVersion: async () => 1, getSessionRevocation: async () => 'live' }));
     expect((await runAuth(await reqWith(undefined, ro))).status).toBe(403);
   });
 
@@ -854,14 +857,14 @@ describe('requireAuth — single-credential revocation (revoke:sid / revoke:key)
 
   it('rejects a token whose session slot was revoked, even at the current tokenVersion', async () => {
     const isCredentialRevoked = jest.fn(async (refs: { sid?: string; keyIds: string[] }) => refs.sid === 'slot-1');
-    setTokenRevocationStore({ getCurrentVersion: async () => 3, isCredentialRevoked });
+    setTokenRevocationStore(revocationStore({ getCurrentVersion: async () => 3, isCredentialRevoked }));
     expect(await runAuth(await reqWith({ tokenVersion: 3, sid: 'slot-1' }))).toEqual({ status: 401, passed: false });
     expect((await runAuth(await reqWith({ tokenVersion: 3, sid: 'slot-2' }))).passed).toBe(true);
   });
 
   it('rejects an exchanged key token (jti) and a token derived from a revoked key (parentKeyId)', async () => {
     const isCredentialRevoked = jest.fn(async (refs: { keyIds: string[] }) => refs.keyIds.includes('pat-9'));
-    setTokenRevocationStore({ getCurrentVersion: async () => null, isCredentialRevoked });
+    setTokenRevocationStore(revocationStore({ getCurrentVersion: async () => null, isCredentialRevoked }));
     expect((await runAuth(await reqWith({ token_use: 'api_key', jti: 'pat-9' }))).passed).toBe(false);
     expect((await runAuth(await reqWith({ tokenVersion: 1, parentKeyId: 'pat-9' }))).passed).toBe(false);
     // A non-key token's jti is NOT a key id.
@@ -870,17 +873,17 @@ describe('requireAuth — single-credential revocation (revoke:sid / revoke:key)
 
   it('checks a token without tokenVersion (service-account key) by its key id', async () => {
     const isCredentialRevoked = jest.fn(async () => true);
-    setTokenRevocationStore({ getCurrentVersion: async () => null, isCredentialRevoked });
+    setTokenRevocationStore(revocationStore({ getCurrentVersion: async () => null, isCredentialRevoked }));
     expect((await runAuth(await reqWith({ token_use: 'api_key', principalType: 'service_account', jti: 'sa-key' }))).passed).toBe(false);
   });
 
   it('fails open when the credential check throws', async () => {
-    setTokenRevocationStore({ getCurrentVersion: async () => 1, isCredentialRevoked: async () => { throw new Error('down'); } });
+    setTokenRevocationStore(revocationStore({ getCurrentVersion: async () => 1, isCredentialRevoked: async () => { throw new Error('down'); } }));
     expect((await runAuth(await reqWith({ tokenVersion: 1, sid: 's' }))).passed).toBe(true);
   });
 
   it('isAccessTokenRevoked applies the same credential check', async () => {
-    setTokenRevocationStore({ getCurrentVersion: async () => null, isCredentialRevoked: async (r) => r.sid === 'x' });
+    setTokenRevocationStore(revocationStore({ getCurrentVersion: async () => null, isCredentialRevoked: async (r) => r.sid === 'x' }));
     await expect(isAccessTokenRevoked({ sub: 'u', sid: 'x' })).resolves.toBe(true);
     await expect(isAccessTokenRevoked({ sub: 'u', sid: 'y' })).resolves.toBe(false);
   });
@@ -890,7 +893,7 @@ describe('isAccessTokenRevoked — impersonation sessions (out-of-band mint path
   afterEach(() => setTokenRevocationStore(undefined));
 
   it('reports an ended session as revoked', async () => {
-    setTokenRevocationStore({ getCurrentVersion: async () => 1, getSessionRevocation: async () => 'revoked' });
+    setTokenRevocationStore(revocationStore({ getCurrentVersion: async () => 1, getSessionRevocation: async () => 'revoked' }));
     await expect(isAccessTokenRevoked({ sub: 't', tokenVersion: 1, jti: 's', impersonatorId: 'op' })).resolves.toBe(true);
   });
 
@@ -899,7 +902,7 @@ describe('isAccessTokenRevoked — impersonation sessions (out-of-band mint path
   });
 
   it('reports a live session as not revoked', async () => {
-    setTokenRevocationStore({ getCurrentVersion: async () => 1, getSessionRevocation: async () => 'live' });
+    setTokenRevocationStore(revocationStore({ getCurrentVersion: async () => 1, getSessionRevocation: async () => 'live' }));
     await expect(isAccessTokenRevoked({ sub: 't', tokenVersion: 1, jti: 's', impersonatorId: 'op' })).resolves.toBe(false);
   });
 });

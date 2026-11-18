@@ -1,6 +1,6 @@
 // GENERATED FROM docs/quotas.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 055914325c62b7cc704c56e76a8b0195cc9c729f2a7b88fcf693b1ea74df51c8
+// SOURCE-SHA256: 1aeee1cf38f2c1dfee35753f78964ff09791d5fef02e5a78cb36c1c283968c9a
 // SPDX-License-Identifier: Apache-2.0
 import { Gauge } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -501,7 +501,7 @@ export const quotasTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "With teams, the figure is the account's. Limits pool at the account root, so the number above is what the root and all its teams hold together — the usage shown on your Quotas page is the whole account's, and the 80% / 100% notices are computed from it. (Enforcement at push time follows the same figure once the operator enables QUOTA_STORAGE_ACCOUNT_BUDGET; until then each namespace is checked against the pooled number on its own, which is more generous.)"
+          "content": "With teams, the figure is the account's. Limits pool at the account root, so the number above is what the root and all its teams hold together — the usage shown on your Quotas page is the whole account's, and the 80% / 100% notices are computed from it. Enforcement at push time follows the same figure: a push is refused once the account's total, not just the pushing namespace's, is over the cap."
         },
         {
           "type": "text",

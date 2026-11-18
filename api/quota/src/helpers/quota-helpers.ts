@@ -25,8 +25,8 @@ export function periodDaysFor(quotaType: QuotaType): number {
  * CAPS ONLY RISE MID-PERIOD: the cap a LIVE period binds on is the larger of
  * the limit it started with (`snapshot`, captured at the period boundary) and
  * the limit the account holds now, with -1 (unlimited) on either side winning.
- * `snapshot === undefined` (no live period, or a counter that predates the
- * field) is the current limit.
+ * `snapshot === undefined` (no live period, or a counter no increment has
+ * stamped yet) is the current limit.
  *
  * One definition for every reader — the per-org status, the pooled status, and
  * (as {@link effectiveLimitExpr}) the atomic increment filters — so the read

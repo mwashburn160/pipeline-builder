@@ -407,7 +407,7 @@ describe('createRedisIdempotencyStore', () => {
     };
   }
 
-  const entry = { statusCode: 201, body: { id: 'x' }, expiresAt: Date.now() + 60000 };
+  const entry = { statusCode: 201, body: { id: 'x' }, bodyKind: 'json' as const, expiresAt: Date.now() + 60000 };
 
   it('reserve claims a key once (SET NX); a second reserve loses', async () => {
     const store = createRedisIdempotencyStore(fakeRedis());

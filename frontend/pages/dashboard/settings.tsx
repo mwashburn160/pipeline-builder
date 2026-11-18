@@ -47,8 +47,7 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 //
 // SIGN-IN CREDENTIALS ARE NOT HERE. Password, passkeys, authenticator app,
 // sessions and keys moved to /dashboard/security, which is one page for all of
-// them instead of three that pointed at each other; `?tab=security` forwards
-// there (fragment included), so old links and prompts still land.
+// them instead of three that pointed at each other.
 const SETTINGS_TABS = [
   { id: 'profile', label: 'Profile' },
   { id: 'organization', label: 'Organization' },

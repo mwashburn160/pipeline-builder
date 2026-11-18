@@ -158,7 +158,16 @@ export async function rebuildDay(day: Date): Promise<number> {
 }
 
 /**
- * One rollup pass: rebuild the most recent settled days.
+ * One rollup pass: rebuild a window of recent days, newest first.
+ *
+ * THE NEWEST DAY MAY STILL BE OPEN, deliberately. The window ends at the day that
+ * contains `now - settle`, so for the last `settle` hours of each UTC day the
+ * pass rebuilds that still-running day too. Live analytics then show today's
+ * numbers (partial, refreshed every pass) instead of nothing until 06:00
+ * tomorrow. Scheduled reports are unaffected: they only read CLOSED periods,
+ * composed `REPORT_SETTLE_HOURS` after the period ends, by which time every pass
+ * since has rebuilt that day with all of it present. A day is FINAL once
+ * `now - settle` has moved past its end and the window has re-covered it.
  *
  * Rebuilding a WINDOW rather than only the newest day is what handles late
  * events: the dead-letter redrive lands events for days already rolled up, and a
@@ -171,8 +180,8 @@ export async function rebuildDay(day: Date): Promise<number> {
  */
 export async function runRollupPass(now: Date = new Date()): Promise<{ days: number; rows: number }> {
   const settleMs = rollupSettleHours() * 3600_000;
-  // The newest day that has settled. A day is only built once everything that
-  // started in it has had time to finish.
+  // The day containing `now - settle` — possibly the still-open day (see the doc
+  // comment): fresh live numbers now, finalized once the settle window passes.
   const newest = startOf(new Date(now.getTime() - settleMs), 'day');
   let rows = 0;
   let days = 0;

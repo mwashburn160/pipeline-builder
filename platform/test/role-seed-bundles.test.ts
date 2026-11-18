@@ -8,9 +8,8 @@
  * `builtinRolePermissions` was a nine-branch `if` chain over string literals,
  * ending in a fall-through to the coarse `grantsRole` bundle. Every system-org
  * job Role grants `member`. So a bundle added to the id list WITHOUT its branch
- * did not fail: it quietly resolved to the plain Member bundle, the seeder
- * wrote that, and `rbac-backfill` Pass A re-synced the Role to that wrong value
- * on every boot. The Role existed, appeared on the staffing panel, was
+ * did not fail: it quietly resolved to the plain Member bundle and the seeder
+ * wrote that. The Role existed, appeared on the staffing panel, was
  * assignable, and granted fifteen tenant permissions instead of its job.
  *
  * Nothing anywhere exercised the resolver per bundle, so nothing could notice.
