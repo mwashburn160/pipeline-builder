@@ -320,7 +320,7 @@ export class DashboardService {
     return withTenantTx(async (tx) => {
       const [restored] = await tx
         .update(schema.dashboard)
-        .set({ deletedAt: null, deletedBy: null, updatedAt: sql`CURRENT_TIMESTAMP`, updatedBy: caller.userId })
+        .set({ deletedAt: null, deletedBy: null, purgeAfter: null, updatedAt: sql`CURRENT_TIMESTAMP`, updatedBy: caller.userId })
         .where(and(eq(schema.dashboard.id, id), sql`${schema.dashboard.deletedAt} IS NOT NULL`))
         .returning({ id: schema.dashboard.id });
       return !!restored;

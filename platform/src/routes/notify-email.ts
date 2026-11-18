@@ -14,14 +14,15 @@ const router: Router = Router();
 /**
  * POST /internal/notify-email — internal service-to-service email send.
  *
- * FIVE callers, because platform holds the SMTP credentials and the user
+ * SIX callers, because platform holds the SMTP credentials and the user
  * directory: `compliance` (its notification channels, tenant-bound), `plugin`
  * (plugin-ecosystem notices — recipient rules resolved here, in-app + email),
  * `reporting` (a stakeholder report to addresses IT verified, one message per address
  * so no manager learns another's; see `notifyReport`), `quota` (usage-threshold
  * notices to the org's admins/owners and billing contacts, resolved here and
  * tenant-bound to the root org its token names; see `notifyQuota`) and `billing`
- * (an expansion OFFER to those same people; see `notifyOffer`).
+ * (an expansion OFFER to those same people; see `notifyOffer`) and `ops-center`
+ * (alert email, tenant-bound to the token's org; see `notifyAlert`).
  *
  * Each caller is confined to its OWN leg by the controller, which dispatches on
  * the BODY: a `billing` token that does not carry `offerNotice` is refused
@@ -46,7 +47,7 @@ router.post(contractRoute(SEND, NOTIFY_EMAIL_MOUNT), requireServiceAuth, require
 
 /**
  * GET /internal/notify-email/status — `{ enabled }`: whether this instance can
- * send email at all (EMAIL_ENABLED). Two callers, both of which need the switch
+ * send email at all (EMAIL_ENABLED). The callers below all need the switch
  * itself rather than the ability to send:
  *
  *  - `plugin`: its anonymous-submission API (docs/plugin-publishing.md
@@ -64,6 +65,9 @@ router.post(contractRoute(SEND, NOTIFY_EMAIL_MOUNT), requireServiceAuth, require
  *    a silent coupling that would have gone dark the day `/config` narrowed.
  *    Unreachable ⇒ reported as `unknown`, NOT as disabled: a diagnostic that
  *    guesses sends someone chasing the wrong problem.
+ *  - `ops-center`: an email alert destination's channel reports itself
+ *    disabled on an instance that cannot send mail, rather than every alert
+ *    to it "delivering" into nothing.
  *
  * Reading it is strictly weaker than sending: the answer is one instance-wide
  * boolean with no tenant, recipient or provider detail in it (see

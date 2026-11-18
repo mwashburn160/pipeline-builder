@@ -144,7 +144,10 @@ export interface CascadeDispatchResult {
   retried: number;
   /** Failed for the last time. */
   dead: number;
-  /** Due when scanned but leased by someone else (or no longer due) by the claim. */
+  /**
+   * Due when scanned but leased by someone else (or no longer due) by the
+   * claim — or a failed attempt whose lease was lost before it could be recorded.
+   */
   skipped: number;
 }
 
@@ -174,9 +177,10 @@ export async function dispatchCascadeOutbox(
     // LEASE before delivering: push `nextAttemptAt` past the slowest leg, so a
     // second dispatcher — or this one after a crash — leaves it alone until the
     // lease lapses. Atomic, so of two claimants exactly one wins.
+    const leaseUntil = new Date(now.getTime() + opts.leaseMs);
     const leg = await CascadeOutbox.findOneAndUpdate(
       { _id, status: 'pending', nextAttemptAt: { $lte: now } },
-      { $set: { nextAttemptAt: new Date(now.getTime() + opts.leaseMs) } },
+      { $set: { nextAttemptAt: leaseUntil } },
       { new: true },
     ).lean<CascadeOutboxData & { _id: unknown }>();
     if (!leg) {
@@ -199,22 +203,36 @@ export async function dispatchCascadeOutbox(
       continue;
     }
 
+    // A FAILURE is recorded only while this pass still holds the lease. If the
+    // lease lapsed mid-delivery and another dispatcher took the leg, or an
+    // operator redrove it, or a concurrent delivery already acked it `done`,
+    // this stale attempt count must not overwrite theirs — least of all turn a
+    // delivered leg `dead` (a false PlatformCascadeLegDead page).
+    const ownLease: QueryFilter<CascadeOutboxData> = { _id, status: 'pending', nextAttemptAt: leaseUntil };
     const lastError = (delivery.error ?? 'failed').slice(0, LAST_ERROR_MAX);
     if (attempts >= opts.maxAttempts) {
-      await CascadeOutbox.updateOne(
-        { _id },
+      const { modifiedCount } = await CascadeOutbox.updateOne(
+        ownLease,
         { $set: { status: 'dead', attempts, completedAt: doneAt, lastError, lastStatusCode: delivery.statusCode ?? null } },
       );
+      if (modifiedCount === 0) {
+        result.skipped += 1;
+        continue;
+      }
       result.dead += 1;
       deadLetter(leg, attempts, lastError, delivery.statusCode);
       continue;
     }
 
     const nextAttemptAt = new Date(doneAt.getTime() + cascadeBackoffMs(attempts, opts.backoffBaseMs, opts.backoffMaxMs));
-    await CascadeOutbox.updateOne(
-      { _id },
+    const { modifiedCount } = await CascadeOutbox.updateOne(
+      ownLease,
       { $set: { attempts, nextAttemptAt, lastError, lastStatusCode: delivery.statusCode ?? null } },
     );
+    if (modifiedCount === 0) {
+      result.skipped += 1;
+      continue;
+    }
     result.retried += 1;
     count('platform_cascade_delivery_total', { service: leg.service, kind: leg.kind, result: 'retried' });
     logger.warn('Cascade leg failed; retrying with backoff', {
@@ -287,7 +305,11 @@ export interface CascadeLegStatusView {
  */
 export async function cascadeStatus(subjectId: string, kind?: CascadeKind): Promise<CascadeLegStatusView[]> {
   const rows = await CascadeOutbox.find({ subjectId, ...(kind ? { kind } : {}) }).sort({ service: 1 }).lean();
-  return rows.map((r) => ({
+  return rows.map(statusView);
+}
+
+function statusView(r: CascadeOutboxData): CascadeLegStatusView {
+  return {
     service: r.service,
     status: r.status,
     attempts: r.attempts,
@@ -296,7 +318,7 @@ export async function cascadeStatus(subjectId: string, kind?: CascadeKind): Prom
     lastStatusCode: r.lastStatusCode ?? null,
     completedAt: r.completedAt ?? null,
     createdAt: r.createdAt,
-  }));
+  };
 }
 
 /** One leg as the fleet-wide admin listing reports it. */
@@ -308,20 +330,7 @@ export interface CascadeLegAdminView extends CascadeLegStatusView {
 }
 
 function adminView(r: CascadeOutboxData & { _id: unknown }): CascadeLegAdminView {
-  return {
-    id: String(r._id),
-    kind: r.kind,
-    subjectId: r.subjectId,
-    service: r.service,
-    status: r.status,
-    attempts: r.attempts,
-    nextAttemptAt: r.nextAttemptAt,
-    lastError: r.lastError ?? null,
-    lastStatusCode: r.lastStatusCode ?? null,
-    completedAt: r.completedAt ?? null,
-    createdAt: r.createdAt,
-    updatedAt: r.updatedAt,
-  };
+  return { id: String(r._id), kind: r.kind, subjectId: r.subjectId, ...statusView(r), updatedAt: r.updatedAt };
 }
 
 /** Filters for {@link listCascadeLegs}; every one optional, all ANDed. */

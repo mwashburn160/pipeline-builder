@@ -10,21 +10,11 @@
  * `admin@internal` (`BOOTSTRAP_SUPERADMIN_EMAILS`). This is a typo catcher, not
  * an RFC 5322 parser.
  *
- * Its own dependency-free module for two reasons:
- *   1. `utils/validation.ts` sources password rules from `models/user.ts`, so
- *      importing the rule from there drags mongoose in behind anything that
- *      only wants to check an address — which is why
- *      `controllers/alert-destinations.ts` grew its own copy in the first place.
- *   2. That copy additionally required a TLD, so an address the platform happily
- *      registers and invites — including its own `admin@internal` default — was
- *      rejected as an email alert destination, with no stated reason for the
- *      stricter rule.
+ * Its own dependency-free module: `utils/validation.ts` sources password rules
+ * from `models/user.ts`, so importing the rule from there would drag mongoose in
+ * behind anything that only wants to check an address.
  */
 
 /** Matches `local@domain`, with or without a dotted TLD. See the module note. */
 export const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+$/;
 
-/** Whether `value` is an acceptable email address for this platform. */
-export function isValidEmail(value: string): boolean {
-  return EMAIL_PATTERN.test(value);
-}

@@ -72,7 +72,7 @@ export class ContractRequestError extends Error {
   }
 }
 
-/** The success envelope's `data`, or the whole body when it has no `data` key. */
+/** The success envelope's `data`, or `undefined` when the body has no `data` key. */
 function envelopeData(body: unknown): unknown {
   if (body && typeof body === 'object' && 'data' in body) return (body as { data?: unknown }).data;
   return undefined;

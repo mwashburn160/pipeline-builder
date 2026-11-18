@@ -102,8 +102,8 @@ function viaContract(
       if (result.reason === 'unreachable') return { ok: false, error: 'unreachable' };
       // A 2xx whose body does not match the contract is still an ack: the
       // owning service did the delete, it just answered in a shape we can't
-      // count. Anything else is a retry.
-      if (result.status >= 200 && result.status < 300) return { ok: true, statusCode: result.status };
+      // count. A non-2xx status is a retry.
+      if (result.reason === 'invalid-response') return { ok: true, statusCode: result.status };
       return { ok: false, statusCode: result.status, error: `HTTP ${result.status}` };
     } catch (err) {
       return { ok: false, error: errorMessage(err) };

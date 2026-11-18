@@ -285,7 +285,7 @@ describe('delete / restore / purgeById', () => {
   it('restore clears the tombstone', async () => {
     results = [[{ id: 'd-1' }]];
     expect(await svc.restore('d-1', { userId: 'u-1' })).toBe(true);
-    expect(step(queries[0], 'set')!.args[0]).toMatchObject({ deletedAt: null, deletedBy: null, updatedBy: 'u-1' });
+    expect(step(queries[0], 'set')!.args[0]).toMatchObject({ deletedAt: null, deletedBy: null, purgeAfter: null, updatedBy: 'u-1' });
     results = [[]];
     expect(await svc.restore('d-1', { userId: 'u-1' })).toBe(false);
   });

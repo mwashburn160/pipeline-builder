@@ -51,9 +51,8 @@ import {
   type PagerDutyEvent,
 } from '@pipeline-builder/api-core';
 import { authenticateAlertmanager } from '../helpers/alertmanager-auth.js';
-// Platform's OWN hash-chained append, not api-core's `recordAudit` — that one
-// is the REMOTE client the other services post with, and platform writing
-// through it would make an HTTP call to itself.
+// The request-less adapter over api-core's remote `recordAudit` (platform's
+// audit ingest) — see helpers/audit.ts.
 import { recordAuditEvent } from '../helpers/audit.js';
 import { withController } from '../helpers/controller-helper.js';
 import { incCounter, observe } from '../observability/metrics.js';
@@ -197,7 +196,7 @@ export const oncallWebhook = withController('On-call paging webhook', async (req
  * it cannot distinguish a working rota from a silent one.
  *
  * RAW BODY, NOT PARSED. The signature is an HMAC over the exact bytes
- * PagerDuty sent, so `express.raw` is mounted for this path in `index.ts` and
+ * PagerDuty sent, so `express.raw` is mounted for this path in `app-routes.ts` and
  * the JSON is parsed here. Verifying a re-serialized object fails every time —
  * key order and whitespace differ — and the obvious way out of that is to stop
  * verifying, which is why the coupling is stated in both places.

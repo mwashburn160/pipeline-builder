@@ -203,12 +203,18 @@ function groupDoc(doc: Record<string, unknown>): any {
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
     updatedAt: new Date('2026-01-02T00:00:00.000Z'),
     ...doc,
+    set(fields: Record<string, unknown>) { Object.assign(this, fields); },
     async save() { return this; },
   };
   return rec;
 }
 
 const IdpGroupMapping: any = {
+  updateOne: jest.fn((filter: any, update: any) => query(() => {
+    const hit = db.groups.find((g) => matches(g, filter));
+    if (hit) Object.assign(hit, update.$set);
+    return { modifiedCount: hit ? 1 : 0 };
+  })),
   find: jest.fn((filter: any) => query(() => db.groups.filter((g) => matches(g, filter)).map(clone))),
   findOne: jest.fn((filter: any) => query(() => db.groups.find((g) => matches(g, filter)) ?? null)),
   exists: jest.fn((filter: any) => query(() => (db.groups.some((g) => matches(g, filter)) ? { _id: 'x' } : null))),
@@ -281,8 +287,16 @@ jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({
   ownsVerifiedDomain: (...a: unknown[]) => mockOwnsVerifiedDomain(...a),
   isSsoEntitled: async () => true,
 }));
+/** How many times the next transaction body runs — >1 models the driver's retry. */
+let txRuns = 1;
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
-  withMongoTransaction: async (fn: (s: unknown) => Promise<unknown>) => fn({ id: 'session' }),
+  withMongoTransaction: async (fn: (s: unknown) => Promise<unknown>) => {
+    const runs = txRuns;
+    txRuns = 1;
+    let out: unknown;
+    for (let i = 0; i < runs; i += 1) out = await fn({ id: 'session' });
+    return out;
+  },
 }));
 jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ app: { frontendUrl: 'https://pb.example.com/' } }));
 
@@ -940,18 +954,37 @@ describe('Groups', () => {
 
   it('PUT rename writes the mapping and the members\' keys in ONE transaction', async () => {
     const group = seedGroup('Engineers');
-    const save = jest.spyOn(group, 'save');
 
     await scim.replaceGroup(ctx(), String(group._id), { displayName: 'Platform Engineers' });
 
     // Apart, a failure between the two writes would strand every member on the
     // old key — silently out of the group the mapping now names.
-    expect(save).toHaveBeenCalledWith({ session: { id: 'session' } });
+    expect(IdpGroupMapping.updateOne).toHaveBeenCalledWith(
+      { _id: group._id },
+      { $set: { group: 'Platform Engineers', groupKey: 'platform engineers', updatedBy: 'scim' } },
+      { session: { id: 'session' } },
+    );
     expect(UserOrganization.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ 'scim.groups': 'engineers' }),
       { $set: { 'scim.groups.$': 'platform engineers' } },
       { session: { id: 'session' } },
     );
+  });
+
+  it('PUT rename survives a re-run transaction body: the mapping is a query write every run, never a doc.save', async () => {
+    // A hydrated doc saved in an aborted attempt is no longer "modified", so a
+    // retried `doc.save({ session })` would write nothing while the members'
+    // keys still moved — the mapping must be written by a query each run.
+    const group = seedGroup('Engineers');
+    const save = jest.spyOn(group, 'save');
+    txRuns = 2;
+
+    await scim.replaceGroup(ctx(), String(group._id), { displayName: 'Platform Engineers' });
+
+    expect(save).not.toHaveBeenCalled();
+    expect(IdpGroupMapping.updateOne).toHaveBeenCalledTimes(2);
+    expect(group).toMatchObject({ group: 'Platform Engineers', groupKey: 'platform engineers' });
+    expect(db.memberships[0].scim.groups).toEqual(['platform engineers']);
   });
 
   it('PUT replaces the member set only when `members` is present', async () => {

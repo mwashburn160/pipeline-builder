@@ -42,6 +42,7 @@ let nextId = 0;
 
 const matches = (row: Row, filter: Record<string, any>): boolean => Object.entries(filter).every(([k, v]) => {
   if (v && typeof v === 'object' && !(v instanceof Date) && '$lte' in v) return row[k] <= v.$lte;
+  if (v instanceof Date) return row[k] instanceof Date && row[k].getTime() === v.getTime();
   return row[k] === v;
 });
 const leanOf = <T>(v: T) => ({ lean: async () => (v === null ? null : structuredClone(v)) });
@@ -297,6 +298,35 @@ describe('dispatchCascadeOutbox', () => {
     await dispatch();
     expect(mockDeliver.mock.calls.filter((c) => c[0] === 'pipeline')).toHaveLength(2);
     expect(legOf('pipeline')).toMatchObject({ status: 'done' });
+  });
+
+  it('a failure whose lease was lost (a concurrent ack) never turns a delivered leg dead', async () => {
+    // Our delivery hangs past its lease; meanwhile another dispatcher acks it.
+    let fail!: (v: unknown) => void;
+    mockDeliver.mockImplementationOnce(() => new Promise((r) => { fail = r; }));
+    const first = dispatch({ batchSize: 1, maxAttempts: 1 });
+    await new Promise((r) => setImmediate(r));
+    advance(60_000);
+    await dispatch();
+    expect(legOf('pipeline')).toMatchObject({ status: 'done' });
+
+    fail({ ok: false, error: 'HTTP 503', statusCode: 503 });
+    await expect(first).resolves.toMatchObject({ dead: 0, skipped: 1 });
+    expect(legOf('pipeline')).toMatchObject({ status: 'done', lastError: null });
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
+
+  it('a failure whose leg was redriven mid-delivery does not overwrite the reset attempt count', async () => {
+    let fail!: (v: unknown) => void;
+    mockDeliver.mockImplementationOnce(() => new Promise((r) => { fail = r; }));
+    const first = dispatch({ batchSize: 1 });
+    await new Promise((r) => setImmediate(r));
+    // The operator's redrive: back to due-now, attempts 0.
+    Object.assign(legOf('pipeline'), { attempts: 0, nextAttemptAt: now() });
+
+    fail({ ok: false, error: 'HTTP 503' });
+    await expect(first).resolves.toMatchObject({ retried: 0, skipped: 1 });
+    expect(legOf('pipeline')).toMatchObject({ status: 'pending', attempts: 0, nextAttemptAt: now() });
   });
 
   it('treats a throwing deliver, or a leg no longer registered, as a failed attempt', async () => {

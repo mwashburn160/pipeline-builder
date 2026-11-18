@@ -305,7 +305,7 @@ export class AlertRuleService {
   async restore(orgId: string, id: string, actor: string): Promise<boolean> {
     const rows = await withTenantTx(async (tx) => tx
       .update(schema.orgAlertRule)
-      .set({ deletedAt: null, deletedBy: null, updatedAt: new Date(), updatedBy: actor })
+      .set({ deletedAt: null, deletedBy: null, purgeAfter: null, updatedAt: new Date(), updatedBy: actor })
       .where(and(
         eq(schema.orgAlertRule.id, id),
         eq(schema.orgAlertRule.orgId, orgId),

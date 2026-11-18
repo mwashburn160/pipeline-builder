@@ -28,8 +28,9 @@ export interface RecordFailureOptions {
    *  document only while a run is in progress). Default: count only into an
    *  existing document. */
   upsert?: boolean;
-  /** Stamp `expiresAt` (a TTL field) to `now + windowMs` on every failure, and
-   *  to `lockedUntil` when the run locks — so a stale run ages out by itself. */
+  /** Push `expiresAt` (a TTL field) to at least `now + windowMs` on every
+   *  failure, and to `lockedUntil` when the run locks — so a stale run ages out
+   *  by itself, and never before a live lockout ends. */
   windowMs?: number;
   /** The audit action the lockout is filed as. Default `user.mfa.locked_out`. */
   auditAction?: 'user.mfa.locked_out' | 'user.login.locked_out';
@@ -61,7 +62,11 @@ export async function recordFailure(
     { userId },
     {
       $inc: { failedAttempts: 1 },
-      ...(windowMs !== undefined ? { $set: { expiresAt: new Date(Date.now() + windowMs) } } : {}),
+      // `$max`, not `$set`: a failure that raced past the lock check (it read the
+      // run before a concurrent request locked it) must not pull the TTL back
+      // from `lockedUntil` to the end of a shorter window — the record, and so
+      // the lockout, would expire early.
+      ...(windowMs !== undefined ? { $max: { expiresAt: new Date(Date.now() + windowMs) } } : {}),
     },
     { new: true, projection: { failedAttempts: 1 }, ...(upsert ? { upsert: true } : {}) },
   ).lean();

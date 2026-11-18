@@ -123,6 +123,12 @@ describe('the two surfaces', () => {
     expect(out.email).toBe('failed');
   });
 
+  it('treats a 2xx whose body says the send failed (ok: false) as failed, not sent', async () => {
+    mockPost.mockResolvedValue({ statusCode: 200, body: { data: { ok: false, recipientCount: 2 } } });
+    const out = await deliverOffer({ rootOrgId: 'acct-1', consent: BOTH_ON, facts: FACTS });
+    expect(out.email).toBe('failed');
+  });
+
   it('never throws when the relay rejects', async () => {
     mockPost.mockRejectedValue(new Error('ECONNRESET'));
     await expect(deliverOffer({ rootOrgId: 'acct-1', consent: BOTH_ON, facts: FACTS })).resolves.toMatchObject({ email: 'failed' });

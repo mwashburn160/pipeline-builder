@@ -17,7 +17,7 @@ import { createLogger, createQuotaService, decrementQuota, errorMessage, getServ
 import type { QuotaReserveResult, QuotaType } from '@pipeline-builder/api-core';
 import { apiCallsQuota } from '@pipeline-builder/api-server';
 import type { RequestHandler, Response } from 'express';
-import { resolveAccountRoot } from '../services/platform-client.js';
+import { PlatformUnavailableError, resolveAccountRoot } from '../services/platform-client.js';
 
 export type { QuotaType };
 
@@ -27,9 +27,20 @@ const logger = createLogger('feature-quota');
 /** Quota service client (QUOTA_SERVICE_HOST / _PORT from the environment, like every sibling). */
 export const quotaService = createQuotaService();
 
-/** Reserve one slot of a feature quota against the org's account root. */
+/**
+ * Reserve one slot of a feature quota against the org's account root. A root
+ * platform cannot resolve is an UNCONFIRMED reservation (fail closed, answered
+ * 503 by `sendQuotaReserveDenied`) — never a guessed root, and never a raw 500.
+ */
 export async function reserveFeatureQuota(orgId: string, quotaType: QuotaType): Promise<QuotaReserveResult> {
-  const rootOrgId = await resolveAccountRoot(orgId);
+  let rootOrgId: string;
+  try {
+    rootOrgId = await resolveAccountRoot(orgId);
+  } catch (err) {
+    if (!(err instanceof PlatformUnavailableError)) throw err;
+    logger.warn('Feature-quota reserve refused: account root unresolved', { orgId, quotaType, error: errorMessage(err) });
+    return { exceeded: true, unavailable: true, quota: { type: quotaType, limit: 0, used: 0, remaining: 0 } };
+  }
   const auth = getServiceAuthHeader({ serviceName: SERVICE, orgId: rootOrgId, role: 'member' });
   return reserveQuota(quotaService, rootOrgId, quotaType, auth);
 }

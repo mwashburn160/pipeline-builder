@@ -274,6 +274,12 @@ async function mail(
       logger.warn('Offer email refused by the relay', { orgId: rootOrgId, type: offerType, status: response.reason === 'status' ? response.status : undefined });
       return 'failed';
     }
+    // A 2xx can still carry `ok: false`: the relay reached the provider and the
+    // send failed. Counting that as sent recorded a notice nobody received.
+    if (response.ok && response.data.ok === false) {
+      logger.warn('Offer email send failed at the relay', { orgId: rootOrgId, type: offerType });
+      return 'failed';
+    }
     const count = response.ok ? response.data.recipientCount ?? null : null;
     // The relay reports zero recipients rather than failing, so an account with
     // no reachable admin is distinguishable from a send that broke.

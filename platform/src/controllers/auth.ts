@@ -534,8 +534,10 @@ export const switchOrg = withController('Switch org', async (req, res) => {
   const userId = req.user?.sub;
   if (!userId) return sendError(res, 401, 'Unauthorized');
 
-  const { organizationId } = req.body;
-  if (!organizationId) return sendError(res, 400, 'organizationId is required');
+  // A STRING, not merely truthy: the membership gate casts an array to its first
+  // element while the rest of the switch would carry the array itself.
+  const organizationId: unknown = req.body?.organizationId;
+  if (typeof organizationId !== 'string' || !organizationId) return sendError(res, 400, 'organizationId is required');
 
   // Switching moves the caller's OWN session slot. A token with no slot — an
   // exchanged access key, a service account, an impersonation session — has

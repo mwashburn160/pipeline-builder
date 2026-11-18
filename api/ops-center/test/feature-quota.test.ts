@@ -23,7 +23,11 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getServiceAuthHeader: (o: { orgId: string }) => `Bearer ops@${o.orgId}`,
 }));
 const resolveAccountRoot = jest.fn<(orgId: string) => Promise<string>>(async () => 'root-1');
-jest.unstable_mockModule('../src/services/platform-client.js', () => ({ resolveAccountRoot: (o: string) => resolveAccountRoot(o) }));
+class PlatformUnavailableError extends Error {}
+jest.unstable_mockModule('../src/services/platform-client.js', () => ({
+  resolveAccountRoot: (o: string) => resolveAccountRoot(o),
+  PlatformUnavailableError,
+}));
 
 const quota = await import('../src/middleware/quota.js');
 const granted = { exceeded: false, quota: { resetAt: 'r1' } };
@@ -53,6 +57,20 @@ describe('withFeatureQuota', () => {
     await quota.withFeatureQuota({} as never, 'o', 'alertRules', write);
     expect(sendQuotaReserveDenied).toHaveBeenCalled();
     expect(write).not.toHaveBeenCalled();
+  });
+
+  it('an unresolvable account root is an unconfirmed (503) reservation, not a thrown 500', async () => {
+    resolveAccountRoot.mockRejectedValue(new PlatformUnavailableError('platform down'));
+    const write = jest.fn(async () => undefined);
+    await quota.withFeatureQuota({} as never, 'team-1', 'dashboards', write);
+    expect(reserveQuota).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+    expect(sendQuotaReserveDenied).toHaveBeenCalledWith(expect.anything(), 'dashboards', expect.objectContaining({ exceeded: true, unavailable: true }));
+  });
+
+  it('any other root-resolution error still propagates', async () => {
+    resolveAccountRoot.mockRejectedValue(new Error('bug'));
+    await expect(quota.withFeatureQuota({} as never, 'o', 'dashboards', async () => undefined)).rejects.toThrow('bug');
   });
 
   it('gives the slot back when the write declines or throws', async () => {

@@ -21,7 +21,7 @@
  *
  * Rows are purged by the TTL index on `purgeAt` — the latest moment the slot
  * could still renew under the platform's session-lifetime ceiling (see
- * `purgeAtFor` in session-store.ts). Nothing is migrated: the collection is
+ * `purgeAtFor` in services/session/refresh-sessions.ts). Nothing is migrated: the collection is
  * new-install state.
  */
 

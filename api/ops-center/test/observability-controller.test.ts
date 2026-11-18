@@ -312,6 +312,16 @@ describe('audit trail (audit-store) — org-scoped, admin-only', () => {
     expect(params.vars).toEqual({ event: 'pipeline.delete', actor: 'u@x.com', requestId: 'r-1' });
   });
 
+  it('refuses an over-long filter with 400 instead of failing the internal call (500)', async () => {
+    const res = makeRes();
+    await observabilityAuditQuery(
+      makeReq({ key: 'audit_recent_events', range: '1h', actor: 'x'.repeat(257) }, ORG_USER),
+      res,
+    );
+    expect(res._status).toBe(400);
+    expect(mockAuditStore).not.toHaveBeenCalled();
+  });
+
   it('gives a sysadmin the unscoped (every-org) view', async () => {
     mockIsSystemAdmin.mockReturnValue(true);
     const res = makeRes();

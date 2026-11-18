@@ -125,6 +125,22 @@ describe('ApiCore.startImpersonation', () => {
     await expect(reloaded.restoreSession()).resolves.toBe(true);
   });
 
+  it('an operator refresh still in flight does not land on top of the impersonation token', async () => {
+    const core = new ApiCore();
+    core.setTokens({ accessToken: OPERATOR_TOKEN });
+    let answer!: (r: Response) => void;
+    global.fetch = jest.fn<AnyFn>(() => new Promise<Response>((r) => { answer = r; })) as unknown as typeof fetch;
+
+    const pending = (core as unknown as { refreshAccessToken(): Promise<boolean> }).refreshAccessToken();
+    await new Promise((r) => setTimeout(r, 0));
+    core.startImpersonation(IMPERSONATION_TOKEN, 'req-9');
+    answer(refreshResponse());
+
+    await expect(pending).resolves.toBe(false);
+    expect(tokenOf(core)).toBe(IMPERSONATION_TOKEN);
+    expect(core.isImpersonating()).toBe(true);
+  });
+
   it('removes a token an older build left in sessionStorage', () => {
     sessionStorage.setItem('impersonation.accessToken', IMPERSONATION_TOKEN);
     const core = new ApiCore();

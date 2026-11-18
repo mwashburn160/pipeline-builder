@@ -239,6 +239,21 @@ describe('ApiCore token refresh', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('a logout while the refresh request is out is not undone when it lands', async () => {
+    const core = signedInCore();
+    let answer!: (r: Response) => void;
+    fetchMock.mockReturnValueOnce(new Promise<Response>((r) => { answer = r; }));
+
+    const pending = refresh(core);
+    await jest.advanceTimersByTimeAsync(0);
+    core.clearTokens();
+    answer(res(200, { data: ROTATED }));
+
+    await expect(settle(pending)).resolves.toBe(false);
+    expect(core.getAccessToken()).toBeNull();
+    expect(localStorage.getItem('pb.session')).toBeNull();
+  });
+
   it('request(): a 401 whose refresh fails transiently throws a retryable error and keeps the session', async () => {
     const core = signedInCore();
     const expired = jest.fn<AnyFn>();

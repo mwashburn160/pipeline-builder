@@ -10,6 +10,7 @@
 
 import { eq, sql } from 'drizzle-orm';
 import { ORG_DATA_OWNERSHIP, type OrgDataOwner } from './org-data-ownership.js';
+import { affectedRowCount } from '../database/pg-result.js';
 import { runWithTenantContext, withTenantTx } from '../database/tenancy.js';
 
 /** One table's outcome: a row count, or the error that stopped it. */
@@ -27,12 +28,6 @@ export interface OrgDataPurgeResult {
   tables: Record<string, OrgTablePurgeOutcome>;
   /** Names of the tables that failed. Non-empty ⇒ the caller must NOT ack. */
   failed: string[];
-}
-
-/** node-postgres reports `rowCount`; PGlite (the test substrate) `affectedRows`. */
-function affected(res: unknown): number {
-  const r = res as { rowCount?: number | null; affectedRows?: number };
-  return r.rowCount ?? r.affectedRows ?? 0;
 }
 
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
@@ -68,7 +63,7 @@ export async function purgeOrgData(
         const res = await withTenantTx((tx) => tx.update(table)
           .set({ deletedAt: now, purgeAfter: now } as never)
           .where(sql`${(table as unknown as { orgId: unknown }).orgId} = ${orgId} AND deleted_at IS NULL`));
-        result.tables[name] = { ok: true, rowCount: affected(res) };
+        result.tables[name] = { ok: true, rowCount: affectedRowCount(res) };
       } catch (err) {
         result.tables[name] = { ok: false, error: message(err) };
         result.failed.push(name);
@@ -78,7 +73,7 @@ export async function purgeOrgData(
       try {
         const res = await withTenantTx((tx) => tx.delete(table)
           .where(eq((table as unknown as { orgId: unknown }).orgId as never, orgId)));
-        result.tables[name] = { ok: true, rowCount: affected(res) };
+        result.tables[name] = { ok: true, rowCount: affectedRowCount(res) };
       } catch (err) {
         result.tables[name] = { ok: false, error: message(err) };
         result.failed.push(name);

@@ -160,7 +160,7 @@ router.post('/alert-webhook', alertWebhook);
 router.post('/oncall-webhook', ...machine, oncallWebhook);
 
 // The INBOUND leg: what the provider tells us back. Signature-verified with
-// PAGERDUTY_WEBHOOK_SECRET (HMAC-SHA256 over the RAW body — `index.ts` mounts
+// PAGERDUTY_WEBHOOK_SECRET (HMAC-SHA256 over the RAW body — `app-routes.ts` mounts
 // `express.raw` for exactly this path, because verifying a re-serialized object
 // fails every time), fail-CLOSED with no secret. Unauthenticated in the JWT
 // sense for the same reason as the relay above: the caller is a third party

@@ -164,6 +164,26 @@ describe('EditPipelineModal — warnings and failures', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it('a second save from the still-open modal is based on the version the first one saved', async () => {
+    apiFn('updatePipeline').mockResolvedValue({
+      success: true,
+      data: {
+        pipeline: { ...FULL, updatedAt: '2026-11-05T00:00:00Z' },
+        pluginWarnings: [{ stage: 'Deploy', step: 'cdk-deploy', plugin: 'cdk-deploy', severity: 'high', message: 'CVE-1', code: 'PLUGIN_VULNERABLE' }],
+      },
+    });
+    renderModal();
+    await screen.findByLabelText('Project *');
+    await toLastStep();
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+    await screen.findByTestId('save-plugin-warnings');
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+    await waitFor(() => expect(apiFn('updatePipeline')).toHaveBeenCalledTimes(2));
+    expect(apiFn('updatePipeline').mock.calls[0][1]).toMatchObject({ expectedUpdatedAt: '2026-11-02T00:00:00Z' });
+    expect(apiFn('updatePipeline').mock.calls[1][1]).toMatchObject({ expectedUpdatedAt: '2026-11-05T00:00:00Z' });
+  });
+
   it('a refused save shows the error and stays editable', async () => {
     apiFn('updatePipeline').mockRejectedValue(new Error('Compliance blocked the save'));
     const { onSaved } = renderModal();

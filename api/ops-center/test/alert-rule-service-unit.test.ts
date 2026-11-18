@@ -187,7 +187,7 @@ describe('writes', () => {
   it('restore clears the tombstone and reports the outcome', async () => {
     results.push([rule()]);
     await expect(alertRuleService.restore('org-1', 'r1', 'user-3')).resolves.toBe(true);
-    expect(setCalls()[0]).toMatchObject({ deletedAt: null, deletedBy: null, updatedBy: 'user-3' });
+    expect(setCalls()[0]).toMatchObject({ deletedAt: null, deletedBy: null, purgeAfter: null, updatedBy: 'user-3' });
     results.push([]);
     await expect(alertRuleService.restore('org-1', 'r1', 'user-3')).resolves.toBe(false);
   });

@@ -13,6 +13,7 @@
  *   - export is refused under read-only impersonation.
  */
 
+import { EventEmitter } from 'node:events';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
@@ -22,10 +23,12 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 const queryLogs = jest.fn(async (..._a: unknown[]) => [] as unknown[]);
 const queryLogVolume = jest.fn(async (..._a: unknown[]) => [] as unknown[]);
+type LogPage = Array<{ time: number; line: string; labels: Record<string, string> }>;
+let iterateLogs: (...a: unknown[]) => AsyncGenerator<LogPage> = async function* () { /* nothing */ };
 jest.unstable_mockModule('../src/observability/loki-client.js', () => ({
   queryLogs: (...a: unknown[]) => queryLogs(...a),
   queryLogVolume: (...a: unknown[]) => queryLogVolume(...a),
-  iterateLogs: async function* () { /* nothing */ },
+  iterateLogs: (...a: unknown[]) => iterateLogs(...a),
 }));
 jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ observability: {} }));
 const audit = jest.fn();
@@ -126,5 +129,38 @@ describe('log export', () => {
   it('is refused during a read-only impersonation session', async () => {
     const res = await call(ctl.logExport, { ...MEMBER, impersonationReadOnly: true });
     expect(res.statusCode).toBe(403);
+  });
+
+  it('a client that disconnects with the buffer full ends the export (no wait on a drain that never comes)', async () => {
+    let pagesRead = 0;
+    iterateLogs = async function* () {
+      for (let i = 0; i < 5; i++) {
+        pagesRead += 1;
+        yield [{ time: Date.now(), line: `line ${i}`, labels: {} }];
+      }
+    };
+    // A real emitter: `write` reports a full buffer, then the socket closes.
+    const res = Object.assign(new EventEmitter(), {
+      destroyed: false,
+      ended: false,
+      setHeader() { return res; },
+      write: jest.fn(() => {
+        if (res.write.mock.calls.length > 1) setImmediate(() => { res.destroyed = true; res.emit('close'); });
+        return res.write.mock.calls.length <= 1;
+      }),
+      end() { res.ended = true; return res; },
+    });
+    try {
+      await (ctl.logExport as unknown as (req: unknown, r: unknown) => Promise<void>)(
+        { user: MEMBER, query: { range: '1h' }, headers: {} }, res,
+      );
+    } finally {
+      iterateLogs = async function* () { /* nothing */ };
+    }
+    expect(pagesRead).toBe(1);
+    expect(res.ended).toBe(false);
+    expect(audit).toHaveBeenCalledWith(expect.anything(), 'observability.logs.export', expect.objectContaining({
+      details: expect.objectContaining({ truncated: true, lines: 1 }),
+    }));
   });
 });

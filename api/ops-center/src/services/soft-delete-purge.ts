@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Retention purge for platform-owned soft-deleted tables (dashboards + alert
+ * Retention purge for ops-center-owned soft-deleted tables (dashboards + alert
  * destinations/rules). These services are hand-rolled drizzle (not CrudService),
  * so they can't ride the api services' `CrudService.purgeExpired`; this module
  * provides an equivalent, wired through the SAME leader-locked, sysadmin-scoped

@@ -127,10 +127,12 @@ export function SupportContactSettings({ orgId, readOnly = false }: { orgId: str
 
   return (
     <SectionCard title="Support contacts" icon={LifeBuoy}>
-      {read.loading && <LoadingSpinner />}
+      {/* Spinner only for the FIRST load: a tagged re-read or a write's refetch keeps
+          the current roster on screen instead of blanking the section. */}
+      {read.loading && !support && <LoadingSpinner />}
       {read.error && <RetryError message="Support contacts could not be loaded" onRetry={read.refetch} />}
 
-      {!read.loading && !read.error && support && (
+      {!read.error && support && (
         <div className="space-y-3">
           {/* No add-on at all: say what to buy rather than showing an empty
               list that looks like a configuration mistake. */}

@@ -27,6 +27,7 @@
 import { createLogger, errorMessage, envInt, startOf } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
 import { nonOutcomeStatusList, notOvertaken } from './sql-helpers.js';
+import { affectedRowCount } from '../../database/pg-result.js';
 import { runWithTenantContext, withTenantTx } from '../../database/tenancy.js';
 
 const logger = createLogger('daily-rollup');
@@ -151,9 +152,7 @@ export async function rebuildDay(day: Date): Promise<number> {
       build_seconds = excluded.build_seconds,
       computed_at = excluded.computed_at
   `)));
-  // node-postgres reports `rowCount`; PGlite (the test substrate) `affectedRows`.
-  const res = result as unknown as { rowCount?: number | null; affectedRows?: number };
-  const rows = res.rowCount ?? res.affectedRows ?? 0;
+  const rows = affectedRowCount(result);
   logger.debug('Rolled up a day', { day: dayStart.toISOString().slice(0, 10), rows });
   return rows;
 }

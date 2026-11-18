@@ -29,6 +29,15 @@ export function resultRows<T>(res: unknown): T[] {
   return Array.isArray(rows) ? (rows as T[]) : [];
 }
 
+/**
+ * Rows a write touched. node-postgres reports `rowCount`; PGlite (the test
+ * substrate) `affectedRows`.
+ */
+export function affectedRowCount(res: unknown): number {
+  const r = res as { rowCount?: number | null; affectedRows?: number } | null | undefined;
+  return r?.rowCount ?? r?.affectedRows ?? 0;
+}
+
 /** Anything with Drizzle's raw `execute` — the db handle or a transaction. */
 export interface SqlExecutor {
   execute(query: SQL): PromiseLike<unknown>;

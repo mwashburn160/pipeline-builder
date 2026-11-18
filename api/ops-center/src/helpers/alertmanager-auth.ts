@@ -4,7 +4,7 @@
 /**
  * Shared authentication for the server-to-server endpoints Alertmanager calls.
  *
- * These are the only non-JWT auth gates in platform: Alertmanager is a service,
+ * These are the only non-JWT auth gates in ops-center: Alertmanager is a service,
  * not a person, so it presents a per-instance shared secret
  * (`ALERT_WEBHOOK_INSTANCES`) as a bearer token alongside an
  * `X-Alertmanager-Instance` header naming which entry to compare against.

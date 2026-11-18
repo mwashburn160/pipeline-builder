@@ -20,6 +20,9 @@ const mockFindOneAndUpdate = jest.fn((_f: unknown, update: any, opts: any) => ({
     doc ??= { failedAttempts: 0, lockedUntil: null };
     doc.failedAttempts += update.$inc.failedAttempts;
     if (update.$set) Object.assign(doc, update.$set);
+    for (const [k, v] of Object.entries((update.$max ?? {}) as Record<string, Date>)) {
+      if (!doc[k] || doc[k] < v) doc[k] = v;
+    }
     return { failedAttempts: doc.failedAttempts };
   },
 }));
@@ -51,7 +54,7 @@ describe('password lockout', () => {
     await lockout.recordPasswordFailure('u1');
     expect(mockFindOneAndUpdate).toHaveBeenCalledWith(
       { userId: 'u1' },
-      expect.objectContaining({ $inc: { failedAttempts: 1 }, $set: { expiresAt: expect.any(Date) } }),
+      expect.objectContaining({ $inc: { failedAttempts: 1 }, $max: { expiresAt: expect.any(Date) } }),
       expect.objectContaining({ upsert: true }),
     );
     expect(doc.expiresAt.getTime()).toBeGreaterThanOrEqual(before + 30_000);
@@ -75,6 +78,16 @@ describe('password lockout', () => {
     expect(err).toBeInstanceOf(lockout.PasswordLockedOutError);
     expect(err.message).toBe(lockout.PASSWORD_LOCKED_OUT);
     expect(err.retryAfterSeconds).toBeGreaterThan(55);
+  });
+
+  it('a failure that raced past the lock check never shortens the lock\'s TTL (window < lockout)', async () => {
+    await lockout.recordPasswordFailure('u1');
+    await lockout.recordPasswordFailure('u1');
+    const lockedUntil = doc.lockedUntil as Date;
+    // A request that read the run before the lock landed counts its failure now.
+    await lockout.recordPasswordFailure('u1');
+    expect(doc.expiresAt).toEqual(lockedUntil);
+    await expect(lockout.assertPasswordNotLocked('u1')).rejects.toBeInstanceOf(lockout.PasswordLockedOutError);
   });
 
   it('an expired lock no longer refuses; retryAfterSeconds never drops below 1', async () => {

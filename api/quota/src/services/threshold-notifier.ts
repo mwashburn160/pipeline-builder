@@ -307,7 +307,9 @@ async function deliverEmail(
       },
     });
     // The client resolves on a 4xx/5xx, so the status is the only refusal signal.
-    if (response.ok || response.reason === 'invalid-response') outcome = 'sent';
+    // A 2xx can still carry `ok: false` (the relay's send failed) — not sent.
+    if (response.ok && response.data.ok === false) logger.warn('Quota threshold email send failed at the relay', { rootOrgId: input.rootOrgId });
+    else if (response.ok || response.reason === 'invalid-response') outcome = 'sent';
     else logger.warn('Quota threshold email refused by the relay', { rootOrgId: input.rootOrgId, status: response.reason === 'status' ? response.status : undefined });
   } catch (err) {
     logger.warn('Quota threshold email failed', { rootOrgId: input.rootOrgId, error: errorMessage(err) });

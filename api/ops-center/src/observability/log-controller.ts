@@ -8,7 +8,7 @@
  *   GET  /observability/logs/volume   — per-level histogram (matrix)
  *   GET  /observability/logs/context  — N lines either side of one entry
  *   GET  /observability/logs/raw      — one stream as text/plain
- *   POST /observability/logs/export/ticket + GET /observability/logs/export
+ *   GET  /observability/logs/export   — streamed download
  *
  * Distinct from `controller.ts`'s audit-store catalog queries, which serve the
  * MongoDB AUDIT trail. Both were once called "logs"; only this one reads logs.
@@ -90,8 +90,8 @@ const PRESETS: Record<string, number> = {
 /**
  * Resolve the query window from either a preset (`range=6h`) or an absolute pair
  * (`from`/`to`, unix ms). A window wider than retention is CLAMPED rather than
- * refused: someone asking for 30 days should be shown the 7 we have, with a
- * banner, not an error.
+ * refused: someone asking for more than is kept should be shown what we have,
+ * with a banner, not an error.
  */
 export function resolveWindow(query: Request['query']): ResolvedWindow | { error: string } {
   const fromRaw = parseQueryString(query.from);
@@ -322,7 +322,7 @@ function renderPreamble(opts: {
     `# generated:    ${new Date().toISOString()}`,
     `# scope:        ${opts.sysadmin ? `tenants=${opts.tenants}` : 'your organization only'}`,
     `# window:       ${new Date(opts.window.startMs).toISOString()} .. ${new Date(opts.window.endMs).toISOString()}`
-      + (opts.window.clamped ? ' (clamped to the 7-day retention window)' : ''),
+      + (opts.window.clamped ? ` (clamped to the ${LOG_RETENTION_HOURS}-hour retention window)` : ''),
     `# filter:       ${opts.filterText || '(none)'}`,
     '# NOTE: this is a FILTERED, MASKED extract, not a raw container log. Lines',
     '#       belonging to other organizations are not included, and credential-',
@@ -394,6 +394,8 @@ export const logExport = withController('Log export', async (req, res) => {
   let bytes = 0;
   let lines = 0;
   let truncated = false;
+  // The client went away mid-download: stop reading Loki and write nothing more.
+  let clientGone = false;
   try {
     for await (const page of loki.iterateLogs(logQL, tenants, {
       startMs: window.startMs,
@@ -410,17 +412,27 @@ export const logExport = withController('Log export', async (req, res) => {
       if (bytes > EXPORT_MAX_BYTES) { truncated = true; break; }
       if (!res.write(chunk)) {
         // Respect backpressure: a slow client must not let us buffer unboundedly.
-        await new Promise((resolve) => res.once('drain', resolve));
+        // Wait for `close` too — a client that disconnects with the buffer full
+        // never emits `drain`, and waiting on it alone parks this handler (and
+        // the Loki iteration) forever.
+        await new Promise<void>((resolve) => {
+          const done = () => { res.off('drain', done); res.off('close', done); resolve(); };
+          res.once('drain', done);
+          res.once('close', done);
+        });
+        if (res.destroyed) { clientGone = true; truncated = true; break; }
       }
     }
   } catch {
     truncated = true;
   }
 
-  if (truncated) {
-    res.write(`# TRUNCATED — hit the export cap (${EXPORT_MAX_BYTES} bytes / ${EXPORT_DEADLINE_MS}ms). Narrow the range or filter.\n`);
+  if (!clientGone) {
+    if (truncated) {
+      res.write(`# TRUNCATED — hit the export cap (${EXPORT_MAX_BYTES} bytes / ${EXPORT_DEADLINE_MS}ms). Narrow the range or filter.\n`);
+    }
+    res.end();
   }
-  res.end();
 
   audit(req, 'observability.logs.export', {
     targetType: 'logs',

@@ -206,7 +206,7 @@ describe('writes', () => {
   it('restore clears deletedAt and reports the outcome', async () => {
     results.push([{ id: 'd1' }]);
     await expect(alertDestinationService.restore('d1', caller)).resolves.toBe(true);
-    expect(setCalls()[0]).toMatchObject({ deletedAt: null, deletedBy: null, updatedBy: 'user-1' });
+    expect(setCalls()[0]).toMatchObject({ deletedAt: null, deletedBy: null, purgeAfter: null, updatedBy: 'user-1' });
     results.push([]);
     await expect(alertDestinationService.restore('d1', caller)).resolves.toBe(false);
   });

@@ -70,8 +70,11 @@ describe('dashboard delete → restore (real Postgres)', () => {
     const res = await call(ctl.restoreDashboard, A, { params: { id } });
     expect(res.statusCode).toBe(200);
     expect(mockReserve).toHaveBeenCalledWith(A.orgId, 'dashboards');
-    const { rows } = await owner((q) => q.query<{ deleted_at: Date | null }>('SELECT deleted_at FROM dashboards WHERE id = $1', [id]));
+    // The retention stamp goes with the tombstone (as CrudService.restore does):
+    // a restored LIVE row must not carry the old delete's `purge_after`.
+    const { rows } = await owner((q) => q.query<{ deleted_at: Date | null; purge_after: Date | null }>('SELECT deleted_at, purge_after FROM dashboards WHERE id = $1', [id]));
     expect(rows[0]?.deleted_at).toBeNull();
+    expect(rows[0]?.purge_after).toBeNull();
   });
 
   it('restoring onto a live namesake is a 409 (not a 500) and gives the reserved slot back', async () => {

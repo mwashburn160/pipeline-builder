@@ -16,7 +16,7 @@
  *   POST   /api/observability/alert-webhook           — relay endpoint (called by Alertmanager)
  *
  * The relay is the only path with a non-JWT auth gate: it's called server-to-
- * server from Alertmanager, which lives on the same network as platform. It
+ * server from Alertmanager, which lives on the same network as ops-center. It
  * gates on a PER-INSTANCE bearer token rather than a user JWT — see
  * `authenticateAlertmanager`, which matches the `x-alertmanager-instance`
  * header against `ALERT_WEBHOOK_INSTANCES`. Per-instance and not one shared
@@ -367,7 +367,7 @@ export const testAlertDestination = withController('Test alert destination', asy
  * `authenticateAlertmanager` (which also accepts that entry's `previousToken`,
  * so a rotation has an overlap window). Not JWT-authenticated — Alertmanager is
  * a server-side service with no user identity. The token check is defense in
- * depth on top of NetworkPolicy (`platform` ingress from `alertmanager`).
+ * depth on top of NetworkPolicy (`ops-center` ingress from `alertmanager`).
  *
  * This endpoint intentionally does NOT use the global rate limiter — a quiet
  * Alertmanager fires <1 webhook/min, a noisy one fires bursts but each batches

@@ -13,7 +13,6 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { ConcurrencyConflictAlert } from '@/components/ui/ConcurrencyConflictAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import api from '@/lib/api';
-import { invalidate } from '@/lib/api-cache';
 import { expectedUpdatedAtOf, isConcurrencyConflict } from '@/lib/api/concurrency';
 import type { PipelineSummary } from '@/lib/api/domains/pipelines';
 import { Pipeline, BuilderProps, Visibility } from '@/types';
@@ -68,12 +67,18 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
   const saveM = useMutation({
     fn: (data: Parameters<typeof api.updatePipeline>[1]) => api.updatePipeline(pipeline.id, data),
     scopeKey: pipeline.id,
+    // Every cached pipeline list (palette, home, deployments drift) is stale now.
+    invalidates: ['pipelines'],
     errorFallback: 'Failed to update pipeline',
     onError: (err) => { if (isConcurrencyConflict(err)) setConflict(true); },
   });
   const { run: saveAsync, pending: loading, reset: clearError } = saveM;
   const error = conflict ? null : saveM.error;
   const [success, setSuccess] = useState<string | null>(null);
+  // The `updatedAt` a save left behind. The modal stays open after a save with
+  // plugin warnings, so a second save must be based on THIS version — sending
+  // the loaded record's would be refused as someone else's concurrent edit.
+  const [savedUpdatedAt, setSavedUpdatedAt] = useState<string | undefined>(undefined);
   // Severity-graded plugin warnings the save answered (never a refusal).
   const [pluginWarnings, setPluginWarnings] = useState<PipelinePluginWarning[]>([]);
   // Saved, but kept open to show plugin warnings: closing reports the save.
@@ -123,6 +128,7 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
 
   useEffect(() => {
     if (!fullPipeline) return;
+    setSavedUpdatedAt(undefined);
     setIsActive(fullPipeline.isActive);
     setIsDefault(fullPipeline.isDefault);
     setVisibility(fullPipeline.visibility);
@@ -164,7 +170,7 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
       isDefault,
       visibility,
       // The version this edit was based on: a concurrent edit is a 412, not an overwrite.
-      expectedUpdatedAt: expectedUpdatedAtOf(p),
+      expectedUpdatedAt: savedUpdatedAt ?? expectedUpdatedAtOf(p),
       // Owner is admin-only server-side and non-nullable in the schema, so only
       // send it when this viewer may set it AND it resolves to a real id.
       ...(canAssignOwner && owner.ownerId && owner.ownerType
@@ -174,8 +180,7 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
 
     if (response?.success) {
       setSuccess('Pipeline updated successfully!');
-      // Every cached pipeline list (palette, home, deployments drift) is stale now.
-      invalidate.pipelines();
+      setSavedUpdatedAt(expectedUpdatedAtOf(response.data?.pipeline));
       const warnings = response.data?.pluginWarnings ?? [];
       setPluginWarnings(warnings);
       // Stay open while there are plugin warnings to read; they don't block the

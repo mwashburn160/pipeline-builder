@@ -503,6 +503,9 @@ export class ApiCore {
    * restores the operator's own session and revokes the abandoned one.
    */
   startImpersonation(impersonationAccessToken: string, requestId?: string): void {
+    // A refresh of the operator's session still in flight must not land on top
+    // of the impersonation token (see `attemptRefresh`).
+    this.sessionGeneration++;
     impersonationSession = { accessToken: impersonationAccessToken, requestId: requestId ?? null };
     // Remembered so stopping can end the session on the SERVER, not just
     // discard the token in this browser — and, in the tab's sessionStorage, so
@@ -914,7 +917,7 @@ export class ApiCore {
 
     const generation = this.sessionGeneration;
     for (let attempt = 0; ; attempt++) {
-      const outcome = await this.attemptRefresh();
+      const outcome = await this.attemptRefresh(generation);
       if (outcome === 'ok') return true;
       // The session changed underneath us (logout, re-login, another tab):
       // this refresh no longer speaks for the current session.
@@ -997,7 +1000,7 @@ export class ApiCore {
    *  - `failed`    anything else (other 4xx, 2xx without a token) — not retried,
    *                but not proof the session is over either
    */
-  private async attemptRefresh(): Promise<'ok' | 'rejected' | 'expired' | 'throttled' | 'transient' | 'failed'> {
+  private async attemptRefresh(generation: number): Promise<'ok' | 'rejected' | 'expired' | 'throttled' | 'transient' | 'failed'> {
     let response: Response;
     // Bounded: this runs inside the cross-tab lock, so a request that never
     // settles would hold it for good (see REFRESH_REQUEST_TIMEOUT_MS). A timeout
@@ -1036,6 +1039,11 @@ export class ApiCore {
     // The token lives in data.data (standardized envelope) or on the body itself.
     const tokens = data.data || data;
     if (statusCode < 400 && tokens.accessToken) {
+      // The identity moved while the request was out (a logout, a fresh
+      // sign-in, an impersonation starting): this token speaks for the session
+      // that WAS, so it must not overwrite — or re-open — the one that is.
+      // `doRefresh` sees the generation change and reports false.
+      if (this.sessionGeneration !== generation) return 'failed';
       this.setTokens(tokens);
       return 'ok';
     }

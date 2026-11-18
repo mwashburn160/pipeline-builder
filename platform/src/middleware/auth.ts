@@ -10,7 +10,7 @@ import { bootstrapSessionMayReach } from '../helpers/bootstrap-admin.js';
 import { isImpersonationOperatorStale, type ImpersonationOperatorStamp } from '../helpers/impersonation-operator.js';
 import { resolveOrgAuthority } from '../helpers/org-authority.js';
 import { toOrgId } from '../helpers/org-id.js';
-import { CLIENT_TYPE_HEADER, clientType, readRefreshCookie } from '../helpers/session-cookie.js';
+import { CLIENT_TYPE_HEADER, clearRefreshCookie, clientType, readRefreshCookie } from '../helpers/session-cookie.js';
 import { User, Organization, UserOrganization, ImpersonationRequest, PersonalAccessToken } from '../models/index.js';
 import { incCounter } from '../observability/metrics.js';
 import { SESSION_EXPIRED_ERROR } from '../services/auth-errors.js';
@@ -565,7 +565,8 @@ export async function requireRefreshSession(
   res: Response,
   next: NextFunction,
 ): Promise<void> {
-  const refreshToken = readRefreshCookie(req) ?? req.body?.refreshToken;
+  const cookieToken = readRefreshCookie(req);
+  const refreshToken = cookieToken ?? req.body?.refreshToken;
 
   if (!refreshToken || typeof refreshToken !== 'string') {
     return sendError(res, 401, 'Token required');
@@ -578,7 +579,11 @@ export async function requireRefreshSession(
     // A refresh token past its `exp` is a session that ran its course (the
     // refresh TTL, capped at the session's maximum age) — say so, so the
     // client asks for a sign-in instead of reporting a bad token.
+    // A browser's expired cookie is a dead credential: drop it (only this
+    // response can — it is HttpOnly), as the handler does for every other
+    // SESSION_EXPIRED, so the browser stops replaying it.
     if (err instanceof Error && err.name === 'TokenExpiredError') {
+      if (cookieToken) clearRefreshCookie(res);
       return sendError(res, SESSION_EXPIRED_ERROR.status, SESSION_EXPIRED_ERROR.message, SESSION_EXPIRED_ERROR.code);
     }
     // Token verification failed - return unauthorized without exposing error details

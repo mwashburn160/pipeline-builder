@@ -254,6 +254,21 @@ describe('requireRefreshSession — which token is presented', () => {
     expect(next).not.toHaveBeenCalled();
   });
 
+  it('drops an EXPIRED refresh cookie, so the browser stops replaying a dead credential', async () => {
+    mockVerifyRefreshToken.mockImplementation(() => {
+      throw Object.assign(new Error('jwt expired'), { name: 'TokenExpiredError' });
+    });
+    const res = makeRes();
+    await requireRefreshSession(browserReq({ headers: { 'x-pb-client': 'web', 'cookie': 'pb_refresh=cookie.jwt' } }), res, jest.fn() as any);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'SESSION_EXPIRED' }));
+    expect(res.clearCookie).toHaveBeenCalledWith('pb_refresh', expect.any(Object));
+
+    // A CLI caller's body token has no cookie to clear.
+    const cli = makeRes();
+    await requireRefreshSession(cliReq({ body: { refreshToken: 'body.jwt' } }), cli, jest.fn() as any);
+    expect(cli.clearCookie).not.toHaveBeenCalled();
+  });
+
   it('401s when neither transport carries a token', async () => {
     const res = makeRes();
     const next = jest.fn();

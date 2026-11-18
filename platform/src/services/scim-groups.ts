@@ -251,11 +251,17 @@ export async function replaceGroup(ctx: ScimContext, id: string, body: Record<st
  */
 async function renameGroupKey(orgId: string, doc: IdpGroupMappingDocument, displayName: string, key: string): Promise<void> {
   const previous = doc.groupKey;
+  // A query update, not `doc.save({ session })`: the body may be RE-RUN on a
+  // transient error, and a hydrated document whose save landed in the aborted
+  // attempt is no longer "modified" — the retry's save would then be a no-op
+  // while the members' keys still moved. The document is updated only once the
+  // transaction has committed.
   await withMongoTransaction(async (session) => {
-    doc.group = displayName;
-    doc.groupKey = key;
-    doc.updatedBy = 'scim';
-    await doc.save({ session });
+    await IdpGroupMapping.updateOne(
+      { _id: doc._id },
+      { $set: { group: displayName, groupKey: key, updatedBy: 'scim' } },
+      { session },
+    );
     if (previous !== key) {
       // Members carry the KEY, so a rename must move them or everyone silently
       // drops out of the group (and loses the Roles it maps to).
@@ -266,6 +272,8 @@ async function renameGroupKey(orgId: string, doc: IdpGroupMappingDocument, displ
       );
     }
   });
+  // Mirror the committed write (a later `doc.save()` re-sends the same values).
+  doc.set({ group: displayName, groupKey: key, updatedBy: 'scim' });
 }
 
 /**

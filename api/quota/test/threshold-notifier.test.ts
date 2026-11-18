@@ -184,6 +184,12 @@ describe('threshold email', () => {
     expect(emitCounter).toHaveBeenCalledWith('quota_threshold_emails_total', { type: 'apiCalls', threshold: '80', outcome: 'sent' });
   });
 
+  it('counts a 2xx whose body says the send failed (ok: false) as failed, not sent', async () => {
+    relayPost.mockResolvedValueOnce({ statusCode: 200, body: { success: true, data: { ok: false, recipientCount: 2 } } });
+    await notifyThresholds({ ...base, used: 80, amount: 1 });
+    expect(emitCounter).toHaveBeenCalledWith('quota_threshold_emails_total', { type: 'apiCalls', threshold: '80', outcome: 'failed' });
+  });
+
   it('counts a relay refusal or an unreachable relay as failed, without throwing', async () => {
     relayPost.mockResolvedValueOnce({ statusCode: 403 });
     await notifyThresholds({ ...base, used: 80, amount: 1 });

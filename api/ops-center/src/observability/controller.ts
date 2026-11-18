@@ -63,6 +63,8 @@ const AUDIT_PAGE = { def: 50, max: 500 };
 /** Most queries one batch may carry — a dashboard's panel count, with headroom. */
 const MAX_BATCH_QUERIES = 50;
 
+/** Mirrors `PLATFORM_INTERNAL.auditActivity`'s per-filter limit. */
+const AUDIT_VAR_MAX_LENGTH = 256;
 const INVALID_RANGE = "Invalid range — must be one of '1h', '6h', '24h'";
 
 const UPSTREAM_MESSAGES = {
@@ -134,6 +136,10 @@ async function runAuditStoreQuery(
   const pick = (name: 'event' | 'actor' | 'requestId') =>
     (entry.allowedVars?.includes(name) ? parseQueryString(q[name]) : undefined);
   const vars = { event: pick('event'), actor: pick('actor'), requestId: pick('requestId') };
+  // The audit contract caps each filter at 256 characters; refusing here keeps an
+  // over-long value a 400 instead of a ContractRequestError surfacing as a 500.
+  const tooLong = Object.entries(vars).find(([, v]) => v !== undefined && v.length > AUDIT_VAR_MAX_LENGTH);
+  if (tooLong) return fail(400, `'${tooLong[0]}' must be at most ${AUDIT_VAR_MAX_LENGTH} characters`);
   const result = await queryAuditActivity({
     query: entry.query,
     scope: { isSuperAdmin: caller.isSuperAdmin, ...(caller.orgId ? { orgId: caller.orgId } : {}) },
@@ -322,6 +328,22 @@ export const observabilityAlerts = withController('Observability alerts', async 
 });
 
 /**
+ * Whether a silence belongs to `orgId`: it carries a POSITIVE, literal
+ * `org_id=<orgId>` matcher. A negative (`org_id!="a"`) or regex matcher that
+ * happens to mention the org is not ownership — `org_id!="org-a"` silences every
+ * OTHER tenant, so treating it as org-a's let an org-a member list and expire a
+ * fleet-wide silence. Alertmanager omits `isEqual` on older versions; absent
+ * means equality.
+ */
+function silenceOwnedBy(
+  matchers: ReadonlyArray<{ name: string; value: string; isRegex?: boolean; isEqual?: boolean }>,
+  orgId: string | undefined,
+): boolean {
+  if (!orgId) return false;
+  return matchers.some((m) => m.name === 'org_id' && m.value === orgId && m.isEqual !== false && !m.isRegex);
+}
+
+/**
  * GET /api/observability/silences — list active + recent silences.
  *
  * No org filter at this layer — silences are global to Alertmanager. The UI
@@ -339,7 +361,7 @@ export const observabilitySilencesList = withController('Observability silences 
     // create/delete paths enforce. Sysadmins see every tenant's silences.
     const visible = sysadmin
       ? silences
-      : silences.filter(s => s.matchers.some(m => m.name === 'org_id' && m.value === orgId));
+      : silences.filter(s => silenceOwnedBy(s.matchers, orgId));
     sendSuccess(res, 200, { silences: visible });
   } catch (err) {
     sendReadResultOrDegrade(res, err, { silences: [] });
@@ -461,7 +483,7 @@ export const observabilitySilenceDelete = withController('Observability silence 
         sendError(res, 404, 'Silence not found');
         return;
       }
-      const ownsIt = target.matchers.some(m => m.name === 'org_id' && m.value === orgId);
+      const ownsIt = silenceOwnedBy(target.matchers, orgId);
       if (!ownsIt) {
         forbid(req, res, 'org-scope', 'You can only delete silences in your own organization');
         return;

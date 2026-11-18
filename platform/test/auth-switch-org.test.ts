@@ -218,6 +218,16 @@ describe('switchOrg — org.switch audit', () => {
     expect(res.status).toHaveBeenCalledWith(200);
   });
 
+  it('400s a non-string organizationId before any lookup', async () => {
+    for (const organizationId of [['org-to', 'org-x'], { $ne: null }, 42, '']) {
+      const res = makeRes();
+      await (switchOrg as any)({ user: { sub: 'u1', organizationId: 'org-from', sid: 's1' }, headers: {}, body: { organizationId } }, res);
+      expect(res.status).toHaveBeenCalledWith(400);
+    }
+    expect(mockSwitchActiveOrg).not.toHaveBeenCalled();
+    expect(mockSwitchSessionOrg).not.toHaveBeenCalled();
+  });
+
   it('does NOT audit when the user is not an active member (403)', async () => {
     mockSwitchActiveOrg.mockResolvedValue(null);
 
