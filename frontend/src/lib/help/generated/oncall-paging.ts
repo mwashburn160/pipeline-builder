@@ -1,6 +1,6 @@
 // GENERATED FROM docs/oncall-paging.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 0cdc58a034b164da77b8371a4cff2e579d010a5e8b24e4113827177b75d85954
+// SOURCE-SHA256: 54aec48d7e610f62f56ecf45191f8148bf85e1045f85089ecaff2374d063237e
 // SPDX-License-Identifier: Apache-2.0
 import { BellRing } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -60,7 +60,7 @@ export const oncallPagingTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The last two route through Alertmanager to platform's POST /observability/oncall-webhook, which re-checks the labels and forwards a matching alert to Events v2. The first calls the same client directly."
+          "content": "The last two route through Alertmanager to ops-center's POST /observability/oncall-webhook, which re-checks the labels and forwards a matching alert to Events v2. The first calls the same client directly."
         },
         {
           "type": "text",

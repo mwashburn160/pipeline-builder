@@ -8,7 +8,7 @@
  * zero-recipient case. Models + EmailService are mocked.
  */
 
-import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
@@ -340,6 +340,53 @@ describe('handleNotifyEmail — quota notices (quota)', () => {
 
 // GET /internal/notify-email/status — the plugin service's anonymous-submission
 // API is only available when outbound email is on.
+describe('handleNotifyEmail — alert email (ops-center)', () => {
+  const ops = { sub: 'service:ops-center', principalType: 'service', organizationId: 'org-a', isSuperAdmin: false };
+  const body = { alertEmail: true, orgId: 'org-a', to: 'oncall@acme.test', subject: '[CRITICAL] DiskFull', text: 'disk full' };
+
+  afterEach(() => { mockEmailConfig.enabled = true; });
+
+  it('sends ONE message to the configured address — no member lookup', async () => {
+    const res = mockRes();
+    await handleNotifyEmail({ body, user: ops } as any, res);
+    expect(mockSend).toHaveBeenCalledWith({ to: 'oncall@acme.test', subject: '[CRITICAL] DiskFull', text: 'disk full' });
+    expect(mockMembershipFind).not.toHaveBeenCalled();
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ data: { ok: true, recipientCount: 1 } }));
+  });
+
+  it('answers suppressed (not an error, not a delivery) when email is off on the deploy', async () => {
+    mockEmailConfig.enabled = false;
+    const res = mockRes();
+    await handleNotifyEmail({ body, user: ops } as any, res);
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ data: { ok: false, suppressed: 1 } }));
+  });
+
+  it('SECURITY: refuses the alert leg from any other caller', async () => {
+    const res = mockRes();
+    await handleNotifyEmail({ body, user: { ...ops, sub: 'service:reporting' } } as any, res);
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it('SECURITY: is tenant-bound — a token for one org cannot mail for another', async () => {
+    const res = mockRes();
+    await handleNotifyEmail({ body: { ...body, orgId: 'org-victim' }, user: ops } as any, res);
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it('400s a body with no address, and 500s a send that throws', async () => {
+    const bad = mockRes();
+    await handleNotifyEmail({ body: { ...body, to: '' }, user: ops } as any, bad);
+    expect(bad.status).toHaveBeenCalledWith(400);
+    mockSend.mockRejectedValueOnce(new Error('smtp down'));
+    const res = mockRes();
+    await handleNotifyEmail({ body, user: ops } as any, res);
+    expect(res.status).toHaveBeenCalledWith(500);
+  });
+});
+
 describe('notifyEmailStatus', () => {
   it.each([[true], [false]])('reports enabled=%s straight from EMAIL_ENABLED', (enabled) => {
     mockEmailConfig.enabled = enabled;

@@ -304,9 +304,9 @@ pb_check_alert_delivery() {
   [ -n "$slack" ] || slack=false
 
   # DERIVE whether Slack can actually deliver, and persist it for the services.
-  # Platform cannot inspect the URLs — they are a bearer credential read per
-  # notification from Alertmanager's Secret via api_url_file and never enter the
-  # platform process — so it has to be told. This is what keeps
+  # ops-center cannot inspect the URLs — they are a bearer credential read
+  # per notification from Alertmanager's Secret via api_url_file and never enter
+  # the ops-center process — so it has to be told. This is what keeps
   # AlertDeliveryDisabled keyed on reality: without it the alert would fire on
   # any deployment that left SLACK_ALERTS_ENABLED at its (false) default while
   # real URLs sat in its Secret and Slack worked fine.
@@ -326,7 +326,7 @@ pb_check_alert_delivery() {
   if [ "$oncall" = "true" ] && [ -z "$pdkey" ]; then
     echo "ERROR: ONCALL_ENABLED=true but PAGERDUTY_ROUTING_KEY is empty in $env_file." >&2
     echo "       Support criticals would reach the ops Slack channel and NO pager," >&2
-    echo "       while platform logs a paging failure per alert. Set the key (a" >&2
+    echo "       while ops-center logs a paging failure per alert. Set the key (a" >&2
     echo "       PER-SERVICE integration key, not a REST API key) or set" >&2
     echo "       ONCALL_ENABLED=false — see docs/oncall-paging.md." >&2
     bad=1
@@ -345,10 +345,10 @@ pb_check_alert_delivery() {
   # ABSENCE is the signal.
   if [ "$oncall" = "true" ] && [ -z "$(_pb_env_file_value "$env_file" ONCALL_DEADMAN_URL)" ]; then
     echo "WARNING: ONCALL_ENABLED=true with no ONCALL_DEADMAN_URL in $env_file." >&2
-    echo "         Nothing watches the watcher: a platform that is wedged, crashed," >&2
+    echo "         Nothing watches the watcher: an ops-center that is wedged, crashed," >&2
     echo "         partitioned or never started pages nobody and reports nothing." >&2
     echo "         Point it at a dead-man endpoint (a PagerDuty Event Orchestration" >&2
-    echo "         URL, healthchecks.io, Cronitor, an uptime monitor) — platform" >&2
+    echo "         URL, healthchecks.io, Cronitor, an uptime monitor) — ops-center" >&2
     echo "         POSTs every ONCALL_DEADMAN_INTERVAL_MS and the external service" >&2
     echo "         alerts on silence. See docs/oncall-paging.md." >&2
   fi
@@ -372,13 +372,13 @@ pb_check_alert_delivery() {
     echo "  #  ops-team Slack alerting is DISABLED by SLACK_ALERTS_ENABLED=false."
     echo "  #"
     echo "  #  Platform-wide alerts still reach Alertmanager and are visible at its"
-    echo "  #  own UI/API; PER-ORG destinations are unaffected (platform relay)."
+    echo "  #  own UI/API; PER-ORG destinations are unaffected (ops-center relay)."
     echo "  #"
     echo "  #  Alertmanager will still TRY the Slack receivers — the knob cannot"
     echo "  #  remove a route from a config that is byte-identical across targets —"
     echo "  #  so expect alertmanager_notifications_failed_total to climb while the"
     echo "  #  URLs are empty. AlertmanagerNotificationsFailing is routed to the"
-    echo "  #  meta-alerts receiver (platform's webhook) precisely so that it is"
+    echo "  #  meta-alerts receiver (ops-center's webhook) precisely so that it is"
     echo "  #  still readable when the Slack path is the thing that is broken."
     if [ "$oncall" = true ]; then
       echo "  #"
@@ -403,7 +403,7 @@ pb_check_alert_delivery() {
     echo "  #  Platform-wide critical/warning alerts will fire into Alertmanager and"
     echo "  #  go NO FURTHER: no page, no channel, no mail. They are visible only at"
     echo "  #  Alertmanager's own UI/API. PER-ORG destinations are unaffected (they"
-    echo "  #  go through the platform relay)."
+    echo "  #  go through the ops-center relay)."
     echo "  #"
     echo "  #  To deliver, set both keys to https://hooks.slack.com/services/... URLs."
     echo "  #  If running without ops-team Slack is DELIBERATE, say so explicitly:"
@@ -490,7 +490,7 @@ pb_gen_env_secrets() {
   # DB_PASSWORD on purpose: replication streams WAL, which is below
   # row-level security, so this credential can read every org's rows.
   pgrepl=$(openssl rand -base64 24 | tr -d '=+/')
-  # Bearer token for the Alertmanager -> platform per-org alert relay.
+  # Bearer token for the Alertmanager -> ops-center per-org alert relay.
   alerttoken=$(openssl rand -base64 32 | tr -d '=+/')
   mongo=$(openssl rand -base64 24 | tr -d '=+/')
   me=$(openssl rand -base64 16 | tr -d '=+/')

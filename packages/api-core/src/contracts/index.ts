@@ -11,6 +11,7 @@ import { COMPLIANCE_INTERNAL } from './compliance.js';
 import type { InternalEndpointContract } from './define.js';
 import { IMAGE_REGISTRY_INTERNAL } from './image-registry.js';
 import { MESSAGE_INTERNAL } from './message.js';
+import { OPS_CENTER_INTERNAL } from './ops-center.js';
 import { PIPELINE_INTERNAL } from './pipeline.js';
 import { PLATFORM_INTERNAL } from './platform.js';
 import { PLUGIN_INTERNAL } from './plugin.js';
@@ -49,6 +50,7 @@ export { CASCADE_LEG_AUTH, CascadeOrgParams, CascadeUserParams, OrgPurgeResponse
 export { PIPELINE_INTERNAL } from './pipeline.js';
 export { COMPLIANCE_INTERNAL } from './compliance.js';
 export { REPORTING_INTERNAL } from './reporting.js';
+export { OPS_CENTER_INTERNAL } from './ops-center.js';
 // ---- billing ----
 export { BILLING_INTERNAL, INCIDENT_KEY_PATTERN } from './billing.js';
 // ---- message ----
@@ -81,14 +83,23 @@ export { PLUGIN_INTERNAL, MAX_REFERENCE_DIGESTS, splitReferenceDigests } from '.
 // ---- platform ----
 export {
   PLATFORM_INTERNAL,
+  AUDIT_ACTIVITY_MAX_LIMIT,
+  AUDIT_ACTIVITY_QUERIES,
+  AUDIT_ACTIVITY_RANGES,
+  LIVE_ORG_IDS_MAX,
+  AuditActivityResult,
   ECOSYSTEM_DECISION_PERMISSIONS,
   REPORT_EMAIL_MAX_RECIPIENTS,
+  notifyAlertEmailSchema,
   notifyEmailLegOf,
   notifyEmailSchema,
   notifyOfferEmailSchema,
   notifyQuotaEmailSchema,
   notifyReportEmailSchema,
   splitIdList,
+  type AuditActivityQuery,
+  type AuditActivityRange,
+  type AuditActivityResultData,
   type NotifyEmailBody,
   type NotifyEmailLeg,
 } from './platform.js';
@@ -104,6 +115,7 @@ export const INTERNAL_CONTRACTS: readonly InternalEndpointContract[] = [
   PIPELINE_INTERNAL,
   COMPLIANCE_INTERNAL,
   REPORTING_INTERNAL,
+  OPS_CENTER_INTERNAL,
 ].flatMap((area) => Object.values(area) as InternalEndpointContract[]);
 
 /** The contracts one service SERVES. */

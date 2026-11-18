@@ -1,6 +1,6 @@
 // GENERATED FROM docs/notifications.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 726e6a1bffbe52115c48897c92be5df0fa6136e1c22ec27fb3c1b8269e5f40cc
+// SOURCE-SHA256: bc96392932d4863b2cfb8ec3d59bcd25b99678f6419a12e60471812d870d2fc2
 // SPDX-License-Identifier: Apache-2.0
 import { Bell } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -102,7 +102,7 @@ export const notificationsTopic: HelpTopic = {
             "Decide whether email works at all — set EMAIL_ENABLED and pick a provider. See Platform: outbound email for every variable and its default.",
             "On AWS, let setup.sh --email provision the sending path — domain identity with Easy DKIM, a configuration set plus SNS topic for bounces and complaints, a scoped IAM grant, and the .env edits. See SES on the AWS targets, and note the two things the deploy cannot do for you.",
             "Set both ops Slack webhooks. The AWS provision refuses to continue on a CHANGE_ME placeholder — see The provision fails on a placeholder webhook.",
-            "Wire the alert relay token on both sides so per-org alerts can reach the platform service. See The alert relay token.",
+            "Wire the alert relay token on both sides so per-org alerts can reach the ops-center service. See The alert relay token.",
             "Verify with a real send, not by reading config:"
           ]
         },
@@ -503,17 +503,17 @@ export const notificationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "(credentials_file) and presents it as a Bearer token, together with an X-Alertmanager-Instance: alertmanager header, on POST http://platform:3000/observability/alert-webhook."
+          "content": "(credentials_file) and presents it as a Bearer token, together with an X-Alertmanager-Instance: alertmanager header, on POST http://ops-center:3000/observability/alert-webhook."
         },
         {
           "type": "list",
           "items": [
-            "Platform receives it as"
+            "ops-center (which serves the relay since the operations control plane"
           ]
         },
         {
           "type": "text",
-          "content": "ALERT_WEBHOOK_INSTANCES=[{\"id\":\"alertmanager\",\"token\":\"…\",\"previousToken\":\"…\"}], built from the same value by docker-compose.yml / k8s/platform.yaml."
+          "content": "was split out of platform) receives it as ALERT_WEBHOOK_INSTANCES=[{\"id\":\"alertmanager\",\"token\":\"…\",\"previousToken\":\"…\"}], built from the same value by docker-compose.yml / k8s/ops-center.yaml."
         },
         {
           "type": "text",

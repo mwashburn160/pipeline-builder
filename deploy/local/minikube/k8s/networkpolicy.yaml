@@ -80,7 +80,7 @@ spec:
     matchExpressions:
       - key: app
         operator: In
-        values: [platform, pipeline, plugin, message, quota, billing, frontend, compliance, reporting, image-registry, ask]
+        values: [platform, pipeline, plugin, message, quota, billing, frontend, compliance, reporting, ops-center, image-registry, ask]
   policyTypes:
     - Ingress
   ingress:
@@ -231,6 +231,34 @@ spec:
 
 ---
 # =============================================================================
+# Ops-controller — ingress from platform (POST /ops/internal/orgs/:orgId/purge,
+# the durable cascade outbox's org-purge leg) and alertmanager (the webhook
+# receivers: alert-webhook, oncall-webhook, pvc-autoexpand, postgres-rung,
+# node-disk-autoexpand). nginx is admitted by allow-api-from-nginx, prometheus
+# by allow-prometheus-scraping.
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ops-center-from-services
+spec:
+  podSelector:
+    matchLabels:
+      app: ops-center
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [platform, alertmanager]
+      ports:
+        - port: 3000
+
+---
+# =============================================================================
 # Quota — ingress from every service that meters or checks a quota: the
 # apiCalls meter + check run on every service's user surface (docs/quotas.md),
 # so compliance, reporting and image-registry call it as well.
@@ -251,7 +279,7 @@ spec:
             matchExpressions:
               - key: app
                 operator: In
-                values: [platform, pipeline, plugin, message, billing, compliance, reporting, image-registry]
+                values: [platform, pipeline, plugin, message, billing, compliance, reporting, ops-center, image-registry]
       ports:
         - port: 3000
 
@@ -278,7 +306,7 @@ spec:
             matchExpressions:
               - key: app
                 operator: In
-                values: [platform, pipeline, plugin, message, compliance, reporting, pgbouncer, pgadmin, postgres-replica]
+                values: [platform, pipeline, plugin, message, compliance, reporting, ops-center, pgbouncer, pgadmin, postgres-replica]
       ports:
         - port: 5432
 
@@ -367,7 +395,7 @@ spec:
             matchExpressions:
               - key: app
                 operator: In
-                values: [platform, pipeline, plugin, message, quota, billing, compliance, reporting, image-registry, ask]
+                values: [platform, pipeline, plugin, message, quota, billing, compliance, reporting, ops-center, image-registry, ask]
       ports:
         - port: 6379
 
@@ -397,7 +425,7 @@ spec:
 
 ---
 # =============================================================================
-# Loki — ingress from alloy (push), platform (Logs / Audit Activity reads),
+# Loki — ingress from alloy (push), ops-center (Logs / Audit Activity reads),
 # grafana (the Loki datasource) and prometheus (Loki's own /metrics). NEVER from
 # plugin / plugin-quarantine-builder: tenant log streams are readable by anyone
 # who can reach Loki with a guessed X-Scope-OrgID.
@@ -418,13 +446,13 @@ spec:
             matchExpressions:
               - key: app
                 operator: In
-                values: [alloy, platform, grafana, prometheus]
+                values: [alloy, ops-center, grafana, prometheus]
       ports:
         - port: 3100
 
 ---
 # =============================================================================
-# Prometheus — ingress from platform (native Observability dashboards), grafana
+# Prometheus — ingress from ops-center (native Observability dashboards), grafana
 # (datasource), prometheus itself (self-scrape) and KEDA (plugin ScaledObject)
 # =============================================================================
 apiVersion: networking.k8s.io/v1
@@ -443,7 +471,7 @@ spec:
             matchExpressions:
               - key: app
                 operator: In
-                values: [platform, grafana, prometheus]
+                values: [ops-center, grafana, prometheus]
         # KEDA's metrics-adapter scrapes Prometheus on every polling
         # cycle for the plugin ScaledObject's `type: prometheus` trigger.
         # `kubernetes.io/metadata.name` is the auto-injected label on
@@ -464,7 +492,7 @@ spec:
 
 ---
 # =============================================================================
-# Thanos querier — ingress from platform (native Observability query path via
+# Thanos querier — ingress from ops-center (native Observability query path via
 # PROMETHEUS_URL=http://thanos-query:9090). Egress (to prometheus sidecar +
 # store-gateway StoreAPIs) is unrestricted by the Ingress-only default-deny.
 # =============================================================================
@@ -484,7 +512,7 @@ spec:
             matchExpressions:
               - key: app
                 operator: In
-                values: [platform, grafana, prometheus]
+                values: [ops-center, grafana, prometheus]
       ports:
         - port: 9090
 
@@ -520,7 +548,7 @@ spec:
 
 ---
 # =============================================================================
-# Alertmanager — ingress from prometheus (alert forwarding) and platform
+# Alertmanager — ingress from prometheus (alert forwarding) and ops-center
 # (proxied /api/observability/alerts read API)
 # =============================================================================
 apiVersion: networking.k8s.io/v1
@@ -540,7 +568,7 @@ spec:
               app: prometheus
         - podSelector:
             matchLabels:
-              app: platform
+              app: ops-center
       ports:
         - port: 9093
 
@@ -610,7 +638,7 @@ spec:
         - port: 10902
         - port: 14269
         # 15020 = the ambient waypoint's merged-metrics port. The waypoint is the
-        # only thing in this mesh that can enforce L7 policy and six services
+        # only thing in this mesh that can enforce L7 policy and seven services
         # route through it, so losing it takes them with it — but it runs in THIS
         # namespace, not istio-system, and carries no prometheus.io/scrape
         # annotation, so neither existing job ever discovered it and ServiceDown
@@ -790,8 +818,8 @@ spec:
 # The namespace is ambient-enrolled, so this egress is subject to NetworkPolicy;
 # with no allow rule the CNI SILENTLY DROPS the SYN and the OAuth client hangs
 # until its connect timeout, then fails (looks like a ztunnel stall — it isn't).
-# Platform also fetches USER-SUPPLIED URLs — per-org alert webhook destinations,
-# OIDC discovery documents, SAML IdP metadata — so an attacker who can set one of
+# Platform also fetches USER-SUPPLIED URLs — OIDC discovery documents, SAML IdP
+# metadata (per-org alert webhook destinations moved to ops-center, below) — so an attacker who can set one of
 # those controls the destination. That makes this rule the SSRF backstop, and it
 # therefore carves out EVERY private range (all of RFC1918, not just 192.168/16)
 # plus link-local/IMDS and CGNAT: a crafted URL cannot pivot to an
@@ -859,7 +887,12 @@ spec:
     matchExpressions:
       - key: app
         operator: In
-        values: [alloy, prometheus]
+        # ops-center joins them for the Postgres rung ladder: it GETs and
+        # PATCHes the postgres workloads through the API server (:443), as the
+        # namespaced Role in ops-center.yaml allows. Its public-egress rule
+        # excepts RFC1918, which contains the kubernetes Service ClusterIP, so
+        # without this the controller cannot reach the API server at all.
+        values: [alloy, prometheus, ops-center]
   policyTypes:
     - Egress
   egress:
@@ -1222,7 +1255,7 @@ spec:
 # make every pod here egress-restricted, so the Slack POST's SYN is silently
 # dropped by the CNI, Alertmanager logs one "context deadline exceeded" line per
 # notification, and the monitoring looks healthy precisely while it pages no one.
-# (The per-org relay to platform:3000 is in-namespace — allow-internal-egress.)
+# (The per-org relay to ops-center:3000 is in-namespace — allow-internal-egress.)
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -1231,6 +1264,49 @@ spec:
   podSelector:
     matchLabels:
       app: alertmanager
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8 # RFC1918 — the VPC / node network itself
+              - 172.16.0.0/12 # RFC1918
+              - 192.168.0.0/16 # RFC1918 — private LAN
+              - 100.64.0.0/10 # CGNAT (some cloud / VPN deployments)
+              - 169.254.169.254/32 # IMDS (instance-role credentials)
+              - 169.254.170.0/24 # container-credential endpoints (ECS .2, EKS Pod Identity .23)
+      ports:
+        - port: 443
+          protocol: TCP
+
+---
+# =============================================================================
+# Ops-controller External Egress — the destinations the operations control
+# plane calls on the public internet, all on 443: per-org Slack / generic
+# HTTPS webhook alert destinations, the PagerDuty Events v2 + REST APIs, and the
+# dead-man heartbeat URL (ONCALL_DEADMAN_URL).
+#
+# The per-org destinations are USER-SUPPLIED URLs, so — exactly as on platform,
+# which made these calls before the split — this rule is the SSRF backstop and
+# carves out every private range plus link-local/IMDS and CGNAT: a crafted
+# webhook URL cannot pivot to an in-VPC service or to a credential endpoint.
+#
+# No credential endpoint: nothing ops-center does on this target needs an
+# AWS grant (node-disk auto-expansion is ec2-only).
+# In-namespace traffic (postgres, redis, platform, quota, prometheus, loki,
+# alertmanager) is allowed by allow-internal-egress; the API server by
+# allow-kube-api-egress.
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ops-center-external-egress
+spec:
+  podSelector:
+    matchLabels:
+      app: ops-center
   policyTypes:
     - Egress
   egress:

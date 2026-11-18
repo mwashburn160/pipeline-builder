@@ -302,7 +302,7 @@ The sidecar only *uploads* Prometheus' 2h blocks to the `thanos` bucket. Queryin
 - a **store-gateway**, exposing the archived blocks over the Thanos StoreAPI (gRPC `10901`; its local index cache is ephemeral);
 - a **querier**, a Prometheus-compatible HTTP endpoint on `9090` that fans out to the sidecar plus store-gateway and de-duplicates.
 
-`PROMETHEUS_URL` points platform's Observability query endpoint at the **querier** (`http://thanos-query:9090`) so PromQL spans recent plus archived history; set it back to `http://prometheus:9090` for recent-only. KEDA autoscaling deliberately still targets Prometheus directly — recent-only, lower latency.
+`PROMETHEUS_URL` points ops-center's Observability query endpoint at the **querier** (`http://thanos-query:9090`) so PromQL spans recent plus archived history; set it back to `http://prometheus:9090` for recent-only. KEDA autoscaling deliberately still targets Prometheus directly — recent-only, lower latency.
 
 ## Plugin version retention
 
@@ -469,7 +469,7 @@ All five consoles are listed on the dashboard's **Operator consoles** card (Plat
 
 Locally (docker, minikube) nginx applies no auth of its own.
 
-Each carries its **own login** as well, and both read data with **no org scoping** — unlike the tenant-facing `/dashboard/observability` pages, which are org-scoped through the platform's PromQL proxy. They are therefore admin-only, and nothing tenant-facing links to them.
+Each carries its **own login** as well, and both read data with **no org scoping** — unlike the tenant-facing `/dashboard/observability` pages, which are org-scoped through ops-center's PromQL proxy. They are therefore admin-only, and nothing tenant-facing links to them.
 
 Kiali additionally runs `view_only_mode` with read-only RBAC (no create, update or delete verbs anywhere) and `auth.strategy: token`, so signing in needs a ServiceAccount token:
 
@@ -730,7 +730,7 @@ does nothing.
 
 #### On-call paging: the three receivers that do not go to Slack
 
-Three receivers point at platform's `POST /observability/oncall-webhook` rather than
+Three receivers point at ops-center's `POST /observability/oncall-webhook` rather than
 at a chat integration, and the reason is a constraint rather than a preference:
 `alertmanager.yml` is asserted **byte-identical** across all four targets and
 Alertmanager has no templating, so a route that existed only where paging is enabled
@@ -757,7 +757,7 @@ does not page accumulates no `alertmanager_notifications_failed_total`.
 The secret that *is* new is `PAGERDUTY_ROUTING_KEY`, and it is a **per-service
 integration key**, not a REST API key: it can create events on one service and nothing
 else. It reaches the app Secret automatically through the `_KEY` suffix rule in the env
-classifier, never the world-readable ConfigMap, and it is consumed by platform and the
+classifier, never the world-readable ConfigMap, and it is consumed by ops-center and the
 message service rather than mounted into Alertmanager.
 
 **Do not "disable" paging by emptying the key.** `ONCALL_ENABLED=true` with an empty
@@ -1033,7 +1033,7 @@ box on the single-node ec2 target.
 ### Automatic PVC expansion (eks only)
 
 With `PVC_AUTOEXPAND_ENABLED=true`, Alertmanager also POSTs
-`PersistentVolumeFillingUp` / `PersistentVolumeCriticallyFull` to platform's
+`PersistentVolumeFillingUp` / `PersistentVolumeCriticallyFull` to ops-center's
 `/observability/pvc-autoexpand`, which raises the claim's requested size. The
 route is additive (`continue: true`), so the ops-team Slack notification still
 happens — automation must never be the only thing that knows a volume is filling.
@@ -1075,10 +1075,14 @@ Operational properties worth knowing:
 - **Fails closed without Redis.** The cooldown and the cross-replica lock are one
   `SET NX EX`; with no Redis there is neither, and the failure mode would be
   repeated EBS modification attempts on every `repeat_interval`.
-- **Least privilege.** Platform holds a *namespaced* `Role` (`get`, `patch` on
-  `persistentvolumeclaims` in `pipeline-builder` only) — not a ClusterRole, and
-  no `create`/`delete`: deleting a `Retain`-policy claim would orphan a billing
-  EBS volume.
+- **Least privilege.** The `ops-center` ServiceAccount holds a *namespaced*
+  `Role`, `ops-center-pvc-autoexpand` (`get`, `patch` on
+  `persistentvolumeclaims` in `pipeline-builder` only, pinned by `resourceNames`
+  to the claims the eks tree declares — `k8s/ops-center.yaml`) — not a
+  ClusterRole, and no `create`/`delete`: deleting a `Retain`-policy claim would
+  orphan a billing EBS volume. Platform, which holds the user-token signing key,
+  has **no** Kubernetes RBAC at all and keeps `automountServiceAccountToken: false`;
+  `test/deploy-contracts/test/ops-center-rbac-contract.test.ts` holds both halves.
 - **StatefulSet claims are expanded too**, and that leaves the manifest behind,
   because `volumeClaimTemplates` is immutable. `PvcAutoExpandTemplateDrift` fires
   so it cannot rot silently — update `rustfs.yaml` / `redis.yaml` and re-apply
@@ -1097,7 +1101,7 @@ The ec2 counterpart, and a different actuator because there is no claim to patch
 this target binds manual hostPath PVs, so the databases, the RustFS buckets and
 the registry all share **one** EBS volume (`/dev/xvdf`, whole-disk ext4 labelled
 `pipeline-data`, mounted at `/opt/pipeline`). With
-`NODE_DISK_AUTOEXPAND_ENABLED=true`, `NodeDiskFillingUp` also POSTs to platform's
+`NODE_DISK_AUTOEXPAND_ENABLED=true`, `NodeDiskFillingUp` also POSTs to ops-center's
 `/observability/node-disk-autoexpand`, which calls `ec2:ModifyVolume` and then
 runs an SSM document to grow the filesystem.
 

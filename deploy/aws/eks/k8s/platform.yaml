@@ -56,6 +56,11 @@ spec:
       # Stateless API server — no need for the default ServiceAccount token
       # mounted at /var/run/secrets/kubernetes.io/serviceaccount/. Reduces blast
       # radius if the container is compromised (no kubelet API access).
+      # Platform holds NO Kubernetes RBAC at all: the PVC auto-expand and
+      # Postgres rung controllers (and their Roles) moved to ops-center, so
+      # the identity that holds the user-token signing key cannot patch a
+      # cluster object. test/deploy-contracts ops-center-rbac-contract
+      # asserts it stays that way.
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
@@ -111,24 +116,6 @@ spec:
               value: "platform"
             - name: PORT
               value: "3000"
-            # Per-org alert relay: the one Alertmanager instance (id `alertmanager`,
-            # sent as X-Alertmanager-Instance by config/alertmanager/alertmanager.yml)
-            # and its bearer token. $(VAR) expands the secret-backed entry above it.
-            - name: ALERT_WEBHOOK_INSTANCE_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: alertmanager-relay
-                  key: ALERT_WEBHOOK_INSTANCE_TOKEN
-            # Rotation overlap: the OUTGOING bearer, empty outside a rotation
-            # (the key always exists in the Secret). Platform accepts either
-            # while it is non-empty. docs/runbooks/secret-rotation.md
-            - name: ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS
-              valueFrom:
-                secretKeyRef:
-                  name: alertmanager-relay
-                  key: ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS
-            - name: ALERT_WEBHOOK_INSTANCES
-              value: '[{"id":"alertmanager","token":"$(ALERT_WEBHOOK_INSTANCE_TOKEN)","previousToken":"$(ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS)"}]'
           resources:
             limits:
               cpu: "750m"
@@ -256,136 +243,3 @@ spec:
   selector:
     matchLabels:
       app: platform
----
-# =============================================================================
-# PVC auto-expansion RBAC — eks ONLY
-# =============================================================================
-# Lets platform raise a PersistentVolumeClaim's requested size when the storage
-# alerts fire (POST /observability/pvc-autoexpand, services/pvc-autoexpand.ts).
-# Inert unless PVC_AUTOEXPAND_ENABLED=true.
-#
-# Namespaced, not cluster-scoped: a Role + RoleBinding in pipeline-builder, so
-# the grant cannot reach a claim in kube-system or any other namespace. Platform
-# holds the user-token signing key, so its blast radius is the one worth keeping
-# small — and a ClusterRole here would have bought nothing, since every claim it
-# may expand lives in this namespace.
-#
-# `patch` only. No create, no delete: expansion edits an existing claim, and a
-# delete on a Retain-policy PVC would orphan an EBS volume that still bills.
-#
-# Not present on ec2 or minikube: their PVs are manual hostPath
-# (storageClassName: ""), there is no CSI driver to resize, and a patch there
-# would be accepted by the API server and silently do nothing.
-#
-# `resourceNames` pins the grant to the claims this tree actually declares.
-# The claim name arrives in an Alertmanager label, so without the list a forged
-# or mislabelled alert could make platform grow ANY claim in the namespace. The
-# list is every PersistentVolumeClaim in deploy/aws/eks/k8s plus the claims the
-# StatefulSet volumeClaimTemplates mint (<template>-<statefulset>-<ordinal>):
-#
-#   * data-rustfs-0..3        rustfs.yaml          replicas: 4
-#   * data-redis-0..2         redis-sentinel.yaml  replicas: 3
-#   * postgres-replica-data-postgres-replica-0..1
-#                             postgres-replica.yaml  ordinals up to the
-#                             .env.example default PG_READ_REPLICA_MAX=2
-#
-# CONFIG-DRIVEN ORDINALS: raising PG_READ_REPLICA_MAX (or a StatefulSet's
-# replicas) past these ordinals means adding the new claim names here, or the
-# extra claim's expansion is refused with a 403 (outcome `error`, audited).
-# deploy/bin/k8s-resources.sh warns at deploy time when PG_READ_REPLICA_MAX
-# outruns the list, and test/deploy-contracts/test/platform-rbac-contract.test.ts
-# keeps the list in lockstep with the manifests.
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: platform-pvc-autoexpand
-  namespace: pipeline-builder
-rules:
-  - apiGroups: [""]
-    resources: ["persistentvolumeclaims"]
-    verbs: ["get", "patch"]
-    resourceNames:
-      - alertmanager-data
-      - ask-model-models
-      - grafana-data
-      - grype-db
-      - mongodb-data
-      - pgadmin-data
-      - postgres-data
-      - prometheus-data
-      - data-rustfs-0
-      - data-rustfs-1
-      - data-rustfs-2
-      - data-rustfs-3
-      - data-redis-0
-      - data-redis-1
-      - data-redis-2
-      - postgres-replica-data-postgres-replica-0
-      - postgres-replica-data-postgres-replica-1
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: platform-pvc-autoexpand
-  namespace: pipeline-builder
-subjects:
-  - kind: ServiceAccount
-    name: platform
-    namespace: pipeline-builder
-roleRef:
-  kind: Role
-  name: platform-pvc-autoexpand
-  apiGroup: rbac.authorization.k8s.io
----
-# =============================================================================
-# RBAC: Postgres vertical scaling (services/postgres-rung.ts)
-# =============================================================================
-# The rung controller GETs the workload to read its current CPU limit and server
-# args, then PATCHes both. `get` and `patch` only:
-#
-#   * no `create`/`delete` — a rung change edits an existing workload, and
-#     deleting a StatefulSet would orphan its standby PVCs (Retain policy) while
-#     they still bill;
-#   * no `*/scale` — the COUNT is KEDA's, and granting it here would let the
-#     vertical controller quietly fight the horizontal one;
-#   * no `pods` — the restart is a consequence of the template change, which the
-#     controller does not need to perform itself.
-#
-# PRESENT ON ALL THREE Kubernetes targets, unlike platform-pvc-autoexpand above.
-# That Role is eks-only because the thing it patches (a CSI claim) does not
-# exist on the hostPath targets. A pod's resources and args are the same
-# everywhere, so the ladder works on every one — the only per-target difference
-# is how high the ceiling can usefully go, which is config, not capability.
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: platform-postgres-rung
-  namespace: pipeline-builder
-rules:
-  # resourceNames: exactly the two workloads services/postgres-rung.ts TARGETS
-  # names (hard-coded there, not config). Without them this Role could patch
-  # every Deployment in the namespace — including platform's own, i.e. swap
-  # its image. Two rules because resourceNames applies to every resource in a
-  # rule, and `postgres` must not match a StatefulSet or vice versa.
-  - apiGroups: ["apps"]
-    resources: ["deployments"]
-    verbs: ["get", "patch"]
-    resourceNames: ["postgres"]
-  - apiGroups: ["apps"]
-    resources: ["statefulsets"]
-    verbs: ["get", "patch"]
-    resourceNames: ["postgres-replica"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: platform-postgres-rung
-  namespace: pipeline-builder
-subjects:
-  - kind: ServiceAccount
-    name: platform
-    namespace: pipeline-builder
-roleRef:
-  kind: Role
-  name: platform-postgres-rung
-  apiGroup: rbac.authorization.k8s.io

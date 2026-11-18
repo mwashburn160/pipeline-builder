@@ -8,8 +8,8 @@
 # - `severity: warning`  — non-paging Slack notification
 # - `tenancy: org`       — alert carries an `org_id` label; relayed to that
 #                          org's configured destinations (Slack webhook,
-#                          in-app message, …) via the platform's webhook
-#                          relay (POST /api/observability/alert-webhook).
+#                          in-app message, …) via ops-center's webhook
+#                          relay (POST /observability/alert-webhook on ops-center).
 # - `tenancy: platform`  — alert is platform-wide (no org_id, or the
 #                          underlying metric isn't org-labeled); routed
 #                          to the ops-team Slack channels.
@@ -17,7 +17,7 @@
 
 groups:
   # Per-org rules — every firing alert carries an `org_id` label and is routed
-  # to that org's notification destination(s) by the platform's alert-relay.
+  # to that org's notification destination(s) by ops-center's alert-relay.
   # These rules `by (org_id)` the underlying counters; the receiver-side
   # alertmanager.yml uses `tenancy=org` to differentiate from platform alerts.
   - name: per-org
@@ -1064,7 +1064,7 @@ groups:
           tenancy: platform
         annotations:
           summary: "Alert delivery is failing for several organizations (channel={{ $labels.channel }})"
-          description: "At least half of the organizations that sent alerts over {{ $labels.channel }} in the last hour (and at least two) are failing to deliver — the channel's transport, not one org's target. Every org-facing alert routes through this relay, so while it fails those orgs are not being told anything. Check platform/src/services/alert-relay.ts logs and the channel's credentials/egress."
+          description: "At least half of the organizations that sent alerts over {{ $labels.channel }} in the last hour (and at least two) are failing to deliver — the channel's transport, not one org's target. Every org-facing alert routes through this relay, so while it fails those orgs are not being told anything. Check the ops-center alert-relay logs and the channel's credentials/egress."
 
       - alert: EcosystemNotificationFailing
         expr: sum by (event) (increase(ecosystem_notification_failed_total{event!~"N21|N22"}[1h])) > 0
@@ -1165,7 +1165,7 @@ groups:
           # Routed to `meta-alerts` as well as the usual severity path. This
           # alert reports that delivery is broken, and routing it ONLY through
           # the destinations whose failure it reports is circular — the
-          # description below admits as much. The meta receiver is platform's
+          # description below admits as much. The meta receiver is ops-center's
           # webhook, which answers 200 whatever the knobs say.
           delivery_meta: "true"
         annotations:
@@ -1173,7 +1173,7 @@ groups:
           description: "Alertmanager failed to deliver notifications through {{ $labels.integration }} in the last 15 minutes, so alerts are being raised and lost. You are reading THIS one only because some other receiver still works - if the failing integration is the only one that pages you, the next outage is silent. Check the webhook URL and the egress policy for alertmanager."
 
       # The state where nobody is told anything. `alert_delivery_enabled` is
-      # published at platform boot from SLACK_ALERTS_ENABLED and ONCALL_ENABLED,
+      # published at ops-center boot from SLACK_ALERTS_ENABLED and ONCALL_ENABLED,
       # so this fires when BOTH destinations are declared off — reachable today
       # by setting two booleans, with nothing objecting.
       #
@@ -1186,7 +1186,7 @@ groups:
         # by `channel` — so the first draft of this rule could never fire at all,
         # which the promtool negative controls caught. Summing is also what the
         # condition actually means: no channel is enabled iff the total is zero.
-        # Absent series deliberately do NOT fire — if platform has not reported,
+        # Absent series deliberately do NOT fire — if ops-center has not reported,
         # we do not know the posture and must not claim delivery is off.
         expr: sum(max_over_time(alert_delivery_configured[1h])) == 0
         for: 15m
@@ -1197,7 +1197,7 @@ groups:
           delivery_meta: "true"
         annotations:
           summary: "No platform alert destination is enabled — alerts are firing into a void"
-          description: "Both SLACK_ALERTS_ENABLED and ONCALL_ENABLED are false, so every platform-wide critical and warning reaches Alertmanager and goes no further: no page, no channel, no mail. Per-org destinations are unaffected (those go through the platform relay) and everything is still visible at Alertmanager's own UI, but no human is being told. This alert reaches you through the `meta-alerts` receiver, which is platform's webhook rather than a notification destination — that is the only reason you can read it at all."
+          description: "Both SLACK_ALERTS_ENABLED and ONCALL_ENABLED are false, so every platform-wide critical and warning reaches Alertmanager and goes no further: no page, no channel, no mail. Per-org destinations are unaffected (those go through the ops-center relay) and everything is still visible at Alertmanager's own UI, but no human is being told. This alert reaches you through the `meta-alerts` receiver, which is ops-center's webhook rather than a notification destination — that is the only reason you can read it at all."
 
       # A pager that is configured and REJECTING. The webhook deliberately answers
       # 200 even when dispatch fails — Alertmanager retries a non-2xx, and
@@ -1393,10 +1393,10 @@ groups:
         # is written on every sweep tick including the empty ones, which is what
         # makes `> 0` a real state rather than a stale reading.
         # No `or vector(0)` on the right, deliberately, unlike the two rules
-        # below: `alert_delivery_configured` is published at every platform boot
-        # unconditionally, so its absence means platform is not running — which
+        # below: `alert_delivery_configured` is published at every ops-center boot
+        # unconditionally, so its absence means ops-center is not running — which
         # `ServiceDown` already owns. Defaulting it to 0 here would make this
-        # rule a second, slower platform-outage alert.
+        # rule a second, slower ops-center-outage alert.
         expr: max(max_over_time(oncall_cases_due[15m])) > 0 and max(max_over_time(alert_delivery_configured{channel="pager"}[1h])) == 0
         for: 30m
         labels:
@@ -1436,7 +1436,7 @@ groups:
           delivery_meta: "true"
         annotations:
           summary: "On-call paging is enabled with no routing key"
-          description: "ONCALL_ENABLED is true but PAGERDUTY_ROUTING_KEY is empty, so platform logs a paging failure per support critical and no pager fires. Support criticals still reach the ops Slack channel. Set the key — a PER-SERVICE integration key, not a REST API key — or set ONCALL_ENABLED=false. See docs/oncall-paging.md."
+          description: "ONCALL_ENABLED is true but PAGERDUTY_ROUTING_KEY is empty, so ops-center logs a paging failure per support critical and no pager fires. Support criticals still reach the ops Slack channel. Set the key — a PER-SERVICE integration key, not a REST API key — or set ONCALL_ENABLED=false. See docs/oncall-paging.md."
 
       # ---- Prometheus's own storage ------------------------------------------
       # Cardinality is the quiet way a monitoring system dies: series accumulate,
@@ -3117,7 +3117,7 @@ groups:
           summary: "Sweep {{ $labels.key }} is skipped entirely — no Redis configured"
           description: "{{ $labels.key }} is not safe to run concurrently and no Redis is configured, so it is being skipped on every replica rather than risking two pods doing the same destructive work. It will NOT run until Redis is configured (REDIS_URL / REDIS_SENTINELS)."
 
-      # ---- PVC auto-expansion (platform acting on the rules above) ----------
+      # ---- PVC auto-expansion (ops-center acting on the rules above) ----
       # These watch the ACTUATOR, not the volume. Expansion that silently stops
       # working is worse than no expansion: the storage alerts keep firing, a
       # human assumes automation is handling it, and nobody looks.

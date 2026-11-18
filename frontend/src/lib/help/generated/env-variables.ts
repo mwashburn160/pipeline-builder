@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 44fd84b5071423f32f53fc8a0ada9929cac94cc344a1b312d2bcbc396c058451
+// SOURCE-SHA256: 1ac90e9647ad631b58495693eed0eb5679fbe81719662260a3f12136f69ea77a
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -578,6 +578,10 @@ export const envVariablesTopic: HelpTopic = {
           "content": "Multi-team alert webhook relay"
         },
         {
+          "type": "text",
+          "content": "Read by ops-center, which serves the relay (POST /observability/alert-webhook) and every other Alertmanager receiver since the operations control plane was split out of platform. Platform no longer reads any variable in this section."
+        },
+        {
           "type": "table",
           "headers": [
             "Variable",
@@ -593,7 +597,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "ALERT_WEBHOOK_INSTANCE_TOKEN",
               "—",
-              "Deploy input: the bundled Alertmanager's relay token. Setup generates it, builds platform's ALERT_WEBHOOK_INSTANCES entry (id alertmanager) from it, and mounts it for Alertmanager."
+              "Deploy input: the bundled Alertmanager's relay token. Setup generates it, builds ops-center's ALERT_WEBHOOK_INSTANCES entry (id alertmanager) from it (k8s/ops-center.yaml / the compose ops-center service), and mounts it for Alertmanager."
             ],
             [
               "ONCALL_DEADMAN_URL",
@@ -608,17 +612,17 @@ export const envVariablesTopic: HelpTopic = {
             [
               "SLACK_ALERTS_ENABLED",
               "false",
-              "Whether ops-team Slack delivery is declared on. Opt-in, matching ONCALL_ENABLED, so a deployment states what it wants rather than inheriting a channel it may not have. What it does and does not do. It cannot remove the Slack receivers — alertmanager.yml is asserted byte-identical across targets and Alertmanager has no templating — so with the knob off and the URLs empty Alertmanager still attempts delivery and alertmanager_notifications_failed_total climbs. What the knob does is make the decision explicit (empty URLs with the knob on read as an oversight), stop the deploy check demanding credentials for a channel nobody asked for, and drive alert_delivery_enabled{channel=\"slack\"}. AlertmanagerNotificationsFailing is routed to the meta-alerts receiver — platform's webhook, which accepts unconditionally — so it stays readable when the Slack path is the thing that is broken."
+              "Whether ops-team Slack delivery is declared on. Opt-in, matching ONCALL_ENABLED, so a deployment states what it wants rather than inheriting a channel it may not have. What it does and does not do. It cannot remove the Slack receivers — alertmanager.yml is asserted byte-identical across targets and Alertmanager has no templating — so with the knob off and the URLs empty Alertmanager still attempts delivery and alertmanager_notifications_failed_total climbs. What the knob does is make the decision explicit (empty URLs with the knob on read as an oversight), stop the deploy check demanding credentials for a channel nobody asked for, and drive alert_delivery_enabled{channel=\"slack\"}. AlertmanagerNotificationsFailing is routed to the meta-alerts receiver — ops-center's webhook, which accepts unconditionally — so it stays readable when the Slack path is the thing that is broken."
             ],
             [
               "SLACK_ALERTS_CONFIGURED",
               "false",
-              "Derived at deploy time, not authored. pb_check_alert_delivery sets it from whether the Slack webhook URLs are non-empty, and re-running setup converges rather than appending. It exists because platform cannot inspect the URLs — a Slack webhook URL is a bearer credential read per notification from Alertmanager's Secret via api_url_file, and it never enters the platform process — so platform has to be told whether delivery is possible. This is what keeps AlertDeliveryDisabled keyed on reality rather than on the declaration: without it, that alert would fire on any deployment that left SLACK_ALERTS_ENABLED at its default while real URLs sat in its Secret and Slack worked fine. Overriding it by hand only lies to your own dashboard."
+              "Derived at deploy time, not authored. pb_check_alert_delivery sets it from whether the Slack webhook URLs are non-empty, and re-running setup converges rather than appending. It exists because ops-center cannot inspect the URLs — a Slack webhook URL is a bearer credential read per notification from Alertmanager's Secret via api_url_file, and it never enters the ops-center process — so ops-center has to be told whether delivery is possible. This is what keeps AlertDeliveryDisabled keyed on reality rather than on the declaration: without it, that alert would fire on any deployment that left SLACK_ALERTS_ENABLED at its default while real URLs sat in its Secret and Slack worked fine. Overriding it by hand only lies to your own dashboard."
             ],
             [
               "ONCALL_ENABLED",
               "false",
-              "Whether support criticals page a human via PagerDuty, on top of reaching the ops Slack channel. Opt-in, against this repo's usual opt-out grain (SUPPORT_ENABLED, BILLING_DISCOUNTS_ENABLED): like BILLING_METERING_ENABLED it needs an external credential, and a pager with no routing key would page nobody while reporting success. The Alertmanager route is always present — alertmanager.yml is asserted byte-identical across targets, so it cannot be toggled per deployment — and this flag is honoured at platform's /observability/oncall-webhook, which accepts and drops when off. Alertmanager therefore sees a 200 either way and a non-paging deployment collects no notification failures."
+              "Whether support criticals page a human via PagerDuty, on top of reaching the ops Slack channel. Opt-in, against this repo's usual opt-out grain (SUPPORT_ENABLED, BILLING_DISCOUNTS_ENABLED): like BILLING_METERING_ENABLED it needs an external credential, and a pager with no routing key would page nobody while reporting success. The Alertmanager route is always present — alertmanager.yml is asserted byte-identical across targets, so it cannot be toggled per deployment — and this flag is honoured at ops-center's /observability/oncall-webhook, which accepts and drops when off. Alertmanager therefore sees a 200 either way and a non-paging deployment collects no notification failures."
             ],
             [
               "PAGERDUTY_ROUTING_KEY",
@@ -699,7 +703,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS",
               "—",
-              "Deploy input: rotation overlap for the above. Rendered into the instance entry's previousToken, so platform accepts the outgoing bearer until Alertmanager has restarted with the new one."
+              "Deploy input: rotation overlap for the above. Rendered into the instance entry's previousToken, so ops-center accepts the outgoing bearer until Alertmanager has restarted with the new one."
             ]
           ]
         },
@@ -1188,7 +1192,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "POSTGRES_RUNG_ENABLED",
               "false",
-              "Turns on automatic vertical scaling of Postgres (platform/src/services/postgres-rung.ts). Alertmanager routes the Postgres CPU/memory alerts to /observability/postgres-rung and the controller moves the workload one rung: pod requests/limits and the derived server config (shared_buffers, effective_cache_size) in one patch, because raising the pod without those flags buys page cache and almost nothing else. Off by the CODE default because a rung change restarts the container — shared_buffers is read at startup — which on the single primary is a brief write interruption. The aws/ec2 and aws/eks .env.example ship it true, since that blast radius is worth it where saturation is real; docker ships false because there is no Kubernetes API server to patch (the controller can only answer \"not running in a Kubernetes pod\"), and minikube ships false because restarting the database mid-session is not wanted on single-node dev."
+              "Turns on automatic vertical scaling of Postgres (ops-center's services/postgres-rung.ts, acting as the ops-center ServiceAccount through the ops-center-postgres-rung Role). Alertmanager routes the Postgres CPU/memory alerts to /observability/postgres-rung and the controller moves the workload one rung: pod requests/limits and the derived server config (shared_buffers, effective_cache_size) in one patch, because raising the pod without those flags buys page cache and almost nothing else. Off by the CODE default because a rung change restarts the container — shared_buffers is read at startup — which on the single primary is a brief write interruption. The aws/ec2 and aws/eks .env.example ship it true, since that blast radius is worth it where saturation is real; docker ships false because there is no Kubernetes API server to patch (the controller can only answer \"not running in a Kubernetes pod\"), and minikube ships false because restarting the database mid-session is not wanted on single-node dev."
             ],
             [
               "POSTGRES_RUNG_COOLDOWN_SECONDS",
@@ -2760,6 +2764,16 @@ export const envVariablesTopic: HelpTopic = {
               "Reporting service port"
             ],
             [
+              "OPS_CENTER_SERVICE_HOST",
+              "ops-center",
+              "ops-center hostname (platform: the cascade outbox's org-purge leg)"
+            ],
+            [
+              "OPS_CENTER_SERVICE_PORT",
+              "3000",
+              "ops-center port"
+            ],
+            [
               "ASK_SERVICE_HOST",
               "in-cluster FQDN",
               "Where nginx proxies /api/ask. Unlike the pairs above — which the api-core service clients read so one service can call another — nothing in the fleet calls Ask: the browser reaches it through nginx. So nginx is its only caller, and these are honoured there, rendered by pb_nginx_config into the upstream pb_ask block nginx.conf includes. Unset = the address that used to be hard-coded, so leaving it alone changes nothing. Kubernetes targets only; on docker the host is the compose service name, fixed by the compose file."
@@ -3876,6 +3890,10 @@ export const envVariablesTopic: HelpTopic = {
       "title": "Observability & Logs",
       "blocks": [
         {
+          "type": "text",
+          "content": "Read by ops-center (the /observability/* and /dashboards* routes moved there from platform; nginx paths are unchanged)."
+        },
+        {
           "type": "table",
           "headers": [
             "Variable",
@@ -3891,7 +3909,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "LOKI_URL",
               "http://loki:3100",
-              "Log backend for Deliver → Logs. Platform sends X-Scope-OrgID per request, derived from the caller's verified token"
+              "Log backend for Deliver → Logs. ops-center sends X-Scope-OrgID per request, derived from the caller's verified token"
             ],
             [
               "LOKI_BASE_SELECTOR",
@@ -3986,7 +4004,7 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "| PVC_AUTOEXPAND_ENABLED | false | eks only. Arms automatic PersistentVolumeClaim expansion: Alertmanager also POSTs PersistentVolumeFillingUp / PersistentVolumeCriticallyFull to platform, which raises the claim's requested size. Off by default because expansion spends money and cannot be undone — neither EBS nor Kubernetes can shrink a volume. Only pb-ebs can be expanded at all; ec2 and minikube bind manual hostPath PVs and the handler refuses a claim with no storageClassName. Prefer true only on an unattended cluster — the alerts give hours of warning and the manual remedy is one kubectl patch, and arming it also introduces PvcAutoExpandTemplateDrift on the rustfs/redis StatefulSet claims. | | PVC_AUTOEXPAND_STEP_PERCENT | 50 | Growth per expansion, as a percentage of the current request, rounded up to a whole GiB (EBS allocates in whole GiB). | | PVC_AUTOEXPAND_CEILING_MULTIPLE | 4 | Hard ceiling as a multiple of the original request, pinned in the pipeline-builder.io/autoexpand-original annotation on first expansion so it cannot compound. At the ceiling expansion stops and PvcAutoExpandAtCeiling fires. | | PVC_AUTOEXPAND_MAX_GI | 500 | Absolute ceiling in GiB, whatever the multiple works out to. Inert at the shipped sizes: every claim is 20 GiB, so the 4× multiple binds at 80 GiB first and this cap only starts to matter above a ~125 GiB base claim. | | PVC_AUTOEXPAND_COOLDOWN_SECONDS | 21600 | Minimum gap between decisions for one claim. 6 h because EBS refuses a second modification of the same volume inside roughly that window and Alertmanager re-sends on its repeat_interval. Held in Redis, which also provides the cross-replica lock — without Redis, expansion fails closed. | | NODE_DISK_AUTOEXPAND_ENABLED | false | ec2 only. Arms automatic growth of the instance's data volume when NodeDiskFillingUp fires: ec2:ModifyVolume, then a fixed SSM document resizes the filesystem (root on the host is required, which is the only reason SSM is involved). Off by default — this is the single disk every hostPath mount shares, and EBS cannot shrink. Prefer true only on an unattended instance, and check the preflight in deploy/aws/ec2/.env.example first: the SSM half can fail on its own and leave a larger volume billing behind a still-full filesystem. | | NODE_DISK_AUTOEXPAND_SSM_DOCUMENT | pipeline-builder-resize-data-fs | The document CloudFormation creates, <stack>-resize-data-fs. It takes no parameters and resizes a fixed device, so the instance role's ssm:SendCommand grant permits that one resize and nothing else. | | NODE_DISK_AUTOEXPAND_STEP_PERCENT | 50 | Growth per expansion, as a percentage of the current size. | | NODE_DISK_AUTOEXPAND_CEILING_MULTIPLE | 4 | Hard ceiling as a multiple of the size first seen, recorded on the volume as a tag so it cannot compound. | | NODE_DISK_AUTOEXPAND_MAX_GI | 2000 | Absolute ceiling in GiB. | | NODE_DISK_AUTOEXPAND_COOLDOWN_SECONDS | 21600 | Minimum gap between decisions. 6 h, because EBS refuses a second modification of the same volume inside that window. Held in Redis, which is also the cross-replica lock — without Redis this fails closed. |"
+          "content": "| PVC_AUTOEXPAND_ENABLED | false | eks only. Arms automatic PersistentVolumeClaim expansion: Alertmanager also POSTs PersistentVolumeFillingUp / PersistentVolumeCriticallyFull to ops-center, which raises the claim's requested size (as the ops-center ServiceAccount, through the ops-center-pvc-autoexpand Role). Off by default because expansion spends money and cannot be undone — neither EBS nor Kubernetes can shrink a volume. Only pb-ebs can be expanded at all; ec2 and minikube bind manual hostPath PVs and the handler refuses a claim with no storageClassName. Prefer true only on an unattended cluster — the alerts give hours of warning and the manual remedy is one kubectl patch, and arming it also introduces PvcAutoExpandTemplateDrift on the rustfs/redis StatefulSet claims. | | PVC_AUTOEXPAND_STEP_PERCENT | 50 | Growth per expansion, as a percentage of the current request, rounded up to a whole GiB (EBS allocates in whole GiB). | | PVC_AUTOEXPAND_CEILING_MULTIPLE | 4 | Hard ceiling as a multiple of the original request, pinned in the pipeline-builder.io/autoexpand-original annotation on first expansion so it cannot compound. At the ceiling expansion stops and PvcAutoExpandAtCeiling fires. | | PVC_AUTOEXPAND_MAX_GI | 500 | Absolute ceiling in GiB, whatever the multiple works out to. Inert at the shipped sizes: every claim is 20 GiB, so the 4× multiple binds at 80 GiB first and this cap only starts to matter above a ~125 GiB base claim. | | PVC_AUTOEXPAND_COOLDOWN_SECONDS | 21600 | Minimum gap between decisions for one claim. 6 h because EBS refuses a second modification of the same volume inside roughly that window and Alertmanager re-sends on its repeat_interval. Held in Redis, which also provides the cross-replica lock — without Redis, expansion fails closed. | | NODE_DISK_AUTOEXPAND_ENABLED | false | ec2 only. Arms automatic growth of the instance's data volume when NodeDiskFillingUp fires: ec2:ModifyVolume, then a fixed SSM document resizes the filesystem (root on the host is required, which is the only reason SSM is involved). Off by default — this is the single disk every hostPath mount shares, and EBS cannot shrink. Prefer true only on an unattended instance, and check the preflight in deploy/aws/ec2/.env.example first: the SSM half can fail on its own and leave a larger volume billing behind a still-full filesystem. | | NODE_DISK_AUTOEXPAND_SSM_DOCUMENT | pipeline-builder-resize-data-fs | The document CloudFormation creates, <stack>-resize-data-fs. It takes no parameters and resizes a fixed device, so the instance role's ssm:SendCommand grant permits that one resize and nothing else. | | NODE_DISK_AUTOEXPAND_STEP_PERCENT | 50 | Growth per expansion, as a percentage of the current size. | | NODE_DISK_AUTOEXPAND_CEILING_MULTIPLE | 4 | Hard ceiling as a multiple of the size first seen, recorded on the volume as a tag so it cannot compound. | | NODE_DISK_AUTOEXPAND_MAX_GI | 2000 | Absolute ceiling in GiB. | | NODE_DISK_AUTOEXPAND_COOLDOWN_SECONDS | 21600 | Minimum gap between decisions. 6 h, because EBS refuses a second modification of the same volume inside that window. Held in Redis, which is also the cross-replica lock — without Redis this fails closed. |"
         },
         {
           "type": "text",
@@ -4591,6 +4609,10 @@ export const envVariablesTopic: HelpTopic = {
           "content": "Alerts & notifications"
         },
         {
+          "type": "text",
+          "content": "Read by ops-center — except PLATFORM_SCRAPER_INTERVAL_MS (platform) and the two process-wide knobs below it (every service)."
+        },
+        {
           "type": "table",
           "headers": [
             "Variable",
@@ -4601,7 +4623,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "ALERTMANAGER_URL",
               "http://alertmanager:9093",
-              "In-cluster Alertmanager base URL the platform queries for live alerts"
+              "In-cluster Alertmanager base URL ops-center queries for live alerts"
             ],
             [
               "ALERTMANAGER_TIMEOUT_MS",
@@ -4651,7 +4673,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "PLATFORM_SCRAPER_INTERVAL_MS",
               "60000",
-              "Interval for the platform's own metrics scrape loop"
+              "Interval for platform's own metrics scrape loop (org/user counts from its Mongo store; stays on platform)"
             ],
             [
               "READINESS_MONITOR_INTERVAL_MS",
@@ -4705,7 +4727,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "LOG_RETENTION_HOURS",
               "720 (30 days)",
-              "How long Loki keeps logs, AND how far back a log query may reach — one variable for both, because they were two. loki-config.yml expands it into retention_period (-config.expand-env=true) and platform's log controller clamps queries to it. A clamp narrower than retention hides data that exists; a wider one returns an empty tail that reads as \"nothing happened\" rather than \"nothing is kept\", which is why toolchain-drift-contract asserts the two defaults match. Raising it costs object-store space: chunks and index live in the RustFS loki bucket on a 20Gi volume shared with the registry, Thanos blocks and plugin build contexts, so watch PersistentVolumeFillingUp. Hours, not days: h is the suffix proven to parse in that config, and a config Loki cannot read is a Loki that will not start"
+              "How long Loki keeps logs, AND how far back a log query may reach — one variable for both, because they were two. loki-config.yml expands it into retention_period (-config.expand-env=true) and ops-center's log controller clamps queries to it. A clamp narrower than retention hides data that exists; a wider one returns an empty tail that reads as \"nothing happened\" rather than \"nothing is kept\", which is why toolchain-drift-contract asserts the two defaults match. Raising it costs object-store space: chunks and index live in the RustFS loki bucket on a 20Gi volume shared with the registry, Thanos blocks and plugin build contexts, so watch PersistentVolumeFillingUp. Hours, not days: h is the suffix proven to parse in that config, and a config Loki cannot read is a Loki that will not start"
             ],
             [
               "MONGO_MAX_POOL",
@@ -5043,6 +5065,10 @@ export const envVariablesTopic: HelpTopic = {
         {
           "type": "text",
           "content": "Dashboards"
+        },
+        {
+          "type": "text",
+          "content": "Read by ops-center, which owns dashboards since the split from platform."
         },
         {
           "type": "table",

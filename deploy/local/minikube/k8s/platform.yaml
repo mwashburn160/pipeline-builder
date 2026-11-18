@@ -54,6 +54,11 @@ spec:
       # Stateless API server — no need for the default ServiceAccount token
       # mounted at /var/run/secrets/kubernetes.io/serviceaccount/. Reduces blast
       # radius if the container is compromised (no kubelet API access).
+      # Platform holds NO Kubernetes RBAC at all: the PVC auto-expand and
+      # Postgres rung controllers (and their Roles) moved to ops-center, so
+      # the identity that holds the user-token signing key cannot patch a
+      # cluster object. test/deploy-contracts ops-center-rbac-contract
+      # asserts it stays that way.
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
@@ -109,24 +114,6 @@ spec:
               value: "platform"
             - name: PORT
               value: "3000"
-            # Per-org alert relay: the one Alertmanager instance (id `alertmanager`,
-            # sent as X-Alertmanager-Instance by config/alertmanager/alertmanager.yml)
-            # and its bearer token. $(VAR) expands the secret-backed entry above it.
-            - name: ALERT_WEBHOOK_INSTANCE_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: alertmanager-relay
-                  key: ALERT_WEBHOOK_INSTANCE_TOKEN
-            # Rotation overlap: the OUTGOING bearer, empty outside a rotation
-            # (the key always exists in the Secret). Platform accepts either
-            # while it is non-empty. docs/runbooks/secret-rotation.md
-            - name: ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS
-              valueFrom:
-                secretKeyRef:
-                  name: alertmanager-relay
-                  key: ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS
-            - name: ALERT_WEBHOOK_INSTANCES
-              value: '[{"id":"alertmanager","token":"$(ALERT_WEBHOOK_INSTANCE_TOKEN)","previousToken":"$(ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS)"}]'
           resources:
             limits:
               cpu: "750m"
@@ -248,56 +235,3 @@ spec:
   selector:
     matchLabels:
       app: platform
----
-# =============================================================================
-# RBAC: Postgres vertical scaling (services/postgres-rung.ts)
-# =============================================================================
-# The rung controller GETs the workload to read its current CPU limit and server
-# args, then PATCHes both. `get` and `patch` only:
-#
-#   * no `create`/`delete` — a rung change edits an existing workload, and
-#     deleting a StatefulSet would orphan its standby PVCs (Retain policy) while
-#     they still bill;
-#   * no `*/scale` — the COUNT is KEDA's, and granting it here would let the
-#     vertical controller quietly fight the horizontal one;
-#   * no `pods` — the restart is a consequence of the template change, which the
-#     controller does not need to perform itself.
-#
-# PRESENT ON ALL THREE Kubernetes targets, unlike platform-pvc-autoexpand above.
-# That Role is eks-only because the thing it patches (a CSI claim) does not
-# exist on the hostPath targets. A pod's resources and args are the same
-# everywhere, so the ladder works on every one — the only per-target difference
-# is how high the ceiling can usefully go, which is config, not capability.
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: platform-postgres-rung
-  namespace: pipeline-builder
-rules:
-  # resourceNames: exactly the two workloads services/postgres-rung.ts TARGETS
-  # names (hard-coded there, not config). Without them this Role could patch
-  # every Deployment in the namespace — including platform's own, i.e. swap
-  # its image. Two rules because resourceNames applies to every resource in a
-  # rule, and `postgres` must not match a StatefulSet or vice versa.
-  - apiGroups: ["apps"]
-    resources: ["deployments"]
-    verbs: ["get", "patch"]
-    resourceNames: ["postgres"]
-  - apiGroups: ["apps"]
-    resources: ["statefulsets"]
-    verbs: ["get", "patch"]
-    resourceNames: ["postgres-replica"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: platform-postgres-rung
-  namespace: pipeline-builder
-subjects:
-  - kind: ServiceAccount
-    name: platform
-    namespace: pipeline-builder
-roleRef:
-  kind: Role
-  name: platform-postgres-rung
-  apiGroup: rbac.authorization.k8s.io

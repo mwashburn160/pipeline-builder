@@ -1,6 +1,6 @@
 // GENERATED FROM docs/runbooks/secret-rotation.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: bc3334b155a3ade636e8109ae78b86de9576ac5343ff01c83aafd43e63f15ed0
+// SOURCE-SHA256: f5bdb93be4a16b2aae42ef86d90684b76c58b17e8d671f8f123982d409c7898c
 // SPDX-License-Identifier: Apache-2.0
 import { KeyRound } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -193,8 +193,8 @@ export const runbookSecretRotationTopic: HelpTopic = {
             ],
             [
               "ALERT_WEBHOOK_INSTANCE_TOKEN (+ _PREVIOUS)",
-              "platform (verifier) + Alertmanager (sender)",
-              ".env; k8s alertmanager-relay Secret; platform's ALERT_WEBHOOK_INSTANCES JSON"
+              "ops-center (verifier) + Alertmanager (sender)",
+              ".env; k8s alertmanager-relay Secret; ops-center's ALERT_WEBHOOK_INSTANCES JSON"
             ],
             [
               "image-registry signing key",
@@ -868,7 +868,7 @@ export const runbookSecretRotationTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "The bearer Alertmanager presents to platform's POST /observability/alert-webhook, which fans alerts out to each org's destinations. Two sides: platform verifies (ALERT_WEBHOOK_INSTANCES, one entry per Alertmanager instance) and Alertmanager sends (a mounted credentials_file). Platform accepts the entry's previousToken while it is non-empty."
+          "content": "The bearer Alertmanager presents to ops-center's POST /observability/alert-webhook (and its other webhook receivers), which fans alerts out to each org's destinations. Two sides: ops-center verifies (ALERT_WEBHOOK_INSTANCES, one entry per Alertmanager instance) and Alertmanager sends (a mounted credentials_file). ops-center accepts the entry's previousToken while it is non-empty."
         },
         {
           "type": "text",
@@ -878,12 +878,12 @@ export const runbookSecretRotationTopic: HelpTopic = {
           "type": "list",
           "items": [
             "pb_rotate_env_secret deploy/<target>/.env ALERT_WEBHOOK_INSTANCE_TOKEN",
-            "Push the alertmanager-relay Secret (both keys) and restart platform"
+            "Push the alertmanager-relay Secret (both keys) and restart ops-center"
           ]
         },
         {
           "type": "text",
-          "content": "first. It now accepts old and new. bash kubectl -n pipeline-builder patch secret alertmanager-relay -p \\ \"{\\\"stringData\\\":{\\\"ALERT_WEBHOOK_INSTANCE_TOKEN\\\":\\\"$NEW\\\",\\\"ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS\\\":\\\"$OLD\\\"}}\" kubectl -n pipeline-builder rollout restart deploy/platform"
+          "content": "first. It now accepts old and new. bash kubectl -n pipeline-builder patch secret alertmanager-relay -p \\ \"{\\\"stringData\\\":{\\\"ALERT_WEBHOOK_INSTANCE_TOKEN\\\":\\\"$NEW\\\",\\\"ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS\\\":\\\"$OLD\\\"}}\" kubectl -n pipeline-builder rollout restart deploy/ops-center"
         },
         {
           "type": "list",
@@ -893,7 +893,7 @@ export const runbookSecretRotationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "(rollout restart deploy/alertmanager; docker: docker compose up -d --force-recreate alertmanager platform)."
+          "content": "(rollout restart deploy/alertmanager; docker: docker compose up -d --force-recreate alertmanager ops-center)."
         },
         {
           "type": "list",
@@ -903,24 +903,24 @@ export const runbookSecretRotationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "re-push the Secret, restart platform."
+          "content": "re-push the Secret, restart ops-center."
         },
         {
           "type": "text",
-          "content": "Verify — fire a test alert (or watch the next real one) and confirm Alert relay processed in the platform log with no Alert webhook unknown instance / Unauthorized warnings. Between steps 2 and 3 both tokens must work; after step 4 the old one must 401:"
+          "content": "Verify — fire a test alert (or watch the next real one) and confirm Alert relay processed in the ops-center log with no Alert webhook unknown instance / Unauthorized warnings. Between steps 2 and 3 both tokens must work; after step 4 the old one must 401:"
         },
         {
           "type": "code",
-          "content": "curl -s -o /dev/null -w '%{http_code}\\n' -X POST http://platform:3000/observability/alert-webhook \\\n  -H \"Authorization: Bearer $OLD\" -H 'X-Alertmanager-Instance: alertmanager' \\\n  -H 'Content-Type: application/json' -d '{\"alerts\":[]}'          # 401 after step 4",
+          "content": "curl -s -o /dev/null -w '%{http_code}\\n' -X POST http://ops-center:3000/observability/alert-webhook \\\n  -H \"Authorization: Bearer $OLD\" -H 'X-Alertmanager-Instance: alertmanager' \\\n  -H 'Content-Type: application/json' -d '{\"alerts\":[]}'          # 401 after step 4",
           "language": "bash"
         },
         {
           "type": "text",
-          "content": "Rollback — restore the old token as the current one (it is still in _PREVIOUS until step 4) and restart platform + Alertmanager. The only symptom of getting this wrong is silently undelivered org alerts, so verify rather than assume."
+          "content": "Rollback — restore the old token as the current one (it is still in _PREVIOUS until step 4) and restart ops-center + Alertmanager. The only symptom of getting this wrong is silently undelivered org alerts, so verify rather than assume."
         },
         {
           "type": "text",
-          "content": "Proof — platform/test/alert-webhook-token-rotation.test.ts, platform/test/alert-webhook-instances.test.ts."
+          "content": "Proof — the alert-webhook token-rotation and instances suites, which moved from platform/test/ to api/ops-center/test/ with the relay."
         }
       ]
     },
@@ -1602,7 +1602,7 @@ export const runbookSecretRotationTopic: HelpTopic = {
             ],
             [
               "Exported by",
-              "every service (/metrics), including platform; probes registered in api-core (SERVICE_SIGNING_KEY), platform (TOKEN_SIGNING_KEY, SECRET_ENCRYPTION_KEY, ALERT_WEBHOOK_INSTANCE_TOKEN) and image-registry (REGISTRY_TOKEN_CERTIFICATE)"
+              "every service (/metrics), including platform; probes registered in api-core (SERVICE_SIGNING_KEY), platform (TOKEN_SIGNING_KEY, SECRET_ENCRYPTION_KEY), ops-center (ALERT_WEBHOOK_INSTANCE_TOKEN) and image-registry (REGISTRY_TOKEN_CERTIFICATE)"
             ],
             [
               "Alert",
@@ -1648,7 +1648,7 @@ export const runbookSecretRotationTopic: HelpTopic = {
             [
               "ALERT_WEBHOOK_INSTANCE_TOKEN",
               "ALERT_WEBHOOK_INSTANCE_TOKEN",
-              "pb_finish_env_rotation, re-push alertmanager-relay, restart platform"
+              "pb_finish_env_rotation, re-push alertmanager-relay, restart ops-center"
             ],
             [
               "REGISTRY_TOKEN_CERTIFICATE",

@@ -146,12 +146,12 @@ listing exactly the caller identities real traffic needs.
 >
 > | Workload | Admitted |
 > |---|---|
-> | loki :3100 | promtail, platform, grafana, prometheus — **never** plugin / plugin-quarantine-builder |
-> | prometheus :9090 | platform, grafana, prometheus (self-scrape); KEDA (non-mesh, plaintext via the PERMISSIVE port — matched by `notPrincipals: ["*"]`, bounded to the `keda` namespace by NetworkPolicy); :10901 thanos-query |
-> | thanos-query :9090 | platform, grafana, prometheus |
+> | loki :3100 | promtail, ops-center, grafana, prometheus — **never** plugin / plugin-quarantine-builder |
+> | prometheus :9090 | ops-center, grafana, prometheus (self-scrape); KEDA (non-mesh, plaintext via the PERMISSIVE port — matched by `notPrincipals: ["*"]`, bounded to the `keda` namespace by NetworkPolicy); :10901 thanos-query |
+> | thanos-query :9090 | ops-center, grafana, prometheus |
 > | thanos-store-gateway | :10901 thanos-query; :10902 prometheus |
 > | thanos-compact :10902 | prometheus |
-> | alertmanager :9093 | prometheus, platform |
+> | alertmanager :9093 | prometheus, ops-center |
 > | jaeger | :4317/:4318 every OTLP exporter (the server services); :16686 grafana, kiali; :14269 prometheus |
 >
 > The NetworkPolicy files mirror the same lists (`allow-loki-ingress`,
@@ -170,9 +170,11 @@ CGNAT, `169.254.169.254/32` (IMDS) and `169.254.170.0/24` (container-credential
 agents). It excepts those credential addresses exactly, **not** all of
 `169.254.0.0/16` — ambient's node-side plumbing uses link-local addresses, and
 excepting the whole range severed TLS for the model server. A workload holding an
-AWS grant (platform, pipeline, image-registry in kms mode, db-backup) gets a
+AWS grant (platform, pipeline, image-registry in kms mode, db-backup, and on ec2
+ops-center for node-disk auto-expansion) gets a
 separate `/32` rule on :80 for its credential endpoint (Pod Identity on EKS,
 IMDS on ec2). Public legs: alertmanager 443 (Slack), platform 443 + SMTP,
+ops-center 443 (org Slack/webhook destinations, PagerDuty, dead-man URL),
 pipeline 443, ask 443, compliance 443 + SMTP, billing 443, plugin 443/80.
 Mesh hops to istio-system (prometheus, kiali, the waypoint) stay ports-only —
 their destinations are cluster pod IPs, which RFC1918 would exclude.
@@ -201,9 +203,10 @@ right workload identity.
 - **A waypoint, because these are L7 rules.** Per-route means path + method, and
   ztunnel is L4-only — an L7 `AuthorizationPolicy` is enforced by a waypoint proxy
   or not at all. The `pb-waypoint` Gateway is attached (via the
-  `istio.io/use-waypoint` label on the **Service**) to exactly the six Services
+  `istio.io/use-waypoint` label on the **Service**) to exactly the seven Services
   that expose an internal route: `platform`, `message`, `compliance`, `quota`,
-  `reporting`, `image-registry` (`POST /internal/plugin-signatures` — plugin-image
+  `reporting`, `ops-center` (`POST /ops/internal/orgs/:orgId/purge` — the
+  cascade outbox's org-purge leg, `platform` only), `image-registry` (`POST /internal/plugin-signatures` — plugin-image
   signing — and `/internal/plugin-publications*` — the `public/*` namespace
   operations; both `plugin` only). Not namespace-wide, which would put an Envoy hop in front of the
   datastores too. It needs the Kubernetes Gateway API CRDs, and each target's
@@ -216,7 +219,7 @@ right workload identity.
   `notPrincipals` + a path match expresses "only these callers, on this route"
   without restating every service's full caller list.
 - **Traffic through a waypoint arrives as the WAYPOINT's identity**, so
-  `sa/pb-waypoint` is listed in those six workloads' ALLOW policies. The original
+  `sa/pb-waypoint` is listed in those seven workloads' ALLOW policies. The original
   caller has already been checked, at the waypoint. For `image-registry` this
   covers far more than the internal route: nginx's `/token` and `/api/images/*`
   proxying, buildkitd's token fetches from the plugin pod, the bootstrap crane

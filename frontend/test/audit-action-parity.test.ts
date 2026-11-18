@@ -44,6 +44,7 @@ const SERVICE_SRC: Record<string, string> = {
   compliance: 'api/compliance/src',
   'image-registry': 'api/image-registry/src',
   message: 'api/message/src',
+  'ops-center': 'api/ops-center/src',
   pipeline: 'api/pipeline/src',
   plugin: 'api/plugin/src',
   quota: 'api/quota/src',

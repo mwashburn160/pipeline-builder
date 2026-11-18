@@ -20,8 +20,9 @@
 # mode ztunnel is L4-only and cannot evaluate an HTTP path, so an L7
 # AuthorizationPolicy is enforced by a waypoint proxy or not at all. The
 # `pb-waypoint` Gateway below is that proxy, attached (via
-# `istio.io/use-waypoint`) to exactly the six Services that expose an internal
-# route (platform, message, compliance, quota, reporting, image-registry) — not
+# `istio.io/use-waypoint`) to exactly the seven Services that expose an internal
+# route (platform, message, compliance, quota, reporting, ops-center,
+# image-registry) — not
 # namespace-wide, which would put an Envoy hop in front of the
 # datastores too.
 #
@@ -71,9 +72,11 @@ spec:
 # POST /internal/notify-email — compliance relays notification emails, the plugin
 # service relays plugin-ecosystem notices, reporting relays a published
 # stakeholder report to the addresses IT verified, quota mails its 80%/100%
-# threshold notices to an account's admins and billing contacts, and billing
-# mails an expansion OFFER to the same people — through platform, which holds
-# the SMTP credentials and the user directory.
+# threshold notices to an account's admins and billing contacts, billing
+# mails an expansion OFFER to the same people, and ops-center mails org
+# alert destinations of the email kind and the destination-failing notice to an
+# org's admins — through platform, which holds the SMTP credentials and the user
+# directory.
 #
 # Each caller is confined to its OWN leg by the controller, told apart by the
 # body: a billing token without `offerNotice` is refused rather than falling
@@ -96,6 +99,7 @@ spec:
             notPrincipals:
               - cluster.local/ns/pipeline-builder/sa/billing
               - cluster.local/ns/pipeline-builder/sa/compliance
+              - cluster.local/ns/pipeline-builder/sa/ops-center
               - cluster.local/ns/pipeline-builder/sa/plugin
               - cluster.local/ns/pipeline-builder/sa/quota
               - cluster.local/ns/pipeline-builder/sa/reporting
@@ -106,12 +110,14 @@ spec:
     # GET /internal/notify-email/status — `{ enabled }`, the precondition the
     # plugin service checks before serving anonymous submissions, and the whole
     # of the ask agent's notification diagnosis (a disabled send reports
-    # success, so nothing else surfaces it). Reading the instance-wide switch is
+    # success, so nothing else surfaces it), and ops-center's alert-delivery
+    # posture for the email channel. Reading the instance-wide switch is
     # strictly weaker than sending: `ask` is admitted here, never above.
     - from:
         - source:
             notPrincipals:
               - cluster.local/ns/pipeline-builder/sa/ask
+              - cluster.local/ns/pipeline-builder/sa/ops-center
               - cluster.local/ns/pipeline-builder/sa/plugin
       to:
         - operation:
@@ -249,6 +255,33 @@ spec:
         - operation:
             paths: ["/internal/offers/*"]
 ---
+# /internal/ops/* — the identity facts the operations control plane needs from
+# the identity hub, now that it runs as its own service (ops-center):
+#   GET  /internal/ops/org-account-root/:orgId — the org's account root, which
+#        the dashboard / alert-rule / destination quotas are pooled against;
+#   POST /internal/ops/audit-activity          — the audit rows behind the
+#        Observability → Audit Activity view (the audit chain stays platform's).
+# ops-center only: nothing else serves those views.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: platform-internal-ops
+  namespace: pipeline-builder
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: platform
+  action: DENY
+  rules:
+    - from:
+        - source:
+            notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/ops-center
+      to:
+        - operation:
+            paths: ["/internal/ops/*"]
+---
 # POST /audit/events — every non-platform service forwards its audit trail here.
 # The audit log is evidence, so the callers are enumerated rather than "anything
 # in the mesh".
@@ -272,6 +305,7 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/compliance
               - cluster.local/ns/pipeline-builder/sa/image-registry
               - cluster.local/ns/pipeline-builder/sa/message
+              - cluster.local/ns/pipeline-builder/sa/ops-center
               - cluster.local/ns/pipeline-builder/sa/pipeline
               - cluster.local/ns/pipeline-builder/sa/plugin
               - cluster.local/ns/pipeline-builder/sa/quota
@@ -476,6 +510,7 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/compliance
               - cluster.local/ns/pipeline-builder/sa/image-registry
               - cluster.local/ns/pipeline-builder/sa/message
+              - cluster.local/ns/pipeline-builder/sa/ops-center
               - cluster.local/ns/pipeline-builder/sa/pipeline
               - cluster.local/ns/pipeline-builder/sa/platform
               - cluster.local/ns/pipeline-builder/sa/plugin
@@ -613,6 +648,32 @@ spec:
       to:
         - operation:
             paths: ["/reports/internal/*"]
+---
+# -- ops-center ----------------------------------------------------------
+# POST /ops/internal/orgs/:orgId/purge — platform's durable cascade outbox tears
+# a purged org's dashboards, alert rules, alert destinations and their delivery
+# state out of ops-center's own tables. Platform only: it alone decides an
+# org is purged. The prefix rule covers the whole internal surface, so a future
+# internal route under /ops/internal/ is denied to everyone else by default.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: ops-center-internal-org-purge
+  namespace: pipeline-builder
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: ops-center
+  action: DENY
+  rules:
+    - from:
+        - source:
+            notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/platform
+      to:
+        - operation:
+            paths: ["/ops/internal/*"]
 ---
 # -- image-registry ----------------------------------------------------------
 # POST /internal/plugin-signatures — image-registry cosign-signs a freshly pushed
@@ -823,6 +884,9 @@ spec:
     - group: ""
       kind: Service
       name: reporting
+    - group: ""
+      kind: Service
+      name: ops-center
   action: DENY
   rules:
     - from:

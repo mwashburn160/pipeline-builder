@@ -136,7 +136,7 @@ describe.each(K8S_TARGETS)('quarantine builder has no credential path — %s', (
     const routes = docsOf(`${target}/k8s/istio-internal-routes.yaml`);
     expect(find(routes, 'AuthorizationPolicy', 'image-registry-quarantine-builder-token-only')!.spec.rules[0].to[0].operation.notPaths).toEqual(['/token']);
     const deny = find(routes, 'AuthorizationPolicy', 'quarantine-builder-deny-waypoint-services')!;
-    expect(deny.spec.targetRefs.map((r: Doc) => r.name).sort()).toEqual(['compliance', 'message', 'platform', 'quota', 'reporting']);
+    expect(deny.spec.targetRefs.map((r: Doc) => r.name).sort()).toEqual(['compliance', 'message', 'ops-center', 'platform', 'quota', 'reporting']);
   });
 
   it('is what the plugin service builds submissions on (never the tenant buildkitd)', () => {

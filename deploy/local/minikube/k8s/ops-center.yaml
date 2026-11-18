@@ -1,0 +1,313 @@
+---
+# =============================================================================
+# Ops-controller Service
+# =============================================================================
+# The operations control plane, split out of platform (the identity hub): the
+# Prometheus / Loki / Alertmanager proxy behind /observability/*, dashboards,
+# org alert rules and destinations, the Alertmanager relay and on-call paging,
+# and the storage / Postgres auto-scaling webhooks. Postgres + Redis only (no
+# MongoDB); the identity facts it needs come from platform over typed internal
+# contracts (k8s/istio-internal-routes.yaml).
+apiVersion: v1
+kind: Service
+metadata:
+  name: ops-center
+  labels:
+    app: ops-center
+    # This Service exposes an INTERNAL route (POST /ops/internal/orgs/:orgId/purge,
+    # the cascade outbox's org-purge leg), so its traffic goes through the
+    # `pb-waypoint` proxy, which is the only thing in an ambient mesh that can
+    # enforce a per-ROUTE (L7) AuthorizationPolicy. See k8s/istio-internal-routes.yaml
+    # — removing this label is the rollback: the policies then match nothing and
+    # the app-side `requireInternalService` gate carries the route alone.
+    istio.io/use-waypoint: pb-waypoint
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3000
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  selector:
+    app: ops-center
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ops-center
+  labels:
+    app: ops-center
+    app.kubernetes.io/component: backend
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: ops-center
+  template:
+    metadata:
+      labels:
+        app: ops-center
+        app.kubernetes.io/component: backend
+        version: "0.1.0"
+        track: stable
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: ops-center
+      # The ONE API service that mounts its ServiceAccount token. The Postgres
+      # rung controller (services/postgres-rung.ts) GETs and PATCHes the
+      # postgres Deployment / postgres-replica StatefulSet through the API
+      # server as this ServiceAccount, reading the token the kubelet projects at
+      # /var/run/secrets/kubernetes.io/serviceaccount. What the token may do is
+      # bounded by the Role at the end of this file (get+patch on exactly those
+      # two named workloads); every other service — platform included — keeps
+      # automountServiceAccountToken: false.
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: ops-center
+                topologyKey: kubernetes.io/hostname
+      initContainers:
+        - name: wait-for-dependencies
+          image: busybox@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616  # busybox:1.38
+          resources:
+            limits:
+              cpu: "100m"
+              memory: 64Mi
+            requests:
+              cpu: "50m"
+              memory: 32Mi
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for postgres..."
+              until nc -z postgres 5432; do sleep 3; done
+              echo "Dependencies ready"
+      containers:
+        - name: ops-center
+          # TAG-ONLY until the first release publishes this image. Every other
+          # owned image is `<version>@sha256:<digest>`, written by
+          # deploy/bin/sync-image-tags.sh only after the digest's signature
+          # verifies — and there is no published digest to verify yet. The sync
+          # rewrites this ref (and the `version` label above) to the pinned form
+          # on the release that first publishes ops-center;
+          # test/deploy-contracts/test/version-label-contract.test.ts allows the
+          # tag-only form for this image ONLY while it is listed as unpublished.
+          image: ghcr.io/mwashburn160/ops-center:0.1.0
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: 3000
+              name: http
+          envFrom:
+            - configMapRef:
+                name: app-env
+            # Credentials (DB_PASSWORD, PAGERDUTY_*, API keys, …) split out of app-env.
+            - secretRef:
+                name: app-secrets
+          env:
+            - name: SERVICE_NAME
+              value: "ops-center"
+            - name: PORT
+              value: "3000"
+            # Per-org alert relay: the one Alertmanager instance (id `alertmanager`,
+            # sent as X-Alertmanager-Instance by config/alertmanager/alertmanager.yml)
+            # and its bearer token. $(VAR) expands the secret-backed entry above it.
+            - name: ALERT_WEBHOOK_INSTANCE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: alertmanager-relay
+                  key: ALERT_WEBHOOK_INSTANCE_TOKEN
+            # Rotation overlap: the OUTGOING bearer, empty outside a rotation
+            # (the key always exists in the Secret). ops-center accepts
+            # either while it is non-empty. docs/runbooks/secret-rotation.md
+            - name: ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS
+              valueFrom:
+                secretKeyRef:
+                  name: alertmanager-relay
+                  key: ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS
+            - name: ALERT_WEBHOOK_INSTANCES
+              value: '[{"id":"alertmanager","token":"$(ALERT_WEBHOOK_INSTANCE_TOKEN)","previousToken":"$(ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS)"}]'
+          resources:
+            limits:
+              cpu: "500m"
+              memory: 512Mi
+            requests:
+              cpu: "150m"
+              memory: 256Mi
+          # EXEC ON LOOPBACK — see k8s/pgbouncer.yaml for the full rationale.
+          # Under Istio ambient the kubelet -> podIP probe path does not work on
+          # EKS Auto Mode (verified: in-mesh pod -> this podIP:PORT succeeds, the
+          # kubelet probe to the same address times out). 127.0.0.1 never leaves
+          # the pod netns so it bypasses ztunnel. `node` ships in every service
+          # image; this mirrors frontend/Dockerfile's own HEALTHCHECK.
+          readinessProbe:
+            exec:
+              command: ["node", "-e", "fetch('http://127.0.0.1:3000/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          livenessProbe:
+            exec:
+              command: ["node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          startupProbe:
+            exec:
+              command: ["node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+          volumeMounts:
+            # This pod's OWN internal-token signing key and the PUBLIC
+            # bundle it verifies its peers with. One private key per pod — that
+            # is what stops a compromised service signing as another — while the
+            # bundle is public and identical everywhere. Both from
+            # deploy/bin/service-signing-keys.sh; the service refuses to start
+            # without them.
+            - name: service-signing-key
+              mountPath: /etc/pipeline-builder/service-keys
+              readOnly: true
+            - name: service-key-bundle
+              mountPath: /etc/pipeline-builder/service-key-bundle
+              readOnly: true
+      volumes:
+        - name: service-signing-key
+          secret:
+            secretName: service-key-ops-center
+            defaultMode: 0444
+        - name: service-key-bundle
+          secret:
+            secretName: service-key-bundle
+            defaultMode: 0444
+---
+# =============================================================================
+# Ops-controller HorizontalPodAutoscaler
+# =============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ops-center
+  labels:
+    app: ops-center
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ops-center
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    # CPU-only autoscaling. A memory-utilization metric was removed: these
+    # services carry a large BASELINE heap, so idle memory sits near the target
+    # and adding replicas does not lower per-pod memory — the HPA would pin to
+    # maxReplicas forever and oversubscribe the single node. Scale on CPU (load-
+    # proportional) only.
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 120
+    scaleDown:
+      stabilizationWindowSeconds: 300
+
+---
+# =============================================================================
+# Ops-controller PodDisruptionBudget
+# =============================================================================
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ops-center
+  labels:
+    app: ops-center
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: ops-center
+---
+# =============================================================================
+# RBAC: Postgres vertical scaling (services/postgres-rung.ts)
+# =============================================================================
+# Moved here from platform.yaml with the controller itself: platform (the
+# identity hub, which holds the user-token signing key) now has NO Kubernetes
+# API access at all, and this ServiceAccount is the only API-service identity
+# with cluster-write RBAC.
+#
+# The rung controller GETs the workload to read its current CPU limit and server
+# args, then PATCHes both. `get` and `patch` only:
+#
+#   * no `create`/`delete` — a rung change edits an existing workload, and
+#     deleting a StatefulSet would orphan its standby PVCs (Retain policy) while
+#     they still bill;
+#   * no `*/scale` — the COUNT is KEDA's, and granting it here would let the
+#     vertical controller quietly fight the horizontal one;
+#   * no `pods` — the restart is a consequence of the template change, which the
+#     controller does not need to perform itself.
+#
+# PRESENT ON ALL THREE Kubernetes targets, unlike ops-center-pvc-autoexpand
+# (eks only). That Role is eks-only because the thing it patches (a CSI claim)
+# does not exist on the hostPath targets. A pod's resources and args are the same
+# everywhere, so the ladder works on every one — the only per-target difference
+# is how high the ceiling can usefully go, which is config, not capability.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ops-center-postgres-rung
+  namespace: pipeline-builder
+rules:
+  # resourceNames: exactly the two workloads services/postgres-rung.ts TARGETS
+  # names (hard-coded there, not config). Without them this Role could patch
+  # every Deployment in the namespace — including ops-center's own, i.e.
+  # swap its image. Two rules because resourceNames applies to every resource in
+  # a rule, and `postgres` must not match a StatefulSet or vice versa.
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "patch"]
+    resourceNames: ["postgres"]
+  - apiGroups: ["apps"]
+    resources: ["statefulsets"]
+    verbs: ["get", "patch"]
+    resourceNames: ["postgres-replica"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ops-center-postgres-rung
+  namespace: pipeline-builder
+subjects:
+  - kind: ServiceAccount
+    name: ops-center
+    namespace: pipeline-builder
+roleRef:
+  kind: Role
+  name: ops-center-postgres-rung
+  apiGroup: rbac.authorization.k8s.io

@@ -1,0 +1,149 @@
+{
+  "name": "ops-center",
+  "description": "Pipeline Builder ops-center — observability proxy, dashboards, alerting, on-call and storage/Postgres auto-scaling.",
+  "scripts": {
+    "build": "pnpm dlx projen build",
+    "compile": "pnpm dlx projen compile",
+    "default": "pnpm dlx projen default",
+    "eslint": "pnpm dlx projen eslint",
+    "lint:fix": "pnpm dlx projen lint:fix",
+    "package": "pnpm dlx projen package",
+    "post-compile": "pnpm dlx projen post-compile",
+    "pre-compile": "pnpm dlx projen pre-compile",
+    "test": "pnpm dlx projen test",
+    "test:update": "pnpm dlx projen test:update",
+    "test:watch": "pnpm dlx projen test:watch",
+    "typecheck:tests": "pnpm dlx projen typecheck:tests",
+    "watch": "pnpm dlx projen watch",
+    "projen": "pnpm dlx projen",
+    "start": "node --import @pipeline-builder/api-server/otel-bootstrap lib/index.js",
+    "docker:build": "PB_EXPECTED_PNPM=$(jq -r .packageManager package.json | sed \"s/^pnpm@//\"); PB_ACTUAL_PNPM=$(pnpm --version); [ \"$PB_EXPECTED_PNPM\" = \"$PB_ACTUAL_PNPM\" ] || { echo \"ERROR: pnpm $PB_ACTUAL_PNPM is active but package.json pins pnpm@$PB_EXPECTED_PNPM. Run: corepack prepare pnpm@$PB_EXPECTED_PNPM --activate\" >&2; exit 1; }; pnpm nx run-many -t build --projects=ops-center --with-deps; rm -rf .docker-build; pnpm deploy --filter ops-center --prod --legacy .docker-build; for d in .docker-build/node_modules/@pipeline-builder/*; do test -e \"$d/package.json\" || { echo \"ERROR: staged bundle dep $d is a dangling workspace symlink (wrong pnpm version staged the bundle). See the docker:build pnpm guard.\" >&2; exit 1; }; done; docker buildx build --pull --provenance=false --build-arg WORKSPACE=${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) --load -t ${PROJECT_NAME:-ops-center}:$(jq -r .version package.json) .; status=$?; rm -rf .docker-build; exit $status",
+    "docker:tag": "docker image tag ${PROJECT_NAME:-ops-center}:$(jq -r .version package.json) ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-ops-center}:$(jq -r .version package.json)",
+    "docker:push": "docker push ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-ops-center}:$(jq -r .version package.json)",
+    "docker:publish": "PB_EXPECTED_PNPM=$(jq -r .packageManager package.json | sed \"s/^pnpm@//\"); PB_ACTUAL_PNPM=$(pnpm --version); [ \"$PB_EXPECTED_PNPM\" = \"$PB_ACTUAL_PNPM\" ] || { echo \"ERROR: pnpm $PB_ACTUAL_PNPM is active but package.json pins pnpm@$PB_EXPECTED_PNPM. Run: corepack prepare pnpm@$PB_EXPECTED_PNPM --activate\" >&2; exit 1; }; pnpm nx run-many -t build --projects=ops-center --with-deps; rm -rf .docker-build; pnpm deploy --filter ops-center --prod --legacy .docker-build; for d in .docker-build/node_modules/@pipeline-builder/*; do test -e \"$d/package.json\" || { echo \"ERROR: staged bundle dep $d is a dangling workspace symlink (wrong pnpm version staged the bundle). See the docker:build pnpm guard.\" >&2; exit 1; }; done; docker buildx build --pull --provenance=false --build-arg WORKSPACE=${WORKSPACE:-./} --secret id=npmrc,src=$(npm get userconfig) --annotation \"index:org.opencontainers.image.description=Pipeline Builder ops-center — observability proxy, dashboards, alerting, on-call and storage/Postgres auto-scaling.\" ${DOCKER_CACHE:+--cache-from type=gha,scope=${PROJECT_NAME:-ops-center} --cache-to type=gha,mode=max,scope=${PROJECT_NAME:-ops-center}} --platform ${DOCKER_PLATFORMS:-linux/amd64,linux/arm64} -t ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-ops-center}:$(jq -r .version package.json) --push .; status=$?; rm -rf .docker-build; exit $status",
+    "docker:verify": "docker buildx imagetools inspect ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-ops-center}:$(jq -r .version package.json) --raw | jq -e '[(.manifests // [])[].platform.architecture] as $a | (($a | index(\"amd64\")) and ($a | index(\"arm64\")))'"
+  },
+  "devDependencies": {
+    "@jest/globals": "30.5.2",
+    "@stylistic/eslint-plugin": "^2",
+    "@types/express": "5.0.6",
+    "@types/node": "^26",
+    "@types/pg": "8.23.1",
+    "@typescript-eslint/eslint-plugin": "^8",
+    "@typescript-eslint/parser": "^8",
+    "@typescript/native": "npm:typescript@7.1.0-beta",
+    "eslint": "^9",
+    "eslint-import-resolver-typescript": "^4.4.5",
+    "eslint-plugin-import": "^2.32.0",
+    "jest": "30.5.2",
+    "jest-junit": "^17",
+    "ts-jest": "29.4.15",
+    "typescript": "npm:@typescript/typescript6@^6.0.2"
+  },
+  "dependencies": {
+    "@aws-sdk/client-ec2": "3.1160.0",
+    "@aws-sdk/client-ssm": "3.1160.0",
+    "@pipeline-builder/api-core": "workspace:*",
+    "@pipeline-builder/api-server": "workspace:*",
+    "@pipeline-builder/pipeline-core": "workspace:*",
+    "@pipeline-builder/pipeline-data": "workspace:*",
+    "drizzle-orm": "0.45.4",
+    "express": "5.3.0",
+    "yaml": "2.9.1",
+    "zod": "4.6.7"
+  },
+  "engines": {
+    "node": ">= 26.13.1"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "12.14.0",
+      "onFail": "ignore"
+    }
+  },
+  "license": "Apache-2.0",
+  "publishConfig": {
+    "access": "public"
+  },
+  "version": "0.1.0",
+  "packageManager": "pnpm@12.14.0",
+  "jest": {
+    "coverageProvider": "v8",
+    "testMatch": [
+      "<rootDir>/@(src|test)/**/*(*.)@(spec|test).ts?(x)",
+      "<rootDir>/@(src|test)/**/__tests__/**/*.ts?(x)"
+    ],
+    "clearMocks": true,
+    "collectCoverage": true,
+    "coverageReporters": [
+      "json",
+      "lcov",
+      "clover",
+      "cobertura",
+      "text"
+    ],
+    "coverageDirectory": "coverage",
+    "coveragePathIgnorePatterns": [
+      "/node_modules/"
+    ],
+    "testPathIgnorePatterns": [
+      "/node_modules/"
+    ],
+    "watchPathIgnorePatterns": [
+      "/node_modules/"
+    ],
+    "reporters": [
+      "default",
+      [
+        "jest-junit",
+        {
+          "outputDirectory": "test-reports"
+        }
+      ]
+    ],
+    "transform": {
+      "^.+\\.[t]sx?$": [
+        "ts-jest",
+        {
+          "useESM": true,
+          "tsconfig": "test/tsconfig.json",
+          "diagnostics": {
+            "ignoreCodes": [
+              151002
+            ]
+          }
+        }
+      ]
+    },
+    "extensionsToTreatAsEsm": [
+      ".ts",
+      ".tsx"
+    ],
+    "moduleNameMapper": {
+      "^uuid$": "<rootDir>/../../jest-uuid-stub.js",
+      "^(\\.{1,2}/.*)\\.js$": "$1",
+      "^@pipeline-builder/(api-core|api-server|pipeline-core|pipeline-data|ai-core|pipeline-events)/lib/(.*)$": "<rootDir>/../../packages/$1/lib/$2"
+    },
+    "restoreMocks": true,
+    "setupFilesAfterEnv": [
+      "<rootDir>/../../jest-env-guard.js"
+    ],
+    "collectCoverageFrom": [
+      "src/**/*.ts",
+      "!src/**/*.d.ts",
+      "!src/testing/**",
+      "!src/observability/metrics.ts"
+    ],
+    "coverageThreshold": {
+      "global": {
+        "statements": 84,
+        "branches": 88,
+        "functions": 87,
+        "lines": 84
+      }
+    }
+  },
+  "type": "module",
+  "//": "~~ Generated by projen. To modify, edit .projenrc.js and run \"pnpm dlx projen\"."
+}

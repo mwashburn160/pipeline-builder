@@ -9,7 +9,7 @@ import { envInt, envStr } from './env.js';
  */
 export const INTERNAL_SERVICES = [
   'ask', 'billing', 'compliance', 'image-registry', 'message',
-  'pipeline', 'platform', 'plugin', 'quota', 'reporting',
+  'ops-center', 'pipeline', 'platform', 'plugin', 'quota', 'reporting',
 ] as const;
 
 export type InternalService = typeof INTERNAL_SERVICES[number];

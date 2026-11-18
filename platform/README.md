@@ -10,7 +10,9 @@ The identity, authentication, and organization service at the center of the plat
 - **RBAC / roles & write-access enforcement** — the coarse per-org label (`owner` | `admin` | `member`) is *derived* from a user's Roles and resolved from the `UserOrganization` junction (it governs ownership, seat accounting, and `isAdmin`, not permissions), plus platform `superadmin`, and a read-only impersonation gate that blocks state-changing requests.
 - **Roles & memberships** — first-class Roles (e.g. Admin, Member, the system org's Super Admin) that carry explicit `resource:action` permissions; a user's effective permissions are the union of their assigned Roles, and Role membership still drives the derived, cached `UserOrganization.role` label.
 - **Audit events** — tamper-resistant, org-scoped audit log (retention-pruned in MongoDB, with signed per-chain retention watermarks) with an internal service-token ingest endpoint for non-platform emitters.
-- **Email delivery** — owns the SMTP/SES transport (invitations, verification, password resets, failing-alert-destination notices) and exposes an internal service-token endpoint (`POST /internal/notify-email`) so other services (e.g. compliance) can email an org's users without their own mail stack; resolves recipients (`targetUsers`, or all org admins) from the user directory.
+- **Email delivery** — owns the SMTP/SES transport (invitations, verification, password resets) and exposes an internal service-token endpoint (`POST /internal/notify-email`) so other services (compliance, reporting, quota, billing, plugin, ops-center) can email an org's users without their own mail stack; resolves recipients (`targetUsers`, or all org admins) from the user directory.
+
+The operations control plane — dashboards, the Prometheus/Loki/Alertmanager proxy, alert rules and destinations, the Alertmanager relay, on-call paging and the PVC / node-disk / Postgres-rung auto-scaling webhooks — is **not** here: it is [`ops-center`](../api/ops-center/README.md). Platform serves it the identity facts it needs through `/internal/ops/*` (account root, audit-activity aggregations, live org ids) and delivers its org-purge leg through the cascade outbox.
 
 ## Endpoints
 
@@ -43,7 +45,6 @@ The route families:
 | `/organization/*`, `/organizations` | Orgs and teams, members, Roles (`/:id/roles[/:roleId[/members]]`), service accounts, domains and join requests, IdP and security policies, MFA resets, export, soft-delete/restore |
 | `/invitation/*` | Invitations |
 | `/audit/*` | Audit list, chain verification (`/audit/verify`) and the service-token ingest |
-| `/dashboards/*`, `/observability/*` | Dashboards, metrics/logs queries, alert rules and destinations, silences, on-call, Alertmanager webhooks |
 | `/scim/*` | SCIM 2.0 provisioning |
 | `/admin/*` | Platform-operator surfaces (org IdP, KMS, namespaces, grants, impersonation, summary) |
 | `/internal/*` | Service-to-service routes (service-token auth) |

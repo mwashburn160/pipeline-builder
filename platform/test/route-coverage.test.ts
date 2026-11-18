@@ -182,12 +182,6 @@ const EXCEPTIONS: RouteCoverageException[] = [
   },
   {
     method: 'POST',
-    path: '/observability/query/batch',
-    waive: 'audit',
-    reason: 'A READ carried on POST for its body: runs a dashboard\'s catalog queries (Prometheus + audit trail, each under the per-key catalog gate) in one metered call per refresh tick. Persists nothing.',
-  },
-  {
-    method: 'POST',
     path: '/auth/sso/discover',
     waive: 'audit',
     reason: 'Login-page hint: answers "is this email forced through SSO?" from the org\'s IdP config. POSTed only so the email stays out of the query string; it reads and persists nothing.',
@@ -298,12 +292,6 @@ const EXCEPTIONS: RouteCoverageException[] = [
     reason: 'Membership probe + per-member team annotation, same canAccessOrg(targetOrg) rule as the roster reads; the probe is also used by the message service to reject a DM to a non-member.',
   },
 
-  // -- Dynamic per-row authorization ----------------------------------------
-  {
-    path: /^(PUT|DELETE|POST) \/dashboards\/:id(\/restore|\/purge)?$/,
-    waive: 'permission',
-    reason: 'dashboardService.canWrite is DYNAMIC — it also lets the dashboard\'s own CREATOR write/delete/restore/purge it, not just an org admin, so it has to resolve the target row first (restore and purge additionally require step-up).',
-  },
   // The impersonation routes USED to be waived here. They are not any more:
   // each now DECLARES its per-request rule with `dynamicAuthz(...)`, which puts
   // the rule on the route table and makes the route read as gated. A waiver says
@@ -318,43 +306,13 @@ const EXCEPTIONS: RouteCoverageException[] = [
     reason: 'Machine provisioning surface: gated by requireScimScope — a SERVICE-ACCOUNT token carrying the `scim` capability scope (recorded on the table as the scope gate). A scoped token carries NO permissions by construction (signServiceAccountToken), so there is no permission for it to hold; the org is the token\'s own, never a path segment, and the sso entitlement is re-resolved per request.',
   },
 
-  // -- Signed webhook + dry run ---------------------------------------------
   {
     method: 'POST',
-    path: '/observability/alert-webhook',
-    waive: 'all',
-    reason: 'Alertmanager relay: machine-to-machine, authorized by a per-instance bearer token compared inside the handler against ALERT_WEBHOOK_INSTANCES (with the instance named in x-alertmanager-instance); it fans alerts out to destinations and persists nothing.',
+    path: '/internal/ops/audit-activity',
+    waive: 'audit',
+    reason: 'A READ carried on POST for its body: one audit-trail aggregation for an ops-center dashboard panel, scoped to the caller identity ops-center verified. Persists nothing.',
   },
-  {
-    method: 'POST',
-    path: '/observability/oncall-webhook',
-    waive: 'all',
-    reason: 'On-call paging leg: machine-to-machine, authorized by the same per-instance bearer token as the relay (helpers/alertmanager-auth.ts), so there is no user identity to gate a permission on. It persists NOTHING — it forwards a matched alert to PagerDuty Events v2 and returns counts. Its constraints are elsewhere: it pages only for `severity: critical` AND `component: support`, re-checked in the handler rather than trusted from Alertmanager routing so a misrouted or replayed payload cannot page; it is OFF unless ONCALL_ENABLED, where a disabled client accepts and drops so the always-present Alertmanager route accumulates no notification failures; and it sends IDS AND LABELS ONLY, never tenant case content, because the on-call permission is system-org scoped and grants no tenant access. Not audited: the audit trail is for actor-attributed actions, and every outcome here is counted on oncall_pages_total{action,outcome} plus a structured log, which is what makes a failed page alertable.',
-  },
-  {
-    method: 'POST',
-    path: '/observability/oncall-ack',
-    waive: 'all',
-    reason: 'The INBOUND on-call leg: PagerDuty posts incident state changes (acknowledged / escalated / resolved) here. Machine-to-machine with no user identity to gate a permission on — but unlike the three webhooks around it the credential is NOT the Alertmanager bearer: it is a PagerDuty v3 signature, `X-PagerDuty-Signature: v1=<hex>`, an HMAC-SHA256 over the RAW body (so index.ts mounts express.raw for this path, because verifying a re-serialized object fails every time). It fails CLOSED with no PAGERDUTY_WEBHOOK_SECRET, which matters more here than on the other webhooks: this one WRITES, and what it writes is an audit row asserting that a human acknowledged a page. An unverified call would let anyone who learns the URL claim coverage this deployment does not have. The header may carry several comma-separated v1= values (PagerDuty rotating its secret), so any match is accepted, and the compare is length-guarded + timingSafeEqual. AUDIT IS WAIVED AT THE ROUTE and emitted from the HANDLER instead, because which action applies depends on the payload: an incident.acknowledged writes support.oncall.acknowledged, an incident.escalated writes support.oncall.escalated, and a resolved or unrecognised event writes NOTHING (the resolve is already our own act — the reply that stopped the clock, or the alert clearing — so recording the provider echo would double-record an event this system caused). A single audited() on the chain would therefore have to name one of three outcomes and would misdeclare the other two. Both actions are attributed to the provider agent as `pagerduty:<id>`, deliberately not resolved to a local user, since a click in their UI is not an identity this system can attest to. Every path is also counted on oncall_ack_webhook_total{outcome}, which is what makes a stream of refused or unrecognised calls alertable.',
-  },
-  {
-    method: 'POST',
-    path: '/observability/pvc-autoexpand',
-    waive: 'permission',
-    reason: 'Alertmanager-driven PVC expansion: machine-to-machine, authorized by the same per-instance bearer token as the relay (helpers/alertmanager-auth.ts), so there is no user identity to gate a permission on. Unlike the relay it DOES mutate — it patches a claim\'s requested size — so the constraints are elsewhere and are real: OFF unless PVC_AUTOEXPAND_ENABLED, a namespaced Role limited to get+patch on persistentvolumeclaims in this namespace only, a per-claim ceiling measured from an annotation-pinned original, a Redis cooldown it fails CLOSED without, and pvc_autoexpand_* metrics plus PVC annotations. Every expansion (and failed attempt) is AUDITED as observability.pvc.autoexpand, attributed to `alertmanager:<instance>`.',
-  },
-  {
-    method: 'POST',
-    path: '/observability/postgres-rung',
-    waive: 'permission',
-    reason: 'Alertmanager-driven VERTICAL scaling of Postgres: machine-to-machine, authorized by the same per-instance bearer token as the relay (helpers/alertmanager-auth.ts), so there is no user identity to gate a permission on. It mutates a running database — it patches the workload\'s resources and the derived server config — so the constraints are elsewhere and are real: OFF unless POSTGRES_RUNG_ENABLED; the DIRECTION comes from a closed set of alert names this handler owns, never from the request body, so holding the token cannot choose an arbitrary size; a namespaced Role limited to get+patch on deployments/statefulsets (no create, no delete, and NOT */scale, which is KEDA\'s); a hard ceiling at POSTGRES_RUNG_MAX, which is exactly the namespace LimitRange\'s container max; a floor at 1 CPU / 2Gi; a Redis cooldown it fails CLOSED without, because two platform replicas receiving the same fan-out would otherwise both restart the primary; and postgres_rung_* metrics plus a workload annotation. Every resize (and failed attempt) is AUDITED as observability.postgres.rung, attributed to `alertmanager:<instance>`.',
-  },
-  {
-    method: 'POST',
-    path: '/observability/node-disk-autoexpand',
-    waive: 'permission',
-    reason: 'The ec2 counterpart of /observability/pvc-autoexpand: same per-instance bearer token (helpers/alertmanager-auth.ts), so no user identity to gate a permission on. It grows the instance DataVolume and runs ONE fixed, parameterless SSM document to resize the filesystem — the instance role may run that document and nothing else, so credentials stolen via IMDS cannot become arbitrary root commands. OFF unless NODE_DISK_AUTOEXPAND_ENABLED, ceilinged against a tag recording the first-seen size, and behind a Redis cooldown it fails CLOSED without. Every expansion (and failed attempt) is AUDITED as observability.node_disk.autoexpand, attributed to `alertmanager:<instance>`.',
-  },
+  // -- Dry run ---------------------------------------------------------------
   {
     method: 'POST',
     path: '/admin/orgs/:orgId/kms-config/test',
@@ -371,15 +329,22 @@ const EXCEPTIONS: RouteCoverageException[] = [
  */
 const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   // compliance's notification channels, the plugin ecosystem's notices,
-  // reporting's stakeholder reports and quota's usage-threshold notices.
+  // reporting's stakeholder reports, quota's usage-threshold notices and
+  // ops-center's alert email (the `alert` leg) + failing-destination notice.
   // `billing` is here for the OFFER leg only: the controller refuses a billing
   // token that does not carry `offerNotice`, so it cannot fall through to the
   // tenant leg and name arbitrary members.
-  { method: 'POST', path: '/internal/notify-email', callers: ['billing', 'compliance', 'plugin', 'quota', 'reporting'] },
+  { method: 'POST', path: '/internal/notify-email', callers: ['billing', 'compliance', 'ops-center', 'plugin', 'quota', 'reporting'] },
   // Whether outbound email is on — the anonymous-submission API's precondition,
   // and the whole of the ask agent's notification diagnosis. Reading the switch
   // is strictly weaker than sending, so `ask` is here but not on the send route.
-  { method: 'GET', path: '/internal/notify-email/status', callers: ['ask', 'plugin', 'reporting'] },
+  { method: 'GET', path: '/internal/notify-email/status', callers: ['ask', 'ops-center', 'plugin', 'reporting'] },
+  // The identity facts the operations control plane reads from platform: an
+  // org's account root (feature quotas), the audit-activity aggregations its
+  // dashboards render, and the live org ids a sysadmin's `orgs=all` log view lists.
+  { method: 'GET', path: '/internal/ops/org-account-root/:orgId', callers: ['ops-center'] },
+  { method: 'POST', path: '/internal/ops/audit-activity', callers: ['ops-center'] },
+  { method: 'GET', path: '/internal/ops/live-org-ids', callers: ['ops-center'] },
   // The plugin ecosystem's governance reads (approver count, Verified eligibility).
   { method: 'GET', path: '/internal/ecosystem/publisher-eligibility/:orgId', callers: ['plugin'] },
   { method: 'GET', path: '/internal/ecosystem/approvers', callers: ['plugin'] },
@@ -407,7 +372,7 @@ const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
     method: 'POST',
     path: '/audit/events',
     callers: ['ask', 'billing', 'compliance', 'image-registry', 'message',
-      'pipeline', 'plugin', 'quota', 'reporting'],
+      'ops-center', 'pipeline', 'plugin', 'quota', 'reporting'],
   },
 ];
 
@@ -470,7 +435,7 @@ beforeAll(async () => {
   // route of their own.
   const passthrough = (_req: Request, _res: Response, next: NextFunction): void => next();
   const app = express();
-  mountApiRoutes(app, { alertWebhook: passthrough, observability: passthrough, scim: passthrough });
+  mountApiRoutes(app, { scim: passthrough });
   table = buildRouteTable(app);
 });
 

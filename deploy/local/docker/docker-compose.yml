@@ -28,7 +28,8 @@ x-api-deploy: &api-deploy
       memory: 384M
 
 # -- Deploy defaults for the smaller API containers (message, image-registry,
-# billing): request/response services with no build, query or render workload
+# billing, ops-center): request/response services with no build, query or
+# render workload
 # behind them. `reporting` used to share this and no longer can — it launches a
 # headless Chromium for report PDFs and carries its own, larger block below. --
 x-api-deploy-small: &api-deploy-small
@@ -501,6 +502,7 @@ services:
       frontend:       { condition: service_started }
       image-registry: { condition: service_started }
       message:        { condition: service_started }
+      ops-center: { condition: service_started }
       pipeline:       { condition: service_started }
       platform:       { condition: service_started }
       plugin:         { condition: service_started }
@@ -970,33 +972,11 @@ services:
       <<: [*common-env, *postgres-env, *server-env, *redis-env, *quota-client-env, *tunables-env, *plan-tier-developer-env]
       SERVICE_NAME: platform
       # Service tunables (blank = code default; see .env.example).
-      ALERTMANAGER_TIMEOUT_MS: ${ALERTMANAGER_TIMEOUT_MS:-}
-      ALERT_DELIVERY_TIMEOUT_MS: ${ALERT_DELIVERY_TIMEOUT_MS:-}
-      ALERT_DESTINATION_MAX_LABEL: ${ALERT_DESTINATION_MAX_LABEL:-}
-      ALERT_DESTINATION_MAX_TARGET: ${ALERT_DESTINATION_MAX_TARGET:-}
       AUDIT_RETENTION_DAYS: ${AUDIT_RETENTION_DAYS:-}
-      LOG_RETENTION_HOURS: ${LOG_RETENTION_HOURS:-}
-      # The standby replica ceiling, read by the Postgres rung controller so a
-      # standby only scales UP once KEDA has run out of room (out before up).
-      # Inert on this target — there is no Kubernetes API to patch, so the
-      # controller reports an error rather than acting, and POSTGRES_RUNG_ENABLED
-      # is false by default anyway.
-      PG_READ_REPLICA_MAX: ${PG_READ_REPLICA_MAX:-1}
-      # Rung ladder: inert here for the reason above, and shipped false in this
-      # target's .env.example. Passed through so the knobs are reachable rather
-      # than silently absent, and so a key-parity check sees the same surface on
-      # every target.
-      POSTGRES_RUNG_ENABLED: ${POSTGRES_RUNG_ENABLED:-false}
-      POSTGRES_RUNG_MAX: ${POSTGRES_RUNG_MAX:-}
-      POSTGRES_RUNG_MAX_REPLICA: ${POSTGRES_RUNG_MAX_REPLICA:-}
       AUTH_LIMITER_MAX: ${AUTH_LIMITER_MAX:-}
       AUTH_LIMITER_WINDOW_MS: ${AUTH_LIMITER_WINDOW_MS:-}
       AUTH_PASSWORD_RESET_TOKEN_TTL_MS: ${AUTH_PASSWORD_RESET_TOKEN_TTL_MS:-}
       AUTH_VERIFICATION_TOKEN_TTL_MS: ${AUTH_VERIFICATION_TOKEN_TTL_MS:-}
-      DASHBOARD_MAX_DESCRIPTION: ${DASHBOARD_MAX_DESCRIPTION:-}
-      DASHBOARD_MAX_NAME: ${DASHBOARD_MAX_NAME:-}
-      DASHBOARD_MAX_PANELS: ${DASHBOARD_MAX_PANELS:-}
-      DASHBOARD_MAX_PANEL_TITLE: ${DASHBOARD_MAX_PANEL_TITLE:-}
       GOOGLE_AUTHORIZE_URL: ${GOOGLE_AUTHORIZE_URL:-}
       GOOGLE_TOKEN_URL: ${GOOGLE_TOKEN_URL:-}
       GOOGLE_USERINFO_URL: ${GOOGLE_USERINFO_URL:-}
@@ -1133,49 +1113,6 @@ services:
       OAUTH_LINKEDIN_CLIENT_ID: ${OAUTH_LINKEDIN_CLIENT_ID:-}
       OAUTH_LINKEDIN_CLIENT_SECRET: ${OAUTH_LINKEDIN_CLIENT_SECRET:-}
       OAUTH_CALLBACK_BASE_URL: ${OAUTH_CALLBACK_BASE_URL:-https://localhost:8443}
-      # Native observability: queries go to the Thanos querier (recent + archived
-      # blocks), alerts to Alertmanager.
-      PROMETHEUS_URL: ${PROMETHEUS_URL:-http://thanos-query:9090}
-      ALERTMANAGER_URL: ${ALERTMANAGER_URL:-http://alertmanager:9093}
-      # Logs (Deliver → Logs). Loki runs auth_enabled: true, so platform sends
-      # X-Scope-OrgID per request, derived from the caller's verified token —
-      # each org is its own Loki tenant. See docs/observability-logs.md.
-      LOKI_URL: ${LOKI_URL:-http://loki:3100}
-      # Per-org alert relay: the single Alertmanager instance (id `alertmanager`,
-      # sent as X-Alertmanager-Instance) and its bearer token, which Alertmanager
-      # reads from the `alert_webhook_token` compose secret below.
-      # `previousToken` is the rotation overlap (empty = not rotating): platform
-      # accepts either bearer while it is set. docs/runbooks/secret-rotation.md
-      ALERT_WEBHOOK_INSTANCES: '[{"id":"alertmanager","token":"${ALERT_WEBHOOK_INSTANCE_TOKEN:?ALERT_WEBHOOK_INSTANCE_TOKEN must be set (run gen-env-secrets)}","previousToken":"${ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS:-}"}]'
-      # On-call paging. Read by platform's /observability/oncall-webhook, which
-      # honours the knob by accepting-and-dropping when it is false — the
-      # alertmanager route is always present because alertmanager.yml is
-      # asserted byte-identical across targets.
-      ONCALL_DEADMAN_URL: ${ONCALL_DEADMAN_URL:-}
-      ONCALL_DEADMAN_INTERVAL_MS: ${ONCALL_DEADMAN_INTERVAL_MS:-60000}
-      SLACK_ALERTS_ENABLED: ${SLACK_ALERTS_ENABLED:-false}
-      SLACK_ALERTS_CONFIGURED: ${SLACK_ALERTS_CONFIGURED:-false}
-      ONCALL_ENABLED: ${ONCALL_ENABLED:-false}
-      PAGERDUTY_ROUTING_KEY: ${PAGERDUTY_ROUTING_KEY:-}
-      ONCALL_EVENTS_URL: ${ONCALL_EVENTS_URL:-https://events.pagerduty.com/v2/enqueue}
-      ONCALL_EVENTS_TIMEOUT_MS: ${ONCALL_EVENTS_TIMEOUT_MS:-5000}
-      # On-call requires support: api-core's pagerDutyConfig keeps paging OFF
-      # when SUPPORT_ENABLED=false, because there is then no case, no response
-      # target and nothing to page about. Passed to every service that resolves
-      # that config — without it this service reads the default `true` and the
-      # prerequisite silently never applies on docker.
-      SUPPORT_ENABLED: ${SUPPORT_ENABLED:-true}
-      ONCALL_PROVIDER: ${ONCALL_PROVIDER:-pagerduty}
-      # The inbound leg: signature secret for the acknowledgement webhook, plus
-      # the REST token that answers "is anyone rostered". Both optional; the
-      # REST token is account-wide and deliberately separate from the routing
-      # key, which can only create events on one service.
-      PAGERDUTY_WEBHOOK_SECRET: ${PAGERDUTY_WEBHOOK_SECRET:-}
-      PAGERDUTY_API_TOKEN: ${PAGERDUTY_API_TOKEN:-}
-      PAGERDUTY_API_URL: ${PAGERDUTY_API_URL:-}
-      PAGERDUTY_ESCALATION_POLICY_IDS: ${PAGERDUTY_ESCALATION_POLICY_IDS:-}
-      ONCALL_SCHEDULE_GAP_LOOKAHEAD_HOURS: ${ONCALL_SCHEDULE_GAP_LOOKAHEAD_HOURS:-}
-      ONCALL_ROTA_INTERVAL_MS: ${ONCALL_ROTA_INTERVAL_MS:-}
     volumes:
       # The ES256 user-token signing key (TOKEN_SIGNING_MODE=local). Read-only,
       # and mounted into PLATFORM ONLY — it is the one credential that can mint
@@ -1661,6 +1598,129 @@ services:
         reservations:
           cpus: '0.15'
           memory: 256M
+
+  # ---------------------------------------------------------------------------
+  # ops-center — the operations control plane, split out of platform (the
+  # identity hub): the Prometheus/Loki/Alertmanager proxy behind
+  # /observability/*, dashboards, org alert rules + destinations, the
+  # Alertmanager relay and on-call paging, and the storage / Postgres
+  # auto-scaling webhooks. Postgres + Redis only — no MongoDB. nginx routes
+  # /api/observability/* and /api/dashboards* here; Alertmanager posts its
+  # webhook receivers here (config/alertmanager/alertmanager.yml).
+  # ---------------------------------------------------------------------------
+  ops-center:
+    # TAG-ONLY until the first release publishes this image: every other owned
+    # image here is `<version>@sha256:<digest>`, which deploy/bin/sync-image-tags.sh
+    # writes only after verifying the digest's signature, and no digest exists
+    # yet. That sync rewrites this ref (and the `version` label) to the pinned
+    # form on the release that first publishes ops-center. Until then
+    # `docker compose pull` cannot fetch it — build it locally
+    # (`pnpm --filter ops-center docker:build`) and tag it as below.
+    image: 'ghcr.io/mwashburn160/ops-center:0.1.0'
+    labels:
+      version: "0.1.0"
+      track: stable
+    container_name: ops-center
+    restart: always
+    stop_grace_period: 10s
+    environment:
+      # Redis (x-redis-env): the alert-email dedupe window, the on-call rota
+      # cache and the cross-replica locks + cooldowns the storage/Postgres
+      # controllers fail CLOSED without.
+      <<: [*common-env, *postgres-env, *server-env, *redis-env, *quota-client-env, *tunables-env]
+      SERVICE_NAME: ops-center
+      PORT: ${PORT:-3000}
+      # Platform: JWKS, remote audit ingest, the /internal/ops/* identity reads
+      # and the /internal/notify-email relay (email-kind alert destinations).
+      PLATFORM_SERVICE_HOST: ${PLATFORM_SERVICE_HOST:-platform}
+      PLATFORM_SERVICE_PORT: ${PLATFORM_SERVICE_PORT:-3000}
+      # Links in alert emails point at the dashboard.
+      PLATFORM_FRONTEND_URL: ${PLATFORM_FRONTEND_URL:-https://localhost:8443}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      # Service tunables (blank = code default; see .env.example).
+      ALERTMANAGER_TIMEOUT_MS: ${ALERTMANAGER_TIMEOUT_MS:-}
+      ALERT_DELIVERY_TIMEOUT_MS: ${ALERT_DELIVERY_TIMEOUT_MS:-}
+      ALERT_DESTINATION_MAX_LABEL: ${ALERT_DESTINATION_MAX_LABEL:-}
+      ALERT_DESTINATION_MAX_TARGET: ${ALERT_DESTINATION_MAX_TARGET:-}
+      ALERT_EMAIL_DEDUPE_TTL_MS: ${ALERT_EMAIL_DEDUPE_TTL_MS:-}
+      ALERT_WEBHOOK_LIMITER_MAX: ${ALERT_WEBHOOK_LIMITER_MAX:-}
+      ALERT_WEBHOOK_LIMITER_WINDOW_MS: ${ALERT_WEBHOOK_LIMITER_WINDOW_MS:-}
+      OBSERVABILITY_LIMITER_MAX: ${OBSERVABILITY_LIMITER_MAX:-}
+      OBSERVABILITY_LIMITER_WINDOW_MS: ${OBSERVABILITY_LIMITER_WINDOW_MS:-}
+      DASHBOARD_MAX_DESCRIPTION: ${DASHBOARD_MAX_DESCRIPTION:-}
+      DASHBOARD_MAX_NAME: ${DASHBOARD_MAX_NAME:-}
+      DASHBOARD_MAX_PANELS: ${DASHBOARD_MAX_PANELS:-}
+      DASHBOARD_MAX_PANEL_TITLE: ${DASHBOARD_MAX_PANEL_TITLE:-}
+      LOG_RETENTION_HOURS: ${LOG_RETENTION_HOURS:-}
+      LOKI_BASE_SELECTOR: ${LOKI_BASE_SELECTOR:-}
+      # The standby replica ceiling, read by the Postgres rung controller so a
+      # standby only scales UP once KEDA has run out of room (out before up).
+      # Inert on this target — there is no Kubernetes API to patch, so the
+      # controller reports an error rather than acting, and POSTGRES_RUNG_ENABLED
+      # is false by default anyway.
+      PG_READ_REPLICA_MAX: ${PG_READ_REPLICA_MAX:-1}
+      # Rung ladder: inert here for the reason above, and shipped false in this
+      # target's .env.example. Passed through so the knobs are reachable rather
+      # than silently absent, and so a key-parity check sees the same surface on
+      # every target. PVC and node-disk auto-expansion are inert here too (no
+      # CSI claims, no EBS volume) and stay off by their code defaults.
+      POSTGRES_RUNG_ENABLED: ${POSTGRES_RUNG_ENABLED:-false}
+      POSTGRES_RUNG_MAX: ${POSTGRES_RUNG_MAX:-}
+      POSTGRES_RUNG_MAX_REPLICA: ${POSTGRES_RUNG_MAX_REPLICA:-}
+      # Native observability: queries go to the Thanos querier (recent + archived
+      # blocks), alerts to Alertmanager.
+      PROMETHEUS_URL: ${PROMETHEUS_URL:-http://thanos-query:9090}
+      ALERTMANAGER_URL: ${ALERTMANAGER_URL:-http://alertmanager:9093}
+      # Logs (Deliver → Logs). Loki runs auth_enabled: true, so ops-center sends
+      # X-Scope-OrgID per request, derived from the caller's verified token —
+      # each org is its own Loki tenant. See docs/observability-logs.md.
+      LOKI_URL: ${LOKI_URL:-http://loki:3100}
+      # Per-org alert relay: the single Alertmanager instance (id `alertmanager`,
+      # sent as X-Alertmanager-Instance) and its bearer token, which Alertmanager
+      # reads from the `alert_webhook_token` compose secret below.
+      # `previousToken` is the rotation overlap (empty = not rotating): ops-center
+      # accepts either bearer while it is set. docs/runbooks/secret-rotation.md
+      ALERT_WEBHOOK_INSTANCES: '[{"id":"alertmanager","token":"${ALERT_WEBHOOK_INSTANCE_TOKEN:?ALERT_WEBHOOK_INSTANCE_TOKEN must be set (run gen-env-secrets)}","previousToken":"${ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS:-}"}]'
+      # On-call paging. Read by ops-center's /observability/oncall-webhook, which
+      # honours the knob by accepting-and-dropping when it is false — the
+      # alertmanager route is always present because alertmanager.yml is
+      # asserted byte-identical across targets.
+      ONCALL_DEADMAN_URL: ${ONCALL_DEADMAN_URL:-}
+      ONCALL_DEADMAN_INTERVAL_MS: ${ONCALL_DEADMAN_INTERVAL_MS:-60000}
+      SLACK_ALERTS_ENABLED: ${SLACK_ALERTS_ENABLED:-false}
+      SLACK_ALERTS_CONFIGURED: ${SLACK_ALERTS_CONFIGURED:-false}
+      ONCALL_ENABLED: ${ONCALL_ENABLED:-false}
+      PAGERDUTY_ROUTING_KEY: ${PAGERDUTY_ROUTING_KEY:-}
+      ONCALL_EVENTS_URL: ${ONCALL_EVENTS_URL:-https://events.pagerduty.com/v2/enqueue}
+      ONCALL_EVENTS_TIMEOUT_MS: ${ONCALL_EVENTS_TIMEOUT_MS:-5000}
+      # On-call requires support: api-core's pagerDutyConfig keeps paging OFF
+      # when SUPPORT_ENABLED=false, because there is then no case, no response
+      # target and nothing to page about. Passed to every service that resolves
+      # that config — without it this service reads the default `true` and the
+      # prerequisite silently never applies on docker.
+      SUPPORT_ENABLED: ${SUPPORT_ENABLED:-true}
+      ONCALL_PROVIDER: ${ONCALL_PROVIDER:-pagerduty}
+      # The inbound leg: signature secret for the acknowledgement webhook, plus
+      # the REST token that answers "is anyone rostered". Both optional; the
+      # REST token is account-wide and deliberately separate from the routing
+      # key, which can only create events on one service.
+      PAGERDUTY_WEBHOOK_SECRET: ${PAGERDUTY_WEBHOOK_SECRET:-}
+      PAGERDUTY_API_TOKEN: ${PAGERDUTY_API_TOKEN:-}
+      PAGERDUTY_API_URL: ${PAGERDUTY_API_URL:-}
+      PAGERDUTY_ESCALATION_POLICY_IDS: ${PAGERDUTY_ESCALATION_POLICY_IDS:-}
+      ONCALL_SCHEDULE_GAP_LOOKAHEAD_HOURS: ${ONCALL_SCHEDULE_GAP_LOOKAHEAD_HOURS:-}
+      ONCALL_ROTA_INTERVAL_MS: ${ONCALL_ROTA_INTERVAL_MS:-}
+    volumes:
+      - *service-key-bundle
+      - *dev-ca
+      - ./certs/service-keys/ops-center.key:/etc/pipeline-builder/service-keys/service.key:ro
+    networks:
+      - backend-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck: *api-healthcheck
+    deploy: *api-deploy-small
 
   compliance:
     image: 'ghcr.io/mwashburn160/compliance:4.5.5@sha256:54cf1ee240d92cb87444da831980743168157b6d936ab02c943f8ac13ce04a30'

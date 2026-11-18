@@ -12,24 +12,11 @@
 
 import type { Request, RequestHandler } from 'express';
 
-import { extractClientIp, rateLimitKey, scimOrgKey, verifiedIsSuperAdmin, tierLimitedMax } from './rate-limit-keys.js';
+import { rateLimitKey, scimOrgKey, verifiedIsSuperAdmin, tierLimitedMax } from './rate-limit-keys.js';
 import { createLimiter } from './rate-limiter.js';
 import { config } from '../config/index.js';
 import { SCIM_RATE_LIMIT_MAX, SCIM_RATE_LIMIT_WINDOW_MS } from '../constants/scim.js';
-import { ALERT_WEBHOOK_PATH, SCIM_PATH } from '../routes/mount.js';
-
-/**
- * The Alertmanager relay webhook. Machine-to-machine, and unauthenticated at
- * middleware time (it checks a per-instance bearer inside the handler), so
- * without this exemption it lands in the ANONYMOUS bucket of the user-sized
- * limiters and an alert storm gets 429'd — which Alertmanager treats as a
- * failed notification, silently delaying alerts. It gets `alertWebhookLimiter`
- * instead, sized for burst fan-out. (The path itself is declared next to the
- * mount that uses it — `routes/mount.ts`.)
- */
-function isAlertWebhook(req: Request): boolean {
-  return req.method === 'POST' && req.path === ALERT_WEBHOOK_PATH;
-}
+import { SCIM_PATH } from '../routes/mount.js';
 
 /**
  * The device-authorization poll. RFC 8628 has the waiting client poll every few
@@ -53,17 +40,8 @@ function isScim(req: Request): boolean {
   return req.path.startsWith(SCIM_PATH);
 }
 
-/** Generous, dedicated bucket for the alert relay — see `isAlertWebhook`. */
-export const alertWebhookLimiter: RequestHandler = createLimiter({
-  name: 'alert-webhook',
-  windowMs: config.rateLimit.alertWebhook.windowMs,
-  max: config.rateLimit.alertWebhook.max,
-  keyGenerator: extractClientIp,
-  message: 'Alert webhook rate limit exceeded.',
-});
-
 /** General rate limiter — per-tier max, keyed by org (or IP for anon callers).
- *  Applied to EVERY route; the four below are per-surface buckets. */
+ *  Applied to EVERY route; SCIM has its own per-surface bucket below. */
 export const generalLimiter: RequestHandler = createLimiter({
   name: 'general',
   windowMs: config.rateLimit.windowMs,
@@ -75,28 +53,11 @@ export const generalLimiter: RequestHandler = createLimiter({
   // not share the anonymous user budget. The sysadmin check VERIFIES the token:
   // the bypass removes throttling entirely, so a forged `isSuperAdmin:true`
   // must not grant it. `requireAuth` still authorizes the request later.
-  skip: (req: Request) => isAlertWebhook(req) || isDevicePoll(req) || isScim(req) || verifiedIsSuperAdmin(req),
+  skip: (req: Request) => isDevicePoll(req) || isScim(req) || verifiedIsSuperAdmin(req),
   message: 'Too many requests. Please try again later.',
 });
 
 // The `/auth*` buckets are attached route by route — see `auth-limiters.ts`.
-
-/**
- * Per-org rate limiter for observability endpoints. Tighter than the general
- * limiter because every request fans out to Prometheus, and a noisy tenant can
- * degrade that upstream for everyone else (dashboards across all orgs go blank).
- * Keys by the verified token's org when present, falls back to IP.
- */
-export const observabilityLimiter: RequestHandler = createLimiter({
-  name: 'observability',
-  windowMs: config.rateLimit.observability.windowMs,
-  max: config.rateLimit.observability.max,
-  keyGenerator: rateLimitKey,
-  // The alert relay is mounted under /observability but is not a tenant
-  // dashboard query — it has its own bucket (see `isAlertWebhook`).
-  skip: isAlertWebhook,
-  message: 'Observability rate limit exceeded for your organization. Please slow down or batch your queries.',
-});
 
 /**
  * Per-ORG limiter for SCIM. Keyed by the VERIFIED token's org — never the

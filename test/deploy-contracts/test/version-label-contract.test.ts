@@ -262,6 +262,54 @@ describe('deploy/local/docker — compose service labels', () => {
   });
 });
 
+/**
+ * Owned images (`ghcr.io/mwashburn160/<svc>`) that have NEVER been published,
+ * and so cannot be digest-pinned yet. Every other owned ref is
+ * `<version>@sha256:<digest>`, written by deploy/bin/sync-image-tags.sh only
+ * after the digest's cosign signature verifies — a tag is mutable, the digest
+ * is the artifact CI built, signed and scanned. A brand-new service has no
+ * digest to verify, so it ships tag-only until the release that first
+ * publishes it; that release's sync rewrites the ref to the pinned form, and
+ * the entry here must then be deleted (the "stays honest" check below fails
+ * until it is).
+ *
+ * The tag must be the version in the service's own package.json — the exact
+ * tag the release will push, so the sync finds it.
+ */
+const UNPUBLISHED: Record<string, string> = {
+  'ops-center': 'api/ops-center',
+};
+
+describe('owned images are digest-pinned, except the documented unpublished set', () => {
+  const OWNED = /ghcr\.io\/mwashburn160\/([a-z0-9-]+):([A-Za-z0-9._-]+)(@sha256:[0-9a-f]{64})?/g;
+  const files = [
+    'deploy/local/docker/docker-compose.yml',
+    ...K8S_TARGETS.flatMap((t) => readdirSync(join(REPO_ROOT, t, 'k8s'))
+      .filter((f) => f.endsWith('.yaml')).map((f) => `${t}/k8s/${f}`)),
+  ];
+  const refs = files.flatMap((f) => [...read(f).matchAll(OWNED)]
+    .map((m) => ({ f, svc: m[1]!, tag: m[2]!, pinned: m[3] !== undefined })));
+
+  it('finds owned refs (guards a vacuous pass)', () => {
+    expect(refs.length).toBeGreaterThan(40);
+  });
+
+  it('pins every published owned image by digest', () => {
+    const tagOnly = refs.filter((r) => !r.pinned && !(r.svc in UNPUBLISHED)).map((r) => `${r.f}: ${r.svc}:${r.tag}`);
+    expect(tagOnly).toEqual([]);
+  });
+
+  it.each(Object.entries(UNPUBLISHED))('%s: is tag-only on every target, at its package.json version', (svc, dir) => {
+    const version = (JSON.parse(read(`${dir}/package.json`)) as { version: string }).version;
+    const mine = refs.filter((r) => r.svc === svc);
+    // compose + the three k8s trees — and a tag-only ref for each.
+    expect(new Set(mine.map((r) => r.f.split('/k8s/')[0])).size).toBe(4);
+    // Stays honest: once the release pins it, this entry must go.
+    expect(mine.filter((r) => r.pinned).map((r) => r.f)).toEqual([]);
+    expect([...new Set(mine.map((r) => r.tag))]).toEqual([version]);
+  });
+});
+
 describe('${BACKUP_IMAGE_VERSION} — the one tokenized version label', () => {
   // db-backup's image is operator-supplied, so its version label is a token.
   // That exempts it from the image-match check above, and this suite is the

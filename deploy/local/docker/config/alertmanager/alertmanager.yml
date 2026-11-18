@@ -8,7 +8,7 @@
 # does not expand environment variables in its config, and the deploy runs no
 # envsubst over it — every credential arrives as a MOUNTED FILE that Alertmanager
 # re-reads per notification:
-#   /etc/alertmanager-secrets/relay-token       the per-org platform relay bearer
+#   /etc/alertmanager-secrets/relay-token       the ops-center relay bearer
 #                                               (.env ALERT_WEBHOOK_INSTANCE_TOKEN)
 #   /etc/alertmanager-slack/critical-url        .env SLACK_CRITICAL_WEBHOOK_URL
 #   /etc/alertmanager-slack/warning-url         .env SLACK_WARNING_WEBHOOK_URL
@@ -37,14 +37,14 @@ route:
   group_interval: 5m
   repeat_interval: 4h
   routes:
-    # tenancy=org → relay to platform, which fans out to each org's configured
+    # tenancy=org → relay to ops-center, which fans out to each org's configured
     # destinations (Slack webhook, generic HTTPS webhook, in-app message). The
     # `org_id` label on the alert drives the per-org lookup inside the relay.
     # `continue: false` because the relay is the terminal hop for org alerts —
     # we don't also send them to the ops-team Slack.
     - matchers:
         - tenancy = "org"
-      receiver: 'platform-relay'
+      receiver: 'ops-center-relay'
       group_by: ['org_id', 'alertname']
       continue: false
 
@@ -57,7 +57,7 @@ route:
     # Two routes because the two targets expand different things, and this file
     # is one copy on every target (the bringup contract compares them byte for
     # byte, because routing is substrate-independent). What each route can
-    # actually DO is decided downstream, by platform and by its env:
+    # actually DO is decided downstream, by ops-center and by its env:
     #
     #   PersistentVolume*  patches a PVC. Only eks can act — ec2 and minikube
     #                      bind manual hostPath PVs with no CSI driver to
@@ -103,7 +103,7 @@ route:
     # the Slack receiver, fails, and increments the counter it is watching. It
     # retries forever and nobody ever reads it.
     #
-    # `meta-alerts` is platform's webhook, which answers 200 whatever
+    # `meta-alerts` is ops-center's webhook, which answers 200 whatever
     # SLACK_ALERTS_ENABLED and ONCALL_ENABLED say. So the one class of alert
     # whose delivery cannot be assumed goes somewhere that cannot fail to accept
     # it. `continue: true` so it ALSO takes the normal severity path — when Slack
@@ -182,22 +182,22 @@ receivers:
     # unrouted alert doesn't get silently dropped.
 
   # Multi-tenant relay: posts the Alertmanager v2 webhook payload to the
-  # platform service, which looks up the alert's `org_id` label in the
+  # ops-center service, which looks up the alert's `org_id` label in the
   # `org_alert_destinations` table and fans out to each enabled destination.
   #
-  # Auth (both required by the platform relay, which is configured with
+  # Auth (both required by the ops-center relay, which is configured with
   # ALERT_WEBHOOK_INSTANCES=[{"id":"alertmanager","token":…}]):
   #   - `X-Alertmanager-Instance: alertmanager` selects the instance entry;
   #   - the Bearer token is read per request from credentials_file, a mounted
   #     secret holding ALERT_WEBHOOK_INSTANCE_TOKEN (generated into .env by
   #     gen-env-secrets; k8s: the `alertmanager-relay` Secret, docker: a compose
   #     secret). Nothing secret lives in this file.
-  # The URL targets platform directly: platform serves the relay at
+  # The URL targets ops-center directly: it serves the relay at
   # /observability/alert-webhook (nginx strips `/api` for browser traffic, so
   # the `/api/...` form only exists at the gateway).
-  - name: 'platform-relay'
+  - name: 'ops-center-relay'
     webhook_configs:
-      - url: 'http://platform:3000/observability/alert-webhook'
+      - url: 'http://ops-center:3000/observability/alert-webhook'
         http_config:
           authorization:
             type: Bearer
@@ -228,7 +228,7 @@ receivers:
   # resolve.
   - name: 'postgres-rung'
     webhook_configs:
-      - url: 'http://platform:3000/observability/postgres-rung'
+      - url: 'http://ops-center:3000/observability/postgres-rung'
         http_config:
           authorization:
             type: Bearer
@@ -241,7 +241,7 @@ receivers:
 
   - name: 'pvc-autoexpand'
     webhook_configs:
-      - url: 'http://platform:3000/observability/pvc-autoexpand'
+      - url: 'http://ops-center:3000/observability/pvc-autoexpand'
         http_config:
           authorization:
             type: Bearer
@@ -254,7 +254,7 @@ receivers:
 
   - name: 'node-disk-autoexpand'
     webhook_configs:
-      - url: 'http://platform:3000/observability/node-disk-autoexpand'
+      - url: 'http://ops-center:3000/observability/node-disk-autoexpand'
         http_config:
           authorization:
             type: Bearer
@@ -285,12 +285,12 @@ receivers:
 
   # Meta-alerts: the alerts about alert delivery itself.
   #
-  # Same endpoint as `support-pager` — platform's webhook, which accepts
+  # Same endpoint as `support-pager` — ops-center's webhook, which accepts
   # unconditionally — for one reason: it cannot fail for the reason the alert is
   # reporting. A Slack receiver with no URL cannot deliver "Slack has no URL",
   # and a pager with no routing key cannot page "the pager has no routing key".
   #
-  # Platform decides what to do with them: with paging configured these DO page,
+  # ops-center decides what to do with them: with paging configured these DO page,
   # because alerting being broken is the one thing that makes every other alert
   # meaningless, and that is a narrow widening rather than a slippery slope — it
   # is not "all criticals", it is specifically the alerts whose own delivery
@@ -298,7 +298,7 @@ receivers:
   # still strictly more than vanishing into a failing webhook.
   - name: 'meta-alerts'
     webhook_configs:
-      - url: 'http://platform:3000/observability/oncall-webhook'
+      - url: 'http://ops-center:3000/observability/oncall-webhook'
         http_config:
           authorization:
             type: Bearer
@@ -309,7 +309,7 @@ receivers:
         send_resolved: true
         max_alerts: 64
 
-  # On-call paging, via PLATFORM rather than straight at PagerDuty.
+  # On-call paging, via OPS-CONTROLLER rather than straight at PagerDuty.
   #
   # The obvious wiring is `pagerduty_configs` here, and it cannot be built:
   # this file is in the deploy contract's REQUIRED_IDENTICAL set and asserted
@@ -324,15 +324,15 @@ receivers:
   # It costs nothing to reach: same service, port and relay-token the relay
   # above already uses, so there is no new Secret, no NetworkPolicy rule and no
   # istio-internal-routes.yaml entry. The receiver is DISTINCT from
-  # `platform-relay` only in its path — that one fans out to a TENANT's
+  # `ops-center-relay` only in its path — that one fans out to a TENANT's
   # destinations and its route matches `tenancy = "org"`, which support alerts
   # (tenancy: platform) never match.
   #
-  # `send_resolved: true` is what closes the incident: platform turns a resolved
+  # `send_resolved: true` is what closes the incident: ops-center turns a resolved
   # alert into an Events v2 `resolve` on the same dedup key.
   - name: 'support-pager'
     webhook_configs:
-      - url: 'http://platform:3000/observability/oncall-webhook'
+      - url: 'http://ops-center:3000/observability/oncall-webhook'
         http_config:
           authorization:
             type: Bearer
@@ -358,7 +358,7 @@ receivers:
   # ─────────────────────────────────────────────────────────────────────────
   # OPTIONAL: DORA incident feed (self-hosted single-tenant).
   #
-  # Distinct from `platform-relay` above — that NOTIFIES an org's Slack/webhook
+  # Distinct from `ops-center-relay` above — that NOTIFIES an org's Slack/webhook
   # destinations; THIS records firing alerts as DORA INCIDENTS (automated
   # post-deploy Change Failure Rate + real MTTR) via the reporting service's
   # Alertmanager adapter. Uncomment the receiver AND add the matching route
@@ -433,7 +433,7 @@ inhibit_rules:
       - alertname =~ "S2sErrorRateHigh|S2sRetryAmplification|S2sCircuitProbeExpiring|ServiceCircuitOpen|ServiceError5xxBurst|SseStreamsRefused|GatewayError5xxRatioHigh"
     equal: []
 
-  # A dead waypoint cannot report 403s, and the six services behind it fail
+  # A dead waypoint cannot report 403s, and the seven services behind it fail
   # rather than bypassing it — so its denial and error alerts are downstream of
   # this one, not independent findings.
   - source_matchers:

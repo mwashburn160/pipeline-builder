@@ -23,7 +23,7 @@ export * from './schema/alert.js';
 export * from './schema/ecosystem.js';
 export * from './schema/toolchain.js';
 
-import { orgAlertDestination, orgAlertRule } from './schema/alert.js';
+import { alertDestinationStatus, orgAlertDestination, orgAlertRule } from './schema/alert.js';
 import {
   compliancePolicy,
   complianceRule,
@@ -108,6 +108,7 @@ export const schema = {
   dashboardPanel,
   // Per-org alert notification destinations (multi-tenant alerting)
   orgAlertDestination,
+  alertDestinationStatus,
   // per-org operator-authored alert rules  materialized into Prom YAML.
   orgAlertRule,
   // Compliance tables

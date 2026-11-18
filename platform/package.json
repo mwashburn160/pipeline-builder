@@ -47,10 +47,8 @@
     "xml-crypto": "6.4.0"
   },
   "dependencies": {
-    "@aws-sdk/client-ec2": "3.1160.0",
     "@aws-sdk/client-kms": "3.1160.0",
     "@aws-sdk/client-sesv2": "3.1160.0",
-    "@aws-sdk/client-ssm": "3.1160.0",
     "@node-saml/node-saml": "5.2.0",
     "@pipeline-builder/api-core": "workspace:*",
     "@pipeline-builder/api-server": "workspace:*",

@@ -1,0 +1,207 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+import { audited, requireOrgAdminAssurance, requirePermission, requireSystemOrgPermission, requireStepUp } from '@pipeline-builder/api-core';
+import { Router } from 'express';
+import {
+  listAlertDestinations,
+  listAllAlertDestinations,
+  listDeletedAlertDestinations,
+  createAlertDestination,
+  updateAlertDestination,
+  deleteAlertDestination,
+  restoreAlertDestination,
+  purgeAlertDestination,
+  testAlertDestination,
+  alertWebhook,
+} from '../controllers/alert-destinations.js';
+import {
+  listAlertRules,
+  listDeletedAlertRules,
+  createAlertRule,
+  updateAlertRule,
+  deleteAlertRule,
+  restoreAlertRule,
+  purgeAlertRule,
+  materializeAlertRules,
+} from '../controllers/alert-rules.js';
+import { nodeDiskAutoExpandWebhook } from '../controllers/node-disk-autoexpand.js';
+import { oncallAckWebhook, oncallStatus, oncallTest, oncallWebhook } from '../controllers/oncall.js';
+import { postgresRungWebhook } from '../controllers/postgres-rung.js';
+import { pvcAutoExpandWebhook } from '../controllers/pvc-autoexpand.js';
+import { requireAuth, tenantScope } from '../middleware/index.js';
+import { generalLimiter, observabilityLimiter } from '../middleware/limiters.js';
+import {
+  observabilityQueryBatch,
+  observabilityCatalog,
+  observabilityAlerts,
+  observabilitySilencesList,
+  observabilitySilenceCreate,
+  observabilitySilenceDelete,
+} from '../observability/controller.js';
+import {
+  logContext,
+  logExport,
+  logRaw,
+  logSearch,
+  logVolume,
+} from '../observability/log-controller.js';
+
+const router: Router = Router();
+
+/**
+ * Every tenant route: verify the caller, THEN spend the per-org buckets (keyed
+ * by the verified org — see middleware/limiters.ts).
+ */
+const authed = [requireAuth, tenantScope, generalLimiter, observabilityLimiter];
+/** The machine webhooks (Alertmanager / PagerDuty): per-IP observability bucket. */
+const machine = [observabilityLimiter];
+
+// READS carry the `observability:read` capability (in the built-in Member
+// bundle, so no role loses access) rather than bare `requireAuth`: they are the
+// Prometheus/Loki/Alertmanager data plane, and a custom Role that withholds
+// observability must not still see the org's metrics, logs and firing alerts.
+// Per-route, never a router-level `use`, so nothing leaks onto the siblings.
+// The in-controller `$ORG` substitution / org-scoped filtering stays orthogonal
+// to this capability gate. The two cross-tenant reads take
+// `requireSystemOrgPermission('platform:read')` instead — system org + the
+// permission + aal2 — so an operator can be staffed with a Role rather than the
+// superadmin flag, which is the whole point of that helper.
+
+/**
+ * POST /observability/query/batch  a dashboard's catalog queries (Prometheus,
+ * or the MongoDB AUDIT trail with `audit: true`) in ONE request — one apiCalls
+ * per refresh tick instead of one per panel. A READ carried on POST for its
+ * body; each entry runs under the per-key catalog gate in the controller.
+ */
+router.post('/query/batch', ...authed, requirePermission('observability:read'), observabilityQueryBatch);
+
+// ---------------------------------------------------------------------------
+// Logs  Loki-backed application logs. Tenancy is the Loki tenant header,
+// resolved from the VERIFIED token (never nginx's injected `x-org-id`), so an
+// org physically cannot read another org's lines.
+//
+// Viewing rides `observability:read` like its siblings above. DOWNLOAD needs
+// `logs:export` too: bulk egress that leaves the building is a different risk
+// class from paging a list in the UI, and an admin may withhold it.
+// ---------------------------------------------------------------------------
+
+/** GET /observability/logs  search */
+router.get('/logs', ...authed, requirePermission('observability:read'), logSearch);
+/** GET /observability/logs/volume  per-level histogram for the window */
+router.get('/logs/volume', ...authed, requirePermission('observability:read'), logVolume);
+/** GET /observability/logs/context  lines either side of one entry */
+router.get('/logs/context', ...authed, requirePermission('observability:read'), logContext);
+/** GET /observability/logs/raw  the caller's slice of one stream as text/plain */
+router.get('/logs/raw', ...authed, requirePermission('observability:read'), logRaw);
+/** GET /observability/logs/export  streamed download (bytes + wall-clock capped).
+ *  Subject to the org's "administrative actions require MFA" policy — a bulk
+ *  copy of the org's logs leaving the platform. Machine credentials pass (log
+ *  shipping from CI is a legitimate use); a person needs `aal: 2` while it's on. */
+router.get('/logs/export', ...authed, requirePermission('logs:export'), requireOrgAdminAssurance({ machines: 'allow' }), logExport);
+
+/** GET /observability/catalog  list catalog keys (drives the editor's panel-add picker) */
+router.get('/catalog', ...authed, requirePermission('observability:read'), observabilityCatalog);
+
+/** GET /observability/alerts  currently-firing + suppressed alerts (org-scoped) */
+router.get('/alerts', ...authed, requirePermission('observability:read'), observabilityAlerts);
+
+/** GET /observability/silences  active + recent silences */
+router.get('/silences', ...authed, requirePermission('observability:read'), observabilitySilencesList);
+
+// Static `observability:write` capability gated at the route so it matches the
+// sibling alerting mutations (`/alert-destinations`, `/alert-rules`). Creating
+// or deleting a silence SUPPRESSES the org's alerts (detection-evasion), so a
+// plain member with only `observability:read` must NOT be able to do it. The
+// in-controller per-org scoping stays orthogonal to this capability gate.
+/** POST /observability/silences  create a silence (auto-scoped to caller's org) */
+router.post('/silences', ...authed, requirePermission('observability:write'), audited('observability.silence.create'), observabilitySilenceCreate);
+
+/** DELETE /observability/silences/:id  expire a silence (must own it) */
+router.delete('/silences/:id', ...authed, requirePermission('observability:write'), audited('observability.silence.delete'), observabilitySilenceDelete);
+
+/** Per-org alert notification destinations (multi-tenant alerting) */
+router.get('/alert-destinations', ...authed, requirePermission('observability:read'), listAlertDestinations);
+// Sysadmin cross-tenant viewer — `/all` literal must come before `/:id`
+// so it isn't captured as an id parameter.
+router.get('/alert-destinations/all', ...authed, ...requireSystemOrgPermission('platform:read'), listAllAlertDestinations);
+// Restorable tombstones for the "recently deleted" panel. Another LITERAL path
+// that must precede the `/:id` routes. Same read capability + org scope (and the
+// same target masking) as the live list.
+router.get('/alert-destinations/deleted', ...authed, requirePermission('observability:read'), listDeletedAlertDestinations);
+// Static `observability:write` capability gated at the route so it's auditable
+// from the route table (handlers do not re-check). The per-org data scoping
+// (findById(id, orgId)) inside the handlers is orthogonal to this gate.
+router.post('/alert-destinations', ...authed, requirePermission('observability:write'), audited('alert.destination.create'), createAlertDestination);
+router.put('/alert-destinations/:id', ...authed, requirePermission('observability:write'), audited('alert.destination.update'), updateAlertDestination);
+router.delete('/alert-destinations/:id', ...authed, requirePermission('observability:write'), audited('alert.destination.delete'), deleteAlertDestination);
+router.post('/alert-destinations/:id/restore', ...authed, requirePermission('observability:write'), requireStepUp, audited('alert.destination.restore'), restoreAlertDestination);
+// Purge finalizes a soft-delete ahead of the retention sweep — irreversible, so
+// it carries the same write capability + step-up as restore.
+router.post('/alert-destinations/:id/purge', ...authed, requirePermission('observability:write'), requireStepUp, audited('alert.destination.purge'), purgeAlertDestination);
+// Send a labeled test notification to a destination (org-scoped, observability:write).
+router.post('/alert-destinations/:id/test', ...authed, requirePermission('observability:write'), audited('alert.destination.test'), testAlertDestination);
+
+/**
+ * Alertmanager webhook relay  shared-secret auth, not JWT. Mounted on the
+ * `/observability/*` prefix so it's covered by the existing per-org rate
+ * limiter (Alertmanager bursts can be smoothed but rarely block; the
+ * per-destination delivery timeout in alert-relay.ts is the real backpressure).
+ */
+router.post('/alert-webhook', alertWebhook);
+
+// On-call paging. Alertmanager-authenticated like the relay above and
+// deliberately a SEPARATE route: the relay's own Alertmanager route matches
+// `tenancy = "org"`, so platform-owned support alerts never reach it. See
+// controllers/oncall.ts for why Alertmanager points here rather than straight at
+// PagerDuty — in short, alertmanager.yml is asserted byte-identical across
+// targets, so the paging route cannot be toggled per deployment and the
+// ONCALL_ENABLED knob has to be honoured on this side.
+router.post('/oncall-webhook', ...machine, oncallWebhook);
+
+// The INBOUND leg: what the provider tells us back. Signature-verified with
+// PAGERDUTY_WEBHOOK_SECRET (HMAC-SHA256 over the RAW body — `index.ts` mounts
+// `express.raw` for exactly this path, because verifying a re-serialized object
+// fails every time), fail-CLOSED with no secret. Unauthenticated in the JWT
+// sense for the same reason as the relay above: the caller is a third party
+// with a shared secret, not a user.
+router.post('/oncall-ack', ...machine, oncallAckWebhook);
+
+// "Will we actually be paged?" — the posture, for somebody holding
+// `oncall:manage` and no cluster access, and a test page so the answer can be
+// proven rather than inferred. Both system-org only: paging is the vendor's own
+// operational concern and grants no tenant access, and a tenant must never be
+// able to make this deployment ring somebody's phone.
+router.get('/oncall-status', ...authed, ...requireSystemOrgPermission('oncall:manage'), oncallStatus);
+router.post('/oncall-test', ...authed, ...requireSystemOrgPermission('oncall:manage'), audited('support.oncall.test'), oncallTest);
+
+// Alertmanager-driven PersistentVolume expansion. Same server-to-server auth as
+// the relay above, deliberately a DIFFERENT route: this one mutates cluster
+// storage, so it is enabled, rate-limited and audited on its own terms.
+router.post('/pvc-autoexpand', ...machine, audited('observability.pvc.autoexpand'), pvcAutoExpandWebhook);
+// Vertical scaling for Postgres. Alertmanager-authenticated like the one
+// above, and a MUTATION endpoint for the same reason it is kept off the
+// notification relay: this one restarts a database.
+router.post('/postgres-rung', ...machine, audited('observability.postgres.rung'), postgresRungWebhook);
+
+// The ec2 counterpart: grows the instance's data volume rather than a claim.
+router.post('/node-disk-autoexpand', ...machine, audited('observability.node_disk.autoexpand'), nodeDiskAutoExpandWebhook);
+
+/**  per-org operator-authored alert rules.
+ * Materialized endpoint MUST come BEFORE the `/:id` routes so the
+ * literal `materialized.yml` path doesn't get captured as an:id. */
+router.get('/alert-rules/materialized.yml', ...authed, ...requireSystemOrgPermission('platform:read'), materializeAlertRules);
+// `/deleted` is likewise a LITERAL path and must precede the `/:id` routes.
+router.get('/alert-rules/deleted', ...authed, requirePermission('observability:read'), listDeletedAlertRules);
+router.get('/alert-rules', ...authed, requirePermission('observability:read'), listAlertRules);
+// Static `observability:write` capability gated at the route (auditable); the
+// handlers do not re-check. Org-scoping (prepareRuleExpr / org-scoped
+// service ops) is separate from this capability gate.
+router.post('/alert-rules', ...authed, requirePermission('observability:write'), audited('alert.rule.create'), createAlertRule);
+router.put('/alert-rules/:id', ...authed, requirePermission('observability:write'), audited('alert.rule.update'), updateAlertRule);
+router.delete('/alert-rules/:id', ...authed, requirePermission('observability:write'), audited('alert.rule.delete'), deleteAlertRule);
+router.post('/alert-rules/:id/restore', ...authed, requirePermission('observability:write'), requireStepUp, audited('alert.rule.restore'), restoreAlertRule);
+// Irreversible finalization of a soft-delete — same gate as restore, plus step-up.
+router.post('/alert-rules/:id/purge', ...authed, requirePermission('observability:write'), requireStepUp, audited('alert.rule.purge'), purgeAlertRule);
+
+export default router;

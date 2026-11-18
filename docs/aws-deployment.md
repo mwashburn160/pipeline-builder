@@ -31,7 +31,7 @@ Both targets deploy the full stack: app services, databases, observability (Prom
 
 ### What you get for observability
 
-Five dashboards — Platform Overview, Plugin Builds, Queue Health, Registry Activity, Audit Activity — are seeded into the database at platform cold start as public rows owned by the system org (`org_id` = the configured `SYSTEM_ORG_ID`, default `000000000000000000000001`), so they appear automatically for any logged-in org at `/dashboard/observability/<id>`.
+Five dashboards — Platform Overview, Plugin Builds, Queue Health, Registry Activity, Audit Activity — are seeded into the database at ops-center cold start as public rows owned by the system org (`org_id` = the configured `SYSTEM_ORG_ID`, default `000000000000000000000001`), so they appear automatically for any logged-in org at `/dashboard/observability/<id>`.
 
 | Who | Sees |
 |---|---|

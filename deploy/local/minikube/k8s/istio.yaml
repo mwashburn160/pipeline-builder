@@ -17,8 +17,8 @@
 #      STRICT-mTLS-only, which let ANY mesh identity (a plugin build pod
 #      included) read every tenant's Loki stream.
 #
-# WAYPOINT: the six Services that expose INTERNAL routes (platform, message,
-# compliance, quota, reporting, image-registry) are attached to the `pb-waypoint` proxy so their
+# WAYPOINT: the seven Services that expose INTERNAL routes (platform, message,
+# compliance, quota, reporting, ops-center, image-registry) are attached to the `pb-waypoint` proxy so their
 # per-route L7 policies can be enforced (k8s/istio-internal-routes.yaml). Traffic
 # to them therefore arrives at their ztunnel as the WAYPOINT's identity, which is
 # why `sa/pb-waypoint` appears in those policies' principal lists below — the
@@ -112,6 +112,10 @@ metadata: { name: compliance, namespace: pipeline-builder, labels: { app.kuberne
 apiVersion: v1
 kind: ServiceAccount
 metadata: { name: reporting, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: ops-center, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -252,6 +256,7 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/message
               - cluster.local/ns/pipeline-builder/sa/compliance
               - cluster.local/ns/pipeline-builder/sa/reporting
+              - cluster.local/ns/pipeline-builder/sa/ops-center
               - cluster.local/ns/pipeline-builder/sa/pgbouncer
               - cluster.local/ns/pipeline-builder/sa/postgres-replica  # pg_basebackup + WAL streaming
               - cluster.local/ns/pipeline-builder/sa/pgadmin
@@ -329,6 +334,7 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/message
               - cluster.local/ns/pipeline-builder/sa/compliance
               - cluster.local/ns/pipeline-builder/sa/reporting
+              - cluster.local/ns/pipeline-builder/sa/ops-center
       to:
         - operation:
             ports: ["6432"]
@@ -399,6 +405,7 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/billing
               - cluster.local/ns/pipeline-builder/sa/compliance
               - cluster.local/ns/pipeline-builder/sa/reporting
+              - cluster.local/ns/pipeline-builder/sa/ops-center
               - cluster.local/ns/pipeline-builder/sa/image-registry
               - cluster.local/ns/pipeline-builder/sa/ask
       to:
@@ -521,9 +528,8 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/message
               - cluster.local/ns/pipeline-builder/sa/quota
               - cluster.local/ns/pipeline-builder/sa/reporting
+              - cluster.local/ns/pipeline-builder/sa/ops-center
               - cluster.local/ns/pipeline-builder/sa/pb-waypoint
-              # Per-org alert relay: POST /observability/alert-webhook.
-              - cluster.local/ns/pipeline-builder/sa/alertmanager
       to:
         - operation:
             ports: ["3000"]
@@ -628,6 +634,7 @@ spec:
               # increment) on inbound requests, so all API services call quota.
               - cluster.local/ns/pipeline-builder/sa/compliance
               - cluster.local/ns/pipeline-builder/sa/reporting
+              - cluster.local/ns/pipeline-builder/sa/ops-center
               - cluster.local/ns/pipeline-builder/sa/image-registry
       to:
         - operation:
@@ -703,6 +710,36 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/platform
               - cluster.local/ns/pipeline-builder/sa/pipeline
               - cluster.local/ns/pipeline-builder/sa/plugin
+              - cluster.local/ns/pipeline-builder/sa/pb-waypoint
+      to:
+        - operation:
+            ports: ["3000"]
+---
+# ops-center: the operations control plane split out of platform. nginx
+# carries /api/observability/* and /api/dashboards*; Alertmanager posts its
+# webhook receivers (alert-webhook, oncall-webhook, pvc-autoexpand,
+# postgres-rung, node-disk-autoexpand — bearer-gated by the relay token);
+# platform's durable cascade outbox calls POST /ops/internal/orgs/:orgId/purge
+# (L7-gated in istio-internal-routes.yaml). The Service is waypoint-attached,
+# so Service-addressed traffic arrives as sa/pb-waypoint.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: ops-center-allow
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: ops-center
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/nginx
+              - cluster.local/ns/pipeline-builder/sa/prometheus
+              - cluster.local/ns/pipeline-builder/sa/platform
+              - cluster.local/ns/pipeline-builder/sa/alertmanager
               - cluster.local/ns/pipeline-builder/sa/pb-waypoint
       to:
         - operation:
@@ -940,14 +977,14 @@ spec:
       app: loki
   action: ALLOW
   rules:
-    # alloy pushes; platform serves the Logs + Audit Activity views; grafana
+    # alloy pushes; ops-center serves the Logs + Audit Activity views; grafana
     # is the Loki datasource; prometheus scrapes Loki's /metrics (same port).
     # NOT plugin / plugin-quarantine-builder — never tenant build code.
     - from:
         - source:
             principals:
               - cluster.local/ns/pipeline-builder/sa/alloy
-              - cluster.local/ns/pipeline-builder/sa/platform
+              - cluster.local/ns/pipeline-builder/sa/ops-center
               - cluster.local/ns/pipeline-builder/sa/grafana
               - cluster.local/ns/pipeline-builder/sa/prometheus
       to:
@@ -968,7 +1005,7 @@ spec:
     - from:
         - source:
             principals:
-              - cluster.local/ns/pipeline-builder/sa/platform
+              - cluster.local/ns/pipeline-builder/sa/ops-center
               - cluster.local/ns/pipeline-builder/sa/grafana
               - cluster.local/ns/pipeline-builder/sa/prometheus
       to:
@@ -1006,11 +1043,11 @@ spec:
       app: thanos-query
   action: ALLOW
   rules:
-    # platform's PROMETHEUS_URL; grafana's default datasource; prometheus scrape.
+    # ops-center's PROMETHEUS_URL; grafana's default datasource; prometheus scrape.
     - from:
         - source:
             principals:
-              - cluster.local/ns/pipeline-builder/sa/platform
+              - cluster.local/ns/pipeline-builder/sa/ops-center
               - cluster.local/ns/pipeline-builder/sa/grafana
               - cluster.local/ns/pipeline-builder/sa/prometheus
       to:
@@ -1075,13 +1112,13 @@ spec:
       app: alertmanager
   action: ALLOW
   rules:
-    # prometheus forwards alerts (and scrapes :9093/metrics); platform proxies
+    # prometheus forwards alerts (and scrapes :9093/metrics); ops-center proxies
     # the /api/observability/alerts read API.
     - from:
         - source:
             principals:
               - cluster.local/ns/pipeline-builder/sa/prometheus
-              - cluster.local/ns/pipeline-builder/sa/platform
+              - cluster.local/ns/pipeline-builder/sa/ops-center
       to:
         - operation:
             ports: ["9093"]
@@ -1108,6 +1145,7 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/billing
               - cluster.local/ns/pipeline-builder/sa/message
               - cluster.local/ns/pipeline-builder/sa/reporting
+              - cluster.local/ns/pipeline-builder/sa/ops-center
               - cluster.local/ns/pipeline-builder/sa/compliance
               - cluster.local/ns/pipeline-builder/sa/image-registry
               - cluster.local/ns/pipeline-builder/sa/ask

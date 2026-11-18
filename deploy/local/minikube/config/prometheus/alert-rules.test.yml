@@ -650,7 +650,7 @@ tests:
               persistentvolumeclaim: postgres-data
             exp_annotations:
               summary: "PersistentVolume postgres-data is 10% free"
-              description: "Less than 15% of postgres-data (namespace pipeline-builder) remains, sustained for 15 minutes. pb-ebs allows online expansion: patch the PVC's requested storage, or arm PVC_AUTOEXPAND_ENABLED to have platform apply that patch for you."
+              description: "Less than 15% of postgres-data (namespace pipeline-builder) remains, sustained for 15 minutes. pb-ebs allows online expansion: patch the PVC's requested storage, or arm PVC_AUTOEXPAND_ENABLED to have ops-center apply that patch for you."
 
   # Negative control: a HEALTHY volume (50% free) must stay quiet on all three.
   - interval: 1m
@@ -707,7 +707,7 @@ tests:
               persistentvolumeclaim: postgres-data
             exp_annotations:
               summary: "PersistentVolume postgres-data is almost full (2% free)"
-              description: "Under 5% of postgres-data (namespace pipeline-builder) remains. A full volume does not degrade gracefully: Postgres and MongoDB stop accepting writes and RustFS fails uploads. Expand it now - patch the PVC's requested storage, or arm PVC_AUTOEXPAND_ENABLED so platform does it on this alert."
+              description: "Under 5% of postgres-data (namespace pipeline-builder) remains. A full volume does not degrade gracefully: Postgres and MongoDB stop accepting writes and RustFS fails uploads. Expand it now - patch the PVC's requested storage, or arm PVC_AUTOEXPAND_ENABLED so ops-center does it on this alert."
 
   # PersistentVolumeFillingUpFast — the TREND rule. Capacity 10GiB, available
   # falling 32MiB/min from 3.5GiB (35% free, so under the 40% gate): extrapolated
@@ -1179,7 +1179,7 @@ tests:
               container: postgres
             exp_annotations:
               summary: "Postgres primary has been idle enough to drop a rung"
-              description: "Both CPU and memory have been below 30%/40% of their limits for 2h, so the primary is sized above what it is doing. With POSTGRES_RUNG_ENABLED=true the platform controller moves it down one rung (never below the 1 CPU / 2Gi floor, which is where the data tier stays Guaranteed QoS); otherwise this is informational. The change restarts the container because shared_buffers is read at startup — a brief write interruption, which is why this needs 2h of quiet to fire."
+              description: "Both CPU and memory have been below 30%/40% of their limits for 2h, so the primary is sized above what it is doing. With POSTGRES_RUNG_ENABLED=true the ops-center rung controller moves it down one rung (never below the 1 CPU / 2Gi floor, which is where the data tier stays Guaranteed QoS); otherwise this is informational. The change restarts the container because shared_buffers is read at startup — a brief write interruption, which is why this needs 2h of quiet to fire."
       # ...and it must NOT be mistaken for a saturation signal at the same time.
       - eval_time: 130m
         alertname: PostgresPrimaryCpuSaturated
@@ -1446,7 +1446,7 @@ tests:
   # counter would scroll past, where "there is nothing left to give" is a state.
   - interval: 1m
     input_series:
-      - series: 'postgres_rung_at_ceiling{workload="primary",service="platform"}'
+      - series: 'postgres_rung_at_ceiling{workload="primary",service="ops-center"}'
         values: '1+0x90'
     alert_rule_test:
       - eval_time: 70m
@@ -1465,7 +1465,7 @@ tests:
   # check: a workload that is NOT at its ceiling still reports the series.
   - interval: 1m
     input_series:
-      - series: 'postgres_rung_at_ceiling{workload="primary",service="platform"}'
+      - series: 'postgres_rung_at_ceiling{workload="primary",service="ops-center"}'
         values: '0+0x90'
     alert_rule_test:
       - eval_time: 70m
@@ -1476,7 +1476,7 @@ tests:
   # single saturation spike that the ladder answers does not page.
   - interval: 1m
     input_series:
-      - series: 'postgres_rung_at_ceiling{workload="replica",service="platform"}'
+      - series: 'postgres_rung_at_ceiling{workload="replica",service="ops-center"}'
         values: '0+0x30 1+0x30'
     alert_rule_test:
       - eval_time: 45m
@@ -1487,7 +1487,7 @@ tests:
   # with the primary simply being at its own ceiling.
   - interval: 1m
     input_series:
-      - series: 'postgres_rung_total{workload="primary",direction="up",result="above-replica-ceiling",service="platform"}'
+      - series: 'postgres_rung_total{workload="primary",direction="up",result="above-replica-ceiling",service="ops-center"}'
         values: '0+1x90'
     alert_rule_test:
       - eval_time: 70m
@@ -1513,11 +1513,11 @@ tests:
   # are the ladder working as designed and are far more frequent — must not.
   - interval: 1m
     input_series:
-      - series: 'postgres_rung_total{workload="replica",direction="up",result="error",service="platform"}'
+      - series: 'postgres_rung_total{workload="replica",direction="up",result="error",service="ops-center"}'
         values: '0+1x90'
-      - series: 'postgres_rung_total{workload="primary",direction="up",result="cooldown",service="platform"}'
+      - series: 'postgres_rung_total{workload="primary",direction="up",result="cooldown",service="ops-center"}'
         values: '0+5x90'
-      - series: 'postgres_rung_total{workload="primary",direction="up",result="at-ceiling",service="platform"}'
+      - series: 'postgres_rung_total{workload="primary",direction="up",result="at-ceiling",service="ops-center"}'
         values: '0+5x90'
     alert_rule_test:
       - eval_time: 70m
@@ -1531,7 +1531,7 @@ tests:
               direction: up
             exp_annotations:
               summary: "Postgres rung controller is failing (replica up)"
-              description: "The rung controller errored 60 time(s) in the last hour, so Postgres is NOT being resized however saturated it gets. Most likely the platform ServiceAccount's Role lacks get/patch on the workload (a 403), or the workload/container name in TARGETS no longer matches the manifest. Check the platform logs for 'Postgres rung' entries."
+              description: "The rung controller errored 60 time(s) in the last hour, so Postgres is NOT being resized however saturated it gets. Most likely the ops-center ServiceAccount's Role lacks get/patch on the workload (a 403), or the workload/container name in TARGETS no longer matches the manifest. Check the ops-center logs for 'Postgres rung' entries."
       # `result="error"` is an equality matcher, so the cooldown and at-ceiling
       # series above — five times the volume — contribute nothing.
       - eval_time: 70m
@@ -2208,7 +2208,7 @@ tests:
               tenancy: platform
             exp_annotations:
               summary: "The ambient waypoint is not reporting metrics"
-              description: "pb-waypoint is unscrapeable. Six services (platform, message, compliance, quota, reporting, image-registry) route through it via istio.io/use-waypoint, and it is the only thing in an ambient mesh that enforces L7 policy - so traffic to them fails rather than bypassing the check. Check: kubectl -n pipeline-builder get pods -l gateway.networking.k8s.io/gateway-class-name=istio-waypoint"
+              description: "pb-waypoint is unscrapeable. Seven services (platform, message, compliance, quota, reporting, ops-center, image-registry) route through it via istio.io/use-waypoint, and it is the only thing in an ambient mesh that enforces L7 policy - so traffic to them fails rather than bypassing the check. Check: kubectl -n pipeline-builder get pods -l gateway.networking.k8s.io/gateway-class-name=istio-waypoint"
 
   # 403s fire; 200s through the same waypoint must not, which is what keeps this
   # rule about AUTHORIZATION rather than about traffic volume.
@@ -2556,9 +2556,9 @@ tests:
       # Keyed on `configured`, not `enabled`: the alert asks whether anything
       # CAN deliver, and the two flags are only declarations. A deployment with
       # real Slack URLs and the knob left at its default is delivering fine.
-      - series: 'alert_delivery_configured{channel="slack",service="platform"}'
+      - series: 'alert_delivery_configured{channel="slack",service="ops-center"}'
         values: '0+0x40'
-      - series: 'alert_delivery_configured{channel="pager",service="platform"}'
+      - series: 'alert_delivery_configured{channel="pager",service="ops-center"}'
         values: '0+0x40'
     alert_rule_test:
       - eval_time: 10m
@@ -2574,7 +2574,7 @@ tests:
               delivery_meta: "true"
             exp_annotations:
               summary: "No platform alert destination is enabled — alerts are firing into a void"
-              description: "Both SLACK_ALERTS_ENABLED and ONCALL_ENABLED are false, so every platform-wide critical and warning reaches Alertmanager and goes no further: no page, no channel, no mail. Per-org destinations are unaffected (those go through the platform relay) and everything is still visible at Alertmanager's own UI, but no human is being told. This alert reaches you through the `meta-alerts` receiver, which is platform's webhook rather than a notification destination — that is the only reason you can read it at all."
+              description: "Both SLACK_ALERTS_ENABLED and ONCALL_ENABLED are false, so every platform-wide critical and warning reaches Alertmanager and goes no further: no page, no channel, no mail. Per-org destinations are unaffected (those go through the ops-center relay) and everything is still visible at Alertmanager's own UI, but no human is being told. This alert reaches you through the `meta-alerts` receiver, which is ops-center's webhook rather than a notification destination — that is the only reason you can read it at all."
 
   # 20. The negative control for 19, and the case that matters most: ONE
   # destination enabled is a supported configuration, not a degraded one. A
@@ -2585,9 +2585,9 @@ tests:
       # THE case the `configured` split exists for: Slack is declared OFF yet its
       # URLs are present, so delivery works and this must stay silent. Keyed on
       # `enabled` it would have paged a healthy deployment.
-      - series: 'alert_delivery_configured{channel="slack",service="platform"}'
+      - series: 'alert_delivery_configured{channel="slack",service="ops-center"}'
         values: '1+0x40'
-      - series: 'alert_delivery_configured{channel="pager",service="platform"}'
+      - series: 'alert_delivery_configured{channel="pager",service="ops-center"}'
         values: '0+0x40'
     alert_rule_test:
       - eval_time: 30m
@@ -2599,9 +2599,9 @@ tests:
   # nobody is looking at a deploy log.
   - interval: 1m
     input_series:
-      - series: 'alert_delivery_enabled{channel="pager",service="platform"}'
+      - series: 'alert_delivery_enabled{channel="pager",service="ops-center"}'
         values: '1+0x40'
-      - series: 'alert_delivery_configured{channel="pager",service="platform"}'
+      - series: 'alert_delivery_configured{channel="pager",service="ops-center"}'
         values: '0+0x40'
     alert_rule_test:
       - eval_time: 30m
@@ -2614,15 +2614,15 @@ tests:
               delivery_meta: "true"
             exp_annotations:
               summary: "On-call paging is enabled with no routing key"
-              description: "ONCALL_ENABLED is true but PAGERDUTY_ROUTING_KEY is empty, so platform logs a paging failure per support critical and no pager fires. Support criticals still reach the ops Slack channel. Set the key — a PER-SERVICE integration key, not a REST API key — or set ONCALL_ENABLED=false. See docs/oncall-paging.md."
+              description: "ONCALL_ENABLED is true but PAGERDUTY_ROUTING_KEY is empty, so ops-center logs a paging failure per support critical and no pager fires. Support criticals still reach the ops Slack channel. Set the key — a PER-SERVICE integration key, not a REST API key — or set ONCALL_ENABLED=false. See docs/oncall-paging.md."
 
   # 22. The negative control for 21: configured AND enabled is the healthy state
   # and must stay silent.
   - interval: 1m
     input_series:
-      - series: 'alert_delivery_enabled{channel="pager",service="platform"}'
+      - series: 'alert_delivery_enabled{channel="pager",service="ops-center"}'
         values: '1+0x40'
-      - series: 'alert_delivery_configured{channel="pager",service="platform"}'
+      - series: 'alert_delivery_configured{channel="pager",service="ops-center"}'
         values: '1+0x40'
     alert_rule_test:
       - eval_time: 30m
@@ -2636,7 +2636,7 @@ tests:
   # this rule a revoked routing key pages nobody, silently, forever.
   - interval: 1m
     input_series:
-      - series: 'oncall_pages_total{action="trigger",outcome="rejected",service="platform"}'
+      - series: 'oncall_pages_total{action="trigger",outcome="rejected",service="ops-center"}'
         values: '0+2x40'
     alert_rule_test:
       - eval_time: 5m
@@ -2658,7 +2658,7 @@ tests:
   # pager that is busy is not a broken one.
   - interval: 1m
     input_series:
-      - series: 'oncall_pages_total{action="trigger",outcome="accepted",service="platform"}'
+      - series: 'oncall_pages_total{action="trigger",outcome="accepted",service="ops-center"}'
         values: '0+5x40'
     alert_rule_test:
       - eval_time: 30m
@@ -2673,7 +2673,7 @@ tests:
     input_series:
       - series: 'oncall_cases_due{service="message"}'
         values: '3+0x60'
-      - series: 'alert_delivery_configured{channel="pager",service="platform"}'
+      - series: 'alert_delivery_configured{channel="pager",service="ops-center"}'
         values: '0+0x60'
     alert_rule_test:
       - eval_time: 15m
@@ -2696,7 +2696,7 @@ tests:
     input_series:
       - series: 'oncall_cases_due{service="message"}'
         values: '3+0x60'
-      - series: 'alert_delivery_configured{channel="pager",service="platform"}'
+      - series: 'alert_delivery_configured{channel="pager",service="ops-center"}'
         values: '1+0x60'
     alert_rule_test:
       - eval_time: 45m
@@ -2711,7 +2711,7 @@ tests:
     input_series:
       - series: 'oncall_cases_due{service="message"}'
         values: '0+0x60'
-      - series: 'alert_delivery_configured{channel="pager",service="platform"}'
+      - series: 'alert_delivery_configured{channel="pager",service="ops-center"}'
         values: '0+0x60'
     alert_rule_test:
       - eval_time: 45m
@@ -2723,7 +2723,7 @@ tests:
   # not about the API call — see case 30 for the other half of that.
   - interval: 1m
     input_series:
-      - series: 'oncall_schedule_uncovered_seconds{service="platform"}'
+      - series: 'oncall_schedule_uncovered_seconds{service="ops-center"}'
         values: '172800+0x60'
     alert_rule_test:
       - eval_time: 15m
@@ -2744,7 +2744,7 @@ tests:
   # This is the state nearly every deployment with paging on sits in.
   - interval: 1m
     input_series:
-      - series: 'oncall_schedule_uncovered_seconds{service="platform"}'
+      - series: 'oncall_schedule_uncovered_seconds{service="ops-center"}'
         values: '0+0x60'
     alert_rule_test:
       - eval_time: 45m
@@ -2755,7 +2755,7 @@ tests:
   # "nobody is on call" (a false critical) and must not vanish into silence.
   - interval: 1m
     input_series:
-      - series: 'oncall_rota_reads_total{outcome="unknown",service="platform"}'
+      - series: 'oncall_rota_reads_total{outcome="unknown",service="ops-center"}'
         values: '0+1x120'
     alert_rule_test:
       - eval_time: 90m
@@ -2780,9 +2780,9 @@ tests:
   # rule requires that nothing succeeded.
   - interval: 1m
     input_series:
-      - series: 'oncall_rota_reads_total{outcome="unknown",service="platform"}'
+      - series: 'oncall_rota_reads_total{outcome="unknown",service="ops-center"}'
         values: '0+1x120'
-      - series: 'oncall_rota_reads_total{outcome="covered",service="platform"}'
+      - series: 'oncall_rota_reads_total{outcome="covered",service="ops-center"}'
         values: '0+1x120'
     alert_rule_test:
       - eval_time: 90m
@@ -2814,7 +2814,7 @@ tests:
     input_series:
       - series: 'oncall_pages_total{action="trigger",outcome="accepted",trigger="case",service="message"}'
         values: '0+1x420'
-      - series: 'oncall_ack_webhook_total{outcome="acknowledged",service="platform"}'
+      - series: 'oncall_ack_webhook_total{outcome="acknowledged",service="ops-center"}'
         values: '0+1x420'
     alert_rule_test:
       - eval_time: 400m

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/quotas.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 815e4cb259683974df4d9a53a28bffafeff1ef03aea0116dc828a3ca21b729fb
+// SOURCE-SHA256: 055914325c62b7cc704c56e76a8b0195cc9c729f2a7b88fcf693b1ea74df51c8
 // SPDX-License-Identifier: Apache-2.0
 import { Gauge } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -186,7 +186,11 @@ export const quotasTopic: HelpTopic = {
           "rows": [
             [
               "platform",
-              "/user, /users, /organization (incl. support contacts), /invitation, /audit, /observability, /dashboards"
+              "/user, /users, /organization (incl. support contacts), /invitation, /audit"
+            ],
+            [
+              "ops-center",
+              "/observability (except the Alertmanager / PagerDuty machine webhooks, which carry no user), /dashboards"
             ],
             [
               "pipeline",

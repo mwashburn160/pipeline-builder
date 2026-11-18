@@ -65,7 +65,7 @@ const EXCEPTIONS: RouteCoverageException[] = [
  */
 const INTERNAL_ROUTES: InternalRouteDeclaration[] = (() => {
   const fleet = ['ask', 'billing', 'compliance', 'image-registry', 'message',
-    'pipeline', 'platform', 'plugin', 'quota', 'reporting'];
+    'ops-center', 'pipeline', 'platform', 'plugin', 'quota', 'reporting'];
   return [
     { method: 'POST', path: '/quotas/:orgId/increment', callers: fleet },
     { method: 'POST', path: '/quotas/:orgId/decrement', callers: fleet },

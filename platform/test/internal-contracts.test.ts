@@ -72,6 +72,18 @@ const SAMPLES: Record<keyof typeof PLATFORM_INTERNAL, ContractSample> = {
     params: { orgId: ORG, provider: 'anthropic' },
     response: { provider: 'anthropic', apiKey: 'sk-test' },
   },
+  orgAccountRoot: {
+    params: { orgId: ORG },
+    response: { orgId: ORG, rootOrgId: '0123456789abcdef01234568' },
+  },
+  auditActivity: {
+    body: { query: 'events_by_action', scope: { isSuperAdmin: false, orgId: ORG }, range: '1h', end: 1_800_000_000, limit: 50, vars: {} },
+    response: { kind: 'matrix', series: [{ labels: { event: 'user.login' }, values: [{ time: 1_800_000_000, value: '2' }] }], step: '300s' },
+  },
+  liveOrgIds: {
+    query: { limit: 10 },
+    response: { orgIds: [ORG] },
+  },
 };
 
 let table: RouteTableEntry[];
@@ -80,7 +92,7 @@ beforeAll(async () => {
   const { mountApiRoutes } = await import('../src/routes/mount.js');
   const passthrough = (_req: Request, _res: Response, next: NextFunction): void => next();
   const app = express();
-  mountApiRoutes(app, { alertWebhook: passthrough, observability: passthrough, scim: passthrough });
+  mountApiRoutes(app, { scim: passthrough });
   table = buildRouteTable(app);
 });
 

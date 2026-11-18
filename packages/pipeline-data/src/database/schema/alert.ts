@@ -3,7 +3,7 @@
 
 import type { AlertChannel, AlertRuleSeverity } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
-import { boolean, varchar, pgTable, text, timestamp, uuid, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { boolean, integer, varchar, pgTable, text, timestamp, uuid, index, uniqueIndex } from 'drizzle-orm/pg-core';
 
 /**
  * Per-org alert notification destination. Multi-tenant alerting routes
@@ -139,6 +139,44 @@ export const orgAlertRule = pgTable('org_alert_rules', {
     .on(table.orgId, table.name)
     .where(sql`deleted_at IS NULL`),
 }));
+
+/**
+ * Delivery health of one org alert destination (keyed by its
+ * `org_alert_destinations.id`): when the relay last reached it, whether that
+ * worked, and how many attempts in a row have failed. Written best-effort by
+ * ops-center's relay after every real delivery attempt and shown in the
+ * org's destinations list, so an org whose Slack webhook was revoked SEES it.
+ *
+ * Operational state, not a record: ops-center's retention sweep removes a
+ * row nothing has tried to reach for 30 days (deleted, disabled, or a purged
+ * org's destination), and the org purge removes the org's rows outright.
+ *
+ * `last_error_kind` is a CLASS (timeout / rejected / unreachable /
+ * unknown-channel), never the downstream status or host — an org controls the
+ * URL, and a precise error would make the relay an oracle for probing.
+ *
+ * @table alert_destination_status
+ */
+export const alertDestinationStatus = pgTable('alert_destination_status', {
+  destinationId: varchar('destination_id', { length: 64 }).primaryKey(),
+  orgId: varchar('org_id', { length: 255 }).notNull(),
+  channel: varchar('channel', { length: 20 }).notNull(),
+  lastAttemptAt: timestamp('last_attempt_at', { withTimezone: true }).notNull(),
+  lastOk: boolean('last_ok').notNull(),
+  lastErrorKind: varchar('last_error_kind', { length: 20 }),
+  lastSuccessAt: timestamp('last_success_at', { withTimezone: true }),
+  lastFailureAt: timestamp('last_failure_at', { withTimezone: true }),
+  /** Failed attempts since the last success. */
+  consecutiveFailures: integer('consecutive_failures').default(0).notNull(),
+  /** When the org's admins were told this destination is failing (cleared on the next success). */
+  notifiedAt: timestamp('notified_at', { withTimezone: true }),
+}, (table) => ({
+  // The retention sweep's and the health gauge's window scan.
+  lastAttemptIdx: index('alert_destination_status_last_attempt_idx').on(table.lastAttemptAt),
+  orgIdx: index('alert_destination_status_org_idx').on(table.orgId),
+}));
+
+export type AlertDestinationStatusRow = typeof alertDestinationStatus.$inferSelect;
 
 export type OrgAlertDestination = typeof orgAlertDestination.$inferSelect;
 export type OrgAlertDestinationInsert = typeof orgAlertDestination.$inferInsert;

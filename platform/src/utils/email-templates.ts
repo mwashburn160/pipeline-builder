@@ -330,26 +330,3 @@ export function passwordResetTemplate(resetUrl: string, ttlMinutes: number): Ema
   const html = renderTemplate('password-reset', { title: 'Reset Your Password', ...vars });
   return { subject, text, html };
 }
-
-/** Data for {@link alertDestinationFailingTemplate}. */
-export interface AlertDestinationFailingData {
-  organizationName: string;
-  destinationLabel: string;
-  channel: string;
-  failures: number;
-  /** A delivery error CLASS (timeout / rejected / unreachable / unknown-channel). */
-  reason: string;
-  settingsUrl: string;
-}
-
-/**
- * Tell an org's admins that one of its alert destinations keeps failing.
- * Sent once per failing streak by `services/alert-delivery-status.ts`.
- */
-export function alertDestinationFailingTemplate(data: AlertDestinationFailingData): EmailContent {
-  const subject = `Alert destination "${data.destinationLabel}" is failing`;
-  const vars = { ...data, failures: String(data.failures), fromName: config.email.fromName };
-  const text = renderTextTemplate('alert-destination-failing', vars);
-  const html = renderTemplate('alert-destination-failing', { title: 'Alert destination failing', ...vars });
-  return { subject, text, html };
-}

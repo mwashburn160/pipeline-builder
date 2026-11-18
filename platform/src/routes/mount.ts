@@ -11,45 +11,32 @@
  * ONLY the `app.use(...)` route registrations, so the route table the coverage
  * test builds (`test/route-coverage.test.ts`) is the one production serves.
  *
- * Mount ORDER is load-bearing (the alert-webhook limiter must precede the
- * tenant-facing `/observability` mount so the two never share a budget) — keep
- * it as-is.
+ * (The `/observability` and `/dashboards` surfaces — and the Alertmanager relay
+ * under them — moved to ops-center; nginx routes those prefixes there.)
  */
 
 import type { Express, RequestHandler } from 'express';
 
 import {
   authRoutes, deviceAuthRoutes, oauthRoutes, ssoRoutes, userRoutes, usersRoutes, organizationRoutes, organizationsRoutes,
-  invitationRoutes, auditRoutes, notifyEmailRoutes, configRoutes, observabilityRoutes, dashboardRoutes,
+  invitationRoutes, auditRoutes, notifyEmailRoutes, configRoutes,
   orgIdpRoutes, orgKmsConfigRoutes, orgNamespaceRoutes, userGrantsRoutes, adminConsoleRoutes, adminConsoleSessionRouter, adminSummaryRoutes, impersonateRoutes,
   scimRoutes, mfaResetAdminRoutes, ecosystemInternalRoutes, reportingInternalRoutes, aiInternalRoutes, supportInternalRoutes,
   offersInternalRoutes,
   NOTIFY_EMAIL_MOUNT, ECOSYSTEM_INTERNAL_MOUNT, REPORTING_INTERNAL_MOUNT, AI_INTERNAL_MOUNT, SUPPORT_INTERNAL_MOUNT,
-  OFFERS_INTERNAL_MOUNT,
+  OFFERS_INTERNAL_MOUNT, opsInternalRoutes, OPS_INTERNAL_MOUNT,
   supportContactRoutes,
 } from './index.js';
 
 import { platformApiCallsQuota as apiCallsQuota } from '../middleware/quota.js';
 
-/**
- * The Alertmanager relay webhook path. Machine-to-machine and unauthenticated at
- * middleware time (it checks a per-instance bearer inside the handler), so it
- * gets its own generous limiter rather than the user-sized buckets — see
- * `isAlertWebhook` in `middleware/limiters.ts`.
- */
-export const ALERT_WEBHOOK_PATH = '/observability/alert-webhook';
-
 /** Where an identity provider's SCIM client connects. Declared next to the
- *  mount that uses it, like the alert webhook, because `middleware/limiters.ts`
- *  also needs it to keep the general limiter off this surface. */
+ *  mount that uses it, because `middleware/limiters.ts` also needs it to keep
+ *  the general limiter off this surface. */
 export const SCIM_PATH = '/scim/v2';
 
 /** The per-surface limiters (`middleware/limiters.ts`) this module mounts. */
 export interface RouteLimiters {
-  /** Dedicated burst bucket for the Alertmanager relay. */
-  alertWebhook: RequestHandler;
-  /** Tighter per-org limiter for the Prometheus/Loki-backed reads. */
-  observability: RequestHandler;
   /** Per-ORG bucket for the SCIM surface (a directory sync is bursty and must
    *  not spend the org's interactive API budget). */
   scim: RequestHandler;
@@ -80,8 +67,7 @@ export function mountApiRoutes(app: Express, limiters: RouteLimiters): void {
   // `apiCallsQuota` meters + gates the tenant surface on apiCalls, the check
   // run by each route's requireAuth (see middleware/quota.ts): /user, /users, /organization (incl. the nested
   // support-contacts router below, reached through this same prefix — mounting
-  // it there too would bill each call twice), /invitation, /audit,
-  // /observability and /dashboards. NOT on /auth* (sign-in, MFA, OAuth, SSO),
+  // it there too would bill each call twice), /invitation and /audit. NOT on /auth* (sign-in, MFA, OAuth, SSO),
   // /scim (a directory sync, own bucket), /internal, /config, the system-org
   // /organizations listing or the vendor /admin surface (docs/quotas.md).
   app.use('/user', ...apiCallsQuota, userRoutes);
@@ -102,11 +88,9 @@ export function mountApiRoutes(app: Express, limiters: RouteLimiters): void {
   // Tenant-facing, org-scoped: who in this org may raise and own a support case.
   app.use('/organization/:id/support-contacts', supportContactRoutes);
   app.use('/config', configRoutes);
-  // The relay's own bucket, mounted ahead of the tenant-facing limiter so the
-  // two never share a budget.
-  app.use(ALERT_WEBHOOK_PATH, limiters.alertWebhook);
-  app.use('/observability', limiters.observability, ...apiCallsQuota, observabilityRoutes);
-  app.use('/dashboards', ...apiCallsQuota, dashboardRoutes);
+  // The ops identity facts ops-center reads (account root, audit activity,
+  // live org ids) — ops-center only.
+  app.use(OPS_INTERNAL_MOUNT, opsInternalRoutes);
   // SCIM gets its OWN per-org bucket, sized for a directory sync — the general
   // limiter skips this path so the two never share a budget.
   app.use(SCIM_PATH, limiters.scim, scimRoutes);

@@ -343,6 +343,7 @@ const IMAGE_DESCRIPTIONS: Record<string, string> = {
   message: 'Pipeline Builder message service — in-app notifications and messaging.',
   reporting: 'Pipeline Builder reporting service — dashboards, metrics, and reporting.',
   compliance: 'Pipeline Builder compliance service — policy rules, plugin/pipeline validation, exemptions, and scans.',
+  'ops-center': 'Pipeline Builder ops-center — observability proxy, dashboards, alerting, on-call and storage/Postgres auto-scaling.',
   'image-registry': 'Pipeline Builder image-registry service — Docker registry token authorization for plugin images.',
   ask: 'Pipeline Builder ask service — the documentation-grounded assistant and its proposal agent.',
 };
@@ -945,13 +946,6 @@ const platform = new FunctionProject({
     // (asymmetric ECC_NIST_P256, sign-only) on the AWS targets. Lazily
     // imported — a local-file-signer install never constructs a KMS client.
     `@aws-sdk/client-kms@${awsSdkVersion}`,
-    // Automatic data-volume expansion on the ec2 target (services/node-disk-
-    // autoexpand.ts): DescribeVolumes/ModifyVolume to grow the EBS volume, then
-    // SendCommand to run the ONE fixed SSM document that resizes the filesystem.
-    // Both lazily imported — an eks or local install never constructs either
-    // client. Pinned to the same version as the other @aws-sdk clients so they
-    // share one copy of the smithy runtime rather than perturbing the tree.
-    `@aws-sdk/client-ec2@${awsSdkVersion}`, `@aws-sdk/client-ssm@${awsSdkVersion}`,
     'jsonwebtoken@9.0.3', 'slugify@1.6.9', 'bcryptjs@3.0.3',
     // WebAuthn/passkey ceremonies (registration, assertion, step-up). Dual
     // CJS/ESM, Node >= 20; the browser half is `@simplewebauthn/browser` in the
@@ -1378,6 +1372,25 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
     devDeps: ['@types/pg@8.23.1'],
   },
   {
+    // The operations control plane, split out of platform (the identity hub):
+    // the Prometheus/Loki/Alertmanager proxy, dashboards, org alert rules and
+    // destinations, the Alertmanager relay + on-call paging, and the storage /
+    // Postgres auto-scaling webhooks. Postgres only (no Mongo); identity facts it
+    // needs come from platform through typed internal contracts. `yaml` renders
+    // the materialized alert-rules file.
+    name: 'ops-center',
+    // @aws-sdk/client-ec2 + client-ssm: automatic data-volume expansion on the
+    // ec2 target (services/node-disk-autoexpand.ts) — DescribeVolumes/ModifyVolume
+    // to grow the EBS volume, then SendCommand to run the ONE fixed SSM document
+    // that resizes the filesystem. Both lazily imported — an eks or local install
+    // never constructs either client. Same version as the other @aws-sdk clients.
+    deps: [
+      `@pipeline-builder/pipeline-data@${pkg.pipelineData}`, 'drizzle-orm@0.45.4', 'zod@4.6.7', 'yaml@2.9.1',
+      `@aws-sdk/client-ec2@${awsSdkVersion}`, `@aws-sdk/client-ssm@${awsSdkVersion}`,
+    ],
+    devDeps: ['@types/pg@8.23.1'],
+  },
+  {
     // Docker Registry token-auth issuer + image management API.
     // Hosts /token (per Distribution token-auth spec) and /api/images/*
     // for catalog/get/delete/tag-copy ops. Validates inbound Basic auth
@@ -1565,6 +1578,14 @@ const COVERAGE_THRESHOLDS: Record<string, {
   },
   'reporting': {
     global: { statements: 95, branches: 89, functions: 94, lines: 95 },
+  },
+  'ops-center': {
+    // Split out of platform 2026-11-17 with its suites (plus new ones for the
+    // relay, the autoscaling webhooks and the platform contracts). Measured
+    // 85.1 / 89.4 / 88.1 / 85.1, pinned at floor - 1. The thin spots are the
+    // alerting controllers' CRUD paths and the Loki/EC2 clients, untested in
+    // platform too — raise as suites land.
+    global: { statements: 84, branches: 88, functions: 87, lines: 84 },
   },
   'platform': {
     global: { statements: 87, branches: 85, functions: 83, lines: 87 },

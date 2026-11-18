@@ -20,8 +20,10 @@ spec:
     # container and counting every autoscaler maximum):
     #
     #                    pods   requests                limits
-    #   steady            34    4.52 cpu / 13.62Gi      18.55 cpu / 27.00Gi
-    #   fully scaled      63   11.78 cpu / 21.31Gi      34.50 cpu / 42.50Gi
+    #   steady            35    4.67 cpu / 13.87Gi      19.05 cpu / 27.50Gi
+    #   fully scaled      66   12.23 cpu / 22.06Gi      36.00 cpu / 44.00Gi
+    # (ops-center added by hand on top of the last measurement: 150m/256Mi
+    # requests, 500m/512Mi limits, HPA 1→3 — re-measure on the next resize.)
     #
     # "fully scaled" = every HPA at maxReplicas AND the plugin KEDA ScaledObject
     # at its max. Unlike earlier revisions of this file, full scale-out now FITS:
@@ -45,14 +47,14 @@ spec:
     limits.cpu: "45"
     limits.memory: 52Gi
     # Counted from the rendered manifests rather than estimated. At every
-    # autoscaler maximum the namespace holds 63 workload pods:
+    # autoscaler maximum the namespace holds 66 workload pods:
     #   quota 2→6, image-registry 1→5, platform 1→5, frontend 1→4, pipeline 1→4,
-    #   ask/compliance/message/nginx/reporting 1→3 each (HPAs), plugin 1→2
+    #   ask/compliance/message/nginx/ops-center/reporting 1→3 each (HPAs), plugin 1→2
     #   (a KEDA ScaledObject, NOT an HPA — easy to miss when tallying), plus the
     #   ~22 single-replica services, DBs and buildkitd tiers.
     # On top of that init-platform.sh spawns short-lived crane push/check and
     # rustfs-init Jobs, and a rolling update briefly runs surge pods.
-    #   63 fully scaled + ~8 transient + surge/slack = 80
+    #   66 fully scaled + ~8 transient + surge/slack = 80
     # Was: 48 — which looked generous against the old hand-estimate of "near 40"
     # but is 15 SHORT of the real fully-scaled count, so the first scale-out under
     # load would have hit "exceeded quota: pods=48" exactly as the 40→48 bump was

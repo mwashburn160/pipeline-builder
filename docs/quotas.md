@@ -76,7 +76,8 @@ The cap is **soft**: at 100% the account gets the "reached" notice and automatio
 
 | Service | Prefixes covered |
 |---------|------------------|
-| platform | `/user`, `/users`, `/organization` (incl. support contacts), `/invitation`, `/audit`, `/observability`, `/dashboards` |
+| platform | `/user`, `/users`, `/organization` (incl. support contacts), `/invitation`, `/audit` |
+| ops-center | `/observability` (except the Alertmanager / PagerDuty machine webhooks, which carry no user), `/dashboards` |
 | pipeline | `/pipelines`, `/pipeline-templates` |
 | plugin | every user prefix (plugins, installs, publisher, reviews, queue status, pipeline security, exposures, triage, runtime check, security notifications, kept setup images) |
 | message | `/messages` |

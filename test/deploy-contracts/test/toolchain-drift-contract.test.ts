@@ -40,8 +40,10 @@ const WORKFLOWS = readdirSync(join(REPO_ROOT, '.github/workflows'))
   .map((f) => `.github/workflows/${f}`);
 
 /** Every Dockerfile that builds a released service image. */
-const SERVICE_DOCKERFILES = ['platform', 'frontend', 'api/ask', 'api/billing', 'api/compliance', 'api/image-registry',
-  'api/message', 'api/pipeline', 'api/plugin', 'api/quota', 'api/reporting'].map((d) => `${d}/Dockerfile`);
+/** From services.txt (projen-generated), so a new image project is covered automatically. */
+const SERVICE_DOCKERFILES = read('deploy/local/docker/services.txt').split('\n')
+  .filter((l) => l && !l.startsWith('#')).map((l) => l.split(' '))
+  .filter(([kind]) => kind === 'service' || kind === 'frontend').map(([, , dir]) => `${dir!}/Dockerfile`);
 
 /** Assert every [label, value] pair carries the same, defined value. */
 function expectAllEqual(pairs: Array<[string, string | undefined]>): string {
@@ -109,7 +111,7 @@ describe('pnpm', () => {
 });
 
 describe('log retention', () => {
-  it('is ONE number: platform\'s query clamp and Loki\'s retention_period', () => {
+  it('is ONE number: the log controller\'s query clamp and Loki\'s retention_period', () => {
     // These were two. The clamp was hard-coded at 7 days with a comment pointing
     // at `retention_period: 168h`, and only that comment kept them equal — so
     // raising retention alone would have kept 30 days of logs while the
@@ -119,11 +121,11 @@ describe('log retention', () => {
     //
     // Both now read LOG_RETENTION_HOURS. The DEFAULTS are what can still drift,
     // since each states its own fallback, so those are what this compares.
-    const platform = grab(
-      'platform/src/observability/log-controller.ts',
-      /envInt\('LOG_RETENTION_HOURS',\s*(\d+)/,
-    );
-    const pairs: Array<[string, string | undefined]> = [['platform log-controller', platform]];
+    // The log controller moved from platform to ops-center with the rest of
+    // /observability/*.
+    const controller = 'api/ops-center/src/observability/log-controller.ts';
+    const clamp = grab(controller, /envInt\('LOG_RETENTION_HOURS',\s*(\d+)/);
+    const pairs: Array<[string, string | undefined]> = [[`${controller}`, clamp]];
     for (const tree of ['deploy/local/docker', 'deploy/local/minikube', 'deploy/aws/eks', 'deploy/aws/ec2']) {
       pairs.push([`${tree} loki-config`, grab(
         `${tree}/config/loki/loki-config.yml`,

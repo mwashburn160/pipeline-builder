@@ -18,6 +18,7 @@ packages:
   - api/reporting
   - api/ask
   - api/compliance
+  - api/ops-center
   - api/image-registry
   - test/deploy-contracts
 overrides:

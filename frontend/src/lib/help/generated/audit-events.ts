@@ -1,6 +1,6 @@
 // GENERATED FROM docs/audit-events.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 4fbc0faecb4611f7be19de03887b69213481f203b044744bbf096a925a0759a6
+// SOURCE-SHA256: 727532a811ae27064b911142d0258de5d56029b26e2616a38bc1d22fd412545e
 // SPDX-License-Identifier: Apache-2.0
 import { ScrollText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -482,7 +482,7 @@ export const auditEventsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "events over time by type, top actors (24h), and recent events. Its catalog entries (audit_* in platform/src/observability/catalog.ts) use the audit-store source and are orgScoped + adminOnly, so the observability API applies the same predicate as GET /audit (buildAuditQuery in platform/src/services/audit-service.ts)."
+          "content": "events over time by type, top actors (24h), and recent events. Its catalog entries (audit_* in api/ops-center/src/observability/catalog.ts) use the audit-store source and are orgScoped + adminOnly, so the observability API applies the same predicate as GET /audit (buildAuditQuery in platform/src/services/audit-service.ts)."
         },
         {
           "type": "text",
@@ -623,6 +623,30 @@ export const auditEventsTopic: HelpTopic = {
         {
           "type": "text",
           "content": "Each record carries actorId/actorEmail, orgId (the actor's own org), and affectedOrgId (the org actually operated on). They diverge when a sysadmin acts on another org, so the trail answers \"what did a sysadmin do to org X?\" — SOC2 evidence for impersonation-style access (see Impersonation). admin.* actions and admin.impersonate.start set affectedOrgId to the target org so the affected org's own admins can see them."
+        },
+        {
+          "type": "text",
+          "content": "Alertmanager silences"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Action",
+            "Emitted when",
+            "Details"
+          ],
+          "rows": [
+            [
+              "observability.silence.create",
+              "Someone creates an Alertmanager silence from Observability → Alerts (it SUPPRESSES the org's alerts, so both ends are recorded; emitted by ops-center)",
+              "targetId = silence id; matcherCount, endsAt, comment (never the matcher values)"
+            ],
+            [
+              "observability.silence.delete",
+              "Someone expires a silence early",
+              "targetId = silence id"
+            ]
+          ]
         },
         {
           "type": "text",

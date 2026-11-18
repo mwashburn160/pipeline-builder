@@ -276,7 +276,7 @@ org; plain members see neither.
   integrity (`/audit/verify`) check.
 - **Audit Activity** dashboard (`/dashboard/observability/audit-activity`) —
   events over time by type, top actors (24h), and recent events. Its catalog
-  entries (`audit_*` in `platform/src/observability/catalog.ts`) use the
+  entries (`audit_*` in `api/ops-center/src/observability/catalog.ts`) use the
   `audit-store` source and are `orgScoped` + `adminOnly`, so the observability
   API applies the same predicate as `GET /audit`
   (`buildAuditQuery` in `platform/src/services/audit-service.ts`).
@@ -424,6 +424,13 @@ on another org, so the trail answers "what did a sysadmin do to org X?" — SOC2
 evidence for impersonation-style access (see [Impersonation](permissions.md#impersonation-view-as-user)). `admin.*` actions and
 `admin.impersonate.start` set `affectedOrgId` to the target org so the affected
 org's own admins can see them.
+
+#### Alertmanager silences
+
+| Action | Emitted when | Details |
+|---|---|---|
+| `observability.silence.create` | Someone creates an Alertmanager silence from **Observability → Alerts** (it SUPPRESSES the org's alerts, so both ends are recorded; emitted by ops-center) | `targetId` = silence id; `matcherCount`, `endsAt`, `comment` (never the matcher values) |
+| `observability.silence.delete` | Someone expires a silence early | `targetId` = silence id |
 
 #### Log-surface egress
 

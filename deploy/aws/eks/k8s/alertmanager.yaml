@@ -165,7 +165,7 @@ spec:
             - name: alertmanager-config
               mountPath: /etc/alertmanager
               readOnly: true
-            # Per-org relay bearer token, read per request by the platform-relay
+            # Per-org relay bearer token, read per request by the ops-center-relay
             # receiver (credentials_file: /etc/alertmanager-secrets/relay-token).
             # A separate path — not nested under the read-only config mount.
             - name: alertmanager-relay

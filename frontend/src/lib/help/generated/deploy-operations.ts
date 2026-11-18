@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 4fd0f121cd7e3fc222602d50844573375f41a25122e8471fb69cf378f1578157
+// SOURCE-SHA256: d3c70472b73e01fd27d0c17d98347c34010e6117609f164e90fd537444c1dea8
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -685,7 +685,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "PROMETHEUS_URL points platform's Observability query endpoint at the querier (http://thanos-query:9090) so PromQL spans recent plus archived history; set it back to http://prometheus:9090 for recent-only. KEDA autoscaling deliberately still targets Prometheus directly — recent-only, lower latency."
+          "content": "PROMETHEUS_URL points ops-center's Observability query endpoint at the querier (http://thanos-query:9090) so PromQL spans recent plus archived history; set it back to http://prometheus:9090 for recent-only. KEDA autoscaling deliberately still targets Prometheus directly — recent-only, lower latency."
         }
       ]
     },
@@ -1042,7 +1042,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Each carries its own login as well, and both read data with no org scoping — unlike the tenant-facing /dashboard/observability pages, which are org-scoped through the platform's PromQL proxy. They are therefore admin-only, and nothing tenant-facing links to them."
+          "content": "Each carries its own login as well, and both read data with no org scoping — unlike the tenant-facing /dashboard/observability pages, which are org-scoped through ops-center's PromQL proxy. They are therefore admin-only, and nothing tenant-facing links to them."
         },
         {
           "type": "text",
@@ -1473,7 +1473,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Three receivers point at platform's POST /observability/oncall-webhook rather than at a chat integration, and the reason is a constraint rather than a preference: alertmanager.yml is asserted byte-identical across all four targets and Alertmanager has no templating, so a route that existed only where paging is enabled would need a second copy of the whole config — the shape admin-consoles-disabled.conf already takes for nginx. Pointing at the product instead keeps the routes always present and honours ONCALL_ENABLED on the receiving side, where a disabled client accepts and drops. Alertmanager therefore sees a 200 either way, and a deployment that does not page accumulates no alertmanager_notifications_failed_total."
+          "content": "Three receivers point at ops-center's POST /observability/oncall-webhook rather than at a chat integration, and the reason is a constraint rather than a preference: alertmanager.yml is asserted byte-identical across all four targets and Alertmanager has no templating, so a route that existed only where paging is enabled would need a second copy of the whole config — the shape admin-consoles-disabled.conf already takes for nginx. Pointing at the product instead keeps the routes always present and honours ONCALL_ENABLED on the receiving side, where a disabled client accepts and drops. Alertmanager therefore sees a 200 either way, and a deployment that does not page accumulates no alertmanager_notifications_failed_total."
         },
         {
           "type": "list",
@@ -1507,7 +1507,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The secret that is new is PAGERDUTY_ROUTING_KEY, and it is a per-service integration key, not a REST API key: it can create events on one service and nothing else. It reaches the app Secret automatically through the _KEY suffix rule in the env classifier, never the world-readable ConfigMap, and it is consumed by platform and the message service rather than mounted into Alertmanager."
+          "content": "The secret that is new is PAGERDUTY_ROUTING_KEY, and it is a per-service integration key, not a REST API key: it can create events on one service and nothing else. It reaches the app Secret automatically through the _KEY suffix rule in the env classifier, never the world-readable ConfigMap, and it is consumed by ops-center and the message service rather than mounted into Alertmanager."
         },
         {
           "type": "text",
@@ -1735,7 +1735,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "With PVC_AUTOEXPAND_ENABLED=true, Alertmanager also POSTs PersistentVolumeFillingUp / PersistentVolumeCriticallyFull to platform's /observability/pvc-autoexpand, which raises the claim's requested size. The route is additive (continue: true), so the ops-team Slack notification still happens — automation must never be the only thing that knows a volume is filling."
+          "content": "With PVC_AUTOEXPAND_ENABLED=true, Alertmanager also POSTs PersistentVolumeFillingUp / PersistentVolumeCriticallyFull to ops-center's /observability/pvc-autoexpand, which raises the claim's requested size. The route is additive (continue: true), so the ops-team Slack notification still happens — automation must never be the only thing that knows a volume is filling."
         },
         {
           "type": "text",
@@ -1801,12 +1801,12 @@ export const deployOperationsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Least privilege. Platform holds a namespaced Role (get, patch on"
+            "Least privilege. The ops-center ServiceAccount holds a namespaced"
           ]
         },
         {
           "type": "text",
-          "content": "persistentvolumeclaims in pipeline-builder only) — not a ClusterRole, and no create/delete: deleting a Retain-policy claim would orphan a billing EBS volume."
+          "content": "Role, ops-center-pvc-autoexpand (get, patch on persistentvolumeclaims in pipeline-builder only, pinned by resourceNames to the claims the eks tree declares — k8s/ops-center.yaml) — not a ClusterRole, and no create/delete: deleting a Retain-policy claim would orphan a billing EBS volume. Platform, which holds the user-token signing key, has no Kubernetes RBAC at all and keeps automountServiceAccountToken: false; test/deploy-contracts/test/ops-center-rbac-contract.test.ts holds both halves."
         },
         {
           "type": "list",
@@ -1834,7 +1834,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The ec2 counterpart, and a different actuator because there is no claim to patch: this target binds manual hostPath PVs, so the databases, the RustFS buckets and the registry all share one EBS volume (/dev/xvdf, whole-disk ext4 labelled pipeline-data, mounted at /opt/pipeline). With NODE_DISK_AUTOEXPAND_ENABLED=true, NodeDiskFillingUp also POSTs to platform's /observability/node-disk-autoexpand, which calls ec2:ModifyVolume and then runs an SSM document to grow the filesystem."
+          "content": "The ec2 counterpart, and a different actuator because there is no claim to patch: this target binds manual hostPath PVs, so the databases, the RustFS buckets and the registry all share one EBS volume (/dev/xvdf, whole-disk ext4 labelled pipeline-data, mounted at /opt/pipeline). With NODE_DISK_AUTOEXPAND_ENABLED=true, NodeDiskFillingUp also POSTs to ops-center's /observability/node-disk-autoexpand, which calls ec2:ModifyVolume and then runs an SSM document to grow the filesystem."
         },
         {
           "type": "text",

@@ -4,9 +4,9 @@
 /**
  * The platform-only halves of the `secret_rotation_previous_set` gauge
  * (docs/runbooks/secret-rotation.md). api-core registers `JWT_SECRET` (the
- * internal service-token secret); if these three probes are missing, a
- * half-finished rotation of the ES256 user-token signing key, the at-rest master
- * key or the alert-relay bearer is invisible and the
+ * internal service-token secret); if these probes are missing, a
+ * half-finished rotation of the ES256 user-token signing key or the at-rest
+ * master key is invisible and the
  * SecretRotationPreviousLingering alert never fires for it.
  *
  * `TOKEN_SIGNING_KEY` has no `*_PREVIOUS` env value to read — its overlap is a
@@ -16,8 +16,7 @@
 import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
 import { mockConfig } from './helpers/config-mock.js';
 
-const instances: Array<{ id: string; token: string; previousToken?: string }> = [];
-jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ alertWebhook: { get instances() { return instances; } } }));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig());
 
 const { previousSecretStates } = await import('@pipeline-builder/api-core');
 const { registerPlatformSecretRotationProbes } = await import('../src/observability/secret-rotation.js');
@@ -34,17 +33,14 @@ const stateOf = (secret: string) => previousSecretStates().find((s) => s.secret 
 
 beforeEach(() => {
   for (const k of ENV) delete process.env[k];
-  instances.length = 0;
   _setTokenSigningKeysForTests({ current: generateSigningKey(), retiring: [] });
   registerPlatformSecretRotationProbes();
 });
 
 describe('platform secret-rotation probes', () => {
   it('reports every platform-held secret as not rotating by default', () => {
-    instances.push({ id: 'alertmanager', token: 'tok' });
     expect(stateOf('TOKEN_SIGNING_KEY')).toBe(false);
     expect(stateOf('SECRET_ENCRYPTION_KEY')).toBe(false);
-    expect(stateOf('ALERT_WEBHOOK_INSTANCE_TOKEN')).toBe(false);
   });
 
   it('reports the signing key as rotating while a RETIRING kid is still published', () => {
@@ -70,10 +66,5 @@ describe('platform secret-rotation probes', () => {
     expect(stateOf('SECRET_ENCRYPTION_KEY')).toBe(false);
     process.env.SECRET_ENCRYPTION_KMS_CIPHERTEXT_PREVIOUS = Buffer.from('wrapped-old').toString('base64');
     expect(stateOf('SECRET_ENCRYPTION_KEY')).toBe(true);
-  });
-
-  it('tracks a relay instance carrying a previousToken', () => {
-    instances.push({ id: 'alertmanager', token: 'tok-new', previousToken: 'tok-old' });
-    expect(stateOf('ALERT_WEBHOOK_INSTANCE_TOKEN')).toBe(true);
   });
 });

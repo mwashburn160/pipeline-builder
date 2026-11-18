@@ -68,7 +68,7 @@ function bucketsOf(route: string): string[] {
 beforeAll(() => {
   const passthrough = (_req: Request, _res: Response, next: NextFunction): void => next();
   const app = express();
-  mountApiRoutes(app, { alertWebhook: passthrough, observability: passthrough, scim: passthrough });
+  mountApiRoutes(app, { scim: passthrough });
   chains = middlewareChains(app);
 });
 

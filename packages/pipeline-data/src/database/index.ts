@@ -97,6 +97,8 @@ export {
   type DashboardPanelInsert,
   orgAlertDestination,
   orgAlertRule,
+  alertDestinationStatus,
+  type AlertDestinationStatusRow,
   type OrgAlertDestination,
   type OrgAlertDestinationInsert,
   type HealthBreakdown,

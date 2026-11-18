@@ -1,6 +1,6 @@
 // GENERATED FROM docs/architecture-flow.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: fb7fa7fc0213f8ca9165db8a31ee570bcb5c9983745e443f3c3945bb8648bdf1
+// SOURCE-SHA256: a68651fc3912dbedcbb25f56cd6c1c064fbf26585635aaee3d61c84a45660361
 // SPDX-License-Identifier: Apache-2.0
 import { Workflow } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -135,8 +135,41 @@ export const architectureFlowTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "flowchart TB\n    subgraph Clients\n        FE[Frontend<br/>Next.js]\n        CLI[CLI<br/>pipeline-manager]\n        API_EXT[REST API]\n    end\n\n    subgraph Platform[\"Pipeline Builder Platform\"]\n        NGINX[Nginx<br/>Reverse Proxy]\n        PLATFORM[Platform API<br/>Identity / Orgs / Audit]\n        PIPELINE[Pipeline API]\n        PLUGIN[Plugin API]\n        COMPLIANCE[Compliance]\n        QUOTA[Quota]\n        BILLING[Billing]\n        MESSAGE[Message]\n        REPORTING[Reporting]\n        IMGREG[Image Registry<br/>Token / Image API]\n    end\n\n    subgraph Data\n        MONGO[(MongoDB<br/>Users / Orgs)]\n        PG[(PostgreSQL<br/>Pipelines / Plugins)]\n        REDIS[(Redis<br/>BullMQ / Cache)]\n    end\n\n    subgraph Build\n        BK[buildkitd Sidecar<br/>Rootless BuildKit]\n        REG[Registry<br/>Plugin Images]\n    end\n\n    FE & CLI & API_EXT --> NGINX\n    NGINX -->|route by path| PLATFORM & PIPELINE & PLUGIN & COMPLIANCE & QUOTA & BILLING & MESSAGE & REPORTING & IMGREG\n    PIPELINE & PLUGIN & COMPLIANCE & REPORTING & IMGREG -.->|verify tokens via JWKS| PLATFORM\n    PLUGIN & PIPELINE -->|validate| COMPLIANCE\n    PLATFORM --> MONGO\n    PIPELINE & PLUGIN & COMPLIANCE & REPORTING --> PG\n    PLUGIN --> REDIS\n    PLUGIN -->|buildctl build_image| BK\n    PLUGIN -->|crane push prebuilt| REG\n    BK -->|push with scoped Bearer token| REG\n    IMGREG -->|mint scoped token| REG",
+          "content": "flowchart TB\n    subgraph Clients\n        FE[Frontend<br/>Next.js]\n        CLI[CLI<br/>pipeline-manager]\n        API_EXT[REST API]\n    end\n\n    subgraph Platform[\"Pipeline Builder Platform\"]\n        NGINX[Nginx<br/>Reverse Proxy]\n        PLATFORM[Platform API<br/>Identity / Orgs / Audit]\n        PIPELINE[Pipeline API]\n        PLUGIN[Plugin API]\n        COMPLIANCE[Compliance]\n        QUOTA[Quota]\n        BILLING[Billing]\n        MESSAGE[Message]\n        REPORTING[Reporting]\n        OPS[Ops Controller<br/>Dashboards / Alerting / On-call]\n        IMGREG[Image Registry<br/>Token / Image API]\n    end\n\n    subgraph Data\n        MONGO[(MongoDB<br/>Users / Orgs)]\n        PG[(PostgreSQL<br/>Pipelines / Plugins)]\n        REDIS[(Redis<br/>BullMQ / Cache)]\n    end\n\n    subgraph Build\n        BK[buildkitd Sidecar<br/>Rootless BuildKit]\n        REG[Registry<br/>Plugin Images]\n    end\n\n    FE & CLI & API_EXT --> NGINX\n    NGINX -->|route by path| PLATFORM & PIPELINE & PLUGIN & COMPLIANCE & QUOTA & BILLING & MESSAGE & REPORTING & OPS & IMGREG\n    PIPELINE & PLUGIN & COMPLIANCE & REPORTING & OPS & IMGREG -.->|verify tokens via JWKS| PLATFORM\n    PLUGIN & PIPELINE -->|validate| COMPLIANCE\n    PLATFORM --> MONGO\n    PIPELINE & PLUGIN & COMPLIANCE & REPORTING & OPS --> PG\n    PLUGIN --> REDIS\n    PLUGIN -->|buildctl build_image| BK\n    PLUGIN -->|crane push prebuilt| REG\n    BK -->|push with scoped Bearer token| REG\n    IMGREG -->|mint scoped token| REG",
           "language": "mermaid"
+        },
+        {
+          "type": "text",
+          "content": "Services"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Service",
+            "Owns",
+            "Data"
+          ],
+          "rows": [
+            [
+              "platform",
+              "The identity hub: users, sessions, orgs + teams, membership, Roles/RBAC, SSO/SAML/SCIM, JWT issuance (JWKS), the audit trail, the email relay, the org-purge / user-erasure cascade outbox",
+              "MongoDB (+ support_contacts in Postgres)"
+            ],
+            [
+              "ops-center",
+              "The operations control plane, split out of platform: the Prometheus / Loki / Alertmanager proxy behind the dashboards, dashboards, org alert rules + destinations and their delivery health, the Alertmanager relay, on-call paging (PagerDuty), and the PVC / node-disk / Postgres-rung auto-scaling webhooks (the only workload with Kubernetes API rights)",
+              "PostgreSQL only — dashboards, dashboard_panels, org_alert_rules, org_alert_destinations, alert_destination_status"
+            ],
+            [
+              "pipeline, plugin, compliance, message, reporting, quota, billing, ask, image-registry",
+              "See each service's README",
+              "PostgreSQL / MongoDB per service"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Why ops-center is separate. Platform is the one service everyone depends on to sign in; it should hold no Kubernetes API rights, take no Alertmanager webhook traffic and run no upstream-proxy load. The split moved every /observability/* and /dashboards* route unchanged (nginx routes those prefixes to ops-center, so the browser and CLI call the same /api/... paths), together with the Roles bound for postgres-rung / pvc-autoexpand, the Alertmanager receivers and the ops metrics. What ops-center still needs from identity data goes through typed internal contracts served by platform (api-core PLATFORM_INTERNAL): orgAccountRoot (feature-quota reservations bind to the account root), auditActivity (the Audit Activity panels aggregate platform's Mongo audit trail), liveOrgIds (a sysadmin's orgs=all log view), and the notifyEmail relay (alert leg for email destinations, tenant leg for the failing-destination notice). An org purge reaches its tables through the cascade outbox's ops-center leg (OPS_CENTER_INTERNAL.purgeOrg)."
         }
       ]
     },

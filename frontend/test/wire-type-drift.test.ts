@@ -43,7 +43,7 @@ const ROOTS = ['api', 'frontend', 'packages', 'platform'];
 /** Wire shapes declared on BOTH sides, kept identical by this test. */
 const REGISTERED: ReadonlyArray<readonly [string, string, string]> = [
   ['ActionFailure', 'frontend/src/components/reports/types.ts', 'packages/pipeline-data/src/api/reporting/types.ts'],
-  ['Alert', 'frontend/src/types/observability.ts', 'platform/src/observability/alertmanager-client.ts'],
+  ['Alert', 'frontend/src/types/observability.ts', 'api/ops-center/src/observability/alertmanager-client.ts'],
   // Plugin-upgrade apply's per-step change (api/pipeline, not importable).
   ['AppliedUpgrade', 'frontend/src/lib/api/pipeline-security-types.ts', 'api/pipeline/src/helpers/plugin-upgrades.ts'],
   ['ApproverCount', 'frontend/src/types/ecosystem.ts', 'api/plugin/src/services/ecosystem/platform-reads.ts'],
@@ -68,7 +68,7 @@ const REGISTERED: ReadonlyArray<readonly [string, string, string]> = [
   // A staff reply template. The server shape lives in pipeline-data, which the
   // client cannot import, so the copy is registered rather than shared.
   ['CannedResponse', 'frontend/src/types/message.ts', 'packages/pipeline-data/src/api/support-cases.ts'],
-  ['DashboardWithPanels', 'frontend/src/types/observability.ts', 'platform/src/services/dashboard-service.ts'],
+  ['DashboardWithPanels', 'frontend/src/types/observability.ts', 'api/ops-center/src/services/dashboard-service.ts'],
   ['DataQualityNote', 'frontend/src/lib/api/domains/stakeholder-reports.ts', 'packages/pipeline-data/src/api/reporting/stakeholder/compose.ts'],
   ['DoraLevel', 'frontend/src/lib/api/domains/reporting.ts', 'packages/pipeline-data/src/api/reporting/types.ts'],
   ['IncidentListItem', 'frontend/src/lib/api/domains/reporting.ts', 'packages/pipeline-data/src/api/reporting/types.ts'],
@@ -82,7 +82,7 @@ const REGISTERED: ReadonlyArray<readonly [string, string, string]> = [
   // A version in the fleet / moderation vulnerability attention lists (api/plugin, not importable).
   ['PostureVersion', 'frontend/src/lib/api/plugin-vulnerability-types.ts', 'api/plugin/src/services/plugin-vuln-posture.ts'],
   ['PromotionResult', 'frontend/src/lib/api/pipeline-security-types.ts', 'api/plugin/src/services/kept-setup-images.ts'],
-  ['RangeKey', 'frontend/src/types/observability.ts', 'platform/src/observability/catalog.ts'],
+  ['RangeKey', 'frontend/src/types/observability.ts', 'api/ops-center/src/observability/catalog.ts'],
   ['ReportSnapshot', 'frontend/src/lib/api/domains/stakeholder-reports.ts', 'packages/pipeline-data/src/api/reporting/stakeholder/compose.ts'],
   ['Scope', 'frontend/src/lib/templates.ts', 'packages/pipeline-core/src/template/evaluator.ts'],
   // Superseded system plugin version retention: the Retention panel's report (api/plugin, not importable).
@@ -92,7 +92,7 @@ const REGISTERED: ReadonlyArray<readonly [string, string, string]> = [
   ['SeatUsage', 'frontend/src/types/billing.ts', 'api/billing/src/helpers/usage-helpers.ts'],
   // An artifact security report's counts (api/pipeline, not importable).
   ['SeverityCounts', 'frontend/src/lib/api/pipeline-security-types.ts', 'api/pipeline/src/helpers/security-report.ts'],
-  ['Silence', 'frontend/src/types/observability.ts', 'platform/src/observability/alertmanager-client.ts'],
+  ['Silence', 'frontend/src/types/observability.ts', 'api/ops-center/src/observability/alertmanager-client.ts'],
   ['SimilarPlugin', 'frontend/src/types/plugin.ts', 'api/plugin/src/helpers/similar-plugins.ts'],
   ['SsoTestReport', 'frontend/src/types/sso.ts', 'platform/src/helpers/sso-test-flow.ts'],
   ['StepUpgrade', 'frontend/src/lib/api/pipeline-security-types.ts', 'api/pipeline/src/helpers/plugin-upgrades.ts'],

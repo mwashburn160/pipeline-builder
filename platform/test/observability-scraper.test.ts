@@ -29,7 +29,6 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 jest.unstable_mockModule('../src/utils/leader-lock.js', () => ({ runWithLeaderLock: jest.fn(async () => false) }));
 
 const { startPlatformMetricsScraper, stopPlatformMetricsScraper } = await import('../src/observability/scraper.js');
-const { QUERIES } = await import('../src/observability/catalog.js');
 
 afterEach(() => stopPlatformMetricsScraper());
 
@@ -42,11 +41,4 @@ describe('platform metrics scraper', () => {
     expect(mockSetGauge).toHaveBeenCalledWith('platform_orgs_total', {}, 3);
     expect(mockSetGauge).toHaveBeenCalledWith('platform_memberships_active_total', {}, 9);
   });
-
-  it.each(['platform_orgs_total', 'platform_users_total', 'platform_memberships_active_total'])(
-    'catalog collapses the per-pod %s series with max()',
-    (key) => {
-      expect(QUERIES[key].query).toBe(`max(${key})`);
-    },
-  );
 });

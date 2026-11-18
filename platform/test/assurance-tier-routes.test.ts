@@ -55,7 +55,6 @@ const BY_POLICY: Record<string, 'allow' | 'refuse'> = {
   'POST /invitation/send': 'allow',
   'DELETE /invitation/:invitationId': 'allow',
   'POST /invitation/:invitationId/resend': 'allow',
-  'GET /observability/logs/export': 'allow',
   // Minting a personal credential: only a person may, while the policy is on.
   'POST /user/keys': 'refuse',
   'POST /user/generate-token': 'refuse',
@@ -67,7 +66,7 @@ beforeAll(async () => {
   const { mountApiRoutes } = await import('../src/routes/mount.js');
   const passthrough = (_req: Request, _res: Response, next: NextFunction): void => next();
   const app = express();
-  mountApiRoutes(app, { alertWebhook: passthrough, observability: passthrough, scim: passthrough });
+  mountApiRoutes(app, { scim: passthrough });
   table = buildRouteTable(app);
 });
 

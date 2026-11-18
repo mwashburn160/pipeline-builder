@@ -135,6 +135,7 @@ targets instead.
 | message | 3000 (internal) | Message routing + WebSocket |
 | compliance | 3000 (internal) | Per-org compliance rule enforcement |
 | reporting | 3000 (internal) | Execution analytics |
+| ops-center | 3000 (internal) | Operations control plane: `/api/observability/*` + `/api/dashboards*`, alert relay + on-call paging, storage / Postgres auto-scaling webhooks (Alertmanager receivers) |
 | postgres | 5432 (internal) | PostgreSQL database |
 | mongodb | 27017 (internal) | MongoDB (platform, quota, billing) |
 | redis | 6379 (internal) | Job queue (BullMQ) for plugin builds + compliance events |

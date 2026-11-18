@@ -1,6 +1,6 @@
 // GENERATED FROM docs/aws-deployment.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: cd34bd11e196869bd056433fbf8bd2091865d45c0dc53c8d5af0f347c8396f4e
+// SOURCE-SHA256: 99a941d34f9e42b4b2c0aa0e950fe8366f5bb6d7b532e2512ab776b79b28e144
 // SPDX-License-Identifier: Apache-2.0
 import { Server } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -58,7 +58,7 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Five dashboards — Platform Overview, Plugin Builds, Queue Health, Registry Activity, Audit Activity — are seeded into the database at platform cold start as public rows owned by the system org (org_id = the configured SYSTEM_ORG_ID, default 000000000000000000000001), so they appear automatically for any logged-in org at /dashboard/observability/<id>."
+          "content": "Five dashboards — Platform Overview, Plugin Builds, Queue Health, Registry Activity, Audit Activity — are seeded into the database at ops-center cold start as public rows owned by the system org (org_id = the configured SYSTEM_ORG_ID, default 000000000000000000000001), so they appear automatically for any logged-in org at /dashboard/observability/<id>."
         },
         {
           "type": "table",

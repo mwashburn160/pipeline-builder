@@ -1,6 +1,6 @@
 // GENERATED FROM docs/service-mesh.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 4b65de3ed5d5ccd1a07c3566dd809eb0a6a8caa6218a710c529aa94e9cbc803d
+// SOURCE-SHA256: cf90e8a29ca73ce6e4cb579e92590daa4f5e9635b66c32843980a8827d93ee35
 // SPDX-License-Identifier: Apache-2.0
 import { Network } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -260,15 +260,15 @@ export const serviceMeshTopic: HelpTopic = {
           "rows": [
             [
               "loki :3100",
-              "promtail, platform, grafana, prometheus — never plugin / plugin-quarantine-builder"
+              "promtail, ops-center, grafana, prometheus — never plugin / plugin-quarantine-builder"
             ],
             [
               "prometheus :9090",
-              "platform, grafana, prometheus (self-scrape); KEDA (non-mesh, plaintext via the PERMISSIVE port — matched by notPrincipals: [\"*\"], bounded to the keda namespace by NetworkPolicy); :10901 thanos-query"
+              "ops-center, grafana, prometheus (self-scrape); KEDA (non-mesh, plaintext via the PERMISSIVE port — matched by notPrincipals: [\"*\"], bounded to the keda namespace by NetworkPolicy); :10901 thanos-query"
             ],
             [
               "thanos-query :9090",
-              "platform, grafana, prometheus"
+              "ops-center, grafana, prometheus"
             ],
             [
               "thanos-store-gateway",
@@ -280,7 +280,7 @@ export const serviceMeshTopic: HelpTopic = {
             ],
             [
               "alertmanager :9093",
-              "prometheus, platform"
+              "prometheus, ops-center"
             ],
             [
               "jaeger",
@@ -302,7 +302,7 @@ export const serviceMeshTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Every pod is egress-restricted (DNS + same-namespace only) and gets exactly the external legs it needs, all in ONE ipBlock shape: 0.0.0.0/0 except RFC1918, CGNAT, 169.254.169.254/32 (IMDS) and 169.254.170.0/24 (container-credential agents). It excepts those credential addresses exactly, not all of 169.254.0.0/16 — ambient's node-side plumbing uses link-local addresses, and excepting the whole range severed TLS for the model server. A workload holding an AWS grant (platform, pipeline, image-registry in kms mode, db-backup) gets a separate /32 rule on :80 for its credential endpoint (Pod Identity on EKS, IMDS on ec2). Public legs: alertmanager 443 (Slack), platform 443 + SMTP, pipeline 443, ask 443, compliance 443 + SMTP, billing 443, plugin 443/80. Mesh hops to istio-system (prometheus, kiali, the waypoint) stay ports-only — their destinations are cluster pod IPs, which RFC1918 would exclude."
+          "content": "Every pod is egress-restricted (DNS + same-namespace only) and gets exactly the external legs it needs, all in ONE ipBlock shape: 0.0.0.0/0 except RFC1918, CGNAT, 169.254.169.254/32 (IMDS) and 169.254.170.0/24 (container-credential agents). It excepts those credential addresses exactly, not all of 169.254.0.0/16 — ambient's node-side plumbing uses link-local addresses, and excepting the whole range severed TLS for the model server. A workload holding an AWS grant (platform, pipeline, image-registry in kms mode, db-backup, and on ec2 ops-center for node-disk auto-expansion) gets a separate /32 rule on :80 for its credential endpoint (Pod Identity on EKS, IMDS on ec2). Public legs: alertmanager 443 (Slack), platform 443 + SMTP, ops-center 443 (org Slack/webhook destinations, PagerDuty, dead-man URL), pipeline 443, ask 443, compliance 443 + SMTP, billing 443, plugin 443/80. Mesh hops to istio-system (prometheus, kiali, the waypoint) stay ports-only — their destinations are cluster pod IPs, which RFC1918 would exclude."
         },
         {
           "type": "text",
@@ -328,7 +328,7 @@ export const serviceMeshTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "ztunnel is L4-only — an L7 AuthorizationPolicy is enforced by a waypoint proxy or not at all. The pb-waypoint Gateway is attached (via the istio.io/use-waypoint label on the Service) to exactly the six Services that expose an internal route: platform, message, compliance, quota, reporting, image-registry (POST /internal/plugin-signatures — plugin-image signing — and /internal/plugin-publications* — the public/* namespace operations; both plugin only). Not namespace-wide, which would put an Envoy hop in front of the datastores too. It needs the Kubernetes Gateway API CRDs, and each target's setup installs the standard channel for you (GATEWAY_API_VERSION, pinned) when they are not already present — istioctl install leaves them to the cluster, so this is handled during setup rather than left as a prerequisite."
+          "content": "ztunnel is L4-only — an L7 AuthorizationPolicy is enforced by a waypoint proxy or not at all. The pb-waypoint Gateway is attached (via the istio.io/use-waypoint label on the Service) to exactly the seven Services that expose an internal route: platform, message, compliance, quota, reporting, ops-center (POST /ops/internal/orgs/:orgId/purge — the cascade outbox's org-purge leg, platform only), image-registry (POST /internal/plugin-signatures — plugin-image signing — and /internal/plugin-publications* — the public/* namespace operations; both plugin only). Not namespace-wide, which would put an Envoy hop in front of the datastores too. It needs the Kubernetes Gateway API CRDs, and each target's setup installs the standard channel for you (GATEWAY_API_VERSION, pinned) when they are not already present — istioctl install leaves them to the cluster, so this is handled during setup rather than left as a prerequisite."
         },
         {
           "type": "list",
@@ -348,7 +348,7 @@ export const serviceMeshTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "sa/pb-waypoint is listed in those six workloads' ALLOW policies. The original caller has already been checked, at the waypoint. For image-registry this covers far more than the internal route: nginx's /token and /api/images/* proxying, buildkitd's token fetches from the plugin pod, the bootstrap crane push pods and per-org build pods all address the Service, so all of them now reach the pod as the waypoint — drop sa/pb-waypoint from image-registry-allow and the registry token flow 403s."
+          "content": "sa/pb-waypoint is listed in those seven workloads' ALLOW policies. The original caller has already been checked, at the waypoint. For image-registry this covers far more than the internal route: nginx's /token and /api/images/* proxying, buildkitd's token fetches from the plugin pod, the bootstrap crane push pods and per-org build pods all address the Service, so all of them now reach the pod as the waypoint — drop sa/pb-waypoint from image-registry-allow and the registry token flow 403s."
         },
         {
           "type": "list",

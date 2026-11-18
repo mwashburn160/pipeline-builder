@@ -13,7 +13,7 @@ import { integer, varchar, pgTable, text, timestamp, uuid, jsonb, index, uniqueI
  * `layoutJson` carries the react-grid-layout coordinate set keyed by panel id;
  * `dashboard_panels` holds the panel-content rows so an N-panel dashboard
  * doesn't bloat one row's JSON to several KB. The catalog query is referenced
- * by key only (see platform/src/observability/catalog.ts)  the dashboard
+ * by key only (see api/ops-center/src/observability/catalog.ts)  the dashboard
  * record never carries raw PromQL/LogQL, keeping the catalog as the security
  * boundary for upstream query execution.
  *

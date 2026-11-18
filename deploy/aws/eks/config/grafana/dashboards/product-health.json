@@ -1440,7 +1440,7 @@
      "values": false
     }
    },
-   "description": "Published once per process at platform boot from SLACK_ALERTS_ENABLED and ONCALL_ENABLED. Before this, answering \"does this deployment tell anyone when something breaks?\" meant reading .env, two Secrets and four copies of alertmanager.yml. `pager` enabled with `pager configured` at 0 is the half-configured state \u2014 somebody asked for paging and is not getting it."
+   "description": "Published once per process at ops-center boot from SLACK_ALERTS_ENABLED and ONCALL_ENABLED. Before this, answering \"does this deployment tell anyone when something breaks?\" meant reading .env, two Secrets and four copies of alertmanager.yml. `pager` enabled with `pager configured` at 0 is the half-configured state \u2014 somebody asked for paging and is not getting it."
   },
 {
    "id": 37,
@@ -1524,7 +1524,7 @@
      "sort": "desc"
     }
    },
-   "description": "Climbs while a receiver cannot deliver \u2014 most commonly an empty Slack URL with SLACK_ALERTS_ENABLED still true. AlertmanagerNotificationsFailing watches this and is routed to the `meta-alerts` receiver (platform's webhook) rather than to a notification destination, because an alert reporting that delivery is broken must not depend on delivery working."
+   "description": "Climbs while a receiver cannot deliver \u2014 most commonly an empty Slack URL with SLACK_ALERTS_ENABLED still true. AlertmanagerNotificationsFailing watches this and is routed to the `meta-alerts` receiver (ops-center's webhook) rather than to a notification destination, because an alert reporting that delivery is broken must not depend on delivery working."
   },
 {
    "id": 39,

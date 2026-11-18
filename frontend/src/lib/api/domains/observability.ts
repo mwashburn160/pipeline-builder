@@ -32,7 +32,7 @@ export function observabilityApi(core: ApiCore) {
     // Observability (sysadmin-only; consumed by /dashboard/observability/*)
     //
     // Frontend never sends raw PromQL/LogQL — only catalog keys. Backend
-    // (platform/src/observability/catalog.ts) maps key → query and substitutes
+    // (api/ops-controller/src/observability/catalog.ts) maps key → query and substitutes
     // sanitized template variables for the Audit Activity recent-events drill.
     // ==========================================================================
 

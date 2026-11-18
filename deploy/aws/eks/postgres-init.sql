@@ -579,7 +579,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS dashboard_org_name_unique
 
 CREATE TABLE IF NOT EXISTS dashboard_panels (    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     dashboard_id UUID NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
-    -- Catalog key, validated server-side against platform/src/observability/catalog.ts
+    -- Catalog key, validated server-side against api/ops-center/src/observability/catalog.ts
     query_key VARCHAR(100) NOT NULL,
     -- 'stat' | 'line' | 'table' | 'stacked-bar' (renderer falls back to 'line' on unknown)
     viz_kind VARCHAR(30) NOT NULL DEFAULT 'line',
@@ -680,6 +680,34 @@ CREATE TRIGGER update_org_alert_destinations_modtime
     BEFORE UPDATE ON org_alert_destinations
     FOR EACH ROW
     EXECUTE PROCEDURE update_modified_column();
+
+-- ============================================================================
+-- ALERT DESTINATION STATUS (per-destination delivery health)
+-- ============================================================================
+--
+-- Mirror of drizzle schema in
+-- packages/pipeline-data/src/database/schema/alert.ts. Written best-effort by
+-- ops-center's alert relay after every delivery attempt; operational state
+-- (ops-center's retention sweep drops a row unattempted for 30 days).
+
+CREATE TABLE IF NOT EXISTS alert_destination_status (
+    destination_id VARCHAR(64) PRIMARY KEY,
+    org_id VARCHAR(255) NOT NULL,
+    channel VARCHAR(20) NOT NULL,
+    last_attempt_at TIMESTAMPTZ NOT NULL,
+    last_ok BOOLEAN NOT NULL,
+    last_error_kind VARCHAR(20)
+                    CHECK (last_error_kind IS NULL OR last_error_kind IN ('timeout', 'rejected', 'unreachable', 'unknown-channel')),
+    last_success_at TIMESTAMPTZ,
+    last_failure_at TIMESTAMPTZ,
+    consecutive_failures INTEGER NOT NULL DEFAULT 0,
+    notified_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS alert_destination_status_last_attempt_idx
+    ON alert_destination_status(last_attempt_at);
+CREATE INDEX IF NOT EXISTS alert_destination_status_org_idx
+    ON alert_destination_status(org_id);
 
 -- ============================================================================
 -- Triggers for automatic updated_at timestamp
@@ -3248,7 +3276,7 @@ BEGIN
             'plugins', 'pipelines',
             'pipeline_registry', 'pipeline_events',
             'deployment_outcomes', 'ingest_health', 'incidents', 'dora_settings',
-            'dashboards', 'org_alert_destinations', 'org_alert_rules',
+            'dashboards', 'org_alert_destinations', 'org_alert_rules', 'alert_destination_status',
             'compliance_policies', 'compliance_rules', 'compliance_rule_history',
             'compliance_audit_log', 'compliance_exemptions', 'compliance_rule_subscriptions',
             'compliance_scans', 'compliance_scan_schedules',
@@ -3585,6 +3613,7 @@ ALTER TABLE dashboards FORCE ROW LEVEL SECURITY;
 ALTER TABLE dashboard_panels FORCE ROW LEVEL SECURITY;
 ALTER TABLE org_alert_destinations FORCE ROW LEVEL SECURITY;
 ALTER TABLE org_alert_rules FORCE ROW LEVEL SECURITY;
+ALTER TABLE alert_destination_status FORCE ROW LEVEL SECURITY;
 
 -- Mid-volume tables: messages + pipeline_registry + compliance_*. All
 -- readers/writers route through service-layer withTenantTx (CrudService base +
@@ -3720,8 +3749,8 @@ DROP FUNCTION pb_reset_policies(TEXT);
 
 \echo ''
 \echo '=== RLS POLICIES INSTALLED ==='
-\echo 'FORCE + org scope (SELECT carve-outs; own-org INSERT/UPDATE/DELETE) on every tenant table (52/52):'
-\echo ' - dashboards, dashboard_panels, org_alert_destinations, org_alert_rules'
+\echo 'FORCE + org scope (SELECT carve-outs; own-org INSERT/UPDATE/DELETE) on every tenant table (53/53):'
+\echo ' - dashboards, dashboard_panels, org_alert_destinations, org_alert_rules, alert_destination_status'
 \echo ' - messages (+ recipient read-state update), message_attachments, pipeline_registry'
 \echo ' - pipeline_templates, all compliance_* tables incl. compliance_entitlement_watermark'
 \echo ' - plugins, pipelines, pipeline_events, DORA tables (hot path)'

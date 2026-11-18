@@ -25,6 +25,7 @@ import {
   getServiceAuthHeader,
   IMAGE_REGISTRY_INTERNAL,
   MESSAGE_INTERNAL,
+  OPS_CENTER_INTERNAL,
   PIPELINE_INTERNAL,
   PLUGIN_INTERNAL,
   REPORTING_INTERNAL,
@@ -137,6 +138,9 @@ export const CASCADE_LEGS: readonly CascadeLeg[] = [
   { kind: 'org.deleted', service: 'compliance', deliver: viaContract(() => config.compliance, COMPLIANCE_INTERNAL.purgeOrg, 'orgId') },
   { kind: 'org.deleted', service: 'message', deliver: viaContract(() => config.message, MESSAGE_INTERNAL.purgeOrgData, 'orgId') },
   { kind: 'org.deleted', service: 'reporting', deliver: viaContract(() => config.reporting, REPORTING_INTERNAL.purgeOrg, 'orgId') },
+  // Dashboards, alert rules + destinations and their delivery status (the
+  // operations control plane, split out of platform).
+  { kind: 'org.deleted', service: 'ops-center', deliver: viaContract(() => config.opsCenter, OPS_CENTER_INTERNAL.purgeOrg, 'orgId') },
   // ---- org.deleted: the legs that were already HTTP ----
   // The quota document (enforcement for the org).
   { kind: 'org.deleted', service: 'quota', deliver: viaDelete(() => config.quota, (o) => `/quotas/${encodeURIComponent(o)}`) },

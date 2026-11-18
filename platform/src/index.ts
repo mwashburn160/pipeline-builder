@@ -12,9 +12,7 @@ import { Registry, collectDefaultMetrics, Counter, Histogram } from 'prom-client
 
 import { config } from './config/index.js';
 import { notFoundHandler, errorHandler } from './middleware/index.js';
-import {
-  alertWebhookLimiter, generalLimiter, observabilityLimiter, scimLimiter,
-} from './middleware/limiters.js';
+import { generalLimiter, scimLimiter } from './middleware/limiters.js';
 import { peekJwtClaims } from './middleware/rate-limit-keys.js';
 import { denyReadOnlyImpersonationWrite, isWriteBlockedByImpersonation } from './middleware/require-write-access.js';
 import jwksRoutes from './routes/jwks.js';
@@ -65,28 +63,14 @@ setCounterEmitter(incCounter);
 setGaugeEmitter(setGauge);
 // Rotation visibility: `secret_rotation_previous_set{secret}` is 1 while a
 // credential's overlap is still open. Platform registers the ones only it holds
-// (the ES256 user-token signing key's retiring `kid`, the at-rest master key,
-// the relay bearer) on top of api-core's SERVICE_SIGNING_KEY probe. The alert rules page
+// (the ES256 user-token signing key's retiring `kid`, the at-rest master key)
+// on top of api-core's SERVICE_SIGNING_KEY probe. The alert rules page
 // on a value that stays 1 — see docs/runbooks/secret-rotation.md.
 registerSecretRotationGauge(metricsRegistry);
 const { registerPlatformSecretRotationProbes } = await import('./observability/secret-rotation.js');
 registerPlatformSecretRotationProbes();
-// Alert-delivery posture: `alert_delivery_enabled{channel}` and
-// `alert_delivery_configured{channel}`. Before these, answering "does this
-// deployment tell anyone when something breaks?" meant reading .env, two Secrets
-// and four copies of alertmanager.yml. Published at boot because it is a STATE
-// of the deployment, and it logs loudly when the combination is incoherent —
-// paging enabled with no routing key, or no destination enabled at all.
-const { reportAlertDeliveryPosture, startDeadmanHeartbeat, stopDeadmanHeartbeat } = await import('@pipeline-builder/api-core');
-reportAlertDeliveryPosture();
-// The dead-man switch. Deliberately NOT leader-locked: a heartbeat is
-// per-process, so the external service hears from whichever replicas are alive
-// and silence means ALL of them stopped. Leader-locking would make it report the
-// leader's health rather than the deployment's, and would make a Redis outage
-// indistinguishable from a total outage.
-if (startDeadmanHeartbeat()) {
-  logger.info('On-call dead-man heartbeat started — its ABSENCE is the alert');
-}
+// (The alert-delivery posture gauges and the on-call dead-man heartbeat moved
+// to ops-center with the paging path.)
 const { startPlatformMetricsScraper, stopPlatformMetricsScraper } = await import('./observability/scraper.js');
 startPlatformMetricsScraper();
 // (stopped in the unified shutdown() below, alongside the other sweeps — not via
@@ -163,13 +147,6 @@ app.use(helmet({
   },
 }));
 app.use(cors(config.cors));
-// RAW body for the on-call acknowledgement webhook, mounted BEFORE the JSON
-// parser so it wins the path. PagerDuty signs the exact bytes it sent, and
-// `JSON.stringify(req.body)` after a parse produces different ones (key order,
-// whitespace, number formatting) — so every signature would fail and the
-// obvious way out would be to stop verifying. Same shape as billing's Stripe
-// webhook, for the same reason.
-app.use('/observability/oncall-ack', express.raw({ type: 'application/json', limit: '1mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 // Mongo operator-injection guard  Platform is Mongo-backed (users, orgs,
@@ -219,9 +196,8 @@ app.use(clientVersionGate());
  * 2. The peeked context only matters at query time inside withTenantTx,
  * which only fires from authenticated route handlers  so a tampered
  * JWT can't bind a falsified `app.org_id` to a real query.
- * 3. Setting the context before requireAuth lets services that aren't
- * authenticated (e.g. the /alert-webhook shared-secret endpoint) still
- * get a sensible default (empty orgId, isSuperAdmin=false).
+ * 3. Setting the context before requireAuth lets endpoints that aren't
+ * authenticated still get a sensible default (empty orgId, isSuperAdmin=false).
  */
 // Reuses the shared `withTenantContext` helper with platform's own pre-auth resolver.
 app.use(withTenantContext((req: Request) => {
@@ -294,7 +270,7 @@ app.get('/metrics', async (_req: Request, res: Response) => {
  * API Routes (see `routes/mount.ts` — shared with the route-coverage test so the
  * table it checks is exactly what this process serves).
  */
-mountApiRoutes(app, { alertWebhook: alertWebhookLimiter, observability: observabilityLimiter, scim: scimLimiter });
+mountApiRoutes(app, { scim: scimLimiter });
 
 /** Error handling middleware (must be registered last) */
 app.use(notFoundHandler);
@@ -441,10 +417,6 @@ async function initDependencies(): Promise<void> {
     process.exit(1);
   }
 
-  // Seed default dashboards into Postgres (idempotent, fire-and-forget).
-  const { seedDefaultDashboards } = await import('./services/dashboard-seeder.js');
-  void seedDefaultDashboards();
-
   // Every periodic sweep (audit spool drain + chain-head export, billing
   // reconcile, domain re-verify, the invitation / impersonation reapers, the org
   // purge and the soft-delete retention purge) — see services/background-sweeps.ts.
@@ -529,10 +501,6 @@ async function startServer(): Promise<void> {
 
       // Every background sweep stops BEFORE Mongo closes.
       stopPlatformMetricsScraper();
-      // Stop beating on the way out. The timer is already `unref`'d so it
-      // cannot hold the process open, but clearing it keeps shutdown explicit
-      // rather than relying on that.
-      stopDeadmanHeartbeat();
       for (const sweep of backgroundSweeps) sweep.stop();
 
       try {

@@ -569,11 +569,12 @@ export const keyRevokeSchema = z.object({
 // Internal notices
 
 /**
- * The notify-email relay's leg bodies (tenant, quota, offer, report) are part of
+ * The notify-email relay's leg bodies (tenant, quota, offer, report, alert) are part of
  * the endpoint's contract and live in api-core (`contracts/platform.ts`), where
  * its clients validate the same bodies before sending.
  */
 export {
+  notifyAlertEmailSchema,
   notifyEmailSchema,
   notifyOfferEmailSchema,
   notifyQuotaEmailSchema,

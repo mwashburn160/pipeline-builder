@@ -55,8 +55,6 @@ export { default as PasswordResetToken } from './password-reset-token.js';
 export type { PasswordResetTokenDocument, PasswordResetTokenData } from './password-reset-token.js';
 export { default as DeletedOrgSnapshotChunk } from './deleted-org-snapshot-chunk.js';
 export type { DeletedOrgSnapshotChunkDocument, DeletedOrgSnapshotChunkData } from './deleted-org-snapshot-chunk.js';
-export { default as AlertDestinationStatus, DELIVERY_ERROR_KINDS } from './alert-destination-status.js';
-export type { AlertDestinationStatusDocument, AlertDestinationStatusData, DeliveryErrorKind } from './alert-destination-status.js';
 export {
   default as CascadeOutbox,
   CASCADE_KINDS,

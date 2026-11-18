@@ -71,7 +71,7 @@ export async function startPlatformApp(opts: { preAuthFence?: boolean } = {}): P
     });
   }
   const passthrough = (_req: Request, _res: Response, next: NextFunction): void => next();
-  mountApiRoutes(app, { alertWebhook: passthrough, observability: passthrough, scim: passthrough });
+  mountApiRoutes(app, { scim: passthrough });
   app.use(notFoundHandler);
   app.use(errorHandler);
   const { server, base } = await listen(app);

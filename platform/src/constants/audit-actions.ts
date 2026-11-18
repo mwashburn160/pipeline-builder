@@ -281,29 +281,6 @@ export const PLATFORM_AUDIT_ACTIONS = [
   // when a sysadmin downloads an org's full data dump (before deletion or
   // on customer request).
   'admin.org.export',
-  // Dashboards (controllers/dashboards.ts)
-  'dashboard.create',
-  'dashboard.update',
-  'dashboard.delete',
-  'dashboard.restore',
-  // Permanent hard-delete of a dashboard tombstone ahead of the retention sweep
-  // (the delete it finalizes is already recorded; this records who made it
-  // irreversible, and when).
-  'dashboard.purge',
-  'dashboard.clone',
-  // Alert destinations (controllers/alert-destinations.ts)
-  'alert.destination.create',
-  'alert.destination.update',
-  'alert.destination.delete',
-  'alert.destination.restore',
-  'alert.destination.purge',
-  'alert.destination.test',
-  // per-org operator-authored alert rules (controllers/alert-rules.ts).
-  'alert.rule.create',
-  'alert.rule.update',
-  'alert.rule.delete',
-  'alert.rule.restore',
-  'alert.rule.purge',
   // per-org IdP config (controllers/org-idp.ts). Sysadmin-only setup.
   'admin.org-idp.upsert',
   'admin.org-idp.delete',
@@ -454,25 +431,6 @@ export const PLATFORM_AUDIT_ACTIONS = [
   // the namespace YAML to apply with kubectl. Tracks "this org got its
   // own namespace at <time> by <sysadmin>".
   'admin.org.namespace.render',
-  // Alertmanager silences — creating one SUPPRESSES the org's alerts, so both
-  // ends are recorded (controllers in observability/controller.ts).
-  'observability.silence.create',
-  'observability.silence.delete',
-  // Alertmanager-driven autoscaling that actually changed infrastructure (or
-  // failed trying): a PVC grown, the Postgres rung moved, the ec2 data volume
-  // grown. The actor is `alertmanager:<instance>` — no person did it; refusals
-  // (cooldown / ceiling / disabled) are metered, not recorded.
-  'observability.pvc.autoexpand',
-  'observability.postgres.rung',
-  'observability.node_disk.autoexpand',
-  // Log-surface data egress. `observability.logs.export` records a download of
-  // log content (range, filter, format, line count, truncation) — cheap request,
-  // large egress, and it leaves the building, so it is audited like
-  // `admin.org.export`. `observability.logs.cross-org-read` records a system
-  // admin reading a tenant OTHER than `_infra`, the same accountability the
-  // impersonation work applies to viewing another org's data.
-  'observability.logs.export',
-  'observability.logs.cross-org-read',
   // Platform admin mutations (controllers).
   // `admin.org.ai-config.update` — org AI-provider config (holds provider API
   //   keys; details carry field NAMES only, never a key value).

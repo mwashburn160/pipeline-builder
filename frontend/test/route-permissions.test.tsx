@@ -1263,7 +1263,7 @@ const CONTROLS: Control[] = [
     control: 'Create / edit a custom dashboard',
     file: 'pages/dashboard/observability/new.tsx',
     permissions: ['dashboards:write'],
-    routes: ['platform POST /dashboards', 'platform POST /dashboards/:id/clone'],
+    routes: ['ops-center POST /dashboards', 'ops-center POST /dashboards/:id/clone'],
     behaviour: {
       // Kept on screen but inert without `dashboards:write`, with the reason in
       // its `title` rather than the form silently having no submit.
@@ -1280,9 +1280,9 @@ const CONTROLS: Control[] = [
     file: 'pages/dashboard/observability/alert-rules.tsx',
     permissions: ['observability:write'],
     routes: [
-      'platform POST /observability/alert-rules',
-      'platform PUT /observability/alert-rules/:id',
-      'platform DELETE /observability/alert-rules/:id',
+      'ops-center POST /observability/alert-rules',
+      'ops-center PUT /observability/alert-rules/:id',
+      'ops-center DELETE /observability/alert-rules/:id',
     ],
     behaviour: { mount: page('../pages/dashboard/observability/alert-rules'), find: button(/^add rule$/i) },
   },
@@ -1294,7 +1294,7 @@ const CONTROLS: Control[] = [
     // `requireSystemOrgPermission` pairs with requireSystemOrg + an MFA-grade
     // session — so the control is unreachable from a single-factor session.
     minAssurance: 2,
-    routes: ['platform POST /observability/oncall-test'],
+    routes: ['ops-center POST /observability/oncall-test'],
     // Mounted through its HOST page rather than the component, which is the
     // convention here — and the gate is worth proving behaviourally rather than
     // by inspection, because this button rings a phone. `oncall:manage` is a
@@ -1318,9 +1318,9 @@ const CONTROLS: Control[] = [
     file: 'pages/dashboard/observability/alert-destinations.tsx',
     permissions: ['observability:write'],
     routes: [
-      'platform POST /observability/alert-destinations',
-      'platform PUT /observability/alert-destinations/:id',
-      'platform DELETE /observability/alert-destinations/:id',
+      'ops-center POST /observability/alert-destinations',
+      'ops-center PUT /observability/alert-destinations/:id',
+      'ops-center DELETE /observability/alert-destinations/:id',
     ],
     behaviour: { mount: page('../pages/dashboard/observability/alert-destinations'), find: button(/^add destination$/i) },
   },
@@ -1628,7 +1628,7 @@ const CONTROLS: Control[] = [
     file: 'pages/dashboard/logs.tsx',
     permissions: ['logs:export'],
     orgAdminAssurance: true,
-    routes: ['platform GET /observability/logs/export'],
+    routes: ['ops-center GET /observability/logs/export'],
     behaviour: { mount: page('../pages/dashboard/logs'), find: button(/^\.log$/i) },
   },
   {
@@ -1671,7 +1671,7 @@ const CONTROLS: Control[] = [
     // reads through ONE batched request per refresh tick
     // (src/hooks/useDashboardQueries.tsx → api.observabilityQueryBatch), so the
     // dashboard spends one apiCalls per tick, not one per panel. Writes nothing.
-    routes: ['platform POST /observability/query/batch'],
+    routes: ['ops-center POST /observability/query/batch'],
     behaviour: {
       renders: 'the real <Sidebar/> (see "Pipeline list + detail reads"): `observability:read` is the Logs entry\'s gate.',
       mount: (ctx) => comp('../src/components/ui/Sidebar', 'Sidebar', {
@@ -2575,15 +2575,15 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     category: 'sysadmin-console',
     why: 'listOrganizations in pages/dashboard/organizations.tsx (also the quotas page and OrgPicker), gated on orgs:read — the roster, split out of platform:read.',
   },
-  'platform GET /observability/alert-destinations/all': {
+  'ops-center GET /observability/alert-destinations/all': {
     category: 'sysadmin-console',
     why: 'listAlertDestinations in pages/dashboard/observability/alert-destinations.tsx, which asks for the fleet view when the viewer holds platform:read.',
   },
-  'platform GET /observability/alert-rules/materialized.yml': {
+  'ops-center GET /observability/alert-rules/materialized.yml': {
     category: 'sysadmin-console',
     why: 'getMaterializedAlertRules in pages/dashboard/observability/alert-rules.tsx — the rendered Prometheus rule file, a deploy-config read.',
   },
-  'platform GET /observability/oncall-status': {
+  'ops-center GET /observability/oncall-status': {
     category: 'sysadmin-console',
     why: 'oncallStatus in src/components/admin/OnCallPagingPanel.tsx — the paging-posture panel on Platform settings.',
   },
@@ -2712,6 +2712,14 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     category: 'machine-only',
     why: 'Service-principal route (callers: message): the message service owns the support thread, so it owns the moment a case opens, but it cannot decide entitlement — `supportContacts` is not a quota-service type (a live cap, not a period counter) and the effective limit is tier base plus bundles, which only billing computes and already syncs onto the root org here. No user token is admitted: a tenant must not enumerate its own contact allowance through this, and the UI gets what it needs from GET /messages/support/cases. The answer is one org\'s allowance and level — never a contact list and never a name.',
   },
+  'platform GET /internal/ops/org-account-root/:orgId': {
+    category: 'machine-only',
+    why: 'Service-principal route (callers: ops-center): the account root its dashboards / alertRules / alertDestinations feature-quota reservations bind to — the org hierarchy is platform\'s Mongo, which ops-center never opens.',
+  },
+  'platform GET /internal/ops/live-org-ids': {
+    category: 'machine-only',
+    why: 'Service-principal route (callers: ops-center): the live org ids a sysadmin\'s `orgs=all` log view enumerates (Loki has no tenant wildcard). Ids only, never names.',
+  },
   'platform GET /internal/offers/seat-activity/:orgId': {
     category: 'machine-only',
     why: 'Service-principal route (callers: billing): the expansion-offers profile\'s VALUE signal, which exists to DISQUALIFY — an account at its seat cap whose members have not signed in is a churn save, and offering it more seats is the worst available outcome. Billing only, because the offers agent has no public surface of its own and runs there until it is extracted. No user token is admitted and the answer is three counts across the account subtree — never a member, a name or an address. The tenant-facing view of the same question is the members list.',
@@ -2826,6 +2834,8 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   'plugin POST /internal/plugins/orgs/:orgId/purge': { category: 'machine-only', why: 'Internal route (callers: platform): the cascade outbox\'s org-purge leg; no user token is admitted.' },
   'plugin POST /internal/plugins/users/:userId/erase': { category: 'machine-only', why: 'Internal route (callers: platform): the cascade outbox\'s GDPR user-erasure leg; no user token is admitted.' },
   'reporting POST /reports/internal/orgs/:orgId/purge': { category: 'machine-only', why: 'Internal route (callers: platform): the cascade outbox\'s org-purge leg; no user token is admitted.' },
+  'ops-center POST /ops/internal/orgs/:orgId/purge': { category: 'machine-only', why: 'Internal route (callers: platform): the cascade outbox\'s org-purge leg (dashboards, alert rules/destinations); no user token is admitted, and nginx does not proxy /ops at all.' },
+  'platform POST /internal/ops/audit-activity': { category: 'machine-only', why: 'Internal route (callers: ops-center): a READ on POST — one audit-trail aggregation for an Audit Activity panel, scoped to the identity ops-center verified; no user token is admitted.' },
   ...group('platform', [
     'POST /audit/events',
     'POST /internal/notify-email',
@@ -2918,12 +2928,12 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   'billing POST /billing/marketplace/sns': { category: 'external-callback', why: 'AWS SNS → backend (Marketplace entitlement notifications). Nothing in the frontend references it.' },
   'platform POST /auth/sso/:orgId/saml/acs': { category: 'external-callback', why: 'The IdP form-POSTs the SAML assertion to this SERVER endpoint; the browser never runs frontend code for it (pages/auth/sso/[orgId]/saml.tsx documents exactly this, and redeems the resulting handoff instead).' },
   'platform POST /auth/sso/:orgId/saml/slo': { category: 'external-callback', why: 'IdP-initiated single logout: an IdP form POST to the backend. The dashboard-initiated leg is POST /auth/sso/logout, which api.logout() fires.' },
-  'platform POST /observability/alert-webhook': { category: 'external-callback', why: 'Inbound webhook from an external alert source; no frontend reference exists.' },
-  'platform POST /observability/oncall-ack': { category: 'external-callback', why: 'PagerDuty posts incident state changes (acknowledged / escalated / resolved) here and the handler turns them into the ack-latency histogram and a hash-chained audit row. Signature-verified with PAGERDUTY_WEBHOOK_SECRET over the RAW body (so index.ts mounts express.raw for this path) and fail-CLOSED without it; there is no user identity — the acting agent is recorded as the provider knows them, never resolved to a local user — and no frontend reference.' },
-  'platform POST /observability/oncall-webhook': { category: 'external-callback', why: 'Alertmanager posts support criticals here and the handler pages the on-call engineer through PagerDuty Events v2. Server-to-server, authorized by the same per-instance bearer token as the relay above; there is no user identity and no frontend reference. Paging CONFIGURATION stays operator-side (ONCALL_ENABLED plus the routing key, changed by re-deploying); what the dashboard does surface is the resulting POSTURE and a test page, on pages/dashboard/admin/settings.tsx.' },
-  'platform POST /observability/pvc-autoexpand': { category: 'external-callback', why: 'Alertmanager posts the PersistentVolume storage alerts here and the handler expands the claim. Server-to-server, authorized by the same per-instance bearer token as the relay above; there is no user identity and no frontend reference.' },
-  'platform POST /observability/node-disk-autoexpand': { category: 'external-callback', why: 'The ec2 counterpart: Alertmanager posts NodeDisk* here and the handler grows the instance data volume. Server-to-server on the same token; no frontend reference.' },
-  'platform POST /observability/postgres-rung': { category: 'external-callback', why: 'Alertmanager posts the Postgres CPU/memory alerts here and the handler moves the database one rung of the resource ladder (pod requests/limits plus the derived shared_buffers/effective_cache_size). Server-to-server on the same per-instance bearer token; the DIRECTION comes from a closed set of alert names the handler owns, never from the body, so there is no user identity to gate and no frontend reference. Operators drive it by hand through docs/runbooks/postgres-scaling.md, not the UI.' },
+  'ops-center POST /observability/alert-webhook': { category: 'external-callback', why: 'Inbound webhook from an external alert source; no frontend reference exists.' },
+  'ops-center POST /observability/oncall-ack': { category: 'external-callback', why: 'PagerDuty posts incident state changes (acknowledged / escalated / resolved) here and the handler turns them into the ack-latency histogram and a hash-chained audit row. Signature-verified with PAGERDUTY_WEBHOOK_SECRET over the RAW body (so index.ts mounts express.raw for this path) and fail-CLOSED without it; there is no user identity — the acting agent is recorded as the provider knows them, never resolved to a local user — and no frontend reference.' },
+  'ops-center POST /observability/oncall-webhook': { category: 'external-callback', why: 'Alertmanager posts support criticals here and the handler pages the on-call engineer through PagerDuty Events v2. Server-to-server, authorized by the same per-instance bearer token as the relay above; there is no user identity and no frontend reference. Paging CONFIGURATION stays operator-side (ONCALL_ENABLED plus the routing key, changed by re-deploying); what the dashboard does surface is the resulting POSTURE and a test page, on pages/dashboard/admin/settings.tsx.' },
+  'ops-center POST /observability/pvc-autoexpand': { category: 'external-callback', why: 'Alertmanager posts the PersistentVolume storage alerts here and the handler expands the claim. Server-to-server, authorized by the same per-instance bearer token as the relay above; there is no user identity and no frontend reference.' },
+  'ops-center POST /observability/node-disk-autoexpand': { category: 'external-callback', why: 'The ec2 counterpart: Alertmanager posts NodeDisk* here and the handler grows the instance data volume. Server-to-server on the same token; no frontend reference.' },
+  'ops-center POST /observability/postgres-rung': { category: 'external-callback', why: 'Alertmanager posts the Postgres CPU/memory alerts here and the handler moves the database one rung of the resource ladder (pod requests/limits plus the derived shared_buffers/effective_cache_size). Server-to-server on the same per-instance bearer token; the DIRECTION comes from a closed set of alert names the handler owns, never from the body, so there is no user identity to gate and no frontend reference. Operators drive it by hand through docs/runbooks/postgres-scaling.md, not the UI.' },
 
   // ── Pre-session: the sign-in / sign-up / invite / device surfaces ─────────
   'platform POST /auth/login': { category: 'pre-session', why: 'Sign-in form (src/components/landing/LandingPage.tsx via useAuth.login).' },
@@ -3013,10 +3023,10 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   ...group('message', ['POST /messages/:id/restore', 'POST /messages/:id/purge'], {
     category: 'step-up-resume', why: 'Recently-deleted panel on the Messages page (messages:write) + global step-up resume.',
   }),
-  ...group('platform', ['POST /dashboards/:id/restore', 'POST /dashboards/:id/purge'], {
+  ...group('ops-center', ['POST /dashboards/:id/restore', 'POST /dashboards/:id/purge'], {
     category: 'step-up-resume', why: 'Recently-deleted panel on the Observability pages (dashboards:write) + global step-up resume.',
   }),
-  ...group('platform', [
+  ...group('ops-center', [
     'POST /observability/alert-rules/:id/restore', 'POST /observability/alert-rules/:id/purge',
     'POST /observability/alert-destinations/:id/restore', 'POST /observability/alert-destinations/:id/purge',
   ], { category: 'step-up-resume', why: 'Recently-deleted panel on the alert-rules / alert-destinations pages (observability:write) + global step-up resume.' }),
@@ -3174,12 +3184,12 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     why: 'Price previews fired by the add-on card and the discount-code "Preview" button, both behind `canChangePlan` (isAdmin || billing:manage). The routes ask only for billing:read, so the UI is stricter.',
   }),
   'billing POST /billing/marketplace/claim': { category: 'same-control', coveredBy: 'Change / cancel the subscription', why: 'AWS Marketplace landing page (pages/marketplace/register.tsx) binds the purchase to the org; billing:manage plus the org\'s admin-actions MFA policy.' },
-  ...group('platform', ['PUT /dashboards/:id', 'DELETE /dashboards/:id'], {
+  ...group('ops-center', ['PUT /dashboards/:id', 'DELETE /dashboards/:id'], {
     category: 'same-control',
     coveredBy: 'Create / edit a custom dashboard',
     why: 'Save on pages/dashboard/observability/[id]/edit.tsx (`disabled={!can(\'dashboards:write\')}`) and Delete on [id].tsx. The route table shows no permission because the gate is deliberately in the HANDLER: `dashboardService.canWrite` is dynamic — it also admits the dashboard\'s own creator — so it cannot move to a route middleware (platform/src/routes/dashboards.ts says so).',
   }),
-  ...group('platform', ['POST /observability/silences', 'DELETE /observability/silences/:id', 'POST /observability/alert-destinations/:id/test'], {
+  ...group('ops-center', ['POST /observability/silences', 'DELETE /observability/silences/:id', 'POST /observability/alert-destinations/:id/test'], {
     category: 'same-control',
     coveredBy: 'Create / edit / delete an alert rule',
     why: '"Silence" / "Expire" on pages/dashboard/observability/alerts.tsx and "Send test" on the destinations row, each wrapped in `canWrite = can(\'observability:write\')` — the same gate the mapped row proves.',
@@ -3499,7 +3509,7 @@ describe('generated route tables', () => {
     // that suite never ran (or the service was renamed).
     expect(Object.keys(tables).sort()).toEqual([
       'ask', 'billing', 'compliance', 'image-registry', 'message',
-      'pipeline', 'platform', 'plugin', 'quota', 'reporting',
+      'ops-center', 'pipeline', 'platform', 'plugin', 'quota', 'reporting',
     ]);
   });
 
@@ -3745,7 +3755,7 @@ describe('no write route lands unmapped', () => {
     expect(clientCallers('pipeline GET /pipelines')).toEqual([`${CLIENT_DIR}/pipelines.ts`]);
     expect(clientCallers('ask POST /ask/agent/stream')).toEqual([`${CLIENT_DIR}/ask.ts`]);
     expect(clientCallers('image-registry DELETE /api/images/:name')).toEqual([`${CLIENT_DIR}/registry.ts`]);
-    expect(clientCallers('platform GET /observability/logs/export')).toEqual([`${CLIENT_DIR}/observability.ts`]);
+    expect(clientCallers('ops-center GET /observability/logs/export')).toEqual([`${CLIENT_DIR}/observability.ts`]);
   });
 
   it('is not vacuous — the tables really do carry these routes', () => {

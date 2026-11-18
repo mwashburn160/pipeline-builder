@@ -536,7 +536,8 @@ Resources:
   # ---------------------------------------------------------------------------
   # Automatic data-volume expansion (NODE_DISK_AUTOEXPAND_ENABLED)
   # ---------------------------------------------------------------------------
-  # When NodeDiskFillingUp fires, platform calls ec2:ModifyVolume to grow the
+  # When NodeDiskFillingUp fires, ops-center (the operations control plane,
+  # split out of platform) calls ec2:ModifyVolume to grow the
   # DataVolume and then runs THIS document to grow the filesystem on top of it.
   # Only root on the instance can do the second half, which is why SSM is in the
   # path at all.

@@ -21,7 +21,7 @@ spec:
     #   - image-registry (HPA → 5 replicas)
     #   - plugin (KEDA ScaledObject → 4 replicas via patches/scaling.yaml,
     #     each with its own buildkitd sidecar)
-    #   - quota, platform, pipeline, message, compliance, billing,
+    #   - quota, platform, pipeline, message, compliance, billing, ops-center,
     #     reporting, frontend, nginx, postgres, mongo, redis, pgbouncer,
     #     pgadmin, mongo-express, prometheus, loki, alertmanager, alloy
     #   - bootstrap-time crane-push pods (during init-platform.sh)

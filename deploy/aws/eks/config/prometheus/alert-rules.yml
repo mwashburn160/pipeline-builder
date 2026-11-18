@@ -8,8 +8,8 @@
 # - `severity: warning`  — non-paging Slack notification
 # - `tenancy: org`       — alert carries an `org_id` label; relayed to that
 #                          org's configured destinations (Slack webhook,
-#                          in-app message, …) via the platform's webhook
-#                          relay (POST /api/observability/alert-webhook).
+#                          in-app message, …) via ops-center's webhook
+#                          relay (POST /observability/alert-webhook on ops-center).
 # - `tenancy: platform`  — alert is platform-wide (no org_id, or the
 #                          underlying metric isn't org-labeled); routed
 #                          to the ops-team Slack channels.
@@ -17,7 +17,7 @@
 
 groups:
   # Per-org rules — every firing alert carries an `org_id` label and is routed
-  # to that org's notification destination(s) by the platform's alert-relay.
+  # to that org's notification destination(s) by ops-center's alert-relay.
   # These rules `by (org_id)` the underlying counters; the receiver-side
   # alertmanager.yml uses `tenancy=org` to differentiate from platform alerts.
   - name: per-org
@@ -490,7 +490,7 @@ groups:
           tenancy: platform
         annotations:
           summary: "Postgres primary has been idle enough to drop a rung"
-          description: "Both CPU and memory have been below 30%/40% of their limits for 2h, so the primary is sized above what it is doing. With POSTGRES_RUNG_ENABLED=true the platform controller moves it down one rung (never below the 1 CPU / 2Gi floor, which is where the data tier stays Guaranteed QoS); otherwise this is informational. The change restarts the container because shared_buffers is read at startup — a brief write interruption, which is why this needs 2h of quiet to fire."
+          description: "Both CPU and memory have been below 30%/40% of their limits for 2h, so the primary is sized above what it is doing. With POSTGRES_RUNG_ENABLED=true the ops-center rung controller moves it down one rung (never below the 1 CPU / 2Gi floor, which is where the data tier stays Guaranteed QoS); otherwise this is informational. The change restarts the container because shared_buffers is read at startup — a brief write interruption, which is why this needs 2h of quiet to fire."
 
       # SCALE-DOWN, and it is deliberately hard to trigger. A rung change
       # RESTARTS the container (a standby restart, which reads fall back from), so the cost of being one rung too large
@@ -540,7 +540,7 @@ groups:
       # ---- THE LADDER'S OWN HEALTH ----------------------------------------
       # The controller that acts on every saturation/underutilisation rule above
       # had NO alerting of its own, so "the ladder refused to move" or "the
-      # ladder is erroring" was visible only in platform logs. These three close
+      # ladder is erroring" was visible only in ops-center logs. These three close
       # that, and they only mean anything where POSTGRES_RUNG_ENABLED=true (the
       # aws targets); on minikube the metrics simply stay absent and no series
       # means no alert, which is why this copy is identical across all three.
@@ -587,7 +587,7 @@ groups:
           tenancy: platform
         annotations:
           summary: "Postgres rung controller is failing ({{ $labels.workload }} {{ $labels.direction }})"
-          description: "The rung controller errored {{ $value | humanize }} time(s) in the last hour, so Postgres is NOT being resized however saturated it gets. Most likely the platform ServiceAccount's Role lacks get/patch on the workload (a 403), or the workload/container name in TARGETS no longer matches the manifest. Check the platform logs for 'Postgres rung' entries."
+          description: "The rung controller errored {{ $value | humanize }} time(s) in the last hour, so Postgres is NOT being resized however saturated it gets. Most likely the ops-center ServiceAccount's Role lacks get/patch on the workload (a 403), or the workload/container name in TARGETS no longer matches the manifest. Check the ops-center logs for 'Postgres rung' entries."
 
       # ---- The read POOL, as opposed to the read replica ----
       # Metric names VERIFIED by running the pinned exporter image
@@ -1374,7 +1374,7 @@ groups:
           tenancy: platform
         annotations:
           summary: "Alert delivery is failing for several organizations (channel={{ $labels.channel }})"
-          description: "At least half of the organizations that sent alerts over {{ $labels.channel }} in the last hour (and at least two) are failing to deliver — the channel's transport, not one org's target. Every org-facing alert routes through this relay, so while it fails those orgs are not being told anything. Check platform/src/services/alert-relay.ts logs and the channel's credentials/egress."
+          description: "At least half of the organizations that sent alerts over {{ $labels.channel }} in the last hour (and at least two) are failing to deliver — the channel's transport, not one org's target. Every org-facing alert routes through this relay, so while it fails those orgs are not being told anything. Check the ops-center alert-relay logs and the channel's credentials/egress."
 
       - alert: EcosystemNotificationFailing
         expr: sum by (event) (increase(ecosystem_notification_failed_total{event!~"N21|N22"}[1h])) > 0
@@ -1475,7 +1475,7 @@ groups:
           # Routed to `meta-alerts` as well as the usual severity path. This
           # alert reports that delivery is broken, and routing it ONLY through
           # the destinations whose failure it reports is circular — the
-          # description below admits as much. The meta receiver is platform's
+          # description below admits as much. The meta receiver is ops-center's
           # webhook, which answers 200 whatever the knobs say.
           delivery_meta: "true"
         annotations:
@@ -1483,7 +1483,7 @@ groups:
           description: "Alertmanager failed to deliver notifications through {{ $labels.integration }} in the last 15 minutes, so alerts are being raised and lost. You are reading THIS one only because some other receiver still works - if the failing integration is the only one that pages you, the next outage is silent. Check the webhook URL and the egress policy for alertmanager."
 
       # The state where nobody is told anything. `alert_delivery_enabled` is
-      # published at platform boot from SLACK_ALERTS_ENABLED and ONCALL_ENABLED,
+      # published at ops-center boot from SLACK_ALERTS_ENABLED and ONCALL_ENABLED,
       # so this fires when BOTH destinations are declared off — reachable today
       # by setting two booleans, with nothing objecting.
       #
@@ -1496,7 +1496,7 @@ groups:
         # by `channel` — so the first draft of this rule could never fire at all,
         # which the promtool negative controls caught. Summing is also what the
         # condition actually means: no channel is enabled iff the total is zero.
-        # Absent series deliberately do NOT fire — if platform has not reported,
+        # Absent series deliberately do NOT fire — if ops-center has not reported,
         # we do not know the posture and must not claim delivery is off.
         expr: sum(max_over_time(alert_delivery_configured[1h])) == 0
         for: 15m
@@ -1507,7 +1507,7 @@ groups:
           delivery_meta: "true"
         annotations:
           summary: "No platform alert destination is enabled — alerts are firing into a void"
-          description: "Both SLACK_ALERTS_ENABLED and ONCALL_ENABLED are false, so every platform-wide critical and warning reaches Alertmanager and goes no further: no page, no channel, no mail. Per-org destinations are unaffected (those go through the platform relay) and everything is still visible at Alertmanager's own UI, but no human is being told. This alert reaches you through the `meta-alerts` receiver, which is platform's webhook rather than a notification destination — that is the only reason you can read it at all."
+          description: "Both SLACK_ALERTS_ENABLED and ONCALL_ENABLED are false, so every platform-wide critical and warning reaches Alertmanager and goes no further: no page, no channel, no mail. Per-org destinations are unaffected (those go through the ops-center relay) and everything is still visible at Alertmanager's own UI, but no human is being told. This alert reaches you through the `meta-alerts` receiver, which is ops-center's webhook rather than a notification destination — that is the only reason you can read it at all."
 
       # A pager that is configured and REJECTING. The webhook deliberately answers
       # 200 even when dispatch fails — Alertmanager retries a non-2xx, and
@@ -1703,10 +1703,10 @@ groups:
         # is written on every sweep tick including the empty ones, which is what
         # makes `> 0` a real state rather than a stale reading.
         # No `or vector(0)` on the right, deliberately, unlike the two rules
-        # below: `alert_delivery_configured` is published at every platform boot
-        # unconditionally, so its absence means platform is not running — which
+        # below: `alert_delivery_configured` is published at every ops-center boot
+        # unconditionally, so its absence means ops-center is not running — which
         # `ServiceDown` already owns. Defaulting it to 0 here would make this
-        # rule a second, slower platform-outage alert.
+        # rule a second, slower ops-center-outage alert.
         expr: max(max_over_time(oncall_cases_due[15m])) > 0 and max(max_over_time(alert_delivery_configured{channel="pager"}[1h])) == 0
         for: 30m
         labels:
@@ -1746,7 +1746,7 @@ groups:
           delivery_meta: "true"
         annotations:
           summary: "On-call paging is enabled with no routing key"
-          description: "ONCALL_ENABLED is true but PAGERDUTY_ROUTING_KEY is empty, so platform logs a paging failure per support critical and no pager fires. Support criticals still reach the ops Slack channel. Set the key — a PER-SERVICE integration key, not a REST API key — or set ONCALL_ENABLED=false. See docs/oncall-paging.md."
+          description: "ONCALL_ENABLED is true but PAGERDUTY_ROUTING_KEY is empty, so ops-center logs a paging failure per support critical and no pager fires. Support criticals still reach the ops Slack channel. Set the key — a PER-SERVICE integration key, not a REST API key — or set ONCALL_ENABLED=false. See docs/oncall-paging.md."
 
       # ---- Prometheus's own storage ------------------------------------------
       # Cardinality is the quiet way a monitoring system dies: series accumulate,
@@ -3566,7 +3566,7 @@ groups:
           tenancy: platform
         annotations:
           summary: "The ambient waypoint is not reporting metrics"
-          description: "pb-waypoint is unscrapeable. Six services (platform, message, compliance, quota, reporting, image-registry) route through it via istio.io/use-waypoint, and it is the only thing in an ambient mesh that enforces L7 policy - so traffic to them fails rather than bypassing the check. Check: kubectl -n pipeline-builder get pods -l gateway.networking.k8s.io/gateway-class-name=istio-waypoint"
+          description: "pb-waypoint is unscrapeable. Seven services (platform, message, compliance, quota, reporting, ops-center, image-registry) route through it via istio.io/use-waypoint, and it is the only thing in an ambient mesh that enforces L7 policy - so traffic to them fails rather than bypassing the check. Check: kubectl -n pipeline-builder get pods -l gateway.networking.k8s.io/gateway-class-name=istio-waypoint"
 
       # L7 authorization denials, which ambient can only report HERE. ztunnel
       # exports no deny counter — an L4 denial is just a connection that never
@@ -3797,7 +3797,7 @@ groups:
       #
       # That patch is also what PVC_AUTOEXPAND_ENABLED automates. It is eks-only
       # and OFF by default; when it is armed, Alertmanager routes the two
-      # THRESHOLD rules below to platform, which applies the same patch under a
+      # THRESHOLD rules below to ops-center, which applies the same patch under a
       # ceiling and a cooldown. On such a cluster these two are a notice that
       # something is already being grown, and PvcAutoExpandAtCeiling /
       # PvcAutoExpandFailing / PvcAutoExpandTemplateDrift are the ones that say
@@ -3817,7 +3817,7 @@ groups:
           tenancy: platform
         annotations:
           summary: "PersistentVolume {{ $labels.persistentvolumeclaim }} is {{ $value | humanizePercentage }} free"
-          description: "Less than 15% of {{ $labels.persistentvolumeclaim }} (namespace {{ $labels.namespace }}) remains, sustained for 15 minutes. pb-ebs allows online expansion: patch the PVC's requested storage, or arm PVC_AUTOEXPAND_ENABLED to have platform apply that patch for you."
+          description: "Less than 15% of {{ $labels.persistentvolumeclaim }} (namespace {{ $labels.namespace }}) remains, sustained for 15 minutes. pb-ebs allows online expansion: patch the PVC's requested storage, or arm PVC_AUTOEXPAND_ENABLED to have ops-center apply that patch for you."
 
       - alert: PersistentVolumeCriticallyFull
         expr: |
@@ -3830,7 +3830,7 @@ groups:
           tenancy: platform
         annotations:
           summary: "PersistentVolume {{ $labels.persistentvolumeclaim }} is almost full ({{ $value | humanizePercentage }} free)"
-          description: "Under 5% of {{ $labels.persistentvolumeclaim }} (namespace {{ $labels.namespace }}) remains. A full volume does not degrade gracefully: Postgres and MongoDB stop accepting writes and RustFS fails uploads. Expand it now - patch the PVC's requested storage, or arm PVC_AUTOEXPAND_ENABLED so platform does it on this alert."
+          description: "Under 5% of {{ $labels.persistentvolumeclaim }} (namespace {{ $labels.namespace }}) remains. A full volume does not degrade gracefully: Postgres and MongoDB stop accepting writes and RustFS fails uploads. Expand it now - patch the PVC's requested storage, or arm PVC_AUTOEXPAND_ENABLED so ops-center does it on this alert."
 
       # Trend, not level: catches a volume with plenty of room today that is on
       # course to be full within 4 hours, which the threshold rules above would
@@ -4142,7 +4142,7 @@ groups:
           summary: "Sold storage is {{ $value | humanize }}x the capacity behind the registry"
           description: "The sum of every organization's storage cap is {{ $value | humanize }} times the physical capacity backing the registry's blobs. Thin provisioning is expected, so this is a capacity-planning signal rather than a fault: at this ratio the platform cannot honour what it has sold if utilisation rises. Grow the volume ahead of demand (pb-ebs expands online on eks; ec2 needs modify-volume plus growpart), or stop selling storage into it - check quota_storage_unlimited_orgs too, since unlimited roots are not counted in the numerator and make the real commitment larger than this."
 
-      # ---- PVC auto-expansion (platform acting on the rules above) ----------
+      # ---- PVC auto-expansion (ops-center acting on the rules above) ----
       # These watch the ACTUATOR, not the volume. Expansion that silently stops
       # working is worse than no expansion: the storage alerts keep firing, a
       # human assumes automation is handling it, and nobody looks.

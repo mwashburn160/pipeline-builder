@@ -263,13 +263,13 @@ scrape_configs:
         regex: 'pipeline-builder'
       - source_labels: [pod]
         action: keep
-        regex: '(ask|billing|compliance|frontend|image-registry|message|nginx|pipeline|platform|plugin|quota|reporting)-.*'
+        regex: '(ask|billing|compliance|frontend|image-registry|message|nginx|ops-center|pipeline|platform|plugin|quota|reporting)-.*'
       # The service container only. cAdvisor emits these names for the pod
       # sandbox (container="") and the cgroup hierarchy too, which would make the
       # ratio wrong; container name equals service name on every one of these.
       - source_labels: [container]
         action: keep
-        regex: 'ask|billing|compliance|frontend|image-registry|message|nginx|pipeline|platform|plugin|quota|reporting'
+        regex: 'ask|billing|compliance|frontend|image-registry|message|nginx|ops-center|pipeline|platform|plugin|quota|reporting'
 
   - job_name: 'kubernetes-pods'
     kubernetes_sd_configs:
@@ -381,7 +381,7 @@ scrape_configs:
   # The ambient waypoint, which is load-bearing for AUTHORIZATION.
   #
   # `pb-waypoint` is the only thing in an ambient mesh that can enforce L7
-  # policy, and six services route through it via `istio.io/use-waypoint`. It
+  # policy, and seven services route through it via `istio.io/use-waypoint`. It
   # runs in pipeline-builder, so `istio-mesh` (istio-system only) never sees it,
   # and the `kubernetes-pods` job keys on a prometheus.io/scrape annotation that
   # Istio's gateway controller owns rather than this repo — which is why it gets

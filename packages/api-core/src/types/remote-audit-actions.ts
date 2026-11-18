@@ -627,6 +627,50 @@ export const REMOTE_AUDIT_ACTIONS = [
   // A member removed one (tool, stage) report slot of a pipeline — a dropped
   // scanner or renamed stage (`details`: tool, stage, the counts it carried).
   'pipeline.security_report.delete',
+  // ---- ops-center (the operations control plane split out of platform;
+  // these were platform actions until the move, recorded with the same names) ----
+  // Dashboards (ops-center controllers/dashboards.ts)
+  'dashboard.create',
+  'dashboard.update',
+  'dashboard.delete',
+  'dashboard.restore',
+  // Permanent hard-delete of a dashboard tombstone ahead of the retention sweep
+  // (the delete it finalizes is already recorded; this records who made it
+  // irreversible, and when).
+  'dashboard.purge',
+  'dashboard.clone',
+  // Alert destinations (ops-center controllers/alert-destinations.ts)
+  'alert.destination.create',
+  'alert.destination.update',
+  'alert.destination.delete',
+  'alert.destination.restore',
+  'alert.destination.purge',
+  'alert.destination.test',
+  // per-org operator-authored alert rules (ops-center controllers/alert-rules.ts).
+  'alert.rule.create',
+  'alert.rule.update',
+  'alert.rule.delete',
+  'alert.rule.restore',
+  'alert.rule.purge',
+  // Alertmanager silences — creating one SUPPRESSES the org's alerts, so both
+  // ends are recorded (ops-center observability/controller.ts).
+  'observability.silence.create',
+  'observability.silence.delete',
+  // Alertmanager-driven autoscaling that actually changed infrastructure (or
+  // failed trying): a PVC grown, the Postgres rung moved, the ec2 data volume
+  // grown. The actor is `alertmanager:<instance>` — no person did it; refusals
+  // (cooldown / ceiling / disabled) are metered, not recorded.
+  'observability.pvc.autoexpand',
+  'observability.postgres.rung',
+  'observability.node_disk.autoexpand',
+  // Log-surface data egress. `observability.logs.export` records a download of
+  // log content (range, filter, format, line count, truncation) — cheap request,
+  // large egress, and it leaves the building, so it is audited like
+  // `admin.org.export`. `observability.logs.cross-org-read` records a system
+  // admin reading a tenant OTHER than `_infra`, the same accountability the
+  // impersonation work applies to viewing another org's data.
+  'observability.logs.export',
+  'observability.logs.cross-org-read',
 ] as const;
 
 export type RemoteAuditAction = typeof REMOTE_AUDIT_ACTIONS[number];

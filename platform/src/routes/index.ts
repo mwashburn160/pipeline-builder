@@ -17,10 +17,9 @@ export { default as reportingInternalRoutes, REPORTING_INTERNAL_MOUNT } from './
 export { default as aiInternalRoutes, AI_INTERNAL_MOUNT } from './ai-internal.js';
 export { default as supportInternalRoutes, SUPPORT_INTERNAL_MOUNT } from './support-internal.js';
 export { default as offersInternalRoutes, OFFERS_INTERNAL_MOUNT } from './offers-internal.js';
+export { default as opsInternalRoutes, OPS_INTERNAL_MOUNT } from './ops-internal.js';
 export { default as supportContactRoutes } from './support-contacts.js';
 export { default as configRoutes } from './config.js';
-export { default as observabilityRoutes } from './observability.js';
-export { default as dashboardRoutes } from './dashboards.js';
 export { default as orgIdpRoutes } from './org-idp.js';
 export { default as scimRoutes } from './scim.js';
 export { default as orgKmsConfigRoutes } from './org-kms-config.js';

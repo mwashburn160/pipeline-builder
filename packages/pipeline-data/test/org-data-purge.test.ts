@@ -89,7 +89,7 @@ describe('purgeOrgData (real Postgres, RLS)', () => {
       [ORG, 'a', 'b', OTHER],
     ));
 
-    const result = await purgeOrgData('platform', ORG);
+    const result = await purgeOrgData('ops-center', ORG);
     expect(purgeRowCounts(result).dashboards).toBe(2);
 
     const { rows } = await owner((q) => q.query<{ org_id: string; deleted_at: Date | null; purge_after: Date | null }>(
@@ -124,8 +124,8 @@ describe('purgeOrgData (real Postgres, RLS)', () => {
     await owner((q) => q.query('INSERT INTO dashboards (org_id, name) VALUES ($1, $2)', [ORG, 'a']));
     await owner((q) => q.query('INSERT INTO dora_settings (org_id) VALUES ($1)', [ORG]));
 
-    expect(purgeRowCounts(await purgeOrgData('platform', ORG)).dashboards).toBe(1);
-    const again = await purgeOrgData('platform', ORG);
+    expect(purgeRowCounts(await purgeOrgData('ops-center', ORG)).dashboards).toBe(1);
+    const again = await purgeOrgData('ops-center', ORG);
     expect(again.failed).toEqual([]);
     // Already tombstoned ⇒ not re-stamped (its purge deadline is not pushed out).
     expect(purgeRowCounts(again).dashboards).toBe(0);

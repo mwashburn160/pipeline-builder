@@ -12,6 +12,9 @@
  *  - `/internal/reporting/*` — identity facts and access posture (reporting).
  *  - `/internal/support/entitlement/:orgId` — support entitlement (message).
  *  - `/internal/ai/*` — an org's AI switch, providers and decrypted key.
+ *  - `/internal/ops/*` — the identity facts ops-center needs (an org's
+ *    account root for feature quotas, and the audit-activity aggregations its
+ *    dashboards render over platform's Mongo audit trail).
  *
  * Request schemas carry the server's own 400 messages, so a route that
  * validates with them answers exactly as it did when it hand-parsed. Response
@@ -81,6 +84,18 @@ export const notifyOfferEmailSchema = z.object({
   text: required(),
 });
 
+/**
+ * Alert leg (`ops-center` only): one org alert destination of channel
+ * `email`, i.e. ONE address an org admin configured (not a member lookup).
+ */
+export const notifyAlertEmailSchema = z.object({
+  alertEmail: z.literal(true),
+  orgId: required(),
+  to: z.string().min(3, 'is required').max(320),
+  subject: required(),
+  text: required(),
+});
+
 /** Report recipients per send — the ceiling on a compromised reporting token. */
 export const REPORT_EMAIL_MAX_RECIPIENTS = 50;
 
@@ -97,18 +112,20 @@ export const notifyReportEmailSchema = z.object({
 });
 
 /** Which relay leg a notify-email body is for. */
-export type NotifyEmailLeg = 'report' | 'quota' | 'offer' | 'ecosystem' | 'tenant';
+export type NotifyEmailLeg = 'report' | 'quota' | 'offer' | 'alert' | 'ecosystem' | 'tenant';
 
 /**
  * The relay leg a body is for, decided by its keys exactly as the relay
  * dispatches: `reportRecipients`, then `quotaNotice`, then `offerNotice`, then
- * an ecosystem notice's `recipients` RULES; anything else is the tenant leg.
+ * `alertEmail`, then an ecosystem notice's `recipients` RULES; anything else is
+ * the tenant leg.
  */
 export function notifyEmailLegOf(raw: unknown): NotifyEmailLeg {
   if (raw && typeof raw === 'object') {
     if ('reportRecipients' in raw) return 'report';
     if ('quotaNotice' in raw) return 'quota';
     if ('offerNotice' in raw) return 'offer';
+    if ('alertEmail' in raw) return 'alert';
     if ('recipients' in raw) return 'ecosystem';
   }
   return 'tenant';
@@ -120,6 +137,7 @@ export type NotifyEmailBody =
   | z.output<typeof notifyQuotaEmailSchema>
   | z.output<typeof notifyOfferEmailSchema>
   | z.output<typeof notifyReportEmailSchema>
+  | z.output<typeof notifyAlertEmailSchema>
   | EcosystemNotifyRequest;
 
 /** Any leg's body, validated by the leg its keys select (the relay's own dispatch). */
@@ -136,7 +154,8 @@ const NotifyEmailBodySchema = z.unknown().transform((raw, ctx): NotifyEmailBody 
   const schema = leg === 'report' ? notifyReportEmailSchema
     : leg === 'quota' ? notifyQuotaEmailSchema
       : leg === 'offer' ? notifyOfferEmailSchema
-        : notifyEmailSchema;
+        : leg === 'alert' ? notifyAlertEmailSchema
+          : notifyEmailSchema;
   const result = schema.safeParse(raw);
   if (!result.success) {
     for (const issue of result.error.issues) ctx.addIssue({ code: 'custom', message: issue.message, path: issue.path });
@@ -252,6 +271,38 @@ const AI_PROVIDERS = new Set(AI_KEY_PROVIDER_IDS);
 const AI_AUTH = 'Service token SCOPED to the path org (`orgId` claim must equal :orgId, else 403).';
 
 // ---------------------------------------------------------------------------
+// /internal/ops (ops-center)
+// ---------------------------------------------------------------------------
+
+/** The named aggregations over platform's audit trail an ops dashboard can render. */
+export const AUDIT_ACTIVITY_QUERIES = ['events_by_action', 'top_actors_24h', 'recent_events'] as const;
+export type AuditActivityQuery = typeof AUDIT_ACTIVITY_QUERIES[number];
+/** The range presets the observability surface understands. */
+export const AUDIT_ACTIVITY_RANGES = ['1h', '6h', '24h'] as const;
+export type AuditActivityRange = typeof AUDIT_ACTIVITY_RANGES[number];
+/** Ceiling on `liveOrgIds` per call (the log view's tenant cap is far below it). */
+export const LIVE_ORG_IDS_MAX = 1000;
+/** Ceiling on `recent_events` rows per call. */
+export const AUDIT_ACTIVITY_MAX_LIMIT = 500;
+
+const auditSeries = z.object({
+  labels: z.record(z.string(), z.string()),
+  values: z.array(z.object({ time: z.number(), value: z.string() })),
+});
+
+/** What an audit-activity query returns: a Prometheus-shaped matrix, or a stream of rows. */
+export const AuditActivityResult = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('matrix'), series: z.array(auditSeries), step: z.string() }),
+  z.object({
+    kind: z.literal('stream'),
+    entries: z.array(z.object({ time: z.number(), line: z.string(), labels: z.record(z.string(), z.string()) })),
+  }),
+]);
+export type AuditActivityResultData = z.output<typeof AuditActivityResult>;
+
+const OPS_AUTH = 'Service token from ops-center (system-org member); the caller is authorized by its key-bound service name.';
+
+// ---------------------------------------------------------------------------
 // The contracts
 // ---------------------------------------------------------------------------
 
@@ -266,8 +317,8 @@ export const PLATFORM_INTERNAL = {
     service: 'platform',
     method: 'POST',
     path: '/internal/notify-email',
-    callers: ['billing', 'compliance', 'plugin', 'quota', 'reporting'],
-    auth: 'Service token scoped to the org the mail is for (tenant/report/quota/offer legs); system-org for an ecosystem notice (plugin only).',
+    callers: ['billing', 'compliance', 'ops-center', 'plugin', 'quota', 'reporting'],
+    auth: 'Service token scoped to the org the mail is for (tenant/report/quota/offer/alert legs); system-org for an ecosystem notice (plugin only).',
     params: z.object({}),
     body: NotifyEmailBodySchema,
     response: NotifyEmailResponse,
@@ -278,7 +329,7 @@ export const PLATFORM_INTERNAL = {
     service: 'platform',
     method: 'GET',
     path: '/internal/notify-email/status',
-    callers: ['ask', 'plugin', 'reporting'],
+    callers: ['ask', 'ops-center', 'plugin', 'reporting'],
     auth: SERVICE_TOKEN,
     params: z.object({}),
     response: z.object({ enabled: z.boolean() }),
@@ -453,5 +504,71 @@ export const PLATFORM_INTERNAL = {
       provider: z.string().refine((p) => AI_PROVIDERS.has(p), 'provider must be a key-based AI provider'),
     }),
     response: z.object({ provider: z.string().optional(), apiKey: z.string().min(1) }),
+  }),
+  /**
+   * The ACCOUNT ROOT of an org (the top of its team ancestry; a flat org is its
+   * own root) — what ops-center reserves the dashboards / alertRules /
+   * alertDestinations feature quotas against. 404 for an unknown org.
+   */
+  orgAccountRoot: defineInternalEndpoint({
+    id: 'platform.orgAccountRoot',
+    service: 'platform',
+    method: 'GET',
+    path: '/internal/ops/org-account-root/:orgId',
+    callers: ['ops-center'],
+    auth: OPS_AUTH,
+    params: z.object({ orgId: orgIdParam }),
+    response: z.object({ orgId: z.string(), rootOrgId: z.string() }),
+  }),
+  /**
+   * One audit-activity aggregation for an ops dashboard panel. The SCOPE is
+   * the caller's verified identity as ops-center resolved it from the
+   * user's token (`isSuperAdmin` sees every org; anyone else exactly `orgId`,
+   * matched as the actor's org OR the affected org — the `GET /audit`
+   * predicate). A non-sysadmin scope with no org yields an empty result.
+   */
+  auditActivity: defineInternalEndpoint({
+    id: 'platform.auditActivity',
+    service: 'platform',
+    method: 'POST',
+    path: '/internal/ops/audit-activity',
+    callers: ['ops-center'],
+    auth: OPS_AUTH,
+    params: z.object({}),
+    body: z.object({
+      query: z.enum(AUDIT_ACTIVITY_QUERIES),
+      scope: z.object({ isSuperAdmin: z.boolean(), orgId: z.string().min(1).max(64).optional() }),
+      range: z.enum(AUDIT_ACTIVITY_RANGES),
+      /** Query end, unix seconds. */
+      end: z.number().int().nonnegative(),
+      limit: z.number().int().min(1).max(AUDIT_ACTIVITY_MAX_LIMIT),
+      vars: z.object({
+        event: z.string().max(256).optional(),
+        actor: z.string().max(256).optional(),
+        requestId: z.string().max(256).optional(),
+      }),
+    }),
+    response: AuditActivityResult,
+  }),
+  /**
+   * Live (not soft-deleted) org ids in id order, at most `limit` — what a
+   * sysadmin's `orgs=all` log view enumerates (Loki has no tenant wildcard).
+   * Ids only, never names.
+   */
+  liveOrgIds: defineInternalEndpoint({
+    id: 'platform.liveOrgIds',
+    service: 'platform',
+    method: 'GET',
+    path: '/internal/ops/live-org-ids',
+    callers: ['ops-center'],
+    auth: OPS_AUTH,
+    params: z.object({}),
+    query: z.object({
+      limit: z.unknown().optional().transform((v): number => {
+        const n = Number(parseQueryString(v) ?? LIVE_ORG_IDS_MAX);
+        return Number.isFinite(n) ? Math.min(LIVE_ORG_IDS_MAX, Math.max(1, Math.trunc(n))) : LIVE_ORG_IDS_MAX;
+      }),
+    }),
+    response: z.object({ orgIds: z.array(z.string()) }),
   }),
 } as const;

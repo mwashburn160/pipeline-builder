@@ -25,7 +25,7 @@ import { api } from '@/lib/api';
 import { formatError } from '@/lib/constants';
 
 /** Name of the seeded dashboard we redirect to. Matches the seeder in
- * platform/src/services/dashboard-seeder.ts. */
+ * api/ops-center/src/services/dashboard-seeder.ts. */
 const TARGET_DASHBOARD_NAME = 'Audit activity';
 
 export default function AuditActivityResolver() {

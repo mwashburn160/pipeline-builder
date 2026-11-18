@@ -38,6 +38,7 @@ resources:
   - plugin-quarantine-builder.yaml
   - message.yaml
   - reporting.yaml
+  - ops-center.yaml
   - ask.yaml
   - ask-model.yaml  # self-hosted model (Ollama) backing the Ask assistant
   # Scales ask-model to 0 outside the ASK_SCHEDULE_* window (default Mon-Fri

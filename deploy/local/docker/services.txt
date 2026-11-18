@@ -9,6 +9,7 @@ service message api/message
 service reporting api/reporting
 service ask api/ask
 service compliance api/compliance
+service ops-center api/ops-center
 service image-registry api/image-registry
 library api-core packages/api-core
 library pipeline-data packages/pipeline-data

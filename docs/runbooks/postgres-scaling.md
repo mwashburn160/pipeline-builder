@@ -37,7 +37,7 @@ Two independent scaling axes, and conflating them is the common mistake:
 
 | Axis | What it changes | Driven by | Bounded by |
 |---|---|---|---|
-| **Vertical (either workload)** | CPU, memory, and the server config derived from memory | the `platform` rung controller, from the saturation / underutilisation alerts | the LimitRange: container `cpu 4`, `memory 10Gi` |
+| **Vertical (either workload)** | CPU, memory, and the server config derived from memory | the `ops-center` rung controller, from the saturation / underutilisation alerts | the LimitRange: container `cpu 4`, `memory 10Gi` |
 | **Horizontal (the standbys only)** | Read capacity | a KEDA `ScaledObject`, from CPU/memory utilization | `PG_READ_REPLICA_MAX` (AWS 2, local 1) and the declared standby PVs |
 
 **Stage order is enforced in code, not just documented.** A standby reaches the
@@ -120,7 +120,7 @@ totals 4.1 CPU and ~8.1Gi — but any future sidecar eats that margin.
 ### Automatic rung changes (`POSTGRES_RUNG_ENABLED=true`)
 
 Alertmanager routes the Postgres CPU/memory alerts to
-`POST /observability/postgres-rung` on `platform`, authenticated with the same
+`POST /observability/postgres-rung` on `ops-center`, authenticated with the same
 per-instance relay secret as `/pvc-autoexpand`, and the controller moves one
 rung — pod requests/limits **and** the derived server config in one patch.
 **Off by default**: a rung change restarts the container, and on the single

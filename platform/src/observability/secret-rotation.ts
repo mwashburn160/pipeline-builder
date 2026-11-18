@@ -14,8 +14,9 @@
  *   - `SECRET_ENCRYPTION_KEY` — the at-rest master key; the previous key stays
  *     accepted (decrypt-only) until `scripts/reencrypt-secrets.js` has rewritten
  *     every stored blob under the new one.
- *   - `ALERT_WEBHOOK_INSTANCE_TOKEN` — per-Alertmanager relay bearer; the
- *     outgoing token rides in the instance entry's `previousToken`.
+ *
+ * (`ALERT_WEBHOOK_INSTANCE_TOKEN`, the Alertmanager relay bearer, moved to
+ * ops-center with the relay.)
  *
  * `REFRESH_TOKEN_SECRET` is gone: refresh tokens are user tokens now, signed
  * with (and rotated by) the same ES256 key as everything else.
@@ -25,7 +26,6 @@
  */
 
 import { isEnvSet, registerPreviousSecretProbe } from '@pipeline-builder/api-core';
-import { config } from '../config/index.js';
 import { isRetiringKeyPublished } from '../services/token-signing/index.js';
 
 export function registerPlatformSecretRotationProbes(): void {
@@ -38,7 +38,4 @@ export function registerPlatformSecretRotationProbes(): void {
   // never fired and the rotation could sit half-applied indefinitely.
   registerPreviousSecretProbe('SECRET_ENCRYPTION_KEY',
     () => isEnvSet('SECRET_ENCRYPTION_KEY_PREVIOUS') || isEnvSet('SECRET_ENCRYPTION_KMS_CIPHERTEXT_PREVIOUS'));
-  registerPreviousSecretProbe( 'ALERT_WEBHOOK_INSTANCE_TOKEN',
-    () => config.alertWebhook.instances.some((instance) => !!instance.previousToken),
-  );
 }

@@ -78,6 +78,7 @@ flowchart TB
         BILLING[Billing]
         MESSAGE[Message]
         REPORTING[Reporting]
+        OPS[Ops Controller<br/>Dashboards / Alerting / On-call]
         IMGREG[Image Registry<br/>Token / Image API]
     end
 
@@ -93,17 +94,27 @@ flowchart TB
     end
 
     FE & CLI & API_EXT --> NGINX
-    NGINX -->|route by path| PLATFORM & PIPELINE & PLUGIN & COMPLIANCE & QUOTA & BILLING & MESSAGE & REPORTING & IMGREG
-    PIPELINE & PLUGIN & COMPLIANCE & REPORTING & IMGREG -.->|verify tokens via JWKS| PLATFORM
+    NGINX -->|route by path| PLATFORM & PIPELINE & PLUGIN & COMPLIANCE & QUOTA & BILLING & MESSAGE & REPORTING & OPS & IMGREG
+    PIPELINE & PLUGIN & COMPLIANCE & REPORTING & OPS & IMGREG -.->|verify tokens via JWKS| PLATFORM
     PLUGIN & PIPELINE -->|validate| COMPLIANCE
     PLATFORM --> MONGO
-    PIPELINE & PLUGIN & COMPLIANCE & REPORTING --> PG
+    PIPELINE & PLUGIN & COMPLIANCE & REPORTING & OPS --> PG
     PLUGIN --> REDIS
     PLUGIN -->|buildctl build_image| BK
     PLUGIN -->|crane push prebuilt| REG
     BK -->|push with scoped Bearer token| REG
     IMGREG -->|mint scoped token| REG
 ```
+
+### Services
+
+| Service | Owns | Data |
+|---------|------|------|
+| `platform` | The identity hub: users, sessions, orgs + teams, membership, Roles/RBAC, SSO/SAML/SCIM, JWT issuance (JWKS), the audit trail, the email relay, the org-purge / user-erasure cascade outbox | MongoDB (+ `support_contacts` in Postgres) |
+| `ops-center` | The operations control plane, split out of platform: the Prometheus / Loki / Alertmanager proxy behind the dashboards, dashboards, org alert rules + destinations and their delivery health, the Alertmanager relay, on-call paging (PagerDuty), and the PVC / node-disk / Postgres-rung auto-scaling webhooks (the only workload with Kubernetes API rights) | PostgreSQL only — `dashboards`, `dashboard_panels`, `org_alert_rules`, `org_alert_destinations`, `alert_destination_status` |
+| `pipeline`, `plugin`, `compliance`, `message`, `reporting`, `quota`, `billing`, `ask`, `image-registry` | See each service's README | PostgreSQL / MongoDB per service |
+
+**Why ops-center is separate.** Platform is the one service everyone depends on to sign in; it should hold no Kubernetes API rights, take no Alertmanager webhook traffic and run no upstream-proxy load. The split moved every `/observability/*` and `/dashboards*` route unchanged (nginx routes those prefixes to ops-center, so the browser and CLI call the same `/api/...` paths), together with the Roles bound for `postgres-rung` / `pvc-autoexpand`, the Alertmanager receivers and the ops metrics. What ops-center still needs from identity data goes through typed internal contracts served by platform (api-core `PLATFORM_INTERNAL`): `orgAccountRoot` (feature-quota reservations bind to the account root), `auditActivity` (the Audit Activity panels aggregate platform's Mongo audit trail), `liveOrgIds` (a sysadmin's `orgs=all` log view), and the `notifyEmail` relay (`alert` leg for email destinations, tenant leg for the failing-destination notice). An org purge reaches its tables through the cascade outbox's `ops-center` leg (`OPS_CENTER_INTERNAL.purgeOrg`).
 
 ---
 

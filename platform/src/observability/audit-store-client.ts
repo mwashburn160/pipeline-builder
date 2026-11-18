@@ -4,7 +4,9 @@
 /**
  * Audit Activity panels over platform's MongoDB audit trail.
  *
- * The `audit-store` catalog entries resolve here instead of Prometheus. Matrix
+ * The `audit-store` catalog entries of ops-center's dashboards resolve here
+ * (through `PLATFORM_INTERNAL.auditActivity`, controllers/ops-internal.ts)
+ * instead of Prometheus. Matrix
  * results use the same series shape as a Prometheus range query, so the chart
  * and top-N panels render either source unchanged.
  *
@@ -15,13 +17,15 @@
  * unscoped query.
  */
 
-import type { AuditStoreQuery, RangeKey } from './catalog.js';
-import { rangeSeconds } from './catalog.js';
+import type { AuditActivityQuery as AuditStoreQuery, AuditActivityRange as RangeKey } from '@pipeline-builder/api-core';
 import AuditEvent from '../models/audit-event.js';
 import { buildAuditQuery } from '../services/audit-service.js';
 
 /** Time-bucket width per range for the events-over-time panel — 12–24 bars. */
 const BUCKET_SECONDS: Record<RangeKey, number> = { '1h': 300, '6h': 1800, '24h': 3600 };
+/** Lookback per range (the observability catalog's presets). */
+const RANGE_SECONDS: Record<RangeKey, number> = { '1h': 3600, '6h': 21_600, '24h': 86_400 };
+const rangeSeconds = (range: RangeKey): number => RANGE_SECONDS[range];
 const TOP_ACTORS_WINDOW_SECONDS = 86_400;
 const TOP_ACTORS_LIMIT = 10;
 

@@ -50,7 +50,7 @@ Two people configure this, and they configure different halves:
 1. **Decide whether email works at all** — set `EMAIL_ENABLED` and pick a provider. See [Platform: outbound email](#platform-outbound-email) for every variable and its default.
 2. **On AWS, let `setup.sh --email` provision the sending path** — domain identity with Easy DKIM, a configuration set plus SNS topic for bounces and complaints, a scoped IAM grant, and the `.env` edits. See [SES on the AWS targets](#ses-on-the-aws-targets), and note the two things the deploy cannot do for you.
 3. **Set both ops Slack webhooks.** The AWS provision refuses to continue on a `CHANGE_ME` placeholder — see [The provision fails on a placeholder webhook](#the-provision-fails-on-a-placeholder-webhook--on-purpose).
-4. **Wire the alert relay token on both sides** so per-org alerts can reach the platform service. See [The alert relay token](#the-alert-relay-token).
+4. **Wire the alert relay token on both sides** so per-org alerts can reach the ops-center service. See [The alert relay token](#the-alert-relay-token).
 5. **Verify with a real send**, not by reading config:
 
    ```bash
@@ -281,10 +281,11 @@ both ends:
 - **Alertmanager** reads it from `/etc/alertmanager-secrets/relay-token`
   (`credentials_file`) and presents it as a Bearer token, together with an
   `X-Alertmanager-Instance: alertmanager` header, on
-  `POST http://platform:3000/observability/alert-webhook`.
-- **Platform** receives it as
+  `POST http://ops-center:3000/observability/alert-webhook`.
+- **ops-center** (which serves the relay since the operations control plane
+  was split out of platform) receives it as
   `ALERT_WEBHOOK_INSTANCES=[{"id":"alertmanager","token":"…","previousToken":"…"}]`,
-  built from the same value by `docker-compose.yml` / `k8s/platform.yaml`.
+  built from the same value by `docker-compose.yml` / `k8s/ops-center.yaml`.
 
 With no instances configured the relay answers **503** and no per-org alert
 destination ever fires. An unknown instance id or a mismatched token is rejected.

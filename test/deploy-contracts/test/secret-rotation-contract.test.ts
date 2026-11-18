@@ -84,15 +84,18 @@ describe.each(K8S_TARGETS)('secret-rotation k8s wiring — %s', (target) => {
     const platform = read(`${target}/k8s/platform.yaml`);
     expect(platform).toContain('secretName: token-signing-key');
     expect(platform).toContain('mountPath: /etc/pipeline-builder/keys');
-    for (const svc of ['nginx', 'plugin', 'pipeline', 'quota', 'reporting', 'billing', 'message', 'compliance', 'image-registry']) {
+    for (const svc of ['nginx', 'plugin', 'pipeline', 'quota', 'reporting', 'ops-center', 'billing', 'message', 'compliance', 'image-registry']) {
       expect(read(`${target}/k8s/${svc}.yaml`)).not.toContain('token-signing-key');
     }
   });
 
-  it('passes the relay rotation token into platform\'s ALERT_WEBHOOK_INSTANCES', () => {
-    const platform = read(`${target}/k8s/platform.yaml`);
-    expect(platform).toContain('key: ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS');
-    expect(platform).toContain('"previousToken":"$(ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS)"');
+  it('passes the relay rotation token into ops-center\'s ALERT_WEBHOOK_INSTANCES', () => {
+    // The relay (and every other Alertmanager receiver) moved from platform to
+    // ops-center; the bearer moved with it, and platform must not keep it.
+    const ops = read(`${target}/k8s/ops-center.yaml`);
+    expect(ops).toContain('key: ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS');
+    expect(ops).toContain('"previousToken":"$(ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS)"');
+    expect(read(`${target}/k8s/platform.yaml`)).not.toContain('ALERT_WEBHOOK_INSTANCE');
   });
 });
 
@@ -122,7 +125,7 @@ describe('secret-rotation shell plumbing', () => {
     expect(generator).toContain('--rotate');
     expect(generator).toContain('refusing to rotate');
     for (const target of K8S_TARGETS) {
-      for (const svc of ['platform', 'plugin', 'pipeline', 'quota', 'reporting', 'billing', 'message', 'compliance', 'image-registry', 'ask']) {
+      for (const svc of ['platform', 'plugin', 'pipeline', 'quota', 'reporting', 'ops-center', 'billing', 'message', 'compliance', 'image-registry', 'ask']) {
         const manifest = read(`${target}/k8s/${svc}.yaml`);
         expect(manifest).toContain(`secretName: service-key-${svc}`);
         expect(manifest).toContain('secretName: service-key-bundle');

@@ -81,7 +81,7 @@ Key-by-key:
 | **user-token signing key** (ES256) | **platform only** | `deploy/*/certs/token-signing/token-signing.key` → k8s `token-signing-key` Secret; or AWS KMS under `TOKEN_SIGNING_KMS_KEY_ID` |
 | **per-service signing keys** (ES256) — internal service tokens | each service holds ONLY its own | `deploy/*/certs/service-keys/<svc>.key` → k8s `service-key-<svc>` Secret; public halves in `bundle.json` → `service-key-bundle` |
 | `SECRET_ENCRYPTION_KEY` (+ `_PREVIOUS`) | platform only | `.env`; k8s `app-secrets` Secret |
-| `ALERT_WEBHOOK_INSTANCE_TOKEN` (+ `_PREVIOUS`) | platform (verifier) + Alertmanager (sender) | `.env`; k8s `alertmanager-relay` Secret; platform's `ALERT_WEBHOOK_INSTANCES` JSON |
+| `ALERT_WEBHOOK_INSTANCE_TOKEN` (+ `_PREVIOUS`) | ops-center (verifier) + Alertmanager (sender) | `.env`; k8s `alertmanager-relay` Secret; ops-center's `ALERT_WEBHOOK_INSTANCES` JSON |
 | image-registry signing key | image-registry (signs) + the Docker registry (verifies) | `deploy/*/certs/image-registry-jwt.{key,crt}` (docker); k8s `registry-token-secret` |
 | **plugin-signing key** (cosign, EC P-256) — plugin images + SBOM attestations | **image-registry only** (signs); plugin holds the PUBLIC key (verifies) | `deploy/*/certs/plugin-signing/plugin-signing.key` → k8s `plugin-signing-key` Secret, or AWS KMS under `PLUGIN_SIGNING_KMS_KEY_ID`; public half `plugin-signing.pub` → `plugin-signing-public-key` |
 | SAML **service-provider** keys (signing, encryption, test-marker) | platform only | Mongo, collection `saml_sp_keys` — private halves wrapped under `SECRET_ENCRYPTION_KEY`. Nothing on disk, nothing in `.env` |
@@ -523,47 +523,47 @@ deleting `deploy/local/docker/data/db-data/postgres-replica/`, then
 
 ## `ALERT_WEBHOOK_INSTANCE_TOKEN` (alert relay)
 
-The bearer Alertmanager presents to platform's
-`POST /observability/alert-webhook`, which fans alerts out to each org's
-destinations. Two sides: platform verifies (`ALERT_WEBHOOK_INSTANCES`, one entry
+The bearer Alertmanager presents to ops-center's
+`POST /observability/alert-webhook` (and its other webhook receivers), which fans
+alerts out to each org's destinations. Two sides: ops-center verifies (`ALERT_WEBHOOK_INSTANCES`, one entry
 per Alertmanager instance) and Alertmanager sends (a mounted `credentials_file`).
-Platform accepts the entry's `previousToken` while it is non-empty.
+ops-center accepts the entry's `previousToken` while it is non-empty.
 
 **Order matters: teach the verifier the new token before the sender starts
 sending it.**
 
 1. `pb_rotate_env_secret deploy/<target>/.env ALERT_WEBHOOK_INSTANCE_TOKEN`
-2. Push the `alertmanager-relay` Secret (both keys) and restart **platform**
+2. Push the `alertmanager-relay` Secret (both keys) and restart **ops-center**
    first. It now accepts old *and* new.
    ```bash
    kubectl -n pipeline-builder patch secret alertmanager-relay -p \
      "{\"stringData\":{\"ALERT_WEBHOOK_INSTANCE_TOKEN\":\"$NEW\",\"ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS\":\"$OLD\"}}"
-   kubectl -n pipeline-builder rollout restart deploy/platform
+   kubectl -n pipeline-builder rollout restart deploy/ops-center
    ```
 3. Restart **Alertmanager** so it picks up the new token file
    (`rollout restart deploy/alertmanager`; docker:
-   `docker compose up -d --force-recreate alertmanager platform`).
+   `docker compose up -d --force-recreate alertmanager ops-center`).
 4. `pb_finish_env_rotation deploy/<target>/.env ALERT_WEBHOOK_INSTANCE_TOKEN`,
-   re-push the Secret, restart platform.
+   re-push the Secret, restart ops-center.
 
 **Verify** — fire a test alert (or watch the next real one) and confirm
-`Alert relay processed` in the platform log with no `Alert webhook unknown
+`Alert relay processed` in the ops-center log with no `Alert webhook unknown
 instance` / `Unauthorized` warnings. Between steps 2 and 3 **both** tokens must
 work; after step 4 the old one must 401:
 
 ```bash
-curl -s -o /dev/null -w '%{http_code}\n' -X POST http://platform:3000/observability/alert-webhook \
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://ops-center:3000/observability/alert-webhook \
   -H "Authorization: Bearer $OLD" -H 'X-Alertmanager-Instance: alertmanager' \
   -H 'Content-Type: application/json' -d '{"alerts":[]}'          # 401 after step 4
 ```
 
 **Rollback** — restore the old token as the current one (it is still in
-`_PREVIOUS` until step 4) and restart platform + Alertmanager. The only symptom
+`_PREVIOUS` until step 4) and restart ops-center + Alertmanager. The only symptom
 of getting this wrong is silently undelivered org alerts, so verify rather than
 assume.
 
-**Proof** — `platform/test/alert-webhook-token-rotation.test.ts`,
-`platform/test/alert-webhook-instances.test.ts`.
+**Proof** — the alert-webhook token-rotation and instances suites, which moved
+from `platform/test/` to `api/ops-center/test/` with the relay.
 
 ---
 
@@ -1070,7 +1070,7 @@ registrations are refused; orgs with no allowlist are unaffected either way.
 | Item | Value |
 |---|---|
 | Metric | `secret_rotation_previous_set{service,secret}` — gauge, 1 while the overlap value is set |
-| Exported by | every service (`/metrics`), including platform; probes registered in api-core (`SERVICE_SIGNING_KEY`), platform (`TOKEN_SIGNING_KEY`, `SECRET_ENCRYPTION_KEY`, `ALERT_WEBHOOK_INSTANCE_TOKEN`) and image-registry (`REGISTRY_TOKEN_CERTIFICATE`) |
+| Exported by | every service (`/metrics`), including platform; probes registered in api-core (`SERVICE_SIGNING_KEY`), platform (`TOKEN_SIGNING_KEY`, `SECRET_ENCRYPTION_KEY`), ops-center (`ALERT_WEBHOOK_INSTANCE_TOKEN`) and image-registry (`REGISTRY_TOKEN_CERTIFICATE`) |
 | Alert | `SecretRotationPreviousLingering` — `max by (service, secret) (secret_rotation_previous_set) == 1` `for: 24h`, `severity: warning`, `component: auth`, `tenancy: platform` |
 | Defined in | `deploy/{local/docker,local/minikube,aws/ec2,aws/eks}/config/prometheus/alert-rules.yml` (unit-tested in `deploy/local/minikube/config/prometheus/alert-rules.test.yml`) |
 
@@ -1085,7 +1085,7 @@ finishes the rotation, and `{{ $labels.service }}` names what to restart:
 | `TOKEN_SIGNING_KEY` | [User-token signing key](#user-token-signing-key-es256-rotated-by-kid) | clear `TOKEN_SIGNING_KEY_PREVIOUS_FILE` (or `TOKEN_SIGNING_KMS_KEY_PREVIOUS_ID`), re-create the Secret, restart platform |
 | `SERVICE_SIGNING_KEY` | [Internal service signing keys](#internal-service-signing-keys-es256-per-service) | `service-signing-keys.sh … --finish <service>`, re-push `service-key-bundle`, restart that service |
 | `SECRET_ENCRYPTION_KEY` | [`SECRET_ENCRYPTION_KEY`](#secret_encryption_key) | `pb_finish_env_rotation`, re-push `app-secrets`, restart platform — **only after** the re-encryption reports `failures: 0` and steps 4–5 are done |
-| `ALERT_WEBHOOK_INSTANCE_TOKEN` | [`ALERT_WEBHOOK_INSTANCE_TOKEN`](#alert_webhook_instance_token-alert-relay) | `pb_finish_env_rotation`, re-push `alertmanager-relay`, restart platform |
+| `ALERT_WEBHOOK_INSTANCE_TOKEN` | [`ALERT_WEBHOOK_INSTANCE_TOKEN`](#alert_webhook_instance_token-alert-relay) | `pb_finish_env_rotation`, re-push `alertmanager-relay`, restart ops-center |
 | `REGISTRY_TOKEN_CERTIFICATE` | [Image-registry signing key](#image-registry-signing-key) | trim the trust bundle to the new cert, restart registry then image-registry |
 
 `SECRET_ENCRYPTION_KEY` is the one label where "finish it" is not a 30-second

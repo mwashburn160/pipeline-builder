@@ -25,7 +25,7 @@ import type { PgTable } from 'drizzle-orm/pg-core';
 import { schema } from '../database/drizzle-schema.js';
 
 /** A service that owns org-scoped Postgres rows. */
-export type OrgDataOwner = 'platform' | 'pipeline' | 'plugin' | 'compliance' | 'message' | 'reporting';
+export type OrgDataOwner = 'platform' | 'ops-center' | 'pipeline' | 'plugin' | 'compliance' | 'message' | 'reporting';
 
 /** One org-scoped table and its Postgres name. */
 export interface OrgScopedTable {
@@ -46,19 +46,27 @@ const t = (table: PgTable, name: string): OrgScopedTable => ({ table, name });
  * an `org_id` column goes under its owner here, or the drift guard fails.
  */
 export const ORG_DATA_OWNERSHIP: Readonly<Record<OrgDataOwner, OrgDataSlice>> = {
-  // Platform's own Postgres data: dashboards, the org's alert routing, and the
-  // support contacts it designates (platform's support-contacts controller).
-  platform: {
+  // Platform's own Postgres data: the support contacts it designates
+  // (platform's support-contacts controller).
+  'platform': {
+    soft: [],
+    hard: [
+      t(schema.supportContact, 'support_contacts'),
+    ],
+  },
+  // The operations control plane: dashboards, the org's alert rules and alert
+  // routing, and the routing's delivery health (moved out of platform).
+  'ops-center': {
     soft: [
       t(schema.dashboard, 'dashboards'),
       t(schema.orgAlertDestination, 'org_alert_destinations'),
       t(schema.orgAlertRule, 'org_alert_rules'),
     ],
     hard: [
-      t(schema.supportContact, 'support_contacts'),
+      t(schema.alertDestinationStatus, 'alert_destination_status'),
     ],
   },
-  pipeline: {
+  'pipeline': {
     soft: [
       t(schema.pipeline, 'pipelines'),
       t(schema.pipelineTemplate, 'pipeline_templates'),
@@ -73,7 +81,7 @@ export const ORG_DATA_OWNERSHIP: Readonly<Record<OrgDataOwner, OrgDataSlice>> = 
       t(schema.pipelinePluginResolution, 'pipeline_plugin_resolution'),
     ],
   },
-  plugin: {
+  'plugin': {
     soft: [
       t(schema.plugin, 'plugins'),
     ],
@@ -93,7 +101,7 @@ export const ORG_DATA_OWNERSHIP: Readonly<Record<OrgDataOwner, OrgDataSlice>> = 
       t(schema.orgToolchainDefaultHistory, 'org_toolchain_default_history'),
     ],
   },
-  compliance: {
+  'compliance': {
     soft: [
       t(schema.compliancePolicy, 'compliance_policies'),
       t(schema.complianceRule, 'compliance_rules'),
@@ -109,7 +117,7 @@ export const ORG_DATA_OWNERSHIP: Readonly<Record<OrgDataOwner, OrgDataSlice>> = 
       t(schema.complianceNotificationLog, 'compliance_notification_log'),
     ],
   },
-  message: {
+  'message': {
     soft: [
       t(schema.message, 'messages'),
       // Support cases ride the retention sweep like any other tenant record;
@@ -126,7 +134,7 @@ export const ORG_DATA_OWNERSHIP: Readonly<Record<OrgDataOwner, OrgDataSlice>> = 
       t(schema.supportCaseNote, 'support_case_notes'),
     ],
   },
-  reporting: {
+  'reporting': {
     soft: [
       // Published runs are the frozen evidence of what an org told its
       // stakeholders — tombstoned, not dropped, so they keep the retention window.

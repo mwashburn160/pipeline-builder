@@ -289,9 +289,10 @@ describe('cascadeDeleteOrg', () => {
 
   it('owns only platform tables — every other org-scoped table is a downstream service\'s outbox leg', () => {
     const own = [...SOFT_DELETE_TABLES, ...HARD_DELETE_TABLES].map((t) => t.name).sort();
-    expect(own).toEqual(['dashboards', 'org_alert_destinations', 'org_alert_rules', 'support_contacts']);
+    expect(own).toEqual(['support_contacts']);
     // e.g. pipelines, compliance_rules, messages, report_runs are NOT platform's to write.
-    for (const foreign of ['pipelines', 'plugins', 'compliance_rules', 'messages', 'report_runs', 'support_cases', 'incidents']) {
+    // The ops tables (dashboards, alert rules/destinations) are ops-center's leg now.
+    for (const foreign of ['pipelines', 'plugins', 'compliance_rules', 'messages', 'report_runs', 'support_cases', 'incidents', 'dashboards', 'org_alert_rules', 'org_alert_destinations']) {
       expect(own).not.toContain(foreign);
     }
   });
@@ -302,10 +303,9 @@ describe('cascadeDeleteOrg', () => {
   });
 
   it('reports a failed platform table as { ok: false } (the purge defers on it)', async () => {
-    mockPurgeOrgData.mockResolvedValue(platformPurge(1, ['dashboards']));
+    mockPurgeOrgData.mockResolvedValue(platformPurge(1, ['support_contacts']));
     const report = await cascadeDeleteOrg('org-acme', '000000000000000000000001');
-    expect(report.postgres.dashboards).toEqual({ ok: false, error: 'boom' });
-    expect(report.postgres.support_contacts).toEqual({ ok: true, rowCount: 1 });
+    expect(report.postgres.support_contacts).toEqual({ ok: false, error: 'boom' });
   });
 
   it("deletes members' org-scoped personal keys, MFA-reset and impersonation requests", async () => {

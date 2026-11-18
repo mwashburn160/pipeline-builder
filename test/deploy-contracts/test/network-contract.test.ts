@@ -182,19 +182,42 @@ describe.each(K8S_TARGETS)('network contract — %s', (target) => {
 
   it('admits the real observability callers', () => {
     const loki = allowPolicies(docs, { app: 'loki' });
-    for (const sa of ['alloy', 'platform', 'grafana']) expect([sa, meshAdmits(loki, sa, 3100)]).toEqual([sa, true]);
-    for (const src of ['alloy', 'platform', 'grafana']) expect(netpolAdmits(docs, { app: 'loki' }, { app: src }, 3100)).toBe(true);
+    // ops-center serves the Logs / Audit Activity views and the PromQL and
+    // Alertmanager proxies since the split; platform no longer reads any of them.
+    for (const sa of ['alloy', 'ops-center', 'grafana']) expect([sa, meshAdmits(loki, sa, 3100)]).toEqual([sa, true]);
+    for (const src of ['alloy', 'ops-center', 'grafana']) expect(netpolAdmits(docs, { app: 'loki' }, { app: src }, 3100)).toBe(true);
 
     const tq = allowPolicies(docs, { app: 'thanos-query' });
-    expect(meshAdmits(tq, 'platform', 9090) && meshAdmits(tq, 'grafana', 9090)).toBe(true);
+    expect(meshAdmits(tq, 'ops-center', 9090) && meshAdmits(tq, 'grafana', 9090)).toBe(true);
     expect(netpolAdmits(docs, { app: 'thanos-query' }, { app: 'grafana' }, 9090)).toBe(true);
+    expect(netpolAdmits(docs, { app: 'thanos-query' }, { app: 'ops-center' }, 9090)).toBe(true);
 
     const am = allowPolicies(docs, { app: 'alertmanager' });
-    expect(meshAdmits(am, 'prometheus', 9093) && meshAdmits(am, 'platform', 9093)).toBe(true);
+    expect(meshAdmits(am, 'prometheus', 9093) && meshAdmits(am, 'ops-center', 9093)).toBe(true);
+    expect(netpolAdmits(docs, { app: 'alertmanager' }, { app: 'ops-center' }, 9093)).toBe(true);
+
+    // …and the moved-out code's old caller is no longer admitted to the backends.
+    for (const [app, port] of [['loki', 3100], ['prometheus', 9090], ['thanos-query', 9090], ['alertmanager', 9093]] as const) {
+      expect([app, meshAdmits(allowPolicies(docs, { app }), 'platform', port)]).toEqual([app, false]);
+      expect([app, netpolAdmits(docs, { app }, { app: 'platform' }, port)]).toEqual([app, false]);
+    }
 
     const jaeger = allowPolicies(docs, { app: 'jaeger' });
-    expect(meshAdmits(jaeger, 'platform', 4318) && meshAdmits(jaeger, 'grafana', 16686)).toBe(true);
+    expect(meshAdmits(jaeger, 'platform', 4318) && meshAdmits(jaeger, 'ops-center', 4318) && meshAdmits(jaeger, 'grafana', 16686)).toBe(true);
     expect(netpolAdmits(docs, { app: 'jaeger' }, { app: 'grafana' }, 16686)).toBe(true);
+  });
+
+  it('admits ops-center\'s callers: the edge, Alertmanager\'s webhooks and platform\'s cascade leg', () => {
+    const ops = allowPolicies(docs, { app: 'ops-center' });
+    expect(ops.length).toBeGreaterThan(0);
+    for (const sa of ['nginx', 'prometheus', 'alertmanager', 'platform', 'pb-waypoint']) expect([sa, meshAdmits(ops, sa, 3000)]).toEqual([sa, true]);
+    for (const sa of ['plugin', 'plugin-quarantine-builder', 'default']) expect([sa, meshAdmits(ops, sa, 3000)]).toEqual([sa, false]);
+    for (const src of ['nginx', 'alertmanager', 'platform', 'prometheus']) {
+      expect([src, netpolAdmits(docs, { app: 'ops-center' }, { app: src }, 3000)]).toEqual([src, true]);
+    }
+    expect(netpolAdmits(docs, { app: 'ops-center' }, { app: 'plugin' }, 3000)).toBe(false);
+    // Platform's ALLOW no longer carries Alertmanager: the relay it served moved.
+    expect(meshAdmits(allowPolicies(docs, { app: 'platform' }), 'alertmanager', 3000)).toBe(false);
   });
 
   it('lets platform write the signed audit chain heads to the object store', () => {
@@ -220,6 +243,8 @@ describe.each(K8S_TARGETS)('network contract — %s', (target) => {
     expect(publicEgressPorts(docs, { app: 'ask' })).toContain(443);
     expect(publicEgressPorts(docs, { app: 'compliance' })).toEqual(expect.arrayContaining([443, 587, 465, 25]));
     expect(publicEgressPorts(docs, { app: 'platform' })).toEqual(expect.arrayContaining([443, 587, 465, 25]));
+    // Slack / webhook alert destinations, PagerDuty and the dead-man URL.
+    expect(publicEgressPorts(docs, { app: 'ops-center' })).toContain(443);
   });
 
   it('hands the credential endpoint to exactly the pods that hold an AWS grant', () => {
@@ -231,8 +256,12 @@ describe.each(K8S_TARGETS)('network contract — %s', (target) => {
     // BatchMeterUsage) when BILLING_PROVIDER=aws-marketplace. Without the
     // endpoint every Marketplace call times out fetching credentials.
     const billingGranted = target.endsWith('eks');
-    const granted = ['platform', 'pipeline', ...(billingGranted ? ['billing'] : [])];
-    const denied = ['plugin', 'plugin-quarantine-builder', 'ask', 'compliance', 'alertmanager', ...(billingGranted ? [] : ['billing'])];
+    // On ec2, ops-center grows the data volume (ec2:ModifyVolume + the SSM
+    // resize document) as the INSTANCE role, so it needs IMDS; nowhere else
+    // does it hold an AWS grant.
+    const opsGranted = target.endsWith('ec2');
+    const granted = ['platform', 'pipeline', ...(billingGranted ? ['billing'] : []), ...(opsGranted ? ['ops-center'] : [])];
+    const denied = ['plugin', 'plugin-quarantine-builder', 'ask', 'compliance', 'alertmanager', ...(billingGranted ? [] : ['billing']), ...(opsGranted ? [] : ['ops-center'])];
     for (const app of granted) expect([app, reaches(app)]).toEqual([app, true]);
     for (const app of denied) expect([app, reaches(app)]).toEqual([app, false]);
   });

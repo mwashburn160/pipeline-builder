@@ -36,6 +36,7 @@ jest.unstable_mockModule('../src/config/index.js', () => mockConfig({
   compliance: { serviceHost: 'compliance', servicePort: 3000 },
   message: { serviceHost: 'message', servicePort: 3000 },
   reporting: { serviceHost: 'reporting', servicePort: 3000 },
+  opsCenter: { serviceHost: 'ops-center', servicePort: 3000 },
   quota: { serviceHost: 'quota', servicePort: 3000 },
   billing: { serviceHost: 'billing', servicePort: 3000 },
   imageRegistry: { serviceHost: 'image-registry', servicePort: 3000 },
@@ -57,7 +58,7 @@ beforeEach(() => {
 describe('the leg registry', () => {
   it('fans an org purge out to every service that holds org data', () => {
     expect(legsFor('org.deleted').map((l) => l.service).sort()).toEqual([
-      'billing', 'compliance', 'image-registry', 'message', 'message-blobs', 'pipeline', 'plugin', 'quota', 'reporting',
+      'billing', 'compliance', 'image-registry', 'message', 'message-blobs', 'ops-center', 'pipeline', 'plugin', 'quota', 'reporting',
     ]);
   });
 
@@ -80,6 +81,7 @@ describe('contract legs', () => {
     ['compliance', 'compliance', '/compliance/internal/orgs/org-acme/purge'],
     ['message', 'message', '/messages/internal/orgs/org-acme/purge'],
     ['reporting', 'reporting', '/reports/internal/orgs/org-acme/purge'],
+    ['ops-center', 'ops-center', '/ops/internal/orgs/org-acme/purge'],
   ])('%s: POSTs its own purge contract with the platform token', async (service, host, path) => {
     const res = await findLeg('org.deleted', service)!.deliver(ORG);
     expect(res).toEqual({ ok: true, statusCode: 200 });

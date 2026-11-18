@@ -57,6 +57,15 @@ scrape_configs:
     static_configs:
       - targets: ['compliance:3000']
 
+  # The operations control plane (split out of platform): the alert relay,
+  # on-call paging and the storage/Postgres controllers. Their metrics
+  # (alert_delivery_*, alert_destination_orgs, oncall_*, postgres_rung_*,
+  # pvc_autoexpand_*, node_disk_autoexpand_*) are emitted HERE now, so without
+  # this job AlertDeliveryDisabled and the on-call rules have no series.
+  - job_name: 'ops-center'
+    static_configs:
+      - targets: ['ops-center:3000']
+
   # `ask` exposes the same api-server /metrics on :3000 as the other services.
   # It was the one application service with no job here, so every ask-specific
   # rule (and every rule that matches on service= across the fleet) simply had

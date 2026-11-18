@@ -12,7 +12,7 @@
  *
  * Auth: service-token only (rejects user JWTs), same gate as /audit/events.
  *
- * Five request shapes, told apart by the body:
+ * Six request shapes, told apart by the body:
  *  - **tenant email** (`compliance`, `reporting`): `{ orgId, targetUsers, subject,
  *    text }`, tenant-bound to the caller's org.
  *  - **report email** (`reporting`): `{ orgId, subject, text, html?,
@@ -23,6 +23,9 @@
  *  - **offer notice** (`billing`): `{ offerNotice: true, orgId, subject, text }` —
  *    an EXPANSION OFFER to those same people, on its own leg so a warning and a
  *    solicitation are never the same event (see `notifyOffer`).
+ *  - **alert email** (`ops-center`): `{ alertEmail: true, orgId, to, subject,
+ *    text }` — ONE configured address of an org's `email` alert destination
+ *    (see `notifyAlert`), tenant-bound.
  *  - **ecosystem notice** (`plugin`): an
  *    api-core `EcosystemNotifyRequest` — recipient RULES resolved here at send
  *    time, per-user `ecosystem.*` email preferences, in-app copy + individual
@@ -42,7 +45,7 @@ import { resolveServiceTenant } from '../helpers/service-tenant.js';
 import { User, UserOrganization } from '../models/index.js';
 import { deliverEcosystemNotification, holdersOfPermission } from '../services/ecosystem-notifications.js';
 import { emailService } from '../utils/email.js';
-import { notifyEmailSchema, notifyOfferEmailSchema, notifyQuotaEmailSchema, notifyReportEmailSchema, validateBody } from '../utils/validation.js';
+import { notifyAlertEmailSchema, notifyEmailSchema, notifyOfferEmailSchema, notifyQuotaEmailSchema, notifyReportEmailSchema, validateBody } from '../utils/validation.js';
 
 const logger = createLogger('notify-email-controller');
 
@@ -170,6 +173,8 @@ const ECOSYSTEM_NOTICE_CALLER = 'plugin';
 
 /** The only service allowed to mail a report to externally-verified addresses. */
 const REPORT_EMAIL_CALLER = 'reporting';
+/** The only caller of the alert leg. */
+const ALERT_EMAIL_CALLER = 'ops-center';
 
 /**
  * Mail a stakeholder report to addresses the reporting service verified.
@@ -234,6 +239,32 @@ async function notifyReport(req: Request, res: Response): Promise<void> {
   return sendSuccess(res, 200, { ok: failed.length === 0, sent, failed });
 }
 
+/**
+ * The alert leg: ONE message to ONE address, the target of an org's `email`
+ * alert destination (an org admin configured it; it is not a member lookup).
+ * ops-center only, tenant-bound to the token's org. Email switched off on
+ * this deployment answers `{ ok: false, suppressed: 1 }` — not an error, and
+ * not a delivery.
+ */
+async function notifyAlert(req: Request, res: Response): Promise<void> {
+  if (serviceNameOf(req.user) !== ALERT_EMAIL_CALLER) {
+    recordAuthzDenial(req, `internal-service (${ALERT_EMAIL_CALLER})`);
+    return sendError(res, 403, 'Only the ops-center service may send alert email');
+  }
+  const body = validateBody(notifyAlertEmailSchema, req.body, res);
+  if (!body) return;
+  if (resolveServiceTenant(req, res, body.orgId) === null) return;
+  if (config.email.enabled !== true) return sendSuccess(res, 200, { ok: false, suppressed: 1 });
+  try {
+    const ok = await emailService.send({ to: body.to, subject: body.subject, text: body.text });
+    return sendSuccess(res, 200, { ok, recipientCount: 1 });
+  } catch (err) {
+    // The address never reaches the log.
+    logger.warn('Alert email send failed', { orgId: body.orgId, error: errorMessage(err) });
+    return sendError(res, 500, 'Failed to send email');
+  }
+}
+
 async function notifyEcosystem(req: Request, res: Response): Promise<void> {
   if (serviceNameOf(req.user) !== ECOSYSTEM_NOTICE_CALLER) {
     recordAuthzDenial(req, `internal-service (${ECOSYSTEM_NOTICE_CALLER})`);
@@ -262,6 +293,7 @@ export async function notifyEmail(req: Request, res: Response): Promise<void> {
     case 'report': return notifyReport(req, res);
     case 'quota': return notifyQuota(req, res);
     case 'offer': return notifyOffer(req, res);
+    case 'alert': return notifyAlert(req, res);
     case 'ecosystem': return notifyEcosystem(req, res);
     case 'tenant': break;
   }

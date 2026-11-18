@@ -31,7 +31,7 @@ The **fleet leg** is `SupportPremiumFirstResponseAtRisk`: p90 first response ove
 
 The **meta leg** is the alerts about delivery itself — `AlertmanagerNotificationsFailing`, `AlertDeliveryDisabled`, `OnCallEnabledButUnconfigured` — labelled `delivery_meta: "true"` on the rule.
 
-The last two route through Alertmanager to platform's `POST /observability/oncall-webhook`, which re-checks the labels and forwards a matching alert to Events v2. The first calls the same client directly.
+The last two route through Alertmanager to ops-center's `POST /observability/oncall-webhook`, which re-checks the labels and forwards a matching alert to Events v2. The first calls the same client directly.
 
 The legs overlap deliberately. The per-case trigger is precise but depends on the product's own sweep being alive; the fleet leg is coarse but depends only on Prometheus. If the sweep dies, the fleet leg still fires — which is why `oncall_pages_total` carries a `trigger` label, so a dead sweep is visible rather than hidden behind an alert that still works.
 

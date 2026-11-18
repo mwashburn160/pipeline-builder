@@ -28,8 +28,15 @@ const TOOLCHAIN_LABEL_ARGS: Record<string, string> = {
   'node': 'NODE_VERSION',
 };
 
-const SERVICE_DIRS = ['platform', 'frontend', 'api/ask', 'api/billing', 'api/compliance', 'api/image-registry',
-  'api/message', 'api/pipeline', 'api/plugin', 'api/quota', 'api/reporting'];
+/**
+ * Every released image's project dir, from services.txt (projen-generated from
+ * the project definitions) rather than a hand list, so a NEW image project —
+ * ops-center was the first after this changed — is covered the moment it
+ * exists instead of when someone remembers to add it here.
+ */
+const SERVICE_DIRS = read('deploy/local/docker/services.txt').split('\n')
+  .filter((l) => l && !l.startsWith('#')).map((l) => l.split(' '))
+  .filter(([kind]) => kind === 'service' || kind === 'frontend').map(([, , dir]) => dir!);
 
 describe('release images', () => {
   it.each(SERVICE_DIRS)('%s: trusts no developer CA and ships none', (dir) => {

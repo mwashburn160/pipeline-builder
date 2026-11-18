@@ -441,58 +441,61 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | platform | POST | `/admin/users/:id/grants` | `sysadmin + aal2 + step-up(totp,webauthn)` |
 | platform | POST | `/admin/users/:id/mfa-reset` | `sysadmin + aal2 + step-up(totp,webauthn)` |
 | platform | GET | `/audit` | `any(audit:read)` |
-| platform | POST | `/audit/events` | `service-principal + internal(ask,billing,compliance,image-registry,message,pipeline,plugin,quota,reporting)` |
+| platform | POST | `/audit/events` | `service-principal + internal(ask,billing,compliance,image-registry,message,ops-center,pipeline,plugin,quota,reporting)` |
 | platform | GET | `/audit/verify` | `any(audit:read)` |
-| platform | GET | `/dashboards` | `any(dashboards:read)` |
-| platform | POST | `/dashboards` | `any(dashboards:write)` |
-| platform | GET | `/dashboards/:id` | `any(dashboards:read)` |
-| platform | POST | `/dashboards/:id/clone` | `any(dashboards:write)` |
-| platform | GET | `/dashboards/deleted` | `any(dashboards:read)` |
+| ops-center | GET | `/dashboards` | `any(dashboards:read)` |
+| ops-center | POST | `/dashboards` | `any(dashboards:write)` |
+| ops-center | GET | `/dashboards/:id` | `any(dashboards:read)` |
+| ops-center | POST | `/dashboards/:id/clone` | `any(dashboards:write)` |
+| ops-center | GET | `/dashboards/deleted` | `any(dashboards:read)` |
 | platform | GET | `/internal/ai/access/:orgId` | `service-principal + internal(ask,pipeline,plugin,reporting)` |
 | platform | GET | `/internal/ai/keys/:orgId/:provider` | `service-principal + internal(ask,pipeline,plugin,reporting)` |
 | platform | GET | `/internal/ecosystem/approvers` | `service-principal + internal(plugin)` |
 | platform | GET | `/internal/ecosystem/publisher-eligibility/:orgId` | `service-principal + internal(plugin)` |
-| platform | POST | `/internal/notify-email` | `service-principal + internal(billing,compliance,plugin,quota,reporting)` |
+| platform | POST | `/internal/notify-email` | `service-principal + internal(billing,compliance,ops-center,plugin,quota,reporting)` |
 | platform | GET | `/internal/reporting/access-posture/:orgId` | `service-principal + internal(reporting)` |
 | platform | GET | `/internal/offers/seat-activity/:orgId` | `service-principal + internal(billing)` |
+| platform | GET | `/internal/ops/org-account-root/:orgId` | `service-principal + internal(ops-center)` |
+| platform | POST | `/internal/ops/audit-activity` | `service-principal + internal(ops-center)` |
+| platform | GET | `/internal/ops/live-org-ids` | `service-principal + internal(ops-center)` |
 | platform | GET | `/internal/reporting/recipient-check/:orgId` | `service-principal + internal(reporting)` |
 | platform | GET | `/internal/reporting/report-authority/:orgId/:userId` | `service-principal + internal(reporting)` |
 | platform | GET | `/internal/support/entitlement/:orgId` | `service-principal + internal(message)` |
-| platform | GET | `/internal/notify-email/status` | `service-principal + internal(ask,plugin,reporting)` |
+| platform | GET | `/internal/notify-email/status` | `service-principal + internal(ask,ops-center,plugin,reporting)` |
 | platform | GET | `/invitation` | `any(invitations:manage)` |
 | platform | DELETE | `/invitation/:invitationId` | `any(invitations:manage) + org-admin-assurance` |
 | platform | POST | `/invitation/:invitationId/resend` | `any(invitations:manage) + org-admin-assurance` |
 | platform | POST | `/invitation/send` | `any(invitations:manage) + org-admin-assurance` |
-| platform | GET | `/observability/alert-destinations` | `any(observability:read)` |
-| platform | POST | `/observability/alert-destinations` | `any(observability:write)` |
-| platform | DELETE | `/observability/alert-destinations/:id` | `any(observability:write)` |
-| platform | PUT | `/observability/alert-destinations/:id` | `any(observability:write)` |
-| platform | POST | `/observability/alert-destinations/:id/purge` | `any(observability:write) + step-up(any)` |
-| platform | POST | `/observability/alert-destinations/:id/restore` | `any(observability:write) + step-up(any)` |
-| platform | POST | `/observability/alert-destinations/:id/test` | `any(observability:write)` |
-| platform | GET | `/observability/alert-destinations/all` | `system-org + any(platform:read) + aal2` |
-| platform | GET | `/observability/alert-destinations/deleted` | `any(observability:read)` |
-| platform | GET | `/observability/alert-rules` | `any(observability:read)` |
-| platform | POST | `/observability/alert-rules` | `any(observability:write)` |
-| platform | DELETE | `/observability/alert-rules/:id` | `any(observability:write)` |
-| platform | PUT | `/observability/alert-rules/:id` | `any(observability:write)` |
-| platform | POST | `/observability/alert-rules/:id/purge` | `any(observability:write) + step-up(any)` |
-| platform | POST | `/observability/alert-rules/:id/restore` | `any(observability:write) + step-up(any)` |
-| platform | GET | `/observability/alert-rules/deleted` | `any(observability:read)` |
-| platform | GET | `/observability/oncall-status` | `system-org + any(oncall:manage) + aal2` |
-| platform | POST | `/observability/oncall-test` | `system-org + any(oncall:manage) + aal2` |
-| platform | GET | `/observability/alert-rules/materialized.yml` | `system-org + any(platform:read) + aal2` |
-| platform | GET | `/observability/alerts` | `any(observability:read)` |
-| platform | GET | `/observability/catalog` | `any(observability:read)` |
-| platform | GET | `/observability/logs` | `any(observability:read)` |
-| platform | GET | `/observability/logs/context` | `any(observability:read)` |
-| platform | GET | `/observability/logs/export` | `any(logs:export) + org-admin-assurance` |
-| platform | GET | `/observability/logs/raw` | `any(observability:read)` |
-| platform | GET | `/observability/logs/volume` | `any(observability:read)` |
-| platform | POST | `/observability/query/batch` | `any(observability:read)` |
-| platform | GET | `/observability/silences` | `any(observability:read)` |
-| platform | POST | `/observability/silences` | `any(observability:write)` |
-| platform | DELETE | `/observability/silences/:id` | `any(observability:write)` |
+| ops-center | GET | `/observability/alert-destinations` | `any(observability:read)` |
+| ops-center | POST | `/observability/alert-destinations` | `any(observability:write)` |
+| ops-center | DELETE | `/observability/alert-destinations/:id` | `any(observability:write)` |
+| ops-center | PUT | `/observability/alert-destinations/:id` | `any(observability:write)` |
+| ops-center | POST | `/observability/alert-destinations/:id/purge` | `any(observability:write) + step-up(any)` |
+| ops-center | POST | `/observability/alert-destinations/:id/restore` | `any(observability:write) + step-up(any)` |
+| ops-center | POST | `/observability/alert-destinations/:id/test` | `any(observability:write)` |
+| ops-center | GET | `/observability/alert-destinations/all` | `system-org + any(platform:read) + aal2` |
+| ops-center | GET | `/observability/alert-destinations/deleted` | `any(observability:read)` |
+| ops-center | GET | `/observability/alert-rules` | `any(observability:read)` |
+| ops-center | POST | `/observability/alert-rules` | `any(observability:write)` |
+| ops-center | DELETE | `/observability/alert-rules/:id` | `any(observability:write)` |
+| ops-center | PUT | `/observability/alert-rules/:id` | `any(observability:write)` |
+| ops-center | POST | `/observability/alert-rules/:id/purge` | `any(observability:write) + step-up(any)` |
+| ops-center | POST | `/observability/alert-rules/:id/restore` | `any(observability:write) + step-up(any)` |
+| ops-center | GET | `/observability/alert-rules/deleted` | `any(observability:read)` |
+| ops-center | GET | `/observability/oncall-status` | `system-org + any(oncall:manage) + aal2` |
+| ops-center | POST | `/observability/oncall-test` | `system-org + any(oncall:manage) + aal2` |
+| ops-center | GET | `/observability/alert-rules/materialized.yml` | `system-org + any(platform:read) + aal2` |
+| ops-center | GET | `/observability/alerts` | `any(observability:read)` |
+| ops-center | GET | `/observability/catalog` | `any(observability:read)` |
+| ops-center | GET | `/observability/logs` | `any(observability:read)` |
+| ops-center | GET | `/observability/logs/context` | `any(observability:read)` |
+| ops-center | GET | `/observability/logs/export` | `any(logs:export) + org-admin-assurance` |
+| ops-center | GET | `/observability/logs/raw` | `any(observability:read)` |
+| ops-center | GET | `/observability/logs/volume` | `any(observability:read)` |
+| ops-center | POST | `/observability/query/batch` | `any(observability:read)` |
+| ops-center | GET | `/observability/silences` | `any(observability:read)` |
+| ops-center | POST | `/observability/silences` | `any(observability:write)` |
+| ops-center | DELETE | `/observability/silences/:id` | `any(observability:write)` |
 | platform | POST | `/organization` | `any(org_settings:write)` |
 | platform | POST | `/organization/names` | `service-principal` |
 | platform | DELETE | `/organization/:id` | `system-org + any(orgs:manage) + aal2 + step-up(any)` |
@@ -724,8 +727,8 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | quota | PUT | `/quotas/:orgId` | `system-org + any(quotas:manage) + aal2` |
 | quota | GET | `/quotas/:orgId/:quotaType` | `any(quotas:read)+svc` |
 | quota | GET | `/quotas/:orgId/at-risk` | `any(quotas:read)` |
-| quota | POST | `/quotas/:orgId/decrement` | `service-principal + internal(ask,billing,compliance,image-registry,message,pipeline,platform,plugin,quota,reporting)` |
-| quota | POST | `/quotas/:orgId/increment` | `service-principal + internal(ask,billing,compliance,image-registry,message,pipeline,platform,plugin,quota,reporting)` |
+| quota | POST | `/quotas/:orgId/decrement` | `service-principal + internal(ask,billing,compliance,image-registry,message,ops-center,pipeline,platform,plugin,quota,reporting)` |
+| quota | POST | `/quotas/:orgId/increment` | `service-principal + internal(ask,billing,compliance,image-registry,message,ops-center,pipeline,platform,plugin,quota,reporting)` |
 | quota | GET | `/quotas/:orgId/notice-settings` | `any(quotas:read)` |
 | quota | PUT | `/quotas/:orgId/notice-settings` | `any(billing:manage)` |
 | quota | GET | `/quotas/:orgId/own-usage` | `service-principal + internal(billing)` |
@@ -753,6 +756,7 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | reporting | GET | `/reports/incidents` | `any(reports:read) + feature(advanced_reporting)` |
 | reporting | POST | `/reports/incidents/test` | `any(reports:read) + feature(advanced_reporting)` |
 | reporting | POST | `/reports/internal/orgs/:orgId/purge` | `service-principal + internal(platform)` |
+| ops-center | POST | `/ops/internal/orgs/:orgId/purge` | `service-principal + internal(platform)` |
 | reporting | GET | `/reports/ingest-health` | `any(reports:read)` |
 | reporting | GET | `/reports/plugins/build-duration` | `any(reports:read)` |
 | reporting | GET | `/reports/plugins/build-failures` | `system-org + any(reports:read) + any(orgs:read) + aal2` |

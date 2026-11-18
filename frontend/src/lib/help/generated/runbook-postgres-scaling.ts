@@ -1,6 +1,6 @@
 // GENERATED FROM docs/runbooks/postgres-scaling.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 86dd307449e2b695e458725074b568c2691dd99cfc21716f4842dbde9dbca747
+// SOURCE-SHA256: 60a299d85280228444783180cc4796952f221a8a16f105202817b3b39e95827a
 // SPDX-License-Identifier: Apache-2.0
 import { Gauge } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -107,7 +107,7 @@ export const runbookPostgresScalingTopic: HelpTopic = {
             [
               "Vertical (either workload)",
               "CPU, memory, and the server config derived from memory",
-              "the platform rung controller, from the saturation / underutilisation alerts",
+              "the ops-center rung controller, from the saturation / underutilisation alerts",
               "the LimitRange: container cpu 4, memory 10Gi"
             ],
             [
@@ -247,7 +247,7 @@ export const runbookPostgresScalingTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Alertmanager routes the Postgres CPU/memory alerts to POST /observability/postgres-rung on platform, authenticated with the same per-instance relay secret as /pvc-autoexpand, and the controller moves one rung — pod requests/limits and the derived server config in one patch. Off by default: a rung change restarts the container, and on the single primary that is a brief write interruption."
+          "content": "Alertmanager routes the Postgres CPU/memory alerts to POST /observability/postgres-rung on ops-center, authenticated with the same per-instance relay secret as /pvc-autoexpand, and the controller moves one rung — pod requests/limits and the derived server config in one patch. Off by default: a rung change restarts the container, and on the single primary that is a brief write interruption."
         },
         {
           "type": "table",
