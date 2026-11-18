@@ -42,6 +42,7 @@ const mockSaUpdateOne = jest.fn<AFn>();
 const mockOrgFindById = jest.fn<Fn>();
 // Role / RoleAssignment (read by the REAL service-account-roles module)
 const mockRoleFind = jest.fn<Fn>();
+const mockRoleFindOne = jest.fn<Fn>();
 const mockRaFind = jest.fn<Fn>();
 const mockRaDeleteMany = jest.fn<AFn>();
 const mockRaInsertMany = jest.fn<AFn>();
@@ -98,7 +99,7 @@ jest.unstable_mockModule('../src/models/service-account.js', () => ({
   },
 }));
 jest.unstable_mockModule('../src/models/index.js', () => ({
-  Role: { find: (...a: unknown[]) => mockRoleFind(...a) },
+  Role: { find: (...a: unknown[]) => mockRoleFind(...a), findOne: (...a: unknown[]) => mockRoleFindOne(...a) },
   RoleAssignment: {
     find: (...a: unknown[]) => mockRaFind(...a),
     deleteMany: (...a: unknown[]) => mockRaDeleteMany(...a),
@@ -399,5 +400,22 @@ describe('service-account-roles', () => {
     expect(mockRaDeleteMany).toHaveBeenLastCalledWith({ serviceAccountId: 'a' }, { session: undefined });
     await roles.clearServiceAccountRoles(['a', 'b']);
     expect(mockRaDeleteMany).toHaveBeenLastCalledWith({ serviceAccountId: { $in: ['a', 'b'] } }, { session: undefined });
+  });
+});
+
+describe('resolveBuiltinRoleId (provision-key\'s `role`)', () => {
+  it('finds the org\'s SYSTEM Role by the seed bundle\'s name', async () => {
+    mockRoleFindOne.mockReturnValue(queryChain({ _id: 'role-auto' }));
+    await expect(roles.resolveBuiltinRoleId(ORG_ID, 'pipeline_automation')).resolves.toBe('role-auto');
+    expect(mockRoleFindOne).toHaveBeenCalledWith({ organizationId: ORG_ID, system: true, name: 'Pipeline Automation' });
+  });
+
+  it('throws SA_BUILTIN_ROLE_MISSING when the org has no such Role', async () => {
+    mockRoleFindOne.mockReturnValue(queryChain(null));
+    await expect(roles.resolveBuiltinRoleId(ORG_ID, 'pipeline_registration')).rejects.toThrow('SA_BUILTIN_ROLE_MISSING');
+  });
+
+  it('is the same function the service surface re-exports', () => {
+    expect(svc.resolveBuiltinRoleId).toBe(roles.resolveBuiltinRoleId);
   });
 });

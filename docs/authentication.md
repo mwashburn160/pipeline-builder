@@ -1777,7 +1777,7 @@ is for administrative actions that need `aal: 2` only while the org's
 | Create an account pre-flagged as a platform super-admin (sysadmin) | `POST /users` with `isSuperAdmin: true` | Always, + second-factor step-up — applied at the route to that body only (`gateWhen`, recorded under the route table's `conditionalGates`); an ordinary account create needs neither | 403 |
 | Loosen the org MFA policy (require-MFA off, admin-actions policy off, "our IdP enforces MFA" on) | `PATCH /organization/:id/mfa-policy` | Always, checked in the handler — **turning a requirement on stays open to `aal: 1`** | 403 |
 | Loosen the impersonation policy (less strict mode, self-approval on) | `PATCH /organization/:id/impersonation-policy` | Always, checked in the handler — tightening stays open | 403 |
-| Create a service account / issue its key | `POST /organization/:id/service-accounts`, `…/:accountId/keys` | Always, + step-up — with ONE exemption, the [bootstrap-administrator window](#the-bootstrap-administrator-exception) (`assurance_exempted_total{reason="bootstrap-setup"}`) | 403 |
+| Create a service account / issue its key | `POST /organization/:id/service-accounts`, `…/:accountId/keys`, `…/provision-key` | Always, + step-up — with ONE exemption, the [bootstrap-administrator window](#the-bootstrap-administrator-exception) (`assurance_exempted_total{reason="bootstrap-setup"}`) | 403 |
 | Transfer ownership | `PATCH /organization/:id/transfer-owner` | Always, + step-up | 403 |
 | Edit / delete / re-entitle another user (sysadmin) | `PUT/DELETE /users/:id`, `PUT /users/:id/features`, `POST /users/bulk-delete` | Always, + step-up | 403 |
 | Request / approve an MFA reset; sysadmin direct reset | `/organization/:id/mfa-resets`, `/admin/users/:id/mfa-reset` | Always, + step-up (approval & direct: second-factor step-up) | 403 |
@@ -2700,6 +2700,71 @@ what the rotation Lambda needs to retire the key it replaces.
 Because creating an account and issuing a key are step-up gated, `store-token`
 needs the operator's password — `PLATFORM_PASSWORD` (preferred) or `--password`.
 `--schedule` installs the daily rotation stack described above.
+
+#### One step-up for the whole provisioning — `provision-key`
+
+Done as separate calls, provisioning costs up to two step-ups (create the
+account, issue the key), each a fresh single-use 60-second token. The platform
+also offers the whole sequence as **one** call, behind **one** step-up:
+
+`POST /organization/:id/service-accounts/provision-key` + `X-Step-Up-Token`
+
+```json
+{
+  "accountName": "platform-automation",
+  "description": "CDK synth/deploy callbacks",
+  "role": "pipeline_automation",
+  "scope": "reporting:ingest",
+  "key": { "name": "store-token 2026-11-18", "expiresIn": 7776000 }
+}
+```
+
+| Field | Rule |
+|---|---|
+| `accountName` | The create route's name rule (`[a-z0-9][a-z0-9_-]{1,63}`, lower-cased). |
+| `description` | Optional, ≤ 256 characters; recorded only on a newly created account. |
+| `role` | Optional api-core seed bundle (`pipeline_automation`, `pipeline_registration`, …). Resolved to the org's built-in `system` Role of that name and granted **only to a newly created account** — through the creator's ceiling, exactly as on create. |
+| `scope` | Optional capability scope stamped on the **key** (the issue route's `TOKEN_SCOPES` rule and its scope-permission check). |
+| `key.name` / `key.expiresIn` | The issue route's rules; `expiresIn` (seconds, 60 s – 365 days) is required. |
+
+Unknown fields are refused (`400`). What it does, each step being the same service
+call — with the same ceiling and the same audit row — as the individual route:
+
+1. Find the account by name. If there is none, create it (`org.service-account.create`);
+   a concurrent create (`409` on the name) is resolved by re-reading. An existing
+   account's Roles are **never** changed — an operator who narrowed them by hand
+   keeps that.
+2. Issue the key (`org.service-account.key.create`). At the 5-active-key cap — which
+   the platform reports only once the mint is otherwise allowed — the **oldest**
+   active key is revoked (`org.service-account.key.revoke`) and the mint retried
+   once.
+
+`201` answers:
+
+```json
+{
+  "organizationId": "…",
+  "serviceAccount": { "id": "…", "name": "platform-automation", "created": true },
+  "key": "pb_sa_…",
+  "accessKey": { "id": "…", "expiresAt": "…", "scope": null },
+  "retiredKeyIds": []
+}
+```
+
+`key` is shown once. Errors are the individual routes': `401 STEP_UP_REQUIRED` /
+`STEP_UP_INVALID` / `STEP_UP_REPLAY`, `401 MFA_REQUIRED` below `aal: 2` (with the
+same [bootstrap-administrator](#the-bootstrap-administrator-exception) exemption),
+`403` without `service_accounts:manage`, outside the org, or over the Role / scope
+ceiling, `400` on the body, `409 SA_LIMIT` / `SA_KEY_LIMIT` (still at the cap after
+one retirement), and `409 SA_BUILTIN_ROLE_MISSING` when the org has no built-in
+Role for `role` (restart / upgrade the platform so its startup backfill seeds it).
+
+The gate is the ordinary any-factor `requireStepUp`, so **any** step-up token
+works — password, passkey, authenticator code, provider re-auth, or the
+`step_up_token` the [device flow](#cli-sign-in-by-device-authorization-rfc-8628)
+returns when started with `{ step_up: true }` (minted as `method: 'reauth'`). That
+last one is how an account with no password (SSO, social sign-in, passkey-only)
+provisions from the CLI: the browser approval is the re-verification.
 
 ## CLI sign-in by device authorization (RFC 8628)
 

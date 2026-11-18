@@ -95,8 +95,8 @@ additional organization.
 | 2 | Create **your** organization | — you do this | Dashboard / API |
 | 3 | Invite members & assign roles | — you do this | Dashboard / API |
 | 4 | Create an access key | — you do this | `auth pat` |
-| 5 | Store the service-account keys *(AWS)* | ✅ `--with-events` | `infra store-token` (×3: platform, `registry:push`, `reporting:ingest`) |
-| 6 | Set up event reporting *(AWS)* | ✅ `--with-events` | `infra setup-events` |
+| 5 | Store the service-account keys *(AWS)* | ✅ `--with-events` | `infra store-token` (×4: platform, `registry:push`, `pipeline_registry:write`, `reporting:ingest`) |
+| 6 | Set up event reporting *(AWS)* | ✅ `--with-events` | `infra setup-events --scoped-ingest` |
 | 7 | Create your first pipeline | — you do this | Dashboard / CLI / CDK |
 
 Steps 5–6 apply to the AWS targets (EC2/EKS), where pipelines run on CodePipeline
@@ -225,15 +225,31 @@ CodeBuild and the event-ingestion Lambda each read a
 ```bash
 export PLATFORM_BASE_URL=https://pipeline.example.com
 pipeline-manager auth login      # or export an access key as PLATFORM_TOKEN
-# Issuing a key is step-up gated, so the command needs your password too
-# (read without echo, so it stays out of shell history):
-printf 'Platform password: '; read -rs PLATFORM_PASSWORD; echo; export PLATFORM_PASSWORD
+# Issuing a key is step-up gated. In a terminal, store-token asks you to approve in
+# the browser (passkey, SSO, Google/GitHub or password); in CI, export
+# PLATFORM_PASSWORD. --step-up totp prompts for an authenticator code instead.
 
 pipeline-manager infra store-token --expires-days 30 --schedule --region us-east-1
 pipeline-manager infra store-token --scope registry:push --schedule --region us-east-1
 pipeline-manager infra store-token --scope pipeline_registry:write --schedule --region us-east-1
 pipeline-manager infra store-token --scope reporting:ingest --schedule --region us-east-1
 ```
+
+Each run confirms it's you **once** (the platform issues the key in a single
+step-up-gated call), so a passwordless account approves four times in the browser —
+once per key.
+
+> **No terminal and no password** (a script, an SSO-only account)? Issue the key in
+> the web UI on the organization's **Service accounts** page, then hand it over
+> without a password:
+>
+> ```bash
+> pipeline-manager infra store-token --scope reporting:ingest --from-key - --schedule --region us-east-1
+> ```
+>
+> Paste the key and press Ctrl-D. The CLI checks it is on the right account with the
+> right scope, replaces it with a fresh key, and retires the pasted one — what ends up
+> in Secrets Manager never passed through your clipboard.
 
 `--schedule` also installs a small **daily key-rotation** Lambda so the key never
 lapses — recommended, since the event Lambda depends on it. Without it, re-run

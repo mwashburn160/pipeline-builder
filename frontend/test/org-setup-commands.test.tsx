@@ -82,7 +82,7 @@ describe('setup guide — event ingestion credential', () => {
 });
 
 describe('setup guide — prerequisites come before the first infra command', () => {
-  it('exports PLATFORM_BASE_URL, signs in and sets PLATFORM_PASSWORD before store-token', () => {
+  it('exports PLATFORM_BASE_URL and signs in before store-token', () => {
     const { container } = renderExpanded();
     const blocks = codeBlocks(container);
     const firstStoreToken = blocks.findIndex((b) => b.includes('store-token'));
@@ -90,7 +90,15 @@ describe('setup guide — prerequisites come before the first infra command', ()
     const before = blocks.slice(0, firstStoreToken).join('\n');
     expect(before).toMatch(/export PLATFORM_BASE_URL=http/);
     expect(before).toContain('pipeline-manager auth login');
-    expect(before).toMatch(/PLATFORM_PASSWORD/);
+  });
+
+  it('does not demand a password: store-token approves in the browser, so passwordless accounts can follow it', () => {
+    // Google / GitHub / SSO sign-ups have no password; the guide used to
+    // require one, which made the whole metrics setup impossible for them.
+    const { container } = renderExpanded();
+    expect(codeBlocks(container).join('\n')).not.toMatch(/read -rs PLATFORM_PASSWORD/);
+    expect(screen.getByText(/approving in your browser/i)).toBeInTheDocument();
+    expect(container.textContent).toMatch(/In CI, set\s*PLATFORM_PASSWORD/);
   });
 
   it('names the AWS CLI + credentials prerequisite', () => {

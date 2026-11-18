@@ -9,10 +9,11 @@
  * Every command here is meant to be copied in order into a fresh shell and work:
  *
  *  1. Prerequisites — `PLATFORM_BASE_URL` first (`setup-events` reads it
- *     directly and `auth login` defaults to it), then the browser sign-in, then
- *     the password: `store-token` creates a service account and issues a key,
- *     and both writes are step-up gated, so it needs the password even with a
- *     session. It is read without echo so it never lands in shell history.
+ *     directly and `auth login` defaults to it), then the browser sign-in.
+ *     `store-token`'s key writes are step-up gated: in a terminal it asks you to
+ *     approve in the browser (passkey, SSO, Google/GitHub or password — so an
+ *     account with no password works), or uses `PLATFORM_PASSWORD` when set
+ *     (CI).
  *  2. The platform credential (CDK synth/deploy, plugin lookup), the
  *     `registry:push` credential (synth wires it into every build image's pull
  *     credentials, so builds cannot start without it), and the
@@ -69,7 +70,6 @@ export function setupCommands({ origin, region, withDora }: SetupCommandInput): 
     prerequisites: [
       `export PLATFORM_BASE_URL=${origin}`,
       'pipeline-manager auth login',
-      "printf 'Platform password: '; read -rs PLATFORM_PASSWORD; echo; export PLATFORM_PASSWORD",
     ].join('\n'),
     tokens: [
       `pipeline-manager infra store-token --expires-days 30 --schedule --region ${r}`,

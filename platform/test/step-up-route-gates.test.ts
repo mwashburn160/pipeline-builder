@@ -61,7 +61,7 @@ const HANDLERS = [
   'deleteOrgDomain', 'listOrgJoinRequests', 'decideOrgJoinRequest', 'resetOrgJoinRequest',
   'getOrganizationServiceAccounts', 'getOrganizationServiceAccount', 'createOrganizationServiceAccount',
   'updateOrganizationServiceAccount', 'deleteOrganizationServiceAccount',
-  'createOrganizationServiceAccountKey', 'revokeOrganizationServiceAccountKey',
+  'createOrganizationServiceAccountKey', 'revokeOrganizationServiceAccountKey', 'provisionOrganizationServiceAccountKey',
 ];
 const handlers = (names: string[]) => Object.fromEntries(names.map((h) => [h, tagged(h)]));
 jest.unstable_mockModule('../src/controllers/index.js', () => handlers(HANDLERS));
@@ -98,11 +98,24 @@ describe('step-up route gates', () => {
       ['patch', '/:id/service-accounts/:accountId'],
       ['delete', '/:id/service-accounts/:accountId'],
       ['post', '/:id/service-accounts/:accountId/keys'],
+      ['post', '/:id/service-accounts/provision-key'],
     ] as const) {
       const mw = routeChain(organizationRouter, method, path);
       expect(mw).toContain('requireStepUp');
       expect(mw.indexOf('requireStepUp')).toBeGreaterThan(mw.indexOf('requireAuth'));
     }
+  });
+
+  it('provision-key carries exactly the union of the create-account and issue-key gates', () => {
+    const create = routeChain(organizationRouter, 'post', '/:id/service-accounts');
+    const issue = routeChain(organizationRouter, 'post', '/:id/service-accounts/:accountId/keys');
+    const provision = routeChain(organizationRouter, 'post', '/:id/service-accounts/provision-key');
+    // Same gates in the same order (create and issue are identical chains); only
+    // the handler differs. ONE requireStepUp — a single token covers every step.
+    expect(create.slice(0, -1)).toEqual(issue.slice(0, -1));
+    expect(provision.slice(0, -1)).toEqual(issue.slice(0, -1));
+    expect(provision.filter((m) => m === 'requireStepUp')).toHaveLength(1);
+    expect(provision.at(-1)).toBe('provisionOrganizationServiceAccountKey');
   });
 
   it('service-account key REVOCATION is deliberately not step-up gated', () => {

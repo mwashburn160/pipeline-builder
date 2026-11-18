@@ -11,7 +11,7 @@
  * the human-facing file.
  */
 
-import { createLogger, isValidPermission, type RoleGrant } from '@pipeline-builder/api-core';
+import { createLogger, isValidPermission, SEED_BUNDLES, type RoleGrant, type SeedBundleId } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
 import {
   assertActorMayAssignRole,
@@ -21,6 +21,7 @@ import {
 } from './role-authority.js';
 import type { OrgId, RoleAssignmentActor, UserId } from './role-authority.js';
 import { RL_REQUIRES_SUPERADMIN, RL_ROLE_NOT_FOUND } from './roles-errors.js';
+import { SA_BUILTIN_ROLE_MISSING } from './service-account-errors.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { Role, RoleAssignment } from '../models/index.js';
 
@@ -161,4 +162,19 @@ export async function clearServiceAccountRoles(
     ? { serviceAccountId: { $in: serviceAccountId } }
     : { serviceAccountId };
   await RoleAssignment.deleteMany(filter, { session });
+}
+
+/**
+ * The org's built-in (`system`) Role for a seed bundle — e.g. `Pipeline
+ * Automation` — located by the name api-core's `SEED_BUNDLES` gives it, exactly
+ * as `pipeline-manager` resolved it client-side. Throws
+ * `SA_BUILTIN_ROLE_MISSING` when the org has none (startup backfill not run).
+ * Resolving it grants nothing: the assignment still goes through the creator's
+ * ceiling in `createServiceAccount`.
+ */
+export async function resolveBuiltinRoleId(orgId: string, bundle: SeedBundleId): Promise<string> {
+  const role = await Role.findOne({ organizationId: toOrgId(orgId), system: true, name: SEED_BUNDLES[bundle].name })
+    .select('_id').lean();
+  if (!role) throw new Error(SA_BUILTIN_ROLE_MISSING);
+  return String(role._id);
 }

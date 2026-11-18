@@ -1,6 +1,6 @@
 // GENERATED FROM docs/authentication.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 7f3947ecf9bc59c25fd02699611f5689430a33481b8423ab5d9a4959a11dda83
+// SOURCE-SHA256: 4a1c07619cd6861dde13ec0d479797bb6a651147385cacaad0688398b804d06a
 // SPDX-License-Identifier: Apache-2.0
 import { Lock } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -2692,7 +2692,7 @@ export const authenticationTopic: HelpTopic = {
             ],
             [
               "Create a service account / issue its key",
-              "POST /organization/:id/service-accounts, …/:accountId/keys",
+              "POST /organization/:id/service-accounts, …/:accountId/keys, …/provision-key",
               "Always, + step-up — with ONE exemption, the bootstrap-administrator window (assurance_exempted_total{reason=\"bootstrap-setup\"})",
               "403"
             ],
@@ -4217,6 +4217,93 @@ export const authenticationTopic: HelpTopic = {
         {
           "type": "text",
           "content": "Because creating an account and issuing a key are step-up gated, store-token needs the operator's password — PLATFORM_PASSWORD (preferred) or --password. --schedule installs the daily rotation stack described above."
+        },
+        {
+          "type": "text",
+          "content": "One step-up for the whole provisioning — provision-key"
+        },
+        {
+          "type": "text",
+          "content": "Done as separate calls, provisioning costs up to two step-ups (create the account, issue the key), each a fresh single-use 60-second token. The platform also offers the whole sequence as one call, behind one step-up:"
+        },
+        {
+          "type": "text",
+          "content": "POST /organization/:id/service-accounts/provision-key + X-Step-Up-Token"
+        },
+        {
+          "type": "code",
+          "content": "{\n  \"accountName\": \"platform-automation\",\n  \"description\": \"CDK synth/deploy callbacks\",\n  \"role\": \"pipeline_automation\",\n  \"scope\": \"reporting:ingest\",\n  \"key\": { \"name\": \"store-token 2026-11-18\", \"expiresIn\": 7776000 }\n}",
+          "language": "json"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Field",
+            "Rule"
+          ],
+          "rows": [
+            [
+              "accountName",
+              "The create route's name rule ([a-z0-9][a-z0-9_-]{1,63}, lower-cased)."
+            ],
+            [
+              "description",
+              "Optional, ≤ 256 characters; recorded only on a newly created account."
+            ],
+            [
+              "role",
+              "Optional api-core seed bundle (pipeline_automation, pipeline_registration, …). Resolved to the org's built-in system Role of that name and granted only to a newly created account — through the creator's ceiling, exactly as on create."
+            ],
+            [
+              "scope",
+              "Optional capability scope stamped on the key (the issue route's TOKEN_SCOPES rule and its scope-permission check)."
+            ],
+            [
+              "key.name / key.expiresIn",
+              "The issue route's rules; expiresIn (seconds, 60 s – 365 days) is required."
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Unknown fields are refused (400). What it does, each step being the same service call — with the same ceiling and the same audit row — as the individual route:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Find the account by name. If there is none, create it (org.service-account.create);"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "a concurrent create (409 on the name) is resolved by re-reading. An existing account's Roles are never changed — an operator who narrowed them by hand keeps that."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Issue the key (org.service-account.key.create). At the 5-active-key cap — which"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "the platform reports only once the mint is otherwise allowed — the oldest active key is revoked (org.service-account.key.revoke) and the mint retried once."
+        },
+        {
+          "type": "text",
+          "content": "201 answers:"
+        },
+        {
+          "type": "code",
+          "content": "{\n  \"organizationId\": \"…\",\n  \"serviceAccount\": { \"id\": \"…\", \"name\": \"platform-automation\", \"created\": true },\n  \"key\": \"pb_sa_…\",\n  \"accessKey\": { \"id\": \"…\", \"expiresAt\": \"…\", \"scope\": null },\n  \"retiredKeyIds\": []\n}",
+          "language": "json"
+        },
+        {
+          "type": "text",
+          "content": "key is shown once. Errors are the individual routes': 401 STEP_UP_REQUIRED / STEP_UP_INVALID / STEP_UP_REPLAY, 401 MFA_REQUIRED below aal: 2 (with the same bootstrap-administrator exemption), 403 without service_accounts:manage, outside the org, or over the Role / scope ceiling, 400 on the body, 409 SA_LIMIT / SA_KEY_LIMIT (still at the cap after one retirement), and 409 SA_BUILTIN_ROLE_MISSING when the org has no built-in Role for role (restart / upgrade the platform so its startup backfill seeds it)."
+        },
+        {
+          "type": "text",
+          "content": "The gate is the ordinary any-factor requireStepUp, so any step-up token works — password, passkey, authenticator code, provider re-auth, or the step_up_token the device flow returns when started with { step_up: true } (minted as method: 'reauth'). That last one is how an account with no password (SSO, social sign-in, passkey-only) provisions from the CLI: the browser approval is the re-verification."
         }
       ]
     },

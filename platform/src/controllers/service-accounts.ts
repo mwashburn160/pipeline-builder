@@ -28,6 +28,7 @@ import {
   requireOrgScope,
   withController,
 } from '../helpers/controller-helper.js';
+import type { AccessKeyView } from '../services/api-key-service.js';
 import type { RoleAssignmentActor } from '../services/index.js';
 import {
   RL_ASSIGN_EXCEEDS_CEILING,
@@ -37,6 +38,7 @@ import {
   RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN,
 } from '../services/roles-errors.js';
 import {
+  SA_BUILTIN_ROLE_MISSING,
   SA_INVALID_BUDGET,
   SA_INVALID_IP_ALLOWLIST,
   SA_INVALID_NAME,
@@ -54,16 +56,20 @@ import {
   createServiceAccount,
   createServiceAccountKey,
   deleteServiceAccount,
+  findServiceAccountByName,
   getServiceAccount,
   listServiceAccounts,
+  resolveBuiltinRoleId,
   revokeServiceAccountKey,
   serviceAccountBillingSummary,
   snapshotOf,
   updateServiceAccount,
+  type ServiceAccountView,
 } from '../services/service-account-service.js';
 import {
   createServiceAccountKeySchema,
   createServiceAccountSchema,
+  provisionServiceAccountKeySchema,
   updateServiceAccountSchema,
   validateBody,
 } from '../utils/validation.js';
@@ -81,6 +87,7 @@ const serviceAccountErrors = {
   [SA_INVALID_IP_ALLOWLIST]: { status: 400, message: 'ipAllowlist entries must be IP addresses or CIDR blocks' },
   [SA_KEY_NOT_FOUND]: { status: 404, message: 'Key not found or already revoked' },
   [SA_INVALID_SCOPE]: { status: 400, message: 'scope is not a recognised capability scope' },
+  [SA_BUILTIN_ROLE_MISSING]: { status: 409, message: 'This organization has no built-in Role for the requested role. The platform creates it at startup — upgrade/restart the platform, then retry' },
   [SA_SCOPE_NOT_PERMITTED]: { status: 403, message: 'You cannot issue a key with this capability: scim needs organization admin (or members:manage and roles:manage) on an SSO-entitled organization, and registry:push needs plugins:write' },
   [RL_ROLE_NOT_FOUND]: { status: 404, message: 'One or more roles do not exist in this organization' },
   [RL_REQUIRES_SUPERADMIN]: { status: 403, message: 'Only a platform superadmin can grant a superadmin role' },
@@ -101,6 +108,60 @@ function assignmentActor(req: Request): RoleAssignmentActor & { userId?: string;
     ...(req.user?.sub ? { userId: req.user.sub } : {}),
     ...(req.user?.email ? { email: req.user.email } : {}),
   };
+}
+
+/*
+ * The audit rows of the three credential writes. Shared by the individual
+ * routes and by provision-key, so a provisioned credential leaves EXACTLY the
+ * trail the same steps taken one at a time would.
+ */
+
+/** `org.service-account.create`. */
+function auditAccountCreated(req: Request, orgId: string, account: ServiceAccountView): void {
+  audit(req, 'org.service-account.create', {
+    targetType: 'service-account',
+    targetId: account.id,
+    affectedOrgId: orgId,
+    details: {
+      name: account.name,
+      roles: account.roles.map((r) => r.name),
+      tokenBudget: account.tokenBudget,
+      // The billing rule, recorded with the grant it applies to.
+      seatsConsumed: 0,
+    },
+  });
+}
+
+/** `org.service-account.key.create`. */
+function auditKeyCreated(req: Request, orgId: string, accountId: string, view: AccessKeyView): void {
+  audit(req, 'org.service-account.key.create', {
+    targetType: 'access-key',
+    targetId: view.id,
+    affectedOrgId: orgId,
+    details: {
+      serviceAccountId: accountId,
+      keyId: view.id,
+      name: view.name,
+      expiresAt: view.expiresAt,
+      // The narrow capability this key carries INSTEAD of the account's Roles
+      // (null when it carries the account's full authority) — the single most
+      // useful field for answering "how much could this credential do?".
+      scope: view.scope,
+      // WHETHER an allowlist was set, and how many entries — not the addresses,
+      // which are infrastructure detail an audit reader doesn't need.
+      ipAllowlistEntries: view.ipAllowlist?.length ?? 0,
+    },
+  });
+}
+
+/** `org.service-account.key.revoke`. */
+function auditKeyRevoked(req: Request, orgId: string, accountId: string, revoked: AccessKeyView): void {
+  audit(req, 'org.service-account.key.revoke', {
+    targetType: 'access-key',
+    targetId: revoked.id,
+    affectedOrgId: orgId,
+    details: { serviceAccountId: accountId, keyId: revoked.id, name: revoked.name },
+  });
 }
 
 /** GET /organization/:id/service-accounts — list the org's accounts + their keys. */
@@ -137,18 +198,7 @@ export const createOrganizationServiceAccount = withController('Create service a
   if (!body) return;
 
   const account = await createServiceAccount(id, body, assignmentActor(req));
-  audit(req, 'org.service-account.create', {
-    targetType: 'service-account',
-    targetId: account.id,
-    affectedOrgId: id,
-    details: {
-      name: account.name,
-      roles: account.roles.map((r) => r.name),
-      tokenBudget: account.tokenBudget,
-      // The billing rule, recorded with the grant it applies to.
-      seatsConsumed: 0,
-    },
-  });
+  auditAccountCreated(req, id, account);
   sendSuccess(res, 201, { serviceAccount: account }, 'Service account created');
 }, serviceAccountErrors);
 
@@ -216,24 +266,7 @@ export const createOrganizationServiceAccountKey = withController('Create servic
     ...(body.scope ? { scope: body.scope as TokenScope } : {}),
     client: clientInfoOf(req),
   }, assignmentActor(req));
-  audit(req, 'org.service-account.key.create', {
-    targetType: 'access-key',
-    targetId: view.id,
-    affectedOrgId: id,
-    details: {
-      serviceAccountId: accountId,
-      keyId: view.id,
-      name: view.name,
-      expiresAt: view.expiresAt,
-      // The narrow capability this key carries INSTEAD of the account's Roles
-      // (null when it carries the account's full authority) — the single most
-      // useful field for answering "how much could this credential do?".
-      scope: view.scope,
-      // WHETHER an allowlist was set, and how many entries — not the addresses,
-      // which are infrastructure detail an audit reader doesn't need.
-      ipAllowlistEntries: view.ipAllowlist?.length ?? 0,
-    },
-  });
+  auditKeyCreated(req, id, accountId, view);
   sendSuccess(res, 201, { key, accessKey: view }, 'Key created');
 }, serviceAccountErrors);
 
@@ -245,11 +278,95 @@ export const revokeOrganizationServiceAccountKey = withController('Revoke servic
   if (!(await requireOrgScope(req, res, id))) return;
 
   const revoked = await revokeServiceAccountKey(id, accountId, req.params.keyId as string);
-  audit(req, 'org.service-account.key.revoke', {
-    targetType: 'access-key',
-    targetId: revoked.id,
-    affectedOrgId: id,
-    details: { serviceAccountId: accountId, keyId: revoked.id, name: revoked.name },
-  });
+  auditKeyRevoked(req, id, accountId, revoked);
   sendSuccess(res, 200, { revoked: true }, 'Key revoked');
+}, serviceAccountErrors);
+
+/** A thrown service error's code (the services throw `new Error(CODE)`). */
+function errorCode(err: unknown): string | undefined {
+  return err instanceof Error ? err.message : undefined;
+}
+
+/**
+ * POST /organization/:id/service-accounts/provision-key — the whole of
+ * `pipeline-manager infra store-token`'s provisioning behind ONE step-up.
+ *
+ * The gates are the union of the create-account and issue-key routes (see
+ * routes/organization.ts), and every step is the SAME service call those routes
+ * make — with the same ceiling and the same audit row:
+ *   1. find the account by name; if there is none, create it, granting the org's
+ *      built-in Role for `role` (through the creator's ceiling). An EXISTING
+ *      account's Roles are never touched — an operator who narrowed them by
+ *      hand must not have that undone by the next run. A concurrent create
+ *      (`SA_NAME_TAKEN`) is resolved by re-reading;
+ *   2. issue the key; at the active-key cap (`SA_KEY_LIMIT`, which the service
+ *      raises only once the mint is otherwise allowed), revoke the OLDEST active
+ *      key and retry once — the credential a re-run replaces is the one that
+ *      should go.
+ *
+ * Nothing the caller was holding is revoked beyond that: the CLI stores the new
+ * key first and retires the old one itself, so a failure leaves a working
+ * credential in place.
+ */
+export const provisionOrganizationServiceAccountKey = withController('Provision service-account key', async (req, res) => {
+  if (!ensureAuthenticated(req, res)) return;
+  const id = req.params.id as string;
+  if (!(await requireOrgScope(req, res, id))) return;
+
+  const body = validateBody(provisionServiceAccountKeySchema, req.body, res);
+  if (!body) return;
+  const actor = assignmentActor(req);
+
+  let account = await findServiceAccountByName(id, body.accountName);
+  let created = false;
+  if (!account) {
+    const roleIds = body.role ? [await resolveBuiltinRoleId(id, body.role)] : [];
+    try {
+      account = await createServiceAccount(id, {
+        name: body.accountName,
+        ...(body.description !== undefined ? { description: body.description } : {}),
+        roleIds,
+      }, actor);
+      created = true;
+      auditAccountCreated(req, id, account);
+    } catch (err) {
+      if (errorCode(err) !== SA_NAME_TAKEN) throw err;
+      // Another run created it between the read and the write: use theirs.
+      account = await findServiceAccountByName(id, body.accountName);
+      if (!account) throw err;
+    }
+  }
+  const accountId = account.id;
+
+  const keyInput = {
+    name: body.key.name,
+    expiresInSeconds: body.key.expiresIn,
+    ...(body.scope ? { scope: body.scope as TokenScope } : {}),
+    client: clientInfoOf(req),
+  };
+  const retiredKeyIds: string[] = [];
+  let minted: { key: string; view: AccessKeyView };
+  try {
+    minted = await createServiceAccountKey(id, accountId, keyInput, actor);
+  } catch (err) {
+    if (errorCode(err) !== SA_KEY_LIMIT) throw err;
+    const { keys } = await getServiceAccount(id, accountId);
+    const oldest = keys
+      .filter((k) => k.status === 'active')
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
+    if (!oldest) throw err;
+    const revoked = await revokeServiceAccountKey(id, accountId, oldest.id);
+    auditKeyRevoked(req, id, accountId, revoked);
+    retiredKeyIds.push(revoked.id);
+    minted = await createServiceAccountKey(id, accountId, keyInput, actor);
+  }
+  auditKeyCreated(req, id, accountId, minted.view);
+
+  sendSuccess(res, 201, {
+    organizationId: id,
+    serviceAccount: { id: accountId, name: account.name, created },
+    key: minted.key,
+    accessKey: { id: minted.view.id, expiresAt: minted.view.expiresAt, scope: minted.view.scope },
+    retiredKeyIds,
+  }, 'Key provisioned');
 }, serviceAccountErrors);

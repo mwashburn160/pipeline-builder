@@ -4637,6 +4637,46 @@
     }
   },
   {
+    "method": "POST",
+    "path": "/organization/:id/service-accounts/provision-key",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "service_accounts:manage"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 2,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "org.service-account.create",
+      "org.service-account.key.create",
+      "org.service-account.key.revoke"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
+    "assuranceExempt": [
+      "bootstrap-setup"
+    ]
+  },
+  {
     "method": "GET",
     "path": "/organization/:id/session-policy",
     "auth": true,

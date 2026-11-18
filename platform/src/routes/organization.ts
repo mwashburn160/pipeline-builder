@@ -48,6 +48,7 @@ import {
   deleteOrganizationServiceAccount,
   createOrganizationServiceAccountKey,
   revokeOrganizationServiceAccountKey,
+  provisionOrganizationServiceAccountKey,
   listOrgDomains,
   addOrgDomain,
   verifyOrgDomain,
@@ -537,6 +538,24 @@ router.post(
   requireStepUp,
   audited('org.service-account.create'),
   createOrganizationServiceAccount,
+);
+
+/** POST /organization/:id/service-accounts/provision-key - Find-or-create an
+ *  account by name, issue it a key, and retire its oldest key at the active-key
+ *  cap — all behind ONE step-up (`pipeline-manager infra store-token`). Its gates
+ *  are exactly the union of create-account and issue-key above (the same
+ *  `setupMfaGrade` incl. its bootstrap exemption), and it declares the audit
+ *  action of each step it may take. Registered before the `:accountId` routes so
+ *  the literal segment is never read as an account id. */
+router.post(
+  '/:id/service-accounts/provision-key',
+  requireAuth,
+  requirePermission('service_accounts:manage'),
+  resolveBootstrapSetupWindow,
+  setupMfaGrade,
+  requireStepUp,
+  audited('org.service-account.create', 'org.service-account.key.create', 'org.service-account.key.revoke'),
+  provisionOrganizationServiceAccountKey,
 );
 
 /** PATCH /organization/:id/service-accounts/:accountId - Update description/roles/budget/disabled */

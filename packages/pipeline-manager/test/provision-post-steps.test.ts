@@ -65,7 +65,7 @@ describe('resolvePostSteps', () => {
     expect(steps.map((s) => s.id)).toEqual(['register']);
   });
 
-  it('orders register → smoke → events bundle (store-token ×3 → setup-events --scoped-ingest) → custom', () => {
+  it('orders register → smoke → events bundle (store-token ×4 → setup-events --scoped-ingest) → custom', () => {
     const { steps } = resolvePostSteps({
       ...base,
       target: 'ec2',
@@ -76,7 +76,7 @@ describe('resolvePostSteps', () => {
       steps: ['echo hi'],
     });
     expect(steps.map((s) => s.id)).toEqual([
-      'register', 'smoke-test', 'store-token', 'store-token-registry', 'store-token-ingest', 'events', 'custom-1',
+      'register', 'smoke-test', 'store-token', 'store-token-registry', 'store-token-registration', 'store-token-ingest', 'events', 'custom-1',
     ]);
     // On AWS, register is surfaced (run on the box) with the resolved URL baked in so the
     // operator copy-pastes a correct line regardless of their shell's PLATFORM_BASE_URL.
@@ -96,6 +96,12 @@ describe('resolvePostSteps', () => {
     // Then the dedicated reporting-ingest (scoped) key — the ingest endpoint
     // requires the `reporting:ingest` scope; --schedule installs its own key
     // rotation stack. It must precede setup-events.
+    // The pipeline-registration key: the platform key cannot register a
+    // deployed pipeline (`pipeline deploy --store-tokens` warns and skips), and
+    // event ingest attributes events to an org through that registry — so a
+    // provisioned org whose bundle lacked it deployed pipelines nothing counted.
+    const storeTokenRegistration = steps.find((s) => s.id === 'store-token-registration')!;
+    expect(storeTokenRegistration.command).toContain('store-token --scope pipeline_registry:write --schedule --region us-east-1');
     const storeTokenIngest = steps.find((s) => s.id === 'store-token-ingest')!;
     expect(storeTokenIngest.command).toContain('store-token --scope reporting:ingest --schedule --region us-east-1');
     // setup-events points the Lambda at the scoped secret (else every ingest 403s).

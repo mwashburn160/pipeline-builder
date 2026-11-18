@@ -58,6 +58,9 @@ import type { ServiceAccountRole } from './service-account-roles.js';
 // them without dragging the key service and the token signer into its graph.
 // Re-exported here so callers (and tests) still find the whole surface in one place.
 export { deleteServiceAccountsForOrg, revokeServiceAccountKeysForOrg } from './service-account-cascade.js';
+// provision-key's built-in Role lookup lives with the other service-account Role
+// reads; re-exported so the controller finds the whole surface here.
+export { resolveBuiltinRoleId } from './service-account-roles.js';
 import { config } from '../config/index.js';
 import type { OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import type { ClientInfo } from '../helpers/client-info.js';
@@ -346,6 +349,15 @@ export async function listServiceAccounts(orgId: string): Promise<ServiceAccount
   })));
 }
 
+/**
+ * The account of `orgId` with this machine name, or null. The name is the
+ * stable identifier automation addresses an account by (provision-key).
+ */
+export async function findServiceAccountByName(orgId: string, name: string): Promise<ServiceAccountView | null> {
+  const doc = await ServiceAccount.findOne({ organizationId: toOrgId(orgId), name: name.trim().toLowerCase() }).lean();
+  return doc ? viewOf(doc) : null;
+}
+
 /** One account of `orgId`, or `SA_NOT_FOUND`. */
 async function requireAccount(orgId: string, id: string): Promise<ServiceAccountData & { _id: unknown }> {
   if (!Types.ObjectId.isValid(id)) throw new Error(SA_NOT_FOUND);
@@ -507,14 +519,18 @@ export async function createServiceAccountKey(
   }
   const ipAllowlist = normalizeIpAllowlist(input.ipAllowlist);
 
-  const active = await apiKeyService.countActiveForServiceAccount(String(account._id));
-  if (active >= MAX_ACTIVE_KEYS_PER_ACCOUNT) throw new Error(SA_KEY_LIMIT);
-
   if (input.scope !== undefined && !TOKEN_SCOPES.includes(input.scope)) throw new Error(SA_INVALID_SCOPE);
   // Nobody mints a credential more powerful than themselves: the account's
   // Roles through the assignment ceiling, and the capability scope's own rule.
   await assertActorMayWieldAccount(orgId, String(account._id), actor);
   await assertActorMayMintScope(orgId, input.scope, actor);
+
+  // The active-key cap is checked LAST, so `SA_KEY_LIMIT` means "this mint is
+  // otherwise allowed". provision-key relies on that: it retires the oldest
+  // key on this error and retries, and must never revoke a key for a mint the
+  // ceiling would have refused anyway.
+  const active = await apiKeyService.countActiveForServiceAccount(String(account._id));
+  if (active >= MAX_ACTIVE_KEYS_PER_ACCOUNT) throw new Error(SA_KEY_LIMIT);
 
   return apiKeyService.createForServiceAccount({
     serviceAccountId: account._id as Types.ObjectId,

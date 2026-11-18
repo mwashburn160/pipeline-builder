@@ -19,6 +19,11 @@ const ACCOUNT_ID = new Types.ObjectId().toString();
 let accountRoles: Array<{ id: string; name: string; grantsRole: string; permissions: string[] }> = [];
 let ssoEntitled = true;
 let accountDoc: Record<string, unknown> = {};
+let activeKeys = 0;
+/** What `ServiceAccount.findOne(...)` / `Role.findOne(...)` resolve to; null = none. */
+let accountFound = true;
+const mockSaFindOne = jest.fn<(...a: unknown[]) => unknown>();
+
 const mockCreateForSa = jest.fn<(...a: unknown[]) => Promise<unknown>>(async () => ({ key: 'pb_sa_x', view: { id: 'k1' } }));
 const mockSaUpdateOne = jest.fn<(...a: unknown[]) => Promise<unknown>>(async () => ({}));
 
@@ -30,7 +35,7 @@ jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ isAncestorO
 jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({ isSsoEntitled: async () => ssoEntitled }));
 jest.unstable_mockModule('../src/services/api-key-service.js', () => ({
   apiKeyService: {
-    countActiveForServiceAccount: async () => 0,
+    countActiveForServiceAccount: async () => activeKeys,
     createForServiceAccount: (...a: unknown[]) => mockCreateForSa(...a),
     listForServiceAccount: async () => [],
   },
@@ -40,6 +45,7 @@ jest.unstable_mockModule('../src/services/service-account-roles.js', () => ({
   serviceAccountRolesFor: async () => new Map([[ACCOUNT_ID, accountRoles]]),
   setServiceAccountRoles: async () => undefined,
   clearServiceAccountRoles: async () => undefined,
+  resolveBuiltinRoleId: async () => 'role-auto',
 }));
 const txSession = { id: 'sa-tx' };
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
@@ -53,12 +59,16 @@ jest.unstable_mockModule('../src/services/service-account-cascade.js', () => ({
 jest.unstable_mockModule('../src/models/organization.js', () => ({ default: { findById: () => ({ select: () => ({ lean: async () => ({}) }) }) } }));
 jest.unstable_mockModule('../src/models/service-account.js', () => ({
   default: {
-    findOne: () => ({ lean: async () => ({ _id: new Types.ObjectId(ACCOUNT_ID), name: 'deploy', organizationId: 'org-1', createdAt: new Date(0), ...accountDoc }) }),
+    findOne: (...a: unknown[]) => {
+      mockSaFindOne(...a);
+      return { lean: async () => (accountFound ? { _id: new Types.ObjectId(ACCOUNT_ID), name: 'deploy', organizationId: 'org-1', createdAt: new Date(0), ...accountDoc } : null) };
+    },
     updateOne: (...a: unknown[]) => mockSaUpdateOne(...a),
   },
 }));
 
-const { createServiceAccountKey, updateServiceAccount } = await import('../src/services/service-account-service.js');
+const { createServiceAccountKey, updateServiceAccount, findServiceAccountByName } =
+  await import('../src/services/service-account-service.js');
 
 const delegate = (permissions: string[]) => ({ isSuperAdmin: false, isOrgAdmin: false, permissions });
 const ADMIN = { isSuperAdmin: false, isOrgAdmin: true, permissions: [] };
@@ -70,6 +80,8 @@ beforeEach(() => {
   accountRoles = [];
   ssoEntitled = true;
   accountDoc = {};
+  activeKeys = 0;
+  accountFound = true;
 });
 
 describe('issuing a key — the account\'s Roles through the assignment ceiling', () => {
@@ -123,5 +135,32 @@ describe('re-enabling an account — the same ceiling as issuing a key for it', 
     await updateServiceAccount('org-1', ACCOUNT_ID, { disabled: true }, delegate(['service_accounts:manage']));
     // Inside the update's transaction, with the Role replace it may carry.
     expect(mockSaUpdateOne).toHaveBeenCalledWith(expect.anything(), { $set: { disabled: true } }, { session: txSession });
+  });
+});
+
+describe('the active-key cap is checked LAST', () => {
+  // provision-key retires the oldest key on SA_KEY_LIMIT and retries; it must
+  // never revoke a key for a mint the ceiling would refuse anyway.
+  it('a ceiling refusal wins over the cap, so SA_KEY_LIMIT means "otherwise allowed"', async () => {
+    activeKeys = 5;
+    accountRoles = [{ id: 'r1', name: 'Deployer', grantsRole: 'member', permissions: ['plugins:write'] }];
+    await expect(mint(delegate(['service_accounts:manage']))).rejects.toThrow('RL_ASSIGN_EXCEEDS_CEILING');
+    await expect(mint(delegate(['service_accounts:manage']), 'registry:push')).rejects.toThrow('RL_ASSIGN_EXCEEDS_CEILING');
+  });
+
+  it('an allowed mint at the cap is SA_KEY_LIMIT, and nothing is minted', async () => {
+    activeKeys = 5;
+    await expect(mint(ADMIN)).rejects.toThrow('SA_KEY_LIMIT');
+    expect(mockCreateForSa).not.toHaveBeenCalled();
+  });
+});
+
+describe('provision-key: the account by name', () => {
+  it('findServiceAccountByName reads the org\'s account by its normalized name', async () => {
+    const view = await findServiceAccountByName('org-1', '  Deploy ');
+    expect(mockSaFindOne).toHaveBeenCalledWith({ organizationId: 'org-1', name: 'deploy' });
+    expect(view).toMatchObject({ id: ACCOUNT_ID, name: 'deploy' });
+    accountFound = false;
+    await expect(findServiceAccountByName('org-1', 'missing')).resolves.toBeNull();
   });
 });

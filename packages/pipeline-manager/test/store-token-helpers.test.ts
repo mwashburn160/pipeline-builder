@@ -9,13 +9,17 @@
 import { jest, describe, it, expect, afterEach } from '@jest/globals';
 import type { AnyFn } from '@pipeline-builder/api-core/testing';
 
-const revokeServiceAccountKey = jest.fn<AnyFn>();
+const revokeSiblingKey = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/utils/service-account.js', () => ({
   provisionServiceAccountKey: jest.fn<AnyFn>(),
-  revokeServiceAccountKey,
+  adoptServiceAccountKey: jest.fn<AnyFn>(),
+  passwordStepUp: jest.fn<AnyFn>(),
+  totpStepUp: jest.fn<AnyFn>(),
+  browserStepUp: jest.fn<AnyFn>(),
+  revokeSiblingKey,
 }));
 
-const { buildSecretValue, printDryRunPlan, printStoredKey, retirePreviousKey } = await import('../src/commands/store-token.js');
+const { buildSecretValue, chooseStepUp, printDryRunPlan, printStoredKey, readKeyInput, retirePreviousKey } = await import('../src/commands/store-token.js');
 
 const provisioned = {
   key: 'pb_sa_new',
@@ -30,7 +34,7 @@ const client = {} as Parameters<typeof retirePreviousKey>[0];
 
 afterEach(() => {
   jest.restoreAllMocks();
-  revokeServiceAccountKey.mockReset();
+  revokeSiblingKey.mockReset();
 });
 
 describe('buildSecretValue', () => {
@@ -49,23 +53,43 @@ describe('buildSecretValue', () => {
 });
 
 describe('retirePreviousKey', () => {
-  it('revokes the replaced key on the same account', async () => {
+  it('revokes the replaced key on the same account WITH THE NEW KEY — no password / step-up involved', async () => {
+    // It used to take the operator's password for a step-up, so a run by an
+    // account with no password could never retire what it replaced.
     jest.spyOn(console, 'log').mockImplementation(() => undefined);
-    await retirePreviousKey(client, 'pw', provisioned, { keyId: 'key-1', serviceAccountId: 'sa-1' });
-    expect(revokeServiceAccountKey).toHaveBeenCalledWith(client, 'pw', 'org-1', 'sa-1', 'key-1');
+    await retirePreviousKey(client, provisioned, { keyId: 'key-1', serviceAccountId: 'sa-1' });
+    expect(revokeSiblingKey).toHaveBeenCalledWith(client, 'pb_sa_new', 'key-1');
+  });
+
+  it('never revokes the key it just stored (a secret already naming it)', async () => {
+    await retirePreviousKey(client, provisioned, { keyId: 'key-2', serviceAccountId: 'sa-1' });
+    expect(revokeSiblingKey).not.toHaveBeenCalled();
   });
 
   it('leaves keys on another account (or none at all) alone', async () => {
-    await retirePreviousKey(client, 'pw', provisioned, { keyId: 'key-1', serviceAccountId: 'sa-other' });
-    await retirePreviousKey(client, 'pw', provisioned, {});
-    expect(revokeServiceAccountKey).not.toHaveBeenCalled();
+    await retirePreviousKey(client, provisioned, { keyId: 'key-1', serviceAccountId: 'sa-other' });
+    await retirePreviousKey(client, provisioned, {});
+    expect(revokeSiblingKey).not.toHaveBeenCalled();
   });
 
   it('only warns when the revoke fails — the new key is already stored', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
-    revokeServiceAccountKey.mockRejectedValueOnce(new Error('boom'));
-    await expect(retirePreviousKey(client, 'pw', provisioned, { keyId: 'key-1', serviceAccountId: 'sa-1' })).resolves.toBeUndefined();
+    revokeSiblingKey.mockRejectedValueOnce(new Error('boom'));
+    await expect(retirePreviousKey(client, provisioned, { keyId: 'key-1', serviceAccountId: 'sa-1' })).resolves.toBeUndefined();
     expect(warn.mock.calls.flat().join(' ')).toContain('could not revoke the previous one (key-1)');
+  });
+});
+
+describe('readKeyInput (--from-key)', () => {
+  it('reads stdin for "-" and a file otherwise, trimmed', () => {
+    const read = jest.fn((p: string | number) => (p === 0 ? 'pb_sa_fromstdin\n' : '  pb_sa_fromfile  '));
+    expect(readKeyInput('-', read)).toBe('pb_sa_fromstdin');
+    expect(read).toHaveBeenCalledWith(0);
+    expect(readKeyInput('/tmp/k', read)).toBe('pb_sa_fromfile');
+  });
+  it('refuses empty input and anything that is not exactly one token', () => {
+    expect(() => readKeyInput('-', () => '  \n')).toThrow(/empty/);
+    expect(() => readKeyInput('-', () => 'pb_sa_a pb_sa_b')).toThrow(/exactly one key/);
   });
 });
 
@@ -119,5 +143,25 @@ describe('store-token output', () => {
       scheduleExpression: undefined,
     });
     expect(log.mock.calls.flat().join('\n')).toContain('store-token --expires-days 30');
+  });
+});
+
+describe('chooseStepUp', () => {
+  it('auto: the password when given (CI / provision keep working unchanged)', () => {
+    expect(chooseStepUp({ password: 'pw', interactive: false })).toBe('password');
+  });
+  it('auto: no password in a terminal → browser approval, which works for passwordless accounts', () => {
+    expect(chooseStepUp({ interactive: true })).toBe('browser');
+  });
+  it('no password and no terminal: fails up front, naming PLATFORM_PASSWORD and --from-key', () => {
+    expect(() => chooseStepUp({ interactive: false })).toThrow(/PLATFORM_PASSWORD.*--from-key/s);
+  });
+  it('honours an explicit totp / browser choice, even with a password set', () => {
+    expect(chooseStepUp({ requested: 'totp', password: 'pw', interactive: true })).toBe('totp');
+    expect(chooseStepUp({ requested: 'browser', password: 'pw', interactive: true })).toBe('browser');
+  });
+  it('explicit password without one, and unknown methods, are refused', () => {
+    expect(() => chooseStepUp({ requested: 'password', interactive: true })).toThrow(/needs the password/);
+    expect(() => chooseStepUp({ requested: 'sms', interactive: true })).toThrow(/Unknown --step-up/);
   });
 });

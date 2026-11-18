@@ -13,6 +13,7 @@
  * runs each via the same gated `runScript()` as the deploy.
  */
 
+import { PIPELINE_REGISTRATION_CAPABILITY } from '@pipeline-builder/pipeline-core';
 import { LOAD_STEPS, type TargetId } from './targets.js';
 
 export interface PostStep {
@@ -154,6 +155,10 @@ export function resolvePostSteps(opts: PostStepOptions): ResolvedPostSteps {
       //                             `.../registry-push` into every build image's
       //                             `secretsManagerCredentials`, so a deployment
       //                             without it cannot pull its build images.
+      //   2c. store-token --scope pipeline_registry:write --schedule
+      //                           — the key `pipeline deploy --store-tokens`
+      //                             registers the pipeline with; ingest resolves
+      //                             an event's org through that registry.
       //   3. setup-events --scoped-ingest
       //                           — deploys the EventBridge → SQS → Lambda and points
       //                             the Lambda at the reporting-ingest secret from #2.
@@ -188,6 +193,15 @@ export function resolvePostSteps(opts: PostStepOptions): ResolvedPostSteps {
         // nothing else. Synth points at `.../registry-push` unconditionally, so
         // this step is not optional on AWS.
         command: `pipeline-manager infra store-token --scope registry:push --schedule${region}`,
+        env,
+      });
+      steps.push({
+        id: 'store-token-registration',
+        label: 'Store the pipeline-registration service-account key in AWS Secrets Manager (+ auto-rotation)',
+        // `pipeline deploy --store-tokens` registers the deployed stack + step
+        // manifest with THIS key (Pipeline Registration Role); the platform key
+        // cannot, and event ingest attributes events through that registry.
+        command: `pipeline-manager infra store-token --scope ${PIPELINE_REGISTRATION_CAPABILITY} --schedule${region}`,
         env,
       });
       steps.push({

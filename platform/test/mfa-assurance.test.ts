@@ -159,6 +159,8 @@ describe('bootstrapSessionMayReach — what an enrolment session can touch', () 
     expect(may('POST', '/organization/000000000000000000000001/service-accounts')).toBe(true);
     expect(may('GET', '/organization/000000000000000000000001/service-accounts/abc')).toBe(true);
     expect(may('POST', '/organization/000000000000000000000001/service-accounts/abc/keys')).toBe(true);
+    // The one-step-up form of the two calls above (pipeline-manager store-token).
+    expect(may('POST', '/organization/000000000000000000000001/service-accounts/provision-key')).toBe(true);
     expect(may('DELETE', '/organization/000000000000000000000001/service-accounts/abc/keys/k1')).toBe(true);
   });
 

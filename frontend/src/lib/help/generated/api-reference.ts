@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 83303e26fa1e589c61d1ca7884922343424bc504a68ce98ca0aeed5bc8e9a9e3
+// SOURCE-SHA256: 8dd00432d94893be50a66904f6f177739ab33d6473dbea0d412de715bc6e92e1
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1443,6 +1443,12 @@ export const apiReferenceTopic: HelpTopic = {
               "POST",
               "/organization/:id/service-accounts/:accountId/keys",
               "Issue a pb_sa_… key — returned once ({ key, accessKey }); optional ipAllowlist and scope (one capability instead of the account's Roles: reporting:ingest, registry:push, scim), max 365 days, 5 active keys per account",
+              "service_accounts:manage + step-up"
+            ],
+            [
+              "POST",
+              "/organization/:id/service-accounts/provision-key",
+              "Find-or-create an account by name, issue it a key, and retire its oldest key at the 5-key cap — one step-up for all of it (pipeline-manager infra store-token). Body { accountName, description?, role?, scope?, key: { name, expiresIn } }; role (a seed bundle, e.g. pipeline_automation) is granted only to a NEW account, never to an existing one. 201 { organizationId, serviceAccount: { id, name, created }, key, accessKey: { id, expiresAt, scope }, retiredKeyIds }; 409 SA_BUILTIN_ROLE_MISSING when the org lacks that built-in Role. Audited as the same create / key-create / key-revoke events the individual routes write (details)",
               "service_accounts:manage + step-up"
             ],
             [

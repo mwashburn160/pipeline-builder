@@ -52,7 +52,7 @@ const ORG_HANDLERS = [
   'deleteOrgDomain', 'listOrgJoinRequests', 'decideOrgJoinRequest', 'resetOrgJoinRequest',
   'getOrganizationServiceAccounts', 'getOrganizationServiceAccount', 'createOrganizationServiceAccount',
   'updateOrganizationServiceAccount', 'deleteOrganizationServiceAccount',
-  'createOrganizationServiceAccountKey', 'revokeOrganizationServiceAccountKey',
+  'createOrganizationServiceAccountKey', 'revokeOrganizationServiceAccountKey', 'provisionOrganizationServiceAccountKey',
 ];
 
 jest.unstable_mockModule('../src/controllers/index.js', () => recorders(ORG_HANDLERS));
@@ -103,6 +103,9 @@ const ROUTES: Array<[string, string, string]> = [
   ['get', '/:id/export', 'org_settings:write'],
   ['get', '/:id/teams/deleted', 'org_settings:write'],
   ['patch', '/:id/impersonation-policy', 'org_impersonation:write'],
+  // One-step-up service-account provisioning: the same capability as the
+  // create-account and issue-key routes it stands in for.
+  ['post', '/:id/service-accounts/provision-key', 'service_accounts:manage'],
 ];
 
 describe('org-settings routes — permission union, not the coarse admin role', () => {

@@ -6,22 +6,28 @@ import * as fs from 'fs';
 import { fileURLToPath } from 'node:url';
 import * as os from 'os';
 import path from 'path';
+import readline from 'readline/promises';
 import { LambdaClient, UpdateFunctionCodeCommand } from '@aws-sdk/client-lambda';
 import { AUTOMATION_ACCOUNT_BUNDLES, errorMessage, SEED_BUNDLES } from '@pipeline-builder/api-core';
 import type { SeedBundleId, TokenScope } from '@pipeline-builder/api-core';
 import { PIPELINE_REGISTRATION_CAPABILITY } from '@pipeline-builder/pipeline-core';
 import { Command } from 'commander';
-import { APP_VERSION, validateNumber } from '../config/cli.constants.js';
+import { APP_VERSION, TIMEOUTS, validateNumber } from '../config/cli.constants.js';
 import type { ApiClient } from '../utils/api-client.js';
 import { auditLog } from '../utils/audit-log.js';
 import { resolveAwsRegion } from '../utils/aws-env.js';
 import { upsertSecret, getSecretArn, getSecretValue } from '../utils/aws-secrets.js';
 import { createAuthenticatedClientAsync, printCommandHeader, printSslWarning, withProfileOption, withRegionOption, withSslOptions } from '../utils/command-utils.js';
 import { toEventBridgeCron } from '../utils/cron.js';
+import { beginDeviceApproval, pollForDeviceToken } from '../utils/device-auth.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
 import { ensurePlatformToken, scopeSecretLeaf, secretNameForOrg, siblingSecretName } from '../utils/platform-secret.js';
-import { provisionServiceAccountKey, revokeServiceAccountKey, type ProvisionedKey } from '../utils/service-account.js';
+import {
+  adoptServiceAccountKey, browserStepUp, passwordStepUp, provisionServiceAccountKey, revokeSiblingKey, totpStepUp,
+  type ProvisionedKey, type StepUpProvider,
+} from '../utils/service-account.js';
+import { platformHttpsAgent } from '../utils/tls.js';
 
 // ESM has no __dirname; derive it from this module's URL.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -193,6 +199,61 @@ async function previousKeyId(
   }
 }
 
+/**
+ * The key for `--from-key`: a file path, or `-` for stdin. Deliberately never
+ * the key itself as the flag's value — that would put it in shell history and
+ * `ps` output.
+ */
+export function readKeyInput(source: string, readFile: (p: string | number) => string = (p) => fs.readFileSync(p, 'utf8')): string {
+  const raw = source === '-' ? readFile(0) : readFile(source);
+  const key = raw.trim();
+  if (!key) throw new Error(`--from-key ${source === '-' ? '(stdin)' : source} is empty — expected a pb_sa_… key.`);
+  if (/\s/.test(key)) throw new Error('--from-key must contain exactly one key and nothing else.');
+  return key;
+}
+
+/** How `store-token` re-verifies the operator for the key writes. */
+export type StepUpMethod = 'password' | 'totp' | 'browser';
+
+/**
+ * Pick the step-up method. `auto` (the default): the password when one was
+ * given (CI, `provision`), otherwise — in a terminal — a browser approval, which
+ * works for EVERY account (password, passkey, authenticator app, SSO / social
+ * re-sign-in: the browser offers whatever the account has). Without a terminal
+ * and without a password there is nobody to approve, so it says how to proceed
+ * rather than hanging.
+ */
+export function chooseStepUp(opts: { requested?: string; password?: string; interactive: boolean }): StepUpMethod {
+  const requested = (opts.requested ?? 'auto').toLowerCase();
+  if (!['auto', 'password', 'totp', 'browser'].includes(requested)) {
+    throw new Error(`Unknown --step-up "${opts.requested}". One of: auto, password, totp, browser.`);
+  }
+  if (requested === 'password' || (requested === 'auto' && opts.password)) {
+    if (!opts.password) {
+      throw new Error('--step-up password needs the password: set PLATFORM_PASSWORD (preferred) or pass --password.');
+    }
+    return 'password';
+  }
+  if (!opts.interactive) {
+    throw new Error(
+      'Creating a service account and issuing its key are step-up gated, and this is not an interactive terminal. '
+      + 'Set PLATFORM_PASSWORD (preferred) or pass --password; or, for an account with no password, issue the key '
+      + 'on the Service accounts page and pass it with --from-key -.',
+    );
+  }
+  return requested === 'totp' ? 'totp' : 'browser';
+}
+
+/** Ask one line on the terminal (the authenticator code). */
+async function askLine(question: string): Promise<string> {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+  try {
+    return await rl.question(question);
+  } finally {
+    rl.close();
+  }
+}
+
 /** What a dry run reports it WOULD provision. */
 export interface StoreTokenPlan {
   serviceAccount: string;
@@ -256,15 +317,16 @@ export function buildSecretValue(provisioned: ProvisionedKey, platformUrl: strin
  */
 export async function retirePreviousKey(
   client: ApiClient,
-  password: string,
   provisioned: ProvisionedKey,
   previous: { keyId?: string; serviceAccountId?: string },
 ): Promise<void> {
   if (!previous.keyId || previous.serviceAccountId !== provisioned.serviceAccountId) return;
+  if (previous.keyId === provisioned.keyId) return;
   try {
-    await revokeServiceAccountKey(
-      client, password, provisioned.organizationId, provisioned.serviceAccountId, previous.keyId,
-    );
+    // The NEW key retires its sibling (`/auth/key/revoke`) — the key is the
+    // authority, so this needs no step-up and works for an account with no
+    // password, the same way the rotation Lambda retires its predecessor.
+    await revokeSiblingKey(client, provisioned.key, previous.keyId);
     printSuccess(`Retired the previous key (${previous.keyId})`);
   } catch (err) {
     printWarning(
@@ -368,9 +430,12 @@ export function storeToken(program: Command): void {
         .description('Provision an org service-account key (its own machine identity) and store it in AWS Secrets Manager for CDK deployments')
         .option('-u, --identifier <identifier>', 'Username or email (skips PLATFORM_TOKEN requirement)')
         .option('-p, --password <password>', 'Login password — also used for the step-up every key write requires (prefer PLATFORM_PASSWORD)')
+        .option('--step-up <method>', 'How to re-verify for the key writes: auto (password if given, else browser approval), password, totp (authenticator code), browser (passkey / SSO / Google / GitHub — any account)', 'auto')
+        .option('--no-browser', 'With browser step-up: print the approval URL instead of opening a browser')
         .option('--expires-days <days>', 'Key lifetime in days (max 365)', '30')
         .option('--scope <scope>', `Provision a single-purpose credential instead of the platform one. One of: ${Object.keys(SCOPE_CATALOG).join(', ')}`)
         .option('--account <name>', 'Override the service-account name this key is issued on (default: derived from --scope)')
+        .option('--from-key <file>', 'Store a key you issued in the web UI instead of issuing one here — a file path, or - for stdin. No password needed: for accounts that sign in with Google/GitHub/SSO or a passkey. The key is checked (account + scope), replaced with a fresh one, and the pasted one retired.')
         .option('--dry-run', 'Show what would be provisioned without calling the platform or writing to Secrets Manager', false)),
     )
       .option('--schedule', 'Also deploy the daily key-rotation stack that replaces this key before it expires (off by default)', false)
@@ -433,34 +498,55 @@ export function storeToken(program: Command): void {
         // the password on the command line (where it would show in plans/logs).
         await ensurePlatformToken(options);
 
-        // The password is ALSO the step-up factor for both writes below, so it is
-        // required even when PLATFORM_TOKEN is already set. Say that plainly
-        // rather than failing three calls later with a 403.
-        const password = (options.password as string | undefined) || process.env.PLATFORM_PASSWORD;
-        if (!password) {
-          throw new Error(
-            'A password is required: creating a service account and issuing its key are both step-up gated. '
-            + 'Set PLATFORM_PASSWORD (preferred) or pass --password.',
-          );
+        const keyName = `${accountName}-${new Date().toISOString().slice(0, 10)}`;
+        const fromKey = options.fromKey as string | undefined;
+        let provisioned: ProvisionedKey;
+        let client: ApiClient;
+        if (fromKey) {
+          // ADOPT a key issued in the web UI. Every call is authorised by the key
+          // itself or is a read on the operator's session — no step-up, so no
+          // password (see adoptServiceAccountKey).
+          const rawKey = readKeyInput(fromKey);
+          printSection('Adopt Service-Account Key');
+          client = await createAuthenticatedClientAsync(options);
+          provisioned = await adoptServiceAccountKey({
+            client, rawKey, accountName, ...(keyScope ? { scope: keyScope } : {}), expiresInSeconds, keyName,
+          });
+        } else {
+          // The key writes are step-up gated even when PLATFORM_TOKEN is set. Decide
+          // HOW before any call, so a CI run without a password fails here with
+          // the fix rather than three calls later with a 401.
+          const password = (options.password as string | undefined) || process.env.PLATFORM_PASSWORD;
+          const method = chooseStepUp({
+            requested: options.stepUp as string | undefined,
+            password,
+            interactive: !!process.stdin.isTTY && !options.json,
+          });
+          printSection('Provision Service-Account Key');
+          client = await createAuthenticatedClientAsync(options);
+          const stepUp: StepUpProvider = method === 'password'
+            ? passwordStepUp(client, password!)
+            : method === 'totp'
+              ? totpStepUp(client, () => askLine('Authenticator code: '))
+              : browserStepUp(async () => {
+                const transport = { url: client.getBaseUrl(), httpsAgent: platformHttpsAgent(options.verifySsl), timeout: TIMEOUTS.HTTP_REQUEST };
+                printInfo(`Approve in your browser to issue the '${accountName}' key (passkey, SSO, Google/GitHub or password — whatever your account uses).`);
+                const code = await beginDeviceApproval(transport, { quiet: false, browser: options.browser, verifySsl: options.verifySsl, stepUp: true });
+                return (await pollForDeviceToken(transport, code)).step_up_token;
+              });
+          provisioned = await provisionServiceAccountKey({
+            client,
+            stepUp,
+            accountName,
+            description: identity.description,
+            ...(role ? { role } : {}),
+            ...(keyScope ? { scope: keyScope } : {}),
+            expiresInSeconds,
+            keyName,
+          });
         }
 
-        printSection('Provision Service-Account Key');
-
-        const client = await createAuthenticatedClientAsync(options);
-
-        const keyName = `${accountName}-${new Date().toISOString().slice(0, 10)}`;
-        const provisioned = await provisionServiceAccountKey({
-          client,
-          password: password!,
-          accountName,
-          description: identity.description,
-          ...(role ? { role } : {}),
-          ...(keyScope ? { scope: keyScope } : {}),
-          expiresInSeconds,
-          keyName,
-        });
-
-        printSuccess(`Key issued on service account '${accountName}' (expires ${provisioned.expiresAt})`);
+        printSuccess(`Key ${fromKey ? 'adopted' : 'issued'} on service account '${accountName}' (expires ${provisioned.expiresAt})`);
 
         const secretName = secretNameFor(provisioned.organizationId);
 
@@ -495,7 +581,7 @@ export function storeToken(program: Command): void {
 
         const arn = await getSecretArn(secretName, aws);
 
-        await retirePreviousKey(client, password!, provisioned, previous);
+        await retirePreviousKey(client, provisioned, previous);
 
         // Optionally install the once-a-day rotation stack so this key never lapses.
         let scheduleExpression: string | undefined;

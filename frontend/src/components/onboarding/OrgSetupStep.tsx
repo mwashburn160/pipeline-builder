@@ -144,8 +144,9 @@ export function OrgSetupStep({
 
               <div className="text-xs font-semibold flex items-center gap-1.5"><KeyRound className="w-3.5 h-3.5" /> Sign in</div>
               <p className="text-xs text-fg-muted">
-                <code>store-token</code> issues keys, which re-checks your account password — it is read without echo,
-                so it stays out of your shell history.
+                Each <code>store-token</code> asks you to confirm it&apos;s you by approving in your browser — with a
+                passkey, SSO, Google/GitHub or your password, whatever your account uses. In CI, set{' '}
+                <code>PLATFORM_PASSWORD</code> instead.
               </p>
               <HelpCodeBlock content={cmds.prerequisites} language="bash" />
 

@@ -34,3 +34,8 @@ export const SA_INVALID_SCOPE = 'SA_INVALID_SCOPE';
  *  admin (or `members:manage` + `roles:manage`) and the org's SSO entitlement;
  *  `registry:push` needs `plugins:write`. */
 export const SA_SCOPE_NOT_PERMITTED = 'SA_SCOPE_NOT_PERMITTED';
+
+/** The org has no built-in (`system`) Role for the requested seed bundle — the
+ *  platform's startup backfill creates it, so this means an un-restarted
+ *  platform or a hand-deleted Role (provision-key's `role`). */
+export const SA_BUILTIN_ROLE_MISSING = 'SA_BUILTIN_ROLE_MISSING';

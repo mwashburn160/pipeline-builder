@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { DEFAULT_TIER, STANDARD_TIERS, TOKEN_SCOPES, sendError, type PlanTier } from '@pipeline-builder/api-core';
+import { DEFAULT_TIER, SEED_BUNDLE_IDS, STANDARD_TIERS, TOKEN_SCOPES, sendError, type PlanTier, type SeedBundleId } from '@pipeline-builder/api-core';
 import { ORG_ROLES } from '@pipeline-builder/api-core/wire-vocabulary';
 import type { Response } from 'express';
 import { z } from 'zod';
@@ -462,6 +462,27 @@ export const createServiceAccountKeySchema = z.object({
    */
   scope: z.enum(TOKEN_SCOPES as unknown as [string, ...string[]]).optional(),
 });
+
+/**
+ * Provision a service-account key in ONE step-up (find-or-create the account,
+ * issue a key, retire the oldest at the active-key cap) — the body
+ * `pipeline-manager infra store-token` sends. Each field carries exactly the
+ * rule of the individual route it stands in for: `accountName` / `description`
+ * from create, `scope` / `key.*` from key issue (here `expiresIn` is required —
+ * a stored credential's lifetime is the caller's decision, not a default).
+ * `role` names an api-core seed bundle; it resolves to the org's built-in Role
+ * and is granted ONLY to a newly created account.
+ */
+export const provisionServiceAccountKeySchema = z.object({
+  accountName: serviceAccountNameSchema,
+  description: z.string().trim().max(256).optional(),
+  role: z.enum(SEED_BUNDLE_IDS as unknown as [SeedBundleId, ...SeedBundleId[]]).optional(),
+  scope: createServiceAccountKeySchema.shape.scope,
+  key: z.object({
+    name: createServiceAccountKeySchema.shape.name,
+    expiresIn: z.number().int().min(60).max(365 * 24 * 60 * 60),
+  }).strict(),
+}).strict();
 
 /** Organization ownership transfer schema. */
 export const transferOwnershipSchema = z.object({

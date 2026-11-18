@@ -1,6 +1,6 @@
 // GENERATED FROM docs/onboarding.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 1dcb4bb389fe7e135443076fbb83fe40f28727f8a9fd80c10b0399e8a223eb46
+// SOURCE-SHA256: 2324cb0e7be215f6e9455fe5312a76fd79886c792c5d23cf09088f3d98e3ea2d
 // SPDX-License-Identifier: Apache-2.0
 import { Rocket } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -189,13 +189,13 @@ export const onboardingTopic: HelpTopic = {
               "5",
               "Store the service-account keys (AWS)",
               "✅ --with-events",
-              "infra store-token (×3: platform, registry:push, reporting:ingest)"
+              "infra store-token (×4: platform, registry:push, pipeline_registry:write, reporting:ingest)"
             ],
             [
               "6",
               "Set up event reporting (AWS)",
               "✅ --with-events",
-              "infra setup-events"
+              "infra setup-events --scoped-ingest"
             ],
             [
               "7",
@@ -333,8 +333,25 @@ export const onboardingTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "export PLATFORM_BASE_URL=https://pipeline.example.com\npipeline-manager auth login      # or export an access key as PLATFORM_TOKEN\nprintf 'Platform password: '; read -rs PLATFORM_PASSWORD; echo; export PLATFORM_PASSWORD\n\npipeline-manager infra store-token --expires-days 30 --schedule --region us-east-1\npipeline-manager infra store-token --scope registry:push --schedule --region us-east-1\npipeline-manager infra store-token --scope pipeline_registry:write --schedule --region us-east-1\npipeline-manager infra store-token --scope reporting:ingest --schedule --region us-east-1",
+          "content": "export PLATFORM_BASE_URL=https://pipeline.example.com\npipeline-manager auth login      # or export an access key as PLATFORM_TOKEN\n\npipeline-manager infra store-token --expires-days 30 --schedule --region us-east-1\npipeline-manager infra store-token --scope registry:push --schedule --region us-east-1\npipeline-manager infra store-token --scope pipeline_registry:write --schedule --region us-east-1\npipeline-manager infra store-token --scope reporting:ingest --schedule --region us-east-1",
           "language": "bash"
+        },
+        {
+          "type": "text",
+          "content": "Each run confirms it's you once (the platform issues the key in a single step-up-gated call), so a passwordless account approves four times in the browser — once per key."
+        },
+        {
+          "type": "text",
+          "content": "No terminal and no password (a script, an SSO-only account)? Issue the key in the web UI on the organization's Service accounts page, then hand it over without a password:"
+        },
+        {
+          "type": "code",
+          "content": "pipeline-manager infra store-token --scope reporting:ingest --from-key - --schedule --region us-east-1",
+          "language": "bash"
+        },
+        {
+          "type": "text",
+          "content": "Paste the key and press Ctrl-D. The CLI checks it is on the right account with the right scope, replaces it with a fresh key, and retires the pasted one — what ends up in Secrets Manager never passed through your clipboard."
         },
         {
           "type": "text",

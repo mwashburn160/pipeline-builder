@@ -560,6 +560,7 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | platform | PATCH | `/organization/:id/service-accounts/:accountId` | `any(service_accounts:manage) + step-up(any)` |
 | platform | POST | `/organization/:id/service-accounts/:accountId/keys` | `any(service_accounts:manage) + aal2(except bootstrap-setup) + step-up(any)` |
 | platform | DELETE | `/organization/:id/service-accounts/:accountId/keys/:keyId` | `any(service_accounts:manage)` |
+| platform | POST | `/organization/:id/service-accounts/provision-key` | `any(service_accounts:manage) + aal2(except bootstrap-setup) + step-up(any)` |
 | platform | GET | `/organization/:id/session-policy` | `any(org_settings:write)` |
 | platform | PATCH | `/organization/:id/session-policy` | `any(org_settings:write) + step-up(any)` |
 | platform | GET | `/organization/:id/setup-guide` | `any(org_settings:write)` |
