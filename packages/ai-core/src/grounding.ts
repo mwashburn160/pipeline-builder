@@ -71,6 +71,7 @@ export function chunkMarkdown(markdown: string, meta: { id: string; url?: string
   const lines = body.split('\n');
 
   const chunks: GroundingDoc[] = [];
+  const usedAnchors = new Set<string>();
   let heading = '';
   let buf: string[] = [];
 
@@ -80,7 +81,13 @@ export function chunkMarkdown(markdown: string, meta: { id: string; url?: string
     if (!text) return;
     // A heading with no ASCII alphanumerics (CJK, emoji) slugifies to '' —
     // fall back to a positional anchor so such chunks never share an id.
-    const anchor = (heading && slugify(heading)) || `${heading ? 'section' : 'intro'}-${chunks.length}`;
+    const base = (heading && slugify(heading)) || `${heading ? 'section' : 'intro'}-${chunks.length}`;
+    // A heading repeated in one file ("Signing in" under two parents) slugifies
+    // to the same anchor; suffix repeats (`-1`, `-2`, GitHub-style) so every
+    // chunk id is unique — the Ask sources list keys on it and the model cites it.
+    let anchor = base;
+    for (let n = 1; usedAnchors.has(anchor); n++) anchor = `${base}-${n}`;
+    usedAnchors.add(anchor);
     chunks.push({
       id: `${meta.id}#${anchor}`,
       text: heading ? `${heading}\n${text}` : text,

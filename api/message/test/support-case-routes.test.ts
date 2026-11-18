@@ -55,6 +55,8 @@ const mockAddNote = jest.fn<AnyFn>();
 const mockListNotes = jest.fn<AnyFn>();
 const mockDeleteNote = jest.fn<AnyFn>();
 const mockRecordAudit = jest.fn<AnyFn>();
+/** `refuseWeakSession`: false = the session is MFA-grade and the request may proceed. */
+const mockRefuseWeakSession = jest.fn<AnyFn>(() => false);
 
 /** Mutable so a test can act as a tenant or as the desk. */
 let identity = { orgId: 'org-1', userId: 'user-1' };
@@ -73,6 +75,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   SYSTEM_ORG_ID: 'system',
   isSystemAdmin: () => staff,
   userHasPermission: (_req: unknown, p: string) => staff && p === 'support_cases:write',
+  // The status route's staff branch applies the staff-only chain's bar in the
+  // handler: system org as the active org, and an aal2 session.
+  isSystemOrgRequest: () => identity.orgId === 'system',
+  refuseWeakSession: (...a: unknown[]) => mockRefuseWeakSession(...a),
   // Middleware, bypassed by `getHandler` (which takes the terminal handler) —
   // its PRESENCE on the route is asserted separately below, which is the actual
   // contract: the gate has to be visible in the route table, not buried in a
@@ -256,6 +262,7 @@ describe('PATCH /support/:id/status', () => {
 
   it('lets STAFF set exactly those two', async () => {
     staff = true;
+    identity = { orgId: 'system', userId: 'staff-1' };
     mockSetCaseStatus.mockResolvedValue({ status: 'resolved', awaitingTotalSeconds: 0 });
     expect((await call({ status: 'resolved' })).status).toBe(200);
   });
@@ -281,6 +288,31 @@ describe('PATCH /support/:id/status', () => {
     mockFindCaseByThread.mockResolvedValue({ ...CASE, orgId: 'tenant-9' });
     mockSetCaseStatus.mockResolvedValue({ status: 'resolved', awaitingTotalSeconds: 0 });
     expect((await call({ status: 'resolved' })).status).toBe(200);
+  });
+
+  it('holds the staff branch to the staff-only routes\' bar: an aal1 session is refused', async () => {
+    staff = true;
+    identity = { orgId: 'system', userId: 'staff-1' };
+    mockFindCaseByThread.mockResolvedValue({ ...CASE, orgId: 'tenant-9' });
+    mockRefuseWeakSession.mockImplementationOnce((_req: unknown, res: any) => {
+      res.status(403).json({ success: false, message: 'MFA required' });
+      return true;
+    });
+    const out = await call({ status: 'resolved' });
+    expect(out.status).toBe(403);
+    expect(mockRefuseWeakSession).toHaveBeenCalledWith(expect.anything(), expect.anything(), { minAssurance: 2 });
+    expect(mockSetCaseStatus).not.toHaveBeenCalled();
+  });
+
+  it('does NOT treat support_cases:write outside the system org as staff', async () => {
+    // e.g. a superadmin's implicit permissions while acting in a tenant org:
+    // the cross-org staff branch needs the system org as the ACTIVE org.
+    staff = true;
+    identity = { orgId: 'org-2', userId: 'user-2' };
+    mockFindCaseByThread.mockResolvedValue({ ...CASE, orgId: 'tenant-9' });
+    const out = await call({ status: 'resolved' });
+    expect(out.status).toBe(403);
+    expect(mockSetCaseStatus).not.toHaveBeenCalled();
   });
 
   it('rejects an unknown status before touching the store', async () => {
@@ -342,6 +374,7 @@ describe('PATCH /support/:id/status', () => {
 
   it('lets STAFF reopen it', async () => {
     staff = true;
+    identity = { orgId: 'system', userId: 'staff-1' };
     mockFindCaseByThread.mockResolvedValue({ ...CASE, status: 'closed' });
     mockSetCaseStatus.mockResolvedValue({ status: 'open', awaitingTotalSeconds: 0 });
     expect((await call({ status: 'open' })).status).toBe(200);
@@ -397,6 +430,7 @@ describe('PATCH /support/:id/status', () => {
 
   it('records WHO moved it, so a staff action is distinguishable in the trail', async () => {
     staff = true;
+    identity = { orgId: 'system', userId: 'staff-1' };
     mockSetCaseStatus.mockResolvedValue({ status: 'resolved', awaitingTotalSeconds: 0 });
     await call({ status: 'resolved' });
     expect(mockRecordAudit.mock.calls[0]![0]).toMatchObject({ details: { byStaff: true } });

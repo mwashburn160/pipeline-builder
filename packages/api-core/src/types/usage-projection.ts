@@ -92,7 +92,7 @@ export function projectUsage(input: {
  * what "approaching" means. Below it there is a projection but no reason to say
  * anything, which is a different state from having no projection at all.
  */
-export const PROJECTION_NOTICE_RATIO = 0.7;
+const PROJECTION_NOTICE_RATIO = 0.7;
 
 /** Whether a projection has crossed into the band worth surfacing. */
 export function projectionWorthShowing(p: UsageProjection | null): boolean {

@@ -145,7 +145,7 @@ export function mockPermissionGate(options: {
  * boot module links at load, and the error + cache shapes. A project layers its
  * own defaults on top by passing them in `overrides`.
  */
-export function serviceApiCoreDefaults(): Record<string, unknown> {
+function serviceApiCoreDefaults(): Record<string, unknown> {
   return {
     createLogger: loggerMock,
     MAX_PAGE_LIMIT: 1000,

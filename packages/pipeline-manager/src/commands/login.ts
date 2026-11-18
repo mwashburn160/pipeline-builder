@@ -5,13 +5,14 @@ import axios from 'axios';
 import { Command } from 'commander';
 import pico from 'picocolors';
 import { TIMEOUTS } from '../config/cli.constants.js';
-import { assertCredentialTlsAllowed, credentialHttpsAgent, switchOrganization } from '../utils/auth-utils.js';
+import { assertCredentialTlsAllowed, switchOrganization } from '../utils/auth-utils.js';
 import { printCommandHeader, withSslOptions } from '../utils/command-utils.js';
 import { getApiConfig } from '../utils/config-loader.js';
 import { credentialStorePath, saveSession, setActivePlatform } from '../utils/credential-store.js';
 import { beginDeviceApproval, DeviceAuthError, pollForDeviceToken } from '../utils/device-auth.js';
-import { ERROR_CODES, handleError } from '../utils/error-handler.js';
+import { ERROR_CODES, handleError, resolveExitCode } from '../utils/error-handler.js';
 import { printError, printInfo, printSuccess } from '../utils/output-utils.js';
+import { platformHttpsAgent } from '../utils/tls.js';
 
 const { green } = pico;
 
@@ -77,7 +78,7 @@ export function login(program: Command): void {
       try {
         const transport = {
           url,
-          httpsAgent: credentialHttpsAgent(options.verifySsl),
+          httpsAgent: platformHttpsAgent(options.verifySsl),
           timeout: TIMEOUTS.HTTP_REQUEST,
         };
 
@@ -150,7 +151,10 @@ export function login(program: Command): void {
           const status = error.response?.status;
           const message = (error.response?.data as { message?: string })?.message;
           printError('Login failed', { status: status ?? 'no response', ...(message ? { message } : {}) });
-          process.exit(ERROR_CODES.AUTHENTICATION);
+          // The standard code for what actually failed: an unreachable platform
+          // is NETWORK (7) and a 5xx API_REQUEST (3) — not AUTHENTICATION (4),
+          // which would tell a script the person's sign-in was refused.
+          process.exit(resolveExitCode(error, ERROR_CODES.AUTHENTICATION));
         }
 
         handleError(error, ERROR_CODES.AUTHENTICATION, {

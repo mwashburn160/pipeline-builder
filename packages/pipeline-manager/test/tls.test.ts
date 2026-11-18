@@ -15,6 +15,15 @@ describe('isLocalHttpsHost', () => {
     expect(isLocalHttpsHost('https://api.example.com')).toBe(false);
     expect(httpsAgentForUrl('https://api.example.com')).toBeUndefined();
   });
+  it('treats IPv6 loopback as local (the URL hostname keeps its brackets)', () => {
+    expect(isLocalHttpsHost('https://[::1]:8443')).toBe(true);
+  });
+  it('does NOT treat a DNS name that merely starts like a private range as local', () => {
+    for (const u of ['https://10.example.com', 'https://192.168.evil.io', 'https://172.16.attacker.net', 'https://172.32.0.1', 'https://11.0.0.1']) {
+      expect(isLocalHttpsHost(u)).toBe(false);
+      expect(httpsAgentForUrl(u)).toBeUndefined();
+    }
+  });
 });
 
 describe('relaxTlsForCli', () => {

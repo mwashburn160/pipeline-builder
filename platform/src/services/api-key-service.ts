@@ -273,7 +273,7 @@ class ApiKeyService {
     },
     auth: SessionAuth,
   ): Promise<{ key: string; view: AccessKeyView }> {
-    const user = await User.findById(userId).select('+tokenVersion lastActiveOrgId');
+    const user = await User.findById(userId).select('lastActiveOrgId');
     if (!user) throw new Error(PROFILE_USER_NOT_FOUND);
     // Cap active keys per user so a compromised session can't mint thousands of
     // durable credentials (mirrors the 20-slot cap on session token history).
@@ -477,7 +477,7 @@ class ApiKeyService {
       return this.exchangeServiceAccountKey(record, presentedIp, clientVersion);
     }
 
-    const user = await User.findById(record.userId).select('+tokenVersion +isSuperAdmin');
+    const user = await User.findById(record.userId).select('+isSuperAdmin');
     if (!user) return refusalOf('user_gone', record);
 
     let membership;

@@ -27,7 +27,8 @@ const logger = createLogger('plugin-build-queue');
  * purged before it ever reached a terminal handler still gets its slot back.
  */
 export function releasePluginQuota(job: Job<PluginBuildJobData>, quotaService: QuotaService): void {
-  if (job.data.quotaReleased) return;
+  // A DLQ record whose slot passed to its re-queued job owns nothing to release.
+  if (job.data.quotaReleased || job.data.slotHandedOff) return;
   const { orgId, reservedResetAt } = job.data;
   // Pass the reserve-time `resetAt` snapshot so a refund on a job whose retries
   // spanned a quota-period reset is a no-op (the old period already reset to 0)

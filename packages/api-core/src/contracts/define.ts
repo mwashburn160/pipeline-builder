@@ -120,6 +120,11 @@ export function defineInternalEndpoint<
 >(contract: InternalEndpointContract<P, Q, B, R>): InternalEndpointContract<P, Q, B, R> {
   if (!contract.path.startsWith('/')) throw new Error(`Contract ${contract.id}: path must start with '/'`);
   if (contract.callers.length === 0) throw new Error(`Contract ${contract.id}: an internal endpoint names its callers`);
+  // `callInternal` sends no body for a GET or DELETE (the client verbs take
+  // none), so a body schema there would be validated and then silently dropped.
+  if (contract.body && (contract.method === 'GET' || contract.method === 'DELETE')) {
+    throw new Error(`Contract ${contract.id}: a ${contract.method} endpoint cannot declare a body`);
+  }
   if (!isInternalConventionPath(contract.path)) {
     throw new Error(`Contract ${contract.id}: ${contract.path} is outside the /internal convention (/internal/… or /<service>/internal/…)`);
   }

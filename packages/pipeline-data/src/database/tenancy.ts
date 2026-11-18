@@ -61,9 +61,8 @@ function getContextMode(): ContextMode {
 /**
  * Per-statement server-side timeout (ms) applied INSIDE every `withTenantTx`
  * transaction, next to the RLS GUCs. `withTenantTx` is the real query path for
- * all RLS/CRUD reads and writes, so this is where the DB-side guard belongs (the
- * old `Connection.transaction` wrapper that set it is dead — see
- * postgres-connection.ts). Bounds a runaway query so it can't hold a pooled
+ * all RLS/CRUD reads and writes, so this is where the DB-side guard belongs.
+ * Bounds a runaway query so it can't hold a pooled
  * connection open indefinitely. Env-configurable via `DB_STATEMENT_TIMEOUT_MS`
  * (default 30s); set to `0` to disable the timeout.
  */

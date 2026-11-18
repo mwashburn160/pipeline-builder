@@ -202,12 +202,12 @@ export function createEnvRedisTokenRevocationStore(): TokenRevocationStore {
         emitCounter('session_revocation_unavailable_total', { reason: 'not-configured' });
         return 'unavailable';
       }
-      return createRedisTokenRevocationStore(redis).getSessionRevocation!(jti);
+      return createRedisTokenRevocationStore(redis).getSessionRevocation(jti);
     },
     async isCredentialRevoked(refs: CredentialRevocationRefs): Promise<boolean> {
       const redis = client();
       if (!redis) return false;
-      return createRedisTokenRevocationStore(redis).isCredentialRevoked!(refs);
+      return createRedisTokenRevocationStore(redis).isCredentialRevoked(refs);
     },
   };
 }

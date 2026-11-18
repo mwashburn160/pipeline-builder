@@ -149,19 +149,13 @@ async function runDefinition(
   now: Date,
   authorityFeatures: readonly string[],
   retentionOrgId: string,
+  orgIds: string[] | undefined,
   signal: AbortSignal,
 ): Promise<void> {
   // The COMPOSE runs on the add-on's own feature, which is what a scheduled report is
   // authorized by; the AI draft below uses the account's real set, because it needs to know
   // about `ai_generation` specifically.
   const features = [REQUIRED_FEATURE];
-  // STRICT: an unreachable platform throws here (and `runOne` logs and counts it)
-  // rather than composing a rollup that silently covers the parent org alone —
-  // a report labelled as covering the teams that quietly does not is a wrong
-  // report, and with auto-send it is a wrong report already in a manager's inbox.
-  const orgIds = definition.scope.kind === 'rollup'
-    ? await resolveOrgSubtree(definition.orgId)
-    : undefined;
   const periods = completePeriodsSince(
     definition.cadence,
     definition.timezone,
@@ -350,6 +344,22 @@ async function runOne(
       return;
     }
 
+    // A rollup's team list, read BEFORE the claim for the same reason again. STRICT
+    // (`resolveOrgSubtree` throws when platform cannot answer) rather than composing a
+    // rollup that silently covers the parent org alone — a report labelled as covering
+    // the teams that quietly does not is a wrong report, and with auto-send it is a wrong
+    // report already in a manager's inbox. Unreadable ⇒ left unclaimed and still due.
+    let orgIds: string[] | undefined;
+    if (verdict.action === 'run' && definition.scope.kind === 'rollup') {
+      try {
+        orgIds = await resolveOrgSubtree(definition.orgId);
+      } catch (err) {
+        logger.warn('Rollup team list unreadable; leaving the definition due for the next cycle', { definitionId: definition.id, error: errorMessage(err) });
+        emitCounter('report_rollup_unavailable_total', {});
+        return;
+      }
+    }
+
     // Claim before any expensive work: the whole point is that a second sweep
     // finds the row already advanced and skips it, and a claim taken after the compose
     // would leave a window wide enough to duplicate a delivery.
@@ -377,7 +387,7 @@ async function runOne(
     // going and publish/deliver after the cycle logged it as failed — so runDefinition
     // checks the signal before every side effect.
     await runWithTenantContext({ orgId: definition.orgId, isSuperAdmin: false }, () =>
-      withTimeout((signal) => runDefinition(definition, now, verdict.features, retentionOrgId, signal), timeoutMs, `report run ${definition.id}`));
+      withTimeout((signal) => runDefinition(definition, now, verdict.features, retentionOrgId, orgIds, signal), timeoutMs, `report run ${definition.id}`));
   } catch (err) {
     // The schedule has already been advanced by the claim, so a thrown run costs this
     // period and not the next one. That is deliberate: a definition that fails every

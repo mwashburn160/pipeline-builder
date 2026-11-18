@@ -9,7 +9,7 @@
 
 import { describe, it, expect } from '@jest/globals';
 import {
-  acceptAllCatalogMetadata, detectCatalogMetadata, firstSentence, parseCatalogEdits, parseCatalogEditsPart,
+  detectCatalogMetadata, firstSentence, parseCatalogEdits, parseCatalogEditsPart,
   readmeFirstParagraph, readmeTitle, resolveCatalogMetadata, stripInlineMarkdown, type CatalogSpecFields, type DetectedField,
 } from '../src/validation/plugin-catalog-detect.js';
 
@@ -143,7 +143,7 @@ describe('resolveCatalogMetadata — accept or edit', () => {
   });
 
   it('accepts every valid detected value with its source; invalid ones are not stored', () => {
-    const { values, sources } = acceptAllCatalogMetadata(detected);
+    const { values, sources } = resolveCatalogMetadata(detected, {});
     expect(values.license).toBe('MIT');
     expect(values.documentationUrl).toBeNull();
     expect(sources).toEqual({

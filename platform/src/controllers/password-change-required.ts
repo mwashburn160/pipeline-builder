@@ -51,7 +51,7 @@ export const completeRequiredPasswordChange = withController('Required password 
     return sendError(res, 401, 'This sign-in expired. Please sign in again.', 'PASSWORD_CHANGE_CHALLENGE_INVALID');
   }
 
-  const user = await User.findById(pending.userId).select('+password +tokenVersion +isSuperAdmin');
+  const user = await User.findById(pending.userId).select('+password +isSuperAdmin');
   // Spent, not handed back, when the account's sessions were revoked since the
   // old password was proven (a reset, sign-out-everywhere): the handle predates
   // that revocation exactly as a session would.

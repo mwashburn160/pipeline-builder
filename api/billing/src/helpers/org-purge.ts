@@ -41,7 +41,7 @@ export interface OrgBillingPurgeResult {
   subscriptions: number;
   /** Billing-event rows removed. */
   billingEvents: number;
-  /** Billable subscriptions KEPT because the provider cancel failed (retry). */
+  /** Subscriptions KEPT because they may still be billing at the provider (retry). */
   retained: number;
 }
 
@@ -87,20 +87,35 @@ export async function purgeOrgBilling(orgId: string, actor: string | undefined):
     orgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] },
   }).limit(MAX_BILLABLE);
 
-  const kept: string[] = [];
+  // A failed cancel keeps the row (it is not pushed here).
   const removed: typeof billable = [];
   for (const sub of billable) {
-    const id = sub._id.toString();
-    if (sub.externalId && !(await cancelAtProvider(orgId, id, sub.externalId))) kept.push(id);
-    else removed.push(sub);
+    if (!sub.externalId || await cancelAtProvider(orgId, sub._id.toString(), sub.externalId)) removed.push(sub);
   }
 
-  const subDelete = await Subscription.deleteMany(kept.length ? { orgId, _id: { $nin: kept } } : { orgId });
+  // Delete only rows known not to be billing: the terminal ones, and the
+  // billable ones cancelled above. NOT a blanket `{ orgId }` — a row that turned
+  // billable after the sweep read (a checkout webhook activating an `incomplete`
+  // row mid-purge) was never cancelled, and dropping it would lose the only
+  // record of a live provider subscription. It survives and is reported below.
+  const subDelete = await Subscription.deleteMany({
+    orgId,
+    $or: [
+      { status: { $nin: [...MANAGEABLE_SUBSCRIPTION_STATUSES] } },
+      { _id: { $in: removed.map((s) => s._id) } },
+    ],
+  });
+
+  // Whatever is left is still live at the provider (a failed cancel, or a row
+  // that went billable mid-purge): `retained`, so the caller retries.
+  const survivors = (await Subscription.distinct('_id', { orgId })).map((id) => String(id));
 
   // Billing events are scoped to the org and have no independent purpose once
   // the subscription is gone (audit retention lives in platform's audit trail).
-  // A KEPT subscription keeps its own events.
-  const eventDelete = await BillingEvent.deleteMany(kept.length ? { orgId, subscriptionId: { $nin: kept } } : { orgId });
+  // A surviving subscription keeps its own events.
+  const eventDelete = await BillingEvent.deleteMany(
+    survivors.length ? { orgId, subscriptionId: { $nin: survivors } } : { orgId },
+  );
 
   // Mirror each removed billable subscription to the central audit trail.
   // Fire-and-forget; details are an id-only whitelist.
@@ -117,7 +132,7 @@ export async function purgeOrgBilling(orgId: string, actor: string | undefined):
   const result = {
     subscriptions: subDelete.deletedCount ?? 0,
     billingEvents: eventDelete.deletedCount ?? 0,
-    retained: kept.length,
+    retained: survivors.length,
   };
   logger.info('Org billing purge complete', { orgId, ...result });
   return result;

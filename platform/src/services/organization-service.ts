@@ -3,8 +3,8 @@
 
 import { isSystemOrgId, DEFAULT_TIER, PLAN_TIERS, SYSTEM_ORG_SLUG, tierAllowsTeams } from '@pipeline-builder/api-core';
 import type { ClientSession, Types } from 'mongoose';
-import { ORG_NOT_FOUND, SYSTEM_ORG_DELETE_FORBIDDEN, ORG_SLUG_TAKEN } from './org-errors.js';
 import { RESERVED_ORG_NAME } from './auth-errors.js';
+import { ORG_NOT_FOUND, SYSTEM_ORG_DELETE_FORBIDDEN, ORG_SLUG_TAKEN } from './org-errors.js';
 import { orgHierarchyService } from './org-hierarchy-service.js';
 import { applyAIProviderKeyUpdates, buildProvidersMap } from './organization-ai-secrets.js';
 import {
@@ -105,7 +105,6 @@ interface UpdateOrgInput {
   slug?: string;
 }
 
-/** An org's editable identity, as `update` returns it (and its `before`). */
 /**
  * Refuse a tenant org named `system`, whatever it is called today.
  *
@@ -126,11 +125,24 @@ function assertNotReservedOrgName(name: string | undefined): void {
   }
 }
 
+/** An org's editable identity, as `update` returns it (and its `before`). */
 export interface OrgIdentity {
   id: string;
   name: string;
   slug: string;
   description: string;
+}
+
+/**
+ * The owner's id from a row read with `.populate('owner', …).lean()`: the
+ * populated owner is a plain `{ _id, username, email }` object (so
+ * `owner.toString()` is "[object Object]"), `null` when the account is gone,
+ * or the bare id when nothing was populated.
+ */
+function ownerIdOf(owner: unknown): string | undefined {
+  if (owner == null) return undefined;
+  const id = typeof owner === 'object' && '_id' in owner ? (owner as { _id: unknown })._id : owner;
+  return String(id);
 }
 
 class OrganizationService {
@@ -198,7 +210,7 @@ class OrganizationService {
           slug: org.slug,
           description: org.description || '',
           memberCount: memberCountMap.get(org._id.toString()) ?? 0,
-          ownerId: org.owner?.toString(),
+          ownerId: ownerIdOf(org.owner),
           createdAt: org.createdAt,
           updatedAt: org.updatedAt,
           tier: org.tier,
@@ -376,7 +388,7 @@ class OrganizationService {
       slug: org.slug,
       description: org.description || '',
       memberCount,
-      ownerId: org.owner?.toString(),
+      ownerId: ownerIdOf(org.owner),
       members,
       createdAt: org.createdAt,
       updatedAt: org.updatedAt,

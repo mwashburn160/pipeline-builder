@@ -501,16 +501,18 @@ export function organizationsApi(core: ApiCore) {
     },
 
     /** Public preview of an invitation by its token (GET /invitation/:token).
-     *  No auth required — powers the accept page before the user signs in. The
-     *  `organization` field is the inviting org's id. */
+     *  No auth required — powers the accept page before the user signs in.
+     *  `organization` and `invitedBy` arrive POPULATED (the service populates
+     *  `organizationId` with name/slug and `invitedBy` with username) — objects,
+     *  not ids; `null` once the referenced org or user is gone. */
     getInvitationByToken: async (token: string) => {
       return core.request<ApiResponse<{ invitation: {
         email: string;
         role: OrgRole;
         status: 'pending' | 'accepted' | 'expired' | 'revoked';
         expiresAt: string;
-        organization: string;
-        invitedBy: string;
+        organization: { _id: string; name: string; slug?: string } | null;
+        invitedBy: { _id: string; username?: string } | null;
         isValid: boolean;
         invitationType?: string;
         allowedOAuthProviders?: string[];

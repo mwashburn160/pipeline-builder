@@ -321,7 +321,7 @@ class UserAdminService {
     const updatedUser = await withMongoTransaction(async (session) => {
       // The body may re-run on a transient error: start each attempt clean.
       changes.length = 0;
-      const user = await User.findById(id).select('+password +tokenVersion +emailVerificationToken +emailVerificationExpires').session(session);
+      const user = await User.findById(id).select('+password +emailVerificationToken +emailVerificationExpires').session(session);
       if (!user) throw new Error(UA_USER_NOT_FOUND);
 
       if (body.username !== undefined) {
@@ -405,11 +405,21 @@ class UserAdminService {
       // exists in the target org and update lastActiveOrgId.
       if (!options.scopeOrgId && body.organizationId !== undefined) {
         if (body.organizationId === null || body.organizationId === '') {
+          // An OWNER's membership can't go this way: deleting it would leave the
+          // org with no owner (the same guard as the role change above).
+          if (await UserOrganization.exists({ userId: user._id, role: 'owner' }).session(session)) {
+            throw new Error(UA_CANNOT_CHANGE_OWNER);
+          }
           await UserOrganization.deleteMany({ userId: user._id }).session(session);
           // Removing the user from EVERY org also strips every RoleAssignment —
           // otherwise the grants are orphaned and a later re-add resurrects the
           // old role (see removeMember). Mirrors the user-delete cleanup below.
           await RoleAssignment.deleteMany({ userId: user._id }, { session });
+          // Every membership just ended, so the user's access tokens (org, role,
+          // permissions) must stop working: bump claimsVersion, query-level so
+          // the `user.save()` below doesn't clobber it. The post-commit publish
+          // then carries the NEW version to the stateless services.
+          await User.updateOne({ _id: user._id }, { $inc: { claimsVersion: 1 } }, { session });
           user.lastActiveOrgId = undefined;
           changes.push('organizationId (removed)');
         } else {
@@ -491,8 +501,8 @@ class UserAdminService {
    */
   async updateFeatures(id: string, orgId: string, overrides: Record<string, boolean>) {
     // `+isSuperAdmin` (schema is `select: false`) is required because the
-    // caller resolves feature flags with a sysadmin-bypass branch. `+tokenVersion`
-    // (also `select: false`) is needed to bump it below.
+    // caller resolves feature flags with a sysadmin-bypass branch; the two
+    // version fields are needed to bump them below.
     const user = await User.findById(id).select('_id username email isEmailVerified isSuperAdmin lastActiveOrgId featureOverrides tokenVersion claimsVersion');
     if (!user) throw new Error(UA_USER_NOT_FOUND);
 

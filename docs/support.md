@@ -143,6 +143,10 @@ Setting a case to the status it already has changes nothing. The waiting-on-you
 time already counted is kept, and a repeated close does not move when the case
 was closed or who closed it.
 
+The status route is shared by both sides. Its staff side (`support_cases:write`,
+which reaches any org's case) holds the same bar as the staff-only case routes:
+the system org as the active org and an MFA-grade session.
+
 ### Replying to an announcement
 
 Announcements are one-way. When you reply to one, your reply starts a **new

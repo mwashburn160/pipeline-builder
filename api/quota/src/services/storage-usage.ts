@@ -78,11 +78,19 @@ export async function fetchOrgStorageBytes(orgId: string): Promise<number | null
 
 /**
  * Sum of the registry storage of every org in `orgIds` (a pool's subtree, or a
- * single flat org), or `null` when NONE of them could be measured. A partial
- * answer is still the better number than 0, so measured orgs are summed.
+ * single flat org).
+ *
+ * By default a partial answer beats 0 for a DISPLAY figure, so measured orgs are
+ * summed and `null` means none could be measured. An ENFORCEMENT read passes
+ * `{ requireAll: true }`: a sum missing a member is an under-count, and the push
+ * gate would admit an over-budget account on it — so any unmeasured member makes
+ * the whole reading `null` ("unknown"), and the gate falls back to measuring the
+ * namespace itself.
  */
-export async function fetchStorageBytes(orgIds: string[]): Promise<number | null> {
+export async function fetchStorageBytes(orgIds: string[], opts: { requireAll?: boolean } = {}): Promise<number | null> {
   const readings = await Promise.all(orgIds.map(fetchOrgStorageBytes));
   const measured = readings.filter((b): b is number => b !== null);
-  return measured.length > 0 ? measured.reduce((a, b) => a + b, 0) : null;
+  if (measured.length === 0) return null;
+  if (opts.requireAll && measured.length < readings.length) return null;
+  return measured.reduce((a, b) => a + b, 0);
 }

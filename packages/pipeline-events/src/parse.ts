@@ -79,14 +79,14 @@ const MAX_ERROR_MESSAGE = 4000;
 /** Headroom under the reporting ingest's 8 KB serialized `detail` bound. */
 const MAX_DETAIL_BYTES = 7500;
 
+/** A deploy STAGE in one of these states shipped its sha (mirrors reporting's deploy rollup). */
+const DEPLOY_SUCCEEDED_STATES: ReadonlySet<string> = new Set(['SUCCEEDED', 'SUCCESS']);
 /**
  * The CodePipeline states that end an execution, stage or action: each gets a
  * `completedAt`. `SUPERSEDED` (a newer execution overtook this one) and
  * `ABANDONED` (an action left unfinished when its execution moved on) end it as
  * surely as `STOPPED` does — without them, those rows read as still running.
  */
-/** A deploy STAGE in one of these states shipped its sha (mirrors reporting's deploy rollup). */
-const DEPLOY_SUCCEEDED_STATES: ReadonlySet<string> = new Set(['SUCCEEDED', 'SUCCESS']);
 const TERMINAL_STATES: ReadonlySet<string> = new Set(['SUCCEEDED', 'FAILED', 'CANCELED', 'STOPPED', 'SUPERSEDED', 'ABANDONED']);
 
 /** First non-empty string among the candidates, capped to the ingest max. */

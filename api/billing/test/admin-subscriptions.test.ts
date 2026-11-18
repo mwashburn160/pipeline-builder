@@ -59,6 +59,7 @@ const mockSubscriptionCountDocuments = jest.fn<(...args: unknown[]) => Promise<n
 
 const mockSubscriptionDeleteMany = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue({ deletedCount: 0 });
 const mockSubscriptionExists = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(null);
+const mockSubscriptionDistinct = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue([]);
 
 jest.unstable_mockModule('../src/models/subscription.js', () => ({
   Subscription: {
@@ -66,15 +67,17 @@ jest.unstable_mockModule('../src/models/subscription.js', () => ({
     findById: mockSubscriptionFindById,
     countDocuments: mockSubscriptionCountDocuments,
     deleteMany: mockSubscriptionDeleteMany,
+    distinct: mockSubscriptionDistinct,
     exists: mockSubscriptionExists,
   },
 }));
 
 const mockPlanFindOne = jest.fn<(...args: unknown[]) => any>();
 const mockPlanFindById = jest.fn<(...args: unknown[]) => any>();
+const mockPlanFind = jest.fn<(...args: unknown[]) => any>(() => ({ lean: async () => [] }));
 
 jest.unstable_mockModule('../src/models/plan.js', () => ({
-  Plan: { findOne: mockPlanFindOne, findById: mockPlanFindById },
+  Plan: { find: mockPlanFind, findOne: mockPlanFindOne, findById: mockPlanFindById },
 }));
 
 const mockBillingEventFind = jest.fn<(...args: unknown[]) => any>();
@@ -90,7 +93,7 @@ jest.unstable_mockModule('../src/models/billing-event.js', () => ({
   },
 }));
 
-const mockBuildSubscriptionResponse = jest.fn((sub: any) => ({
+const mockBuildSubscriptionResponse = jest.fn((sub: any, _planName?: string, _tier?: string) => ({
   id: sub._id?.toString() || sub.id,
   orgId: sub.orgId,
   planId: sub.planId,
@@ -260,6 +263,29 @@ describe('GET /admin/subscriptions', () => {
       subscriptions: expect.any(Array),
       total: 1,
     }));
+  });
+
+  it('names each subscription\'s plan and tier (one plan read per page); an unknown plan shows its id', async () => {
+    const subs = [makeSubscription({ planId: 'team' }), makeSubscription({ planId: 'gone' })];
+    mockSubscriptionFind.mockReturnValue({
+      sort: jest.fn<AnyFn>().mockReturnValue({
+        skip: jest.fn<AnyFn>().mockReturnValue({
+          limit: jest.fn<AnyFn>().mockReturnValue({
+            lean: jest.fn<AnyFn>().mockResolvedValue(subs),
+          }),
+        }),
+      }),
+    });
+    mockSubscriptionCountDocuments.mockResolvedValue(2);
+    mockPlanFind.mockReturnValueOnce({ lean: async () => [{ _id: 'team', name: 'Team', tier: 'team' }] });
+
+    const res = mockRes();
+    await handler(mockReq(), res);
+
+    expect(mockPlanFind).toHaveBeenCalledTimes(1);
+    expect(mockPlanFind.mock.calls[0]![0]).toEqual({ _id: { $in: ['team', 'gone'] } });
+    expect(mockBuildSubscriptionResponse).toHaveBeenNthCalledWith(1, subs[0], 'Team', 'team');
+    expect(mockBuildSubscriptionResponse).toHaveBeenNthCalledWith(2, subs[1], 'gone', undefined);
   });
 
   it('returns 500 on database error', async () => {
@@ -824,6 +850,7 @@ describe('DELETE /subscriptions/by-org/:orgId (admin Purge)', () => {
     jest.clearAllMocks();
     mockIsSystemAdmin.mockReturnValue(true);
     mockSubscriptionDeleteMany.mockResolvedValue({ deletedCount: 1 });
+    mockSubscriptionDistinct.mockResolvedValue([]);
     mockBillingEventDeleteMany.mockResolvedValue({ deletedCount: 2 });
   });
 
@@ -882,7 +909,10 @@ describe('DELETE /subscriptions/by-org/:orgId (admin Purge)', () => {
     await handler(req, mockRes());
 
     expect(mockCancelSubscription).toHaveBeenCalledWith('ext-trial-1');
-    expect(mockSubscriptionDeleteMany).toHaveBeenCalledWith({ orgId: 'org-9' });
+    expect(mockSubscriptionDeleteMany).toHaveBeenCalledWith({
+      orgId: 'org-9',
+      $or: [{ status: { $nin: ['active', 'trialing', 'past_due'] } }, { _id: { $in: [trialing._id] } }],
+    });
   });
 
   it('KEEPS a subscription whose provider cancel failed, and reports it as retained', async () => {
@@ -898,12 +928,16 @@ describe('DELETE /subscriptions/by-org/:orgId (admin Purge)', () => {
     mockSubscriptionFind.mockReturnValue({ limit: jest.fn<AnyFn>().mockResolvedValue([trialing]) });
     mockCancelSubscription.mockRejectedValue(new Error('provider down'));
     mockSubscriptionDeleteMany.mockResolvedValue({ deletedCount: 0 });
+    mockSubscriptionDistinct.mockResolvedValue(['sub-trial']);
 
     const req = mockReq({ params: { orgId: 'org-9' }, user: { organizationId: 'sys-org', sub: 'sysadmin-1' } });
     const res = mockRes();
     await handler(req, res);
 
-    expect(mockSubscriptionDeleteMany).toHaveBeenCalledWith({ orgId: 'org-9', _id: { $nin: ['sub-trial'] } });
+    expect(mockSubscriptionDeleteMany).toHaveBeenCalledWith({
+      orgId: 'org-9',
+      $or: [{ status: { $nin: ['active', 'trialing', 'past_due'] } }, { _id: { $in: [] } }],
+    });
     // Its own events stay with it.
     expect(mockBillingEventDeleteMany).toHaveBeenCalledWith({ orgId: 'org-9', subscriptionId: { $nin: ['sub-trial'] } });
     expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, { deleted: 0, events: 2, retained: 1 });

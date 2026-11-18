@@ -35,7 +35,9 @@ import {
   actorId,
   audited,
   getParam,
+  isSystemOrgRequest,
   recordAudit,
+  refuseWeakSession,
   requirePermission,
   requireSystemOrgPermission,
   sendBadRequest,
@@ -179,7 +181,15 @@ export function createSupportCaseRoutes(): Router {
       // whether or not that was their job, and there was no way to withhold it
       // from one of them. It is now the permission that says so — which a
       // Support Agent Role carries and nothing in a tenant can.
-      const staff = userHasPermission(req, 'support_cases:write');
+      //
+      // The staff branch reaches EVERY org's case, so it holds the same bar as
+      // the staff-only routes' `requireSystemOrgPermission` chain, applied here
+      // in the handler because the route is both-sided: the system org as the
+      // ACTIVE org, and an MFA-grade (aal2) session. Without it a single-factor
+      // Support Agent session could resolve or reopen any tenant's case while
+      // severity / assign on the same case refused it.
+      const staff = isSystemOrgRequest(req) && userHasPermission(req, 'support_cases:write');
+      if (staff && refuseWeakSession(req, res, { minAssurance: 2 })) return undefined;
       if (!staff && !TENANT_STATUSES.includes(status)) {
         // Naming the allowed set rather than just refusing: the distinction is
         // not obvious, and "resolved is ours to declare" is the sort of rule a

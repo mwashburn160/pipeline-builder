@@ -106,6 +106,21 @@ export async function resolveOrgMembership(userId: string, orgId: string): Promi
  * Renewing an EXISTING session is not re-gated (the act of entering was
  * checked when it happened); only opening a new one is.
  */
+/**
+ * Whether `user` holds `team_access:open` in `ancestorOrgId` — the org whose
+ * admin membership is the INHERITED authority over a team. Read from the
+ * ancestor's Roles, never from the caller's current token: that token carries
+ * the permissions of whatever org the session is in now, which need not be the
+ * ancestor. Shared by switch-org (the act of entering) and
+ * {@link signInLandingOrg} (re-landing there at sign-in).
+ */
+export async function holdsInheritedTeamAccess(
+  user: { _id: unknown; isSuperAdmin?: boolean },
+  ancestorOrgId: string,
+): Promise<boolean> {
+  return hasPermission(await rolePermissionsFor(String(user._id), [ancestorOrgId]), 'team_access:open', user.isSuperAdmin);
+}
+
 export async function signInLandingOrg(
   user: { _id: unknown; isSuperAdmin?: boolean; lastActiveOrgId?: unknown },
   requested: string,
@@ -113,8 +128,7 @@ export async function signInLandingOrg(
   const userId = String(user._id);
   const authority = await resolveOrgAuthority(userId, requested);
   if (authority?.via !== 'ancestor' || !authority.inheritedFromOrgId) return requested;
-  const ancestorPermissions = await rolePermissionsFor(userId, [authority.inheritedFromOrgId]);
-  if (hasPermission(ancestorPermissions, 'team_access:open', user.isSuperAdmin)) return requested;
+  if (await holdsInheritedTeamAccess(user, authority.inheritedFromOrgId)) return requested;
   const landing = authority.inheritedFromOrgId;
   logger.info('Sign-in refused an inherited team without team_access:open; opening the ancestor org', {
     userId, requestedOrgId: requested, landingOrgId: landing,

@@ -140,8 +140,42 @@ export async function upsertDeployments(
   });
   if (values.length === 0) return 0;
 
+  // ONE row per conflict key per statement. Postgres refuses an INSERT … ON
+  // CONFLICT DO UPDATE that would hit the same row twice ("cannot affect row a
+  // second time"), and a batch routinely carries two deploy events for one key:
+  // a retried stage's FAILED and SUCCEEDED, or two deploy stages of one
+  // execution into the same environment. That error failed — and, since this
+  // never throws, silently dropped — EVERY deploy in the batch. Fold the batch
+  // the way consecutive upserts would apply: in deploy-time order, the later
+  // event deciding the row and the measured fields filling in, never blanked.
+  const byKey = new Map<string, (typeof values)[number]>();
+  const ordered = values
+    .map((v, i) => ({ v, i }))
+    .sort((a, b) => a.v.deployedAt.getTime() - b.v.deployedAt.getTime() || a.i - b.i)
+    .map(({ v }) => v);
+  for (const next of ordered) {
+    const key = JSON.stringify([next.orgId, next.executionId, next.environment]);
+    const prev = byKey.get(key);
+    if (!prev) {
+      byKey.set(key, next);
+      continue;
+    }
+    const earliestCommitAt = next.earliestCommitAt ?? prev.earliestCommitAt;
+    byKey.set(key, {
+      ...next,
+      pipelineId: next.pipelineId ?? prev.pipelineId,
+      earliestCommitAt,
+      leadTimeSeconds: next.leadTimeSeconds ?? prev.leadTimeSeconds,
+      commitCount: next.commitCount ?? prev.commitCount,
+      commitSha: next.commitSha ?? prev.commitSha,
+      leadTimeGap: earliestCommitAt ? null : next.leadTimeGap,
+      sourceEventId: next.sourceEventId ?? prev.sourceEventId,
+    });
+  }
+  const rowsToWrite = [...byKey.values()];
+
   try {
-    const landed = await withTenantTx((tx) => tx.insert(schema.doraDeployment).values(values)
+    const landed = await withTenantTx((tx) => tx.insert(schema.doraDeployment).values(rowsToWrite)
       .onConflictDoUpdate({
         target: [schema.doraDeployment.orgId, schema.doraDeployment.executionId, schema.doraDeployment.environment],
         set: {
@@ -174,7 +208,7 @@ export async function upsertDeployments(
     return (landed as unknown[]).length;
   } catch (err) {
     logger.warn('Deploy rollup upsert failed; the events landed and a rebuild can recover it', {
-      deploys: values.length,
+      deploys: rowsToWrite.length,
       error: errorMessage(err),
     });
     return 0;

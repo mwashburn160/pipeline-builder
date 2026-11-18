@@ -144,6 +144,16 @@ describe('registry storage filling', () => {
     expect(quota.quotas.storageBytes).toMatchObject({ used: 5_000, remaining: -1 });
   });
 
+  it('the push gate\'s single-type read asks for a COMPLETE account total, and an unknown one leaves the stored 0', async () => {
+    findOrgWithHierarchy.mockResolvedValue({ self: flat, hasChildren: false });
+    resolveRootOrgId.mockResolvedValue('o');
+    expandOrgScope.mockResolvedValue(['o', 't']);
+    fetchStorageBytes.mockResolvedValue(null);
+    const status = await quotaService.getQuotaStatus('o', 'storageBytes');
+    expect(fetchStorageBytes).toHaveBeenCalledWith(['o', 't'], { requireAll: true });
+    expect(status.used).toBe(0);
+  });
+
   it('an unmeasurable registry, or a failing scope walk, leaves 0', async () => {
     findOrgWithHierarchy.mockResolvedValue({ self: flat, hasChildren: false });
     expect((await quotaService.findByOrgId('o')).quotas.storageBytes.used).toBe(0);

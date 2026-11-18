@@ -406,6 +406,9 @@ export async function ingestEvents(
           actionName: schema.pipelineEvent.actionName,
           environment: schema.pipelineEvent.environment,
           toolchainRelease: schema.pipelineEvent.toolchainRelease,
+          // The compute fan-out multiplies this by the compute size; without it
+          // every terminal action reads as unmeasured (credits: null).
+          durationMs: schema.pipelineEvent.durationMs,
           // For the per-deploy rollup below: everything `dora_deployments` needs,
           // taken from the rows that ACTUALLY landed so a re-delivery cannot
           // produce a second deploy.

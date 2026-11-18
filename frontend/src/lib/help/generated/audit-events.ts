@@ -1,6 +1,6 @@
 // GENERATED FROM docs/audit-events.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: bd88b8d397f6564750a1da5049df8b5ba2ccd09b50db7cf520aac326ce1f6f1a
+// SOURCE-SHA256: e5a3fc358efffcfa218461f9a472b7ca726e02474e51b9aef3f84da95e0468e6
 // SPDX-License-Identifier: Apache-2.0
 import { ScrollText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -705,7 +705,7 @@ export const auditEventsTopic: HelpTopic = {
             ],
             [
               "Quota",
-              "quota.reset, quota.limit.update, quota.notice_settings.update (the org's quota document leaves with the org-purge cascade, recorded as org.data.purge)"
+              "quota.reset, quota.limit.update, quota.notice_settings.update (the org's quota document, notice settings, sent notices and usage ledger leave with the org-purge cascade, recorded as org.data.purge)"
             ],
             [
               "Compliance",

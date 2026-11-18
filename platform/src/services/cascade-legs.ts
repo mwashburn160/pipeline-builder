@@ -104,8 +104,15 @@ function viaContract(
       if (result.reason === 'unreachable') return { ok: false, error: 'unreachable' };
       // A 2xx whose body does not match the contract is still an ack: the
       // owning service did the delete, it just answered in a shape we can't
-      // count. A non-2xx status is a retry.
-      if (result.reason === 'invalid-response') return { ok: true, statusCode: result.status };
+      // count — UNLESS the leg reads the body for a partial teardown
+      // (`incomplete`): there an unreadable body can't prove nothing was left
+      // behind, so it retries rather than closing the leg on a guess. A non-2xx
+      // status is a retry.
+      if (result.reason === 'invalid-response') {
+        return incomplete
+          ? { ok: false, statusCode: result.status, error: 'unreadable purge response' }
+          : { ok: true, statusCode: result.status };
+      }
       return { ok: false, statusCode: result.status, error: `HTTP ${result.status}` };
     } catch (err) {
       return { ok: false, error: errorMessage(err) };

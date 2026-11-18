@@ -69,7 +69,7 @@ function hashToken(raw: string): string {
 /** Mint a reset token for `email`, or say why not (see the module comment). */
 export async function requestPasswordReset(email: string): Promise<ResetRequestOutcome> {
   const normalized = email.trim().toLowerCase();
-  const user = await User.findOne({ email: normalized }).select('+password email lastActiveOrgId');
+  const user = await User.findOne({ email: normalized }).select('+password tokenVersion email lastActiveOrgId');
   if (!user) return { dispatched: false, reason: 'unknown-email' };
   const userId = user._id.toString();
   const orgId = user.lastActiveOrgId ? String(user.lastActiveOrgId) : undefined;
@@ -109,7 +109,7 @@ export async function resetPassword(rawToken: string, newPassword: string): Prom
   const token = await PasswordResetToken.findOne(live).lean();
   if (!token) throw new Error(PASSWORD_RESET_TOKEN_INVALID);
 
-  const user = await User.findById(token.userId).select('+password +tokenVersion email lastActiveOrgId');
+  const user = await User.findById(token.userId).select('+password tokenVersion email lastActiveOrgId');
   if (!user || !user.password) {
     await PasswordResetToken.deleteMany({ userId: token.userId });
     throw new Error(PASSWORD_RESET_TOKEN_INVALID);

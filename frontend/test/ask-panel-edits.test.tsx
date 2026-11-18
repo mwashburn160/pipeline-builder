@@ -613,4 +613,16 @@ describe('AskPanel remediation proposals', () => {
     expect(screen.getByRole('button', { name: /^send$/i })).toBeDisabled();
     expect(screen.getByLabelText(/ask a question/i)).toBeDisabled();
   });
+
+  it('a read-only session cannot send a turn through an example prompt either', async () => {
+    // The example buttons call send() directly, bypassing the disabled composer;
+    // they were gated on quota alone, so a click still fired a turn that 403s.
+    mockAuthGuard({ can: () => true, isReadOnly: true });
+    render(<AskPanel onClose={jest.fn<AnyFn>()} />);
+
+    const example = screen.getByRole('button', { name: /generate a pipeline from a Git URL/i });
+    expect(example).toBeDisabled();
+    fireEvent.click(example);
+    expect(askAgentStream).not.toHaveBeenCalled();
+  });
 });

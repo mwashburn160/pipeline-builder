@@ -1,6 +1,6 @@
 // GENERATED FROM docs/stakeholder-reports.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: e9a85cb7055ea9adcd8d58393e2a044b2c7e0f546c219fb0812a9c7262a373b9
+// SOURCE-SHA256: 78a2291ed33d62942b7284fe01ef01e49baf3a8ce0a8e3ed4d2e07e9b2f952eb
 // SPDX-License-Identifier: Apache-2.0
 import { FileText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -309,7 +309,7 @@ export const stakeholderReportsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "A team's report is bounded by its account root's retention window (retention is synced onto the root only), so the run first walks the team up to its root on the platform service — BEFORE it claims the definition. Claiming advances the run marker the owed periods are counted from, so a lookup that failed after the claim lost those periods; one that fails before it leaves the definition due, and the next cycle retries the same periods (report_retention_root_unavailable_total counts it). Within one cycle a resolved root is reused and concurrent lookups for one org share a single walk, but a failure is never cached: one transient platform error costs that definition this cycle, not every definition of the org."
+          "content": "A team's report is bounded by its account root's retention window (retention is synced onto the root only), so the run first walks the team up to its root on the platform service — BEFORE it claims the definition. Claiming advances the run marker the owed periods are counted from, so a lookup that failed after the claim lost those periods; one that fails before it leaves the definition due, and the next cycle retries the same periods (report_retention_root_unavailable_total counts it). Within one cycle a resolved root is reused and concurrent lookups for one org share a single walk, but a failure is never cached: one transient platform error costs that definition this cycle, not every definition of the org. A rollup definition's team list is read before the claim too, and strictly — an unreadable list leaves the definition due (report_rollup_unavailable_total) rather than composing a rollup of the parent alone."
         },
         {
           "type": "text",

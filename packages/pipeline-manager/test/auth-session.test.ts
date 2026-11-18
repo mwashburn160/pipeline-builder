@@ -129,6 +129,27 @@ describe('auth login --url (G3)', () => {
   });
 });
 
+describe('auth login exit codes', () => {
+  it('exits NETWORK (7) when the platform is unreachable, not AUTHENTICATION (4)', async () => {
+    const { default: axios } = await import('axios');
+    const { ERROR_CODES } = await import('../src/utils/error-handler.js');
+    const refused = await axios.get('http://127.0.0.1:1/').catch((e: unknown) => e);
+    pollForDeviceToken.mockRejectedValueOnce(refused);
+    const err = await runAuth(login, ['login', '--url', baseUrl, '--no-browser']);
+    expect((err as ExitError).code).toBe(ERROR_CODES.NETWORK);
+  });
+
+  it('exits API_REQUEST (3) on a platform 5xx', async () => {
+    const { default: axios } = await import('axios');
+    const { ERROR_CODES } = await import('../src/utils/error-handler.js');
+    handler = (_req, _body, res) => json(res, 503, { message: 'down' });
+    const failed = await axios.post(`${baseUrl}/api/auth/device/token`, {}).catch((e: unknown) => e);
+    pollForDeviceToken.mockRejectedValueOnce(failed);
+    const err = await runAuth(login, ['login', '--url', baseUrl, '--no-browser']);
+    expect((err as ExitError).code).toBe(ERROR_CODES.API_REQUEST);
+  });
+});
+
 describe('auth login --org', () => {
   it('keeps the sign-in\'s refresh token and stores only the switched ACCESS token', async () => {
     handler = (req, _body, res) => {

@@ -133,7 +133,7 @@ async function publishUserVersion(userId: string, accessVersion?: number): Promi
     return;
   }
   const User = await getUserModel();
-  const user = await User.findById(userId).select('+tokenVersion').lean();
+  const user = await User.findById(userId).select('tokenVersion claimsVersion').lean();
   if (!user || typeof user.tokenVersion !== 'number') return;
   await publishTokenRevocation(redis, String(userId), accessTokenVersion(user), await revocationTtlSeconds());
 }
@@ -166,7 +166,7 @@ export async function publishUsersRevocation(userIds: Array<string | { toString(
     if (redis) {
       const ttl = await revocationTtlSeconds();
       const User = await getUserModel();
-      const users = await User.find({ _id: { $in: ids } }).select('+tokenVersion').lean();
+      const users = await User.find({ _id: { $in: ids } }).select('tokenVersion claimsVersion').lean();
 
       await Promise.all(
         users.map((u) =>
@@ -304,7 +304,7 @@ export async function endOperatorImpersonationSessions(
   if (!opts.operatorGone) {
     const User = await getUserModel();
     const requesterIds = [...new Set(live.map((s) => String(s.requesterId)))];
-    const rows = await User.find({ _id: { $in: requesterIds } }).select('+tokenVersion +isSuperAdmin').lean();
+    const rows = await User.find({ _id: { $in: requesterIds } }).select('+isSuperAdmin').lean();
     for (const u of rows) operators.set(String(u._id), u);
   }
 

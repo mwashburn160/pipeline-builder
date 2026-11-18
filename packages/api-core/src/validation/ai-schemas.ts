@@ -14,7 +14,7 @@ const MAX_PROMPT_LENGTH = envInt('MAX_PROMPT_LENGTH', 5000, { min: 1 });
  * unbounded one turned a single `aiCalls` unit into an arbitrarily large input
  * bill; a real generated pipeline config is a few KB.
  */
-export const MAX_PREVIOUS_CONFIG_CHARS = 64_000;
+const MAX_PREVIOUS_CONFIG_CHARS = 64_000;
 
 // AI Generation Request
 

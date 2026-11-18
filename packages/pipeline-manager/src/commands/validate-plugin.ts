@@ -34,7 +34,7 @@ export interface ValidationReport {
 }
 
 /** Every regular file under the plugin dir (what the zip would carry), bounded like the server's read. */
-export function readPackageFilesForHeuristics(dir: string, max = 2_000): HeuristicsInputFile[] {
+function readPackageFilesForHeuristics(dir: string, max = 2_000): HeuristicsInputFile[] {
   const out: HeuristicsInputFile[] = [];
   const walk = (d: string): void => {
     for (const entry of fs.readdirSync(d, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {

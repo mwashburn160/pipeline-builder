@@ -15,8 +15,9 @@ import { scopeSecretLeaf } from '../utils/platform-secret.js';
 interface TokenAuditEntry {
   secretName: string;
   arn: string;
-  expiresAt: Date;
-  daysUntilExpiry: number;
+  /** Absent only for an `unverifiable` secret that records no usable expiry. */
+  expiresAt?: Date;
+  daysUntilExpiry?: number;
   status: 'expired' | 'expiring-soon' | 'unverifiable' | 'ok';
   /** Why the stored token failed verification, when `status` is `unverifiable`. */
   reason?: string;
@@ -31,7 +32,8 @@ interface TokenAuditEntry {
  *
  * Designed for cron use:
  *   - Exits 0 when nothing is at-risk.
- *   - Exits 1 when at least one secret is expired or expires within `--warn-days`.
+ *   - Exits 1 when at least one secret is expired, expires within `--warn-days`,
+ *     or holds a credential that cannot be checked or used.
  *   - Exits 2 on AWS errors / scan failures.
  *
  * @example
@@ -78,6 +80,9 @@ export function auditTokens(program: Command): void {
         const platformSecrets = secrets.filter((s) => CREDENTIAL_LEAVES.some((leaf) => s.name.endsWith(leaf)));
 
         const entries: TokenAuditEntry[] = [];
+        // Secrets the scan could not READ (AWS error). Skipping them silently
+        // let an access-denied or throttled sweep report "all clear" and exit 0.
+        const unreadable: Array<{ secretName: string; error: string }> = [];
         const now = Date.now();
         const warnCutoff = now + warnDays * 24 * 60 * 60 * 1000;
 
@@ -87,6 +92,7 @@ export function auditTokens(program: Command): void {
             raw = await getSecretValue(s.name, { region, profile: options.profile });
           } catch (err) {
             printWarning(`Could not read ${s.name}: ${errorMessage(err)}`);
+            unreadable.push({ secretName: s.name, error: errorMessage(err) });
             continue;
           }
 
@@ -94,7 +100,8 @@ export function auditTokens(program: Command): void {
           try {
             parsed = JSON.parse(raw);
           } catch {
-            printWarning(`Secret ${s.name} is not valid JSON, skipping`);
+            // No consumer can use it either: a broken credential, not a skip.
+            entries.push({ secretName: s.name, arn: s.arn, status: 'unverifiable', reason: 'is not valid JSON — re-run "pipeline-manager infra store-token"' });
             continue;
           }
 
@@ -108,7 +115,8 @@ export function auditTokens(program: Command): void {
             if (!Number.isNaN(d.getTime())) expiresAt = d;
           }
           if (!expiresAt) {
-            printWarning(`Secret ${s.name} has no expiry information, skipping`);
+            // Its expiry can't be checked, so it can't be reported as fine.
+            entries.push({ secretName: s.name, arn: s.arn, status: 'unverifiable', reason: 'records no expiresAt — re-run "pipeline-manager infra store-token"' });
             continue;
           }
 
@@ -136,8 +144,9 @@ export function auditTokens(program: Command): void {
 
         const atRisk = entries.filter((e) => e.status !== 'ok');
         // A truncated scan is itself a failure condition: exit non-zero so cron
-        // doesn't read an incomplete "all clear" as success.
-        const exitCode = (atRisk.length > 0 || truncated) ? 1 : 0;
+        // doesn't read an incomplete "all clear" as success. An unreadable secret
+        // is a scan failure (exit 2), per the contract above.
+        const exitCode = unreadable.length > 0 ? 2 : (atRisk.length > 0 || truncated) ? 1 : 0;
 
         if (options.json) {
           console.log(JSON.stringify({
@@ -147,25 +156,32 @@ export function auditTokens(program: Command): void {
             totalScanned: entries.length,
             atRiskCount: atRisk.length,
             truncated,
-            entries: entries.map((e) => ({ ...e, expiresAt: e.expiresAt.toISOString() })),
+            unreadable,
+            entries: entries.map((e) => ({ ...e, ...(e.expiresAt ? { expiresAt: e.expiresAt.toISOString() } : {}) })),
             executionId,
           }, null, 2));
         } else {
           printSection('Audit Results');
           printInfo(`Scanned ${entries.length} platform secret${entries.length === 1 ? '' : 's'}`);
+          if (unreadable.length > 0) {
+            printError(`${unreadable.length} secret${unreadable.length === 1 ? '' : 's'} could not be read — the audit is INCOMPLETE.`);
+          }
           if (atRisk.length === 0) {
-            if (truncated) {
+            if (unreadable.length > 0) {
+              printWarning('No at-risk tokens among the secrets that could be read.');
+            } else if (truncated) {
               printWarning('No at-risk tokens in the scanned pages, but the scan was truncated — some secrets were not checked.');
             } else {
               printSuccess(`All stored keys valid for at least ${warnDays} days`);
             }
           } else {
             for (const e of atRisk) {
-              const label = e.status === 'expired'
-                ? `EXPIRED ${Math.abs(e.daysUntilExpiry)} day${e.daysUntilExpiry === -1 ? '' : 's'} ago`
-                : e.status === 'unverifiable'
-                  ? `UNUSABLE — ${e.reason}`
-                  : `expires in ${e.daysUntilExpiry} day${e.daysUntilExpiry === 1 ? '' : 's'}`;
+              const days = e.daysUntilExpiry ?? 0;
+              const label = e.status === 'unverifiable'
+                ? `UNUSABLE — ${e.reason}`
+                : e.status === 'expired'
+                  ? `EXPIRED ${Math.abs(days)} day${days === -1 ? '' : 's'} ago`
+                  : `expires in ${days} day${days === 1 ? '' : 's'}`;
               printWarning(`${e.secretName} — ${label}`);
             }
             printError(`${atRisk.length} secret${atRisk.length === 1 ? '' : 's'} need rotation. Run \`pipeline-manager infra store-token --expires-days <N>\` (add --scope for a scoped credential) to reissue.`);

@@ -253,6 +253,9 @@ describe('POST /auth/mfa/verify', () => {
 
     expect(mockIssueTokens).not.toHaveBeenCalled();
     expect(await peekMfaChallenge(challengeId)).not.toBeNull();
+    // Refused BEFORE the code is checked: a recovery code is never spent (nor a
+    // TOTP step consumed) on a sign-in that cannot complete.
+    expect(mockVerifyCode).not.toHaveBeenCalled();
   });
 });
 

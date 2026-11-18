@@ -114,7 +114,7 @@ async function populateRequestUser(req: Request, user: UserLike, slot: RefreshSe
     // sysadmin into a regular user as soon as this middleware ran — every
     // /admin/* and audit route 403'd because `req.user.isSuperAdmin` was
     // undefined. The User document MUST be loaded with `+isSuperAdmin` for
-    // this to resolve to true (see the .select() call in requireAuth below).
+    // this to resolve to true (see the .select() call in requireRefreshSession below).
     isSuperAdmin: user.isSuperAdmin === true,
     isEmailVerified: user.isEmailVerified,
     organizationId,
@@ -124,14 +124,6 @@ async function populateRequestUser(req: Request, user: UserLike, slot: RefreshSe
   req.user = payload;
 }
 
-/**
- * The Bearer credential, or `undefined` once the 401 has already been written.
- *
- * A MISSING header and a MALFORMED one answer with different codes on purpose:
- * the client UI distinguishes "log in" (TOKEN_MISSING) from "session is broken"
- * (TOKEN_INVALID). Both entry points (`requireAuth`, `requireServiceAuth`) read
- * the header through here so the two can never drift apart.
- */
 /**
  * Refuse a bearer token, and COUNT it.
  *
@@ -168,6 +160,14 @@ function denyToken(res: Response, reason: 'verify_failed' | 'wrong_token_type' |
   sendError(res, 401, 'Token invalid', ErrorCode.TOKEN_INVALID);
 }
 
+/**
+ * The Bearer credential, or `undefined` once the 401 has already been written.
+ *
+ * A MISSING header and a MALFORMED one answer with different codes on purpose:
+ * the client UI distinguishes "log in" (TOKEN_MISSING) from "session is broken"
+ * (TOKEN_INVALID). Both entry points (`requireAuth`, `requireServiceAuth`) read
+ * the header through here so the two can never drift apart.
+ */
 function bearerTokenOr401(req: Request, res: Response): string | undefined {
   const authHeader = req.headers.authorization;
   if (!authHeader) {
@@ -375,7 +375,7 @@ async function userSessionRejection(decoded: AccessTokenPayload): Promise<Sessio
   // still exist: signing one device out, stopping one machine credential, or a
   // slot killed by refresh-token reuse must end ITS access token now, not at
   // expiry (other services read `revoke:sid:<sid>` for the same effect).
-  const user = await User.findById(decoded.sub).select('+tokenVersion +isSuperAdmin').lean();
+  const user = await User.findById(decoded.sub).select('+isSuperAdmin').lean();
 
   if (!user) return SESSION_INVALID;
 
@@ -459,7 +459,7 @@ async function operatorRejection(session: ImpersonationOperatorStamp & { request
   if (typeof session.requesterTokenVersion !== 'number') return ended;
   let operator;
   try {
-    operator = await User.findById(String(session.requesterId)).select('+tokenVersion +isSuperAdmin').lean();
+    operator = await User.findById(String(session.requesterId)).select('+isSuperAdmin').lean();
   } catch (err) {
     logger.warn('Impersonation operator lookup failed — denying', { error: String(err) });
     return ended;
@@ -595,7 +595,7 @@ export async function requireRefreshSession(
 
   try {
     const [user, slot] = await Promise.all([
-      User.findById(decoded.sub).select('+tokenVersion +isSuperAdmin'),
+      User.findById(decoded.sub).select('+isSuperAdmin'),
       findSlot(decoded.sub, decoded.sid),
     ]);
 

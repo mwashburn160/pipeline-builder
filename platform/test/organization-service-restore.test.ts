@@ -206,6 +206,18 @@ describe('organizationService.getById — includeHierarchy (sysadmin detail)', (
     expect(org).not.toHaveProperty('parentOrgName');
   });
 
+  it('reports ownerId as the POPULATED owner\'s id (regression: was "[object Object]")', async () => {
+    mockOrgFindById.mockReturnValue({
+      populate: () => ({
+        lean: async () => ({
+          _id: { toString: () => 'root-1' }, name: 'Root', owner: { _id: { toString: () => 'u-owner' }, username: 'x', email: 'x@e.com' },
+        }),
+      }),
+    });
+    const org = await organizationService.getById('root-1');
+    expect(org?.ownerId).toBe('u-owner');
+  });
+
   it('omits the hierarchy fields when not asked', async () => {
     mockOrgFindById.mockReturnValue({ populate: () => ({ lean: async () => ({ _id: { toString: () => 'root-1' }, name: 'Root' }) }) });
     const org = await organizationService.getById('root-1');

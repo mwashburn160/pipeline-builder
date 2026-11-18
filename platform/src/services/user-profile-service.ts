@@ -440,7 +440,7 @@ class UserProfileService {
    * Throws PROFILE_USER_NOT_FOUND or PROFILE_INVALID_CREDENTIALS.
    */
   async changePassword(userId: string, currentPassword: string, newPassword: string): Promise<{ accessKeysRevoked: number }> {
-    const user = await User.findById(userId).select('+password +tokenVersion');
+    const user = await User.findById(userId).select('+password');
     if (!user || !user.password) throw new Error(PROFILE_USER_NOT_FOUND);
 
     if (!await user.comparePassword(currentPassword)) throw new Error(PROFILE_INVALID_CREDENTIALS);
@@ -469,7 +469,7 @@ class UserProfileService {
    *  silently mints non-sysadmin tokens for promoted users (e.g. when a
    *  sysadmin clicks "regenerate API token" on the dashboard). */
   async findForTokenIssue(userId: string) {
-    const user = await User.findById(userId).select('+tokenVersion +isSuperAdmin');
+    const user = await User.findById(userId).select('+isSuperAdmin');
     if (!user) throw new Error(PROFILE_USER_NOT_FOUND);
     return user;
   }
@@ -481,7 +481,7 @@ class UserProfileService {
    * is derived from `user.tokenVersion`, not stored per-token.
    */
   async listTokenHistory(userId: string) {
-    const user = await User.findById(userId).select('+tokenVersion issuedTokens');
+    const user = await User.findById(userId).select('tokenVersion issuedTokens');
     if (!user) throw new Error(PROFILE_USER_NOT_FOUND);
 
     const now = Date.now();
@@ -573,7 +573,7 @@ class UserProfileService {
    * they live only as long as the slot.
    */
   async listSessions(userId: string) {
-    const user = await User.findById(userId).select('+tokenVersion').lean();
+    const user = await User.findById(userId).select('tokenVersion').lean();
     if (!user) throw new Error(PROFILE_USER_NOT_FOUND);
     // Live slots only: one opened before the last hard revocation is dead.
     const slots = (await listSlots(userId, user.tokenVersion)).map((s) => this.serializeSession(s));
@@ -608,7 +608,10 @@ class UserProfileService {
    * selected so the caller can issue a fresh replacement token.
    */
   async revokeAllSessions(userId: string) {
-    const user = await User.findById(userId).select('+tokenVersion issuedTokens');
+    // The WHOLE account (plus `isSuperAdmin`): the caller mints the surviving
+    // session from this document, so a narrowed projection would issue it
+    // without the identity / version fields it carries.
+    const user = await User.findById(userId).select('+isSuperAdmin');
     if (!user) throw new Error(PROFILE_USER_NOT_FOUND);
     // Revoke the DURABLE credentials (access keys) FIRST — if the
     // session-invalidate step below were to throw after keys were left live, the
@@ -617,10 +620,14 @@ class UserProfileService {
     await apiKeyService.revokeAllForUser(userId);
     // Authoritative session revocation: $inc tokenVersion + clear refresh-session slots
     // in the DB and publish the revocation (best-effort) — all inside the service.
-    await authService.invalidateAllSessions(String(userId));
-    // The service bumped tokenVersion via $inc in the DB; mirror that on the doc
-    // we return so the caller mints the replacement token at the new version.
-    user.tokenVersion += 1;
+    const bumped = await authService.invalidateAllSessions(String(userId));
+    // Mirror the version the service's `$inc` PRODUCED on the doc we return, so
+    // the caller mints the replacement token at the new version (a local `+= 1`
+    // would be wrong if another revocation landed since the read above).
+    if (bumped) {
+      user.tokenVersion = bumped.tokenVersion;
+      user.claimsVersion = bumped.claimsVersion;
+    }
     return user;
   }
 }

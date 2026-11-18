@@ -85,6 +85,8 @@ describe('contract legs', () => {
     ['quota', 'quota', '/quotas/internal/orgs/org-acme/purge'],
     ['billing', 'billing', '/billing/internal/orgs/org-acme/purge'],
   ])('%s: POSTs its own purge contract with the platform token', async (service, host, path) => {
+    // Billing reads its body for a partial purge, so it gets a reply in its own shape.
+    if (service === 'billing') mockPost.mockResolvedValue(ok({ orgId: ORG, tables: { subscriptions: 1, billingEvents: 0 }, remaining: {} }));
     const res = await findLeg('org.deleted', service)!.deliver(ORG);
     expect(res).toEqual({ ok: true, statusCode: 200 });
     expect(clients[0]).toMatchObject({ host, port: 3000, timeout: 5000 });
@@ -155,6 +157,14 @@ describe('the billing leg (provider cancellation can be partial)', () => {
   it('a 500 (store failure) is a retry', async () => {
     mockPost.mockResolvedValue({ statusCode: 500, headers: {}, body: {} });
     expect(await billing().deliver(ORG)).toEqual({ ok: false, statusCode: 500, error: 'HTTP 500' });
+  });
+
+  it('a 2xx it cannot READ is a retry, not an ack — it cannot prove nothing was kept', async () => {
+    // Regression: `invalid-response` acked before the `incomplete` check ran, so a
+    // contract drift in `remaining` closed the billing leg with subscriptions
+    // still live at the provider.
+    mockPost.mockResolvedValue({ statusCode: 200, headers: {}, body: { data: { unexpected: true } } });
+    expect(await billing().deliver(ORG)).toEqual({ ok: false, statusCode: 200, error: 'unreadable purge response' });
   });
 });
 

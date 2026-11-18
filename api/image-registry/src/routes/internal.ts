@@ -517,11 +517,12 @@ export function createInternalRoutes(): Router {
   // public copies it published, blobs deduplicated, 60s cached), so the number a
   // tenant sees is the number it is refused at. Only `bytes` crosses the wire:
   // the repo count is a fact about the org's layout the quota service has no use
-  // for. An `incomplete` scan still answers with what it measured — the consumer
-  // is display-only (the push gate keeps failing closed on its own), and an
-  // under-count is a better number than the 0 it would otherwise show. A failed
-  // scan throws → 500, which the quota client reads as "unknown" (fail-soft).
-  // Read-only, so not audited.
+  // for. An `incomplete` scan is NOT answered with what it measured: this
+  // reading is ENFORCEMENT input — the quota service sums it into the account
+  // total the push gate decides on (`isStorageOverBudget`'s account branch),
+  // and an under-count there is a fail-open the gate cannot see. It answers 503
+  // instead, which the quota client reads as "unknown", exactly like a failed
+  // scan (a throw → 500). Read-only, so not audited.
   router.get(
     contractRoute(C.orgStorageUsage, MOUNT),
     requireInternalService({ callers: [...C.orgStorageUsage.callers] }) as RequestHandler,
@@ -538,7 +539,11 @@ export function createInternalRoutes(): Router {
         return sendError(res, 403, 'Forbidden: storage usage can only be read for the token\'s own org.', ErrorCode.ORG_MISMATCH);
       }
       const usage = await computeOrgStorageUsage(orgId);
-      ctx.log('COMPLETED', 'Read org storage usage', { orgId, bytes: usage.bytes, incomplete: usage.incomplete });
+      if (usage.incomplete) {
+        ctx.log('COMPLETED', 'Org storage usage scan incomplete — not answered', { orgId, bytes: usage.bytes });
+        return sendError(res, 503, 'Storage usage scan was incomplete; the figure would under-count', ErrorCode.SERVICE_UNAVAILABLE);
+      }
+      ctx.log('COMPLETED', 'Read org storage usage', { orgId, bytes: usage.bytes });
       return sendSuccess(res, 200, { bytes: usage.bytes });
     }),
   );

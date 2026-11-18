@@ -17,6 +17,7 @@ import { getApiConfig } from './config-loader.js';
 import { printInfo, printSection, printSuccess, printWarning } from './output-utils.js';
 import { requestCorrelationHeaders } from './request-context.js';
 import { assertSslDisableAllowed, platformHttpsAgent } from './tls.js';
+import { TIMEOUTS } from '../config/cli.constants.js';
 
 /** Login/secret options shared across the platform-secret helpers. */
 export interface PlatformSecretOptions {
@@ -70,7 +71,7 @@ export function scopeSecretLeaf(scope: string): string {
  * Pattern: `{SECRETS_PATH_PREFIX}/{orgId}/platform`.
  * @throws if the token carries no organizationId (caller should fall back to PLATFORM_SECRET_NAME).
  */
-export function resolveSecretName(token: string): string {
+function resolveSecretName(token: string): string {
   // An ACCESS KEY (`pb_pat_…`) is opaque — it carries no org claim to read, by
   // design. Say so instead of the generic decode failure, since exporting a key
   // as PLATFORM_TOKEN is now the normal way to authenticate the CLI.
@@ -124,6 +125,9 @@ export async function ensurePlatformToken(options: PlatformSecretOptions): Promi
     {
       headers: requestCorrelationHeaders(),
       httpsAgent: platformHttpsAgent(rejectUnauthorized),
+      // axios has no default timeout: a platform that accepts the connection and
+      // never answers would hang store-token / setup-events / provision forever.
+      timeout: apiConfig.api.timeout || TIMEOUTS.HTTP_REQUEST,
     },
   );
   const loginData = loginResponse.data?.data ?? loginResponse.data;

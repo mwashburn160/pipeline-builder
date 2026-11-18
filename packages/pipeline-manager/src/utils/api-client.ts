@@ -104,7 +104,12 @@ export class ApiClient {
     } else if (error.request) {
       const code = error.code || 'UNKNOWN';
       const url = error.config?.url;
-      const timeout = error.config?.timeout;
+      // Only a request that actually TIMED OUT carries its timeout: the error
+      // handler maps a NetworkError with a timeout to the TIMEOUT exit code (10),
+      // and `config.timeout` is set on every request — so passing it through
+      // unconditionally made a refused connection or a DNS failure exit 10, not 7.
+      const timedOut = code === 'ECONNABORTED' || code === 'ETIMEDOUT';
+      const timeout = timedOut ? error.config?.timeout : undefined;
       const cause = error.cause;
 
       printError('No response received from API', {
@@ -118,6 +123,7 @@ export class ApiClient {
         ECONNREFUSED: 'Server is not running or port is wrong',
         ECONNRESET: 'Server closed the connection unexpectedly',
         ETIMEDOUT: 'Connection timed out — server unreachable or too slow',
+        ECONNABORTED: 'Request timed out — server too slow to respond',
         ENOTFOUND: 'DNS lookup failed — check the hostname in baseUrl',
         ERR_BAD_REQUEST: 'Request was malformed — check the endpoint and payload',
         CERT_HAS_EXPIRED: 'SSL certificate expired — use --no-verify-ssl for dev',

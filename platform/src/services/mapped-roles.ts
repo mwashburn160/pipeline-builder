@@ -94,7 +94,7 @@ export async function assertMappableRoleSet(
  *
  * Runs inside the CALLER's transaction (the membership write and this must
  * commit together) and does NOT recompute the cached org role or bump
- * `tokenVersion` — the caller does that once, after the membership is settled.
+ * `claimsVersion` — the caller does that once, after the membership is settled.
  * Returns the Role ids added/removed, for the audit trail.
  */
 export async function syncMappedRoles(

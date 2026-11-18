@@ -116,6 +116,12 @@ export function useFetch<T>(
     if (!enabled) {
       setSettled(true);
       if (!keepPreviousData) { setLoaded(null); setFailed(null); }
+      // A `refetch()` on a disabled reader starts no run, so nothing else would
+      // ever settle its promise — answer it now, rather than leaving the caller
+      // hanging (or resolving it later with an unrelated run's outcome).
+      const waiters = waitersRef.current;
+      waitersRef.current = [];
+      for (const resolve of waiters) resolve(false);
       return;
     }
     if (!keepPreviousData) {

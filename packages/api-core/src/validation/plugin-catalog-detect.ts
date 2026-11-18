@@ -259,11 +259,6 @@ export function resolveCatalogMetadata(detected: DetectedField[], edits: PluginC
   return { values, sources };
 }
 
-/** A detection with every value accepted (no edits) — scripts, the Official loader. */
-export function acceptAllCatalogMetadata(detected: DetectedField[]): ResolvedCatalog {
-  return resolveCatalogMetadata(detected, {});
-}
-
 // -----------------------------------------------------------------------------
 // Edit payloads
 // -----------------------------------------------------------------------------

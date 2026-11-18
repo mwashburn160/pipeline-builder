@@ -216,7 +216,7 @@ export class NetworkError extends Error {
  *
  * Precedence: typed CLI errors → HTTP status → Node system error `code` → fallback.
  */
-function resolveExitCode(err: unknown, fallback: ErrorCode): ErrorCode {
+export function resolveExitCode(err: unknown, fallback: ErrorCode): ErrorCode {
   if (err instanceof ValidationError) return ERROR_CODES.VALIDATION;
   if (err instanceof AuthenticationError) return ERROR_CODES.AUTHENTICATION;
   if (err instanceof NetworkError) return err.timeout ? ERROR_CODES.TIMEOUT : ERROR_CODES.NETWORK;

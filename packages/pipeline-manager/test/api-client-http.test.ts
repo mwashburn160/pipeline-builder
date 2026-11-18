@@ -48,6 +48,7 @@ beforeAll(async () => {
   process.env.PLATFORM_BASE_URL = baseUrl;
 });
 afterAll(async () => {
+  server.closeAllConnections();
   await new Promise((r) => server.close(r));
   rmSync(HOME, { recursive: true, force: true });
 });
@@ -223,6 +224,20 @@ describe('ApiClient', () => {
   it('maps an unreachable server to a NetworkError with a hint', async () => {
     const c = new ApiClient(config({ baseUrl: 'http://127.0.0.1:1' }));
     await expect(c.get('/x')).rejects.toMatchObject({ message: expect.stringContaining('ECONNREFUSED: Server is not running') });
+  });
+
+  it('exits NETWORK (7) for a refused connection and TIMEOUT (10) only for a real timeout', async () => {
+    const { reportError, ERROR_CODES } = await import('../src/utils/error-handler.js');
+    // Every request carries `config.timeout`; passing it through on a refused
+    // connection made the error handler classify it as a TIMEOUT.
+    const refused = await new ApiClient(config({ baseUrl: 'http://127.0.0.1:1' })).get('/x').catch((e: unknown) => e);
+    expect((refused as { timeout?: number }).timeout).toBeUndefined();
+    expect(reportError(refused, ERROR_CODES.API_REQUEST, { logToConsole: false })).toBe(ERROR_CODES.NETWORK);
+
+    handler = () => { /* never answer */ };
+    const slow = await new ApiClient(config({ timeout: 50 })).get('/x').catch((e: unknown) => e);
+    expect((slow as { timeout?: number }).timeout).toBe(50);
+    expect(reportError(slow, ERROR_CODES.API_REQUEST, { logToConsole: false })).toBe(ERROR_CODES.TIMEOUT);
   });
 
   it('warns (advisory) on an expired JWT and when certificate validation is off', () => {

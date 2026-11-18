@@ -15,12 +15,19 @@ export type DoraLevel = 'elite' | 'high' | 'medium' | 'low' | null;
 export interface DoraEnvMetrics {
   environment: string;
   /** Successful deploy-stage executions in the window (+ per-day rate). */
-  deploymentFrequency: { deployments: number; perDay: number };
+  deploymentFrequency: { deployments: number; perDay: number; level: DoraLevel };
   /**
    * Measured commit→deploy lead time. `medianSeconds` null = "unknown" (commit
    * timestamps couldn't be resolved for the in-window deploys). No proxy.
    */
-  leadTime: { deployments: number; medianSeconds: number | null; level: DoraLevel };
+  leadTime: {
+    deployments: number;
+    medianSeconds: number | null;
+    /** Tail percentiles over the same sample; the level is scored off the median only. */
+    p90Seconds: number | null;
+    p95Seconds: number | null;
+    level: DoraLevel;
+  };
   /**
    * Change-failure rate = (deploy-time failures + post-deploy failures) / attempts.
    * `rate` is a percentage (0–100). Deploy-time failures come from failed deploy
@@ -52,7 +59,14 @@ export interface DoraMetrics {
    * Mean (median) time to restore over post-deploy incidents (production-only).
    * `medianSeconds` is null when no incidents were restored in-window.
    */
-  meanTimeToRestore: { incidents: number; restored: number; medianSeconds: number | null };
+  meanTimeToRestore: {
+    incidents: number;
+    restored: number;
+    medianSeconds: number | null;
+    p90Seconds: number | null;
+    p95Seconds: number | null;
+    level: DoraLevel;
+  };
   /**
    * Coverage reconciliation: registered pipelines vs. how many produced observed
    * deploys (`deploying`) vs. none (`withoutDeploys`) in the window.
@@ -77,6 +91,8 @@ export interface DoraTrendPoint {
   deployments: number;
   failed: number;
   total: number;
+  /** failed/total as a percent (0 when total is 0) — deploy-time CFR only. */
+  changeFailurePct: number;
 }
 
 /** Per-stage build-health metrics for one pipeline. */
@@ -364,7 +380,7 @@ export function reportingApi(core: ApiCore) {
 
     /** Plugin inventory summary. */
     getPluginSummary: async (opts?: { signal?: AbortSignal }) => {
-      return core.request<ApiResponse<{ summary: { total: number; active: number; inactive: number; public: number; private: number; unique_names: number } }>>('/api/reports/plugins/summary', { signal: opts?.signal });
+      return core.request<ApiResponse<{ summary: { total: number; active: number; inactive: number; public: number; org: number; private: number; unique_names: number } }>>('/api/reports/plugins/summary', { signal: opts?.signal });
     },
 
     /** Plugin type & compute distribution. */

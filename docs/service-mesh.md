@@ -247,7 +247,8 @@ owns one billing-only read:
   contacts by email;
 - `image-registry GET /internal/storage-usage/:orgId` (`quota` only, DENY policy
   `image-registry-internal-storage-usage`): one org's registry footprint, which
-  fills `storageBytes.used` on the dashboard;
+  fills `storageBytes.used` on the dashboard and the account total the push
+  gate enforces on (an incomplete scan answers 503, read as "unknown");
 - `quota GET /quotas/:orgId/own-usage` (`billing` only, a second rule in
   `quota-internal-counters`): the unpooled per-team numbers.
 

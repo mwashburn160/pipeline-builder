@@ -872,8 +872,12 @@ class InvitationService {
       throw new Error(INV_UNAUTHORIZED);
     }
 
+    // CONDITIONAL on still being pending: an accept that committed after the read
+    // above must not be overwritten to `revoked` (a document `save()` filters on
+    // `_id` only) — the membership would exist while the trail says revoked.
+    const revoked = await Invitation.updateOne({ _id: invitation._id, status: 'pending' }, { $set: { status: 'revoked' } });
+    if (revoked.matchedCount === 0) throw new Error(INV_NOT_PENDING);
     invitation.status = 'revoked';
-    await invitation.save();
 
     return {
       invitationId: String(invitation._id),
@@ -909,8 +913,12 @@ class InvitationService {
       throw new Error(INV_SEAT_LIMIT);
     }
 
-    invitation.expiresAt = getExpirationDate();
-    await invitation.save();
+    // Conditional, like revoke: one accepted or revoked since the read above is
+    // neither re-armed nor re-mailed.
+    const expiresAt = getExpirationDate();
+    const rearmed = await Invitation.updateOne({ _id: invitation._id, status: 'pending' }, { $set: { expiresAt } });
+    if (rearmed.matchedCount === 0) throw new Error(INV_NOT_FOUND);
+    invitation.expiresAt = expiresAt;
 
     const emailSent = await emailService.sendInvitation({
       recipientEmail: invitation.email,

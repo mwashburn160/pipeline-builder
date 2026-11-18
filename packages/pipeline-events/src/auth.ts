@@ -18,7 +18,7 @@ import { fetchWithTimeout, log } from './util.js';
 
 /** Refresh at this fraction of the token's life — never at the last moment. */
 const TOKEN_REFRESH_FRACTION = 0.8;
-/**
+/*
  * No FLOOR on the cached lifetime, deliberately.
  *
  * There was one — 30s, "so a surprisingly short TTL can't cause a refresh

@@ -11,8 +11,8 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, expect } from '@jest/globals';
-import { BLOB_GC_WINDOW, pushFreezeActiveAt } from '../src/services/blob-gc-window.js';
 import { OUTSIDE_BLOB_GC_WINDOW_MS } from './helpers/blob-gc-clock.js';
+import { BLOB_GC_WINDOW, pushFreezeActiveAt } from '../src/services/blob-gc-window.js';
 
 const at = (iso: string) => Date.parse(iso);
 const TTL = 300;

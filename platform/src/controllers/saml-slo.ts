@@ -24,7 +24,8 @@
  * (narrowed to the `SessionIndex` when the IdP names one) opened IN THIS ORG is
  * revoked, through the same helper that "sign out this device" uses
  * (`authService.revokeRefreshSession`): the refresh slot is removed at once, so
- * nothing can renew, and the short-lived access token lapses within its TTL. The
+ * nothing can renew, and its access token dies with it (the slot revocation is
+ * published to the stateless services). The
  * IdP gets a signed LogoutResponse at its SLO URL (or, with none configured, the
  * browser lands on the sign-in page).
  */

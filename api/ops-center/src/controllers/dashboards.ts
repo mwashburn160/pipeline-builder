@@ -407,8 +407,22 @@ export const cloneDashboard = withController('Clone dashboard', async (req, res)
   // that org's quota — mirror the create-path reserve/release pattern so
   // a flurry of clones can't bypass the cap.
   await withFeatureQuota(res, orgId, 'dashboards', async () => {
-    const cloned = await dashboardService.clone(visibleSource, { orgId, userId });
+    let cloned: Awaited<ReturnType<typeof dashboardService.clone>>;
+    try {
+      cloned = await dashboardService.clone(visibleSource, { orgId, userId });
+    } catch (err) {
+      // The free-name probe and the insert are separate statements, so two
+      // concurrent clones of one source can pick the same "(copy)" name and the
+      // loser collides on the (org_id, name) index — the caller's conflict (409,
+      // retry picks the next free name), not a server fault. `false` gives the slot back.
+      if (isUniqueViolation(err)) {
+        sendError(res, 409, 'A dashboard with this name was just created — try the clone again.');
+        return false;
+      }
+      throw err;
+    }
     audit(req, 'dashboard.clone', { targetType: 'dashboard', targetId: cloned.id, details: { sourceId, name: cloned.name } });
     sendSuccess(res, 201, { dashboard: cloned });
+    return true;
   });
 });

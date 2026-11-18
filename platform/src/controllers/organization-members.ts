@@ -36,7 +36,6 @@ const STRIP_ROLE_REFUSALS = {
   [RL_LAST_PRIVILEGED_MEMBER]: { status: 400, message: 'Cannot remove or deactivate the last member of an admin role — the organization would be left with no one in it. Add another member to that role first.' },
 };
 
-/** The Role-assignment ceiling context for an add that grants the Admin Role. */
 /** GET /organization/:id/members */
 export const getOrganizationMembers = withController('Get members', async (req, res) => {
   if (!ensureAuthenticated(req, res)) return;

@@ -152,6 +152,26 @@ describe('useFetch options and awaitable refetch', () => {
     expect(ok).toBe(true);
     expect(result.current.data).toBe(2);
   });
+
+  it('resolves refetch with false on a disabled reader instead of hanging', async () => {
+    // No run starts while disabled, so nothing else would ever settle the
+    // promise — a caller awaiting it (a save's onSuccess) stayed pending for
+    // good, or was later handed an unrelated run's outcome.
+    const fetcher = jest.fn<AnyFn>().mockResolvedValue('loaded');
+    const { result, rerender } = renderHook(
+      ({ enabled }: { enabled: boolean }) => useFetch(fetcher, [], { enabled }),
+      { initialProps: { enabled: false } },
+    );
+    let pending!: Promise<boolean>;
+    act(() => { pending = result.current.refetch(); });
+    let ok: boolean | undefined;
+    await act(async () => { ok = await pending; });
+    expect(ok).toBe(false);
+    expect(fetcher).not.toHaveBeenCalled();
+    // Enabling later runs normally and is not attributed to the old refetch.
+    rerender({ enabled: true });
+    await waitFor(() => expect(result.current.data).toBe('loaded'));
+  });
 });
 
 describe('useFetch: data belongs to the deps it was read for', () => {

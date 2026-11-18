@@ -17,6 +17,7 @@ const mockInvFindOne = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockOrgFindById = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockUserFindById = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockIsAncestorOrg = jest.fn<(...a: unknown[]) => Promise<boolean>>();
+const mockInvUpdateOne = jest.fn<(...a: unknown[]) => Promise<{ matchedCount: number }>>(async () => ({ matchedCount: 1 }));
 const mockSendInvitation = jest.fn<(...a: unknown[]) => Promise<boolean>>(async () => true);
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
@@ -37,7 +38,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   RoleAssignment: {},
   PersonalAccessToken: {},
   UserPreferences: {},
-  Invitation: { findOne: (...a: unknown[]) => mockInvFindOne(...a) },
+  Invitation: { findOne: (...a: unknown[]) => mockInvFindOne(...a), updateOne: (...a: unknown[]) => mockInvUpdateOne(...a) },
   Organization: { findById: (...a: unknown[]) => mockOrgFindById(...a) },
   User: { findById: (...a: unknown[]) => mockUserFindById(...a) },
   UserOrganization: {},
@@ -59,12 +60,12 @@ function pendingInvitation(organizationId: string) {
     token: 'tok',
     expiresAt: new Date(Date.now() + 86_400_000),
     invitationType: 'email',
-    save: jest.fn(async () => undefined),
   };
 }
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockInvUpdateOne.mockResolvedValue({ matchedCount: 1 });
   mockOrgFindById.mockResolvedValue({ _id: 'team-1', name: 'Team', owner: { toString: () => 'someone-else' } });
   mockUserFindById.mockResolvedValue({ _id: 'u1', username: 'boss' });
 });
@@ -112,5 +113,25 @@ describe('invitation revoke / resend reach', () => {
   it('answers not found for a malformed id without querying', async () => {
     await expect(invitationService.revoke('not-an-id', 'parent-1', 'u1', true)).rejects.toThrow(INV_NOT_FOUND);
     expect(mockInvFindOne).not.toHaveBeenCalled();
+  });
+
+  it('revokes CONDITIONALLY — an invitation accepted since the read is not overwritten', async () => {
+    // Regression: `invitation.save()` filtered on `_id` only, so an accept that
+    // committed between the read and the write was flipped to `revoked`.
+    const { INV_NOT_PENDING } = await import('../src/services/invitation-errors.js');
+    mockInvFindOne.mockResolvedValue(pendingInvitation('parent-1'));
+    mockInvUpdateOne.mockResolvedValueOnce({ matchedCount: 0 });
+
+    await expect(invitationService.revoke(INV_ID, 'parent-1', 'u1', true)).rejects.toThrow(INV_NOT_PENDING);
+    expect(mockInvUpdateOne).toHaveBeenCalledWith({ _id: INV_ID, status: 'pending' }, { $set: { status: 'revoked' } });
+  });
+
+  it('re-arms CONDITIONALLY — an invitation no longer pending is neither re-armed nor re-mailed', async () => {
+    mockInvFindOne.mockResolvedValue(pendingInvitation('parent-1'));
+    mockInvUpdateOne.mockResolvedValueOnce({ matchedCount: 0 });
+
+    await expect(invitationService.resend(INV_ID, 'parent-1', 'u1', true)).rejects.toThrow(INV_NOT_FOUND);
+    expect(mockInvUpdateOne).toHaveBeenCalledWith({ _id: INV_ID, status: 'pending' }, { $set: { expiresAt: expect.any(Date) } });
+    expect(mockSendInvitation).not.toHaveBeenCalled();
   });
 });

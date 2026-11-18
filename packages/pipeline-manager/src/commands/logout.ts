@@ -5,13 +5,14 @@ import { errorMessage } from '@pipeline-builder/api-core';
 import axios from 'axios';
 import { Command } from 'commander';
 import { TIMEOUTS } from '../config/cli.constants.js';
-import { assertCredentialTlsAllowed, credentialHttpsAgent } from '../utils/auth-utils.js';
+import { assertCredentialTlsAllowed } from '../utils/auth-utils.js';
 import { printCommandHeader, refreshStoredSession, withSslOptions } from '../utils/command-utils.js';
 import { getApiConfig } from '../utils/config-loader.js';
 import { clearSession, isSessionUsable, loadSession } from '../utils/credential-store.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printInfo, printSuccess, printWarning } from '../utils/output-utils.js';
 import { requestCorrelationHeaders } from '../utils/request-context.js';
+import { platformHttpsAgent } from '../utils/tls.js';
 
 /**
  * Registers the `logout` command with the CLI program.
@@ -71,7 +72,7 @@ export function logout(program: Command): void {
                 'X-Pb-Client': 'cli',
                 ...requestCorrelationHeaders(),
               },
-              httpsAgent: credentialHttpsAgent(options.verifySsl),
+              httpsAgent: platformHttpsAgent(options.verifySsl),
               timeout: TIMEOUTS.HTTP_REQUEST,
             });
             outcome = 'revoked';

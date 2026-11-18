@@ -105,6 +105,25 @@ describe('purgeOrgData (real Postgres, RLS)', () => {
     expect(rows.find((r) => r.org_id === OTHER)).toMatchObject({ deleted_at: null });
   });
 
+  it('deactivates soft rows that carry is_active, so list reads stop returning them', async () => {
+    await owner((q) => q.query(
+      'INSERT INTO compliance_policies (org_id, name, created_by, updated_by) VALUES ($1, $2, $3, $3), ($4, $2, $3, $3)',
+      [ORG, 'p', 'u', OTHER],
+    ));
+
+    const result = await purgeOrgData('compliance', ORG);
+    expect(result.failed).toEqual([]);
+    expect(purgeRowCounts(result).compliance_policies).toBe(1);
+
+    const { rows } = await owner((q) => q.query<{ org_id: string; is_active: boolean; deleted_at: Date | null }>(
+      'SELECT org_id, is_active, deleted_at FROM compliance_policies ORDER BY org_id',
+    ));
+    expect(rows.find((r) => r.org_id === ORG)).toMatchObject({ is_active: false });
+    expect(rows.find((r) => r.org_id === ORG)?.deleted_at).not.toBeNull();
+    expect(rows.find((r) => r.org_id === OTHER)).toMatchObject({ is_active: true, deleted_at: null });
+    await owner((q) => q.exec('DELETE FROM compliance_policies'));
+  });
+
   it('removes hard rows, and only the purged org\'s', async () => {
     await owner((q) => q.query('INSERT INTO dora_settings (org_id) VALUES ($1), ($2)', [ORG, OTHER]));
     await owner((q) => q.query('INSERT INTO support_case_counters (org_id) VALUES ($1), ($2)', [ORG, OTHER]));

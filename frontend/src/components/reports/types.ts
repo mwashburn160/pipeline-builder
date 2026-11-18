@@ -12,7 +12,8 @@ export interface ErrorEntry { error_pattern: string; occurrences: number; affect
 export interface ActionFailure { action_name: string; failures: number; total: number; failure_pct: number }
 
 // ─── Plugin ─────────────────────────────────────────────
-export interface PluginSummary { total: number; active: number; inactive: number; public: number; private: number; unique_names: number }
+/** One count per `visibility` rung (`public` / `org` / `private`) — together they sum to `total`. */
+export interface PluginSummary { total: number; active: number; inactive: number; public: number; org: number; private: number; unique_names: number }
 /** `managed`: a managed toolchain plugin (pipeline-bootstrap, cdk-synth), which resolves through
  *  its toolchain release and never carries a default. */
 export interface PluginVersion { name: string; version_count: number; latest_version: string; has_default: boolean; managed: boolean }

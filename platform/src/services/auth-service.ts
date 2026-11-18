@@ -293,7 +293,7 @@ class AuthService {
     // super-admin would silently lose privileges on login.
     const user = await User.findOne({
       $or: [{ email: identifier.toLowerCase() }, { username: identifier.toLowerCase() }],
-    }).select('+password +tokenVersion +isSuperAdmin');
+    }).select('+password +isSuperAdmin');
 
     if (!user || !(await user.comparePassword(password))) return null;
     return user;
@@ -319,7 +319,7 @@ class AuthService {
    * without it every refresh would silently downgrade a sysadmin.
    */
   async findForTokenIssue(userId: string) {
-    return User.findById(userId).select('+tokenVersion +isSuperAdmin');
+    return User.findById(userId).select('+isSuperAdmin');
   }
 
   /**
@@ -337,9 +337,10 @@ class AuthService {
   /**
    * Sign out everywhere: bump tokenVersion (every outstanding access and refresh
    * token is rejected, and every slot opened at the old version is dead) and
-   * drop every refresh-session slot.
+   * drop every refresh-session slot. Returns the versions the bump produced
+   * (`null` when the user is gone).
    */
-  async invalidateAllSessions(userId: string): Promise<void> {
+  async invalidateAllSessions(userId: string): Promise<{ tokenVersion: number; claimsVersion: number } | null> {
     const updated = await User.findOneAndUpdate(
       { _id: userId },
       { $inc: { tokenVersion: 1 } },
@@ -348,7 +349,9 @@ class AuthService {
     await deleteAllSlots(userId);
     // Post-commit: publish the version THIS bump produced so the stateless
     // services reject outstanding tokens immediately (best-effort).
-    if (updated) await publishUserRevocation(userId, accessTokenVersion(updated));
+    if (!updated) return null;
+    await publishUserRevocation(userId, accessTokenVersion(updated));
+    return { tokenVersion: updated.tokenVersion ?? 0, claimsVersion: updated.claimsVersion ?? 0 };
   }
 
   /**
@@ -380,7 +383,7 @@ class AuthService {
 
     // `+isSuperAdmin` — switching orgs reissues a JWT and must preserve
     // the sysadmin claim. Schema marks the field `select: false`.
-    const user = await User.findById(userId).select('+tokenVersion +isSuperAdmin');
+    const user = await User.findById(userId).select('+isSuperAdmin');
     return user ? { user, authority } : null;
   }
 
@@ -441,7 +444,7 @@ class AuthService {
     const byOAuth = await User.findOne({
       [`oauth.${providerName}.id`]: userInfo.id,
       ...(sso ? { [`oauth.${providerName}.issuer`]: sso.issuer } : {}),
-    }).select('+tokenVersion +isSuperAdmin');
+    }).select('+isSuperAdmin');
     if (byOAuth) {
       refuseSuperAdmin(byOAuth);
       // The issuer is not proof of WHICH org's IdP signed: a SAML entity id is
@@ -454,7 +457,7 @@ class AuthService {
       return byOAuth;
     }
 
-    const byEmail = await User.findOne({ email: userInfo.email.toLowerCase() }).select('+tokenVersion +isSuperAdmin');
+    const byEmail = await User.findOne({ email: userInfo.email.toLowerCase() }).select('+isSuperAdmin');
     if (byEmail) {
       refuseSuperAdmin(byEmail);
       // Hardening: only auto-link a (provider-verified) social identity onto a

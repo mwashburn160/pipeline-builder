@@ -166,6 +166,25 @@ describe('POST /plugin-upgrades/apply', () => {
     expect(data.releases).toEqual([expect.objectContaining({ version: '1.2.0', removable: true })]);
   });
 
+  // `props` is the READ row's config rewritten: an unconditional write let an
+  // edit that landed between the read and the write be silently reverted.
+  it('writes conditionally on the updatedAt it read, and fails only that pipeline when the row moved on', async () => {
+    const readAt = new Date('2026-11-01T00:00:00.000Z');
+    mockFindById.mockImplementation(async (id: string) => ({ id, orgId: 'acme', pipelineName: 'p', props: { stages: [] }, updatedAt: readAt }));
+    mockUpdate.mockImplementation(async (id: string, data: any) => {
+      if (id === P1) throw new Error('Resource was modified by another request');
+      return { id, pipelineName: 'p', props: data.props };
+    });
+    const r = res();
+    await apply({ body: { pipelineIds: [P1, P2] }, user: {} }, r);
+    expect(mockUpdate).toHaveBeenCalledWith(P1, { props: { stages: ['new'] } }, 'acme', expect.anything(), { expectedUpdatedAt: readAt });
+    expect(dataOf(r).results).toEqual([
+      { pipelineId: P1, status: 'failed', error: 'Resource was modified by another request' },
+      expect.objectContaining({ pipelineId: P2, status: 'upgraded' }),
+    ]);
+    expect(mockRecordResolution).toHaveBeenCalledTimes(1);
+  });
+
   // The resolution rows and the trigger window key on the id STRING: a
   // mixed-case id recorded a second resolution and left the old one holding
   // the moved-off version.

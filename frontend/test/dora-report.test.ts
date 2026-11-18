@@ -45,12 +45,12 @@ describe('getDora', () => {
       environments: [
         {
           environment: 'production',
-          deploymentFrequency: { deployments: 8, perDay: 0.27 },
-          leadTime: { deployments: 8, medianSeconds: 300, level: 'elite' },
+          deploymentFrequency: { deployments: 8, perDay: 0.27, level: null },
+          leadTime: { deployments: 8, medianSeconds: 300, p90Seconds: null, p95Seconds: null, level: 'elite' },
           changeFailureRate: { rate: 25, deployTimeFailures: 1, postDeployFailures: 1, attempts: 8, level: 'medium' },
         },
       ],
-      meanTimeToRestore: { medianSeconds: 3720, incidents: 2, restored: 2 },
+      meanTimeToRestore: { medianSeconds: 3720, incidents: 2, restored: 2, p90Seconds: null, p95Seconds: null, level: null },
       coverage: { registered: 3, deploying: 2, withoutDeploys: 1 },
     };
     const { api, calls } = makeApi({ dora });
@@ -91,8 +91,8 @@ describe('markDeploymentOutcome', () => {
 describe('getDoraTrend', () => {
   it('GETs /api/reports/execution/dora/trend with interval + filter params and unwraps data.trend', async () => {
     const trend: DoraTrendPoint[] = [
-      { period: '2026-01-01', deployments: 3, failed: 1, total: 3 },
-      { period: '2026-01-08', deployments: 5, failed: 0, total: 5 },
+      { period: '2026-01-01', deployments: 3, failed: 1, total: 3, changeFailurePct: 33.3 },
+      { period: '2026-01-08', deployments: 5, failed: 0, total: 5, changeFailurePct: 0 },
     ];
     const { api, calls } = makeApi({ trend });
     const result = await api.getDoraTrend({ interval: 'week', from: '2026-01-01', to: '2026-01-31', includeDescendants: true });

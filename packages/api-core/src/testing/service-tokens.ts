@@ -68,7 +68,7 @@ export interface TestServiceKeysHandle {
 }
 
 /** The claim block a SERVICE principal must carry to satisfy `hasValidIdentityClaims`. */
-export function testServiceIdentityClaims(serviceName: string, role: 'owner' | 'admin' | 'member' = 'member'): Record<string, unknown> {
+function testServiceIdentityClaims(serviceName: string, role: 'owner' | 'admin' | 'member' = 'member'): Record<string, unknown> {
   return {
     username: `${serviceName}-service`,
     email: `${serviceName}@internal`,

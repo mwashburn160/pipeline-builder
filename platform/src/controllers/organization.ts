@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, getParam, isSystemAdmin, paginationMeta, sendError, sendSuccess, SYSTEM_ORG_ID, VALID_TIERS } from '@pipeline-builder/api-core';
+import { createLogger, DEFAULT_TIER, getParam, isBillingEnabled, isSystemAdmin, paginationMeta, sendError, sendSuccess, SYSTEM_ORG_ID, userHasPermission, VALID_TIERS } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import {
   canAccessOrg, canManageOrgScope, ensureAuthenticated, forbid, requirePlatformPermission, withController,
@@ -69,6 +69,16 @@ export const createOrganization = withController('Create organization', async (r
     if (eligibility === 'tier-forbidden') {
       return forbid(req, res, 'feature:teams', 'Teams require a Team, Business or Enterprise plan — upgrade the organization to create teams');
     }
+  }
+
+  // THE PLAN IS BILLING'S. With billing on, a root org's tier is what its
+  // subscription pays for, and a self-serve create opens no subscription — so a
+  // caller naming a tier other than the default would get that plan's quotas
+  // and features for free (nothing reconciles an org with no subscription).
+  // Only a platform operator (`orgs:manage`) may seed a different one. A team
+  // inherits its root's tier, so its `tier` is ignored anyway.
+  if (!body.parentOrgId && body.tier !== DEFAULT_TIER && isBillingEnabled() && !userHasPermission(req, 'orgs:manage')) {
+    return forbid(req, res, 'orgs:manage', 'A new organization starts on the default plan — change it through billing');
   }
 
   const result = await organizationService.create(req.user!.sub, body);

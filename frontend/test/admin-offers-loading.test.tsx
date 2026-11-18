@@ -66,3 +66,28 @@ describe('admin offers — first read', () => {
     expect(await screen.findByText('No decisions recorded yet.')).toBeInTheDocument();
   });
 });
+
+describe('admin offers — do-not-offer list', () => {
+  it('says when the paged exclusion list holds more than the page shown', async () => {
+    // The server pages the veto list (newest 200 by default); without `total`
+    // the older vetoes silently vanished from a list that looked complete.
+    listAdminOffers.mockResolvedValue({ success: true, data: SUMMARY });
+    listOfferExclusions.mockResolvedValue({
+      success: true,
+      data: { exclusions: [{ orgId: 'org-a', reason: 'negotiation', actorId: 'u1', createdAt: '2026-11-01T00:00:00.000Z' }], total: 3, limit: 1, offset: 0 },
+    });
+    render(<AdminOffersPage />);
+    expect(await screen.findByTestId('exclusions-truncated')).toHaveTextContent('Showing the newest 1 of 3 excluded accounts.');
+  });
+
+  it('says nothing extra when the whole list is on screen', async () => {
+    listAdminOffers.mockResolvedValue({ success: true, data: SUMMARY });
+    listOfferExclusions.mockResolvedValue({
+      success: true,
+      data: { exclusions: [{ orgId: 'org-a', reason: 'negotiation', actorId: 'u1', createdAt: '2026-11-01T00:00:00.000Z' }], total: 1, limit: 200, offset: 0 },
+    });
+    render(<AdminOffersPage />);
+    expect(await screen.findByText('org-a')).toBeInTheDocument();
+    expect(screen.queryByTestId('exclusions-truncated')).not.toBeInTheDocument();
+  });
+});

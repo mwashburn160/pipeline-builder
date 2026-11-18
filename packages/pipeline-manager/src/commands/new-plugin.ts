@@ -292,7 +292,7 @@ export function scaffoldFiles(input: ScaffoldInput, relDir = `./${input.name}`):
 }
 
 /** Print the available plugin bases. */
-export function printBases(): void {
+function printBases(): void {
   printSection('Plugin base images', 'deploy/plugins/_base');
   for (const b of PLUGIN_BASE_IMAGES) console.log(`  ${b.key.padEnd(8)} ${b.image.padEnd(28)} ${b.provides}`);
 }

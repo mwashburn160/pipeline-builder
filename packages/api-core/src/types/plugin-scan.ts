@@ -214,7 +214,7 @@ export function pluginVulnFailOn(): PluginVulnFailOn {
 }
 
 /** Whether a severity is at or above the gating threshold. */
-export function atOrAboveFailOn(severity: PluginScanFinding['severity'], failOn: PluginVulnFailOn = pluginVulnFailOn()): boolean {
+function atOrAboveFailOn(severity: PluginScanFinding['severity'], failOn: PluginVulnFailOn = pluginVulnFailOn()): boolean {
   return severity === 'critical' || failOn === 'high';
 }
 
@@ -571,7 +571,7 @@ export function exceedsVulnFloor(gated: number | null | undefined, max: number =
 }
 
 /** `pkg@1.2.3 → 1.2.4` / `pkg@1.2.3 (no fix)`. */
-export function describeFix(f: Pick<PluginScanFinding, 'packageName' | 'packageVersion' | 'fixedIn'>): string {
+function describeFix(f: Pick<PluginScanFinding, 'packageName' | 'packageVersion' | 'fixedIn'>): string {
   const at = `${f.packageName}${f.packageVersion ? `@${f.packageVersion}` : ''}`;
   return f.fixedIn.length > 0 ? `${at} → ${f.fixedIn.join(', ')}` : `${at} (no fix)`;
 }

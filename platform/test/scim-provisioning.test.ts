@@ -1027,6 +1027,20 @@ describe('Groups', () => {
     expect(removal.changed).toContain('members');
   });
 
+  it('PUT after a downgrade refuses an externalId change too (as PATCH does)', async () => {
+    // Regression: only rename/add were gated, so a PUT re-keyed `externalId` in
+    // an org that is removal-only.
+    const group = seedGroup('Engineers');
+    expect((await refusal(scim.replaceGroup(ctx({ entitled: false }), String(group._id), { externalId: 'g-new' }))).reason)
+      .toBe('not_entitled');
+  });
+
+  it('a create that loses a race on the unique group key answers uniqueness (409), not a 500', async () => {
+    // Both concurrent POSTs pass the `exists` pre-check; the loser hits the index.
+    IdpGroupMapping.create.mockImplementationOnce(async () => { throw Object.assign(new Error('E11000 duplicate key'), { code: 11000 }); });
+    expect((await refusal(scim.createGroup(ctx(), { displayName: 'Racers' }))).scimType).toBe('uniqueness');
+  });
+
   it('PATCH adds, removes and replaces members — including Okta\'s filtered single removal', async () => {
     const group = seedGroup('Engineers');
 

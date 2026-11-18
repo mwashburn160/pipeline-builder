@@ -129,7 +129,7 @@ registerMocks();
 const mod0 = await import('../src/queue/slot-manager.js');
 const {
   releaseOrgSlot, scrubOrgSlots, refreshOrgSlot, startOrgSlotHeartbeat, maxBuildsPerOrg,
-  orgSlotWaitExempt, systemOrgSlotCap, orgSlotSnapshot,
+  orgSlotWaitExempt, systemOrgSlotCap, orgSlotCap, orgSlotSnapshot,
   orgSlotRetryDelayMs, ORG_SLOT_WAIT_BUDGET_MS, orgSlotsBackedByLiveBuilds,
 } = mod0;
 const { SYSTEM_ORG_ID } = await import('@pipeline-builder/api-core');
@@ -633,6 +633,14 @@ describe('the system org holds a finite slot and never fails for waiting', () =>
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  it('orgSlotCap names the cap the acquire enforces — the system org\'s own, not its tier cell', () => {
+    // A denied build is TOLD its limit from this; reading the tier cell for the
+    // system org reported a figure that was not the one denying it.
+    expect(orgSlotCap(SYSTEM_ORG_ID, 'unlimited', 'standard')).toBe(systemOrgSlotCap());
+    expect(orgSlotCap(SYSTEM_ORG_ID, 'unlimited', 'standard')).not.toBe(maxBuildsPerOrg('unlimited', 'standard'));
+    expect(orgSlotCap('org-a', 'pro', 'flexible')).toBe(maxBuildsPerOrg('pro', 'flexible'));
   });
 
   it('does NOT exempt an ordinary org — the carve-out stays narrow', async () => {

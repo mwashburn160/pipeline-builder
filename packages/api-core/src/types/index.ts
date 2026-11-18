@@ -243,8 +243,6 @@ export {
   applyVulnWaivers,
   asScanFlag,
   describeFindings,
-  describeFix,
-  atOrAboveFailOn,
   exceedsVulnFloor,
   failOnLabel,
   gatedFindingCount,

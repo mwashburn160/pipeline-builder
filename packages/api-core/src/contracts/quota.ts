@@ -52,9 +52,11 @@ export const QUOTA_INTERNAL = {
     }),
   }),
   /**
-   * Idempotent: 200 `{ orgId, tables: { organizations } }` — 1 when the quota
-   * document was dropped, 0 when it was already gone. One `deleteOne`, so there
-   * is no partial outcome: a failure is a 500 and the leg retries.
+   * Idempotent: 200 `{ orgId, tables }` with per-collection removal counts
+   * (`usageEvents`, `usageBuckets`, `quotaNotices`, `quotaNoticeSettings`,
+   * `organizations`) — all zero for an already-purged org. The quota document
+   * goes LAST, so a failure part-way (a 500) leaves the org recognisably
+   * present and the leg's retry finishes the job.
    */
   purgeOrg: defineInternalEndpoint({
     id: 'quota.purgeOrg',

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/support.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: c6929b8366d6a2e9a1de4e86e1ce305469d57485f77c20872269c91100cef5e6
+// SOURCE-SHA256: 72e239de4e8ae75f9ec84bd870689e077d02f483f1996a1bf1847d756fd8ef56
 // SPDX-License-Identifier: Apache-2.0
 import { LifeBuoy } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -258,6 +258,10 @@ export const supportTopic: HelpTopic = {
         {
           "type": "text",
           "content": "Setting a case to the status it already has changes nothing. The waiting-on-you time already counted is kept, and a repeated close does not move when the case was closed or who closed it."
+        },
+        {
+          "type": "text",
+          "content": "The status route is shared by both sides. Its staff side (support_cases:write, which reaches any org's case) holds the same bar as the staff-only case routes: the system org as the active org and an MFA-grade session."
         },
         {
           "type": "text",

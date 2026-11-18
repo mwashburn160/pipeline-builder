@@ -59,9 +59,9 @@ export function PlanChangeModal({
       try {
         const res = await api.getPlanPreview(targetPlan.tier, interval);
         const next = res.data?.preview ?? null;
-        // A preview priced at a different interval than the one this modal
-        // labels its amounts with is a wrong number — fail open to the list
-        // price instead (the server prices at the subscription's interval).
+        // The server prices at the interval asked for; a preview that still
+        // names another one would be a wrong number under this modal's labels,
+        // so fail open to the list price instead.
         if (!cancelled) setPreview(next && next.interval === interval ? next : null);
       } catch { /* fail open to the list price — see above */ }
     })();

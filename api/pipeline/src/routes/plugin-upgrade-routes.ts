@@ -182,7 +182,11 @@ export function createPluginUpgradeRoutes(): Router {
             continue;
           }
 
-          const updated = await pipelineService.update(id, { props } as never, orgId, userId);
+          // Conditional on the row the upgrade was computed from: `props` is
+          // `existing.props` rewritten, so an edit that landed since the read
+          // would otherwise be silently overwritten by the stale config. A moved
+          // row fails this pipeline (ConcurrencyConflictError), never the rest.
+          const updated = await pipelineService.update(id, { props } as never, orgId, userId, { expectedUpdatedAt: existing.updatedAt ?? undefined });
           if (!updated) { results.push({ pipelineId: id, status: 'failed', error: 'Pipeline not found' }); continue; }
           // Awaited: the moved-off versions' references are gone before the response
           // (and before any plugin delete that follows it).

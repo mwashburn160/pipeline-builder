@@ -27,7 +27,7 @@ import { bakePlatformRegistry } from './registry.js';
 const { bootstrap: BOOTSTRAP_PLUGIN, synth: SYNTH_PLUGIN } = MANAGED_TOOLCHAIN;
 
 /** `toolchain export` file format version. */
-export const TOOLCHAIN_FILE_FORMAT = 1;
+const TOOLCHAIN_FILE_FORMAT = 1;
 
 /** A plugin record as the lookup returned it (opaque here; pipeline-core reads it). */
 type PluginRecord = ResolvedBootstrap['plugin'];
@@ -60,7 +60,7 @@ export interface ToolchainFile {
 }
 
 /** The refusal every failure here raises — one code, so `PB_SYNTH_FAILURE` reports it uniformly. */
-export function bootstrapUnresolved(message: string, code: string = ErrorCode.BOOTSTRAP_IMAGE_UNRESOLVED): PluginResolutionError {
+function bootstrapUnresolved(message: string, code: string = ErrorCode.BOOTSTRAP_IMAGE_UNRESOLVED): PluginResolutionError {
   return new PluginResolutionError([{ plugin: BOOTSTRAP_PLUGIN, code, message }]);
 }
 
@@ -126,7 +126,7 @@ export async function resolveBootstrapImage(
 }
 
 /** The managed synth reference of a pipeline's props, when its synth plugin is `cdk-synth`. */
-export function managedSynthKey(props: Record<string, unknown>): string | null {
+function managedSynthKey(props: Record<string, unknown>): string | null {
   const ref = (props.synth as { plugin?: { name?: string; publisher?: string; alias?: string; filter?: Record<string, unknown> } } | undefined)?.plugin;
   if (!ref?.name || !isManagedToolchainRef(ref)) return null;
   return pluginArtifactAlias(ref as { name: string });

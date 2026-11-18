@@ -322,7 +322,7 @@ export interface NewSession {
  * never evicts a slot of the other kind. The slot stores the scope and the
  * auth context, so later renewals can neither widen the one nor raise the other.
  *
- * @param user - User document to generate tokens for (`+tokenVersion +isSuperAdmin`)
+ * @param user - User document to generate tokens for (the full account, loaded with `+isSuperAdmin`)
  * @param activeOrgId - Optional org ID to use as active (falls back to lastActiveOrgId, then first membership)
  */
 export async function issueTokens(user: UserDocument, activeOrgId: string | undefined, session: NewSession): Promise<IssuedTokens> {

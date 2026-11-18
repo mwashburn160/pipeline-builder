@@ -62,7 +62,7 @@ const DEFAULT_MAX_STACK_PAGES = 200;
  * list to the caller's org unless it honours that parameter (a system-org
  * caller), and the caller checks which org it got back.
  */
-export async function fetchAllRegistryEntries(
+async function fetchAllRegistryEntries(
   client: { get<T = unknown>(url: string, params?: Record<string, unknown>): Promise<T> },
   pipelineUrl: string,
   orgId?: string,

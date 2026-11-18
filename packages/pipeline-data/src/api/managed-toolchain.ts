@@ -72,7 +72,7 @@ export interface ManagedToolchainCaller {
 }
 
 /** Whether `version` is a release version (`MAJOR.MINOR.PATCH`). */
-export function isToolchainReleaseVersion(version: unknown): version is string {
+function isToolchainReleaseVersion(version: unknown): version is string {
   return typeof version === 'string' && TOOLCHAIN_RELEASE_VERSION_PATTERN.test(version);
 }
 
@@ -232,11 +232,11 @@ const isYanked = (p: Plugin) => p.yankedAt !== null || p.lifecycle === 'yanked';
 const isDeprecated = (p: Plugin) => p.deprecatedAt !== null || p.lifecycle === 'deprecated';
 
 /** Whether both halves are present (the release EXISTS). */
-export function releaseExists(h: ReleaseHalves): h is ReleaseHalves & { bootstrap: Plugin; synth: Plugin } {
+function releaseExists(h: ReleaseHalves): h is ReleaseHalves & { bootstrap: Plugin; synth: Plugin } {
   return h.release !== null && h.bootstrap !== null && h.synth !== null;
 }
 
-export function releaseLifecycleProblems(h: ReleaseHalves): ReleaseLifecycleProblem[] {
+function releaseLifecycleProblems(h: ReleaseHalves): ReleaseLifecycleProblem[] {
   if (!releaseExists(h)) return ['missing'];
   const halves = [h.bootstrap, h.synth];
   const out: ReleaseLifecycleProblem[] = [];

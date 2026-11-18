@@ -282,7 +282,7 @@ export async function createUser(ctx: ScimContext, body: Record<string, unknown>
   }
 
   const oid = toOrgId(ctx.orgId);
-  const existingUser = await User.findOne({ email }).select('+isSuperAdmin +tokenVersion');
+  const existingUser = await User.findOne({ email }).select('+isSuperAdmin');
   if (existingUser?.isSuperAdmin === true) throw scimPlatformAdmin();
   if (existingUser) {
     const already = await UserOrganization.exists({ userId: existingUser._id, organizationId: oid });
@@ -391,7 +391,10 @@ async function createMembership(
  * took effect. A first claim (a membership SCIM adopts, whose `scim.userName` is
  * still unset) is fine; a later CHANGE is `mutability`.
  */
-function applyAttributes(membership: UserOrganizationDocument, attrs: Partial<ReturnType<typeof scimAttributes>>): string[] {
+function applyAttributes(
+  membership: UserOrganizationDocument,
+  attrs: Partial<ReturnType<typeof scimAttributes>>,
+): { changed: string[]; update: Record<string, unknown> } {
   // `membership.scim` is a Mongoose SUB-DOCUMENT: spreading it directly copies
   // its internals (`$__`, `_doc`, …) and NONE of the schema fields, which
   // silently emptied `current` — and with it the write-once check below. Convert
@@ -407,16 +410,28 @@ function applyAttributes(membership: UserOrganizationDocument, attrs: Partial<Re
     );
   }
   const changed: string[] = [];
+  // PER-FIELD paths, never the whole `scim` sub-document: `scim.groups` is
+  // written concurrently by Group PATCHes (`$addToSet`), and replacing `scim`
+  // from this request's earlier read would drop a group key added meanwhile.
+  const update: Record<string, unknown> = {};
   for (const key of ['externalId', 'userName', 'givenName', 'familyName', 'displayName'] as const) {
     const next = attrs[key];
     if (next === undefined) continue;
     if ((current[key] ?? null) !== next) changed.push(key);
-    current[key] = next;
+    update[`scim.${key}`] = next;
   }
-  current.managed = true;
-  current.lastSyncedAt = new Date();
-  membership.set('scim', { ...current, groups: current.groups ?? [] });
-  return changed;
+  update['scim.managed'] = true;
+  update['scim.lastSyncedAt'] = new Date();
+  return { changed, update };
+}
+
+/** Write {@link applyAttributes}' result when anything moved. Query-level, so it
+ *  touches only the directory-owned fields it names. */
+async function saveAttributes(membership: UserOrganizationDocument, applied: { changed: string[]; update: Record<string, unknown> }): Promise<string[]> {
+  if (applied.changed.length > 0) {
+    await UserOrganization.updateOne({ _id: membership._id }, { $set: applied.update }, { runValidators: true });
+  }
+  return applied.changed;
 }
 
 /**
@@ -487,8 +502,7 @@ export async function replaceUser(ctx: ScimContext, id: string, body: Record<str
   // is only reached for a deactivation, and the attributes are deliberately
   // ignored rather than half-applied.
   if (ctx.entitled) {
-    changed.push(...applyAttributes(membership, scimAttributes(body)));
-    if (changed.length > 0) await membership.save();
+    changed.push(...await saveAttributes(membership, applyAttributes(membership, scimAttributes(body))));
   }
   const flip = await setActive(ctx, membership, active);
   changed.push(...flip.changed);
@@ -544,8 +558,7 @@ export async function patchUser(ctx: ScimContext, id: string, ops: unknown): Pro
   if (!ctx.entitled && (!deactivating || attributeChange)) throw scimNotEntitled();
   if (attributeChange) assertIntentAllowed(ctx, 'update');
 
-  const changed = attributeChange ? applyAttributes(membership, attrs) : [];
-  if (changed.length > 0) await membership.save();
+  const changed = attributeChange ? await saveAttributes(membership, applyAttributes(membership, attrs)) : [];
   const flip = nextActive !== undefined ? await setActive(ctx, membership, nextActive) : undefined;
   if (flip) changed.push(...flip.changed);
 

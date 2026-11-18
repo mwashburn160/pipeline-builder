@@ -25,6 +25,9 @@ const mockAssignBuiltinAdminRole = jest.fn<(...a: unknown[]) => Promise<unknown>
 const mockRemoveBuiltinAdminRole = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockEnsureBaselineRole = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockRecomputeUserOrgRole = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockUserUpdateOne = jest.fn<(...a: unknown[]) => Promise<unknown>>(async () => undefined);
+const mockUoExists = jest.fn<(...a: unknown[]) => unknown>(() => null);
+const mockUoDeleteMany = jest.fn<(...a: unknown[]) => unknown>(() => ({ session: async () => undefined }));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 jest.unstable_mockModule('../src/services/cascade-outbox.js', () => ({
@@ -72,9 +75,14 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   // Linking stubs: user-profile/auth SUTs import these from the models barrel.
   PersonalAccessToken: {},
   UserPreferences: {},
-  User: { findById: (...a: unknown[]) => mockUserFindById(...a) },
+  User: { findById: (...a: unknown[]) => mockUserFindById(...a), updateOne: (...a: unknown[]) => mockUserUpdateOne(...a) },
   Organization: { findById: jest.fn() },
-  UserOrganization: { findOne: (...a: unknown[]) => mockUoFindOne(...a), create: jest.fn(), deleteMany: jest.fn() },
+  UserOrganization: {
+    findOne: (...a: unknown[]) => mockUoFindOne(...a),
+    create: jest.fn(),
+    deleteMany: (...a: unknown[]) => mockUoDeleteMany(...a),
+    exists: (...a: unknown[]) => ({ session: async () => mockUoExists(...a) }),
+  },
   Role: { findOne: jest.fn() },
   RoleAssignment: { updateOne: jest.fn(), deleteMany: jest.fn() },
 }));
@@ -160,5 +168,34 @@ describe('UserAdminService.updateUserById — role change', () => {
     expect(mockRemoveBuiltinAdminRole).not.toHaveBeenCalled();
     expect(mockEnsureBaselineRole).not.toHaveBeenCalled();
     expect(changes).not.toContain('role');
+  });
+});
+
+describe('UserAdminService.updateUserById — removal from every org (sysadmin)', () => {
+  const sysadminOpts = { actor: { isSuperAdmin: true, isOrgAdmin: false, permissions: [] } };
+
+  it('bumps claimsVersion so the removed user\'s access tokens stop working', async () => {
+    // Regression: the branch deleted every membership + RoleAssignment but moved
+    // no version, so the JWT (org, role, permissions) kept passing until expiry
+    // and the post-commit publish re-sent the UNCHANGED version.
+    const user: any = { _id: 'u1', tokenVersion: 2, claimsVersion: 4, save: mockUserSave, lastActiveOrgId: 'org-1' };
+    mockUserFindById.mockReturnValue(userFindByIdResolving(user));
+
+    const { changes } = await userAdminService.updateUserById('u1', { organizationId: null } as any, sysadminOpts as any);
+
+    expect(changes).toContain('organizationId (removed)');
+    expect(mockUoDeleteMany).toHaveBeenCalledWith({ userId: 'u1' });
+    expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $inc: { claimsVersion: 1 } }, { session: { id: 'sess' } });
+  });
+
+  it('refuses to strip an org OWNER\'s memberships (the org would be left ownerless)', async () => {
+    const user: any = { _id: 'u1', save: mockUserSave };
+    mockUserFindById.mockReturnValue(userFindByIdResolving(user));
+    mockUoExists.mockReturnValueOnce({ _id: 'm1' });
+
+    await expect(userAdminService.updateUserById('u1', { organizationId: '' } as any, sysadminOpts as any))
+      .rejects.toThrow(UA_CANNOT_CHANGE_OWNER);
+    expect(mockUoDeleteMany).not.toHaveBeenCalled();
+    expect(mockUserSave).not.toHaveBeenCalled();
   });
 });

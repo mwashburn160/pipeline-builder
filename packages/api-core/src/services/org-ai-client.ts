@@ -41,10 +41,6 @@ import { serviceEndpoint } from '../utils/service-registry.js';
 /** The two platform reads, defined once in `contracts/platform.ts`. */
 const { orgAIAccess: ACCESS, orgAIKey: KEY } = PLATFORM_INTERNAL;
 
-/** Platform path prefixes (exported for the platform route-coverage + mesh declarations). */
-export const ORG_AI_ACCESS_PATH = ACCESS.path.replace(/\/:orgId$/, '');
-export const ORG_AI_KEYS_PATH = KEY.path.replace(/\/:orgId\/:provider$/, '');
-
 /** How long an org's switch + configured-provider list is reused (default 30s). */
 export const ORG_AI_ACCESS_TTL_MS = envInt('ORG_AI_ACCESS_TTL_MS', 30_000, { min: 0 });
 /** How long a decrypted org key is held in memory (default 60s; 0 disables caching). */

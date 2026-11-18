@@ -28,7 +28,7 @@ export interface CdkInfo {
  * (`$SHELL -ilc`) so node version managers like nvm/asdf and homebrew paths
  * become visible. stdin is ignored so an interactive shell can't block on input.
  */
-export function getToolInfo(tool: string, versionArg = '--version'): CdkInfo {
+function getToolInfo(tool: string, versionArg = '--version'): CdkInfo {
   const cmd = `${tool} ${versionArg}`;
   try {
     const output = execSync(cmd, { encoding: 'utf-8', stdio: 'pipe' });

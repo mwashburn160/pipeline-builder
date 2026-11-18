@@ -208,7 +208,7 @@ function openCommand(): { command: string; args: string[] } | null {
  * arbitrary scheme to the OS opener is how "click this link" turns into "run
  * this program".
  */
-export function openInBrowser(url: string): boolean {
+function openInBrowser(url: string): boolean {
   let parsed: URL;
   try {
     parsed = new URL(url);

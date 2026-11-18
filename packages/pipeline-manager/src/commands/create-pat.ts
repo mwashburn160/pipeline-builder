@@ -5,13 +5,14 @@ import axios from 'axios';
 import { Command } from 'commander';
 import pico from 'picocolors';
 import { TIMEOUTS } from '../config/cli.constants.js';
-import { assertCredentialTlsAllowed, credentialHttpsAgent, switchOrganization } from '../utils/auth-utils.js';
+import { assertCredentialTlsAllowed, switchOrganization } from '../utils/auth-utils.js';
 import { printCommandHeader, withSslOptions } from '../utils/command-utils.js';
 import { getApiConfig } from '../utils/config-loader.js';
 import { beginDeviceApproval, DeviceAuthError, pollForDeviceToken } from '../utils/device-auth.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printDebug, printError, printInfo, printKeyValue, printSuccess } from '../utils/output-utils.js';
 import { requestCorrelationHeaders } from '../utils/request-context.js';
+import { platformHttpsAgent } from '../utils/tls.js';
 
 const { bold, green, yellow } = pico;
 
@@ -99,7 +100,7 @@ export function createPat(program: Command): void {
         }
         const expiresIn = days * 86400;
 
-        const httpsAgent = credentialHttpsAgent(options.verifySsl);
+        const httpsAgent = platformHttpsAgent(options.verifySsl);
         const timeout = TIMEOUTS.HTTP_REQUEST;
         const transport = { url, httpsAgent, timeout };
 

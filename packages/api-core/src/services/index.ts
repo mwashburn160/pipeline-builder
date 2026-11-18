@@ -39,7 +39,6 @@ export {
   assessVersionVulns,
   versionScanFacts,
   scanFreshness,
-  scanWarnings,
   lastScannedAt,
   scanStaleHours,
   severityOf,
@@ -266,7 +265,5 @@ export {
   assertOrgAIEnabled,
   requireOrgAIEnabled,
   resetOrgAICache,
-  ORG_AI_ACCESS_PATH,
-  ORG_AI_KEYS_PATH,
   type OrgAIAccess,
 } from './org-ai-client.js';

@@ -72,12 +72,12 @@ const doraWithData: DoraMetrics = {
   environments: [
     {
       environment: 'production',
-      deploymentFrequency: { deployments: 4, perDay: 0.13 },
-      leadTime: { deployments: 4, medianSeconds: 300, level: 'elite' },
+      deploymentFrequency: { deployments: 4, perDay: 0.13, level: null },
+      leadTime: { deployments: 4, medianSeconds: 300, p90Seconds: null, p95Seconds: null, level: 'elite' },
       changeFailureRate: { rate: 25, deployTimeFailures: 1, postDeployFailures: 0, attempts: 4, level: 'medium' },
     },
   ],
-  meanTimeToRestore: { medianSeconds: null, incidents: 0, restored: 0 },
+  meanTimeToRestore: { medianSeconds: null, incidents: 0, restored: 0, p90Seconds: null, p95Seconds: null, level: null },
   coverage: { registered: 2, deploying: 1, withoutDeploys: 0 },
 };
 
@@ -126,6 +126,31 @@ describe('DoraReport — headline fallback + retention truncation', () => {
       />,
     );
     expect(screen.queryByText(/limited by your DORA retention/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('DoraReport — performance bands', () => {
+  it('shows the server-scored band on the deployment-frequency and MTTR cards too', () => {
+    // The server scores all four metrics; the client type dropped `level` from
+    // deployment frequency and MTTR, so only two cards ever showed a band.
+    const env = doraWithData.environments[0];
+    render(
+      <DoraReport
+        {...baseProps}
+        dora={{
+          ...doraWithData,
+          environments: [{
+            ...env,
+            deploymentFrequency: { ...env.deploymentFrequency, level: 'low' },
+            leadTime: { ...env.leadTime, level: null },
+            changeFailureRate: { ...env.changeFailureRate, level: null },
+          }],
+          meanTimeToRestore: { ...doraWithData.meanTimeToRestore, medianSeconds: 600, incidents: 1, restored: 1, level: 'high' },
+        }}
+      />,
+    );
+    expect(screen.getByText('Low')).toBeInTheDocument();
+    expect(screen.getByText('High')).toBeInTheDocument();
   });
 });
 

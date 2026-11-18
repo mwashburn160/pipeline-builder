@@ -240,14 +240,19 @@ export function startDlqWorker(quotaService: QuotaService): void {
       // The slot-wait clock is per RUN: carried over, the retry's first slot
       // denial would measure from the original run's wait (possibly hours ago)
       // and fail terminally at once.
-      const { failureCategory: _, lastError: __, slotDelays: _sd, slotWaitStartedAt: _sw, ...cleanData } = job.data;
+      const { failureCategory: _, lastError: __, slotDelays: _sd, slotWaitStartedAt: _sw, slotHandedOff: _ho, ...cleanData } = job.data;
       const tier = await getOrgTier(quotaService, orgId, getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' }));
 
-      // Mark the hand-off BEFORE making it. The re-queued job (fresh data,
-      // quotaReleased unset) owns this org's plugin-quota slot and releases it
-      // on its terminal, so the original DLQ record must stop claiming it or
-      // `purgeDlq` / the auto-purge will release the SAME slot again when they
-      // evict this lingering completed record.
+      // Mark the hand-off BEFORE making it. The re-queued job (carrying this
+      // record's own `quotaReleased`) owns this org's plugin-quota slot and
+      // releases it on its terminal, so the original DLQ record must stop
+      // claiming it or `purgeDlq` / the auto-purge will release the SAME slot
+      // again when they evict this lingering completed record.
+      //
+      // Its OWN flag, not `quotaReleased`: that one is copied into the re-queued
+      // job, so setting it here meant a processor RETRY (the add below failed
+      // once) re-queued a build that believed its slot was already released —
+      // and its terminal failure then never gave the slot back.
       //
       // Ordering matters because either write can fail. Adding first left a
       // window where the retry was live but the record still claimed the slot —
@@ -255,7 +260,7 @@ export function startDlqWorker(quotaService: QuotaService): void {
       // Marking first can only strand a slot if the `add` then fails, and a
       // stranded slot is the conservative direction: it self-heals at the quota
       // period reset instead of over-admitting builds now.
-      job.data.quotaReleased = true;
+      job.data.slotHandedOff = true;
       await job.updateData(job.data);
 
       // Deterministic job id so a re-run of this processor (BullMQ retries it on

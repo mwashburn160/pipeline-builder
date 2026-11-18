@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { COMPLIANCE_INTERNAL, ErrorCode, callInternal, createLogger, sendError, sendSuccess, createSafeClient, getServiceAuthHeader, isSystemOrgId, errorMessage, userHasPermission } from '@pipeline-builder/api-core';
+import { COMPLIANCE_INTERNAL, ErrorCode, callInternal, createLogger, sendError, sendSuccess, createSafeClient, getServiceAuthHeader, isSystemOrgId, errorMessage } from '@pipeline-builder/api-core';
 import { config } from '../config/index.js';
 import type { RefreshSessionKind } from '../constants/vocabulary.js';
 import { audit } from '../helpers/audit.js';
@@ -21,6 +21,7 @@ import { auditService, authService } from '../services/index.js';
 import { INVITATION_ACCEPT_ERRORS } from '../services/invitation-errors.js';
 import { JOIN_NOT_ELIGIBLE, JOIN_REQUEST_NOT_FOUND, JOIN_SEAT_LIMIT } from '../services/org-domain-errors.js';
 import { signInAuth } from '../services/session/access-tokens.js';
+import { holdsInheritedTeamAccess } from '../services/session/membership-context.js';
 import { hashRefreshToken, renewSessionTokens, switchSessionOrg } from '../services/session/refresh-sessions.js';
 import type { AccessTokenPayload } from '../types/index.js';
 import { validateBody, registerSchema, loginSchema, completeOnboardingSchema, joinOrgSchema } from '../utils/validation.js';
@@ -576,7 +577,10 @@ export const switchOrg = withController('Switch org', async (req, res) => {
   const { user, authority } = switched;
 
   // An INHERITED switch — a parent org's admin entering one of its teams with no
-  // membership row there — additionally needs `team_access:open`.
+  // membership row there — additionally needs `team_access:open` IN THE
+  // ANCESTOR whose authority it uses. Read from that org's Roles, not from the
+  // caller's token: the token carries the permissions of the org the session
+  // is in NOW (say, a personal org that grants it), not the ancestor's.
   //
   // The permission is checked HERE and not in `resolveOrgAuthority`, which is
   // also the token chokepoint (`middleware/auth.ts`, `membership-context.ts`):
@@ -591,7 +595,8 @@ export const switchOrg = withController('Switch org', async (req, res) => {
   // this one does not. The permission answers "may this admin reach into teams
   // at all?"; the step-up machinery answers "may they go as far as becoming
   // one of its members?".
-  if (authority.via === 'ancestor' && !userHasPermission(req, 'team_access:open')) {
+  if (authority.via === 'ancestor'
+    && !(authority.inheritedFromOrgId && await holdsInheritedTeamAccess(user, authority.inheritedFromOrgId))) {
     return sendError(
       res, 403,
       'Entering a team you are not a member of needs team_access:open in the parent organization',

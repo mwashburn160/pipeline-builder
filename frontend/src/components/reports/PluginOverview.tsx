@@ -18,18 +18,19 @@ export function PluginOverview({ loading, pluginSummary, distribution }: PluginO
   const computeDistribution = distribution.reduce<Record<string, number>>((acc, d) => { acc[d.compute_type] = (acc[d.compute_type] || 0) + d.count; return acc; }, {});
   const maxDistCount = Math.max(1, ...Object.values(typeDistribution), ...Object.values(computeDistribution));
 
-  if (loading && !hasPluginOverview) return <StatCardSkeleton count={5} />;
+  if (loading && !hasPluginOverview) return <StatCardSkeleton count={6} />;
   if (!loading && !hasPluginOverview) return <EmptyState icon={Puzzle} title="No plugin data yet" description="No plugins in this window — create and build plugins to see inventory stats and distribution here." illustration="plugins" />;
   if (!hasPluginOverview || !pluginSummary) return null;
 
   return (
     <>
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
         {[
           { label: 'Total', value: pluginSummary.total },
           { label: 'Active', value: pluginSummary.active },
           { label: 'Inactive', value: pluginSummary.inactive },
           { label: 'Public', value: pluginSummary.public },
+          { label: 'Org', value: pluginSummary.org },
           { label: 'Private', value: pluginSummary.private },
         ].map((s) => (
           <StatCard key={s.label} label={s.label} value={s.value} />

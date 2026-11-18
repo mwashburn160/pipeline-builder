@@ -233,7 +233,9 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
 
   const send = useCallback(async (raw: string) => {
     const query = raw.trim();
-    if (!query || busy || quotaBlocked) return;
+    // `isReadOnly` too: the turn is a POST that a read-only session is refused,
+    // and the example prompts reach here without going through the composer.
+    if (!query || busy || quotaBlocked || isReadOnly) return;
     setError(null);
     setInput('');
 
@@ -318,7 +320,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
     } finally {
       if (!cancelledRef.current) setBusy(false);
     }
-  }, [busy, quotaBlocked, messages, ai.selectedProvider, ai.currentSource, ai.selectedModel, ai.customApiKey, repoToken, cancelledRef]);
+  }, [busy, quotaBlocked, isReadOnly, messages, ai.selectedProvider, ai.currentSource, ai.selectedModel, ai.customApiKey, repoToken, cancelledRef]);
 
   /** Commit a proposal via the normal write API (the user's own session). */
   const commitProposal = useCallback(async (index: number) => {
@@ -457,7 +459,8 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
                   <button
                     key={ex}
                     onClick={() => send(ex)}
-                    disabled={quotaBlocked}
+                    disabled={quotaBlocked || isReadOnly}
+                    title={isReadOnly ? READ_ONLY_REASON : undefined}
                     className="block w-full text-left px-3 py-2 rounded-lg border border-default hover:border-brand hover:text-brand transition-colors"
                   >
                     {ex}

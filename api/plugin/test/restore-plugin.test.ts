@@ -87,7 +87,12 @@ const QUOTA_RESET_AT = '2026-11-16T00:00:00.000Z';
 const withQuotaReservation = jest.fn(async (_opts: unknown, body: (slot: any) => Promise<unknown>) => {
   if (quotaState.denied) return { status: 'denied', reservation: {} };
   quotaState.reserved += 1;
-  const slot = { reservation: { quota: { resetAt: QUOTA_RESET_AT } }, refund: () => { quotaState.refunds += 1; } };
+  let consumed = false;
+  const slot = {
+    reservation: { quota: { resetAt: QUOTA_RESET_AT } },
+    markConsumed: () => { consumed = true; },
+    refund: () => { if (!consumed) quotaState.refunds += 1; },
+  };
   try {
     return { status: 'done', value: await body(slot) };
   } catch (err) {
@@ -201,6 +206,17 @@ describe('POST /plugins/:id/restore (restore)', () => {
     await handler(mockReq(), mockRes());
     expect(mockRestore).not.toHaveBeenCalled();
     expect(mockEmitPluginAudit).not.toHaveBeenCalled();
+  });
+
+  it('REGRESSION: keeps the slot when recording its period fails AFTER the row was restored', async () => {
+    // The plugin is live again either way; refunding here under-counted the
+    // org's plugins quota by one per failed snapshot write.
+    mockFindDeletedById.mockResolvedValue(existingPlugin);
+    mockRestore.mockResolvedValue(existingPlugin);
+    mockSetQuotaSnapshot.mockRejectedValueOnce(new Error('db down'));
+    await handler(mockReq(), mockRes());
+    expect(mockRestore).toHaveBeenCalled();
+    expect(quotaState).toMatchObject({ reserved: 1, refunds: 0 });
   });
 
   it('refunds the slot when nothing was restored (404)', async () => {

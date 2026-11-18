@@ -1,6 +1,6 @@
 // GENERATED FROM docs/service-mesh.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: c3b8a5566a8f003b171460d436520cdf33ddd10d8f833b56845af6449c317c96
+// SOURCE-SHA256: 5bf8a4e644bb8efba06b6861b7b37694458d080f7956ac7c33008fc7a197b2e5
 // SPDX-License-Identifier: Apache-2.0
 import { Network } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -396,7 +396,7 @@ export const serviceMeshTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "image-registry-internal-storage-usage): one org's registry footprint, which fills storageBytes.used on the dashboard;"
+          "content": "image-registry-internal-storage-usage): one org's registry footprint, which fills storageBytes.used on the dashboard and the account total the push gate enforces on (an incomplete scan answers 503, read as \"unknown\");"
         },
         {
           "type": "list",

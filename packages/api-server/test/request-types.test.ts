@@ -124,4 +124,16 @@ describe('createRequestContext', () => {
     expect(mockLoggerInfo).toHaveBeenCalledWith('hello', expect.any(Object));
     expect(sse.send).not.toHaveBeenCalled();
   });
+
+  it('stamps log lines with the identity requireAuth re-derived, not the pre-auth one', () => {
+    // The context is built pre-auth, when identity can only come from the
+    // client-settable x-org-id header; requireAuth then REPLACES ctx.identity
+    // with the verified one. The logger captured the first object, so every
+    // later line carried the header's org.
+    mockGetIdentity.mockReturnValue({ orgId: 'header-org' });
+    const ctx = createRequestContext(mockReq(), fakeSse(false));
+    ctx.identity = { orgId: 'verified-org' } as typeof ctx.identity;
+    ctx.log('INFO', 'after auth');
+    expect(mockLoggerInfo).toHaveBeenCalledWith('after auth', expect.objectContaining({ orgId: 'verified-org' }));
+  });
 });

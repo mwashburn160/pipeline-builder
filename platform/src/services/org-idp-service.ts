@@ -365,7 +365,9 @@ export class OrgIdpService {
         );
       }
       if (input.allowedEmailDomains !== undefined) existing.allowedEmailDomains = normalizeDomains(input.allowedEmailDomains);
-      existing.enabled = input.enabled ?? true;
+      // Omitted = keep, like every other field: saving one editor must not turn
+      // a connection an admin DISABLED back on.
+      if (input.enabled !== undefined) existing.enabled = input.enabled;
       existing.updatedBy = actor;
       assertProtocolComplete(existing);
       assertNoReservedIssuer(existing);

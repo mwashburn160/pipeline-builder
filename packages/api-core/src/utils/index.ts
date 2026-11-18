@@ -18,7 +18,6 @@ export {
   sendSuccess,
   sendError,
   sendQuotaExceeded,
-  quotaExceededMessage,
   type QuotaExceededDetails,
   sendPaginatedNested,
   paginationMeta,

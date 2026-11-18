@@ -52,8 +52,8 @@ import {
   NODE_VERSION_FLOOR,
 } from './config/cli.constants.js';
 import { banner, miniBanner } from './utils/banner.js';
-import { getApiConfig } from './utils/config-loader.js';
 import { refreshStoredSession } from './utils/command-utils.js';
+import { getApiConfig } from './utils/config-loader.js';
 import { isSessionUsable, loadSession } from './utils/credential-store.js';
 import { ERROR_CODES, handleError } from './utils/error-handler.js';
 import { printInfo, printError, printWarning, printDebug, printSection } from './utils/output-utils.js';

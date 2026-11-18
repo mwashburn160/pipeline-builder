@@ -4,16 +4,17 @@
 /**
  * quota's org-purge cascade leg (service-to-service only).
  *
- * Platform's durable cascade outbox calls this once per purged org to drop the
- * org's quota document — its enforcement record. There is deliberately no USER
+ * Platform's durable cascade outbox calls this once per purged org to drop
+ * everything quota holds for it: the quota document (its enforcement record),
+ * its notice settings and sent notices, and its usage ledger. There is deliberately no USER
  * route that does this: `quotaService.update()` and `.resetUsage()` both refuse
  * a missing document and never upsert, so dropping a live org's row would leave
  * it unenforceable and unrepairable from the dashboard. Only platform, which
  * alone decides an org is purged, may ask.
  *
- * Idempotent: `tables.organizations` is 1 when the document went and 0 when it
- * was already gone, both 200. One `deleteOne`, so there is no partial outcome; a
- * store failure is a 500 and the leg retries.
+ * Idempotent: `tables` counts the rows removed per collection — all zero when
+ * the org was already gone — both 200. Every delete is keyed on the org id, so a
+ * store failure part-way is a 500 and the leg's retry finishes the job.
  *
  * Registers: POST /quotas/internal/orgs/:orgId/purge → { orgId, tables }
  */
@@ -77,9 +78,7 @@ export function createInternalOrgPurgeRoutes(svc: QuotaService = defaultQuotaSer
       } as const;
 
       try {
-        const deleted = await svc.delete(orgId);
-        const tables = { organizations: deleted ? 1 : 0 };
-        logger.info('Org quota purged', { orgId, tables });
+        const tables = await svc.purgeOrg(orgId);
         safeAudit({ ...audit, details: { owner: 'quota', tables } });
         return sendSuccess(res, 200, { orgId, tables });
       } catch (err) {

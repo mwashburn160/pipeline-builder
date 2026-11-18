@@ -69,8 +69,8 @@ process.env.REGISTRY_TOKEN_SERVICE = 'test-registry';
 process.env.JWT_SECRET = 'test-jwt-secret';
 
 import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
-import { OUTSIDE_BLOB_GC_WINDOW_MS } from './helpers/blob-gc-clock.js';
 import jwt from 'jsonwebtoken';
+import { OUTSIDE_BLOB_GC_WINDOW_MS } from './helpers/blob-gc-clock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // @pipeline-builder/api-core ships as CommonJS under a `type: module` package,

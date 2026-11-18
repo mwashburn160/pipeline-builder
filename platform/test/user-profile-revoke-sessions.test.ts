@@ -142,8 +142,11 @@ beforeEach(() => {
 
 describe('UserProfileService.revokeAllSessions — matches logout', () => {
   it('bumps tokenVersion, CLEARS every refresh-session slot, and publishes revocation', async () => {
-    const userDoc = { _id: 'user-1', tokenVersion: 3, lastActiveOrgId: 'org-1', issuedTokens: [] };
-    mockUserFindById.mockReturnValue(selectResolving(userDoc));
+    // A STALE read (another revocation landed since): the returned doc must carry
+    // the version the `$inc` produced, not `read + 1`.
+    const userDoc = { _id: 'user-1', tokenVersion: 1, claimsVersion: 0, lastActiveOrgId: 'org-1', issuedTokens: [] };
+    const select = jest.fn((_fields: string) => Promise.resolve(userDoc));
+    mockUserFindById.mockReturnValue({ select });
     // The $inc's own result: tokenVersion 4, plus 2 claims bumps.
     mockUserFindOneAndUpdate.mockReturnValue({ lean: async () => ({ tokenVersion: 4, claimsVersion: 2 }) });
 
@@ -165,6 +168,12 @@ describe('UserProfileService.revokeAllSessions — matches logout', () => {
     // Returned doc carries the bumped version for minting the replacement token.
     expect(returned).toBe(userDoc);
     expect(returned.tokenVersion).toBe(4);
+    expect(returned.claimsVersion).toBe(2);
+    // The WHOLE account is loaded (the caller mints the surviving session from
+    // it). Regression: `'+tokenVersion issuedTokens'` projected ONLY
+    // `issuedTokens` (tokenVersion is not `select: false`, so the `+` made it a
+    // literal field name) and the replacement session failed to mint.
+    expect(select).toHaveBeenCalledWith('+isSuperAdmin');
   });
 
   it('throws PROFILE_USER_NOT_FOUND without touching state when the user is gone', async () => {

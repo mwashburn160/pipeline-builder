@@ -24,7 +24,7 @@
  * sso-jit.integration.test.ts.
  */
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
+import { jest, describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
 import { integrationSuite } from './helpers/integration-gate.js';
 
 process.env.SECRET_ENCRYPTION_KEY ||= '0000000000000000000000000000000000000000000000000000000000000000';
@@ -318,6 +318,28 @@ suite('SCIM 2.0 provisioning (real Mongo replica set)', () => {
     // The platform identity is untouched.
     const user = await m.User.findById(created.resource.id).lean();
     expect(user.email).toBe('alice@acme.com');
+  });
+
+  it('an attribute PATCH keeps a group key a concurrent Group PATCH added after its read', async () => {
+    // Regression: the attribute write replaced the WHOLE `scim` sub-document from
+    // the membership read at the start of the request, so a `$addToSet
+    // 'scim.groups'` that landed in between (IdPs send Group and User PATCHes in
+    // parallel) was silently dropped.
+    const created = await createAlice();
+    const realFindOne = m.UserOrganization.findOne.bind(m.UserOrganization);
+    const spy = jest.spyOn(m.UserOrganization, 'findOne').mockImplementationOnce((async (...a: unknown[]) => {
+      const doc = await realFindOne(...a);
+      await m.UserOrganization.collection.updateOne({ _id: doc._id }, { $addToSet: { 'scim.groups': 'grp-late' } });
+      return doc;
+    }) as never);
+    try {
+      await scim.patchUser(ctx, created.resource.id, [{ op: 'replace', path: 'displayName', value: 'Alice N.' }]);
+    } finally {
+      spy.mockRestore();
+    }
+    const row = await m.UserOrganization.collection.findOne({ userId: new mongoose.Types.ObjectId(created.resource.id), organizationId: new mongoose.Types.ObjectId(ctx.orgId) });
+    expect(row.scim.displayName).toBe('Alice N.');
+    expect(row.scim.groups).toContain('grp-late');
   });
 
   it('IGNORES attributes it does not model rather than failing the whole sync', async () => {

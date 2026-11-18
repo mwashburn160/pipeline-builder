@@ -331,8 +331,8 @@ async function redeemAndIssue(
   // everywhere, password reset, deletion) or — for a session opened as a
   // superadmin — once they lose the flag, and for one opened under tenant
   // (ancestor-admin) authority — once their claimsVersion moves (a role or
-  // membership change). `+tokenVersion` / `+isSuperAdmin` are `select: false`.
-  const operator = await User.findById(requesterId).select('+tokenVersion +isSuperAdmin');
+  // membership change). `+isSuperAdmin`: that flag is `select: false`.
+  const operator = await User.findById(requesterId).select('+isSuperAdmin');
   if (!operator) {
     meterImpersonation(kind, 'not_redeemable');
     return { ok: false, code: IMP_NOT_APPROVED };

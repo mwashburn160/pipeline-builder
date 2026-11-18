@@ -85,6 +85,11 @@ describe('parseLogQuery', () => {
     expect(() => parseLogQuery('sk_live_51H8xQ2abcdefGHIJ')).toThrow(/credential/);
   });
 
+  it('rejects a credential spelled as a regex term (the same oracle)', () => {
+    expect(() => parseLogQuery('/sk_live_51H8xQ2abcdefGHIJ/')).toThrow(/credential/);
+    expect(() => parseLogQuery('/error|timeout/')).not.toThrow();
+  });
+
   it('rejects an over-long query and over-long regex', () => {
     expect(() => parseLogQuery('x'.repeat(1001))).toThrow(/too long/i);
     expect(() => parseLogQuery(`/${'a'.repeat(201)}/`)).toThrow(/too long/i);

@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { trace, SpanStatusCode, type Span, type Attributes } from '@opentelemetry/api';
-import { NodeSDK } from '@opentelemetry/sdk-node';
 import { createLogger } from '@pipeline-builder/api-core';
 
 const logger = createLogger('tracing');
@@ -45,21 +44,23 @@ export async function withSpan<T>(
   });
 }
 
-// Module-local SDK handle. Production services start tracing through the
-// `otel-bootstrap.js` `--import` preload, which registers its own SDK on the
-// global provider — so this stays null and `shutdownTracing()` is a no-op.
-// It is retained because `server.ts` calls `shutdownTracing()` on shutdown.
-let sdk: NodeSDK | null = null;
+/**
+ * The global key the `otel-bootstrap` preload publishes its (memoized) SDK
+ * shutdown under. A symbol on `globalThis` rather than an import: the preload
+ * must not load this package's barrel (see otel-bootstrap.ts).
+ */
+const OTEL_SHUTDOWN_KEY = Symbol.for('pipeline-builder.otel.shutdown');
 
 /**
- * Shutdown the OpenTelemetry SDK gracefully.
+ * Flush and shut down the OpenTelemetry SDK the `otel-bootstrap` preload
+ * started, and wait for it. A no-op when tracing is off (no preload SDK).
+ * Never rejects: the preload's shutdown swallows exporter errors.
  */
 export async function shutdownTracing(): Promise<void> {
-  if (sdk) {
-    await sdk.shutdown();
-    sdk = null;
-    logger.info('OpenTelemetry tracing shut down');
-  }
+  const shutdown = (globalThis as Record<symbol, unknown>)[OTEL_SHUTDOWN_KEY];
+  if (typeof shutdown !== 'function') return;
+  await (shutdown as () => Promise<void>)();
+  logger.info('OpenTelemetry tracing shut down');
 }
 
 /**

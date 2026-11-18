@@ -153,10 +153,8 @@ export function billingApi(core: ApiCore) {
      *
      * `preview` is null when there is no subscription to re-price.
      *
-     * `interval` is the billing interval the caller is quoting in. NOTE: the
-     * server currently prices at the subscription's OWN interval and ignores
-     * this parameter; the returned `preview.interval` says which one it used,
-     * so callers must check it before showing the figure.
+     * `interval` is the billing interval the caller is quoting in (omitted: the
+     * subscription's own). The returned `preview.interval` echoes the one used.
      */
     getPlanPreview: async (tier: string, interval?: BillingInterval, opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<{ preview: PlanChangePreview | null }>>(
@@ -232,9 +230,12 @@ export function billingApi(core: ApiCore) {
       return core.request<ApiResponse<AdminOfferSummary>>(`/api/billing/admin/offers${suffix}`, { signal: opts?.signal });
     },
 
-    /** The do-not-offer list (`GET /billing/admin/offers/exclusions`). */
+    /**
+     * The do-not-offer list (`GET /billing/admin/offers/exclusions`), newest
+     * first. PAGED server-side (default 200): `total` says when there is more.
+     */
     listOfferExclusions: async (opts?: { signal?: AbortSignal }) => {
-      return core.request<ApiResponse<{ exclusions: OfferExclusion[] }>>(
+      return core.request<ApiResponse<{ exclusions: OfferExclusion[]; total: number; limit: number; offset: number }>>(
         '/api/billing/admin/offers/exclusions',
         { signal: opts?.signal },
       );

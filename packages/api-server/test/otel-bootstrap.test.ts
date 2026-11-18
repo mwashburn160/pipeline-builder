@@ -47,7 +47,11 @@ beforeEach(() => {
   jest.spyOn(console, 'warn').mockImplementation(() => undefined);
   onceSpy = jest.spyOn(process, 'once').mockImplementation(((event: string, fn: () => void) => { handlers[event] = fn; return process; }) as never);
 });
-afterEach(() => { process.env = env; onceSpy.mockRestore(); });
+afterEach(() => {
+  process.env = env;
+  onceSpy.mockRestore();
+  delete (globalThis as Record<symbol, unknown>)[Symbol.for('pipeline-builder.otel.shutdown')];
+});
 
 describe('otel-bootstrap', () => {
   it('does nothing unless OTEL_TRACING_ENABLED=true', async () => {
@@ -84,5 +88,20 @@ describe('otel-bootstrap', () => {
     expect(exporterUrls).toEqual(['http://localhost:4318/v1/traces']);
     expect(sdkOptions[0]).toMatchObject({ resource: { attributes: { 'service.name': 'billing', 'deployment.environment': 'development' } } });
     expect(start).toHaveBeenCalledTimes(1);
+  });
+
+  it('publishes ONE memoized shutdown that api-server can await, shared with the signal handlers', async () => {
+    // runServer's shutdown used to call a tracing shutdown that could never
+    // see this SDK, then process.exit(0) — killing the flush the SIGTERM
+    // handler had only started. The preload now publishes its shutdown so the
+    // server awaits it; a signal and the server share one SDK shutdown.
+    process.env.OTEL_TRACING_ENABLED = 'true';
+    await import('../src/otel-bootstrap.js');
+    const published = (globalThis as Record<symbol, unknown>)[Symbol.for('pipeline-builder.otel.shutdown')] as () => Promise<void>;
+    expect(typeof published).toBe('function');
+    handlers.SIGTERM!();
+    await published();
+    await published();
+    expect(shutdown).toHaveBeenCalledTimes(1);
   });
 });

@@ -189,6 +189,12 @@ export interface PluginBuildJobData {
    */
   quotaReleased?: boolean;
   /**
+   * Set on a DLQ record once its quota slot has passed to the build it
+   * re-queued: that build releases the slot, so this record must not (see
+   * `releasePluginQuota`). Never copied into the re-queued job.
+   */
+  slotHandedOff?: boolean;
+  /**
    * Set once the build context (local scratch dir + staged object) has been
    * deleted, which the terminal failure path does. A job carrying this can never
    * be retried — `ensureLocalBuildContext` has nothing left to rehydrate from —

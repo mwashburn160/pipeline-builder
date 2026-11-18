@@ -56,6 +56,14 @@ describe('ensurePlatformToken — pre-auth inline login', () => {
     expect(process.env.PLATFORM_TOKEN).toBe('fresh.jwt.token');
   });
 
+  it('bounds the login POST with a timeout (axios has none by default)', async () => {
+    process.env.PLATFORM_BASE_URL = 'https://api.example.com';
+    mockPost.mockResolvedValue({ data: { data: { accessToken: 'fresh.jwt.token' } } });
+    await ensurePlatformToken({ identifier: 'admin@example.com', password: 'pw' });
+    expect(mockPost.mock.calls[0]![2]).toMatchObject({ timeout: expect.any(Number) });
+    expect((mockPost.mock.calls[0]![2] as { timeout: number }).timeout).toBeGreaterThan(0);
+  });
+
   it('is a no-op when PLATFORM_TOKEN is already set', async () => {
     process.env.PLATFORM_TOKEN = 'existing';
     await ensurePlatformToken({ identifier: 'a@b.c', password: 'pw' });

@@ -132,7 +132,7 @@ function isTimeout(error: unknown): boolean {
  *  - otherwise the configuration messages the registry writes (they name env vars,
  *    never values) keep their text; anything else gets `fallbackMessage`.
  */
-export function classifyAIError(error: unknown, fallbackMessage: string): AIErrorResponse {
+function classifyAIError(error: unknown, fallbackMessage: string): AIErrorResponse {
   if (error instanceof AppError) {
     return { status: error.statusCode, code: error.code, message: error.message };
   }

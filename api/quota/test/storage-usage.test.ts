@@ -63,4 +63,12 @@ describe('fetchStorageBytes', () => {
     get.mockResolvedValue(null);
     expect(await fetchStorageBytes(['x', 'y'])).toBeNull();
   });
+
+  it('requireAll: one unmeasured member makes the whole reading unknown (an enforcement read never under-counts)', async () => {
+    get.mockImplementation(async (path: string) => (path.endsWith('/root')
+      ? { statusCode: 200, body: { data: { bytes: 100 } } }
+      : path.endsWith('/team-a') ? { statusCode: 200, body: { data: { bytes: 50 } } } : null));
+    expect(await fetchStorageBytes(['root', 'team-a', 'team-b'], { requireAll: true })).toBeNull();
+    expect(await fetchStorageBytes(['root', 'team-a'], { requireAll: true })).toBe(150);
+  });
 });

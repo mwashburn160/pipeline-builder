@@ -296,6 +296,16 @@ describe('the per-run authority recheck', () => {
     expect(mockComposeRun).not.toHaveBeenCalled();
     expect(mockDeliver).not.toHaveBeenCalled();
     expect(store.pauseDefinition).not.toHaveBeenCalled();
+    // ...and BEFORE the claim: the claim advances lastRunAt, which the owed periods are
+    // counted from, so a team-list blip read after it lost the period for good.
+    expect(store.claimDefinition).not.toHaveBeenCalled();
+    expect(mockEmit).toHaveBeenCalledWith('report_rollup_unavailable_total', {});
+
+    // The next cycle (platform back) claims it and composes the same period.
+    mockRollup.mockResolvedValue(['acme', 'team-1']);
+    await cycle();
+    expect(store.claimDefinition).toHaveBeenCalledTimes(1);
+    expect(mockComposeRun).toHaveBeenCalledTimes(1);
   });
 
   it('SKIPS without pausing when platform cannot answer', async () => {

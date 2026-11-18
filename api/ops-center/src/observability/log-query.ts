@@ -66,6 +66,7 @@ const SAFE_VALUE = /^[A-Za-z0-9_.:@/+-]{1,200}$/;
 /** Cap regex length: RE2 is linear-time (no ReDoS), but an enormous pattern is still work. */
 const MAX_REGEX_LENGTH = 200;
 const MAX_TERMS = 8;
+const SECRET_SEARCH_REFUSED = 'That search term looks like a credential. Searching for secrets is not permitted.';
 
 /** Escape a value for a LogQL double-quoted string. */
 function quote(value: string): string {
@@ -139,6 +140,12 @@ export function parseLogQuery(raw: string | undefined): LogFilter {
 
     if (regex !== undefined) {
       if (regex.length > MAX_REGEX_LENGTH) throw new LogQueryError('Regex is too long');
+      // The same oracle as a plain term below: `/sk_live_…/` is a literal search
+      // spelled as a regex. Checked with escapes removed, so `\.`-style quoting
+      // of the literal does not hide it.
+      if (looksSensitive(regex) || looksSensitive(regex.replace(/\\(.)/g, '$1'))) {
+        throw new LogQueryError(SECRET_SEARCH_REFUSED);
+      }
       filter.terms.push({ kind: 'regex', value: regex });
       continue;
     }
@@ -149,7 +156,7 @@ export function parseLogQuery(raw: string | undefined): LogFilter {
     // pointless if the query can confirm a guess: a hit on `sk_live_…` proves
     // the value is present even though the line renders as [REDACTED].
     if (looksSensitive(text)) {
-      throw new LogQueryError('That search term looks like a credential. Searching for secrets is not permitted.');
+      throw new LogQueryError(SECRET_SEARCH_REFUSED);
     }
     filter.terms.push({ kind: neg ? 'exclude' : 'include', value: text });
   }

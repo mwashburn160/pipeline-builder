@@ -120,6 +120,34 @@ describe('resolveCommitInfo — GitHub', () => {
       .resolves.toEqual({ commitTimestamp: '2026-11-05T08:00:00.000Z', commitCount: 2 });
   });
 
+  it('omits the fields when the compare page is truncated (total_commits > listed)', async () => {
+    // GitHub lists at most one page of commits but reports the whole range in
+    // `total_commits`. Counting the page understated commitCount (and, with no
+    // guarantee the page holds the oldest commit, lead time) for any deploy of
+    // more than 250 commits. Same rule as a truncated CodeCommit walk: unknown.
+    const spy = routeFetch([
+      [/token\/exchange/, { body: { data: { accessToken: 'tok', expiresIn: 300 } } }],
+      [/last-deploy-commit/, { body: { data: { commitSha: 'prevsha' } } }],
+      [/compare\/prevsha\.\.\.headsha/, {
+        body: { total_commits: 400, commits: [commit('2026-11-05T08:00:00Z'), commit('2026-11-06T09:00:00Z')] },
+      }],
+    ]);
+    await expect(resolveCommitInfo('p1', 'org-1', 'us-east-1', GH)).resolves.toEqual({});
+    expect(spy.mock.calls.some((c) => /commits\/headsha/.test(String(c[0])))).toBe(false);
+  });
+
+  it('counts the compare range when total_commits matches the listed page', async () => {
+    routeFetch([
+      [/token\/exchange/, { body: { data: { accessToken: 'tok', expiresIn: 300 } } }],
+      [/last-deploy-commit/, { body: { data: { commitSha: 'prevsha' } } }],
+      [/compare\/prevsha\.\.\.headsha/, {
+        body: { total_commits: 2, commits: [commit('2026-11-05T08:00:00Z'), commit('2026-11-06T09:00:00Z')] },
+      }],
+    ]);
+    await expect(resolveCommitInfo('p1', 'org-1', 'us-east-1', GH))
+      .resolves.toEqual({ commitTimestamp: '2026-11-05T08:00:00.000Z', commitCount: 2 });
+  });
+
   it('falls through to the single commit when the compare is non-2xx', async () => {
     // A deleted or force-pushed base sha makes compare 404. Falling back is
     // what keeps a timestamp on the event instead of dropping it.

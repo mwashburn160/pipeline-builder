@@ -45,6 +45,9 @@ export default function AdminOffersPage() {
 
   const [summary, setSummary] = useState<AdminOfferSummary | null>(null);
   const [exclusions, setExclusions] = useState<OfferExclusion[]>([]);
+  // The server pages this list; when it holds more than one page, say so rather
+  // than present the newest page as the whole veto list.
+  const [exclusionsTotal, setExclusionsTotal] = useState(0);
   const [error, setError] = useState<string | null>(null);
   /** The first read has settled (either way). */
   const [loaded, setLoaded] = useState(false);
@@ -64,6 +67,7 @@ export default function AdminOffersPage() {
       const [offers, list] = await Promise.all([api.listAdminOffers({ limit: 50 }), api.listOfferExclusions()]);
       setSummary(offers.data ?? null);
       setExclusions(list.data?.exclusions ?? []);
+      setExclusionsTotal(list.data?.total ?? 0);
       setError(null);
     } catch (err) {
       setError(formatError(err, 'Could not load offer decisions'));
@@ -267,6 +271,11 @@ export default function AdminOffersPage() {
                   </li>
                 ))}
               </ul>
+            )}
+            {exclusionsTotal > exclusions.length && (
+              <p className="mt-2 text-xs text-fg-muted" data-testid="exclusions-truncated">
+                Showing the newest {exclusions.length} of {exclusionsTotal} excluded accounts.
+              </p>
             )}
           </Card>
 

@@ -18,7 +18,7 @@ export type LocalTool = 'cdk';
  * and never gated — as are version / help / completions. (`infra provision`
  * runs its own target-specific prereq checks.)
  */
-export const COMMAND_TOOL_REQUIREMENTS: Record<string, LocalTool[]> = {
+const COMMAND_TOOL_REQUIREMENTS: Record<string, LocalTool[]> = {
   'pipeline synth': ['cdk'],
   'pipeline deploy': ['cdk'],
   'infra bootstrap': ['cdk'],

@@ -23,6 +23,9 @@ import {
 } from '../helpers/quota-helpers.js';
 import type { OrgQuotaResponse, QuotaStatus } from '../helpers/quota-helpers.js';
 import { Organization } from '../models/organization.js';
+import { QuotaNotice, QuotaNoticeSettings } from '../models/quota-notice.js';
+import { UsageBucket } from '../models/usage-bucket.js';
+import { UsageEvent } from '../models/usage-event.js';
 
 const logger = createLogger('quota-service');
 
@@ -509,7 +512,9 @@ export class QuotaService {
       // The pool ROOT's subtree, not this org's own: a team's storage counts
       // toward the account, which is the whole point of an account budget.
       const scope = await expandOrgScope(await resolveRootOrgId(orgId));
-      const bytes = await fetchStorageBytes(scope);
+      // Strict: a total missing a member under-counts the account, and the gate
+      // would admit an over-budget push on it. Unknown → the gate measures.
+      const bytes = await fetchStorageBytes(scope, { requireAll: true });
       if (bytes === null) return status;
       return {
         ...status,
@@ -673,18 +678,32 @@ export class QuotaService {
   }
 
   /**
-   *  delete the org's Mongo document entirely. Idempotent: deleting
-   * an already-missing org returns false (rather than throwing), which is
-   * the right shape for the platform's cascade orchestrator (it doesn't
-   * care whether the cleanup was a no-op).
+   * Drop everything quota holds for a purged org: its quota document, its
+   * notice settings (webhook URL, AI controls — no TTL, so they would otherwise
+   * outlive the org forever), its sent-notice dedup rows and its usage ledger
+   * (principal-attributed buckets and events). Idempotent: an already-purged
+   * org answers all zeroes. The quota document goes LAST, so a failure part-way
+   * leaves the org recognisably present for the cascade leg's retry.
+   *
+   * @returns Rows removed per collection, for the purge leg's `tables`.
    */
-  async delete(orgId: string): Promise<boolean> {
-    const result = await Organization.deleteOne({ _id: toOrgId(orgId) });
-    if (result.deletedCount > 0) {
-      logger.info('Quota org deleted', { orgId });
-      return true;
-    }
-    return false;
+  async purgeOrg(orgId: string): Promise<Record<string, number>> {
+    const [usageEvents, usageBuckets, quotaNotices, quotaNoticeSettings] = await Promise.all([
+      UsageEvent.deleteMany({ orgId }),
+      UsageBucket.deleteMany({ orgId }),
+      QuotaNotice.deleteMany({ orgId }),
+      QuotaNoticeSettings.deleteMany({ orgId }),
+    ]);
+    const organizations = await Organization.deleteOne({ _id: toOrgId(orgId) });
+    const tables = {
+      organizations: organizations.deletedCount,
+      quotaNoticeSettings: quotaNoticeSettings.deletedCount,
+      quotaNotices: quotaNotices.deletedCount,
+      usageBuckets: usageBuckets.deletedCount,
+      usageEvents: usageEvents.deletedCount,
+    };
+    logger.info('Quota org purged', { orgId, tables });
+    return tables;
   }
 
   /**

@@ -50,7 +50,7 @@ export const SELF_MUTATION_ACTION = 'SelfMutate';
  * The synth ACTION's name is a generated id, so it is identified by the
  * manifest row carrying this key — the names the built pipeline really used.
  */
-export const SYNTH_STEP_KEY = 'synth';
+const SYNTH_STEP_KEY = 'synth';
 
 /**
  * The `build-image` entry's plugin: the release's bootstrap half. The entry is

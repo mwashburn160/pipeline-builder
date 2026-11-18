@@ -13,8 +13,8 @@
  */
 
 import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
-import { OUTSIDE_BLOB_GC_WINDOW_MS } from './helpers/blob-gc-clock.js';
 import jwt from 'jsonwebtoken';
+import { OUTSIDE_BLOB_GC_WINDOW_MS } from './helpers/blob-gc-clock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 import { TOKEN_SIGNING_CERT_PEM, TOKEN_SIGNING_PRIVATE_KEY_PEM } from './helpers/token-signing-fixture.js';
 

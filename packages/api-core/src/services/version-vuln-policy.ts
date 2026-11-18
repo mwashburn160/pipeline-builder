@@ -135,7 +135,7 @@ export type VulnWarning =
   | { code: 'COMPLIANCE_UNAVAILABLE'; severity: VulnSeverity; message: string };
 
 /** `UNSCANNED` / `SCAN_STALE` for a resolved version (empty for a fresh scan or an image-less plugin). */
-export function scanWarnings(record: ScannedRecord, now = new Date()): VulnWarning[] {
+function scanWarnings(record: ScannedRecord, now = new Date()): VulnWarning[] {
   const ref = `${record.name}@${record.version}`;
   const f = scanFreshness(record, now);
   if (f.state === 'unscanned') {

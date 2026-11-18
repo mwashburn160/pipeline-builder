@@ -40,9 +40,10 @@ jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ observabil
 
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 
+const mockRelease = jest.fn();
 jest.unstable_mockModule('../src/middleware/quota.js', () => featureQuotaMock({
   reserveFeatureQuota: jest.fn(async () => ({ exceeded: false })),
-  releaseFeatureQuota: jest.fn(),
+  releaseFeatureQuota: (...a: unknown[]) => mockRelease(...a),
 }));
 
 jest.unstable_mockModule('../src/services/dashboard-service.js', () => ({
@@ -176,6 +177,16 @@ describe('cloneDashboard', () => {
     await cloneDashboard(req(), res);
     expect(res._status).toBe(201);
     expect(keysOf(mockClone.mock.calls[0][0].panels)).toEqual(['plugin_builds_per_min']);
+  });
+
+  it('answers a name collision from a concurrent clone with 409 (not 500) and gives the slot back', async () => {
+    mockFindById.mockResolvedValue(MIXED);
+    // Drizzle wraps the driver error; the SQLSTATE is on `cause`.
+    mockClone.mockRejectedValueOnce(Object.assign(new Error('insert failed'), { cause: { code: '23505' } }));
+    const res = makeRes();
+    await cloneDashboard(req(), res);
+    expect(res._status).toBe(409);
+    expect(mockRelease).toHaveBeenCalledTimes(1);
   });
 
   it('404s an org admin cloning an all-fleet-wide dashboard', async () => {

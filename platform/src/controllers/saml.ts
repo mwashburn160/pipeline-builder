@@ -298,10 +298,10 @@ export const completeSamlLogin = withController('SAML complete', async (req, res
   // sign-in (the binding cookie set at initiate — helpers/login-binding.ts).
   if (!isBoundToThisBrowser(req, pending.binding)) throw new Error('SAML_INVALID_STATE');
 
-  // `+tokenVersion` / `+isSuperAdmin` are `select: false` on the schema and both
-  // feed token issuance; the superadmin refusal already ran at the ACS, and it
+  // `+isSuperAdmin`: the flag is `select: false` on the schema and feeds token
+  // issuance; the superadmin refusal already ran at the ACS, and it
   // is re-asserted here so a promotion between the two legs cannot slip through.
-  const user = await User.findById(pending.userId).select('+tokenVersion +isSuperAdmin');
+  const user = await User.findById(pending.userId).select('+isSuperAdmin');
   if (!user) throw new Error('SAML_INVALID_STATE');
   if (user.isSuperAdmin === true) throw new Error(SSO_SUPERADMIN_REFUSED);
 

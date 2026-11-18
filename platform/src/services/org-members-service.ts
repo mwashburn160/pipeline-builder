@@ -293,11 +293,6 @@ class OrgMembersService {
   }
 
   /**
-   * Add a member by user-id or email. Defaults role to 'member'. Wraps
-   * the existence + duplicate checks + insert in a single transaction.
-   * Throws OM_ORG_NOT_FOUND / OM_USER_NOT_FOUND / OM_ALREADY_MEMBER.
-   */
-  /**
    * True iff `userId` holds an ACTIVE membership in `orgId`. Used by the message
    * service (over HTTP) to reject a per-user DM addressed to someone who isn't a
    * member of the recipient org — otherwise the message black-holes (nobody in
@@ -317,6 +312,11 @@ class OrgMembersService {
     }
   }
 
+  /**
+   * Add a member by user-id or email. Defaults role to 'member'. Wraps
+   * the existence + duplicate checks + insert in a single transaction.
+   * Throws OM_ORG_NOT_FOUND / OM_USER_NOT_FOUND / OM_ALREADY_MEMBER.
+   */
   async addMember(
     orgId: string,
     body: { userId?: string; email?: string; role?: OrgRole },

@@ -57,7 +57,7 @@ export async function deleteUserCascade(
   if (deletedOwned.length < ownedIds.length) throw new Error(USER_OWNER_HAS_ORGS);
   await assertNotLastPrivilegedMember(session, uid, undefined, deletedOwned);
 
-  const deleted = await User.findByIdAndDelete(uid, { session }).select('+tokenVersion');
+  const deleted = await User.findByIdAndDelete(uid, { session }).select('tokenVersion claimsVersion');
   if (!deleted) return null;
 
   await UserOrganization.deleteMany({ userId: uid }, { session });

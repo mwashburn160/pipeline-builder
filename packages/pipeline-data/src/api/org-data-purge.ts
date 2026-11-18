@@ -8,7 +8,7 @@
  * calls it with its own owner key; platform calls it only for `platform`.
  */
 
-import { eq, sql } from 'drizzle-orm';
+import { eq, getTableColumns, sql } from 'drizzle-orm';
 import { ORG_DATA_OWNERSHIP, type OrgDataOwner } from './org-data-ownership.js';
 import { affectedRowCount } from '../database/pg-result.js';
 import { runWithTenantContext, withTenantTx } from '../database/tenancy.js';
@@ -59,9 +59,14 @@ export async function purgeOrgData(
       try {
         // `purge_after = now` ALONGSIDE `deleted_at`: the owner's retention sweep
         // is keyed on `deleted_at IS NOT NULL AND purge_after < now`, so a NULL
-        // `purge_after` would leave the rows in Postgres forever.
+        // `purge_after` would leave the rows in Postgres forever. `is_active =
+        // false` too where the table has it: list reads filter on `is_active`
+        // (not `deleted_at`), so a row tombstoned without it stays listed until
+        // the sweep — and a CrudService tombstone is `is_active = false` AND
+        // `deleted_at IS NOT NULL`.
+        const set = { deletedAt: now, purgeAfter: now, ...('isActive' in getTableColumns(table) ? { isActive: false } : {}) };
         const res = await withTenantTx((tx) => tx.update(table)
-          .set({ deletedAt: now, purgeAfter: now } as never)
+          .set(set as never)
           .where(sql`${(table as unknown as { orgId: unknown }).orgId} = ${orgId} AND deleted_at IS NULL`));
         result.tables[name] = { ok: true, rowCount: affectedRowCount(res) };
       } catch (err) {

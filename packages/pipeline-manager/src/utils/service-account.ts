@@ -120,7 +120,7 @@ async function stepUp(client: ApiClient, password: string): Promise<string> {
 }
 
 /** The org the operator's token is active in. */
-export async function resolveOrganizationId(client: ApiClient): Promise<string> {
+async function resolveOrganizationId(client: ApiClient): Promise<string> {
   const res = await client.get<unknown>('/api/organization');
   const orgId = unwrap<{ organization?: { id?: string } }>(res)?.organization?.id;
   if (!orgId) {

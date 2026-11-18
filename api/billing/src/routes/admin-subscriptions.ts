@@ -111,7 +111,16 @@ export function createAdminSubscriptionRoutes(): Router {
         Subscription.countDocuments(filter),
       ]);
 
-      const result = subscriptions.map((sub) => buildSubscriptionResponse(sub));
+      // One read for every plan on the page: the console shows and sorts by the
+      // plan's NAME and tier, which the subscription row doesn't carry. An
+      // unknown plan id falls back to the id itself, like the customer read.
+      const planIds = [...new Set(subscriptions.map((sub) => sub.planId))];
+      const plans = planIds.length ? await Plan.find({ _id: { $in: planIds } }, 'name tier').lean() : [];
+      const byId = new Map(plans.map((p) => [String(p._id), p]));
+      const result = subscriptions.map((sub) => {
+        const p = byId.get(sub.planId);
+        return buildSubscriptionResponse(sub, p?.name ?? sub.planId, p?.tier);
+      });
 
       ctx.log('COMPLETED', 'Listed all subscriptions', { total, limit, offset });
       return sendSuccess(res, 200, { subscriptions: result, total, limit, offset });
@@ -440,8 +449,9 @@ export function createAdminSubscriptionRoutes(): Router {
 
       ctx.log('COMPLETED', 'Admin updated subscription', { subscriptionId, planId, status });
 
+      const current = plan ?? await Plan.findById(subscription.planId);
       return sendSuccess(res, 200, {
-        subscription: buildSubscriptionResponse(subscription),
+        subscription: buildSubscriptionResponse(subscription, current?.name ?? subscription.planId, current?.tier),
       });
     }, { requireOrgId: false }),
   );

@@ -70,18 +70,18 @@ const baseDora: DoraMetrics = {
   environments: [
     {
       environment: 'production',
-      deploymentFrequency: { deployments: 8, perDay: 0.27 },
-      leadTime: { deployments: 8, medianSeconds: 330, level: 'elite' },
+      deploymentFrequency: { deployments: 8, perDay: 0.27, level: null },
+      leadTime: { deployments: 8, medianSeconds: 330, p90Seconds: null, p95Seconds: null, level: 'elite' },
       changeFailureRate: { rate: 25, deployTimeFailures: 1, postDeployFailures: 1, attempts: 8, level: 'medium' },
     },
     {
       environment: 'staging',
-      deploymentFrequency: { deployments: 12, perDay: 0.4 },
-      leadTime: { deployments: 12, medianSeconds: 120, level: 'high' },
+      deploymentFrequency: { deployments: 12, perDay: 0.4, level: null },
+      leadTime: { deployments: 12, medianSeconds: 120, p90Seconds: null, p95Seconds: null, level: 'high' },
       changeFailureRate: { rate: 8, deployTimeFailures: 1, postDeployFailures: 0, attempts: 12, level: 'elite' },
     },
   ],
-  meanTimeToRestore: { medianSeconds: 3720, incidents: 2, restored: 2 },
+  meanTimeToRestore: { medianSeconds: 3720, incidents: 2, restored: 2, p90Seconds: null, p95Seconds: null, level: null },
   coverage: { registered: 5, deploying: 3, withoutDeploys: 2 },
 };
 
@@ -164,12 +164,12 @@ describe('ReportsPage — DORA section', () => {
       environments: [
         {
           environment: 'production',
-          deploymentFrequency: { deployments: 3, perDay: 0.1 },
-          leadTime: { deployments: 3, medianSeconds: null, level: null },
+          deploymentFrequency: { deployments: 3, perDay: 0.1, level: null },
+          leadTime: { deployments: 3, medianSeconds: null, p90Seconds: null, p95Seconds: null, level: null },
           changeFailureRate: { rate: 0, deployTimeFailures: 0, postDeployFailures: 0, attempts: 3, level: null },
         },
       ],
-      meanTimeToRestore: { medianSeconds: null, incidents: 0, restored: 0 },
+      meanTimeToRestore: { medianSeconds: null, incidents: 0, restored: 0, p90Seconds: null, p95Seconds: null, level: null },
     });
 
     render(<ReportsPage />);

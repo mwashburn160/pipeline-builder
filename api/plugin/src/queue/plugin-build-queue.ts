@@ -40,7 +40,7 @@ import { createBuildFailedHandler } from './failure-handler.js';
 import { startDlqWorker, closeDlqWorker } from './plugin-build-dlq.js';
 import { startQueueMetricsScraper, stopQueueMetricsScraper } from './queue-metrics-scraper.js';
 import {
-  maxBuildsPerOrg, ORG_SLOT_WAIT_BUDGET_MS, orgSlotRetryDelayMs, ORG_SLOT_SCRUB_MS,
+  maxBuildsPerOrg, orgSlotCap, ORG_SLOT_WAIT_BUDGET_MS, orgSlotRetryDelayMs, ORG_SLOT_SCRUB_MS,
   tryAcquireOrgSlot, releaseOrgSlot, scrubOrgSlots, startOrgSlotHeartbeat, orgSlotSnapshot,
   orgSlotWaitExempt, orgSlotsBackedByLiveBuilds,
 } from './slot-manager.js';
@@ -325,7 +325,8 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
         // on every tier, so an unlabelled denial count cannot say whether a tier
         // is short of standard headroom (raise the cap) or busy burning through
         // flexible work (working as designed).
-        const classCap = maxBuildsPerOrg(tier, buildClass);
+        // The cap that denied it — the system org's own, not the tier cell.
+        const classCap = orgSlotCap(orgId, tier, buildClass);
         incCounter('plugin_build_slot_denied_total', { tier, build_class: buildClass });
 
         // Past the budget the build fails TERMINALLY with a reason. A slot delay

@@ -33,7 +33,7 @@ let invocationId: string | undefined;
 let pipelineId: string | undefined;
 
 /** The header the platform's quota attribution reads the pipeline from. */
-export const PIPELINE_ID_HEADER = 'X-Pipeline-Id';
+const PIPELINE_ID_HEADER = 'X-Pipeline-Id';
 
 /** Name the pipeline this invocation's platform calls are made for (unset with `undefined`). */
 export function setPipelineId(id: string | undefined): void {
@@ -46,7 +46,7 @@ export function setInvocationId(id: string): void {
 }
 
 /** This invocation's request id — the command's execution id, else a per-process uuid. */
-export function getInvocationId(): string {
+function getInvocationId(): string {
   invocationId ??= randomUUID();
   return invocationId;
 }

@@ -30,15 +30,16 @@ export function isLocalHttpsHost(url: string): boolean {
   } catch {
     return false;
   }
-  return (
-    hostname === 'localhost' ||
-    hostname === '127.0.0.1' ||
-    hostname === '::1' ||
-    hostname.endsWith('.local') ||
-    /^10\./.test(hostname) ||
-    /^192\.168\./.test(hostname) ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(hostname)
-  );
+  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.endsWith('.local')) return true;
+  // WHATWG URL keeps the brackets on an IPv6 host, so loopback reads `[::1]`.
+  if (hostname === '[::1]') return true;
+  // Private ranges only as a literal IPv4 address: a prefix test alone also
+  // matched DNS names like `10.example.com`, turning verification off for a
+  // host anyone can register.
+  const octets = /^(\d{1,3})\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/.exec(hostname);
+  if (!octets) return false;
+  const [a, b] = [Number(octets[1]), Number(octets[2])];
+  return a === 10 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31);
 }
 
 /**

@@ -6,8 +6,8 @@ import { createApp, runServer, attachRequestContext, postgresHealthCheck } from 
 import { createSoftDeletePurgeScheduler, stakeholderReportStore } from '@pipeline-builder/pipeline-data';
 
 import { mountRoutes } from './app-routes.js';
-import { startReportScheduler, stopReportScheduler } from './services/report-scheduler.js';
 import { startDailyRollup, stopDailyRollup } from './services/daily-rollup-scheduler.js';
+import { startReportScheduler, stopReportScheduler } from './services/report-scheduler.js';
 import { startReportingRetention, stopReportingRetention } from './services/reporting-retention.js';
 
 const quotaService = createQuotaService();

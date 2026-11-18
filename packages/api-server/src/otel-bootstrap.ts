@@ -71,9 +71,17 @@ if (process.env.OTEL_TRACING_ENABLED === 'true') {
   // eslint-disable-next-line no-console
   console.log(`[otel] tracing initialized for ${serviceName} -> ${endpoint}`);
 
-  const shutdown = () => {
-    void sdk.shutdown().catch(() => undefined);
+  // ONE shutdown, shared by the signal handlers here and by api-server's
+  // `shutdownTracing()` (published under a global symbol, since this preload
+  // must not import the package barrel). The signal handlers only START the
+  // flush; `runServer`'s shutdown awaits it before `process.exit(0)`, which
+  // otherwise killed the in-flight OTLP export and dropped the last spans.
+  let flushed: Promise<void> | undefined;
+  const shutdown = (): Promise<void> => {
+    flushed ??= sdk.shutdown().catch(() => undefined);
+    return flushed;
   };
-  process.once('SIGTERM', shutdown);
-  process.once('SIGINT', shutdown);
+  (globalThis as Record<symbol, unknown>)[Symbol.for('pipeline-builder.otel.shutdown')] = shutdown;
+  process.once('SIGTERM', () => void shutdown());
+  process.once('SIGINT', () => void shutdown());
 }

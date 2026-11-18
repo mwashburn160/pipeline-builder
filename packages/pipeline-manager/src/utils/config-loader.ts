@@ -61,7 +61,8 @@ function loadConfigFile(filePath: string, config: Omit<Config, 'auth'>): Omit<Co
 }
 
 /**
- * Load configuration from files and environment.
+ * Resolve the API/connection config (base URL, SSL, timeouts) from files and
+ * environment WITHOUT requiring `PLATFORM_TOKEN`.
  *
  * Priority (last wins):
  * 1. Built-in defaults
@@ -69,13 +70,6 @@ function loadConfigFile(filePath: string, config: Omit<Config, 'auth'>): Omit<Co
  * 3. Project config file: CLI_CONFIG_PATH or ./config.yml
  * 4. The platform the last `auth login` signed in to (base URL only)
  * 5. Environment variables
- *
- * Auth token comes from PLATFORM_TOKEN, else the stored `auth login` session —
- * never from a config file.
- */
-/**
- * Resolve the API/connection config (base URL, SSL, timeouts) from files and
- * environment WITHOUT requiring `PLATFORM_TOKEN`.
  *
  * This is the token-optional slice of {@link getConfig}. The pre-auth login step
  * (`ensurePlatformToken`) needs the resolved base URL to POST `/api/auth/login`
@@ -144,6 +138,11 @@ export function getApiConfig(): Omit<Config, 'auth'> {
   return config;
 }
 
+/**
+ * {@link getApiConfig} plus the credential: PLATFORM_TOKEN, else the stored
+ * `auth login` session — never a config file. Throws {@link AuthenticationError}
+ * when there is none.
+ */
 export function getConfig(): Config {
   const config = getApiConfig();
 

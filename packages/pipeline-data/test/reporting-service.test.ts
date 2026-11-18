@@ -84,10 +84,13 @@ describe('ReportingService', () => {
       });
 
       let capturedRows: Array<Record<string, unknown>> = [];
-      const returning = jest.fn<AnyFn>().mockImplementation(() =>
+      const returning = jest.fn<AnyFn>().mockImplementation((projection?: Record<string, unknown>) =>
         // echo one inserted row per captured row (minus any the test marks as
-        // dedup-swallowed) so `inserted` counts match
-        Promise.resolve(capturedRows.filter((r) => !duplicates.has(String(r.executionId))).map((r) => ({
+        // dedup-swallowed) so `inserted` counts match — narrowed to the keys
+        // the code's `.returning({...})` PROJECTION names, exactly as Postgres
+        // would: an echo of every column hid that the projection omitted
+        // `durationMs`, so every compute metric read as unmeasured.
+        Promise.resolve(capturedRows.filter((r) => !duplicates.has(String(r.executionId))).map((r) => narrow(projection, {
           orgId: r.orgId,
           pipelineId: r.pipelineId,
           eventType: r.eventType,
@@ -96,13 +99,16 @@ describe('ReportingService', () => {
           environment: r.environment,
           executionId: r.executionId,
           sourceEventId: r.sourceEventId,
-          // `.returning()` with no projection gives every column, and the
-          // metric fan-out reads these two: a harness that echoed only the
+          // The metric fan-out reads these two: a harness that echoed only the
           // stage fields would make the compute metrics look unreachable.
           durationMs: r.durationMs,
           detail: r.detail,
         }))),
       );
+      function narrow(projection: Record<string, unknown> | undefined, row: Record<string, unknown>): Record<string, unknown> {
+        if (!projection) return row;
+        return Object.fromEntries(Object.entries(row).filter(([k]) => k in projection));
+      }
       const onConflictDoNothing = jest.fn<AnyFn>().mockReturnValue({ returning });
       const values = jest.fn<AnyFn>().mockImplementation((rows: Array<Record<string, unknown>>) => {
         capturedRows = rows;

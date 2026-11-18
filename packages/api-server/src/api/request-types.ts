@@ -72,9 +72,15 @@ export function createRequestContext(
   // fall back to identity header, then generate a new one.
   const requestId = req.requestId || identity.requestId || uuid();
 
-  // Create logger that outputs to Winston and SSE
+  // Create logger that outputs to Winston and SSE.
+  //
+  // The org is read from the CONTEXT at log time, never captured here: this
+  // runs pre-auth (global middleware), when `getIdentity` can only fall back
+  // to the client-settable `x-org-id` header. `requireAuth` then replaces
+  // `ctx.identity` with the JWT-derived one, and a captured value kept
+  // stamping every later log line with the header's org (or none).
   const log: RequestLogger = (type, message, data) => {
-    const meta = { requestId, orgId: identity.orgId, type, data };
+    const meta = { requestId, orgId: ctx.identity.orgId, type, data };
     switch (type) {
       case 'ERROR':
         logger.error(message, meta);
@@ -99,9 +105,10 @@ export function createRequestContext(
     }
   };
 
-  return {
+  const ctx: RequestContext = {
     requestId,
     identity,
     log,
   };
+  return ctx;
 }

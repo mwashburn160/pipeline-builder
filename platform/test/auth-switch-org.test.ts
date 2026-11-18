@@ -55,8 +55,10 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
   // resolved to via createEvent (no req.user on that route); unused here.
   auditService: { createEvent: jest.fn(async () => undefined) },
 }));
+const mockHoldsTeamAccess = jest.fn<(...a: unknown[]) => Promise<boolean>>();
 jest.unstable_mockModule('../src/services/session/membership-context.js', () => ({
   membershipForOrg: jest.fn(async () => undefined),
+  holdsInheritedTeamAccess: (...a: unknown[]) => mockHoldsTeamAccess(...a),
 }));
 jest.unstable_mockModule('../src/services/session/access-tokens.js', () => ({
   enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
@@ -139,6 +141,7 @@ describe('switchOrg — org.switch audit', () => {
 
     // `team_access:open` is in the admin bundle, so a real parent-org admin
     // holds it; the inherited switch now requires it (see below).
+    mockHoldsTeamAccess.mockResolvedValue(true);
     const req: any = {
       user: { sub: 'u1', sid: 's1', organizationId: 'root-1', permissions: ['team_access:open'] },
       headers: {},
@@ -174,6 +177,7 @@ describe('switchOrg — org.switch audit', () => {
       authority: { role: 'admin', via: 'ancestor', inheritedFromOrgId: 'root-1', permissionOrgIds: ['root-1'] },
     });
 
+    mockHoldsTeamAccess.mockResolvedValue(false);
     const res = makeRes();
     await (switchOrg as any)({
       user: { sub: 'u1', sid: 's1', organizationId: 'root-1', permissions: ['members:manage'] },
@@ -189,6 +193,29 @@ describe('switchOrg — org.switch audit', () => {
     expect(mockSetLastActiveOrg).not.toHaveBeenCalled();
   });
 
+  it('checks team_access:open in the ANCESTOR, not in the org the caller\'s token is for', async () => {
+    // Regression: the check read the CURRENT token's permissions. A caller active
+    // in their personal org (whose Roles grant team_access:open) could enter a
+    // team under a parent org whose Roles do not.
+    const user = { _id: 'u1' };
+    mockSwitchActiveOrg.mockResolvedValue({
+      user,
+      authority: { role: 'admin', via: 'ancestor', inheritedFromOrgId: 'root-1', permissionOrgIds: ['root-1'] },
+    });
+    mockHoldsTeamAccess.mockResolvedValue(false);
+
+    const res = makeRes();
+    await (switchOrg as any)({
+      user: { sub: 'u1', sid: 's1', organizationId: 'personal-1', permissions: ['team_access:open'] },
+      headers: {},
+      body: { organizationId: 'team-1' },
+    }, res);
+
+    expect(mockHoldsTeamAccess).toHaveBeenCalledWith(user, 'root-1');
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockSwitchSessionOrg).not.toHaveBeenCalled();
+  });
+
   it('does NOT require team_access:open for a MEMBERSHIP switch', async () => {
     mockSwitchActiveOrg.mockResolvedValue({ user: { _id: 'u1' }, authority: MEMBER });
 
@@ -200,11 +227,14 @@ describe('switchOrg — org.switch audit', () => {
     }, res);
 
     expect(res.status).toHaveBeenCalledWith(200);
+    expect(mockHoldsTeamAccess).not.toHaveBeenCalled();
   });
 
   it('admits a superadmin on the inherited path — the flag implies every permission', async () => {
+    // The loaded account's flag (not the token's) decides, inside the helper.
+    mockHoldsTeamAccess.mockImplementation(async (u: any) => u.isSuperAdmin === true);
     mockSwitchActiveOrg.mockResolvedValue({
-      user: { _id: 'u1' },
+      user: { _id: 'u1', isSuperAdmin: true },
       authority: { role: 'admin', via: 'ancestor', inheritedFromOrgId: 'root-1', permissionOrgIds: ['root-1'] },
     });
 

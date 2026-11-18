@@ -74,6 +74,15 @@ describe('chunkMarkdown', () => {
     expect(ids).toEqual(['ja.md#section-0', 'ja.md#section-1', 'ja.md#section-2', 'ja.md#real-heading']);
     expect(new Set(ids).size).toBe(ids.length);
   });
+
+  it('suffixes a heading repeated within one file so chunk ids stay unique', () => {
+    // docs/authentication.md repeats "Signing in" / "How it works" under
+    // different parents; both chunks got the same id, which the Ask sources
+    // list uses as its React key and the model uses as its citation.
+    const md = '# Passwords\n## Signing in\nwith a password\n# Passkeys\n## Signing in\nwith a passkey\n## Signing in 1\nliteral';
+    const ids = chunkMarkdown(md, { id: 'auth.md' }).map((c) => c.id);
+    expect(ids).toEqual(['auth.md#signing-in', 'auth.md#signing-in-1', 'auth.md#signing-in-1-1']);
+  });
 });
 
 describe('buildGroundingIndex', () => {

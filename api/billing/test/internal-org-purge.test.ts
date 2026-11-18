@@ -30,8 +30,9 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 
 const mockSubscriptionFind = jest.fn<AnyFn>();
 const mockSubscriptionDeleteMany = jest.fn<AnyFn>();
+const mockSubscriptionDistinct = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/models/subscription.js', () => ({
-  Subscription: { find: mockSubscriptionFind, deleteMany: mockSubscriptionDeleteMany },
+  Subscription: { find: mockSubscriptionFind, deleteMany: mockSubscriptionDeleteMany, distinct: mockSubscriptionDistinct },
 }));
 const mockEventDeleteMany = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/models/billing-event.js', () => ({
@@ -58,7 +59,14 @@ function makeRes() {
   return res;
 }
 
-const sub = (id: string, externalId?: string) => ({ _id: { toString: () => id }, planId: 'pro', externalId });
+const sub = (id: string, externalId?: string) => ({ _id: id, planId: 'pro', externalId });
+/** The purge's subscription delete: terminal rows, plus the billable rows it cancelled. */
+const subDeleteFilter = (...cancelled: string[]) => ({
+  orgId: 'org-9',
+  $or: [{ status: { $nin: ['active', 'trialing', 'past_due'] } }, { _id: { $in: cancelled } }],
+});
+/** What is left after the delete. */
+const survivors = (...ids: string[]) => mockSubscriptionDistinct.mockResolvedValue(ids);
 const billable = (...subs: unknown[]) => mockSubscriptionFind.mockReturnValue({ limit: jest.fn<AnyFn>().mockResolvedValue(subs) });
 const call = async (orgId = 'org-9') => {
   const res = makeRes();
@@ -72,6 +80,7 @@ beforeEach(() => {
   mockCancel.mockResolvedValue(undefined);
   mockGetSubscription.mockResolvedValue({ status: 'active' });
   mockSubscriptionDeleteMany.mockResolvedValue({ deletedCount: 1 });
+  mockSubscriptionDistinct.mockResolvedValue([]);
   mockEventDeleteMany.mockResolvedValue({ deletedCount: 3 });
 });
 
@@ -84,7 +93,7 @@ describe('POST /billing/internal/orgs/:orgId/purge', () => {
       orgId: 'org-9', status: { $in: expect.arrayContaining(['active', 'trialing', 'past_due']) },
     });
     expect(mockCancel).toHaveBeenCalledWith('ext-1');
-    expect(mockSubscriptionDeleteMany).toHaveBeenCalledWith({ orgId: 'org-9' });
+    expect(mockSubscriptionDeleteMany).toHaveBeenCalledWith(subDeleteFilter('sub-1'));
     expect(mockEventDeleteMany).toHaveBeenCalledWith({ orgId: 'org-9' });
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith({
@@ -108,15 +117,16 @@ describe('POST /billing/internal/orgs/:orgId/purge', () => {
     billable(sub('sub-local'));
     await call();
     expect(mockCancel).not.toHaveBeenCalled();
-    expect(mockSubscriptionDeleteMany).toHaveBeenCalledWith({ orgId: 'org-9' });
+    expect(mockSubscriptionDeleteMany).toHaveBeenCalledWith(subDeleteFilter('sub-local'));
   });
 
   it('KEEPS a subscription whose provider cancel failed and reports it in `remaining` (not an ack)', async () => {
     billable(sub('sub-ok', 'ext-ok'), sub('sub-stuck', 'ext-stuck'));
     mockCancel.mockImplementation(async (ext: unknown) => { if (ext === 'ext-stuck') throw new Error('stripe down'); });
+    survivors('sub-stuck');
     const res = await call();
 
-    expect(mockSubscriptionDeleteMany).toHaveBeenCalledWith({ orgId: 'org-9', _id: { $nin: ['sub-stuck'] } });
+    expect(mockSubscriptionDeleteMany).toHaveBeenCalledWith(subDeleteFilter('sub-ok'));
     expect(mockEventDeleteMany).toHaveBeenCalledWith({ orgId: 'org-9', subscriptionId: { $nin: ['sub-stuck'] } });
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith({
@@ -137,7 +147,7 @@ describe('POST /billing/internal/orgs/:orgId/purge', () => {
     mockGetSubscription.mockResolvedValue({ status: 'canceled' });
     const res = await call();
     expect(mockGetSubscription).toHaveBeenCalledWith('ext-gone');
-    expect(mockSubscriptionDeleteMany).toHaveBeenCalledWith({ orgId: 'org-9' });
+    expect(mockSubscriptionDeleteMany).toHaveBeenCalledWith(subDeleteFilter('sub-gone'));
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ remaining: {} }) }));
   });
 
@@ -146,11 +156,28 @@ describe('POST /billing/internal/orgs/:orgId/purge', () => {
     mockCancel.mockRejectedValue(new Error('stripe down'));
     mockGetSubscription.mockRejectedValue(new Error('stripe down'));
     await call();
-    expect(mockSubscriptionDeleteMany).toHaveBeenLastCalledWith({ orgId: 'org-9', _id: { $nin: ['sub-x'] } });
+    expect(mockSubscriptionDeleteMany).toHaveBeenLastCalledWith(subDeleteFilter());
 
     providerHasGet = false;
     await call();
-    expect(mockSubscriptionDeleteMany).toHaveBeenLastCalledWith({ orgId: 'org-9', _id: { $nin: ['sub-x'] } });
+    expect(mockSubscriptionDeleteMany).toHaveBeenLastCalledWith(subDeleteFilter());
+  });
+
+  it('never drops a row that went billable AFTER the sweep read — it survives and is retained', async () => {
+    // The sweep read an empty billable set, then a checkout webhook activated an
+    // `incomplete` row. A blanket `{ orgId }` delete would wipe it, uncancelled,
+    // while the provider bills on; the status-scoped delete leaves it, and the
+    // leg is not acked.
+    billable();
+    survivors('sub-late');
+    const res = await call();
+
+    expect(mockCancel).not.toHaveBeenCalled();
+    expect(mockSubscriptionDeleteMany).toHaveBeenCalledWith(subDeleteFilter());
+    expect(mockEventDeleteMany).toHaveBeenCalledWith({ orgId: 'org-9', subscriptionId: { $nin: ['sub-late'] } });
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ remaining: { subscriptions: 1 } }),
+    }));
   });
 
   it('a store failure is a 500 (the leg retries) and a failure row', async () => {

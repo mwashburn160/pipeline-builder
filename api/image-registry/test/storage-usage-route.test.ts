@@ -139,11 +139,16 @@ describe('GET /internal/storage-usage/:orgId', () => {
     expect(computeOrgStorageUsage).toHaveBeenCalledWith(ORG);
   });
 
-  it('still answers with what it measured when the scan was incomplete (display-only consumer)', async () => {
+  it('refuses to answer an INCOMPLETE scan (503), so the account budget never enforces on an under-count', async () => {
+    // The quota service sums this reading into the account total the push gate
+    // decides on. Answering the partial 42 bytes made a flat org with an
+    // unreadable manifest read as under budget — the gate's own fail-closed
+    // `usage_incomplete` rule never ran, because the account branch had a number.
     computeOrgStorageUsage.mockResolvedValue({ prefix: `org-${ORG}/`, bytes: 42, repos: 1, blobs: 1, computedAt: 0, incomplete: true });
     const { status, body } = await get(ORG);
-    expect(status).toBe(200);
-    expect(body.data).toEqual({ bytes: 42 });
+    expect(status).toBe(503);
+    expect(body.data).toBeUndefined();
+    expect(body.code).toBe('SERVICE_UNAVAILABLE');
   });
 
   it.each([

@@ -121,6 +121,9 @@ const queueLogger = { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug:
 /** The live slot state the worker turns into gauges; empty unless a case sets it. */
 const mockOrgSlotSnapshot = jest.fn<AnyFn>().mockResolvedValue([]);
 const mockOrgSlotsBackedByLiveBuilds = jest.fn<AnyFn>().mockResolvedValue(true);
+/** The enforced cap per org: 3, except the system org's own figure. */
+const mockOrgSlotCap = jest.fn<AnyFn>((orgId: string) => (orgId === SYSTEM_ORG_CAP_ORG ? 12 : 3));
+const SYSTEM_ORG_CAP_ORG = 'sys-org-cap';
 const mockStartOrgSlotHeartbeat = jest.fn<AnyFn>(() => mockStopSlotHeartbeat);
 
 // Shared central-trail spy: the tier queue, the failure handler and the DLQ all
@@ -317,6 +320,7 @@ function registerMocks() {
   // unaffected; the slot-gate tests below flip it per case.
   jest.unstable_mockModule('../src/queue/slot-manager.js', () => ({
     maxBuildsPerOrg: jest.fn<AnyFn>(() => 3),
+    orgSlotCap: mockOrgSlotCap,
     // Elapsed-time budget (ms), not a count of attempts: the retry interval backs
     // off, so 180 attempts stopped meaning 30 minutes. 50ms keeps the terminal
     // case reachable in a test without faking timers.
@@ -650,6 +654,21 @@ describe('plugin-build-queue', () => {
       // The remedy is a WAIT, not a purchase — one of the refusals a shared 429
       // would have sent to the billing page.
       expect(String((sse.send as any).mock.calls[0][2])).toContain('nothing to buy or fix');
+    });
+
+    it('reports the cap that DENIED the build — the system org\'s own, not its tier cell', async () => {
+      // The message used to read the tier cell for every org, so a system-org
+      // catalogue load was told a limit that was not the one holding it.
+      const sse = makeSseManager();
+      queueModule.startWorker(sse, makeQuotaService());
+      mockTryAcquireOrgSlot.mockResolvedValueOnce(false);
+
+      await expect(getMainProcessor()(makeJob({ ...makeJobData(), orgId: SYSTEM_ORG_CAP_ORG })))
+        .rejects.toMatchObject({ name: 'DelayedError' });
+
+      expect(mockOrgSlotCap).toHaveBeenCalledWith(SYSTEM_ORG_CAP_ORG, 'developer', 'standard');
+      expect(sse.send).toHaveBeenCalledWith('req-123', 'WARN',
+        expect.stringContaining('limit of 12'), expect.objectContaining({ maxBuildsPerOrg: 12 }));
     });
 
     it('binds the stream owner BEFORE the gate, or the waiting message could not be sent at all', async () => {
@@ -1916,7 +1935,7 @@ describe('plugin-build-queue', () => {
 
       await getDlqProcessor()(job);
 
-      expect(job.updateData).toHaveBeenCalledWith(expect.objectContaining({ quotaReleased: true }));
+      expect(job.updateData).toHaveBeenCalledWith(expect.objectContaining({ slotHandedOff: true }));
       const add = mockQueueAdd.mock.calls.find((c: any[]) => c[0] === 'retry-my-plugin') as any[];
       expect(add).toBeDefined();
       expect(add[2]).toEqual({ jobId: 'dlq-retry:dlq-job-1' });
@@ -1927,6 +1946,7 @@ describe('plugin-build-queue', () => {
       expect(add[1]).not.toHaveProperty('slotDelays');
       expect(add[1]).not.toHaveProperty('slotWaitStartedAt');
       expect(add[1].quotaReleased).toBeUndefined();
+      expect(add[1]).not.toHaveProperty('slotHandedOff');
       // Ordering: the record stops claiming the slot first, so a failed add can
       // only strand a slot (self-heals at reset), never double-release one.
       const addIndex = mockQueueAdd.mock.calls.indexOf(add);
@@ -1952,11 +1972,21 @@ describe('plugin-build-queue', () => {
       mockQueueAdd.mockRejectedValueOnce(new Error('redis down'));
 
       await expect(getDlqProcessor()(job)).rejects.toThrow('redis down');
-      expect(job.data.quotaReleased).toBe(true);
+      expect(job.data.slotHandedOff).toBe(true);
 
       await getDlqProcessor()(job);
       const adds = mockQueueAdd.mock.calls.filter((c: any[]) => c[0] === 'retry-my-plugin');
       expect(adds.map((c: any[]) => c[2].jobId)).toEqual(['dlq-retry:dlq-job-1', 'dlq-retry:dlq-job-1']);
+      // The RETRY's re-queued build still owns the slot. With the hand-off
+      // marked on `quotaReleased`, it inherited `true` and its terminal failure
+      // never gave the slot back.
+      expect(adds[1]![1].quotaReleased).toBeUndefined();
+      expect(adds[1]![1]).not.toHaveProperty('slotHandedOff');
+      // ...while the handed-off record itself releases nothing on a purge.
+      const { releasePluginQuota } = await import('../src/queue/build-quota.js');
+      mockIncrementQuota.mockClear(); // decrementQuota is aliased to it
+      releasePluginQuota(job as any, makeQuotaService() as any);
+      expect(mockIncrementQuota).not.toHaveBeenCalled();
     });
 
     it('records actorId "system" when a DLQ-abandoned build carries no user (system-initiated)', async () => {

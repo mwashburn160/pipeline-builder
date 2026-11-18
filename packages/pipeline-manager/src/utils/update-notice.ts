@@ -82,7 +82,7 @@ writeFileSync(tmp, JSON.stringify({ checkedAt: Date.now(), latest }));
 renameSync(tmp, file);
 `;
 
-export function defaultCacheFile(): string {
+function defaultCacheFile(): string {
   return join(homedir(), '.pipeline-manager', 'update-check.json');
 }
 

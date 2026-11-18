@@ -123,7 +123,7 @@ export async function resetFactors(userId: string, graceHours?: number): Promise
       userId,
       { $inc: { tokenVersion: 1 }, $set: { mfaResetGraceUntil: graceUntil } },
       { new: true, session },
-    ).select('+tokenVersion').lean();
+    ).select('tokenVersion claimsVersion').lean();
     await deleteAllSlots(userId, session);
     return { passkeys: passkeysRes, totp: totpRes, codes: codesRes, updated: bumped };
   });

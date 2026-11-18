@@ -121,6 +121,18 @@ suite('password reset (real Mongo)', () => {
     expect(await m.PasswordResetToken.countDocuments({})).toBe(0);
   });
 
+  it('BUMPS a non-zero tokenVersion — never resets it to 1', async () => {
+    // Regression: the reset loaded the user with `'+password +tokenVersion email
+    // lastActiveOrgId'`; tokenVersion is not `select: false`, so the `+` dropped
+    // it from the projection and `(undefined ?? 0) + 1` wrote 1 — a version
+    // REGRESSION that could revive credentials bound to an older version.
+    await m.User.updateOne({ _id: userId }, { $set: { tokenVersion: 5 } });
+    const { rawToken } = await svc.requestPasswordReset('forgetful@example.com');
+    await svc.resetPassword(rawToken, 'New-Passw0rd!secret');
+    const after = await m.User.findById(userId).select('tokenVersion').lean();
+    expect(after.tokenVersion).toBe(6);
+  });
+
   it('lifts a live failed-password lockout — the guarded password is gone', async () => {
     await m.PasswordLoginLockout.collection.insertOne({
       userId: new mongoose.Types.ObjectId(userId),

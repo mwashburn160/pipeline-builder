@@ -144,6 +144,7 @@ export function DoraReport({
                 label={<>Deployment frequency <span className="text-fg-subtle">({headlineEnv.environment})</span></>}
                 value={String(headlineEnv.deploymentFrequency.deployments)}
                 sub={<>{headlineEnv.deploymentFrequency.deployments === 1 ? 'deploy' : 'deploys'} &middot; {headlineEnv.deploymentFrequency.perDay.toFixed(2)}/day</>}
+                level={headlineEnv.deploymentFrequency.level}
                 tooltip={`Successful ${headlineEnv.environment} deploy-stage executions in the window. Per-environment breakdown below.`}
               />
               <DoraCard
@@ -185,6 +186,7 @@ export function DoraReport({
                 label={<>Time to Restore (MTTR) <span className="text-fg-subtle">({headlineEnv.environment})</span></>}
                 value={formatDurationSeconds(dora.meanTimeToRestore.medianSeconds)}
                 sub={`${dora.meanTimeToRestore.restored}/${dora.meanTimeToRestore.incidents} incidents restored`}
+                level={dora.meanTimeToRestore.level}
                 tooltip={`Median time from a marked-failed ${headlineEnv.environment} deploy to its restoration. "—" means no post-deploy incidents in this window.`}
               />
             </div>

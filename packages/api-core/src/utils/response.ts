@@ -137,7 +137,7 @@ function resetDateLabel(resetAt: string | undefined): string | undefined {
  * "contact your administrator" sent people hunting for a person when the answer
  * was a page.
  */
-export function quotaExceededMessage(quotaType: string, quota: Pick<QuotaInfo, 'limit' | 'used'>, resetAt?: string): string {
+function quotaExceededMessage(quotaType: string, quota: Pick<QuotaInfo, 'limit' | 'used'>, resetAt?: string): string {
   const label = isValidQuotaType(quotaType) ? QUOTA_TYPE_LABELS[quotaType] : quotaType;
   const when = resetDateLabel(resetAt);
   return `${label} quota reached (${quota.used}/${quota.limit})${when ? `; resets ${when}` : ''}. Upgrade at ${QUOTA_UPGRADE_PATH}.`;

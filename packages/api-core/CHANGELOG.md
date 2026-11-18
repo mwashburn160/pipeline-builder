@@ -11,6 +11,17 @@ breaking changes in the public surface only.
 
 - `QUOTA_INTERNAL.purgeOrg` (`POST /quotas/internal/orgs/:orgId/purge`) and `BILLING_INTERNAL.purgeOrg` (`POST /billing/internal/orgs/:orgId/purge`): the org-purge cascade legs for quota and billing, callable by `platform` only. They were the last two cascade legs without a typed contract (plain `DELETE`s to user routes). Quota answers the shared `OrgPurgeResponse`. Billing answers the new `OrgPurgeWithRemainderResponse` (`{ orgId, tables, remaining }`): a subscription whose provider cancel failed is kept and counted in `remaining`, and a 200 with any non-zero count there is not an ack, so the leg retries.
 
+### Fixes
+
+- `defineInternalEndpoint` refuses a `body` schema on a `GET` or `DELETE` contract at module load. `callInternal` never sends a body for those verbs, so such a body was validated and then silently dropped. No shipped contract declares one.
+
+### BREAKING CHANGES — Unused exports removed.
+
+Nothing in the repo imported these, so they are gone from the public surface:
+
+- Deleted: `ORG_AI_ACCESS_PATH`, `ORG_AI_KEYS_PATH`, `acceptAllCatalogMetadata`. For the last one, call `resolveCatalogMetadata(detected, {})`.
+- Now module-private (the code is still used internally): `classifyAIError`, `scanWarnings`, `atOrAboveFailOn`, `describeFix`, `quotaExceededMessage`, `PROJECTION_NOTICE_RATIO`, `MAX_PREVIOUS_CONFIG_CHARS`, and the `testing` helpers `serviceApiCoreDefaults` and `testServiceIdentityClaims`.
+
 ### BREAKING CHANGES — The `ask` service is renamed `ask-agent`.
 
 - `INTERNAL_SERVICES` lists `'ask-agent'` instead of `'ask'`, so `InternalService` no longer accepts `'ask'`. A service signing as `ask` (`SERVICE_NAME=ask`, `sub: service:ask`) is no longer a known caller: set `SERVICE_NAME=ask-agent` and mint its key as `ask-agent.key`.

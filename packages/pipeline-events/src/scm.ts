@@ -235,8 +235,17 @@ async function resolveGitHub(owner: string, repo: string, sha: string, sinceSha:
     const r = await fetchWithTimeout(`https://api.github.com/repos/${owner}/${repo}/compare/${sinceSha}...${sha}`, { headers }, SCM_FETCH_TIMEOUT_MS);
     if (rateLimited(r)) { scmCooldownUntil = Date.now() + SCM_COOLDOWN_MS; return {}; }
     if (r.ok) {
-      const j = await r.json() as { commits?: Array<{ commit?: { committer?: { date?: string }; author?: { date?: string } } }> };
+      const j = await r.json() as {
+        total_commits?: number;
+        commits?: Array<{ commit?: { committer?: { date?: string }; author?: { date?: string } } }>;
+      };
       const commits = Array.isArray(j.commits) ? j.commits : [];
+      // GitHub caps the compare's `commits` page (250 by default) while
+      // `total_commits` counts the whole range. A truncated page cannot name the
+      // oldest unshipped commit or the true count, so — exactly like a truncated
+      // CodeCommit walk — omit both rather than report a too-small lead time and
+      // count. Not a fall-through to the single commit: that understates too.
+      if (typeof j.total_commits === 'number' && j.total_commits > commits.length) return {};
       if (commits.length > 0) {
         const oldest = toIso(commits[0]?.commit?.committer?.date ?? commits[0]?.commit?.author?.date);
         if (oldest) return { commitTimestamp: oldest, commitCount: commits.length };

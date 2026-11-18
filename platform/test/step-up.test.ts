@@ -70,6 +70,22 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   },
 }));
 
+const mockReserve = jest.fn<AnyFn>();
+const mockRecordFailure = jest.fn<AnyFn>(async () => undefined);
+const mockComplete = jest.fn<AnyFn>(async () => undefined);
+class MockLockedOut extends Error {
+  constructor(readonly lockedUntil: Date) { super('PASSWORD_LOCKED_OUT'); }
+  get retryAfterSeconds(): number { return 60; }
+}
+jest.unstable_mockModule('../src/helpers/password-lockout.js', () => ({
+  reservePasswordAttempt: (...a: unknown[]) => mockReserve(...a),
+  recordPasswordFailure: (...a: unknown[]) => mockRecordFailure(...a),
+  completePasswordAttempt: (...a: unknown[]) => mockComplete(...a),
+  releasePasswordAttempt: jest.fn(async () => undefined),
+  PasswordLockedOutError: MockLockedOut,
+  PASSWORD_LOCKOUT_MESSAGE: 'Too many failed sign-in attempts for this account.',
+}));
+
 const { stepUpVerify } = await import('../src/controllers/step-up.js');
 
 
@@ -77,6 +93,7 @@ function mockRes() {
   const res: any = {};
   res.status = jest.fn(() => res);
   res.json = jest.fn(() => res);
+  res.setHeader = jest.fn();
   return res;
 }
 
@@ -85,6 +102,45 @@ beforeEach(() => {
   mockAudit.mockReset();
   mockIssueStepUpToken.mockReset();
   mockIncCounter.mockReset();
+  mockReserve.mockReset();
+  mockReserve.mockResolvedValue({ userId: 'u1', reservationId: 'r1' });
+  mockRecordFailure.mockClear();
+  mockComplete.mockClear();
+});
+
+describe('stepUpVerify — durable password lockout', () => {
+  // Regression: step-up compared the password with no durable lockout, so a
+  // stolen access token could keep guessing past a live sign-in lockout.
+  it('refuses with the lockout 429 WITHOUT comparing while the account is locked', async () => {
+    const user = { comparePassword: jest.fn<AnyFn>().mockResolvedValue(true), email: 'a@b' };
+    mockUserFindById.mockReturnValue({ select: jest.fn<AnyFn>().mockResolvedValue(user) });
+    mockReserve.mockRejectedValue(new MockLockedOut(new Date(Date.now() + 60_000)));
+    const res = mockRes();
+    await (stepUpVerify as unknown as (req: any, res: any) => Promise<void>)({ body: { password: 'right' }, user: { sub: 'u1' } }, res);
+    expect(res.status).toHaveBeenCalledWith(429);
+    expect(res.setHeader).toHaveBeenCalledWith('Retry-After', '60');
+    expect(user.comparePassword).not.toHaveBeenCalled();
+    expect(mockIssueStepUpToken).not.toHaveBeenCalled();
+  });
+
+  it('counts a wrong password against the account (the reservation becomes the failure)', async () => {
+    const user = { comparePassword: jest.fn<AnyFn>().mockResolvedValue(false), email: 'a@b' };
+    mockUserFindById.mockReturnValue({ select: jest.fn<AnyFn>().mockResolvedValue(user) });
+    const res = mockRes();
+    await (stepUpVerify as unknown as (req: any, res: any) => Promise<void>)({ body: { password: 'wrong' }, user: { sub: 'u1' } }, res);
+    expect(mockRecordFailure).toHaveBeenCalledWith('u1', 'r1');
+    expect(res.status).toHaveBeenCalledWith(401);
+  });
+
+  it('settles the reservation on the right password', async () => {
+    const user = { comparePassword: jest.fn<AnyFn>().mockResolvedValue(true), email: 'a@b' };
+    mockUserFindById.mockReturnValue({ select: jest.fn<AnyFn>().mockResolvedValue(user) });
+    mockIssueStepUpToken.mockReturnValue({ token: 't', expiresAt: 1 });
+    const res = mockRes();
+    await (stepUpVerify as unknown as (req: any, res: any) => Promise<void>)({ body: { password: 'right' }, user: { sub: 'u1' } }, res);
+    expect(mockComplete).toHaveBeenCalledWith({ userId: 'u1', reservationId: 'r1' });
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
 });
 
 describe('stepUpVerify', () => {

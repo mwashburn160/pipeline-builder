@@ -259,6 +259,16 @@ export const verifyMfaLogin = withController('MFA login verify', async (req, res
     return sendError(res, 401, TOTP_ERROR_MAP[TOTP_INVALID_CHALLENGE].message, TOTP_INVALID_CHALLENGE);
   }
 
+  // SSO gate BEFORE the code: the sign-in is refused whatever the code, so it
+  // must not first advance the authenticator's step or SPEND a recovery code.
+  if (await rejectIfSsoEnforced(req, res, user.email, { method: 'totp', targetId: pending.userId })) {
+    // Not spent by a refusal: the handle goes back (it still can't open a
+    // session while the org enforces SSO). The refusal is audited by the gate.
+    await restoreMfaChallenge(body.challengeId, pending);
+    meter('login', 'failure');
+    return;
+  }
+
   // A RECOVERY-ONLY challenge (a passkey account whose org policy refused the
   // password alone) accepts nothing but one of the account's recovery codes,
   // under their own lockout; otherwise it is the authenticator app's code or a
@@ -272,14 +282,6 @@ export const verifyMfaLogin = withController('MFA login verify', async (req, res
     // A wrong code (or a lockout) hands the handle back for another try.
     await restoreMfaChallenge(body.challengeId, pending);
     return deny(err instanceof Error ? err.message : 'unknown', pending.userId);
-  }
-
-  if (await rejectIfSsoEnforced(req, res, user.email, { method: 'totp', targetId: pending.userId })) {
-    // Not spent by a refusal: the handle goes back (it still can't open a
-    // session while the org enforces SSO). The refusal is audited by the gate.
-    await restoreMfaChallenge(body.challengeId, pending);
-    meter('login', 'failure');
-    return;
   }
 
   // The handle was spent when claimed — it can never yield a second session.

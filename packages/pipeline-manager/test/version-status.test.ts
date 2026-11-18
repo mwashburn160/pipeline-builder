@@ -149,6 +149,23 @@ describe('status — sign-in check (G7)', () => {
     expect(profileAuth).toEqual(['Bearer pb_pat_0123456789abcdef0123456789abcdef']);
   });
 
+  it('sends the credential with certificate verification ON, even to a local host', async () => {
+    // `status` used the local-host relaxation for the profile call too, so a
+    // bearer token went out over an unverified connection to any localhost /
+    // private-range platform, whatever PLATFORM_TLS_VERIFY / NODE_ENV said.
+    const { default: axios } = await import('axios');
+    const get = jest.spyOn(axios, 'get').mockResolvedValue({ data: {} });
+    process.env.PLATFORM_BASE_URL = 'https://localhost:8443';
+    try {
+      await run(status, ['status', '--json']);
+      const agentOf = (url: string) => (get.mock.calls.find((c) => c[0] === url)?.[1] as { httpsAgent?: { options: { rejectUnauthorized?: boolean } } })?.httpsAgent;
+      expect(agentOf('https://localhost:8443/health')?.options.rejectUnauthorized).toBe(false);
+      expect(agentOf('https://localhost:8443/api/user/profile')?.options.rejectUnauthorized).toBe(true);
+    } finally {
+      get.mockRestore();
+    }
+  });
+
   it('reports a credential the platform refuses as NOT signed in', async () => {
     profileStatus = 401;
     await run(status, ['status', '--json']);

@@ -13,7 +13,7 @@ import { isSessionUsable, loadSession } from '../utils/credential-store.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printKeyValue, printSection } from '../utils/output-utils.js';
 import { requestCorrelationHeaders } from '../utils/request-context.js';
-import { httpsAgentForUrl } from '../utils/tls.js';
+import { httpsAgentForUrl, platformHttpsAgent } from '../utils/tls.js';
 
 /** Which credential later commands would use, in `resolveToken`'s order. */
 function credentialSource(baseUrl: string): { label: string; token?: string; expiresAt?: number } {
@@ -49,7 +49,8 @@ export function status(program: Command): void {
 
       try {
         const results: Record<string, string> = {};
-        const baseUrl = getApiConfig().api.baseUrl;
+        const apiConfig = getApiConfig();
+        const baseUrl = apiConfig.api.baseUrl;
         results.Platform = baseUrl;
 
         const credential = credentialSource(baseUrl);
@@ -57,10 +58,10 @@ export function status(program: Command): void {
         results.PLATFORM_SECRET_NAME = process.env.PLATFORM_SECRET_NAME || 'not set';
         results['CDK Available'] = checkCdkAvailable() ? 'yes' : 'no';
 
-        // Skip cert verification only for local/self-signed hosts; verify real domains.
-        const httpsAgent = httpsAgentForUrl(baseUrl);
+        // The credential-free reachability probe skips cert verification for
+        // local/self-signed hosts only; real domains are verified.
         try {
-          await axios.get(`${baseUrl}/health`, { timeout: TIMEOUTS.HEALTH_CHECK, httpsAgent });
+          await axios.get(`${baseUrl}/health`, { timeout: TIMEOUTS.HEALTH_CHECK, httpsAgent: httpsAgentForUrl(baseUrl) });
           results['Platform Health'] = 'reachable';
         } catch {
           results['Platform Health'] = 'unreachable';
@@ -87,7 +88,12 @@ export function status(program: Command): void {
         }
 
         // The check that matters: does the platform accept the credential?
+        // This call carries the bearer, so it uses the SAME TLS policy as every
+        // authenticated command (PLATFORM_CA_BUNDLE, PLATFORM_TLS_VERIFY, refused
+        // in production) — never the local-host relaxation above, which would
+        // send the credential over an unverified connection.
         if (token) {
+          const httpsAgent = platformHttpsAgent(apiConfig.api.rejectUnauthorized);
           try {
             const res = await axios.get<{ data?: { user?: { email?: string; activeOrgName?: string | null; organizationId?: string } } }>(
               `${baseUrl}/api/user/profile`,

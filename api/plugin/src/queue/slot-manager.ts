@@ -114,6 +114,15 @@ export function systemOrgSlotCap(): number {
 }
 
 /**
+ * The cap `tryAcquireOrgSlot` actually enforces for `orgId`: the system org's
+ * own figure, else the (tier, class) cell. One function, so what a denied
+ * build is TOLD its limit is cannot differ from the limit that denied it.
+ */
+export function orgSlotCap(orgId: string, tier: PlanTier, buildClass: BuildClass): number {
+  return isSystemOrgId(orgId) ? systemOrgSlotCap() : maxBuildsPerOrg(tier, buildClass);
+}
+
+/**
  * Whether `orgId` may wait for a slot indefinitely rather than failing at
  * {@link ORG_SLOT_WAIT_BUDGET_MS}. True for the system org only: a catalogue load is
  * platform work, and a plugin that is merely LATE must not read as a plugin that
@@ -335,7 +344,7 @@ export async function tryAcquireOrgSlot(
   // atomically with the INCR (see ACQUIRE_SLOT_LUA).
   const result = await redis.eval(
     ACQUIRE_SLOT_LUA, 2, orgSlotKey(orgId, buildClass), orgSlotOwnersKey,
-    String(isSystemOrgId(orgId) ? systemOrgSlotCap() : maxBuildsPerOrg(tier, buildClass)),
+    String(orgSlotCap(orgId, tier, buildClass)),
     String(ORG_SLOT_TTL_SECONDS), jobId, ownerValue(orgId, buildClass),
   );
   return result === 1;

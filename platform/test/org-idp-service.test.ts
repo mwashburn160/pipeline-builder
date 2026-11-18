@@ -117,6 +117,35 @@ describe('OrgIdpService.upsert', () => {
   });
 });
 
+describe('OrgIdpService.upsert — enabled is preserved when omitted', () => {
+  it('does not re-enable a DISABLED connection on a save that omits `enabled`', async () => {
+    // Regression: `existing.enabled = input.enabled ?? true` turned SSO back on
+    // whenever an editor (the SAML form sends no `enabled`) saved.
+    const existing = {
+      orgId: 'org-acme',
+      provider: 'generic-oidc',
+      clientId: 'c',
+      clientSecretEncrypted: 'cipher',
+      discoveryUrl: 'url',
+      allowedEmailDomains: [],
+      enabled: false,
+      createdBy: 'orig',
+      updatedBy: 'orig',
+      createdAt: new Date(0),
+      updatedAt: new Date(0),
+      save: mockSave,
+    };
+    mockFindOne.mockResolvedValue(existing);
+    mockSave.mockImplementation(async function (this: typeof existing) { return this as never; });
+
+    await orgIdpService.upsert('admin-2', { orgId: 'org-acme', provider: 'generic-oidc', clientId: 'c2', discoveryUrl: 'url' });
+    expect(existing.enabled).toBe(false);
+
+    await orgIdpService.upsert('admin-2', { orgId: 'org-acme', provider: 'generic-oidc', clientId: 'c2', discoveryUrl: 'url', enabled: true });
+    expect(existing.enabled).toBe(true);
+  });
+});
+
 describe('OrgIdpService.patch', () => {
   it('leaves the existing secret intact when no new secret is supplied', async () => {
     const existing = {

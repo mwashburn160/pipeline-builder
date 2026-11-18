@@ -268,6 +268,27 @@ describe('DORA: a deploy stage that passed on retry', () => {
     expect(new Date(rows[0]!.deployed_at).toISOString()).toBe(new Date(t('20:05:00')).toISOString());
   });
 
+  it('both events in ONE batch land one row, the later event winning (no double-hit conflict)', async () => {
+    const base = { orgId: ORG, pipelineId: PIPE, executionId: 'exec-deploy', eventType: 'STAGE', stageName: 'DeployProd', environment: 'production' };
+    const commitAt = new Date(t('19:00:00'));
+    const n = await upsertDeployments([
+      { ...base, status: 'SUCCEEDED', completedAt: new Date(t('20:05:00')) },
+      { ...base, status: 'FAILED', completedAt: new Date(t('19:56:00')), commitTimestamp: commitAt, commitSha: 'abc' },
+      // A second deploy stage of the same execution into the same environment.
+      { ...base, stageName: 'DeployProdDb', status: 'SUCCEEDED', completedAt: new Date(t('20:01:00')) },
+    ]);
+    expect(n).toBe(1);
+    const { rows } = await pg.query<{ succeeded: boolean; deployed_at: Date; commit_sha: string | null; lead_time_gap: string | null }>(
+      'SELECT succeeded, deployed_at, commit_sha, lead_time_gap FROM dora_deployments',
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.succeeded).toBe(true);
+    expect(new Date(rows[0]!.deployed_at).toISOString()).toBe(new Date(t('20:05:00')).toISOString());
+    // The earlier event's measured commit is filled in, as a separate later upsert would.
+    expect(rows[0]!.commit_sha).toBe('abc');
+    expect(rows[0]!.lead_time_gap).toBeNull();
+  });
+
   it('in arrival order, the later event still wins (FAILED then SUCCEEDED)', async () => {
     const base = { orgId: ORG, pipelineId: PIPE, executionId: 'exec-deploy', eventType: 'STAGE', stageName: 'DeployProd', environment: 'production' };
     await upsertDeployments([{ ...base, status: 'FAILED', completedAt: new Date(t('19:56:00')) }]);

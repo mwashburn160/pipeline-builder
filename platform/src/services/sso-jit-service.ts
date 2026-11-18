@@ -196,7 +196,7 @@ export async function provisionJitMembership(input: {
   if (changed) {
     // Re-read the version we just bumped so the session about to be minted from
     // `user` carries the CURRENT one (see the note on this function).
-    const fresh = await User.findById(user._id).select('+tokenVersion').lean();
+    const fresh = await User.findById(user._id).select('tokenVersion claimsVersion').lean();
     if (fresh && typeof fresh.tokenVersion === 'number') user.tokenVersion = fresh.tokenVersion;
     if (fresh && typeof fresh.claimsVersion === 'number') user.claimsVersion = fresh.claimsVersion;
     // Post-commit: publish it so the stateless services drop the user's older

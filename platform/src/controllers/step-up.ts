@@ -31,9 +31,18 @@
  * session shows up.
  */
 
-import { createLogger, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { createLogger, ErrorCode, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import { withController } from '../helpers/controller-helper.js';
+import {
+  completePasswordAttempt,
+  PASSWORD_LOCKOUT_MESSAGE,
+  PasswordLockedOutError,
+  recordPasswordFailure,
+  releasePasswordAttempt,
+  reservePasswordAttempt,
+  type PasswordAttempt,
+} from '../helpers/password-lockout.js';
 import { User } from '../models/index.js';
 import { incCounter } from '../observability/metrics.js';
 import { issueStepUpToken } from '../services/session/access-tokens.js';
@@ -55,7 +64,34 @@ export const stepUpVerify = withController('Step-up password verify', async (req
   const user = await User.findById(userId).select('+password email');
   if (!user) return sendError(res, 401, 'Authentication required');
 
-  const ok = await user.comparePassword(password);
+  // The SAME durable per-account lockout password sign-in uses
+  // (helpers/password-lockout.ts). Without it this route is a password oracle
+  // that a stolen access token could query past a live sign-in lockout, and
+  // its only other throttle (the Redis limiter) fails open when Redis errors.
+  let attempt: PasswordAttempt;
+  try {
+    attempt = await reservePasswordAttempt(userId);
+  } catch (err) {
+    if (err instanceof PasswordLockedOutError) return refuseLocked(res, err);
+    throw err;
+  }
+  let ok: boolean;
+  try {
+    ok = await user.comparePassword(password);
+  } catch (err) {
+    await releasePasswordAttempt(attempt).catch(() => undefined);
+    throw err;
+  }
+  if (ok) {
+    try {
+      await completePasswordAttempt(attempt);
+    } catch (err) {
+      if (err instanceof PasswordLockedOutError) return refuseLocked(res, err);
+      throw err;
+    }
+  } else {
+    await recordPasswordFailure(userId, attempt.reservationId);
+  }
   if (!ok) {
     // Audit the failure so compromised-session anomalies show up. We
     // never log the attempted password.
@@ -76,3 +112,10 @@ export const stepUpVerify = withController('Step-up password verify', async (req
   // One response shape for every factor: the token plus how it was earned.
   sendSuccess(res, 200, { ok: true, stepUpToken: token, expiresAt, method: 'password' });
 });
+
+/** The lockout's own 429 — the same answer password sign-in gives. */
+function refuseLocked(res: Parameters<typeof sendError>[0], err: PasswordLockedOutError): void {
+  incCounter('platform_step_up_total', { method: 'password', outcome: 'failure' });
+  res.setHeader('Retry-After', String(err.retryAfterSeconds));
+  sendError(res, 429, PASSWORD_LOCKOUT_MESSAGE, ErrorCode.RATE_LIMIT_EXCEEDED, { retryAfterSeconds: err.retryAfterSeconds });
+}

@@ -74,7 +74,6 @@ export {
   firstSentence,
   detectCatalogMetadata,
   resolveCatalogMetadata,
-  acceptAllCatalogMetadata,
   parseCatalogEdits,
   parseCatalogEditsPart,
   type DetectedField,

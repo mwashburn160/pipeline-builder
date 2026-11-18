@@ -210,6 +210,20 @@ describe('organizationService.list — tier filter + derived facets', () => {
     expect(mockOrgFind).toHaveBeenCalledWith({ _id: { $in: ['a'.repeat(24), 'b'.repeat(24)] } });
   });
 
+  it('reports ownerId as the POPULATED owner\'s id, not "[object Object]"', async () => {
+    // Regression: `.populate('owner', 'username email').lean()` yields a plain
+    // object, and `owner.toString()` stringified it as "[object Object]".
+    const rows = [
+      { _id: 'o1', name: 'a', slug: 'a', owner: { _id: { toString: () => 'u-owner' }, username: 'x', email: 'x@e.com' } },
+      { _id: 'o2', name: 'b', slug: 'b', owner: null },
+    ];
+    mockOrgFind.mockReturnValue(makeFindChain(rows));
+    mockOrgCount.mockResolvedValue(2);
+
+    const { organizations } = await organizationService.list({ offset: 0, limit: 10 });
+    expect(organizations.map((o) => o.ownerId)).toEqual(['u-owner', undefined]);
+  });
+
   it('derives kmsConfigured=true iff kmsConfig.keyId is present', async () => {
     const rows = [
       { _id: 'o1', name: 'a', slug: 'a', kmsConfig: { keyId: 'alias/x' } },

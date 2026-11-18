@@ -151,6 +151,27 @@ async function applyGroupMembership(
   return touched;
 }
 
+/** Mongo's duplicate-key error. */
+function isDuplicateKey(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { code?: unknown }).code === 11000;
+}
+
+/**
+ * Run a write that claims a group key, answering the unique index's
+ * duplicate-key error with SCIM `uniqueness` (409). The `exists` pre-checks
+ * only cover the sequential case: two concurrent creates (or renames to one
+ * name) both pass them, and the loser must get the same 409 rather than an
+ * untranslated 500 the IdP keeps retrying.
+ */
+async function claimingGroupName<T>(displayName: string, write: () => Promise<T>): Promise<T> {
+  try {
+    return await write();
+  } catch (err) {
+    if (isDuplicateKey(err)) throw scimUniqueness(`A group named '${displayName}' already exists in this organization.`);
+    throw err;
+  }
+}
+
 /**
  * POST /Groups — push a directory group.
  *
@@ -173,7 +194,7 @@ export async function createGroup(ctx: ScimContext, body: Record<string, unknown
   }
   const members = await resolveMembers(ctx.orgId, body.members);
 
-  const doc = await IdpGroupMapping.create({
+  const doc = await claimingGroupName(displayName, () => IdpGroupMapping.create({
     organizationId: toOrgId(ctx.orgId),
     group: displayName,
     groupKey: key,
@@ -183,7 +204,7 @@ export async function createGroup(ctx: ScimContext, body: Record<string, unknown
     scimManaged: true,
     createdBy: 'scim',
     updatedBy: 'scim',
-  });
+  }));
   const affectedUserIds = await applyGroupMembership(ctx.orgId, key, members, []);
 
   logger.info('[SCIM] created directory group', { orgId: ctx.orgId, group: key, members: members.length });
@@ -211,9 +232,10 @@ export async function replaceGroup(ctx: ScimContext, id: string, body: Record<st
 
   const displayName = typeof body.displayName === 'string' ? body.displayName.trim() : doc.group;
   const renaming = displayName !== doc.group;
-  // Removal-only after a downgrade: dropping members still works, adding or
-  // renaming does not.
-  if (renaming || adding.length > 0) assertIntentAllowed(ctx, 'update');
+  const externalIdChanging = typeof body.externalId === 'string' && body.externalId !== doc.scimExternalId;
+  // Removal-only after a downgrade: dropping members still works, adding,
+  // renaming or re-keying the externalId does not (as in PATCH).
+  if (renaming || adding.length > 0 || externalIdChanging) assertIntentAllowed(ctx, 'update');
 
   const changed: string[] = [];
   if (renaming) {
@@ -221,11 +243,11 @@ export async function replaceGroup(ctx: ScimContext, id: string, body: Record<st
     if (key !== doc.groupKey && await IdpGroupMapping.exists({ organizationId: ctx.orgId, groupKey: key, _id: { $ne: doc._id } })) {
       throw scimUniqueness(`A group named '${displayName}' already exists in this organization.`);
     }
-    await renameGroupKey(ctx.orgId, doc, displayName, key);
+    await claimingGroupName(displayName, () => renameGroupKey(ctx.orgId, doc, displayName, key));
     changed.push('displayName');
   }
-  if (typeof body.externalId === 'string' && body.externalId !== doc.scimExternalId) {
-    doc.scimExternalId = body.externalId.slice(0, 256);
+  if (externalIdChanging) {
+    doc.scimExternalId = (body.externalId as string).slice(0, 256);
     await doc.save();
     changed.push('externalId');
   }
@@ -347,7 +369,7 @@ export async function patchGroup(ctx: ScimContext, id: string, ops: unknown): Pr
     if (key !== doc.groupKey && await IdpGroupMapping.exists({ organizationId: ctx.orgId, groupKey: key, _id: { $ne: doc._id } })) {
       throw scimUniqueness(`A group named '${displayName}' already exists in this organization.`);
     }
-    await renameGroupKey(ctx.orgId, doc, displayName!, key);
+    await claimingGroupName(displayName!, () => renameGroupKey(ctx.orgId, doc, displayName!, key));
     changed.push('displayName');
   }
   if (externalId !== undefined && externalId !== doc.scimExternalId) {

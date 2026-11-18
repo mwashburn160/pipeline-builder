@@ -91,12 +91,6 @@ export function setTokenRevocationStore(store: TokenRevocationStore | undefined)
 let revocationStoreMissingWarned = false;
 
 /**
- * Returns true when `decoded` has been revoked per the registered store: its
- * embedded `tokenVersion` is strictly behind the store's current version.
- * Fail-open — any store error, a missing entry, or a token/store without a
- * usable version yields `false` (allow). Never throws.
- */
-/**
  * Make the "revocation is OFF" state OBSERVABLE: a service that verifies user
  * tokens but forgot `setTokenRevocationStore()` silently disables the session
  * kill-switch. Warn ONCE (only for a revocable user token) so a misconfigured
@@ -110,6 +104,13 @@ function warnIfStoreMissing(decoded: Pick<JwtPayload, 'sub' | 'tokenVersion'>): 
   }
 }
 
+/**
+ * Returns true when `decoded` has been revoked per the registered store: one of
+ * its credentials (`sid` / access key) is revoked, or its embedded
+ * `tokenVersion` is strictly behind the store's current version.
+ * Fail-open — any store error, a missing entry, or a token/store without a
+ * usable version yields `false` (allow). Never throws.
+ */
 async function isTokenRevoked(decoded: JwtPayload): Promise<boolean> {
   const store = tokenRevocationStore;
   if (!store) {

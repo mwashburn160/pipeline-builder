@@ -46,6 +46,9 @@ export function createRestorePluginRoutes(quotaService: QuotaService): Router {
           slot.refund();
           return null;
         }
+        // The row is live again: it holds the slot from here, so a failure
+        // recording the period below must not refund it.
+        slot.markConsumed();
         await pluginService.setQuotaSnapshot(restoredResult.restored.id, slot.reservation.quota.resetAt ?? null);
         return restoredResult;
       },

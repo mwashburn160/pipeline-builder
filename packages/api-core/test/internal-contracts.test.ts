@@ -82,6 +82,12 @@ describe('defineInternalEndpoint', () => {
     expect(() => defineInternalEndpoint({ ...GET, callers: [] })).toThrow(/names its callers/);
   });
 
+  it('refuses a body on a GET or DELETE, which callInternal would silently drop', () => {
+    const body = z.object({ v: z.string() });
+    expect(() => defineInternalEndpoint({ ...GET, body } as never)).toThrow(/GET endpoint cannot declare a body/);
+    expect(() => defineInternalEndpoint({ ...DEL, body } as never)).toThrow(/DELETE endpoint cannot declare a body/);
+  });
+
   it('refuses a path outside the /internal convention, with no way to opt out', () => {
     expect(() => defineInternalEndpoint({ ...GET, path: '/svc/things' })).toThrow(/outside the \/internal convention/);
     expect(() => defineInternalEndpoint({ ...GET, path: '/svc/a/internal/things' })).toThrow(/outside the \/internal convention/);

@@ -6,7 +6,7 @@ import axios from 'axios';
 import { ERROR_CODES } from './error-handler.js';
 import { printDebug, printError, printSuccess } from './output-utils.js';
 import { requestCorrelationHeaders } from './request-context.js';
-import { isProductionEnv, platformHttpsAgent } from './tls.js';
+import { isProductionEnv } from './tls.js';
 
 /**
  * Session payload as a NON-BROWSER client receives it: the refresh token rides
@@ -40,15 +40,6 @@ export function assertCredentialTlsAllowed(verifySsl: boolean | undefined): void
     printError('Refusing to disable TLS verification in production (NODE_ENV=production) — credentials must not be transmitted over an unverified connection. Use a valid certificate, or unset NODE_ENV for local/self-signed development.');
     process.exit(ERROR_CODES.AUTHENTICATION);
   }
-}
-
-/**
- * Build the https agent used by the credential commands. `--verify-ssl`
- * defaults to on; only an explicit `--no-verify-ssl` relaxes it (and only
- * outside production, enforced by {@link assertCredentialTlsAllowed}).
- */
-export function credentialHttpsAgent(verifySsl: boolean | undefined): https.Agent {
-  return platformHttpsAgent(verifySsl);
 }
 
 /** What `POST /api/auth/switch-org` returns: an ACCESS token only. */
