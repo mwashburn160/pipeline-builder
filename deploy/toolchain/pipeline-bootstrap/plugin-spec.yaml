@@ -5,7 +5,7 @@ category: infrastructure
 # (from this directory's Dockerfile ARGs and a hash of both this directory's and
 # cdk-synth's build inputs). Never edit them by hand; bump minor/major by editing
 # `version` in BOTH specs together.
-version: 1.1.23
+version: 1.1.24
 pluginType: BuildImage
 # icon: none — managed toolchain build image, never listed in the catalog (monogram; see _icons/SOURCES.md)
 toolchain:
@@ -13,4 +13,4 @@ toolchain:
   awsCdk: "2.1148.1"
   cdkAssets: "4.8.0"
   node: "26.13.1"
-sourceDigest: "sha256:d561f40d0fed0429a3a0b2cb1fc59eccf6595b836bc757dcfe4f2e784b8f71cd"
+sourceDigest: "sha256:b41c9c0e6e9089e8a724c25f6f21a1985b2882b88033f510d7d931471127cdff"
