@@ -1311,6 +1311,99 @@ tests:
               summary: "A Postgres read replica has been idle enough to drop a rung"
               description: "Both CPU and memory have been below 30%/40% of their limits for 2h on a standby. The controller drops one rung only while the standby is ABOVE the primary's rung — below that it cannot serve as a promotion candidate. Reducing the replica COUNT is KEDA's job, not this alert's; its scale-down stabilization window is longer on purpose, so a rung change settles before the count reacts."
 
+  # RESTART / RESCHEDULE. THE DEFECT THESE CATCH: when the standby pod moves
+  # (Karpenter consolidation, a drain, a crash), cAdvisor starts a NEW series
+  # for the same namespace/pod/container with a different `id`/`node`, and for
+  # the length of the rate window the range holds both. Unaggregated, the
+  # `on(namespace,pod,container)` join found two matches and the rule FAILED to
+  # evaluate ("many-to-one matching must be explicit") — it could not fire for
+  # 30m after every move. Here the old container stops at 100m and the new one
+  # starts at 101m; the idle standby must still be reported straight through.
+  - interval: 1m
+    input_series:
+      - series: 'container_cpu_usage_seconds_total{namespace="pipeline-builder",pod="postgres-replica-0",container="postgres-replica",id="/old",node="node-a"}'
+        values: '0+12x100 stale'
+      - series: 'container_spec_cpu_quota{namespace="pipeline-builder",pod="postgres-replica-0",container="postgres-replica",id="/old",node="node-a"}'
+        values: '100000+0x100 stale'
+      - series: 'container_spec_cpu_period{namespace="pipeline-builder",pod="postgres-replica-0",container="postgres-replica",id="/old",node="node-a"}'
+        values: '100000+0x100 stale'
+      - series: 'container_memory_working_set_bytes{namespace="pipeline-builder",pod="postgres-replica-0",container="postgres-replica",id="/old",node="node-a"}'
+        values: '644245094+0x100 stale'
+      - series: 'container_spec_memory_limit_bytes{namespace="pipeline-builder",pod="postgres-replica-0",container="postgres-replica",id="/old",node="node-a"}'
+        values: '2147483648+0x100 stale'
+      - series: 'container_cpu_usage_seconds_total{namespace="pipeline-builder",pod="postgres-replica-0",container="postgres-replica",id="/new",node="node-b"}'
+        values: '_x101 0+12x140'
+      - series: 'container_spec_cpu_quota{namespace="pipeline-builder",pod="postgres-replica-0",container="postgres-replica",id="/new",node="node-b"}'
+        values: '_x101 100000+0x140'
+      - series: 'container_spec_cpu_period{namespace="pipeline-builder",pod="postgres-replica-0",container="postgres-replica",id="/new",node="node-b"}'
+        values: '_x101 100000+0x140'
+      - series: 'container_memory_working_set_bytes{namespace="pipeline-builder",pod="postgres-replica-0",container="postgres-replica",id="/new",node="node-b"}'
+        values: '_x101 644245094+0x140'
+      - series: 'container_spec_memory_limit_bytes{namespace="pipeline-builder",pod="postgres-replica-0",container="postgres-replica",id="/new",node="node-b"}'
+        values: '_x101 2147483648+0x140'
+    alert_rule_test:
+      # 125m: inside the overlap (the old series is still in the 30m range)
+      # and past the 2h `for`. 240m: long after the overlap.
+      - eval_time: 125m
+        alertname: PostgresReadReplicaUnderutilised
+        exp_alerts:
+          - exp_labels:
+              severity: info
+              component: postgres
+              tenancy: platform
+              namespace: pipeline-builder
+              pod: postgres-replica-0
+              container: postgres-replica
+            exp_annotations:
+              summary: "A Postgres read replica has been idle enough to drop a rung"
+              description: "Both CPU and memory have been below 30%/40% of their limits for 2h on a standby. The controller drops one rung only while the standby is ABOVE the primary's rung — below that it cannot serve as a promotion candidate. Reducing the replica COUNT is KEDA's job, not this alert's; its scale-down stabilization window is longer on purpose, so a rung change settles before the count reacts."
+      - eval_time: 240m
+        alertname: PostgresReadReplicaUnderutilised
+        exp_alerts:
+          - exp_labels:
+              severity: info
+              component: postgres
+              tenancy: platform
+              namespace: pipeline-builder
+              pod: postgres-replica-0
+              container: postgres-replica
+            exp_annotations:
+              summary: "A Postgres read replica has been idle enough to drop a rung"
+              description: "Both CPU and memory have been below 30%/40% of their limits for 2h on a standby. The controller drops one rung only while the standby is ABOVE the primary's rung — below that it cannot serve as a promotion candidate. Reducing the replica COUNT is KEDA's job, not this alert's; its scale-down stabilization window is longer on purpose, so a rung change settles before the count reacts."
+
+  # Negative control for the aggregation: a BUSY standby across the same move
+  # (old 0.6 cores, new 0.6 cores) must NOT look idle. `sum` over the overlap
+  # adds the two halves of the window rather than averaging them down.
+  - interval: 1m
+    input_series:
+      - series: 'container_cpu_usage_seconds_total{namespace="pipeline-builder",pod="postgres-replica-0",container="postgres-replica",id="/old",node="node-a"}'
+        values: '0+36x100 stale'
+      - series: 'container_spec_cpu_quota{namespace="pipeline-builder",pod="postgres-replica-0",container="postgres-replica",id="/old",node="node-a"}'
+        values: '100000+0x100 stale'
+      - series: 'container_spec_cpu_period{namespace="pipeline-builder",pod="postgres-replica-0",container="postgres-replica",id="/old",node="node-a"}'
+        values: '100000+0x100 stale'
+      - series: 'container_memory_working_set_bytes{namespace="pipeline-builder",pod="postgres-replica-0",container="postgres-replica",id="/old",node="node-a"}'
+        values: '644245094+0x100 stale'
+      - series: 'container_spec_memory_limit_bytes{namespace="pipeline-builder",pod="postgres-replica-0",container="postgres-replica",id="/old",node="node-a"}'
+        values: '2147483648+0x100 stale'
+      - series: 'container_cpu_usage_seconds_total{namespace="pipeline-builder",pod="postgres-replica-0",container="postgres-replica",id="/new",node="node-b"}'
+        values: '_x101 0+36x140'
+      - series: 'container_spec_cpu_quota{namespace="pipeline-builder",pod="postgres-replica-0",container="postgres-replica",id="/new",node="node-b"}'
+        values: '_x101 100000+0x140'
+      - series: 'container_spec_cpu_period{namespace="pipeline-builder",pod="postgres-replica-0",container="postgres-replica",id="/new",node="node-b"}'
+        values: '_x101 100000+0x140'
+      - series: 'container_memory_working_set_bytes{namespace="pipeline-builder",pod="postgres-replica-0",container="postgres-replica",id="/new",node="node-b"}'
+        values: '_x101 644245094+0x140'
+      - series: 'container_spec_memory_limit_bytes{namespace="pipeline-builder",pod="postgres-replica-0",container="postgres-replica",id="/new",node="node-b"}'
+        values: '_x101 2147483648+0x140'
+    alert_rule_test:
+      - eval_time: 125m
+        alertname: PostgresReadReplicaUnderutilised
+        exp_alerts: []
+      - eval_time: 240m
+        alertname: PostgresReadReplicaUnderutilised
+        exp_alerts: []
+
   # ---------------------------------------------------------------------------
   # pg_up scoping. THE DEFECT THESE CATCH: the read replica runs the same
   # postgres-exporter image, so an unscoped `pg_up == 0` matched the standby too
