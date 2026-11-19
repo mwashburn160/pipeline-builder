@@ -52,6 +52,11 @@ RUN fetch-apt-key https://download.docker.com/linux/ubuntu/gpg /etc/apt/keyrings
 # AWS CLI v2 — inherited from plugin-aws-cli-base.
 
 # AWS CDK + TS toolchain.
+# TypeScript is HELD on 6.x (6.0.3, the newest 6 release) — checked 2026-11-18.
+# typescript@7 (latest 7.0.2) is the native Go compiler: its package exports
+# only lib/version.cjs, with no JS compiler API, and ts-node 10.9.2 (still the
+# newest) drives that API — so CDK apps run via `ts-node` would break. Revisit
+# when ts-node (or a replacement such as tsx) supports TypeScript 7.
 RUN npm install -g aws-cdk@2.1148.1 typescript@6.0.3 ts-node@10.9.2
 
 # Runtime `npm install -g` (the spec installs yarn/pnpm for projects that use

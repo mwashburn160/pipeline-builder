@@ -2,7 +2,7 @@
 
 Azure infrastructure deployment plugin supporting Web App, Container Instances, AKS, and Function deployments with Azure CLI and kubectl using AWS CDK CodeBuildStep
 
-**Version:** 1.0.0  
+**Version:** 1.0.1  
 **Category:** deploy  
 **Plugin Type:** CodeBuildStep  
 **Compute:** MEDIUM  

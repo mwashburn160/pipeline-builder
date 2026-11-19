@@ -16,10 +16,10 @@ RUN apt-retry-install openjdk-17-jre-headless
 # Pinned: the rolling `install | sh` script only resolves LATEST_VERSION and
 # unpacks veracode-cli_<version>_linux_x86.tar.gz — we fetch that versioned
 # tarball directly and install its single `veracode` binary. Veracode
-# publishes no checksum for it; the digest was computed from the ${VERACODE_CLI_VERSION}
-# tarball. Linux builds are x86_64 only.
-ARG VERACODE_CLI_VERSION=2.54.1
-ARG VERACODE_CLI_SHA256_AMD64=bd7141ee89ca02b02ee4a5205537be5c4d190de4db56b41779aa47deceab173b
+# publishes no checksum for it; the digest was computed from two independent
+# downloads of the ${VERACODE_CLI_VERSION} tarball (identical; 2026-11-18). Linux builds are x86_64 only.
+ARG VERACODE_CLI_VERSION=2.56.0
+ARG VERACODE_CLI_SHA256_AMD64=e09a1958733cd0e59748d85b05924a1e0e1ce667d8c9e03707166b9e5d7113c9
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \
       amd64) sum="${VERACODE_CLI_SHA256_AMD64}" ;; \
@@ -32,9 +32,11 @@ RUN set -eux; \
 
 # ─── Veracode Pipeline Scanner (lightweight static analysis) ───
 # Pinned to a versioned zip (was the rolling pipeline-scan-LATEST.zip); digest
-# computed from that zip (Veracode publishes none).
-ARG VERACODE_PIPELINE_SCAN_VERSION=26.9.0
-ARG VERACODE_PIPELINE_SCAN_SHA256=ce7027f4edd8bef3e960cf2fc942518daab593740dc501744076885fc6ecd60b
+# computed from two independent downloads of that zip (Veracode publishes none;
+# 26.11.0 is the version LATEST resolved to on 2026-11-18 — jar manifest
+# Implementation-Version 26.11.0-0).
+ARG VERACODE_PIPELINE_SCAN_VERSION=26.11.0
+ARG VERACODE_PIPELINE_SCAN_SHA256=c579f60e1099a3b15b0b145da2896961e527dac5cbcc0a4109411e0f63cc3399
 RUN set -eux; \
     fetch-verified "https://downloads.veracode.com/securityscan/pipeline-scan-${VERACODE_PIPELINE_SCAN_VERSION}.zip" \
        "${VERACODE_PIPELINE_SCAN_SHA256}" /tmp/pipeline-scan.zip; \

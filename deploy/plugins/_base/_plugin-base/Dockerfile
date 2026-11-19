@@ -34,7 +34,7 @@
 #     that the pinned digest no longer drifts forward with Ubuntu's rebuilds by
 #     itself — security fixes land via Renovate's bump, the apt upgrade below,
 #     and the weekly plugin-base-freshness rescan that fails when they don't.
-FROM public.ecr.aws/docker/library/ubuntu:26.10@sha256:262df65c0ec6bf8d9dcc87454f4330a05fae4b97825f45854af3b136666584c2
+FROM public.ecr.aws/docker/library/ubuntu:26.10@sha256:c4ca31b6e93261c5dd773826f789738a49e414ca04fc094b1ccd0f91e07329a2
 
 # Avoid interactive prompts during apt-get install in any consumer.
 ENV DEBIAN_FRONTEND=noninteractive

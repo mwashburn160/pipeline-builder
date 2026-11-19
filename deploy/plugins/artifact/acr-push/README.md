@@ -2,7 +2,7 @@
 
 Push container images to Azure Container Registry with Azure CLI service principal authentication using AWS CDK CodeBuildStep
 
-**Version:** 1.0.0  
+**Version:** 1.0.1  
 **Category:** artifact  
 **Plugin Type:** CodeBuildStep  
 **Compute:** MEDIUM  

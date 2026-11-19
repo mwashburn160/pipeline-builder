@@ -459,13 +459,18 @@ Microsoft's release metadata, Adoptium's `.sha256.txt` plus GitHub's asset
 digest); AWS publishes none for the CLI zip, so those two were hashed from the
 download.
 
-NOT verifiable from here, and so NOT claimed: `MEND_VERSION`,
-`VERACODE_CLI_VERSION` and `VERACODE_PIPELINE_SCAN_VERSION` are commercial CLIs
-behind authentication with no public release feed (`veracode/veracode-cli`
-returns 404 on the GitHub API). Those three are taken on trust from whoever
-last touched them. Anyone who can reach the vendor portals should re-check
-them; "every pin verified" has been written in this file before while three of
-them had never been looked at.
+The commercial CLIs have no GitHub release feed (`veracode/veracode-cli` is a
+404), but they ARE checkable without a vendor login — verified 2026-11-18:
+- **`MEND_VERSION`** — run the rolling binary for the current line
+  (`mend version`), then probe the unified build numbers under
+  `production/unified/<version>/linux_{amd64,arm64}/`; each build publishes a
+  `mend.sha256` beside the binary, which is the digest source.
+- **`VERACODE_CLI_VERSION`** — the vendor's `LATEST_VERSION` file names the
+  current release (newer-looking paths 404). No checksum is published, so the
+  digest is hashed from two independent downloads.
+- **`VERACODE_PIPELINE_SCAN_VERSION`** — `pipeline-scan-LATEST.zip`'s jar
+  manifest (`Implementation-Version`) names the version; the pinned zip must
+  hash identically to LATEST.zip at pin time. No checksum is published.
 
 **Four places to look, not one — and the list is only worth writing down if
 every entry gets checked.** An earlier pass enumerated all 14 external `FROM`
@@ -521,9 +526,9 @@ on sight:
 - **TypeScript 6.0.3 in `cdk-synth`, `cdk-deploy`, `cdk-deploy-multi-region`** —
   these run `ts-node` 10.9.2, which needs the JS compiler API TS 7's native
   compiler drops. Moving them needs a ts-node replacement, not a pin bump.
-- **Maven 3.10.0** — 3.10.1 is tagged in apache/maven but not published to
-  archive.apache.org, dlcdn or Maven Central, so there is nothing to download.
-  A tag is not a release; check the dist host.
+- **A tag is not a release** — check the dist host before bumping (Maven 3.10.1
+  was tagged weeks before archive.apache.org, dlcdn and Maven Central served it;
+  `_jvm-base` took it on 2026-11-18 once all three did).
 
 
 ### Build infrastructure

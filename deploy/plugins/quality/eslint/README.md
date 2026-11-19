@@ -2,7 +2,7 @@
 
 ESLint JavaScript and TypeScript linting plugin for enforcing code quality and style standards using AWS CDK CodeBuildStep
 
-**Version:** 1.0.0  
+**Version:** 1.0.2  
 **Category:** quality  
 **Plugin Type:** CodeBuildStep  
 **Compute:** SMALL  

@@ -8,7 +8,7 @@
 
 FROM plugin-node-base:1.0
 
-ARG ESLINT_VERSION=10.14.0
+ARG ESLINT_VERSION=10.15.0
 RUN npm install -g "eslint@${ESLINT_VERSION}"
 
 WORKDIR /app

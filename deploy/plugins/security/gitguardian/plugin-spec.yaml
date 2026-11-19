@@ -6,7 +6,7 @@ keywords:
   - enterprise
   - api-keys
 category: security
-version: 1.0.0
+version: 1.0.1
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 30
@@ -69,4 +69,5 @@ network:
   egress:
     - "api.gitguardian.com"
 changelog: |
+  1.0.1: Pin refresh 2026-11-18 — Rebuilt on the refreshed base images (Ubuntu 26.10 digest refresh).
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

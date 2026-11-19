@@ -10,7 +10,7 @@ USER root
 
 RUN apt-retry-install build-essential python3 python3-pip python3-venv
 
-# ─── Node.js 24 ───
+# ─── Node.js 26 ───
 # Copied from plugin-node-base (one pinned, checksum-verified Node shared by
 # every Node plugin) instead of `curl …/nvm/install.sh | bash` + `nvm install`.
 # Laid out at the nvm path the plugin spec activates
@@ -21,8 +21,8 @@ COPY --from=plugin-node-base:1.0 --chown=1000:1000 /opt/node ${NVM_DIR}/versions
 ENV PATH="${NVM_DIR}/versions/node/v26/bin:${PATH}"
 
 # ─── Go ───
-# Copied from plugin-go-base (pinned + checksum-verified Go ${GO_VERSION}, the
-# same 1.24.13 goenv used to build here) instead of cloning goenv at HEAD.
+# Copied from plugin-go-base (pinned + checksum-verified Go, the one Go every
+# Go plugin shares) instead of cloning goenv at HEAD.
 # GOPATH is owned by uid 1000 so `go mod download` works as the runtime user.
 COPY --from=plugin-go-base:1.0 /opt/go-sdk /opt/go-sdk
 ENV GOPATH=/opt/go
@@ -37,10 +37,11 @@ RUN install -d -o 1000 -g 1000 "${GOPATH}" "${GOPATH}/bin"
 # VULN FIX (2026-10-02): 3.264.0 vendored github.com/go-git/go-git@v6.0.0-alpha.4,
 # vulnerable to a worktree symlink-traversal issue (CVE-2026-71556, fixed
 # upstream in go-git v6.0.0-alpha.5). Pulumi picked up the fixed go-git in
-# 3.266.0; now pinned to the current latest stable, 3.273.0.
-ARG PULUMI_VERSION=3.276.0
-ARG PULUMI_SHA256_AMD64=99f6b4626be083a3326517a46ba33b995f44812058143a018d9dffaa027ec3bf
-ARG PULUMI_SHA256_ARM64=dbf8d1efd39f3fc3f0d9cefa37c6caba8fdf937562dbaa93b6c284ded4f2c904
+# 3.266.0; now pinned to the current latest stable, 3.277.0 (digests from
+# pulumi-3.277.0-checksums.txt, identical on get.pulumi.com and the GitHub release).
+ARG PULUMI_VERSION=3.277.0
+ARG PULUMI_SHA256_AMD64=1e38f0fb69a14a326cf3acfaf975770e8de5d0771042f26292f0013d237b8393
+ARG PULUMI_SHA256_ARM64=b9c2708bd13ffdcba79f555a0532893a9b5a44efca8e225d171b8f7b605b16ce
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \
       amd64) arch=x64;   sum="${PULUMI_SHA256_AMD64}" ;; \

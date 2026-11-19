@@ -2,7 +2,7 @@
 
 Pulumi infrastructure-as-code deployment plugin supporting TypeScript, Python, Go, and YAML with preview, up, and destroy actions using AWS CDK CodeBuildStep
 
-**Version:** 1.0.0
+**Version:** 1.0.2
 **Category:** deploy
 **Plugin Type:** CodeBuildStep
 **Compute:** MEDIUM

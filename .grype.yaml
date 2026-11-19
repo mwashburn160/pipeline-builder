@@ -8,7 +8,7 @@
 # so nothing here outlives the reason it was added.
 ignore:
   # CVE-2026-115557 — the CPython that AWS CLI v2 BUNDLES (not the distro's).
-  # Every AWS CLI release up to 2.40.2 (the newest, checked 2026-11-13) still
+  # Every AWS CLI release up to 2.41.1 (the newest, checked 2026-11-18) still
   # ships Python 3.14.8; the fix is 3.14.10. Nothing in this repo can bump it,
   # and the CodeBuild bootstrap must carry the AWS CLI (asset publishing,
   # deploys). Same advisory, same expiry as the platform's fleet-wide waiver

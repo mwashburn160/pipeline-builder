@@ -8,7 +8,7 @@
 
 FROM plugin-ruby-base:1.0
 
-ARG BUNDLER_VERSION=4.0.24
+ARG BUNDLER_VERSION=4.1.0
 RUN gem install bundler -v "${BUNDLER_VERSION}" --no-document
 
 WORKDIR /app

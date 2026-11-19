@@ -22,6 +22,10 @@ RUN apt-retry-install build-essential libssl-dev libicu-dev libssl3t64
 # (builds.dotnet.microsoft.com/dotnet/release-metadata/<channel>/releases.json).
 # DOTNET_ROOT is owned by the plugin user so `dotnet tool install --tool-path
 # ${DOTNET_ROOT}/tools` and workload restores work without root.
+#
+# LTS HOLD (re-checked 2026-11-18): 11.0 is out (SDK 11.0.100) but it is STS;
+# this base stays on the 10.0 LTS line per the "Current holds" list in
+# deploy/plugins/README.md. 10.0.404 is still the newest SDK on 10.0.
 ARG DOTNET_VERSION=10.0
 ARG DOTNET_SDK_VERSION=10.0.404
 ARG DOTNET_SDK_SHA512_AMD64=577d0eb17fec33d029104c5c63a1ab0accc3e28776274abef2218dbac5af18d2109b5406d26b31d76f5c245215e3ba0926a94c20246c672c41847c9e1eb1dc50

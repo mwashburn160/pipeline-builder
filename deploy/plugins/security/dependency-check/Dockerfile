@@ -64,12 +64,15 @@ ENV PATH="/opt/go-sdk/bin:${GOPATH}/bin:${PATH}"
 RUN install -d -o 1000 -g 1000 "${GOPATH}" "${GOPATH}/bin" && go version
 
 # ─── .NET SDK (for NuGet dependency resolution) ───
-# Pinned .NET 9 SDK (was `dotnet-install.sh --channel 9.0`, i.e. latest 9.0.x
-# via a downloaded installer script). Digests are the SHA-512s Microsoft
-# publishes in the 9.0 releases.json.
-ARG DOTNET_SDK_VERSION=9.0.321
-ARG DOTNET_SDK_SHA512_AMD64=612bae8e90be6e69b65b904647b88a28d0d8c4d79ed4b208d9fdfa61ab34be57e6fd018ab46c3897dc08aad203380130e6af3e748f742a09aa11f8f189cab7e8
-ARG DOTNET_SDK_SHA512_ARM64=5b47e5f85c5841d1d189a264e133860d74307f48537232a03ac3bd39d2ba41413a87bf27d7a74579e175d7456932c0841718103d69e1ebcf6539cf463c0f14ef
+# Pinned .NET 10 SDK — the LTS line, same SDK as plugin-dotnet-base. Moved off
+# 9.0 on 2026-11-18: 9.0 is end-of-life (9.0.321 of 2026-11-10 was its last
+# release), and a 10 SDK also restores net10.0 projects, which 9 cannot.
+# 11.0 (STS) is held, as for plugin-dotnet-base — see "Current holds" in
+# deploy/plugins/README.md. Digests are the SHA-512s Microsoft publishes in
+# the 10.0 releases.json.
+ARG DOTNET_SDK_VERSION=10.0.404
+ARG DOTNET_SDK_SHA512_AMD64=577d0eb17fec33d029104c5c63a1ab0accc3e28776274abef2218dbac5af18d2109b5406d26b31d76f5c245215e3ba0926a94c20246c672c41847c9e1eb1dc50
+ARG DOTNET_SDK_SHA512_ARM64=3533a3869da219cac45c567aadac3d8e96cdf1c6a04fe1c1d5fdeefea5d45af8424488f0144730d11b4a751f7ad546fb11e4c2b2725cd8401efee726711f8f11
 ENV DOTNET_ROOT=/opt/dotnet
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \

@@ -9,7 +9,7 @@
 # GO-2025-3521 (CVE-2025-1767, the kubelet `gitRepo` volume) and GO-2025-3547
 # (CVE-2024-7598, a kube-apiserver race). Neither affects the kubectl CLIENT this image
 # ships, and neither advisory carries a `fixed` event — gitRepo is deprecated upstream and
-# will not be patched — so an upgrade cannot clear either. 1.37.1 is the current k8s stable.
+# will not be patched — so an upgrade cannot clear either. 1.37.2 is the current k8s stable.
 # Note the submodule `k8s.io/kubectl` has NO advisory data at all, so scanning under that
 # name reports a clean result that means "nothing indexed", not "nothing wrong".
 ARG KUBECTL_VERSION=1.37.2

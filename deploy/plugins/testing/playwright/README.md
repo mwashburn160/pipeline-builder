@@ -2,7 +2,7 @@
 
 Playwright end-to-end testing plugin for cross-browser UI testing with Chromium, Firefox, and WebKit support using AWS CDK CodeBuildStep
 
-**Version:** 1.0.0  
+**Version:** 1.0.2  
 **Category:** testing  
 **Plugin Type:** CodeBuildStep  
 **Compute:** LARGE  

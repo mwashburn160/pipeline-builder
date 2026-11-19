@@ -12,7 +12,7 @@ USER root
 # plugin-aws-cli-base (26.10) does not carry; node-base only has it via build-essential.
 RUN apt-retry-install python3 python3-pip python3-venv libatomic1
 
-# ─── Node.js 24 ───
+# ─── Node.js 26 ───
 # Copied from plugin-node-base (one pinned, checksum-verified Node shared by
 # every Node plugin) instead of `curl …/nvm/install.sh | bash` + `nvm install`.
 # Laid out at the nvm path the plugin spec activates

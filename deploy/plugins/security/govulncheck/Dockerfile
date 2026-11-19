@@ -7,7 +7,7 @@
 
 FROM plugin-go-base:1.0
 
-ARG GOVULNCHECK_VERSION=1.9.0
+ARG GOVULNCHECK_VERSION=1.10.0
 # RETRIED: `go install` fetches through proxy.golang.org, which intermittently
 # aborts a download mid-stream ("stream error: ...; INTERNAL_ERROR; received
 # from peer") and fails the layer although the pin is correct. GOPROXY's

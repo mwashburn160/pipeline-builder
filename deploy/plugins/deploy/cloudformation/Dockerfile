@@ -8,7 +8,9 @@ ARG RAIN_VERSION=1.24.4
 # The commit the v${RAIN_VERSION} tag must resolve to (checked after clone).
 ARG RAIN_COMMIT=9b5ed0947472ec1d18e1cb79aa63fb78afe1c2df
 # Same pinned toolchain as api/plugin's tools stage.
-ARG GO_IMAGE=golang:1.27.4-alpine@sha256:0a5f7fe796599ff487605987432e7619ae45beeb2fba4c2ce0b907879932aebf
+# Digest moved in lockstep with api/plugin + api/image-registry (2026-11-18:
+# upstream re-pushed golang:1.27.4-alpine onto alpine 3.24). Builder stage only; rain is a static CGO_ENABLED=0 binary.
+ARG GO_IMAGE=golang:1.27.4-alpine@sha256:70bd7ddea8b6cbe5d6943cde279d6b67feb10cc924fb9100d1d8757c1575b280
 
 # ─── rain, built from source ───
 # The v${RAIN_VERSION} release binary (latest) is built with go1.26.2, whose

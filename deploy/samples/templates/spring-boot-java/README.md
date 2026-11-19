@@ -84,7 +84,7 @@ Source -> Synth -> BuildAndPackage
 
 ## Key Configuration
 
-- **Amazon Corretto** build via the `java-corretto` plugin (default version `1.0.0`)
+- **Amazon Corretto** build via the `java-corretto` plugin (default version `1.0.2`)
 - Runs as a **`pre`** step with a **30-minute** timeout
 - Source branch is **`master`** (this repo's default)
 - Source trigger is **`NONE`** (deploy/run the pipeline manually rather than on push)

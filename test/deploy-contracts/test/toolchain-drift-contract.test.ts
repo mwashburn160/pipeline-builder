@@ -363,3 +363,44 @@ describe('managed toolchain release (pipeline-bootstrap + cdk-synth)', () => {
     expect(filesContaining(new RegExp(['deploy/' + 'codebuild', 'build-' + 'codebuild-bootstrap\\.sh'].join('|')))).toEqual([]);
   });
 });
+
+describe('AWS CLI', () => {
+  // pipeline-bootstrap installed the UNVERSIONED awscli zip with no checksum —
+  // the one unpinned download in the image every cold-start CodeBuild action
+  // runs. It is now pinned, verified, and held equal to _aws-cli-base.
+  const BASE = 'deploy/plugins/_base/_aws-cli-base/Dockerfile';
+  const arg = (rel: string, name: string): string | undefined =>
+    grab(rel, new RegExp(`^ARG ${name}="?([0-9a-f.]+)"?\\s*$`, 'm'));
+
+  it('pipeline-bootstrap AWS_CLI_VERSION and both SHA-256s == _aws-cli-base', () => {
+    for (const name of ['AWS_CLI_VERSION', 'AWS_CLI_SHA256_AMD64', 'AWS_CLI_SHA256_ARM64']) {
+      expectAllEqual([[`${BASE} ${name}`, arg(BASE, name)], [`${BOOTSTRAP_DF} ${name}`, arg(BOOTSTRAP_DF, name)]]);
+    }
+  });
+
+  it('pipeline-bootstrap downloads the VERSIONED zip and checks it before unpacking', () => {
+    const df = read(BOOTSTRAP_DF);
+    expect(df).not.toMatch(/awscli-exe-linux-\$\{AWSCLI_ARCH\}\.zip/);
+    expect(df).toMatch(/awscli-exe-linux-\$\{AWSCLI_ARCH\}-\$\{AWS_CLI_VERSION\}\.zip/);
+    const check = df.indexOf('sha256sum -c');
+    expect(check).toBeGreaterThan(-1);
+    expect(check).toBeLessThan(df.indexOf('unzip -q /tmp/awscli.zip'));
+  });
+});
+
+describe('Go builder image digest', () => {
+  // golang:<ver>-alpine is re-pushed upstream (it moved alpine 3.23 → 3.24 on
+  // 2026-11-18). Five Dockerfiles say they share "the same pinned toolchain";
+  // nothing held their DIGESTS together, so a refresh that moved one would
+  // silently fork them.
+  const FILES = [
+    'api/plugin/Dockerfile',
+    'api/image-registry/Dockerfile',
+    'deploy/plugins/deploy/cloudformation/Dockerfile',
+    'deploy/plugins/security/docker-lint/Dockerfile',
+    'deploy/plugins/testing/k6/Dockerfile',
+  ];
+  it('every GO_IMAGE pins the same golang tag AND digest', () => {
+    expectAllEqual(FILES.map((f) => [f, grab(f, /^ARG GO_IMAGE=(golang:[^\s]+@sha256:[0-9a-f]{64})\s*$/m)] as [string, string | undefined]));
+  });
+});

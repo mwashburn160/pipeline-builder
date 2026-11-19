@@ -16,6 +16,9 @@ RUN apt-retry-install build-essential
 
 # Single Amazon Corretto JDK from the vendor apt repo. The repo signing key is
 # pinned by fingerprint (fetch-apt-key); apt then verifies every package.
+# LTS HOLD (re-checked 2026-11-18): the Corretto repo carries java-26 and
+# java-27, but 25 is the LTS line and stays aligned with language/java and
+# language/java-oracle (see "Current holds" in deploy/plugins/README.md).
 ARG JAVA_VERSION=25
 RUN fetch-apt-key https://apt.corretto.aws/corretto.key /usr/share/keyrings/corretto-keyring.gpg \
        6DC3636DAE534049C8B94623A122542AB04F24E3 \
@@ -30,9 +33,11 @@ ENV JAVA_VERSION=${JAVA_VERSION}
 # archives, each verified against the digest the project publishes next to it
 # (Maven .sha512, Gradle .sha256, Kotlin .sha256). No SDKMAN: its installer is
 # an unpinned `curl | bash`. All three are JVM jars, so one download serves
-# every architecture.
-ARG MAVEN_VERSION=3.10.0
-ARG MAVEN_SHA512=908b1501bfb420bf7c8affb855534a9c407fd6099367bfb9f2f2dcb8e9799102bffb84518cde74c679bd76870247c6528683abdd620581bffa90f95d92d175aa
+# every architecture. Maven 3.10.0 -> 3.10.1 (2026-11-18): 3.10.1 is now on
+# archive.apache.org (it was tag-only at the 2026-11-13 pass); the SHA-512 is
+# the .sha512 published beside it, re-checked against a download.
+ARG MAVEN_VERSION=3.10.1
+ARG MAVEN_SHA512=8af2fcc48ee6b8f8fc0b21054226e14404b88500df6483cdeb3ae603408f6de27b1397ac591a9fb0d98fee64f4f624fee1383efd25b8998786cda1598fb9ea39
 ARG GRADLE_VERSION=9.9.1
 ARG GRADLE_SHA256=d8a18a7a841dd5df825d35a685fad6f2d7f12ac0c280e57b67c27b4a520ba228
 ARG KOTLIN_VERSION=2.4.21

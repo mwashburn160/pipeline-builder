@@ -16,9 +16,9 @@ RUN apt-retry-install openjdk-17-jre-headless
 # Pinned: Mend serves per-version builds under production/unified/<version>/
 # (the rolling `cli/linux_<arch>/mend` URL tracked latest), each with a
 # published `mend.sha256` — those are the digests below.
-ARG MEND_VERSION=26.10.1.6
-ARG MEND_SHA256_AMD64=bf7f2a68f758d3df390a32f5fa710de2e88d8a48eb2ac450280ea73e405c4a3d
-ARG MEND_SHA256_ARM64=162a74e2aa704de93a84c736942b8100dc3609298a06f076c8a2f766ee98e3c9
+ARG MEND_VERSION=26.10.2.4
+ARG MEND_SHA256_AMD64=56434d3cc6d8fbc394328e0dfac85a35a3bdd26b96ee28ccea8251fd22294648
+ARG MEND_SHA256_ARM64=79ffd60f6255146b15395215e44ce5d7d0e256e69c434f9c0122e5624b70e088
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \
       amd64) arch=amd64; sum="${MEND_SHA256_AMD64}" ;; \

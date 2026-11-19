@@ -100,6 +100,16 @@ ARG AWS_CDK_VERSION="2.1148.1"
 # (what `cdk-assets publish` does in a pipeline's Assets stage). Installed the
 # same way as the CDK CLI and pinned the same way; a bump is a new release.
 ARG CDK_ASSETS_VERSION="4.8.0"
+# AWS CLI v2 — PINNED and checksum-verified, held EQUAL to _base/_aws-cli-base
+# (toolchain-drift-contract). It used to install the unversioned
+# `awscli-exe-linux-<arch>.zip`, i.e. whatever AWS served that day with no
+# checksum — the one unpinned, unverified download in the toolchain, in the
+# image every cold-start CodeBuild action runs. AWS publishes no checksum file;
+# these are the same two-download digests _aws-cli-base carries. Bump all three
+# together, in both files.
+ARG AWS_CLI_VERSION="2.41.1"
+ARG AWS_CLI_SHA256_AMD64="f1b67518c009e9deb94152aaba5cc015e80af6b0630a7931d3662df42b5f568e"
+ARG AWS_CLI_SHA256_ARM64="83f3bb8440cf6a05e6289f8024126b8c8e15e9513adfe0d6c059747350cdb1e2"
 
 # What this image carries, readable from the image itself. Each value is the ARG
 # it is installed from, so a label cannot disagree with the binary; plugin
@@ -116,14 +126,15 @@ RUN set -eux; \
     apt-get install -y --no-install-recommends \
       git curl unzip ca-certificates; \
     rm -rf /var/lib/apt/lists/*; \
-    # AWS CLI v2 — official installer, multi-arch aware.
+    # AWS CLI v2 — the pinned AWS_CLI_VERSION, verified before it is unpacked.
     ARCH=$(uname -m); \
     case "$ARCH" in \
-      x86_64)  AWSCLI_ARCH=x86_64 ;; \
-      aarch64) AWSCLI_ARCH=aarch64 ;; \
+      x86_64)  AWSCLI_ARCH=x86_64;  AWSCLI_SUM="${AWS_CLI_SHA256_AMD64}" ;; \
+      aarch64) AWSCLI_ARCH=aarch64; AWSCLI_SUM="${AWS_CLI_SHA256_ARM64}" ;; \
       *) echo "unsupported arch: $ARCH" >&2; exit 1 ;; \
     esac; \
-    curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${AWSCLI_ARCH}.zip" -o /tmp/awscli.zip; \
+    curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${AWSCLI_ARCH}-${AWS_CLI_VERSION}.zip" -o /tmp/awscli.zip; \
+    echo "${AWSCLI_SUM}  /tmp/awscli.zip" | sha256sum -c -; \
     unzip -q /tmp/awscli.zip -d /tmp; \
     /tmp/aws/install; \
     rm -rf /tmp/aws /tmp/awscli.zip; \

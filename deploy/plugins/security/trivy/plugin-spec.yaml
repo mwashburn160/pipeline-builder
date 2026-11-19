@@ -8,7 +8,7 @@ keywords:
   - config-scan
   - image-scan
 category: security
-version: 1.1.0
+version: 1.1.1
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 15
@@ -118,5 +118,6 @@ network:
     - "pkg-containers.githubusercontent.com"
     - "*.amazonaws.com"
 changelog: |
+  1.1.1: Pin refresh 2026-11-18 — Rebuilt on the refreshed base images (Ubuntu 26.10 digest refresh).
   1.1.0: Adds `trivy image` (TRIVY_SCAN_TARGETS=image with TRIVY_IMAGE / TRIVY_IMAGE_INPUT). Findings are report-only by default — TRIVY_FAIL_ON sets the fail threshold (previously any HIGH/CRITICAL dependency finding failed the step). Optional upload to the platform (PB_UPLOAD_SECURITY_REPORTS=true).
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

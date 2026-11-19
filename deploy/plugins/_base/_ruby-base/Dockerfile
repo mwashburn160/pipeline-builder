@@ -19,7 +19,7 @@
 # image keeps ruby/gem/bundle/openssl working exactly as built; we pull only the
 # shared plugin helpers (run-logged, apt-retry-install) over from the plugin base.
 
-ARG RUBY_VERSION=4.0.9
+ARG RUBY_VERSION=4.0.10
 FROM ruby:${RUBY_VERSION}
 
 # ── Debian security updates ──
@@ -54,18 +54,19 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/*
 
 # ── RubyGems / Bundler ──
-# The ruby image pins RubyGems to whatever shipped with that Ruby — 4.0.9 gives
-# 4.0.20 (checked in the image, not inferred; 4.0.7 gave 4.0.20 too).
-# Nothing security-driven forces this: 4.0.21 and 4.0.22 carry no
-# security section and OSV lists no advisory against 4.0.20. It is pinned
-# current for the same reason every other tool here is, and so the version is a
-# decision in this file rather than a side effect of the Ruby pin.
+# The ruby image pins RubyGems to whatever shipped with that Ruby — 4.0.10 gives
+# 4.0.20 (checked in the image, not inferred; 4.0.9 and 4.0.7 gave 4.0.20 too).
+# Nothing security-driven forces this: OSV lists no advisory against 4.0.20. It
+# is pinned current for the same reason every other tool here is, and so the
+# version is a decision in this file rather than a side effect of the Ruby pin.
+# 4.0.24 -> 4.1.0 (2026-11-18): the first stable 4.1 (after three betas); it
+# also moves Bundler to 4.1.0, which the bundle-exec check at the end exercises.
 #
 # Ordered BEFORE the json block below, not after: `gem update --system`
 # reinstalls RubyGems' own default gems, so running it afterwards could put a
 # default gemspec back on top of the replacement. The verification at the end of
 # this file proves the final state either way.
-ARG RUBYGEMS_VERSION=4.0.24
+ARG RUBYGEMS_VERSION=4.1.0
 RUN set -eux; \
     gem update --system "$RUBYGEMS_VERSION" --no-document; \
     gem --version | grep -qx "$RUBYGEMS_VERSION"; \
@@ -73,8 +74,8 @@ RUN set -eux; \
 
 # ── Patched `json` default gem ──
 # json is a DEFAULT gem: its code lives in the stdlib (rubylibdir + archdir),
-# not in a gem directory, and 4.0.9 bundles 2.18.0 — CVE-2026-33210, fixed in
-# 2.19.2. The pin below is 3.1.0, the current release, not the minimum that
+# not in a gem directory, and 4.0.9 bundled 2.18.0 — CVE-2026-33210, fixed in
+# 2.19.2. 4.0.10 bundles 2.18.3 (checked in the image), still on the 2.18 line. The pin below is 3.1.0, the current release, not the minimum that
 # clears the CVE: plugin pins track latest. That is a MAJOR bump of a gem every
 # other gem in the image loads, so the verification at the end of this file
 # round-trips parse/generate under both plain ruby and `bundle exec` — a json

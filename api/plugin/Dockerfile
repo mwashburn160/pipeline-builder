@@ -7,7 +7,7 @@ ARG NODE_IMAGE=node:26.13.1-slim@sha256:e6bedef217677b276c591795e169840edd9096db
 # binaries lag the Go security train badly — the prebuilt cosign v2.6.5 carried 3
 # Critical / 19 High and crane v0.20.2 (Go 1.21.12) 2 Critical — so every Go
 # binary this image ships is compiled here from verified source instead.
-ARG GO_IMAGE=golang:1.27.4-alpine@sha256:0a5f7fe796599ff487605987432e7619ae45beeb2fba4c2ce0b907879932aebf
+ARG GO_IMAGE=golang:1.27.4-alpine@sha256:70bd7ddea8b6cbe5d6943cde279d6b67feb10cc924fb9100d1d8757c1575b280
 # Every tool is pinned by BOTH its upstream release tag and the commit that tag
 # must resolve to: the clone is checked against <TOOL>_COMMIT and the build fails
 # on a mismatch, so a retagged release cannot change what gets the plugin-signing

@@ -7,7 +7,7 @@
 
 FROM plugin-ruby-base:1.0
 
-ARG RUBOCOP_VERSION=1.92.2
+ARG RUBOCOP_VERSION=1.92.3
 RUN gem install rubocop -v "${RUBOCOP_VERSION}" --no-document
 
 WORKDIR /app
