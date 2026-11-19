@@ -701,6 +701,7 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | plugin | POST | `/plugins/queue/dlq/:jobId/replay` | `dynamic(superadmin,system-org,tenant-member:plugin_queue:manage|plugins:write)` |
 | plugin | GET | `/plugins/queue/failed` | `dynamic(superadmin,system-org,tenant-member:plugin_queue:manage|plugins:write)` |
 | plugin | POST | `/plugins/queue/failed/:jobId/retry` | `dynamic(superadmin,system-org,tenant-member:plugin_queue:manage|plugins:write)` |
+| plugin | DELETE | `/plugins/queue/failed/:jobId` | `dynamic(superadmin,system-org,tenant-member:plugin_queue:manage|plugins:write)` |
 | plugin | GET | `/plugins/queue/status` | `system-org + any(plugin_queue:manage) + aal2` |
 | plugin | GET | `/plugins/queue/triage` | `dynamic(superadmin,system-org,tenant-member:plugin_queue:manage|plugins:write)` |
 | plugin | POST | `/plugins/toolchain/initial-default` | `service-principal + internal(deploy-bootstrap)` |

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 8dd00432d94893be50a66904f6f177739ab33d6473dbea0d412de715bc6e92e1
+// SOURCE-SHA256: 55dfba50767994401aaad34c58a9fed240638c8f7f5e82a6911dd49f7540b9fb
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -2338,7 +2338,7 @@ export const apiReferenceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "154 routes, from frontend/src/generated/route-table/plugin.json."
+          "content": "155 routes, from frontend/src/generated/route-table/plugin.json."
         },
         {
           "type": "table",
@@ -3056,6 +3056,13 @@ export const apiReferenceTopic: HelpTopic = {
               "decided per request",
               "apiCalls",
               "—"
+            ],
+            [
+              "DELETE",
+              "/plugins/queue/failed/:jobId",
+              "decided per request",
+              "apiCalls",
+              "plugin.build.dismiss"
             ],
             [
               "POST",

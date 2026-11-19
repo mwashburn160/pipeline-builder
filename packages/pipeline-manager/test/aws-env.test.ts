@@ -8,7 +8,7 @@ jest.unstable_mockModule('../src/utils/output-utils.js', () => ({
   printWarning: jest.fn(),
 }));
 
-const { resolveAwsRegion, applyAwsProfile } = await import('../src/utils/aws-env.js');
+const { resolveAwsRegion, applyAwsProfile, resolveDeployRegion } = await import('../src/utils/aws-env.js');
 const { printWarning } = await import('../src/utils/output-utils.js');
 
 describe('resolveAwsRegion', () => {
@@ -58,5 +58,34 @@ describe('applyAwsProfile', () => {
     applyAwsProfile(undefined);
     expect(process.env.AWS_PROFILE).toBeUndefined();
     expect(printWarning).not.toHaveBeenCalled();
+  });
+});
+
+describe('resolveDeployRegion', () => {
+  const VARS = ['AWS_REGION', 'AWS_DEFAULT_REGION', 'CDK_DEFAULT_REGION'] as const;
+  const saved: Record<string, string | undefined> = {};
+  beforeEach(() => { for (const v of VARS) { saved[v] = process.env[v]; delete process.env[v]; } });
+  afterEach(() => { for (const v of VARS) { if (saved[v] === undefined) delete process.env[v]; else process.env[v] = saved[v]; } });
+
+  it('reads the PROFILE region when nothing else is set (resolveAwsRegion said us-east-1 here)', async () => {
+    const reader = jest.fn(async (_profile?: string) => 'eu-west-2');
+    await expect(resolveDeployRegion(undefined, 'work', reader)).resolves.toBe('eu-west-2');
+    expect(reader).toHaveBeenCalledWith('work');
+    expect(resolveAwsRegion()).toBe('us-east-1'); // the old answer, for contrast
+  });
+  it('precedence: --region > AWS_REGION > AWS_DEFAULT_REGION > CDK_DEFAULT_REGION > profile > us-east-1', async () => {
+    const reader = jest.fn(async (_profile?: string) => 'from-profile');
+    process.env.CDK_DEFAULT_REGION = 'cdk';
+    process.env.AWS_DEFAULT_REGION = 'default';
+    process.env.AWS_REGION = 'env';
+    await expect(resolveDeployRegion('flag', undefined, reader)).resolves.toBe('flag');
+    await expect(resolveDeployRegion(undefined, undefined, reader)).resolves.toBe('env');
+    delete process.env.AWS_REGION;
+    await expect(resolveDeployRegion(undefined, undefined, reader)).resolves.toBe('default');
+    delete process.env.AWS_DEFAULT_REGION;
+    await expect(resolveDeployRegion(undefined, undefined, reader)).resolves.toBe('cdk');
+    delete process.env.CDK_DEFAULT_REGION;
+    await expect(resolveDeployRegion(undefined, undefined, reader)).resolves.toBe('from-profile');
+    await expect(resolveDeployRegion(undefined, undefined, async () => undefined)).resolves.toBe('us-east-1');
   });
 });

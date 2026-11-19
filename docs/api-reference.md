@@ -582,7 +582,7 @@ Every route of the Pipeline, Plugin and Ask Agent services, generated from the r
 
 ### Plugin Service — every route
 
-154 routes, from `frontend/src/generated/route-table/plugin.json`.
+155 routes, from `frontend/src/generated/route-table/plugin.json`.
 
 | Method | Endpoint | Requires | Meters | Audit action |
 |--------|----------|----------|--------|--------------|
@@ -687,6 +687,7 @@ Every route of the Pipeline, Plugin and Ask Agent services, generated from the r
 | `GET` | `/plugins/queue/dlq` | decided per request | `apiCalls` | — |
 | `POST` | `/plugins/queue/dlq/:jobId/replay` | decided per request | `apiCalls` | `plugin.dlq.replay` |
 | `GET` | `/plugins/queue/failed` | decided per request | `apiCalls` | — |
+| `DELETE` | `/plugins/queue/failed/:jobId` | decided per request | `apiCalls` | `plugin.build.dismiss` |
 | `POST` | `/plugins/queue/failed/:jobId/retry` | decided per request | `apiCalls` | `plugin.build.retry` |
 | `GET` | `/plugins/queue/status` | system org; `plugin_queue:manage`; MFA session (aal2) | `apiCalls` | — |
 | `GET` | `/plugins/queue/triage` | decided per request | `apiCalls` | — |

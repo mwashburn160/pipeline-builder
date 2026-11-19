@@ -3656,6 +3656,44 @@
     ]
   },
   {
+    "method": "DELETE",
+    "path": "/plugins/queue/failed/:jobId",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [
+      "a system-org queue operator (plugin_queue:manage, aal2) sees every org's jobs; any other holder of plugins:write sees only its own org's"
+    ],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "plugin.build.dismiss"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
+    "dynamicReachableBy": [
+      "superadmin",
+      "system-org",
+      "tenant-member"
+    ],
+    "dynamicPermissions": [
+      "plugin_queue:manage",
+      "plugins:write"
+    ]
+  },
+  {
     "method": "POST",
     "path": "/plugins/queue/failed/:jobId/retry",
     "auth": true,

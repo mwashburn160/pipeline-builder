@@ -13,7 +13,8 @@ import { AppError, createLogger, decrementQuota, ErrorCode, errorMessage, getSer
 import type { QuotaService } from '@pipeline-builder/api-core';
 import type { Job } from 'bullmq';
 
-import { reserveReplaySlot } from './build-quota.js';
+import { releasePluginQuota, reserveReplaySlot } from './build-quota.js';
+import { cleanupBuildArtifacts } from './build-workspace.js';
 import { DLQ_NAME, dlqJobId, getDeadLetterQueue, getOrgTier, getTierQueue } from './connections.js';
 import { withJobLock } from './job-lock.js';
 import type { PluginBuildJobData, PublishCaller } from '../helpers/plugin-helpers.js';
@@ -170,6 +171,53 @@ async function retryLockedFailedJob(failedJob: Job<PluginBuildJobData>, jobId: s
     jobId,
     namePrefix: 'retry',
     sourceStillPresent: () => failedJob.isFailed(),
+  });
+}
+
+/** What dismissing a failed build did. */
+export interface DismissResult {
+  /** The build context (scratch dir + staged object) was deleted by this call. */
+  contextReleased: boolean;
+  /** The DLQ owns a retry of this build, so its resources were left alone. */
+  retryingViaDlq: boolean;
+}
+
+/**
+ * Dismiss a FAILED build: remove it from its tier's failed set and hand back
+ * what it still holds. Takes the SAME job the caller located (and
+ * ownership-checked) with `findFailedJobs`, under the job's `retry` lock, so a
+ * dismiss and a retry of one build cannot interleave (one gets the 409).
+ *
+ * Without it a failed row could only be retried, re-uploaded, or left to age
+ * out (PLUGIN_BUILD_FAILED_RETENTION_SECS) — and while it sat there a job whose
+ * terminal path never ran kept its quota slot and its staged build context.
+ *
+ * - Quota: `releasePluginQuota` is idempotent (`quotaReleased` /
+ *   `slotHandedOff`), so a job the failure path already settled refunds nothing.
+ * - Context: deleted unless already cleaned — the job is gone, nothing can
+ *   retry from it.
+ * - A failed entry whose DLQ twin exists is a lingering duplicate of a build
+ *   the DLQ is retrying: only the entry is removed; the DLQ record keeps the
+ *   slot and the context it is about to use.
+ *
+ * Returns null when the job is no longer failed (a concurrent retry took it).
+ */
+export async function dismissFailedJob(failedJob: Job<PluginBuildJobData>, quotaService: QuotaService): Promise<DismissResult | null> {
+  const jobId = String(failedJob.id);
+  return withJobLock('retry', failedJob.queueName, jobId, async () => {
+    if (!(await failedJob.isFailed())) return null;
+    const retryingViaDlq = Boolean(await getDeadLetterQueue().getJob(dlqJobId(failedJob.queueName, jobId)));
+    let contextReleased = false;
+    if (!retryingViaDlq) {
+      releasePluginQuota(failedJob, quotaService);
+      if (failedJob.data?.contextCleaned !== true && failedJob.data?.buildRequest) {
+        cleanupBuildArtifacts(failedJob.data.buildRequest);
+        contextReleased = true;
+      }
+    }
+    await failedJob.remove();
+    logger.info('Dismissed failed build', { jobId, queue: failedJob.queueName, retryingViaDlq, contextReleased });
+    return { contextReleased, retryingViaDlq };
   });
 }
 

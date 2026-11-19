@@ -21,6 +21,7 @@ const api = {
   getQueueDlq: jest.fn<AnyFn>(),
   retryFailedJob: jest.fn<AnyFn>(),
   replayDlqJob: jest.fn<AnyFn>(),
+  dismissFailedJob: jest.fn<AnyFn>(),
 };
 jest.mock('@/lib/api', () => ({ __esModule: true, default: new Proxy({}, { get: (_t, k: string) => (api as Record<string, unknown>)[k] }) }));
 
@@ -38,6 +39,7 @@ beforeEach(() => {
   api.getQueueDlq.mockImplementation(() => tenantPage([DEAD]));
   api.retryFailedJob.mockImplementation(() => ok({ retried: true, newJobId: 'new-1' }));
   api.replayDlqJob.mockImplementation(() => ok({ replayed: true, newJobId: 'new-2' }));
+  api.dismissFailedJob.mockImplementation(() => ok({ dismissed: true, contextReleased: true, retryingViaDlq: false }));
 });
 
 describe('OrgFailedBuildsPanel', () => {
@@ -136,5 +138,49 @@ describe('toServerPage', () => {
   });
   it('an absent page is empty at the requested offset', () => {
     expect(toServerPage(undefined, undefined, 4, 10)).toEqual({ items: [], pagination: { offset: 4, limit: 10, total: 4 } });
+  });
+
+  // There was no way to remove a failed build: the row offered only Retry or a
+  // re-upload link, so a build the org had given up on stayed listed until the
+  // retention sweep. Dismiss sits beside BOTH kinds of action.
+  describe('Dismiss', () => {
+    it('confirms, calls the tier-qualified DELETE, toasts and re-reads the failed list', async () => {
+      render(<OrgFailedBuildsPanel />);
+      await screen.findByText('rust');
+      const reads = api.getQueueFailed.mock.calls.length;
+      fireEvent.click(screen.getByRole('button', { name: `Dismiss failed build ${FAILED.id}` }));
+      const dialog = screen.getByRole('dialog');
+      expect(dialog).toHaveTextContent(/can no longer be retried/);
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Dismiss' }));
+      await waitFor(() => expect(api.dismissFailedJob).toHaveBeenCalledWith(FAILED.id, 'pro'));
+      await waitFor(() => expect(pageToast.success).toHaveBeenCalledWith('Failed build dismissed'));
+      await waitFor(() => expect(api.getQueueFailed.mock.calls.length).toBeGreaterThan(reads));
+      expect(api.retryFailedJob).not.toHaveBeenCalled();
+    });
+
+    it('is offered on a row whose only other action is a re-upload link (context released / vuln gate)', async () => {
+      api.getQueueFailed.mockImplementation(() => tenantPage([
+        { ...FAILED, id: 'job-gone', contextAvailable: false },
+        { ...FAILED, id: 'job-vuln', error: 'PLUGIN_VULN_GATE: the image has 11 fixable Critical findings' },
+      ]));
+      render(<OrgFailedBuildsPanel />);
+      expect(await screen.findByRole('button', { name: 'Dismiss failed build job-gone' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Dismiss failed build job-vuln' })).toBeInTheDocument();
+    });
+
+    it('is NOT offered on dead-lettered rows (they are replayed or purged, not dismissed)', async () => {
+      render(<OrgFailedBuildsPanel />);
+      await screen.findByText('go');
+      expect(screen.queryByRole('button', { name: `Dismiss failed build ${DEAD.id}` })).not.toBeInTheDocument();
+    });
+
+    it('a 404 (already gone) explains itself and refreshes', async () => {
+      api.dismissFailedJob.mockImplementation(() => Promise.reject(new ApiError('nope', 404)));
+      render(<OrgFailedBuildsPanel />);
+      await screen.findByText('rust');
+      fireEvent.click(screen.getByRole('button', { name: `Dismiss failed build ${FAILED.id}` }));
+      fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Dismiss' }));
+      await waitFor(() => expect(pageToast.error).toHaveBeenCalledWith(expect.stringMatching(/no longer in the queue/)));
+    });
   });
 });

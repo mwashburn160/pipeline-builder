@@ -3,9 +3,10 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Inbox, Upload } from 'lucide-react';
+import { Inbox, Trash2, Upload } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { IconButton } from '@/components/ui/IconButton';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Pagination, type PaginationState } from '@/components/ui/Pagination';
 import { RelativeTime } from '@/components/ui/RelativeTime';
@@ -47,6 +48,13 @@ export interface FailedJobsTableProps {
   actionPendingLabel?: string;
   /** Tooltip for the action button. */
   actionTitle?: string;
+  /**
+   * When provided, every row also gets a Dismiss (trash) button — remove the
+   * failed build from the list and release what it still holds. Shown beside
+   * Retry AND beside the re-upload links: a build that can only be re-uploaded
+   * is exactly the one a caller may want gone.
+   */
+  onDismiss?: (jobId: string) => void;
 }
 
 /**
@@ -57,7 +65,7 @@ export interface FailedJobsTableProps {
  */
 export function FailedJobsTable({
   jobs, pagination, onPageChange, onPageSizeChange, loading, title, showCategory,
-  onAction, actionPendingIds, actionLabel, actionPendingLabel, actionTitle,
+  onAction, actionPendingIds, actionLabel, actionPendingLabel, actionTitle, onDismiss,
 }: FailedJobsTableProps) {
   // Page-local triage: plugin-name search + a failure-category quick-chip
   // (DLQ tables only), over the rows on screen.
@@ -142,7 +150,7 @@ export function FailedJobsTable({
         headerClassName: 'text-right',
         cellClassName: 'text-right whitespace-nowrap',
         locked: true,
-        render: (job) => (job.contextAvailable === false ? (
+        render: (job) => (<div className="inline-flex items-center justify-end gap-2">{job.contextAvailable === false ? (
           // Explicitly false only: the DLQ view omits the field, and an absent
           // value must not take the action away there.
           //
@@ -198,12 +206,24 @@ export function FailedJobsTable({
           >
             {actionPendingIds?.has(job.id) ? (actionPendingLabel ?? 'Working…') : (actionLabel ?? 'Retry')}
           </Button>
-        )),
+        )}
+        {onDismiss && (
+          <IconButton
+            tone="danger"
+            title="Dismiss this failed build"
+            aria-label={`Dismiss failed build ${job.id}`}
+            onClick={() => onDismiss(job.id)}
+            disabled={actionPendingIds?.has(job.id)}
+          >
+            <Trash2 className="h-4 w-4" />
+          </IconButton>
+        )}
+        </div>),
       });
     }
 
     return cols;
-  }, [showCategory, onAction, actionPendingIds, actionLabel, actionPendingLabel, actionTitle]);
+  }, [showCategory, onAction, actionPendingIds, actionLabel, actionPendingLabel, actionTitle, onDismiss]);
 
   const filterActive = nameQuery.trim() !== '' || (showCategory && categoryFilter !== null);
 

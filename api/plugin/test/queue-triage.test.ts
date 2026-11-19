@@ -42,6 +42,7 @@ jest.unstable_mockModule('../src/queue/plugin-build-dlq.js', () => ({
   purgeDlq: jest.fn<AnyFn>(),
 }));
 jest.unstable_mockModule('../src/queue/requeue.js', () => ({
+  dismissFailedJob: jest.fn<AnyFn>(),
   replayDlqJob: jest.fn<AnyFn>(),
   retryFailedJob: jest.fn<AnyFn>(),
 }));

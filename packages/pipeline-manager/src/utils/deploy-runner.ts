@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { errorMessage } from '@pipeline-builder/api-core';
 import pico from 'picocolors';
+import { resolveDeployRegion } from './aws-env.js';
 import { executeCdkShellCommand, resolveBoilerplatePath } from './cdk-utils.js';
 import { ensureOutputDirectory, printInfo, printKeyValue, printSection, printSuccess, printWarning } from './output-utils.js';
 import { withPropsFile } from './props-file.js';
@@ -56,7 +57,10 @@ export interface RunDeployInput {
  * `pipeline register` to drain later.
  */
 export async function runDeploy(input: RunDeployInput): Promise<void> {
-  const { pipeline, propsWithIds, profile, region, requireApproval, output, debug, executionId } = input;
+  const { pipeline, propsWithIds, profile, requireApproval, output, debug, executionId } = input;
+  // One region for the deploy AND the registry row (see resolveDeployRegion):
+  // CDK is handed it explicitly, so the pipeline lands where Re-run will look.
+  const region = await resolveDeployRegion(input.region, profile);
 
   printInfo('Preparing output directory', { path: output });
   ensureOutputDirectory(output);
@@ -77,6 +81,7 @@ export async function runDeploy(input: RunDeployInput): Promise<void> {
 
   printSection('CDK Execution');
   console.log(cyan(bold('Command:')), dim(command.split(' --')[0] + ' ...'));
+  console.log(cyan(bold('Region:')), dim(region));
   console.log('');
 
   // The props reach the CDK app as a file (see props-file.ts). The resolved
@@ -87,7 +92,13 @@ export async function runDeploy(input: RunDeployInput): Promise<void> {
   const result = withPropsFile(propsWithIds, (propsEnv) => executeCdkShellCommand(command, {
     debug,
     showOutput: true,
-    env: { ...propsEnv, ...(input.platformBaseUrl ? { PLATFORM_BASE_URL: input.platformBaseUrl } : {}) },
+    env: {
+      ...propsEnv,
+      // The SDK inside cdk honours AWS_REGION over the profile's region.
+      AWS_REGION: region,
+      AWS_DEFAULT_REGION: region,
+      ...(input.platformBaseUrl ? { PLATFORM_BASE_URL: input.platformBaseUrl } : {}),
+    },
   }));
 
   console.log('');

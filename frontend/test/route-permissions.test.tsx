@@ -749,7 +749,7 @@ const CONTROLS: Control[] = [
     },
   },
   {
-    control: 'Retry / replay the org\'s own failed plugin builds',
+    control: 'Retry / replay / dismiss the org\'s own failed plugin builds',
     file: 'pages/dashboard/plugins.tsx',
     gateFiles: ['src/components/plugin/OrgFailedBuildsPanel.tsx'],
     // The "Failed builds" tab exists only for plugins:write — the gate of all
@@ -757,7 +757,7 @@ const CONTROLS: Control[] = [
     // system-org queue operator to its own org's jobs (another org's job is a
     // 404), so a tenant sees and retries only its own.
     permissions: ['plugins:write'],
-    routes: ['plugin POST /plugins/queue/failed/:jobId/retry', 'plugin POST /plugins/queue/dlq/:jobId/replay'],
+    routes: ['plugin POST /plugins/queue/failed/:jobId/retry', 'plugin DELETE /plugins/queue/failed/:jobId', 'plugin POST /plugins/queue/dlq/:jobId/replay'],
     behaviour: {
       mount: page('../pages/dashboard/plugins'),
       find: byRole('tab', /^failed builds$/i),

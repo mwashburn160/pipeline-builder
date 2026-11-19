@@ -50,6 +50,7 @@ jest.unstable_mockModule('../src/queue/plugin-build-dlq.js', () => ({
   purgeDlq: jest.fn<AnyFn>(),
 }));
 jest.unstable_mockModule('../src/queue/requeue.js', () => ({
+  dismissFailedJob: jest.fn<AnyFn>(),
   // replayDlqJob now takes (jobId, quotaService); the test only cares about the id.
   replayDlqJob: (id: string, _qs: unknown) => replayHelper(id),
   retryFailedJob: jest.fn<AnyFn>(),

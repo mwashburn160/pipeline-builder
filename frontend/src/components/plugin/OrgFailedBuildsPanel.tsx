@@ -15,7 +15,7 @@ import api from '@/lib/api';
 import { ApiError } from '@/lib/api/errors';
 import { formatError } from '@/lib/constants';
 
-type Target = { kind: 'retry' | 'replay'; jobId: string };
+type Target = { kind: 'retry' | 'replay' | 'dismiss'; jobId: string };
 
 /**
  * Why a retry / replay was refused, in the org's terms. A 404 is a job that is
@@ -26,7 +26,7 @@ function actionError(err: unknown, kind: Target['kind']): string {
   if (err instanceof ApiError && err.statusCode === 404) {
     return 'That build is no longer in the queue — the list has been refreshed.';
   }
-  return formatError(err, kind === 'retry' ? 'Failed to retry build' : 'Failed to replay build');
+  return formatError(err, kind === 'retry' ? 'Failed to retry build' : kind === 'dismiss' ? 'Failed to dismiss build' : 'Failed to replay build');
 }
 
 /**
@@ -70,11 +70,15 @@ export function OrgFailedBuildsPanel({ seesEveryOrg = false }: {
   const run = useCallback(async (t: Target) => {
     setPendingIds((prev) => new Set(prev).add(t.jobId));
     try {
-      const res = t.kind === 'retry'
-        // Name the tier queue: the same job id can exist in several tiers.
-        ? await api.retryFailedJob(t.jobId, failed.items?.find((j) => j.id === t.jobId)?.tier)
-        : await api.replayDlqJob(t.jobId);
-      toast.success(`Re-enqueued as job ${res.data?.newJobId ?? '?'}`);
+      // Name the tier queue: the same job id can exist in several tiers.
+      const tier = failed.items?.find((j) => j.id === t.jobId)?.tier ?? undefined;
+      if (t.kind === 'dismiss') {
+        await api.dismissFailedJob(t.jobId, tier);
+        toast.success('Failed build dismissed');
+      } else {
+        const res = t.kind === 'retry' ? await api.retryFailedJob(t.jobId, tier) : await api.replayDlqJob(t.jobId);
+        toast.success(`Re-enqueued as job ${res.data?.newJobId ?? '?'}`);
+      }
     } catch (err) {
       toast.error(actionError(err, t.kind));
     } finally {
@@ -84,7 +88,7 @@ export function OrgFailedBuildsPanel({ seesEveryOrg = false }: {
         return next;
       });
       // Either way the row's state changed (gone, or already gone).
-      if (t.kind === 'retry') refetchFailed();
+      if (t.kind !== 'replay') refetchFailed();
       else refetchDlq();
     }
   }, [toast, refetchFailed, refetchDlq, failed.items]);
@@ -96,7 +100,7 @@ export function OrgFailedBuildsPanel({ seesEveryOrg = false }: {
       <SectionCard
         icon={XCircle}
         title="Failed builds"
-        description={`Plugin builds of ${scope} that failed. Retry re-runs one from its retained build context; a build whose context was released, or that the vulnerability gate refused, offers an upload instead.`}
+        description={`Plugin builds of ${scope} that failed. Retry re-runs one from its retained build context; a build whose context was released, or that the vulnerability gate refused, offers an upload instead. Dismiss removes one you have given up on.`}
       >
         {failed.error
           ? <RetryError message={formatError(failed.error, 'Failed to fetch failed builds')} onRetry={refetchFailed} />
@@ -112,6 +116,7 @@ export function OrgFailedBuildsPanel({ seesEveryOrg = false }: {
               actionLabel="Retry"
               actionPendingLabel="Retrying…"
               actionTitle="Re-enqueue this failed build"
+              onDismiss={(jobId) => setTarget({ kind: 'dismiss', jobId })}
             />
           )}
       </SectionCard>
@@ -142,16 +147,24 @@ export function OrgFailedBuildsPanel({ seesEveryOrg = false }: {
 
       {target && (
         <ConfirmDialog
-          title={target.kind === 'retry' ? 'Retry failed build?' : 'Replay dead-lettered build?'}
-          confirmLabel={target.kind === 'retry' ? 'Retry build' : 'Replay'}
+          title={target.kind === 'retry' ? 'Retry failed build?' : target.kind === 'dismiss' ? 'Dismiss failed build?' : 'Replay dead-lettered build?'}
+          confirmLabel={target.kind === 'retry' ? 'Retry build' : target.kind === 'dismiss' ? 'Dismiss' : 'Replay'}
           loading={pendingIds.has(target.jobId)}
           onConfirm={async () => { await run(target); setTarget(null); }}
           onCancel={() => setTarget(null)}
         >
-          <p>
-            Job <span className="font-mono">{target.jobId.slice(0, 12)}</span> will be re-enqueued as a new build. It
-            takes a slot of your plugin build quota like any other build.
-          </p>
+          {target.kind === 'dismiss' ? (
+            <p>
+              Job <span className="font-mono">{target.jobId.slice(0, 12)}</span> is removed from this list and its
+              retained build context is deleted, so it can no longer be retried — upload the plugin again to rebuild
+              it. No plugin version is affected: a failed build never created one.
+            </p>
+          ) : (
+            <p>
+              Job <span className="font-mono">{target.jobId.slice(0, 12)}</span> will be re-enqueued as a new build. It
+              takes a slot of your plugin build quota like any other build.
+            </p>
+          )}
         </ConfirmDialog>
       )}
     </div>

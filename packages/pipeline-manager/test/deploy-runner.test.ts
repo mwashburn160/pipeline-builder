@@ -21,6 +21,12 @@ jest.unstable_mockModule('../src/utils/registry.js', () => ({
   writePendingIntent: (...a: unknown[]) => mockWritePendingIntent(...(a as [])),
   readStepManifest: (...a: unknown[]) => mockReadStepManifest(...(a as [])),
 }));
+// The deploy region: fixed here so no test reads the developer's ~/.aws.
+const mockResolveDeployRegion = jest.fn<(...args: any[]) => Promise<string>>();
+jest.unstable_mockModule('../src/utils/aws-env.js', () => ({
+  __esModule: true,
+  resolveDeployRegion: (...a: unknown[]) => mockResolveDeployRegion(...(a as [])),
+}));
 // Silence + avoid real fs (ensureOutputDirectory) during the test.
 jest.unstable_mockModule('../src/utils/output-utils.js', () => ({
   __esModule: true,
@@ -50,6 +56,30 @@ describe('runDeploy', () => {
     mockBuildRegistryPayload.mockResolvedValue({ pipelineId: 'p-1' });
     mockWritePendingIntent.mockResolvedValue('/tmp/intent.json');
     mockReadStepManifest.mockResolvedValue(undefined);
+    mockResolveDeployRegion.mockResolvedValue('eu-west-2');
+  });
+
+  // `cdk deploy` ran with NO region (so CDK used the profile's) while the
+  // registry recorded resolveAwsRegion() — us-east-1 when the region lived only
+  // in ~/.aws/config. Re-run then called CodePipeline in the wrong region:
+  // "Pipeline not found in AWS" for a pipeline that was running fine.
+  it('deploys AND registers in the ONE resolved region', async () => {
+    const post = jest.fn<(...args: any[]) => Promise<unknown>>().mockResolvedValue({});
+    await runDeploy({ ...BASE, profile: 'work', region: undefined, platformClient: { post }, platformPipelineUrl: '/api/pipelines' });
+    expect(mockResolveDeployRegion).toHaveBeenCalledWith(undefined, 'work');
+    const env = (mockExecuteCdk.mock.calls[0]![1] as { env: Record<string, string> }).env;
+    expect(env.AWS_REGION).toBe('eu-west-2');
+    expect(env.AWS_DEFAULT_REGION).toBe('eu-west-2');
+    expect(mockBuildRegistryPayload).toHaveBeenCalledWith(expect.anything(), 'eu-west-2');
+  });
+
+  it('an explicit --region is what both get', async () => {
+    mockResolveDeployRegion.mockImplementation(async (override?: unknown) => (override as string) ?? 'x');
+    const post = jest.fn<(...args: any[]) => Promise<unknown>>().mockResolvedValue({});
+    await runDeploy({ ...BASE, region: 'ap-southeast-2', platformClient: { post }, platformPipelineUrl: '/api/pipelines' });
+    const env = (mockExecuteCdk.mock.calls[0]![1] as { env: Record<string, string> }).env;
+    expect(env.AWS_REGION).toBe('ap-southeast-2');
+    expect(mockBuildRegistryPayload).toHaveBeenCalledWith(expect.anything(), 'ap-southeast-2');
   });
 
   it('runs `cdk deploy` (with the approval level) then registers the ARN via the platform client', async () => {

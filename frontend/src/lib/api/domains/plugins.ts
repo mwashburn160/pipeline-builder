@@ -242,6 +242,17 @@ export function pluginsApi(core: ApiCore) {
       );
     },
 
+    /**
+     * Dismiss a single failed build: remove it from the failed set and release
+     * what it still holds (quota slot, retained build context). `tier` as for retry.
+     */
+    dismissFailedJob: async (jobId: string, tier?: string) => {
+      return core.request<ApiResponse<{ dismissed: boolean; failedJobId: string; contextReleased: boolean; retryingViaDlq: boolean }>>(
+        `/api/plugins/queue/failed/${encodeURIComponent(jobId)}${tier ? `?tier=${encodeURIComponent(tier)}` : ''}`,
+        { method: 'DELETE' },
+      );
+    },
+
     /** Re-enqueue a single DLQ job onto the main build queue. Removes the DLQ entry on success. */
     replayDlqJob: async (jobId: string) => {
       return core.request<ApiResponse<{ replayed: boolean; dlqJobId: string; newJobId: string }>>(

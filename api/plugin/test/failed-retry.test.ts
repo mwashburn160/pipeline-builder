@@ -57,6 +57,7 @@ jest.unstable_mockModule('../src/queue/plugin-build-dlq.js', () => ({
   purgeDlq: jest.fn<AnyFn>(),
 }));
 jest.unstable_mockModule('../src/queue/requeue.js', () => ({
+  dismissFailedJob: jest.fn<AnyFn>(),
   replayDlqJob: jest.fn<AnyFn>(),
   // retryFailedJob(job, quotaService, retrier) — handed the EXACT job the
   // ownership check found; the test records its id and the job itself.

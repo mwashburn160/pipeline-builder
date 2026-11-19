@@ -14,7 +14,7 @@ import { Router, type NextFunction, type Request, type RequestHandler, type Resp
 import type { PluginBuildJobData } from '../helpers/plugin-helpers.js';
 import { findFailedJobs, getAllTierQueues, getDeadLetterQueue } from '../queue/connections.js';
 import { purgeDlq } from '../queue/plugin-build-dlq.js';
-import { replayDlqJob, retryFailedJob, type Retrier } from '../queue/requeue.js';
+import { dismissFailedJob, replayDlqJob, retryFailedJob, type Retrier } from '../queue/requeue.js';
 import { maxBuildsPerOrg, orgSlotSnapshot } from '../queue/slot-manager.js';
 import { callerFromRequest } from '../services/ecosystem/context.js';
 
@@ -493,6 +493,72 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
     // dashboard keeps offering Retry on it for the cache's lifetime.
     triageCache.clear();
     return sendSuccess(res, 200, { retried: true, failedJobId: jobId, newJobId });
+  }));
+
+  /**
+   * DELETE /failed/:jobId — dismiss a single FAILED build: remove it from the
+   * failed set and release what it still holds (quota slot, build context).
+   * Same access, tenant scoping, `?tier=` qualifier and ambiguity rule as the
+   * retry above; another org's job answers 404 exactly like a missing one.
+   *
+   * Before this a failed row could only be retried or re-uploaded — a build the
+   * caller had given up on stayed listed (with its context retained) until the
+   * PLUGIN_BUILD_FAILED_RETENTION_SECS sweep.
+   */
+  router.delete('/failed/:jobId', requireQueueAccess, audited('plugin.build.dismiss'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+    const jobId = getParam(req.params, 'jobId');
+    if (!jobId) return sendError(res, 400, 'Job ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
+
+    const rawTier = (req.query as Record<string, unknown> | undefined)?.tier;
+    let tier: PlanTier | undefined;
+    if (rawTier !== undefined) {
+      if (typeof rawTier !== 'string' || !(VALID_TIERS as readonly string[]).includes(rawTier)) {
+        return sendError(res, 400, `Invalid tier: expected one of ${VALID_TIERS.join(', ')}`, ErrorCode.VALIDATION_ERROR);
+      }
+      tier = rawTier as PlanTier;
+    }
+
+    const scoped = !seesEveryOrg(req);
+    const matches = await findFailedJobs(jobId, {
+      ...(scoped ? { belongsTo: (data: PluginBuildJobData | undefined) => jobBelongsToOrg(data, orgId) } : {}),
+      ...(tier ? { tier } : {}),
+    });
+    if (matches.length === 0) {
+      if (scoped && (await findFailedJobs(jobId, tier ? { tier } : {})).length > 0) recordAuthzDenial(req, 'job-owned-by-caller-org');
+      return sendError(res, 404, `Failed job ${jobId} not found`, ErrorCode.NOT_FOUND);
+    }
+    if (matches.length > 1) {
+      const tiers = matches.map((m) => m.tier);
+      return sendError(
+        res, 409,
+        `Job id ${jobId} matches failed jobs in several tier queues (${tiers.join(', ')}); dismiss from the queue view with a tier-qualified id (?tier=<tier>)`,
+        'AMBIGUOUS_JOB_ID',
+        { tiers },
+      );
+    }
+    const failedJob = matches[0].job;
+
+    const result = await dismissFailedJob(failedJob, quotaService);
+    if (!result) return sendError(res, 404, `Failed job ${jobId} not found`, ErrorCode.NOT_FOUND);
+
+    ctx.log('COMPLETED', 'Dismissed failed build', { failedJobId: jobId, ...result });
+    recordAudit({
+      action: 'plugin.build.dismiss',
+      actorId: actorId({ userId }),
+      orgId,
+      ...(jobOrgId(failedJob.data) ? { affectedOrgId: jobOrgId(failedJob.data) } : {}),
+      targetType: 'plugin',
+      details: {
+        failedJobId: jobId,
+        tier: matches[0].tier,
+        pluginName: failedJob.data?.pluginRecord?.name ?? null,
+        version: failedJob.data?.pluginRecord?.version ?? null,
+        contextReleased: result.contextReleased,
+        retryingViaDlq: result.retryingViaDlq,
+      },
+    });
+    triageCache.clear();
+    return sendSuccess(res, 200, { dismissed: true, failedJobId: jobId, ...result });
   }));
 
   // -- DLQ endpoints --------------------------------------------------------

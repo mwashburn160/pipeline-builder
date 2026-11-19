@@ -68,6 +68,10 @@ export const REMOTE_AUDIT_ACTIONS = [
   // are audited mutations; `affectedOrgId` carries the job's owning org.
   'plugin.build.retry',
   'plugin.dlq.replay',
+  // Dismissing a failed build from the triage list (`DELETE /plugins/queue/
+  // failed/:jobId`): drops the job and hands back what it still held (quota
+  // slot, retained build context). `affectedOrgId` is the job's owning org.
+  'plugin.build.dismiss',
   // Pipeline mutations — emitted by api/pipeline's route handlers
   // (create/update/delete + CodePipeline execution trigger/cancel) and
   // posted to platform's `POST /audit/events` ingest.
