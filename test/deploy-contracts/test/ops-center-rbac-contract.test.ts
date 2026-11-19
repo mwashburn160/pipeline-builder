@@ -118,6 +118,17 @@ describe('ops-center RBAC is pinned by resourceNames', () => {
     expect(dep.spec.template.spec.automountServiceAccountToken).toBe(true);
   });
 
+  it.each(K8S_TARGETS)('%s: trusts the cluster CA the API server certificate chains to', (target) => {
+    // k8s-client.ts calls the API server with the global fetch, which only
+    // trusts Node's default roots. Without the projected ca.crt every request
+    // dies in the TLS handshake ("fetch failed", UNABLE_TO_VERIFY_LEAF_SIGNATURE)
+    // — RBAC, token and NetworkPolicy all correct, and still nothing scales.
+    const dep = opsDocs(target).find((d) => d.kind === 'Deployment')!;
+    const c = (dep.spec.template.spec.containers as Doc[]).find((x) => x.name === 'ops-center')!;
+    const env = (c.env as Doc[]).find((e) => e.name === 'NODE_EXTRA_CA_CERTS');
+    expect(env?.value).toBe('/var/run/secrets/kubernetes.io/serviceaccount/ca.crt');
+  });
+
   it.each(K8S_TARGETS)('%s: platform holds NO Kubernetes RBAC and mounts no token', (target) => {
     // The identity hub holds the user-token signing key; it must not also be
     // able to patch a cluster object. The controllers that needed RBAC moved out.

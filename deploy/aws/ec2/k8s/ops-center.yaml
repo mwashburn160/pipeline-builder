@@ -129,6 +129,14 @@ spec:
               value: "ops-center"
             - name: PORT
               value: "3000"
+            # The API server's certificate is signed by the cluster CA, which is
+            # not in Node's default trust store, and k8s-client.ts calls it with
+            # the global fetch. Without this every rung change and PVC expansion
+            # fails with "fetch failed" (cause UNABLE_TO_VERIFY_LEAF_SIGNATURE).
+            # NODE_EXTRA_CA_CERTS ADDS the kubelet-projected cluster CA to the
+            # default roots; it replaces nothing, so other HTTPS calls are unchanged.
+            - name: NODE_EXTRA_CA_CERTS
+              value: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
             # Per-org alert relay: the one Alertmanager instance (id `alertmanager`,
             # sent as X-Alertmanager-Instance by config/alertmanager/alertmanager.yml)
             # and its bearer token. $(VAR) expands the secret-backed entry above it.
