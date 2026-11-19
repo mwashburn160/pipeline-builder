@@ -29,9 +29,11 @@
  *  - `noindex` + `no-referrer` + `Cache-Control: private` keep the URL out of
  *    search engines, out of the next site's referrer header, and out of shared
  *    caches — the three ordinary ways a secret URL stops being secret.
- *  - Name redaction, when the link was minted with it, replaces project and
- *    pipeline names: internal names leak intent (`project-atlas-migration`) even
- *    when the numbers are harmless.
+ *  - Redaction, when the link was minted with it, replaces project and pipeline
+ *    names and hides error text: internal names leak intent
+ *    (`project-atlas-migration`) even when the numbers are harmless, and a raw
+ *    error message leaks hostnames and paths. Stage and action names and the
+ *    numbers stay.
  *  - Rate-limited per client IP, so the token space cannot be probed.
  *
  * VIEW COUNTS EXCLUDE BOTS. A link pasted into Slack is fetched by Slack; a link
@@ -83,24 +85,90 @@ export function isPreviewFetch(req: Request): boolean {
   return purpose.includes('prefetch') || purpose.includes('preview') || purpose.includes('prerender');
 }
 
+/** What a redacted share link shows in place of an error message. */
+export const REDACTED_ERROR_TEXT = 'Error (redacted)';
+
 /**
- * Redact internal names from a snapshot. Structure, labels and numbers survive;
- * anything that looks like a project, pipeline or repository identifier is
- * replaced by a stable placeholder, so a chart still has the same number of
- * series and the reader can still tell them apart.
+ * Keys whose value is free-form ERROR TEXT, in every spelling a section answers.
+ *
+ * An error message is the one place a snapshot carries text nobody wrote for a reader:
+ * `errors[].error_pattern` is the first 200 characters of the raw message, and
+ * `build_failures[].error_message` is the whole thing. Those carry hostnames, repository
+ * paths, package names and pipeline names that the name keys never see, so a redacted
+ * link hides them outright rather than trying to pseudonymize inside a sentence.
+ *
+ * An explicit list rather than a pattern, so a classification that merely mentions
+ * failure (`failure_pct`, `failures`, `lastFailureStage`) is untouched. Both camel and
+ * snake case, because raw-SQL sections answer snake_case.
+ */
+export const ERROR_TEXT_KEYS: ReadonlySet<string> = new Set([
+  'error', 'errorMessage', 'error_message', 'errorPattern', 'error_pattern',
+  'errorText', 'error_text', 'errorDetail', 'error_detail',
+  'failureMessage', 'failure_message', 'failureReason', 'failure_reason',
+  // `detail.failure` on an execution row: an object or string straight from the event.
+  'failure',
+]);
+
+/**
+ * Which pseudonym each NAME key gets, by kind — so a placeholder says what it stands
+ * for. Pipeline and project names read "Pipeline N" (the reader's unit is a pipeline);
+ * the organization reads "Organization N".
+ *
+ * DELIBERATELY ABSENT:
+ *  - the generic `name`. No section's pipeline rows carry it; the rows that do are
+ *    plugins (`plugin_versions`), and plugin and environment names (`nodejs-build`,
+ *    `production`) are product vocabulary, not internal project names. Pseudonymizing
+ *    them as "Pipeline N" mislabelled them as pipelines.
+ *  - opaque ids (`id`, `orgId`). A UUID names nothing, and the snapshot joins rows on it.
+ *
+ * The snake_case spellings too: some sections are raw SQL rows (stage_bottlenecks
+ * answers `pipeline_name`), not camelCase-mapped ones.
+ */
+const NAME_KINDS: Readonly<Record<string, string>> = Object.freeze({
+  pipeline: 'Pipeline',
+  pipelineName: 'Pipeline',
+  pipeline_name: 'Pipeline',
+  pipelineId: 'Pipeline',
+  pipeline_id: 'Pipeline',
+  project: 'Pipeline',
+  projectName: 'Pipeline',
+  project_name: 'Pipeline',
+  organization: 'Organization',
+  organizationName: 'Organization',
+  organization_name: 'Organization',
+  orgName: 'Organization',
+  org_name: 'Organization',
+  repository: 'Repository',
+  repo: 'Repository',
+  branch: 'Branch',
+});
+
+/**
+ * Redact a snapshot for a share link minted with `redactNames`.
+ *
+ * TWO THINGS GO:
+ *  - Internal NAMES ({@link NAME_KINDS}) become a stable placeholder of their kind
+ *    ("Pipeline 2", "Organization 1"), so a chart still has the same number of series
+ *    and the reader can still tell them apart. One name gets the same placeholder
+ *    everywhere in the snapshot.
+ *  - ERROR TEXT ({@link ERROR_TEXT_KEYS}) becomes {@link REDACTED_ERROR_TEXT}, whatever
+ *    its type, in every section and at any depth.
+ *
+ * WHAT STAYS: structure, numbers (counts, occurrences, rates, durations), stage and
+ * action names, environment and plugin names, opaque ids, and non-text classification
+ * such as the failure category. A null error stays null, so "no error" never reads as
+ * a hidden one.
  */
 export function redactNames(value: unknown, seen = new Map<string, string>()): unknown {
-  // The snake_case spellings too: some sections are raw SQL rows (stage_bottlenecks
-  // answers `pipeline_name`), not camelCase-mapped ones.
-  const NAME_KEYS = new Set([
-    'project', 'projectName', 'project_name', 'pipeline', 'pipelineName', 'pipeline_name', 'pipelineId', 'pipeline_id',
-    'repository', 'repo', 'branch', 'name',
-  ]);
-  const placeholder = (original: string): string => {
-    const existing = seen.get(original);
+  const counts = new Map<string, number>();
+  const placeholder = (kind: string, original: string): string => {
+    const key = `${kind}\u0000${original}`;
+    const existing = seen.get(key);
     if (existing) return existing;
-    const label = `Pipeline ${seen.size + 1}`;
-    seen.set(original, label);
+    const n = (counts.get(kind) ?? 0) + 1;
+    counts.set(kind, n);
+    const label = `${kind} ${n}`;
+    seen.set(key, label);
     return label;
   };
   const walk = (node: unknown): unknown => {
@@ -108,7 +176,10 @@ export function redactNames(value: unknown, seen = new Map<string, string>()): u
     if (node === null || typeof node !== 'object') return node;
     const out: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(node as Record<string, unknown>)) {
-      out[key] = NAME_KEYS.has(key) && typeof val === 'string' && val.length > 0 ? placeholder(val) : walk(val);
+      const kind = Object.hasOwn(NAME_KINDS, key) ? NAME_KINDS[key] : undefined;
+      if (ERROR_TEXT_KEYS.has(key) && val !== null && val !== undefined) out[key] = REDACTED_ERROR_TEXT;
+      else if (kind && typeof val === 'string' && val.length > 0) out[key] = placeholder(kind, val);
+      else out[key] = walk(val);
     }
     return out;
   };

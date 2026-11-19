@@ -1,6 +1,6 @@
 // GENERATED FROM docs/stakeholder-reports.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 78a2291ed33d62942b7284fe01ef01e49baf3a8ce0a8e3ed4d2e07e9b2f952eb
+// SOURCE-SHA256: 56e0cbe6c9bcf835557a0bce632535085fd1cec89c29fe65c091f5a1e42ed362
 // SPDX-License-Identifier: Apache-2.0
 import { FileText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -71,7 +71,7 @@ export const stakeholderReportsTopic: HelpTopic = {
             "Sections are computed and frozen. They come from the same queries the dashboards run, over the same window, and the computed result — not the query — is stored as a snapshot.",
             "The run reaches ready_for_review. The lead writes the executive summary beside the numbers, optionally having it drafted by a model first.",
             "The lead publishes. This is the moment internal numbers leave the platform, so the whole outward path is audited. Publishing starts delivery itself; autoSend publishes and delivers without the review.",
-            "Delivery fans out. In-app always and first; then email (one message per address), Slack and Teams through the org's existing alert destinations.",
+            "Delivery fans out. In-app first, to the members who hold reports:read; then email (one message per address), Slack and Teams through the org's existing alert destinations.",
             "A correction is a new version. Regenerating produces version N+1 and repoints the row; the previous version stays exactly as its recipients read it."
           ]
         }
@@ -354,7 +354,7 @@ export const stakeholderReportsTopic: HelpTopic = {
           "rows": [
             [
               "In-app",
-              "Always, first. The only channel that cannot be misconfigured, so a report is never delivered nowhere."
+              "First. One targeted notice per member of the definition's organization who holds reports:read — never an org-wide notice. The only channel that cannot be misconfigured."
             ],
             [
               "Email",
@@ -373,6 +373,20 @@ export const stakeholderReportsTopic: HelpTopic = {
         {
           "type": "text",
           "content": "Nothing here can name a URL. The organization's administrators decided where this org's notifications go, and a report is a notification."
+        },
+        {
+          "type": "text",
+          "content": "Who gets the in-app notice. Only the people who could open the report in the product: active members of the organization that owns the definition whose permissions include reports:read, resolved exactly as the owner's own authority is resolved (platform's internal report-readers lookup returns user ids only, never names or addresses). Each gets their own notice; members without reports:read are not told the report exists."
+        },
+        {
+          "type": "list",
+          "items": [
+            "A rollup report is owned by the parent organization, so its notice goes to the parent's reports:read members — not to the members of the teams it covers.",
+            "Direct members only. An ancestor's admin who reaches a team through inherited authority is not notified about that team's reports.",
+            "Capped at 500. A larger audience is notified for the first 500 and the run says so.",
+            "Fails closed. If the reader list cannot be read, or nobody holds reports:read, no in-app notice is sent at all — never an org-wide one as a fallback. The run records it in words, the delivery counts as incomplete (the lead is told), and a redelivery tries again.",
+            "Email, Slack and Teams are unchanged: email goes to the definition's own verified distribution list (which is meant to include people outside the org), and Slack/Teams to the destinations administrators configured."
+          ]
         },
         {
           "type": "text",
@@ -466,7 +480,18 @@ export const stakeholderReportsTopic: HelpTopic = {
             "Off until an administrator turns them on. An org that never considered public links has none.",
             "The token is 256 bits of CSPRNG output, stored only as a SHA-256 hash. A database copy cannot be turned back into working URLs, and the raw token is shown once, when the link is created.",
             "It expires — 30 days by default, 180 at most — and can be revoked.",
-            "Optional name redaction replaces project and pipeline names with stable placeholders: internal names leak intent (project-atlas-migration) even when the numbers are harmless.",
+            "Optional redaction (redactNames, --redact-names) hides two things, in every section and on both the page and the PDF:",
+            "Names. Pipeline and project names (and pipeline ids) become Pipeline 1, Pipeline 2; the organization name becomes Organization 1; repository and branch names, where a section carries them, become Repository N / Branch N. Internal names leak intent (project-atlas-migration) even when the numbers are harmless. The same name gets the same placeholder everywhere, so series stay comparable.",
+            "Error text. Every free-text error field — error_pattern in Recent failures, error_message in Plugin build failures, and any other error/failure message or reason, whatever its spelling — reads Error (redacted). A raw error message carries hostnames, repository paths and package names that no name rule can see inside a sentence, so it is hidden whole rather than pseudonymized."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Redaction keeps stage and action names, environment names (production) and plugin names — product vocabulary, not internal project names — opaque UUID ids (they name nothing, and the snapshot joins rows on them), every number (counts, occurrences, rates, durations, last-seen times), the failure category and its label, and the generated needs-attention evidence. An absent error stays absent, so \"no error\" never reads as a hidden one."
+        },
+        {
+          "type": "list",
+          "items": [
             "The page sends noindex, Referrer-Policy: no-referrer and Cache-Control: private, no-store, and is rate-limited per client address.",
             "An unknown, revoked, expired or withdrawn link returns one indistinguishable 404, so a holder of a dead link learns nothing else.",
             "Link unfurlers and mail scanners (Slack, Microsoft Safe Links, and the rest) are served but not counted, so a view count means a person read it."
@@ -493,7 +518,7 @@ export const stakeholderReportsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "The file never carries more than the view it came from. The shared PDF is rendered from the same redacted payload the shared page reads, so it has no executive summary and no unredacted names. The member's PDF has both, because a member already sees both on screen.",
+            "The file never carries more than the view it came from. The shared PDF is rendered from the same redacted payload the shared page reads, so it has no executive summary, and a redacted link's file has neither the names nor the error text the page hides. The member's PDF has both, because a member already sees both on screen.",
             "It is a tagged PDF. Headings and the measures table keep their structure, so a screen reader can navigate it rather than meeting a bag of positioned glyphs. Nothing in it is carried by colour or by an arrow alone — a trend reads \"down 3 points from the previous period\", and a locked panel says \"Not on your plan\" in words.",
             "Saving a copy is not the sharing decision. The download sits on the same permission as reading the run; publishing and minting a link are what carry reports:publish.",
             "Nothing is emailed as an attachment. Reports are delivered as a link, so a correction supersedes what the recipient reads. An attachment would be a copy the organization can never withdraw or replace.",

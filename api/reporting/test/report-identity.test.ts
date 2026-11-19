@@ -21,12 +21,13 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 const mockGet = jest.fn<AnyFn>();
+const mockAuthHeader = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   InternalHttpClient: class {
     get(...args: unknown[]) { return mockGet(...args); }
   },
-  getServiceAuthHeader: () => 'Bearer reporting-service-token',
+  getServiceAuthHeader: (...a: unknown[]) => { mockAuthHeader(...a); return 'Bearer reporting-service-token'; },
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
@@ -125,9 +126,33 @@ describe('report identity reads', () => {
     });
   });
 
+  describe('readers', () => {
+    it('lists the reports:read members of the org, with a token SCOPED to that org', async () => {
+      mockGet.mockResolvedValue(ok({ userIds: ['u-1', 'u-2'], truncated: false }));
+      expect(await httpReportIdentity.readers(ORG)).toEqual({ userIds: ['u-1', 'u-2'], truncated: false });
+      expect(mockGet.mock.calls[0][0]).toBe(`/internal/reporting/report-readers/${ORG}`);
+      // Platform refuses a token minted for another org (or the system org).
+      expect(mockAuthHeader).toHaveBeenCalledWith(expect.objectContaining({ serviceName: 'reporting', orgId: ORG }));
+    });
+
+    it('carries the truncated flag through', async () => {
+      mockGet.mockResolvedValue(ok({ userIds: ['u-1'], truncated: true }));
+      expect(await httpReportIdentity.readers(ORG)).toEqual({ userIds: ['u-1'], truncated: true });
+    });
+
+    it.each([
+      ['the request throws', () => { mockGet.mockRejectedValue(new Error('ECONNREFUSED')); }],
+      ['platform answers 403', () => { mockGet.mockResolvedValue({ statusCode: 403, body: {} }); }],
+      ['`truncated` is missing', () => { mockGet.mockResolvedValue(ok({ userIds: ['u-1'] })); }],
+    ])('returns null when %s, so the caller sends no notice', async (_case, arrange) => {
+      arrange();
+      expect(await httpReportIdentity.readers(ORG)).toBeNull();
+    });
+  });
+
   it('uses the HTTP implementation by default, and can be swapped for a test double', () => {
     expect(reportIdentity()).toBe(httpReportIdentity);
-    const stub = { authority: async () => null, recipientCheck: async () => null };
+    const stub = { authority: async () => null, recipientCheck: async () => null, readers: async () => null };
     setReportIdentity(stub);
     expect(reportIdentity()).toBe(stub);
   });

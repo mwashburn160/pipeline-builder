@@ -1,10 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, requireAuth, requirePermission, sendSuccess, sendError, ErrorCode, parseOptionalDate } from '@pipeline-builder/api-core';
+import { createLogger, requireAuth, requirePermission, sendSuccess, sendError, ErrorCode, errorMessage, parseOptionalDate } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
+import { resolveAccountRootOrgId } from '../helpers/root-org-guard.js';
 import { MANAGEABLE_SUBSCRIPTION_STATUSES } from '../helpers/subscription-status.js';
 import { buildUsageRollupFor } from '../helpers/usage-helpers.js';
 import { Plan } from '../models/plan.js';
@@ -52,8 +53,21 @@ export function createUsageRoutes(): Router {
     // like every sibling route: a trialing or past_due org is paying/dunning on
     // a real plan, so resolving only status:'active' wrongly showed them the
     // developer defaults ($0 cost, wrong window).
+    //
+    // The subscription lives on the ACCOUNT root only, while a team member acts
+    // with the team's org id — so resolve the root first, or every team caller
+    // reads no subscription and sees $0 cost. FAIL-CLOSED like the
+    // support-incident routes: a hierarchy that can't be proven answers 503
+    // rather than silently showing the team developer defaults.
+    let accountOrgId: string;
+    try {
+      accountOrgId = await resolveAccountRootOrgId(orgId);
+    } catch (err) {
+      logger.error('Usage account lookup failed', { orgId, error: errorMessage(err) });
+      return sendError(res, 503, 'Could not resolve the organization\'s account; try again', ErrorCode.SERVICE_UNAVAILABLE);
+    }
     const subscription = await Subscription.findOne({
-      orgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] },
+      orgId: accountOrgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] },
     }).lean();
     const plan = subscription
       ? await Plan.findById(subscription.planId).lean()
@@ -75,6 +89,7 @@ export function createUsageRoutes(): Router {
 
     logger.debug('Built usage rollup', {
       orgId,
+      accountOrgId,
       hasSubscription: subscription !== null,
       usageKeys: Object.keys(rollup.usage),
     });

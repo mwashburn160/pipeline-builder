@@ -24,13 +24,19 @@
  *    make every reporting bug a PII incident. The caller already holds the address
  *    it is asking about, so the answer discloses nothing it did not have.
  *
- * Both are reads. Neither returns a member list, a role name, or any permission
+ *  - `GET /internal/reporting/report-readers/:orgId` — the user ids (ids only,
+ *    capped) of the members who hold `reports:read` here: who a published report's
+ *    in-app notice goes to. The one list on this router, and deliberately the
+ *    narrowest one that does the job — no names, no addresses, no roles.
+ *
+ * All are reads. None returns a name, an address, a role name, or any permission
  * outside the `reports:*` family.
  */
 
 import {
   PLATFORM_INTERNAL,
   contractErrorMessage,
+  isServicePrincipal,
   parseContractParams,
   parseContractQuery,
   sendError,
@@ -59,7 +65,12 @@ import { membershipForOrg } from '../services/session/membership-context.js';
  * id shapes, the deliberately loose recipient address (only ever compared, never
  * delivered to) and the posture window.
  */
-const { reportAuthority: AUTHORITY, reportRecipientCheck: RECIPIENT, reportAccessPosture: POSTURE } = PLATFORM_INTERNAL;
+const {
+  reportAuthority: AUTHORITY,
+  reportRecipientCheck: RECIPIENT,
+  reportAccessPosture: POSTURE,
+  reportReaders: READERS,
+} = PLATFORM_INTERNAL;
 
 /** The only permissions this endpoint will talk about. */
 const REPORT_PERMISSIONS = ['reports:read', 'reports:write', 'reports:publish', 'reports:rollup'] as const;
@@ -229,5 +240,66 @@ export const getAccessPosture = withController('Access posture', async (req, res
     serviceAccounts,
     activeApiKeys: apiKeys,
     permissionChanges,
+  });
+});
+
+/** The most reader ids one answer carries. */
+export const REPORT_READERS_CAP = 500;
+
+/** How many memberships are resolved at once — bounded so one org cannot flood Mongo. */
+const READER_RESOLVE_BATCH = 25;
+
+/**
+ * GET /internal/reporting/report-readers/:orgId → `{ userIds, truncated }`
+ *
+ * The members of this org who may READ its reports: an ACTIVE membership row here,
+ * an account that still exists, and `reports:read` among the permissions
+ * `membershipForOrg` + `resolveUserPermissions` resolve — the exact resolution
+ * `report-authority` uses, so "may read the report" means the same thing on both.
+ * A published report's in-app notice goes to exactly these people; without this,
+ * the notice went org-wide and announced a report to members who could not open it.
+ *
+ * DIRECT members only. An ancestor's admin who reaches a team through inherited
+ * authority has no membership row here, and is not notified about the team's
+ * reports (they read them from the team when they enter it).
+ *
+ * SCOPED to the path org: the service token's org claim must equal `:orgId`, so a
+ * token minted for one org cannot list another's readers.
+ *
+ * CAPPED at {@link REPORT_READERS_CAP}, in a stable order (by user id), with
+ * `truncated: true` when more members hold the permission.
+ */
+export const getReportReaders = withController('Report readers', async (req, res) => {
+  const params = parseContractParams(READERS, req);
+  if (!params.ok) return sendError(res, 400, contractErrorMessage(params));
+  const { orgId } = params.value;
+  if (!isServicePrincipal(req) || String(req.user?.organizationId ?? '').toLowerCase() !== orgId) {
+    return sendError(res, 403, 'The service token must be scoped to the organization it asks about');
+  }
+
+  const memberships = await UserOrganization.find({ organizationId: toOrgId(orgId), isActive: true })
+    .select('userId').lean();
+  const memberIds = [...new Set(memberships.map((m) => String(m.userId)))].sort();
+  const users = memberIds.length > 0
+    ? await User.find({ _id: { $in: memberIds } }).select('+isSuperAdmin').lean()
+    : [];
+  const superAdmin = new Map(users.map((u) => [String(u._id), (u as { isSuperAdmin?: boolean }).isSuperAdmin === true]));
+
+  const readers: string[] = [];
+  // One past the cap is enough to know the answer was truncated.
+  for (let i = 0; i < memberIds.length && readers.length <= REPORT_READERS_CAP; i += READER_RESOLVE_BATCH) {
+    const batch = memberIds.slice(i, i + READER_RESOLVE_BATCH).filter((id) => superAdmin.has(id));
+    const resolved = await Promise.all(batch.map(async (userId) => {
+      const membership = await membershipForOrg(userId, orgId);
+      if (!membership) return null;
+      const held = resolveUserPermissions(membership.rolePermissions, superAdmin.get(userId) === true);
+      return held.includes('reports:read') ? userId : null;
+    }));
+    for (const id of resolved) if (id) readers.push(id);
+  }
+
+  sendSuccess(res, 200, {
+    userIds: readers.slice(0, REPORT_READERS_CAP),
+    truncated: readers.length > REPORT_READERS_CAP,
   });
 });

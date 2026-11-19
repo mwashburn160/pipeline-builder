@@ -156,7 +156,11 @@ spec:
 # definition's OWNER is still an active member holding the reporting permissions
 # (a run is authorized as the owner, not as a caller), and whether one named
 # address is a member of the org, plus the COUNTS behind a report's access-posture
-# panel. Single answers and counts, never a member list and never a name.
+# panel. And GET /internal/reporting/report-readers/:orgId — the user ids (capped
+# at 500, never a name or address) of the members holding reports:read, who a
+# published report's in-app notice goes to; that one also needs a service token
+# scoped to the path org. This one policy covers the whole prefix, so the new
+# route has exactly the same single caller as the rest of it.
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:

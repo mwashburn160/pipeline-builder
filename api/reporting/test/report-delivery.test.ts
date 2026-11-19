@@ -36,6 +36,11 @@ const mockDeliverability = jest.fn<AnyFn>();
 const mockRecordDelivery = jest.fn<AnyFn>();
 
 const mockWarn = jest.fn<AnyFn>();
+const mockReaders = jest.fn<AnyFn>();
+
+jest.unstable_mockModule('../src/services/report-identity.js', () => ({
+  reportIdentity: () => ({ readers: (...a: unknown[]) => mockReaders(...a) }),
+}));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   // Captured: delivery counters carry no per-org label, so every failure path
@@ -100,6 +105,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   delivery.resetEmailStatus();
   mockSystemNotification.mockResolvedValue(true);
+  mockReaders.mockResolvedValue({ userIds: ['u-reader'], truncated: false });
   mockGet.mockResolvedValue({ statusCode: 200, body: { data: { enabled: true } } });
   mockPost.mockResolvedValue(relay(['manager@acme.test']));
   mockDestinations.mockResolvedValue([]);
@@ -150,6 +156,70 @@ describe('deliverPublishedRun', () => {
     const outcome = await delivery.deliverPublishedRun(definition(), run());
     expect(outcome.inApp).toBe(0);
     expect(outcome.notes.join(' ')).toContain('in-app notification could not be posted');
+  });
+
+  /**
+   * The in-app notice reaches only the people who could open the report in the product:
+   * the members of the definition's org holding `reports:read`. An org-wide notice told
+   * every member about a report most of them could not read.
+   */
+  describe('in-app notice recipients', () => {
+    const inAppCalls = () => mockSystemNotification.mock.calls.map((c) => c[0] as Record<string, unknown>);
+
+    it('sends ONE notice per reports:read member, each targeted, and never an org-wide one', async () => {
+      mockReaders.mockResolvedValue({ userIds: ['u-1', 'u-2', 'u-3'], truncated: false });
+      const outcome = await delivery.deliverPublishedRun(definition(), run());
+      expect(mockReaders).toHaveBeenCalledWith('acme');
+      expect(inAppCalls().map((n) => n.recipientUserId)).toEqual(['u-1', 'u-2', 'u-3']);
+      for (const n of inAppCalls()) expect(n).toMatchObject({ recipientOrgId: 'acme', priority: 'normal' });
+      expect(outcome.inApp).toBe(1);
+    });
+
+    it('a ROLLUP notifies the readers of the org that owns the definition (the parent), not its teams', async () => {
+      // A rollup definition lives in the parent org: `orgId` is the parent and the teams
+      // are only in the data scope. Its readers are the parent's.
+      mockReaders.mockResolvedValue({ userIds: ['u-parent-lead'], truncated: false });
+      await delivery.deliverPublishedRun(definition({ orgId: 'parent-org', scope: { kind: 'rollup' } }), run({ orgId: 'parent-org' }));
+      expect(mockReaders).toHaveBeenCalledTimes(1);
+      expect(mockReaders).toHaveBeenCalledWith('parent-org');
+      expect(inAppCalls()[0]).toMatchObject({ recipientOrgId: 'parent-org', recipientUserId: 'u-parent-lead' });
+    });
+
+    it('FAILS CLOSED: an unanswerable lookup sends no notice at all, logs it and notes it', async () => {
+      mockReaders.mockResolvedValue(null);
+      const outcome = await delivery.deliverPublishedRun(definition(), run());
+      expect(inAppCalls().filter((n) => n.subject === 'Weekly delivery — 2026-W38')).toEqual([]);
+      expect(inAppCalls().some((n) => n.recipientUserId === undefined)).toBe(false);
+      expect(outcome.inApp).toBe(0);
+      expect(outcome.notes.join(' ')).toMatch(/could not be looked up/i);
+      expect(mockWarn).toHaveBeenCalledWith(expect.stringMatching(/reader/i), expect.objectContaining({ orgId: 'acme', runId: 'run-1' }));
+    });
+
+    it('sends nothing, and says so, when no member holds reports:read', async () => {
+      mockReaders.mockResolvedValue({ userIds: [], truncated: false });
+      const outcome = await delivery.deliverPublishedRun(definition(), run());
+      expect(inAppCalls().filter((n) => n.subject === 'Weekly delivery — 2026-W38')).toEqual([]);
+      expect(outcome.inApp).toBe(0);
+      expect(outcome.notes.join(' ')).toMatch(/no member .*reports:read/i);
+      expect(mockWarn).toHaveBeenCalledWith(expect.stringMatching(/reader/i), expect.objectContaining({ orgId: 'acme' }));
+    });
+
+    it('a TRUNCATED answer is sent to the readers it carries, with a note', async () => {
+      const ids = Array.from({ length: 500 }, (_, i) => `u-${i}`);
+      mockReaders.mockResolvedValue({ userIds: ids, truncated: true });
+      const outcome = await delivery.deliverPublishedRun(definition(), run());
+      expect(inAppCalls().filter((n) => n.subject === 'Weekly delivery — 2026-W38')).toHaveLength(500);
+      expect(outcome.inApp).toBe(1);
+      expect(outcome.notes.join(' ')).toMatch(/first 500/);
+    });
+
+    it('counts in-app as delivered when at least one notice landed, and notes the misses', async () => {
+      mockReaders.mockResolvedValue({ userIds: ['u-1', 'u-2'], truncated: false });
+      mockSystemNotification.mockResolvedValueOnce(false).mockResolvedValue(true);
+      const outcome = await delivery.deliverPublishedRun(definition(), run());
+      expect(outcome.inApp).toBe(1);
+      expect(outcome.notes.join(' ')).toMatch(/1 of 2/);
+    });
   });
 
   it('emails each verified recipient with their OWN unsubscribe link', async () => {

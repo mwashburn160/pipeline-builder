@@ -431,6 +431,26 @@ export const PLATFORM_INTERNAL = {
       displayName: z.unknown().optional().transform((v) => (typeof v === 'string' ? v : undefined)),
     }),
   }),
+  /**
+   * Who may READ this org's reports: the user ids of its active members whose
+   * resolved permissions include `reports:read` (resolved as {@link reportAuthority}
+   * resolves them). A published report's in-app notice goes to exactly these people,
+   * so publishing never announces a report to members who cannot open it. Ids only —
+   * never names or addresses — capped at 500, with `truncated` when more hold it.
+   */
+  reportReaders: defineInternalEndpoint({
+    id: 'platform.reportReaders',
+    service: 'platform',
+    method: 'GET',
+    path: '/internal/reporting/report-readers/:orgId',
+    callers: ['reporting'],
+    auth: AI_AUTH,
+    params: z.object({ orgId: orgIdParam }),
+    response: z.object({
+      userIds: stringList,
+      truncated: z.boolean(),
+    }),
+  }),
   /** Access-posture COUNTS for a report window (never a row, name or id). */
   reportAccessPosture: defineInternalEndpoint({
     id: 'platform.reportAccessPosture',

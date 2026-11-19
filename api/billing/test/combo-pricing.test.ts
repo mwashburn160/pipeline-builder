@@ -21,7 +21,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@p
   Config: { get: () => undefined },
 }));
 
-const { activeComboCredits, comboBasisCents, discountBaseCents } = await import('../src/helpers/combo-pricing.js');
+const { activeComboCredits, comboBasisCents, discountBaseCents, volumeCredits } = await import('../src/helpers/combo-pricing.js');
 
 const bundle = (id: string, monthly: number) => ({
   id,
@@ -208,5 +208,59 @@ describe('discountBaseCents — bundle-scoped percent discounts', () => {
       { appliesToBundles: ['support_premium'] }, 3900,
       [{ bundleId: 'support_premium', quantity: 0 }], catalog, 'monthly',
     )).toBe(0);
+  });
+});
+
+/**
+ * Combo + volume must not discount the same units twice.
+ *
+ * `comboBasisCents` prices a tiered member at its volume rate for the combo's
+ * MINIMUM quantity, and the volume credit realizes exactly that rate on those
+ * units. Before the fix `volumeCredits` applied the HELD-quantity tier to every
+ * unit, so once holdings crossed a higher tier the minimum units got the deeper
+ * rate on top of a combo credit that assumed the shallower one — the combo
+ * members then netted BELOW the combo's own combined price.
+ */
+describe('volumeCredits — no stacking with an active combo', () => {
+  const seat = {
+    ...(bundle('seat', 1000) as object),
+    stackable: true,
+    volumeTiers: [{ minQuantity: 2, discountPercent: 5 }, { minQuantity: 5, discountPercent: 10 }, { minQuantity: 15, discountPercent: 20 }],
+  } as never;
+  const B = [seat, bundle('team_usage_analytics', 3000)];
+  // basis = 5 x (1000 at 10%) + 3000 = 7500; combined 6000 → combo credit 1500.
+  const GROWTH = combo('growth', ['seat', 'team_usage_analytics'], 6000, 0, { seat: 5 });
+  const held = (seats: number) => [{ bundleId: 'seat', quantity: seats }, { bundleId: 'team_usage_analytics', quantity: 1 }];
+  const total = (xs: { creditCents: number }[]) => xs.reduce((n, x) => n + x.creditCents, 0);
+
+  it('holdings ABOVE the combo minimum: the minimum units are not discounted twice', () => {
+    const addons = held(20);
+    const vol = volumeCredits(addons, B, 'monthly', [GROWTH]);
+    // 5 minimum units at the basis rate (10%) = 500, plus 15 extra at the held
+    // tier (20%) = 3000. Pre-fix: all 20 at 20% = 4000.
+    expect(vol).toEqual([{ bundleId: 'seat', name: 'seat', creditCents: 3500 }]);
+    // Invariant: the combo members net exactly the combined price, and the extra
+    // units net the held-tier rate.
+    const list = 20 * 1000 + 3000;
+    const net = list - total(activeComboCredits(addons, B, [GROWTH], 'monthly')) - total(vol);
+    expect(net).toBe(6000 + 15 * 800);
+  });
+
+  it('holdings AT the combo minimum are unchanged (members net the combined price)', () => {
+    const addons = held(5);
+    expect(volumeCredits(addons, B, 'monthly', [GROWTH])).toEqual(volumeCredits(addons, B, 'monthly', []));
+    const net = 5 * 1000 + 3000 - total(activeComboCredits(addons, B, [GROWTH], 'monthly')) - total(volumeCredits(addons, B, 'monthly', [GROWTH]));
+    expect(net).toBe(6000);
+  });
+
+  it('holdings BELOW the combo minimum are unchanged (combo inactive)', () => {
+    const addons = held(3);
+    expect(activeComboCredits(addons, B, [GROWTH], 'monthly')).toEqual([]);
+    expect(volumeCredits(addons, B, 'monthly', [GROWTH])).toEqual(volumeCredits(addons, B, 'monthly', []));
+  });
+
+  it('a tiered bundle outside any active combo keeps its full volume credit', () => {
+    const addons = [{ bundleId: 'seat', quantity: 20 }]; // no TUA → combo not satisfied
+    expect(volumeCredits(addons, B, 'monthly', [GROWTH])).toEqual([{ bundleId: 'seat', name: 'seat', creditCents: 4000 }]);
   });
 });

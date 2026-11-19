@@ -63,26 +63,54 @@ export interface ActiveVolumeCredit {
  * Which held add-ons earn a volume discount, and the per-period usage credit each
  * earns for `interval`. Pure + side-effect-free (like `activeComboCredits`), so
  * preview, price breakdown, and the invoice reconciler all derive the same numbers.
+ *
+ * NO STACKING WITH A COMBO. `comboBasisCents` prices a tiered combo member at its
+ * volume rate for the combo's MINIMUM quantity, so the combo credit assumes those
+ * minimum units receive exactly that rate — and no more. For a bundle claimed by
+ * an ACTIVE combo (same packing `activeComboCredits` picks, from `combos`):
+ *   - the combo's minimum units get the rate the basis assumed (the tier for the
+ *     minimum quantity), never the deeper held-quantity tier on top of it;
+ *   - only the units ABOVE that minimum get the held-quantity tier.
+ * The combo members therefore net exactly the combo's combined price and the
+ * extra units net the volume rate. Pass `[]` for `combos` to price the volume
+ * curve alone (no combo context).
  */
 export function volumeCredits(
   addons: readonly { bundleId: string; quantity: number }[],
   bundles: readonly BundleConfig[],
   interval: BillingInterval,
+  combos: readonly ComboDiscountConfig[],
 ): ActiveVolumeCredit[] {
+  // Units each bundle has committed to an active combo's minimum basket. The
+  // packing never shares a member between two combos, so one entry per bundle.
+  const comboUnits = new Map<string, number>();
+  if (combos.length) {
+    const active = new Set(activeComboCredits(addons, bundles, combos, interval).map((c) => c.comboId));
+    for (const combo of combos) {
+      if (!active.has(combo.id)) continue;
+      for (const id of combo.bundleIds) comboUnits.set(id, minQty(combo, id));
+    }
+  }
+
   const out: ActiveVolumeCredit[] = [];
   for (const a of addons) {
     const b = bundles.find((x) => x.id === a.bundleId);
     if (!b?.volumeTiers?.length) continue;
     const pct = volumeDiscountPct(b, a.quantity);
     if (pct <= 0) continue;
+    const unit = priceForInterval(b.prices, interval);
+    const inCombo = Math.min(a.quantity, comboUnits.get(b.id) ?? 0);
+    const extra = a.quantity - inCombo;
+    // Minimum combo units at the basis rate; only the excess at the held tier.
+    const raw = (unit * inCombo * volumeDiscountPct(b, inCombo) + unit * extra * pct) / 100;
     // The credit is derived from the NET, not rounded on its own: a percentage of
     // a line lands on arbitrary cents (30% of 5 x $49.99 is $74.985), and rounding
     // the credit would leave the amount still charged on those cents instead. This
     // snaps what the customer PAYS up to a whole dollar, .49 or .99 and takes the credit
     // as the remainder, so the invoice line and its credit reconcile exactly and
     // the rounding goes in the vendor's favour rather than against it.
-    const gross = priceForInterval(b.prices, interval) * a.quantity;
-    const { creditCents } = snapNetCharge(gross, Math.round((gross * pct) / 100));
+    const gross = unit * a.quantity;
+    const { creditCents } = snapNetCharge(gross, Math.round(raw));
     if (creditCents > 0) out.push({ bundleId: b.id, name: b.name, creditCents });
   }
   return out;

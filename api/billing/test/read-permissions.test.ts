@@ -46,6 +46,9 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendBadRequest: mockSendError,
   validateBody: () => ({ ok: true, value: {} }),
   getParam: (params: Record<string, string>, key: string) => params[key],
+  // GET /usage resolves the account root before reading the subscription; every
+  // caller here is a root org, so the hierarchy walk resolves to itself.
+  resolveRootOrgIdStrict: async (orgId: string) => orgId,
   // Real gate semantics: 403 unless the caller holds the required permission.
   requirePermission: (perm: string) => (req: any, res: any, next: () => void) => {
     const perms: string[] = req.user?.permissions ?? [];

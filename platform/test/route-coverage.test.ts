@@ -354,6 +354,9 @@ const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   { method: 'GET', path: '/internal/offers/seat-activity/:orgId', callers: ['billing'] },
   { method: 'GET', path: '/internal/reporting/report-authority/:orgId/:userId', callers: ['reporting'] },
   { method: 'GET', path: '/internal/reporting/recipient-check/:orgId', callers: ['reporting'] },
+  // Who gets a published report's in-app notice: the members of the definition's org
+  // holding `reports:read`. User ids only, capped, scoped to the path org.
+  { method: 'GET', path: '/internal/reporting/report-readers/:orgId', callers: ['reporting'] },
   // May this org open a support case, and at what level? The message service
   // owns the support thread and so the moment a case opens, but cannot decide
   // entitlement: `supportContacts` is not a quota-service type and the effective

@@ -44,9 +44,9 @@
  */
 
 import { envBool, envInt, type PlanTier, type BillingInterval } from '@pipeline-builder/api-core';
-import { priceForInterval, volumeDiscountPct } from './combo-pricing.js';
-import { snapNetCharge, snapUpPrice } from './price-rounding.js';
-import type { BundleConfig } from '../config/billing-types.js';
+import { getComboDiscounts, priceForInterval, volumeCredits, volumeDiscountPct } from './combo-pricing.js';
+import { snapUpPrice } from './price-rounding.js';
+import type { BundleConfig, ComboDiscountConfig } from '../config/billing-types.js';
 import { effectiveEntitlements } from '../config/entitlements.js';
 import { BASELINE_SUPPORT_LEVELS, PREMIUM_SUPPORT_LEVEL, SUPPORT_LEVELS, type SupportLevelId } from '../config/support-levels.js';
 
@@ -294,6 +294,7 @@ export function supportFloorLine(
   interval: BillingInterval,
   cfg: SupportFloorConfig = supportFloorConfig(),
   override?: SupportFloorOverride | undefined,
+  combos: readonly ComboDiscountConfig[] = getComboDiscounts(),
 ): { label: string; cents: number; billableSeats: number; negotiated: boolean; stale: boolean } | null {
   const { limits, features } = effectiveEntitlements(tier, addons, bundles);
   const contacts = limits.supportContacts ?? 0;
@@ -315,16 +316,19 @@ export function supportFloorLine(
   const unit = baseline ? priceForInterval(baseline.prices, interval) : 0;
   const premiumBundle = bundles.find((b) => b.id === PREMIUM_SUPPORT_LEVEL);
   const premiumUnit = premiumBundle ? priceForInterval(premiumBundle.prices, interval) : 0;
-  const premiumPercent = premiumBundle ? volumeDiscountPct(premiumBundle, premiumHeld) : 0;
-  // Each line's NET through `snapNetCharge`, exactly as `volumeCredits` grants it.
-  // This duplicated the volume arithmetic and then diverged the moment the
-  // whole-dollar-or-.99 rule landed: 3 standard contacts are CHARGED $53.99 (net
-  // snapped up from $53.97) while this computed $53.97, and 20 contacts by 13
-  // cents. The comment above promises the two cannot disagree about what support
-  // costs, and a 13-cent disagreement is enough to flip `binds` at the margin and
-  // to make the top-up line fail to reconcile against the contact lines above it.
-  const contactsPriceCents = snapNetCharge(unit * held, Math.round(unit * held * volumePercent / 100)).netCents
-    + snapNetCharge(premiumUnit * premiumHeld, Math.round(premiumUnit * premiumHeld * premiumPercent / 100)).netCents;
+  // Each line's NET is its list minus the credit `volumeCredits` ACTUALLY grants
+  // it — the same function, with the same combo context, the invoice reconciler
+  // grants from. Never re-derived here: the first copy of this arithmetic
+  // diverged when the whole-dollar-or-.99 rule landed (3 contacts CHARGED
+  // $53.99, computed $53.97), and a second when combo and volume stopped
+  // stacking (with Assured Delivery active the combo's contact gets only the
+  // basis rate, so the lines cost more than a combo-blind volume percentage
+  // says). Either disagreement flips `binds` at the margin and leaves the
+  // top-up line failing to reconcile against the contact lines above it.
+  const credits = volumeCredits(addons, bundles, interval, combos);
+  const creditFor = (id: string) => credits.find((c) => c.bundleId === id)?.creditCents ?? 0;
+  const contactsPriceCents = (unit * held - (held > 0 ? creditFor(level) : 0))
+    + (premiumUnit * premiumHeld - (premiumHeld > 0 ? creditFor(PREMIUM_SUPPORT_LEVEL) : 0));
 
   const verdict = supportFloor({
     seats: limits.seats ?? 0,

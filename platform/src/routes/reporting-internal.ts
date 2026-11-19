@@ -3,7 +3,7 @@
 
 import { PLATFORM_INTERNAL, contractRoute, requireInternalService } from '@pipeline-builder/api-core';
 import { Router } from 'express';
-import { getAccessPosture, getReportAuthority, getRecipientCheck } from '../controllers/reporting-internal.js';
+import { getAccessPosture, getReportAuthority, getReportReaders, getRecipientCheck } from '../controllers/reporting-internal.js';
 import { requireServiceAuth } from '../middleware/index.js';
 
 /**
@@ -16,7 +16,12 @@ import { requireServiceAuth } from '../middleware/index.js';
 /** Where `mount.ts` mounts this router — the contracts' paths are under it. */
 export const REPORTING_INTERNAL_MOUNT = '/internal/reporting';
 
-const { reportAuthority: AUTHORITY, reportRecipientCheck: RECIPIENT, reportAccessPosture: POSTURE } = PLATFORM_INTERNAL;
+const {
+  reportAuthority: AUTHORITY,
+  reportRecipientCheck: RECIPIENT,
+  reportAccessPosture: POSTURE,
+  reportReaders: READERS,
+} = PLATFORM_INTERNAL;
 
 const reportingOnly = (callers: readonly string[]) => [requireServiceAuth, requireInternalService({ callers: [...callers] })];
 
@@ -27,6 +32,12 @@ router.get(contractRoute(AUTHORITY, REPORTING_INTERNAL_MOUNT), ...reportingOnly(
 
 /** Is this one address an active member of this org? One address, never a list. */
 router.get(contractRoute(RECIPIENT, REPORTING_INTERNAL_MOUNT), ...reportingOnly(RECIPIENT.callers), getRecipientCheck);
+
+/**
+ * Who a published report's in-app notice goes to: the user ids of the members holding
+ * `reports:read`. Ids only, capped, and the token must be scoped to the path org.
+ */
+router.get(contractRoute(READERS, REPORTING_INTERNAL_MOUNT), ...reportingOnly(READERS.callers), getReportReaders);
 
 /**
  * The access half of a report's posture panel: members, second-factor coverage, SSO,

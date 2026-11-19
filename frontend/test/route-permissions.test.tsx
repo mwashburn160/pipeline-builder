@@ -2794,6 +2794,10 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     category: 'machine-only',
     why: 'Service-principal routes (callers: reporting): a SCHEDULED stakeholder report is authorized as its definition\'s OWNER, so the reporting service asks platform whether that person is still an active member holding reports:write / reports:publish and whether the org still holds the add-on (api/reporting/src/services/report-identity.ts), and whether ONE named address is a member. No user token is admitted, and neither answer carries a member list.',
   }),
+  'platform GET /internal/reporting/report-readers/:orgId': {
+    category: 'machine-only',
+    why: 'Service-principal route (callers: reporting; token scoped to the path org): the USER IDS of the org\'s active members holding reports:read, capped at 500, so a published report\'s in-app headline notice goes only to people allowed to open it (api/reporting/src/services/report-delivery.ts). Ids only, never names or emails; no user token is admitted.',
+  },
   'reporting POST /reports/internal/stakeholder/owner-left/:orgId/:userId': {
     category: 'machine-only',
     why: 'Service-principal route (callers: platform): deactivating or removing a member pauses the stakeholder reports they OWNED (platform/src/services/report-ownership.ts, from the deactivate / remove member controllers), because a run computes with the owner\'s access. No user token is admitted.',
@@ -3217,7 +3221,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   ], {
     category: 'same-control',
     coveredBy: 'Author / delete a compliance rule or policy',
-    why: 'Rule/policy editors, scan + schedule managers, template onboarding and the subscription row actions under src/components/compliance/. Every one renders inside `!readOnly`, and `readOnly` is `!canManage` where ComplianceDashboard is given `canManage={can(\'compliance:write\')}` by pages/dashboard/compliance.tsx.',
+    why: 'Rule/policy editors, scan + schedule managers, template onboarding and the subscription row actions under src/components/compliance/. Every one renders inside `!readOnly` (the subscription row actions inside the SubscriptionManager `canWrite` gate = `!readOnly && !sessionReadOnly`), and `readOnly` is `!canManage` where ComplianceDashboard is given `canManage={can(\'compliance:write\')}` by pages/dashboard/compliance.tsx.',
   }),
   ...group('compliance', [
     'POST /compliance/exemptions', 'POST /compliance/exemptions/bulk',
@@ -3227,7 +3231,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   ], {
     category: 'same-control',
     coveredBy: 'Compliance reads (rules, policies, scans)',
-    why: 'Catalog Subscribe / Preview impact and the exemption request + CSV import, on the compliance:read-gated page. Most sit inside the same `!readOnly` block as the writes above, i.e. the UI asks for MORE (compliance:write) than the route does — safe, and noted rather than relaxed.',
+    why: 'Catalog Subscribe / Preview impact and the exemption request + CSV import, on the compliance:read-gated page. Activate (PATCH with isActive:true) and bulk Activate are live on compliance:read, matching the route, which demands compliance:write only for the deactivate branch — SubscriptionManager shows Deactivate only under `canWrite`. A read-only impersonation session disables all of them. The remaining controls sit inside the same `!readOnly` block as the writes above, i.e. the UI asks for MORE (compliance:write) than the route does — safe, and noted rather than relaxed.',
   }),
   ...group('compliance', ['POST /compliance/validate/pipeline/dry-run', 'POST /compliance/validate/plugin/dry-run'], {
     category: 'same-control',

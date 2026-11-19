@@ -79,6 +79,9 @@ jest.unstable_mockModule('../src/services/report-pdf.js', () => ({
 
 const { createPublicReportRoutes, isPreviewFetch, redactNames } = await import('../src/routes/public-reports.js');
 
+/** What a redacted share link shows in place of an error message. */
+const REDACTED_ERROR = 'Error (redacted)';
+
 const NOW = new Date('2026-09-21T12:00:00.000Z');
 const TOKEN = 'abcdefghijklmnopqrstuvwxyz012345';
 
@@ -212,9 +215,33 @@ describe('public report routes', () => {
     });
 
     it('redacts through nested arrays and objects', () => {
-      const redacted = redactNames({ envs: [{ name: 'prod-atlas', stages: [{ pipelineName: 'atlas-deploy' }] }] }) as any;
-      expect(redacted.envs[0].name).toMatch(/^Pipeline \d+$/);
+      const redacted = redactNames({ envs: [{ environment: 'production', stages: [{ pipelineName: 'atlas-deploy' }] }] }) as any;
       expect(redacted.envs[0].stages[0].pipelineName).toMatch(/^Pipeline \d+$/);
+    });
+
+    it('leaves environment and plugin names readable: a generic `name` is not a pipeline name', () => {
+      const input = {
+        environments: ['production', 'staging'],
+        dora: { environments: [{ environment: 'production' }] },
+        plugins: [{ name: 'nodejs-build', version_count: 3 }],
+        builds: [{ plugin_name: 'nodejs-build', builds: 2 }],
+      };
+      expect(redactNames(input)).toEqual(input);
+    });
+
+    it('pseudonymizes the organization as "Organization N", not as a pipeline', () => {
+      const redacted = redactNames({
+        rows: [
+          { id: '7f1c0e2a-0000-4000-8000-000000000001', organization: 'acme-corp', pipeline_name: 'atlas', total: 3 },
+          { id: '7f1c0e2a-0000-4000-8000-000000000002', organization: 'acme-corp', pipeline_name: 'billing', total: 1 },
+        ],
+      }) as any;
+      expect(redacted.rows[0].organization).toBe('Organization 1');
+      expect(redacted.rows[1].organization).toBe('Organization 1');
+      expect(redacted.rows.map((r: any) => r.pipeline_name)).toEqual(['Pipeline 1', 'Pipeline 2']);
+      // Opaque UUIDs name nothing, and the snapshot joins rows on them.
+      expect(redacted.rows[0].id).toBe('7f1c0e2a-0000-4000-8000-000000000001');
+      expect(JSON.stringify(redacted)).not.toContain('acme-corp');
     });
 
     it('redacts the snake_case names raw-SQL sections carry (stage_bottlenecks rows)', () => {
@@ -229,6 +256,137 @@ describe('public report routes', () => {
       expect(row.pipeline_id).toMatch(/^Pipeline \d+$/);
       expect(row.avg_ms).toBe(10);
       expect(JSON.stringify(redacted)).not.toContain('atlas-migration');
+    });
+
+    it('hides error text (errors[].error_pattern) but keeps the counts', () => {
+      // `error_pattern` is the first 200 characters of a raw error message: it carries
+      // hostnames, repo paths and internal names that the name keys never see.
+      const redacted = redactNames({
+        sections: [{
+          id: 'errors',
+          current: [{ error_pattern: 'connect ECONNREFUSED atlas-db.internal:5432', occurrences: 4, affected_pipelines: 2, last_seen: '2026-09-10' }],
+        }],
+      }) as any;
+      const row = redacted.sections[0].current[0];
+      expect(row.error_pattern).toBe(REDACTED_ERROR);
+      expect(row).toMatchObject({ occurrences: 4, affected_pipelines: 2, last_seen: '2026-09-10' });
+      expect(JSON.stringify(redacted)).not.toContain('atlas-db');
+    });
+
+    it('hides error text in EVERY spelling, at any depth', () => {
+      const leak = 'npm ERR! 404 @acme/secret-sdk not found';
+      const spellings = [
+        'error', 'errorMessage', 'error_message', 'errorPattern', 'error_pattern',
+        'errorText', 'error_text', 'errorDetail', 'error_detail',
+        'failureMessage', 'failure_message', 'failureReason', 'failure_reason', 'failure',
+      ];
+      const row = Object.fromEntries(spellings.map((k) => [k, leak]));
+      const redacted = redactNames({ a: [row], b: { nested: [{ ...row, count: 3 }] }, c: { failure: { message: leak, code: 'E404' } } }) as any;
+      expect(JSON.stringify(redacted)).not.toContain('secret-sdk');
+      for (const k of spellings) expect(redacted.a[0][k]).toBe(REDACTED_ERROR);
+      expect(redacted.b.nested[0].count).toBe(3);
+      // A null error stays null: "no error" must not read as a hidden one.
+      expect(redactNames({ error_message: null })).toEqual({ error_message: null });
+    });
+
+    it('keeps stage and action names, and the failure category', () => {
+      const input = {
+        stage: [{ stage_name: 'Build', failures: 3, total: 9, failure_pct: 33 }],
+        action: [{ action_name: 'UnitTests', failures: 2, total: 9, failure_pct: 22 }],
+        perf: { stages: [{ stageName: 'Deploy', runs: 4, failed: 1 }] },
+        categories: [{ category: 'test_failure', label: 'Tests failed', count: 5, sharePct: 50, teamActionable: true, change: 1, topPipelines: [] }],
+      };
+      expect(redactNames(input)).toEqual(input);
+    });
+
+    /**
+     * The robust version: compose a REAL snapshot over every registered section, fed
+     * by a source whose rows carry error text in the shape each query really answers,
+     * and assert none survives. A new section whose data method is not faked here
+     * fails the `state: 'ok'` check, so it cannot be added without being covered.
+     */
+    it('leaves no error text in ANY report section type', async () => {
+      const { sectionIds, getReportSection } = await import('@pipeline-builder/pipeline-data/lib/api/reporting/stakeholder/sections.js') as any;
+      const { composeSnapshot } = await import('@pipeline-builder/pipeline-data/lib/api/reporting/stakeholder/compose.js') as any;
+      const LEAK = 'Error: getaddrinfo ENOTFOUND atlas-vault.corp.internal';
+      const pipelineRow = { pipelineId: 'p-atlas', pipelineName: 'atlas-migration', project: 'atlas', runs: 9, succeeded: 6, failed: 3, successPct: 66, deploys: 1, lastFailureAt: '2026-09-10', lastFailureStage: 'Build', buildSeconds: 600 };
+      const fixtures: Record<string, unknown> = {
+        getExecutionCount: [{ id: 'p-atlas', project: 'atlas', organization: 'acme', pipeline_name: 'atlas-migration', total: 9, succeeded: 6, failed: 3, canceled: 0 }],
+        getSuccessRate: [{ period: '2026-W37', succeeded: 6, failed: 3, canceled: 0, success_pct: 66 }],
+        getAverageDuration: [{ id: 'p-atlas', project: 'atlas', pipeline_name: 'atlas-migration', avg_ms: 1, min_ms: 1, max_ms: 1, p95_ms: 1, executions: 9 }],
+        getStageFailures: [{ stage_name: 'Build', failures: 3, total: 9, failure_pct: 33 }],
+        getStageBottlenecks: [{ id: 'p-atlas', pipeline_name: 'atlas-migration', stage_name: 'Build', avg_ms: 1, max_ms: 1 }],
+        getActionFailures: [{ action_name: 'UnitTests', failures: 3, total: 9, failure_pct: 33 }],
+        getErrors: [{ error_pattern: LEAK, occurrences: 3, affected_pipelines: 1, last_seen: '2026-09-10' }],
+        getPluginSummary: { total: 3, active: 3, inactive: 0 },
+        getPluginDistribution: [{ plugin_type: 'nodejs', compute_type: 'SMALL', count: 3 }],
+        getPluginVersions: [{ name: 'nodejs-build', version_count: 3, latest_version: '2.1.0', has_default: true, managed: false }],
+        getBuildSuccessRate: [{ period: '2026-W37', succeeded: 1, failed: 1, canceled: 0, success_pct: 50 }],
+        getBuildDuration: [{ plugin_name: 'nodejs-build', avg_ms: 1, max_ms: 1, builds: 2 }],
+        getBuildFailures: [{ plugin_name: 'nodejs', error_message: LEAK, occurrences: 1, last_seen: '2026-09-10' }],
+        getDoraMetrics: { environments: [{ environment: 'production', deploymentFrequency: { deployments: 1 } }] },
+        getDoraTrend: [{ period: '2026-W37', deployments: 1 }],
+        getReportEnvironments: ['production', 'staging'],
+        getPipelineBreakdown: [pipelineRow],
+        getFailureAnalysis: [{ category: 'network', label: 'Network', count: 3, sharePct: 100, teamActionable: false, change: null, topPipelines: [{ pipelineId: 'p-atlas', pipelineName: 'atlas-migration', count: 3 }] }],
+        getStagePerformance: [{ stageName: 'Build', runs: 9, failed: 3 }],
+        getResourceConsumption: { pipelines: [{ project: 'atlas', pipelineId: 'p-atlas', pipelineName: 'atlas-migration', buildSeconds: 600, runs: 9, sharePct: 100 }], totalBuildSeconds: 600 },
+        getPromotionView: [{ commitSha: 'abc123', stops: [{ environment: 'staging', deployedAt: '2026-09-10', hoursFromPrevious: null }], stuck: true, furthest: 'staging' }],
+        getOutdatedPlugins: { rows: [], behindPipelines: 0, majorBehind: 0 },
+        getPluginVulnerabilities: { rows: [], exposedPipelines: 0, criticalPipelines: 0 },
+        getAdoption: { activePipelines: 1, totalPipelines: 1 },
+        getCompliancePosture: { compliance: null, access: null, unavailable: [] },
+        getNeedsAttention: { items: [{ pipelineId: 'p-atlas', pipelineName: 'atlas-migration', severity: 'high', findings: [{ rule: 'consecutive_failures', evidence: '3 consecutive failures', severity: 'high' }] }] },
+      };
+      const source = new Proxy({}, {
+        get: (_t, method: string) => (method in fixtures
+          ? async () => fixtures[method]
+          : async () => { throw new Error(`fixture missing for ${method}`); }),
+        has: (_t, method: string) => method in fixtures,
+      });
+      const ids: string[] = sectionIds();
+      const features = [...new Set(ids.map((id) => getReportSection(id)?.requiresFeature).filter(Boolean))];
+      const snapshot = await composeSnapshot(ids, {
+        source,
+        period: { start: new Date('2026-09-07'), end: new Date('2026-09-14'), prevStart: new Date('2026-08-31'), prevEnd: new Date('2026-09-07'), label: '2026-W37' },
+        timezone: 'UTC',
+        weekStart: 'monday',
+        orgId: 'acme',
+        features,
+      });
+      expect(snapshot.sections.map((s: any) => [s.id, s.state])).toEqual(ids.map((id) => [id, 'ok']));
+      // Proves the fixture really carried the text into the snapshot before redaction.
+      expect(JSON.stringify(snapshot)).toContain('atlas-vault');
+
+      const redacted = redactNames(snapshot) as any;
+      const text = JSON.stringify(redacted);
+      expect(text).not.toContain('atlas-vault');
+      expect(text).not.toContain('ENOTFOUND');
+      expect(text).not.toContain('atlas-migration');
+      // Stage and action names, and the numbers, are what the reader came for.
+      expect(text).toContain('"stage_name":"Build"');
+      expect(text).toContain('"action_name":"UnitTests"');
+      // Each pseudonym is the RIGHT KIND: pipelines and projects read "Pipeline N", the
+      // organization "Organization N", and environment and plugin names stay readable.
+      const section = (id: string) => redacted.sections.find((x: any) => x.id === id);
+      const execRow = section('execution_count').current[0];
+      expect(execRow.pipeline_name).toMatch(/^Pipeline \d+$/);
+      expect(execRow.project).toMatch(/^Pipeline \d+$/);
+      expect(execRow.organization).toMatch(/^Organization \d+$/);
+      expect(text).not.toContain('"acme"');
+      // An opaque id is left as it is: it names nothing, and rows join on it.
+      expect(execRow.id).toBe('p-atlas');
+      expect(section('pipeline_breakdown').current[0].pipelineName).toMatch(/^Pipeline \d+$/);
+      expect(section('environments').current).toEqual(['production', 'staging']);
+      expect(section('dora').current.environments[0].environment).toBe('production');
+      expect(section('plugin_versions').current[0].name).toBe('nodejs-build');
+      expect(section('build_failures').current[0].plugin_name).toBe('nodejs');
+      expect(section('plugin_distribution').current[0].plugin_type).toBe('nodejs');
+      expect(text).not.toMatch(/"(environment|name|plugin_name|plugin_type)":"Pipeline \d+"/);
+
+      const errors = redacted.sections.find((s: any) => s.id === 'errors');
+      expect(errors.current[0]).toMatchObject({ error_pattern: REDACTED_ERROR, occurrences: 3 });
+      expect(errors.headline).toEqual(snapshot.sections.find((s: any) => s.id === 'errors').headline);
     });
   });
 
@@ -333,6 +491,19 @@ describe('public report routes', () => {
       expect(body).not.toContain('atlas-migration');
       expect(payload().report.namesRedacted).toBe(true);
       expect(payload().report.snapshot.sections[0].current[0].total).toBe(12);
+    });
+
+    it('hides error text on a redacted link, and shows it on an unredacted one', async () => {
+      const errorRun = () => run({ snapshot: { sections: [{ id: 'errors', current: [{ error_pattern: 'git clone git@github.com:acme/atlas-secret.git failed', occurrences: 2 }] }] } });
+      store.resolveShareLink.mockResolvedValue({ link: link({ redactNames: true }), run: errorRun() });
+      await call('/reports/:token', 'get', { params: { token: TOKEN } });
+      expect(JSON.stringify(payload())).not.toContain('atlas-secret');
+      expect(payload().report.snapshot.sections[0].current[0]).toEqual({ error_pattern: REDACTED_ERROR, occurrences: 2 });
+
+      jest.clearAllMocks();
+      store.resolveShareLink.mockResolvedValue({ link: link({ redactNames: false }), run: errorRun() });
+      await call('/reports/:token', 'get', { params: { token: TOKEN } });
+      expect(JSON.stringify(payload())).toContain('atlas-secret');
     });
 
     /**
@@ -495,6 +666,16 @@ describe('public report routes', () => {
       // The internal project name is in the snapshot fixture; the file must not have it.
       expect(html).not.toContain('atlas-migration');
       expect(html).toMatch(/names have been replaced/i);
+    });
+
+    it('hides error text in the FILE of a redacted link too', async () => {
+      store.resolveShareLink.mockResolvedValue({
+        link: link({ redactNames: true }),
+        run: run({ snapshot: { sections: [{ id: 'build_failures', title: 'Plugin build failures', state: 'ok', current: [{ plugin_name: 'nodejs', error_message: 'npm ERR! 404 @acme/secret-sdk', occurrences: 1 }] }] } }),
+      });
+      await pdf();
+      expect(JSON.stringify(renderedWith[0]?.snapshot)).not.toContain('secret-sdk');
+      expect((mockRenderPdf.mock.calls[0]?.[0] as string)).not.toContain('secret-sdk');
     });
 
     it('does NOT carry the executive summary, which the shared page withholds', async () => {

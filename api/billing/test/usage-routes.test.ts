@@ -59,6 +59,13 @@ jest.unstable_mockModule('../src/models/plan.js', () => ({
   Plan: { findById: (...a: unknown[]) => mockPlanFindById(...(a as [])) },
 }));
 
+// The subscription lives on the ACCOUNT root; a team caller's org id must be
+// resolved to it first. Identity by default (a root caller).
+const mockResolveRoot = jest.fn(async (orgId: string) => orgId);
+jest.unstable_mockModule('../src/helpers/root-org-guard.js', () => ({
+  resolveAccountRootOrgId: (orgId: string) => mockResolveRoot(orgId),
+}));
+
 const { createUsageRoutes } = await import('../src/routes/usage.js');
 
 const ROLLUP = { period: {}, subscription: null, usage: { plugins: {} }, cost: { subscriptionCents: 0, currency: 'USD' } };
@@ -91,6 +98,7 @@ beforeEach(() => {
   mockBuildUsageRollupFor.mockResolvedValue(ROLLUP);
   mockSubscriptionLean.mockResolvedValue(activeSub);
   mockPlanLean.mockResolvedValue(planDoc);
+  mockResolveRoot.mockImplementation(async (orgId: string) => orgId);
 });
 
 describe('GET /usage — authorization', () => {
@@ -200,6 +208,36 @@ describe('GET /usage — rollup wiring', () => {
     );
 
     expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockBuildUsageRollupFor).not.toHaveBeenCalled();
+  });
+
+  // A team member acts with the TEAM's org id, but the subscription lives on the
+  // account root only — reading it by the team id found nothing and showed $0.
+  it('a team caller gets the ROOT org\'s subscription and costs', async () => {
+    mockResolveRoot.mockImplementation(async (orgId: string) => (orgId === 'team-1' ? 'root-1' : orgId));
+    mockSubscriptionFindOne.mockImplementationOnce((...args: unknown[]) => ({
+      lean: async () => ((args[0] as { orgId: string }).orgId === 'root-1' ? activeSub : null),
+    }));
+    const res = mockRes();
+    await handler({ headers: { authorization: 'Bearer user-tok' }, orgId: 'team-1' }, res);
+
+    expect(mockResolveRoot).toHaveBeenCalledWith('team-1');
+    expect(mockSubscriptionFindOne).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'root-1' }));
+    const [usageOrg, , subArg, planArg] = mockBuildUsageRollupFor.mock.calls[0];
+    // Usage stays the caller's own org; the subscription/plan (cost) is the root's.
+    expect(usageOrg).toBe('team-1');
+    expect(subArg).toMatchObject({ planId: 'plan-pro' });
+    expect(planArg).toMatchObject({ prices: { monthly: 4900, annual: 49000 } });
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('fails CLOSED with 503 when the account root cannot be resolved', async () => {
+    mockResolveRoot.mockRejectedValue(new Error('platform down'));
+    const res = mockRes();
+    await handler({ headers: { authorization: 'Bearer user-tok' }, orgId: 'team-1' }, res);
+
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(mockSubscriptionFindOne).not.toHaveBeenCalled();
     expect(mockBuildUsageRollupFor).not.toHaveBeenCalled();
   });
 });

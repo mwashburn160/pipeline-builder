@@ -382,7 +382,7 @@ and `link`, and the whole surface needs the `stakeholder_reports` feature.
 | `report create` | Save a new scheduled report. The **creator owns it** — a scheduled run is authorized as the owner, so the API refuses an `ownerId` here. Timezone and week start fall back to the org's report defaults. |
 | `report run` | Compose one period into a frozen snapshot. `--period 2026-W38` (or `2026-08`, `2026-Q3`); omit it for the last complete period. `--regenerate` produces version N+1 rather than returning the existing snapshot unchanged. |
 | `report publish` | Publish a composed run (`--run <id>`). Idempotent: two publishes send one report, so a retried script is safe. |
-| `report link` | Mint an expiring read-only link (`--run <id>`, `--expires-days`, `--redact-names`). **Shown once** — only a hash is stored, so a lost link is replaced, not recovered. |
+| `report link` | Mint an expiring read-only link (`--run <id>`, `--expires-days`, `--redact-names`, which hides project/pipeline names and error text but keeps stage and action names and the numbers). **Shown once** — only a hash is stored, so a lost link is replaced, not recovered. |
 | `report pdf` | Download a run as a PDF (`--run <id>`, `--out <file>`). Defaults to the file name the server chose, which carries the report title and the revision. Exits non-zero if the instance has no PDF renderer, so a scripted board pack cannot carry on believing it has a file. |
 | `report transfer` | Hand a report to a new owner (`--id`, `--owner`). Future runs compute with **their** access, which can change what the report contains. |
 

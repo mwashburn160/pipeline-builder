@@ -244,6 +244,11 @@ describe('the footer states what a reader would otherwise have to guess', () => 
       .toMatch(/names have been replaced/i);
   });
 
+  it('says error messages were hidden too, when names were redacted', () => {
+    expect(renderReportHtml(input({ namesRedacted: true })))
+      .toMatch(/error messages have been hidden/i);
+  });
+
   it('says nothing about redaction when nothing was redacted', () => {
     expect(renderReportHtml(input())).not.toMatch(/names have been replaced/i);
   });

@@ -252,7 +252,7 @@ export function renderReportHtml(input: ReportHtmlInput): string {
 
   const footerLines: string[] = [];
   if (input.namesRedacted) {
-    footerLines.push('Project and pipeline names have been replaced in this copy.');
+    footerLines.push('Project and pipeline names have been replaced, and error messages have been hidden, in this copy.');
   }
   if (snapshot?.methodology) footerLines.push(snapshot.methodology);
   if (snapshot?.generatedAt) {

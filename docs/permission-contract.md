@@ -469,6 +469,7 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | platform | GET | `/internal/ops/live-org-ids` | `service-principal + internal(ops-center)` |
 | platform | GET | `/internal/reporting/recipient-check/:orgId` | `service-principal + internal(reporting)` |
 | platform | GET | `/internal/reporting/report-authority/:orgId/:userId` | `service-principal + internal(reporting)` |
+| platform | GET | `/internal/reporting/report-readers/:orgId` | `service-principal + internal(reporting)` |
 | platform | GET | `/internal/support/entitlement/:orgId` | `service-principal + internal(message)` |
 | platform | GET | `/internal/notify-email/status` | `service-principal + internal(ask-agent,ops-center,plugin,reporting)` |
 | platform | GET | `/invitation` | `any(invitations:manage)` |

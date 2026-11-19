@@ -6,8 +6,10 @@
  *
  * FOUR CHANNELS, and only one of them is new plumbing:
  *
- *  - IN-APP, through the message service's system-notification route. Always sent,
- *    and the only channel guaranteed to work on an install with no mail.
+ *  - IN-APP, through the message service's system-notification route: one targeted
+ *    notice per member of the definition's org who holds `reports:read` (platform's
+ *    `report-readers`), never an org-wide notice. The only channel guaranteed to work
+ *    on an install with no mail. Fails closed: no reader list, no notice.
  *  - EMAIL, through platform's relay (it holds the SMTP credentials). One message per
  *    address, each with its own unsubscribe link — see platform's `notifyReport` for
  *    why a shared `to:` header would be both a disclosure and an unsubscribe bug.
@@ -54,6 +56,7 @@ import {
   type ReportRecipient,
   type ReportRun,
 } from '@pipeline-builder/pipeline-data';
+import { reportIdentity } from './report-identity.js';
 import { publicBaseUrl as baseUrl, REPORTING_HTTP_TIMEOUT_MS } from '../helpers/report-helpers.js';
 
 const logger = createLogger('report-delivery');
@@ -76,7 +79,7 @@ export interface DeliveryOutcome {
   attempts: number;
   /** When the latest attempt started (ISO). */
   attemptedAt: string;
-  /** In-app notifications persisted (0 or 1 — one org notice per run). */
+  /** 1 once at least one in-app notice to a `reports:read` member was persisted, else 0. */
   inApp: number;
   /** `sent` counts every address that has the email, across attempts; `failed`
    *  and `skipped` describe the LATEST attempt. */
@@ -226,19 +229,12 @@ export async function deliverPublishedRun(
   const headline = headlineOf(run);
   const subject = `${definition.name} — ${run.periodLabel}`;
 
-  // 1. In-app, first and unconditionally. It is the channel that cannot be
-  // misconfigured, so a report is never delivered nowhere. Once per run.
+  // 1. In-app, first. Once per run, and ONLY to the members of the definition's org
+  // who could open the report in the product (`reports:read`) — for a rollup that is
+  // the parent org, which owns the definition. An org-wide notice would announce the
+  // report to members who cannot read it.
   if (outcome.inApp === 0) {
-    if (await sendSystemNotification({
-      recipientOrgId: definition.orgId,
-      subject,
-      content: emailBody(definition, run, headline),
-      priority: 'normal',
-    })) {
-      outcome.inApp = 1;
-    } else {
-      outcome.notes.push('The in-app notification could not be posted.');
-    }
+    await sendInAppNotices(definition, run, subject, emailBody(definition, run, headline), outcome);
   }
 
   // 2. Email, to verified recipients only — and on a redelivery, only those who
@@ -303,6 +299,63 @@ export async function deliverPublishedRun(
   if (deliveryIncomplete(outcome)) outcome.state = 'failed';
   emitCounter('report_delivered_total', { cadence: definition.cadence });
   return outcome;
+}
+
+/** How many in-app notices are posted at once. */
+const IN_APP_CONCURRENCY = 10;
+
+/**
+ * Step 1: one targeted in-app notice per `reports:read` member of the definition's org.
+ *
+ * FAIL CLOSED. When platform cannot say who the readers are, nothing is sent — the
+ * fallback of an org-wide notice is exactly the over-sharing this exists to stop — and
+ * the run says so (`inApp` stays 0, so the delivery reads as incomplete and a
+ * redelivery tries again). `inApp` stays 0/1 on the wire: 1 once any notice landed.
+ */
+async function sendInAppNotices(
+  definition: ReportDefinition,
+  run: ReportRun,
+  subject: string,
+  content: string,
+  outcome: DeliveryOutcome,
+): Promise<void> {
+  const log = { orgId: definition.orgId, definitionId: definition.id, runId: run.id };
+  const readers = await reportIdentity().readers(definition.orgId);
+  if (!readers) {
+    logger.warn('Report readers could not be looked up; no in-app notice sent', log);
+    outcome.notes.push('The in-app notification was not sent: the members who may read this report could not be looked up. Redeliver to try again.');
+    return;
+  }
+  if (readers.userIds.length === 0) {
+    logger.warn('No report readers in the org; no in-app notice sent', log);
+    outcome.notes.push('The in-app notification was not sent: no member of this organization holds reports:read.');
+    return;
+  }
+  if (readers.truncated) {
+    logger.warn('Report readers truncated; notifying the first page only', { ...log, notified: readers.userIds.length });
+    outcome.notes.push(`More members can read this report than one notification batch reaches; the first ${readers.userIds.length} were notified in-app.`);
+  }
+
+  let sent = 0;
+  for (let i = 0; i < readers.userIds.length; i += IN_APP_CONCURRENCY) {
+    const batch = readers.userIds.slice(i, i + IN_APP_CONCURRENCY);
+    const results = await Promise.all(batch.map((recipientUserId) => sendSystemNotification({
+      recipientOrgId: definition.orgId,
+      recipientUserId,
+      subject,
+      content,
+      priority: 'normal',
+    })));
+    sent += results.filter(Boolean).length;
+  }
+  const total = readers.userIds.length;
+  if (sent > 0) outcome.inApp = 1;
+  if (sent === 0) {
+    outcome.notes.push('The in-app notification could not be posted.');
+  } else if (sent < total) {
+    outcome.notes.push(`The in-app notification reached ${sent} of ${total} members who may read this report.`);
+    logger.warn('Some in-app report notices were not posted', { ...log, sent, total });
+  }
 }
 
 /** How long a `delivering` record blocks a redelivery: past this, the attempt is

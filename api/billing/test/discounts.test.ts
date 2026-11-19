@@ -196,9 +196,12 @@ jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
 // tests (no combo addons) are unaffected; a dedicated test overrides it.
 const mockActiveComboCredits = jest.fn<(...a: unknown[]) => unknown[]>().mockReturnValue([]);
 const mockVolumeCredits = jest.fn<(...a: unknown[]) => unknown[]>().mockReturnValue([]);
+// Mirrors the real discountBaseCents: plan price unless a bundle scope is set
+// (0 = no scoped bundle held). A test overrides it to model a held scoped subtotal.
+const defaultDiscountBase = (d: { appliesToBundles?: readonly string[] }, planCents: number) => (d.appliesToBundles?.length ? 0 : planCents);
+const mockDiscountBaseCents = jest.fn(defaultDiscountBase);
 jest.unstable_mockModule('../src/helpers/combo-pricing.js', () => ({
-  // Mirrors the real discountBaseCents: plan price unless a bundle scope is set.
-  discountBaseCents: (d: { appliesToBundles?: readonly string[] }, planCents: number) => (d.appliesToBundles?.length ? 0 : planCents),
+  discountBaseCents: mockDiscountBaseCents,
   getComboDiscounts: () => [],
   activeComboCredits: mockActiveComboCredits,
   priceForInterval: (prices: { monthly: number; annual: number }, interval: string) => (interval === 'annual' ? prices.annual : prices.monthly),
@@ -258,6 +261,7 @@ beforeEach(() => {
   // clearAllMocks resets call history but NOT implementations — re-pin the combo
   // default so a test that overrode it can't leak its return into the next.
   mockActiveComboCredits.mockReturnValue([]);
+  mockDiscountBaseCents.mockImplementation(defaultDiscountBase);
   discountStore.clear();
   campaignStore.clear();
   subDoc = freshSub();
@@ -862,6 +866,36 @@ describe('grantPeriodicCredits (shared re-grant, calendar period key)', () => {
       mockConfig.discounts.floorPercent = 0;
       mockActiveComboCredits.mockReturnValue([]);
     }
+  });
+
+  // A bundle-scoped DOLLAR discount is capped at the period's scoped subtotal,
+  // like a scoped percent one already is. Without the cap, removing the scoped
+  // bundle left the full dollar amount re-granting every period against an
+  // add-on the account no longer holds.
+  it('grants 0 for a scoped dollar discount whose bundle was removed', async () => {
+    await mockDiscountCreate({ _id: 'dScopedGone', value: 5000, unit: 'dollar', kind: 'recurring', isActive: true, appliesToBundles: ['support_premium'] });
+    const s = sub({ externalCustomerId: 'cus_x', addons: [], recurringDiscount: { discountId: 'dScopedGone', unit: 'dollar', value: 5000, appliesToBundles: ['support_premium'] } });
+    await grantPeriodicCredits(s as any, '2026-10');
+    expect(s.creditLedger.filter((c: any) => c.discountId === 'dScopedGone')).toHaveLength(0);
+    expect(s.creditBalanceCents).toBe(0);
+    expect(mockApplyUsageCredit).not.toHaveBeenCalled();
+  });
+
+  it('caps a scoped dollar discount at a smaller scoped subtotal', async () => {
+    // One Standard Support contact held at $19.99 against a $50 scoped credit.
+    mockDiscountBaseCents.mockImplementation((d: { appliesToBundles?: readonly string[] }, planCents: number) => (d.appliesToBundles?.length ? 1999 : planCents));
+    await mockDiscountCreate({ _id: 'dScopedSmall', value: 5000, unit: 'dollar', kind: 'recurring', isActive: true, appliesToBundles: ['support_standard'] });
+    const s = sub({ externalCustomerId: 'cus_x', addons: [{ bundleId: 'support_standard', quantity: 1 }], recurringDiscount: { discountId: 'dScopedSmall', unit: 'dollar', value: 5000, appliesToBundles: ['support_standard'] } });
+    await grantPeriodicCredits(s as any, '2026-10');
+    expect(s.creditLedger.find((c: any) => c.discountId === 'dScopedSmall')?.cents).toBe(1999);
+    expect(s.creditBalanceCents).toBe(1999);
+  });
+
+  it('leaves an UNSCOPED dollar discount at its full amount', async () => {
+    await mockDiscountCreate({ _id: 'dFlat', value: 1500, unit: 'dollar', kind: 'recurring', isActive: true });
+    const s = sub({ externalCustomerId: 'cus_x', recurringDiscount: { discountId: 'dFlat', unit: 'dollar', value: 1500 } });
+    await grantPeriodicCredits(s as any, '2026-10');
+    expect(s.creditBalanceCents).toBe(1500);
   });
 
   it('re-grants active combo credits keyed by the calendar period', async () => {

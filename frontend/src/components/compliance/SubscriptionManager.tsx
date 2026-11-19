@@ -24,6 +24,7 @@ import { SeverityBadge } from './SeverityBadge';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { StatusPill } from '@/components/ui/StatusPill';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { READ_ONLY_REASON } from '@/components/ui/ReadOnlyNotice';
 
 interface SubscriptionWithRule extends ComplianceRuleSubscription {
   rule: ComplianceRule | null;
@@ -35,13 +36,12 @@ interface SubscriptionWithRule extends ComplianceRuleSubscription {
  * on the matching `compliance_<name>` feature, so the catalog must show a locked
  * upsell (deep-linking to billing) instead of a Subscribe button when the org
  * doesn't hold the entitlement — otherwise the user hits a 403 round-trip.
- */
-/**
- * A rule's set tag → the feature it is sold under, by the server's own rule
- * (`complianceSetFlagForTags`: highest entitlement wins). This kept a private
- * map that took the FIRST `set:` tag instead, so a rule tagged both `standard`
- * and `advanced` showed as Standard — a Subscribe button the server then
- * refused for an org without Advanced.
+ *
+ * The set → feature mapping is the server's own rule (`complianceSetFlagForTags`:
+ * highest entitlement wins). This kept a private map that took the FIRST `set:`
+ * tag instead, so a rule tagged both `standard` and `advanced` showed as
+ * Standard — a Subscribe button the server then refused for an org without
+ * Advanced.
  */
 function ruleSetMeta(tags: string[] | undefined): { feature: ComplianceSetFlag; label: string } | null {
   const feature = complianceSetFlagForTags(tags);
@@ -55,11 +55,17 @@ const COMPLIANCE_SET_LABELS: Record<ComplianceSetFlag, string> = {
 };
 
 interface SubscriptionManagerProps {
-  /** No `compliance:write` (or a read-only session): hides the posture-weakening controls. */
+  /**
+   * No `compliance:write` (or a read-only session): hides the posture-WEAKENING
+   * and authoring controls — Deactivate (single and bulk), Pin/Unpin, Clone and
+   * Unsubscribe. The opt-in verbs the server allows on `compliance:read` —
+   * Subscribe and Activate (single and bulk) — stay live.
+   */
   readOnly?: boolean;
   /**
    * A read-only (impersonation) session. api-core refuses every write it sends,
-   * including the `compliance:read` opt-in Subscribe that `readOnly` leaves live.
+   * including the `compliance:read` opt-in Subscribe/Activate that `readOnly`
+   * leaves live, so every write control is disabled (or absent) here.
    */
   sessionReadOnly?: boolean;
 }
@@ -74,6 +80,11 @@ const SUB_TAB_IDS: readonly SubTab[] = SUB_TABS.map((t) => t.id);
 
 export default function SubscriptionManager({ readOnly = false, sessionReadOnly = false }: SubscriptionManagerProps) {
   const toast = useToast();
+  // Two gates, mirroring the server (api/compliance routes/subscriptions.ts):
+  // opt-in (Activate) is `compliance:read`, posture-weakening (Deactivate, Pin,
+  // Clone, Unsubscribe) is `compliance:write`. A read-only session refuses both.
+  const canWrite = !readOnly && !sessionReadOnly;
+  const canSelect = !sessionReadOnly;
   // One gate per paid content set (hooks can't run per catalog row). The gate
   // carries the superadmin bypass, so an operator never sees a set as locked.
   const setGates: Record<ComplianceSetFlag, FeatureGateState> = {
@@ -275,11 +286,13 @@ export default function SubscriptionManager({ readOnly = false, sessionReadOnly 
         <ErrorAlert message={loadError} onRetry={() => { void (tab === 'subscriptions' ? fetchSubscriptions() : fetchCatalog()); }} />
       ) : tab === 'subscriptions' && (
         <>
-          {!readOnly && selectedIds.size > 0 && (
+          {canSelect && selectedIds.size > 0 && (
             <div className="flex items-center gap-2 p-2 bg-info-bg rounded-lg">
               <span className="text-sm text-info-strong">{selectedIds.size} selected</span>
               <Button variant="success" size="xs" onClick={() => handleBulkToggle(true)}>Activate all</Button>
-              <Button variant="secondary" size="xs" onClick={() => handleBulkToggle(false)}>Deactivate all</Button>
+              {canWrite && (
+                <Button variant="secondary" size="xs" onClick={() => handleBulkToggle(false)}>Deactivate all</Button>
+              )}
             </div>
           )}
           {subscriptions.length === 0 ? (
@@ -295,7 +308,7 @@ export default function SubscriptionManager({ readOnly = false, sessionReadOnly 
                 <div key={sub.id} className="rounded-lg border border-default bg-surface">
                   <div className="flex items-center justify-between p-3">
                     <div className="flex items-center gap-3">
-                      {!readOnly && (
+                      {canSelect && (
                         <Checkbox
                           checked={selectedIds.has(sub.ruleId)}
                           onChange={() => toggleSelect(sub.ruleId)}
@@ -319,16 +332,21 @@ export default function SubscriptionManager({ readOnly = false, sessionReadOnly 
                       <IconButton restTone={previewId === sub.ruleId ? 'indigo' : undefined} tone="indigo" onClick={() => handlePreview(sub.ruleId)} title="Preview impact" aria-label="Preview impact">
                         <Eye className="h-4 w-4" />
                       </IconButton>
-                      {!readOnly && (
+                      {/* Activate is opt-in (`compliance:read`); Deactivate needs write.
+                          A read-only session renders the toggle disabled. */}
+                      {(!sub.isActive || !readOnly) && (
+                        <IconButton
+                          restTone={sub.isActive ? 'success' : 'default'}
+                          onClick={() => handleToggle(sub.ruleId, !sub.isActive)}
+                          disabled={sessionReadOnly}
+                          title={sessionReadOnly ? READ_ONLY_REASON : sub.isActive ? 'Deactivate' : 'Activate'}
+                          aria-label={sub.isActive ? 'Deactivate' : 'Activate'}
+                        >
+                          {sub.isActive ? <ToggleRight className="h-5 w-5" /> : <ToggleLeft className="h-5 w-5" />}
+                        </IconButton>
+                      )}
+                      {canWrite && (
                         <>
-                          <IconButton
-                            restTone={sub.isActive ? 'success' : 'default'}
-                            onClick={() => handleToggle(sub.ruleId, !sub.isActive)}
-                            title={sub.isActive ? 'Deactivate' : 'Activate'}
-                            aria-label={sub.isActive ? 'Deactivate' : 'Activate'}
-                          >
-                            {sub.isActive ? <ToggleRight className="h-5 w-5" /> : <ToggleLeft className="h-5 w-5" />}
-                          </IconButton>
                           <IconButton tone="primary" onClick={() => handleClone(sub.ruleId)} title="Clone as an org-owned rule (one-shot copy, no upstream sync)" aria-label="Clone to org rule">
                             <Copy className="h-4 w-4" />
                           </IconButton>

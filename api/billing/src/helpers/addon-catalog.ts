@@ -259,7 +259,7 @@ export function priceBreakdown(
   // Volume-discount lines (e.g. per-seat tiers) — negative, like combo credits. The
   // pack line above stays full unit×qty; this line shows the discount so the net
   // `totalCents` is what the customer effectively pays (realized as a usage credit).
-  for (const v of volumeCredits(addons, bundles, interval)) {
+  for (const v of volumeCredits(addons, bundles, interval, getComboDiscounts())) {
     items.push({ label: `${v.name} volume discount`, quantity: 1, cents: -v.creditCents });
   }
   for (const combo of activeComboCredits(addons, bundles, getComboDiscounts(), interval)) {
@@ -274,7 +274,7 @@ export function priceBreakdown(
   // simply gets no floor line, which is the right default for a breakdown that
   // has no account context to compute one from.
   if (tier) {
-    const floor = supportFloorLine(tier, addons, bundles, interval, undefined, floorOverride);
+    const floor = supportFloorLine(tier, addons, bundles, interval, undefined, floorOverride, getComboDiscounts());
     if (floor) items.push({ label: floor.label, quantity: 1, cents: floor.cents });
   }
   return { interval, items, totalCents: items.reduce((s, i) => s + i.cents, 0) };

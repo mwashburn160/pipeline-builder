@@ -48,6 +48,10 @@ const SAMPLES: Record<keyof typeof PLATFORM_INTERNAL, ContractSample> = {
     params: { orgId: ORG, userId: 'user_1' },
     response: { active: true, permissions: ['reports:read'], features: ['stakeholder_reports'], tier: 'pro' },
   },
+  reportReaders: {
+    params: { orgId: ORG },
+    response: { userIds: ['user_1', 'user_2'], truncated: false },
+  },
   reportRecipientCheck: {
     params: { orgId: ORG },
     query: { email: 'lead@example.com' },

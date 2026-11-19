@@ -2111,6 +2111,25 @@
   },
   {
     "method": "GET",
+    "path": "/internal/reporting/report-readers/:orgId",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "dynamicAuthz": [],
+    "internalCallers": [
+      "reporting"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "GET",
     "path": "/internal/support/entitlement/:orgId",
     "auth": true,
     "permissions": [],

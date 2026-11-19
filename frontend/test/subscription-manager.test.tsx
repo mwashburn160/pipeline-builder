@@ -58,6 +58,8 @@ const subscribeToRule = jest.fn<AnyFn>();
 const unsubscribeFromRule = jest.fn<AnyFn>();
 const previewSubscription = jest.fn<AnyFn>();
 const previewRuleImpact = jest.fn<AnyFn>();
+const setSubscriptionActive = jest.fn<AnyFn>();
+const bulkSetSubscriptionActive = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
@@ -67,6 +69,8 @@ jest.mock('@/lib/api', () => ({
     subscribeToRule: (...a: unknown[]) => subscribeToRule(...a),
     previewSubscription: (...a: unknown[]) => previewSubscription(...a),
     previewRuleImpact: (...a: unknown[]) => previewRuleImpact(...a),
+    setSubscriptionActive: (...a: unknown[]) => setSubscriptionActive(...a),
+    bulkSetSubscriptionActive: (...a: unknown[]) => bulkSetSubscriptionActive(...a),
   },
 }));
 
@@ -279,5 +283,81 @@ describe('SubscriptionManager load failure', () => {
     render(<SubscriptionManager />);
     expect(await screen.findByRole('alert')).toBeInTheDocument();
     expect(screen.queryByText('No published rules available.')).not.toBeInTheDocument();
+  });
+});
+
+describe('SubscriptionManager activate vs deactivate gating', () => {
+  // The server splits the toggle: ACTIVATING (PATCH /:ruleId isActive:true,
+  // POST /bulk activate) is member-level `compliance:read` opt-in; only
+  // DEACTIVATING weakens posture and needs `compliance:write`. The UI used to
+  // hide both behind `readOnly`, so a read member could never opt a rule in.
+  const sub = (ruleId: string, name: string, isActive: boolean) => ({
+    id: `s-${ruleId}`, orgId: 'org-1', ruleId, isActive, subscribedAt: '2026-01-01', subscribedBy: 'me',
+    rule: { id: ruleId, orgId: 'system', name, severity: 'warning', target: 'plugin', priority: 0,
+      tags: [], scope: 'published', suppressNotification: false, isActive: true, createdAt: '2026-01-01', updatedAt: '2026-01-01', createdBy: 'sys' },
+  });
+
+  beforeEach(() => {
+    getComplianceSubscriptions.mockResolvedValue({
+      success: true,
+      data: {
+        subscriptions: [sub('rule-off', 'Inactive rule', false), sub('rule-on', 'Active rule', true)],
+        pagination: { total: 2, limit: 10, offset: 0, hasMore: false },
+      },
+    });
+    setSubscriptionActive.mockResolvedValue({ success: true });
+    bulkSetSubscriptionActive.mockResolvedValue({ success: true });
+  });
+
+  it('a compliance:read member sees an enabled Activate and no Deactivate', async () => {
+    render(<SubscriptionManager readOnly />);
+    const activate = await screen.findByRole('button', { name: 'Activate' });
+    expect(activate).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Deactivate' })).not.toBeInTheDocument();
+    // Pin / Clone / Unsubscribe still need write.
+    expect(screen.queryByRole('button', { name: 'Unsubscribe' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Clone to org rule' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /pin to current version/i })).not.toBeInTheDocument();
+    fireEvent.click(activate);
+    await waitFor(() => expect(setSubscriptionActive).toHaveBeenCalledWith('rule-off', true));
+  });
+
+  it('a compliance:read member can bulk Activate but not bulk Deactivate', async () => {
+    render(<SubscriptionManager readOnly />);
+    await screen.findByText('Inactive rule');
+    fireEvent.click(screen.getAllByRole('checkbox')[0]);
+    fireEvent.click(await screen.findByRole('button', { name: /^activate all$/i }));
+    await waitFor(() => expect(bulkSetSubscriptionActive).toHaveBeenCalledWith(['rule-off'], true));
+    fireEvent.click(screen.getAllByRole('checkbox')[0]);
+    expect(screen.queryByRole('button', { name: /^deactivate all$/i })).not.toBeInTheDocument();
+  });
+
+  it('a compliance:write member sees both Activate and Deactivate (and bulk both)', async () => {
+    render(<SubscriptionManager />);
+    expect(await screen.findByRole('button', { name: 'Activate' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Deactivate' })).toBeEnabled();
+    fireEvent.click(screen.getAllByRole('checkbox')[0]);
+    expect(screen.getByRole('button', { name: /^activate all$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^deactivate all$/i })).toBeInTheDocument();
+  });
+
+  it('a read-only session disables both Activate and Deactivate', async () => {
+    render(<SubscriptionManager sessionReadOnly />);
+    const activate = await screen.findByRole('button', { name: 'Activate' });
+    const deactivate = screen.getByRole('button', { name: 'Deactivate' });
+    expect(activate).toBeDisabled();
+    expect(deactivate).toBeDisabled();
+    fireEvent.click(activate);
+    fireEvent.click(deactivate);
+    expect(setSubscriptionActive).not.toHaveBeenCalled();
+    // No bulk selection either — every bulk verb is a write.
+    expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
+  });
+
+  it('a read-only session without write disables Activate and offers no Deactivate', async () => {
+    // What ComplianceDashboard actually passes in a session: canManage is false there too.
+    render(<SubscriptionManager readOnly sessionReadOnly />);
+    expect(await screen.findByRole('button', { name: 'Activate' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Deactivate' })).not.toBeInTheDocument();
   });
 });

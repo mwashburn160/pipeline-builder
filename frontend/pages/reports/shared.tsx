@@ -162,7 +162,7 @@ function ReadOnlyReport({ report, expiresAt, token }: {
       {report.namesRedacted && (
         <p className="text-xs text-fg-muted" data-testid="shared-report-redacted">
           <Lock className="mr-1 inline h-3 w-3" aria-hidden="true" />
-          Project and pipeline names have been replaced in this view.
+          Project and pipeline names have been replaced, and error messages hidden, in this view.
         </p>
       )}
 

@@ -68,7 +68,7 @@ function deepestCatalogStack(
   }
   const comboCents = activeComboCredits(addons, bundles, combos, interval)
     .reduce((n, c) => n + c.creditCents, 0);
-  const volumeCents = volumeCredits(addons, bundles, interval)
+  const volumeCents = volumeCredits(addons, bundles, interval, combos)
     .reduce((n, c) => n + c.creditCents, 0);
   const pct = listCents > 0 ? ((comboCents + volumeCents) * 100) / listCents : 0;
   return {

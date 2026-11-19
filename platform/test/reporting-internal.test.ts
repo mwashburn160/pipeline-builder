@@ -29,6 +29,7 @@ const USER = 'user-lead';
 
 const mockUserFindById = jest.fn<(...a: unknown[]) => unknown>();
 const mockUserFindOne = jest.fn<(...a: unknown[]) => unknown>();
+const mockUserFind = jest.fn<(...a: unknown[]) => unknown>();
 const mockMemberFindOne = jest.fn<(...a: unknown[]) => unknown>();
 const mockMembership = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockMemberFind = jest.fn<(...a: unknown[]) => unknown>();
@@ -40,6 +41,7 @@ const mockPatCount = jest.fn<(...a: unknown[]) => unknown>();
 const mockAuditCount = jest.fn<(...a: unknown[]) => unknown>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  isServicePrincipal: (req: any) => req.user?.principalType === 'service',
   sendError: (res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg }),
   sendSuccess: (res: any, status: number, data: unknown) => res.status(status).json({ success: true, data }),
 }));
@@ -74,7 +76,7 @@ const many = (fn: (...a: unknown[]) => unknown) => {
 };
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
-  User: { findById: one(mockUserFindById), findOne: one(mockUserFindOne) },
+  User: { findById: one(mockUserFindById), findOne: one(mockUserFindOne), find: many(mockUserFind) },
   UserOrganization: { findOne: one(mockMemberFindOne), find: many(mockMemberFind) },
   UserTotp: { distinct: (...a: unknown[]) => Promise.resolve(mockTotpDistinct(...a)) },
   WebAuthnCredential: { distinct: (...a: unknown[]) => Promise.resolve(mockPasskeyDistinct(...a)) },
@@ -88,7 +90,7 @@ jest.unstable_mockModule('../src/services/session/membership-context.js', () => 
   membershipForOrg: (...a: unknown[]) => mockMembership(...a),
 }));
 
-const { getReportAuthority, getRecipientCheck, getAccessPosture } = await import('../src/controllers/reporting-internal.js');
+const { getReportAuthority, getRecipientCheck, getAccessPosture, getReportReaders, REPORT_READERS_CAP } = await import('../src/controllers/reporting-internal.js');
 
 function mockRes() {
   const res: any = {};
@@ -354,5 +356,97 @@ describe('GET /internal/reporting/access-posture/:orgId', () => {
   it('refuses a malformed org id', async () => {
     const res = await call({ from: FROM, to: TO }, 'nope');
     expect(res.status).toHaveBeenCalledWith(400);
+  });
+});
+
+/**
+ * `report-readers`: who gets the in-app notice when a report is published. Only the
+ * members who could open the report in the product (`reports:read`, resolved exactly
+ * as `report-authority` resolves it), so publishing never tells the whole org about a
+ * report most of it cannot read.
+ */
+describe('GET /internal/reporting/report-readers/:orgId', () => {
+  const svc = (orgId = ORG) => ({ principalType: 'service', sub: 'service:reporting', organizationId: orgId });
+  const call = (orgId: string = ORG, user: unknown = svc()) => {
+    const res = mockRes();
+    return (getReportReaders as any)({ params: { orgId }, query: {}, user, headers: {} }, res).then(() => res);
+  };
+  /** userId -> the permissions membershipForOrg resolves for them (undefined = no live membership). */
+  const perms = new Map<string, string[] | undefined>();
+
+  beforeEach(() => {
+    perms.clear();
+    mockMemberFind.mockImplementation(() => [...perms.keys()].map((userId) => ({ userId })));
+    mockUserFind.mockImplementation(() => [...perms.keys()].map((id) => ({ _id: id, isSuperAdmin: false })));
+    mockMembership.mockImplementation(async (userId: unknown) => {
+      const p = perms.get(String(userId));
+      return p ? { organizationId: ORG, role: 'member', tier: 'team', rolePermissions: p, featureEntitlements: [] } : undefined;
+    });
+  });
+
+  it('returns only the members holding reports:read', async () => {
+    perms.set('u-reader', ['reports:read']);
+    perms.set('u-writer', ['reports:read', 'reports:write']);
+    perms.set('u-dev', ['pipelines:write']);
+    const res = await call();
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(data(res)).toEqual({ userIds: ['u-reader', 'u-writer'], truncated: false });
+  });
+
+  it('reads ACTIVE memberships of the path org only, and resolves each through membershipForOrg', async () => {
+    perms.set('u-reader', ['reports:read']);
+    await call(ORG.toUpperCase(), svc(ORG));
+    expect(mockMemberFind).toHaveBeenCalledWith(expect.objectContaining({ isActive: true }));
+    expect(mockMembership).toHaveBeenCalledWith('u-reader', ORG);
+  });
+
+  it('leaves out a member whose membership no longer resolves (deactivated, org torn down)', async () => {
+    perms.set('u-reader', ['reports:read']);
+    perms.set('u-gone', undefined);
+    const res = await call();
+    expect(data(res).userIds).toEqual(['u-reader']);
+  });
+
+  it('leaves out a membership row whose account no longer exists', async () => {
+    perms.set('u-reader', ['reports:read']);
+    perms.set('u-deleted', ['reports:read']);
+    mockUserFind.mockImplementation(() => [{ _id: 'u-reader', isSuperAdmin: false }]);
+    const res = await call();
+    expect(data(res).userIds).toEqual(['u-reader']);
+  });
+
+  it('includes a superadmin member, as permission resolution does everywhere else', async () => {
+    perms.set('u-root', []);
+    mockUserFind.mockImplementation(() => [{ _id: 'u-root', isSuperAdmin: true }]);
+    const res = await call();
+    expect(data(res).userIds).toEqual(['u-root']);
+  });
+
+  it('caps the answer and says it was truncated', async () => {
+    for (let i = 0; i < REPORT_READERS_CAP + 3; i++) perms.set(`u-${String(i).padStart(4, '0')}`, ['reports:read']);
+    const res = await call();
+    expect(data(res).userIds).toHaveLength(REPORT_READERS_CAP);
+    expect(data(res).truncated).toBe(true);
+    expect(REPORT_READERS_CAP).toBe(500);
+  });
+
+  it('is not truncated at exactly the cap', async () => {
+    for (let i = 0; i < REPORT_READERS_CAP; i++) perms.set(`u-${String(i).padStart(4, '0')}`, ['reports:read']);
+    const res = await call();
+    expect(data(res)).toMatchObject({ truncated: false });
+    expect(data(res).userIds).toHaveLength(REPORT_READERS_CAP);
+  });
+
+  it('refuses a token scoped to another org, or a user token (403), before any read', async () => {
+    perms.set('u-reader', ['reports:read']);
+    expect((await call(ORG, svc('cccccccccccccccccccccccc'))).status).toHaveBeenCalledWith(403);
+    expect((await call(ORG, { principalType: 'user', organizationId: ORG })).status).toHaveBeenCalledWith(403);
+    expect(mockMemberFind).not.toHaveBeenCalled();
+  });
+
+  it('refuses a malformed org id (400) before any read', async () => {
+    const res = await call('not-an-org', svc('not-an-org'));
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockMemberFind).not.toHaveBeenCalled();
   });
 });

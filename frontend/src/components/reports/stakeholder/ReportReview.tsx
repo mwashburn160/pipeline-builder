@@ -185,7 +185,7 @@ function ShareLinks({ runId, published, canShare, readOnly, externalSharing }: {
             </FormField>
             <label className="flex items-center gap-2 pb-2 text-sm">
               <Checkbox checked={redact} onChange={(e) => setRedact(e.target.checked)} />
-              <span>Hide pipeline and project names</span>
+              <span>Hide pipeline and project names and error messages</span>
             </label>
             <Button size="sm" onClick={mint} loading={form.loading} readOnly={readOnly} className="mb-2">
               Create link
@@ -216,7 +216,7 @@ function ShareLinks({ runId, published, canShare, readOnly, externalSharing }: {
                     : <Badge color="green">Live</Badge>}
                 <span className="ml-2">
                   {link.viewCount} {link.viewCount === 1 ? 'view' : 'views'}
-                  {link.redactNames && ' · names hidden'}
+                  {link.redactNames && ' · names and error messages hidden'}
                   {' · expires '}{new Date(link.expiresAt).toLocaleDateString()}
                 </span>
               </span>

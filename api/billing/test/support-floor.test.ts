@@ -27,6 +27,7 @@
 import { describe, it, expect } from '@jest/globals';
 import { loadBillingConfig } from '../src/config/billing-config.js';
 import { priceBreakdown } from '../src/helpers/addon-catalog.js';
+import { activeComboCredits, priceForInterval, volumeCredits } from '../src/helpers/combo-pricing.js';
 import { supportFloor, supportFloorConfig, supportFloorLine, type SupportFloorConfig, type SupportPosition } from '../src/helpers/support-floor.js';
 
 /** The shipped defaults, stated explicitly so a reprice has to come here. */
@@ -446,5 +447,37 @@ describe('a NEGOTIATED floor replaces the ramp', () => {
     expect(line!.negotiated).toBe(true);
     expect(line!.label).toBe('Support size floor (agreed)');
     expect(line!.label).not.toMatch(/seats over/);
+  });
+});
+
+describe('the floor prices support lines exactly as volumeCredits bills them', () => {
+  // With Assured Delivery active, the combo's minimum contact gets only the
+  // basis rate (combo + volume never stack on the same units), so the support
+  // lines cost MORE than a combo-blind volume calculation says. The floor's
+  // "what support already costs" figure must be that real cost, or the top-up
+  // line stops reconciling against the contact lines above it.
+  const { bundles, comboDiscounts } = loadBillingConfig();
+  const supportCost = (addons: { bundleId: string; quantity: number }[]) => {
+    const b = bundles.find((x) => x.id === 'support_standard')!;
+    const held = addons.find((a) => a.bundleId === 'support_standard')!.quantity;
+    const credit = volumeCredits(addons, bundles, 'monthly', comboDiscounts)
+      .find((c) => c.bundleId === 'support_standard')?.creditCents ?? 0;
+    return priceForInterval(b.prices, 'monthly') * held - credit;
+  };
+
+  it.each([3, 8])('Assured Delivery + %i contacts: floor = top-up + actual support-line cost', (contacts) => {
+    const base = [{ bundleId: 'support_standard', quantity: contacts }, { bundleId: 'seat', quantity: 80 }];
+    const withCombo = [...base, { bundleId: 'compliance_standard', quantity: 1 }];
+    // Precondition: the combo really is active, and really changes the support cost.
+    expect(activeComboCredits(withCombo, bundles, comboDiscounts, 'monthly').map((c) => c.comboId)).toContain('assured_delivery');
+    expect(supportCost(withCombo)).toBeGreaterThan(supportCost(base));
+
+    // The floor itself depends on seats/contacts/level, not on the combo, so the
+    // combo-free account pins its value.
+    const plain = supportFloorLine('enterprise', base, bundles, 'monthly', CFG)!;
+    const floorCents = plain.cents + supportCost(base);
+    const combo = supportFloorLine('enterprise', withCombo, bundles, 'monthly', CFG)!;
+    expect(combo).not.toBeNull();
+    expect(combo.cents + supportCost(withCombo)).toBe(floorCents);
   });
 });

@@ -110,7 +110,7 @@ export function floorBudget(c: FloorComposition): FloorBudget | null {
   // actually credited.
   const derived =
     activeComboCredits(c.addons, c.bundles, getComboDiscounts(), c.interval).reduce((n, x) => n + x.creditCents, 0)
-    + volumeCredits(c.addons, c.bundles, c.interval).reduce((n, x) => n + x.creditCents, 0);
+    + volumeCredits(c.addons, c.bundles, c.interval, getComboDiscounts()).reduce((n, x) => n + x.creditCents, 0);
   const standingCreditCents = derived + Math.max(0, c.standingExtraCents ?? 0);
 
   const budgetCents = Math.floor((listCents * (100 - floorPercent)) / 100);

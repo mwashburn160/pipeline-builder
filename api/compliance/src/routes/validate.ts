@@ -7,6 +7,7 @@ import {
   ErrorCode,
   createLogger,
   envInt,
+  isServicePrincipal,
   isSystemAdmin,
   requirePermissionOrService,
   validateBody,
@@ -55,7 +56,8 @@ const attributesSchema = z.record(z.string(), z.unknown())
 
 /**
  * Attributes the caller cannot know yet — rules reading them are skipped (not
- * passed) and the caller evaluates them in a later check. The plugin service
+ * passed) and the caller evaluates them in a later check. SERVICE principals
+ * only: the route 400s a user token that sends it. The plugin service
  * defers the image facts (`signed`, `scanned`, `vuln*`, `runAsRoot`,
  * `packages`) at upload and re-validates with the real values after the build
  * worker has pushed, signed and scanned the image.
@@ -217,6 +219,13 @@ export function createValidateRoutes(): Router {
       const validation = validateBody(req, ValidateSchema);
       if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
       const { attributes, entityId, entityName, action, deferredFields } = validation.value;
+      // SERVICE-ONLY. Every rule reading a deferred field is skipped, not
+      // evaluated, so a user token that could send it could switch off any rule
+      // it liked. Only internal services (api/plugin's pre-/post-build checks,
+      // which re-validate the deferred image facts later) legitimately send it.
+      if (deferredFields !== undefined && !isServicePrincipal(req)) {
+        return sendBadRequest(res, 'deferredFields may only be sent by an internal service', ErrorCode.VALIDATION_ERROR);
+      }
 
       const parentOrgId = await resolveParentForValidate(req, orgId);
       const result = await validateEntity(

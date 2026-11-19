@@ -73,6 +73,21 @@ describe('ShareLinks', () => {
   });
 });
 
+describe('Share-link redaction copy', () => {
+  // Redaction hides error messages as well as names; copy that said "names" alone
+  // told the lead a redacted link still carried the raw error text.
+  it('the checkbox says names AND error messages are hidden', async () => {
+    render(review('A'));
+    expect(await screen.findByText(/hide pipeline and project names and error messages/i)).toBeInTheDocument();
+  });
+
+  it('a redacted link is badged as hiding names and error messages', async () => {
+    listReportShareLinks.mockResolvedValue({ success: true, data: { links: [{ ...link, redactNames: true }] } });
+    render(review('A'));
+    expect(await screen.findByText(/names and error messages hidden/i)).toBeInTheDocument();
+  });
+});
+
 describe('Publish with an unsaved summary', () => {
   // Publishing sends the STORED summary — the publish route takes no body — so
   // an edit still in the box must be saved first, or recipients get the old one.

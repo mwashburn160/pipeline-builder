@@ -669,7 +669,12 @@ export async function grantPeriodicCredits(subscription: SubscriptionDocument, p
           rd, intervalPrice,
           subscription.addons ?? [], getBundleCatalog(), subscription.interval,
         );
-        const wanted = creditCents(rd, base);
+        // A bundle-scoped DOLLAR credit is capped at this period's scoped subtotal
+        // (0 when no scoped bundle is held), as a scoped percent one already is
+        // by construction — otherwise removing the scoped bundle would leave the
+        // full amount re-granting every period against an add-on no longer held.
+        const scoped = !!rd.appliesToBundles?.length;
+        const wanted = rd.unit === 'dollar' && scoped ? Math.min(creditCents(rd, base), base) : creditCents(rd, base);
         // THE FLOOR APPLIES EVERY PERIOD, not only at redemption. The combo and
         // volume credits granted just below are derived from the CURRENT add-on
         // composition, and so is this discount's own base — so an account that
@@ -719,7 +724,7 @@ export async function grantPeriodicCredits(subscription: SubscriptionDocument, p
   // Volume credits (per-unit tier discount on a stackable pack, e.g. `seat`),
   // derived fresh from the CURRENT quantity — same recurring-credit mechanism as
   // combos. Idempotent per period on `volume:<bundleId>`.
-  for (const vol of volumeCredits(subscription.addons ?? [], getBundleCatalog(), subscription.interval)) {
+  for (const vol of volumeCredits(subscription.addons ?? [], getBundleCatalog(), subscription.interval, getComboDiscounts())) {
     const discountId = volumeLedgerId(vol.bundleId);
     if (subscription.creditLedger.some((c) => c.discountId === discountId && c.dedupeKey === periodKey)) continue;
     await grantUsageCredit(subscription, discountId, vol.creditCents, creditIdemSeed(orgId, discountId, periodKey), undefined, periodKey, atomic);

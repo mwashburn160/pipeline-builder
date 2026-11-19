@@ -5,7 +5,7 @@
  * The identity facts a stakeholder report needs from platform, over
  * `/internal/reporting/*` (callers: `reporting` only).
  *
- * Two questions, both of which this service structurally cannot answer:
+ * Three questions, none of which this service structurally can answer:
  *
  *  - IS THIS OWNER STILL ALLOWED? A scheduled run has no caller, so it is
  *    authorized as the definition's owner. Whether that person is still an active
@@ -21,7 +21,10 @@
  *    policy says. Asked one address at a time, so the org's member list never
  *    crosses the boundary.
  *
- * FAIL CLOSED. Both return `null` when platform cannot answer, and every caller
+ *  - WHO MAY READ THE REPORT? A published report's in-app notice goes to the
+ *    members holding `reports:read`, by user id — ids only, capped by platform.
+ *
+ * FAIL CLOSED. All three return `null` when platform cannot answer, and every caller
  * treats `null` as "not authorized" / "not a member". The alternative — assuming
  * authority when the authority service is unreachable — means a platform outage
  * turns into reports delivered on a lapsed subscription, or org data mailed to an
@@ -59,9 +62,18 @@ export interface RecipientCheck {
   displayName?: string;
 }
 
+/** The members who may read an org's reports (`reports:read`), by user id. */
+export interface ReportReaders {
+  userIds: string[];
+  /** More members hold the permission than the answer carries (platform caps it). */
+  truncated: boolean;
+}
+
 export interface ReportIdentity {
   authority(orgId: string, userId: string): Promise<ReportAuthority | null>;
   recipientCheck(orgId: string, email: string): Promise<RecipientCheck | null>;
+  /** Who a published report's in-app notice goes to; `null` when platform cannot say. */
+  readers(orgId: string): Promise<ReportReaders | null>;
 }
 
 function client(): InternalHttpClient {
@@ -73,8 +85,8 @@ const headers = () => ({
   Authorization: getServiceAuthHeader({ serviceName: 'reporting', orgId: SYSTEM_ORG_ID, role: 'member' }),
 });
 
-/** The two reads, defined once in api-core (paths, params, reply normalization). */
-const { reportAuthority: AUTHORITY, reportRecipientCheck: RECIPIENT } = PLATFORM_INTERNAL;
+/** The reads, defined once in api-core (paths, params, reply normalization). */
+const { reportAuthority: AUTHORITY, reportRecipientCheck: RECIPIENT, reportReaders: READERS } = PLATFORM_INTERNAL;
 
 /** The live implementation (platform over HTTP). Exported for tests. */
 export const httpReportIdentity: ReportIdentity = {
@@ -109,6 +121,22 @@ export const httpReportIdentity: ReportIdentity = {
       // The address itself never reaches the log — it is the PII this whole
       // endpoint shape exists to keep contained.
       logger.warn('Recipient member check failed', { orgId, error: errorMessage(err) });
+      return null;
+    }
+  },
+
+  async readers(orgId) {
+    try {
+      // SCOPED to the org asked about, not the system org: platform refuses a token
+      // minted for any other org, so one bug here cannot list another org's readers.
+      const res = await callInternal(client(), READERS, {
+        params: { orgId },
+        options: { headers: { Authorization: getServiceAuthHeader({ serviceName: 'reporting', orgId, role: 'member' }) } },
+      });
+      if (!res.ok) return null;
+      return { userIds: res.data.userIds, truncated: res.data.truncated };
+    } catch (err) {
+      logger.warn('Report-readers read failed', { orgId, error: errorMessage(err) });
       return null;
     }
   },
