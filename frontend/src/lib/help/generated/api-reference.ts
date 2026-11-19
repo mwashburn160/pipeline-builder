@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 55dfba50767994401aaad34c58a9fed240638c8f7f5e82a6911dd49f7540b9fb
+// SOURCE-SHA256: dc831707dc210eb35f9b51de6188b564344ee6dd0831dbdbbf95baf3ebccad11
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -2031,7 +2031,7 @@ export const apiReferenceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "41 routes, from frontend/src/generated/route-table/pipeline.json."
+          "content": "48 routes, from frontend/src/generated/route-table/pipeline.json."
         },
         {
           "type": "table",
@@ -2205,6 +2205,13 @@ export const apiReferenceTopic: HelpTopic = {
               "pipeline.execution.cancel"
             ],
             [
+              "GET",
+              "/pipelines/:pipelineId/run-requests/:requestId",
+              "pipelines:read",
+              "apiCalls",
+              "—"
+            ],
+            [
               "POST",
               "/pipelines/analyze/from-url",
               "pipelines:write; feature ai_generation",
@@ -2315,6 +2322,48 @@ export const apiReferenceTopic: HelpTopic = {
               "pipeline_registry:write",
               "apiCalls",
               "pipeline.registry.deregister"
+            ],
+            [
+              "GET",
+              "/pipelines/runner/jwks.json",
+              "no bearer token",
+              "—",
+              "—"
+            ],
+            [
+              "GET",
+              "/pipelines/runners",
+              "org_settings:write; feature cross_account_runners",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/pipelines/runners",
+              "org_settings:write; MFA session (aal2); step-up; feature cross_account_runners",
+              "apiCalls",
+              "pipeline.runner.register"
+            ],
+            [
+              "DELETE",
+              "/pipelines/runners/:id",
+              "org_settings:write; MFA session (aal2); step-up; feature cross_account_runners",
+              "apiCalls",
+              "pipeline.runner.revoke"
+            ],
+            [
+              "PATCH",
+              "/pipelines/runners/:id",
+              "org_settings:write; MFA session (aal2); step-up; feature cross_account_runners",
+              "apiCalls",
+              "pipeline.runner.update"
+            ],
+            [
+              "POST",
+              "/pipelines/runners/:id/test",
+              "org_settings:write; MFA session (aal2); step-up; feature cross_account_runners",
+              "apiCalls",
+              "pipeline.runner.test"
             ],
             [
               "GET",

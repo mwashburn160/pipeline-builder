@@ -13,13 +13,15 @@
  */
 
 import type { BadgeColor } from '@/components/ui/Badge';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/router';
 import { useUrlTab } from '@/hooks/useUrlTab';
 import Link from 'next/link';
 import { ArrowLeft, Ban, ExternalLink, GitBranch, LayoutTemplate, Pencil, Play, Rocket, Trash2 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useFeatures } from '@/hooks/useFeatures';
+import { CROSS_ACCOUNT_RUNNERS_FEATURE } from '@/lib/pipeline-runners';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useEntityFetch } from '@/hooks/useEntityFetch';
 import { useFetch } from '@/hooks/useFetch';
@@ -44,11 +46,14 @@ import { ScorecardCard } from '@/components/pipeline/ScorecardCard';
 import { PipelineSecurityTab } from '@/components/pipeline/security/PipelineSecurityTab';
 import type { ExecutionFailure } from '@/lib/api/domains/reporting';
 import { PipelineContextCard } from '@/components/pipeline/PipelineContextCard';
+import { runnerErrorBanner, runnerErrorMessage } from '@/components/pipeline/RunnerError';
+import { RunRequestStatus } from '@/components/pipeline/RunRequestStatus';
+import { useRunRequestTracker, type RunRequestOutcome } from '@/hooks/useRunRequestTracker';
 import { LifecycleBadge } from '@/components/ui/LifecycleBadge';
 import { canWritePipeline } from '@/lib/resource-helpers';
 import api from '@/lib/api';
 import { queries } from '@/lib/api-cache';
-import type { PipelineDeployment, PipelineRegistrationStatus } from '@/lib/api/domains/pipelines';
+import { isQueuedRunRequest, type PipelineDeployment, type PipelineRegistrationStatus } from '@/lib/api/domains/pipelines';
 import type { Pipeline } from '@/types';
 import { formatError } from '@/lib/constants';
 import { formatDuration } from '@/lib/format';
@@ -128,6 +133,9 @@ export default function PipelineDetailPage() {
 function PipelineDetail({ id }: { id: string }) {
   const router = useRouter();
   const { accessDenied, isReady, user, isSuperAdmin, can } = useAuthGuard();
+  // Runner surfaces show only for orgs with the `cross_account_runners` feature. Re-run / Stop still
+  // follow a queued 202 whenever the server actually returns one.
+  const runnersEnabled = useFeatures().isEnabled(CROSS_ACCOUNT_RUNNERS_FEATURE);
   const toast = useToast();
 
   // Detail sections split into Overview (metadata) + Runs (recent runs +
@@ -232,22 +240,63 @@ function PipelineDetail({ id }: { id: string }) {
 
   // Each action reports into the page's shared `actionError` banner, and is
   // bound to the pipeline it started for: an id switch mid-flight drops it.
-  const reportActionError = (_e: unknown, message: string) => setActionError(message);
+  // A refusal with a pipeline-runner error code (NO_RUNNER, RUNNER_UNREACHABLE,
+  // …) gets specific copy and the way to fix it, not the bare server sentence.
+  const reportActionError = (e: unknown, message: string) => setActionError(runnerErrorMessage(e) ?? message);
+
+  // A pipeline in a customer AWS account goes through its pipeline runner: the
+  // write answers 202 `{ requestId, status: 'queued', runnerLabel }` and the
+  // page follows the request until it starts / stops / fails / expires. The
+  // polls stop when the page unmounts. Platform-account pipelines answer with
+  // the execution id at once, as before.
+  const onRunRequestSettled = useCallback((o: RunRequestOutcome) => {
+    if (o.kind === 'failed') {
+      setActionError(runnerErrorBanner(o.errorCode, { runnerLabel: o.request.runnerLabel }));
+      return;
+    }
+    if (o.kind === 'lost') {
+      // The page could not READ the request any more — its outcome is unknown.
+      const what = o.request.action === 'start' ? 'Re-run' : 'Stop';
+      setActionError(`Could not follow the ${what} request: ${formatError(o.error, 'its status could not be read')}. It may still go ahead — check the Runs tab before trying again.`);
+      setTimeout(loadExecutions, REFETCH_DELAY_MS);
+      return;
+    }
+    if (o.kind === 'finished') {
+      const what = o.executionId ? `Execution ${o.executionId}` : 'Execution';
+      const st = o.executionStatus.toLowerCase();
+      if (st === 'succeeded') toast.success(`${what} succeeded`);
+      else toast.warning(`${what} ${st}`);
+      setTimeout(loadExecutions, REFETCH_DELAY_MS);
+      return;
+    }
+    toast.success(o.kind === 'started'
+      ? `Started execution ${o.executionId ?? ''}`.trim()
+      : 'Execution canceled');
+    setTimeout(loadExecutions, REFETCH_DELAY_MS);
+  }, [toast, loadExecutions]);
+  const runRequests = useRunRequestTracker(id, onRunRequestSettled);
+  const { track: trackRunRequest } = runRequests;
+  const startQueued = runRequests.active.some((r) => r.action === 'start' && r.phase === 'queued');
+
   const trigger = useMutation({
     fn: async (pipelineId: string) => {
       const res = await api.triggerPipelineExecution(pipelineId);
       if (!res.success) throw new Error(res.message || 'Failed to trigger execution');
-      return res.data?.executionId;
+      return res.data;
     },
     scopeKey: id,
     errorFallback: 'Failed to trigger execution',
-    onSuccess: (executionId) => {
-      toast.success(`Started execution ${executionId ?? ''}`.trim());
+    onSuccess: (data) => {
+      if (isQueuedRunRequest(data)) {
+        trackRunRequest(data, 'start');
+        return;
+      }
+      toast.success(`Started execution ${data?.executionId ?? ''}`.trim());
       setTimeout(loadExecutions, REFETCH_DELAY_MS);
     },
     onError: reportActionError,
   });
-  const triggering = trigger.pending;
+  const triggering = trigger.pending || startQueued;
   const { run: runTrigger } = trigger;
   const handleTrigger = useCallback(async () => {
     if (!id) return;
@@ -259,10 +308,15 @@ function PipelineDetail({ id }: { id: string }) {
     fn: async (pipelineId: string, executionId: string) => {
       const res = await api.stopPipelineExecution(pipelineId, executionId, { reason: 'Canceled from dashboard' });
       if (!res.success) throw new Error(res.message || 'Failed to cancel execution');
+      return res.data;
     },
     scopeKey: id,
     errorFallback: 'Failed to cancel execution',
-    onSuccess: () => {
+    onSuccess: (data) => {
+      if (isQueuedRunRequest(data)) {
+        trackRunRequest(data, 'stop');
+        return;
+      }
       toast.success('Execution canceled');
       setTimeout(loadExecutions, REFETCH_DELAY_MS);
     },
@@ -285,7 +339,7 @@ function PipelineDetail({ id }: { id: string }) {
   const canWriteTemplate = can('templates:write');
   const canPublishTemplate = can('templates:publish');
   const [showDelete, setShowDelete] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<ReactNode>(null);
 
   const deletion = useMutation({
     fn: async (pipelineId: string) => {
@@ -449,6 +503,9 @@ function PipelineDetail({ id }: { id: string }) {
       )}
       <ErrorAlert message={actionError} onDismiss={() => setActionError(null)} />
 
+      {/* A Re-run / Stop queued for a pipeline runner, until it settles. */}
+      {runRequests.active.map((r) => <RunRequestStatus key={r.requestId} request={r} />)}
+
       {/* Unregistered ⇒ no events ⇒ every report below is legitimately empty.
           Without this the Runs tab, the scorecard and DORA all read as broken. */}
       {pipeline?.registration?.registered === false && (
@@ -493,6 +550,14 @@ function PipelineDetail({ id }: { id: string }) {
                   <dt className="text-fg-muted">Region</dt>
                   <dd>{deployment.region || '—'}</dd>
                 </div>
+                {/* The pipeline runner Re-run / Stop go through, by LABEL — the
+                    registry never carries the customer's account number. */}
+                {runnersEnabled && deployment.runner && (
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-fg-muted">Runs via</dt>
+                    <dd data-testid="deployment-runner">{deployment.runner.label}</dd>
+                  </div>
+                )}
                 <div className="flex justify-between gap-2">
                   <dt className="text-fg-muted">Stack</dt>
                   <dd className="font-mono text-xs truncate">{deployment.stackName || '—'}</dd>

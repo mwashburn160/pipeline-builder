@@ -1,0 +1,314 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+/**
+ * Pipeline runners — the copy, badges and snippets every surface shares.
+ *
+ * The settings panel, the pipeline page's Re-run / Stop banners and the setup
+ * guide all speak about the same runner, so the link to the panel, the
+ * plain-language copy per error code and the install commands live here once.
+ * Kept free of React and of the api client so the pipeline page can import it
+ * without pulling the settings panel in.
+ */
+
+import {
+  RUNNER_DELIVERY_FAILURE_CLASSES, RUNNER_FEATURE, TERMINAL_RUN_REQUEST_STATUSES as TERMINAL_RUN_REQUEST_STATUS_LIST,
+  type RunnerDeliveryFailureClass, type RunnerErrorCode, type RunnerHealth, type RunnerStatus, type RunRequestStatus,
+} from '@pipeline-builder/api-core/pipeline-runners';
+import type { BadgeColor } from '@/components/ui/Badge';
+import type { PipelineRunner } from '@/lib/api/domains/pipelines';
+import { ApiError } from '@/lib/api/errors';
+
+export { isTerminalExecutionStatus } from '@pipeline-builder/api-core/pipeline-runners';
+
+/**
+ * The per-org feature that turns runners on. Every runner surface (the settings
+ * panel, the setup-guide step, the Deployment card's "Runs via") is HIDDEN —
+ * not locked, no upsell — unless `useFeatures().isEnabled()` holds it: an
+ * operator grants it; it is not a plan feature anyone can buy. It is
+ * `cross_account_runners` — api-core's catalog constant, not a second copy.
+ */
+export const CROSS_ACCOUNT_RUNNERS_FEATURE = RUNNER_FEATURE;
+
+/** Anchor of the Pipeline runners card on Settings → Organization. */
+export const PIPELINE_RUNNERS_ANCHOR = 'pipeline-runners';
+
+/** Settings → Organization → Pipeline runners. The fragment also opens the tab
+ *  (registered in the settings page's `hashTabs`). */
+export const PIPELINE_RUNNERS_HREF = `/dashboard/settings?tab=organization#${PIPELINE_RUNNERS_ANCHOR}`;
+
+type RunnerBadge = { label: string; color: BadgeColor };
+
+/** The badge a runner's status shows INSTEAD of its health (null = show the health). */
+const STATUS_BADGE: Readonly<Record<RunnerStatus, RunnerBadge | null>> = {
+  revoked: { label: 'Revoked', color: 'gray' },
+  pending: { label: 'Setup not finished', color: 'yellow' },
+  active: null,
+};
+
+const HEALTH_BADGE: Readonly<Record<RunnerHealth, RunnerBadge>> = {
+  healthy: { label: 'Healthy', color: 'green' },
+  unreachable: { label: 'Unreachable', color: 'red' },
+};
+
+const UNKNOWN_BADGE: RunnerBadge = { label: 'Unknown', color: 'gray' };
+
+/** Health badge per runner: a revoked or pending runner reads its status
+ *  whatever its health; an active one reads its health. ("Update required" is
+ *  a second badge, added by the panel.) */
+export function runnerBadge(r: Pick<PipelineRunner, 'health' | 'status'>): RunnerBadge {
+  return STATUS_BADGE[r.status] ?? HEALTH_BADGE[r.health] ?? UNKNOWN_BADGE;
+}
+
+/** What an "Update required" runner tells its admin to do. */
+export const RUNNER_UPDATE_COPY = 'Re-run pipeline-manager infra setup-runner to update';
+
+/** Where an error's banner points the reader. */
+export type RunnerErrorLink = 'install' | 'test' | 'runners' | null;
+
+export interface RunnerErrorCopy {
+  /** The headline (bold). */
+  title: string;
+  /** What to do about it. */
+  body: string;
+  /** A link to the runners panel, or none where the fix is elsewhere (a redeploy). */
+  link: RunnerErrorLink;
+}
+
+/**
+ * The catalog codes deliberately left to the generic sentence
+ * ({@link runnerErrorCopy}'s fallback). Every OTHER code needs copy below: a
+ * code added to api-core's catalog fails to compile until it is in one or the other.
+ *
+ * `DUPLICATE` never reaches a reader: the dispatcher retries it until the
+ * request expires (the banner then reads RUN_REQUEST_EXPIRED), and the only
+ * other place a runner's answer is shown — the panel's Test — signs a fresh
+ * `jti` per ping, which a conforming runner cannot call a duplicate.
+ */
+type GenericCopyCode = 'DUPLICATE';
+
+/**
+ * Plain-language copy per Re-run / Stop error code — both the synchronous
+ * refusals of `POST …/executions` (NO_RUNNER, RUNNER_UNREACHABLE, …) and the
+ * `errorCode` of a queued request that failed.
+ */
+const COPY = {
+  NO_RUNNER: {
+    title: 'This pipeline is not in the platform\'s AWS account, and your organization has no pipeline runner.',
+    body: 'To Re-run and Stop pipelines in your own AWS account, install a pipeline runner there.',
+    link: 'install',
+  },
+  RUNNER_UNREACHABLE: {
+    title: 'The pipeline runner is unreachable.',
+    body: 'The platform could not deliver to it several times in a row, so requests are paused. Check the runner stack in your AWS account, then test the runner.',
+    link: 'test',
+  },
+  PIPELINE_NOT_FOUND_IN_RUNNERS: {
+    title: 'None of your pipeline runners found this pipeline.',
+    body: 'Each runner looked for a pipeline tagged with this pipeline\'s id in its allowed regions. Check the runner covers the account and region it was deployed to.',
+    link: 'runners',
+  },
+  AMBIGUOUS_RUNNER: {
+    title: 'More than one pipeline runner found this pipeline.',
+    body: 'The platform will not guess which to use. Remove the stray deployment, or narrow a runner\'s regions or pipeline prefix.',
+    link: 'runners',
+  },
+  AMBIGUOUS_PIPELINE: {
+    title: 'Two pipelines in the runner\'s AWS account claim to be this one.',
+    body: 'They carry the same pb.pipeline-id tag — a duplicate deployment. Remove the duplicate, then try again.',
+    link: null,
+  },
+  PIPELINE_NOT_TAGGED: {
+    title: 'The pipeline in your AWS account has no pb.pipeline-id tag.',
+    body: 'It was deployed before tagging, or outside the platform. Redeploy it with pipeline-manager pipeline deploy, then try again.',
+    link: null,
+  },
+  PIPELINE_IDENTITY_MISMATCH: {
+    title: 'The pipeline the runner found is not this pipeline.',
+    body: 'Its pb.pipeline-id tag names another pipeline, so the link was cleared. Redeploy this pipeline with pipeline-manager pipeline deploy, then try again.',
+    link: null,
+  },
+  RUNNER_REFUSED: {
+    title: 'The pipeline runner refused the request.',
+    body: 'The pipeline is outside the runner\'s allowed regions or pipeline prefixes — settings only your AWS account can change. Redeploy the runner stack with a wider allowlist if this pipeline should be covered.',
+    link: 'runners',
+  },
+  SIGNATURE_INVALID: {
+    title: 'The pipeline runner rejected the platform\'s signature.',
+    body: 'Either the runner cannot fetch the platform\'s current public keys, or its clock is off. Platform operators have been alerted; test the runner once it is fixed.',
+    link: 'test',
+  },
+  RUNNER_PERMISSION_DENIED: {
+    title: 'The runner\'s AWS role was not allowed to act on this pipeline.',
+    body: 'Redeploy the runner stack (pipeline-manager infra setup-runner), or restore its role if it was edited.',
+    link: 'runners',
+  },
+  RUN_REQUEST_EXPIRED: {
+    title: 'The request was not delivered to the pipeline runner within 10 minutes, so it expired.',
+    body: 'Nothing was started or stopped. The runner may be down or unreachable — test it, then try again.',
+    link: 'runners',
+  },
+  RUNNERS_NOT_ENABLED: {
+    title: 'Cross-account runners are no longer enabled for your organization.',
+    body: 'This pipeline was set up to run through a pipeline runner, so it cannot be started or stopped from here. Ask your platform operator, or use pipeline-manager pipeline run with your own AWS credentials.',
+    link: null,
+  },
+  RUNNER_PENDING: {
+    title: 'The pipeline runner\'s setup is not finished.',
+    body: 'Finish pipeline-manager infra setup-runner (it registers the runner and waits for its first answer), then try again.',
+    link: 'runners',
+  },
+  RUNNER_REVOKED: {
+    title: 'The pipeline runner was revoked.',
+    body: 'Install a new runner in that AWS account, then try again.',
+    link: 'install',
+  },
+  RUNNER_LIMIT: {
+    title: 'Your organization has reached its pipeline runner limit.',
+    body: 'Revoke a runner you no longer use before registering another.',
+    link: 'runners',
+  },
+  RUN_REQUEST_RATE_LIMITED: {
+    title: 'Too many Re-run and Stop requests for this pipeline.',
+    body: 'Wait a minute, then try again.',
+    link: null,
+  },
+  RUNNER_PING_FAILED: {
+    title: 'The pipeline runner did not answer the platform\'s ping.',
+    body: 'Check the runner stack is deployed and its Function URL is reachable, then test it again.',
+    link: 'test',
+  },
+  RUNNER_UPDATE_REQUIRED: {
+    title: 'The pipeline runner needs an update.',
+    body: 'Re-run pipeline-manager infra setup-runner to update it, then try again.',
+    link: 'runners',
+  },
+  TOO_MANY_PENDING: {
+    title: 'Too many requests are already waiting for this pipeline runner.',
+    body: 'Wait for them to finish or expire, then try again.',
+    link: 'runners',
+  },
+  PIPELINE_NOT_FOUND: {
+    // A LINKED runner's answer: the platform clears the link and re-discovers
+    // once on its own, so this surfaces only when that could not help.
+    title: 'The pipeline runner could not find this pipeline in its AWS account.',
+    body: 'No pipeline in its allowed regions carries this pipeline\'s pb.pipeline-id tag — it may have been deleted, or moved to another account or region. Redeploy it with pipeline-manager pipeline deploy, or check the runner\'s regions, then try again.',
+    link: 'runners',
+  },
+  NOT_YET_VISIBLE: {
+    // Retried for a minute before it is recorded.
+    title: 'The pipeline runner cannot see this pipeline yet.',
+    body: 'AWS has not finished indexing a freshly deployed pipeline\'s tags, and the runner waited a minute for it. Nothing was started or stopped. Wait a few minutes, then try again.',
+    link: null,
+  },
+  RUNNER_ERROR: {
+    // A runner answer the platform could not use (an unknown code, a malformed
+    // success). Do NOT say nothing happened: a malformed success may have run.
+    title: 'The pipeline runner gave an answer the platform could not use.',
+    body: 'Check the Runs tab before trying again. The runner may be out of date — re-run pipeline-manager infra setup-runner to update it — or failing; its Lambda\'s logs in your AWS account say why.',
+    link: 'test',
+  },
+  NO_MATCH: {
+    title: 'The pipeline runner did not find this pipeline.',
+    body: 'No pipeline in its allowed regions carries this pipeline\'s pb.pipeline-id tag. Redeploy the pipeline, or check the runner\'s regions.',
+    link: 'runners',
+  },
+  RUNNERS_UNAVAILABLE: {
+    title: 'Pipeline runners are not enabled on this platform.',
+    body: 'Pipelines outside the platform\'s AWS account cannot be started or stopped from here. Use pipeline-manager pipeline run with your own AWS credentials instead.',
+    link: null,
+  },
+} satisfies Record<Exclude<RunnerErrorCode, GenericCopyCode>, RunnerErrorCopy>;
+
+/** {@link COPY}, indexable by any string (a server may send a code this build does not know). */
+export const RUNNER_ERROR_COPY: Readonly<Record<string, RunnerErrorCopy>> = COPY;
+
+/** Every code the Re-run / Stop banner has specific copy for. (Not api-core's
+ *  `RUNNER_ERROR_CODES`, which is the whole catalog.) */
+const CODES_WITH_COPY: ReadonlySet<string> = new Set(Object.keys(RUNNER_ERROR_COPY));
+
+/** The copy for a code (a generic sentence for an unknown one). */
+export function runnerErrorCopy(code: string | null | undefined): RunnerErrorCopy {
+  if (code && Object.hasOwn(RUNNER_ERROR_COPY, code)) return RUNNER_ERROR_COPY[code];
+  return {
+    title: 'The pipeline runner could not complete the request.',
+    body: code ? `It answered ${code}.` : 'It gave no reason.',
+    link: 'runners',
+  };
+}
+
+/** Whether an error is one of the runner Re-run / Stop refusals. */
+export function isRunnerError(err: unknown): err is ApiError {
+  return err instanceof ApiError && !!err.code && CODES_WITH_COPY.has(err.code);
+}
+
+/**
+ * Copy for a failed Test ping's `errorCode` when it is a DELIVERY failure class
+ * (the request never got a runner answer) rather than a catalog code. The
+ * classes are api-core's `RUNNER_DELIVERY_FAILURE_CLASSES` (the pipeline
+ * service's `last_delivery_error` vocabulary); keying the record by that type
+ * makes a new class without copy a compile error.
+ */
+export const DELIVERY_FAILURE_COPY: Readonly<Record<RunnerDeliveryFailureClass, { title: string; body: string }>> = {
+  timeout: {
+    title: 'The runner did not answer in time.',
+    body: 'Its Lambda may be throttled, cold-starting slowly or stuck. Check the runner stack in your AWS account, then test again.',
+  },
+  conn_refused: {
+    title: 'The platform could not connect to the runner\'s URL.',
+    body: 'Check the runner stack is deployed and its Function URL (or API Gateway) is reachable — an IP allowlist must include the platform\'s addresses.',
+  },
+  dns_nxdomain: {
+    title: 'The runner\'s URL no longer exists.',
+    body: 'Its Function URL or API Gateway was deleted. Re-run pipeline-manager infra setup-runner to redeploy it.',
+  },
+  aws_403_url_gone: {
+    title: 'AWS refused the request before it reached the runner.',
+    body: 'The Function URL was deleted or its auth type changed, or an API Gateway allowlist blocks the platform. Re-run pipeline-manager infra setup-runner.',
+  },
+  http_5xx: {
+    title: 'The runner failed while answering.',
+    body: 'Its Lambda\'s logs in your AWS account say why. Fix it, then test again.',
+  },
+  http_429: {
+    title: 'The runner is throttled.',
+    body: 'AWS is rate-limiting its Lambda. Wait a minute, then test again.',
+  },
+};
+
+const DELIVERY_FAILURE_CLASS_SET: ReadonlySet<string> = new Set(RUNNER_DELIVERY_FAILURE_CLASSES);
+
+function isDeliveryFailureClass(code: string | null | undefined): code is RunnerDeliveryFailureClass {
+  return !!code && DELIVERY_FAILURE_CLASS_SET.has(code);
+}
+
+/** The sentence a failed Test ping shows for its `errorCode`. */
+export function runnerTestFailureCopy(code: string | null | undefined): string {
+  const c = isDeliveryFailureClass(code) ? DELIVERY_FAILURE_COPY[code] : runnerErrorCopy(code);
+  return `${c.title} ${c.body}`;
+}
+
+/** Run-request states nothing further happens after. */
+export const TERMINAL_RUN_REQUEST_STATUSES: ReadonlySet<RunRequestStatus> = new Set(TERMINAL_RUN_REQUEST_STATUS_LIST);
+
+/** A bare egress address as the CIDR `--allow-ip` wants (`/32`, `/128`). */
+export function asCidr(ip: string): string {
+  const v = ip.trim();
+  if (v.includes('/')) return v;
+  return v.includes(':') ? `${v}/128` : `${v}/32`;
+}
+
+/** One POSIX-shell word, literal whatever it holds (`$`, backticks, quotes):
+ *  single-quoted, an embedded `'` closed, escaped and reopened. A JSON string
+ *  is double-quoted, which a shell still expands `$(…)` and backticks inside. */
+function shellQuote(v: string): string {
+  return `'${v.replace(/'/g, `'\\''`)}'`;
+}
+
+/** The install command for a runner in `region`; `allowIps` = the API Gateway variant. */
+export function setupRunnerCommand(opts: { region: string; label?: string; allowIps?: string[] }): string {
+  const parts = ['pipeline-manager infra setup-runner', `--region ${opts.region || '<region>'}`];
+  if (opts.allowIps && opts.allowIps.length > 0) parts.push('--api-gateway', `--allow-ip ${opts.allowIps.map(asCidr).join(' ')}`);
+  if (opts.label?.trim()) parts.push(`--label ${shellQuote(opts.label.trim())}`);
+  return parts.join(' ');
+}

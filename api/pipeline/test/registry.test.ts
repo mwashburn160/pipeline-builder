@@ -830,7 +830,8 @@ describe('GET /pipelines/registry', () => {
     const r = res();
     await handler()({ query: {}, user: {} }, r);
     expect(listSpy).toHaveBeenCalledWith('acme', 50, 0);
-    expect(sendPaginatedNested).toHaveBeenCalledWith(r, 'registry', [{ id: 'r1' }], { total: 120, limit: 50, offset: 0 });
+    // Runners off: `runner` is null and no runner table is queried.
+    expect(sendPaginatedNested).toHaveBeenCalledWith(r, 'registry', [{ id: 'r1', runner: null }], { total: 120, limit: 50, offset: 0 });
   });
 
   it('accepts the caller\'s own org named explicitly (case-insensitive)', async () => {

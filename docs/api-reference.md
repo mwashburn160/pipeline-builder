@@ -534,7 +534,7 @@ Every route of the Pipeline, Plugin and Ask Agent services, generated from the r
 
 ### Pipeline Service — every route
 
-41 routes, from `frontend/src/generated/route-table/pipeline.json`.
+48 routes, from `frontend/src/generated/route-table/pipeline.json`.
 
 | Method | Endpoint | Requires | Meters | Audit action |
 |--------|----------|----------|--------|--------------|
@@ -561,6 +561,7 @@ Every route of the Pipeline, Plugin and Ask Agent services, generated from the r
 | `POST` | `/pipelines/:id/security-reports` | `pipelines:write`; scope `reporting:ingest` | `apiCalls` | `pipeline.security_report.upload` |
 | `POST` | `/pipelines/:pipelineId/executions` | `pipelines:write` | `apiCalls` | `pipeline.execution.start` |
 | `POST` | `/pipelines/:pipelineId/executions/:executionId/stop` | `pipelines:write` | `apiCalls` | `pipeline.execution.cancel` |
+| `GET` | `/pipelines/:pipelineId/run-requests/:requestId` | `pipelines:read` | `apiCalls` | — |
 | `POST` | `/pipelines/analyze/from-url` | `pipelines:write`; feature `ai_generation` | `apiCalls` | — |
 | `POST` | `/pipelines/bulk/create` | `pipelines:write`; feature `bulk_operations` | `apiCalls` | `pipeline.create`, `pipeline.update` |
 | `POST` | `/pipelines/bulk/delete` | `pipelines:write`; feature `bulk_operations` | `apiCalls` | `pipeline.delete` |
@@ -577,6 +578,12 @@ Every route of the Pipeline, Plugin and Ask Agent services, generated from the r
 | `GET` | `/pipelines/registry` | `pipelines:read`; decided per request | `apiCalls` | — |
 | `POST` | `/pipelines/registry` | `pipeline_registry:write` | `apiCalls` | `pipeline.registry.register` |
 | `DELETE` | `/pipelines/registry/:id` | `pipeline_registry:write` | `apiCalls` | `pipeline.registry.deregister` |
+| `GET` | `/pipelines/runner/jwks.json` | no bearer token | — | — |
+| `GET` | `/pipelines/runners` | `org_settings:write`; feature `cross_account_runners` | `apiCalls` | — |
+| `POST` | `/pipelines/runners` | `org_settings:write`; MFA session (aal2); step-up; feature `cross_account_runners` | `apiCalls` | `pipeline.runner.register` |
+| `DELETE` | `/pipelines/runners/:id` | `org_settings:write`; MFA session (aal2); step-up; feature `cross_account_runners` | `apiCalls` | `pipeline.runner.revoke` |
+| `PATCH` | `/pipelines/runners/:id` | `org_settings:write`; MFA session (aal2); step-up; feature `cross_account_runners` | `apiCalls` | `pipeline.runner.update` |
+| `POST` | `/pipelines/runners/:id/test` | `org_settings:write`; MFA session (aal2); step-up; feature `cross_account_runners` | `apiCalls` | `pipeline.runner.test` |
 | `GET` | `/pipelines/scorecard` | `pipelines:read`; feature `advanced_reporting` | `apiCalls` | — |
 | `POST` | `/pipelines/validate` | `pipelines:write` | `apiCalls` | — |
 

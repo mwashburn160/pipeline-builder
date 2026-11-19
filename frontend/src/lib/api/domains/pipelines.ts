@@ -1,6 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type {
+  PendingRunRequestStatus, RunnerHealth, RunnerStatus, RunRequestAction, RunRequestStatus,
+} from '@pipeline-builder/api-core/pipeline-runners';
 import type { ApiCore } from '../core';
 import { buildQuery, type ProposedByOptions } from '../util';
 import { ApiError } from '../errors';
@@ -55,6 +58,93 @@ export interface PipelineDeployment {
   organization?: string;
   stackName?: string;
   lastDeployed: string;
+  /** The pipeline runner Re-run / Stop go through when the pipeline lives in a
+   *  customer AWS account — by LABEL only. Absent from servers that predate
+   *  runners; null = the platform's own account (or not yet linked). */
+  runner?: { id: string; label: string } | null;
+}
+
+// -- Pipeline runners (cross-account Re-run / Stop) -----------------------------
+
+/** Delivery health: `unreachable` after 5 consecutive failed deliveries (a
+ *  health ping every 5 minutes; a success resumes delivery). */
+export type PipelineRunnerHealth = RunnerHealth;
+/** `pending`: registered but setup not finished (the ping has not answered yet). */
+export type PipelineRunnerStatus = RunnerStatus;
+
+/** A runner Lambda in a customer AWS account, pushed to by the platform at its
+ *  Function URL (or API Gateway URL). Never carries an account number. */
+export interface PipelineRunner {
+  id: string;
+  orgId: string;
+  label: string;
+  /** Only for the OWNING org's admins (null everywhere else). A secret. */
+  functionUrl: string | null;
+  shareWithTeams: boolean;
+  version: string | null;
+  regions: string[];
+  health: PipelineRunnerHealth;
+  status: PipelineRunnerStatus;
+  lastDeliveryAt: string | null;
+  createdAt: string;
+  /** The runner's version is older than the platform supports — re-run setup-runner. */
+  updateRequired: boolean;
+}
+
+/** A parent org's runner shared with this team — read-only here. */
+export interface InheritedPipelineRunner extends PipelineRunner {
+  fromOrgId: string;
+  fromOrgName: string;
+}
+
+/** `GET /pipelines/runners`. `available: false` = the deployment has runners off. */
+export interface PipelineRunnersDto {
+  available: boolean;
+  /** Public keys the runner verifies the platform's signed requests with. */
+  jwksUrl: string;
+  /** The addresses the platform pushes from (for an API Gateway IP allowlist), when known. */
+  platformEgressIps: string[] | null;
+  own: PipelineRunner[];
+  inherited: InheritedPipelineRunner[];
+}
+
+export type PipelineRunnerUpdate = { label?: string; shareWithTeams?: boolean; functionUrl?: string };
+
+/** `POST /pipelines/runners/:id/test` — a signed ping. */
+export interface PipelineRunnerTestResult {
+  ok: boolean;
+  outcome?: string | null;
+  errorCode?: string | null;
+}
+
+export type { RunRequestStatus };
+
+/** A Re-run / Stop answered with `202` because it goes through a runner. */
+export interface QueuedRunRequest {
+  requestId: string;
+  status: PendingRunRequestStatus;
+  runnerLabel: string;
+}
+
+/** `GET /pipelines/:id/run-requests/:requestId`. */
+export interface RunRequest {
+  requestId: string;
+  status: RunRequestStatus;
+  action: RunRequestAction;
+  runnerLabel: string | null;
+  executionId: string | null;
+  /** Once `started`: the execution's own state (running, succeeded, failed, …), when known. */
+  executionStatus?: string | null;
+  errorCode: string | null;
+  attempts: number;
+  requestedAt: string | null;
+  expiresAt: string;
+}
+
+/** Whether a Re-run / Stop answer is a queued runner request (vs. the
+ *  platform-account path's immediate result). */
+export function isQueuedRunRequest(data: unknown): data is QueuedRunRequest {
+  return !!data && typeof data === 'object' && typeof (data as { requestId?: unknown }).requestId === 'string';
 }
 
 /** Pagination envelope of `GET /pipelines`. `total` is present only when the
@@ -333,21 +423,67 @@ export function pipelinesApi(core: ApiCore) {
      * Trigger a new AWS CodePipeline execution for a deployed pipeline.
      * Resolves the pipeline's registered CodePipeline name/region server-side
      * and calls StartPipelineExecution. Returns the new execution id (202).
+     * A pipeline in a customer AWS account goes through its pipeline runner
+     * instead: 202 `{ requestId, status, runnerLabel }` (`status` `delivering`
+     * when an in-flight start of the same pipeline is handed back rather than
+     * a second one queued) — follow it with {@link getRunRequest}.
      */
     triggerPipelineExecution: async (pipelineId: string) => {
-      return core.request<ApiResponse<{ executionId: string }>>(`/api/pipelines/${pipelineId}/executions`, {
+      return core.request<ApiResponse<{ executionId: string } | QueuedRunRequest>>(`/api/pipelines/${pipelineId}/executions`, {
         method: 'POST',
       });
     },
 
     /**
      * Stop an in-flight AWS CodePipeline execution (StopPipelineExecution).
-     * `abandon` skips graceful completion of in-progress actions.
+     * `abandon` skips graceful completion of in-progress actions. Through a
+     * runner, the same queued 202 as {@link triggerPipelineExecution}.
      */
     stopPipelineExecution: async (pipelineId: string, executionId: string, body?: { reason?: string; abandon?: boolean }) => {
-      return core.request<ApiResponse<{ stopped: boolean }>>(`/api/pipelines/${pipelineId}/executions/${executionId}/stop`, {
+      return core.request<ApiResponse<{ stopped: boolean } | QueuedRunRequest>>(`/api/pipelines/${pipelineId}/executions/${executionId}/stop`, {
         method: 'POST',
         body: JSON.stringify(body ?? {}),
+      });
+    },
+
+    /** A queued Re-run / Stop's progress (`pipelines:read`, org-scoped). */
+    getRunRequest: async (pipelineId: string, requestId: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<RunRequest>>(
+        `/api/pipelines/${encodeURIComponent(pipelineId)}/run-requests/${encodeURIComponent(requestId)}`,
+        { signal: opts?.signal },
+      );
+    },
+
+    // ============================================
+    // Pipeline runners (org admins: `org_settings:write`; every WRITE is also
+    // step-up gated and MFA-grade — a single-factor session gets 401
+    // `MFA_REQUIRED`). Registering is the CLI's job (`infra setup-runner`).
+    // ============================================
+
+    /** Own runners, and the ones a parent shares with this team. */
+    getPipelineRunners: async (opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<PipelineRunnersDto>>('/api/pipelines/runners', { signal: opts?.signal });
+    },
+    /** Rename / share with teams / new Function URL (re-pinged). */
+    updatePipelineRunner: async (runnerId: string, body: PipelineRunnerUpdate, stepUpToken?: string) => {
+      return core.request<ApiResponse<{ runner: PipelineRunner }>>(`/api/pipelines/runners/${encodeURIComponent(runnerId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+        headers: core.stepUpHeader(stepUpToken),
+      });
+    },
+    /** Signed ping; resumes delivery when the runner answers. Rate-limited. */
+    testPipelineRunner: async (runnerId: string, stepUpToken?: string) => {
+      return core.request<ApiResponse<PipelineRunnerTestResult>>(`/api/pipelines/runners/${encodeURIComponent(runnerId)}/test`, {
+        method: 'POST',
+        headers: core.stepUpHeader(stepUpToken),
+      });
+    },
+    /** Revoke: stops delivery, clears pipeline links, expires pending requests. */
+    revokePipelineRunner: async (runnerId: string, stepUpToken?: string) => {
+      return core.request<ApiResponse<{ runner?: PipelineRunner }>>(`/api/pipelines/runners/${encodeURIComponent(runnerId)}`, {
+        method: 'DELETE',
+        headers: core.stepUpHeader(stepUpToken),
       });
     },
 

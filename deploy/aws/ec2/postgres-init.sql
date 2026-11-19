@@ -463,8 +463,69 @@ CREATE TABLE IF NOT EXISTS pipeline_registry (    id UUID PRIMARY KEY DEFAULT ge
     organization VARCHAR(255),
     last_deployed TIMESTAMPTZ,
     stack_name VARCHAR(255),
+    -- The cross-account runner (pipeline_runners.id) that starts/stops this
+    -- pipeline. Set only after a VERIFIED run (or a single-match discovery
+    -- probe); cleared when the runner is revoked or reports the pipeline's
+    -- `pb.pipeline-id` tag missing/mismatched. NULL = the platform-account path.
+    runner_id UUID,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ============================================================================
+-- PIPELINE RUNNERS (cross-account execution: a Lambda in a CUSTOMER account)
+-- ============================================================================
+-- The platform holds no AWS access, no account number and no credential for a
+-- runner — only how to reach it. Delivery is PUSH: the pipeline service POSTs a
+-- signed run request to `function_url` (a Lambda Function URL or API Gateway
+-- endpoint), a secret of the owning org, and the answer is the HTTP response.
+-- Register-then-deploy: a runner is created `pending` (no URL yet), its stack is
+-- deployed with its id, and the URL is set by a PATCH that must answer a signed
+-- ping — only then is it `active`. Pending runners older than 24 h are swept.
+-- `update_required_since`: when the runner was first seen reporting a version
+-- below MIN_RUNNER_VERSION (cleared once it reports one at or above it).
+
+CREATE TABLE IF NOT EXISTS pipeline_runners (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id VARCHAR(255) NOT NULL,
+    label VARCHAR(100) NOT NULL,
+    function_url TEXT,
+    share_with_teams BOOLEAN NOT NULL DEFAULT true,
+    version VARCHAR(32),
+    regions TEXT[] NOT NULL DEFAULT '{}',
+    health VARCHAR(16) NOT NULL DEFAULT 'healthy'
+                        CHECK (health IN ('healthy', 'unreachable')),
+    status VARCHAR(16) NOT NULL DEFAULT 'pending'
+                        CHECK (status IN ('pending', 'active', 'revoked')),
+    update_required_since TIMESTAMPTZ,
+    consecutive_failures INT NOT NULL DEFAULT 0,
+    created_by VARCHAR(255),
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now(),
+    last_delivery_at TIMESTAMPTZ
+);
+
+-- One signed run request (start / stop / discovery probe) for a runner. The
+-- row is the durable state; the `runner-dispatch` BullMQ job (jobId = id) only
+-- drives push delivery.
+CREATE TABLE IF NOT EXISTS pipeline_run_requests (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id VARCHAR(255) NOT NULL,
+    pipeline_id UUID NOT NULL,
+    action VARCHAR(10) NOT NULL CHECK (action IN ('start', 'stop', 'probe')),
+    execution_id VARCHAR(100),
+    parent_request_id UUID,
+    requested_by VARCHAR(255) NOT NULL,
+    requested_at TIMESTAMPTZ DEFAULT now(),
+    expires_at TIMESTAMPTZ NOT NULL,
+    status VARCHAR(16) NOT NULL DEFAULT 'queued'
+                        CHECK (status IN ('queued', 'delivering', 'started', 'stopped', 'failed', 'expired')),
+    runner_id UUID,
+    attempts INT NOT NULL DEFAULT 0,
+    next_attempt_at TIMESTAMPTZ,
+    last_delivery_error VARCHAR(64),
+    result_execution_id VARCHAR(100),
+    error_code VARCHAR(64)
 );
 
 -- ============================================================================
@@ -737,6 +798,12 @@ CREATE TRIGGER update_pipeline_registry_modtime
     FOR EACH ROW
     EXECUTE PROCEDURE update_modified_column();
 
+DROP TRIGGER IF EXISTS update_pipeline_runners_modtime ON pipeline_runners;
+CREATE TRIGGER update_pipeline_runners_modtime
+    BEFORE UPDATE ON pipeline_runners
+    FOR EACH ROW
+    EXECUTE PROCEDURE update_modified_column();
+
 -- ============================================================================
 -- Indexes for Performance
 -- ============================================================================
@@ -838,6 +905,22 @@ CREATE INDEX IF NOT EXISTS registry_org_id_idx
 
 CREATE INDEX IF NOT EXISTS registry_org_region_idx
     ON pipeline_registry(org_id, region);
+
+-- Pipeline runner / run request indexes
+CREATE INDEX IF NOT EXISTS pipeline_runners_org_idx
+    ON pipeline_runners(org_id, status);
+CREATE INDEX IF NOT EXISTS pipeline_run_requests_runner_status_idx
+    ON pipeline_run_requests(runner_id, status);
+CREATE INDEX IF NOT EXISTS pipeline_run_requests_status_expiry_idx
+    ON pipeline_run_requests(status, expires_at);
+CREATE INDEX IF NOT EXISTS pipeline_run_requests_pipeline_idx
+    ON pipeline_run_requests(org_id, pipeline_id);
+-- At most ONE pending (queued|delivering) start per pipeline: two simultaneous
+-- Re-runs cannot both enqueue; the loser's insert fails 23505 and it reuses
+-- the winner's request.
+CREATE UNIQUE INDEX IF NOT EXISTS pipeline_run_requests_one_pending_start_uq
+    ON pipeline_run_requests(pipeline_id)
+    WHERE action = 'start' AND status IN ('queued', 'delivering');
 
 -- Pipeline Events indexes
 -- No single-column org_id / pipeline_id index: each is the LEADING column of a
@@ -3329,6 +3412,26 @@ BEGIN
     END LOOP;
 END $$;
 
+-- Cross-account runners + their run requests: OWN ORG ONLY, with NO system-org
+-- read carve-out. A runner row carries its org's Function URL (a secret), so the
+-- generic policy's "everyone reads the system org's rows" rule must not apply.
+-- Inherited (team) runners are read by the pipeline service under sysadmin
+-- scope with explicit ancestor org ids, never through this policy.
+DO $$
+DECLARE
+    t TEXT;
+BEGIN
+    FOR t IN SELECT unnest(ARRAY['pipeline_runners', 'pipeline_run_requests'])
+    LOOP
+        EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
+        PERFORM pb_reset_policies(t);
+        EXECUTE format('CREATE POLICY rls_own_org_read ON %I FOR SELECT USING (current_is_sysadmin() OR org_id = current_org_id())', t);
+        EXECUTE format('CREATE POLICY rls_own_org_insert ON %I FOR INSERT WITH CHECK (current_is_sysadmin() OR org_id = current_org_id())', t);
+        EXECUTE format('CREATE POLICY rls_own_org_update ON %I FOR UPDATE USING (current_is_sysadmin() OR org_id = current_org_id()) WITH CHECK (current_is_sysadmin() OR org_id = current_org_id())', t);
+        EXECUTE format('CREATE POLICY rls_own_org_delete ON %I FOR DELETE USING (current_is_sysadmin() OR org_id = current_org_id())', t);
+    END LOOP;
+END $$;
+
 -- `pipeline_templates` rides the three-rung visibility ladder: another org's
 -- template is only ever visible at the `public` rung, so the system-org read
 -- carve-out is limited to the system org's PUBLIC templates (the golden-path
@@ -3635,6 +3738,11 @@ ALTER TABLE support_case_counters FORCE ROW LEVEL SECURITY;
 ALTER TABLE support_contacts FORCE ROW LEVEL SECURITY;
 ALTER TABLE support_case_notes FORCE ROW LEVEL SECURITY;
 ALTER TABLE pipeline_registry FORCE ROW LEVEL SECURITY;
+-- Cross-account runners (their Function URLs are org secrets) and their run
+-- requests: every reader/writer is the pipeline service's runner store, which
+-- runs under an explicit (sysadmin) tenant scope.
+ALTER TABLE pipeline_runners FORCE ROW LEVEL SECURITY;
+ALTER TABLE pipeline_run_requests FORCE ROW LEVEL SECURITY;
 -- Pipeline templates route through CrudService (withTenantTx) like pipelines;
 -- the entitlement watermark is written only by the billing sync under sysadmin.
 ALTER TABLE pipeline_templates FORCE ROW LEVEL SECURITY;
@@ -3749,9 +3857,10 @@ DROP FUNCTION pb_reset_policies(TEXT);
 
 \echo ''
 \echo '=== RLS POLICIES INSTALLED ==='
-\echo 'FORCE + org scope (SELECT carve-outs; own-org INSERT/UPDATE/DELETE) on every tenant table (53/53):'
+\echo 'FORCE + org scope (SELECT carve-outs; own-org INSERT/UPDATE/DELETE) on every tenant table (55/55):'
 \echo ' - dashboards, dashboard_panels, org_alert_destinations, org_alert_rules, alert_destination_status'
 \echo ' - messages (+ recipient read-state update), message_attachments, pipeline_registry'
+\echo ' - pipeline_runners, pipeline_run_requests (own org only, no system-org read)'
 \echo ' - pipeline_templates, all compliance_* tables incl. compliance_entitlement_watermark'
 \echo ' - plugins, pipelines, pipeline_events, DORA tables (hot path)'
 \echo ' - pipeline_step_manifests, plugin_installs, plugin_install_policies, plugin_advisory_deliveries,'

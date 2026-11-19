@@ -47,6 +47,7 @@ jest.unstable_mockModule('../src/services/pipeline-execution-service.js', () => 
   pipelineExecutionService: { triggerExecution: (...a: unknown[]) => mockTrigger(...a) },
   PE_PIPELINE_NOT_REGISTERED: 'PE_PIPELINE_NOT_REGISTERED',
   PE_AWS_PIPELINE_NOT_FOUND: 'PE_AWS_PIPELINE_NOT_FOUND',
+  PE_AWS_ERROR: 'PE_AWS_ERROR',
 }));
 // The REAL windowed-trigger helper runs over this guard: the redeploy must take
 // the same duplicate window as POST /:id/executions.

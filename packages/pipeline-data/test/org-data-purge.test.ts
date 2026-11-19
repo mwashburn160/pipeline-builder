@@ -23,7 +23,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/glo
 import { getTableColumns, getTableName, is } from 'drizzle-orm';
 import { PgTable } from 'drizzle-orm/pg-core';
 import { ORG_DATA_OWNERSHIP, ORG_SCOPED_TABLE_NAMES, allOrgScopedTables, type OrgDataOwner } from '../src/api/org-data-ownership.js';
-import { purgeOrgData, purgeRowCounts } from '../src/api/org-data-purge.js';
+import { purgeOrgData, purgeRowCounts, resetPurgeTableCacheForTesting } from '../src/api/org-data-purge.js';
 import { schema } from '../src/database/drizzle-schema.js';
 import { bootTenantDb, type TenantTestDb } from '../src/testing/index.js';
 
@@ -173,6 +173,41 @@ describe('purgeOrgData — a failing table', () => {
       expect(purgeRowCounts(result)).not.toHaveProperty('support_case_counters');
     } finally {
       await owner((q) => q.exec('ALTER TABLE support_case_counters RENAME COLUMN org_id_gone TO org_id'));
+    }
+  });
+});
+
+describe('a database created before a table shipped (init script = new installs only)', () => {
+  const insertRunner = (org: string) => owner((q) => q.query(
+    "INSERT INTO pipeline_runners (org_id, label, function_url) VALUES ($1, 'r', 'https://abc.lambda-url.us-east-1.on.aws/')", [org]));
+
+  it('still purges the runner tables when they exist', async () => {
+    resetPurgeTableCacheForTesting();
+    await insertRunner(ORG);
+    await insertRunner(OTHER);
+    const result = await purgeOrgData('pipeline', ORG);
+    expect(result.failed).toEqual([]);
+    expect(result.absent).toEqual([]);
+    expect(result.tables.pipeline_runners).toEqual({ ok: true, rowCount: 1 });
+    const left = await owner((q) => q.query<{ org_id: string }>('SELECT org_id FROM pipeline_runners'));
+    expect(left.rows.map((r) => r.org_id)).toEqual([OTHER]);
+    await owner((q) => q.exec('DELETE FROM pipeline_runners'));
+  });
+
+  it('skips a missing table, names it in `absent`, and does not fail the purge', async () => {
+    resetPurgeTableCacheForTesting();
+    await owner((q) => q.exec('ALTER TABLE pipeline_run_requests RENAME TO pipeline_run_requests_hidden; ALTER TABLE pipeline_runners RENAME TO pipeline_runners_hidden;'));
+    try {
+      const result = await purgeOrgData('pipeline', ORG);
+      expect(result.failed).toEqual([]);
+      expect(result.absent.sort()).toEqual(['pipeline_run_requests', 'pipeline_runners']);
+      expect(result.tables.pipeline_runners).toEqual({ ok: true, rowCount: 0, absent: true });
+      // The tables that DO exist are still purged and reported.
+      expect(result.tables.pipelines).toMatchObject({ ok: true });
+      expect(purgeRowCounts(result)).toMatchObject({ pipeline_runners: 0, pipeline_run_requests: 0 });
+    } finally {
+      await owner((q) => q.exec('ALTER TABLE pipeline_run_requests_hidden RENAME TO pipeline_run_requests; ALTER TABLE pipeline_runners_hidden RENAME TO pipeline_runners;'));
+      resetPurgeTableCacheForTesting();
     }
   });
 });

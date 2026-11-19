@@ -366,6 +366,10 @@ const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   // org's decrypted provider key (audited). The four services that make AI calls.
   { method: 'GET', path: '/internal/ai/access/:orgId', callers: ['ask-agent', 'pipeline', 'plugin', 'reporting'] },
   { method: 'GET', path: '/internal/ai/keys/:orgId/:provider', callers: ['ask-agent', 'pipeline', 'plugin', 'reporting'] },
+  // An org's org-level feature flags (tier + account entitlements): the pipeline
+  // service's runner dispatcher re-checks the operator-granted
+  // `cross_account_runners` with it outside any request.
+  { method: 'GET', path: '/internal/features/:orgId', callers: ['pipeline'] },
   // Every non-platform service forwards its audit trail here; platform writes
   // its own events locally and never calls this.
   {

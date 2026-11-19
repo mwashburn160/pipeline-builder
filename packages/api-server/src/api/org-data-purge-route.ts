@@ -67,6 +67,12 @@ export interface OrgPurgeOutcome {
    * the caller's `incomplete` hook reads as NOT an ack, and audits as a failure.
    */
   remaining?: Record<string, number>;
+  /**
+   * Tables this database does not have (created before they shipped; the init
+   * script runs on new installs only). Skipped, NOT failed — echoed in the
+   * reply and the audit row so the gap is visible.
+   */
+  absent?: string[];
 }
 
 /** A service's own teardown, for data that is not in `ORG_DATA_OWNERSHIP` (Mongo). */
@@ -103,7 +109,7 @@ export type OrgDataPurgeOptions = OwnedOrgDataPurgeOptions | CallbackOrgDataPurg
 function ownedPurge(owner: OrgDataOwner): OrgPurgeFn {
   return async (orgId) => {
     const result = await purgeOrgData(owner, orgId);
-    return { tables: purgeRowCounts(result), failed: result.failed };
+    return { tables: purgeRowCounts(result), failed: result.failed, ...(result.absent?.length ? { absent: result.absent } : {}) };
   };
 }
 
@@ -130,7 +136,8 @@ export async function handleOrgDataPurge(req: Request, res: Response, opts: OrgD
   } as const;
 
   try {
-    const { tables, failed = [], remaining } = await purge(orgId);
+    const { tables, failed = [], remaining, absent } = await purge(orgId);
+    const skipped = absent && absent.length > 0 ? { absent } : {};
     if (failed.length > 0) {
       // Not an ack: the leg stays pending and is redelivered with backoff. The
       // tables that DID go are already gone; the retry is a no-op for them.
@@ -145,10 +152,10 @@ export async function handleOrgDataPurge(req: Request, res: Response, opts: OrgD
       logger.warn('Org data purge left rows for a retry', { owner, orgId, tables, remaining });
       safeAudit({ ...audit, outcome: 'failure', details: { owner, tables, remaining } });
     } else {
-      logger.info('Org data purged', { owner, orgId, tables });
-      safeAudit({ ...audit, details: { owner, tables } });
+      logger.info('Org data purged', { owner, orgId, tables, ...skipped });
+      safeAudit({ ...audit, details: { owner, tables, ...skipped } });
     }
-    sendSuccess(res, 200, remaining ? { orgId, tables, remaining } : { orgId, tables });
+    sendSuccess(res, 200, remaining ? { orgId, tables, remaining, ...skipped } : { orgId, tables, ...skipped });
   } catch (err) {
     logger.warn('Org data purge failed', { owner, orgId, error: errorMessage(err) });
     safeAudit({ ...audit, outcome: 'failure', details: { owner, error: errorMessage(err) } });

@@ -501,6 +501,23 @@ export const PLATFORM_INTERNAL = {
     response: z.object({ provider: z.string().optional(), apiKey: z.string().min(1) }),
   }),
   /**
+   * The org's resolved feature flags: its tier defaults plus the account's
+   * feature entitlements (pooled at the account root for a team) — the
+   * org-level half of a token's `features`, without any user's overrides. The
+   * pipeline service's runner dispatcher re-checks `cross_account_runners`
+   * with it outside any request. 404 for an unknown or deleted org.
+   */
+  orgFeatures: defineInternalEndpoint({
+    id: 'platform.orgFeatures',
+    service: 'platform',
+    method: 'GET',
+    path: '/internal/features/:orgId',
+    callers: ['pipeline'],
+    auth: AI_AUTH,
+    params: z.object({ orgId: orgIdParam }),
+    response: z.object({ features: stringList }),
+  }),
+  /**
    * The ACCOUNT ROOT of an org (the top of its team ancestry; a flat org is its
    * own root) — what ops-center reserves the dashboards / alertRules /
    * alertDestinations feature quotas against. 404 for an unknown org.

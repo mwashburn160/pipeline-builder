@@ -39,6 +39,7 @@ export * from './reserved-secrets.js';
 // browser also imports directly via `@pipeline-builder/api-core/quota-catalog`.
 export * from './quota-catalog.js';
 export * from './wire-vocabulary.js';
+export * from './pipeline-runners.js';
 export { type ComplianceExemptionRequest } from './compliance-exemption.js';
 export {
   PLUGIN_SUMMARY_MAX,

@@ -79,6 +79,10 @@ export const ORG_DATA_OWNERSHIP: Readonly<Record<OrgDataOwner, OrgDataSlice>> = 
       t(schema.pipelineStepLookup, 'pipeline_step_lookups'),
       t(schema.pipelineSecurityReport, 'pipeline_security_reports'),
       t(schema.pipelinePluginResolution, 'pipeline_plugin_resolution'),
+      // Cross-account runners (their reach-me URLs are org secrets) and the
+      // run requests delivered to them.
+      t(schema.pipelineRunner, 'pipeline_runners'),
+      t(schema.pipelineRunRequest, 'pipeline_run_requests'),
     ],
   },
   'plugin': {

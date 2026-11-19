@@ -14,6 +14,9 @@ interface Props {
   display?: string;
   /** Visual size, matching the rest of the primitive UI library. */
   size?: 'sm' | 'md' | 'lg';
+  /** The copy button's accessible name — say WHAT it copies where several sit
+   *  together (default "Copy to clipboard"). */
+  label?: string;
 }
 
 const CODE_CLASS: Record<NonNullable<Props['size']>, string> = {
@@ -28,7 +31,7 @@ const CODE_CLASS: Record<NonNullable<Props['size']>, string> = {
  * dominate the cell. The bigger `CopyButton` from this directory is
  * still the right choice for one-off "copy command" boxes.
  */
-export function CopyableId({ value, display, size }: Props) {
+export function CopyableId({ value, display, size, label = 'Copy to clipboard' }: Props) {
   const effectiveSize: NonNullable<Props['size']> = size ?? 'md';
   const { state, copy } = useCopyToClipboard(COPY_FEEDBACK_RESET_MS);
 
@@ -47,7 +50,7 @@ export function CopyableId({ value, display, size }: Props) {
         type="button"
         onClick={handleClick}
         title={state === 'copied' ? 'Copied!' : state === 'failed' ? 'Copy failed' : 'Copy to clipboard'}
-        aria-label="Copy to clipboard"
+        aria-label={label}
         className="inline-flex h-5 w-5 items-center justify-center rounded text-fg-subtle hover:bg-surface-muted hover:text-fg"
       >
         {state === 'copied' ? (

@@ -21,9 +21,9 @@ import {
   authRoutes, deviceAuthRoutes, oauthRoutes, ssoRoutes, userRoutes, usersRoutes, organizationRoutes, organizationsRoutes,
   invitationRoutes, auditRoutes, notifyEmailRoutes, configRoutes,
   orgIdpRoutes, orgKmsConfigRoutes, orgNamespaceRoutes, userGrantsRoutes, adminConsoleRoutes, adminConsoleSessionRouter, adminSummaryRoutes, impersonateRoutes,
-  scimRoutes, mfaResetAdminRoutes, ecosystemInternalRoutes, reportingInternalRoutes, aiInternalRoutes, supportInternalRoutes,
+  scimRoutes, mfaResetAdminRoutes, ecosystemInternalRoutes, reportingInternalRoutes, aiInternalRoutes, featuresInternalRoutes, supportInternalRoutes,
   offersInternalRoutes,
-  NOTIFY_EMAIL_MOUNT, ECOSYSTEM_INTERNAL_MOUNT, REPORTING_INTERNAL_MOUNT, AI_INTERNAL_MOUNT, SUPPORT_INTERNAL_MOUNT,
+  NOTIFY_EMAIL_MOUNT, ECOSYSTEM_INTERNAL_MOUNT, REPORTING_INTERNAL_MOUNT, AI_INTERNAL_MOUNT, FEATURES_INTERNAL_MOUNT, SUPPORT_INTERNAL_MOUNT,
   OFFERS_INTERNAL_MOUNT, opsInternalRoutes, OPS_INTERNAL_MOUNT,
   supportContactRoutes, cascadeAdminRoutes,
 } from './index.js';
@@ -81,6 +81,8 @@ export function mountApiRoutes(app: Express, limiters: RouteLimiters): void {
   app.use(REPORTING_INTERNAL_MOUNT, reportingInternalRoutes);
   // The org half of every AI call (switch, configured providers, audited key reads).
   app.use(AI_INTERNAL_MOUNT, aiInternalRoutes);
+  // An org's org-level feature flags (the pipeline runner dispatcher's re-check).
+  app.use(FEATURES_INTERNAL_MOUNT, featuresInternalRoutes);
   // Support entitlement, for the message service only (named-caller gated).
   app.use(SUPPORT_INTERNAL_MOUNT, supportInternalRoutes);
   // The expansion-offers profile's membership reads (billing only).

@@ -47,8 +47,10 @@
     "@pipeline-builder/api-server": "workspace:*",
     "@pipeline-builder/pipeline-core": "workspace:*",
     "@pipeline-builder/pipeline-data": "workspace:*",
+    "bullmq": "6.7.5",
     "drizzle-orm": "0.45.4",
     "express": "5.3.0",
+    "ioredis": "6.0.0",
     "zod": "4.6.7"
   },
   "engines": {

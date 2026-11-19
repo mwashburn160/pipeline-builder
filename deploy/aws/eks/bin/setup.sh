@@ -578,6 +578,12 @@ pb_create_token_signing_secret "$DEPLOY_DIR/certs/token-signing/token-signing.ke
 # only ever gets the public Secret — see pb_create_plugin_signing_secrets.
 AWS_REGION="$REGION" bash "$BIN_DIR/plugin-signing-keys.sh" "$DEPLOY_DIR/certs"
 pb_create_plugin_signing_secrets "$DEPLOY_DIR/certs/plugin-signing"
+# Ed25519 RUNNER-signing key (cross-account pipeline runners) → the
+# `runner-signing-key` Secret, mounted by pipeline ONLY. A local key (no KMS
+# mode): the platform holds no AWS access for the runner's account, and the
+# key only signs short-lived run requests. Idempotent.
+bash "$BIN_DIR/runner-signing-keys.sh" "$DEPLOY_DIR/certs"
+pb_create_runner_signing_secret "$DEPLOY_DIR/certs/runner-signing"
 
 # PER-SERVICE ES256 keys for INTERNAL service-to-service tokens. Like the
 # user-token key these must SURVIVE the deploy (regenerating one would break

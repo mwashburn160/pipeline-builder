@@ -21,6 +21,7 @@ import { login } from './commands/login.js';
 import { logout } from './commands/logout.js';
 import { newPlugin } from './commands/new-plugin.js';
 import { orgExport } from './commands/org-export.js';
+import { runPipeline, stopPipeline } from './commands/pipeline-execution.js';
 import { deletePipeline, deregisterPipeline } from './commands/pipeline-remove.js';
 import { deprecatePlugin, yankPlugin } from './commands/plugin-lifecycle.js';
 import { provision } from './commands/provision.js';
@@ -30,6 +31,7 @@ import { register } from './commands/register.js';
 import { report } from './commands/report.js';
 import { securityReport } from './commands/security-report.js';
 import { setupEvents } from './commands/setup-events.js';
+import { setupRunner } from './commands/setup-runner.js';
 import { status } from './commands/status.js';
 import { storeToken } from './commands/store-token.js';
 import { synth } from './commands/synth.js';
@@ -176,10 +178,10 @@ function displayStartupInfo(options: CliOptions): void {
 const HELP_TEXT = `
 Command groups:
   auth      Authenticate and manage credentials (login, logout, pat)
-  pipeline  Create, inspect, and deploy pipelines (create, list, get, register, deregister, delete, synth, deploy)
+  pipeline  Create, inspect, and deploy pipelines (create, list, get, register, deregister, delete, synth, deploy, run, stop)
   plugin    Author, validate, and publish plugins (new, validate, test, publish, upload, get, list, deprecate, yank, verify)
   template  Instantiate golden-path pipeline templates and validate {{ ... }} syntax (instantiate, validate)
-  infra     Set up and operate platform infrastructure (bootstrap, setup-events, redrive-events, store-token, provision)
+  infra     Set up and operate platform infrastructure (bootstrap, setup-events, redrive-events, setup-runner, store-token, provision)
   audit     Operator audits, cron-friendly (tokens, stacks)
   org       Organization data operations (export)
   security-report  Upload SARIF / trivy / grype reports produced inside a pipeline (upload)
@@ -245,6 +247,8 @@ function registerTaskNamespaces(): void {
   deletePipeline(pipeline); // pipeline delete — delete a pipeline configuration
   synth(pipeline); // pipeline synth — CDK synthesis from pipeline config
   deploy(pipeline); // pipeline deploy — CDK deploy (--app prints boilerplate path)
+  runPipeline(pipeline); // pipeline run — start with your own AWS credentials (tag-checked)
+  stopPipeline(pipeline); // pipeline stop — stop an execution with your own AWS credentials
 
   // plugin — author, validate, and publish plugins
   const plugin = program.command('plugin').description('Author, validate, and publish plugins');
@@ -269,6 +273,7 @@ function registerTaskNamespaces(): void {
   bootstrap(infra); // infra bootstrap — CDK toolkit stack
   setupEvents(infra); // infra setup-events — EventBridge event ingestion
   redriveEvents(infra); // infra redrive-events — manual DLQ → queue redrive fallback
+  setupRunner(infra); // infra setup-runner — cross-account pipeline runner (signed pushes to its Function URL)
   storeToken(infra); // infra store-token — service-account key in Secrets Manager for CDK
   provision(infra); // infra provision — AI-assisted deploy/teardown of the platform
 

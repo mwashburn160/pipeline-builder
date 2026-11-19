@@ -764,6 +764,40 @@ const CONTROLS: Control[] = [
     },
   },
   {
+    control: 'Pipeline runners: rename, share with teams, test, revoke (Settings → Organization)',
+    file: 'pages/dashboard/settings.tsx',
+    // settings.tsx mounts the panel only for org_settings:write holders in an org
+    // with `cross_account_runners`; the flag constant lives in pipeline-runners.ts.
+    gateFiles: ['src/components/settings/PipelineRunnersSettings.tsx', 'src/lib/pipeline-runners.ts'],
+    permissions: ['org_settings:write'],
+    // HIDDEN, not locked, for an org without the feature — a deliberate product
+    // decision (the flag is operator-granted, in no plan and not for sale, so a
+    // lock would advertise something no customer can buy). The negative render
+    // below is on the permission; the hidden-without-feature rule is covered by
+    // test/settings-pipeline-runners-gating.test.tsx.
+    features: ['cross_account_runners'],
+    stepUp: true,
+    minAssurance: 2,
+    routes: [
+      'pipeline GET /pipelines/runners',
+      'pipeline PATCH /pipelines/runners/:id',
+      'pipeline POST /pipelines/runners/:id/test',
+      'pipeline DELETE /pipelines/runners/:id',
+    ],
+    behaviour: {
+      mount: page('../pages/dashboard/settings'),
+      router: { query: { tab: 'organization' }, pathname: '/dashboard/settings' },
+      api: {
+        getPipelineRunners: {
+          available: true, jwksUrl: 'https://pb.test/api/pipelines/runner/jwks.json', platformEgressIps: null,
+          own: [{ id: 'r1', orgId: 'org-1', label: 'prod', functionUrl: 'https://abc.lambda-url.us-east-1.on.aws/', shareWithTeams: true, version: '1.0.0', regions: ['us-east-1'], health: 'healthy', status: 'active', lastDeliveryAt: null, createdAt: '2026-11-19T00:00:00Z', updateRequired: false }],
+          inherited: [],
+        },
+      },
+      find: button(/^rename$/i),
+    },
+  },
+  {
     control: 'Retire a plugin version to reclaim registry storage',
     file: 'src/components/quotas/StorageReclaimCard.tsx',
     // `storageBytes` is the only quota a tenant could not free: scheduled GC is
@@ -3268,6 +3302,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   'platform GET /organization/:id/support-usage': { category: 'no-ui', why: 'Pooled support-contact usage at the account root (`{ supportContacts, supportPremiumContacts }` each `{ limit, used }`) for BILLING: api/billing/src/helpers/downstream-client.ts `fetchSupportUsage` feeds the add-on over-cap guard and the entitlement-drift reconciler. Gate (in the controller, like seat-usage) is a service principal or canAdministerOrg; the dashboard shows contacts on the support settings, not this count.' },
   'platform POST /auth/device/code': { category: 'no-ui', why: 'Device-authorization grant START — issued to the CLI (packages/pipeline-manager/src/utils/device-auth.ts), not a browser. The dashboard only drives the human half (GET /auth/device/authorize, approve, deny).' },
   'platform POST /auth/device/token': { category: 'no-ui', why: 'Device-grant token POLL — the CLI polls it (packages/pipeline-manager/src/utils/device-auth.ts, `pollDeviceToken`); no frontend reference exists.' },
+  'pipeline POST /pipelines/runners': { category: 'no-ui', why: 'CLI only — `pipeline-manager infra setup-runner` (packages/pipeline-manager/src/commands/setup-runner.ts) registers a PENDING runner before deploying its stack in the customer account, then sends the Function URL with PATCH (which the Pipeline runners panel row maps). Same org_settings:write + feature(cross_account_runners) + aal2 + step-up as the panel\'s writes; there is no in-browser registration because the runner must be deployed with AWS credentials for that account.' },
   'platform POST /organization/:id/service-accounts/provision-key': { category: 'no-ui', why: 'CLI only — `pipeline-manager infra store-token` (packages/pipeline-manager/src/utils/service-account.ts) provisions the org machine credential it parks in Secrets Manager: find-or-create the account, issue its key, retire the oldest at the active-key cap, behind ONE step-up. Same service_accounts:manage + aal2(except bootstrap-setup) + step-up as the create-account and issue-key routes the dashboard drives (ServiceAccountsSection / ServiceAccountDrawer), which stay its UI.' },
   'platform POST /auth/token/exchange': { category: 'no-ui', why: 'Service-account token exchange; a machine surface with no frontend reference (api.generateNewToken is a different route).' },
   'platform POST /auth/key/rotate': { category: 'no-ui', why: 'Unattended service-account key self-rotation — the audit-event description says explicitly that no person is present.' },
@@ -3314,6 +3349,10 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   'platform GET /internal/reporting/access-posture/:orgId': {
     category: 'machine-only',
     why: 'Service-principal route (callers: reporting): the ACCESS half of a report\'s posture panel — members, second-factor coverage, whether SSO is required, service accounts, live API keys, and permission changes in the window. Counts only, never a name or an id: a report that listed the accounts without a second factor would be a ready-made target list, and it reaches managers with no permission to see that in the product. No user token is admitted.',
+  },
+  'platform GET /internal/features/:orgId': {
+    category: 'machine-only',
+    why: 'Service-principal route (callers: pipeline): an org\'s resolved ORG-LEVEL feature flags (tier defaults plus operator entitlements, pooled at the account root), read by the runner dispatcher on a feature-cache miss so it stops pinging runners of an org that lost cross_account_runners. No user token is admitted; the dashboard reads features through its own session.',
   },
   'platform GET /internal/ai/access/:orgId': {
     category: 'machine-only',

@@ -113,6 +113,15 @@ spec:
               value: "plugin"
             - name: PLUGIN_SERVICE_PORT
               value: "3000"
+            # Cross-account pipeline runners: the Ed25519 key run requests to a
+            # customer's runner Lambda are signed with (public half at
+            # GET /api/pipelines/runner/jwks.json), and the retiring key, present
+            # only mid-rotation. Both from the `runner-signing-key` Secret
+            # (deploy/bin/runner-signing-keys.sh); an absent file is simply absent.
+            - name: RUNNER_SIGNING_KEY_FILE
+              value: "/etc/pipeline-builder/runner-signing/runner-signing.key"
+            - name: RUNNER_SIGNING_KEY_PREVIOUS_FILE
+              value: "/etc/pipeline-builder/runner-signing/runner-signing-previous.key"
           resources:
             limits:
               cpu: "750m"
@@ -159,6 +168,11 @@ spec:
             - name: service-key-bundle
               mountPath: /etc/pipeline-builder/service-key-bundle
               readOnly: true
+            # The runner-signing key — THIS pod only; no other Deployment
+            # references the Secret.
+            - name: runner-signing-key
+              mountPath: /etc/pipeline-builder/runner-signing
+              readOnly: true
       volumes:
         - name: service-signing-key
           secret:
@@ -168,6 +182,12 @@ spec:
           secret:
             secretName: service-key-bundle
             defaultMode: 0444
+        # optional: no key ⇒ runners are unavailable, the service still starts.
+        - name: runner-signing-key
+          secret:
+            secretName: runner-signing-key
+            defaultMode: 0444
+            optional: true
 ---
 # =============================================================================
 # Pipeline HorizontalPodAutoscaler

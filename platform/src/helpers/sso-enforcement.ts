@@ -25,14 +25,15 @@
  * keep their own password / passkey / social sign-in as the break-glass path.
  */
 
-import { resolveUserFeatures, sendError, type IdpProtocol, type PlanTier } from '@pipeline-builder/api-core';
+import { sendError, type IdpProtocol } from '@pipeline-builder/api-core';
 import type { Request } from 'express';
 import type { Types } from 'mongoose';
 import { requireOrgScope } from './controller-helper.js';
+import { resolveOrgFeatures } from './org-features.js';
 import { resolveOrgLineage } from './org-hierarchy.js';
 import { toOrgId } from './org-id.js';
 import { GOOGLE_ISSUER } from './reserved-issuers.js';
-import { OrgDomain, Organization, User, UserOrganization } from '../models/index.js';
+import { OrgDomain, User, UserOrganization } from '../models/index.js';
 import { incCounter } from '../observability/metrics.js';
 import type { OidcLoginConfig } from '../services/oidc-service.js';
 import { orgIdpService } from '../services/org-idp-service.js';
@@ -137,23 +138,7 @@ export async function mayAutoProvisionMembership(orgId: string, email: string, s
  * `accountContext`). A soft-deleted org is treated as not entitled.
  */
 export async function isSsoEntitled(orgId: string): Promise<boolean> {
-  const org = await Organization.findById(toOrgId(orgId))
-    .select('tier featureEntitlements parentOrgId deletedAt').lean();
-  if (!org || (org as { deletedAt?: Date | null }).deletedAt) return false;
-
-  let accountFeatures = (org as { featureEntitlements?: string[] }).featureEntitlements ?? [];
-  if ((org as { parentOrgId?: string | null }).parentOrgId) {
-    try {
-      const { rootOrgId } = await resolveOrgLineage(orgId);
-      const root = await Organization.findById(toOrgId(rootOrgId)).select('featureEntitlements').lean();
-      accountFeatures = (root as { featureEntitlements?: string[] })?.featureEntitlements ?? accountFeatures;
-    } catch {
-      // Degrade to the team-doc copy (same choice token issuance makes).
-    }
-  }
-
-  const features = resolveUserFeatures((org as { tier: PlanTier }).tier, { accountFeatures });
-  return features.includes('sso');
+  return (await resolveOrgFeatures(orgId))?.includes('sso') ?? false;
 }
 
 /**

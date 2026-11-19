@@ -23,6 +23,8 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
+import { runnerDeps, runnersReady } from '../runners/deps.js';
+import { principalHasRunnerFeature } from '../runners/vocabulary.js';
 import {
   pipelineRegistryService,
   PR_PIPELINE_NOT_OWNED,
@@ -66,6 +68,19 @@ const PipelineRegistrySchema = z.object({
 });
 
 /**
+ * The Deployment card's `runner: { id, label } | null` on each row. For an org
+ * without the `cross_account_runners` feature (or a deployment without a
+ * runner signing key) it is `null` WITHOUT a query — a database created before
+ * runners has neither the runner tables nor `pipeline_registry.runner_id`, and
+ * such a database is answered `null` too (runners unavailable, never a 500).
+ */
+async function withRunners<T extends { pipelineId: string }>(rows: T[], orgId: string, orgHasFeature: boolean): Promise<Array<T & { runner: { id: string; label: string } | null }>> {
+  if (!orgHasFeature || rows.length === 0 || !(await runnersReady())) return rows.map((r) => ({ ...r, runner: null }));
+  const links = await runnerDeps().store.runnerLinks(rows.map((r) => r.pipelineId), orgId);
+  return rows.map((r) => ({ ...r, runner: links.get(r.pipelineId) ?? null }));
+}
+
+/**
  * Register pipeline registry routes.
  * - POST /pipelines/registry — upsert a pipeline's deployment registration for event reporting,
  *   and (when `steps` is sent — a post-deploy registration) replace the
@@ -100,7 +115,7 @@ export function createRegistryRoutes(): Router {
     }
     const { rows, total } = await pipelineRegistryService.list(targetOrgId, limit, offset);
     ctx.log('COMPLETED', 'Listed pipeline registry', { count: rows.length, ...(targetOrgId !== orgId && { targetOrgId }) });
-    return sendPaginatedNested(res, 'registry', rows, {
+    return sendPaginatedNested(res, 'registry', await withRunners(rows, targetOrgId, targetOrgId === orgId && principalHasRunnerFeature(req.user)), {
       total, limit, offset,
     });
   }));

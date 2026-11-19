@@ -1912,6 +1912,25 @@
     "audit": []
   },
   {
+    "method": "GET",
+    "path": "/internal/features/:orgId",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "dynamicAuthz": [],
+    "internalCallers": [
+      "pipeline"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
     "method": "POST",
     "path": "/internal/notify-email",
     "auth": true,

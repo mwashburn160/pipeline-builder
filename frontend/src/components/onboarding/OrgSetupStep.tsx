@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useEffect, useState } from 'react';
-import { Download, Terminal, BarChart3, Package, KeyRound } from 'lucide-react';
+import { Download, Terminal, BarChart3, Package, KeyRound, Server } from 'lucide-react';
 // SUBPATH, not the barrel: `@pipeline-builder/api-core` pulls in express
 // transitively, which has no TextDecoder under jsdom — importing it here took
 // out three component suites at LOAD with an error naming nothing to do with
@@ -20,6 +20,7 @@ import { DEFAULT_CLI_NPM_PACKAGE, DEFAULT_CLI_NPM_URL } from '@/lib/constants';
 import type { TierKey } from '@/lib/tiers';
 import { isAwsTarget } from '@/lib/deploy-target';
 import { ACCESS_KEYS_HREF } from '@/lib/security-links';
+import { CROSS_ACCOUNT_RUNNERS_FEATURE, PIPELINE_RUNNERS_HREF, setupRunnerCommand } from '@/lib/pipeline-runners';
 import { CLI_MIN_NODE, DEFAULT_SETUP_REGION, isAwsRegion, setupCommands } from '@/lib/setup-guide';
 import { useFeatures } from '@/hooks/useFeatures';
 import type { User } from '@/types';
@@ -75,6 +76,8 @@ export function OrgSetupStep({
   const cliNpmUrl = features.cliNpmUrl || DEFAULT_CLI_NPM_URL;
   const installCmd = `npm install -g ${cliNpmPackage}`;
   const showEvents = isAwsTarget(deployTarget);
+  // The runner step: AWS targets, and only for orgs granted the feature.
+  const showRunner = showEvents && features.isEnabled(CROSS_ACCOUNT_RUNNERS_FEATURE);
   const [wantEvents, setWantEvents] = useState(false);
   const [withDora, setWithDora] = useState(false);
   const [region, setRegion] = useState(DEFAULT_SETUP_REGION);
@@ -102,6 +105,7 @@ export function OrgSetupStep({
           <li className="flex items-center gap-2"><Package className="w-4 h-4 text-brand shrink-0" /> Install the pipeline-manager CLI</li>
           {showEvents && <li className="flex items-center gap-2"><Terminal className="w-4 h-4 text-brand shrink-0" /> Store a service token</li>}
           {showEvents && <li className="flex items-center gap-2"><BarChart3 className="w-4 h-4 text-brand shrink-0" /> Set up pipeline event metrics <span className="text-xs">(optional{', '}with or without DORA)</span></li>}
+          {showRunner && <li className="flex items-center gap-2"><Server className="w-4 h-4 text-brand shrink-0" /> Install a pipeline runner <span className="text-xs">(optional)</span></li>}
         </ol>
       </div>
 
@@ -172,6 +176,27 @@ export function OrgSetupStep({
               } />
             </div>
           )}
+        </div>
+      )}
+
+      {/* Step 3 — a pipeline runner (AWS targets only), so Re-run / Stop reach
+          pipelines deployed to the customer's own AWS account. Optional:
+          pipelines in the platform's account need none. Hidden without the
+          `cross_account_runners` feature. */}
+      {showRunner && (
+        <div className="space-y-2" data-testid="setup-install-runner">
+          <div className="text-sm font-semibold">
+            3 · Install a pipeline runner <span className="font-normal text-fg-muted">(optional)</span>
+          </div>
+          <p className="text-xs text-fg-muted">
+            If your pipelines deploy to your own AWS account, install a runner there so Re-run and Stop work from the
+            dashboard. It is a small Lambda that starts and stops your pipelines with its own role — the platform gets
+            no access to your account.
+          </p>
+          <HelpCodeBlock content={setupRunnerCommand({ region: regionValid ? region : DEFAULT_SETUP_REGION })} language="bash" />
+          <LinkButton href={PIPELINE_RUNNERS_HREF} variant="secondary" size="sm">
+            <Server className="w-4 h-4 mr-1.5" /> Pipeline runners
+          </LinkButton>
         </div>
       )}
 

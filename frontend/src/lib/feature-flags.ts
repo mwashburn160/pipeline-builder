@@ -44,7 +44,7 @@ import {
   type ComplianceContentSet,
 } from '@pipeline-builder/api-core/feature-flags';
 
-export { ALL_FEATURE_FLAGS, SUPPORT_FEATURE_FLAGS, FEATURE_METADATA, type FeatureFlag } from '@pipeline-builder/api-core/feature-flags';
+export { ALL_FEATURE_FLAGS, SUPPORT_FEATURE_FLAGS, OPERATOR_GRANTED_FEATURE_FLAGS, FEATURE_METADATA, type FeatureFlag } from '@pipeline-builder/api-core/feature-flags';
 
 /**
  * The feature flags that gate curated compliance content sets — derived from

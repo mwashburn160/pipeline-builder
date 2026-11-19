@@ -274,6 +274,24 @@ describe('requireFeature (paid entitlement)', () => {
   it('advertises the feature it gates', () => {
     expect(getRouteGates(gate)).toEqual([{ kind: 'feature', feature: 'sso' }]);
   });
+
+  it('tells a caller without a plan feature to upgrade', () => {
+    const r = run(gate, { ...MEMBER, features: [] });
+    expect(r.body.code).toBe('INSUFFICIENT_PERMISSIONS');
+    expect(r.body.message).toBe('This feature requires a higher plan (sso)');
+  });
+
+  it('tells a caller without an OPERATOR-GRANTED feature to ask the operator, not to upgrade', () => {
+    // No plan includes cross_account_runners, so "requires a higher plan" is a
+    // dead end; the refusal must point at the platform operator instead.
+    const r = run(requireFeature('cross_account_runners'), { ...MEMBER, features: [] });
+    expect(r.status).toBe(403);
+    expect(r.body.code).toBe('INSUFFICIENT_PERMISSIONS');
+    expect(r.body.message).not.toMatch(/higher plan/i);
+    expect(r.body.message).toBe(
+      'This feature is not enabled for your organization; ask your platform operator to enable it (cross_account_runners)',
+    );
+  });
 });
 
 describe('no gate admits an anonymous caller', () => {

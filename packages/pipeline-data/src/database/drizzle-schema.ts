@@ -22,6 +22,7 @@ export * from './schema/reporting-stakeholder.js';
 export * from './schema/alert.js';
 export * from './schema/ecosystem.js';
 export * from './schema/toolchain.js';
+export * from './schema/runner.js';
 
 import { alertDestinationStatus, orgAlertDestination, orgAlertRule } from './schema/alert.js';
 import {
@@ -67,6 +68,7 @@ import { message } from './schema/message.js';
 import { pipelineTemplate } from './schema/pipeline-template.js';
 import { pipeline, pipelineRegistry, pipelineEvent, deploymentOutcome, ingestHealth, incident, doraSettings } from './schema/pipeline.js';
 import { plugin, pluginKeptSetupImage } from './schema/plugin.js';
+import { pipelineRunRequest, pipelineRunner } from './schema/runner.js';
 import { doraDeployment, executionDailyRollup, pipelinePluginResolution, pipelineSecurityReport, pipelineStepLookup, pluginVulnExposure } from './schema/reporting-analytics.js';
 import { reportDefinition, reportRun, reportShareLink, reportRecipient } from './schema/reporting-stakeholder.js';
 import { supportCase, supportCaseCounter, supportContact, supportCaseNote, supportCannedResponse } from './schema/support.js';
@@ -95,6 +97,9 @@ export const schema = {
   supportCaseNote,
   supportCannedResponse,
   pipelineRegistry,
+  // Cross-account pipeline runners + their signed run requests (pipeline service)
+  pipelineRunner,
+  pipelineRunRequest,
   pipelineEvent,
   // DORA post-deploy outcome markers + per-org ingestion health
   deploymentOutcome,

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 6c8c731d19c552e0987429a2480421e23002a14ce8d99510947f1c80bc8ec79f
+// SOURCE-SHA256: 6f693f5782d7cfbbfbde9d288771f2ef4ef68d8dc15a948d2039df2155b1d023
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -3601,6 +3601,46 @@ export const envVariablesTopic: HelpTopic = {
               "PIPELINE_EXEC_IDEMPOTENCY_WINDOW_SECONDS",
               "10",
               "Window for the execution-trigger idempotency guard, per (org, pipeline), shared by every start path — a second POST /pipelines/:id/executions or plugin-upgrade apply with redeploy within it starts no second CodePipeline run (a 409 / that pipeline's redeploy.error)"
+            ],
+            [
+              "RUNNER_SIGNING_KEY_FILE",
+              "/etc/pipeline-builder/runner-signing/runner-signing.key",
+              "The Ed25519 private key (PKCS#8 PEM) the pipeline service signs runner run requests with, from deploy/bin/runner-signing-keys.sh; mounted from the runner-signing-key Kubernetes Secret (pipeline only). Its public half is served at GET /api/pipelines/runner/jwks.json. No key ⇒ runners are unavailable; removing it and restarting pipeline is also the emergency stop for all runner delivery (there is no separate kill switch — see secret rotation). Whether an org may use runners at all is the operator-granted per-org feature flag cross_account_runners. RUNNER_SIGNING_KEY (inline PEM) is accepted instead."
+            ],
+            [
+              "RUNNER_SIGNING_KEY_PREVIOUS_FILE",
+              "/etc/pipeline-builder/runner-signing/runner-signing-previous.key",
+              "Rotation: the RETIRING runner-signing key, present only between runner-signing-keys.sh --rotate and --finish. Published in the JWKS, never used to sign; an absent file means no overlap. RUNNER_SIGNING_KEY_PREVIOUS (inline PEM) is accepted instead."
+            ],
+            [
+              "RUNNER_DISPATCH_CONCURRENCY",
+              "16",
+              "How many run requests one pipeline replica delivers to runners in parallel (the runner-dispatch queue's worker concurrency). Requests for the same pipeline are still delivered one at a time."
+            ],
+            [
+              "MIN_RUNNER_VERSION",
+              "—",
+              "Oldest runner version the dispatcher accepts. Empty (the default) sets no minimum. A runner reporting an older version keeps working for RUNNER_UPGRADE_GRACE_DAYS, then is refused."
+            ],
+            [
+              "RUNNER_UPGRADE_GRACE_DAYS",
+              "30",
+              "Days a runner below MIN_RUNNER_VERSION keeps receiving run requests after it is first seen below it."
+            ],
+            [
+              "RUNNER_PLATFORM_EGRESS_IPS",
+              "—",
+              "Comma-separated public egress IPs (or CIDRs) this platform sends run requests from, shown in the runner install instructions for an API Gateway runner's IP allowlist (--allow-ip). Empty = not shown."
+            ],
+            [
+              "RUNNER_REQUEST_RETENTION_DAYS",
+              "90",
+              "Days a started or stopped run request is kept before the retention sweep deletes it."
+            ],
+            [
+              "RUNNER_FAILED_REQUEST_RETENTION_DAYS",
+              "30",
+              "Days a failed or expired run request is kept before the retention sweep deletes it."
             ],
             [
               "BILLING_WEBHOOK_INPROGRESS_TTL_SECONDS",

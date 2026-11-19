@@ -670,6 +670,7 @@
     "internalCallers": [
       "billing",
       "compliance",
+      "pipeline",
       "platform",
       "quota",
       "reporting"

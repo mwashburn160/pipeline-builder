@@ -17,6 +17,7 @@ import { createPurgePipelineRoutes } from './routes/purge-pipeline.js';
 import { createReadPipelineRoutes } from './routes/read-pipelines.js';
 import { createRegistryRoutes } from './routes/registry.js';
 import { createRestorePipelineRoutes } from './routes/restore-pipeline.js';
+import { createRunnerJwksRoutes, createRunnerRoutes } from './routes/runner-routes.js';
 import { createScorecardRoutes } from './routes/scorecard-routes.js';
 import { createSecurityReportRoutes } from './routes/security-report-routes.js';
 import { createUpdatePipelineRoutes } from './routes/update-pipeline.js';
@@ -41,6 +42,10 @@ export function mountRoutes(app: Express, { quotaService }: PipelineRouteDeps): 
   // principals and unauthenticated requests are skipped by both halves. Quotas of
   // OTHER types (create/bulk's 'pipelines' reservation, generate's 'aiCalls')
   // stay on their routes: an AI generation spends one apiCall AND one aiCall.
+  // The runner-signing JWKS is PUBLIC (unauthenticated runner Lambdas fetch
+  // it), so it is served ahead of the apiCalls meter and every auth chain.
+  app.use('/pipelines/runner', createRunnerJwksRoutes());
+
   app.use('/pipelines', ...apiCallsQuota(quotaService));
   app.use('/pipeline-templates', ...apiCallsQuota(quotaService));
 
@@ -79,6 +84,10 @@ export function mountRoutes(app: Express, { quotaService }: PipelineRouteDeps): 
   app.use('/pipelines', createGeneratePipelineRoutes(quotaService));
   app.use('/pipelines', createBulkPipelineRoutes(quotaService));
   app.use('/pipelines', createExecutionRoutes());
+  //    - runners: auth + orgId + org_settings:write per route (writes add
+  //      MFA-grade + step-up); `/:pipelineId/run-requests/:requestId` is a
+  //      pipelines:read. Literal `/runners` is claimed before the read `/:id`.
+  app.use('/pipelines', createRunnerRoutes());
   //    - plugin upgrades + security reports: auth + orgId + their own permission
   //      per route (`/:id/plugin-upgrades/preview` is a READ despite being a POST,
   //      so it must not fall into the shared pipelines:write chain below).

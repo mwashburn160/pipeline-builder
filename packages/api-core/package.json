@@ -158,6 +158,10 @@
         "types": "./lib/types/wire-vocabulary.d.ts",
         "default": "./lib/types/wire-vocabulary.js"
       },
+      "./pipeline-runners": {
+        "types": "./lib/types/pipeline-runners.d.ts",
+        "default": "./lib/types/pipeline-runners.js"
+      },
       "./s3": {
         "types": "./lib/services/s3-client.d.ts",
         "default": "./lib/services/s3-client.js"
@@ -206,6 +210,9 @@
       ],
       "wire-vocabulary": [
         "lib/types/wire-vocabulary.d.ts"
+      ],
+      "pipeline-runners": [
+        "lib/types/pipeline-runners.d.ts"
       ]
     }
   },
@@ -366,6 +373,10 @@
     "./wire-vocabulary": {
       "types": "./lib/types/wire-vocabulary.d.ts",
       "default": "./lib/types/wire-vocabulary.js"
+    },
+    "./pipeline-runners": {
+      "types": "./lib/types/pipeline-runners.d.ts",
+      "default": "./lib/types/pipeline-runners.js"
     },
     "./testing": {
       "types": "./lib/testing/index.d.ts",

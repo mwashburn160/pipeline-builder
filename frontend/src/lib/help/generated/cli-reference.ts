@@ -1,6 +1,6 @@
 // GENERATED FROM docs/pipeline-manager.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: c7e834472feaf2619454aad5545a7e32bfcbc2e06255501892673e5a05d0584c
+// SOURCE-SHA256: 3403293292aa821dd5ac804910adb41339fb5f3401c8c0217d0e8d96a5dd76fd
 // SPDX-License-Identifier: Apache-2.0
 import { Terminal } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -509,6 +509,14 @@ export const cliReferenceTopic: HelpTopic = {
               "Delete a pipeline definition (--id, --yes required). It does not touch AWS — a deployed stack keeps running and shows up in audit stacks as orphaned until destroyed"
             ],
             [
+              "pipeline run",
+              "Start a deployed pipeline with your own AWS credentials (--id, optional --region / --profile, --json). The platform is asked only where the pipeline is (its registry row); the CLI then reads the CodePipeline's pb.pipeline-id tag and refuses unless it equals --id, and starts it with a fresh clientRequestToken. Region: --region, else the region recorded at deploy, else AWS_REGION / AWS_DEFAULT_REGION / CDK_DEFAULT_REGION / the profile's region. For teams that want no runner at all"
+            ],
+            [
+              "pipeline stop",
+              "Stop a running execution with your own AWS credentials (--id, --execution <id>, optional --abandon, --reason). Same tag check as pipeline run, and the execution must belong to that pipeline"
+            ],
+            [
               "status",
               "Show the CLI's setup — not a deployment: the platform it talks to, the credential it would use and when it expires, whether the platform accepts it (GET /api/user/profile, with who and which org), CDK availability and /health reachability"
             ]
@@ -605,6 +613,10 @@ export const cliReferenceTopic: HelpTopic = {
             [
               "infra store-token",
               "Provision the org's machine identity — a service account plus one pb_sa_… key — and store the key in AWS Secrets Manager (read by CodeBuild's registry credentials, the events Lambda and --store-tokens). Add --schedule to also deploy a daily key-rotation stack (rotate → store → revoke) so the key never lapses. Re-run per scope (--scope reporting:ingest, --scope registry:push) — each is its own least-privilege account. With PLATFORM_SECRET_NAME set, the platform key is written to exactly that name and a --scope key to its sibling (…/registry-push, …/reporting-ingest), so running every scope in one shell never overwrites the platform secret. --dry-run prints the plan without signing in or calling the platform. Needs PLATFORM_PASSWORD: both writes are step-up gated"
+            ],
+            [
+              "infra setup-runner",
+              "Install a cross-account pipeline runner in the AWS account your credentials point at, so Re-run and Stop in the dashboard work for pipelines deployed there, without giving the platform any AWS access. Your org needs the cross_account_runners feature, and the platform a runner signing key; the command says which is missing. It registers a pending runner (step-up), deploys pipeline-builder-runner-<label> once with that runner's id, then sends the endpoint (a Lambda Function URL, or with --api-gateway --allow-ip <cidr>... an API Gateway that admits only the platform's egress IPs) to the platform (step-up), which pings it and activates it on pong. --regions <csv> (default: the stack region) and --pipeline-prefix <csv> (default: your org's prefix, from its registered pipeline names) are the runner's local allowlist and scope its IAM role; --pipeline-prefix '*' covers every pipeline and requires --yes. It warns when the region has no pipeline-builder-events stack; --with-events runs infra setup-events --scoped-ingest afterwards. It prints the deployed bundle's SHA-256. Re-running updates the stack in place (and finishes a pending install). --delete revokes the runner the stack names on the platform, then deletes the stack (with no stack in that account and region it revokes only a still-pending runner of that label). --dry-run prints the plan and the exact IAM without calling AWS or the platform; --json for scripts. The endpoint URL is never printed. See Cross-account pipeline runner"
             ],
             [
               "infra setup-events",
@@ -984,6 +996,15 @@ export const cliReferenceTopic: HelpTopic = {
         {
           "type": "text",
           "content": "See Plugin Installing for installs, version policies and the resolution order."
+        },
+        {
+          "type": "text",
+          "content": "Re-run pipelines deployed in another AWS account"
+        },
+        {
+          "type": "code",
+          "content": "pipeline-manager infra setup-runner --region us-east-1 --regions us-east-1,eu-west-2 --dry-run   # review the IAM\npipeline-manager infra setup-runner --region us-east-1 --regions us-east-1,eu-west-2 --with-events\npipeline-manager pipeline run  --id <pipelineId> --profile customer-account\npipeline-manager pipeline stop --id <pipelineId> --execution <executionId> --profile customer-account\npipeline-manager infra setup-runner --region us-east-1 --delete",
+          "language": "bash"
         },
         {
           "type": "text",

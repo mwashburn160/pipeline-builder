@@ -368,7 +368,7 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | message | GET | `/messages/attachments/:id` | `any(messages:read)` |
 | message | GET | `/messages/conversations` | `any(messages:read)` |
 | message | GET | `/messages/deleted` | `any(messages:read)` |
-| message | POST | `/messages/internal/notify` | `service-principal + internal(billing,compliance,platform,quota,reporting)` |
+| message | POST | `/messages/internal/notify` | `service-principal + internal(billing,compliance,pipeline,platform,quota,reporting)` |
 | message | GET | `/messages/internal/offers/frustration/:orgId` | `service-principal + internal(billing)` |
 | message | DELETE | `/messages/internal/org/:orgId/attachments` | `service-principal + internal(platform)` |
 | message | POST | `/messages/internal/orgs/:orgId/purge` | `service-principal + internal(platform)` |
@@ -416,6 +416,12 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | pipeline | GET | `/pipelines/registry` | `dynamic(superadmin,tenant-member) + any(pipelines:read)` |
 | pipeline | POST | `/pipelines/registry` | `any(pipeline_registry:write)` |
 | pipeline | DELETE | `/pipelines/registry/:id` | `any(pipeline_registry:write)` |
+| pipeline | GET | `/pipelines/runners` | `any(org_settings:write) + feature(cross_account_runners)` |
+| pipeline | POST | `/pipelines/runners` | `any(org_settings:write) + feature(cross_account_runners) + aal2 + step-up(any)` |
+| pipeline | PATCH | `/pipelines/runners/:id` | `any(org_settings:write) + feature(cross_account_runners) + aal2 + step-up(any)` |
+| pipeline | DELETE | `/pipelines/runners/:id` | `any(org_settings:write) + feature(cross_account_runners) + aal2 + step-up(any)` |
+| pipeline | POST | `/pipelines/runners/:id/test` | `any(org_settings:write) + feature(cross_account_runners) + aal2 + step-up(any)` |
+| pipeline | GET | `/pipelines/:pipelineId/run-requests/:requestId` | `any(pipelines:read)` |
 | pipeline | GET | `/pipelines/scorecard` | `any(pipelines:read) + feature(advanced_reporting)` |
 | pipeline | POST | `/pipelines/validate` | `any(pipelines:write)` |
 | platform | GET | `/admin/impersonate/requests` | `dynamic(subject,superadmin,tenant-admin,tenant-member:impersonation:approve)` |
@@ -454,6 +460,7 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | platform | GET | `/internal/ai/keys/:orgId/:provider` | `service-principal + internal(ask-agent,pipeline,plugin,reporting)` |
 | platform | GET | `/internal/ecosystem/approvers` | `service-principal + internal(plugin)` |
 | platform | GET | `/internal/ecosystem/publisher-eligibility/:orgId` | `service-principal + internal(plugin)` |
+| platform | GET | `/internal/features/:orgId` | `service-principal + internal(pipeline)` |
 | platform | POST | `/internal/notify-email` | `service-principal + internal(billing,compliance,ops-center,plugin,quota,reporting)` |
 | platform | GET | `/internal/reporting/access-posture/:orgId` | `service-principal + internal(reporting)` |
 | platform | GET | `/internal/offers/seat-activity/:orgId` | `service-principal + internal(billing)` |

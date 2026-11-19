@@ -608,3 +608,53 @@ describe('dora_deployments — the deploy key is per org', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+
+describe('pipeline runner tables — own org only (no system-org read carve-out)', () => {
+  // A runner row carries its org's Function URL (a secret): unlike the generic
+  // tables, the SYSTEM org's rows must not be readable by every tenant.
+  it('pipeline_runners: own row visible; other org AND system org invisible and unwritable', async () => {
+    const insert = (org: string) => db.query<{ id: string }>(
+      "INSERT INTO pipeline_runners (org_id, label, function_url) VALUES ($1, 'r', 'https://abc.lambda-url.us-east-1.on.aws/') RETURNING id", [org]);
+    const a = (await insert(ORG_A)).rows[0]!.id;
+    const b = (await insert(ORG_B)).rows[0]!.id;
+    const sys = (await insert(SYSTEM_ORG)).rows[0]!.id;
+    await asTenant(db, { orgId: ORG_A }, async (q) => {
+      const seen = (await q.query<{ id: string }>('SELECT id FROM pipeline_runners WHERE id = ANY($1)', [[a, b, sys]])).rows.map((r) => r.id);
+      expect(seen).toEqual([a]);
+      expect((await q.query('UPDATE pipeline_runners SET label = label WHERE id = ANY($1)', [[b, sys]])).affectedRows).toBe(0);
+      expect((await q.query('DELETE FROM pipeline_runners WHERE id = ANY($1)', [[b, sys]])).affectedRows).toBe(0);
+    });
+    await expectRlsError(asTenant(db, { orgId: ORG_A }, (q) =>
+      q.query("INSERT INTO pipeline_runners (org_id, label, function_url) VALUES ($1, 'x', 'https://x.lambda-url.us-east-1.on.aws/')", [ORG_B])));
+    await asTenant(db, { orgId: ORG_A, isSysadmin: true }, async (q) => {
+      expect((await q.query('SELECT id FROM pipeline_runners WHERE id = ANY($1)', [[a, b, sys]])).rows).toHaveLength(3);
+    });
+  });
+
+  it('pipeline_run_requests: own org only, and the status/action vocabulary is enforced', async () => {
+    const insert = (org: string) => db.query<{ id: string }>(
+      "INSERT INTO pipeline_run_requests (org_id, pipeline_id, action, requested_by, expires_at) VALUES ($1, $2, 'start', 'u1', now() + interval '10 minutes') RETURNING id",
+      [org, randomUUID()]);
+    const a = (await insert(ORG_A)).rows[0]!.id;
+    const sys = (await insert(SYSTEM_ORG)).rows[0]!.id;
+    await asTenant(db, { orgId: ORG_A }, async (q) => {
+      const seen = (await q.query<{ id: string }>('SELECT id FROM pipeline_run_requests WHERE id = ANY($1)', [[a, sys]])).rows.map((r) => r.id);
+      expect(seen).toEqual([a]);
+    });
+    await expect(db.query("UPDATE pipeline_run_requests SET status = 'bogus' WHERE id = $1", [a])).rejects.toThrow(/check/i);
+    await expect(db.query("INSERT INTO pipeline_run_requests (org_id, pipeline_id, action, requested_by, expires_at) VALUES ('o', $1, 'ping', 'u', now())", [randomUUID()])).rejects.toThrow(/check/i);
+    await expect(db.query("UPDATE pipeline_run_requests SET status = 'claimed' WHERE id = $1", [a])).rejects.toThrow(/check/i);
+    // A pending runner has no URL yet; the status vocabulary is closed.
+    await expect(db.query("INSERT INTO pipeline_runners (org_id, label) VALUES ('o', 'x') RETURNING status")).resolves.toMatchObject({ rows: [{ status: 'pending' }] });
+    await expect(db.query("INSERT INTO pipeline_runners (org_id, label, status) VALUES ('o', 'x', 'paused')")).rejects.toThrow(/check/i);
+    await expect(db.query("INSERT INTO pipeline_runners (org_id, label, function_url, health) VALUES ('o', 'x', 'https://x', 'offline')")).rejects.toThrow(/check/i);
+  });
+
+  it('pipeline_registry carries the nullable runner link', async () => {
+    const r = await db.query<{ is_nullable: string; data_type: string }>(
+      "SELECT is_nullable, data_type FROM information_schema.columns WHERE table_name = 'pipeline_registry' AND column_name = 'runner_id'");
+    expect(r.rows[0]).toEqual({ is_nullable: 'YES', data_type: 'uuid' });
+  });
+});

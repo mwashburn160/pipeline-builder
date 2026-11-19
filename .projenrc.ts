@@ -623,7 +623,9 @@ publishToNpm(apiCore);
 // "keep in sync" and whose drift would have prefilled the quota-admin editor
 // with numbers that are no longer the product's) and `./wire-vocabulary` (the
 // closed string vocabularies that cross the wire — each tuple the frontend's
-// keyed label catalogs derive their order and list from) are
+// keyed label catalogs derive their order and list from) and `./pipeline-runners`
+// (the cross-account runner contract: error codes + metadata, statuses, actions,
+// outcomes, the signed-request claims — also inlined into the runner Lambda) are
 // dependency-free and imported by the BROWSER — the frontend
 // consumes them directly instead of keeping hand-maintained mirrors. `./testing` is the test-helper entry (src/testing):
 // never part of the root barrel, and dropped from the packed package below so
@@ -651,6 +653,7 @@ setPublicSurface(apiCore, {
   './usage-projection': entry('lib/types/usage-projection'),
   './tier-limits': entry('lib/types/tier-limits'),
   './wire-vocabulary': entry('lib/types/wire-vocabulary'),
+  './pipeline-runners': entry('lib/types/pipeline-runners'),
   './testing': entry('lib/testing/index'),
   './s3': entry('lib/services/s3-client'),
   // The env readers (envInt/envBool/envStr) as a LEAF: utils/env.ts has no
@@ -676,6 +679,7 @@ apiCore.package.addField('typesVersions', {
     'usage-projection': ['lib/types/usage-projection.d.ts'],
     'tier-limits': ['lib/types/tier-limits.d.ts'],
     'wire-vocabulary': ['lib/types/wire-vocabulary.d.ts'],
+    'pipeline-runners': ['lib/types/pipeline-runners.d.ts'],
   },
 });
 // Test helpers are workspace-only: `pnpm deploy --prod` (every service image)
@@ -922,6 +926,11 @@ const manager = new ManagerProject({
     // `infra redrive-events` calls SQS StartMessageMoveTask (DLQ → main queue) —
     // the manual fallback for the events Lambda's self-healing redrive.
     `@aws-sdk/client-sqs@${awsSdkVersion}`,
+    // `pipeline run` / `pipeline stop` call CodePipeline with the operator's own
+    // credentials, and the cross-account runner Lambda (src/lambda/runner-handler.ts)
+    // finds a pipeline by its `pb.pipeline-id` tag through the tagging API.
+    `@aws-sdk/client-codepipeline@${awsSdkVersion}`,
+    `@aws-sdk/client-resource-groups-tagging-api@${awsSdkVersion}`,
     'form-data@4.0.6', 'commander@15.1.0', 'figlet@1.12.0',
     'axios@1.21.1', 'progress@2.0.3', 'picocolors@1.1.1', 'yaml@2.9.1', 'ora@10.0.0',
     'zod@4.6.7',
@@ -939,6 +948,8 @@ manager.addPackageIgnore('/dist/js/');
 // `infra store-token --schedule` uploads the token-renew handler as the ONE file
 // in its Lambda zip, so the build bundles it (shared platform-credential code).
 manager.postCompileTask.exec(LAMBDA_BUNDLE('src/lambda/token-renew-handler.ts', 'dist/lambda/token-renew-handler.js'));
+// `infra setup-runner` uploads the cross-account runner the same way: one bundled file.
+manager.postCompileTask.exec(LAMBDA_BUNDLE('src/lambda/runner-handler.ts', 'dist/lambda/runner-handler.js'));
 manager.postCompileTask.exec('copyfiles -f ./cdk.json dist/ --verbose --error');
 manager.postCompileTask.exec('copyfiles -f ./config.yml dist/ --verbose --error');
 manager.postCompileTask.exec('copyfiles -f ./src/templates/*.json dist/templates/ --verbose --error');
@@ -1252,6 +1263,7 @@ if (frontend.jest) {
     '^@pipeline-builder/api-core/usage-projection$': '<rootDir>/../packages/api-core/src/types/usage-projection.ts',
     '^@pipeline-builder/api-core/tier-limits$': '<rootDir>/../packages/api-core/src/types/tier-limits.ts',
     '^@pipeline-builder/api-core/wire-vocabulary$': '<rootDir>/../packages/api-core/src/types/wire-vocabulary.ts',
+    '^@pipeline-builder/api-core/pipeline-runners$': '<rootDir>/../packages/api-core/src/types/pipeline-runners.ts',
     // plugin-scan.ts is the one mapped subpath with RELATIVE imports — its two
     // dependency-free leaves, written with the `.js` extension the compiled lib
     // needs. Mapped to source, those specifiers name files that do not exist
@@ -1342,6 +1354,9 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
       'drizzle-orm@0.45.4',
       `@pipeline-builder/ai-core@${pkg.aiCore}`, 'zod@4.6.7',
       `@aws-sdk/client-codepipeline@${awsSdkVersion}`,
+      // Cross-account runner dispatch: the `runner-dispatch` BullMQ queue on the
+      // service's Redis (same pins as the plugin build queue).
+      'bullmq@6.7.5', 'ioredis@6.0.0',
     ],
     devDeps: ['@types/pg@8.23.1'],
   },

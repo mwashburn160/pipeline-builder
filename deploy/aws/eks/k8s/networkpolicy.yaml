@@ -1483,7 +1483,8 @@ spec:
 ---
 # =============================================================================
 # Pipeline External Egress — CodePipeline API (Start/Stop/GetPipelineState) and
-# the git-provider APIs pipeline registration calls, over 443; plus
+# the git-provider APIs pipeline registration calls, and customers' cross-account
+# pipeline runner URLs (signed run requests, *.lambda-url / *.execute-api), over 443; plus
 # the EKS Pod Identity agent (169.254.170.23:80), which hands the pod its
 #   ServiceAccount's role for the codepipeline:* grant.
 # =============================================================================

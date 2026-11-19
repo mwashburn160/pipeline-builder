@@ -62,6 +62,12 @@ const FEATURE_FLAGS = [
   // is awarded (and withdrawn) by system-org review, never bought. Team and up;
   // no add-on bundle sells it.
   'verified_publisher',
+  // Cross-account pipeline runners: Re-run / Stop of pipelines deployed in the
+  // customer's own AWS accounts, through a runner Lambda there. Included in NO
+  // tier (not even unlimited) and sold by no add-on: an OPERATOR grants it per
+  // org (Organization.featureEntitlements / overrides), and teams inherit it
+  // from their org like any other feature.
+  'cross_account_runners',
   ...SUPPORT_LEVELS,
 ] as const;
 
@@ -80,6 +86,12 @@ export const ALL_FEATURE_FLAGS: readonly FeatureFlag[] = FEATURE_FLAGS;
  * exactly the "included in no tier" decision it would break.
  */
 export const SUPPORT_FEATURE_FLAGS: readonly FeatureFlag[] = SUPPORT_LEVELS;
+
+/**
+ * Flags no tier includes — not even `unlimited` — and no add-on sells: an
+ * operator grants them to one org at a time.
+ */
+export const OPERATOR_GRANTED_FEATURE_FLAGS: readonly FeatureFlag[] = ['cross_account_runners'];
 
 /**
  * The FIRST-RESPONSE TARGET sold at each support level — the canonical wording.
@@ -208,7 +220,8 @@ export const TIER_FEATURES: Record<PlanTier, readonly FeatureFlag[]> = {
   // Unlimited includes every feature / add-on bundle (billing-disabled default).
   // Support included here on purpose: `unlimited` is the billing-OFF tier, where
   // nothing is purchasable, and its `supportContacts` limit is -1 to match.
-  unlimited: [...ALL_FEATURE_FLAGS],
+  // Operator-granted flags (cross-account runners) are the one exception.
+  unlimited: ALL_FEATURE_FLAGS.filter((f) => !OPERATOR_GRANTED_FEATURE_FLAGS.includes(f)),
 };
 
 // Feature metadata (for display)
@@ -246,6 +259,10 @@ export const FEATURE_METADATA: Record<FeatureFlag, { label: string; description:
   compliance_advanced: {
     label: 'Advanced Compliance',
     description: 'Curated framework compliance libraries (SOC2 / PCI-DSS / CIS)',
+  },
+  cross_account_runners: {
+    label: 'Cross-Account Pipeline Runners',
+    description: 'Run and stop pipelines deployed in your own AWS accounts through a runner you install there (granted by your platform operator)',
   },
   stakeholder_reports: {
     label: 'Stakeholder Reports',

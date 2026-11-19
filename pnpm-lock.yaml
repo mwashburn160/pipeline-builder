@@ -526,12 +526,18 @@ importers:
       '@pipeline-builder/pipeline-data':
         specifier: workspace:*
         version: link:../../packages/pipeline-data
+      bullmq:
+        specifier: 6.7.5
+        version: 6.7.5(ioredis@6.0.0(supports-color@8.1.1))(pg@8.23.1)
       drizzle-orm:
         specifier: 0.45.4
         version: 0.45.4(@opentelemetry/api@1.10.0)(@types/pg@8.23.1)(pg@8.23.1)
       express:
         specifier: 5.3.0
         version: 5.3.0(supports-color@8.1.1)
+      ioredis:
+        specifier: 6.0.0
+        version: 6.0.0(supports-color@8.1.1)
       zod:
         specifier: 4.6.7
         version: 4.6.7
@@ -1421,7 +1427,13 @@ importers:
       '@aws-sdk/client-cloudformation':
         specifier: 3.1160.0
         version: 3.1160.0
+      '@aws-sdk/client-codepipeline':
+        specifier: 3.1160.0
+        version: 3.1160.0
       '@aws-sdk/client-lambda':
+        specifier: 3.1160.0
+        version: 3.1160.0
+      '@aws-sdk/client-resource-groups-tagging-api':
         specifier: 3.1160.0
         version: 3.1160.0
       '@aws-sdk/client-secrets-manager':
@@ -1812,6 +1824,10 @@ packages:
 
   '@aws-sdk/client-marketplace-metering@3.1160.0':
     resolution: {integrity: sha512-j1imHO3xG2mxwtJLbMFQJhgxbDspXsDCiUHYUwXRLV+ldPvWFo+V4yVBjQtgBpIS+2SKRw58Br55dNM/5DBM4g==}
+    engines: {node: '>=20.0.0'}
+
+  '@aws-sdk/client-resource-groups-tagging-api@3.1160.0':
+    resolution: {integrity: sha512-vMKOu4OBxxn/q0EkGS8Oj6MwpTRcNOUH8cfKUahZxMbjw+P2zsSSUDat1g9s2Ykk79fu4KiuvQlykfAd+dA5xA==}
     engines: {node: '>=20.0.0'}
 
   '@aws-sdk/client-s3@3.1160.0':
@@ -8000,6 +8016,7 @@ packages:
 
   node-abort-controller@3.1.1:
     resolution: {integrity: sha512-AGK2yQKIjRuqnc6VkX2Xj5d+QW8xZ87pa1UK6yA6ouUyuxfHuMP6umE5QK7UmTeOAymo+Zx1Fxiuw9rVx8taHQ==}
+    deprecated: This package is no longer needed on supported Node.js versions. Node.js 16+ includes AbortController and AbortSignal as built-in globals. All Node.js versions requiring this polyfill are end-of-life. Use the built-in globals instead.
 
   node-addon-api@7.1.1:
     resolution: {integrity: sha512-5m3bsyrjFWE1xf7nz7YXdN4udnVtXK6/Yfgn5qnahL6bCkf2yKt4k3nuTKAtT4r3IG8JNR2ncsIMdZuAzJjHQQ==}
@@ -9667,6 +9684,17 @@ snapshots:
       '@smithy/node-http-handler': 4.13.0
       '@smithy/types': 4.19.0
       tslib: 2.8.1
+
+  '@aws-sdk/client-resource-groups-tagging-api@3.1160.0':
+    dependencies:
+      '@aws-sdk/core': 3.981.0
+      '@aws-sdk/credential-provider-node': 3.972.91
+      '@aws-sdk/types': 3.975.1
+      '@smithy/core': 3.41.0
+      '@smithy/fetch-http-handler': 5.8.0
+      '@smithy/node-http-handler': 4.13.0
+      '@smithy/types': 4.20.0
+      tslib: 2.9.1
 
   '@aws-sdk/client-s3@3.1160.0':
     dependencies:

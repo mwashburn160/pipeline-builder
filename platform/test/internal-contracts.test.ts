@@ -72,6 +72,10 @@ const SAMPLES: Record<keyof typeof PLATFORM_INTERNAL, ContractSample> = {
     params: { orgId: ORG, provider: 'anthropic' },
     response: { provider: 'anthropic', apiKey: 'sk-test' },
   },
+  orgFeatures: {
+    params: { orgId: ORG },
+    response: { features: ['cross_account_runners'] },
+  },
   orgAccountRoot: {
     params: { orgId: ORG },
     response: { orgId: ORG, rootOrgId: '0123456789abcdef01234568' },

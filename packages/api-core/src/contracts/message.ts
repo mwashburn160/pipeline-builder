@@ -110,7 +110,7 @@ export const MESSAGE_INTERNAL = {
     service: 'message',
     method: 'POST',
     path: '/messages/internal/notify',
-    callers: ['platform', 'billing', 'compliance', 'quota', 'reporting'],
+    callers: ['platform', 'billing', 'compliance', 'pipeline', 'quota', 'reporting'],
     auth: 'Service token from a named caller, scoped to the RECIPIENT org (role member). '
       + 'The row is authored in an explicit system tenant scope, not the token\'s org.',
     params: z.object({}),

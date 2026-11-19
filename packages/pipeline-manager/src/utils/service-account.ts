@@ -36,7 +36,7 @@ import type { ApiClient } from './api-client.js';
 import { printInfo, printSuccess, printWarning } from './output-utils.js';
 
 /** Step-up header the platform reads (see api-core `requireStepUp`). */
-const STEP_UP_HEADER = 'X-Step-Up-Token';
+export const STEP_UP_HEADER = 'X-Step-Up-Token';
 
 /**
  * Mints one single-use step-up token for the signed-in operator. Called once per

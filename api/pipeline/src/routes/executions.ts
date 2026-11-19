@@ -18,6 +18,10 @@ import { createAuthenticatedWithOrgRoute, withRoute, incCounter } from '@pipelin
 import { Router } from 'express';
 import { z } from 'zod';
 import { DUPLICATE_TRIGGER_MESSAGE, triggerExecutionInWindow } from '../helpers/trigger-execution.js';
+import { runnersAvailable } from '../runners/deps.js';
+import { routeExecution } from '../runners/execution-routing.js';
+import { RunnerRouteError } from '../runners/routing.js';
+import { principalHasRunnerFeature } from '../runners/vocabulary.js';
 import {
   pipelineExecutionService,
   PipelineExecutionError,
@@ -92,7 +96,8 @@ export function createExecutionRoutes(): Router {
       // Fails open when Redis is unavailable (single-replica / outage). The
       // window is shared with every other start path (plugin-upgrade redeploy).
       try {
-        const started = await triggerExecutionInWindow(pipelineId, orgId);
+        const parentOrgId = req.user?.parentOrganizationId;
+        const started = await triggerExecutionInWindow(pipelineId, orgId, { requestedBy: userId, orgHasFeature: principalHasRunnerFeature(req.user), ...(parentOrgId ? { parentOrgId } : {}) });
         if (started.status === 'duplicate') {
           ctx.log('WARN', 'Duplicate pipeline execution trigger suppressed', { pipelineId });
           recordAudit({
@@ -104,6 +109,23 @@ export function createExecutionRoutes(): Router {
             details: { pipelineId, reason: 'duplicate_suppressed' },
           });
           return sendError(res, 409, DUPLICATE_TRIGGER_MESSAGE, ErrorCode.CONFLICT);
+        }
+        if (started.status === 'queued') {
+          // Cross-account runner: recorded + queued; the dispatcher audits the
+          // terminal outcome. Never the runner's URL or an account id. A start
+          // already pending for this pipeline is returned, not queued again —
+          // audited as `reused` so the trail shows one run, asked for twice.
+          ctx.log('COMPLETED', started.reused ? 'Reused a pending runner start' : 'Queued pipeline execution for a runner', { pipelineId, requestId: started.requestId, runnerId: started.runnerId });
+          recordAudit({
+            action: 'pipeline.execution.start',
+            actorId: actorId({ userId }),
+            orgId,
+            targetType: 'pipeline_execution',
+            details: started.reused
+              ? { pipelineId, reusedRequestId: started.requestId, runnerId: started.runnerId, outcome: 'reused' }
+              : { pipelineId, requestId: started.requestId, runnerId: started.runnerId, attempts: 0, outcome: 'queued' },
+          });
+          return sendSuccess(res, 202, { requestId: started.requestId, status: started.requestStatus, runnerLabel: started.runnerLabel });
         }
         const { executionId } = started;
         ctx.log('COMPLETED', 'Triggered pipeline execution', { pipelineId, executionId });
@@ -128,6 +150,17 @@ export function createExecutionRoutes(): Router {
         return sendSuccess(res, 202, { executionId });
       } catch (err) {
         incCounter('pipeline_executions_total', { outcome: 'failed' });
+        if (err instanceof RunnerRouteError) {
+          recordAudit({
+            action: 'pipeline.execution.start',
+            actorId: actorId({ userId }),
+            orgId,
+            targetType: 'pipeline_execution',
+            outcome: 'failure',
+            details: { pipelineId, reason: err.code.toLowerCase(), outcome: 'refused' },
+          });
+          return sendError(res, err.status, err.message, err.code, err.details);
+        }
         const code = errorMessage(err);
         // A failed start is audited too. No execution id exists (or is known —
         // after a timeout the start may have landed), so there is no targetId.
@@ -169,10 +202,28 @@ export function createExecutionRoutes(): Router {
     }
 
     try {
-      await pipelineExecutionService.stopExecution(pipelineId, orgId, executionId, {
+      const stop = () => pipelineExecutionService.stopExecution(pipelineId, orgId, executionId, {
         reason: validation.value.reason,
         abandon: validation.value.abandon,
       });
+      if (runnersAvailable()) {
+        const parentOrgId = req.user?.parentOrganizationId;
+        const routed = await routeExecution({ pipelineId, orgId, action: 'stop', executionId, requestedBy: userId, orgHasFeature: principalHasRunnerFeature(req.user), ...(parentOrgId ? { parentOrgId } : {}) }, stop);
+        if (routed.kind === 'queued') {
+          ctx.log('COMPLETED', 'Queued pipeline execution stop for a runner', { pipelineId, executionId, requestId: routed.requestId, runnerId: routed.runnerId });
+          recordAudit({
+            action: 'pipeline.execution.cancel',
+            actorId: actorId({ userId }),
+            orgId,
+            targetType: 'pipeline_execution',
+            targetId: executionId,
+            details: { pipelineId, requestId: routed.requestId, runnerId: routed.runnerId, attempts: 0, outcome: 'queued' },
+          });
+          return sendSuccess(res, 202, { requestId: routed.requestId, status: routed.status, runnerLabel: routed.runnerLabel });
+        }
+      } else {
+        await stop();
+      }
       ctx.log('COMPLETED', 'Stopped pipeline execution', { pipelineId, executionId });
 
       // Domain metric — CodePipeline execution stopped/cancelled.
@@ -197,6 +248,18 @@ export function createExecutionRoutes(): Router {
       // happen (not stoppable, not registered, AWS error) is otherwise invisible
       // on the dashboard, which only saw the successful stops.
       incCounter('pipeline_executions_total', { outcome: 'stop_failed' });
+      if (err instanceof RunnerRouteError) {
+        recordAudit({
+          action: 'pipeline.execution.cancel',
+          actorId: actorId({ userId }),
+          orgId,
+          targetType: 'pipeline_execution',
+          targetId: executionId,
+          outcome: 'failure',
+          details: { pipelineId, reason: err.code.toLowerCase(), outcome: 'refused' },
+        });
+        return sendError(res, err.status, err.message, err.code, err.details);
+      }
       const code = errorMessage(err);
       recordAudit({
         action: 'pipeline.execution.cancel',

@@ -1,11 +1,13 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { ReactNode } from 'react';
 import { BaseAlert } from './BaseAlert';
 
 interface ErrorAlertProps {
-  /** Error text. Renders nothing when falsy, so callers can pass state directly. */
-  message?: string | null;
+  /** Error text (or rich copy with a link). Renders nothing when falsy, so
+   *  callers can pass state directly. */
+  message?: ReactNode;
   /** When provided, renders a "Dismiss" link that invokes this. */
   onDismiss?: () => void;
   /** When provided, renders a "Retry" action beside Dismiss. Pass the list's

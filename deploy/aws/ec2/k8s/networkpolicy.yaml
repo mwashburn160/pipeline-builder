@@ -1428,7 +1428,8 @@ spec:
 ---
 # =============================================================================
 # Pipeline External Egress — CodePipeline API (Start/Stop/GetPipelineState) and
-# the git-provider APIs pipeline registration calls, over 443; plus
+# the git-provider APIs pipeline registration calls, and customers' cross-account
+# pipeline runner URLs (signed run requests, *.lambda-url / *.execute-api), over 443; plus
 # IMDS (169.254.169.254:80), where the AWS SDK picks up the instance role
 #   (this target has no per-pod identity) for the codepipeline:* grant.
 # =============================================================================

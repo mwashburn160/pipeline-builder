@@ -2,6 +2,7 @@ import { useEffect, useEffectEvent, useState } from 'react';
 import { formatError } from '@/lib/constants';
 import { CheckCircle, MailWarning, User, Building2, Trash2, Clock } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useFeatures } from '@/hooks/useFeatures';
 import { hasPermission } from '@/lib/auth-helpers';
 import { useFetch } from '@/hooks/useFetch';
 import { useFormState } from '@/hooks/useFormState';
@@ -31,6 +32,8 @@ import { SessionPolicySettings } from '@/components/settings/SessionPolicySettin
 import { AuthenticatorPolicySettings } from '@/components/settings/AuthenticatorPolicySettings';
 import { PluginSecurityNotificationSettings } from '@/components/settings/PluginSecurityNotificationSettings';
 import { PipelineToolchainSettings } from '@/components/settings/PipelineToolchainSettings';
+import { PipelineRunnersSettings } from '@/components/settings/PipelineRunnersSettings';
+import { CROSS_ACCOUNT_RUNNERS_FEATURE, PIPELINE_RUNNERS_ANCHOR } from '@/lib/pipeline-runners';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import Link from 'next/link';
@@ -59,6 +62,9 @@ const SETTINGS_TAB_IDS = SETTINGS_TABS.map((t) => t.id) as readonly string[];
  *  policy, AI provider API keys, and account deletion. */
 export default function SettingsPage() {
   const { user, isReady, refreshUser, can, isSuperAdmin, isReadOnly } = useAuthGuard();
+  // Pipeline runners exist only for orgs an operator granted the feature to —
+  // without it the panel is not mounted at all (and never reads the API).
+  const runnersEnabled = useFeatures().isEnabled(CROSS_ACCOUNT_RUNNERS_FEATURE);
   // READ visibility for the org cards: the raw permission, which a read-only
   // impersonation still holds. `can()` stays the gate for WRITES (each card
   // takes `readOnly`). See the note on the Organization tab below.
@@ -81,7 +87,7 @@ export default function SettingsPage() {
     'tab',
     SETTINGS_TAB_IDS as readonly SettingsTab[],
     'profile',
-    { hashTabs: { [DOMAIN_SETTINGS_ANCHOR]: 'organization' } },
+    { hashTabs: { [DOMAIN_SETTINGS_ANCHOR]: 'organization', [PIPELINE_RUNNERS_ANCHOR]: 'organization' } },
   );
 
   const [username, setUsername] = useState('');
@@ -345,6 +351,17 @@ export default function SettingsPage() {
                 canEdit={canSeeOrgSettings}
                 readOnly={isReadOnly}
               />
+            )}
+
+            {/* Pipeline runners: the Lambdas in customer AWS accounts that Re-run
+                / Stop go through for pipelines outside the platform's account.
+                Same capability as the other org settings; every write is step-up
+                gated and MFA-grade server-side. Renders nothing where the
+                deployment has no runner signing key, and is not mounted at all
+                for an org without `cross_account_runners`. The pipeline page's Re-run / Stop
+                errors deep link here (PIPELINE_RUNNERS_ANCHOR). */}
+            {runnersEnabled && canSeeOrgSettings && user.organizationId && (
+              <PipelineRunnersSettings orgId={user.organizationId} readOnly={isReadOnly} />
             )}
 
             {/* Pipeline toolchain: which managed build-image + cdk-synth release

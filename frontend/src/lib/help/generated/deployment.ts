@@ -1,6 +1,6 @@
 // GENERATED FROM docs/aws-deployment.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: e6b57dc547f98034252036ed80ff4758de33cf8de671cabf3e73214e8d654669
+// SOURCE-SHA256: 706cc645ac8561ddaa8007e4734216c233e0d1a233a6c5a312032f87604a886c
 // SPDX-License-Identifier: Apache-2.0
 import { Server } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -139,6 +139,7 @@ export const deploymentTopic: HelpTopic = {
             "Email (SES) -- Transactional email (provisioned by default; --no-email to skip)",
             "Post-Deploy Steps -- Platform init, credentials, EventBridge reporting",
             "Drift Detection (audit stacks) -- Reconcile registry vs live CloudFormation",
+            "Cross-account pipeline runner -- Re-run / Stop for pipelines in other AWS accounts, with no platform access to them",
             "Report API Endpoints -- Execution and plugin analytics",
             "Access Points -- Service URLs after deployment",
             "File Structure -- Deployment file layout",
@@ -2163,6 +2164,271 @@ export const deploymentTopic: HelpTopic = {
             "Stack content drift — doesn't detect when a stack's resources have been edited in-console but the template still matches the last deploy. Use aws cloudformation detect-stack-drift for that.",
             "Mid-deploy states — only *_COMPLETE statuses are considered active. A stack stuck in CREATE_IN_PROGRESS or ROLLBACK_FAILED will look like a missing stack."
           ]
+        }
+      ]
+    },
+    {
+      "id": "cross-account-pipeline-runner",
+      "title": "Cross-account pipeline runner",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Re-run and Stop call CodePipeline. For pipelines in the platform's own AWS account the pipeline service does that with its own credentials, as it always has. For pipelines deployed into any other account, you install a small runner in that account: a Lambda that starts and stops that account's pipelines with its own IAM role, on requests the platform signs and pushes to it."
+        },
+        {
+          "type": "code",
+          "content": "pipeline-manager infra setup-runner --region us-east-1 --regions us-east-1,eu-west-2 --dry-run   # the plan + exact IAM, no calls\npipeline-manager infra setup-runner --region us-east-1 --regions us-east-1,eu-west-2 --with-events",
+          "language": "bash"
+        },
+        {
+          "type": "text",
+          "content": "Runners are available to an org once the platform operator has provisioned the runner signing key (deploy/bin/runner-signing-keys.sh) and granted the org the cross_account_runners feature. Until then, setup-runner says so and executions behave exactly as before. In an emergency the operator stops all runner delivery by removing the runner signing key and restarting pipeline (runners are then unavailable), or stops one org by revoking its cross_account_runners feature."
+        },
+        {
+          "type": "text",
+          "content": "Trust model"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "",
+            ""
+          ],
+          "rows": [
+            [
+              "AWS access the platform holds for your account",
+              "None. No role, no credentials, no STS grant. The platform needs no new IAM permissions on any deploy target."
+            ],
+            [
+              "Your AWS account number",
+              "Never sent or stored. A Function URL (<id>.lambda-url.<region>.on.aws) or API Gateway URL carries none, and the runner never returns an ARN or account id."
+            ],
+            [
+              "What the platform stores",
+              "The runner's endpoint URL (treated as a secret: shown only to your org's admins, never logged), its label, version, regions and health."
+            ],
+            [
+              "What the runner holds",
+              "No platform credential. Nothing to store, rotate or leak. It trusts a request only because the platform's signature verifies."
+            ],
+            [
+              "What a request can make the runner do",
+              "Start, stop, read an execution's status, or look up a pipeline inside the allowlist you set at install. The platform cannot widen it."
+            ],
+            [
+              "What the runner sends back",
+              "An outcome (started, stopped, status, match, no_match, pong), an execution id and status, or an error code, always with its runnerVersion. Nothing else it reads from your account."
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Every request is checked, in this order (steps 1 and 2 before any AWS call):"
+        },
+        {
+          "type": "list",
+          "items": [
+            "It is a compact JWS (alg: EdDSA, typ: pb-run+jwt) whose signature verifies against the platform's public keys at <platform>/api/pipelines/runner/jwks.json (fetched from that URL only, redirects refused; cached 10 minutes; an unknown key id, or a refresh that failed while keys are cached, refetches at most once a minute). The issuer is pipeline-builder, the audience is this runner's id (the stack's RunnerId parameter is required: setup-runner registers the runner first and deploys with its id, and a function without one refuses everything), and it was issued within its 10-minute lifetime (2 minutes of clock skew allowed). Otherwise: 401 SIGNATURE_INVALID.",
+            "Its request id was not seen in the last 15 minutes. A repeat gets the earlier result back, or 409 DUPLICATE while the first is still running. This cache lives in one warm Lambda container (there can be two, and containers are recycled), so it is best effort. What actually keeps an at-least-once delivery from acting twice is CodePipeline: the request id is the start's clientRequestToken (the same request starts one execution), and a stop of an execution already stopping or stopped answers stopped.",
+            "The pipeline is found by its identity tag (next section), and it is inside the allowlist. Otherwise: 403 RUNNER_REFUSED."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "If the platform itself were compromised, an attacker could send signed start/stop requests, and nothing more: only for pipelines carrying a platform pipeline id, and only inside your allowlist. You can delete the stack (or disable its Function URL) at any time."
+        },
+        {
+          "type": "text",
+          "content": "Threats and mitigations"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Threat",
+            "What stops it"
+          ],
+          "rows": [
+            [
+              "A stranger finds the runner's URL",
+              "Every unsigned or wrongly signed request gets 401 before any AWS call; reserved concurrency 2 caps the cost. --api-gateway --allow-ip also blocks them at the network."
+            ],
+            [
+              "A captured request is replayed",
+              "exp is at most 10 minutes after iat; the request id is remembered for 15 minutes; CodePipeline's clientRequestToken makes a repeated start start nothing new."
+            ],
+            [
+              "A request meant for one runner is sent to another",
+              "The audience is the runner's own id (RunnerId), so any other runner refuses it with 401."
+            ],
+            [
+              "The platform is made to call an internal or attacker host (SSRF)",
+              "A stored endpoint must match .lambda-url.<region>.on.aws or .execute-api.<region>.amazonaws.com(.cn); delivery pins the resolved public IP and refuses redirects."
+            ],
+            [
+              "Another org, or a team, drives your runner",
+              "Runner rows are row-level-secured to the owning org; only runners the owner shares with its teams (shareWithTeams) are probed for them; registering, editing and revoking need org_settings:write, step-up and an MFA-grade session."
+            ],
+            [
+              "A signed request names a pipeline outside the allowlist",
+              "The IAM role covers only the allowlisted regions and prefixes, and the handler checks the allowlist before acting: 403 RUNNER_REFUSED."
+            ],
+            [
+              "A pipeline is renamed, moved or duplicated to impersonate another",
+              "The runner acts only on the pipeline whose pb.pipeline-id tag matches; duplicates give 409 AMBIGUOUS_PIPELINE, a mismatched hint 409 PIPELINE_IDENTITY_MISMATCH."
+            ],
+            [
+              "The runner signing key leaks",
+              "Rotate with deploy/bin/runner-signing-keys.sh --rotate, which keeps the old key published so in-flight requests still verify, then --finish at least 10 minutes later to drop it; runners refetch the JWKS on an unknown key id. In an emergency remove the key (see secret rotation)."
+            ],
+            [
+              "The JWKS endpoint is spoofed",
+              "The runner fetches keys only from the platform URL fixed at install (PLATFORM_BASE_URL, which must be HTTPS in production), with redirects refused."
+            ],
+            [
+              "Account details leak from the platform",
+              "The platform never stores account ids, ARNs or credentials; the endpoint URL is shown only to the owning org's admins and is never logged or audited."
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Finding the pipeline (tag lookup)"
+        },
+        {
+          "type": "text",
+          "content": "Every pipeline the platform deploys carries the tag pb.pipeline-id = <platform pipeline id>, and user tags cannot overwrite it. The runner finds the pipeline by that tag, never by name: tag:GetResources filtered to codepipeline:pipeline, in each allowlisted region (the request's region hint first), following every page."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Tag lookup finds",
+            "The runner"
+          ],
+          "rows": [
+            [
+              "Exactly one pipeline",
+              "Takes its name and region from the result, checks the allowlist, acts."
+            ],
+            [
+              "More than one",
+              "Refuses: 409 AMBIGUOUS_PIPELINE. Two deployments in this account carry the same platform id; remove the duplicate."
+            ],
+            [
+              "None",
+              "Checks the hint (the name and region the platform last recorded) with ListTagsForResource, and acts only if that pipeline's tag matches. A pipeline with no tag gives 409 PIPELINE_NOT_TAGGED (redeploy it with pipeline-manager pipeline deploy); another pipeline's tag gives 409 PIPELINE_IDENTITY_MISMATCH; no pipeline there gives 404 PIPELINE_NOT_FOUND (the platform then clears a stale link and looks for the pipeline across your runners once). With no hint to check, 409 NOT_YET_VISIBLE."
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "The tagging index can trail a fresh deploy by a few minutes; the hint covers that. NOT_YET_VISIBLE (only when there is no hint) makes the platform redeliver every 15 seconds for up to a minute before failing the request. A pipeline the index still lists after deletion answers 404 PIPELINE_NOT_FOUND when started."
+        },
+        {
+          "type": "text",
+          "content": "tag:GetResources cannot be limited to particular resources (an AWS restriction), so the runner can read tags across the account. The call is read-only and its results never leave the account. Every action the runner can take is still limited to the allowlisted pipelines."
+        },
+        {
+          "type": "text",
+          "content": "The stack"
+        },
+        {
+          "type": "text",
+          "content": "pipeline-builder-runner-<label> (--label, default default; several runners can share an account):"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Part",
+            ""
+          ],
+          "rows": [
+            [
+              "Lambda",
+              "Node.js 26, 30 s timeout, reserved concurrency 2, which caps the cost of anyone hammering the endpoint. It runs the bundle shipped with your pipeline-manager version and reports that version in every response; the platform flags runners older than its MIN_RUNNER_VERSION, and you update one by re-running setup-runner with a newer CLI. setup-runner prints the bundle's SHA-256 (in --json too), so you can check it against the release notes"
+            ],
+            [
+              "Execution role",
+              "tag:GetResources; codepipeline:StartPipelineExecution, StopPipelineExecution, GetPipelineExecution, ListTagsForResource (exactly the calls the handler makes) on arn:<partition>:codepipeline:<region>:<account>:<prefix>*, one ARN per allowlisted region and prefix; CloudWatch Logs. Nothing else."
+            ],
+            [
+              "Allowlist",
+              "--regions (default: the stack region) and --pipeline-prefix (default: your org's pipeline-name prefix, derived from its registered pipelines). --pipeline-prefix '*' covers every pipeline in those regions and needs --yes."
+            ],
+            [
+              "Logs",
+              "Each request is logged in the runner's own CloudWatch log group (90-day retention) with the request id and the requesting platform user id, never an ARN, account id or signature. Actions show in CloudTrail as the runner's role."
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Endpoint protection: Function URL or API Gateway"
+        },
+        {
+          "type": "text",
+          "content": "By default the runner is reached through a Lambda Function URL with AuthType NONE. That is deliberate. The platform has no AWS identity to sign SigV4 with, so the gate is the request signature, verified before any AWS call, plus the reserved concurrency cap. A stranger who learns the URL can make it answer 401, and nothing else."
+        },
+        {
+          "type": "text",
+          "content": "To also restrict who can reach it, front it with API Gateway instead:"
+        },
+        {
+          "type": "code",
+          "content": "pipeline-manager infra setup-runner --region us-east-1 --api-gateway --allow-ip 203.0.113.10/32 --allow-ip 203.0.113.11/32",
+          "language": "bash"
+        },
+        {
+          "type": "text",
+          "content": "This deploys a regional REST API whose resource policy admits only the given CIDRs (your platform's egress IPs; when the operator has configured them, the Pipeline runners settings panel lists them), throttled to 5 requests per second, and no Function URL. The signature checks still apply. A resource-policy change takes effect only when the API is redeployed, so setup-runner names the API deployment after the allowlist: re-running it with different --allow-ip values deploys the new policy."
+        },
+        {
+          "type": "text",
+          "content": "How install works"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Check the platform: runners must be enabled for your org (otherwise \"Cross-account runners are not enabled for your organization — ask your platform operator.\") and the platform must have a signing key (otherwise \"this platform has no runner signing key configured\"). Nothing is created in AWS before this passes.",
+            "Register a pending runner: POST /api/pipelines/runners { label, regions }, gated by step-up (--step-up auto|password|totp|browser, as store-token) and an MFA-grade session. The platform returns the runner's id.",
+            "Deploy the stack once, with that id as RUNNER_ID, and upload the bundled handler. From its first invocation the runner accepts only requests addressed to itself.",
+            "Read the endpoint from the stack outputs. It is never printed.",
+            "Send it: PATCH /api/pipelines/runners/:id { functionUrl } (step-up). The platform checks the host and sends a signed ping; a pong makes the runner active. If the ping fails (422 RUNNER_PING_FAILED), the stack stays deployed and the runner stays pending. Check the runner's CloudWatch logs and re-run setup-runner, which resumes with the same runner. The platform deletes runners still pending after 24 hours.",
+            "Check event reporting: without the pipeline-builder-events stack in the region, runs the runner starts show as started but report no progress, so setup-runner warns. --with-events runs infra setup-events --scoped-ingest afterwards (it needs the reporting:ingest key from infra store-token --scope reporting:ingest --schedule)."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Re-running setup-runner on an installed stack updates it in place: same runner, the new allowlist and code. A still-pending runner, or one whose endpoint changed (for example after switching to --api-gateway), gets the endpoint sent again; an active one gets a signed test ping."
+        },
+        {
+          "type": "text",
+          "content": "Without a runner: pipeline run / pipeline stop"
+        },
+        {
+          "type": "text",
+          "content": "Teams that want nothing installed can start and stop pipelines from a terminal with their own AWS credentials:"
+        },
+        {
+          "type": "code",
+          "content": "pipeline-manager pipeline run  --id <pipelineId> --profile customer-account\npipeline-manager pipeline stop --id <pipelineId> --execution <executionId> --profile customer-account",
+          "language": "bash"
+        },
+        {
+          "type": "text",
+          "content": "The CLI asks the platform only where the pipeline is, then performs the same identity check: the CodePipeline's pb.pipeline-id tag must equal --id."
+        },
+        {
+          "type": "text",
+          "content": "Teardown"
+        },
+        {
+          "type": "code",
+          "content": "pipeline-manager infra setup-runner --region us-east-1 --label default --delete",
+          "language": "bash"
+        },
+        {
+          "type": "text",
+          "content": "This revokes the runner on the platform first (step-up): delivery stops, its pipeline links are cleared and pending requests expire. Then it deletes the stack. If the revoke fails for any reason other than \"already gone\", the stack is left in place, so a runner the platform still believes in never silently disappears. The runner revoked is the one the stack in this account and region names. With no stack there, only a still-pending runner of that label is revoked; an active one is refused (it is installed in another account or region, so re-run there or revoke it from the settings panel). Deleting the stack by hand (or disabling the Function URL) also cuts the platform off at once; the runner then shows as Unreachable and can be revoked from Settings → Organization → Pipeline runners."
         }
       ]
     },

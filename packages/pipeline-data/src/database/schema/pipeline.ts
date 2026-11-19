@@ -190,6 +190,11 @@ export const pipelineRegistry = pgTable('pipeline_registry', {
   organization: varchar('organization', { length: 255 }),
   lastDeployed: timestamp('last_deployed', { withTimezone: true }),
   stackName: varchar('stack_name', { length: 255 }),
+  // `runner_id` (the cross-account runner link) is deliberately NOT mapped
+  // here: every query over this table object selects its mapped columns, and a
+  // database created before runners has no such column. It is reached only
+  // through `pipelineRegistryRunnerLink` (schema/runner.ts), and only when the
+  // deployment has a runner signing key.
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({

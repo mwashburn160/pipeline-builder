@@ -1,6 +1,6 @@
 // GENERATED FROM docs/onboarding.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 2324cb0e7be215f6e9455fe5312a76fd79886c792c5d23cf09088f3d98e3ea2d
+// SOURCE-SHA256: fedba7b59c43ff9430cbf671707220643b0b1e32ee1a3ca3979949a44dc126be
 // SPDX-License-Identifier: Apache-2.0
 import { Rocket } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -196,6 +196,12 @@ export const onboardingTopic: HelpTopic = {
               "Set up event reporting (AWS)",
               "✅ --with-events",
               "infra setup-events --scoped-ingest"
+            ],
+            [
+              "6b",
+              "Install a pipeline runner (optional; pipelines in other AWS accounts)",
+              "— run in that account",
+              "infra setup-runner"
             ],
             [
               "7",
@@ -403,6 +409,33 @@ export const onboardingTopic: HelpTopic = {
         {
           "type": "text",
           "content": "Full detail: Deploy EventBridge Reporting Infrastructure · DORA Metrics."
+        }
+      ]
+    },
+    {
+      "id": "step-6b-install-a-pipeline-runner-optional-aws",
+      "title": "Step 6b — Install a pipeline runner (optional, AWS)",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Only needed for pipelines deployed into an AWS account other than the platform's. In the platform's own account, Re-run and Stop already work with the platform's credentials — a runner there adds nothing, which is why provision does not install one."
+        },
+        {
+          "type": "text",
+          "content": "A runner is a small Lambda in your account. The platform queues run requests and pushes them, signed, to the runner's Function URL; the runner finds the pipeline by its pb.pipeline-id tag and starts or stops it with its own role. The platform holds no AWS access to the account, no account number, and the runner holds no platform credential. Run this once per AWS account, with credentials for that account (an org admin with org_settings:write; it asks for a step-up):"
+        },
+        {
+          "type": "code",
+          "content": "export PLATFORM_BASE_URL=https://pipeline.example.com\npipeline-manager auth login\npipeline-manager infra setup-runner --region us-east-1 --regions us-east-1,eu-west-2 --label prod",
+          "language": "bash"
+        },
+        {
+          "type": "text",
+          "content": "It deploys the runner stack, registers the runner with the platform, and runs a test. Manage runners under Settings → Organization → Pipeline runners; remove one with pipeline-manager infra setup-runner --delete. Prefer no inbound endpoint? Use pipeline-manager pipeline run --id <pipelineId> (and pipeline stop) with your own AWS credentials instead. Full detail: Cross-account pipeline runner."
+        },
+        {
+          "type": "note",
+          "content": "Cross-account runners are a per-org feature (cross_account_runners) the platform operator grants, on a deployment that has the runner signing key."
         }
       ]
     },

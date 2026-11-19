@@ -89,7 +89,17 @@
       "type": "runtime"
     },
     {
+      "name": "@aws-sdk/client-codepipeline",
+      "version": "3.1160.0",
+      "type": "runtime"
+    },
+    {
       "name": "@aws-sdk/client-lambda",
+      "version": "3.1160.0",
+      "type": "runtime"
+    },
+    {
+      "name": "@aws-sdk/client-resource-groups-tagging-api",
       "version": "3.1160.0",
       "type": "runtime"
     },

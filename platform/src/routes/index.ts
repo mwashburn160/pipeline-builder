@@ -15,6 +15,7 @@ export { default as notifyEmailRoutes, NOTIFY_EMAIL_MOUNT } from './notify-email
 export { default as ecosystemInternalRoutes, ECOSYSTEM_INTERNAL_MOUNT } from './ecosystem-internal.js';
 export { default as reportingInternalRoutes, REPORTING_INTERNAL_MOUNT } from './reporting-internal.js';
 export { default as aiInternalRoutes, AI_INTERNAL_MOUNT } from './ai-internal.js';
+export { default as featuresInternalRoutes, FEATURES_INTERNAL_MOUNT } from './features-internal.js';
 export { default as supportInternalRoutes, SUPPORT_INTERNAL_MOUNT } from './support-internal.js';
 export { default as offersInternalRoutes, OFFERS_INTERNAL_MOUNT } from './offers-internal.js';
 export { default as opsInternalRoutes, OPS_INTERNAL_MOUNT } from './ops-internal.js';

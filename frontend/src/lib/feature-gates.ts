@@ -45,8 +45,12 @@ export type FeatureEnforcement = 'route' | 'handler' | 'entitlement-only';
  *               plan the feature starts at — the same destination AddonGrid's
  *               own `prerequisiteLink` uses when nothing on sale provides a
  *               prerequisite.
+ *  - `operator` — granted per org by the platform operator; no plan includes it
+ *               and nothing sells it. Its surfaces are HIDDEN without it, never
+ *               locked, so no lock should render — but if one ever did, it says
+ *               to ask the operator and links nowhere near billing.
  */
-export type FeatureAcquisition = 'bundle' | 'tier';
+export type FeatureAcquisition = 'bundle' | 'tier' | 'operator';
 
 export interface FeatureGateSpec {
   enforcement: FeatureEnforcement;
@@ -178,6 +182,21 @@ export const FEATURE_GATES: Record<FeatureFlag, FeatureGateSpec> = {
     unlocks: 'applying for the Verified badge on your plugin-ecosystem publisher',
     note: 'Eligibility only, and not yet checked by any route: the ecosystem publisher routes will gate the Verified application on it. Reclassify to `handler`/`route` and add the control when they land.',
   },
+  cross_account_runners: {
+    // Every admin route under /pipelines/runners carries requireFeature, but the
+    // UI HIDES the runner surfaces without the flag (not locked, no upsell): an
+    // operator grants it, nobody can buy it.
+    enforcement: 'route',
+    acquiredVia: 'operator',
+    controls: [
+      'src/lib/pipeline-runners.ts',
+      'pages/dashboard/settings.tsx',
+      'pages/dashboard/pipelines/[id].tsx',
+      'src/components/onboarding/OrgSetupStep.tsx',
+    ],
+    unlocks: 'Re-run and Stop for pipelines in your own AWS accounts, through a pipeline runner',
+    note: 'Operator-granted per org. Hidden, never locked.',
+  },
   custom_integrations: {
     enforcement: 'entitlement-only',
     acquiredVia: 'tier',
@@ -198,6 +217,7 @@ export const FEATURE_GATES: Record<FeatureFlag, FeatureGateSpec> = {
  * Only offer it to a viewer who can OPEN that page — see {@link featureUpsellAdvice}.
  */
 export function featureUpsellHref(flag: FeatureFlag): string {
+  if (FEATURE_GATES[flag].acquiredVia === 'operator') return '/dashboard/messages';
   return FEATURE_GATES[flag].acquiredVia === 'tier'
     ? '/dashboard/billing?tab=plans'
     : `/dashboard/billing?highlight=${flag}`;
@@ -205,6 +225,7 @@ export function featureUpsellHref(flag: FeatureFlag): string {
 
 /** Link text for the upsell CTA, matching where {@link featureUpsellHref} goes. */
 export function featureUpsellCta(flag: FeatureFlag): string {
+  if (FEATURE_GATES[flag].acquiredVia === 'operator') return 'Contact your platform operator';
   return FEATURE_GATES[flag].acquiredVia === 'tier' ? 'Compare plans' : 'See it in Billing';
 }
 
@@ -216,6 +237,7 @@ export function featureUpsellCta(flag: FeatureFlag): string {
  * sentence rather than repeating it.
  */
 export function featureUpsellTrailer(flag: FeatureFlag): string {
+  if (FEATURE_GATES[flag].acquiredVia === 'operator') return ' to have it enabled.';
   return FEATURE_GATES[flag].acquiredVia === 'tier' ? '.' : ' to add it to your plan.';
 }
 
@@ -231,7 +253,11 @@ export const FEATURE_UPSELL_ADVICE = 'Ask an organization owner or admin to add 
 /** The same advice for a TIER feature, where there is nothing to "add". */
 export const FEATURE_UPGRADE_ADVICE = 'Ask an organization owner or admin about upgrading the plan.';
 
-/** Whichever of the two advice lines fits how this flag is acquired. */
+/** The advice line for an operator-granted flag (nobody in the org can add it). */
+export const FEATURE_OPERATOR_ADVICE = 'Ask your platform operator to enable it for your organization.';
+
+/** Whichever of the advice lines fits how this flag is acquired. */
 export function featureUpsellAdvice(flag: FeatureFlag): string {
+  if (FEATURE_GATES[flag].acquiredVia === 'operator') return FEATURE_OPERATOR_ADVICE;
   return FEATURE_GATES[flag].acquiredVia === 'tier' ? FEATURE_UPGRADE_ADVICE : FEATURE_UPSELL_ADVICE;
 }

@@ -8,13 +8,14 @@
  * commands don't apply. The CLI-install step + Done button show on every target.
  */
 
-import { describe, it, expect, jest } from '@jest/globals';
+import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
 import { render, screen } from '@testing-library/react';
 
 // deployTarget flows from useFeatures(); drive it per test.
 let mockDeployTarget = 'local';
+let mockFeatures: string[] = [];
 jest.mock('@/hooks/useFeatures', () => ({
-  useFeatures: () => ({ deployTarget: mockDeployTarget, isEnabled: () => false, features: [], isLoaded: true, supportAlias: '', supportAliases: [], cliNpmPackage: '@acme/pb-cli', cliNpmUrl: 'https://registry.acme.test/pb-cli' }),
+  useFeatures: () => ({ deployTarget: mockDeployTarget, isEnabled: (f: string) => mockFeatures.includes(f), features: [], isLoaded: true, supportAlias: '', supportAliases: [], cliNpmPackage: '@acme/pb-cli', cliNpmUrl: 'https://registry.acme.test/pb-cli' }),
 }));
 
 import { OrgSetupStep } from '../src/components/onboarding/OrgSetupStep';
@@ -57,5 +58,40 @@ describe('OrgSetupStep — AWS event-metrics gating', () => {
     mockDeployTarget = 'minikube';
     rerender(<OrgSetupStep onDone={noop} />);
     expect(screen.queryByText(/Set up pipeline event metrics/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('OrgSetupStep — install a pipeline runner (optional)', () => {
+  beforeEach(() => { mockFeatures = ['cross_account_runners']; });
+  afterEach(() => { mockFeatures = []; });
+
+  it('on an AWS target, offers the optional step with the CLI command and a link to Settings → Pipeline runners', () => {
+    mockDeployTarget = 'aws-ec2';
+    render(<OrgSetupStep onDone={noop} />);
+    const step = screen.getByTestId('setup-install-runner');
+    expect(step).toHaveTextContent(/Install a pipeline runner/);
+    expect(step).toHaveTextContent(/optional/);
+    expect(step).toHaveTextContent('pipeline-manager infra setup-runner --region us-east-1');
+    expect(screen.getByRole('link', { name: /Pipeline runners/ })).toHaveAttribute('href', '/dashboard/settings?tab=organization#pipeline-runners');
+    // Listed in the overview too.
+    expect(screen.getAllByText(/Install a pipeline runner/).length).toBe(2);
+  });
+
+  it('is absent on a non-AWS target', () => {
+    mockDeployTarget = 'local';
+    render(<OrgSetupStep onDone={noop} />);
+    expect(screen.queryByTestId('setup-install-runner')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Install a pipeline runner/)).not.toBeInTheDocument();
+  });
+
+  it('is hidden (step and overview line, no upsell) on an AWS target without the cross_account_runners feature', () => {
+    mockFeatures = [];
+    mockDeployTarget = 'aws-ec2';
+    render(<OrgSetupStep onDone={noop} />);
+    expect(screen.queryByTestId('setup-install-runner')).not.toBeInTheDocument();
+    expect(screen.queryByText(/pipeline runner/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/setup-runner/)).not.toBeInTheDocument();
+    // The rest of the AWS guide is unaffected.
+    expect(screen.getByText(/Store a service token/i)).toBeInTheDocument();
   });
 });

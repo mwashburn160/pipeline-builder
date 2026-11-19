@@ -331,6 +331,8 @@ Run `pipeline-manager <command> --help` for the full flag reference on any comma
 | `pipeline register` | Re-register a deployed pipeline and drain pending intents queued by prior failed deploys (recovery path; exits non-zero if any registration still fails) |
 | `pipeline deregister` | Remove one `pipeline_registry` row by its registry id (`--id`, `--yes` required). The fix `audit stacks` prints for a missing-stack finding (a row whose stack was deleted out of band) |
 | `pipeline delete` | Delete a pipeline definition (`--id`, `--yes` required). It does not touch AWS — a deployed stack keeps running and shows up in `audit stacks` as orphaned until destroyed |
+| `pipeline run` | Start a deployed pipeline with **your own AWS credentials** (`--id`, optional `--region` / `--profile`, `--json`). The platform is asked only where the pipeline is (its registry row); the CLI then reads the CodePipeline's `pb.pipeline-id` tag and refuses unless it equals `--id`, and starts it with a fresh `clientRequestToken`. Region: `--region`, else the region recorded at deploy, else `AWS_REGION` / `AWS_DEFAULT_REGION` / `CDK_DEFAULT_REGION` / the profile's region. For teams that want no runner at all |
+| `pipeline stop` | Stop a running execution with your own AWS credentials (`--id`, `--execution <id>`, optional `--abandon`, `--reason`). Same tag check as `pipeline run`, and the execution must belong to that pipeline |
 | `status` | Show the CLI's setup — not a deployment: the platform it talks to, the credential it would use and when it expires, whether the platform **accepts** it (`GET /api/user/profile`, with who and which org), CDK availability and `/health` reachability |
 
 ### Resource management
@@ -359,6 +361,7 @@ Run `pipeline-manager <command> --help` for the full flag reference on any comma
 | `auth logout` | Sign this device out: revoke the stored session on the platform (`POST /api/auth/logout`, renewing an expired access token first) and delete it from `~/.pipeline-manager/credentials.json`. The local copy is always removed; when the platform can't be reached the command says so, and the device is then revoked from **Settings → Sessions and devices**. `PLATFORM_TOKEN` and access keys are untouched |
 | `auth pat` | Create a named access key (`pb_pat_…`) for CI. Uses the same browser sign-in, and the approval doubles as the step-up the platform requires to create a key — so no password is typed here either. The key is printed **once** |
 | `infra store-token` | Provision the org's machine identity — a **service account** plus one `pb_sa_…` key — and store the key in AWS Secrets Manager (read by CodeBuild's registry credentials, the events Lambda and `--store-tokens`). Add `--schedule` to also deploy a daily **key-rotation** stack (rotate → store → revoke) so the key never lapses. Re-run per scope (`--scope reporting:ingest`, `--scope registry:push`) — each is its own least-privilege account. With `PLATFORM_SECRET_NAME` set, the platform key is written to exactly that name and a `--scope` key to its sibling (`…/registry-push`, `…/reporting-ingest`), so running every scope in one shell never overwrites the platform secret. `--dry-run` prints the plan without signing in or calling the platform. Needs `PLATFORM_PASSWORD`: both writes are step-up gated |
+| `infra setup-runner` | Install a **cross-account pipeline runner** in the AWS account your credentials point at, so Re-run and Stop in the dashboard work for pipelines deployed there, without giving the platform any AWS access. Your org needs the `cross_account_runners` feature, and the platform a runner signing key; the command says which is missing. It registers a pending runner (step-up), deploys `pipeline-builder-runner-<label>` **once** with that runner's id, then sends the endpoint (a Lambda Function URL, or with `--api-gateway --allow-ip <cidr>...` an API Gateway that admits only the platform's egress IPs) to the platform (step-up), which pings it and activates it on `pong`. `--regions <csv>` (default: the stack region) and `--pipeline-prefix <csv>` (default: your org's prefix, from its registered pipeline names) are the runner's local allowlist and scope its IAM role; `--pipeline-prefix '*'` covers every pipeline and requires `--yes`. It warns when the region has no `pipeline-builder-events` stack; `--with-events` runs `infra setup-events --scoped-ingest` afterwards. It prints the deployed bundle's SHA-256. Re-running updates the stack in place (and finishes a pending install). `--delete` revokes the runner the stack names on the platform, then deletes the stack (with no stack in that account and region it revokes only a still-pending runner of that label). `--dry-run` prints the plan and the exact IAM without calling AWS or the platform; `--json` for scripts. The endpoint URL is never printed. See [Cross-account pipeline runner](aws-deployment.md#cross-account-pipeline-runner) |
 | `infra setup-events` | Deploy the EventBridge → SQS → Lambda stack that streams CodePipeline events into the platform's reporting service. Add **`--with-dora`** to also resolve source commit timestamps in-account for **measured** commit→deploy lead time — off by default (**why:** it adds an SCM call + a `github-token`-secret read per deploy event, so only worthwhile for orgs on the `advanced_reporting` add-on; the other DORA metrics work without it and lead time simply reports `unknown`). Re-run to toggle. |
 | `infra redrive-events` | Manual fallback for the events Lambda's self-healing redrive: move dead-lettered CodePipeline events from `pipeline-builder-events-dlq` back onto the ingestion queue via SQS `StartMessageMoveTask`. Skips the move when the DLQ is empty or a move task is already running; idempotent ingest prevents double-counting |
 
@@ -547,6 +550,19 @@ plugin: { publisher: acme, name: terraform-plan, filter: { version: '^1' } } # o
 - A qualified step's construct id is `<publisher>-<name>` (when it has no alias) and its default artifact alias is `<publisher>-<name>-alias`. Unqualified references are unchanged.
 
 See [Plugin Installing](plugin-installing.md) for installs, version policies and the resolution order.
+
+### Re-run pipelines deployed in another AWS account
+
+```bash
+# In the pipelines' account, with that account's credentials (once per account):
+pipeline-manager infra setup-runner --region us-east-1 --regions us-east-1,eu-west-2 --dry-run   # review the IAM
+pipeline-manager infra setup-runner --region us-east-1 --regions us-east-1,eu-west-2 --with-events
+# Re-run / Stop in the dashboard now reach those pipelines. Without a runner, with your own credentials:
+pipeline-manager pipeline run  --id <pipelineId> --profile customer-account
+pipeline-manager pipeline stop --id <pipelineId> --execution <executionId> --profile customer-account
+# Remove it (revokes on the platform first, then deletes the stack):
+pipeline-manager infra setup-runner --region us-east-1 --delete
+```
 
 ### Schedule drift detection (cron)
 

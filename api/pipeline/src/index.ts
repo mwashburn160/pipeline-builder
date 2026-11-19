@@ -6,6 +6,7 @@ import { createApp, runServer, attachRequestContext, postgresHealthCheck } from 
 import { createSoftDeletePurgeScheduler } from '@pipeline-builder/pipeline-data';
 
 import { mountRoutes } from './app-routes.js';
+import { startRunnerDispatch } from './runners/dispatch-queue.js';
 import { pipelineService } from './services/pipeline-service.js';
 import { pipelineTemplateService } from './services/pipeline-template-service.js';
 
@@ -44,11 +45,16 @@ const purgeScheduler = createSoftDeletePurgeScheduler({
   ],
 });
 
+// Cross-account runner dispatch (BullMQ `runner-dispatch` + the sweep). A
+// no-op unless a runner signing key is configured (each org also needs the
+// `cross_account_runners` feature).
+const runnerDispatch = startRunnerDispatch();
+
 void runServer(app, {
   name: 'Pipeline Service',
   sseManager,
   // No boot-time migrations: the schema is owned by postgres-init.sql and the
   // service connects as a non-superuser app role without DDL rights.
-  onShutdown: async () => { purgeScheduler?.stop(); },
+  onShutdown: async () => { purgeScheduler?.stop(); await runnerDispatch.stop(); },
 });
 purgeScheduler?.start();

@@ -26,7 +26,7 @@
 import { describe, it, expect } from '@jest/globals';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { ALL_FEATURE_FLAGS, SUPPORT_FEATURE_FLAGS, type FeatureFlag } from '../src/lib/feature-flags';
+import { ALL_FEATURE_FLAGS, OPERATOR_GRANTED_FEATURE_FLAGS, SUPPORT_FEATURE_FLAGS, type FeatureFlag } from '../src/lib/feature-flags';
 import { FEATURE_GATES, featureUpsellHref, featureUpsellCta, featureUpsellTrailer, featureUpsellAdvice } from '../src/lib/feature-gates';
 
 const apiCoreCatalog = readFileSync(
@@ -73,7 +73,10 @@ describe('feature-gate upsell routing', () => {
     // Enterprise is every flag EXCEPT the add-on-only support levels: support is
     // an add-on at every tier and included in none, so `TIER_FEATURES.enterprise`
     // is an explicit list rather than a spread of ALL_FEATURE_FLAGS.
-    expect(tierFeatures('enterprise').size).toBe(ALL_FEATURE_FLAGS.length - SUPPORT_FEATURE_FLAGS.length);
+    // …and except the operator-granted flags (cross-account runners), which no
+    // tier includes and no bundle sells.
+    expect(tierFeatures('enterprise').size).toBe(ALL_FEATURE_FLAGS.length - SUPPORT_FEATURE_FLAGS.length - 1);
+    expect(tierFeatures('enterprise').has('cross_account_runners')).toBe(false);
     // Developer holds exactly one flag: AI generation, as a trial (its small
     // `aiCalls` allowance is what makes it a trial).
     expect([...tierFeatures('developer')]).toEqual(['ai_generation']);
@@ -81,7 +84,22 @@ describe('feature-gate upsell routing', () => {
   });
 
   it.each([...ALL_FEATURE_FLAGS])('%s declares how it is acquired', (flag: FeatureFlag) => {
-    expect(['bundle', 'tier']).toContain(FEATURE_GATES[flag].acquiredVia);
+    expect(['bundle', 'tier', 'operator']).toContain(FEATURE_GATES[flag].acquiredVia);
+  });
+
+  it('an operator-granted flag is in no tier and no bundle, and never points at billing', () => {
+    const operator = ALL_FEATURE_FLAGS.filter((f) => FEATURE_GATES[f].acquiredVia === 'operator');
+    // Exactly api-core's operator-granted list — the server's own classification.
+    expect(operator).toEqual([...OPERATOR_GRANTED_FEATURE_FLAGS]);
+    expect(operator).toEqual(['cross_account_runners']);
+    for (const flag of operator) {
+      expect(lowestPlanIncluding(flag)).toBeNull();
+      expect(isSoldAsBundle(flag)).toBe(false);
+      expect(featureUpsellHref(flag)).not.toMatch(/billing/);
+      expect(featureUpsellCta(flag)).toMatch(/platform operator/);
+      expect(featureUpsellTrailer(flag)).not.toMatch(/add it|plan/i);
+      expect(featureUpsellAdvice(flag)).toMatch(/platform operator/);
+    }
   });
 
   it.each([...ALL_FEATURE_FLAGS])('%s is declared `bundle` exactly when a bundle sells it', (flag: FeatureFlag) => {

@@ -94,6 +94,17 @@ export const REMOTE_AUDIT_ACTIONS = [
   // deregistering the external CodePipeline that backs a pipeline (deploy-affecting).
   'pipeline.registry.register',
   'pipeline.registry.deregister',
+  // Cross-account pipeline runners (api/pipeline runner admin routes) — an org
+  // admin registering, renaming / re-sharing / re-pointing, testing and revoking
+  // a runner Lambda in its own AWS account. `targetId` is the runner id;
+  // `details` never carry the Function URL or an AWS account id.
+  'pipeline.runner.register',
+  'pipeline.runner.update',
+  'pipeline.runner.test',
+  'pipeline.runner.revoke',
+  // A runner's health changed (unreachable / offline / recovered), recorded by
+  // the dispatcher as the system actor.
+  'pipeline.runner.health',
   // Quota administration (api/quota) — a superadmin resetting an org's usage
   // counter or editing its tier limits. `affectedOrgId` is the org changed;
   // `details` carries the quotaType + old/new value.

@@ -1,0 +1,349 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Pipeline Builder cross-account PIPELINE RUNNER — a Lambda that starts/stops this account's pipelines with its own role, on platform-signed requests POSTed to its Function URL (or an IP-allowlisted API Gateway). The platform holds no AWS access to this account and the runner holds no platform credential. Deployed by pipeline-manager infra setup-runner, which also fills PipelineActions with one ARN per allowlisted region x prefix and keys the API deployment to the IP allowlist (utils/runner-template.ts). Lambda code is uploaded separately.",
+  "Parameters": {
+    "RunnerId": {
+      "Type": "String",
+      "Description": "The runner's platform id (the aud every signed request must carry). Required: setup-runner registers the runner first and deploys with its id; there is no unbound runner.",
+      "MinLength": 1
+    },
+    "PlatformBaseUrl": {
+      "Type": "String",
+      "Description": "The platform's base URL (https). Signatures are verified against <PlatformBaseUrl>/api/pipelines/runner/jwks.json."
+    },
+    "EntryPoint": {
+      "Type": "String",
+      "Default": "function-url",
+      "AllowedValues": [
+        "function-url",
+        "api-gateway"
+      ],
+      "Description": "A Lambda Function URL, or a REST API whose resource policy admits only AllowedIps."
+    },
+    "AllowedIps": {
+      "Type": "CommaDelimitedList",
+      "Default": "255.255.255.255/32",
+      "Description": "api-gateway entry point only: source CIDRs (the platform's egress IPs) the API admits."
+    },
+    "AllowedRegions": {
+      "Type": "String",
+      "Description": "Comma-separated regions the runner may act in (customer-set; the platform cannot change it)."
+    },
+    "AllowedPipelinePrefixes": {
+      "Type": "String",
+      "Description": "Comma-separated CodePipeline name prefixes the runner may act on ('*' = every pipeline)."
+    },
+    "PipelinePrefix": {
+      "Type": "String",
+      "Default": "pipeline-builder-",
+      "Description": "Single-prefix fallback used only when this template is deployed as-is; setup-runner replaces the PipelineActions resources with every region x prefix."
+    },
+    "NameSuffix": {
+      "Type": "String",
+      "Default": "",
+      "Description": "Suffix on the role/function/API names (e.g. '-default') so several runners coexist in one account."
+    },
+    "PipelineManagerVersion": {
+      "Type": "String",
+      "Default": "0.0.0",
+      "Description": "The @pipeline-builder/pipeline-manager version whose runner bundle this stack runs (semver; reported as runnerVersion in every response and checked against the platform's MIN_RUNNER_VERSION). setup-runner always passes its own package version; 0.0.0 marks a hand-deployed stack as outdated."
+    }
+  },
+  "Conditions": {
+    "UseFunctionUrl": {
+      "Fn::Equals": [
+        {
+          "Ref": "EntryPoint"
+        },
+        "function-url"
+      ]
+    },
+    "UseApiGateway": {
+      "Fn::Equals": [
+        {
+          "Ref": "EntryPoint"
+        },
+        "api-gateway"
+      ]
+    }
+  },
+  "Resources": {
+    "RunnerRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": {
+          "Fn::Sub": "pipeline-builder-runner${NameSuffix}"
+        },
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Sub": "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+          }
+        ],
+        "Policies": [
+          {
+            "PolicyName": "pipeline-runner",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "FindPipelineByTag",
+                  "Effect": "Allow",
+                  "Action": [
+                    "tag:GetResources"
+                  ],
+                  "Resource": "*"
+                },
+                {
+                  "Sid": "PipelineActions",
+                  "Effect": "Allow",
+                  "Action": [
+                    "codepipeline:StartPipelineExecution",
+                    "codepipeline:StopPipelineExecution",
+                    "codepipeline:GetPipelineExecution",
+                    "codepipeline:ListTagsForResource"
+                  ],
+                  "Resource": [
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:codepipeline:${AWS::Region}:${AWS::AccountId}:${PipelinePrefix}*"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "RunnerFunction": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "FunctionName": {
+          "Fn::Sub": "pipeline-builder-runner${NameSuffix}"
+        },
+        "Runtime": "nodejs26.x",
+        "Handler": "index.handler",
+        "Code": {
+          "ZipFile": "exports.handler=async()=>({statusCode:500,body:JSON.stringify({errorCode:'RUNNER_ERROR'})})"
+        },
+        "Role": {
+          "Fn::GetAtt": [
+            "RunnerRole",
+            "Arn"
+          ]
+        },
+        "Timeout": 30,
+        "MemorySize": 256,
+        "ReservedConcurrentExecutions": 2,
+        "Environment": {
+          "Variables": {
+            "RUNNER_ID": {
+              "Ref": "RunnerId"
+            },
+            "PLATFORM_BASE_URL": {
+              "Ref": "PlatformBaseUrl"
+            },
+            "ALLOWED_REGIONS": {
+              "Ref": "AllowedRegions"
+            },
+            "ALLOWED_PIPELINE_PREFIXES": {
+              "Ref": "AllowedPipelinePrefixes"
+            },
+            "RUNNER_VERSION": {
+              "Ref": "PipelineManagerVersion"
+            },
+            "NODE_ENV": "production"
+          }
+        }
+      }
+    },
+    "RunnerLogGroup": {
+      "Type": "AWS::Logs::LogGroup",
+      "Properties": {
+        "LogGroupName": {
+          "Fn::Sub": "/aws/lambda/pipeline-builder-runner${NameSuffix}"
+        },
+        "RetentionInDays": 90
+      }
+    },
+    "FunctionUrl": {
+      "Type": "AWS::Lambda::Url",
+      "Condition": "UseFunctionUrl",
+      "Properties": {
+        "AuthType": "NONE",
+        "TargetFunctionArn": {
+          "Fn::GetAtt": [
+            "RunnerFunction",
+            "Arn"
+          ]
+        }
+      }
+    },
+    "FunctionUrlPermission": {
+      "Type": "AWS::Lambda::Permission",
+      "Condition": "UseFunctionUrl",
+      "Properties": {
+        "FunctionName": {
+          "Ref": "RunnerFunction"
+        },
+        "Action": "lambda:InvokeFunctionUrl",
+        "Principal": "*",
+        "FunctionUrlAuthType": "NONE"
+      }
+    },
+    "FunctionUrlInvokePermission": {
+      "Type": "AWS::Lambda::Permission",
+      "Condition": "UseFunctionUrl",
+      "Properties": {
+        "FunctionName": {
+          "Ref": "RunnerFunction"
+        },
+        "Action": "lambda:InvokeFunction",
+        "Principal": "*",
+        "InvokedViaFunctionUrl": true
+      }
+    },
+    "RunnerApi": {
+      "Type": "AWS::ApiGateway::RestApi",
+      "Condition": "UseApiGateway",
+      "Properties": {
+        "Name": {
+          "Fn::Sub": "pipeline-builder-runner${NameSuffix}"
+        },
+        "Description": "Pipeline Builder runner entry point, admitting only the platform's egress IPs",
+        "EndpointConfiguration": {
+          "Types": [
+            "REGIONAL"
+          ]
+        },
+        "Policy": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": "*",
+              "Action": "execute-api:Invoke",
+              "Resource": "execute-api:/*",
+              "Condition": {
+                "IpAddress": {
+                  "aws:SourceIp": {
+                    "Ref": "AllowedIps"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "RunnerApiMethod": {
+      "Type": "AWS::ApiGateway::Method",
+      "Condition": "UseApiGateway",
+      "Properties": {
+        "RestApiId": {
+          "Ref": "RunnerApi"
+        },
+        "ResourceId": {
+          "Fn::GetAtt": [
+            "RunnerApi",
+            "RootResourceId"
+          ]
+        },
+        "HttpMethod": "POST",
+        "AuthorizationType": "NONE",
+        "Integration": {
+          "Type": "AWS_PROXY",
+          "IntegrationHttpMethod": "POST",
+          "Uri": {
+            "Fn::Sub": "arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${RunnerFunction.Arn}/invocations"
+          }
+        }
+      }
+    },
+    "RunnerApiDeployment": {
+      "Type": "AWS::ApiGateway::Deployment",
+      "Condition": "UseApiGateway",
+      "DependsOn": "RunnerApiMethod",
+      "Properties": {
+        "RestApiId": {
+          "Ref": "RunnerApi"
+        }
+      }
+    },
+    "RunnerApiStage": {
+      "Type": "AWS::ApiGateway::Stage",
+      "Condition": "UseApiGateway",
+      "Properties": {
+        "RestApiId": {
+          "Ref": "RunnerApi"
+        },
+        "DeploymentId": {
+          "Ref": "RunnerApiDeployment"
+        },
+        "StageName": "runner",
+        "MethodSettings": [
+          {
+            "ResourcePath": "/*",
+            "HttpMethod": "*",
+            "ThrottlingRateLimit": 5,
+            "ThrottlingBurstLimit": 10
+          }
+        ]
+      }
+    },
+    "RunnerApiPermission": {
+      "Type": "AWS::Lambda::Permission",
+      "Condition": "UseApiGateway",
+      "Properties": {
+        "FunctionName": {
+          "Ref": "RunnerFunction"
+        },
+        "Action": "lambda:InvokeFunction",
+        "Principal": "apigateway.amazonaws.com",
+        "SourceArn": {
+          "Fn::Sub": "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${RunnerApi}/*/POST/"
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "FunctionName": {
+      "Value": {
+        "Ref": "RunnerFunction"
+      }
+    },
+    "RunnerId": {
+      "Value": {
+        "Ref": "RunnerId"
+      }
+    },
+    "EndpointUrl": {
+      "Description": "Where the platform delivers run requests. Treat as a secret: never log it.",
+      "Value": {
+        "Fn::If": [
+          "UseFunctionUrl",
+          {
+            "Fn::GetAtt": [
+              "FunctionUrl",
+              "FunctionUrl"
+            ]
+          },
+          {
+            "Fn::Sub": "https://${RunnerApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/runner/"
+          }
+        ]
+      }
+    }
+  }
+}

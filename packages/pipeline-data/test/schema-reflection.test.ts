@@ -79,18 +79,33 @@ describe('drizzle schema ⇔ postgres-init.sql', () => {
 
   it('every drizzle table exists with exactly the same columns', async () => {
     const mismatches: string[] = [];
+    // A table may be mapped by more than one drizzle object — `pipeline_registry`
+    // is (the runner-link view maps `runner_id`, which the main mapping must not,
+    // so no pre-runner database is ever asked for it). Their columns UNION to
+    // the SQL table's; each mapping on its own is a subset.
+    const byName = new Map<string, Set<string>>();
     for (const table of TABLES) {
       const cfg = getTableConfig(table);
+      const cols = byName.get(cfg.name) ?? new Set<string>();
+      for (const c of cfg.columns) cols.add(c.name);
+      byName.set(cfg.name, cols);
+    }
+    for (const [name, drizzleCols] of byName) {
+      const cfg = { name };
       const r = await db.query<{ column_name: string }>(
         "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1",
         [cfg.name]);
       const sqlCols = new Set(r.rows.map((x) => x.column_name));
       if (sqlCols.size === 0) { mismatches.push(`${cfg.name}: table missing from SQL`); continue; }
-      const drizzleCols = new Set(cfg.columns.map((c) => c.name));
       for (const c of drizzleCols) if (!sqlCols.has(c)) mismatches.push(`${cfg.name}.${c}: in drizzle, not in SQL`);
       for (const c of sqlCols) if (!drizzleCols.has(c)) mismatches.push(`${cfg.name}.${c}: in SQL, not in drizzle`);
     }
     expect(mismatches).toEqual([]);
+  });
+
+  it('the registry\'s main mapping never names runner_id (pre-runner databases lack it)', () => {
+    expect(getTableConfig(drizzleSchema.pipelineRegistry).columns.map((c) => c.name)).not.toContain('runner_id');
+    expect(getTableConfig(drizzleSchema.pipelineRegistryRunnerLink).columns.map((c) => c.name)).toContain('runner_id');
   });
 
   it('foreign keys agree on both sides (target and ON DELETE)', async () => {

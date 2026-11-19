@@ -244,6 +244,25 @@ export function chooseStepUp(opts: { requested?: string; password?: string; inte
   return requested === 'totp' ? 'totp' : 'browser';
 }
 
+/**
+ * The {@link StepUpProvider} for a chosen method — shared by every command whose
+ * platform writes are step-up gated (`store-token`, `setup-runner`).
+ */
+export function buildStepUpProvider(
+  method: StepUpMethod,
+  client: ApiClient,
+  opts: { password?: string; verifySsl?: boolean; browser?: boolean; purpose: string },
+): StepUpProvider {
+  if (method === 'password') return passwordStepUp(client, opts.password!);
+  if (method === 'totp') return totpStepUp(client, () => askLine('Authenticator code: '));
+  return browserStepUp(async () => {
+    const transport = { url: client.getBaseUrl(), httpsAgent: platformHttpsAgent(opts.verifySsl), timeout: TIMEOUTS.HTTP_REQUEST };
+    printInfo(`Approve in your browser to ${opts.purpose} (passkey, SSO, Google/GitHub or password — whatever your account uses).`);
+    const code = await beginDeviceApproval(transport, { quiet: false, browser: opts.browser, verifySsl: opts.verifySsl, stepUp: true });
+    return (await pollForDeviceToken(transport, code)).step_up_token;
+  });
+}
+
 /** Ask one line on the terminal (the authenticator code). */
 async function askLine(question: string): Promise<string> {
   const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
@@ -524,16 +543,12 @@ export function storeToken(program: Command): void {
           });
           printSection('Provision Service-Account Key');
           client = await createAuthenticatedClientAsync(options);
-          const stepUp: StepUpProvider = method === 'password'
-            ? passwordStepUp(client, password!)
-            : method === 'totp'
-              ? totpStepUp(client, () => askLine('Authenticator code: '))
-              : browserStepUp(async () => {
-                const transport = { url: client.getBaseUrl(), httpsAgent: platformHttpsAgent(options.verifySsl), timeout: TIMEOUTS.HTTP_REQUEST };
-                printInfo(`Approve in your browser to issue the '${accountName}' key (passkey, SSO, Google/GitHub or password — whatever your account uses).`);
-                const code = await beginDeviceApproval(transport, { quiet: false, browser: options.browser, verifySsl: options.verifySsl, stepUp: true });
-                return (await pollForDeviceToken(transport, code)).step_up_token;
-              });
+          const stepUp = buildStepUpProvider(method, client, {
+            password,
+            verifySsl: options.verifySsl,
+            browser: options.browser,
+            purpose: `issue the '${accountName}' key`,
+          });
           provisioned = await provisionServiceAccountKey({
             client,
             stepUp,

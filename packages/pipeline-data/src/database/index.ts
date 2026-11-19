@@ -200,6 +200,13 @@ export {
   type OrgToolchainDefaultInsert,
   type OrgToolchainDefaultHistory,
   type OrgToolchainDefaultHistoryInsert,
+  pipelineRunner,
+  pipelineRunRequest,
+  pipelineRegistryRunnerLink,
+  RUNNER_HEALTH,
+  RUNNER_STATUSES,
+  RUN_REQUEST_ACTIONS,
+  RUN_REQUEST_STATUSES,
 } from './drizzle-schema.js';
 // Every schema TYPE (row/insert shapes and the `$type<…>` JSON column shapes)
 // is public: a table exported above carries them structurally, so a consumer

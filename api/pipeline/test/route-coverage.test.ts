@@ -60,6 +60,12 @@ const EXCEPTIONS: RouteCoverageException[] = [
     reason: 'Read-only: lists the steps an apply would rewrite and persists nothing (gated on pipelines:read). The apply is audited.',
   },
   {
+    method: 'GET',
+    path: '/pipelines/runner/jwks.json',
+    waive: 'all',
+    reason: 'PUBLIC by design: the run-request signing keys (Ed25519 JWK set) that customer runner Lambdas fetch unauthenticated to verify the platform\'s signed requests. Public keys only; 409 RUNNERS_UNAVAILABLE when runners are off.',
+  },
+  {
     method: 'POST',
     path: '/pipelines/validate',
     waive: 'audit',
