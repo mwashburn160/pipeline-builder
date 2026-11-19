@@ -3,6 +3,7 @@
 
 import {
   AppError,
+  ErrorCode,
   errorMessage,
   extractDbError,
   sendError,
@@ -15,6 +16,9 @@ import { getContext } from './get-context.js';
 import type { RequestContext } from './request-types.js';
 
 const logger = createLogger('route-wrapper');
+
+/** SQLSTATE 22P02 `invalid_text_representation` — a value that failed its column cast. */
+const INVALID_TEXT_REPRESENTATION = '22P02';
 
 /**
  * A log-safe rendering of an unknown error. drizzle-orm's `DrizzleQueryError`
@@ -121,6 +125,14 @@ export function withRoute(
       // propagate here. Send a generic message + requestId (to correlate with logs),
       // and log only sanitized DB metadata (code/constraint/table — no SQL/params).
       const db = extractDbError(error);
+      // 22P02 invalid_text_representation: a caller-supplied value Postgres
+      // could not cast (a malformed uuid path param, a non-numeric id). That is
+      // the client's input, not a server fault — answer 400, still without
+      // echoing the SQL, the params or the driver's message.
+      if (db.dbCode === INVALID_TEXT_REPRESENTATION) {
+        ctx.log('WARN', 'Request rejected: malformed value for a typed column', { requestId: ctx.requestId, db });
+        return sendBadRequest(res, 'Invalid identifier or value format', ErrorCode.VALIDATION_ERROR);
+      }
       ctx.log('ERROR', 'Request failed', {
         requestId: ctx.requestId,
         error: safeErrorForLog(error),

@@ -31,7 +31,7 @@ import { createSafeClient } from './http-client.js';
 import { serviceIdentity } from './service-keys.js';
 import { callInternal } from '../contracts/call.js';
 import { PLATFORM_INTERNAL } from '../contracts/platform.js';
-import { AIConfigurationError, AIDisabledError } from '../errors/app-errors.js';
+import { AIConfigurationError, AIDisabledError, AppError } from '../errors/app-errors.js';
 import { getServiceAuthHeader } from '../middleware/service-tokens.js';
 import { ErrorCode } from '../types/error-codes.js';
 import { envInt } from '../utils/env.js';
@@ -132,11 +132,19 @@ export async function requireOrgAIEnabled(req: Request, res: Response, next: Nex
   }
   try {
     await assertOrgAIEnabled(String(orgId));
-    next();
   } catch (err) {
-    const e = err as AIDisabledError | AIConfigurationError;
-    sendError(res, e.statusCode ?? 503, e.message, e.code);
+    // AIDisabledError / AIConfigurationError carry a message written for the
+    // caller. Anything else (a signing-key ServiceKeyError naming a file path, a
+    // ContractRequestError naming the internal endpoint) is an internal fault:
+    // answer a generic 503 rather than echoing its message.
+    if (err instanceof AppError) {
+      sendError(res, err.statusCode, err.message, err.code);
+    } else {
+      sendError(res, 503, 'The organization\'s AI settings could not be read. Try again shortly.', ErrorCode.SERVICE_UNAVAILABLE);
+    }
+    return;
   }
+  next();
 }
 
 /** Drop the cached org AI posture + keys (tests; an org whose settings just changed). */

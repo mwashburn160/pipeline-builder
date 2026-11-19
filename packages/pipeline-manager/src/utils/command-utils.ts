@@ -36,6 +36,20 @@ export function printCommandHeader(title: string, subtitle?: string, opts?: { qu
   return executionId;
 }
 
+/**
+ * Whether a boolean flag that is ALSO a program-level option (`--quiet`,
+ * `--verbose`) was given. Commander binds such a flag to the PROGRAM, wherever it
+ * appears on the line, so the subcommand's own `options[name]` keeps its default
+ * and reading only that silently ignores the flag. True when `command` or any
+ * ancestor has it set.
+ */
+export function inheritedFlag(command: Command | undefined, name: string): boolean {
+  for (let c: Command | null | undefined = command; c; c = c.parent) {
+    if (c.opts()[name]) return true;
+  }
+  return false;
+}
+
 /** Attach the standard `--verify-ssl` / `--no-verify-ssl` pair. The two together
  *  give Commander an explicit tri-state `options.verifySsl` (true/false/undefined).
  *  Returns the command so it composes: `withSslOptions(program.command('x'))…`. */

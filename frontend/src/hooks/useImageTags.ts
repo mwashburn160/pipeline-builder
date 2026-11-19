@@ -8,6 +8,10 @@ interface TagListState {
   tags: string[] | null;
   loading: boolean;
   error: Error | null;
+  /** The load that owns this entry. A listing may write its answer back only
+   *  while the entry is still its own — not after a clear (identity boundary),
+   *  an invalidation (a copy changed the tags) or a newer load replaced it. */
+  owner: symbol;
 }
 
 /**
@@ -42,14 +46,17 @@ export function useImageTags(name: string | null) {
 
   const load = useCallback(async () => {
     if (!name) return;
-    cache.set(name, { tags: cache.get(name)?.tags ?? null, loading: true, error: null });
+    const owner = Symbol(name);
+    cache.set(name, { tags: cache.get(name)?.tags ?? null, loading: true, error: null, owner });
     bump();
+    let settled: Omit<TagListState, 'owner'>;
     try {
       const res = await api.listImageTags(name);
-      cache.set(name, { tags: res.data?.tags ?? null, loading: false, error: null });
+      settled = { tags: res.data?.tags ?? null, loading: false, error: null };
     } catch (err) {
-      cache.set(name, { tags: null, loading: false, error: err as Error });
+      settled = { tags: null, loading: false, error: err as Error };
     }
+    if (cache.get(name)?.owner === owner) cache.set(name, { ...settled, owner });
     bump();
   }, [name, bump]);
 

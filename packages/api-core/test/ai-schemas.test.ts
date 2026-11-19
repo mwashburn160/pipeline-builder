@@ -61,6 +61,27 @@ describe('PluginDeployGeneratedSchema', () => {
     dockerfile: 'FROM python:3.12\nRUN pip install pylint',
   };
 
+  it.each([
+    ['uppercase', 'Python-Linter'],
+    ['a path separator', 'org/linter'],
+    ['CR/LF injection', 'linter\r\nX-Injected: 1'],
+    ['over 64 characters', 'a'.repeat(65)],
+  ])('refuses a name with %s (PLUGIN_NAME_PATTERN, max 64)', (_label, name) => {
+    expect(PluginDeployGeneratedSchema.safeParse({ ...validBody, name }).success).toBe(false);
+  });
+
+  it('accepts a 64-character name', () => {
+    expect(PluginDeployGeneratedSchema.safeParse({ ...validBody, name: 'a'.repeat(64) }).success).toBe(true);
+  });
+
+  it.each(['1.0', 'latest', '1.0.0\n', 'v1.0.0', `1.0.0-${'a'.repeat(50)}`])('refuses a non-semver (or over-long) version %j', (version) => {
+    expect(PluginDeployGeneratedSchema.safeParse({ ...validBody, version }).success).toBe(false);
+  });
+
+  it('accepts a semver version with prerelease and build metadata', () => {
+    expect(PluginDeployGeneratedSchema.safeParse({ ...validBody, version: '1.2.3-beta.1+build.5' }).success).toBe(true);
+  });
+
   it('accepts a valid body', () => {
     const result = PluginDeployGeneratedSchema.safeParse(validBody);
     expect(result.success).toBe(true);

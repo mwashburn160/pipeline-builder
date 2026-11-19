@@ -116,6 +116,12 @@ export const listAuditEvents = withController('List audit events', async (req, r
   // and now the delegate too. Cross-org filtering stays what the docs say it is
   // — sysadmin only.
   if (!admin.isSuperAdmin) {
+    // Fail closed: the service applies the pin only when it is truthy, so a
+    // caller with no active org would otherwise read EVERY tenant's events.
+    if (!req.user?.organizationId) {
+      recordAuthzDenial(req, 'audit:read');
+      return sendError(res, 403, 'Forbidden: an active organization is required to read audit events');
+    }
     // Pinned callers see events where their org was either the actor (orgId)
     // OR the affected target (affectedOrgId). `orgIdOrAffected` translates
     // to a Mongo `$or` in the service so a sysadmin's cross-tenant action

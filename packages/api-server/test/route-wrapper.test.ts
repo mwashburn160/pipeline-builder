@@ -25,6 +25,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: jest.fn<AnyFn>(),
   sendBadRequest: jest.fn<AnyFn>(),
   sendInternalError: jest.fn<AnyFn>(),
+  extractDbError: jest.fn<AnyFn>(() => ({})),
 }));
 
 // Mock get-context to control behavior
@@ -37,6 +38,7 @@ const {
   sendError,
   sendBadRequest,
   sendInternalError,
+  extractDbError,
 } = await import('@pipeline-builder/api-core');
 const { getContext } = await import('../src/api/get-context.js');
 const { withRoute } = await import('../src/api/route-wrapper.js');
@@ -195,6 +197,25 @@ describe('withRoute', () => {
       // The SQL / params must appear in NO argument passed to the client responder.
       const leaked = (sendInternalError as jest.Mock<AnyFn>).mock.calls.flat().some(
         (arg) => typeof arg === 'string' && (arg.includes('Failed query') || arg.includes('insert into') || arg.includes('secret-pipeline')),
+      );
+      expect(leaked).toBe(false);
+    });
+
+    it('answers a Postgres 22P02 (malformed uuid/number cast) as a 400, not a 500', async () => {
+      (getContext as jest.Mock<AnyFn>).mockReturnValue(mockContext('org-1', 'user-1'));
+      // What drizzle surfaces for `WHERE id = 'not-a-uuid'` on a uuid column.
+      const castErr = Object.assign(new Error('Failed query: select ... where "id" = $1\nparams: not-a-uuid'), {
+        cause: { code: '22P02', message: 'invalid input syntax for type uuid: "not-a-uuid"' },
+      });
+      (extractDbError as jest.Mock<AnyFn>).mockReturnValueOnce({ dbCode: '22P02' });
+      const res = mockRes();
+      await withRoute(jest.fn<AnyFn>().mockRejectedValue(castErr))(mockReq(), res, jest.fn<AnyFn>());
+
+      expect(sendBadRequest).toHaveBeenCalledWith(res, 'Invalid identifier or value format', 'VALIDATION_ERROR');
+      expect(sendInternalError).not.toHaveBeenCalled();
+      // The SQL / params never reach the client.
+      const leaked = (sendBadRequest as jest.Mock<AnyFn>).mock.calls.flat().some(
+        (arg) => typeof arg === 'string' && (arg.includes('Failed query') || arg.includes('not-a-uuid')),
       );
       expect(leaked).toBe(false);
     });

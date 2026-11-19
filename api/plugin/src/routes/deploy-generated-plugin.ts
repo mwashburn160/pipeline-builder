@@ -40,6 +40,7 @@ import { getOrgTier } from '../queue/connections.js';
 import { BUILD_TEMP_ROOT } from '../helpers/docker-build.js';
 import { enforceNameShadowingPolicy } from '../helpers/name-shadowing-gate.js';
 import { createBuildJobData } from '../helpers/plugin-helpers.js';
+import { pluginIdentityProblem } from '../helpers/plugin-identity.js';
 import { validateBuildArgs } from '../helpers/plugin-spec.js';
 import { admitBuildOnCredits } from '../queue/build-credits.js';
 import { deletePluginArtifact, pluginArtifactKey, putPluginArtifact } from '../services/plugin-artifact-storage.js';
@@ -91,6 +92,11 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
         primaryOutputDirectory, installCommands, commands, env, buildArgs,
         dockerfile, visibility: rawAccess,
       } = validation.value;
+
+      // The same name/version grammar the ZIP upload enforces: both become the
+      // registry repository and tag of the image this route builds.
+      const identityProblem = pluginIdentityProblem({ name, version }, 'plugin');
+      if (identityProblem) return sendBadRequest(res, identityProblem, ErrorCode.VALIDATION_ERROR);
 
       const visibility = resolveVisibility(req, rawAccess, 'plugins:publish', 'org');
 

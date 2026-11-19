@@ -5,7 +5,7 @@ import * as fs from 'fs/promises';
 import path from 'path';
 
 import {
-  envInt, PLUGIN_NAME_PATTERN, PLUGIN_VERSION_PATTERN, ValidationError, checkPluginConfig, checkPluginSpec, checkPluginTemplates, formatPluginTemplateIssue,
+  envInt, ValidationError, checkPluginConfig, checkPluginSpec, checkPluginTemplates, formatPluginTemplateIssue,
   pluginSpecRequiredFieldsProblem, type PluginTemplateEngine, type PluginTemplateIssue,
 } from '@pipeline-builder/api-core';
 import type { PluginSpec } from '@pipeline-builder/pipeline-core';
@@ -19,6 +19,7 @@ import { getBuildStrategy } from './build-strategy.js';
 import { BUILD_TEMP_ROOT } from './docker-build.js';
 import type { BuildType } from './docker-build.js';
 import type { PluginConfig, PluginContractFields } from './plugin-helpers.js';
+import { pluginIdentityProblem } from './plugin-identity.js';
 import { validateSafePath } from './safe-path.js';
 import { readAndExtractZip, type ExtractionLimits } from './zip-extract.js';
 
@@ -114,25 +115,6 @@ function parsePluginSpec(specText: string): PluginSpec {
 // -----------------------------------------------------------------------------
 // Main parser
 // -----------------------------------------------------------------------------
-
-/** Longest accepted plugin name (the CLI's `new-plugin` bound). */
-const PLUGIN_NAME_MAX = 64;
-
-/**
- * The name/version shape every upload must have. Enforced server-side for
- * EVERY path (tenant upload, anonymous submission, the quarantine worker): both
- * flow into registry repository names, listing URLs and notification
- * subjects, so a CR/LF or a path separator in either is an injection, not a typo.
- */
-function pluginIdentityProblem(spec: Pick<PluginSpec, 'name' | 'version'>): string | null {
-  if (typeof spec.name === 'string' && (spec.name.length > PLUGIN_NAME_MAX || !PLUGIN_NAME_PATTERN.test(spec.name))) {
-    return `plugin-spec.yaml: name must match ${PLUGIN_NAME_PATTERN} and be at most ${PLUGIN_NAME_MAX} characters`;
-  }
-  if (typeof spec.version === 'string' && (spec.version.length > 50 || !PLUGIN_VERSION_PATTERN.test(spec.version))) {
-    return `plugin-spec.yaml: version must be semver (${PLUGIN_VERSION_PATTERN})`;
-  }
-  return null;
-}
 
 /** Per-call extraction overrides (the anonymous path's tighter caps and its own directory). */
 export interface ParseZipOptions {

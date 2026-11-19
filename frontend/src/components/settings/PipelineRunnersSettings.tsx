@@ -92,6 +92,9 @@ function InstallInstructions({ jwksUrl, egressIps }: { jwksUrl: string; egressIp
   const [region, setRegion] = useState(DEFAULT_SETUP_REGION);
   const [label, setLabel] = useState('');
   const regionValid = isAwsRegion(region);
+  // The command is copied into a shell, so only a real region code goes into it;
+  // anything else shows the `<region>` placeholder beside the field's error.
+  const commandRegion = regionValid ? region : '';
   return (
     <div className="space-y-3 rounded-md bg-surface-muted p-3 text-xs" data-testid="runner-install">
       <p className="text-fg-muted">
@@ -113,12 +116,12 @@ function InstallInstructions({ jwksUrl, egressIps }: { jwksUrl: string; egressIp
         The platform sends each signed request to the runner&apos;s Function URL. Add{' '}
         <code>--api-gateway --allow-ip &lt;cidr&gt;</code> to put it behind an IP allowlist instead.
       </p>
-      <HelpCodeBlock content={setupRunnerCommand({ region, label })} language="bash" />
+      <HelpCodeBlock content={setupRunnerCommand({ region: commandRegion, label })} language="bash" />
       {ips.length > 0 && (
         <div className="space-y-2" data-testid="runner-egress">
           <div className="text-fg-muted">The platform pushes from these addresses — allow them with the API Gateway variant:</div>
           <CopyableId value={ips.map(asCidr).join(' ')} size="sm" label="Copy the platform egress addresses" />
-          <HelpCodeBlock content={setupRunnerCommand({ region, label, allowIps: ips })} language="bash" />
+          <HelpCodeBlock content={setupRunnerCommand({ region: commandRegion, label, allowIps: ips })} language="bash" />
         </div>
       )}
       <div>

@@ -148,8 +148,8 @@ export function decideInitialApproval(input: {
 class ImpersonationService {
   /**
    * Open a request. Auto-approving requests are created already `approved`, so a
-   * caller can redeem immediately; a request awaiting a human would be created
-   * `pending` instead (not reachable yet).
+   * caller can redeem immediately; a request awaiting a human (a `consent`
+   * policy, or a subject-consent request) is created `pending`.
    *
    * A requester may hold only one PENDING request per target — enforced by a
    * partial unique index — so a re-request supersedes rather than stacking. Any
@@ -394,8 +394,16 @@ class ImpersonationService {
       // `isTenantAdminOf` is the gate, and a list that ignores it is the
       // "page renders, every row refuses" failure. The NAMED approver above is
       // deliberately unconditional: they were asked personally.
+      // Same exclusions as decide's tenant-admin branch: a request needing the
+      // SUBJECT's own consent is theirs alone, and the subject never decides as
+      // a tenant admin of their own account.
       if (caller.canApprove && caller.adminOrgIds.length > 0) {
-        who.push({ breakglass: { $ne: true }, organizationId: { $in: caller.adminOrgIds } });
+        who.push({
+          breakglass: { $ne: true },
+          organizationId: { $in: caller.adminOrgIds },
+          subjectConsentRequired: { $ne: true },
+          targetUserId: { $ne: caller.userId },
+        });
       }
       if (caller.isSysadmin) who.push({ breakglass: true });
       filter = {

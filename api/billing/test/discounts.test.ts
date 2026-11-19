@@ -329,6 +329,31 @@ describe('POST /admin/discounts/:id/apply (Mode A)', () => {
     await call(handler('post', '/admin/discounts/:id/apply'), adminReq({ params: { id: 'disc_t' }, body: { targetOrgId: 'org-cust' } }));
     expect(mockSendError).toHaveBeenCalledWith({}, 403, expect.any(String), 'DISCOUNT_NOT_FOR_ORG');
   });
+
+  // A bundle-scoped code on an account that holds NONE of the scoped bundles. A
+  // percent one used to resolve to a 0-cent credit and still COMMIT — burning a
+  // limited code's redemption and leaving an "already redeemed" ledger row the
+  // customer can never redeem again — and a dollar one granted its full amount
+  // against an add-on the account does not have.
+  it.each([
+    ['percent', 30],
+    ['dollar', 5000],
+  ])('refuses a bundle-scoped %s coupon when the account holds none of the scoped bundles, WITHOUT burning a redemption', async (unit, value) => {
+    await mockDiscountCreate({ _id: `disc_scope_${unit}`, value, unit, kind: 'onetime', isActive: true, maxRedemptions: 1, appliesToBundles: ['support_premium'] });
+    await call(handler('post', '/admin/discounts/:id/apply'), adminReq({ params: { id: `disc_scope_${unit}` }, body: { targetOrgId: 'org-cust' } }));
+    expect(mockSendError).toHaveBeenCalledWith({}, 409, expect.any(String), 'DISCOUNT_SCOPE_NOT_HELD');
+    expect(discountStore.get(`disc_scope_${unit}`).timesRedeemed).toBe(0);
+    expect(subDoc.creditLedger).toHaveLength(0);
+    expect(subDoc.creditBalanceCents).toBe(0);
+  });
+
+  it('does not refuse a bundle-scoped coupon when the account holds a scoped bundle', async () => {
+    subDoc = freshSub({ addons: [{ bundleId: 'support_premium', quantity: 1 }] });
+    await mockDiscountCreate({ _id: 'disc_scope_held', value: 5000, unit: 'dollar', kind: 'onetime', isActive: true, appliesToBundles: ['support_premium'] });
+    await call(handler('post', '/admin/discounts/:id/apply'), adminReq({ params: { id: 'disc_scope_held' }, body: { targetOrgId: 'org-cust' } }));
+    expect(mockSendError).not.toHaveBeenCalledWith({}, 409, expect.any(String), 'DISCOUNT_SCOPE_NOT_HELD');
+    expect(subDoc.creditLedger).toHaveLength(1);
+  });
 });
 
 describe('POST /subscriptions/:id/discounts (self-service redeem)', () => {

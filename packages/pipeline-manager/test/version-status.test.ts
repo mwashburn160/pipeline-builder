@@ -93,6 +93,16 @@ describe('version', () => {
     expect(text()).toContain('PLATFORM_TOKEN');
   });
 
+  it('--verbose works under the real program, where Commander binds it to the program-level --verbose', async () => {
+    const program = new Command();
+    program.exitOverride();
+    program.option('--verbose', 'Show detailed information', false);
+    version(program);
+    await program.parseAsync(['node', 'pm', 'version', '--verbose']);
+    expect(text()).toContain('System Environment');
+    expect(text()).not.toContain('Run with --verbose');
+  });
+
   it('--verbose without CDK, and --check-config with no token warns', async () => {
     getCdkInfo.mockReturnValue({ available: false, error: 'cdk: not found' });
     delete process.env.PLATFORM_TOKEN;

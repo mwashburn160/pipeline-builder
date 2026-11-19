@@ -34,7 +34,6 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 
 const {
   computeQuotaStatus,
-  applyQuotaLimits,
   buildOrgQuotaResponse,
   buildDefaultOrgQuotaResponse,
   buildReserveResult,
@@ -160,44 +159,6 @@ describe('quota-helpers', () => {
 
       expect(status.remaining).toBe(0);
       expect(status.allowed).toBe(false);
-    });
-  });
-
-  describe('applyQuotaLimits', () => {
-    it('should apply partial quota updates to org', () => {
-      const org = {
-        quotas: { plugins: 10, pipelines: 5, apiCalls: 100 },
-      } as any;
-
-      applyQuotaLimits(org, { plugins: 50 });
-
-      expect(org.quotas.plugins).toBe(50);
-      expect(org.quotas.pipelines).toBe(5); // unchanged
-      expect(org.quotas.apiCalls).toBe(100); // unchanged
-    });
-
-    it('should apply unlimited (-1) quota', () => {
-      const org = {
-        quotas: { plugins: 10, pipelines: 5, apiCalls: 100 },
-      } as any;
-
-      applyQuotaLimits(org, { plugins: -1, pipelines: -1, apiCalls: -1 });
-
-      expect(org.quotas.plugins).toBe(-1);
-      expect(org.quotas.pipelines).toBe(-1);
-      expect(org.quotas.apiCalls).toBe(-1);
-    });
-
-    it('should skip undefined values', () => {
-      const org = {
-        quotas: { plugins: 10, pipelines: 5, apiCalls: 100 },
-      } as any;
-
-      applyQuotaLimits(org, {});
-
-      expect(org.quotas.plugins).toBe(10);
-      expect(org.quotas.pipelines).toBe(5);
-      expect(org.quotas.apiCalls).toBe(100);
     });
   });
 

@@ -7,6 +7,7 @@ import { Command } from 'commander';
 import pico from 'picocolors';
 import { APP_NAME, APP_VERSION, generateExecutionId } from '../config/cli.constants.js';
 import { getCdkInfo } from '../utils/cdk-utils.js';
+import { inheritedFlag } from '../utils/command-utils.js';
 import { getConfig } from '../utils/config-loader.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printDivider, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
@@ -103,8 +104,11 @@ export function version(program: Command): void {
     .option('--verbose', 'Show detailed environment information', false)
     .option('--check-config', 'Verify configuration status', false)
     .option('--json', 'Output in JSON format', false)
-    .action((options) => {
+    .action((options, command: Command) => {
       try {
+        // `--verbose` is also a program-level option, which Commander binds to
+        // the program — so `options.verbose` alone never sees it.
+        const verbose = inheritedFlag(command, 'verbose');
         const executionId = generateExecutionId();
         const cdkInfo = getCdkInfo();
 
@@ -139,7 +143,7 @@ export function version(program: Command): void {
         printDivider();
 
         // Verbose: system environment
-        if (options.verbose) {
+        if (verbose) {
           printSection('System Environment');
           const systemInfo = getSystemInfo();
           printKeyValue({
@@ -156,13 +160,13 @@ export function version(program: Command): void {
 
         // CDK information
         if (cdkInfo.available && cdkInfo.version) {
-          if (options.verbose) printSuccess('AWS CDK is installed');
+          if (verbose) printSuccess('AWS CDK is installed');
           printKeyValue({
             'CDK Version': green(cdkInfo.version),
             'Status': green('✓ Available'),
           });
         } else {
-          if (options.verbose) {
+          if (verbose) {
             printWarning('AWS CDK is not installed');
             console.log(dim('  Install CDK with: npm install -g aws-cdk'));
             if (cdkInfo.error) console.log(dim(`  Error: ${cdkInfo.error}`));
@@ -173,7 +177,7 @@ export function version(program: Command): void {
           });
         }
 
-        if (!options.verbose) {
+        if (!verbose) {
           console.log(dim('\n  Run with --verbose for detailed environment information'));
         }
 

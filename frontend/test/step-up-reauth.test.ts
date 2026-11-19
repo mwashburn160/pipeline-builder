@@ -128,4 +128,35 @@ describe('runProviderReauth', () => {
       .rejects.toThrow(/cancelled/i);
     expect(completeStepUpReauth).not.toHaveBeenCalled();
   });
+
+  // The dialog can be closed while POST /auth/step-up/reauth is still out. The
+  // signal has then ALREADY fired by the time the wait subscribes to it, so the
+  // wait must check it up front — an 'abort' listener added afterwards never
+  // runs, and the popup sat on the provider's page for the 5-minute timeout.
+  it('rejects at once (and closes the popup) when cancelled before the start request returned', async () => {
+    jest.useFakeTimers();
+    try {
+      const controller = new AbortController();
+      startStepUpReauth.mockImplementation(async () => {
+        controller.abort();
+        return { success: true, data: { url: 'https://provider.test/auth', state: 'reauth.s5' } };
+      });
+      const navigated = jest.fn<AnyFn>();
+      const { popup, close } = fakePopup((url) => { navigated(url); return null; });
+      openSpy = jest.spyOn(window, 'open').mockReturnValue(popup as unknown as Window);
+
+      let outcome: unknown = 'pending';
+      const run = runProviderReauth({ type: 'oauth', provider: 'google' }, controller.signal)
+        .then(() => { outcome = 'resolved'; }, (e: Error) => { outcome = e.message; });
+      // Well short of the 5-minute timeout.
+      await jest.advanceTimersByTimeAsync(1_000);
+      expect(outcome).toMatch(/cancelled/i);
+      expect(navigated).not.toHaveBeenCalled();
+      expect(close).toHaveBeenCalled();
+      await jest.advanceTimersByTimeAsync(5 * 60_000);
+      await run;
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });

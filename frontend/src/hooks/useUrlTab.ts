@@ -64,6 +64,8 @@ export function useUrlTab<T extends string>(
   // effects on every render (same reasoning as `valid` below).
   const hashTabsRef = useRef(options?.hashTabs);
   hashTabsRef.current = options?.hashTabs;
+  const fallbackRef = useRef(fallback);
+  fallbackRef.current = fallback;
 
   // URL → state, including browser back/forward.
   useEffect(() => {
@@ -73,10 +75,12 @@ export function useUrlTab<T extends string>(
       return;
     }
     // No (valid) tab named, but the fragment may name a section — open the tab
-    // that actually renders it rather than the fallback.
+    // that actually renders it rather than the fallback. Otherwise the URL now
+    // names nothing (a nav link to the bare page, Back onto it): show what a
+    // refresh of this URL would, not whatever tab was open before.
     const id = currentHashId();
-    const owner = id ? hashTabsRef.current?.[id] : undefined;
-    if (owner) setTab((prev) => (prev === owner ? prev : owner));
+    const next = (id ? hashTabsRef.current?.[id] : undefined) ?? fallbackRef.current;
+    setTab((prev) => (prev === next ? prev : next));
   }, [router.isReady, fromUrl, validTabs]);
 
   // Land on the section the fragment names. The browser's own fragment scroll
@@ -118,8 +122,14 @@ export function useUrlTab<T extends string>(
   return [tab, select];
 }
 
-/** The current fragment without its `#`, or '' (also '' during SSR). */
+/** The current fragment without its `#`, or '' (also '' during SSR, and for a
+ *  fragment that is not valid percent-encoding — `#%zz` must not throw out of
+ *  an effect and take the page down). */
 function currentHashId(): string {
   if (typeof window === 'undefined') return '';
-  return decodeURIComponent(window.location.hash.replace(/^#/, ''));
+  try {
+    return decodeURIComponent(window.location.hash.replace(/^#/, ''));
+  } catch {
+    return '';
+  }
 }

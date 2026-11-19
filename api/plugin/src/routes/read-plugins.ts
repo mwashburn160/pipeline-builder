@@ -266,8 +266,14 @@ export function createReadPluginRoutes(): Router {
     );
 
     const includeTotal = req.query.includeTotal === 'true';
-    const cursor = req.query.cursor as string | undefined;
-    const fields = req.query.fields ? (req.query.fields as string).split(',') : undefined;
+    // A repeated `?fields=` / `?cursor=` reaches here as an ARRAY (Express's
+    // query parser); refused as the client error it is, never a TypeError → 500.
+    const { cursor: rawCursor, fields: rawFields } = req.query;
+    if ((rawCursor !== undefined && typeof rawCursor !== 'string') || (rawFields !== undefined && typeof rawFields !== 'string')) {
+      return sendBadRequest(res, 'cursor and fields must each be given at most once.', ErrorCode.VALIDATION_ERROR);
+    }
+    const cursor = rawCursor;
+    const fields = rawFields ? rawFields.split(',') : undefined;
 
     // Org → team hierarchy: a team org also sees its parent's public plugins.
     // `parentOrganizationId` rides in the JWT (absent for root orgs), so this

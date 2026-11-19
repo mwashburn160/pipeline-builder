@@ -7,8 +7,8 @@
  * `plugin_kept_setup_image.id` is a `uuid` column and the id arrives straight
  * from the route param (`POST /plugins/kept-setup-images/:id/promote`).
  * Comparing a uuid column to a non-uuid string is a Postgres cast error
- * (22P02), which `withRoute` answers with a 500 — so a typo'd or probing id read
- * as a server fault instead of the 404 an unknown id gets. The in-memory fake
+ * (22P02), which `withRoute` answers with a 400 — so a typo'd or probing id read
+ * as a bad request instead of the 404 an unknown id gets. The in-memory fake
  * db compares strings and never showed it.
  */
 

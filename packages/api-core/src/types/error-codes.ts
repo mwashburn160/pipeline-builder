@@ -24,6 +24,17 @@ export enum ErrorCode {
   /** The session is MFA-grade but its `auth_time` is older than the route's
    *  `maxAge` — the person must authenticate again (not merely refresh). */
   REAUTH_REQUIRED = 'REAUTH_REQUIRED',
+  /** A step-up-gated route was called without an `X-Step-Up-Token`. */
+  STEP_UP_REQUIRED = 'STEP_UP_REQUIRED',
+  /** The step-up token failed verification (forged, expired, wrong shape). */
+  STEP_UP_INVALID = 'STEP_UP_INVALID',
+  /** The step-up token was issued to a different user than the session's. */
+  STEP_UP_MISMATCH = 'STEP_UP_MISMATCH',
+  /** The step-up token's `jti` was already spent (single-use). */
+  STEP_UP_REPLAY = 'STEP_UP_REPLAY',
+  /** The step-up was earned by a factor the route does not accept
+   *  (`details.methods` names the ones it does). */
+  STEP_UP_METHOD_REQUIRED = 'STEP_UP_METHOD_REQUIRED',
 
   // Authorization errors (403)
   INSUFFICIENT_PERMISSIONS = 'INSUFFICIENT_PERMISSIONS',
@@ -33,6 +44,9 @@ export enum ErrorCode {
   /** A bootstrap-admin enrolment session (`mfaEnrollmentPending`) reached a
    *  route outside the enrolment / sign-out / setup allowlist. */
   MFA_ENROLLMENT_REQUIRED = 'MFA_ENROLLMENT_REQUIRED',
+  /** An org service account reached a step-up-gated route — there is no person
+   *  behind it to re-verify, so it can never pass. */
+  STEP_UP_NOT_AVAILABLE = 'STEP_UP_NOT_AVAILABLE',
   /** A read-only impersonation token (`impersonationReadOnly`) attempted a
    *  state-changing request (anything but GET/HEAD/OPTIONS). */
   IMPERSONATION_READ_ONLY = 'IMPERSONATION_READ_ONLY',
@@ -260,6 +274,11 @@ export const ErrorCodeStatus: Record<ErrorCode, number> = {
   [ErrorCode.TOKEN_REVOKED]: 401,
   [ErrorCode.MFA_REQUIRED]: 401,
   [ErrorCode.REAUTH_REQUIRED]: 401,
+  [ErrorCode.STEP_UP_REQUIRED]: 401,
+  [ErrorCode.STEP_UP_INVALID]: 401,
+  [ErrorCode.STEP_UP_MISMATCH]: 401,
+  [ErrorCode.STEP_UP_REPLAY]: 401,
+  [ErrorCode.STEP_UP_METHOD_REQUIRED]: 401,
   [ErrorCode.INSUFFICIENT_PERMISSIONS]: 403,
   [ErrorCode.SYSTEM_ORG_REQUIRED]: 403,
   [ErrorCode.PLUGIN_MANAGED_NAME_RESERVED]: 403,
@@ -273,6 +292,7 @@ export const ErrorCodeStatus: Record<ErrorCode, number> = {
   [ErrorCode.SEPARATION_OF_DUTIES]: 403,
   [ErrorCode.HUMAN_SESSION_REQUIRED]: 403,
   [ErrorCode.MFA_ENROLLMENT_REQUIRED]: 403,
+  [ErrorCode.STEP_UP_NOT_AVAILABLE]: 403,
   [ErrorCode.IMPERSONATION_READ_ONLY]: 403,
   [ErrorCode.ORG_MISMATCH]: 403,
   [ErrorCode.COMPLIANCE_VIOLATION]: 403,

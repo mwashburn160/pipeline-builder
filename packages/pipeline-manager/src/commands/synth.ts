@@ -10,7 +10,7 @@ import { assertShellSafe, shellQuote } from '../config/cli.constants.js';
 import type { ApiClient } from '../utils/api-client.js';
 import { auditLog } from '../utils/audit-log.js';
 import { executeCdkShellCommand, resolveBoilerplatePath } from '../utils/cdk-utils.js';
-import { createAuthenticatedClientAsync, printCommandHeader, printSslWarning, withProfileOption, withRegionOption, withSslOptions } from '../utils/command-utils.js';
+import { createAuthenticatedClientAsync, inheritedFlag, printCommandHeader, printSslWarning, withProfileOption, withRegionOption, withSslOptions } from '../utils/command-utils.js';
 import { registerPipeline } from '../utils/deploy-runner.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printInfo, printKeyValue, printSection, printSuccess, printWarning, setMachineOutput } from '../utils/output-utils.js';
@@ -108,7 +108,13 @@ export function synth(program: Command): void {
       .option('--json', 'Output result as JSON', false),
   )
     .option('--show-resolved', 'Print the resolved pipeline config (with {{ ... }} templates expanded) and exit without running CDK', false)
-    .action(async (options) => {
+    .action(async (options, cmd: Command) => {
+      // `--quiet` and `--verbose` are ALSO program-level options, and Commander
+      // binds them to the program, so this command's own copies keep their
+      // `false` defaults. Honour either (the CodeBuild synth step passes
+      // `--quiet`; see pipeline-core plugin-lookup).
+      const quiet = inheritedFlag(cmd, 'quiet');
+      const verbose = inheritedFlag(cmd, 'verbose');
       // `--json`: stdout is ONE document; every diagnostic (ours and the helpers')
       // goes to stderr.
       if (options.json) setMachineOutput(true);
@@ -158,9 +164,9 @@ export function synth(program: Command): void {
         ];
 
         if (options.profile) parts.push(`--profile=${shellQuote(options.profile)}`);
-        if (options.quiet) parts.push('--quiet');
+        if (quiet) parts.push('--quiet');
         if (options.notices === false) parts.push('--no-notices');
-        if (options.verbose) parts.push('--verbose');
+        if (verbose) parts.push('--verbose');
 
         const command = parts.join(' ');
 
@@ -170,7 +176,7 @@ export function synth(program: Command): void {
         }
 
         const result = withPropsFile(fetched.props, (env) => executeCdkShellCommand(command, {
-          showOutput: progress && !options.quiet,
+          showOutput: progress && !quiet,
           env,
         }));
 

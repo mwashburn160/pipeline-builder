@@ -15,9 +15,10 @@ import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockFindById = jest.fn<AnyFn>();
+const mockFindPaginated = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
-  pipelineService: { findById: mockFindById },
+  pipelineService: { findById: mockFindById, findPaginated: mockFindPaginated },
 }));
 
 // api-core mock — only the symbols the route imports
@@ -90,7 +91,7 @@ function getHandler(method: string, path: string) {
   return layer.route.stack[layer.route.stack.length - 1].handle;
 }
 
-function mockReq(query: Record<string, string> = {}) {
+function mockReq(query: Record<string, unknown> = {}) {
   return { params: { id: 'pid-1' }, query, headers: { authorization: 'Bearer x' } } as any;
 }
 function mockRes() {
@@ -166,5 +167,36 @@ describe('GET /pipelines/:id ?resolve=true', () => {
     expect(res.status).toHaveBeenCalledWith(400);
     const payload = (res.json as jest.Mock<AnyFn>).mock.calls[0][0];
     expect(payload.code).toBe('TEMPLATE_VALIDATION_FAILED');
+  });
+});
+
+describe('GET /pipelines — list query params', () => {
+  const handler = getHandler('get', '/');
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockFindPaginated.mockResolvedValue({ data: [], limit: 25, offset: 0, hasMore: false });
+  });
+
+  it('answers 400, not 500, for a repeated ?fields= (Express parses it as an array)', async () => {
+    const res = mockRes();
+    await handler(mockReq({ fields: ['id', 'pipelineName'] }), res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockFindPaginated).not.toHaveBeenCalled();
+  });
+
+  it('answers 400, not 500, for a repeated ?cursor=', async () => {
+    const res = mockRes();
+    await handler(mockReq({ cursor: ['a', 'b'] }), res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockFindPaginated).not.toHaveBeenCalled();
+  });
+
+  it('passes a single ?fields= / ?cursor= through, split on commas', async () => {
+    const res = mockRes();
+    await handler(mockReq({ fields: 'id,pipelineName', cursor: 'c1' }), res);
+    expect(mockFindPaginated).toHaveBeenCalledWith(
+      {}, 'org-1', expect.objectContaining({ fields: ['id', 'pipelineName'], cursor: 'c1' }), undefined,
+    );
   });
 });

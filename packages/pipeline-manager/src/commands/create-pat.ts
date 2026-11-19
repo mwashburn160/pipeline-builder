@@ -6,10 +6,10 @@ import { Command } from 'commander';
 import pico from 'picocolors';
 import { TIMEOUTS } from '../config/cli.constants.js';
 import { assertCredentialTlsAllowed, switchOrganization } from '../utils/auth-utils.js';
-import { printCommandHeader, withSslOptions } from '../utils/command-utils.js';
+import { inheritedFlag, printCommandHeader, withSslOptions } from '../utils/command-utils.js';
 import { getApiConfig } from '../utils/config-loader.js';
 import { beginDeviceApproval, DeviceAuthError, pollForDeviceToken } from '../utils/device-auth.js';
-import { ERROR_CODES, handleError } from '../utils/error-handler.js';
+import { ERROR_CODES, handleError, resolveExitCode } from '../utils/error-handler.js';
 import { printDebug, printError, printInfo, printKeyValue, printSuccess } from '../utils/output-utils.js';
 import { requestCorrelationHeaders } from '../utils/request-context.js';
 import { platformHttpsAgent } from '../utils/tls.js';
@@ -69,13 +69,17 @@ export function createPat(program: Command): void {
     .option('--no-browser', 'Never open a browser — print the verification URL instead')
     .option('--url <url>', 'Platform base URL (default: PLATFORM_BASE_URL, else the platform you last signed in to, else config.yml)'))
     .option('--quiet', 'Only print the export statement (useful for eval)')
-    .action(async (options) => {
+    .action(async (options, command: Command) => {
       // SECURITY: the poll returns a session AND a step-up token, and the response
       // below carries the raw key. None of that may cross an unverified connection
       // in production. Mirrors the guard in `login`.
       assertCredentialTlsAllowed(options.verifySsl);
 
-      const quiet = options.quiet ?? false;
+      // `--quiet` is ALSO a program-level option, and Commander binds a trailing
+      // `--quiet` to the program — so read the root's too, or the documented
+      // `eval $(pipeline-manager auth pat --name ci --quiet)` gets no export line
+      // (the same resolution `auth login` does).
+      const quiet = inheritedFlag(command, 'quiet');
       // Same base-URL layers as every other command (see `auth login`).
       const url: string = options.url ?? getApiConfig().api.baseUrl;
       const executionId = printCommandHeader('Create Access Key', 'Create Access Key', { quiet });
@@ -196,7 +200,10 @@ export function createPat(program: Command): void {
             status: status ?? 'no response',
             ...(message ? { message } : {}),
           });
-          process.exit(ERROR_CODES.AUTHENTICATION);
+          // The code for what actually failed (as `auth login` does): a 403 is
+          // AUTHORIZATION, a 5xx API_REQUEST, no response NETWORK — not always
+          // AUTHENTICATION, which tells a script the sign-in was refused.
+          process.exit(resolveExitCode(error, ERROR_CODES.API_REQUEST));
         }
         handleError(error, ERROR_CODES.API_REQUEST, {
           debug: program.opts().debug,

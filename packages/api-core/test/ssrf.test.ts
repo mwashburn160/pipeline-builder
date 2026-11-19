@@ -177,6 +177,24 @@ describe('safeFetch', () => {
     expect(pinnedAll).toEqual([{ address: '93.184.216.34', family: 4 }]);
   });
 
+  it('bounds the DNS resolution by timeoutMs too — a stalling resolver cannot hold the call past its cap', async () => {
+    // A tenant controls its webhook host's authoritative DNS and can make the
+    // lookup hang; the wall-clock cap must cover resolution, not just the socket.
+    mockLookup.mockImplementation(() => new Promise(() => { /* never resolves */ }));
+    const started = Date.now();
+    await expect(safeFetch('https://stall.example.com/hook', { timeoutMs: 50 })).rejects.toThrow();
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(mockRequest).not.toHaveBeenCalled();
+  }, 2_000);
+
+  it('honours an already-aborted caller signal before resolving the host', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await expect(safeFetch('https://example.com/hook', { signal: controller.signal })).rejects.toThrow();
+    expect(mockLookup).not.toHaveBeenCalled();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
   it('reports a 3xx as a refused redirect, never following it', async () => {
     stubResponse(302, '', { location: 'http://169.254.169.254/' });
     const resp = await safeFetch('https://example.com/hook');

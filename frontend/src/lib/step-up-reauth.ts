@@ -69,6 +69,9 @@ const REAUTH_TIMEOUT_MS = 5 * 60_000;
 /** Wait for the callback page's message for `state`, from either transport. */
 function awaitResult(state: string, signal: AbortSignal): Promise<ReauthResult> {
   return new Promise<ReauthResult>((resolve, reject) => {
+    // Cancelled while the start request was out: the 'abort' event has already
+    // fired, so a listener added below would never run.
+    if (signal.aborted) { reject(new Error('Confirmation cancelled')); return; }
     let channel: BroadcastChannel | null = null;
     const cleanup = () => {
       window.clearTimeout(timer);
@@ -125,7 +128,8 @@ export async function runProviderReauth(option: ReauthProvider, signal: AbortSig
     if (!url || !state) throw new Error(started.message || 'Could not start the sign-in confirmation');
 
     const waiting = awaitResult(state, signal);
-    popup.location.href = url;
+    // Never send the popup to the provider for a confirmation already cancelled.
+    if (!signal.aborted) popup.location.href = url;
 
     const result = await waiting;
     if (result.error) throw new Error(result.error);

@@ -75,11 +75,20 @@ export function TagTable({
   onSelect, onCopy, onDelete, onBulkDelete, onRefresh, metadata, canCopy, canPurge,
 }: TagTableProps) {
   const [filter, setFilter] = useState('');
-  const { selectedIds: selected, toggle: toggleSelect, toggleAll, clear: clearSelection } = useRowSelection();
+  const { selectedIds: selected, toggle: toggleSelect, toggleAll, clear: clearSelection, replace: replaceSelection } = useRowSelection();
 
   // Clear bulk selection on repo change — multi-select doesn't make sense
   // to carry across repos.
   useEffect(() => { clearSelection(); }, [repo, clearSelection]);
+
+  // Keep only tags that still exist once the list is re-read (after a delete):
+  // otherwise "Delete selected" re-sends deletes for refs that are already gone.
+  // A `null` list is a reload in flight, not an empty repo, so it prunes nothing.
+  useEffect(() => {
+    if (tags === null) return;
+    const present = new Set(tags);
+    if ([...selected].some((t) => !present.has(t))) replaceSelection([...selected].filter((t) => present.has(t)));
+  }, [tags, selected, replaceSelection]);
 
   const filtered = useMemo(() => {
     return (tags ?? [])

@@ -69,3 +69,34 @@ describe('pipeline synth --json', () => {
     expect(stdout.join('\n')).toContain('Synthesis Complete');
   });
 });
+
+/**
+ * The CodeBuild synth step runs `pipeline-manager pipeline synth … --quiet
+ * --no-notices` (pipeline-core plugin-lookup). `--quiet` and `--verbose` are
+ * ALSO program-level options, and Commander binds them to the program, so the
+ * subcommand's own `options.quiet` / `options.verbose` stayed at their `false`
+ * defaults: `--quiet` never quieted CDK and `--verbose` never reached it.
+ */
+describe('pipeline synth --quiet / --verbose under the real program wiring', () => {
+  /** program (with its own --quiet/--verbose, as cli.ts defines them) -> `pipeline` -> `synth`. */
+  async function runSynth(args: string[]): Promise<void> {
+    const program = new Command();
+    program.exitOverride();
+    program.option('--verbose', 'Show detailed information', false).option('--quiet', 'Minimal output (errors only)', false);
+    synth(program.command('pipeline'));
+    await program.parseAsync(['pipeline', 'synth', '--id', 'pl-1', ...args], { from: 'user' });
+  }
+
+  it('--quiet passes --quiet to cdk and captures its output', async () => {
+    await runSynth(['--quiet']);
+    const [command, opts] = mockExecute.mock.calls[mockExecute.mock.calls.length - 1]!;
+    expect(command.split(' ')).toContain('--quiet');
+    expect(opts).toMatchObject({ showOutput: false });
+  });
+
+  it('--verbose passes --verbose to cdk', async () => {
+    await runSynth(['--verbose']);
+    const [command] = mockExecute.mock.calls[mockExecute.mock.calls.length - 1]!;
+    expect(command.split(' ')).toContain('--verbose');
+  });
+});

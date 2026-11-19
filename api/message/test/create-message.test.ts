@@ -782,6 +782,38 @@ describe('POST /messages/:id/reply', () => {
     );
   });
 
+  it('a SYSTEM-org follow-up on a thread the system org STARTED is addressed to the tenant, not to itself', async () => {
+    // Proactive outreach: staff open a conversation with org-1, then follow up
+    // before the tenant answers. The reply must go to the root's recipient —
+    // addressed to the system org itself, it is invisible to org-1.
+    mockFindVisibleById.mockResolvedValue({
+      id: 'out-1',
+      orgId: SYSTEM_ORG,
+      recipientOrgId: 'org-1',
+      recipientUserId: null,
+      threadId: null,
+      messageType: 'conversation',
+      channel: null,
+      subject: 'Your upcoming renewal',
+      priority: 'normal',
+    });
+    mockCreate.mockResolvedValue({ id: 'follow-up', threadId: 'out-1' });
+    const res = mockRes();
+    await handler(mockReq({
+      params: { id: 'out-1' },
+      body: { content: 'Following up on this.' },
+      user: { sub: 'staff-1', permissions: [], ...HUMAN_SESSION },
+      context: { identity: { orgId: SYSTEM_ORG, userId: 'staff-1' } },
+    }), res);
+
+    expect(res.status).toHaveBeenCalledWith(201);
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: SYSTEM_ORG, threadId: 'out-1', recipientOrgId: 'org-1' }),
+      'staff-1',
+    );
+    expect(mockSseManager.send).toHaveBeenCalledWith('org-1', 'MESSAGE', 'New reply', expect.anything());
+  });
+
   // ANNOUNCEMENTS ARE ONE-WAY. A customer's reply to a broadcast starts a NEW
   // support thread between their org and the system org (quoting the
   // announcement); it is never a row in the broadcast's own thread, which every

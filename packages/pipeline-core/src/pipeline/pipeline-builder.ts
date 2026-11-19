@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger } from '@pipeline-builder/api-core';
+import { PIPELINE_ID_TAG } from '@pipeline-builder/api-core/pipeline-runners';
 import { ArnFormat, Duration, RemovalPolicy, Stack, Tags } from 'aws-cdk-lib';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import { BuildSpec, type IBuildImage } from 'aws-cdk-lib/aws-codebuild';
@@ -474,7 +475,7 @@ export class PipelineBuilder extends Construct {
       // tag to attribute CodePipeline state-change events to the pipeline without
       // ever handling the ARN/account. See packages/pipeline-events.
       if (props.pipelineId) {
-        Tags.of(this.pipeline).add('pb.pipeline-id', props.pipelineId);
+        Tags.of(this.pipeline).add(PIPELINE_ID_TAG, props.pipelineId);
       }
       // Deploy-environment attribution for DORA metrics. `pb.deploys` lists every
       // deploy stage as `<stageName>:<environment>` pairs joined by `+`, read by
@@ -494,7 +495,7 @@ export class PipelineBuilder extends Construct {
       const stackTags = Stack.of(this).tags;
       stackTags.setTag('pipeline-builder', 'true');
       if (props.orgId) stackTags.setTag('OrgId', props.orgId);
-      if (props.pipelineId) stackTags.setTag('pb.pipeline-id', props.pipelineId);
+      if (props.pipelineId) stackTags.setTag(PIPELINE_ID_TAG, props.pipelineId);
 
       // Build the internal pipeline before accessing its properties
       this.pipeline.buildPipeline();

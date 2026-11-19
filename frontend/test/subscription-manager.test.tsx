@@ -235,3 +235,49 @@ describe('SubscriptionManager preview race', () => {
     expect(screen.getByText('7 rules evaluated')).toBeInTheDocument();
   });
 });
+
+describe('SubscriptionManager read-only session', () => {
+  // Subscribing is member-level opt-in (`compliance:read`), so it stays offered
+  // without `compliance:write` — but a read-only impersonation session has every
+  // POST refused by api-core, so the button must not be live there.
+  it('disables Subscribe in a read-only session', async () => {
+    mockCatalog([rule({ id: 'base-1', name: 'Baseline rule', tags: [] })]);
+    mockRouter.query = { subs: 'catalog' };
+    render(<SubscriptionManager readOnly sessionReadOnly />);
+    const btn = await screen.findByRole('button', { name: /^subscribe$/i });
+    expect(btn).toHaveAttribute('aria-disabled', 'true');
+    fireEvent.click(btn);
+    expect(subscribeToRule).not.toHaveBeenCalled();
+  });
+
+  it('keeps Subscribe live for a compliance:read member in a normal session', async () => {
+    mockCatalog([rule({ id: 'base-1', name: 'Baseline rule', tags: [] })]);
+    subscribeToRule.mockResolvedValue({ success: true });
+    mockRouter.query = { subs: 'catalog' };
+    render(<SubscriptionManager readOnly />);
+    fireEvent.click(await screen.findByRole('button', { name: /^subscribe$/i }));
+    await waitFor(() => expect(subscribeToRule).toHaveBeenCalledWith('base-1'));
+  });
+});
+
+describe('SubscriptionManager load failure', () => {
+  // A failed read used to fall through to the empty state, telling the person
+  // they have no subscriptions when the list simply did not load.
+  it('shows an error with Retry, not "No subscriptions yet", when the list fails to load', async () => {
+    getComplianceSubscriptions.mockRejectedValueOnce(new Error('boom'));
+    render(<SubscriptionManager />);
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.queryByText('No subscriptions yet.')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /retry/i }));
+    expect(await screen.findByText('No subscriptions yet.')).toBeInTheDocument();
+    expect(getComplianceSubscriptions).toHaveBeenCalledTimes(2);
+  });
+
+  it('shows an error, not "No published rules available", when the catalog fails to load', async () => {
+    mockRouter.query = { subs: 'catalog' };
+    getPublishedRules.mockResolvedValueOnce({ success: false, message: 'nope' });
+    render(<SubscriptionManager />);
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.queryByText('No published rules available.')).not.toBeInTheDocument();
+  });
+});

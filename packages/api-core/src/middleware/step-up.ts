@@ -24,7 +24,9 @@ import { verifyUserJwt } from './jwt-verify.js';
 import { recordAuthzDenial } from './permission-gates.js';
 import { tagRouteGate } from './route-table.js';
 import { isServiceAccountPrincipal, isServicePrincipal } from './service-tokens.js';
+import { HttpStatus } from '../constants/http-status.js';
 import { createEnvRedisClient } from '../services/env-redis.js';
+import { ErrorCode } from '../types/error-codes.js';
 import { getHeaderString } from '../utils/headers.js';
 import { createLogger } from '../utils/logger.js';
 import { sendError } from '../utils/response.js';
@@ -224,19 +226,19 @@ async function _requireStepUp(options: RequireStepUpOptions, req: Request, res: 
   // property of this gate, not a side effect of how step-up tokens are minted.
   if (isServiceAccountPrincipal(req)) {
     recordAuthzDenial(req, 'step-up (STEP_UP_NOT_AVAILABLE: service account)');
-    sendError(res, 403, 'A service account cannot perform this action — it requires a person to re-verify', 'STEP_UP_NOT_AVAILABLE');
+    sendError(res, HttpStatus.FORBIDDEN, 'A service account cannot perform this action — it requires a person to re-verify', ErrorCode.STEP_UP_NOT_AVAILABLE);
     return;
   }
 
   const callerSub = (req as Request & { user?: { sub?: string } }).user?.sub;
   if (!callerSub) {
-    sendError(res, 401, 'Authentication required', 'UNAUTHORIZED');
+    sendError(res, HttpStatus.UNAUTHORIZED, 'Authentication required', ErrorCode.UNAUTHORIZED);
     return;
   }
 
   const token = getHeaderString(req.headers[HEADER]);
   if (!token) {
-    sendError(res, 401, 'Step-up verification required', 'STEP_UP_REQUIRED');
+    sendError(res, HttpStatus.UNAUTHORIZED, 'Step-up verification required', ErrorCode.STEP_UP_REQUIRED);
     return;
   }
 
@@ -248,14 +250,14 @@ async function _requireStepUp(options: RequireStepUpOptions, req: Request, res: 
     // trail; a MISSING one (STEP_UP_REQUIRED above) is the UI's normal first
     // attempt and is not.
     recordAuthzDenial(req, 'step-up (STEP_UP_INVALID)');
-    sendError(res, 401, 'Step-up token invalid or expired', 'STEP_UP_INVALID');
+    sendError(res, HttpStatus.UNAUTHORIZED, 'Step-up token invalid or expired', ErrorCode.STEP_UP_INVALID);
     return;
   }
 
   if (payload.sub !== callerSub) {
     // Someone else's step-up token replayed on this session — never a UI bug.
     recordAuthzDenial(req, 'step-up (STEP_UP_MISMATCH)');
-    sendError(res, 401, 'Step-up token does not match session', 'STEP_UP_MISMATCH');
+    sendError(res, HttpStatus.UNAUTHORIZED, 'Step-up token does not match session', ErrorCode.STEP_UP_MISMATCH);
     return;
   }
 
@@ -265,9 +267,9 @@ async function _requireStepUp(options: RequireStepUpOptions, req: Request, res: 
   if (options.methods && !options.methods.includes(payload.method)) {
     recordAuthzDenial(req, `step-up (STEP_UP_METHOD_REQUIRED: ${options.methods.join(' or ')}, got ${payload.method})`);
     sendError(
-      res, 401,
+      res, HttpStatus.UNAUTHORIZED,
       'This action must be confirmed with a passkey or an authenticator code',
-      'STEP_UP_METHOD_REQUIRED',
+      ErrorCode.STEP_UP_METHOD_REQUIRED,
       { methods: [...options.methods] },
     );
     return;
@@ -276,12 +278,12 @@ async function _requireStepUp(options: RequireStepUpOptions, req: Request, res: 
   try {
     if (!(await consumeStepUpJti(payload.jti, payload.exp))) {
       recordAuthzDenial(req, 'step-up (STEP_UP_REPLAY)');
-      sendError(res, 401, 'Step-up token already used or expired', 'STEP_UP_REPLAY');
+      sendError(res, HttpStatus.UNAUTHORIZED, 'Step-up token already used or expired', ErrorCode.STEP_UP_REPLAY);
       return;
     }
   } catch (err) {
     logger.error('Step-up jti consume errored', { error: String(err) });
-    sendError(res, 401, 'Step-up verification failed', 'STEP_UP_INVALID');
+    sendError(res, HttpStatus.UNAUTHORIZED, 'Step-up verification failed', ErrorCode.STEP_UP_INVALID);
     return;
   }
 

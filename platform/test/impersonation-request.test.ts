@@ -5,9 +5,8 @@
  * Tests for the impersonation request lifecycle.
  *
  * The invariant under test is that a token is only ever issued by REDEEMING an
- * approved request, and that an approval is single-use. Today every request
- * auto-approves (no consent policy exists), so these also pin the promise that
- * introducing the record changed no user-visible behaviour.
+ * approved request, and that an approval is single-use — whether the request
+ * was approved on creation or waited for a consent decision.
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
@@ -405,7 +404,23 @@ describe('listForCaller — visibility mirrors decide/revoke authorization', () 
   it('to-decide: a tenant admin also sees consent requests for their org subtree', async () => {
     await impersonationService.listForCaller(caller({ adminOrgIds: ['org-a', 'team-1'] }), 'to-decide');
 
-    expect(filterOf().$or).toContainEqual({ breakglass: { $ne: true }, organizationId: { $in: ['org-a', 'team-1'] } });
+    expect(filterOf().$or).toContainEqual(expect.objectContaining({ breakglass: { $ne: true }, organizationId: { $in: ['org-a', 'team-1'] } }));
+  });
+
+  // decideImpersonationRequest refuses a tenant admin on a request that needs
+  // the SUBJECT's own consent, and refuses the subject acting as a tenant admin
+  // of their own org — so the subtree clause must exclude both, or the queue
+  // lists rows whose Approve returns 403.
+  it('to-decide: the subtree clause excludes subject-consent requests and requests about the caller', async () => {
+    await impersonationService.listForCaller(caller({ adminOrgIds: ['org-a'] }), 'to-decide');
+
+    const subtree = (filterOf().$or as any[]).find((b) => 'organizationId' in b);
+    expect(subtree).toEqual({
+      breakglass: { $ne: true },
+      organizationId: { $in: ['org-a'] },
+      subjectConsentRequired: { $ne: true },
+      targetUserId: { $ne: 'me' },
+    });
   });
 
   // `impersonation:approve` gates deciding on the ORGANISATION's behalf, so

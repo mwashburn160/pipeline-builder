@@ -15,12 +15,13 @@ const { bold, green } = pico;
  * CLI  `pipeline-manager org export --id <orgId> --output <file>`.
  *
  * Fetches the GDPR portability dump from `GET /api/organization/:id/export`
- * on the platform service and writes it to disk (or stdout). The endpoint
- * is gated server-side * • System admins (admin/owner in the `system` org) may export any org.
+ * on the platform service and writes it to disk, readable by the current user
+ * only. The endpoint is gated server-side:
+ * • System admins (admin/owner in the `system` org) may export any org.
  * • Org admins / owners may export ONLY their own org.
  * • Everything else gets 403.
  *
- * The CLI itself does no role checking  the caller's PLATFORM_TOKEN drives
+ * The CLI itself does no role checking: the caller's PLATFORM_TOKEN drives
  * what the server accepts. Run `pipeline-manager status` first to confirm
  * the token's role + org.
  *
@@ -83,7 +84,11 @@ export function orgExport(program: Command): void {
         // if a future server change ever adds one, it must be stripped/redacted
         // here BEFORE this write, not persisted through the CLI.
         const json = JSON.stringify(response, null, 2);
-        fs.writeFileSync(outputPath, json, 'utf8');
+        // The dump names the org's members (emails included) and every record it
+        // owns: owner-only, like the credential store. `mode` applies only when
+        // the file is created, so an existing file is tightened as well.
+        fs.writeFileSync(outputPath, json, { encoding: 'utf8', mode: 0o600 });
+        fs.chmodSync(outputPath, 0o600);
 
         const sizeKb = (json.length / 1024).toFixed(1);
         const postgresTables = response.postgres && typeof response.postgres === 'object'

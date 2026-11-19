@@ -4,6 +4,7 @@
 // Runtime role/permission guards for the client-decoded user.
 import type { User } from '@/types';
 import type { Permission } from '@pipeline-builder/api-core/permissions';
+import { ADMIN_ORG_ROLES } from '@pipeline-builder/api-core/wire-vocabulary';
 
 /**
  * Check if user is a Pipeline Builder super-admin.
@@ -29,7 +30,7 @@ export function isSystemAdmin(user: User | null): boolean {
  * affordances.
  */
 export function isOrgAdmin(user: User | null): boolean {
-  return (user?.role === 'admin' || user?.role === 'owner') && !isSystemAdmin(user);
+  return !!user && (ADMIN_ORG_ROLES as readonly string[]).includes(user.role) && !isSystemAdmin(user);
 }
 
 /**

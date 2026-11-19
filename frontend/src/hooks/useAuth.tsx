@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import { forgetReturnPath, rememberReturnPath } from '@/lib/return-to';
 import { AuthFactors, MfaNudgeState, SessionMfaPolicy, User, UserOrgMembership } from '@/types';
 import api, { ApiError } from '@/lib/api';
+import { MfaRequiredError, StepUpRequiredError } from '@/lib/api/errors';
 import { clearAttachmentImageCache } from '@/lib/attachment-image-cache';
 import { syncAdminConsoleCookie } from '@/lib/admin-console';
 import { clearQueryCache } from '@/lib/query-cache';
@@ -302,7 +303,10 @@ export function AuthProvider({ children, deferInit = false }: { children: ReactN
       // (The api client already fires `onSessionExpired` when a refresh truly
       // fails, which clears state + redirects; this catch must not double as a
       // logout for every transient error.)
-      if (err instanceof ApiError && err.statusCode === 401) {
+      // MfaRequiredError / StepUpRequiredError are 401s too, but the session is
+      // live — it needs a stronger factor, which the api client prompts for.
+      const needsFactor = err instanceof MfaRequiredError || err instanceof StepUpRequiredError;
+      if (err instanceof ApiError && err.statusCode === 401 && !needsFactor) {
         setUser(null);
         setAuthError(null);
       } else {

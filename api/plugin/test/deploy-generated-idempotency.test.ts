@@ -473,3 +473,47 @@ describe('POST /deploy-generated — name-shadowing policy', () => {
     expect(deploy.details.shadows).toBeUndefined();
   });
 });
+
+// The ZIP upload refuses a name/version outside the plugin identity grammar
+// (both become the registry repository and tag, listing URLs and notice
+// subjects). The AI deploy path persists the same rows and pushes the same
+// images, so it must refuse the same identities — up front, before the idem
+// claim, the quota slot and a build that could only fail late.
+describe('POST /deploy-generated — plugin identity', () => {
+  const handler = getHandler();
+  const valid = {
+    name: 'my-plugin',
+    description: 'd',
+    version: '1.0.0',
+    pluginType: 'CodeBuildStep',
+    computeType: 'MEDIUM',
+    keywords: [],
+    primaryOutputDirectory: null,
+    installCommands: [],
+    commands: ['echo hi'],
+    env: {},
+    buildArgs: {},
+    dockerfile: 'FROM node',
+    visibility: 'private',
+  };
+
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  it.each([
+    ['an uppercase / spaced name', { name: 'My Plugin' }],
+    ['a name with a path separator', { name: 'tools/../system/trivy' }],
+    ['a name with a CR/LF', { name: 'trivy\r\nBcc: x' }],
+    ['a non-semver version', { version: 'latest' }],
+  ])('refuses %s with 400 before the idempotency claim, quota and build', async (_label, over) => {
+    const { validateBody } = await import('@pipeline-builder/api-core') as any;
+    validateBody.mockReturnValueOnce({ ok: true, value: { ...valid, ...over } });
+    const res = mockRes();
+    await handler(mockReq('req-1:my-plugin'), res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockAssertDeployable).not.toHaveBeenCalled();
+    expect(mockIdemReserve).not.toHaveBeenCalled();
+    expect(mockReserveQuota).not.toHaveBeenCalled();
+    expect(mockEnqueueBuild).not.toHaveBeenCalled();
+  });
+});

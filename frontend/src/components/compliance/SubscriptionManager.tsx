@@ -23,6 +23,7 @@ import type { PublishedRuleCatalogEntry, ComplianceRule, ComplianceRuleSubscript
 import { SeverityBadge } from './SeverityBadge';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { StatusPill } from '@/components/ui/StatusPill';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 
 interface SubscriptionWithRule extends ComplianceRuleSubscription {
   rule: ComplianceRule | null;
@@ -54,7 +55,13 @@ const COMPLIANCE_SET_LABELS: Record<ComplianceSetFlag, string> = {
 };
 
 interface SubscriptionManagerProps {
+  /** No `compliance:write` (or a read-only session): hides the posture-weakening controls. */
   readOnly?: boolean;
+  /**
+   * A read-only (impersonation) session. api-core refuses every write it sends,
+   * including the `compliance:read` opt-in Subscribe that `readOnly` leaves live.
+   */
+  sessionReadOnly?: boolean;
 }
 
 /** Sub-view, carried in `?subs=` so "Browse catalog" is linkable and survives Back. */
@@ -65,7 +72,7 @@ const SUB_TABS = [
 type SubTab = (typeof SUB_TABS)[number]['id'];
 const SUB_TAB_IDS: readonly SubTab[] = SUB_TABS.map((t) => t.id);
 
-export default function SubscriptionManager({ readOnly = false }: SubscriptionManagerProps) {
+export default function SubscriptionManager({ readOnly = false, sessionReadOnly = false }: SubscriptionManagerProps) {
   const toast = useToast();
   // One gate per paid content set (hooks can't run per catalog row). The gate
   // carries the superadmin bypass, so an operator never sees a set as locked.
@@ -77,6 +84,9 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
   const [subscriptions, setSubscriptions] = useState<SubscriptionWithRule[]>([]);
   const [catalog, setCatalog] = useState<PublishedRuleCatalogEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  // A failed read of the active view. Without it a failure fell through to the
+  // empty state ("No subscriptions yet"), which is a claim about the org's data.
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewResult, setPreviewResult] = useState<ComplianceCheckResult | null>(null);
   const [impactResult, setImpactResult] = useState<RuleImpact | null>(null);
@@ -101,20 +111,26 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
   const fetchSubscriptions = useCallback(async () => {
     const gen = ++reqRef.current;
     setLoading(true);
+    setLoadError(null);
     try {
       const res = await api.getComplianceSubscriptions({ limit: subsPage.limit, offset: subsPage.offset });
       if (gen !== reqRef.current) return;
       if (res.success && res.data) {
         setSubscriptions(res.data.subscriptions);
         if (res.data.pagination) setSubsTotal(res.data.pagination.total);
+      } else {
+        setLoadError(res.message || 'Failed to load subscriptions');
       }
-    } catch { /* handled by loading state */ }
+    } catch (err) {
+      if (gen === reqRef.current) setLoadError(formatError(err, 'Failed to load subscriptions'));
+    }
     if (gen === reqRef.current) setLoading(false);
   }, [subsPage.offset, subsPage.limit]);
 
   const fetchCatalog = useCallback(async () => {
     const gen = ++reqRef.current;
     setLoading(true);
+    setLoadError(null);
     try {
       const params: Record<string, string | number> = { limit: catalogPage.limit, offset: catalogPage.offset };
       if (catalogTarget) params.target = catalogTarget;
@@ -124,8 +140,12 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
       if (res.success && res.data) {
         setCatalog(res.data.rules);
         if (res.data.pagination) setCatalogTotal(res.data.pagination.total);
+      } else {
+        setLoadError(res.message || 'Failed to load the rule catalog');
       }
-    } catch { /* handled by loading state */ }
+    } catch (err) {
+      if (gen === reqRef.current) setLoadError(formatError(err, 'Failed to load the rule catalog'));
+    }
     if (gen === reqRef.current) setLoading(false);
   }, [catalogPage.offset, catalogPage.limit, catalogTarget, catalogSeverity]);
 
@@ -251,6 +271,8 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
         <div className="flex items-center justify-center py-12">
           <LoadingSpinner label="Loading catalog" />
         </div>
+      ) : loadError ? (
+        <ErrorAlert message={loadError} onRetry={() => { void (tab === 'subscriptions' ? fetchSubscriptions() : fetchCatalog()); }} />
       ) : tab === 'subscriptions' && (
         <>
           {!readOnly && selectedIds.size > 0 && (
@@ -365,7 +387,7 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
         </>
       )}
 
-      {!loading && tab === 'catalog' && (
+      {!loading && !loadError && tab === 'catalog' && (
         <div className="space-y-3">
           {/* Catalog filters */}
           <div className="flex gap-3">
@@ -425,7 +447,7 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
                         <Lock className="h-3 w-3" aria-hidden="true" /> Requires {setMeta.label}
                       </Link>
                     ) : (
-                      <Button variant="primary" size="xs" onClick={() => handleSubscribe(rule.id)}>
+                      <Button variant="primary" size="xs" readOnly={sessionReadOnly} onClick={() => handleSubscribe(rule.id)}>
                         Subscribe
                       </Button>
                     )}

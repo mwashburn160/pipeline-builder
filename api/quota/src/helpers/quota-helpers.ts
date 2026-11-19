@@ -4,7 +4,7 @@
 import { DEFAULT_TIER, PLAN_TIERS, VALID_QUOTA_TYPES, enforcedQuotaLimit, quotaGracePct, nextQuotaResetDate, quotaPeriodDays } from '@pipeline-builder/api-core';
 import type { QuotaType, PlanTier, QuotaReserveResult } from '@pipeline-builder/api-core';
 import { config } from '../config.js';
-import type { QuotaLimits, QuotaUsageTracking, OrganizationDocument } from '../models/organization.js';
+import type { QuotaLimits, QuotaUsageTracking } from '../models/organization.js';
 
 /**
  * The usage period for one quota type, in days — the ONE spelling of the rule
@@ -68,19 +68,6 @@ export function effectiveLimitExpr(limitExpr: unknown, snapshotPath: string): un
  */
 export function atRiskPercent(status: { used: number; limit: number }): number {
   return status.limit === 0 ? 100 : Math.min(100, Math.round((status.used / status.limit) * 100));
-}
-
-/**
- * Apply partial quota limit updates to an organization document.
- * Only sets fields that are explicitly provided (not undefined).
- */
-export function applyQuotaLimits(
-  org: OrganizationDocument,
-  updates: Partial<Record<QuotaType, number>>,
-): void {
-  for (const key of VALID_QUOTA_TYPES) {
-    if (updates[key] !== undefined) org.quotas[key] = updates[key]!;
-  }
 }
 
 /**

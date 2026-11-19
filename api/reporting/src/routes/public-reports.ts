@@ -90,7 +90,12 @@ export function isPreviewFetch(req: Request): boolean {
  * series and the reader can still tell them apart.
  */
 export function redactNames(value: unknown, seen = new Map<string, string>()): unknown {
-  const NAME_KEYS = new Set(['project', 'projectName', 'pipeline', 'pipelineName', 'pipelineId', 'repository', 'repo', 'branch', 'name']);
+  // The snake_case spellings too: some sections are raw SQL rows (stage_bottlenecks
+  // answers `pipeline_name`), not camelCase-mapped ones.
+  const NAME_KEYS = new Set([
+    'project', 'projectName', 'project_name', 'pipeline', 'pipelineName', 'pipeline_name', 'pipelineId', 'pipeline_id',
+    'repository', 'repo', 'branch', 'name',
+  ]);
   const placeholder = (original: string): string => {
     const existing = seen.get(original);
     if (existing) return existing;

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { CloudFormationClient, DescribeStacksCommand } from '@aws-sdk/client-cloudformation';
+import { PIPELINE_ID_TAG } from '@pipeline-builder/api-core/pipeline-runners';
 import { Command } from 'commander';
 import { decodeTokenPayload } from '../utils/auth-guard.js';
 import { applyAwsProfile, resolveAwsRegion } from '../utils/aws-env.js';
@@ -220,7 +221,7 @@ export function auditStacks(program: Command): void {
               region,
               pipelineBuilderTag: pbTag,
               orgIdTag: orgTag,
-              pipelineIdTag: tags.find((t) => t.Key === 'pb.pipeline-id')?.Value,
+              pipelineIdTag: tags.find((t) => t.Key === PIPELINE_ID_TAG)?.Value,
               creationTime: stack.CreationTime,
             });
           }

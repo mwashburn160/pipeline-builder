@@ -3,6 +3,7 @@
 
 import { z } from 'zod';
 import { VisibilitySchema } from './common-schemas.js';
+import { PLUGIN_NAME_PATTERN, PLUGIN_VERSION_PATTERN } from './plugin-spec-schema.js';
 import { BUILD_CLASSES, BUILD_SIZES } from '../types/build-catalog.js';
 import { envInt } from '../utils/env.js';
 
@@ -15,6 +16,11 @@ const MAX_PROMPT_LENGTH = envInt('MAX_PROMPT_LENGTH', 5000, { min: 1 });
  * bill; a real generated pipeline config is a few KB.
  */
 const MAX_PREVIOUS_CONFIG_CHARS = 64_000;
+
+/** Longest plugin name (the CLI's `new-plugin` bound; api/plugin's `pluginIdentityProblem`). */
+const PLUGIN_NAME_MAX = 64;
+/** Longest plugin version string (api/plugin's `pluginIdentityProblem`). */
+const PLUGIN_VERSION_MAX = 50;
 
 // AI Generation Request
 
@@ -54,14 +60,22 @@ export const AIGenerateBodySchema = z.object({
  * Validates the AI-generated plugin configuration before Docker build.
  */
 export const PluginDeployGeneratedSchema = z.object({
-  /** Plugin name (lowercase, alphanumeric with hyphens). */
-  name: z.string().min(1, 'Plugin name is required'),
+  /** Plugin name (lowercase, alphanumeric with hyphens). It becomes a registry
+   *  repository name and a URL segment, so the shape is enforced here — the same
+   *  rule api/plugin applies server-side (`pluginIdentityProblem`). */
+  name: z.string()
+    .min(1, 'Plugin name is required')
+    .max(PLUGIN_NAME_MAX, `Plugin name must be ${PLUGIN_NAME_MAX} characters or fewer`)
+    .regex(PLUGIN_NAME_PATTERN, 'Plugin name may contain only lowercase letters, digits and hyphens'),
 
   /** Human-readable description. */
   description: z.string().optional(),
 
-  /** Semantic version (e.g. "1.0.0"). */
-  version: z.string().min(1, 'Version is required'),
+  /** Semantic version (e.g. "1.0.0"); becomes an image tag. */
+  version: z.string()
+    .min(1, 'Version is required')
+    .max(PLUGIN_VERSION_MAX, `Version must be ${PLUGIN_VERSION_MAX} characters or fewer`)
+    .regex(PLUGIN_VERSION_PATTERN, 'Version must be semver (e.g. "1.0.0")'),
 
   /** Plugin execution type. */
   pluginType: z.enum(['CodeBuildStep', 'ShellStep', 'ManualApprovalStep']).default('CodeBuildStep'),

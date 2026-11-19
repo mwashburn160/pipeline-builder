@@ -97,4 +97,18 @@ describe('requireOrgAIEnabled', () => {
     await requireOrgAIEnabled({ user: {} } as never, none as never, jest.fn());
     expect(none.status).toHaveBeenCalledWith(403);
   });
+
+  it('answers an unexpected (non-AppError) failure with a generic 503 — never its internal message', async () => {
+    // e.g. a ServiceKeyError naming the signing-key path, or a ContractRequestError
+    // naming the internal endpoint: neither is something a caller should read.
+    mockGet.mockRejectedValue(new Error('Could not read the service signing key at /var/run/keys/svc.key'));
+    const r = res();
+    const next = jest.fn();
+    await requireOrgAIEnabled({ user: { organizationId: 'org1' } } as never, r as never, next);
+    expect(next).not.toHaveBeenCalled();
+    expect(r.status).toHaveBeenCalledWith(503);
+    const body = r.json.mock.calls[0]?.[0] as { message: string; code?: string };
+    expect(body.message).not.toContain('/var/run/keys');
+    expect(body.code).toBe('SERVICE_UNAVAILABLE');
+  });
 });

@@ -78,7 +78,7 @@ export function volumeCredits(
     // The credit is derived from the NET, not rounded on its own: a percentage of
     // a line lands on arbitrary cents (30% of 5 x $49.99 is $74.985), and rounding
     // the credit would leave the amount still charged on those cents instead. This
-    // snaps what the customer PAYS up to a whole dollar or .99 and takes the credit
+    // snaps what the customer PAYS up to a whole dollar, .49 or .99 and takes the credit
     // as the remainder, so the invoice line and its credit reconcile exactly and
     // the rounding goes in the vendor's favour rather than against it.
     const gross = priceForInterval(b.prices, interval) * a.quantity;
@@ -101,11 +101,6 @@ export function comboLedgerId(comboId: string): string {
   return `combo:${comboId}`;
 }
 
-/**
- * Select the price for a billing interval — the single source for the
- * `interval === 'annual' ? prices.annual : prices.monthly` selection that the
- * credit-math paths (combo basis, recurring re-grant) would otherwise each re-derive.
- */
 /**
  * The cents a PERCENT discount is a percentage of: the plan price by default, or
  * the subtotal of the scoped add-on bundles when `appliesToBundles` is set.
@@ -145,6 +140,11 @@ export function discountBaseCents(
   return total;
 }
 
+/**
+ * Select the price for a billing interval — the single source for the
+ * `interval === 'annual' ? prices.annual : prices.monthly` selection that the
+ * credit-math paths (combo basis, recurring re-grant) would otherwise each re-derive.
+ */
 export function priceForInterval(prices: { readonly monthly: number; readonly annual: number }, interval: BillingInterval): number {
   return interval === 'annual' ? prices.annual : prices.monthly;
 }

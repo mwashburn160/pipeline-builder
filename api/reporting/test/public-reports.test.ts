@@ -216,6 +216,20 @@ describe('public report routes', () => {
       expect(redacted.envs[0].name).toMatch(/^Pipeline \d+$/);
       expect(redacted.envs[0].stages[0].pipelineName).toMatch(/^Pipeline \d+$/);
     });
+
+    it('redacts the snake_case names raw-SQL sections carry (stage_bottlenecks rows)', () => {
+      // getStageBottlenecks answers `{ id, pipeline_name, stage_name, avg_ms, max_ms }`
+      // straight from SQL, so the camelCase keys alone left the pipeline name in a
+      // "names redacted" shared link.
+      const redacted = redactNames({
+        sections: [{ id: 'stage_bottlenecks', current: [{ pipeline_name: 'atlas-migration', pipeline_id: 'p-1', avg_ms: 10 }] }],
+      }) as any;
+      const row = redacted.sections[0].current[0];
+      expect(row.pipeline_name).toMatch(/^Pipeline \d+$/);
+      expect(row.pipeline_id).toMatch(/^Pipeline \d+$/);
+      expect(row.avg_ms).toBe(10);
+      expect(JSON.stringify(redacted)).not.toContain('atlas-migration');
+    });
   });
 
   // ── The shared report ─────────────────────────────────────────────────────

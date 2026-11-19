@@ -276,6 +276,21 @@ describe('evaluateRules', () => {
     expect(result.passed).toBe(true);
     expect(result.blocked).toBe(false);
   });
+
+  // A HALF-specified single-field rule (a field with no operator, or an operator
+  // with no field) cannot be evaluated. The create/update schemas accept either
+  // half alone, and the engine used to answer "passes" — a silently inert rule —
+  // while the cross-field equivalent fails closed. Same rule for both shapes now.
+  it.each([
+    ['a field with no operator', { field: 'name', operator: null }],
+    ['an operator with no field', { field: null, operator: 'exists' as const }],
+  ])('fails closed on a single-field rule with %s', (_label, over) => {
+    const rules = [makeRule({ ...over, conditions: null })];
+    const result = evaluateRules(rules, { name: 'anything' });
+    expect(result.blocked).toBe(true);
+    expect(result.violations).toHaveLength(1);
+    expect(result.violations[0]!.message).toMatch(/misconfigured/);
+  });
 });
 
 // ============================================

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-discounts.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: a5e190620522e13e8e72714e176c7efae3f59c63ecebafe4485bd7d8e9520c38
+// SOURCE-SHA256: 796cd6d42bee7c95eadec485588fb6592ddc1e9bf93dcd0c29a1dae3039e6386
 // SPDX-License-Identifier: Apache-2.0
 import { BadgePercent } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -270,7 +270,7 @@ export const billingDiscountsTopic: HelpTopic = {
           "items": [
             "Any bundle, any tier. The scope is a list of add-on bundle ids and is independent of appliesToTiers; leave the latter unset and the discount is redeemable on every tier, including developer. It is not support-specific — seat, the capacity packs and the compliance libraries all scope the same way.",
             "The basis is the list subtotal (unit price × quantity, for the subscription's interval), the same basis volume discounts take their own percentage of, so a scoped discount and a volume discount compose predictably.",
-            "No matching bundle means no credit. If the account holds none of the scoped bundles the base is 0, not the plan price — otherwise \"30% off Premium Support\" would quietly become 30% off the plan for everyone who never bought support.",
+            "No matching bundle means no redemption. If the account holds none of the scoped bundles, redeeming (and previewing) is refused with DISCOUNT_SCOPE_NOT_HELD (HTTP 409) before anything is reserved, so a limited code's redemption is not burned on a credit of 0, and a dollar code is not granted against an add-on the account does not have. The base is never the plan price — otherwise \"30% off Premium Support\" would quietly become 30% off the plan for everyone who never bought support.",
             "Unknown bundle ids are rejected at mint (and on update), because a typo would otherwise resolve to a base of 0 and ship a discount that silently did nothing.",
             "Recurring scoped discounts re-price each period from the account's current add-on quantities — the scope is stored on the subscription's recurring-discount record, so a renewal cannot fall back to the plan price.",
             "dollar discounts ignore the scope, being an absolute cents amount already. They remain the way to grant a flat concession against anything, support included."

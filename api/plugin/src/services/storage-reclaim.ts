@@ -32,6 +32,8 @@ import {
   IMAGE_REGISTRY_INTERNAL,
   InternalHttpClient,
   type ContractHttpClient,
+  type ContractResponse,
+  type InternalCallResult,
 } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 import { distinctPipelines, findVersionReferences, runWithTenantContext, withTenantTx, schema, type VersionReferenceTarget } from '@pipeline-builder/pipeline-data';
@@ -274,11 +276,19 @@ export async function pruneVersion(orgId: string, repo: string, tag: string): Pr
   const c = client();
   if (!c.delete) throw new Error('image-registry client cannot delete');
   // Query parameters, not a body: the internal HTTP client's DELETE sends none.
-  const res = await callInternal(contractClient(c), IMAGE_REGISTRY_INTERNAL.pruneOrgStorage, {
-    params: { orgId },
-    query: { repo, tag },
-    options: { headers: { Authorization: orgAuth(orgId) }, maxRetries: 0 },
-  });
+  // InternalHttpClient throws on a transport failure; that is the same answer
+  // as a refusal (nothing confirmed), not a 500.
+  let res: InternalCallResult<ContractResponse<typeof IMAGE_REGISTRY_INTERNAL.pruneOrgStorage>>;
+  try {
+    res = await callInternal(contractClient(c), IMAGE_REGISTRY_INTERNAL.pruneOrgStorage, {
+      params: { orgId },
+      query: { repo, tag },
+      options: { headers: { Authorization: orgAuth(orgId) }, maxRetries: 0 },
+    });
+  } catch (err) {
+    logger.warn('Registry unreachable for the storage prune', { orgId, repo, tag, error: errorMessage(err) });
+    return { pruned: false, repo, tag, freedBytes: 0, reason: 'registry_unavailable' };
+  }
   if (!res.ok && res.reason === 'status') {
     logger.warn('Registry refused the storage prune', { orgId, repo, tag, status: res.status });
     return { pruned: false, repo, tag, freedBytes: 0, reason: 'registry_unavailable' };

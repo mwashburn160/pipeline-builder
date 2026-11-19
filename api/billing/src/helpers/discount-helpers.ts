@@ -189,6 +189,14 @@ function validateApplicable(
   if (discount.appliesToTiers?.length && !discount.appliesToTiers.includes(plan.tier)) {
     return { status: 400, error: `This discount is not available on the ${plan.tier} plan`, code: 'DISCOUNT_TIER_MISMATCH' };
   }
+  // A bundle-scoped discount needs one of its bundles on the account. Without
+  // this a percent code resolved to a 0-cent credit and still COMMITTED, burning
+  // a limited code's redemption and leaving an "already redeemed" row, and a
+  // dollar code granted its full amount against an add-on the account lacks.
+  const scope = discount.appliesToBundles;
+  if (scope?.length && !(subscription.addons ?? []).some((a) => a.quantity > 0 && scope.includes(a.bundleId))) {
+    return { status: 409, error: 'This discount applies to add-ons this account does not have', code: 'DISCOUNT_SCOPE_NOT_HELD' };
+  }
   // A discount already redeemed by this account can't be redeemed again.
   if (subscription.creditLedger.some((c) => c.discountId === discount._id)) {
     return { status: 409, error: 'This discount has already been redeemed', code: 'ALREADY_REDEEMED' };

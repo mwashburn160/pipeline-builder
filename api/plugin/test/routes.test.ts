@@ -267,6 +267,28 @@ describe('GET /plugins (list)', () => {
     expect(sendBadRequest).toHaveBeenCalledWith(res, 'Invalid filter');
   });
 
+  it.each([
+    ['fields', { fields: ['name', 'version'] }],
+    ['cursor', { cursor: ['a', 'b'] }],
+  ])('answers 400 (not a 500) when %s is repeated in the query string', async (_param, query) => {
+    // Express parses `?fields=a&fields=b` as an ARRAY; `.split` on it threw.
+    mockFindPaginated.mockResolvedValue({ data: [], total: 0, limit: 25, offset: 0, hasMore: false });
+    const res = mockRes();
+    await handler(mockReq({ query }), res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockFindPaginated).not.toHaveBeenCalled();
+  });
+
+  it('still splits a single `fields` value and forwards a single `cursor`', async () => {
+    mockFindPaginated.mockResolvedValue({ data: [], total: 0, limit: 25, offset: 0, hasMore: false });
+    await handler(mockReq({ query: { fields: 'name,version', cursor: 'c1' } }), mockRes());
+
+    expect(mockFindPaginated).toHaveBeenCalledWith(
+      expect.anything(), 'org-1', expect.objectContaining({ fields: ['name', 'version'], cursor: 'c1' }), undefined,
+    );
+  });
+
   it('returns 500 on service error', async () => {
     mockFindPaginated.mockRejectedValue(new Error('Connection reset'));
 

@@ -181,7 +181,7 @@ export default function ComplianceDashboard({ canManage = false, sessionReadOnly
             {/* Curated content sets — entitlement-gated (upsell for unheld sets). The
                 catalog below is the actual browse/subscribe surface. */}
             <ComplianceContentSets />
-            <SubscriptionManager readOnly={!canManage} />
+            <SubscriptionManager readOnly={!canManage} sessionReadOnly={sessionReadOnly} />
           </div>
         )}
         {tab === 'enforced' && <EnforcedRulesView />}

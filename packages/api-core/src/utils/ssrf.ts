@@ -255,15 +255,18 @@ export interface SafeFetchResponse {
  */
 export async function safeFetch(rawUrl: string, opts: SafeFetchOptions = {}): Promise<SafeFetchResponse> {
   const maxBytes = opts.maxResponseBytes ?? SAFE_FETCH_MAX_BYTES;
-  const pin = await resolveSafeTarget(rawUrl, opts);
+
+  // Compose the caller's abort with our own deadline so whichever fires first
+  // wins. Built BEFORE resolution: the host's DNS is tenant-controlled, and an
+  // authoritative server that stalls must not hold the call past its cap.
+  const timeout = AbortSignal.timeout(opts.timeoutMs ?? SAFE_FETCH_TIMEOUT_MS);
+  const signal = opts.signal ? AbortSignal.any([opts.signal, timeout]) : timeout;
+
+  const pin = await abortable(() => resolveSafeTarget(rawUrl, opts), signal);
   const u = new URL(rawUrl);
   const body = opts.body === undefined
     ? undefined
     : (Buffer.isBuffer(opts.body) ? opts.body : Buffer.from(opts.body, 'utf8'));
-
-  // Compose the caller's abort with our own deadline so whichever fires first wins.
-  const timeout = AbortSignal.timeout(opts.timeoutMs ?? SAFE_FETCH_TIMEOUT_MS);
-  const signal = opts.signal ? AbortSignal.any([opts.signal, timeout]) : timeout;
 
   const options: RequestOptions = {
     method: opts.method ?? 'GET',
@@ -330,6 +333,23 @@ export async function safeFetch(rawUrl: string, opts: SafeFetchOptions = {}): Pr
     });
     clientReq.on('error', reject);
     clientReq.end(body);
+  });
+}
+
+/**
+ * Run `start()` unless `signal` has already fired, and reject with the signal's
+ * reason as soon as it fires — whichever comes first. The underlying lookup is
+ * not cancellable; its eventual result is simply ignored.
+ */
+function abortable<T>(start: () => Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => reject(signal.reason);
+    signal.addEventListener('abort', onAbort, { once: true });
+    start().then(
+      (value) => { signal.removeEventListener('abort', onAbort); resolve(value); },
+      (error: unknown) => { signal.removeEventListener('abort', onAbort); reject(error); },
+    );
   });
 }
 

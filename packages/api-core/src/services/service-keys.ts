@@ -285,16 +285,6 @@ export function isServiceKid(kid: string): boolean {
 // ---------------------------------------------------------------------------
 
 /**
- * Sign `claims` as this service's internal token: ES256, `kid` = the signer's
- * thumbprint, `sub` = `service:<serviceName>`. `iat`/`exp` and the optional
- * issuer/audience are stamped here so there is one place that decides what a
- * service token says.
- *
- * Hand-rolled (rather than `jwt.sign`) only so the header carries the `kid` in
- * the same shape platform's signer produces — `crypto.sign` is synchronous, so
- * unlike the KMS path this costs nothing.
- */
-/**
  * Under `NODE_ENV=production` every service token is pinned to an issuer AND an
  * audience, in both directions. Callers pass them from `JWT_ISSUER` /
  * `JWT_AUDIENCE` (`issuerAudienceOptions`, or platform's config); a caller that
@@ -313,6 +303,16 @@ function requirePinsInProduction(op: 'sign' | 'verify', options: { issuer?: stri
   }
 }
 
+/**
+ * Sign `claims` as this service's internal token: ES256, `kid` = the signer's
+ * thumbprint, `sub` = `service:<serviceName>`. `iat`/`exp` and the optional
+ * issuer/audience are stamped here so there is one place that decides what a
+ * service token says.
+ *
+ * Hand-rolled (rather than `jwt.sign`) only so the header carries the `kid` in
+ * the same shape platform's signer produces — `crypto.sign` is synchronous, so
+ * unlike the KMS path this costs nothing.
+ */
 export function signServiceJwt(
   claims: Record<string, unknown>,
   options: { serviceName: string; expiresInSeconds: number; issuer?: string; audience?: string },

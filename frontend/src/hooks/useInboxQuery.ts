@@ -13,6 +13,7 @@
  * Unknown or malformed values parse to the default rather than failing, so a
  * hand-edited or stale link degrades to the plain inbox.
  */
+import { MESSAGE_SENT_BY, type MessageSentBy } from '@pipeline-builder/api-core/wire-vocabulary';
 import { MESSAGE_PRIORITY_IDS } from '@/lib/message-priority';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { NextRouter } from 'next/router';
@@ -29,7 +30,7 @@ export type ChannelFilter = '' | 'support';
  * Sender filter value: `''` (anyone), a relative choice (`me` / `org` /
  * `others`), or one specific author as `user:<id>`.
  */
-export type FromFilter = '' | 'me' | 'org' | 'others' | `user:${string}`;
+export type FromFilter = '' | MessageSentBy | `user:${string}`;
 
 export interface InboxQuery {
   tab: MessageView;
@@ -58,7 +59,6 @@ const TABS: readonly MessageView[] = ['all', 'conversations', 'announcements'];
 const READS: readonly ReadFilter[] = ['unread', 'read'];
 const PRIORITIES: readonly PriorityFilter[] = MESSAGE_PRIORITY_IDS;
 const CHANNELS: readonly ChannelFilter[] = ['support'];
-const RELATIVE_FROM = ['me', 'org', 'others'] as const;
 
 function first(v: string | string[] | undefined): string {
   return (Array.isArray(v) ? v[0] : v) ?? '';
@@ -69,7 +69,7 @@ function oneOf<T extends string>(v: string, allowed: readonly T[], fallback: T):
 
 /** Parse a `from` value; `user:` must carry a non-empty id. */
 function parseFrom(v: string): FromFilter {
-  if ((RELATIVE_FROM as readonly string[]).includes(v)) return v as FromFilter;
+  if ((MESSAGE_SENT_BY as readonly string[]).includes(v)) return v as FromFilter;
   if (v.startsWith('user:') && v.length > 'user:'.length) return v as FromFilter;
   return '';
 }

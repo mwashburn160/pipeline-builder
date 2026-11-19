@@ -8,8 +8,8 @@
  * from route params (`/plugins/installs/:id`, `/plugins/publisher/listings/:listingId/pause`,
  * `/plugins/publish-requests/:id/withdraw`, the console's `/requests/:id`, …).
  * Comparing a uuid column to a non-uuid string is a Postgres cast error
- * (22P02), which `withRoute` answers with a 500 — so a typo'd or probing id
- * read as a server fault instead of the 404 an unknown id gets. The in-memory
+ * (22P02), which `withRoute` answers with a 400 — so a typo'd or probing id
+ * read as a bad request instead of the 404 an unknown id gets. The in-memory
  * double compares strings and never showed it.
  */
 

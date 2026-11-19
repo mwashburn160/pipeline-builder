@@ -15,7 +15,7 @@ const logger = createLogger('auto-plugin');
  * `RUN echo "Plugin ..."` Dockerfile line. Only lowercase alphanumerics and
  * hyphens are safe to interpolate; anything else is rejected, never escaped.
  */
-const SAFE_PLUGIN_NAME_RE = /^[a-z0-9-]+$/;
+const SAFE_PLUGIN_NAME_RE = /^[a-z0-9-]{1,64}$/; // 64 = the plugin service's name cap
 
 /** Timeout for the pipeline service's calls into the plugin service.
  * 30s by default — these calls are sometimes slow because plugin upload

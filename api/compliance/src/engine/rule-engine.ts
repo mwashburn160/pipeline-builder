@@ -106,8 +106,25 @@ function evaluateSingleRule(
     return evaluateCrossFieldRule(rule, entity);
   }
 
-  // Single-field condition
-  if (!rule.field || !rule.operator) return null; // No condition = passes
+  // Single-field condition. No condition at all = passes; HALF a condition (a
+  // field with no operator, or the reverse — both accepted by the rule schemas)
+  // cannot be evaluated, so it fails closed exactly as an unevaluatable
+  // cross-field rule does instead of passing as a silently inert rule.
+  if (!rule.field && !rule.operator) return null;
+  if (!rule.field || !rule.operator) {
+    return {
+      ruleId: rule.id,
+      ruleName: rule.name,
+      policyId: rule.policyId,
+      field: rule.field || 'unknown',
+      operator: rule.operator || 'unknown',
+      expectedValue: rule.value,
+      actualValue: undefined,
+      severity: rule.severity,
+      message: `Rule "${rule.name}" has ${rule.field ? 'a field but no operator' : 'an operator but no field'} (misconfigured) — failing closed`,
+      suppressNotification: rule.suppressNotification,
+    };
+  }
 
   const fieldValue = getFieldValue(entity, rule.field);
   const passed = evaluateOperator(rule.operator, fieldValue, rule.value);

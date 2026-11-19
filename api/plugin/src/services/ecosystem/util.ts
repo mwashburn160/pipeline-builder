@@ -20,7 +20,7 @@ const UuidSchema = z.string().uuid();
  * Whether `id` is a UUID — the key type of every ecosystem table. The stores'
  * `byId` reads answer null for anything else: the ids come straight from route
  * params, and comparing a `uuid` column to a non-uuid string is a Postgres cast
- * error (22P02) that `withRoute` turns into a 500 instead of the caller's 404.
+ * error (22P02) that `withRoute` would answer as a 400 instead of the caller's 404.
  */
 export const isUuid = (id: string): boolean => UuidSchema.safeParse(id).success;
 

@@ -648,6 +648,21 @@ describe('POST /generate/from-url/stream', () => {
     });
   });
 
+  it('refuses a plugin name over 64 characters (the plugin service\'s name cap)', async () => {
+    const long = 'a'.repeat(65);
+    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], withStagePlugins(['safe-plugin', long])));
+    mockDbChain.then.mockImplementationOnce((resolve: Function) => resolve([]));
+
+    const res = mockSseRes();
+    await handler(mockReq(), res);
+
+    expect(missingEvent(res).data).toEqual({
+      existing: [],
+      proposed: ['safe-plugin'],
+      refused: [{ name: long, error: 'invalid plugin name' }],
+    });
+  });
+
   it('proposes nothing when all referenced plugins already exist', async () => {
     mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], withStagePlugins(['nodejs-build', 'test-runner'])));
     mockDbChain.then.mockImplementationOnce((resolve: Function) =>

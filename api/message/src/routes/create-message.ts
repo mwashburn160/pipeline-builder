@@ -817,11 +817,12 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
 
     ctx.log('INFO', 'Replying to thread', { threadId: id });
 
-    // Determine the recipient for the reply: the system org answers the
-    // original sender; any other participant answers the other party.
-    const replyRecipientOrgId = isSystem
-      ? rootMessage.orgId
-      : (isSender ? rootMessage.recipientOrgId : rootMessage.orgId);
+    // Determine the recipient for the reply: the root's sender answers its
+    // recipient; everyone else (the recipient, or the system org stepping into
+    // a thread between two other orgs) answers the original sender. The system
+    // org is no exception when it STARTED the thread — answering "the original
+    // sender" there addressed the follow-up to itself, out of the tenant's view.
+    const replyRecipientOrgId = isSender ? rootMessage.recipientOrgId : rootMessage.orgId;
 
     // A reply is ALWAYS a conversation. Pinned rather than copied from the root
     // so no reply can ever persist as an `announcement`-typed row.

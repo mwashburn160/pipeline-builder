@@ -175,6 +175,16 @@ describe('pruneVersion', () => {
     expect(del).not.toHaveBeenCalled();
   });
 
+  it('answers registry_unavailable (not a thrown 500) when the prune call cannot reach the registry', async () => {
+    // InternalHttpClient THROWS on a transport failure (it is not the null-
+    // returning safe client). The route turns `registry_unavailable` into its
+    // 503 + failure audit; a throw escaped both as a bare 500.
+    eligible();
+    del.mockRejectedValue(new Error('connect ECONNREFUSED 10.0.0.7:3000'));
+    const outcome = await pruneVersion('acme', 'org-acme/app', '1.0.0');
+    expect(outcome).toEqual({ pruned: false, repo: 'org-acme/app', tag: '1.0.0', freedBytes: 0, reason: 'registry_unavailable' });
+  });
+
   it('reports a registry refusal rather than claiming success', async () => {
     eligible();
     del.mockResolvedValue({ statusCode: 403, body: {} });

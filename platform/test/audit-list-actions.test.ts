@@ -24,9 +24,11 @@ jest.unstable_mockModule('../src/services/audit-service.js', () => ({ auditServi
 // started importing `getAdminContext` this suite stopped LOADING — reported as
 // "does not provide an export named", with zero tests run rather than a failure
 // pointing at the cause.
+const SUPERADMIN = { isSuperAdmin: true, isOrgAdmin: false, adminType: 'system admin' };
+let adminContext: { isSuperAdmin: boolean; isOrgAdmin: boolean; adminType: string } = SUPERADMIN;
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock({
   requireAdminContext: () => ({ isSuperAdmin: true, isOrgAdmin: false }),
-  getAdminContext: () => ({ isSuperAdmin: true, isOrgAdmin: false, adminType: 'system admin' }),
+  getAdminContext: () => adminContext,
   requireSystemAdmin: () => true,
   withController: (_name: string, fn: (req: unknown, res: unknown) => Promise<void>) => fn,
 }));
@@ -53,7 +55,7 @@ const call = async (query: Record<string, unknown>) => {
   return out;
 };
 
-beforeEach(() => { findEvents.mockClear(); });
+beforeEach(() => { findEvents.mockClear(); adminContext = SUPERADMIN; });
 
 describe('GET /audit?actions=', () => {
   it('passes a trimmed group to the service as one filter', async () => {
@@ -92,5 +94,29 @@ describe('GET /audit?to=', () => {
   it('keeps a full timestamp exactly as sent', async () => {
     await call({ to: '2026-09-21T10:00:00.000Z' });
     expect((findEvents.mock.calls[0][0] as { createdTo: Date }).createdTo.toISOString()).toBe('2026-09-21T10:00:00.000Z');
+  });
+});
+
+describe('GET /audit — tenant pin', () => {
+  const asDelegate = async (user: Record<string, unknown>) => {
+    adminContext = { isSuperAdmin: false, isOrgAdmin: false, adminType: 'org admin' };
+    const out = res();
+    await (listAuditEvents as unknown as (req: unknown, res: unknown) => Promise<void>)(
+      { query: { orgId: 'other-org' }, user }, out,
+    );
+    return out;
+  };
+
+  it('pins a non-superadmin to their active org and ignores ?orgId=', async () => {
+    await asDelegate({ sub: 'u1', organizationId: 'org-a' });
+    expect(findEvents.mock.calls[0][0]).toEqual({ orgIdOrAffected: 'org-a' });
+  });
+
+  // The pin is a truthiness check in the service: an undefined org would leave
+  // the query UNSCOPED — every tenant's audit log. Fail closed instead.
+  it('refuses (never queries unscoped) a non-superadmin with no active org', async () => {
+    const out = await asDelegate({ sub: 'u1' });
+    expect(out.statusCode).toBe(403);
+    expect(findEvents).not.toHaveBeenCalled();
   });
 });

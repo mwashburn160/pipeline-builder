@@ -313,7 +313,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
             if (preflight.status === 'unavailable') {
               ctx.log('ERROR', 'Compliance service unavailable', { error: preflight.error });
               slot.refund();
-              return sendError(res, 503, 'Compliance service unavailable  plugin upload rejected', ErrorCode.COMPLIANCE_SERVICE_UNAVAILABLE);
+              return sendError(res, 503, 'Compliance service unavailable — plugin upload rejected', ErrorCode.COMPLIANCE_SERVICE_UNAVAILABLE);
             }
             if (preflight.warnings > 0) {
               ctx.log('WARN', 'Compliance warnings on plugin upload', { pluginName: s.name, warnings: preflight.warnings });
@@ -401,7 +401,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
             } catch (s3Err) {
               ctx.log('ERROR', 'Failed to stage build context in object storage', { error: errorMessage(s3Err) });
               slot.refund();
-              return sendError(res, 503, 'Object storage unavailable  please retry', ErrorCode.SERVICE_UNAVAILABLE);
+              return sendError(res, 503, 'Object storage unavailable — please retry', ErrorCode.SERVICE_UNAVAILABLE);
             }
 
             // -- Queue build job (returns immediately) ----------------------------
@@ -441,7 +441,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
               // The build won't run — drop the staged context so it doesn't orphan
               // (best-effort; the bucket's expiry lifecycle is the backstop).
               await deletePluginArtifact(s3Key);
-              return sendError(res, 503, 'Build queue unavailable  please retry', ErrorCode.SERVICE_UNAVAILABLE);
+              return sendError(res, 503, 'Build queue unavailable — please retry', ErrorCode.SERVICE_UNAVAILABLE);
             }
             // Queued: the build worker owns the slot and the extract dir now (it
             // refunds on permanent failure and cleans the context up).
