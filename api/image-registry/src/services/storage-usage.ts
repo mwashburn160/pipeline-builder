@@ -91,7 +91,7 @@ export interface StorageBreakdownEntry {
 /** Per-version attribution for an org's storage, and what each prune frees. */
 export interface StorageBreakdown {
   orgId: string;
-  /** The org's total — identical to {@link computeOrgStorageUsage}'s `bytes`. */
+  /** The org's total, over the same scope as the storage snapshot (`storage-snapshot.ts`). */
   bytes: number;
   /** Highest `marginalBytes` first: the versions worth deleting, in order. */
   entries: StorageBreakdownEntry[];
@@ -110,7 +110,7 @@ const breakdownCache = new Map<string, StorageBreakdown>();
  * Per-version storage attribution for an org: what each image version costs,
  * and what deleting it would actually free.
  *
- * Scope matches {@link computeOrgStorageUsage} exactly — the org's own
+ * Scope matches the storage snapshot (`storage-snapshot.ts`) exactly — the org's own
  * namespace plus the `public/*` repositories it has published — so the
  * breakdown's total equals the figure the push gate enforces and the dashboard
  * shows. A breakdown that disagreed with the cap would be worse than none.
@@ -358,37 +358,43 @@ async function orgScanRepositories(orgId: string): Promise<{ repos: string[]; re
   return { repos: [...await listRepositoriesUnderPrefix(`org-${orgId}/`), ...published], recordsComplete };
 }
 
-export async function computeOrgStorageUsage(orgId: string, opts: { force?: boolean } = {}): Promise<StorageUsage> {
-  const orgPrefix = `org-${orgId}/`;
-  const key = `${ORG_ROLLUP_KEY}${orgId}`;
-  const cached = cache.get(key);
-  if (!opts.force && cached && Date.now() - cached.computedAt < CACHE_TTL_MS) {
-    return { prefix: orgPrefix, bytes: cached.bytes, repos: cached.repos, blobs: cached.blobs, computedAt: cached.computedAt, incomplete: false };
-  }
-
-  const { repos, recordsComplete } = await orgScanRepositories(orgId);
-  const scan = await scanRepositories(repos);
-  const incomplete = scan.incomplete || !recordsComplete;
-
-  const now = Date.now();
-  if (!incomplete) cache.set(key, { bytes: scan.bytes, repos: repos.length, blobs: scan.blobs, computedAt: now });
-  return { prefix: orgPrefix, bytes: scan.bytes, repos: repos.length, blobs: scan.blobs, computedAt: now, incomplete };
-}
-
-/** Cache-key namespace for org rollups (never a valid repo prefix). */
-const ORG_ROLLUP_KEY = 'org-rollup:';
-
 /** Cache-key namespace for org breakdowns (never a valid repo prefix). */
 const ORG_BREAKDOWN_KEY = 'org-breakdown:';
 
 /**
+ * Wall time a scan spent in each kind of registry call, in ms. Accumulated
+ * across calls, so one accumulator can total a whole multi-org snapshot run.
+ */
+export interface ScanTimings {
+  tagsMs: number;
+  manifestsMs: number;
+  blobHeadsMs: number;
+}
+
+/** A zeroed {@link ScanTimings} accumulator. */
+export function newScanTimings(): ScanTimings {
+  return { tagsMs: 0, manifestsMs: 0, blobHeadsMs: 0 };
+}
+
+/**
  * Sum unique blob bytes across `repos`. The shared core of every rollup;
  * `incomplete` when anything couldn't be measured (see {@link StorageUsage}).
+ * Pass `timings` to accumulate where the time went (the storage snapshot does).
  */
-async function scanRepositories(
+export async function scanRepositories(
   reposBeingScanned: string[],
-  opts: { detail?: boolean } = {},
+  opts: { detail?: boolean; timings?: ScanTimings } = {},
 ): Promise<{ bytes: number; blobs: number; incomplete: boolean; perBlob?: Map<string, BlobFacts> }> {
+  const timings = opts.timings;
+  const timed = async <T>(phase: keyof ScanTimings, fn: () => Promise<T>): Promise<T> => {
+    if (!timings) return fn();
+    const t0 = Date.now();
+    try {
+      return await fn();
+    } finally {
+      timings[phase] += Date.now() - t0;
+    }
+  };
 
   // Map each unique blob digest → EVERY repo known to reference it. Docker
   // Distribution scopes blob access per-repo (`/v2/<repo>/blobs/<digest>`), so a
@@ -426,10 +432,10 @@ async function scanRepositories(
   };
   for (const repo of reposBeingScanned) {
     try {
-      const { tags } = await listTags(repo);
+      const { tags } = await timed('tagsMs', () => listTags(repo));
       for (const tag of tags) {
         try {
-          const { body } = await getManifest(repo, tag);
+          const { body } = await timed('manifestsMs', () => getManifest(repo, tag));
           const digests = new Set<string>();
           collectBlobDigests(body, digests);
           // Multi-arch index: fetch each child and collect its config+layer
@@ -439,7 +445,7 @@ async function scanRepositories(
           // (fail-closed) but doesn't abort the remaining children.
           for (const childDigest of indexChildDigests(body)) {
             try {
-              const { body: childBody } = await getManifest(repo, childDigest);
+              const { body: childBody } = await timed('manifestsMs', () => getManifest(repo, childDigest));
               collectBlobDigests(childBody, digests);
             } catch (childErr) {
               if (!isNotFound(childErr)) {
@@ -480,7 +486,7 @@ async function scanRepositories(
     let counted = false;
     for (const repo of repos) {
       try {
-        const head = await headBlob(repo, digest);
+        const head = await timed('blobHeadsMs', () => headBlob(repo, digest));
         // A 200 with no `Content-Length` is NOT a measurement. Marking the blob
         // counted here added zero bytes while telling the rollup it was
         // complete, so the total silently under-counted and the fail-closed
@@ -539,10 +545,29 @@ export function invalidateStorageCache(prefix: string): void {
   if (org) invalidateOrgStorageCache(org[1]!);
 }
 
-/** Evict one org's combined (own + published) rollup. */
+/** Called with an org id whenever that org's stored bytes may have changed. */
+type OrgStorageListener = (orgId: string) => void;
+const orgStorageListeners: OrgStorageListener[] = [];
+
+/**
+ * Subscribe to org invalidations. The storage snapshot uses it to re-measure
+ * an org after a delete or prune, so freed bytes show before the next full run.
+ * (A hook rather than an import: the snapshot module builds on this one.)
+ */
+export function onOrgStorageInvalidated(fn: OrgStorageListener): void {
+  orgStorageListeners.push(fn);
+}
+
+/** Evict one org's per-version breakdown and tell listeners its bytes changed. */
 export function invalidateOrgStorageCache(orgId: string): void {
   breakdownCache.delete(`${ORG_BREAKDOWN_KEY}${orgId}`);
-  cache.delete(`${ORG_ROLLUP_KEY}${orgId}`);
+  for (const fn of orgStorageListeners) {
+    try {
+      fn(orgId);
+    } catch (err) {
+      logger.warn('Org storage invalidation listener failed', { orgId, error: errorMessage(err) });
+    }
+  }
 }
 
 /**

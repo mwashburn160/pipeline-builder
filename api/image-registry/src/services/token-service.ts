@@ -9,7 +9,7 @@ import { pushFreezeActive } from './blob-gc-window.js';
 import { inLibraryNamespace, inPublicNamespace, inQuarantineNamespace, inRegistryMetaNamespace, inSystemNamespace, QUARANTINE_PREFIX } from './namespaces.js';
 import { parentPublicPlugins } from './parent-public-plugins.js';
 import type { RegistryScope } from './scope.js';
-import { computeOrgStorageUsage } from './storage-usage.js';
+import { readOrgStorageUsage } from './storage-snapshot.js';
 import { config } from '../config/index.js';
 
 const logger = createLogger('token-service');
@@ -572,7 +572,9 @@ async function isStorageOverBudget(orgId: string): Promise<StorageGateDecision> 
 
     // The org's own namespace plus the `public/*` repositories it publishes
     // — a publisher pays for its listed versions.
-    const usage = await computeOrgStorageUsage(orgId);
+    // The background snapshot (storage-snapshot.ts): a key read, never a scan on
+    // this token-issuance path. No snapshot / stale reads as incomplete below.
+    const usage = await readOrgStorageUsage(orgId);
     // Under-counted scan → we can't prove the org is under budget. Inconclusive
     // → deny by default rather than allow a possibly-over-cap push.
     if (usage.incomplete) {

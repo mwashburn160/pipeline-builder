@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: b371448402332eda07b8e4645a7da17a8126153bc910206c5871a00743c29c73
+// SOURCE-SHA256: b9409305e967b096f8b689828f015929cecbaf845507ec88ddb335d4060ce414
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1536,7 +1536,22 @@ export const envVariablesTopic: HelpTopic = {
             [
               "REGISTRY_STORAGE_CACHE_TTL_MS",
               "60000",
-              "Per-org registry storage-usage rollup cache (ms) — short enough that a cleanup shows freed bytes promptly, long enough that a dashboard auto-refresh doesn't walk the registry each time"
+              "Namespace storage rollup and per-version breakdown cache (ms) — short enough that a cleanup shows freed bytes promptly, long enough that a dashboard auto-refresh doesn't walk the registry each time. Per-org totals come from the storage snapshot below"
+            ],
+            [
+              "REGISTRY_STORAGE_SNAPSHOT_INTERVAL_MS",
+              "600000",
+              "Per-org storage snapshot cadence (ms, min 60000). Always on: one replica (leader lock) walks the catalog once and measures every org; the push gate and the quota service read the stored totals instead of scanning. A snapshot older than 2 × this + the last run's duration reads as unknown (the gate refuses, fail-closed). A delete or prune re-measures that org immediately; a new push is counted at the next run"
+            ],
+            [
+              "REGISTRY_STORAGE_SNAPSHOT_STARTUP_DELAY_MS",
+              "30000",
+              "Delay (ms) before the first snapshot run after boot. Until a snapshot exists, capped orgs' pushes read as unknown (fail-closed); unlimited orgs are unaffected"
+            ],
+            [
+              "REGISTRY_STORAGE_SNAPSHOT_LOCK_TTL_MS",
+              "120000",
+              "Snapshot leader-lock TTL (ms): the crash-recovery window — the lock is heartbeated while a run is in progress"
             ],
             [
               "REGISTRY_PUBLICATION_CACHE_TTL_MS",

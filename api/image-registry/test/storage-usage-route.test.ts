@@ -9,7 +9,7 @@
  * The router runs on a real Express app over HTTP behind the REAL api-core
  * `requireInternalService` gate, so the caller allow-list, the org binding and
  * the `{ data: { bytes } }` contract the quota client parses are all exercised
- * as shipped. Only the measurement (`computeOrgStorageUsage`, its own suite) is
+ * as shipped. Only the measurement (`readOrgStorageUsage`, its own suite) is
  * stubbed.
  */
 
@@ -43,12 +43,12 @@ jest.unstable_mockModule('../src/services/quarantine-credential.js', () => ({
   isQuarantineSubmissionId: () => true,
 }));
 
-const computeOrgStorageUsage = jest.fn<(orgId: string) => Promise<{ prefix: string; bytes: number; repos: number; blobs: number; computedAt: number; incomplete: boolean }>>();
+const readOrgStorageUsage = jest.fn<(orgId: string) => Promise<{ prefix: string; bytes: number; repos: number; blobs: number; computedAt: number; incomplete: boolean }>>();
 const computeOrgStorageBreakdown = jest.fn<AnyFn>();
 const computeSystemRetentionBreakdown = jest.fn<AnyFn>();
 const invalidateOrgStorageCache = jest.fn<AnyFn>();
+jest.unstable_mockModule('../src/services/storage-snapshot.js', () => ({ readOrgStorageUsage }));
 jest.unstable_mockModule('../src/services/storage-usage.js', () => ({
-  computeOrgStorageUsage,
   // `routes/internal.ts` imports all three; a module mock missing any of them
   // fails every suite in this file at LOAD rather than at the assertion.
   computeOrgStorageBreakdown,
@@ -118,7 +118,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  computeOrgStorageUsage.mockResolvedValue({ prefix: `org-${ORG}/`, bytes: 1_234_567, repos: 3, blobs: 9, computedAt: 0, incomplete: false });
+  readOrgStorageUsage.mockResolvedValue({ prefix: `org-${ORG}/`, bytes: 1_234_567, repos: 3, blobs: 9, computedAt: 0, incomplete: false });
 });
 
 const get = async (orgId: string, headers: Record<string, string> = {}) => {
@@ -136,7 +136,7 @@ describe('GET /internal/storage-usage/:orgId', () => {
     const { status, body } = await get(ORG);
     expect(status).toBe(200);
     expect(body.data).toEqual({ bytes: 1_234_567 });
-    expect(computeOrgStorageUsage).toHaveBeenCalledWith(ORG);
+    expect(readOrgStorageUsage).toHaveBeenCalledWith(ORG);
   });
 
   it('refuses to answer an INCOMPLETE scan (503), so the account budget never enforces on an under-count', async () => {
@@ -144,7 +144,7 @@ describe('GET /internal/storage-usage/:orgId', () => {
     // decides on. Answering the partial 42 bytes made a flat org with an
     // unreadable manifest read as under budget — the gate's own fail-closed
     // `usage_incomplete` rule never ran, because the account branch had a number.
-    computeOrgStorageUsage.mockResolvedValue({ prefix: `org-${ORG}/`, bytes: 42, repos: 1, blobs: 1, computedAt: 0, incomplete: true });
+    readOrgStorageUsage.mockResolvedValue({ prefix: `org-${ORG}/`, bytes: 42, repos: 1, blobs: 1, computedAt: 0, incomplete: true });
     const { status, body } = await get(ORG);
     expect(status).toBe(503);
     expect(body.data).toBeUndefined();
@@ -158,7 +158,7 @@ describe('GET /internal/storage-usage/:orgId', () => {
   ])('refuses %s without measuring', async (_label, headers, expected) => {
     const { status } = await get(ORG, headers);
     expect(status).toBe(expected);
-    expect(computeOrgStorageUsage).not.toHaveBeenCalled();
+    expect(readOrgStorageUsage).not.toHaveBeenCalled();
   });
 
   it('refuses a quota token minted for a different org (403 ORG_MISMATCH, on the authz.denied trail)', async () => {
@@ -166,17 +166,17 @@ describe('GET /internal/storage-usage/:orgId', () => {
     expect(status).toBe(403);
     expect(body.code).toBe('ORG_MISMATCH');
     expect(recordAuthzDenialMock).toHaveBeenCalled();
-    expect(computeOrgStorageUsage).not.toHaveBeenCalled();
+    expect(readOrgStorageUsage).not.toHaveBeenCalled();
   });
 
   it('rejects an org id that is not one registry path component (400)', async () => {
     const { status } = await get('acme/../other', { 'x-test-org': 'acme/../other' });
     expect(status).toBe(400);
-    expect(computeOrgStorageUsage).not.toHaveBeenCalled();
+    expect(readOrgStorageUsage).not.toHaveBeenCalled();
   });
 
   it('answers 500 when the measurement fails, which the quota client reads as unknown', async () => {
-    computeOrgStorageUsage.mockRejectedValue(new Error('registry unreachable'));
+    readOrgStorageUsage.mockRejectedValue(new Error('registry unreachable'));
     const { status } = await get(ORG);
     expect(status).toBe(500);
   });

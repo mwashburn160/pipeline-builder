@@ -30,8 +30,8 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
 }));
 
 type Usage = { prefix: string; bytes: number; repos: number; blobs: number; computedAt: number; incomplete: boolean };
-const computeOrgStorageUsage = jest.fn<(orgId: string) => Promise<Usage>>();
-jest.unstable_mockModule('../src/services/storage-usage.js', () => ({ computeOrgStorageUsage }));
+const readOrgStorageUsage = jest.fn<(orgId: string) => Promise<Usage>>();
+jest.unstable_mockModule('../src/services/storage-snapshot.js', () => ({ readOrgStorageUsage }));
 
 const quotaCheck = jest.fn<(orgId: string, type: string, auth: string) => Promise<{ limit?: number; failOpen?: boolean }>>();
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -55,14 +55,14 @@ const accessOf = (token: string) =>
 beforeEach(() => {
   jest.clearAllMocks();
   quotaCheck.mockResolvedValue({ limit: 1000 });
-  computeOrgStorageUsage.mockResolvedValue(usage(500));
+  readOrgStorageUsage.mockResolvedValue(usage(500));
 });
 
 describe('storage push-gate', () => {
   it('measures the org\'s COMBINED (own + published) rollup and keeps push under the cap', async () => {
     const { token } = await authorizeAndIssue(writer, [{ type: 'repository', name: 'org-acme/app', actions: ['pull', 'push'] }], 'u1');
     expect(quotaCheck).toHaveBeenCalledWith('acme', 'storageBytes', 'Bearer test');
-    expect(computeOrgStorageUsage).toHaveBeenCalledWith('acme');
+    expect(readOrgStorageUsage).toHaveBeenCalledWith('acme');
     expect(accessOf(token)).toEqual([{ type: 'repository', name: 'org-acme/app', actions: ['pull', 'push'] }]);
   });
 
@@ -72,7 +72,7 @@ describe('storage push-gate', () => {
   // from working to refused with no room to prune or buy. These two cases pin
   // where the band starts and where it ends.
   it('keeps push AT the nominal cap — the grace band is the point', async () => {
-    computeOrgStorageUsage.mockResolvedValue(usage(1000));
+    readOrgStorageUsage.mockResolvedValue(usage(1000));
     const { token, storageGate } = await authorizeAndIssue(writer, [{ type: 'repository', name: 'org-acme/app', actions: ['pull', 'push'] }], 'u1');
     expect(accessOf(token)).toEqual([{ type: 'repository', name: 'org-acme/app', actions: ['pull', 'push'] }]);
     // Reported against the NOMINAL limit, so the dashboard shows 100% while the
@@ -83,7 +83,7 @@ describe('storage push-gate', () => {
   });
 
   it('strips push (keeping pull) once published bytes pass the grace band', async () => {
-    computeOrgStorageUsage.mockResolvedValue(usage(1100));
+    readOrgStorageUsage.mockResolvedValue(usage(1100));
     const { token, storageGate } = await authorizeAndIssue(writer, [{ type: 'repository', name: 'org-acme/app', actions: ['pull', 'push'] }], 'u1');
     expect(accessOf(token)).toEqual([{ type: 'repository', name: 'org-acme/app', actions: ['pull'] }]);
     expect(storageGate).toEqual(expect.objectContaining({ overBudget: true, reason: 'over_budget' }));
@@ -92,13 +92,13 @@ describe('storage push-gate', () => {
   it('carries the reason and the byte figures, so a refusal can be explained', async () => {
     // A stripped push reaches the client as a bare 403 that names nothing, so
     // the platform's own record is the only place the reason can live.
-    computeOrgStorageUsage.mockResolvedValue(usage(2000));
+    readOrgStorageUsage.mockResolvedValue(usage(2000));
     const { storageGate } = await authorizeAndIssue(writer, [{ type: 'repository', name: 'org-acme/app', actions: ['push'] }], 'u1');
     expect(storageGateReason(storageGate!)).toBe('push stripped: storage 2.0 KB of 1000 B (including a grace band to 1.1 KB)');
   });
 
   it('fails closed on an incomplete rollup (e.g. an unreadable publication record)', async () => {
-    computeOrgStorageUsage.mockResolvedValue(usage(10, true));
+    readOrgStorageUsage.mockResolvedValue(usage(10, true));
     const { token } = await authorizeAndIssue(writer, [{ type: 'repository', name: 'org-acme/app', actions: ['push'] }], 'u1');
     expect(accessOf(token)).toEqual([]);
   });
@@ -107,11 +107,11 @@ describe('storage push-gate', () => {
     quotaCheck.mockResolvedValue({ failOpen: true });
     const { token } = await authorizeAndIssue(writer, [{ type: 'repository', name: 'org-acme/app', actions: ['pull', 'push'] }], 'u1');
     expect(accessOf(token)[0].actions).toEqual(['pull']);
-    expect(computeOrgStorageUsage).not.toHaveBeenCalled();
+    expect(readOrgStorageUsage).not.toHaveBeenCalled();
   });
 
   it('fails closed when the gate itself throws', async () => {
-    computeOrgStorageUsage.mockRejectedValue(new Error('registry down'));
+    readOrgStorageUsage.mockRejectedValue(new Error('registry down'));
     const { token } = await authorizeAndIssue(writer, [{ type: 'repository', name: 'org-acme/app', actions: ['pull', 'push'] }], 'u1');
     expect(accessOf(token)[0].actions).toEqual(['pull']);
   });
@@ -120,7 +120,7 @@ describe('storage push-gate', () => {
     quotaCheck.mockResolvedValue({ limit: -1 });
     const { token } = await authorizeAndIssue(writer, [{ type: 'repository', name: 'org-acme/app', actions: ['push'] }], 'u1');
     expect(accessOf(token)[0].actions).toEqual(['push']);
-    expect(computeOrgStorageUsage).not.toHaveBeenCalled();
+    expect(readOrgStorageUsage).not.toHaveBeenCalled();
   });
 
   it('measures at most once per token, however many org scopes carry push', async () => {
@@ -128,7 +128,7 @@ describe('storage push-gate', () => {
       { type: 'repository', name: 'org-acme/a', actions: ['push'] },
       { type: 'repository', name: 'org-acme/b', actions: ['push'] },
     ], 'u1');
-    expect(computeOrgStorageUsage).toHaveBeenCalledTimes(1);
+    expect(readOrgStorageUsage).toHaveBeenCalledTimes(1);
   });
 
   it('never runs for pull-only scopes, including public/* pulls', async () => {

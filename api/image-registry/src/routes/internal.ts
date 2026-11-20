@@ -39,7 +39,8 @@ import {
 import { mintQuarantineCredential } from '../services/quarantine-credential.js';
 import { deleteManifest, deleteTag, headManifest, isNotFound } from '../services/registry-client.js';
 import { deleteOrgNamespace, deleteQuarantineRepository } from '../services/registry-gc.js';
-import { computeOrgStorageBreakdown, computeOrgStorageUsage, computeSystemRetentionBreakdown, invalidateOrgStorageCache } from '../services/storage-usage.js';
+import { readOrgStorageUsage } from '../services/storage-snapshot.js';
+import { computeOrgStorageBreakdown, computeSystemRetentionBreakdown, invalidateOrgStorageCache } from '../services/storage-usage.js';
 
 /** The internal endpoints this router serves, each defined once in api-core. */
 const C = IMAGE_REGISTRY_INTERNAL;
@@ -513,8 +514,10 @@ export function createInternalRoutes(): Router {
   // One org's registry storage, for the quota service's READS (the dashboard and
   // the at-risk view fill `storageBytes.used` from it — nothing increments that
   // quota, because this service measures it live). Same measurement the push
-  // gate enforces with (`computeOrgStorageUsage`: the org's namespace plus the
-  // public copies it published, blobs deduplicated, 60s cached), so the number a
+  // gate enforces with (`readOrgStorageUsage`: the background snapshot of the
+  // org's namespace plus the public copies it published, blobs deduplicated —
+  // see storage-snapshot.ts; no snapshot or a stale one reads as incomplete),
+  // so the number a
   // tenant sees is the number it is refused at. Only `bytes` crosses the wire:
   // the repo count is a fact about the org's layout the quota service has no use
   // for. An `incomplete` scan is NOT answered with what it measured: this
@@ -538,7 +541,7 @@ export function createInternalRoutes(): Router {
         recordAuthzDenial(req, `storage usage of org ${orgId}`);
         return sendError(res, 403, 'Forbidden: storage usage can only be read for the token\'s own org.', ErrorCode.ORG_MISMATCH);
       }
-      const usage = await computeOrgStorageUsage(orgId);
+      const usage = await readOrgStorageUsage(orgId);
       if (usage.incomplete) {
         ctx.log('COMPLETED', 'Org storage usage scan incomplete — not answered', { orgId, bytes: usage.bytes });
         return sendError(res, 503, 'Storage usage scan was incomplete; the figure would under-count', ErrorCode.SERVICE_UNAVAILABLE);
