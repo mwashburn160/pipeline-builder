@@ -214,7 +214,7 @@ function greenBuild(over: Partial<{ runAsRoot: boolean | null; critical: number;
       imageRepository: `quarantine/${s.id}`,
       digest: DIGEST_A,
       scan: { vulnCritical: over.critical ?? 0, vulnHigh: 0, vulnMedium: 1, vulnLow: 2, vulnCriticalFixable: fixable, vulnHighFixable: 0, scannedAt: new Date() },
-      findings: Array.from({ length: fixable }, (_, i) => ({ id: `CVE-2026-${i + 1}`, severity: 'critical' as const, packageName: 'openssl', packageVersion: '3.0.1', fixedIn: ['3.0.2'] })),
+      findings: Array.from({ length: fixable }, (_, i) => ({ id: `CVE-2026-${i + 1}`, severity: 'critical' as const, packageName: 'openssl', packageVersion: '3.0.1', fixedIn: ['3.0.2'], packageType: 'deb' as const, purl: 'pkg:deb/debian/openssl@3.0.1', locations: [{ path: '/var/lib/dpkg/status', layerID: 'sha256:l' }] })),
       runAsRoot: over.runAsRoot === undefined ? false : over.runAsRoot,
     };
   });

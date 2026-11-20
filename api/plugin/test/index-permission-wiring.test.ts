@@ -50,6 +50,9 @@ const ROUTERS = {
   publicSecurityNotifications: { __router: 'publicSecurityNotifications' },
   orgToolchainDefault: { __router: 'orgToolchainDefault' },
   toolchainConsole: { __router: 'toolchainConsole' },
+  remediations: { __router: 'remediations' },
+  pluginByName: { __router: 'pluginByName' },
+  internalRemediation: { __router: 'internalRemediation' },
 } as const;
 
 /** Stand-ins for the shared middleware so their placement can be asserted. */
@@ -135,6 +138,9 @@ jest.unstable_mockModule('../src/routes/org-toolchain-default.js', () => ({ crea
 jest.unstable_mockModule('../src/routes/toolchain-console.js', () => ({ createToolchainConsoleRoutes: () => ROUTERS.toolchainConsole }));
 jest.unstable_mockModule('../src/routes/ecosystem-console.js', () => ({ createEcosystemConsoleRoutes: () => ROUTERS.ecosystemConsole }));
 jest.unstable_mockModule('../src/routes/reviews.js', () => ({ createReviewRoutes: () => ROUTERS.reviews }));
+jest.unstable_mockModule('../src/routes/remediations.js', () => ({ createRemediationRoutes: () => ROUTERS.remediations }));
+jest.unstable_mockModule('../src/routes/plugin-by-name.js', () => ({ createPluginByNameRoutes: () => ROUTERS.pluginByName }));
+jest.unstable_mockModule('../src/routes/internal-remediation.js', () => ({ createInternalRemediationRoutes: () => ROUTERS.internalRemediation }));
 jest.unstable_mockModule('../src/routes/security-notifications.js', () => ({
   createSecurityNotificationRoutes: () => ROUTERS.securityNotifications,
   createPublicSecurityNotificationRoutes: () => ROUTERS.publicSecurityNotifications,
@@ -152,6 +158,9 @@ jest.unstable_mockModule('../src/services/ecosystem/maintenance.js', () => ({
 // The approved-request retry sweep — index.ts builds + starts it at boot.
 jest.unstable_mockModule('../src/services/ecosystem/execution.js', () => ({
   createEcosystemExecutionScheduler: () => ({ start: () => undefined, stop: () => undefined }),
+  // Imported by the decision / auto-approval paths (linked, never reached here).
+  claimPayload: () => ({}),
+  executeClaimNow: async () => ({ ran: false }),
 }));
 // The ecosystem gauge sampler — index.ts builds + starts it at boot.
 jest.unstable_mockModule('../src/services/ecosystem/metrics.js', () => ({

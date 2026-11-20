@@ -35,6 +35,10 @@
  *    its kept resolution rows and its stored config), and no template pins it
  *    exactly (`template_pin`, from the stored config).
  *  - Its listed version is not paused (`paused`).
+ *  - It is not protected from AUTOMATIC removal (helpers/auto-removal.ts): an
+ *    ACTIVE version (`active`) and a name's only remaining version
+ *    (`only_version`) are never retired — kept, and an earlier deprecation of
+ *    this pass reversed — so the dry run reports them with that reason.
  *  - Every live pipeline declaring the plugin has resolution rows after a
  *    synchronous, uncapped refresh; one that still has none holds EVERY version
  *    of the plugin for the pass (`declared_without_resolution`), and so does a
@@ -57,6 +61,8 @@ import {
 } from '@pipeline-builder/pipeline-data';
 import { sql, type SQL } from 'drizzle-orm';
 
+import { autoRemovalReasonSql, type AutoRemovalProtection } from '../../helpers/auto-removal.js';
+
 // -----------------------------------------------------------------------------
 // The pure decision
 // -----------------------------------------------------------------------------
@@ -72,6 +78,8 @@ export interface VersionFacts {
   retirement: { deprecatedAt: Date } | null;
   /** The first reference rule that holds the version (see the module doc), or null. */
   held: string | null;
+  /** Protected from automatic removal (active, or the name's only version); absent = not protected. */
+  protection?: AutoRemovalProtection | null;
   /** The Official listing's copy of this version, when listed. */
   listing: { id: string; digest: string | null; repository: string | null; yanked: boolean; deprecated: boolean } | null;
 }
@@ -214,12 +222,15 @@ export function decidePlugin(input: DecideInput): PluginDecision {
   const decisions: VersionDecision[] = [...input.versions].sort(newestFirst).map((v) => {
     const base = { pluginId: v.pluginId, version: v.version, digest: v.digest };
     if (v.yanked) {
-      // Yanked by this pass, but the soft-delete did not land: finish it.
+      // Yanked by this pass, but the soft-delete did not land: finish it —
+      // unless the version is protected from automatic removal now.
+      if (v.retirement && v.protection) return { ...base, state: 'keep' as const, rule: v.protection };
       return v.retirement
         ? { ...base, state: 'yank' as const, rule: 'finish_retirement', deprecatedAt: v.retirement.deprecatedAt }
         : { ...base, state: 'keep' as const, rule: 'already_yanked' };
     }
-    const keptBy = ordering.get(v.version) ?? installs.get(v.version) ?? input.holdAll ?? v.held ?? null;
+    // Last: no automatic process removes an active version or a name's last one.
+    const keptBy = ordering.get(v.version) ?? installs.get(v.version) ?? input.holdAll ?? v.held ?? v.protection ?? null;
     if (keptBy) {
       return v.retirement
         ? { ...base, state: 'reverse' as const, rule: keptBy, deprecatedAt: v.retirement.deprecatedAt }
@@ -353,6 +364,7 @@ interface FactRow {
   lv_deprecated_at: Date | string | null;
   ret_deprecated_at: Date | string | null;
   held: string | null;
+  protection: AutoRemovalProtection | null;
 }
 
 const asDate = (v: Date | string | null): Date | null => (v === null ? null : v instanceof Date ? v : new Date(v));
@@ -372,7 +384,8 @@ export async function versionFacts(tx: Tx, name: string, listingId: string | nul
               publicDigest: sql`lv.image_digest`,
               isDefault: sql`pr.is_default`,
               pausedAt: sql`lv.paused_at`,
-            })} AS held
+            })} AS held,
+           ${autoRemovalReasonSql(sql`pr`)} AS protection
       FROM plugins pr
       LEFT JOIN plugin_listing_versions lv ON lv.listing_id = ${lid} AND lv.version = pr.version
       LEFT JOIN plugin_retirements r ON r.plugin_id = pr.id AND r.yanked_at IS NULL
@@ -385,6 +398,7 @@ export async function versionFacts(tx: Tx, name: string, listingId: string | nul
     deprecated: r.deprecated_at !== null,
     retirement: r.ret_deprecated_at !== null ? { deprecatedAt: asDate(r.ret_deprecated_at)! } : null,
     held: r.held,
+    protection: r.protection,
     listing: r.lv_id
       ? { id: r.lv_id, digest: r.lv_digest, repository: r.lv_repo, yanked: r.lv_yanked_at !== null, deprecated: r.lv_deprecated_at !== null }
       : null,

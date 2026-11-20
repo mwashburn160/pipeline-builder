@@ -519,8 +519,9 @@ export async function pipelineOwnerRecipients(prefs: SecurityPrefs): Promise<Eco
 
 /** What a security webhook receives. */
 export interface SecurityWebhookPayload {
-  event: 'N30' | 'N31' | 'N32' | 'N33' | 'test';
-  type: 'plugin.version.blocked' | 'plugin.rescan.findings' | 'pipeline.plugin.vulnerable' | 'pipeline.vuln.acceptance_lapsed' | 'plugin.security_notifications.test';
+  event: 'N30' | 'N31' | 'N32' | 'N33' | 'N36' | 'N37' | 'N38' | 'N39' | 'test';
+  type: 'plugin.version.blocked' | 'plugin.rescan.findings' | 'pipeline.plugin.vulnerable' | 'pipeline.vuln.acceptance_lapsed' | 'plugin.security_notifications.test'
+    | 'plugin.remediation.published' | 'plugin.remediation.rollout' | 'pipeline.remediation.rolled_back' | 'plugin.remediation.owner_request';
   orgId: string;
   plugin: string | null;
   version: string | null;
@@ -546,6 +547,17 @@ export interface SecurityWebhookPayload {
   trigger?: 'lookup' | 'runtime-check' | 'removal';
   /** N33: the acceptances that lapsed. */
   acceptances?: Array<{ exposureId: string; pipelineId: string; plugin: string; version: string; imageDigest: string | null; acceptedUntil: string | null; triagedBy: string | null; reason: string | null }>;
+  /** N36–N39: the remediation (ids, versions, stage and counts only — never a patch, source or log text). */
+  remediation?: {
+    id: string;
+    fromVersion: string;
+    toVersion: string | null;
+    stage?: string;
+    rolloutStatus?: string;
+    advisoryIds?: string[];
+    cleared?: number;
+    remaining?: number;
+  };
   occurredAt: string;
 }
 
@@ -569,7 +581,7 @@ export function setSecurityWebhookSenderForTests(sender?: SecurityWebhookSender)
   webhookSender = sender ?? liveWebhookSender;
 }
 
-async function sendWebhook(prefs: SecurityPrefs, payload: SecurityWebhookPayload): Promise<{ ok: boolean; code?: number; error?: string } | null> {
+export async function sendWebhook(prefs: SecurityPrefs, payload: SecurityWebhookPayload): Promise<{ ok: boolean; code?: number; error?: string } | null> {
   if (!prefs.webhookUrl) return null;
   try {
     const result = await webhookSender(prefs.webhookUrl, await webhookSecretOf(prefs), payload);
@@ -664,6 +676,30 @@ const redisDedupe: NoticeDedupeStore = {
 };
 
 let dedupe: NoticeDedupeStore = redisDedupe;
+
+/**
+ * The members of `members` not yet notified under `key` (remembered for
+ * `ttlMs`). FAILS OPEN like N31's dedupe: a store outage answers every member
+ * (a duplicate beats a lost notice). Used by the remediation notices (N36–N40).
+ */
+export async function claimNewNotices(key: string, members: readonly string[], ttlMs: number): Promise<string[]> {
+  try {
+    return await dedupe.claimNew(key, members, ttlMs);
+  } catch (err) {
+    logger.warn('Notice dedupe store unavailable; notifying anyway', { key, error: errorMessage(err) });
+    return [...members];
+  }
+}
+
+/**
+ * The relay options for an org's batched security notice: immediate, or held
+ * for the org's digest (`digestKey` groups one org's notices of one event).
+ */
+export function digestOptions(prefs: SecurityPrefs, event: string): EnqueueOptions {
+  return prefs.digestMode === 'immediate'
+    ? { immediate: true }
+    : { deliverAfter: nextEcosystemDigestTime(prefs.digestMode), digestKey: `${event}:${prefs.orgId}` };
+}
 
 /** Test hook: replace the dedupe store (pass nothing to restore Redis). */
 export function setNoticeDedupeStoreForTests(store?: NoticeDedupeStore): void {

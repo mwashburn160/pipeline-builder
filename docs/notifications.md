@@ -367,6 +367,24 @@ Two notices are routed here:
   stored. Honours the org's *Rescan findings* toggle and digest mode, and is
   deduplicated per (version, CVE) for 180 days.
 
+The four remediation notices follow the same recipients, external address and
+digest setting (the sender batches them like N31). All are transactional:
+
+- **N36 — a fixed version was published**, or is awaiting approval in propose
+  mode.
+- **N37 — a remediation rollout finished or paused.** Also sent to the pipeline
+  owners (`pipelines:write`) of affected organizations when `notifyPipelineOwners`
+  is on.
+- **N38 — a pipeline was rolled back** off a fix version, to that pipeline's
+  organization's pipeline owners (`notifyPipelineOwners`).
+- **N39 — the owner request**: the findings a remediation couldn't fix, each with
+  its package, CVE, fixed version, reason and the upgrade level it would need.
+
+**N40** is not routed here: it is the fix request sent to a third-party listing's
+publisher (`publishers:manage`), with the findings and a suggested patch, and the
+note to its installers (`plugin_installs:manage`) that it was sent. It never
+takes a raw address. See [Automatic remediation](plugin-publishing.md#automatic-remediation).
+
 Settings, stored one row per org in `plugin_security_notification_prefs`
 (absent = the defaults below):
 
@@ -386,7 +404,8 @@ its owner opens `/notifications/confirm` and presses the button — an explicit
 click, so a mail scanner following the link cannot burn the token. Until then the
 badge reads *Pending confirmation* (or *Confirmation link expired*), and **Resend
 confirmation** issues a fresh link. The catalog permits a raw `address` recipient
-on N30 and N31 only; the relay rejects it on every other event.
+on N30, N31 and the remediation notices N36–N39 only; the relay rejects it on
+every other event.
 
 The webhook is sent by the **plugin** service itself, not through the platform
 relay, so it keeps working when outbound email is off. The in-app + email leg
@@ -458,12 +477,13 @@ Three things live there:
 ### The ecosystem notice catalog
 
 `packages/api-core/src/types/ecosystem-notifications.ts` is the single table both
-the sender (plugin) and the relay (platform) read. Each of N1–N35 declares its
+the sender (plugin) and the relay (platform) read. Each of N1–N40 declares its
 channels (`in_app` | `email`), its opt-out key or `null` for transactional, an
 optional digest cadence, and whether a raw email address may be addressed.
 
 **Transactional and cannot be turned off:** N1, N3, N4, N5, N7, N8, N9, N10, N18,
-N19, N20, N21, N22, N23, N25, N28, N29, N30, N31, N32, N33, N34.
+N19, N20, N21, N22, N23, N25, N28, N29, N30, N31, N32, N33, N34, N36, N37,
+N38, N39, N40.
 
 **N35 — superseded plugin versions are being retired.** When the platform's
 version retention pass deprecates old versions of an Official plugin (the

@@ -1,0 +1,182 @@
+{
+ "spdxVersion": "SPDX-2.3",
+ "dataLicense": "CC0-1.0",
+ "SPDXID": "SPDXRef-DOCUMENT",
+ "name": "/w/alpine_3.12.0.tar",
+ "documentNamespace": "https://anchore.com/syft/image/w/alpine_3.12.0.tar-9bc07562-c945-4489-96f1-4ea0523432bf",
+ "creationInfo": {
+  "licenseListVersion": "3.29",
+  "creators": [
+   "Organization: Anchore, Inc",
+   "Tool: syft-1.56.0"
+  ],
+  "created": "2026-11-20T16:33:16Z"
+ },
+ "packages": [
+  {
+   "name": "libcrypto1.1",
+   "SPDXID": "SPDXRef-Package-apk-libcrypto1.1-4bb02762320c002e",
+   "versionInfo": "1.1.1g-r0",
+   "supplier": "Person: Timo Teras (timo.teras@iki.fi)",
+   "originator": "Person: Timo Teras (timo.teras@iki.fi)",
+   "downloadLocation": "https://www.openssl.org/",
+   "filesAnalyzed": true,
+   "packageVerificationCode": {
+    "packageVerificationCodeValue": "43c579edbdcba3ebc1fa886f02ca502180a2705b"
+   },
+   "sourceInfo": "acquired package info from APK DB: /lib/apk/db/installed",
+   "licenseConcluded": "NOASSERTION",
+   "licenseDeclared": "OpenSSL",
+   "copyrightText": "NOASSERTION",
+   "description": "Crypto library from openssl",
+   "externalRefs": [
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:libcrypto1.1:libcrypto1.1:1.1.1g-r0:*:*:*:*:*:*:*"
+    },
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:libcrypto1.1:libcrypto:1.1.1g-r0:*:*:*:*:*:*:*"
+    },
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:libcrypto:libcrypto1.1:1.1.1g-r0:*:*:*:*:*:*:*"
+    },
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:libcrypto:libcrypto:1.1.1g-r0:*:*:*:*:*:*:*"
+    },
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceType": "purl",
+     "referenceLocator": "pkg:apk/alpine/libcrypto1.1@1.1.1g-r0?arch=aarch64&distro=alpine-3.12.0&upstream=openssl"
+    }
+   ]
+  },
+  {
+   "name": "libssl1.1",
+   "SPDXID": "SPDXRef-Package-apk-libssl1.1-170263539efdccdf",
+   "versionInfo": "1.1.1g-r0",
+   "supplier": "Person: Timo Teras (timo.teras@iki.fi)",
+   "originator": "Person: Timo Teras (timo.teras@iki.fi)",
+   "downloadLocation": "https://www.openssl.org/",
+   "filesAnalyzed": true,
+   "packageVerificationCode": {
+    "packageVerificationCodeValue": "22c7061dd402348c644a258f259184c6c8b15a0c"
+   },
+   "sourceInfo": "acquired package info from APK DB: /lib/apk/db/installed",
+   "licenseConcluded": "NOASSERTION",
+   "licenseDeclared": "OpenSSL",
+   "copyrightText": "NOASSERTION",
+   "description": "SSL shared libraries",
+   "externalRefs": [
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:libssl1.1:libssl1.1:1.1.1g-r0:*:*:*:*:*:*:*"
+    },
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:libssl1.1:libssl:1.1.1g-r0:*:*:*:*:*:*:*"
+    },
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:libssl:libssl1.1:1.1.1g-r0:*:*:*:*:*:*:*"
+    },
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:libssl:libssl:1.1.1g-r0:*:*:*:*:*:*:*"
+    },
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceType": "purl",
+     "referenceLocator": "pkg:apk/alpine/libssl1.1@1.1.1g-r0?arch=aarch64&distro=alpine-3.12.0&upstream=openssl"
+    }
+   ]
+  },
+  {
+   "name": "/w/alpine_3.12.0.tar",
+   "SPDXID": "SPDXRef-DocumentRoot-Image--w-alpine-3.12.0.tar",
+   "versionInfo": "sha256:24375ad67f9c712bad9ee2712b46ed8a4ef12852ee2c8c30db75638332affc59",
+   "supplier": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": true,
+   "packageVerificationCode": {
+    "packageVerificationCodeValue": "b961e5cec2fe823b73e65c706002650e815e2bb5"
+   },
+   "checksums": [
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "24375ad67f9c712bad9ee2712b46ed8a4ef12852ee2c8c30db75638332affc59"
+    }
+   ],
+   "licenseConcluded": "NOASSERTION",
+   "licenseDeclared": "NOASSERTION",
+   "copyrightText": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceType": "purl",
+     "referenceLocator": "pkg:oci/%2Fw%2Falpine_3.12.0.tar@sha256%3A24375ad67f9c712bad9ee2712b46ed8a4ef12852ee2c8c30db75638332affc59?arch=arm64"
+    }
+   ],
+   "primaryPackagePurpose": "CONTAINER"
+  }
+ ],
+ "files": [
+  {
+   "fileName": "lib/apk/db/installed",
+   "SPDXID": "SPDXRef-File-lib-apk-db-installed-75b110b167603dae",
+   "fileTypes": [
+    "TEXT"
+   ],
+   "checksums": [
+    {
+     "algorithm": "SHA1",
+     "checksumValue": "c814575fec3358061ecb8caee746122993be971e"
+    },
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "53f5978a847664db87a0d52548a13956cb8d6e87399d5d4b23a01c60a69f6365"
+    }
+   ],
+   "licenseConcluded": "NOASSERTION",
+   "licenseInfoInFiles": [
+    "NOASSERTION"
+   ],
+   "copyrightText": "NOASSERTION",
+   "comment": "layerID: sha256:e2f13739ad415e6f8d9f73253910e4984563a1ec98bd0e0af715fc2c74dfe84b"
+  }
+ ],
+ "relationships": [
+  {
+   "spdxElementId": "SPDXRef-Package-apk-libssl1.1-170263539efdccdf",
+   "relatedSpdxElement": "SPDXRef-File-lib-apk-db-installed-75b110b167603dae",
+   "relationshipType": "OTHER",
+   "comment": "evident-by: indicates the package's existence is evident by the given file"
+  },
+  {
+   "spdxElementId": "SPDXRef-Package-apk-libcrypto1.1-4bb02762320c002e",
+   "relatedSpdxElement": "SPDXRef-File-lib-apk-db-installed-75b110b167603dae",
+   "relationshipType": "OTHER",
+   "comment": "evident-by: indicates the package's existence is evident by the given file"
+  },
+  {
+   "spdxElementId": "SPDXRef-DocumentRoot-Image--w-alpine-3.12.0.tar",
+   "relatedSpdxElement": "SPDXRef-Package-apk-libcrypto1.1-4bb02762320c002e",
+   "relationshipType": "CONTAINS"
+  },
+  {
+   "spdxElementId": "SPDXRef-DocumentRoot-Image--w-alpine-3.12.0.tar",
+   "relatedSpdxElement": "SPDXRef-Package-apk-libssl1.1-170263539efdccdf",
+   "relationshipType": "CONTAINS"
+  }
+ ]
+}

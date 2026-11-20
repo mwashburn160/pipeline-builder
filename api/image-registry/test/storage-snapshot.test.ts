@@ -57,6 +57,7 @@ const {
   stopStorageSnapshotScheduler,
   SNAPSHOT_PHASE_HISTOGRAM,
   SNAPSHOT_READS_COUNTER,
+  SNAPSHOT_RUNS_COUNTER,
   SNAPSHOT_LAST_SUCCESS_GAUGE,
   SNAPSHOT_INTERVAL_GAUGE,
   runStorageSnapshotCycle,
@@ -365,7 +366,9 @@ describe('recent-run skip — N pods, one walk per interval', () => {
     expect(await cycle()).toBe('skipped_recent');
     // One full registry walk for both cycles.
     expect(listRepositoriesUnderPrefix).toHaveBeenCalledTimes(1);
-    expect(incCounter).toHaveBeenCalledWith(SNAPSHOT_READS_COUNTER, { outcome: 'skipped_recent' });
+    expect(incCounter).toHaveBeenCalledWith(SNAPSHOT_RUNS_COUNTER, { outcome: 'skipped_recent' });
+    // The reads counter keeps per-read outcomes only.
+    expect(incCounter).not.toHaveBeenCalledWith(SNAPSHOT_READS_COUNTER, { outcome: 'skipped_recent' });
     // The skipping pod republishes the fleet's figures from the stored marker.
     expect(gaugeValue(SNAPSHOT_LAST_SUCCESS_GAUGE)).toBe(meta.completedAt / 1000);
     expect(gaugeValue(SNAPSHOT_INTERVAL_GAUGE)).toBe(INTERVAL / 1000);
@@ -377,7 +380,11 @@ describe('recent-run skip — N pods, one walk per interval', () => {
     now = meta.runId + 0.9 * INTERVAL;
     expect(await cycle()).toBe('ran');
     expect(listRepositoriesUnderPrefix).toHaveBeenCalledTimes(2);
-    expect(incCounter).not.toHaveBeenCalledWith(SNAPSHOT_READS_COUNTER, { outcome: 'skipped_recent' });
+    expect(incCounter).not.toHaveBeenCalledWith(SNAPSHOT_RUNS_COUNTER, { outcome: 'skipped_recent' });
+    expect(incCounter.mock.calls.filter((c) => c[0] === SNAPSHOT_RUNS_COUNTER)).toEqual([
+      [SNAPSHOT_RUNS_COUNTER, { outcome: 'ran' }],
+      [SNAPSHOT_RUNS_COUNTER, { outcome: 'ran' }],
+    ]);
   });
 
   it('with no completed run stored, a cycle always walks', async () => {
@@ -390,6 +397,8 @@ describe('recent-run skip — N pods, one walk per interval', () => {
     ac.abort('lock-lost');
     expect(await runStorageSnapshotCycle({ intervalMs: INTERVAL, signal: ac.signal })).toBe('aborted');
     expect(store.data.has('image-registry:storage-snapshot:meta')).toBe(false);
+    expect(incCounter).toHaveBeenCalledWith(SNAPSHOT_RUNS_COUNTER, { outcome: 'aborted' });
+    expect(incCounter).not.toHaveBeenCalledWith(SNAPSHOT_RUNS_COUNTER, { outcome: 'ran' });
   });
 });
 

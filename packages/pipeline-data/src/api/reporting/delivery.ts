@@ -20,19 +20,23 @@
  *    refused; any other `failed` → failed; `queued` / `delivering` → pending.
  *    The failure rate is (failed + expired + refused) / everything that
  *    finished; pending requests are in neither side.
- *  - LATENCY. The request row has no "answered at" timestamp, so the time to
- *    acceptance is measured as request → the START of the execution the runner
- *    reported (`result_execution_id`, matched to the earliest ingested event of
- *    that execution). CodePipeline stamps that start while the runner's
+ *  - LATENCY. Time to acceptance over accepted START requests. EXACT when the
+ *    row has `accepted_at` (stamped by the dispatcher when the runner accepted
+ *    it): `requested_at → accepted_at`. Rows from before that column existed
+ *    are ESTIMATED as request → the START of the execution the runner reported
+ *    (`result_execution_id`, matched to the earliest ingested event of that
+ *    execution). CodePipeline stamps that start while the runner's
  *    StartPipelineExecution call is in flight, so it bounds the acceptance
- *    from above by at most the runner's own call. Start requests whose
- *    execution has no ingested events are not in the sample (`n` says how many
- *    are).
+ *    from above by at most the runner's own call. A row with neither is not in
+ *    the sample. `n` is the sample; `nExact` / `nEstimated` split it.
  *  - FAILURE CODES. Bounded by api-core's RUNNER_ERRORS catalog: a stored code
  *    outside it (an older runner's, a typo) is counted as `OTHER`, so the list
  *    can never carry free text.
  *  - RUNNERS. Every runner the scope's requests went through, plus the scope's
- *    own non-revoked runners (with zeros when idle). A runner owned OUTSIDE the
+ *    own non-revoked runners (with zeros when idle), plus — when the caller
+ *    passes the anchor org's ancestor chain (`sharedByOrgIds`) — the ancestors'
+ *    non-revoked runners still shared with teams, with zeros when idle. A
+ *    runner owned OUTSIDE the
  *    scope (a parent's runner shared with this team) shows its label and
  *    health the way the team's runner list shows them, and only while it is
  *    still shared with teams; once unshared it is an unnamed row. No function
@@ -116,8 +120,12 @@ export interface RunnerReliabilityReport {
   window: { from: string; to: string };
   totals: RunOutcomeCounts & { failureRatePct: number | null };
   trend: RunRequestTrendPoint[];
-  /** Request → started execution's start, over start requests with an ingested execution. */
-  latency: { n: number; medianSeconds: number | null; p90Seconds: number | null };
+  /**
+   * Request → acceptance over accepted start requests: exact (`accepted_at`)
+   * where the row has it, else estimated from the started execution's start.
+   * `n = nExact + nEstimated`.
+   */
+  latency: { n: number; nExact: number; nEstimated: number; medianSeconds: number | null; p90Seconds: number | null };
   topFailureCodes: RunnerFailureCode[];
   runners: RunnerReliabilityRow[];
 }
@@ -212,13 +220,27 @@ const roundOrNull = (v: unknown, digits = 0): number | null => {
   return Math.round(num(v) * f) / f;
 };
 
+/** Optional inputs to {@link getRunnerReliability}. */
+export interface RunnerReliabilityOptions {
+  /**
+   * The anchor org's ancestors (resolved by the caller from the platform's
+   * hierarchy). Their runners shared with teams are listed even when idle.
+   * Omitted or empty: only runners the requests used and the scope's own.
+   */
+  sharedByOrgIds?: readonly string[];
+}
+
 /**
  * Run latency and runner reliability for a window.
  *
  * `bucket.interval` is validated against the report-interval allow-list (the
  * route validates it first); `tz` falls back to UTC when unusable.
  */
-export async function getRunnerReliability(scope: DeliveryScope, bucket: DeliveryBucket): Promise<RunnerReliabilityReport> {
+export async function getRunnerReliability(
+  scope: DeliveryScope,
+  bucket: DeliveryBucket,
+  opts: RunnerReliabilityOptions = {},
+): Promise<RunnerReliabilityReport> {
   assertReportInterval(bucket.interval);
   const tz = safeTz(bucket.tz);
   const weekStart = bucket.weekStart ?? 'monday';
@@ -227,7 +249,7 @@ export async function getRunnerReliability(scope: DeliveryScope, bucket: Deliver
 
   const scoped = await securityRead(scope, async (org, tx) => {
     const reqs = sql`
-      SELECT r.runner_id, r.status, r.error_code, r.action, r.requested_at, r.result_execution_id, r.pipeline_id,
+      SELECT r.id, r.runner_id, r.status, r.error_code, r.action, r.requested_at, r.accepted_at, r.result_execution_id, r.pipeline_id,
              ${outcomeSql} AS outcome
       FROM pipeline_run_requests r
       WHERE r.org_id ${org}
@@ -249,14 +271,19 @@ export async function getRunnerReliability(scope: DeliveryScope, bucket: Deliver
       await tx.execute(sql`
         WITH q AS (${reqs}),
         l AS (
-          SELECT EXTRACT(EPOCH FROM (MIN(e.started_at) - q.requested_at)) AS s
+          SELECT (q.accepted_at IS NOT NULL) AS exact,
+                 EXTRACT(EPOCH FROM (COALESCE(q.accepted_at, MIN(e.started_at)) - q.requested_at)) AS s
           FROM q
-          JOIN pipeline_events e
-            ON e.execution_id = q.result_execution_id AND e.pipeline_id = q.pipeline_id AND e.org_id ${org}
-          WHERE q.action = 'start' AND q.outcome = 'started' AND q.result_execution_id IS NOT NULL
-            AND e.started_at IS NOT NULL
-          GROUP BY q.requested_at, q.result_execution_id)
+          LEFT JOIN pipeline_events e
+            ON q.accepted_at IS NULL
+           AND e.execution_id = q.result_execution_id AND e.pipeline_id = q.pipeline_id AND e.org_id ${org}
+           AND e.started_at IS NOT NULL
+          WHERE q.action = 'start' AND q.outcome = 'started'
+            AND (q.accepted_at IS NOT NULL OR q.result_execution_id IS NOT NULL)
+          GROUP BY q.id, q.requested_at, q.accepted_at
+          HAVING q.accepted_at IS NOT NULL OR MIN(e.started_at) IS NOT NULL)
         SELECT COUNT(*)::int AS n,
+               COUNT(*) FILTER (WHERE exact)::int AS n_exact,
                percentile_cont(0.5) WITHIN GROUP (ORDER BY GREATEST(s, 0)) AS median_s,
                percentile_cont(0.9) WITHIN GROUP (ORDER BY GREATEST(s, 0)) AS p90_s
         FROM l`),
@@ -284,19 +311,29 @@ export async function getRunnerReliability(scope: DeliveryScope, bucket: Deliver
   // this one read steps outside it — bounded to the runners the scope's own
   // requests went through and the scope's own runners, and selecting only the
   // columns a team's runner list shows (never function_url).
+  // An ancestor's runners join only while shared with teams and not revoked,
+  // the same rule the team's runner list applies.
   const usedIds = scoped.perRunner.map((r) => String(r.runner_id));
+  const inScope = new Set(ids.map((i) => i.toLowerCase()));
+  const sharedBy = [...new Set((opts.sharedByOrgIds ?? []).filter((o) => o && !inScope.has(o.toLowerCase())))];
   const meta = await runWithTenantContext({ isSuperAdmin: true }, () => withTenantTxRead(async (tx) => resultRows<Record<string, unknown>>(
     await tx.execute(sql`
       SELECT id::text AS id, org_id, label, share_with_teams, health, status, consecutive_failures, last_delivery_at
       FROM pipeline_runners
       WHERE id::text = ${anyText(usedIds)}
-         OR (org_id = ${anyText(ids)} AND status <> 'revoked')`),
+         OR (org_id = ${anyText(ids)} AND status <> 'revoked')
+         OR (org_id = ${anyText(sharedBy)} AND share_with_teams = true AND status <> 'revoked')`),
   )));
 
-  const inScope = new Set(ids.map((i) => i.toLowerCase()));
+  const sharedBySet = new Set(sharedBy.map((o) => o.toLowerCase()));
   const metaById = new Map(meta.map((m) => [String(m.id), m]));
   const perById = new Map(scoped.perRunner.map((r) => [String(r.runner_id), counts(r)]));
-  const allIds = new Set([...perById.keys(), ...meta.filter((m) => inScope.has(String(m.org_id).toLowerCase())).map((m) => String(m.id))]);
+  const listedIdle = (m: Record<string, unknown>): boolean => {
+    const org = String(m.org_id).toLowerCase();
+    if (inScope.has(org)) return m.status !== 'revoked';
+    return sharedBySet.has(org) && m.share_with_teams === true && m.status !== 'revoked';
+  };
+  const allIds = new Set([...perById.keys(), ...meta.filter(listedIdle).map((m) => String(m.id))]);
 
   const runners: RunnerReliabilityRow[] = [...allIds].map((id) => {
     const c = perById.get(id) ?? counts(undefined);
@@ -331,11 +368,12 @@ export async function getRunnerReliability(scope: DeliveryScope, bucket: Deliver
     .slice(0, FAILURE_CODE_LIMIT);
 
   const n = num(scoped.latency.n);
+  const nExact = num(scoped.latency.n_exact);
   return {
     window: { from, to },
     totals: { ...scoped.totals, failureRatePct: failureRate(scoped.totals) },
     trend: scoped.trend,
-    latency: { n, medianSeconds: n > 0 ? roundOrNull(scoped.latency.median_s) : null, p90Seconds: n > 0 ? roundOrNull(scoped.latency.p90_s) : null },
+    latency: { n, nExact, nEstimated: n - nExact, medianSeconds: n > 0 ? roundOrNull(scoped.latency.median_s) : null, p90Seconds: n > 0 ? roundOrNull(scoped.latency.p90_s) : null },
     topFailureCodes,
     runners,
   };

@@ -126,6 +126,9 @@ beforeEach(async () => {
     digests[`fmt@${v}`] = d;
     await raw.query("INSERT INTO plugins (org_id, name, version, image_digest, visibility) VALUES ($1, 'fmt', $2, $3, 'public')", [SYSTEM_ORG_ID, v, d]);
   }
+  // No automatic process removes an ACTIVE version (helpers/auto-removal.ts):
+  // the superseded versions this suite retires are deactivated ones.
+  await raw.query('UPDATE plugins SET is_active = false');
 });
 
 const entry = (report: any, name: string, version: string) =>
@@ -284,11 +287,31 @@ describe('a run: deprecate, then yank after the notice period', () => {
   });
 });
 
+describe('protected from automatic removal', () => {
+  it('an ACTIVE superseded version and a name\'s only version are kept, with the reason, in the dry run and the run', async () => {
+    await raw.query("UPDATE plugins SET is_active = true WHERE name = 'fmt' AND version = '1.0.0'");
+    await raw.query("INSERT INTO plugins (org_id, name, version, image_digest, visibility, is_active) VALUES ($1, 'solo', '1.0.0', $2, 'public', false)", [SYSTEM_ORG_ID, digest()]);
+    process.env.PLUGIN_RETENTION_KEEP = '1';
+    const dry = await runRetentionPass({ dryRun: true, now: T0 });
+    expect(entry(dry, 'fmt', '1.0.0')).toMatchObject({ state: 'keep', rule: 'active' });
+    // Not active: still retired as before.
+    expect(entry(dry, 'fmt', '1.1.0')).toMatchObject({ state: 'deprecate' });
+    expect(entry(dry, 'solo', '1.0.0')).toMatchObject({ state: 'keep' });
+    await runRetentionPass({ dryRun: false, now: T0 });
+    expect((await rowOf('fmt', '1.0.0')).deprecated_at).toBeNull();
+    // Even past its notice period, a version deprecated earlier and now active is reversed, never yanked.
+    await raw.query("UPDATE plugins SET is_active = true WHERE name = 'fmt' AND version = '1.1.0'");
+    const later = await runRetentionPass({ dryRun: false, now: new Date(T0.getTime() + 31 * DAY) });
+    expect(entry(later, 'fmt', '1.1.0')).toMatchObject({ state: 'reverse', rule: 'active' });
+    expect((await rowOf('fmt', '1.1.0')).deleted_at).toBeNull();
+  });
+});
+
 describe('safety', () => {
   it('throttles a plugin with a long history: at most half its live versions are deprecated per pass, the rest on the next — nothing refused, nothing counted as a failure', async () => {
     // 10 live versions of `big` in one major, keep=1: nine are retirable.
     for (const v of ['1.0.0', '1.1.0', '1.2.0', '1.3.0', '1.4.0', '1.5.0', '1.6.0', '1.7.0', '1.8.0', '1.9.0']) {
-      await raw.query("INSERT INTO plugins (org_id, name, version, image_digest, visibility) VALUES ($1, 'big', $2, $3, 'public')", [SYSTEM_ORG_ID, v, digest()]);
+      await raw.query("INSERT INTO plugins (org_id, name, version, image_digest, visibility, is_active) VALUES ($1, 'big', $2, $3, 'public', false)", [SYSTEM_ORG_ID, v, digest()]);
     }
     process.env.PLUGIN_RETENTION_KEEP = '1';
     process.env.PLUGIN_RETENTION_MAX_FRACTION = '0.5';

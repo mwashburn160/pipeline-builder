@@ -30,6 +30,7 @@ import { checkPipelineUpdateCompliance, isComplianceRelevantUpdate } from '../he
 import { auditedChanges, buildPipelineUpdateData, complianceBlockedDetails, createOnePipeline, pluginWarningsField, preparePipelineCreate, validatePipelineWrite } from '../helpers/pipeline-write.js';
 import { recordPipelineResolution } from '../helpers/plugin-contract-check.js';
 import type { PluginWarning } from '../helpers/plugin-save-check.js';
+import { electionRefusal } from '../helpers/remediation-settings.js';
 import { pipelineService, type PipelineUpdate } from '../services/pipeline-service.js';
 
 /**
@@ -226,7 +227,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
   }));
 
   /** PUT /pipelines/bulk/update — Update multiple pipelines with the same data */
-  router.put('/bulk/update', ...bulkGuards, audited('pipeline.update'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.put('/bulk/update', ...bulkGuards, audited('pipeline.update', 'pipeline.remediation-upgrades.update'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const bulk = validateBulkArray<string>(req.body?.ids, 'ids', CoreConstants.MAX_BULK_ITEMS);
     if ('error' in bulk) return sendBadRequest(res, bulk.error, ErrorCode.VALIDATION_ERROR);
     if (nonUuidIds(bulk.value)) return sendBadRequest(res, '"ids" must be full pipeline UUIDs', ErrorCode.VALIDATION_ERROR);
@@ -272,6 +273,14 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
       ...buildPipelineUpdateData(req, validData),
       ...(validData.isDefault === false ? { isDefault: false } : {}),
     };
+
+    // The plugin security fixes election: one check for the shared payload
+    // (every row is the caller's org), 403 when the org forbids pipeline apply.
+    if (validData.remediationUpgrades !== undefined) {
+      const refusal = await electionRefusal(validData.remediationUpgrades, orgId, req.user?.parentOrganizationId);
+      if (refusal) return sendError(res, 403, refusal, ErrorCode.PIPELINE_REMEDIATION_APPLY_NOT_ALLOWED);
+      updateData.remediationUpgrades = validData.remediationUpgrades;
+    }
 
     ctx.log('INFO', 'Bulk update pipelines', { count: ids.length });
 
@@ -362,6 +371,17 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
           ...(before ? { changes: auditedChanges(before, u) } : {}),
         },
       });
+      const electionBefore = before?.remediationUpgrades ?? 'inherit';
+      if (updateData.remediationUpgrades !== undefined && electionBefore !== u.remediationUpgrades) {
+        recordAudit({
+          action: 'pipeline.remediation-upgrades.update',
+          actorId: actorId({ userId }),
+          orgId,
+          targetType: 'pipeline',
+          targetId: u.id,
+          details: { pipelineName: u.pipelineName, bulk: true, batchId, before: electionBefore, after: u.remediationUpgrades },
+        });
+      }
     }
 
     // One shared payload, so one set of plugin warnings for every updated row.

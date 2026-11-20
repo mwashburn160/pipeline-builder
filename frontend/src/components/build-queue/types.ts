@@ -24,6 +24,12 @@ export interface FailedJob {
    * exact job — a bare id that matches more than one answers 409.
    */
   tier?: string;
+  /**
+   * The job's queue name / kind when the listing carries it. A remediation
+   * build is `plugin-remediation` (its id is also `remediation-<id>`).
+   */
+  name?: string;
+  kind?: string;
 }
 
 export interface DlqJob extends FailedJob {

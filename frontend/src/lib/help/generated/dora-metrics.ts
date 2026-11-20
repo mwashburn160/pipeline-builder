@@ -1,6 +1,6 @@
 // GENERATED FROM docs/dora-metrics.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 865ee41542668950c485504398ee58dff36b37e412ee8d9519778dd68efe536e
+// SOURCE-SHA256: ad50a637f2e3210d968c8fde6dc7250bde4964eecd2b25825c022cafce3f069f
 // SPDX-License-Identifier: Apache-2.0
 import { Gauge } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -858,9 +858,20 @@ export const doraMetricsTopic: HelpTopic = {
           "items": [
             "What counts. Start and stop requests in the range, by request time. Discovery probes are not runs and are left out.",
             "Outcomes. Started (the runner accepted it), failed, expired (not delivered before the request lapsed), refused (the runner answered 401/403: bad signature, refused, permission denied) and pending (still queued or delivering). The failure rate is failed + expired + refused over everything that finished; pending requests are in neither side.",
-            "Time to start. Median and p90 from the request to the start of the execution the runner reported. The request has no \"answered at\" time of its own, and CodePipeline stamps the execution start while the runner's start call is in flight, so this is the time to acceptance plus at most that one call. Starts whose execution has not reached reporting are not in the sample; n says how many are.",
+            "Time to start. Median and p90 time to acceptance over accepted start requests, measured two ways:",
+            "Exact: from the request to its accepted_at, the moment the runner accepted it. The pipeline service records it on every start or stop a runner accepts, from this release on.",
+            "Estimated: requests from before accepted_at was recorded are measured from the request to the start of the execution the runner reported. CodePipeline stamps that start while the runner's start call is in flight, so the estimate is the time to acceptance plus at most that one call. An older start whose execution has not reached reporting is not in the sample."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "n is the sample size, and nExact and nEstimated split it. The card shows the split as, for example, n = 12 (9 exact, 3 estimated), or (exact) or (estimated) when every sample was measured the same way."
+        },
+        {
+          "type": "list",
+          "items": [
             "Failure codes. The top codes from the runner error catalog. A stored code outside the catalog is counted as OTHER.",
-            "Runners. Every runner the range's requests went through, and your own runners even when idle, with requests, failure rate, expired count, current health and last delivery. A parent organization's runner shows its label and health only while it is still shared with teams; after that it is listed as \"Unshared runner\". No function URL, signing key or requester is ever returned."
+            "Runners. Every runner the range's requests went through, your own runners even when idle, and every runner a parent (or higher) organization shares with teams, even when idle. The parent chain is read from the platform. If that lookup fails, idle shared runners are left out and the report still loads. Each row has requests, failure rate, expired count, current health and last delivery. A parent organization's runner shows its label and health only while it is still shared with teams; after that it is listed as \"Unshared runner\". No function URL, signing key or requester is ever returned."
           ]
         },
         {

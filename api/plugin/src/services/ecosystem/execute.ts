@@ -31,6 +31,7 @@ import { assertVerifiedEligible, checkVerifiedEligibility } from './verified-eli
 import { resolveBaseImageCreatedAt } from '../../helpers/base-image.js';
 import { assertListable } from '../../helpers/managed-toolchain.js';
 import type { RegistryInfo } from '../../helpers/registry-auth.js';
+import { keepListingSource } from '../plugin-sources.js';
 
 const logger = createLogger('ecosystem-execute');
 
@@ -168,7 +169,7 @@ async function publishVersion(r: Req, publisher: Publisher, actor: string): Prom
   }
   const baseImageCreatedAt = await baseImageProbe(plugin);
 
-  const { target, version, updated } = await atomically(async () => {
+  const { target, version: stored, updated } = await atomically(async () => {
     const into = listing ?? await listings.insert({
       publisherId: publisher.id,
       name: plugin.name,
@@ -199,6 +200,13 @@ async function publishVersion(r: Req, publisher: Publisher, actor: string): Prom
     if (!r.listingId) await requests.transition(r.id, 'approved', { listingId: into.id });
     return { target: into, version: inserted, updated: latest };
   });
+  // The listed version's own copy of the source version's kept ZIP
+  // (`listings/<listingId>/<version>/<sha256>.zip`), so remediating the listing
+  // never reads the org's prefix (which an org purge deletes). Copied once the
+  // rows committed — a rolled-back publish leaves no object behind — and never
+  // fails the publish: a failed copy is counted and the version stays source-less.
+  const sourceCols = await keepListingSource({ listingId: target.id, version: plugin.version, from: plugin });
+  const version = sourceCols.sourceKind === 'zip' ? (await versions.update(stored.id, sourceCols)) ?? stored : stored;
   await refreshPipelinesLatest(updated, publisher.handle);
   ecosystemAudit({
     action: 'plugin.listing.publish',

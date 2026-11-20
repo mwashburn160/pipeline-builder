@@ -5,10 +5,10 @@ import {
   ComputeType, PluginType, SYSTEM_ORG_ID, type Criticality, type EntityLabels, type EntityLink,
   type ImageSource, type MetadataSources, type OwnerType, type PluginContractValueType, type PluginIcon,
   type PluginLifecycle, type PluginRecord, type PluginScanFlag, type PluginScanSummary, type PluginSecret,
-  type PluginSmokeTest, type PluginUploadedIcon, type Visibility,
+  type PluginSmokeTest, type PluginSourceKind, type PluginUploadedIcon, type Visibility,
 } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
-import { boolean, integer, varchar, pgTable, text, timestamp, uuid, jsonb, index, uniqueIndex, check } from 'drizzle-orm/pg-core';
+import { bigint, boolean, integer, varchar, pgTable, text, timestamp, uuid, jsonb, index, uniqueIndex, check } from 'drizzle-orm/pg-core';
 
 // The JSON-column / enum types are plugin WIRE types owned by api-core
 // (`types/plugin-wire.ts`) and re-exported here for existing importers.
@@ -266,7 +266,22 @@ export const plugin = pgTable('plugins', {
   // already refunded. A delete/purge refunds CONDITIONALLY on it (the quota
   // service ignores the refund once that period has rolled over), then clears it.
   quotaResetAt: timestamp('quota_reset_at', { withTimezone: true }),
+
+  // Kept build context (nightly CVE remediation): the version's ZIP copied to
+  // the plugin-sources bucket at store time (api-core `pluginSourceKey`), its
+  // SHA-256 (checked before any rebuild; a mismatch fails closed), size, and
+  // when it was kept. source_kind 'none' = no kept source (a prebuilt-image
+  // upload, or a source lost after a restore): overlay-only remediation.
+  sourceKey: text('source_key'),
+  sourceSha256: varchar('source_sha256', { length: 64 }),
+  sourceSizeBytes: bigint('source_size_bytes', { mode: 'number' }),
+  sourceKind: varchar('source_kind', { length: 10 }).$type<PluginSourceKind>().default('none').notNull(),
+  sourceKeptAt: timestamp('source_kept_at', { withTimezone: true }),
+  // Set on every version a by-name delete (DELETE /plugins/by-name/:name)
+  // soft-deleted; by-name restore and purge act on that batch only.
+  deleteBatchId: uuid('delete_batch_id'),
 }, (table) => ({
+  deleteBatchIdx: index('plugin_delete_batch_idx').on(table.orgId, table.deleteBatchId).where(sql`delete_batch_id IS NOT NULL`),
   // Partial index over just the tombstones — drives the retention purge sweep.
   purgeIdx: index('plugin_purge_idx').on(table.purgeAfter).where(sql`deleted_at IS NOT NULL`),
   // Mirrors the indexes postgres-init.sql creates, name for name (the SQL file is
@@ -304,6 +319,10 @@ export const plugin = pgTable('plugins', {
   imageSourceCheck: check('plugin_image_source_check',
     sql`${table.imageSource} IS NULL OR ${table.imageSource} IN ('built', 'uploaded')`,
   ),
+  sourceKindCheck: check('plugin_source_kind_check', sql`${table.sourceKind} IN ('zip', 'none')`),
+  sourceShaCheck: check('plugin_source_sha256_check', sql`${table.sourceSha256} IS NULL OR ${table.sourceSha256} ~ '^[0-9a-f]{64}$'`),
+  // 'zip' carries key + checksum + size; 'none' carries none of them.
+  sourceCoherenceCheck: check('plugin_source_coherence_check', sql`(${table.sourceKind} = 'zip' AND ${table.sourceKey} IS NOT NULL AND ${table.sourceSha256} IS NOT NULL AND ${table.sourceSizeBytes} IS NOT NULL) OR (${table.sourceKind} = 'none' AND ${table.sourceKey} IS NULL AND ${table.sourceSha256} IS NULL AND ${table.sourceSizeBytes} IS NULL)`),
 }));
 
 /**

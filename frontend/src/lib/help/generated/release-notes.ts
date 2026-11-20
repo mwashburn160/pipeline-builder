@@ -1,6 +1,6 @@
 // GENERATED FROM docs/release-notes.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: c2f4a6e6f76c97659eeecff61e1155a50cb8bd3e1db070abbf7818a746e1e865
+// SOURCE-SHA256: a152372c765dc6993ec83b7592047d26b6215617979a6520be21d76c475ba01b
 // SPDX-License-Identifier: Apache-2.0
 import { Megaphone } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -30,8 +30,77 @@ export const releaseNotesTopic: HelpTopic = {
           "items": [
             "Reporting accuracy (November 2026): several dashboard numbers are now counted more strictly, so some will move. Published stakeholder reports do not change.",
             "New on Pipelines → Failures: your own error patterns by category, flaky stages, and failures grouped per pipeline.",
-            "Unknown lead time is explained: the DORA lead-time card says why it could not be measured and how to fix it."
+            "Unknown lead time is explained: the DORA lead-time card says why it could not be measured and how to fix it.",
+            "Flagged plugins are fixed automatically: after the nightly rescan, the platform rebuilds or library-patches a flagged plugin version, proposes or publishes the fix as the next version, and moves pipelines onto it in waves with automatic rollback.",
+            "Delete a whole plugin: Delete plugin removes every version of a name at once, with a preview, and restores or purges it as one batch."
           ]
+        }
+      ]
+    },
+    {
+      "id": "before-you-deploy-this-release",
+      "title": "Before you deploy this release",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Check these before you roll the release out, and watch the last one straight after."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Every org that runs pipelines needs an active 7.0.0 runner, the system org included. Runners are the only way the platform starts and stops pipelines. An org without an active runner at version 7.0.0 or later in the pipeline's account cannot run: Run answers NO_RUNNER and the run fails. Check Settings → Organization → Pipeline runners in each org (system org too) and install or upgrade a runner before deploying. MIN_RUNNER_VERSION (Environment Variables) is the oldest version the dispatcher accepts.",
+            "Some data starts with this release. These are collected only from the moment this release is deployed, so charts and reports that use them are empty or partial for periods before it. Nothing is backfilled:",
+            "approval categories;",
+            "CodeBuild queue and provisioning phases;",
+            "AI draft outcomes (accepted or discarded) and AI call counts;",
+            "runner accepted_at, the time a runner accepted a start or stop request. The Delivery report's runner latency is exact for requests with it and estimated for older ones, and it says which.",
+            "After deploying, watch for the first successful storage snapshot. The registry's push gate reads per-org storage from a background snapshot. Until the first run completes, storage reads as unknown, and an org with a storage cap cannot push images (the gate fails closed). Confirm that registry_storage_snapshot_last_success_timestamp_seconds appears and advances, and that RegistryStorageSnapshotStale does not fire. See Deploy Operations for the snapshot's signals."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "november-2026-nightly-plugin-cve-remediation",
+      "title": "November 2026: nightly plugin CVE remediation",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Until now the platform found and reported vulnerable plugin versions every night, then stopped. Now it fixes the ones it can."
+        },
+        {
+          "type": "text",
+          "content": "What changed"
+        },
+        {
+          "type": "list",
+          "items": [
+            "A flagged version gets a fix. After each completed rescan, a remediation is queued for every flagged version (and every version with fixable High findings) whose organization has remediation on. It rebuilds the version on a freshly pulled base image, then upgrades the named Critical and High libraries to their fixed versions within your allowed upgrade level, and verifies the result through the full build gate, the contract check and the plugin's smokeTest. See Automatic remediation.",
+            "Fixes are proposed by default. Organizations start in propose mode: a fix waits as Awaiting approval on the plugin until someone with plugins:write approves it with a step-up. In apply mode fixes publish on their own, except major library upgrades, plugins without a smokeTest, and ask-agent patches, which are always proposed.",
+            "Pipelines move onto the fix. Pinned pipelines get an upgrade proposal by default, or are moved in waves (a canary of 5, then batches of 50) with rollback on failure within 24 hours. Each pipeline can follow its organization, opt out, or choose its own mode. See Remediation upgrades.",
+            "What can't be fixed goes to the owner. Findings with no fixed version, beyond the upgrade level or inside a compiled binary are listed in a remediation request (N39). Third-party listings are never changed; their publisher gets a fix request (N40).",
+            "Build sources are kept. A version's build context is now kept in the plugin-sources bucket for the version's life, so it can be rebuilt later. Kept sources count toward your storage quota. Prebuilt-image uploads have no source and are fixed with an overlay layer only.",
+            "Delete plugin. A whole plugin, every version of the name, can be deleted at once, restored as a batch within the soft-delete window, and purged. A purge now also removes the version's image, signature and attestations, and its kept sources. See Deleting plugins and versions."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "What you will see"
+        },
+        {
+          "type": "list",
+          "items": [
+            "A remediation card on each plugin version, a Remediations tab on the Plugins page, and Plugin security settings (mode, library upgrade level, pipeline rollout) under Settings → Organization.",
+            "An upgrade proposal banner, wave status and rollback history on the pipeline's security tab.",
+            "New notices N36 to N40, and new audit actions plugin.remediation.*, plugin.delete-all, plugin.restore-all, plugin.purge-all and pipeline.remediation-upgrades.update."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "For operators"
+        },
+        {
+          "type": "text",
+          "content": "PLUGIN_REMEDIATION_ENABLED (default true; only the literal false turns it off) and PLUGIN_REMEDIATION_SEVERITIES (default critical,high; KEV findings are always targeted) control the feature for the whole instance. The new plugin-sources bucket is created by rustfs-init on every target and belongs in your backups. See Environment Variables."
         }
       ]
     },

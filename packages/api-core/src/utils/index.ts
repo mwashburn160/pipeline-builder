@@ -54,6 +54,7 @@ export {
 } from './params.js';
 export * from './headers.js';
 export * from './identity.js';
+export * from './plugin-remediation-hash.js';
 // JWK primitives. Platform IS the token signer, so it legitimately needs
 // `publicJwkFrom` + `derToJoseSignature` from the package surface.
 // `jwkThumbprint` and `publicKeyFromJwk` are kid-derivation/verification

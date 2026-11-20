@@ -91,6 +91,8 @@ The superseded-version retention rows (`/plugins/retention/plan`, `/plugins/rete
 
 The `/plugins/pipelines/:pipelineId/*` rows act only on a pipeline of the caller's own org (any other answers 404). The triage `POST` records a pipeline's risk decision — a time-boxed acceptance (reason + expiry, KEV only with an explicit `kev: true`), a false positive, a reopen — which downgrades that pipeline's vulnerability warnings and notices for the accepted findings; loosening it below `pipelines:write` would let a read-only member silence a pipeline's security signal, which is a weakening. Vulnerability state never blocks a pipeline, so no row here gates one. `GET /internal/plugins/image-references` feeds the image registry's age GC the digests it must never delete; widening its caller list would leak which images an org's pipelines run. `GET /internal/plugins/image-pipeline-references` answers the registry's manual purge with the pipelines (any org's) still referencing each image, so the purge can refuse; it names pipelines across orgs, so widening its caller list is a cross-tenant leak.
 
+**Plugin remediation and by-name deletion.** Approving or rejecting a remediation (`plugin POST /plugins/remediations/:id/approve|reject`) publishes, or refuses, a platform-built version of the org's plugin, so both need `plugins:write` plus a step-up, the same as a purge. The by-name routes (`DELETE /plugins/by-name/:name`, `POST …/restore`, `POST …/purge`) act on every version of a name at once and carry their own step-up; they are also rate-limited per org (10 an hour), which the route table does not render. The delete preview is on `plugins:write`, not `plugins:read`, because it is the first step of a destructive action and lists the pipelines holding each skipped version. The Official patch export (`plugin GET /plugins/remediations/:id/export`) is `system-org + any(plugins:write)`: it is the deploy/plugins/** diff for the repository's maintainers, so no tenant reaches it, whatever permission it carries. The remediation settings write is `org_settings:write`, like the plugin security notification settings beside it. The three internal routes carry a rollout between the two services only: plugin starts and cancels it (`pipeline POST /pipelines/internal/plugin-remediations/:remediationId/rollout|cancel`, `internal(plugin)`), and pipeline reports progress back (`plugin POST /internal/plugins/remediations/:remediationId/rollout`, `internal(pipeline)`); widening either caller list would let another service move pipelines onto a version or mark a rollout done.
+
 The rows under `/plugins/security-notifications*` decide where the org's blocked-build (N30) and rescan (N31) notices go — including an outbound webhook and an external address. Loosening the `PUT` or the `test` send below `org_settings:write` would let any member redirect security notices or aim the webhook, which is a weakening.
 
 The anonymous `POST /public/plugin-security-notifications/confirm` carries no caller identity — its single-use emailed token is the authority — so it has no row here. Its waiver is pinned in `api/plugin/test/route-coverage.test.ts`.
@@ -394,11 +396,16 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | pipeline | POST | `/pipelines` | `any(pipelines:write)` |
 | pipeline | POST | `/pipelines/internal/orgs/:orgId/purge` | `service-principal + internal(platform)` |
 | pipeline | POST | `/pipelines/internal/runner-signing-keys/reencrypt` | `service-principal + internal(platform)` |
+| pipeline | POST | `/pipelines/internal/plugin-remediations/:remediationId/rollout` | `service-principal + internal(plugin)` |
+| pipeline | POST | `/pipelines/internal/plugin-remediations/:remediationId/cancel` | `service-principal + internal(plugin)` |
 | pipeline | DELETE | `/pipelines/:id` | `any(pipelines:write)` |
 | pipeline | GET | `/pipelines/:id` | `any(pipelines:read)` |
 | pipeline | PUT | `/pipelines/:id` | `any(pipelines:write)` |
 | pipeline | POST | `/pipelines/:id/plugin-upgrades/preview` | `any(pipelines:read)` |
 | pipeline | POST | `/pipelines/plugin-upgrades/apply` | `any(pipelines:write)` |
+| pipeline | GET | `/pipelines/:id/remediation-upgrades` | `any(pipelines:read)` |
+| pipeline | POST | `/pipelines/:id/remediation-upgrades/:upgradeId/apply` | `any(pipelines:write)` |
+| pipeline | POST | `/pipelines/:id/remediation-upgrades/:upgradeId/dismiss` | `any(pipelines:write)` |
 | pipeline | DELETE | `/pipelines/:id/security-reports` | `any(pipelines:write)` |
 | pipeline | GET | `/pipelines/:id/security-reports` | `any(pipelines:read)` |
 | pipeline | POST | `/pipelines/:id/security-reports` | `any(pipelines:write) + scope(reporting:ingest)` |
@@ -491,6 +498,7 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | platform | GET | `/internal/reporting/recipient-check/:orgId` | `service-principal + internal(reporting)` |
 | platform | GET | `/internal/reporting/report-authority/:orgId/:userId` | `service-principal + internal(reporting)` |
 | platform | GET | `/internal/reporting/report-readers/:orgId` | `service-principal + internal(reporting)` |
+| platform | GET | `/internal/reporting/org-entitlement/:orgId` | `service-principal + internal(reporting)` |
 | platform | GET | `/internal/support/entitlement/:orgId` | `service-principal + internal(message)` |
 | platform | GET | `/internal/notify-email/status` | `service-principal + internal(ask-agent,ops-center,plugin,reporting)` |
 | platform | GET | `/invitation` | `any(invitations:manage)` |
@@ -614,6 +622,21 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | plugin | GET | `/internal/plugins/image-references` | `service-principal + internal(image-registry)` |
 | plugin | POST | `/internal/plugins/orgs/:orgId/purge` | `service-principal + internal(platform)` |
 | plugin | POST | `/internal/plugins/users/:userId/erase` | `service-principal + internal(platform)` |
+| plugin | POST | `/internal/plugins/remediations/:remediationId/rollout` | `service-principal + internal(pipeline)` |
+| plugin | GET | `/plugins/remediations` | `any(plugins:read)` |
+| plugin | GET | `/plugins/remediations/:id` | `any(plugins:read)` |
+| plugin | GET | `/plugins/remediations/:id/patch` | `any(plugins:read)` |
+| plugin | GET | `/plugins/remediations/:id/export` | `system-org + any(plugins:write)` |
+| plugin | POST | `/plugins/remediations/:id/approve` | `any(plugins:write) + step-up(any)` |
+| plugin | POST | `/plugins/remediations/:id/reject` | `any(plugins:write) + step-up(any)` |
+| plugin | POST | `/plugins/remediations/:id/retry` | `any(plugins:write)` |
+| plugin | GET | `/plugins/remediation-settings` | `any(plugins:read)` |
+| plugin | PUT | `/plugins/remediation-settings` | `any(org_settings:write)` |
+| plugin | PUT | `/plugins/by-name/:name/remediation-level` | `any(plugins:write)` |
+| plugin | GET | `/plugins/by-name/:name/delete-preview` | `any(plugins:write)` |
+| plugin | DELETE | `/plugins/by-name/:name` | `any(plugins:write) + step-up(any)` |
+| plugin | POST | `/plugins/by-name/:name/restore` | `any(plugins:write) + step-up(any)` |
+| plugin | POST | `/plugins/by-name/:name/purge` | `any(plugins:write) + step-up(any)` |
 | plugin | GET | `/plugins` | `any(plugins:read)` |
 | plugin | GET | `/plugins/storage` | `any(plugins:read)` |
 | plugin | POST | `/plugins/storage/prune` | `any(plugins:write)` |

@@ -87,6 +87,9 @@ export default function PipelinesPage() {
       { key: 'visibility', type: 'select', defaultValue: 'all' },
       { key: 'status', type: 'select', defaultValue: 'all' },
       { key: 'default', type: 'select', defaultValue: 'all' },
+      // Plugin security fixes election: `off` = pipelines opted out of every
+      // remediation rollout (the Remediations tab links here with ?remediationUpgrades=off).
+      { key: 'remediationUpgrades', type: 'select', defaultValue: 'all' },
     ],
     // Server-side default sort mirrors the previous client-side default
     // (name ascending) so the initial view is unchanged.
@@ -103,6 +106,7 @@ export default function PipelinesPage() {
       if (params.id) p.id = params.id;
       if (params.orgId) p.orgId = params.orgId;
       if (params.project) p.project = params.project;
+      if (params.remediationUpgrades && params.remediationUpgrades !== 'all') p.remediationUpgrades = params.remediationUpgrades;
       if (params.sortBy) p.sortBy = params.sortBy;
       if (params.sortOrder) p.sortOrder = params.sortOrder;
       const response = await api.listPipelines(p, { signal });
@@ -407,6 +411,10 @@ export default function PipelinesPage() {
               <FilterSelect aria-label="Filter by default" value={list.filters.default} onChange={(e) => list.updateFilter('default', e.target.value)}>
                 <option value="all">All pipelines</option>
                 <option value="default">Default only</option>
+              </FilterSelect>
+              <FilterSelect aria-label="Filter by plugin security fixes" value={list.filters.remediationUpgrades} onChange={(e) => list.updateFilter('remediationUpgrades', e.target.value)}>
+                <option value="all">Any security fixes setting</option>
+                <option value="off">Opted out of security fixes</option>
               </FilterSelect>
               {canViewPublic && (
                 <FilterSelect aria-label="Filter by visibility" value={list.filters.visibility} onChange={(e) => list.updateFilter('visibility', e.target.value)}>

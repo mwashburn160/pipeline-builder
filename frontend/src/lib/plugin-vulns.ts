@@ -33,6 +33,9 @@
 import {
   failOnLabel,
   gatedFixableCount,
+  toGrypePackageType,
+  type GrypePackageType,
+  type PluginScanFindingLocation,
   type PluginVulnFailOn,
 } from '@pipeline-builder/api-core/plugin-scan';
 import { VULN_SEVERITIES, type VulnSeverity } from '@pipeline-builder/api-core/wire-vocabulary';
@@ -71,6 +74,14 @@ export interface VulnFinding {
   packageVersion: string | null;
   /** Versions of `package` that fix it (empty = no fix known). */
   fixedIn: string[];
+  /** grype's package type (`deb`, `npm`, …), catalogued by api-core; null when the server sent none. */
+  packageType: GrypePackageType | null;
+  /** grype's package URL — what remediation groups a package by. */
+  purl: string | null;
+  /** Where in the image the package was found, and the layer it came from. */
+  locations: PluginScanFindingLocation[];
+  /** CISA lists it as known exploited. */
+  kev?: boolean;
 }
 
 /** What a rescan found on a version that was clean when it was built. */
@@ -106,6 +117,20 @@ export interface VulnFacts {
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
+/** grype locations (`{ path, layerID }`), tolerant of missing pieces. */
+function findingLocations(raw: unknown): PluginScanFindingLocation[] {
+  if (!Array.isArray(raw)) return [];
+  const out: PluginScanFindingLocation[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const o = item as Record<string, unknown>;
+    const path = str(o.path);
+    if (!path) continue;
+    out.push({ path, layerID: str(o.layerID) ?? str(o.layerId) ?? '' });
+  }
+  return out;
+}
+
 /** Fixed versions from `fixedIn` / `fixVersions` / `fix.versions`, as a string or a list. */
 function fixedVersions(o: Record<string, unknown>): string[] {
   const raw = o.fixedIn ?? o.fixVersions ?? o.fixedVersions ?? (o.fix as { versions?: unknown } | undefined)?.versions;
@@ -129,6 +154,10 @@ export function normalizeVulnFindings(raw: unknown): VulnFinding[] {
       package: str(o.packageName) ?? str(o.package) ?? str(o.artifact),
       packageVersion: str(o.packageVersion) ?? str(o.installedVersion),
       fixedIn: fixedVersions(o),
+      packageType: str(o.packageType) ? toGrypePackageType(str(o.packageType)) : null,
+      purl: str(o.purl),
+      locations: findingLocations(o.locations),
+      ...(o.kev === true ? { kev: true } : {}),
     });
   }
   return out;
@@ -154,7 +183,7 @@ export function normalizeScanFlag(raw: unknown): ScanFlag | null {
  * `CVE-2026-1 (openssl@3.0.1 → 3.0.2)` — one finding as a line of text, in the
  * same words the server's gate messages use (api-core `describeFix`).
  */
-export function describeFinding(f: VulnFinding): string {
+export function describeFinding(f: Pick<VulnFinding, 'id' | 'package' | 'packageVersion' | 'fixedIn'>): string {
   const at = f.package ? `${f.package}${f.packageVersion ? `@${f.packageVersion}` : ''}` : null;
   const fix = f.fixedIn.length > 0 ? `→ ${f.fixedIn.join(', ')}` : '(no fix)';
   return `${f.id} (${at ? `${at} ` : ''}${fix})`;

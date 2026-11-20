@@ -329,6 +329,12 @@ describe('POST /internal/plugin-images/discard', () => {
     expect(e.details).toMatchObject({ scope: 'kept-setup-image', reason: 'expired', keptSetupImageId: 'k-1', refusalCode: null, jobId: null });
   });
 
+  it('records a purged version\'s image as purged, not as a refused build', async () => {
+    await discard({ repository: `org-${ORG}/foo`, digest: DIGEST, context: { pluginVersion: '1.0.0', reason: 'purged', userId: 'u-1' } });
+    const e = recordAuditMock.mock.calls.at(-1)![0] as Record<string, any>;
+    expect(e.details).toMatchObject({ scope: 'purged', reason: 'purged', pluginVersion: '1.0.0', refusalCode: null });
+  });
+
   it('ignores a context that is not an object', async () => {
     await discard({ repository: `org-${ORG}/foo`, digest: DIGEST, context: ['nope'] });
     const e = recordAuditMock.mock.calls.at(-1)![0] as Record<string, any>;

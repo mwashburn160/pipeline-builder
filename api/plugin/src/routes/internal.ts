@@ -22,7 +22,9 @@
  *  - POST /internal/plugins/orgs/:orgId/purge — platform's durable cascade
  *    outbox → tear a purged org's plugin rows (plugins, installs, policies,
  *    advisory deliveries, notification prefs, toolchain default) out of this
- *    service's own `plugin` slice. Idempotent; 2xx is the outbox's ack.
+ *    service's own `plugin` slice, after the org's kept sources on RustFS
+ *    (`plugin-sources/<orgId>/`; a failed delete there is a 500, not an ack).
+ *    Idempotent; 2xx is the outbox's ack.
  *  - POST /internal/plugins/users/:userId/erase — the same outbox, for a GDPR
  *    user erasure → scrub the person out of the listing reviews they wrote
  *    (author, display name, body go NULL; the rating stays). Idempotent: the
@@ -54,6 +56,7 @@ import { anonymizeReviewsByAuthor, distinctPipelines, findVersionReferences, org
 import { Router, type RequestHandler } from 'express';
 
 import { plugins } from '../services/ecosystem/store.js';
+import { deleteOrgSources } from '../services/plugin-sources.js';
 
 /** Digests one image-pipeline-references read may ask about (the contract's cap). */
 export { MAX_REFERENCE_DIGESTS };
@@ -121,7 +124,21 @@ export function createInternalRoutes(): Router {
     contractRoute(C.purgeOrg, MOUNT),
     requireInternalService({ callers: [...C.purgeOrg.callers] }) as RequestHandler,
     audited('org.data.purge'),
-    (async (req, res) => handleOrgDataPurge(req, res, { contract: C.purgeOrg, owner: 'plugin', auditAction: 'org.data.purge' })) as RequestHandler,
+    (async (req, res) => {
+      // The org's kept plugin sources (plugin-sources/<orgId>/) go FIRST, and a
+      // failure is not an ack: the table purge below drops the org's
+      // plugin_source_orphans rows, so nothing else would ever retry them.
+      const p = parseContractParams(C.purgeOrg, req);
+      if (p.ok) {
+        try {
+          await deleteOrgSources(String(p.value.orgId));
+        } catch (err) {
+          logger.warn('Org purge: kept plugin sources not deleted; the leg will be retried', { orgId: p.value.orgId, error: errorMessage(err) });
+          return sendError(res, 500, 'Org plugin sources purge failed', ErrorCode.INTERNAL_ERROR);
+        }
+      }
+      return handleOrgDataPurge(req, res, { contract: C.purgeOrg, owner: 'plugin', auditAction: 'org.data.purge' });
+    }) as RequestHandler,
   );
 
   router.post(

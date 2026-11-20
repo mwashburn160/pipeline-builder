@@ -1,0 +1,557 @@
+{
+ "matches": [
+  {
+   "vulnerability": {
+    "id": "CVE-2021-3711",
+    "dataSource": "https://security-tracker.debian.org/tracker/CVE-2021-3711",
+    "namespace": "debian:distro:debian:11",
+    "severity": "Critical",
+    "urls": [],
+    "description": "In order to decrypt SM2 encrypted data an application is expected to call the API function EVP_PKEY_decrypt(). Typically an application will call this function twice. The first time, on entry, the \"out\" parameter can be NULL and, on exit, the \"outlen\" parameter is populated with the buffer size requ",
+    "cvss": [
+     {
+      "source": "nvd@nist.gov",
+      "type": "Primary",
+      "version": "3.1",
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "metrics": {
+       "baseScore": 9.8,
+       "exploitabilityScore": 3.9,
+       "impactScore": 5.9
+      },
+      "vendorMetadata": {}
+     }
+    ],
+    "epss": [
+     {
+      "cve": "CVE-2021-3711",
+      "epss": 0.87816,
+      "percentile": 0.99765,
+      "date": "2026-11-19"
+     }
+    ],
+    "cwes": [
+     {
+      "cve": "CVE-2021-3711",
+      "cwe": "CWE-120",
+      "source": "nvd@nist.gov",
+      "type": "Primary"
+     }
+    ],
+    "fix": {
+     "versions": [
+      "1.1.1k-1+deb11u1"
+     ],
+     "state": "fixed",
+     "available": [
+      {
+       "version": "1.1.1k-1+deb11u1",
+       "date": "2021-08-24",
+       "kind": "advisory"
+      }
+     ]
+    },
+    "advisories": [
+     {
+      "id": "DSA-4963-1",
+      "link": "https://security-tracker.debian.org/tracker/DSA-4963-1"
+     }
+    ],
+    "risk": 82.54704000000001
+   },
+   "relatedVulnerabilities": [
+    {
+     "id": "CVE-2021-3711",
+     "dataSource": "https://nvd.nist.gov/vuln/detail/CVE-2021-3711",
+     "namespace": "nvd:cpe",
+     "severity": "Critical",
+     "urls": [
+      "http://www.openwall.com/lists/oss-security/2021/08/26/2",
+      "https://cert-portal.siemens.com/productcert/pdf/ssa-389290.pdf"
+     ],
+     "description": "In order to decrypt SM2 encrypted data an application is expected to call the API function EVP_PKEY_decrypt(). Typically an application will call this function twice. The first time, on entry, the \"out\" parameter can be NULL and, on exit, the \"outlen\" parameter is populated with the buffer size requ",
+     "cvss": [
+      {
+       "source": "nvd@nist.gov",
+       "type": "Primary",
+       "version": "3.1",
+       "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+       "metrics": {
+        "baseScore": 9.8,
+        "exploitabilityScore": 3.9,
+        "impactScore": 5.9
+       },
+       "vendorMetadata": {}
+      },
+      {
+       "source": "nvd@nist.gov",
+       "type": "Primary",
+       "version": "2.0",
+       "vector": "AV:N/AC:L/Au:N/C:P/I:P/A:P",
+       "metrics": {
+        "baseScore": 7.5,
+        "exploitabilityScore": 10,
+        "impactScore": 6.5
+       },
+       "vendorMetadata": {}
+      }
+     ],
+     "epss": [
+      {
+       "cve": "CVE-2021-3711",
+       "epss": 0.87816,
+       "percentile": 0.99765,
+       "date": "2026-11-19"
+      }
+     ],
+     "cwes": [
+      {
+       "cve": "CVE-2021-3711",
+       "cwe": "CWE-120",
+       "source": "nvd@nist.gov",
+       "type": "Primary"
+      }
+     ]
+    }
+   ],
+   "matchDetails": [
+    {
+     "type": "exact-indirect-match",
+     "matcher": "dpkg-matcher",
+     "searchedBy": {
+      "distro": {
+       "type": "debian",
+       "version": "11.0"
+      },
+      "package": {
+       "name": "openssl",
+       "version": "1.1.1k-1"
+      },
+      "namespace": "debian:distro:debian:11"
+     },
+     "found": {
+      "vulnerabilityID": "CVE-2021-3711",
+      "versionConstraint": "< 1.1.1k-1+deb11u1 (deb)"
+     },
+     "fix": {
+      "suggestedVersion": "1.1.1k-1+deb11u1"
+     }
+    }
+   ],
+   "artifact": {
+    "id": "Package-deb-libssl1.1-a382c1d01f860222",
+    "name": "libssl1.1",
+    "version": "1.1.1k-1",
+    "type": "deb",
+    "locations": null,
+    "language": "",
+    "licenses": [
+     "OpenSSL"
+    ],
+    "cpes": [
+     "cpe:2.3:a:libssl1.1:libssl1.1:1.1.1k-1:*:*:*:*:*:*:*"
+    ],
+    "purl": "pkg:deb/debian/libssl1.1@1.1.1k-1?arch=arm64&distro=debian-11.0&upstream=openssl",
+    "upstreams": [
+     {
+      "name": "openssl"
+     }
+    ]
+   }
+  },
+  {
+   "vulnerability": {
+    "id": "CVE-2023-4911",
+    "dataSource": "https://security-tracker.debian.org/tracker/CVE-2023-4911",
+    "namespace": "debian:distro:debian:11",
+    "severity": "High",
+    "urls": [],
+    "description": "A buffer overflow was discovered in the GNU C Library's dynamic loader ld.so while processing the GLIBC_TUNABLES environment variable. This issue could allow a local attacker to use maliciously crafted GLIBC_TUNABLES environment variables when launching binaries with SUID permission to execute code ",
+    "cvss": [
+     {
+      "source": "nvd@nist.gov",
+      "type": "Primary",
+      "version": "3.1",
+      "vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+      "metrics": {
+       "baseScore": 7.8,
+       "exploitabilityScore": 1.9,
+       "impactScore": 5.9
+      },
+      "vendorMetadata": {}
+     }
+    ],
+    "knownExploited": [
+     {
+      "cve": "CVE-2023-4911",
+      "vendorProject": "GNU",
+      "product": "GNU C Library",
+      "dateAdded": "2023-11-21",
+      "requiredAction": "Apply mitigations per vendor instructions or discontinue use of the product if mitigations are unavailable.",
+      "dueDate": "2023-12-12",
+      "knownRansomwareCampaignUse": "unknown",
+      "notes": "This vulnerability affects a common open-source component, third-party library, or a protocol used by different products. Please check with specific vendors for information on patching status. For more information, please see: https://sourceware.org/git/?p=glibc.git; a=commitdiff; h=1056e5b4c3f2d90ed2b4a55f96add28da2f4c8fa, https://access.redhat.com/security/cve/cve-2023-4911, https://www.debian.org/security/2023/dsa-5514",
+      "urls": [
+       "https://nvd.nist.gov/vuln/detail/CVE-2023-4911"
+      ],
+      "cwes": [
+       "CWE-122"
+      ]
+     }
+    ],
+    "epss": [
+     {
+      "cve": "CVE-2023-4911",
+      "epss": 0.63769,
+      "percentile": 0.99237,
+      "date": "2026-11-19"
+     }
+    ],
+    "cwes": [
+     {
+      "cve": "CVE-2023-4911",
+      "cwe": "CWE-122",
+      "source": "secalert@redhat.com",
+      "type": "Secondary"
+     },
+     {
+      "cve": "CVE-2023-4911",
+      "cwe": "CWE-787",
+      "source": "nvd@nist.gov",
+      "type": "Primary"
+     }
+    ],
+    "fix": {
+     "versions": [
+      "2.31-13+deb11u7"
+     ],
+     "state": "fixed",
+     "available": [
+      {
+       "version": "2.31-13+deb11u7",
+       "date": "2023-10-03",
+       "kind": "advisory"
+      }
+     ]
+    },
+    "advisories": [
+     {
+      "id": "DSA-5514-1",
+      "link": "https://security-tracker.debian.org/tracker/DSA-5514-1"
+     }
+    ],
+    "risk": 80.325
+   },
+   "relatedVulnerabilities": [
+    {
+     "id": "CVE-2023-4911",
+     "dataSource": "https://nvd.nist.gov/vuln/detail/CVE-2023-4911",
+     "namespace": "nvd:cpe",
+     "severity": "High",
+     "urls": [
+      "https://access.redhat.com/errata/RHSA-2023:5453",
+      "https://access.redhat.com/errata/RHSA-2023:5454"
+     ],
+     "description": "A buffer overflow was discovered in the GNU C Library's dynamic loader ld.so while processing the GLIBC_TUNABLES environment variable. This issue could allow a local attacker to use maliciously crafted GLIBC_TUNABLES environment variables when launching binaries with SUID permission to execute code ",
+     "cvss": [
+      {
+       "source": "nvd@nist.gov",
+       "type": "Primary",
+       "version": "3.1",
+       "vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+       "metrics": {
+        "baseScore": 7.8,
+        "exploitabilityScore": 1.9,
+        "impactScore": 5.9
+       },
+       "vendorMetadata": {}
+      },
+      {
+       "source": "secalert@redhat.com",
+       "type": "Secondary",
+       "version": "3.1",
+       "vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+       "metrics": {
+        "baseScore": 7.8,
+        "exploitabilityScore": 1.9,
+        "impactScore": 5.9
+       },
+       "vendorMetadata": {}
+      }
+     ],
+     "knownExploited": [
+      {
+       "cve": "CVE-2023-4911",
+       "vendorProject": "GNU",
+       "product": "GNU C Library",
+       "dateAdded": "2023-11-21",
+       "requiredAction": "Apply mitigations per vendor instructions or discontinue use of the product if mitigations are unavailable.",
+       "dueDate": "2023-12-12",
+       "knownRansomwareCampaignUse": "unknown",
+       "notes": "This vulnerability affects a common open-source component, third-party library, or a protocol used by different products. Please check with specific vendors for information on patching status. For more information, please see: https://sourceware.org/git/?p=glibc.git; a=commitdiff; h=1056e5b4c3f2d90ed2b4a55f96add28da2f4c8fa, https://access.redhat.com/security/cve/cve-2023-4911, https://www.debian.org/security/2023/dsa-5514",
+       "urls": [
+        "https://nvd.nist.gov/vuln/detail/CVE-2023-4911"
+       ],
+       "cwes": [
+        "CWE-122"
+       ]
+      }
+     ],
+     "epss": [
+      {
+       "cve": "CVE-2023-4911",
+       "epss": 0.63769,
+       "percentile": 0.99237,
+       "date": "2026-11-19"
+      }
+     ],
+     "cwes": [
+      {
+       "cve": "CVE-2023-4911",
+       "cwe": "CWE-122",
+       "source": "secalert@redhat.com",
+       "type": "Secondary"
+      },
+      {
+       "cve": "CVE-2023-4911",
+       "cwe": "CWE-787",
+       "source": "nvd@nist.gov",
+       "type": "Primary"
+      }
+     ]
+    }
+   ],
+   "matchDetails": [
+    {
+     "type": "exact-indirect-match",
+     "matcher": "dpkg-matcher",
+     "searchedBy": {
+      "distro": {
+       "type": "debian",
+       "version": "11.0"
+      },
+      "package": {
+       "name": "glibc",
+       "version": "2.31-13"
+      },
+      "namespace": "debian:distro:debian:11"
+     },
+     "found": {
+      "vulnerabilityID": "CVE-2023-4911",
+      "versionConstraint": "< 2.31-13+deb11u7 (deb)"
+     },
+     "fix": {
+      "suggestedVersion": "2.31-13+deb11u7"
+     }
+    }
+   ],
+   "artifact": {
+    "id": "Package-deb-libc-bin-ea23df937d81f227",
+    "name": "libc-bin",
+    "version": "2.31-13",
+    "type": "deb",
+    "locations": null,
+    "language": "",
+    "licenses": [
+     "40c7e1f2118531f038ca22999bd976901254e1bc5cd1b0f0211bdd064c599987"
+    ],
+    "cpes": [
+     "cpe:2.3:a:libc-bin:libc-bin:2.31-13:*:*:*:*:*:*:*",
+     "cpe:2.3:a:libc-bin:libc_bin:2.31-13:*:*:*:*:*:*:*",
+     "cpe:2.3:a:libc_bin:libc-bin:2.31-13:*:*:*:*:*:*:*",
+     "cpe:2.3:a:libc_bin:libc_bin:2.31-13:*:*:*:*:*:*:*",
+     "cpe:2.3:a:libc:libc-bin:2.31-13:*:*:*:*:*:*:*",
+     "cpe:2.3:a:libc:libc_bin:2.31-13:*:*:*:*:*:*:*"
+    ],
+    "purl": "pkg:deb/debian/libc-bin@2.31-13?arch=arm64&distro=debian-11.0&upstream=glibc",
+    "upstreams": [
+     {
+      "name": "glibc"
+     }
+    ]
+   }
+  },
+  {
+   "vulnerability": {
+    "id": "CVE-2019-8457",
+    "dataSource": "https://security-tracker.debian.org/tracker/CVE-2019-8457",
+    "namespace": "debian:distro:debian:11",
+    "severity": "Critical",
+    "urls": [],
+    "description": "SQLite3 from 3.6.0 to and including 3.27.2 is vulnerable to heap out-of-bound read in the rtreenode() function when handling invalid rtree tables.",
+    "cvss": [
+     {
+      "source": "nvd@nist.gov",
+      "type": "Primary",
+      "version": "3.1",
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "metrics": {
+       "baseScore": 9.8,
+       "exploitabilityScore": 3.9,
+       "impactScore": 5.9
+      },
+      "vendorMetadata": {}
+     }
+    ],
+    "epss": [
+     {
+      "cve": "CVE-2019-8457",
+      "epss": 0.45426,
+      "percentile": 0.98817,
+      "date": "2026-11-19"
+     }
+    ],
+    "cwes": [
+     {
+      "cve": "CVE-2019-8457",
+      "cwe": "CWE-125",
+      "source": "cve@checkpoint.com",
+      "type": "Secondary"
+     },
+     {
+      "cve": "CVE-2019-8457",
+      "cwe": "CWE-125",
+      "source": "nvd@nist.gov",
+      "type": "Primary"
+     }
+    ],
+    "fix": {
+     "versions": [],
+     "state": "wont-fix"
+    },
+    "advisories": [],
+    "risk": 42.70044
+   },
+   "relatedVulnerabilities": [
+    {
+     "id": "CVE-2019-8457",
+     "dataSource": "https://nvd.nist.gov/vuln/detail/CVE-2019-8457",
+     "namespace": "nvd:cpe",
+     "severity": "Critical",
+     "urls": [
+      "http://lists.opensuse.org/opensuse-security-announce/2019-06/msg00074.html",
+      "https://kc.mcafee.com/corporate/index?page=content&id=SB10365"
+     ],
+     "description": "SQLite3 from 3.6.0 to and including 3.27.2 is vulnerable to heap out-of-bound read in the rtreenode() function when handling invalid rtree tables.",
+     "cvss": [
+      {
+       "source": "nvd@nist.gov",
+       "type": "Primary",
+       "version": "3.1",
+       "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+       "metrics": {
+        "baseScore": 9.8,
+        "exploitabilityScore": 3.9,
+        "impactScore": 5.9
+       },
+       "vendorMetadata": {}
+      },
+      {
+       "source": "nvd@nist.gov",
+       "type": "Primary",
+       "version": "2.0",
+       "vector": "AV:N/AC:L/Au:N/C:P/I:P/A:P",
+       "metrics": {
+        "baseScore": 7.5,
+        "exploitabilityScore": 10,
+        "impactScore": 6.5
+       },
+       "vendorMetadata": {}
+      }
+     ],
+     "epss": [
+      {
+       "cve": "CVE-2019-8457",
+       "epss": 0.45426,
+       "percentile": 0.98817,
+       "date": "2026-11-19"
+      }
+     ],
+     "cwes": [
+      {
+       "cve": "CVE-2019-8457",
+       "cwe": "CWE-125",
+       "source": "cve@checkpoint.com",
+       "type": "Secondary"
+      },
+      {
+       "cve": "CVE-2019-8457",
+       "cwe": "CWE-125",
+       "source": "nvd@nist.gov",
+       "type": "Primary"
+      }
+     ]
+    }
+   ],
+   "matchDetails": [
+    {
+     "type": "exact-indirect-match",
+     "matcher": "dpkg-matcher",
+     "searchedBy": {
+      "distro": {
+       "type": "debian",
+       "version": "11.0"
+      },
+      "package": {
+       "name": "db5.3",
+       "version": "5.3.28+dfsg1-0.8"
+      },
+      "namespace": "debian:distro:debian:11"
+     },
+     "found": {
+      "vulnerabilityID": "CVE-2019-8457",
+      "versionConstraint": "none (unknown)"
+     }
+    }
+   ],
+   "artifact": {
+    "id": "Package-deb-libdb5.3-2ef65e1831d17a78",
+    "name": "libdb5.3",
+    "version": "5.3.28+dfsg1-0.8",
+    "type": "deb",
+    "locations": null,
+    "language": "",
+    "licenses": [
+     "b3bbc6fbb3f2a0e6a487e953eb8c3cc4bdb6f4150f7f51d20b1e9a3c8ef92d3d"
+    ],
+    "cpes": [
+     "cpe:2.3:a:libdb5.3:libdb5.3:5.3.28\\+dfsg1-0.8:*:*:*:*:*:*:*"
+    ],
+    "purl": "pkg:deb/debian/libdb5.3@5.3.28%2Bdfsg1-0.8?arch=arm64&distro=debian-11.0&upstream=db5.3",
+    "upstreams": [
+     {
+      "name": "db5.3"
+     }
+    ]
+   }
+  }
+ ],
+ "source": {
+  "type": "image",
+  "target": {
+   "userInput": "/w/fixture.tar:sha256:e83e2fb0b007d2a3eb104b5d08b1f354e59748e4445ccd0166ca4f48b9168df9",
+   "imageID": "DocumentRoot-Image--w-fixture.tar",
+   "manifestDigest": "sha256:e83e2fb0b007d2a3eb104b5d08b1f354e59748e4445ccd0166ca4f48b9168df9",
+   "mediaType": "",
+   "tags": [],
+   "imageSize": 0,
+   "layers": null,
+   "manifest": null,
+   "config": null,
+   "repoDigests": [],
+   "architecture": "",
+   "os": ""
+  }
+ },
+ "distro": {
+  "name": "debian",
+  "version": "11.0",
+  "idLike": [
+   "debian"
+  ]
+ },
+ "descriptor": {
+  "name": "grype",
+  "version": "0.121.1"
+ }
+}

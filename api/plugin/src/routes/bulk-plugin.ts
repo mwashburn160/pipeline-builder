@@ -6,6 +6,7 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { z } from 'zod';
+import { cancelRemediationsOfDeleted } from './delete-plugin.js';
 import { catalogEditColumns } from './update-plugin.js';
 import { refundPluginSlot } from '../helpers/quota-refund.js';
 import { checkUpdateCompliance, needsComplianceRecheck } from '../helpers/update-compliance.js';
@@ -112,6 +113,9 @@ export function createBulkPluginRoutes(quotaService: QuotaService): Router {
       // hear it is gone. Fire-and-forget (it never throws).
       void onVersionWithdrawn(row, 'deleted');
     }
+
+    // A deleted version's remediations stop with it.
+    await cancelRemediationsOfDeleted(orgId, deleted.map((d) => d.id), ctx.log.bind(null, 'WARN'));
 
     ctx.log('COMPLETED', 'Bulk delete complete', { requested: ids.length, deleted: deleted.length, skipped: skipped.length });
 

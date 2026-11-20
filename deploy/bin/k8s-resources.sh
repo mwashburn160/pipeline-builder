@@ -117,6 +117,12 @@ pb_configmap() { local _n="$1"; shift; pb_kube_apply_ss create configmap "$_n" "
 # ADMIN-ONLY keys are dropped from BOTH: the Postgres/Mongo/RustFS superusers, the
 # admin-UI logins, and the REPLICATION role.
 #
+# PLUGIN_S3_* (the plugin service's bucket-scoped RustFS user) and the RustFS
+# SSE master key are dropped too: the plugin pod reads its key from
+# rustfs-secret by key (k8s/plugin.yaml), the RustFS server reads the master key
+# the same way, and through envFrom every OTHER app pod would hold read and
+# delete on every org's kept plugin build sources.
+#
 # DB_REPLICATION_* belongs in that list for a sharper reason than the others.
 # Secret detection is by NAME, so `DB_REPLICATION_PASSWORD` would land in
 # app-secrets and `DB_REPLICATION_USER` in app-env — reaching EVERY application
@@ -166,7 +172,7 @@ pb_split_app_env() {
       }
       key = $0; sub(/=.*/, "", key)
       if (key ~ /^(POSTGRES_USER|POSTGRES_PASSWORD|MONGO_INITDB_ROOT_USERNAME|MONGO_INITDB_ROOT_PASSWORD|RUSTFS_ROOT_ACCESS_KEY|RUSTFS_ROOT_SECRET_KEY|GRAFANA_ADMIN_USER|GRAFANA_ADMIN_PASSWORD|KIALI_SIGNING_KEY|GHCR_TOKEN|DB_REPLICATION_USER|DB_REPLICATION_PASSWORD)$/ \
-          || key ~ /^(ME_CONFIG_|PGADMIN_|LOKI_S3_|THANOS_S3_|REGISTRY_S3_|REGISTRY_HTTP_)/) next
+          || key ~ /^(ME_CONFIG_|PGADMIN_|LOKI_S3_|THANOS_S3_|REGISTRY_S3_|REGISTRY_HTTP_|PLUGIN_S3_|RUSTFS_SSE_)/) next
       # PASSWORD_BREACH_CHECK* are knobs, not credentials — a mode, a public
       # k-anonymity endpoint and a timeout. They only CONTAIN "PASSWORD", so the
       # by-name rule below would otherwise bury them in the Secret, where an
@@ -258,7 +264,8 @@ pb_create_app_secrets() {
     --from-literal=registry-access-key="$REGISTRY_S3_ACCESS_KEY" --from-literal=registry-secret-key="$REGISTRY_S3_SECRET_KEY" \
     --from-literal=loki-access-key="$LOKI_S3_ACCESS_KEY"         --from-literal=loki-secret-key="$LOKI_S3_SECRET_KEY" \
     --from-literal=thanos-access-key="$THANOS_S3_ACCESS_KEY"     --from-literal=thanos-secret-key="$THANOS_S3_SECRET_KEY" \
-    --from-literal=plugin-access-key="$PLUGIN_S3_ACCESS_KEY"     --from-literal=plugin-secret-key="$PLUGIN_S3_SECRET_KEY" \
+    --from-literal=plugin-access-key="$PLUGIN_S3_ACCESS_KEY_ID"  --from-literal=plugin-secret-key="$PLUGIN_S3_SECRET_ACCESS_KEY" \
+    --from-literal=sse-s3-master-key="$RUSTFS_SSE_S3_MASTER_KEY" \
     --from-literal=audit-heads-access-key="$AUDIT_HEAD_EXPORT_S3_ACCESS_KEY_ID" --from-literal=audit-heads-secret-key="$AUDIT_HEAD_EXPORT_S3_SECRET_ACCESS_KEY" \
     --from-literal=backup-access-key="$BACKUP_S3_ACCESS_KEY"     --from-literal=backup-secret-key="$BACKUP_S3_SECRET_KEY"
 }

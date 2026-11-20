@@ -15,12 +15,13 @@
  */
 
 import {
-  attachmentDisposition, ErrorCode, getParam, requirePermission, requireSystemOrgPermission, sendBadRequest, sendEntityNotFound, sendSuccess,
+  attachmentDisposition, ErrorCode, errorMessage, getParam, requirePermission, requireSystemOrgPermission, sendBadRequest, sendEntityNotFound, sendSuccess,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import type { Router } from 'express';
 import { parentOrgIdOf } from '../helpers/plugin-helpers.js';
 import { fleetPosture, findingsCsv, searchAdvisory, versionFindings } from '../services/plugin-vuln-posture.js';
+import { fleetRemediationPosture } from '../services/remediation/posture.js';
 
 /** An advisory id as scanners report them (CVE, GHSA, Go vulndb, PyPA, RustSec, OSV …). */
 const ADVISORY_ID_RE = /^[A-Za-z][A-Za-z0-9]{1,15}-[A-Za-z0-9._:-]{1,64}$/;
@@ -30,9 +31,17 @@ export function registerVulnerabilityRoutes(router: Router): void {
   // Literal path first: `:advisoryId` would otherwise match "fleet".
   router.get('/vulnerabilities/fleet', ...requireSystemOrgPermission('plugins:moderate', 'platform:read'),
     withRoute(async ({ res, ctx }) => {
-      const posture = await fleetPosture();
+      // The nightly-remediation block is optional on the wire: a failed read of
+      // it leaves the vulnerability posture itself standing.
+      const [posture, remediation] = await Promise.all([
+        fleetPosture(),
+        fleetRemediationPosture().catch((err: unknown) => {
+          ctx.log('WARN', 'Fleet remediation posture unavailable; answered without it', { error: errorMessage(err) });
+          return null;
+        }),
+      ]);
       ctx.log('COMPLETED', 'Computed fleet vulnerability posture', { orgs: posture.byOrg.length, flagged: posture.totals.flagged });
-      return sendSuccess(res, 200, posture);
+      return sendSuccess(res, 200, remediation ? { ...posture, remediation } : posture);
     }));
 
   router.get('/vulnerabilities/:advisoryId', requirePermission('plugins:read'), withRoute(async ({ req, res, ctx, orgId }) => {

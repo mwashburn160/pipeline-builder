@@ -41,7 +41,10 @@ import { ApprovalsTab } from '@/components/plugin-installs/ApprovalsTab';
 import { PolicyTab } from '@/components/plugin-installs/PolicyTab';
 import { AdvisorySearchPanel } from '@/components/plugin/AdvisorySearchPanel';
 import { OrgFailedBuildsPanel } from '@/components/plugin/OrgFailedBuildsPanel';
+import { RemediationsPanel } from '@/components/plugin/RemediationsPanel';
 import { PluginInUseModal, pluginInUseRefusal, type PluginInUseRefusal } from '@/components/plugin/PluginInUseModal';
+import { DeletePluginDialog } from '@/components/plugin/DeletePluginDialog';
+import { DeletedPluginBatches } from '@/components/plugin/DeletedPluginBatches';
 import { invalidate, queryTags } from '@/lib/api-cache';
 import { isSystemOrgActive } from '@/lib/ecosystem-access';
 
@@ -55,7 +58,7 @@ const RecentlyDeletedPanel = dynamic(() => import('@/components/RecentlyDeletedP
 const LIST_FIELDS = PLUGIN_LIST_FIELDS.join(',');
 
 /** Page tabs (`?tab=`): the org's own plugins, then the ecosystem side. */
-const PAGE_TABS = ['mine', 'catalog', 'installs', 'approvals', 'policy', 'vulnerabilities', 'failed'] as const;
+const PAGE_TABS = ['mine', 'catalog', 'installs', 'approvals', 'policy', 'vulnerabilities', 'remediations', 'failed'] as const;
 type PageTab = typeof PAGE_TABS[number];
 
 // ─── Page ───────────────────────────────────────────────
@@ -222,6 +225,8 @@ export default function PluginsPage() {
   // A version pipelines still reference is never deleted: the 409 names them
   // (with the version to move to), shown in its own dialog rather than an error line.
   const [inUse, setInUse] = useState<PluginInUseRefusal | null>(null);
+  // "Delete plugin (all versions)": the name whose delete preview dialog is open.
+  const [deleteAllName, setDeleteAllName] = useState<string | null>(null);
   const deletingRef = useRef<PluginSummary | null>(null);
   const del = useDelete<PluginSummary>(
     (p) => { deletingRef.current = p; return api.deletePlugin(p.id); },
@@ -374,6 +379,15 @@ export default function PluginsPage() {
   const [createInitialTab, setCreateInitialTab] = useState<'upload' | 'ai' | null>(null);
   const [editPlugin, setEditPlugin] = useState<PluginSummary | null>(null);
   const [viewPlugin, setViewPlugin] = useState<PluginSummary | null>(null);
+  // A remediation names a version by id (the flagged one, its fix): load it into the detail view.
+  const openPluginById = useCallback(async (id: string) => {
+    try {
+      const res = await api.getPluginById(id);
+      if (res.data?.plugin) setViewPlugin(res.data.plugin);
+    } catch (err) {
+      toast.error(formatError(err, 'Could not open the plugin'));
+    }
+  }, [toast]);
   // Deprecate / clear deprecation / yank a version — one confirm dialog.
   const [lifecycleTarget, setLifecycleTarget] = useState<{ plugin: PluginSummary; action: PluginLifecycleAction } | null>(null);
   const openLifecycle = useCallback((plugin: PluginSummary, action: PluginLifecycleAction) => setLifecycleTarget({ plugin, action }), []);
@@ -450,6 +464,7 @@ export default function PluginsPage() {
             ...(canManageInstalls ? [{ id: 'approvals', label: 'Approvals' }] : []),
             { id: 'policy', label: 'Policy' },
             { id: 'vulnerabilities', label: 'Vulnerability search' },
+            { id: 'remediations', label: 'Remediations' },
             ...(canWrite ? [{ id: 'failed', label: 'Failed builds' }] : []),
           ]}
           activeId={tab}
@@ -467,6 +482,14 @@ export default function PluginsPage() {
         {tab === 'approvals' && canManageInstalls && <ApprovalsTab />}
         {tab === 'policy' && <PolicyTab canManage={canManageInstalls} />}
         {tab === 'vulnerabilities' && <AdvisorySearchPanel />}
+        {tab === 'remediations' && (
+          <RemediationsPanel
+            canWrite={canWrite}
+            isSystemOrg={isSystemOrgActive(user)}
+            focusId={typeof router.query.remediation === 'string' ? router.query.remediation : undefined}
+            onOpenPlugin={openPluginById}
+          />
+        )}
         {tab === 'failed' && canWrite && (
           <OrgFailedBuildsPanel seesEveryOrg={isSystemOrgActive(user) && can('plugin_queue:manage')} />
         )}
@@ -484,7 +507,10 @@ export default function PluginsPage() {
         )}
 
         {canWrite && deletedView === 'deleted' ? (
-          <RecentlyDeletedPanel resource="plugin" onRestored={afterWrite} canRestoreRow={(r) => canWriteRow({ visibility: r.visibility, createdBy: r.createdBy })} />
+          <>
+            <DeletedPluginBatches onChanged={afterWrite} />
+            <RecentlyDeletedPanel resource="plugin" onRestored={afterWrite} canRestoreRow={(r) => canWriteRow({ visibility: r.visibility, createdBy: r.createdBy })} />
+          </>
         ) : (
         <>
         {/* Sticky search + advanced-filter panel stays above the list shell.
@@ -631,10 +657,14 @@ export default function PluginsPage() {
       )}
 
       {del.target && (
-        <DeleteConfirmModal title="Delete plugin" itemName={del.target.name} loading={del.loading} onConfirm={del.confirm} onCancel={del.close} />
+        <DeleteConfirmModal title="Delete version" itemName={`${del.target.name}@${del.target.version}`} loading={del.loading} onConfirm={del.confirm} onCancel={del.close} />
       )}
 
       {inUse && <PluginInUseModal refusal={inUse} onClose={() => setInUse(null)} />}
+
+      {deleteAllName && (
+        <DeletePluginDialog name={deleteAllName} onClose={() => setDeleteAllName(null)} onDeleted={() => { setViewPlugin(null); afterWrite(); }} />
+      )}
 
       {lifecycleTarget && (
         <PluginLifecycleModal
@@ -669,6 +699,9 @@ export default function PluginsPage() {
           shadows={shadowedById.get(viewPlugin.id) ?? null}
           showRegistryLink={isSuperAdmin}
           onClose={() => setViewPlugin(null)}
+          remediation={{ canWrite, isSystemOrg: isSystemOrgActive(user), onOpenPlugin: openPluginById }}
+          showStorage
+          onDeleteAll={canWrite ? () => setDeleteAllName(viewPlugin.name) : undefined}
           publishHref={can('plugins:publish') && viewPlugin.visibility === 'public' && viewPlugin.orgId === user?.organizationId
             ? `/dashboard/publisher?tab=publish&pluginId=${encodeURIComponent(viewPlugin.id)}`
             : undefined}

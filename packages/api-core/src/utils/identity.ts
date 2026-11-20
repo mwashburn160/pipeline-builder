@@ -72,6 +72,23 @@ export const ANONYMOUS_ACTOR_ID = 'anonymous';
 export const OFFERS_AGENT_ACTOR_ID = 'offers-agent';
 
 /**
+ * The system principal of the nightly plugin CVE remediation: the actor id on
+ * every remediation audit entry (`plugin.remediation.*`), the `requestedBy` of
+ * the redeploys its rollout starts, and the actor the pipeline service records
+ * on the upgrades it applies for a remediation (`pipeline.plugin.upgraded`),
+ * so each one is audited like a manual upgrade and separable from a person's.
+ */
+export const SYSTEM_PLUGIN_REMEDIATION = 'system:plugin-remediation';
+
+/**
+ * The service-account name a remediation's listing publish request is submitted
+ * under (`payload.submitter = { principalType: 'service_account', name }`, from
+ * the system org). The seeded "Remediation fixes" auto-approval rule admits only
+ * this submitter.
+ */
+export const PLUGIN_REMEDIATION_SUBMITTER = 'plugin-remediation';
+
+/**
  * The actor id to stamp on an audit event, from a route context.
  *
  * One resolver so every route agrees on the fallback: per-route

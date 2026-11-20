@@ -302,6 +302,13 @@ describe('Publisher page — publish and requests', () => {
     await waitFor(() => expect(api.listPlugins).toHaveBeenLastCalledWith(expect.objectContaining({ name: 'esl' }), expect.anything()));
   });
 
+  it('the Fix requests tab points at the notices fix requests arrive as (no stored list exists)', async () => {
+    routerQuery = { tab: 'fixes' };
+    render(<PublisherPage />);
+    expect(await screen.findByTestId('fix-requests-notice')).toHaveTextContent(/arrive as notices/);
+    expect(screen.getByRole('link', { name: /open your notices/i })).toHaveAttribute('href', '/dashboard/messages');
+  });
+
   it('the Advisories tab asks for plugins:read rather than failing on it', async () => {
     routerQuery = { tab: 'advisories' };
     mockAuthGuard({ can: (p) => p === 'publishers:manage' });

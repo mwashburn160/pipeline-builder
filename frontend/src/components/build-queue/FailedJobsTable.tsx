@@ -13,6 +13,7 @@ import { RelativeTime } from '@/components/ui/RelativeTime';
 import { SearchInput } from '@/components/ui/SearchInput';
 import type { DlqJob, FailedJob } from './types';
 import { buildFailureInfo } from '@/lib/plugin-vulns';
+import { RemediationJobLabel, remediationJobOf } from './remediation-job';
 
 /** A failed job's error: a scan-gate refusal gets its plain-words title ahead of the raw text. */
 function FailureCell({ error }: { error?: string }) {
@@ -71,6 +72,9 @@ export function FailedJobsTable({
   // (DLQ tables only), over the rows on screen.
   const [nameQuery, setNameQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  // Remediation builds (nightly CVE fixes) only — offered when the page has any.
+  const [remediationOnly, setRemediationOnly] = useState(false);
+  const hasRemediation = useMemo(() => jobs.some((j) => remediationJobOf(j) !== null), [jobs]);
 
   // Distinct failure categories present in the DLQ rows, for the quick-chips.
   const categories = useMemo(
@@ -83,9 +87,10 @@ export function FailedJobsTable({
     return jobs.filter((j) => {
       if (q && !(j.pluginName ?? '').toLowerCase().includes(q)) return false;
       if (showCategory && categoryFilter && (j as DlqJob).failureCategory !== categoryFilter) return false;
+      if (remediationOnly && hasRemediation && remediationJobOf(j) === null) return false;
       return true;
     });
-  }, [jobs, nameQuery, showCategory, categoryFilter]);
+  }, [jobs, nameQuery, showCategory, categoryFilter, remediationOnly, hasRemediation]);
 
   // Sorting stays CLIENT-side (DataTable's default): the server hands back one
   // newest-first page and these headers reorder THAT page, which is what the
@@ -103,7 +108,15 @@ export function FailedJobsTable({
         header: 'Plugin',
         cellClassName: 'text-fg font-medium',
         sortValue: (job) => job.pluginName ?? '',
-        render: (job) => job.pluginName || '—',
+        render: (job) => {
+          const remediation = remediationJobOf(job);
+          return (
+            <span className="inline-flex flex-col gap-1">
+              <span>{job.pluginName || '—'}</span>
+              {remediation && <RemediationJobLabel remediationId={remediation.remediationId} />}
+            </span>
+          );
+        },
       },
     ];
 
@@ -225,7 +238,7 @@ export function FailedJobsTable({
     return cols;
   }, [showCategory, onAction, actionPendingIds, actionLabel, actionPendingLabel, actionTitle, onDismiss]);
 
-  const filterActive = nameQuery.trim() !== '' || (showCategory && categoryFilter !== null);
+  const filterActive = nameQuery.trim() !== '' || (showCategory && categoryFilter !== null) || (remediationOnly && hasRemediation);
 
   return (
     <div>
@@ -238,6 +251,20 @@ export function FailedJobsTable({
           placeholder="Filter this page by plugin..."
           aria-label="Filter this page by plugin name"
         />
+        {hasRemediation && (
+          <button
+            type="button"
+            onClick={() => setRemediationOnly((v) => !v)}
+            aria-pressed={remediationOnly}
+            className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
+              remediationOnly
+                ? 'border-info-border bg-info-bg text-info-strong'
+                : 'border-default text-fg-muted hover:bg-surface-muted'
+            }`}
+          >
+            Remediation builds
+          </button>
+        )}
         {showCategory && categories.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5">
             <button

@@ -517,6 +517,7 @@ export const AutoRuleConditionsSchema = z.object({
   maxPerDay: z.number().int().min(0).max(100_000).optional(),
   instanceFlag: z.literal('OFFICIAL_AUTO_APPROVAL_ENABLED').optional(),
   seeded: z.string().max(64).optional(),
+  remediationOnly: z.boolean().optional(),
 }).strict();
 
 function parseConditions(raw: unknown): AutoRuleConditions {

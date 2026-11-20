@@ -3,7 +3,7 @@
 
 import { useMemo } from 'react';
 import Link from 'next/link';
-import { Inbox as InboxIcon, AlertTriangle, ShieldCheck, MessageSquare, RefreshCw, CheckCircle2 } from 'lucide-react';
+import { Inbox as InboxIcon, AlertTriangle, ShieldCheck, MessageSquare, RefreshCw, CheckCircle2, Wrench } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFetch } from '@/hooks/useFetch';
 import { useQuery } from '@/hooks/useQuery';
@@ -15,13 +15,15 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { RetryError } from '@/components/ui/RetryError';
 import api from '@/lib/api';
 import { queries } from '@/lib/api-cache';
+import { remediationHref } from '@/lib/plugin-remediation';
+import type { PluginRemediationDto } from '@/types/plugin-remediation';
 import type { LucideIcon } from 'lucide-react';
 
 type Severity = 'high' | 'medium' | 'low';
 
 interface InboxItem {
   id: string;
-  kind: 'pipeline-failure' | 'exemption' | 'messages';
+  kind: 'pipeline-failure' | 'exemption' | 'messages' | 'remediation';
   title: string;
   detail?: string;
   href: string;
@@ -45,6 +47,47 @@ export const EXEMPTION_PREVIEW = 20;
 
 const COMPLIANCE_EXEMPTIONS_HREF = '/dashboard/compliance?view=exemptions';
 
+/** The remediation stages that ask something of a person (N36 / N37 / N39), plus rolling out (N38 rollbacks). */
+const REMEDIATION_ACTION_STAGES = 'awaiting_approval,needs_owner,needs_review,rolling_out';
+export const REMEDIATION_PREVIEW = 50;
+
+/**
+ * The inbox items one remediation raises, matching the notices the platform
+ * sends: N36 a fix awaiting approval, N39 a request to the owner, N37 a paused
+ * rollout, N38 pipelines rolled back. Each links to the remediation card.
+ */
+export function remediationInboxItems(r: PluginRemediationDto): InboxItem[] {
+  const href = remediationHref(r.id);
+  const fix = r.toVersion ? `${r.pluginName} ${r.toVersion}` : r.pluginName;
+  const items: InboxItem[] = [];
+  if (r.stage === 'awaiting_approval') {
+    items.push({
+      id: `remediation:${r.id}:approval`, kind: 'remediation', href, severity: 'medium', icon: Wrench,
+      title: `Security fix for ${r.pluginName} ${r.fromVersion} is awaiting approval`,
+      detail: `${r.cleared.length} finding${r.cleared.length === 1 ? '' : 's'} cleared${r.toVersion ? ` · publishes ${r.toVersion}` : ''}`,
+    });
+  } else if (r.stage === 'needs_owner') {
+    items.push({
+      id: `remediation:${r.id}:owner`, kind: 'remediation', href, severity: 'medium', icon: Wrench,
+      title: `${r.pluginName} ${r.fromVersion} needs its owner to fix ${r.remaining.length} finding${r.remaining.length === 1 ? '' : 's'}`,
+      detail: 'Remediation could not fix these automatically.',
+    });
+  } else if (r.stage === 'needs_review') {
+    items.push({
+      id: `remediation:${r.id}:review`, kind: 'remediation', href, severity: 'high', icon: Wrench,
+      title: `Rollout of ${fix} is paused and needs review`,
+    });
+  }
+  const rolledBack = r.rollout?.counts.rolledBack ?? 0;
+  if (rolledBack > 0) {
+    items.push({
+      id: `remediation:${r.id}:rollback`, kind: 'remediation', href, severity: 'high', icon: AlertTriangle,
+      title: `${rolledBack} pipeline${rolledBack === 1 ? ' was' : 's were'} rolled back from ${fix}`,
+    });
+  }
+  return items;
+}
+
 /**
  * Unified actionable inbox: a single triage queue that aggregates a developer's
  * action items across domains — failing pipelines they own, compliance
@@ -63,6 +106,7 @@ export default function InboxPage() {
   const canReviewCompliance = can('compliance:write');
   const canReadMessages = can('messages:read');
   const canReadReports = can('reports:read');
+  const canReadPlugins = can('plugins:read');
   const ownerId = user?.id;
   const active = isReady && !!ownerId;
 
@@ -88,6 +132,14 @@ export default function InboxPage() {
     if (!(res.success && res.data)) throw new Error('source unavailable');
     return res.data.count ?? 0;
   }, [active, canReadMessages]);
+
+  // Plugin security fixes that need someone (approval, owner, paused rollout, rollbacks).
+  const remediations = useFetch(async () => {
+    if (!active || !canReadPlugins) return null;
+    const res = await api.listPluginRemediations({ stage: REMEDIATION_ACTION_STAGES, limit: REMEDIATION_PREVIEW });
+    if (!(res.success && res.data)) throw new Error('source unavailable');
+    return res.data.remediations;
+  }, [active, canReadPlugins]);
 
   // Per-source outcome: items when it loaded, `null` when it failed, and
   // `undefined` when it wasn't attempted (no permission) or is still loading.
@@ -152,18 +204,26 @@ export default function InboxPage() {
       : [];
   }, [canReadMessages, unread.data, unread.error]);
 
+  const remediationItems = useMemo((): InboxItem[] | null | undefined => {
+    if (!canReadPlugins) return undefined;
+    if (remediations.error) return null;
+    if (!remediations.data) return undefined;
+    return remediations.data.flatMap(remediationInboxItems);
+  }, [canReadPlugins, remediations.data, remediations.error]);
+
   const attempted = [
     joinEnabled ? pipelineItems : false,
     canReviewCompliance ? exemptionItems : false,
     canReadMessages ? messageItems : false,
+    canReadPlugins ? remediationItems : false,
   ].filter((r) => r !== false);
-  const loading = owned.loading || counts.loading || exemptions.loading || unread.loading;
+  const loading = owned.loading || counts.loading || exemptions.loading || unread.loading || remediations.loading;
 
   // Source order is preserved before the (stable) severity sort.
   const items = useMemo(() => {
-    const collected = [pipelineItems, exemptionItems, messageItems].flatMap((r) => r ?? []);
+    const collected = [pipelineItems, exemptionItems, messageItems, remediationItems].flatMap((r) => r ?? []);
     return collected.sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
-  }, [pipelineItems, exemptionItems, messageItems]);
+  }, [pipelineItems, exemptionItems, messageItems, remediationItems]);
 
   // Only surface an error when EVERY attempted source failed — a partial
   // failure still shows whatever loaded, and a total failure must not read as
@@ -174,10 +234,12 @@ export default function InboxPage() {
   const refetchCounts = counts.refetch;
   const refetchExemptions = exemptions.refetch;
   const refetchUnread = unread.refetch;
+  const refetchRemediations = remediations.refetch;
   const fetchAll = () => {
     if (joinEnabled) { refetchOwned(); refetchCounts(); }
     void refetchExemptions();
     void refetchUnread();
+    void refetchRemediations();
   };
 
   if (!isReady || !user) return <LoadingPage />;
@@ -185,7 +247,7 @@ export default function InboxPage() {
   return (
     <DashboardLayout
       title="Inbox"
-      subtitle="Your action items across pipelines, compliance, and messages"
+      subtitle="Your action items across pipelines, compliance, plugin security fixes, and messages"
       actions={
         <IconButton onClick={fetchAll} title="Refresh" aria-label="Refresh" disabled={loading}>
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />

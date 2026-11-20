@@ -17,9 +17,20 @@ import { z } from 'zod';
 import { CASCADE_LEG_AUTH, CascadeOrgParams, OrgPurgeResponse } from './cascade.js';
 import { defineInternalEndpoint } from './define.js';
 import { PerOrgKmsConfigSchema } from './platform.js';
+import { PIPELINE_REMEDIATION_UPGRADE_STATES, PLUGIN_REMEDIATION_ROLLOUTS } from '../types/plugin-remediation.js';
 
 const ORG_ID = /^[a-f0-9]{24}$/i;
 const ORG_ID_MESSAGE = 'orgId must be an organization id';
+const VERSION = /^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?(\+[a-zA-Z0-9.-]+)?$/;
+const REMEDIATION_AUTH = 'plugin service token (the remediation job, as SYSTEM_PLUGIN_REMEDIATION). Runs under a sysadmin tenant '
+  + 'context scoped to the named org (or, for an Official listing fix, every org installing the listing); every pipeline move '
+  + 'goes through the normal upgrade write path (template validation, contract check, compliance, resolution recording) and is '
+  + 'audited pipeline.plugin.upgraded with actor SYSTEM_PLUGIN_REMEDIATION.';
+
+const RemediationParams = z.object({ remediationId: z.string().uuid() });
+
+/** What a rollout reports per pipeline state (counts only). */
+const RolloutCounts = z.object(Object.fromEntries(PIPELINE_REMEDIATION_UPGRADE_STATES.map((s) => [s, z.number().int().nonnegative()])) as Record<typeof PIPELINE_REMEDIATION_UPGRADE_STATES[number], z.ZodNumber>);
 
 export const PIPELINE_INTERNAL = {
   /** Idempotent: 200 `{ orgId, tables }`; 500 when any table failed (the leg retries). */
@@ -67,5 +78,71 @@ export const PIPELINE_INTERNAL = {
       reencrypted: z.number().int().nonnegative(),
       failures: z.array(z.object({ orgId: z.string(), kid: z.string(), error: z.string() })),
     }),
+  }),
+  /**
+   * Stage 3 of a nightly plugin CVE remediation: start (idempotently, keyed by
+   * `remediationId`) the staged rollout of a published fix version. The
+   * pipeline service owns the rollout: it resolves each pipeline's effective
+   * mode (resolveRemediationRollout: pipeline, then team, then root; re-read
+   * before each wave and before each move), opens proposals (propose), change
+   * requests (approval-gated installs) or moves pipelines in waves (apply:
+   * canary of up to 5, then batches of 50) through the same code path as
+   * `POST /pipelines/plugin-upgrades/apply`, redeploys through the org's runner,
+   * and rolls a pipeline back on a failed run of a step using the new version
+   * within 24 h. It reports progress back with PLUGIN_INTERNAL.reportRemediationRollout.
+   *
+   * `orgId` null = an Official (system-org) fix published to its listing:
+   * every org's pipelines using `publisher/plugin` are in scope. A repeat call
+   * for the same remediation answers the existing rollout (`created: false`).
+   * A call with a different `toVersion` for the same remediation (the owner's
+   * own clean version superseding the fix) supersedes the open proposals.
+   */
+  startRemediationRollout: defineInternalEndpoint({
+    id: 'pipeline.startRemediationRollout',
+    service: 'pipeline',
+    method: 'POST',
+    path: '/pipelines/internal/plugin-remediations/:remediationId/rollout',
+    callers: ['plugin'],
+    auth: REMEDIATION_AUTH,
+    params: RemediationParams,
+    body: z.object({
+      orgId: z.string().regex(ORG_ID, ORG_ID_MESSAGE).transform((s) => s.toLowerCase()).nullable(),
+      plugin: z.string().min(1).max(255),
+      /** The listing publisher handle for a listed plugin; null for an org's own plugin. */
+      publisher: z.string().min(1).max(64).nullable(),
+      fromVersion: z.string().regex(VERSION),
+      toVersion: z.string().regex(VERSION),
+      toPluginId: z.string().uuid(),
+      /** Advisory ids the fix clears (proposal and notice copy). */
+      advisoryIds: z.array(z.string().min(1).max(64)).max(500),
+      criticalCleared: z.number().int().nonnegative(),
+      highCleared: z.number().int().nonnegative(),
+      /** A cleared finding is KEV-listed (the opted-out pipeline banner names it). */
+      kev: z.boolean(),
+    }).strict(),
+    response: z.object({
+      remediationId: z.string(),
+      created: z.boolean(),
+      /** The root/org default at start, for the summary. */
+      orgDefault: z.enum(PLUGIN_REMEDIATION_ROLLOUTS).nullable(),
+      counts: RolloutCounts,
+    }),
+  }),
+  /**
+   * Stop a remediation's rollout: the version or the name was deleted, or the
+   * remediation cancelled. Queued moves are dropped and open proposals marked
+   * superseded; moved pipelines stay where they are. Idempotent (an unknown
+   * remediation answers `{ cancelled: false }`).
+   */
+  cancelRemediationRollout: defineInternalEndpoint({
+    id: 'pipeline.cancelRemediationRollout',
+    service: 'pipeline',
+    method: 'POST',
+    path: '/pipelines/internal/plugin-remediations/:remediationId/cancel',
+    callers: ['plugin'],
+    auth: REMEDIATION_AUTH,
+    params: RemediationParams,
+    body: z.object({ reason: z.enum(['version_deleted', 'name_deleted', 'cancelled']) }).strict(),
+    response: z.object({ remediationId: z.string(), cancelled: z.boolean() }),
   }),
 } as const;

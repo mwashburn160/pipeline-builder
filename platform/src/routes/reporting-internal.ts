@@ -3,7 +3,7 @@
 
 import { PLATFORM_INTERNAL, contractRoute, requireInternalService } from '@pipeline-builder/api-core';
 import { Router } from 'express';
-import { getAccessPosture, getReportAuthority, getReportReaders, getRecipientCheck } from '../controllers/reporting-internal.js';
+import { getAccessPosture, getReportAuthority, getReportOrgEntitlement, getReportReaders, getRecipientCheck } from '../controllers/reporting-internal.js';
 import { requireServiceAuth } from '../middleware/index.js';
 
 /**
@@ -21,6 +21,7 @@ const {
   reportRecipientCheck: RECIPIENT,
   reportAccessPosture: POSTURE,
   reportReaders: READERS,
+  reportOrgEntitlement: ORG_ENTITLEMENT,
 } = PLATFORM_INTERNAL;
 
 const reportingOnly = (callers: readonly string[]) => [requireServiceAuth, requireInternalService({ callers: [...callers] })];
@@ -29,6 +30,12 @@ const router: Router = Router();
 
 /** May this owner still produce reports here, and does the account hold the add-on? */
 router.get(contractRoute(AUTHORITY, REPORTING_INTERNAL_MOUNT), ...reportingOnly(AUTHORITY.callers), getReportAuthority);
+
+/**
+ * Does the org still hold the reporting add-on, judged through any active owner/admin?
+ * For a shared report link whose owner has left. A boolean only.
+ */
+router.get(contractRoute(ORG_ENTITLEMENT, REPORTING_INTERNAL_MOUNT), ...reportingOnly(ORG_ENTITLEMENT.callers), getReportOrgEntitlement);
 
 /** Is this one address an active member of this org? One address, never a list. */
 router.get(contractRoute(RECIPIENT, REPORTING_INTERNAL_MOUNT), ...reportingOnly(RECIPIENT.callers), getRecipientCheck);

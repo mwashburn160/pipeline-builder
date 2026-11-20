@@ -53,6 +53,23 @@ describe('plugin-helpers', () => {
       expect((result as Record<string, unknown>).extra).toBe(42);
     });
 
+    it('never answers a kept source\'s storage key or checksum (its size, kind and batch stay)', () => {
+      const result = shapePlugin({
+        orgId: 'acme',
+        name: 'foo',
+        version: '1.0.0',
+        sourceKey: 'acme/p1/1.0.0/abc.zip',
+        sourceSha256: 'a'.repeat(64),
+        sourceSizeBytes: 12,
+        sourceKind: 'zip',
+        sourceKeptAt: null,
+        deleteBatchId: 'b-1',
+      });
+      expect(result).not.toHaveProperty('sourceKey');
+      expect(result).not.toHaveProperty('sourceSha256');
+      expect(result).toMatchObject({ sourceSizeBytes: 12, sourceKind: 'zip', sourceKeptAt: null, deleteBatchId: 'b-1' });
+    });
+
     it('omits the uri for a sparse-fieldset row that lacks its source columns', () => {
       // `GET /plugins?fields=id,name` projects no orgId/version — the uri would be a lie.
       const result = shapePlugin({ id: 'p1', name: 'foo' } as unknown as { orgId: string; name: string; version: string });

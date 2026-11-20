@@ -3,52 +3,24 @@
 
 import { randomUUID } from 'node:crypto';
 import {
-  actorId,
   audited,
   checkVisibilityWriteAccess,
-  ConcurrencyConflictError,
-  createLogger,
   ErrorCode,
-  errorMessage,
   getParam,
-  recordAudit,
   requirePermission,
   sendBadRequest,
   sendEntityNotFound,
   sendSuccess,
   validateBody,
 } from '@pipeline-builder/api-core';
-import type { QueuedRunRequestDto } from '@pipeline-builder/api-core/pipeline-runners';
 import { createAuthenticatedWithOrgRoute, withRoute } from '@pipeline-builder/api-server';
 import { pipelinesOnVersion } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import { z } from 'zod';
-import { checkPipelineUpdateCompliance } from '../helpers/pipeline-update-compliance.js';
-import { complianceBlockedDetails, validatePipelineWrite } from '../helpers/pipeline-write.js';
-import { recordPipelineResolution } from '../helpers/plugin-contract-check.js';
-import type { PluginWarning } from '../helpers/plugin-save-check.js';
+import { applyUpgradeToPipeline, type ApplyOutcome } from '../helpers/plugin-upgrade-apply.js';
 import { applyPluginUpgrades, previewPluginUpgrades, type AppliedUpgrade, type StepUpgrade } from '../helpers/plugin-upgrades.js';
-import { DUPLICATE_TRIGGER_MESSAGE, queuedRunRequestDto, triggerExecutionInWindow } from '../helpers/trigger-execution.js';
-import { RunnerRouteError } from '../runners/routing.js';
 import { SYSTEM_PLUGIN_UPGRADE } from '../runners/vocabulary.js';
-import { pipelineService, type Pipeline } from '../services/pipeline-service.js';
-
-const logger = createLogger('plugin-upgrade-routes');
-
-const INTERNAL_UPGRADE_ERROR = 'The upgrade failed because of an internal error; try again.';
-const INTERNAL_REDEPLOY_ERROR = 'The redeploy could not be started because of an internal error; run the pipeline again from its page.';
-
-/**
- * What a per-pipeline failure tells the client: a runner refusal or a
- * concurrent edit keeps its own (user-facing) message; anything else is
- * logged and answered with `fallback` — a driver, SQL or network error's text
- * never reaches the response.
- */
-function clientError(err: unknown, fallback: string, pipelineId: string): string {
-  if (err instanceof RunnerRouteError || err instanceof ConcurrencyConflictError) return err.message;
-  logger.warn('Plugin upgrade step failed', { pipelineId, error: errorMessage(err) });
-  return fallback;
-}
+import { pipelineService } from '../services/pipeline-service.js';
 
 /** Upper bound on pipelines per apply (each is a full validated write). */
 const MAX_APPLY_PIPELINES = 50;
@@ -109,12 +81,6 @@ function previewMoves(upgrades: readonly StepUpgrade[], widen: boolean) {
     .map((u) => ({ plugin: u.plugin, publisher: u.publisher, fromVersion: u.currentVersion }));
 }
 
-/** Per-pipeline apply outcome. */
-type ApplyOutcome =
-  | { pipelineId: string; status: 'upgraded'; applied: AppliedUpgrade[]; pluginWarnings?: PluginWarning[]; redeploy?: QueuedRunRequestDto | { error: string } }
-  | { pipelineId: string; status: 'unchanged' }
-  | { pipelineId: string; status: 'failed'; error: string };
-
 /**
  * Plugin-version remediation for pipelines (see helpers/plugin-upgrades.ts).
  *
@@ -170,115 +136,24 @@ export function createPluginUpgradeRoutes(): Router {
       // mixed-case id would record a second resolution (leaving the old one to
       // hold the moved-off version) and open its own trigger window.
       for (const id of [...new Set(pipelineIds.map((p) => p.toLowerCase()))]) {
-        try {
-          const existing = await pipelineService.findById(id, orgId) as Pipeline | null;
-          if (!existing) { results.push({ pipelineId: id, status: 'failed', error: 'Pipeline not found' }); continue; }
+        const outcome = await applyUpgradeToPipeline({
+          pipelineId: id,
+          orgId,
+          ...(parentOrgId ? { parentOrgId } : {}),
+          actor: { userId, requestedBy: SYSTEM_PLUGIN_UPGRADE },
           // The same per-row visibility ladder as a PUT (author-only private, publish for public).
-          if (checkVisibilityWriteAccess(req, existing, userId, 'pipelines:publish') !== 'ok') {
-            results.push({ pipelineId: id, status: 'failed', error: 'You cannot modify this pipeline' });
-            continue;
-          }
-
-          const upgrades = await previewPluginUpgrades(existing.props, orgId, parentOrgId);
-          const { props, applied } = applyPluginUpgrades(existing.props, upgrades, { widen, ...(steps ? { onlySteps: steps } : {}) });
-          if (applied.length === 0) { results.push({ pipelineId: id, status: 'unchanged' }); continue; }
-
-          // The normal write path: templates + plugin contracts, then compliance (fail-closed).
-          const check = await validatePipelineWrite({ props } as never, orgId, parentOrgId, id, existing);
-          if (check.rejection) { results.push({ pipelineId: id, status: 'failed', error: check.rejection.message }); continue; }
-          const verdict = await checkPipelineUpdateCompliance(orgId, existing, { props });
-          if (verdict.status === 'blocked') {
-            recordAudit({
-              action: 'pipeline.plugin.upgraded',
-              actorId: actorId({ userId }),
-              orgId,
-              targetType: 'pipeline',
-              targetId: id,
-              outcome: 'failure',
-              details: { pipelineName: existing.pipelineName, widen, changes: applied, redeploy, batchId, ...complianceBlockedDetails(verdict.violations) },
-            });
-            results.push({ pipelineId: id, status: 'failed', error: `Compliance blocked: ${verdict.violations.map((v) => v.message).join('; ')}` });
-            continue;
-          }
-          if (verdict.status === 'unavailable') {
-            results.push({ pipelineId: id, status: 'failed', error: 'Compliance service unavailable — pipeline update rejected' });
-            continue;
-          }
-
-          // Conditional on the row the upgrade was computed from: `props` is
-          // `existing.props` rewritten, so an edit that landed since the read
-          // would otherwise be silently overwritten by the stale config. A moved
-          // row fails this pipeline (ConcurrencyConflictError), never the rest.
-          const updated = await pipelineService.update(id, { props } as never, orgId, userId, { expectedUpdatedAt: existing.updatedAt ?? undefined });
-          if (!updated) { results.push({ pipelineId: id, status: 'failed', error: 'Pipeline not found' }); continue; }
-          // Awaited: the moved-off versions' references are gone before the response
-          // (and before any plugin delete that follows it).
-          await recordPipelineResolution(id, orgId, parentOrgId, updated.props);
-          moved.push(...applied);
-
-          recordAudit({
-            action: 'pipeline.plugin.upgraded',
-            actorId: actorId({ userId }),
-            orgId,
-            targetType: 'pipeline',
-            targetId: id,
-            details: { pipelineName: updated.pipelineName, widen, changes: applied, redeploy, batchId },
-          });
-
-          let redeployOutcome: QueuedRunRequestDto | { error: string } | undefined;
-          if (redeploy) {
-            // Through the same duplicate window as POST /:id/executions, so a
-            // manual trigger and this redeploy seconds apart start ONE run. A
-            // system-initiated start: it queues past the org's pending cap, so a
-            // fan-out over many pipelines queues every run.
-            try {
-              const started = await triggerExecutionInWindow(id, orgId, { requestedBy: SYSTEM_PLUGIN_UPGRADE, ...(parentOrgId ? { parentOrgId } : {}) });
-              if (started.status === 'duplicate') {
-                redeployOutcome = { error: DUPLICATE_TRIGGER_MESSAGE };
-                recordAudit({
-                  action: 'pipeline.execution.start',
-                  actorId: actorId({ userId }),
-                  orgId,
-                  targetType: 'pipeline_execution',
-                  outcome: 'failure',
-                  details: { pipelineId: id, reason: 'duplicate_suppressed', batchId },
-                });
-              } else {
-                // The dispatcher audits the terminal outcome.
-                const { run } = started;
-                redeployOutcome = queuedRunRequestDto(run);
-                recordAudit({
-                  action: 'pipeline.execution.start',
-                  actorId: actorId({ userId }),
-                  orgId,
-                  targetType: 'pipeline_execution',
-                  details: run.reused
-                    ? { pipelineId: id, reason: 'plugin-upgrade', batchId, reusedRequestId: run.requestId, runnerId: run.runnerId, outcome: 'reused' }
-                    : { pipelineId: id, reason: 'plugin-upgrade', batchId, requestId: run.requestId, runnerId: run.runnerId, attempts: 0, outcome: 'queued' },
-                });
-              }
-            } catch (err) {
-              redeployOutcome = { error: clientError(err, INTERNAL_REDEPLOY_ERROR, id) };
-              recordAudit({
-                action: 'pipeline.execution.start',
-                actorId: actorId({ userId }),
-                orgId,
-                targetType: 'pipeline_execution',
-                outcome: 'failure',
-                details: { pipelineId: id, reason: 'plugin-upgrade', batchId },
-              });
-            }
-          }
-          results.push({
-            pipelineId: id,
-            status: 'upgraded',
-            applied,
-            ...(check.pluginWarnings.length > 0 ? { pluginWarnings: check.pluginWarnings } : {}),
-            ...(redeployOutcome ? { redeploy: redeployOutcome } : {}),
-          });
-        } catch (err) {
-          results.push({ pipelineId: id, status: 'failed', error: clientError(err, INTERNAL_UPGRADE_ERROR, id) });
-        }
+          canWrite: (existing) => checkVisibilityWriteAccess(req, existing, userId, 'pipelines:publish') === 'ok',
+          plan: async (existing) => {
+            const upgrades = await previewPluginUpgrades(existing.props, orgId, parentOrgId);
+            return applyPluginUpgrades(existing.props, upgrades, { widen, ...(steps ? { onlySteps: steps } : {}) });
+          },
+          redeploy,
+          batchId,
+          auditDetails: { widen },
+          redeployReason: 'plugin-upgrade',
+        });
+        if (outcome.status === 'upgraded') moved.push(...outcome.applied);
+        results.push(outcome);
       }
 
       const upgraded = results.filter((r) => r.status === 'upgraded');

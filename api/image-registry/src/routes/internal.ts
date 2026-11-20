@@ -155,6 +155,13 @@ function denyOrgMismatch(req: Request, res: Response, repository: string, action
 const DISCARD_CONTEXT_KEYS = ['refusalCode', 'pluginVersion', 'jobId', 'requestId', 'userId', 'scope', 'reason', 'keptSetupImageId'] as const;
 type DiscardContext = Partial<Record<typeof DISCARD_CONTEXT_KEYS[number], string>>;
 
+/** The audit scope of a discard: a lapsed kept setup image, a purged version's image, or (by default) a refused build. */
+function discardScope(why: DiscardContext): 'kept-setup-image' | 'purged' | 'refused-build' {
+  if (why.scope === 'kept-setup-image') return 'kept-setup-image';
+  if (why.scope === 'purged' || why.reason === 'purged') return 'purged';
+  return 'refused-build';
+}
+
 function discardContext(raw: unknown): DiscardContext {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
   const out: DiscardContext = {};
@@ -404,7 +411,7 @@ export function createInternalRoutes(): Router {
       const why = discardContext(context);
 
       const deleted = await deleteSignedManifest(repository, digest);
-      ctx.log('COMPLETED', 'Discarded refused plugin image', { repository, digest, deleted });
+      ctx.log('COMPLETED', 'Discarded plugin image', { repository, digest, deleted, scope: discardScope(why) });
       if (deleted > 0) {
         recordAudit({
           action: 'registry.image.delete',
@@ -416,9 +423,10 @@ export function createInternalRoutes(): Router {
           targetType: 'registry-image',
           targetId: repository,
           details: {
-            // A lapsed/superseded kept setup image is its own scope, so a
-            // reviewer can tell the sweep from a build refusal.
-            scope: why.scope === 'kept-setup-image' ? 'kept-setup-image' : 'refused-build',
+            // A lapsed/superseded kept setup image and a purged version's image
+            // are their own scopes, so a reviewer can tell the sweep and the
+            // purge from a build refusal.
+            scope: discardScope(why),
             repo: repository,
             digest,
             manifestsDeleted: deleted,

@@ -4,6 +4,7 @@
 import Link from 'next/link';
 import { Boxes, Globe, Send } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
+import { Button } from '@/components/ui/Button';
 import type { PluginSummary } from '@/lib/api/domains/plugins';
 import { formatDateTime } from '@/lib/format';
 import { ShadowingNotice } from '@/components/plugin-installs/ShadowingNotice';
@@ -12,7 +13,9 @@ import { VulnSummary } from './VulnSummary';
 import { VulnWaiverNotice } from './VulnWaiverNotice';
 import { ScanAgeBadge } from './ScanAgeBadge';
 import { PluginFindingsPanel } from './PluginFindingsPanel';
+import { PluginRemediationSection } from './RemediationCard';
 import { PluginLifecycleBadges } from './PluginLifecycleBadges';
+import { PluginStorageSection } from './PluginStorageSection';
 
 /**
  * Parse a Plugin URI of shape `<repo-path>:<tag>` (optionally prefixed with
@@ -60,7 +63,7 @@ function Detail({ label, value }: { label: string; value: string }) {
  * page in the public directory (`/plugins/<publisher>/<name>`) — adds "View
  * public page"; pass it only for a plugin that is actually listed.
  */
-export function PluginDetailModal({ plugin, showRegistryLink, onClose, publicUrl, publishHref, shadows }: {
+export function PluginDetailModal({ plugin, showRegistryLink, onClose, publicUrl, publishHref, shadows, showStorage, onDeleteAll, remediation }: {
   plugin: PluginSummary;
   showRegistryLink: boolean;
   onClose: () => void;
@@ -71,6 +74,12 @@ export function PluginDetailModal({ plugin, showRegistryLink, onClose, publicUrl
   /** What this plugin's name overrides (`GET /plugins/shadowing`), if anything:
    *  a catalog listing, or the parent org's plugin of the same name. */
   shadows?: { kind?: 'listing' | 'parent-org'; publisherHandle: string; name: string } | null;
+  /** Show the version's remediation card: `canWrite` (`plugins:write`) unlocks Approve / Reject / Retry. */
+  remediation?: { canWrite: boolean; isSystemOrg?: boolean; onOpenPlugin?: (pluginId: string) => void };
+  /** Show the Storage section (source and image bytes per version of this name). */
+  showStorage?: boolean;
+  /** "Delete plugin (all versions)…" — pass only when the viewer holds `plugins:write`. */
+  onDeleteAll?: () => void;
 }) {
   const registryHref = showRegistryLink ? registryHrefFor(plugin.uri) : null;
   return (
@@ -158,6 +167,21 @@ export function PluginDetailModal({ plugin, showRegistryLink, onClose, publicUrl
                 — giving it a fetch would make every consumer mock the API. */}
             <VulnWaiverNotice pluginName={plugin.name} orgId={plugin.orgId} />
             {plugin.scannedAt && <PluginFindingsPanel pluginId={plugin.id} onNavigate={onClose} />}
+            {/* The remediation of this version (nightly CVE fix), beside "Flagged by rescan". */}
+            {remediation && (plugin.scanFlaggedAt || (plugin.vulnCriticalFixable ?? 0) > 0 || (plugin.vulnHighFixable ?? 0) > 0) && (
+              <PluginRemediationSection
+                pluginId={plugin.id}
+                canWrite={remediation.canWrite}
+                isSystemOrg={remediation.isSystemOrg}
+                onOpenPlugin={remediation.onOpenPlugin}
+              />
+            )}
+          </div>
+        )}
+        {showStorage && <PluginStorageSection name={plugin.name} />}
+        {onDeleteAll && (
+          <div className="border-t border-default pt-3">
+            <Button variant="danger-outline" size="sm" onClick={onDeleteAll}>Delete plugin (all versions)…</Button>
           </div>
         )}
         <div className="grid grid-cols-2 gap-3 text-xs text-fg-muted">

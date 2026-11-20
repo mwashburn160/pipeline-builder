@@ -8,6 +8,9 @@
  * Mounted at `/reports/delivery` behind `reports:read` (at the mount).
  *  - `GET /runners` is FREE: run requests by outcome, time to acceptance, top
  *    failure codes and per-runner reliability. Bounded by EVENT retention.
+ *    Lists the org's ancestors' runners shared with teams even when idle (the
+ *    chain comes from platform's `/organization/:id/parent`; a failed lookup
+ *    omits them, never fails the read).
  *  - `GET /calendar` adds `advanced_reporting` (the DORA entitlement, tagged on
  *    the route like `/reports/execution/dora`): deployments per local day per
  *    environment, commits per deploy, production deploys. Bounded by DORA
@@ -23,7 +26,7 @@ import { sendSuccess, sendBadRequest, ErrorCode, parseReportInterval, requireFea
 import { withRoute } from '@pipeline-builder/api-server';
 import { getDeploymentCalendar, getRunnerReliability, securityBound } from '@pipeline-builder/pipeline-data';
 import { Router, type Request, type Response } from 'express';
-import { parseReportBucket } from '../helpers/report-helpers.js';
+import { parseReportBucket, resolveOrgAncestors } from '../helpers/report-helpers.js';
 import { resolveReportScope } from '../helpers/report-scope.js';
 import type { RetentionKind } from '../helpers/retention-cap.js';
 
@@ -47,7 +50,12 @@ export function createDeliveryReportRoutes(): Router {
   router.get('/runners', withRoute(async ({ req, res, orgId }) => {
     const q = await deliveryQuery(req, res, orgId, 'event');
     if (!q) return;
-    sendSuccess(res, 200, { runners: await getRunnerReliability(q.scope, q.bucket) });
+    // Runners a parent shares with teams are listed even when idle. The JWT's
+    // parent claim is the ACTIVE org's, so it is only a shortcut when that org
+    // is the one being reported on. Fail-soft: no chain → no idle shared rows.
+    const knownParent = req.user?.organizationId === orgId ? req.user?.parentOrganizationId : undefined;
+    const sharedByOrgIds = await resolveOrgAncestors(orgId, knownParent);
+    sendSuccess(res, 200, { runners: await getRunnerReliability(q.scope, q.bucket, { sharedByOrgIds }) });
   }));
 
   router.get('/calendar', requireFeature('advanced_reporting'), withRoute(async ({ req, res, orgId }) => {

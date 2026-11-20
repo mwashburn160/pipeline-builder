@@ -62,6 +62,36 @@ export const REMOTE_AUDIT_ACTIONS = [
   'plugin.bulk.update',
   'plugin.bulk.delete',
   'plugin.dlq.purge',
+  // Nightly CVE remediation (api/plugin queue/plugin-remediation.ts), actor
+  // SYSTEM_PLUGIN_REMEDIATION unless a person decided. `targetType`
+  // plugin_remediation, `targetId` the remediation id; `details` carry the
+  // plugin name, from/to versions, stage, outcome, advisory ids and counts —
+  // never source, diff text or build logs. started: a remediation was queued
+  // (or retried: details.retryOf); published: its fix version was stored
+  // (details.toVersion, cleared ids, publishMode); needs_owner: findings left
+  // for the owner (details.remaining with reasons); approved / rejected: a
+  // propose-mode decision (plugins:write + step-up); retried: POST …/retry;
+  // rolled_back: the pipeline service moved a pipeline back (details.pipelineId,
+  // fromVersion, toVersion, executionId) — emitted by api/pipeline.
+  'plugin.remediation.started',
+  'plugin.remediation.published',
+  'plugin.remediation.needs_owner',
+  'plugin.remediation.approved',
+  'plugin.remediation.rejected',
+  'plugin.remediation.retried',
+  'plugin.remediation.rolled_back',
+  // By-name plugin delete / restore / purge (every version of a name in the
+  // caller's org). One entry per action carrying `details.batchId`, the
+  // versions done and the versions skipped with reasons; each version still
+  // gets its own plugin.delete / plugin.restore / plugin.purge with the same
+  // `details.batchId`.
+  'plugin.delete-all',
+  'plugin.restore-all',
+  'plugin.purge-all',
+  // A plugin's own library upgrade level ("Follow organization" = cleared) and
+  // the org's pluginRemediation settings (details: before / after).
+  'plugin.remediation_level.update',
+  'plugin.remediation_settings.update',
   // Build re-runs from the queue-triage surface: re-enqueue a FAILED build
   // (`plugin.build.retry`) or a dead-lettered one (`plugin.dlq.replay`). Both
   // re-run an image build + plugin persist on the caller's authority, so they
@@ -663,6 +693,9 @@ export const REMOTE_AUDIT_ACTIONS = [
   // pipeline-run security scanner report uploaded for a pipeline (`details`:
   // tool, format, stage, the finding counts — never the findings themselves).
   'pipeline.plugin.upgraded',
+  // A pipeline's plugin security fixes election (pipelines.remediation_upgrades;
+  // details: { before, after }).
+  'pipeline.remediation-upgrades.update',
   'pipeline.security_report.upload',
   // A member removed one (tool, stage) report slot of a pipeline — a dropped
   // scanner or renamed stage (`details`: tool, stage, the counts it carried).

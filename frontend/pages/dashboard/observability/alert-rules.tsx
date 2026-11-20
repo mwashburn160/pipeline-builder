@@ -29,7 +29,7 @@ import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
 import { api } from '@/lib/api';
 import type { AlertRule, AlertRuleWrite } from '@/types/observability';
 import { formatError } from '@/lib/constants';
-import { ALERT_SEVERITY_IDS, ALERT_SEVERITY_META, alertSeverityMeta } from '@/lib/alerting';
+import { ALERT_SEVERITY_IDS, ALERT_SEVERITY_META, BUILT_IN_ALERT_RULES, alertSeverityMeta } from '@/lib/alerting';
 
 /**
  * Per-org alert *rules* authoring page.
@@ -205,6 +205,28 @@ export default function AlertRulesPage() {
         )}
         </>
       )}
+
+      {/* Built-in platform alerts: shipped with the deployment and evaluated by
+          the operator's Prometheus, so they are listed read-only. */}
+      <section className="mt-6" aria-labelledby="built-in-alerts-heading">
+        <h3 id="built-in-alerts-heading" className="text-sm font-semibold text-fg">Built-in platform alerts</h3>
+        <p className="mt-1 text-xs text-fg-muted">
+          Shipped with the platform and sent to its operators, not to your destinations. Listed so you know what is already watched.
+        </p>
+        <div className="mt-2 rounded-lg border border-default bg-surface divide-y divide-default">
+          {BUILT_IN_ALERT_RULES.map((r) => (
+            <div key={r.id} className="px-4 py-3">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-medium text-fg">{r.name}</span>
+                <Badge color={alertSeverityMeta(r.severity).color}>{r.severity}</Badge>
+                <Badge color="gray">built-in</Badge>
+              </div>
+              <div className="text-xs text-fg-muted mt-0.5 font-mono break-all">{r.watches}</div>
+              <div className="text-xs text-fg-subtle mt-0.5">{r.summary}</div>
+            </div>
+          ))}
+        </div>
+      </section>
 
       {/* Recently deleted — a deleted rule stays restorable until the retention
           sweep purges it, but that was invisible before this panel: the restore

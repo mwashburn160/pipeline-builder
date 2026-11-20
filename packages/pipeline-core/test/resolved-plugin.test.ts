@@ -42,3 +42,21 @@ describe('resolved plugin records', () => {
     expect(unwrapLookup(slim).plugin).toBeNull();
   });
 });
+
+describe('resolved plugin records: kept build sources', () => {
+  it('never carries the kept-source pointer or delete batch into a resolved record', () => {
+    const resolved = toResolvedPlugin({
+      ...full,
+      sourceKey: 'org-1/p-1/1.0.0/abc.zip',
+      sourceSha256: 'abc',
+      sourceSizeBytes: 1234,
+      sourceKind: 'zip',
+      sourceKeptAt: new Date(),
+      deleteBatchId: null,
+    }) as Record<string, unknown>;
+    for (const field of ['sourceKey', 'sourceSha256', 'sourceSizeBytes', 'sourceKind', 'sourceKeptAt', 'deleteBatchId']) {
+      expect(Object.hasOwn(resolved, field)).toBe(false);
+    }
+    expect(resolved.commands).toEqual(['go build']);
+  });
+});

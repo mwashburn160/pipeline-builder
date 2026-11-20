@@ -69,6 +69,12 @@ describe('list fieldsets', () => {
     }
     expect(PLUGIN_LIST_FIELDS).toEqual(expect.arrayContaining(['orgId', 'name', 'version']));
   });
+
+  it('the plugins list asks for the kept source\'s kind and size (the Storage section), never its key or checksum', () => {
+    expect(PLUGIN_LIST_FIELDS).toEqual(expect.arrayContaining(['sourceKind', 'sourceSizeBytes']));
+    expect(PLUGIN_LIST_FIELDS).not.toContain('sourceKey' as never);
+    expect(PLUGIN_LIST_FIELDS).not.toContain('sourceSha256' as never);
+  });
 });
 
 describe('message list filters', () => {

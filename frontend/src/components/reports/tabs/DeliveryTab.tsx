@@ -80,6 +80,17 @@ export function CalendarUpsell() {
   );
 }
 
+/**
+ * How the latency sample was measured: exact (the runner's accepted_at), estimated
+ * (the execution's start, for requests from before accepted_at was recorded), or both.
+ */
+export function latencyBasis(l: RunnerReliabilityReport['latency']): string {
+  if (l.n === 0) return '';
+  if (l.nEstimated === 0) return ' (exact)';
+  if (l.nExact === 0) return ' (estimated)';
+  return ` (${l.nExact} exact, ${l.nEstimated} estimated)`;
+}
+
 /** Run latency and runner reliability (free). */
 export function RunnerPanel({ loading, data }: { loading: boolean; data: RunnerReliabilityReport | null }) {
   if (loading && !data) return <><StatCardSkeleton count={4} /><SectionCardSkeleton /></>;
@@ -115,7 +126,7 @@ export function RunnerPanel({ loading, data }: { loading: boolean; data: RunnerR
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <StatCard variant="detailed" label="Run requests" value={totals.requests} sub={`${totals.started} started · ${totals.pending} pending`} />
             <StatCard variant="detailed" label="Failure rate" value={pct(totals.failureRatePct)} sub={`${totals.failed} failed · ${totals.expired} expired · ${totals.refused} refused`} />
-            <StatCard variant="detailed" label="Median time to start" value={fmtSeconds(latency.medianSeconds)} sub={`p90 ${fmtSeconds(latency.p90Seconds)} · n = ${latency.n}`} />
+            <StatCard variant="detailed" label="Median time to start" value={fmtSeconds(latency.medianSeconds)} sub={`p90 ${fmtSeconds(latency.p90Seconds)} · n = ${latency.n}${latencyBasis(latency)}`} />
             <StatCard variant="detailed" label="Runners" value={runners.length} sub={`${runners.filter((r) => r.health === 'unreachable').length} unreachable`} />
           </div>
           <Card className="mt-4 overflow-x-auto">

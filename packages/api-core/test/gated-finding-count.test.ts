@@ -29,7 +29,7 @@ const FUTURE = '2099-01-01';
 const PAST = '2020-01-01';
 
 const crit = (id: string, extra: Partial<PluginScanFinding> = {}): PluginScanFinding =>
-  ({ id, severity: 'critical', packageName: 'python3.14', packageVersion: '3.14.8', fixedIn: ['3.14.9'], ...extra });
+  ({ id, severity: 'critical', packageName: 'python3.14', packageVersion: '3.14.8', fixedIn: ['3.14.9'], packageType: 'deb', purl: 'pkg:deb/debian/python3.14@3.14.8', locations: [], ...extra });
 
 const summary = (findings: PluginScanFinding[], extra: Partial<PluginScanSummary> = {}): PluginScanSummary => ({
   criticalFixable: findings.filter((f) => f.severity === 'critical' && f.fixedIn.length > 0).length,
@@ -91,7 +91,7 @@ describe('gatedFindingCount — waivers are honoured here as they are at build',
   });
 
   it('gates Highs only when PLUGIN_VULN_FAIL_ON says so', () => {
-    const high: PluginScanFinding = { id: 'CVE-H', severity: 'high', packageName: 'zlib', packageVersion: '1.2', fixedIn: ['1.3'] };
+    const high: PluginScanFinding = { id: 'CVE-H', severity: 'high', packageName: 'zlib', packageVersion: '1.2', fixedIn: ['1.3'], packageType: 'deb', purl: 'pkg:deb/debian/zlib@1.2', locations: [] };
     expect(gatedFindingCount(summary([high]), SUBJECT, 'critical', NOW)).toBe(0);
     expect(gatedFindingCount(summary([high]), SUBJECT, 'high', NOW)).toBe(1);
   });

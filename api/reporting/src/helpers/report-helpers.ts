@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { attachmentDisposition, createLogger, envInt, envStr, ErrorCode, fetchOrgDescendants, maskLine, parseReportTimezone, parseWeekStart, RETENTION_MAX_DAYS, sendError, userHasPermission, type WeekStart } from '@pipeline-builder/api-core';
+import { attachmentDisposition, createLogger, envInt, envStr, ErrorCode, fetchOrgDescendants, fetchParentOrgId, MAX_ORG_DEPTH, maskLine, parseReportTimezone, parseWeekStart, RETENTION_MAX_DAYS, sendError, userHasPermission, type WeekStart } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
 import type { PdfFailure, PdfRefusal } from '../services/report-pdf.js';
 
@@ -132,6 +132,34 @@ export async function resolveOrgRollup(orgId: string): Promise<string[] | undefi
   } catch (err) {
     _descLogger.warn('Org rollup resolution failed; falling back to single-org report', { orgId, err: String(err) });
     return undefined;
+  }
+}
+
+/**
+ * An org's ancestors, nearest first, walked through platform's
+ * `GET /organization/:id/parent` (the same lookup the pipeline service's
+ * runner routing uses). `knownParent` — the caller's own parent from the
+ * verified JWT — saves the first call. Cycle- and depth-guarded.
+ *
+ * FAIL-SOFT: any lookup failure (transport or non-2xx) resolves to `[]`, so a
+ * report that only ADDS rows from ancestors (the Delivery report's idle
+ * shared runners) degrades to omitting them rather than erroring.
+ */
+export async function resolveOrgAncestors(orgId: string, knownParent?: string): Promise<string[]> {
+  const out: string[] = [];
+  const seen = new Set([orgId.toLowerCase()]);
+  const parentOf = (id: string) => fetchParentOrgId(id, { throwOnHttpError: true, timeout: REPORTING_HTTP_TIMEOUT_MS });
+  try {
+    let next = knownParent ?? await parentOf(orgId);
+    while (next && !seen.has(next.toLowerCase()) && out.length < MAX_ORG_DEPTH) {
+      out.push(next);
+      seen.add(next.toLowerCase());
+      next = await parentOf(next);
+    }
+    return out;
+  } catch (err) {
+    _descLogger.warn('Org ancestry lookup failed; ancestors omitted', { orgId, err: String(err) });
+    return [];
   }
 }
 

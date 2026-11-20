@@ -4,6 +4,7 @@
 import { z } from 'zod';
 import { BaseFilterSchema, BooleanQuerySchema, VisibilitySchema, CatalogMetadataShape } from './common-schemas.js';
 import { PUBLISHER_HANDLE_PATTERN } from '../types/ecosystem.js';
+import { PIPELINE_REMEDIATION_ELECTIONS } from '../types/plugin-remediation.js';
 import { isReservedTagKey, RESERVED_TAG_KEYS, RESERVED_TAG_PREFIXES } from '../types/reserved-tags.js';
 
 /**
@@ -352,4 +353,11 @@ export const PipelineUpdateSchema = z.object({
   isActive: BooleanQuerySchema.optional(),
   isDefault: BooleanQuerySchema.optional(),
   visibility: VisibilitySchema.optional(),
+  /**
+   * The pipeline's plugin security fixes election (pipelines.remediation_upgrades).
+   * The route refuses `apply` with 403 PIPELINE_REMEDIATION_APPLY_NOT_ALLOWED
+   * when the root org disallows it (pipelineElectionAllowed) and audits
+   * pipeline.remediation-upgrades.update with before / after.
+   */
+  remediationUpgrades: z.enum(PIPELINE_REMEDIATION_ELECTIONS).optional(),
 });

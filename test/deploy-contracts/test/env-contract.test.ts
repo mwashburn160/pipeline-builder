@@ -72,9 +72,9 @@ describe.each(TARGETS)('deploy env contract — %s', (target) => {
     // keys exist, and the secret half is a CHANGE_ME placeholder that
     // gen-env-secrets randomises rather than a working default.
     const names = ['RUSTFS_ROOT_ACCESS_KEY', 'MESSAGE_S3_ACCESS_KEY', 'REGISTRY_S3_ACCESS_KEY',
-      'LOKI_S3_ACCESS_KEY', 'THANOS_S3_ACCESS_KEY', 'PLUGIN_S3_ACCESS_KEY'];
+      'LOKI_S3_ACCESS_KEY', 'THANOS_S3_ACCESS_KEY', 'PLUGIN_S3_ACCESS_KEY_ID'];
     const secrets = ['RUSTFS_ROOT_SECRET_KEY', 'MESSAGE_S3_SECRET_KEY', 'REGISTRY_S3_SECRET_KEY',
-      'LOKI_S3_SECRET_KEY', 'THANOS_S3_SECRET_KEY', 'PLUGIN_S3_SECRET_KEY'];
+      'LOKI_S3_SECRET_KEY', 'THANOS_S3_SECRET_KEY', 'PLUGIN_S3_SECRET_ACCESS_KEY', 'RUSTFS_SSE_S3_MASTER_KEY'];
     for (const k of [...names, ...secrets]) {
       expect([k, env[k]]).not.toEqual([k, undefined]);
       expect([k, env[k]]).not.toEqual([k, '']);
@@ -161,7 +161,7 @@ describe.each(TARGETS)('deploy env contract — %s', (target) => {
  * (deploy/bin/gen-env-secrets.sh) appends only keys the example already has, and
  * a target seeds `.env` from `.env.example` only when `.env` is absent — so the
  * target that missed the key dies under `set -u` with a bare
- *   setup.sh: line N: PLUGIN_S3_ACCESS_KEY: unbound variable
+ *   setup.sh: line N: PLUGIN_S3_ACCESS_KEY_ID: unbound variable
  * which is exactly how the object-store credential rework broke provisioning.
  *
  * So this table takes over the job those directives were doing, as data rather
@@ -515,7 +515,7 @@ describe('gen-env-secrets.sh', () => {
     // provision ships predictable object-store credentials.
     const secrets = [
       'RUSTFS_ROOT_SECRET_KEY', 'MESSAGE_S3_SECRET_KEY', 'REGISTRY_S3_SECRET_KEY',
-      'LOKI_S3_SECRET_KEY', 'THANOS_S3_SECRET_KEY', 'PLUGIN_S3_SECRET_KEY',
+      'LOKI_S3_SECRET_KEY', 'THANOS_S3_SECRET_KEY', 'PLUGIN_S3_SECRET_ACCESS_KEY',
     ];
     const guarded = /grep -qE '\^\(([A-Z0-9_|]+)\)=CHANGE_ME'/.exec(script)![1].split('|');
     for (const key of secrets) {

@@ -19,6 +19,7 @@ import { DEFAULT_PLUGIN_VERSION } from '../helpers/default-version.js';
 import { assertManagedUploadAllowed } from '../helpers/managed-toolchain.js';
 import { enforceNameShadowingPolicy } from '../helpers/name-shadowing-gate.js';
 import { createBuildJobData, toPluginInsert } from '../helpers/plugin-helpers.js';
+import { isPluginNameLocked, pluginNameLockedError } from '../helpers/plugin-name-lock.js';
 import { parsePluginZip, specContractFields, validateBuildArgs, type ParsedPlugin } from '../helpers/plugin-spec.js';
 import { UPLOAD_DEST, isZipUpload, multipartUploadErrors } from '../helpers/zip-upload.js';
 import { admitBuildOnCredits } from '../queue/build-credits.js';
@@ -27,6 +28,7 @@ import { callerFromRequest } from '../services/ecosystem/context.js';
 import { submitAfterBuild } from '../services/ecosystem/requests.js';
 import { deletePluginArtifact, pluginArtifactKey, putPluginArtifactFile } from '../services/plugin-artifact-storage.js';
 import { pluginService } from '../services/plugin-service.js';
+import { keepVersionSource } from '../services/plugin-sources.js';
 
 const logger = createLogger('upload-plugin');
 
@@ -250,6 +252,9 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
             // the slot. deployVersion re-checks under its lock.
             const access = { isSystemAdmin: isSystemAdmin(req), canPublish: userHasPermission(req, 'plugins:publish') };
             await pluginService.assertDeployable(orgId, s.name, version, userId || SYSTEM_ACTOR_ID, access);
+            // A by-name delete / restore / purge of this name is running: nothing
+            // new may land under it until that finishes (409 PLUGIN_NAME_LOCKED).
+            if (await isPluginNameLocked(orgId, s.name)) throw pluginNameLockedError(s.name);
 
             // -- Name shadowing ---------------------------------------------------
             // The org's shadowing policy (helpers/name-shadowing-gate.ts), before
@@ -337,6 +342,9 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
             // -- No image to build (metadata_only): deploy directly ----------------
             if (!getBuildStrategy(plugin.buildType).producesImage) {
               const result = await pluginService.deployVersion(toPluginInsert(pluginRecord), userId || SYSTEM_ACTOR_ID, access);
+              // Builds nothing, keeps no source; a re-upload over a version that
+              // had one drops it (services/plugin-sources.ts).
+              await keepVersionSource({ orgId, pluginId: result.id, version: result.version, stagingKey: null });
 
               ctx.log('INFO', 'Metadata-only plugin deployed', {
                 pluginName: s.name,

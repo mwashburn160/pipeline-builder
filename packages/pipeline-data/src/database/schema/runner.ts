@@ -78,6 +78,12 @@ export const pipelineRunRequest = pgTable('pipeline_run_requests', {
   lastDeliveryError: varchar('last_delivery_error', { length: 64 }),
   resultExecutionId: varchar('result_execution_id', { length: 100 }),
   errorCode: varchar('error_code', { length: 64 }),
+  /**
+   * When the runner ACCEPTED a start/stop (the dispatcher's success verdict).
+   * Null until then and for any request never accepted; rows from before the
+   * column existed are null too, so readers fall back to an estimate.
+   */
+  acceptedAt: timestamp('accepted_at', { withTimezone: true }),
 }, (table) => ({
   runnerStatusIdx: index('pipeline_run_requests_runner_status_idx').on(table.runnerId, table.status),
   statusExpiryIdx: index('pipeline_run_requests_status_expiry_idx').on(table.status, table.expiresAt),

@@ -41,6 +41,8 @@ jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
 
 // The withdrawal notice a deactivation sends (its own suite covers the fan-out).
 const mockOnVersionWithdrawn = jest.fn<(...a: any[]) => Promise<any>>().mockResolvedValue(null);
+const mockCancelRemediationsFor = jest.fn<(...a: any[]) => Promise<number>>(async () => 0);
+jest.unstable_mockModule('../src/services/remediation/cancel.js', () => ({ cancelRemediationsFor: mockCancelRemediationsFor }));
 jest.unstable_mockModule('../src/services/version-withdrawal.js', () => ({ onVersionWithdrawn: mockOnVersionWithdrawn }));
 
 // Fail-closed compliance re-check shared with single-row update.
@@ -275,6 +277,13 @@ describe('POST /plugins/bulk/delete — delete safety', () => {
     expect(mockClearQuotaSnapshot).toHaveBeenCalledWith(P1);
     expect(mockPromoteNextDefault).toHaveBeenCalledTimes(1);
     expect(mockPromoteNextDefault).toHaveBeenCalledWith('org-1', expect.objectContaining({ id: P1 }), 'u-1');
+  });
+
+  it('cancels the remediations of every version it deleted, and only those', async () => {
+    mockBulkDelete.mockResolvedValue([{ id: P1, orgId: 'org-1', name: 'a', version: '1.0.0', isDefault: false, quotaResetAt: null }]);
+    const { res } = makeRes();
+    await getDeleteHandler()({ body: { ids: [P1, P2] }, user: { isSuperAdmin: false } }, res);
+    expect(mockCancelRemediationsFor).toHaveBeenCalledWith({ orgId: 'org-1', pluginIds: [P1], reason: 'version_deleted' });
   });
 });
 

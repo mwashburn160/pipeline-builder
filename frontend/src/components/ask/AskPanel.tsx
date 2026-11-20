@@ -25,6 +25,7 @@ import { AIServedBy, type AIServedByInfo, type AIUsageInfo } from '@/components/
 import { AIQuotaHint } from '@/components/ui/AIQuotaHint';
 import { ReadOnlyNotice, READ_ONLY_REASON } from '@/components/ui/ReadOnlyNotice';
 import { useAIQuota } from '@/hooks/useAIQuota';
+import { useAiDraftOutcome } from '@/hooks/useAiDraftOutcome';
 import { aiKeySource, aiQuotaBlocked } from '@/lib/ai-quota';
 import { useUnmountedRef } from '../../hooks/useUnmountedRef';
 import type { Proposal } from './proposal';
@@ -199,6 +200,13 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
   // stops calling setState on a dead component; stopping iteration also aborts the
   // underlying SSE fetch (streamRequest's AbortController runs in its `finally`).
   const cancelledRef = useUnmountedRef();
+  // What became of each proposal, for the AI usage report's acceptance rate
+  // (feature `agent`): Apply → accepted, Dismiss → discarded, a newer proposal or
+  // closing the panel with one pending → discarded. The hook tracks ONE draft, so
+  // the message it belongs to is remembered here: applying an older proposal
+  // after a newer one arrived is not credited to the newer one.
+  const draftOutcome = useAiDraftOutcome();
+  const pendingDraftIndex = useRef<number | null>(null);
 
   // Persisted when the panel settles, NOT on every token: `patchLast` fires once
   // per streamed chunk, and serializing the transcript that often would burn the
@@ -244,6 +252,8 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
       .filter((m) => !m.pending)
       .map((m) => ({ role: m.role, content: m.content }));
 
+    // Where this turn's assistant message will sit (after the question).
+    const assistantIndex = messages.length + 1;
     setMessages((prev) => [
       ...prev,
       { role: 'user', content: query },
@@ -291,6 +301,8 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
           patchLast({ sources: (ev.data as AskSource[]) ?? [] });
         } else if (ev.type === 'proposal') {
           patchLast({ proposal: ev.data as Proposal });
+          draftOutcome.offered('agent', ev.data);
+          pendingDraftIndex.current = assistantIndex;
         } else if (ev.type === 'token') {
           text += String(ev.data ?? '');
           patchLast({ content: text });
@@ -320,7 +332,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
     } finally {
       if (!cancelledRef.current) setBusy(false);
     }
-  }, [busy, quotaBlocked, isReadOnly, messages, ai.selectedProvider, ai.currentSource, ai.selectedModel, ai.customApiKey, repoToken, cancelledRef]);
+  }, [busy, quotaBlocked, isReadOnly, messages, ai.selectedProvider, ai.currentSource, ai.selectedModel, ai.customApiKey, repoToken, cancelledRef, draftOutcome]);
 
   /** Commit a proposal via the normal write API (the user's own session). */
   const commitProposal = useCallback(async (index: number) => {
@@ -334,6 +346,10 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
     try {
       await runCommit(p);
       patch({ proposalStatus: 'created' });
+      if (pendingDraftIndex.current === index) {
+        pendingDraftIndex.current = null;
+        draftOutcome.accepted();
+      }
     } catch (e) {
       // A stale draft is not a failed write — nothing was applied, and saying so
       // is the whole point of the re-read.
@@ -342,7 +358,16 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
         proposalError: formatError(e, 'Failed to apply.'),
       });
     }
-  }, [messages, commitAllowed]);
+  }, [messages, commitAllowed, draftOutcome]);
+
+  /** Dismiss a proposal: its card goes, and a pending draft is reported discarded. */
+  const dismissProposal = useCallback((index: number) => {
+    setMessages((prev) => prev.map((m, i) => (i === index ? { ...m, proposal: undefined, proposalStatus: undefined, proposalError: undefined } : m)));
+    if (pendingDraftIndex.current === index) {
+      pendingDraftIndex.current = null;
+      draftOutcome.discarded();
+    }
+  }, [draftOutcome]);
 
   // Which surface this drawer is: the agent, or help topics.
   //
@@ -604,6 +629,14 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
                               ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> {meta.busyLabel}</>
                               : meta.createLabel}
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => dismissProposal(i)}
+                            disabled={m.proposalStatus === 'creating'}
+                            className="px-3 py-1.5 rounded-lg text-xs text-fg-muted border border-default hover:text-fg disabled:opacity-50"
+                          >
+                            Dismiss
+                          </button>
                           <span className="text-2xs text-fg-muted">
                             {!allowed ? blockedReason
                               : ready ? meta.reviewHint : 'Draft incomplete'}
@@ -724,7 +757,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
               {messages.length > 0 && (
                 <button
                   type="button"
-                  onClick={() => { setMessages([]); setError(null); clearTranscript(); }}
+                  onClick={() => { draftOutcome.discarded(); pendingDraftIndex.current = null; setMessages([]); setError(null); clearTranscript(); }}
                   disabled={busy}
                   className="inline-flex items-center gap-1 hover:text-brand disabled:opacity-40"
                 >

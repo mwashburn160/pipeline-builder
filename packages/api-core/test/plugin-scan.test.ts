@@ -9,7 +9,7 @@ import {
 } from '../src/types/plugin-scan.js';
 
 const finding = (id: string, fixedIn: string[] = ['1.0.1']) =>
-  ({ id, severity: 'critical' as const, packageName: 'openssl', packageVersion: '1.0.0', fixedIn });
+  ({ id, severity: 'critical' as const, packageName: 'openssl', packageVersion: '1.0.0', fixedIn, packageType: 'deb' as const, purl: 'pkg:deb/debian/openssl@1.0.0', locations: [] });
 
 const flag: PluginScanFlag = { gated: 2, high: 1, maxFindings: 0, findings: [finding('CVE-1'), finding('CVE-2', ['1.0.2', '2.0.0'])] };
 

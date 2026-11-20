@@ -1,0 +1,406 @@
+{
+ "matches": [
+  {
+   "vulnerability": {
+    "id": "GHSA-8q59-q68h-6hv4",
+    "dataSource": "https://github.com/advisories/GHSA-8q59-q68h-6hv4",
+    "namespace": "github:language:python",
+    "severity": "Critical",
+    "urls": [
+     "https://nvd.nist.gov/vuln/detail/CVE-2020-14343",
+     "https://github.com/yaml/pyyaml/commit/a001f2782501ad2d24986959f0239a354675f9dc"
+    ],
+    "description": "Improper Input Validation in PyYAML",
+    "cvss": [
+     {
+      "type": "Secondary",
+      "version": "3.1",
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "metrics": {
+       "baseScore": 9.8,
+       "exploitabilityScore": 3.9,
+       "impactScore": 5.9
+      },
+      "vendorMetadata": {}
+     },
+     {
+      "type": "Secondary",
+      "version": "4.0",
+      "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
+      "metrics": {
+       "baseScore": 9.3
+      },
+      "vendorMetadata": {}
+     }
+    ],
+    "epss": [
+     {
+      "cve": "CVE-2020-14343",
+      "epss": 0.0624,
+      "percentile": 0.93695,
+      "date": "2026-11-19"
+     }
+    ],
+    "cwes": [
+     {
+      "cve": "CVE-2020-14343",
+      "cwe": "CWE-20",
+      "source": "secalert@redhat.com",
+      "type": "Secondary"
+     },
+     {
+      "cve": "CVE-2020-14343",
+      "cwe": "CWE-20",
+      "source": "nvd@nist.gov",
+      "type": "Primary"
+     }
+    ],
+    "fix": {
+     "versions": [
+      "5.4"
+     ],
+     "state": "fixed",
+     "available": [
+      {
+       "version": "5.4",
+       "date": "2021-03-26",
+       "kind": "first-observed"
+      }
+     ]
+    },
+    "advisories": [],
+    "risk": 5.787599999999999
+   },
+   "relatedVulnerabilities": [
+    {
+     "id": "CVE-2020-14343",
+     "dataSource": "https://nvd.nist.gov/vuln/detail/CVE-2020-14343",
+     "namespace": "nvd:cpe",
+     "severity": "Critical",
+     "urls": [
+      "https://bugzilla.redhat.com/show_bug.cgi?id=1860466",
+      "https://github.com/SeldonIO/seldon-core/issues/2252"
+     ],
+     "description": "A vulnerability was discovered in the PyYAML library in versions before 5.4, where it is susceptible to arbitrary code execution when it processes untrusted YAML files through the full_load method or with the FullLoader loader. Applications that use the library to process untrusted input may be vuln",
+     "cvss": [
+      {
+       "source": "nvd@nist.gov",
+       "type": "Primary",
+       "version": "3.1",
+       "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+       "metrics": {
+        "baseScore": 9.8,
+        "exploitabilityScore": 3.9,
+        "impactScore": 5.9
+       },
+       "vendorMetadata": {}
+      },
+      {
+       "source": "nvd@nist.gov",
+       "type": "Primary",
+       "version": "2.0",
+       "vector": "AV:N/AC:L/Au:N/C:C/I:C/A:C",
+       "metrics": {
+        "baseScore": 10,
+        "exploitabilityScore": 10,
+        "impactScore": 10.1
+       },
+       "vendorMetadata": {}
+      }
+     ],
+     "epss": [
+      {
+       "cve": "CVE-2020-14343",
+       "epss": 0.0624,
+       "percentile": 0.93695,
+       "date": "2026-11-19"
+      }
+     ],
+     "cwes": [
+      {
+       "cve": "CVE-2020-14343",
+       "cwe": "CWE-20",
+       "source": "secalert@redhat.com",
+       "type": "Secondary"
+      },
+      {
+       "cve": "CVE-2020-14343",
+       "cwe": "CWE-20",
+       "source": "nvd@nist.gov",
+       "type": "Primary"
+      }
+     ]
+    }
+   ],
+   "matchDetails": [
+    {
+     "type": "exact-direct-match",
+     "matcher": "python-matcher",
+     "searchedBy": {
+      "language": "python",
+      "namespace": "github:language:python",
+      "package": {
+       "name": "pyyaml",
+       "version": "5.3"
+      }
+     },
+     "found": {
+      "vulnerabilityID": "GHSA-8q59-q68h-6hv4",
+      "versionConstraint": "<5.4 (python)"
+     },
+     "fix": {
+      "suggestedVersion": "5.4"
+     }
+    }
+   ],
+   "artifact": {
+    "id": "Package-python-pyyaml-3a96bc68260bdaa6",
+    "name": "pyyaml",
+    "version": "5.3",
+    "type": "python",
+    "locations": null,
+    "language": "python",
+    "licenses": [
+     "MIT"
+    ],
+    "cpes": [
+     "cpe:2.3:a:python-pyyaml:python-pyyaml:5.3:*:*:*:*:*:*:*",
+     "cpe:2.3:a:python-pyyaml:python_pyyaml:5.3:*:*:*:*:*:*:*",
+     "cpe:2.3:a:python_pyyaml:python-pyyaml:5.3:*:*:*:*:*:*:*",
+     "cpe:2.3:a:python_pyyaml:python_pyyaml:5.3:*:*:*:*:*:*:*",
+     "cpe:2.3:a:python-pyyaml:pyyaml:5.3:*:*:*:*:*:*:*",
+     "cpe:2.3:a:python:python-pyyaml:5.3:*:*:*:*:*:*:*",
+     "cpe:2.3:a:python:python_pyyaml:5.3:*:*:*:*:*:*:*",
+     "cpe:2.3:a:python_pyyaml:pyyaml:5.3:*:*:*:*:*:*:*",
+     "cpe:2.3:a:pyyaml:python-pyyaml:5.3:*:*:*:*:*:*:*",
+     "cpe:2.3:a:pyyaml:python_pyyaml:5.3:*:*:*:*:*:*:*",
+     "cpe:2.3:a:python:pyyaml:5.3:*:*:*:*:*:*:*",
+     "cpe:2.3:a:pyyaml:pyyaml:5.3:*:*:*:*:*:*:*"
+    ],
+    "purl": "pkg:pypi/pyyaml@5.3",
+    "upstreams": []
+   }
+  },
+  {
+   "vulnerability": {
+    "id": "GHSA-6757-jp84-gxfx",
+    "dataSource": "https://github.com/advisories/GHSA-6757-jp84-gxfx",
+    "namespace": "github:language:python",
+    "severity": "Critical",
+    "urls": [
+     "https://nvd.nist.gov/vuln/detail/CVE-2020-1747",
+     "https://github.com/yaml/pyyaml/pull/386"
+    ],
+    "description": "Improper Input Validation in PyYAML",
+    "cvss": [
+     {
+      "type": "Secondary",
+      "version": "3.1",
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "metrics": {
+       "baseScore": 9.8,
+       "exploitabilityScore": 3.9,
+       "impactScore": 5.9
+      },
+      "vendorMetadata": {}
+     },
+     {
+      "type": "Secondary",
+      "version": "4.0",
+      "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
+      "metrics": {
+       "baseScore": 9.3
+      },
+      "vendorMetadata": {}
+     }
+    ],
+    "epss": [
+     {
+      "cve": "CVE-2020-1747",
+      "epss": 0.05442,
+      "percentile": 0.92893,
+      "date": "2026-11-19"
+     }
+    ],
+    "cwes": [
+     {
+      "cve": "CVE-2020-1747",
+      "cwe": "CWE-20",
+      "source": "secalert@redhat.com",
+      "type": "Secondary"
+     },
+     {
+      "cve": "CVE-2020-1747",
+      "cwe": "CWE-20",
+      "source": "nvd@nist.gov",
+      "type": "Secondary"
+     }
+    ],
+    "fix": {
+     "versions": [
+      "5.3.1"
+     ],
+     "state": "fixed",
+     "available": [
+      {
+       "version": "5.3.1",
+       "date": "2021-04-22",
+       "kind": "first-observed"
+      }
+     ]
+    },
+    "advisories": [],
+    "risk": 5.047455
+   },
+   "relatedVulnerabilities": [
+    {
+     "id": "CVE-2020-1747",
+     "dataSource": "https://nvd.nist.gov/vuln/detail/CVE-2020-1747",
+     "namespace": "nvd:cpe",
+     "severity": "Critical",
+     "urls": [
+      "http://lists.opensuse.org/opensuse-security-announce/2020-04/msg00017.html",
+      "http://lists.opensuse.org/opensuse-security-announce/2020-05/msg00017.html"
+     ],
+     "description": "A vulnerability was discovered in the PyYAML library in versions before 5.3.1, where it is susceptible to arbitrary code execution when it processes untrusted YAML files through the full_load method or with the FullLoader loader. Applications that use the library to process untrusted input may be vu",
+     "cvss": [
+      {
+       "source": "nvd@nist.gov",
+       "type": "Primary",
+       "version": "3.1",
+       "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+       "metrics": {
+        "baseScore": 9.8,
+        "exploitabilityScore": 3.9,
+        "impactScore": 5.9
+       },
+       "vendorMetadata": {}
+      },
+      {
+       "source": "nvd@nist.gov",
+       "type": "Primary",
+       "version": "2.0",
+       "vector": "AV:N/AC:L/Au:N/C:C/I:C/A:C",
+       "metrics": {
+        "baseScore": 10,
+        "exploitabilityScore": 10,
+        "impactScore": 10.1
+       },
+       "vendorMetadata": {}
+      },
+      {
+       "source": "secalert@redhat.com",
+       "type": "Secondary",
+       "version": "3.1",
+       "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+       "metrics": {
+        "baseScore": 9.8,
+        "exploitabilityScore": 3.9,
+        "impactScore": 5.9
+       },
+       "vendorMetadata": {}
+      }
+     ],
+     "epss": [
+      {
+       "cve": "CVE-2020-1747",
+       "epss": 0.05442,
+       "percentile": 0.92893,
+       "date": "2026-11-19"
+      }
+     ],
+     "cwes": [
+      {
+       "cve": "CVE-2020-1747",
+       "cwe": "CWE-20",
+       "source": "secalert@redhat.com",
+       "type": "Secondary"
+      },
+      {
+       "cve": "CVE-2020-1747",
+       "cwe": "CWE-20",
+       "source": "nvd@nist.gov",
+       "type": "Secondary"
+      }
+     ]
+    }
+   ],
+   "matchDetails": [
+    {
+     "type": "exact-direct-match",
+     "matcher": "python-matcher",
+     "searchedBy": {
+      "language": "python",
+      "namespace": "github:language:python",
+      "package": {
+       "name": "pyyaml",
+       "version": "5.3"
+      }
+     },
+     "found": {
+      "vulnerabilityID": "GHSA-6757-jp84-gxfx",
+      "versionConstraint": ">=5.1b7,<5.3.1 (python)"
+     },
+     "fix": {
+      "suggestedVersion": "5.3.1"
+     }
+    }
+   ],
+   "artifact": {
+    "id": "Package-python-pyyaml-3a96bc68260bdaa6",
+    "name": "pyyaml",
+    "version": "5.3",
+    "type": "python",
+    "locations": null,
+    "language": "python",
+    "licenses": [
+     "MIT"
+    ],
+    "cpes": [
+     "cpe:2.3:a:python-pyyaml:python-pyyaml:5.3:*:*:*:*:*:*:*",
+     "cpe:2.3:a:python-pyyaml:python_pyyaml:5.3:*:*:*:*:*:*:*",
+     "cpe:2.3:a:python_pyyaml:python-pyyaml:5.3:*:*:*:*:*:*:*",
+     "cpe:2.3:a:python_pyyaml:python_pyyaml:5.3:*:*:*:*:*:*:*",
+     "cpe:2.3:a:python-pyyaml:pyyaml:5.3:*:*:*:*:*:*:*",
+     "cpe:2.3:a:python:python-pyyaml:5.3:*:*:*:*:*:*:*",
+     "cpe:2.3:a:python:python_pyyaml:5.3:*:*:*:*:*:*:*",
+     "cpe:2.3:a:python_pyyaml:pyyaml:5.3:*:*:*:*:*:*:*",
+     "cpe:2.3:a:pyyaml:python-pyyaml:5.3:*:*:*:*:*:*:*",
+     "cpe:2.3:a:pyyaml:python_pyyaml:5.3:*:*:*:*:*:*:*",
+     "cpe:2.3:a:python:pyyaml:5.3:*:*:*:*:*:*:*",
+     "cpe:2.3:a:pyyaml:pyyaml:5.3:*:*:*:*:*:*:*"
+    ],
+    "purl": "pkg:pypi/pyyaml@5.3",
+    "upstreams": []
+   }
+  }
+ ],
+ "source": {
+  "type": "image",
+  "target": {
+   "userInput": "/w/fixture.tar:sha256:e83e2fb0b007d2a3eb104b5d08b1f354e59748e4445ccd0166ca4f48b9168df9",
+   "imageID": "DocumentRoot-Image--w-fixture.tar",
+   "manifestDigest": "sha256:e83e2fb0b007d2a3eb104b5d08b1f354e59748e4445ccd0166ca4f48b9168df9",
+   "mediaType": "",
+   "tags": [],
+   "imageSize": 0,
+   "layers": null,
+   "manifest": null,
+   "config": null,
+   "repoDigests": [],
+   "architecture": "",
+   "os": ""
+  }
+ },
+ "distro": {
+  "name": "debian",
+  "version": "11.0",
+  "idLike": [
+   "debian"
+  ]
+ },
+ "descriptor": {
+  "name": "grype",
+  "version": "0.121.1"
+ }
+}

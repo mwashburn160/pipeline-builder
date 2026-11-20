@@ -10,13 +10,18 @@
  * exception and the Official catalog auto-approval rule.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { createHash } from 'node:crypto';
+import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 
 import {
   DIGEST_A, DIGEST_B, SYSTEM_ORG, loader, pluginRow, seedPublishers, setupEcosystemHarness, tenant, wireEcosystemHarness,
   moderator,
 } from './helpers/ecosystem-harness.js';
+import { createFakeS3Store, fakeS3Module } from './helpers/fake-s3.js';
 
+// A listed version copies its source version's kept ZIP (services/plugin-sources.ts) in an in-memory RustFS.
+const s3 = createFakeS3Store();
+jest.unstable_mockModule('@aws-sdk/client-s3', () => fakeS3Module(s3));
 const h = setupEcosystemHarness();
 const publishersSvc = await import('../src/services/ecosystem/publishers.js');
 const requestsSvc = await import('../src/services/ecosystem/requests.js');
@@ -487,6 +492,31 @@ describe('withdraw + own lists', () => {
 // Automatic decisions: bootstrap + auto-approval rules
 // -----------------------------------------------------------------------------
 
+describe('listed version source', () => {
+  it('a published version keeps its own copy of the source version\'s kept ZIP under listings/<listingId>/<version>/', async () => {
+    seedPublishers(db);
+    s3.reset();
+    const sha = createHash('sha256').update('PK-lint').digest('hex');
+    s3.put('plugin-sources', `${SYSTEM_ORG}/p-lint/1.0.0/${sha}.zip`, 'PK-lint');
+    const lint = db.seed('plugins', pluginRow({
+      orgId: SYSTEM_ORG,
+      createdBy: 'sa-loader',
+      sourceKind: 'zip',
+      sourceKey: `${SYSTEM_ORG}/p-lint/1.0.0/${sha}.zip`,
+      sourceSha256: sha,
+      sourceSizeBytes: 7,
+      sourceKeptAt: new Date(),
+    }));
+
+    expect(await requestsSvc.submitAfterBuild(loader() as any, lint.id)).toMatchObject({ ok: true, status: 'approved' });
+
+    const v = db.tables.plugin_listing_versions![0]!;
+    const key = `listings/${v.listingId}/1.0.0/${sha}.zip`;
+    expect(v).toMatchObject({ sourceKind: 'zip', sourceKey: key, sourceSha256: sha, sourceSizeBytes: 7, sourceKeptAt: expect.any(Date) });
+    expect(s3.get('plugin-sources', key)?.body.toString()).toBe('PK-lint');
+  });
+});
+
 describe('bootstrap exception', () => {
   it('auto-approves the initial Official catalog from the loader, audited as bootstrap, then closes for good', async () => {
     seedPublishers(db);
@@ -503,6 +533,8 @@ describe('bootstrap exception', () => {
     expect(db.tables.plugin_listings).toHaveLength(2);
     expect(db.tables.plugin_listing_versions![0]).toMatchObject({ imageRepository: 'public/pipeline-builder/lint', sourcePluginId: lint.id });
     expect((await bootstrap.bootstrapState()).approved).toBe(2);
+    // Neither version kept a source, so neither listed copy has one.
+    expect(db.tables.plugin_listing_versions![0]!.sourceKind ?? 'none').toBe('none');
 
     // The window elapses: closed, and never reopens.
     process.env.ECOSYSTEM_BOOTSTRAP_WINDOW_HOURS = '1';

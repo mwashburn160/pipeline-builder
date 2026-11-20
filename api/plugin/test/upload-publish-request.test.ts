@@ -86,6 +86,13 @@ jest.unstable_mockModule('../src/services/plugin-artifact-storage.js', () => ({
   deletePluginArtifact: jest.fn(),
   pluginArtifactKey: () => 'org-1/req-1.zip',
 }));
+const mockIsPluginNameLocked = jest.fn(async (_o: string, _n: string) => false);
+const mockKeepVersionSource = jest.fn(async (_i: unknown) => null);
+jest.unstable_mockModule('../src/helpers/plugin-name-lock.js', () => ({
+  isPluginNameLocked: mockIsPluginNameLocked,
+  pluginNameLockedError: (name: string) => Object.assign(new Error(`Plugin "${name}" is locked`), { statusCode: 409, code: 'PLUGIN_NAME_LOCKED' }),
+}));
+jest.unstable_mockModule('../src/services/plugin-sources.js', () => ({ keepVersionSource: mockKeepVersionSource }));
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
   pluginService: { assertDeployable: jest.fn(async () => undefined), deployVersion: mockDeployVersion },
 }));

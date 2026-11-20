@@ -21,6 +21,44 @@ const SAMPLES: Record<keyof typeof PIPELINE_INTERNAL, ContractSample> = {
     body: { orgId: '0123456789abcdef01234567', previousKmsConfig: { keyId: 'arn:aws:kms:us-east-1:000000000000:key/k', ciphertextBase64: 'AAAA' } },
     response: { scanned: 2, reencrypted: 1, failures: [{ orgId: '0123456789abcdef01234567', kid: 'kid-1', error: 'decrypt failed' }] },
   },
+  startRemediationRollout: {
+    params: { remediationId: '00000000-0000-4000-8000-0000000000a1' },
+    body: {
+      orgId: '0123456789abcdef01234567',
+      plugin: 'trivy',
+      publisher: null,
+      fromVersion: '1.4.2',
+      toVersion: '1.4.3',
+      toPluginId: '00000000-0000-4000-8000-0000000000b1',
+      advisoryIds: ['CVE-2026-0001'],
+      criticalCleared: 1,
+      highCleared: 0,
+      kev: false,
+    },
+    response: {
+      remediationId: '00000000-0000-4000-8000-0000000000a1',
+      created: true,
+      orgDefault: 'propose',
+      counts: {
+        proposed: 2,
+        change_requested: 0,
+        queued: 0,
+        moved: 0,
+        failed: 0,
+        rolled_back: 0,
+        rollback_blocked: 0,
+        skipped_opt_out: 1,
+        skipped_runner: 0,
+        dismissed: 0,
+        superseded: 0,
+      },
+    },
+  },
+  cancelRemediationRollout: {
+    params: { remediationId: '00000000-0000-4000-8000-0000000000a1' },
+    body: { reason: 'version_deleted' },
+    response: { remediationId: '00000000-0000-4000-8000-0000000000a1', cancelled: true },
+  },
 };
 
 let table: RouteTableEntry[];

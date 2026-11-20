@@ -42,6 +42,11 @@ const R_UNSHARED = randomUUID();
 const R_OTHER = randomUUID();
 const R_IDLE = randomUUID();
 const R_TEAM = randomUUID();
+const R_PARENT_IDLE = randomUUID();
+const R_PARENT_IDLE_PRIVATE = randomUUID();
+const R_PARENT_IDLE_REVOKED = randomUUID();
+const R_GRANDPARENT_IDLE = randomUUID();
+const GRANDPARENT = 'org-dlv-grandparent';
 const FROM = '2026-09-01T00:00:00Z';
 const TO = '2026-10-01T00:00:00Z';
 const SCOPE: DeliveryScope = { orgId: ORG, from: FROM, to: TO };
@@ -61,15 +66,16 @@ interface ReqSeed {
   errorCode?: string | null;
   requestedAt: string;
   resultExecutionId?: string | null;
+  acceptedAt?: string | null;
 }
 
 async function seedRequest(s: ReqSeed): Promise<void> {
   await owner((db) => db.query(
     `INSERT INTO pipeline_run_requests
-       (org_id, pipeline_id, action, requested_by, requested_at, expires_at, status, runner_id, attempts, error_code, result_execution_id)
-     VALUES ($1, $2, $3, 'alice@example.com', $4, $4::timestamptz + INTERVAL '10 minutes', $5, $6, 1, $7, $8)`,
+       (org_id, pipeline_id, action, requested_by, requested_at, expires_at, status, runner_id, attempts, error_code, result_execution_id, accepted_at)
+     VALUES ($1, $2, $3, 'alice@example.com', $4, $4::timestamptz + INTERVAL '10 minutes', $5, $6, 1, $7, $8, $9)`,
     [s.org ?? ORG, s.pipelineId ?? PIPE, s.action ?? 'start', s.requestedAt, s.status, s.runnerId === undefined ? R_OWN : s.runnerId,
-      s.errorCode ?? null, s.resultExecutionId ?? null],
+      s.errorCode ?? null, s.resultExecutionId ?? null, s.acceptedAt ?? null],
   ));
 }
 
@@ -114,6 +120,10 @@ beforeAll(async () => {
     [R_OTHER, OTHER, 'their-runner', true, 'healthy', 'active', 0],
     [R_IDLE, ORG, 'idle-runner', true, 'healthy', 'active', 0],
     [R_TEAM, TEAM, 'team-runner', true, 'healthy', 'active', 0],
+    [R_PARENT_IDLE, PARENT, 'parent-idle-shared', true, 'healthy', 'active', 3],
+    [R_PARENT_IDLE_PRIVATE, PARENT, 'parent-idle-private', false, 'healthy', 'active', 0],
+    [R_PARENT_IDLE_REVOKED, PARENT, 'parent-idle-revoked', true, 'healthy', 'revoked', 0],
+    [R_GRANDPARENT_IDLE, GRANDPARENT, 'grandparent-idle-shared', true, 'healthy', 'active', 0],
   ] as const) {
     await owner((db) => db.query(
       `INSERT INTO pipeline_runners (id, org_id, label, function_url, share_with_teams, health, status, consecutive_failures, last_delivery_at)
@@ -174,7 +184,7 @@ describe('runner reliability', () => {
 
   it('measures request → execution start as median and p90', async () => {
     const r = await runners();
-    expect(r.latency).toEqual({ n: 3, medianSeconds: 60, p90Seconds: 84 });
+    expect(r.latency).toEqual({ n: 3, nExact: 0, nEstimated: 3, medianSeconds: 60, p90Seconds: 84 });
   });
 
   it('ranks failure codes, collapsing anything outside the catalog to OTHER', async () => {
@@ -238,11 +248,78 @@ describe('runner reliability', () => {
     expect(r.runners.find((x) => x.runnerId === R_TEAM)).toMatchObject({ label: 'team-runner', ownership: 'own', requests: 1 });
   });
 
+  it('without the ancestor chain, a parent\'s idle shared runner is not listed', async () => {
+    const r = await runners();
+    expect(r.runners.find((x) => x.runnerId === R_PARENT_IDLE)).toBeUndefined();
+  });
+
+  it('lists runners an ancestor shares with teams even with no requests in the range', async () => {
+    const r = await asTenantContext({ orgId: ORG }, () => getRunnerReliability(SCOPE, { interval: 'week', tz: 'UTC' },
+      { sharedByOrgIds: [PARENT, GRANDPARENT] }));
+    const byId = Object.fromEntries(r.runners.map((x) => [x.runnerId, x]));
+    expect(byId[R_PARENT_IDLE]).toMatchObject({
+      label: 'parent-idle-shared',
+      ownership: 'shared',
+      health: 'healthy',
+      status: 'active',
+      consecutiveFailures: null,
+      requests: 0,
+      failureRatePct: null,
+    });
+    expect(byId[R_GRANDPARENT_IDLE]).toMatchObject({ label: 'grandparent-idle-shared', ownership: 'shared', requests: 0 });
+    // Not shared with teams, or revoked: never listed when idle.
+    expect(byId[R_PARENT_IDLE_PRIVATE]).toBeUndefined();
+    expect(byId[R_PARENT_IDLE_REVOKED]).toBeUndefined();
+    // Runners that carried requests are unchanged.
+    expect(byId[R_SHARED]).toMatchObject({ label: 'parent-shared', requests: 1 });
+    expect(byId[R_UNSHARED]).toMatchObject({ label: null, requests: 1 });
+    // Another org's runner never appears; totals are untouched.
+    expect(byId[R_OTHER]).toBeUndefined();
+    expect(r.totals.requests).toBe(11);
+    expect(JSON.stringify(r)).not.toContain('lambda-url');
+  });
+
   it('is empty for an org with no runners', async () => {
     const r = await runners({ orgId: 'org-nobody', from: FROM, to: TO });
     expect(r.totals.requests).toBe(0);
     expect(r.runners).toEqual([]);
-    expect(r.latency).toEqual({ n: 0, medianSeconds: null, p90Seconds: null });
+    expect(r.latency).toEqual({ n: 0, nExact: 0, nEstimated: 0, medianSeconds: null, p90Seconds: null });
+  });
+});
+
+describe('runner latency: exact accepted_at, estimated fallback', () => {
+  const ACC = 'org-dlv-accepted';
+  const PIPE_ACC = randomUUID();
+  const R_ACC = randomUUID();
+  const scope: DeliveryScope = { orgId: ACC, from: FROM, to: TO };
+
+  beforeAll(async () => {
+    await owner((db) => db.query(
+      `INSERT INTO pipelines (id, org_id, project, organization, pipeline_name, props, created_by, updated_by)
+       VALUES ($1, $2, 'acc-deploy', 'acme', 'acc-deploy', '{}'::jsonb, 'u1', 'u1')`, [PIPE_ACC, ACC],
+    ));
+    await owner((db) => db.query(
+      `INSERT INTO pipeline_runners (id, org_id, label, function_url, share_with_teams, health, status)
+       VALUES ($1, $2, 'acc-runner', $3, true, 'healthy', 'active')`, [R_ACC, ACC, SECRET_URL],
+    ));
+    const base = { org: ACC, pipelineId: PIPE_ACC, runnerId: R_ACC };
+    // accepted_at wins over the execution-start estimate (2 s exact, not 40 s).
+    await seedRequest({ ...base, status: 'started', requestedAt: '2026-09-02T10:00:00Z', acceptedAt: '2026-09-02T10:00:02Z', resultExecutionId: 'acc-1' });
+    await seedExecutionStart(PIPE_ACC, ACC, 'acc-1', '2026-09-02T10:00:40Z');
+    // accepted_at with no ingested execution: still measured, exactly.
+    await seedRequest({ ...base, status: 'started', requestedAt: '2026-09-03T10:00:00Z', acceptedAt: '2026-09-03T10:00:04Z', resultExecutionId: 'acc-2' });
+    // A row from before accepted_at existed: estimated from the execution start (20 s).
+    await seedRequest({ ...base, status: 'started', requestedAt: '2026-09-04T10:00:00Z', resultExecutionId: 'acc-3' });
+    await seedExecutionStart(PIPE_ACC, ACC, 'acc-3', '2026-09-04T10:00:20Z');
+    // Neither: not in the sample. A stop: not a start, never in the sample.
+    await seedRequest({ ...base, status: 'started', requestedAt: '2026-09-05T10:00:00Z', resultExecutionId: 'acc-none' });
+    await seedRequest({ ...base, action: 'stop', status: 'stopped', requestedAt: '2026-09-05T11:00:00Z', acceptedAt: '2026-09-05T11:00:09Z' });
+  });
+
+  it('measures request → accepted_at where present and falls back to the estimate, saying how many of each', async () => {
+    const r = await runners(scope);
+    // Samples 2 (exact), 4 (exact), 20 (estimated): median 4, p90 4 + 0.8 × 16 = 16.8.
+    expect(r.latency).toEqual({ n: 3, nExact: 2, nEstimated: 1, medianSeconds: 4, p90Seconds: 17 });
   });
 });
 

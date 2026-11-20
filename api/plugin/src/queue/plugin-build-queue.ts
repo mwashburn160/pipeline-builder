@@ -11,8 +11,8 @@
 import * as fs from 'fs';
 import path from 'path';
 
-import { SYSTEM_ACTOR_ID, BUILD_CLASSES, buildConcurrencyEnvVar, buildWorkerConcurrencyFor, ErrorCode, envInt, createLogger, errorMessage, getServiceAuthHeader, VALID_TIERS, recordAudit } from '@pipeline-builder/api-core';
-import type { AppError, BuildClass, BuildSize, PluginScanSummary, QuotaService, PlanTier } from '@pipeline-builder/api-core';
+import { PLUGIN_REMEDIATION_JOB_NAME, SYSTEM_ACTOR_ID, BUILD_CLASSES, buildConcurrencyEnvVar, buildWorkerConcurrencyFor, ErrorCode, envInt, createLogger, errorMessage, getServiceAuthHeader, VALID_TIERS, recordAudit } from '@pipeline-builder/api-core';
+import type { AppError, BuildClass, BuildSize, PluginRemediationJobData, PluginScanSummary, QuotaService, PlanTier } from '@pipeline-builder/api-core';
 import { incCounter, observe, setGauge, withSpan } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
 import { runWithTenantContext, schema, withTenantTx } from '@pipeline-builder/pipeline-data';
@@ -22,6 +22,7 @@ import { and, eq } from 'drizzle-orm';
 
 import { buildTrigger, chargeBuildCredits } from './build-credits.js';
 import { recordBuildEvent } from './build-failures.js';
+import { withReplicaBuildSlot, maxBuildsPerReplica, buildBorrowMax } from './build-gate.js';
 import { cleanupBuildArtifacts, ensureLocalBuildContext, recordRehydratedContext } from './build-workspace.js';
 import {
   closeQueuesAndConnections,
@@ -35,7 +36,6 @@ import {
   isTierConnectionReady,
   tierForQueueName,
 } from './connections.js';
-import { withReplicaBuildSlot, maxBuildsPerReplica, buildBorrowMax } from './build-gate.js';
 import { createBuildFailedHandler } from './failure-handler.js';
 import { startDlqWorker, closeDlqWorker } from './plugin-build-dlq.js';
 import { startQueueMetricsScraper, stopQueueMetricsScraper } from './queue-metrics-scraper.js';
@@ -272,6 +272,10 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
     ]),
   ) as Record<PlanTier, number>;
   const processor = async (job: Job<PluginBuildJobData>, token?: string) => {
+    // A nightly remediation rides the same tier queues and workers (after every
+    // un-prioritised user build), under the org's flexible build slot and the
+    // replica budget, plus its own fleet-wide PLUGIN_REMEDIATION_CONCURRENCY.
+    if (job.name === PLUGIN_REMEDIATION_JOB_NAME) return runRemediationOnWorker(job as unknown as Job<PluginRemediationJobData>, token);
     const { requestId, orgId, userId, access, buildRequest, pluginRecord } = job.data;
     // The setup catalog load's marker keeps a gate-refused image for promotion
     // (keepRefusedSetupImage) — for the SYSTEM org only. Anyone else's marker is
@@ -576,6 +580,9 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
           image,
           facts,
           summary,
+          // The staged ZIP, still present (it is dropped in the finally below):
+          // persistVersion keeps it as the version's source.
+          stagingKey: buildRequest.s3Key ?? null,
           skippedScan,
           ...(job.data.publish ? { publish: job.data.publish } : {}),
           emit,
@@ -669,13 +676,24 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
 
   // -- Error handling -------------------------------------------------------
 
-  const failedHandler = createBuildFailedHandler(sseManager, quotaService);
+  const buildFailedHandler = createBuildFailedHandler(sseManager, quotaService);
+  // A remediation job owns no quota slot, no build context and no build stream:
+  // its row records the failure (queue/plugin-remediation.ts), nothing else does.
+  const failedHandler = (job: Job<PluginBuildJobData> | undefined, err: Error) => {
+    if (job?.name === PLUGIN_REMEDIATION_JOB_NAME) {
+      logger.warn('Remediation job attempt failed', { jobId: job.id, error: err.message });
+      return;
+    }
+    return buildFailedHandler(job, err);
+  };
 
   const errorHandler = (error: Error) => {
     logger.error('Worker error', { error: error.message });
   };
 
   const completedHandler = (job: Job<PluginBuildJobData>) => {
+    // Remediation builds spend no credits and are counted by plugin_remediations_total.
+    if (job.name === PLUGIN_REMEDIATION_JOB_NAME) return;
     const orgId = job.data?.orgId ?? 'unknown';
     // `trigger` makes "should automated builds have their own budget?" answerable
     // from data rather than from argument — there is ONE build budget, no
@@ -777,6 +795,30 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
     ...getAllTierQueues().map(({ tier, queue }) => ({ name: queue.name, queue, tier })),
     { name: DLQ_NAME, queue: getDeadLetterQueue() },
   ]);
+}
+
+/**
+ * Run a `plugin-remediation` job on this worker: the org's `flexible` build slot
+ * (so remediation never takes the org's standard headroom) and the replica build
+ * budget around the whole run; no slot → the job is delayed and tried again.
+ */
+async function runRemediationOnWorker(job: Job<PluginRemediationJobData>, token?: string): Promise<unknown> {
+  const { processRemediationJob } = await import('./plugin-remediation.js');
+  const orgId = job.data.orgId;
+  const tier = tierForQueueName(job.queueName);
+  const slotJobId = `${job.queueName}:${job.id ?? job.name}`;
+  return runWithTenantContext({ orgId, isSuperAdmin: false }, () => processRemediationJob(job, token, {
+    withOrgSlot: async (fn) => {
+      if (!await tryAcquireOrgSlot(orgId, slotJobId, tier, 'flexible')) return { ran: false };
+      const stop = startOrgSlotHeartbeat(orgId, slotJobId, 'flexible');
+      try {
+        return { ran: true, value: await withReplicaBuildSlot(tier, fn) };
+      } finally {
+        stop();
+        await releaseOrgSlot(orgId, slotJobId, 'flexible').catch(() => undefined);
+      }
+    },
+  }));
 }
 
 // ---------------------------------------------------------------------------

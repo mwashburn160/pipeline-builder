@@ -25,6 +25,7 @@ describe('audit quick filters — definitions', () => {
   it('recognizes only the known group keys', () => {
     expect(isAuditQuickFilterKey('ecosystem')).toBe(true);
     expect(isAuditQuickFilterKey('moderation')).toBe(true);
+    expect(isAuditQuickFilterKey('remediation')).toBe(true);
     expect(isAuditQuickFilterKey('')).toBe(false);
     expect(isAuditQuickFilterKey(undefined)).toBe(false);
   });
@@ -34,9 +35,27 @@ describe('auditQuickFilterActions', () => {
   it('sends a group as one comma-separated actions list', () => {
     expect(auditQuickFilterActions('ecosystem')).toBe(AUDIT_QUICK_FILTERS.ecosystem.patterns.join(','));
     // Server-side validation accepts only action names / prefixes.
-    for (const key of ['ecosystem', 'moderation'] as const) {
+    for (const key of ['ecosystem', 'moderation', 'remediation'] as const) {
       for (const p of AUDIT_QUICK_FILTERS[key].patterns) expect(p).toMatch(/^[a-z0-9][a-z0-9._-]*$/i);
       expect(AUDIT_QUICK_FILTERS[key].patterns.length).toBeLessThanOrEqual(25);
     }
+  });
+});
+
+describe('the Remediation group', () => {
+  const matches = (action: string) => AUDIT_QUICK_FILTERS.remediation.patterns
+    .some((p) => (p.endsWith('.') ? action.startsWith(p) : action === p));
+
+  it('covers every remediation action and the whole-plugin delete actions', () => {
+    for (const a of [
+      'plugin.remediation.started', 'plugin.remediation.published', 'plugin.remediation.needs_owner',
+      'plugin.remediation.approved', 'plugin.remediation.rejected', 'plugin.remediation.retried',
+      'plugin.remediation.rolled_back', 'plugin.remediation_level.update', 'plugin.remediation_settings.update',
+      'pipeline.remediation-upgrades.update', 'plugin.delete-all', 'plugin.restore-all', 'plugin.purge-all',
+    ]) expect({ a, matched: matches(a) }).toEqual({ a, matched: true });
+  });
+
+  it('does not sweep in ordinary per-version plugin actions', () => {
+    for (const a of ['plugin.delete', 'plugin.restore', 'plugin.purge', 'plugin.update']) expect(matches(a)).toBe(false);
   });
 });

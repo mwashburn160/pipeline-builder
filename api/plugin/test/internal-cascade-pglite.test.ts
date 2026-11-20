@@ -15,9 +15,14 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
+import { jest, describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
 import { routeHandler } from '@pipeline-builder/api-core/testing';
 import { bootTenantDb, type TenantTestDb } from '@pipeline-builder/pipeline-data/testing';
+import { createFakeS3Store, fakeS3Module } from './helpers/fake-s3.js';
+
+// The kept plugin sources live on RustFS: an in-memory one here.
+const s3 = createFakeS3Store();
+jest.unstable_mockModule('@aws-sdk/client-s3', () => fakeS3Module(s3));
 
 process.env.JWT_SECRET ||= 'internal-org-purge-test-secret';
 process.env.PLUGIN_UPLOAD_DIR ||= mkdtempSync(join(tmpdir(), 'plugin-purge-'));
@@ -56,7 +61,9 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  await owner((q) => q.exec('DELETE FROM plugin_install_policies; DELETE FROM plugin_reviews;'));
+  s3.reset();
+  s3.buckets.set('plugin-sources', new Map());
+  await owner((q) => q.exec('DELETE FROM plugin_install_policies; DELETE FROM plugin_reviews; DELETE FROM plugin_source_orphans;'));
 });
 
 describe('POST /internal/plugins/orgs/:orgId/purge', () => {
@@ -78,6 +85,26 @@ describe('POST /internal/plugins/orgs/:orgId/purge', () => {
     const again = await purge(ORG);
     expect(again.statusCode).toBe(200);
     expect((again.body?.data?.tables as Record<string, number>).plugin_install_policies).toBe(0);
+  });
+
+  it('deletes the org\'s kept sources (plugin-sources/<orgId>/) first, and no other org\'s', async () => {
+    s3.put('plugin-sources', `${ORG}/p1/1.0.0/abc.zip`, 'zip');
+    s3.put('plugin-sources', `${ORG}/p1/1.0.0/remediations/r1/remediation.diff`, 'diff');
+    s3.put('plugin-sources', `${OTHER}/p2/1.0.0/def.zip`, 'zip');
+    const res = await purge(ORG);
+    expect(res.statusCode).toBe(200);
+    expect(s3.keys('plugin-sources')).toEqual([`${OTHER}/p2/1.0.0/def.zip`]);
+  });
+
+  it('a failed source delete is NOT an ack (500) and leaves the tables (orphan rows included) for the retry', async () => {
+    s3.put('plugin-sources', `${ORG}/p1/1.0.0/abc.zip`, 'zip');
+    s3.undeletable.add(`${ORG}/p1/1.0.0/abc.zip`);
+    await owner((q) => q.query('INSERT INTO plugin_install_policies (org_id) VALUES ($1)', [ORG]));
+    await owner((q) => q.query("INSERT INTO plugin_source_orphans (org_id, kind, bucket, target, last_error) VALUES ($1, 'prefix', 'plugin-sources', 'x/', 'E')", [ORG]));
+    const res = await purge(ORG);
+    expect(res.statusCode).toBe(500);
+    const left = await owner((q) => q.query('SELECT 1 FROM plugin_install_policies UNION ALL SELECT 1 FROM plugin_source_orphans'));
+    expect(left.rows).toHaveLength(2);
   });
 
   it('400s a missing org id and purges nothing', async () => {

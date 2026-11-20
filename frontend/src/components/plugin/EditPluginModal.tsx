@@ -33,6 +33,9 @@ import { hasPermission, isOrgAdmin, isSystemAdmin } from '@/lib/auth-helpers';
 import { isSystemOrgActive } from '@/lib/ecosystem-access';
 import { useMutation } from '@/hooks/useMutation';
 import { useAutoCloseTimer } from '@/hooks/useAutoCloseTimer';
+import { useFetch } from '@/hooks/useFetch';
+import { LIBRARY_UPGRADE_LEVELS, LIBRARY_UPGRADE_LEVEL_LABELS } from '@/lib/plugin-remediation';
+import type { LibraryUpgradeLevel } from '@/types/plugin-remediation';
 import { ToolchainManagedNote, isManagedToolchainVersion } from './PluginLifecycleModal';
 
 /** Props for the EditPluginModal component. */
@@ -96,6 +99,20 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
   const [success, setSuccess] = useState<string | null>(null);
 
   const autoClose = useAutoCloseTimer();
+
+  // The plugin's own library upgrade level for nightly CVE fixes (per NAME, not
+  // per version; '' = Follow organization). A failed read hides the control
+  // rather than offering a value that may not be the stored one.
+  const levelQ = useFetch(async (signal) => {
+    const res = await api.getPluginRemediationSettings({ signal });
+    if (!res.success || !res.data) throw new Error(res.message || 'Failed to load remediation settings');
+    return res.data;
+  }, []);
+  const storedLevel: LibraryUpgradeLevel | '' = levelQ.data?.settings.libraryUpgradeLevelByPlugin[plugin.name] ?? '';
+  const orgLevel = levelQ.data?.settings.libraryUpgradeLevel;
+  const [level, setLevel] = useState<LibraryUpgradeLevel | '' | null>(null);
+  const levelValue = level ?? storedLevel;
+  const levelChanged = !!levelQ.data && level !== null && level !== storedLevel;
 
   const saveM = useMutation({
     fn: async (data: Parameters<typeof api.updatePlugin>[1]) => {
@@ -170,7 +187,7 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
   const isDefaultChanged = !!fullPlugin && isDefault !== fullPlugin.isDefault;
   // A misplaced backdrop click must not discard edits silently — including a
   // lone owner reassignment.
-  const dirty = seeded && (changedCatalogFields.length > 0 || ownerChanged || visibilityChanged || isActiveChanged || isDefaultChanged);
+  const dirty = seeded && (changedCatalogFields.length > 0 || ownerChanged || visibilityChanged || isActiveChanged || isDefaultChanged || levelChanged);
 
   const setText = (field: PluginCatalogField, value: string) => {
     setTexts((prev) => ({ ...prev, [field]: value }));
@@ -214,8 +231,27 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
       data.ownerType = owner.ownerType;
     }
 
+    // The upgrade level is its own route (per plugin name); saved first so a
+    // refusal there leaves the catalog edit unsent and the form open.
+    if (levelChanged) {
+      try {
+        await api.setPluginRemediationLevel(plugin.name, levelValue === '' ? null : levelValue);
+        await levelQ.refetch();
+        setLevel(null);
+      } catch (err) {
+        setSaveError(formatError(err, 'Failed to save the library upgrade level'));
+        return;
+      }
+    }
+
     if (Object.keys(data).length === 0) {
-      onClose();
+      if (levelChanged) {
+        setSuccess('Plugin updated successfully!');
+        onSaved();
+        autoClose.schedule(onClose, 1500);
+      } else {
+        onClose();
+      }
       return;
     }
 
@@ -313,6 +349,27 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
             <h3 className="text-sm font-medium text-fg-muted mb-3">Catalog details</h3>
             {PLUGIN_CATALOG_FIELDS.map(renderCatalogField)}
           </div>
+
+          {/* Nightly CVE fixes: how far remediation may move this plugin's libraries. */}
+          {levelQ.data && (
+            <div className="border-b border-default pb-4">
+              <h3 className="text-sm font-medium text-fg-muted mb-3">Security fixes</h3>
+              <FormField
+                label="Library upgrade level"
+                hint={`How far nightly remediation may move this plugin's libraries. The strictest of this, the organization level${orgLevel ? ` (${orgLevel})` : ''} and any per-package-type level applies.`}
+              >
+                <Select
+                  aria-label="Library upgrade level"
+                  value={levelValue}
+                  onChange={(e) => setLevel(e.target.value as LibraryUpgradeLevel | '')}
+                  disabled={readOnly}
+                >
+                  <option value="">Follow organization</option>
+                  {LIBRARY_UPGRADE_LEVELS.map((l) => <option key={l} value={l}>{LIBRARY_UPGRADE_LEVEL_LABELS[l]}</option>)}
+                </Select>
+              </FormField>
+            </div>
+          )}
 
           {/* Access & Status */}
           <div>

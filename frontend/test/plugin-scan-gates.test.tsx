@@ -48,8 +48,8 @@ const FLAG = {
   high: 1,
   maxFindings: 0,
   findings: [
-    { id: 'CVE-2026-0001', severity: 'critical', packageName: 'openssl', packageVersion: '3.0.1', fixedIn: ['3.0.2'] },
-    { id: 'GHSA-aaaa-bbbb-cccc', severity: 'high', packageName: 'lodash', packageVersion: '4.17.0', fixedIn: [] },
+    { id: 'CVE-2026-0001', severity: 'critical', packageName: 'openssl', packageVersion: '3.0.1', packageType: 'deb', purl: 'pkg:deb/debian/openssl@3.0.1', locations: [{ path: '/var/lib/dpkg/status', layerID: 'sha256:base' }], fixedIn: ['3.0.2'] },
+    { id: 'GHSA-aaaa-bbbb-cccc', severity: 'high', packageName: 'lodash', packageVersion: '4.17.0', packageType: 'npm', purl: 'pkg:npm/lodash@4.17.0', locations: [{ path: '/app/node_modules/lodash/package.json', layerID: 'sha256:app' }], fixedIn: [] },
   ],
 };
 
@@ -68,8 +68,22 @@ describe('plugin-vulns helpers', () => {
     ]);
     expect(normalizeScanFlag(null)).toBeNull();
     expect(normalizeVulnFindings([{ cve: 'CVE-1', fixedIn: '1.0.1, 1.1.0' }, { nope: true }, 'x'])).toEqual([
-      { id: 'CVE-1', severity: 'Unknown', package: null, packageVersion: null, fixedIn: ['1.0.1', '1.1.0'] },
+      { id: 'CVE-1', severity: 'Unknown', package: null, packageVersion: null, fixedIn: ['1.0.1', '1.1.0'], packageType: null, purl: null, locations: [] },
     ]);
+  });
+
+  it('keeps the package type, purl, locations and KEV mark remediation needs', () => {
+    const [f] = normalizeVulnFindings([{
+      id: 'CVE-9', severity: 'critical', packageName: 'openssl', packageVersion: '3.0.1', fixedIn: ['3.0.2'],
+      packageType: ' DEB ', purl: 'pkg:deb/debian/openssl@3.0.1', kev: true,
+      locations: [{ path: '/var/lib/dpkg/status', layerID: 'sha256:base' }, { layerID: 'no-path' }],
+    }, { id: 'CVE-10', packageType: 'conan' }]).slice(0, 1);
+    expect(f).toMatchObject({
+      packageType: 'deb', purl: 'pkg:deb/debian/openssl@3.0.1', kev: true,
+      locations: [{ path: '/var/lib/dpkg/status', layerID: 'sha256:base' }],
+    });
+    // An uncatalogued grype type is `other` (always the owner's), never dropped.
+    expect(normalizeVulnFindings([{ id: 'CVE-10', packageType: 'conan' }])[0].packageType).toBe('other');
   });
 
   it('recognizes the scan-gate codes from the event data or, failing that, the message', () => {

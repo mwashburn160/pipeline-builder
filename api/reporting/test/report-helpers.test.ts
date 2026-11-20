@@ -17,9 +17,11 @@ import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockDescendants = jest.fn<AnyFn>();
+const mockParent = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   fetchOrgDescendants: (...a: unknown[]) => mockDescendants(...a),
+  fetchParentOrgId: (...a: unknown[]) => mockParent(...a),
 }));
 
 const helpers = await import('../src/helpers/report-helpers.js');
@@ -45,6 +47,41 @@ describe('org subtree readers', () => {
   it('the fail-soft reader degrades to "no teams" on the same failure', async () => {
     mockDescendants.mockRejectedValue(new Error('ECONNREFUSED'));
     await expect(helpers.resolveOrgRollup('root')).resolves.toBeUndefined();
+  });
+});
+
+describe('resolveOrgAncestors (fail-soft)', () => {
+  const chain: Record<string, string | undefined> = { team: 'parent', parent: 'root', root: undefined };
+
+  it('walks the parent chain, nearest first, through platform', async () => {
+    mockParent.mockImplementation(async (id: unknown) => chain[String(id)]);
+    await expect(helpers.resolveOrgAncestors('team')).resolves.toEqual(['parent', 'root']);
+    expect(mockParent.mock.calls.map((c) => c[0])).toEqual(['team', 'parent', 'root']);
+    expect(mockParent.mock.calls[0]?.[1]).toMatchObject({ throwOnHttpError: true });
+  });
+
+  it('starts from a known parent without asking for it', async () => {
+    mockParent.mockImplementation(async (id: unknown) => chain[String(id)]);
+    await expect(helpers.resolveOrgAncestors('team', 'parent')).resolves.toEqual(['parent', 'root']);
+    expect(mockParent.mock.calls.map((c) => c[0])).toEqual(['parent', 'root']);
+  });
+
+  it('a root org has no ancestors', async () => {
+    mockParent.mockResolvedValue(undefined);
+    await expect(helpers.resolveOrgAncestors('root')).resolves.toEqual([]);
+  });
+
+  it('stops on a cycle', async () => {
+    mockParent.mockImplementation(async (id: unknown) => (id === 'a' ? 'b' : 'a'));
+    await expect(helpers.resolveOrgAncestors('a')).resolves.toEqual(['b']);
+  });
+
+  it('any lookup failure reads as no ancestors, never a throw', async () => {
+    mockParent.mockImplementation(async (id: unknown) => {
+      if (id === 'parent') throw new Error('HTTP 503');
+      return chain[String(id)];
+    });
+    await expect(helpers.resolveOrgAncestors('team')).resolves.toEqual([]);
   });
 });
 

@@ -39,6 +39,8 @@ import { Config } from '@pipeline-builder/pipeline-core';
 import { distinctPipelines, findVersionReferences, runWithTenantContext, withTenantTx, schema, type VersionReferenceTarget } from '@pipeline-builder/pipeline-data';
 import { and, eq, isNull } from 'drizzle-orm';
 
+import { sourceBytesByVersion } from './plugin-sources.js';
+
 const logger = createLogger('storage-reclaim');
 
 /** One version's storage facts, as the registry measured them. */
@@ -89,6 +91,16 @@ export interface ReclaimCandidate {
   reason: IneligibleReason | null;
   /** Pipelines blocking a prune (this org's own, named). */
   blockedBy: Array<{ id: string; name: string | null }>;
+  /** Bytes of this version's kept build source on RustFS (null = none kept); a purge frees them too. */
+  sourceBytes: number | null;
+}
+
+/** One version's kept build source (plugin-sources), counted toward the org's storage. */
+export interface KeptSourceUsage {
+  pluginId: string;
+  pluginName: string;
+  version: string;
+  bytes: number;
 }
 
 export interface ReclaimPlan {
@@ -97,6 +109,15 @@ export interface ReclaimPlan {
   bytes: number;
   /** Sum of `marginalBytes` over ELIGIBLE candidates: what pruning could free. */
   reclaimableBytes: number;
+  /**
+   * Bytes of the org's kept build sources (every version, soft-deleted ones
+   * included), which count toward its storage alongside the registry's `bytes`.
+   */
+  sourceBytes: number;
+  /** `bytes + sourceBytes`: the org's storage use as this view counts it. */
+  totalBytes: number;
+  /** Kept sources per version, largest first. */
+  sources: KeptSourceUsage[];
   candidates: ReclaimCandidate[];
   /**
    * True when the registry could not measure everything. Both figures then
@@ -187,6 +208,17 @@ export async function reclaimPlan(orgId: string): Promise<ReclaimPlan | null> {
   if (!breakdown) return null;
 
   const owned = await ownedVersions(orgId);
+  // Kept build sources count too. Fail-soft: an unreadable figure reads as 0
+  // and marks the plan incomplete (it then UNDER-states, as `incomplete` says).
+  let sourceRows = new Map<string, { name: string; version: string; bytes: number }>();
+  let sourcesIncomplete = false;
+  try {
+    sourceRows = await sourceBytesByVersion(orgId);
+  } catch (err) {
+    sourcesIncomplete = true;
+    logger.warn('Kept-source sizes unreadable; the storage view under-states', { orgId, error: errorMessage(err) });
+  }
+  const sourceByKey = new Map([...sourceRows.values()].map((v) => [`${v.name}:${v.version}`, v.bytes]));
 
   // One reference read for the versions we own, elevated so a pipeline in a
   // TEAM of this account counts — a team's pipeline pinning the image is just
@@ -233,8 +265,12 @@ export async function reclaimPlan(orgId: string): Promise<ReclaimPlan | null> {
       eligible: reason === null,
       reason,
       blockedBy,
+      sourceBytes: key ? sourceByKey.get(key) ?? null : null,
     };
   });
+  const sources: KeptSourceUsage[] = [...sourceRows].map(([pluginId, v]) => ({ pluginId, pluginName: v.name, version: v.version, bytes: v.bytes }))
+    .sort((a, b) => b.bytes - a.bytes);
+  const sourceBytes = sources.reduce((sum, s) => sum + s.bytes, 0);
 
   return {
     orgId,
@@ -242,8 +278,11 @@ export async function reclaimPlan(orgId: string): Promise<ReclaimPlan | null> {
     // Only ELIGIBLE candidates count toward what pruning could free. Summing
     // every candidate would promise the shared and the published bytes too.
     reclaimableBytes: candidates.filter((c) => c.eligible).reduce((sum, c) => sum + c.marginalBytes, 0),
+    sourceBytes,
+    totalBytes: breakdown.bytes + sourceBytes,
+    sources,
     candidates,
-    incomplete: breakdown.incomplete,
+    incomplete: breakdown.incomplete || sourcesIncomplete,
     computedAt: breakdown.computedAt,
   };
 }

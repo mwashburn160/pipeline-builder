@@ -124,7 +124,12 @@ export class PipelineService extends CrudService<
     // `withViewerContext` stamps the caller so the `private` rung matches the
     // author's own rows. Without it the private branch fails closed for EVERY
     // caller, and an author can't read, update or delete their own pipeline.
-    return buildPipelineConditions(withViewerContext(filter), orgId, parentOrgId);
+    // `remediationUpgrades` (the list's opted-out filter) is this service's own
+    // column filter; the shared builder never sees it.
+    const { remediationUpgrades, ...rest } = filter as Partial<PipelineFilter> & { remediationUpgrades?: string };
+    const conditions = buildPipelineConditions(withViewerContext(rest as Partial<PipelineFilter>), orgId, parentOrgId);
+    if (typeof remediationUpgrades === 'string') conditions.push(eq(schema.pipeline.remediationUpgrades, remediationUpgrades as Pipeline['remediationUpgrades']));
+    return conditions;
   }
 
   protected getSortColumn(sortBy: string): AnyColumn | null {

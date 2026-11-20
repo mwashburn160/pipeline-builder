@@ -26,7 +26,7 @@
 
 import { useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { Activity, ArrowLeft, Download, Ban, X, Store, ShieldCheck } from 'lucide-react';
+import { Activity, ArrowLeft, Download, Ban, X, Store, ShieldCheck, Wrench } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useListPage, type FilterField } from '@/hooks/useListPage';
 import { AccessDenied } from '@/components/ui/AccessDenied';
@@ -95,6 +95,7 @@ const FILTER_FIELDS: FilterField[] = [
 const QUICK_FILTER_ICONS: Record<AuditQuickFilterKey, typeof Store> = {
   ecosystem: Store,
   moderation: ShieldCheck,
+  remediation: Wrench,
 };
 
 /** A row id rendered as a button that narrows the list to it. */

@@ -20,8 +20,8 @@ const image = { name: 'x', version: '1.0.0', buildType: 'build_image', pluginTyp
 const policy = { warnFixableHigh: 0 };
 
 const crit = (id: string, extra: Partial<PluginScanFinding> = {}): PluginScanFinding =>
-  ({ id, severity: 'critical', packageName: 'openssl', packageVersion: '3.0.1', fixedIn: ['3.0.2'], ...extra });
-const high = (id: string): PluginScanFinding => ({ id, severity: 'high', packageName: 'zlib', packageVersion: '1.2', fixedIn: ['1.3'] });
+  ({ id, severity: 'critical', packageName: 'openssl', packageVersion: '3.0.1', fixedIn: ['3.0.2'], packageType: 'deb', purl: 'pkg:deb/debian/openssl@3.0.1', locations: [], ...extra });
+const high = (id: string): PluginScanFinding => ({ id, severity: 'high', packageName: 'zlib', packageVersion: '1.2', fixedIn: ['1.3'], packageType: 'deb', purl: 'pkg:deb/debian/zlib@1.2', locations: [] });
 const summary = (findings: PluginScanFinding[], extra: Record<string, unknown> = {}) => ({
   criticalFixable: findings.filter((f) => f.severity === 'critical' && f.fixedIn.length).length,
   highFixable: findings.filter((f) => f.severity === 'high' && f.fixedIn.length).length,

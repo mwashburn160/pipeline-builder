@@ -1,6 +1,6 @@
 // GENERATED FROM docs/plugin-publishing.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: ade3dade440315d16ecd78ad69abc4f734495b7f0613f29f8e58f718e271e7d8
+// SOURCE-SHA256: 3b9205e89f18781ba2a2b1657fa9bf1365f54fafccf06b9636328137c280fe15
 // SPDX-License-Identifier: Apache-2.0
 import { Store } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -36,7 +36,9 @@ export const pluginPublishingTopic: HelpTopic = {
             "Handle and display-name changes are requests, not edits, because a new name could impersonate someone.",
             "Accepting new publisher terms is required before new requests — existing listings are unaffected.",
             "You can submit without an account, and claim the listing later.",
-            "Scan gates apply before anything is listed, and a listing over its plan's quota can still ship security fixes."
+            "Scan gates apply before anything is listed, and a listing over its plan's quota can still ship security fixes.",
+            "Flagged versions are fixed automatically where the platform may change them — rebuilt or library-patched, proposed or published as the next version, and rolled out to pipelines. See Automatic remediation.",
+            "Delete plugin removes every version of a name at once, restorable as one batch. See Deleting plugins and versions."
           ]
         }
       ]
@@ -375,6 +377,181 @@ export const pluginPublishingTopic: HelpTopic = {
         {
           "type": "text",
           "content": "Who is told. A blocked build (notice N30) is always reported right away. New Critical or High findings from a rescan (notice N31) follow your organization's settings; for a listed version they go to every organization that installed it — a yanked version too, until its image is collected, since installs pinned to it still run it. Admins set both under Settings → Organization → Plugin security notifications: who receives them (the uploader and everyone who can write plugins, or chosen members), whether rescan findings are sent and as a daily or weekly digest, an optional signed webhook, and one external address. The external address gets nothing until its owner opens the confirmation link and presses Confirm address. Send test sends a test notice to every configured channel."
+        },
+        {
+          "type": "text",
+          "content": "Automatic remediation"
+        },
+        {
+          "type": "text",
+          "content": "After each completed nightly rescan, the platform tries to produce a fixed version of every flagged plugin version it is allowed to change, prove it is clean and still works, and move pipelines onto it. A fixable Critical or High CVE is then closed without anyone rebuilding by hand."
+        },
+        {
+          "type": "text",
+          "content": "What is targeted. Fixable findings whose severity is in PLUGIN_REMEDIATION_SEVERITIES (default critical,high), plus every CISA known-exploited (KEV) finding whatever the list says. A KEV finding with no fixed version can't be fixed, so it goes straight to the owner request (reason no_fix). Findings a waiver or an operator VEX statement already covers are skipped, and remediation never adds a waiver. All of a version's fixable findings from one night go into one remediation and one new version, never one version per CVE. Remediations run KEV first, then by EPSS, then by how many pipelines use the version."
+        },
+        {
+          "type": "text",
+          "content": "The stages. A remediation is one record per flagged version, moving through fixed stages:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Rebuild (rebuild). The version's kept build context is rebuilt on a freshly pulled base image of the same tag (a digest-pinned FROM is re-resolved within its tag, never to a new tag) with --pull --no-cache, which clears most OS-package CVEs without touching the plugin's own files. A finding in a shared platform base (_plugin-base and the other _*-base images) rebuilds that base once per pass, in a system-org pass of its own (PLUGIN_REMEDIATION_BASE_CONCURRENCY) that runs ahead of tenant remediations.",
+            "Libraries (libraries). For each targeted finding the rebuild didn't clear, the named library is upgraded to the smallest fixed version — the highest of the lowest fixed versions across its CVEs, so one upgrade clears them all — within the allowed upgrade level. A source patch edits the manifest or lockfile in the kept context (a pin in apt-get/apk add/dnf install, an npm overrides entry, a requirements*.txt pin, go get, a Maven/Gradle override, bundle update --conservative, cargo update --precise, a PackageReference, or a recognised pinned tool ARG). An overlay layer is one RUN on top of the current image digest that upgrades the named packages in place (deb, apk, rpm, npm, python and gem only), with labels, user, entrypoint and working directory unchanged. Libraries compiled into a binary (Go, Rust, .NET, fat JARs) can only be fixed from source. When no patcher fits, the ask agent may draft a patch; it is verified the same way and only ever proposed.",
+            "Verify. The fix goes through the full build gate, waivers, VEX, the plugin contract check and compliance, exactly as any build. Every targeted finding must be gone, no new Critical or High may appear, the image's user, entrypoint and declared commands must be unchanged, the spec's smokeTest must pass, and the diff may touch only the named packages' lines or the single overlay layer. A patch that fails is dropped; when several packages were patched, each is retried alone so the ones that work are kept.",
+            "Publish (published, or awaiting_approval in propose mode). The fix is stored as the next free version of the plugin: the next patch (1.4.3, or 1.4.4 if 1.4.3 is taken), or the next minor when a library crossed a major (so installs on a patch policy don't pick it up silently). It never crosses the plugin's own major. Each fix is a new immutable version with its provenance: the version it fixes, the patch diff, and the CVEs cleared. The flagged version is never changed or deleted.",
+            "Rollout (rolling_out, then done, or needs_review if it pauses). Pipelines move onto the fix — see Remediation upgrades.",
+            "Owner request (needs_owner). Whatever is left — no fixed version, beyond the upgrade level, a Go module's new major, a library inside a compiled binary, no kept source, no patcher, a patch that broke the plugin — is sent to the plugin's security recipients (N39), listing each package, CVE, fixed version, the reason and the level it would need. The version stays flagged. A fix published with findings left is outcome partial, and the owner request is still sent."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "The next rescan of the fix must be clean for the targeted findings, and the old version's exposures close as pipelines move."
+        },
+        {
+          "type": "text",
+          "content": "Idempotent per findings set. A version already being remediated isn't queued again, and a set of findings that failed isn't retried until the findings change or the vulnerability DB adds a fixed version. The owner's own fix wins: when the owner uploads a newer version with no gated findings while a remediation runs, the remediation ends (outcome superseded) and the rollout uses the owner's version instead. Deleting a version cancels any remediation on it."
+        },
+        {
+          "type": "text",
+          "content": "Upgrade levels"
+        },
+        {
+          "type": "text",
+          "content": "libraryUpgradeLevel (an organization setting) sets how far a library may move from its installed version:"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Level",
+            "Allowed",
+            "Installed 2.3.1 →"
+          ],
+          "rows": [
+            [
+              "patch",
+              "Same major and minor",
+              "2.3.4, not 2.4.0"
+            ],
+            [
+              "minor (default)",
+              "Same major",
+              "2.4.0, not 3.0.0"
+            ],
+            [
+              "major",
+              "Any version",
+              "3.0.0"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "The organization can set a level per package type, and a plugin can set its own (for example patch for a fragile plugin; Follow organization by default, PUT /api/plugins/by-name/:name/remediation-level). The strictest applicable level wins. How a move is classed:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "OS packages (deb, apk, rpm): the level applies to the upstream version. A distro revision of the same upstream (1.1.1n-0+deb11u5 → 1.1.1n-0+deb11u6) is a patch; an epoch change is a major.",
+            "0.x packages: a minor bump counts as major, following semver.",
+            "Go modules: a new major is a different module path (/v2), so it always goes to the owner, whatever the level.",
+            "Non-semver versions (dates, four-part numbers) are read from their first three numeric parts; a version that can't be parsed counts as major."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "A fix that needs a bigger jump than allowed goes to the owner request, naming the level it would need."
+        },
+        {
+          "type": "text",
+          "content": "Propose or apply"
+        },
+        {
+          "type": "text",
+          "content": "mode (an organization setting) is off (build nothing), propose (the default) or apply."
+        },
+        {
+          "type": "list",
+          "items": [
+            "In propose mode a fix waits as Awaiting approval on the plugin's remediation card, with the cleared and remaining findings and the patch diff. Approve and publish and Reject need plugins:write and a step-up.",
+            "In apply mode it publishes without waiting — except that some fixes are always proposed: a library upgrade that crosses a major, a plugin whose spec declares no smokeTest, and an ask-agent patch."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Declare a smokeTest (see the plugin spec reference) if you want your plugin's fixes to publish automatically: without one, the platform can't show the rebuilt plugin still works, so it only ever proposes."
+        },
+        {
+          "type": "text",
+          "content": "Admins set the mode, the upgrade level with its per-type overrides, and the pipeline rollout under Settings → Organization → Plugin security (PUT /api/plugins/remediation-settings, org_settings:write). Every remediation in the organization is listed on Plugins → Remediations (GET /api/plugins/remediations), filterable by stage. Retry (plugins:write) re-runs a failed, needs-owner or needs-review remediation as a new attempt."
+        },
+        {
+          "type": "text",
+          "content": "Kept build sources"
+        },
+        {
+          "type": "text",
+          "content": "To rebuild a version later, its build context ZIP is kept: when a build is stored as a version, its upload is copied to the plugin-sources bucket (encrypted, no expiry) before the staging copy is deleted, under <orgId>/<pluginId>/<version>/. The SHA-256 is checked before every rebuild, and a mismatch fails the remediation closed. Kept sources count toward your storage quota and are removed when the version is purged. No route ever returns a source ZIP."
+        },
+        {
+          "type": "text",
+          "content": "A prebuilt-image upload has no source, so it can only be fixed with an overlay layer; libraries compiled into it go to the owner. A source lost in a restore makes the version source-less in the same way, and alerts the operator."
+        },
+        {
+          "type": "text",
+          "content": "Who may be remediated"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Plugin",
+            "Automatic fix",
+            "Otherwise"
+          ],
+          "rows": [
+            [
+              "Your organization's own plugin",
+              "Yes, under your mode",
+              ""
+            ],
+            [
+              "The Official catalog (system org)",
+              "Yes, under the system org's setting. The fix reaches tenants as a new listing version through an auto-approved publish request (the Remediation fixes rule), and the patch is exported for deploy/plugins/** so maintainers can merge it (GET /api/plugins/remediations/:id/export, system org)",
+              ""
+            ],
+            [
+              "A listed third-party plugin",
+              "No",
+              "A fix request goes to the publisher (N40) with the findings and a suggested patch; installers are told it was sent"
+            ],
+            [
+              "An install of a listing",
+              "No — the listing is the publisher's",
+              "Installers move once the publisher ships a fixed version"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "A fixed version of your own plugin that you also list reaches listing installers only through a normal new-version publish request."
+        },
+        {
+          "type": "text",
+          "content": "Limits and operator controls"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Remediation builds spend no build credits and don't count toward the plugin-count quota, but run under your build quota, after user builds in the queue, at most PLUGIN_REMEDIATION_CONCURRENCY at a time.",
+            "At most PLUGIN_REMEDIATION_MAX_PER_ORG_PER_DAY (default 20) remediations start per organization per day, retries included (429 QUOTA_EXCEEDED on a retry over it). The quotas page shows today's count.",
+            "PLUGIN_REMEDIATION_ENABLED (default true) is the operator's switch. Only the literal false turns it off; then nothing is queued, built, published or rolled out and no remediation notice is sent, and the dashboard says remediation is turned off by the operator. Organization settings stay editable, and kept sources and plugin deletion are unaffected.",
+            "PLUGIN_REMEDIATION_SEVERITIES (default critical,high) is the comma-separated list of severities targeted. An empty or invalid value falls back to the default with a warning in the log. KEV findings are always targeted."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "See Environment Variables for every remediation setting. Every stage is audited (plugin.remediation.*)."
         }
       ]
     },
@@ -954,6 +1131,111 @@ export const pluginPublishingTopic: HelpTopic = {
       ]
     },
     {
+      "id": "deleting-plugins-and-versions",
+      "title": "Deleting plugins and versions",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "You can delete one version or a whole plugin with all its versions. A delete is a soft delete: the versions stay restorable for SOFT_DELETE_RETENTION_DAYS (30), then the purge sweep removes them, or you purge them yourself sooner. All delete, restore and purge actions need plugins:write."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Action",
+            "Route",
+            "What it acts on"
+          ],
+          "rows": [
+            [
+              "Delete version",
+              "DELETE /api/plugins/:id",
+              "That one version"
+            ],
+            [
+              "Delete plugin",
+              "DELETE /api/plugins/by-name/:name (step-up)",
+              "Every version of that name in your organization, remediation fix versions included"
+            ],
+            [
+              "Restore plugin",
+              "POST /api/plugins/by-name/:name/restore?batchId= (step-up)",
+              "Every version that delete soft-deleted, within the window"
+            ],
+            [
+              "Purge plugin",
+              "POST /api/plugins/by-name/:name/purge?batchId= (step-up)",
+              "That delete's soft-deleted versions, at once"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Preview first. GET /api/plugins/by-name/:name/delete-preview answers what a Delete plugin would delete and skip, with reasons, how much kept source each version holds, and any builds or remediations in flight. The Delete plugin dialog shows the same answer, so a script and the dialog agree."
+        },
+        {
+          "type": "text",
+          "content": "Skips, not failures. Delete plugin soft-deletes every version it can and answers with deleted and skipped lists. A version is skipped when a pipeline uses it (in_use, with up to 50 of the pipelines), it is frozen by a request (frozen), or it is listed (listed). ?force=true also deletes listed source versions; their listed copies keep running for installers, as for a single version. The plugin leaves the catalog only when no live version is left. Quota slots are refunded per version, and organizations using any of the versions get one N14 notice."
+        },
+        {
+          "type": "text",
+          "content": "Safeguards."
+        },
+        {
+          "type": "list",
+          "items": [
+            "A managed toolchain name (pipeline-bootstrap) is refused (PLUGIN_MANAGED_NAME_RESERVED) before any version is touched.",
+            "Queued builds and remediations of the name are cancelled first, and running ones are waited for (up to 10 minutes). A per-name lock is held for the whole delete, restore or purge, so an upload or build of that name in the meantime is refused with 409 PLUGIN_NAME_LOCKED.",
+            "Every version one delete touches gets the same batch id. Restore plugin and Purge plugin act on that batch only, never on versions deleted earlier on their own.",
+            "Delete plugin, Restore plugin and Purge plugin are limited to 10 per organization per hour.",
+            "A team deletes only its own rows. For a name inherited from the root organization, the dialog says so and offers nothing to delete.",
+            "When the name is listed, the dialog offers to request unmaintained or a yank through the normal request. The delete itself never changes the listing."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "What a purge removes, for each version:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "the version row and its tombstone;",
+            "its image, signature and SBOM attestations, deleted through image-registry — unless another stored version references the same digest (an identical rebuild);",
+            "its kept build sources under plugin-sources/<orgId>/<pluginId>/<version>/: the source ZIP, any patched ZIP and the remediation diff, deleted by prefix so nothing is left behind;",
+            "its remediation records, after their audit entries are written."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "A failed object or image delete never blocks the purge: it is recorded, retried by the next purge sweep, counted on plugin_source_delete_failures_total{kind} and alerted on. Deleting an organization removes its whole plugin-sources/<orgId>/ prefix."
+        },
+        {
+          "type": "text",
+          "content": "What automatic clean-up never removes. No automatic process removes a version that is active, or a plugin's only remaining version (counting the versions of that name in your organization that are not deleted), or either one's kept source in plugin-sources. Automatic means anything nobody asked for by name:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "the purge sweep never purges the last version of a name (a soft-deleted plugin whose versions are all deleted stays restorable until you purge it yourself);",
+            "the retry of failed deletes never deletes a kept source that a live version still points to;",
+            "the superseded-version retention pass keeps such a version, and its dry run shows it as kept with the reason active or only_version;",
+            "a kept source object is deleted only by a purge of its version or by deleting the organization, never as a side effect (a re-upload of the same version keeps the ZIP it replaced until the version is purged)."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Each skip is counted on plugin_auto_removal_skipped_total{reason} (active or only_version). Your own actions aren't held by this rule: Delete version, Delete plugin, Purge plugin, purging a single version and deleting the organization work on the only version too."
+        },
+        {
+          "type": "text",
+          "content": "Deleting a fix version leaves the version it fixed untouched (it stays flagged), and the reverse. Remediation never targets a soft-deleted version; a restored version is picked up again by the next rescan, with its kept source."
+        },
+        {
+          "type": "text",
+          "content": "Each action is audited: plugin.delete-all, plugin.restore-all and plugin.purge-all carry the batch id and what was done and skipped, and every per-version plugin.delete, plugin.restore and plugin.purge carries the same batch id."
+        }
+      ]
+    },
+    {
       "id": "errors-you-may-see",
       "title": "Errors you may see",
       "blocks": [
@@ -1011,6 +1293,18 @@ export const pluginPublishingTopic: HelpTopic = {
             [
               "DUPLICATE_ENTRY",
               "An open request of that kind already exists, or the handle is taken."
+            ],
+            [
+              "REMEDIATION_STAGE_CONFLICT",
+              "The remediation is not at a stage that allows this action (for example, approving one that is not awaiting approval); details.stage says where it is."
+            ],
+            [
+              "PLUGIN_NAME_LOCKED",
+              "A Delete, Restore or Purge plugin of that name is in progress; upload or build again once it finishes."
+            ],
+            [
+              "PLUGIN_MANAGED_NAME_RESERVED",
+              "The name is a managed toolchain name and can't be deleted as a whole plugin."
             ]
           ]
         }

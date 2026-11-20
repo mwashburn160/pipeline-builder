@@ -268,6 +268,7 @@ export {
   vulnFlaggedWarning,
   vulnWaiverLabels,
   type PluginScanFinding,
+  type PluginScanFindingLocation,
   type PluginScanFlag,
   type PluginVulnFailOn,
   type PluginScanSummary,
@@ -277,6 +278,8 @@ export {
   type VulnWaiverProblem,
   type WaiverOutcome,
 } from './plugin-scan.js';
+// Nightly plugin CVE remediation vocabulary (also re-exported by ./plugin-scan.js for the browser subpath).
+export * from './plugin-remediation.js';
 export {
   type CommonFilter,
   type ImageSource,

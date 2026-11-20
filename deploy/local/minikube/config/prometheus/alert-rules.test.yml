@@ -4091,3 +4091,145 @@ tests:
       - eval_time: 85m
         alertname: RegistryStorageSnapshotStale
         exp_alerts: []
+
+  # --- Nightly plugin CVE remediation -----------------------------------------
+  # PluginRemediationErrors: one remediation that ended in an error fires (no
+  # for:, a job error is rare and each one is worth a look) ...
+  - interval: 1m
+    input_series:
+      - series: 'plugin_remediations_total{stage="failed",outcome="error",service="plugin",pod="plugin-aaa"}'
+        values: '0x10 1x30'
+      - series: 'plugin_remediations_total{stage="done",outcome="cleared",service="plugin",pod="plugin-aaa"}'
+        values: '0+1x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: PluginRemediationErrors
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: plugin
+              tenancy: platform
+            exp_annotations:
+              summary: "1 plugin remediations failed with an error in 6h"
+              description: "Plugins → Remediations, filter Failed: each row's error is a short code. SOURCE_CHECKSUM_MISMATCH means a kept build source in the plugin-sources bucket changed under its pointer — treat it as tampering until the object's history says otherwise, and never retry it blind. Anything else is usually the build queue or buildkit; the next rescan does not retry a failed findings set until the findings change, so retry it from the card once fixed."
+
+  # ... while cleared, needs-owner and rejected outcomes never do: "could not
+  # fix" goes to the owner (N39), it is not an operator problem.
+  - interval: 1m
+    input_series:
+      - series: 'plugin_remediations_total{stage="failed",outcome="error",service="plugin",pod="plugin-aaa"}'
+        values: '0+0x40'
+      - series: 'plugin_remediations_total{stage="done",outcome="cleared",service="plugin",pod="plugin-aaa"}'
+        values: '0+1x40'
+      - series: 'plugin_remediations_total{stage="needs_owner",outcome="owner_request",service="plugin",pod="plugin-aaa"}'
+        values: '0+1x40'
+      - series: 'plugin_remediations_total{stage="failed",outcome="rejected",service="plugin",pod="plugin-aaa"}'
+        values: '0+1x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: PluginRemediationErrors
+        exp_alerts: []
+
+  # PluginSourceDeleteFailing: per kind, so an image-delete failure is told
+  # apart from a RustFS prefix failure.
+  - interval: 1m
+    input_series:
+      - series: 'plugin_source_delete_failures_total{kind="prefix",service="plugin",pod="plugin-aaa"}'
+        values: '0x10 2x30'
+      - series: 'plugin_source_delete_failures_total{kind="image",service="plugin",pod="plugin-aaa"}'
+        values: '0+0x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: PluginSourceDeleteFailing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: plugin
+              tenancy: platform
+              kind: prefix
+            exp_annotations:
+              summary: "Plugin prefix deletes are failing after a purge"
+              description: "2 prefix deletes failed in 6h. Purged tenant sources or images are still stored until the orphan retry succeeds. kind=object|prefix: check the plugin service's RustFS key still reaches plugin-sources (rustfs-init policy plugin-sources-rw); kind=image: check image-registry's discardPluginImage."
+
+  # A failure older than the 6h window (since retried by the sweep) is quiet.
+  - interval: 10m
+    input_series:
+      - series: 'plugin_source_delete_failures_total{kind="object",service="plugin",pod="plugin-aaa"}'
+        values: '0 1x60'
+    alert_rule_test:
+      - eval_time: 9h
+        alertname: PluginSourceDeleteFailing
+        exp_alerts: []
+
+  # PluginSourcesMissing: a version found its kept source gone (after a restore).
+  - interval: 1m
+    input_series:
+      - series: 'plugin_source_missing_total{service="plugin",pod="plugin-aaa"}'
+        values: '0x10 3x30'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: PluginSourcesMissing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: plugin
+              tenancy: platform
+            exp_annotations:
+              summary: "3 plugin versions lost their kept build source"
+              description: "Their sources are gone from the plugin-sources bucket, so they can now only be fixed with an overlay layer (no library source patches, nothing for compiled Go/Rust/.NET/Java). Restore plugin-sources from the object-store mirror (restore.sh --object-store) if it was left out; a version marked source-less stays that way until its owner uploads a new version."
+      - eval_time: 5m
+        alertname: PluginSourcesMissing
+        exp_alerts: []
+
+  # PluginSourceChecksumMismatch: a kept source no longer matches its SHA-256 (tampering).
+  - interval: 1m
+    input_series:
+      - series: 'plugin_source_checksum_mismatch_total{service="plugin",pod="plugin-aaa"}'
+        values: '0x10 1x30'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: PluginSourceChecksumMismatch
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: plugin
+              tenancy: platform
+            exp_annotations:
+              summary: "1 kept plugin sources failed their checksum"
+              description: "A kept build source in the plugin-sources bucket changed under its recorded SHA-256: treat it as tampering. Nothing was built from it (the remediation failed closed with SOURCE_CHECKSUM_MISMATCH). Check the bucket's access log for writes outside the plugin service's scoped key, rotate PLUGIN_S3_ACCESS_KEY_ID if in doubt, and never retry the remediation until the object's history is understood."
+      - eval_time: 5m
+        alertname: PluginSourceChecksumMismatch
+        exp_alerts: []
+
+  # PluginRemediationCanaryStale: the last clean canary pass was 49h ago ...
+  - interval: 5m
+    input_series:
+      - series: 'plugin_remediation_canary_last_success_timestamp_seconds{service="plugin",pod="plugin-aaa"}'
+        values: '0x600'
+    alert_rule_test:
+      - eval_time: 47h
+        alertname: PluginRemediationCanaryStale
+        exp_alerts: []
+      - eval_time: 49h
+        alertname: PluginRemediationCanaryStale
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: plugin
+              tenancy: platform
+            exp_annotations:
+              summary: "The plugin remediation fixture canary has not passed in 48h"
+              description: "Last clean canary pass 2d 1h 0m 0s ago. Open the system org's Remediations list (fixture plugins) or the Ecosystem console fleet view: the failing package type is the patcher or scanner to look at. PluginVulnRescanStale firing too means the rescan, not remediation, stopped."
+
+  # ... while a canary that passes every night stays quiet, even when a
+  # former leader's pod still exports an old timestamp (max() reads the newest).
+  - interval: 5m
+    input_series:
+      - series: 'plugin_remediation_canary_last_success_timestamp_seconds{service="plugin",pod="plugin-new"}'
+        values: '0x288 86400x288 172800x30'
+      - series: 'plugin_remediation_canary_last_success_timestamp_seconds{service="plugin",pod="plugin-old"}'
+        values: '0x600'
+    alert_rule_test:
+      - eval_time: 49h
+        alertname: PluginRemediationCanaryStale
+        exp_alerts: []

@@ -1,0 +1,108 @@
+{
+ "spdxVersion": "SPDX-2.3",
+ "dataLicense": "CC0-1.0",
+ "SPDXID": "SPDXRef-DOCUMENT",
+ "name": "/w/fixture.tar",
+ "documentNamespace": "https://anchore.com/syft/image/w/fixture.tar-8d05770d-a43c-4a47-9443-45585e8c72be",
+ "creationInfo": {
+  "licenseListVersion": "3.29",
+  "creators": [
+   "Organization: Anchore, Inc",
+   "Tool: syft-1.56.0"
+  ],
+  "created": "2026-11-20T16:33:06Z"
+ },
+ "packages": [
+  {
+   "name": "rack",
+   "SPDXID": "SPDXRef-Package-gem-rack-0eb067ed09dc0b12",
+   "versionInfo": "2.0.0",
+   "supplier": "Person: Leah Neukirchen",
+   "originator": "Person: Leah Neukirchen",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": false,
+   "sourceInfo": "acquired package info from installed gem metadata file: /usr/local/lib/ruby/gems/3.0.0/specifications/rack-2.0.0.gemspec",
+   "licenseConcluded": "NOASSERTION",
+   "licenseDeclared": "MIT",
+   "copyrightText": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:rack:rack:2.0.0:*:*:*:*:ruby:*:*"
+    },
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceType": "purl",
+     "referenceLocator": "pkg:gem/rack@2.0.0"
+    }
+   ]
+  },
+  {
+   "name": "/w/fixture.tar",
+   "SPDXID": "SPDXRef-DocumentRoot-Image--w-fixture.tar",
+   "versionInfo": "sha256:e83e2fb0b007d2a3eb104b5d08b1f354e59748e4445ccd0166ca4f48b9168df9",
+   "supplier": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": true,
+   "packageVerificationCode": {
+    "packageVerificationCodeValue": "45ab0b7e36725547867243264f62aed46e90ddcd"
+   },
+   "checksums": [
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "e83e2fb0b007d2a3eb104b5d08b1f354e59748e4445ccd0166ca4f48b9168df9"
+    }
+   ],
+   "licenseConcluded": "NOASSERTION",
+   "licenseDeclared": "NOASSERTION",
+   "copyrightText": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceType": "purl",
+     "referenceLocator": "pkg:oci/%2Fw%2Ffixture.tar@sha256%3Ae83e2fb0b007d2a3eb104b5d08b1f354e59748e4445ccd0166ca4f48b9168df9?arch=arm64"
+    }
+   ],
+   "primaryPackagePurpose": "CONTAINER"
+  }
+ ],
+ "files": [
+  {
+   "fileName": "usr/local/lib/ruby/gems/3.0.0/specifications/rack-2.0.0.gemspec",
+   "SPDXID": "SPDXRef-File-...specifications-rack-2.0.0.gemspec-f8d04d511f1805a0",
+   "fileTypes": [
+    "TEXT"
+   ],
+   "checksums": [
+    {
+     "algorithm": "SHA1",
+     "checksumValue": "31f2d3312bd01ac7172db4136bc9481bdf8f7e62"
+    },
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "374869e4268ad8e0cf7d99f77ad94dade1dc21ee44a042504b17d70865321e77"
+    }
+   ],
+   "licenseConcluded": "NOASSERTION",
+   "licenseInfoInFiles": [
+    "NOASSERTION"
+   ],
+   "copyrightText": "NOASSERTION",
+   "comment": "layerID: sha256:c894e255eb69255ed11e6ba056770aa010455b00781acce9e0aa69f95ff5b171"
+  }
+ ],
+ "relationships": [
+  {
+   "spdxElementId": "SPDXRef-Package-gem-rack-0eb067ed09dc0b12",
+   "relatedSpdxElement": "SPDXRef-File-...specifications-rack-2.0.0.gemspec-f8d04d511f1805a0",
+   "relationshipType": "OTHER",
+   "comment": "evident-by: indicates the package's existence is evident by the given file"
+  },
+  {
+   "spdxElementId": "SPDXRef-DocumentRoot-Image--w-fixture.tar",
+   "relatedSpdxElement": "SPDXRef-Package-gem-rack-0eb067ed09dc0b12",
+   "relationshipType": "CONTAINS"
+  }
+ ]
+}

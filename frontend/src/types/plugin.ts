@@ -170,6 +170,15 @@ export interface Plugin {
   /** The rescan's counts and top findings (see `normalizeScanFlag`). */
   scanFlag?: unknown;
 
+  // Kept build source (plugin-sources bucket). The object key is never sent;
+  // a prebuilt-image upload is `none` and can only be remediated by an overlay.
+  sourceKind?: 'zip' | 'none';
+  sourceSha256?: string | null;
+  sourceSizeBytes?: number | null;
+  sourceKeptAt?: string | null;
+  /** Set on every version one "Delete plugin" soft-deleted; Restore / Purge plugin act on this batch only. */
+  deleteBatchId?: string | null;
+
   // Access and visibility
   visibility: Visibility;
   isDefault: boolean;

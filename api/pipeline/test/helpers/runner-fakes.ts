@@ -105,6 +105,7 @@ export function fakeStore(): FakeStore {
         lastDeliveryError: row.lastDeliveryError ?? null,
         resultExecutionId: row.resultExecutionId ?? null,
         errorCode: row.errorCode ?? null,
+        acceptedAt: row.acceptedAt ?? null,
       };
       requests.set(r.id, r); return r;
     },

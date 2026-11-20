@@ -534,7 +534,7 @@ Every route of the Pipeline, Plugin and Ask Agent services, generated from the r
 
 ### Pipeline Service — every route
 
-63 routes, from `frontend/src/generated/route-table/pipeline.json`.
+66 routes, from `frontend/src/generated/route-table/pipeline.json`.
 
 | Method | Endpoint | Requires | Meters | Audit action |
 |--------|----------|----------|--------|--------------|
@@ -551,9 +551,12 @@ Every route of the Pipeline, Plugin and Ask Agent services, generated from the r
 | `POST` | `/pipelines` | `pipelines:write` | `apiCalls` | `pipeline.create`, `pipeline.update` |
 | `DELETE` | `/pipelines/:id` | `pipelines:write` | `apiCalls` | `pipeline.delete` |
 | `GET` | `/pipelines/:id` | `pipelines:read` | `apiCalls` | — |
-| `PUT` | `/pipelines/:id` | `pipelines:write` | `apiCalls` | `pipeline.update` |
+| `PUT` | `/pipelines/:id` | `pipelines:write` | `apiCalls` | `pipeline.update`, `pipeline.remediation-upgrades.update` |
 | `POST` | `/pipelines/:id/plugin-upgrades/preview` | `pipelines:read` | `apiCalls` | — |
 | `POST` | `/pipelines/:id/purge` | `pipelines:write`; step-up | `apiCalls` | `pipeline.purge` |
+| `GET` | `/pipelines/:id/remediation-upgrades` | `pipelines:read` | `apiCalls` | — |
+| `POST` | `/pipelines/:id/remediation-upgrades/:upgradeId/apply` | `pipelines:write` | `apiCalls` | `pipeline.plugin.upgraded` |
+| `POST` | `/pipelines/:id/remediation-upgrades/:upgradeId/dismiss` | `pipelines:write` | `apiCalls` | — |
 | `POST` | `/pipelines/:id/restore` | `pipelines:write`; step-up | `apiCalls` | `pipeline.restore` |
 | `GET` | `/pipelines/:id/scorecard` | `pipelines:read`; feature `advanced_reporting` | `apiCalls` | — |
 | `GET` | `/pipelines/:id/scorecard/history` | `pipelines:read`; feature `advanced_reporting` | `apiCalls` | — |
@@ -572,7 +575,7 @@ Every route of the Pipeline, Plugin and Ask Agent services, generated from the r
 | `POST` | `/pipelines/analyze/from-url` | `pipelines:write`; feature `ai_generation` | `apiCalls` | — |
 | `POST` | `/pipelines/bulk/create` | `pipelines:write`; feature `bulk_operations` | `apiCalls` | `pipeline.create`, `pipeline.update` |
 | `POST` | `/pipelines/bulk/delete` | `pipelines:write`; feature `bulk_operations` | `apiCalls` | `pipeline.delete` |
-| `PUT` | `/pipelines/bulk/update` | `pipelines:write`; feature `bulk_operations` | `apiCalls` | `pipeline.update` |
+| `PUT` | `/pipelines/bulk/update` | `pipelines:write`; feature `bulk_operations` | `apiCalls` | `pipeline.update`, `pipeline.remediation-upgrades.update` |
 | `GET` | `/pipelines/deleted` | `pipelines:read` | `apiCalls` | — |
 | `GET` | `/pipelines/find` | `pipelines:read` | `apiCalls` | — |
 | `POST` | `/pipelines/generate` | `pipelines:write`; feature `ai_generation` | `apiCalls` | `pipeline.ai.generate` |
@@ -604,7 +607,7 @@ Every route of the Pipeline, Plugin and Ask Agent services, generated from the r
 
 ### Plugin Service — every route
 
-155 routes, from `frontend/src/generated/route-table/plugin.json`.
+169 routes, from `frontend/src/generated/route-table/plugin.json`.
 
 | Method | Endpoint | Requires | Meters | Audit action |
 |--------|----------|----------|--------|--------------|
@@ -624,6 +627,11 @@ Every route of the Pipeline, Plugin and Ask Agent services, generated from the r
 | `POST` | `/plugins/:id/yank` | `plugins:write` | `apiCalls` | `plugin.version.yank` |
 | `POST` | `/plugins/bulk/delete` | `plugins:write`; feature `bulk_operations` | `apiCalls` | `plugin.bulk.delete` |
 | `PUT` | `/plugins/bulk/update` | `plugins:write`; feature `bulk_operations` | `apiCalls` | `plugin.bulk.update` |
+| `DELETE` | `/plugins/by-name/:name` | `plugins:write`; step-up | `apiCalls` | `plugin.delete-all` |
+| `GET` | `/plugins/by-name/:name/delete-preview` | `plugins:write` | `apiCalls` | — |
+| `POST` | `/plugins/by-name/:name/purge` | `plugins:write`; step-up | `apiCalls` | `plugin.purge-all` |
+| `PUT` | `/plugins/by-name/:name/remediation-level` | `plugins:write` | `apiCalls` | `plugin.remediation_level.update` |
+| `POST` | `/plugins/by-name/:name/restore` | `plugins:write`; step-up | `apiCalls` | `plugin.restore-all` |
 | `GET` | `/plugins/catalog` | `plugins:read` | `apiCalls` | — |
 | `GET` | `/plugins/deleted` | `plugins:read` | `apiCalls` | — |
 | `POST` | `/plugins/deploy-generated` | `plugins:write` | `apiCalls` | `plugin.deploy` |
@@ -713,6 +721,15 @@ Every route of the Pipeline, Plugin and Ask Agent services, generated from the r
 | `POST` | `/plugins/queue/failed/:jobId/retry` | decided per request | `apiCalls` | `plugin.build.retry` |
 | `GET` | `/plugins/queue/status` | system org; `plugin_queue:manage`; MFA session (aal2) | `apiCalls` | — |
 | `GET` | `/plugins/queue/triage` | decided per request | `apiCalls` | — |
+| `GET` | `/plugins/remediation-settings` | `plugins:read` | `apiCalls` | — |
+| `PUT` | `/plugins/remediation-settings` | `org_settings:write` | `apiCalls` | `plugin.remediation_settings.update` |
+| `GET` | `/plugins/remediations` | `plugins:read` | `apiCalls` | — |
+| `GET` | `/plugins/remediations/:id` | `plugins:read` | `apiCalls` | — |
+| `POST` | `/plugins/remediations/:id/approve` | `plugins:write`; step-up | `apiCalls` | `plugin.remediation.approved` |
+| `GET` | `/plugins/remediations/:id/export` | system org; `plugins:write` | `apiCalls` | — |
+| `GET` | `/plugins/remediations/:id/patch` | `plugins:read` | `apiCalls` | — |
+| `POST` | `/plugins/remediations/:id/reject` | `plugins:write`; step-up | `apiCalls` | `plugin.remediation.rejected` |
+| `POST` | `/plugins/remediations/:id/retry` | `plugins:write` | `apiCalls` | `plugin.remediation.retried`, `plugin.remediation.started` |
 | `GET` | `/plugins/retention/plan` | system org; `plugins:moderate`; MFA session (aal2) | `apiCalls` | — |
 | `POST` | `/plugins/retention/run` | system org; `plugins:moderate`; MFA session (aal2); step-up | `apiCalls` | `plugin.version.retire` |
 | `DELETE` | `/plugins/reviews/:id` | `plugins:read`; a person (no service account or access key) | `apiCalls` | `plugin.review.delete` |

@@ -56,6 +56,19 @@ describe('AlertRulesPage', () => {
     expect(listAlertRules).toHaveBeenLastCalledWith({ offset: 25, limit: 25 }, expect.anything());
   });
 
+  it('lists the built-in remediation alerts read-only, with no edit controls', async () => {
+    render(<AlertRulesPage />);
+    await screen.findByText('Rule 0');
+    const section = screen.getByRole('region', { name: 'Built-in platform alerts' });
+    for (const name of ['Plugin remediation failures', 'Plugin source delete failures', 'Missing plugin sources', 'Stale remediation canary']) {
+      expect(section).toHaveTextContent(name);
+    }
+    expect(section).toHaveTextContent('plugin_remediations_total{outcome="error"}');
+    expect(section).toHaveTextContent('plugin_source_delete_failures_total');
+    expect(section).toHaveTextContent('plugin_source_missing_total');
+    expect(section.querySelectorAll('button')).toHaveLength(0);
+  });
+
   it('hides the rendered-rules preview from non-sysadmins', async () => {
     render(<AlertRulesPage />);
     await screen.findByText('Rule 0');

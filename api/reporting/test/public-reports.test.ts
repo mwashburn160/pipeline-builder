@@ -80,9 +80,14 @@ jest.unstable_mockModule('../src/services/report-pdf.js', () => ({
 // Platform's answer to "does the account still hold the add-on?". Defaults to entitled
 // in beforeEach; the entitlement-lapse tests override it.
 const mockAuthority = jest.fn<AnyFn>();
+// "Does any active owner/admin still hold the add-on?" — asked only when the owner left.
+const mockOrgEntitlement = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/services/report-identity.js', () => ({
   __esModule: true,
-  reportIdentity: () => ({ authority: (...a: unknown[]) => mockAuthority(...a) }),
+  reportIdentity: () => ({
+    authority: (...a: unknown[]) => mockAuthority(...a),
+    orgEntitlement: (...a: unknown[]) => mockOrgEntitlement(...a),
+  }),
 }));
 
 const { createPublicReportRoutes, isPreviewFetch, redactNames } = await import('../src/routes/public-reports.js');
@@ -152,6 +157,7 @@ describe('public report routes', () => {
     renderedWith.length = 0;
     store.recordShareView.mockResolvedValue(undefined);
     mockAuthority.mockResolvedValue({ active: true, permissions: ['reports:publish'], features: ['stakeholder_reports'] });
+    mockOrgEntitlement.mockResolvedValue(false);
     mockPdfAvailable.mockResolvedValue(true);
     mockRenderPdf.mockResolvedValue({ ok: true, pdf: Buffer.from('%PDF-1.4'), ms: 120 });
     router = createPublicReportRoutes();
@@ -492,6 +498,15 @@ describe('public report routes', () => {
         expect(unknown.error[0][0]).toBe(404);
       });
 
+      it('is refused (no org fallback) when the owner is ACTIVE but the account lapsed', async () => {
+        store.resolveShareLink.mockResolvedValue(resolved());
+        mockAuthority.mockResolvedValue({ active: true, permissions: [], features: [] });
+        mockOrgEntitlement.mockResolvedValue(true);
+        await call('/reports/:token', 'get', { params: { token: TOKEN } });
+        expect(mockSendError.mock.calls[0][1]).toBe(404);
+        expect(mockOrgEntitlement).not.toHaveBeenCalled();
+      });
+
       it('is refused for the PDF too, before any render', async () => {
         store.resolveShareLink.mockResolvedValue(resolved());
         mockAuthority.mockResolvedValue({ active: true, permissions: [], features: [] });
@@ -500,6 +515,69 @@ describe('public report routes', () => {
         expect(mockRenderPdf).not.toHaveBeenCalled();
         expect(mockPdfAvailable).not.toHaveBeenCalled();
       });
+    });
+
+    /**
+     * THE OWNER LEFT. Platform answers an inactive owner with `features: []`, which is
+     * about the PERSON, not the account. A manager's link should not die because the
+     * lead who minted it changed jobs, so the account's entitlement is asked through any
+     * active owner/admin of the link's org instead — and only that.
+     */
+    describe('a link whose owner has left the org', () => {
+      const resolved = () => ({ link: link(), run: run(), ownerId: 'user-lead' });
+      const LEFT = { active: false, permissions: [], features: [] };
+
+      it('is served while an active owner/admin still holds the add-on', async () => {
+        store.resolveShareLink.mockResolvedValue(resolved());
+        mockAuthority.mockResolvedValue(LEFT);
+        mockOrgEntitlement.mockResolvedValue(true);
+        await call('/reports/:token', 'get', { params: { token: TOKEN } });
+        expect(mockOrgEntitlement).toHaveBeenCalledWith('acme');
+        expect(mockSendError).not.toHaveBeenCalled();
+        expect(payload().report).toMatchObject({ periodLabel: '2026-W37' });
+      });
+
+      it('serves the PDF on the same rule', async () => {
+        store.resolveShareLink.mockResolvedValue(resolved());
+        mockAuthority.mockResolvedValue(LEFT);
+        mockOrgEntitlement.mockResolvedValue(true);
+        await call('/reports/:token/pdf', 'get', { params: { token: TOKEN }, headers: { 'user-agent': 'Mozilla/5.0 Chrome/141.0' } });
+        expect(mockSendError).not.toHaveBeenCalled();
+        expect(mockRenderPdf).toHaveBeenCalled();
+      });
+
+      it.each([
+        ['no active owner/admin holds the add-on', false],
+        ['platform cannot answer (fail closed)', null],
+      ])('answers EXACTLY the unknown-token 404 when %s', async (_case, entitled) => {
+        const observe = async () => {
+          jest.clearAllMocks();
+          headers.clear();
+          const response = await call('/reports/:token', 'get', { params: { token: TOKEN } });
+          return {
+            error: mockSendError.mock.calls.map((c) => c.slice(1)),
+            headers: [...headers.entries()],
+            status: response.status.mock.calls,
+            json: response.json.mock.calls,
+          };
+        };
+        store.resolveShareLink.mockResolvedValue(null);
+        const unknown = await observe();
+        store.resolveShareLink.mockResolvedValue(resolved());
+        mockAuthority.mockResolvedValue(LEFT);
+        mockOrgEntitlement.mockResolvedValue(entitled);
+        const blocked = await observe();
+        expect(blocked).toEqual(unknown);
+        expect(unknown.error[0][0]).toBe(404);
+        expect(store.recordShareView).not.toHaveBeenCalled();
+      });
+    });
+
+    it('serves an active owner\'s link without asking about the org', async () => {
+      store.resolveShareLink.mockResolvedValue({ link: link(), run: run(), ownerId: 'user-lead' });
+      await call('/reports/:token', 'get', { params: { token: TOKEN } });
+      expect(mockSendSuccess).toHaveBeenCalled();
+      expect(mockOrgEntitlement).not.toHaveBeenCalled();
     });
 
     it('refuses a malformed token without touching the database', async () => {

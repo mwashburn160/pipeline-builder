@@ -34,6 +34,11 @@ jest.mock('@/lib/api', () => ({
     updatePluginSecurityNotifications: (...a: unknown[]) => updatePrefs(...a),
     sendPluginSecurityNotificationTest: (...a: unknown[]) => sendTest(...a),
     getOrganizationMembers: (...a: unknown[]) => getMembers(...a),
+    // The Plugin security card also carries the remediation settings (own suite: plugin-remediation-settings).
+    getPluginRemediationSettings: async () => ({ success: true, data: {
+      settings: { mode: 'propose', libraryUpgradeLevel: 'minor', libraryUpgradeLevelByType: {}, libraryUpgradeLevelByPlugin: {}, rollout: 'propose', allowPipelineApply: true },
+      isTeam: false, root: null, enabled: true, severities: ['critical', 'high'], canEdit: true,
+    } }),
   },
 }));
 

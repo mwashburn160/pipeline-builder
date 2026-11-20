@@ -105,6 +105,10 @@ jest.unstable_mockModule('../src/helpers/supply-chain.js', () => ({
   verifyImageSignature: jest.fn(async () => undefined),
   fetchImageSbom: jest.fn<AnyFn>(),
   ImageVerificationError: class extends Error {},
+  DIGEST_RE: /^sha256:[0-9a-f]{64}$/,
+  SUPPLY_CHAIN_STEPS: [],
+  attachSupplyChain: jest.fn<AnyFn>(),
+  discardPluginImage: jest.fn<AnyFn>(),
 }));
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   pluginImageRepository: (p: { orgId: string; name: string; buildType?: string | null }) => (p.buildType === 'metadata_only' ? null : `${p.orgId === '000000000000000000000001' ? 'system' : `org-${p.orgId}`}/${p.name}`),
@@ -141,7 +145,7 @@ jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
 jest.unstable_mockModule('drizzle-orm/column', () => ({}));
 jest.unstable_mockModule('drizzle-orm/pg-core', () => ({}));
 
-const { isSystemAdmin, sendBadRequest, validateQuery } = await import('@pipeline-builder/api-core');
+const { isSystemAdmin, sendBadRequest, sendPaginatedNested, validateQuery } = await import('@pipeline-builder/api-core');
 const { createReadPluginRoutes } = await import('../src/routes/read-plugins.js');
 
 // Helpers
@@ -278,6 +282,32 @@ describe('GET /plugins (list)', () => {
 
     expect(res.status).toHaveBeenCalledWith(400);
     expect(mockFindPaginated).not.toHaveBeenCalled();
+  });
+
+  it.each(['sourceKey', 'sourceSha256'])('refuses ?fields= naming %s (a kept source\'s storage pointer never leaves the service)', async (field) => {
+    mockFindPaginated.mockResolvedValue({ data: [], total: 0, limit: 25, offset: 0, hasMore: false });
+    const res = mockRes();
+    await handler(mockReq({ query: { fields: `name,${field}` } }), res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockFindPaginated).not.toHaveBeenCalled();
+  });
+
+  it('answers the source size, kind, kept-at and delete batch, never the source key or checksum', async () => {
+    mockFindPaginated.mockResolvedValue({
+      data: [{ id: 'p1', orgId: 'org-1', name: 'lint', version: '1.0.0', sourceKey: 'org-1/p1/1.0.0/abc.zip', sourceSha256: 'a'.repeat(64), sourceSizeBytes: 12, sourceKind: 'zip', sourceKeptAt: '2026-11-20T00:00:00Z', deleteBatchId: null }],
+      total: 1,
+      limit: 25,
+      offset: 0,
+      hasMore: false,
+    });
+    await handler(mockReq({ query: { fields: 'id,name,sourceKind,sourceSizeBytes,sourceKeptAt,deleteBatchId' } }), mockRes());
+
+    const rows = JSON.stringify((sendPaginatedNested as jest.Mock<AnyFn>).mock.calls.at(-1)![2]);
+    expect(rows).toContain('"sourceKind":"zip"');
+    expect(rows).toContain('"sourceSizeBytes":12');
+    expect(rows).not.toContain('sourceKey');
+    expect(rows).not.toContain('sourceSha256');
   });
 
   it('still splits a single `fields` value and forwards a single `cursor`', async () => {

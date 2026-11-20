@@ -1,0 +1,193 @@
+{
+ "matches": [
+  {
+   "vulnerability": {
+    "id": "GHSA-35jh-r3h4-6jhm",
+    "dataSource": "https://github.com/advisories/GHSA-35jh-r3h4-6jhm",
+    "namespace": "github:language:javascript",
+    "severity": "High",
+    "urls": [
+     "https://nvd.nist.gov/vuln/detail/CVE-2021-23337",
+     "https://github.com/lodash/lodash/commit/3469357cff396a26c363f8c1b5a91dde28ba4b1c"
+    ],
+    "description": "Command Injection in lodash",
+    "cvss": [
+     {
+      "type": "Secondary",
+      "version": "3.1",
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+      "metrics": {
+       "baseScore": 7.2,
+       "exploitabilityScore": 1.3,
+       "impactScore": 5.9
+      },
+      "vendorMetadata": {}
+     }
+    ],
+    "epss": [
+     {
+      "cve": "CVE-2021-23337",
+      "epss": 0.20158,
+      "percentile": 0.97514,
+      "date": "2026-11-19"
+     }
+    ],
+    "cwes": [
+     {
+      "cve": "CVE-2021-23337",
+      "cwe": "CWE-94",
+      "source": "nvd@nist.gov",
+      "type": "Primary"
+     }
+    ],
+    "fix": {
+     "versions": [
+      "4.17.21"
+     ],
+     "state": "fixed",
+     "available": [
+      {
+       "version": "4.17.21",
+       "date": "2021-05-07",
+       "kind": "first-observed"
+      }
+     ]
+    },
+    "advisories": [],
+    "risk": 14.81613
+   },
+   "relatedVulnerabilities": [
+    {
+     "id": "CVE-2021-23337",
+     "dataSource": "https://nvd.nist.gov/vuln/detail/CVE-2021-23337",
+     "namespace": "nvd:cpe",
+     "severity": "High",
+     "urls": [
+      "https://cert-portal.siemens.com/productcert/pdf/ssa-637483.pdf",
+      "https://github.com/lodash/lodash/blob/ddfd9b11a0126db2302cb70ec9973b66baec0975/lodash.js%23L14851"
+     ],
+     "description": "Lodash versions prior to 4.17.21 are vulnerable to Command Injection via the template function.",
+     "cvss": [
+      {
+       "source": "nvd@nist.gov",
+       "type": "Primary",
+       "version": "3.1",
+       "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+       "metrics": {
+        "baseScore": 7.2,
+        "exploitabilityScore": 1.3,
+        "impactScore": 5.9
+       },
+       "vendorMetadata": {}
+      },
+      {
+       "source": "nvd@nist.gov",
+       "type": "Primary",
+       "version": "2.0",
+       "vector": "AV:N/AC:L/Au:S/C:P/I:P/A:P",
+       "metrics": {
+        "baseScore": 6.5,
+        "exploitabilityScore": 8,
+        "impactScore": 6.5
+       },
+       "vendorMetadata": {}
+      },
+      {
+       "source": "report@snyk.io",
+       "type": "Secondary",
+       "version": "3.1",
+       "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+       "metrics": {
+        "baseScore": 7.2,
+        "exploitabilityScore": 1.3,
+        "impactScore": 5.9
+       },
+       "vendorMetadata": {}
+      }
+     ],
+     "epss": [
+      {
+       "cve": "CVE-2021-23337",
+       "epss": 0.20158,
+       "percentile": 0.97514,
+       "date": "2026-11-19"
+      }
+     ],
+     "cwes": [
+      {
+       "cve": "CVE-2021-23337",
+       "cwe": "CWE-94",
+       "source": "nvd@nist.gov",
+       "type": "Primary"
+      }
+     ]
+    }
+   ],
+   "matchDetails": [
+    {
+     "type": "exact-direct-match",
+     "matcher": "javascript-matcher",
+     "searchedBy": {
+      "language": "javascript",
+      "namespace": "github:language:javascript",
+      "package": {
+       "name": "lodash",
+       "version": "4.17.15"
+      }
+     },
+     "found": {
+      "vulnerabilityID": "GHSA-35jh-r3h4-6jhm",
+      "versionConstraint": "<4.17.21 (semantic)"
+     },
+     "fix": {
+      "suggestedVersion": "4.17.21"
+     }
+    }
+   ],
+   "artifact": {
+    "id": "Package-npm-lodash-2f27bdfc4ddaa491",
+    "name": "lodash",
+    "version": "4.17.15",
+    "type": "npm",
+    "locations": null,
+    "language": "javascript",
+    "licenses": [
+     "MIT"
+    ],
+    "cpes": [
+     "cpe:2.3:a:lodash:lodash:4.17.15:*:*:*:*:node.js:*:*"
+    ],
+    "purl": "pkg:npm/lodash@4.17.15",
+    "upstreams": []
+   }
+  }
+ ],
+ "source": {
+  "type": "image",
+  "target": {
+   "userInput": "/w/fixture.tar:sha256:e83e2fb0b007d2a3eb104b5d08b1f354e59748e4445ccd0166ca4f48b9168df9",
+   "imageID": "DocumentRoot-Image--w-fixture.tar",
+   "manifestDigest": "sha256:e83e2fb0b007d2a3eb104b5d08b1f354e59748e4445ccd0166ca4f48b9168df9",
+   "mediaType": "",
+   "tags": [],
+   "imageSize": 0,
+   "layers": null,
+   "manifest": null,
+   "config": null,
+   "repoDigests": [],
+   "architecture": "",
+   "os": ""
+  }
+ },
+ "distro": {
+  "name": "debian",
+  "version": "11.0",
+  "idLike": [
+   "debian"
+  ]
+ },
+ "descriptor": {
+  "name": "grype",
+  "version": "0.121.1"
+ }
+}

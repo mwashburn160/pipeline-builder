@@ -156,6 +156,8 @@ export interface PublishRequestPayload {
   summary?: string;
   affectedRange?: string;
   submitter?: { principalType: 'user' | 'service_account'; name?: string };
+  /** Set on an Official fix opened by nightly CVE remediation (the queue's remediation marker). */
+  remediation?: { remediationId?: string };
   /** `submission` requests: the quarantined submission, and whether it creates the listing. */
   submissionId?: string;
   newListing?: boolean;
@@ -527,6 +529,8 @@ export interface AutoRuleConditions {
   maxPerListingPerDay?: number;
   maxPerDay?: number;
   instanceFlag?: 'OFFICIAL_AUTO_APPROVAL_ENABLED';
+  /** Only requests a nightly CVE remediation opened (`remediation_id` set) — the seeded "Remediation fixes" rule. */
+  remediationOnly?: boolean;
   /** Marks a seeded rule (its seed key). */
   seeded?: string;
 }

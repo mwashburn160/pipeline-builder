@@ -1,0 +1,129 @@
+{
+ "spdxVersion": "SPDX-2.3",
+ "dataLicense": "CC0-1.0",
+ "SPDXID": "SPDXRef-DOCUMENT",
+ "name": "/w/fixture.tar",
+ "documentNamespace": "https://anchore.com/syft/image/w/fixture.tar-8d05770d-a43c-4a47-9443-45585e8c72be",
+ "creationInfo": {
+  "licenseListVersion": "3.29",
+  "creators": [
+   "Organization: Anchore, Inc",
+   "Tool: syft-1.56.0"
+  ],
+  "created": "2026-11-20T16:33:06Z"
+ },
+ "packages": [
+  {
+   "name": "log4j-core",
+   "SPDXID": "SPDXRef-Package-java-archive-log4j-core-625a5fe05b71fb18",
+   "versionInfo": "2.14.1",
+   "supplier": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": false,
+   "checksums": [
+    {
+     "algorithm": "SHA1",
+     "checksumValue": "9d941a0e1b5f4bc75ecca04b9507d2a672d91843"
+    }
+   ],
+   "sourceInfo": "acquired package info from installed java archive: /opt/app/lib/log4j-core-2.14.1.jar",
+   "licenseConcluded": "NOASSERTION",
+   "licenseDeclared": "NOASSERTION",
+   "copyrightText": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:apache:log4j-core:2.14.1:*:*:*:*:*:*:*"
+    },
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:apache:log4j_core:2.14.1:*:*:*:*:*:*:*"
+    },
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:apache:log4j:2.14.1:*:*:*:*:*:*:*"
+    },
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:apache:core:2.14.1:*:*:*:*:*:*:*"
+    },
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceType": "purl",
+     "referenceLocator": "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1"
+    }
+   ]
+  },
+  {
+   "name": "/w/fixture.tar",
+   "SPDXID": "SPDXRef-DocumentRoot-Image--w-fixture.tar",
+   "versionInfo": "sha256:e83e2fb0b007d2a3eb104b5d08b1f354e59748e4445ccd0166ca4f48b9168df9",
+   "supplier": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": true,
+   "packageVerificationCode": {
+    "packageVerificationCodeValue": "45ab0b7e36725547867243264f62aed46e90ddcd"
+   },
+   "checksums": [
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "e83e2fb0b007d2a3eb104b5d08b1f354e59748e4445ccd0166ca4f48b9168df9"
+    }
+   ],
+   "licenseConcluded": "NOASSERTION",
+   "licenseDeclared": "NOASSERTION",
+   "copyrightText": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceType": "purl",
+     "referenceLocator": "pkg:oci/%2Fw%2Ffixture.tar@sha256%3Ae83e2fb0b007d2a3eb104b5d08b1f354e59748e4445ccd0166ca4f48b9168df9?arch=arm64"
+    }
+   ],
+   "primaryPackagePurpose": "CONTAINER"
+  }
+ ],
+ "files": [
+  {
+   "fileName": "opt/app/lib/log4j-core-2.14.1.jar",
+   "SPDXID": "SPDXRef-File-opt-app-lib-log4j-core-2.14.1.jar-a308becb6fd85b5a",
+   "fileTypes": [
+    "APPLICATION",
+    "ARCHIVE"
+   ],
+   "checksums": [
+    {
+     "algorithm": "SHA1",
+     "checksumValue": "9d941a0e1b5f4bc75ecca04b9507d2a672d91843"
+    },
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "d0dbba8d61eb33c1ef2a512dfc4bf8654b7a65d1d3d1d8ece49792557268b716"
+    }
+   ],
+   "licenseConcluded": "NOASSERTION",
+   "licenseInfoInFiles": [
+    "NOASSERTION"
+   ],
+   "copyrightText": "NOASSERTION",
+   "comment": "layerID: sha256:a448b26521cb6e17aa5b6e20f57c274a129438938ce7d12778041893b00320bb"
+  }
+ ],
+ "relationships": [
+  {
+   "spdxElementId": "SPDXRef-Package-java-archive-log4j-core-625a5fe05b71fb18",
+   "relatedSpdxElement": "SPDXRef-File-opt-app-lib-log4j-core-2.14.1.jar-a308becb6fd85b5a",
+   "relationshipType": "OTHER",
+   "comment": "evident-by: indicates the package's existence is evident by the given file"
+  },
+  {
+   "spdxElementId": "SPDXRef-DocumentRoot-Image--w-fixture.tar",
+   "relatedSpdxElement": "SPDXRef-Package-java-archive-log4j-core-625a5fe05b71fb18",
+   "relationshipType": "CONTAINS"
+  }
+ ]
+}

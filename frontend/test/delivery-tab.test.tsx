@@ -32,7 +32,7 @@ const RUNNERS: RunnerReliabilityReport = {
   window: { from: '2026-09-01T00:00:00Z', to: '2026-10-01T00:00:00Z' },
   totals: { requests: 11, started: 5, failed: 2, expired: 1, refused: 2, pending: 1, failureRatePct: 50 },
   trend: [{ period: '2026-08-31 00:00:00', ...ZERO, requests: 11, started: 5, failed: 2, expired: 1, refused: 2, pending: 1 }],
-  latency: { n: 3, medianSeconds: 60, p90Seconds: 84 },
+  latency: { n: 3, nExact: 2, nEstimated: 1, medianSeconds: 60, p90Seconds: 84 },
   topFailureCodes: [{ code: 'RUNNER_PERMISSION_DENIED', category: 'runner', count: 2 }, { code: 'OTHER', category: 'other', count: 1 }],
   runners: [
     { runnerId: 'r1', label: 'own-runner', ownership: 'own', health: 'unreachable', status: 'active', consecutiveFailures: 4, lastDeliveryAt: '2026-09-20T00:00:00.000Z', ...ZERO, requests: 9, started: 4, failed: 2, expired: 1, refused: 1, pending: 1, failureRatePct: 50 },
@@ -43,7 +43,7 @@ const EMPTY_RUNNERS: RunnerReliabilityReport = {
   ...RUNNERS,
   totals: { ...ZERO, failureRatePct: null },
   trend: [{ period: '2026-08-31 00:00:00', ...ZERO }],
-  latency: { n: 0, medianSeconds: null, p90Seconds: null },
+  latency: { n: 0, nExact: 0, nEstimated: 0, medianSeconds: null, p90Seconds: null },
   topFailureCodes: [],
   runners: [],
 };
@@ -86,7 +86,7 @@ describe('RunnerPanel', () => {
     expect(screen.getByText('Run requests')).toBeInTheDocument();
     expect(screen.getAllByText('50%').length).toBeGreaterThan(0);
     expect(screen.getByText('1m')).toBeInTheDocument();
-    expect(screen.getByText('p90 1m · n = 3')).toBeInTheDocument();
+    expect(screen.getByText('p90 1m · n = 3 (2 exact, 1 estimated)')).toBeInTheDocument();
     expect(screen.getByText('RUNNER_PERMISSION_DENIED')).toBeInTheDocument();
     const runners = screen.getByRole('table', { name: /runners/i });
     expect(within(runners).getByText('own-runner')).toBeInTheDocument();
@@ -94,6 +94,14 @@ describe('RunnerPanel', () => {
     // A parent's runner that is no longer shared stays unnamed.
     expect(within(runners).getByText('Unshared runner')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /csv/i })).toHaveLength(3);
+  });
+
+  it('says when every latency sample is exact, or every one is estimated', () => {
+    const { unmount } = render(<RunnerPanel loading={false} data={{ ...RUNNERS, latency: { ...RUNNERS.latency, nExact: 3, nEstimated: 0 } }} />);
+    expect(screen.getByText('p90 1m · n = 3 (exact)')).toBeInTheDocument();
+    unmount();
+    render(<RunnerPanel loading={false} data={{ ...RUNNERS, latency: { ...RUNNERS.latency, nExact: 0, nEstimated: 3 } }} />);
+    expect(screen.getByText('p90 1m · n = 3 (estimated)')).toBeInTheDocument();
   });
 
   it('shows an empty state for a range with no run requests', () => {

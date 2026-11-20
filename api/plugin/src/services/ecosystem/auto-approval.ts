@@ -43,6 +43,7 @@ export async function autoApprovalFacts(r: Req, publisher: Publisher, listing: P
     submitterServiceAccount: loader,
     listingLive: !!listing && isActiveListing(listing),
     securityLane: r.lane === 'security',
+    remediation: r.remediationId !== null && r.remediationId !== undefined,
   };
   if (r.kind === 'new_version' && plugin) {
     const prev = await previousVersion(listing?.id ?? null, r.version);

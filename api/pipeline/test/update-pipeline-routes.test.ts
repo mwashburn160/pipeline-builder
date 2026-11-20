@@ -38,6 +38,12 @@ jest.unstable_mockModule('../src/helpers/plugin-save-check.js', () => ({
   }),
 }));
 
+// The plugin security fixes election check (its SQL is covered in remediation-rollout-pglite.test.ts).
+const mockElectionRefusal = jest.fn<AnyFn>(async () => null);
+jest.unstable_mockModule('../src/helpers/remediation-settings.js', () => ({
+  electionRefusal: (...a: unknown[]) => mockElectionRefusal(...a),
+}));
+
 jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
   pipelineService: {
     findById: mockFindById,
@@ -449,5 +455,42 @@ describe('PUT /pipelines/:id (update)', () => {
         proposedBy: ASK_AGENT_PROPOSER,
       });
     });
+  });
+});
+
+describe('PUT /pipelines/:id — plugin security fixes election', () => {
+  const handler = getHandler('put', '/:id');
+
+  beforeEach(() => { jest.clearAllMocks(); mockElectionRefusal.mockResolvedValue(null); });
+
+  it('403s PIPELINE_REMEDIATION_APPLY_NOT_ALLOWED when the org forbids apply, writing nothing', async () => {
+    mockFindById.mockResolvedValue({ ...existingPipeline, remediationUpgrades: 'inherit' });
+    mockElectionRefusal.mockResolvedValueOnce('Your organization does not allow pipelines to choose Apply');
+    const res = mockRes();
+    await handler(mockReq({ body: { remediationUpgrades: 'apply' }, user: { parentOrganizationId: 'root-1' } }), res);
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json.mock.calls[0][0]).toMatchObject({ code: 'PIPELINE_REMEDIATION_APPLY_NOT_ALLOWED' });
+    expect(mockElectionRefusal).toHaveBeenCalledWith('apply', 'org-1', 'root-1');
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('stores an allowed election and audits pipeline.remediation-upgrades.update with before / after', async () => {
+    mockFindById.mockResolvedValue({ ...existingPipeline, remediationUpgrades: 'inherit' });
+    mockUpdate.mockResolvedValue({ ...existingPipeline, remediationUpgrades: 'off' });
+    const res = mockRes();
+    await handler(mockReq({ body: { remediationUpgrades: 'off' } }), res);
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(mockUpdate.mock.calls[0][1]).toMatchObject({ remediationUpgrades: 'off' });
+    expect(recordAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'pipeline.remediation-upgrades.update', targetId: 'pipeline-uuid-1', details: expect.objectContaining({ before: 'inherit', after: 'off' }),
+    }));
+  });
+
+  it('an unchanged election is not re-checked or audited', async () => {
+    mockFindById.mockResolvedValue({ ...existingPipeline, remediationUpgrades: 'apply' });
+    mockUpdate.mockResolvedValue({ ...existingPipeline, remediationUpgrades: 'apply' });
+    await handler(mockReq({ body: { remediationUpgrades: 'apply' } }), mockRes());
+    expect(mockElectionRefusal).not.toHaveBeenCalled();
+    expect(recordAudit).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'pipeline.remediation-upgrades.update' }));
   });
 });

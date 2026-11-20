@@ -26,6 +26,12 @@ import { pluginService } from '../services/plugin-service.js';
  * `plugins:publish`. Dependent teardown rides the shared `onBeforePurge` hook
  * inside `purgeById`'s transaction — the machinery the retention sweep reuses.
  *
+ * After the row goes, the version's kept source (plugin-sources prefix) and its
+ * image are removed too — the plugin service's purge hook (`onAfterPurge` →
+ * services/version-purge.ts), shared with the sweep. An owner's purge is
+ * explicit, so the auto-removal protection (helpers/auto-removal.ts) does not
+ * hold it: the only version of a name can be purged here.
+ *
  * A tombstone that still carries its quota snapshot (one soft-deleted by a path
  * that didn't refund, e.g. the Toolchain console's release delete) has its
  * `plugins` slot refunded here, period-conditionally. A single or bulk delete

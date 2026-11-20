@@ -1,0 +1,485 @@
+{
+ "matches": [
+  {
+   "vulnerability": {
+    "id": "CVE-2021-3711",
+    "dataSource": "https://security.alpinelinux.org/vuln/CVE-2021-3711",
+    "namespace": "alpine:distro:alpine:3.12",
+    "severity": "Critical",
+    "urls": [],
+    "cvss": [
+     {
+      "source": "nvd@nist.gov",
+      "type": "Primary",
+      "version": "3.1",
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "metrics": {
+       "baseScore": 9.8,
+       "exploitabilityScore": 3.9,
+       "impactScore": 5.9
+      },
+      "vendorMetadata": {}
+     }
+    ],
+    "epss": [
+     {
+      "cve": "CVE-2021-3711",
+      "epss": 0.87816,
+      "percentile": 0.99765,
+      "date": "2026-11-19"
+     }
+    ],
+    "cwes": [
+     {
+      "cve": "CVE-2021-3711",
+      "cwe": "CWE-120",
+      "source": "nvd@nist.gov",
+      "type": "Primary"
+     }
+    ],
+    "fix": {
+     "versions": [
+      "1.1.1l-r0"
+     ],
+     "state": "fixed",
+     "available": [
+      {
+       "version": "1.1.1l-r0",
+       "date": "2026-02-27",
+       "kind": "first-observed"
+      }
+     ]
+    },
+    "advisories": [],
+    "risk": 82.54704000000001
+   },
+   "relatedVulnerabilities": [
+    {
+     "id": "CVE-2021-3711",
+     "dataSource": "https://nvd.nist.gov/vuln/detail/CVE-2021-3711",
+     "namespace": "nvd:cpe",
+     "severity": "Critical",
+     "urls": [
+      "http://www.openwall.com/lists/oss-security/2021/08/26/2",
+      "https://cert-portal.siemens.com/productcert/pdf/ssa-389290.pdf"
+     ],
+     "description": "In order to decrypt SM2 encrypted data an application is expected to call the API function EVP_PKEY_decrypt(). Typically an application will call this function twice. The first time, on entry, the \"out\" parameter can be NULL and, on exit, the \"outlen\" parameter is populated with the buffer size requ",
+     "cvss": [
+      {
+       "source": "nvd@nist.gov",
+       "type": "Primary",
+       "version": "3.1",
+       "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+       "metrics": {
+        "baseScore": 9.8,
+        "exploitabilityScore": 3.9,
+        "impactScore": 5.9
+       },
+       "vendorMetadata": {}
+      },
+      {
+       "source": "nvd@nist.gov",
+       "type": "Primary",
+       "version": "2.0",
+       "vector": "AV:N/AC:L/Au:N/C:P/I:P/A:P",
+       "metrics": {
+        "baseScore": 7.5,
+        "exploitabilityScore": 10,
+        "impactScore": 6.5
+       },
+       "vendorMetadata": {}
+      }
+     ],
+     "epss": [
+      {
+       "cve": "CVE-2021-3711",
+       "epss": 0.87816,
+       "percentile": 0.99765,
+       "date": "2026-11-19"
+      }
+     ],
+     "cwes": [
+      {
+       "cve": "CVE-2021-3711",
+       "cwe": "CWE-120",
+       "source": "nvd@nist.gov",
+       "type": "Primary"
+      }
+     ]
+    }
+   ],
+   "matchDetails": [
+    {
+     "type": "exact-indirect-match",
+     "matcher": "apk-matcher",
+     "searchedBy": {
+      "distro": {
+       "type": "alpine",
+       "version": "3.12.0"
+      },
+      "package": {
+       "name": "openssl",
+       "version": "1.1.1g-r0"
+      },
+      "namespace": "alpine:distro:alpine:3.12"
+     },
+     "found": {
+      "vulnerabilityID": "CVE-2021-3711",
+      "versionConstraint": "< 1.1.1l-r0 (apk)"
+     },
+     "fix": {
+      "suggestedVersion": "1.1.1l-r0"
+     }
+    }
+   ],
+   "artifact": {
+    "id": "Package-apk-libcrypto1.1-4bb02762320c002e",
+    "name": "libcrypto1.1",
+    "version": "1.1.1g-r0",
+    "type": "apk",
+    "locations": null,
+    "language": "",
+    "licenses": [
+     "OpenSSL"
+    ],
+    "cpes": [
+     "cpe:2.3:a:libcrypto1.1:libcrypto1.1:1.1.1g-r0:*:*:*:*:*:*:*",
+     "cpe:2.3:a:libcrypto1.1:libcrypto:1.1.1g-r0:*:*:*:*:*:*:*",
+     "cpe:2.3:a:libcrypto:libcrypto1.1:1.1.1g-r0:*:*:*:*:*:*:*",
+     "cpe:2.3:a:libcrypto:libcrypto:1.1.1g-r0:*:*:*:*:*:*:*"
+    ],
+    "purl": "pkg:apk/alpine/libcrypto1.1@1.1.1g-r0?arch=aarch64&distro=alpine-3.12.0&upstream=openssl",
+    "upstreams": [
+     {
+      "name": "openssl"
+     }
+    ],
+    "metadataType": "ApkMetadata",
+    "metadata": {
+     "files": [],
+     "Arch": "aarch64"
+    }
+   }
+  },
+  {
+   "vulnerability": {
+    "id": "CVE-2021-3711",
+    "dataSource": "https://security.alpinelinux.org/vuln/CVE-2021-3711",
+    "namespace": "alpine:distro:alpine:3.12",
+    "severity": "Critical",
+    "urls": [],
+    "cvss": [
+     {
+      "source": "nvd@nist.gov",
+      "type": "Primary",
+      "version": "3.1",
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "metrics": {
+       "baseScore": 9.8,
+       "exploitabilityScore": 3.9,
+       "impactScore": 5.9
+      },
+      "vendorMetadata": {}
+     }
+    ],
+    "epss": [
+     {
+      "cve": "CVE-2021-3711",
+      "epss": 0.87816,
+      "percentile": 0.99765,
+      "date": "2026-11-19"
+     }
+    ],
+    "cwes": [
+     {
+      "cve": "CVE-2021-3711",
+      "cwe": "CWE-120",
+      "source": "nvd@nist.gov",
+      "type": "Primary"
+     }
+    ],
+    "fix": {
+     "versions": [
+      "1.1.1l-r0"
+     ],
+     "state": "fixed",
+     "available": [
+      {
+       "version": "1.1.1l-r0",
+       "date": "2026-02-27",
+       "kind": "first-observed"
+      }
+     ]
+    },
+    "advisories": [],
+    "risk": 82.54704000000001
+   },
+   "relatedVulnerabilities": [
+    {
+     "id": "CVE-2021-3711",
+     "dataSource": "https://nvd.nist.gov/vuln/detail/CVE-2021-3711",
+     "namespace": "nvd:cpe",
+     "severity": "Critical",
+     "urls": [
+      "http://www.openwall.com/lists/oss-security/2021/08/26/2",
+      "https://cert-portal.siemens.com/productcert/pdf/ssa-389290.pdf"
+     ],
+     "description": "In order to decrypt SM2 encrypted data an application is expected to call the API function EVP_PKEY_decrypt(). Typically an application will call this function twice. The first time, on entry, the \"out\" parameter can be NULL and, on exit, the \"outlen\" parameter is populated with the buffer size requ",
+     "cvss": [
+      {
+       "source": "nvd@nist.gov",
+       "type": "Primary",
+       "version": "3.1",
+       "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+       "metrics": {
+        "baseScore": 9.8,
+        "exploitabilityScore": 3.9,
+        "impactScore": 5.9
+       },
+       "vendorMetadata": {}
+      },
+      {
+       "source": "nvd@nist.gov",
+       "type": "Primary",
+       "version": "2.0",
+       "vector": "AV:N/AC:L/Au:N/C:P/I:P/A:P",
+       "metrics": {
+        "baseScore": 7.5,
+        "exploitabilityScore": 10,
+        "impactScore": 6.5
+       },
+       "vendorMetadata": {}
+      }
+     ],
+     "epss": [
+      {
+       "cve": "CVE-2021-3711",
+       "epss": 0.87816,
+       "percentile": 0.99765,
+       "date": "2026-11-19"
+      }
+     ],
+     "cwes": [
+      {
+       "cve": "CVE-2021-3711",
+       "cwe": "CWE-120",
+       "source": "nvd@nist.gov",
+       "type": "Primary"
+      }
+     ]
+    }
+   ],
+   "matchDetails": [
+    {
+     "type": "exact-indirect-match",
+     "matcher": "apk-matcher",
+     "searchedBy": {
+      "distro": {
+       "type": "alpine",
+       "version": "3.12.0"
+      },
+      "package": {
+       "name": "openssl",
+       "version": "1.1.1g-r0"
+      },
+      "namespace": "alpine:distro:alpine:3.12"
+     },
+     "found": {
+      "vulnerabilityID": "CVE-2021-3711",
+      "versionConstraint": "< 1.1.1l-r0 (apk)"
+     },
+     "fix": {
+      "suggestedVersion": "1.1.1l-r0"
+     }
+    }
+   ],
+   "artifact": {
+    "id": "Package-apk-libssl1.1-170263539efdccdf",
+    "name": "libssl1.1",
+    "version": "1.1.1g-r0",
+    "type": "apk",
+    "locations": null,
+    "language": "",
+    "licenses": [
+     "OpenSSL"
+    ],
+    "cpes": [
+     "cpe:2.3:a:libssl1.1:libssl1.1:1.1.1g-r0:*:*:*:*:*:*:*",
+     "cpe:2.3:a:libssl1.1:libssl:1.1.1g-r0:*:*:*:*:*:*:*",
+     "cpe:2.3:a:libssl:libssl1.1:1.1.1g-r0:*:*:*:*:*:*:*",
+     "cpe:2.3:a:libssl:libssl:1.1.1g-r0:*:*:*:*:*:*:*"
+    ],
+    "purl": "pkg:apk/alpine/libssl1.1@1.1.1g-r0?arch=aarch64&distro=alpine-3.12.0&upstream=openssl",
+    "upstreams": [
+     {
+      "name": "openssl"
+     }
+    ],
+    "metadataType": "ApkMetadata",
+    "metadata": {
+     "files": [],
+     "Arch": "aarch64"
+    }
+   }
+  },
+  {
+   "vulnerability": {
+    "id": "CVE-2022-2068",
+    "dataSource": "https://nvd.nist.gov/vuln/detail/CVE-2022-2068",
+    "namespace": "nvd:cpe",
+    "severity": "High",
+    "urls": [
+     "https://cert-portal.siemens.com/productcert/pdf/ssa-332410.pdf",
+     "https://git.openssl.org/gitweb/?p=openssl.git%3Ba=commitdiff%3Bh=2c9c35870601b4a44d86ddbf512b38df38285cfa"
+    ],
+    "description": "In addition to the c_rehash shell command injection identified in CVE-2022-1292, further circumstances where the c_rehash script does not properly sanitise shell metacharacters to prevent command injection were found by code review. When the CVE-2022-1292 was fixed it was not discovered that there a",
+    "cvss": [
+     {
+      "source": "nvd@nist.gov",
+      "type": "Primary",
+      "version": "3.1",
+      "vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:R/S:U/C:H/I:H/A:H",
+      "metrics": {
+       "baseScore": 7.3,
+       "exploitabilityScore": 1.4,
+       "impactScore": 5.9
+      },
+      "vendorMetadata": {}
+     },
+     {
+      "source": "nvd@nist.gov",
+      "type": "Primary",
+      "version": "2.0",
+      "vector": "AV:N/AC:L/Au:N/C:C/I:C/A:C",
+      "metrics": {
+       "baseScore": 10,
+       "exploitabilityScore": 10,
+       "impactScore": 10.1
+      },
+      "vendorMetadata": {}
+     },
+     {
+      "source": "134c704f-9b21-4f2e-91b3-4a467353bcc0",
+      "type": "Secondary",
+      "version": "3.1",
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "metrics": {
+       "baseScore": 9.8,
+       "exploitabilityScore": 3.9,
+       "impactScore": 5.9
+      },
+      "vendorMetadata": {}
+     }
+    ],
+    "epss": [
+     {
+      "cve": "CVE-2022-2068",
+      "epss": 0.96391,
+      "percentile": 0.99881,
+      "date": "2026-11-19"
+     }
+    ],
+    "cwes": [
+     {
+      "cve": "CVE-2022-2068",
+      "cwe": "CWE-78",
+      "source": "nvd@nist.gov",
+      "type": "Primary"
+     },
+     {
+      "cve": "CVE-2022-2068",
+      "cwe": "CWE-78",
+      "source": "134c704f-9b21-4f2e-91b3-4a467353bcc0",
+      "type": "Secondary"
+     }
+    ],
+    "fix": {
+     "versions": [],
+     "state": "unknown"
+    },
+    "advisories": [],
+    "risk": 79.68322666666667
+   },
+   "relatedVulnerabilities": [],
+   "matchDetails": [
+    {
+     "type": "cpe-match",
+     "matcher": "apk-matcher",
+     "searchedBy": {
+      "namespace": "nvd:cpe",
+      "cpes": [
+       "cpe:2.3:a:openssl:openssl:1.1.1g:*:*:*:*:*:*:*"
+      ],
+      "package": {
+       "name": "openssl",
+       "version": "1.1.1g-r0"
+      }
+     },
+     "found": {
+      "vulnerabilityID": "CVE-2022-2068",
+      "versionConstraint": ">= 1.0.2, < 1.0.2zf||>= 1.1.1, < 1.1.1p||>= 3.0.0, < 3.0.4 (unknown)",
+      "cpes": [
+       "cpe:2.3:a:openssl:openssl:*:*:*:*:*:*:*:*"
+      ]
+     }
+    }
+   ],
+   "artifact": {
+    "id": "Package-apk-libcrypto1.1-4bb02762320c002e",
+    "name": "libcrypto1.1",
+    "version": "1.1.1g-r0",
+    "type": "apk",
+    "locations": null,
+    "language": "",
+    "licenses": [
+     "OpenSSL"
+    ],
+    "cpes": [
+     "cpe:2.3:a:libcrypto1.1:libcrypto1.1:1.1.1g-r0:*:*:*:*:*:*:*",
+     "cpe:2.3:a:libcrypto1.1:libcrypto:1.1.1g-r0:*:*:*:*:*:*:*",
+     "cpe:2.3:a:libcrypto:libcrypto1.1:1.1.1g-r0:*:*:*:*:*:*:*",
+     "cpe:2.3:a:libcrypto:libcrypto:1.1.1g-r0:*:*:*:*:*:*:*"
+    ],
+    "purl": "pkg:apk/alpine/libcrypto1.1@1.1.1g-r0?arch=aarch64&distro=alpine-3.12.0&upstream=openssl",
+    "upstreams": [
+     {
+      "name": "openssl"
+     }
+    ],
+    "metadataType": "ApkMetadata",
+    "metadata": {
+     "files": [],
+     "Arch": "aarch64"
+    }
+   }
+  }
+ ],
+ "source": {
+  "type": "image",
+  "target": {
+   "userInput": "/w/alpine_3.12.0.tar:sha256:24375ad67f9c712bad9ee2712b46ed8a4ef12852ee2c8c30db75638332affc59",
+   "imageID": "DocumentRoot-Image--w-alpine-3.12.0.tar",
+   "manifestDigest": "sha256:24375ad67f9c712bad9ee2712b46ed8a4ef12852ee2c8c30db75638332affc59",
+   "mediaType": "",
+   "tags": [],
+   "imageSize": 0,
+   "layers": null,
+   "manifest": null,
+   "config": null,
+   "repoDigests": [],
+   "architecture": "",
+   "os": ""
+  }
+ },
+ "distro": {
+  "name": "alpine",
+  "version": "3.12.0",
+  "idLike": [
+   "alpine"
+  ]
+ },
+ "descriptor": {
+  "name": "grype",
+  "version": "0.121.1"
+ }
+}

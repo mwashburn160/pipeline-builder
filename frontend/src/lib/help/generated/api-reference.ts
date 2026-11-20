@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 9a32713b3c832857128a88b651c68ff8859a186216b3eb4428287e394a16ab8a
+// SOURCE-SHA256: d427a7aa2e7fe554ce5b59cdc3c138423627e629a127fda50ef76a4928776760
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -2031,7 +2031,7 @@ export const apiReferenceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "63 routes, from frontend/src/generated/route-table/pipeline.json."
+          "content": "66 routes, from frontend/src/generated/route-table/pipeline.json."
         },
         {
           "type": "table",
@@ -2139,7 +2139,7 @@ export const apiReferenceTopic: HelpTopic = {
               "/pipelines/:id",
               "pipelines:write",
               "apiCalls",
-              "pipeline.update"
+              "pipeline.update, pipeline.remediation-upgrades.update"
             ],
             [
               "POST",
@@ -2154,6 +2154,27 @@ export const apiReferenceTopic: HelpTopic = {
               "pipelines:write; step-up",
               "apiCalls",
               "pipeline.purge"
+            ],
+            [
+              "GET",
+              "/pipelines/:id/remediation-upgrades",
+              "pipelines:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/pipelines/:id/remediation-upgrades/:upgradeId/apply",
+              "pipelines:write",
+              "apiCalls",
+              "pipeline.plugin.upgraded"
+            ],
+            [
+              "POST",
+              "/pipelines/:id/remediation-upgrades/:upgradeId/dismiss",
+              "pipelines:write",
+              "apiCalls",
+              "—"
             ],
             [
               "POST",
@@ -2286,7 +2307,7 @@ export const apiReferenceTopic: HelpTopic = {
               "/pipelines/bulk/update",
               "pipelines:write; feature bulk_operations",
               "apiCalls",
-              "pipeline.update"
+              "pipeline.update, pipeline.remediation-upgrades.update"
             ],
             [
               "GET",
@@ -2492,7 +2513,7 @@ export const apiReferenceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "155 routes, from frontend/src/generated/route-table/plugin.json."
+          "content": "169 routes, from frontend/src/generated/route-table/plugin.json."
         },
         {
           "type": "table",
@@ -2615,6 +2636,41 @@ export const apiReferenceTopic: HelpTopic = {
               "plugins:write; feature bulk_operations",
               "apiCalls",
               "plugin.bulk.update"
+            ],
+            [
+              "DELETE",
+              "/plugins/by-name/:name",
+              "plugins:write; step-up",
+              "apiCalls",
+              "plugin.delete-all"
+            ],
+            [
+              "GET",
+              "/plugins/by-name/:name/delete-preview",
+              "plugins:write",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/plugins/by-name/:name/purge",
+              "plugins:write; step-up",
+              "apiCalls",
+              "plugin.purge-all"
+            ],
+            [
+              "PUT",
+              "/plugins/by-name/:name/remediation-level",
+              "plugins:write",
+              "apiCalls",
+              "plugin.remediation_level.update"
+            ],
+            [
+              "POST",
+              "/plugins/by-name/:name/restore",
+              "plugins:write; step-up",
+              "apiCalls",
+              "plugin.restore-all"
             ],
             [
               "GET",
@@ -3238,6 +3294,69 @@ export const apiReferenceTopic: HelpTopic = {
               "decided per request",
               "apiCalls",
               "—"
+            ],
+            [
+              "GET",
+              "/plugins/remediation-settings",
+              "plugins:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "PUT",
+              "/plugins/remediation-settings",
+              "org_settings:write",
+              "apiCalls",
+              "plugin.remediation_settings.update"
+            ],
+            [
+              "GET",
+              "/plugins/remediations",
+              "plugins:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "GET",
+              "/plugins/remediations/:id",
+              "plugins:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/plugins/remediations/:id/approve",
+              "plugins:write; step-up",
+              "apiCalls",
+              "plugin.remediation.approved"
+            ],
+            [
+              "GET",
+              "/plugins/remediations/:id/export",
+              "system org; plugins:write",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "GET",
+              "/plugins/remediations/:id/patch",
+              "plugins:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/plugins/remediations/:id/reject",
+              "plugins:write; step-up",
+              "apiCalls",
+              "plugin.remediation.rejected"
+            ],
+            [
+              "POST",
+              "/plugins/remediations/:id/retry",
+              "plugins:write",
+              "apiCalls",
+              "plugin.remediation.retried, plugin.remediation.started"
             ],
             [
               "GET",

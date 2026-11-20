@@ -1,0 +1,178 @@
+{
+ "matches": [
+  {
+   "vulnerability": {
+    "id": "GHSA-43w2-9j62-hq99",
+    "dataSource": "https://github.com/advisories/GHSA-43w2-9j62-hq99",
+    "namespace": "github:language:rust",
+    "severity": "Critical",
+    "urls": [
+     "https://nvd.nist.gov/vuln/detail/CVE-2021-25900",
+     "https://rustsec.org/advisories/RUSTSEC-2021-0003.html"
+    ],
+    "description": "Buffer overflow in SmallVec::insert_many",
+    "cvss": [
+     {
+      "type": "Secondary",
+      "version": "3.1",
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "metrics": {
+       "baseScore": 9.8,
+       "exploitabilityScore": 3.9,
+       "impactScore": 5.9
+      },
+      "vendorMetadata": {}
+     }
+    ],
+    "epss": [
+     {
+      "cve": "CVE-2021-25900",
+      "epss": 0.0172,
+      "percentile": 0.77966,
+      "date": "2026-11-19"
+     }
+    ],
+    "cwes": [
+     {
+      "cve": "CVE-2021-25900",
+      "cwe": "CWE-787",
+      "source": "nvd@nist.gov",
+      "type": "Primary"
+     }
+    ],
+    "fix": {
+     "versions": [
+      "1.6.1"
+     ],
+     "state": "fixed",
+     "available": [
+      {
+       "version": "1.6.1",
+       "date": "2022-06-24",
+       "kind": "first-observed"
+      }
+     ]
+    },
+    "advisories": [],
+    "risk": 1.6168000000000002
+   },
+   "relatedVulnerabilities": [
+    {
+     "id": "CVE-2021-25900",
+     "dataSource": "https://nvd.nist.gov/vuln/detail/CVE-2021-25900",
+     "namespace": "nvd:cpe",
+     "severity": "Critical",
+     "urls": [
+      "https://rustsec.org/advisories/RUSTSEC-2021-0003.html"
+     ],
+     "description": "An issue was discovered in the smallvec crate before 0.6.14 and 1.x before 1.6.1 for Rust. There is a heap-based buffer overflow in SmallVec::insert_many.",
+     "cvss": [
+      {
+       "source": "nvd@nist.gov",
+       "type": "Primary",
+       "version": "3.1",
+       "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+       "metrics": {
+        "baseScore": 9.8,
+        "exploitabilityScore": 3.9,
+        "impactScore": 5.9
+       },
+       "vendorMetadata": {}
+      },
+      {
+       "source": "nvd@nist.gov",
+       "type": "Primary",
+       "version": "2.0",
+       "vector": "AV:N/AC:L/Au:N/C:P/I:P/A:P",
+       "metrics": {
+        "baseScore": 7.5,
+        "exploitabilityScore": 10,
+        "impactScore": 6.5
+       },
+       "vendorMetadata": {}
+      }
+     ],
+     "epss": [
+      {
+       "cve": "CVE-2021-25900",
+       "epss": 0.0172,
+       "percentile": 0.77966,
+       "date": "2026-11-19"
+      }
+     ],
+     "cwes": [
+      {
+       "cve": "CVE-2021-25900",
+       "cwe": "CWE-787",
+       "source": "nvd@nist.gov",
+       "type": "Primary"
+      }
+     ]
+    }
+   ],
+   "matchDetails": [
+    {
+     "type": "exact-direct-match",
+     "matcher": "rust-matcher",
+     "searchedBy": {
+      "language": "rust",
+      "namespace": "github:language:rust",
+      "package": {
+       "name": "smallvec",
+       "version": "1.6.0"
+      }
+     },
+     "found": {
+      "vulnerabilityID": "GHSA-43w2-9j62-hq99",
+      "versionConstraint": ">=1.0.0,<1.6.1 (unknown)"
+     },
+     "fix": {
+      "suggestedVersion": "1.6.1"
+     }
+    }
+   ],
+   "artifact": {
+    "id": "Package-rust-crate-smallvec-c2bbe7d37fc99d9a",
+    "name": "smallvec",
+    "version": "1.6.0",
+    "type": "rust-crate",
+    "locations": null,
+    "language": "rust",
+    "licenses": [],
+    "cpes": [
+     "cpe:2.3:a:servo:smallvec:1.6.0:*:*:*:*:rust:*:*"
+    ],
+    "purl": "pkg:cargo/smallvec@1.6.0",
+    "upstreams": []
+   }
+  }
+ ],
+ "source": {
+  "type": "image",
+  "target": {
+   "userInput": "/w/fixture.tar:sha256:e83e2fb0b007d2a3eb104b5d08b1f354e59748e4445ccd0166ca4f48b9168df9",
+   "imageID": "DocumentRoot-Image--w-fixture.tar",
+   "manifestDigest": "sha256:e83e2fb0b007d2a3eb104b5d08b1f354e59748e4445ccd0166ca4f48b9168df9",
+   "mediaType": "",
+   "tags": [],
+   "imageSize": 0,
+   "layers": null,
+   "manifest": null,
+   "config": null,
+   "repoDigests": [],
+   "architecture": "",
+   "os": ""
+  }
+ },
+ "distro": {
+  "name": "debian",
+  "version": "11.0",
+  "idLike": [
+   "debian"
+  ]
+ },
+ "descriptor": {
+  "name": "grype",
+  "version": "0.121.1"
+ }
+}

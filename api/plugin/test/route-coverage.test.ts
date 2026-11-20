@@ -43,6 +43,12 @@ const EXCEPTIONS: RouteCoverageException[] = [
   ...INFRA_ROUTE_EXCEPTIONS,
   {
     method: 'POST',
+    path: '/internal/plugins/remediations/:remediationId/rollout',
+    waive: 'audit',
+    reason: 'The pipeline service\'s rollout progress report: stores the summary and sends N37/N38. Each rollback it reports is audited by the pipeline service itself (plugin.remediation.rolled_back), which made the move.',
+  },
+  {
+    method: 'POST',
     path: '/plugins/lookup',
     waive: 'audit',
     reason: 'Read-only single-plugin lookup that takes its filter from the body (gated on plugins:read); persists nothing.',
@@ -87,6 +93,8 @@ const EXCEPTIONS: RouteCoverageException[] = [
  * in both directions (and mirrored by the Istio `plugin-allow` policy).
  */
 const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
+  // pipeline: progress of a remediation rollout (Stage 3 is the pipeline service's).
+  { method: 'POST', path: '/internal/plugins/remediations/:remediationId/rollout', callers: ['pipeline'] },
   // image-registry: which of an org's plugins its teams may pull.
   { method: 'GET', path: '/internal/plugins/public-names', callers: ['image-registry'] },
   // image-registry's age GC: the digests an org's namespace still needs.

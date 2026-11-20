@@ -90,7 +90,7 @@ jest.unstable_mockModule('../src/services/session/membership-context.js', () => 
   membershipForOrg: (...a: unknown[]) => mockMembership(...a),
 }));
 
-const { getReportAuthority, getRecipientCheck, getAccessPosture, getReportReaders, REPORT_READERS_CAP, REPORT_PERMISSIONS } = await import('../src/controllers/reporting-internal.js');
+const { getReportAuthority, getRecipientCheck, getAccessPosture, getReportReaders, getReportOrgEntitlement, REPORT_READERS_CAP, REPORT_PERMISSIONS } = await import('../src/controllers/reporting-internal.js');
 const { ALL_PERMISSIONS } = await import('@pipeline-builder/api-core');
 
 function mockRes() {
@@ -462,5 +462,76 @@ describe('GET /internal/reporting/report-readers/:orgId', () => {
     const res = await call('not-an-org', svc('not-an-org'));
     expect(res.status).toHaveBeenCalledWith(400);
     expect(mockMemberFind).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /internal/reporting/org-entitlement/:orgId', () => {
+  const call = (orgId: string = ORG) => {
+    const res = mockRes();
+    return (getReportOrgEntitlement as any)({ params: { orgId }, query: {}, headers: {} }, res).then(() => res);
+  };
+  /** userId -> what membershipForOrg resolves (undefined = no live membership). */
+  const members = new Map<string, { role: string; featureEntitlements: string[] } | undefined>();
+
+  beforeEach(() => {
+    members.clear();
+    mockMemberFind.mockImplementation(() => [...members.keys()].map((userId) => ({ userId })));
+    mockUserFind.mockImplementation(() => [...members.keys()].map((id) => ({ _id: id, isSuperAdmin: false })));
+    mockMembership.mockImplementation(async (userId: unknown) => {
+      const m = members.get(String(userId));
+      return m ? { organizationId: ORG, tier: 'team', rolePermissions: [], ...m } : undefined;
+    });
+  });
+
+  it('is entitled when an active admin or owner resolves stakeholder_reports', async () => {
+    members.set('u-admin', { role: 'admin', featureEntitlements: ['stakeholder_reports'] });
+    const res = await call();
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(data(res)).toEqual({ entitled: true });
+  });
+
+  it('asks only ACTIVE owner/admin memberships of the path org', async () => {
+    members.set('u-owner', { role: 'owner', featureEntitlements: ['stakeholder_reports'] });
+    await call(ORG.toUpperCase());
+    expect(mockMemberFind).toHaveBeenCalledWith(expect.objectContaining({ isActive: true, role: { $in: ['owner', 'admin'] } }));
+    expect(mockMembership).toHaveBeenCalledWith('u-owner', ORG);
+  });
+
+  it('is not entitled when the account lapsed, or no admin membership still resolves', async () => {
+    members.set('u-admin', { role: 'admin', featureEntitlements: [] });
+    members.set('u-gone', undefined);
+    expect(data(await call())).toEqual({ entitled: false });
+    members.clear();
+    expect(data(await call())).toEqual({ entitled: false });
+  });
+
+  it('a row whose resolved role is no longer admin does not qualify', async () => {
+    members.set('u-demoted', { role: 'member', featureEntitlements: ['stakeholder_reports'] });
+    expect(data(await call())).toEqual({ entitled: false });
+  });
+
+  it('a superadmin admin does not make a lapsed account look entitled', async () => {
+    members.set('u-root', { role: 'admin', featureEntitlements: [] });
+    mockUserFind.mockImplementation(() => [{ _id: 'u-root', isSuperAdmin: true }]);
+    expect(data(await call())).toEqual({ entitled: false });
+  });
+
+  it('a membership row whose account no longer exists does not qualify', async () => {
+    members.set('u-deleted', { role: 'admin', featureEntitlements: ['stakeholder_reports'] });
+    mockUserFind.mockImplementation(() => []);
+    expect(data(await call())).toEqual({ entitled: false });
+  });
+
+  it('refuses a malformed org id before any read', async () => {
+    const res = await call('not-an-org');
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockMemberFind).not.toHaveBeenCalled();
+  });
+
+  it('answers a boolean only: no user id, role or feature list', async () => {
+    members.set('u-admin', { role: 'admin', featureEntitlements: ['stakeholder_reports', 'advanced_reporting'] });
+    const res = await call();
+    expect(Object.keys(data(res))).toEqual(['entitled']);
+    expect(JSON.stringify(body(res))).not.toContain('u-admin');
   });
 });

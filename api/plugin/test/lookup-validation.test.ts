@@ -48,6 +48,11 @@ jest.unstable_mockModule('../src/helpers/supply-chain.js', () => ({
   verifyImageSignature: mockVerify,
   fetchImageSbom: mockFetchSbom,
   ImageVerificationError,
+  // vuln-scan validates the digest it reads an SBOM for with the real pattern.
+  DIGEST_RE: /^sha256:[0-9a-f]{64}$/,
+  SUPPLY_CHAIN_STEPS: [],
+  attachSupplyChain: jest.fn(),
+  discardPluginImage: jest.fn(),
 }));
 
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({

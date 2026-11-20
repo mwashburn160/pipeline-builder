@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Grouped audit-log quick filters ("Ecosystem", "Moderation").
+ * Grouped audit-log quick filters ("Ecosystem", "Moderation", "Remediation").
  *
  * A group is sent to `GET /audit` as one `actions=` list — each entry a prefix
  * (ends with `.`) or an exact action, matched anchored on the server
@@ -10,7 +10,7 @@
  * with the server's own pagination and total.
  */
 
-export type AuditQuickFilterKey = 'ecosystem' | 'moderation';
+export type AuditQuickFilterKey = 'ecosystem' | 'moderation' | 'remediation';
 
 export interface AuditQuickFilter {
   key: AuditQuickFilterKey;
@@ -53,10 +53,24 @@ export const AUDIT_QUICK_FILTERS: Readonly<Record<AuditQuickFilterKey, AuditQuic
       'ecosystem.',
     ],
   },
+  remediation: {
+    key: 'remediation',
+    label: 'Remediation',
+    title: 'Nightly plugin CVE fixes (started, published, approved, rejected, rolled back), their settings, pipeline elections, and whole-plugin delete / restore / purge',
+    patterns: [
+      'plugin.remediation.',
+      'plugin.remediation_level.update',
+      'plugin.remediation_settings.update',
+      'pipeline.remediation-upgrades.update',
+      'plugin.delete-all',
+      'plugin.restore-all',
+      'plugin.purge-all',
+    ],
+  },
 };
 
 export function isAuditQuickFilterKey(v: string | undefined): v is AuditQuickFilterKey {
-  return v === 'ecosystem' || v === 'moderation';
+  return v === 'ecosystem' || v === 'moderation' || v === 'remediation';
 }
 
 /** The `actions` query value for a group. */

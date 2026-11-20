@@ -140,6 +140,18 @@ describe('AuditPage — ecosystem / moderation quick filters', () => {
     ]);
   });
 
+  it('offers a Remediation chip that asks for the remediation and whole-plugin delete actions', async () => {
+    render(<AuditPage />);
+    const chip = await screen.findByRole('button', { name: /^remediation$/i });
+    fireEvent.click(chip);
+    expect(chip).toHaveAttribute('aria-pressed', 'true');
+    await waitFor(() => {
+      const last = listAuditEvents.mock.calls[listAuditEvents.mock.calls.length - 1][0] as { actions?: string };
+      expect(last.actions).toBe('plugin.remediation.,plugin.remediation_level.update,plugin.remediation_settings.update,'
+        + 'pipeline.remediation-upgrades.update,plugin.delete-all,plugin.restore-all,plugin.purge-all');
+    });
+  });
+
   it('is mutually exclusive with the denied-attempts chip and syncs to the URL', async () => {
     render(<AuditPage />);
     const moderation = await screen.findByRole('button', { name: /^moderation$/i });

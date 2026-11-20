@@ -112,7 +112,7 @@ log_info() { echo -e "${BLUE}==>${NC} $1"; }
 # CronJob must create/mirror the same set (deploy contract test). A bucket
 # missing here is silently left out of backups.
 # shellcheck disable=SC2034
-PB_OBJECTSTORE_BUCKETS="message-attachments registry loki thanos plugins plugin-quarantine audit-heads"
+PB_OBJECTSTORE_BUCKETS="message-attachments registry loki thanos plugins plugin-quarantine plugin-sources audit-heads"
 
 # THE Kubernetes version for the minikube-backed targets (local/minikube and
 # aws/ec2). Both the cluster (`minikube start --kubernetes-version`) and the

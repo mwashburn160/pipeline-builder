@@ -243,7 +243,7 @@ spec:
                   secret_access_key = $S3_BACKUP_TARGET_SECRET_KEY
                   endpoint = $S3_BACKUP_TARGET_URL
                   RCLONECONF
-                    for b in ${OBJECTSTORE_BUCKETS:-message-attachments registry loki thanos plugins plugin-quarantine audit-heads}; do
+                    for b in ${OBJECTSTORE_BUCKETS:-message-attachments registry loki thanos plugins plugin-quarantine plugin-sources audit-heads}; do
                       echo "mirror $b"
                       rclone --config "$RCLONE_CONF" copy --quiet "pbsrc:$b" "pbdst:${S3_BACKUP_TARGET_BUCKET:-$BACKUP_BUCKET}/minio/$ENV_NAME/$b"
                     done

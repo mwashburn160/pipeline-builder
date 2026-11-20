@@ -50,6 +50,9 @@ const MUST_BE_DROPPED: Record<string, string> = {
   GRAFANA_ADMIN_PASSWORD: 'Grafana reads Prometheus with no org scoping',
   KIALI_SIGNING_KEY: 'mesh console session signing',
   GHCR_TOKEN: 'registry push',
+  PLUGIN_S3_ACCESS_KEY_ID: 'the plugin service\'s RustFS user: read and delete on every org\'s kept plugin build sources (plugin-sources) and staged uploads',
+  PLUGIN_S3_SECRET_ACCESS_KEY: 'same plugin RustFS user',
+  RUSTFS_SSE_S3_MASTER_KEY: 'the at-rest key plugin-sources is encrypted under; only the RustFS server reads it',
 };
 
 /** Keys an application pod legitimately needs, as a guard against over-dropping. */

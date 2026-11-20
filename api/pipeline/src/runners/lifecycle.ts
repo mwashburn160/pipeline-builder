@@ -62,11 +62,15 @@ export async function finishRequest(
   status: TerminalRunRequestStatus,
   extra: { executionId?: string; errorCode?: string } = {},
 ): Promise<RunRequestRow | null> {
+  // A start/stop the runner accepted records WHEN, so the Delivery report can
+  // measure requested → accepted exactly instead of estimating it.
+  const accepted = (request.action === 'start' && status === 'started') || (request.action === 'stop' && status === 'stopped');
   const row = await deps.store.updateRequest(request.id, {
     status,
     resultExecutionId: extra.executionId ?? null,
     errorCode: extra.errorCode ?? null,
     nextAttemptAt: null,
+    ...(accepted ? { acceptedAt: new Date(deps.now()) } : {}),
   }, PENDING_STATUSES);
   if (!row) return null;
   deps.metrics.inc('pipeline_runner_requests_total', { status });

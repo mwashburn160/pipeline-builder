@@ -23,6 +23,7 @@ import { BuildCapacityCard } from './BuildCapacityCard';
 import { CrossoverCard } from './CrossoverCard';
 import { useSalesContext } from '@/hooks/useSalesContext';
 import { StorageReclaimCard } from './StorageReclaimCard';
+import { RemediationCapCard } from './RemediationCapCard';
 
 /** One at-risk quota dimension for the caller's own org (from `getOrgAtRisk`). */
 export interface AtRiskDimension {
@@ -211,6 +212,8 @@ export function QuotasReadOnly({
                 above says what is left to spend, this says how much can run at
                 once and how big a machine the plan may ask for. */}
             <BuildCapacityCard tier={tier} />
+            {/* Remediation builds are credit-free but capped per day. */}
+            <RemediationCapCard />
           </div>
         ) : null}
         {!loading && orgData && !orgData.isDefault && (

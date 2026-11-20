@@ -1203,8 +1203,10 @@ services:
       # + bucket-scoped creds (provisioned by rustfs-init).
       S3_ENDPOINT: ${S3_ENDPOINT:-http://rustfs:9000}
       S3_BUCKET: ${PLUGIN_S3_BUCKET:-plugins}
-      S3_ACCESS_KEY_ID: ${PLUGIN_S3_ACCESS_KEY}
-      S3_SECRET_ACCESS_KEY: ${PLUGIN_S3_SECRET_KEY}
+      # The plugin service's OWN RustFS user (rustfs-init: plugins,
+      # plugin-quarantine and plugin-sources only), never the shared key.
+      S3_ACCESS_KEY_ID: ${PLUGIN_S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${PLUGIN_S3_SECRET_ACCESS_KEY}
       S3_FORCE_PATH_STYLE: 'true'
       TMPDIR: /tmp
       # Public key pushed plugin images are verified against (`cosign verify`).
@@ -1272,6 +1274,15 @@ services:
       PLUGIN_BUILDKIT_ADDR_SIZE_4X: ${PLUGIN_BUILDKIT_ADDR_SIZE_4X:-}
       PLUGIN_BUILDKIT_ADDR_SIZE_8X: ${PLUGIN_BUILDKIT_ADDR_SIZE_8X:-}
       PLUGIN_QUARANTINE_BUCKET: ${PLUGIN_QUARANTINE_BUCKET:-plugin-quarantine}
+      # Nightly CVE remediation (docs/plugin-publishing.md#automatic-remediation).
+      # Only the literal `false` turns it off. Kept build sources live in their
+      # own bucket (same scoped credentials as S3_BUCKET).
+      PLUGIN_REMEDIATION_ENABLED: ${PLUGIN_REMEDIATION_ENABLED:-true}
+      PLUGIN_REMEDIATION_SEVERITIES: ${PLUGIN_REMEDIATION_SEVERITIES:-critical,high}
+      PLUGIN_REMEDIATION_CONCURRENCY: ${PLUGIN_REMEDIATION_CONCURRENCY:-2}
+      PLUGIN_REMEDIATION_BASE_CONCURRENCY: ${PLUGIN_REMEDIATION_BASE_CONCURRENCY:-4}
+      PLUGIN_REMEDIATION_MAX_PER_ORG_PER_DAY: ${PLUGIN_REMEDIATION_MAX_PER_ORG_PER_DAY:-20}
+      PLUGIN_SOURCES_BUCKET: ${PLUGIN_SOURCES_BUCKET:-plugin-sources}
       SUBMISSION_POW_SECRET: ${SUBMISSION_POW_SECRET:-}
       SUBMISSION_POW_DIFFICULTY: ${SUBMISSION_POW_DIFFICULTY:-20}
       SUBMISSION_EMAIL_HASH_SECRET: ${SUBMISSION_EMAIL_HASH_SECRET:-}
@@ -1466,6 +1477,10 @@ services:
       COMPLIANCE_BYPASS: ${COMPLIANCE_BYPASS:-false}
       PLUGIN_SERVICE_HOST: ${PLUGIN_SERVICE_HOST:-plugin}
       PLUGIN_SERVICE_PORT: ${PLUGIN_SERVICE_PORT:-3000}
+      # Nightly CVE remediation's Stage 3 rollout worker (pipeline owns the
+      # waves): it does nothing when this is the literal `false`, the same
+      # operator switch the plugin service reads.
+      PLUGIN_REMEDIATION_ENABLED: ${PLUGIN_REMEDIATION_ENABLED:-true}
       # Pipeline runners, the only execution path. Every run request is signed
       # with the runner owner's per-org Ed25519 key, kept in Postgres encrypted
       # under SECRET_ENCRYPTION_KEY (common-env) or the org's own KMS key when
@@ -2263,6 +2278,10 @@ services:
     environment:
       RUSTFS_ACCESS_KEY: ${RUSTFS_ROOT_ACCESS_KEY}
       RUSTFS_SECRET_KEY: ${RUSTFS_ROOT_SECRET_KEY}
+      # SSE-S3 master key. Without it RustFS refuses every PUT to a bucket with
+      # default encryption (plugin-sources): "SSE-S3 requires
+      # RUSTFS_SSE_S3_MASTER_KEY ... when KMS is not configured" (verified live).
+      RUSTFS_SSE_S3_MASTER_KEY: ${RUSTFS_SSE_S3_MASTER_KEY}
       # Object-store console UI, matching the k8s targets. Verified live against
       # this exact image: :9001 then serves a Next.js UI at the DEFAULT prefix
       # `/rustfs/console/`. Do NOT set RUSTFS_CONSOLE_PREFIX=/rustfs — the server
@@ -2307,8 +2326,8 @@ services:
       LOKI_S3_SECRET_KEY: ${LOKI_S3_SECRET_KEY}
       THANOS_S3_ACCESS_KEY: ${THANOS_S3_ACCESS_KEY}
       THANOS_S3_SECRET_KEY: ${THANOS_S3_SECRET_KEY}
-      PLUGIN_S3_ACCESS_KEY: ${PLUGIN_S3_ACCESS_KEY}
-      PLUGIN_S3_SECRET_KEY: ${PLUGIN_S3_SECRET_KEY}
+      PLUGIN_S3_ACCESS_KEY_ID: ${PLUGIN_S3_ACCESS_KEY_ID}
+      PLUGIN_S3_SECRET_ACCESS_KEY: ${PLUGIN_S3_SECRET_ACCESS_KEY}
       AUDIT_HEADS_ACCESS_KEY: ${AUDIT_HEAD_EXPORT_S3_ACCESS_KEY_ID}
       AUDIT_HEADS_SECRET_KEY: ${AUDIT_HEAD_EXPORT_S3_SECRET_ACCESS_KEY}
     networks:
@@ -2327,8 +2346,43 @@ services:
             *) echo "$$out" >&2; die "$$what failed" ;;
           esac
         }
+        # ensure_rule <bucket> <expiry|noncurrent> <days>: converge the bucket to
+        # EXACTLY ONE copy of this init's own rule. `rc bucket lifecycle rule add` is
+        # NOT idempotent (verified live on rc v0.1.36: every add stacks another copy,
+        # so a bucket re-provisioned 8 times held 8 identical rules), and rc's add has
+        # no --id, so "ours" is recognised by the rule's whole content: enabled, no
+        # filter/prefix, and only this one expiration action of this many days. A rule
+        # with any other field (a prefix, a transition, a different day count, a
+        # disabled copy) is never matched, so a hand-added rule always survives.
+        # 0 copies -> add one; >1 -> remove all but the first; then assert exactly 1.
+        ensure_rule() {
+          er_b="$$1"; er_kind="$$2"; er_days="$$3"
+          case "$$er_kind" in
+            expiry)     er_want="{\"id\":\"x\",\"status\":\"Enabled\",\"expiration\":{\"days\":$$er_days}}"; er_flag=--expiry-days ;;
+            noncurrent) er_want="{\"id\":\"x\",\"status\":\"Enabled\",\"noncurrentVersionExpiration\":{\"noncurrentDays\":$$er_days}}"; er_flag=--noncurrent-expiry-days ;;
+            *) die "ensure_rule: unknown kind $$er_kind" ;;
+          esac
+          er_ids() {  # the ids of this rule's copies; non-zero if the list itself failed
+            er_json=$$(rc bucket lifecycle rule list "local/$$er_b" --format json) || return 1
+            printf '%s' "$$er_json" | jq -r --argjson w "$$er_want" '.rules[]? | select((.id = "x") == $$w) | .id'
+          }
+          er_found=$$(er_ids) || die "lifecycle list $$er_b failed"
+          if [ -z "$$er_found" ]; then
+            rc bucket lifecycle rule add "local/$$er_b" "$$er_flag" "$$er_days" >/dev/null || die "lifecycle $$er_kind $$er_b failed"
+          else
+            er_first=1
+            for er_id in $$er_found; do
+              if [ "$$er_first" = 1 ]; then er_first=0; continue; fi
+              rc bucket lifecycle rule remove "local/$$er_b" --id "$$er_id" >/dev/null || die "lifecycle remove duplicate $$er_id on $$er_b failed"
+              echo "rustfs-init: removed duplicate $$er_kind-$$er_days rule $$er_id from $$er_b"
+            done
+          fi
+          er_found=$$(er_ids) || die "lifecycle list $$er_b failed"
+          er_n=$$(printf '%s\n' "$$er_found" | grep -c .) || true
+          [ "$$er_n" = 1 ] || die "$$er_b holds $$er_n copies of its $$er_kind-$$er_days lifecycle rule, want exactly 1"
+        }
         until rc alias set local http://rustfs:9000 "$$RUSTFS_ROOT_USER" "$$RUSTFS_ROOT_PASSWORD"; do echo 'waiting for rustfs...'; sleep 2; done
-        for b in message-attachments registry loki thanos plugins plugin-quarantine; do rc bucket create --ignore-existing "local/$$b"; done
+        for b in message-attachments registry loki thanos plugins plugin-quarantine plugin-sources; do rc bucket create --ignore-existing "local/$$b"; done
         # Object Lock can only be switched on at bucket creation. `--format
         # json`'s own `data.effective_object_lock` is the verification (checked
         # live: this is `true` even on the idempotent already-exists path, so it
@@ -2341,15 +2395,42 @@ services:
         # NOT enabled on loki/registry/thanos/plugins — they churn objects and
         # versioning would retain deleted versions unbounded.
         run_ok "version enable message-attachments" rc bucket version enable local/message-attachments
-        run_ok "lifecycle noncurrent-expire message-attachments" rc bucket lifecycle rule add local/message-attachments --noncurrent-expiry-days 30
+        ensure_rule message-attachments noncurrent 30
         # plugins holds transient build-context ZIPs — the plugin service deletes
         # each after its build, but expire after 7 days as a backstop so a missed
         # delete (crash between build + cleanup) can't grow the bucket unbounded.
-        run_ok "lifecycle expire plugins" rc bucket lifecycle rule add local/plugins --expiry-days 7
+        ensure_rule plugins expiry 7
         # plugin-quarantine holds anonymous-submission zips — 30 days is the
         # quarantine retention promise, the same window as a pending submission's
         # expiry and the quarantine/* registry GC.
-        run_ok "lifecycle expire plugin-quarantine" rc bucket lifecycle rule add local/plugin-quarantine --expiry-days 30
+        ensure_rule plugin-quarantine expiry 30
+        # plugin-sources keeps every stored plugin version's build-context ZIP
+        # (and its remediation patches) for the version's whole life, so it has
+        # NO expiry rule: a purge deletes the version's prefix. UNVERSIONED, so a
+        # delete leaves no older object versions; the 1-day noncurrent expiry is
+        # only a backstop should versioning ever be switched on (ensure_rule
+        # keeps exactly one copy). SSE-S3 needs
+        # RUSTFS_SSE_S3_MASTER_KEY on the rustfs server; the end state of both
+        # is asserted, not assumed.
+        rc bucket version info local/plugin-sources --format json \
+          | jq -e '.enabled != true' >/dev/null \
+          || die "plugin-sources is VERSIONED — a purge would leave the deleted sources behind as noncurrent versions"
+        ensure_rule plugin-sources noncurrent 1
+        rc bucket lifecycle rule list local/plugin-sources --format json \
+          | jq -e '[.rules[]? | select(.expiration != null)] | length == 0' >/dev/null \
+          || die "plugin-sources has an EXPIRY rule — kept sources must live as long as their version"
+        run_ok "encryption plugin-sources" rc bucket encryption set local/plugin-sources --mode sse-s3
+        rc bucket encryption info local/plugin-sources --format json \
+          | jq -e '.mode == "SSE-S3"' >/dev/null \
+          || die "plugin-sources has no SSE-S3 default encryption"
+        # Prove an encrypted PUT works on THIS server before any source lands:
+        # without RUSTFS_SSE_S3_MASTER_KEY the bucket config above succeeds but
+        # every upload is refused, which would otherwise first show as failed builds.
+        SSEPROBE="$$(mktemp)"; printf 'sse probe' > "$$SSEPROBE"
+        rc put "$$SSEPROBE" local/plugin-sources/_sse-probe >/dev/null 2>&1 \
+          || die "plugin-sources refused an encrypted PUT — set RUSTFS_SSE_S3_MASTER_KEY on the rustfs server"
+        rm -f "$$SSEPROBE"
+        rc object remove local/plugin-sources/_sse-probe >/dev/null || die "plugin-sources probe delete failed"
         make_user() {  # $$1=bucket $$2=policy $$3=access $$4=secret
           echo "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:*\"],\"Resource\":[\"arn:aws:s3:::$$1\",\"arn:aws:s3:::$$1/*\"]}]}" > /tmp/p.json
           run_ok "policy create $$2" rc admin policy create local "$$2" /tmp/p.json
@@ -2363,9 +2444,10 @@ services:
         make_user registry            registry-rw            "$$REGISTRY_S3_ACCESS_KEY" "$$REGISTRY_S3_SECRET_KEY"
         make_user loki                loki-rw                "$$LOKI_S3_ACCESS_KEY"     "$$LOKI_S3_SECRET_KEY"
         make_user thanos              thanos-rw              "$$THANOS_S3_ACCESS_KEY"   "$$THANOS_S3_SECRET_KEY"
-        make_user plugins             plugins-rw             "$$PLUGIN_S3_ACCESS_KEY"   "$$PLUGIN_S3_SECRET_KEY"
+        make_user plugins             plugins-rw             "$$PLUGIN_S3_ACCESS_KEY_ID" "$$PLUGIN_S3_SECRET_ACCESS_KEY"
         # The plugin service's SAME bucket-scoped user also gets plugin-quarantine
-        # (a second policy attached to it — no new credential to distribute).
+        # and plugin-sources (more policies attached to it — no new credential to
+        # distribute). It reaches those three buckets and nothing else.
         #
         # `rc admin policy attach` REPLACES a user's policy set rather than
         # adding to it (unlike MinIO's `mc`, which is additive) — verified live:
@@ -2375,7 +2457,9 @@ services:
         # bucket. Both policy names must go in ONE comma-separated attach call.
         echo '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::plugin-quarantine","arn:aws:s3:::plugin-quarantine/*"]}]}' > /tmp/q.json
         run_ok "policy create plugin-quarantine-rw" rc admin policy create local plugin-quarantine-rw /tmp/q.json
-        run_ok "policy attach plugins-rw,plugin-quarantine-rw -> plugins user" rc admin policy attach local plugins-rw,plugin-quarantine-rw --user "$$PLUGIN_S3_ACCESS_KEY"
+        echo '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::plugin-sources","arn:aws:s3:::plugin-sources/*"]}]}' > /tmp/s.json
+        run_ok "policy create plugin-sources-rw" rc admin policy create local plugin-sources-rw /tmp/s.json
+        run_ok "policy attach plugins-rw,plugin-quarantine-rw,plugin-sources-rw -> plugins user" rc admin policy attach local plugins-rw,plugin-quarantine-rw,plugin-sources-rw --user "$$PLUGIN_S3_ACCESS_KEY_ID"
         # audit-heads: the platform's signed audit chain-head export. Created
         # WITH Object Lock (write-once; versioning implied), and its user may
         # only Put (with its lock headers)/Get/List — no delete — so not even a

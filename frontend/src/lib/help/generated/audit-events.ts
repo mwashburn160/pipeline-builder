@@ -1,6 +1,6 @@
 // GENERATED FROM docs/audit-events.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 8e775603bdc50d7b6470d83ccbdf8d762e351bac4c3f59706d9c904b3bd8c128
+// SOURCE-SHA256: 2d3576c06557a1ecb671e424bca2618f7717c30978e4da7b033f7fb297ed5e88
 // SPDX-License-Identifier: Apache-2.0
 import { ScrollText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -694,6 +694,18 @@ export const auditEventsTopic: HelpTopic = {
             [
               "Plugin security notifications (org-local)",
               "plugin.security_notifications.update (org_settings:write; details: changed field NAMES, recipient mode + count, digest mode, rescan opt-in, the webhook HOST, whether a secret / external address is set and whether a confirmation was sent — never the secret, the URL path/query or the address), plugin.security_notifications.external_email.verify (actor anonymous: the address's emailed single-use link was confirmed; orgId = the org whose address it is), plugin.security_notifications.test (details: the per-channel outcome of the test send)"
+            ],
+            [
+              "Plugin remediation",
+              "plugin.remediation.started, plugin.remediation.published, plugin.remediation.needs_owner, plugin.remediation.approved, plugin.remediation.rejected, plugin.remediation.retried (plugin), and plugin.remediation.rolled_back (emitted by the pipeline service when a rollout moves a pipeline back). targetType is plugin_remediation and targetId the remediation id. The actor is system:plugin-remediation for the stages the platform drives, and the deciding user for approve, reject and retry (both need plugins:write; approve and reject also a step-up). details carry the plugin name, from and to version, stage, outcome, advisory ids and counts only, never source, diff text or logs. plugin.remediation_settings.update (PUT /plugins/remediation-settings, org_settings:write; details: before and after) and plugin.remediation_level.update (PUT /plugins/by-name/:name/remediation-level, plugins:write; the plugin name and level). A rollout's moves are recorded as pipeline.plugin.upgraded with the actor system:plugin-remediation"
+            ],
+            [
+              "Plugin deletion by name",
+              "plugin.delete-all, plugin.restore-all, plugin.purge-all (DELETE /plugins/by-name/:name, POST /plugins/by-name/:name/restore, POST /plugins/by-name/:name/purge; plugins:write + step-up). details.batchId, the versions done and those skipped with their reason; each per-version plugin.delete, plugin.restore or plugin.purge written by the same action carries the same details.batchId"
+            ],
+            [
+              "Pipeline remediation upgrades",
+              "pipeline.remediation-upgrades.update (a pipeline's Plugin security fixes election changed through PUT /pipelines/:id, pipelines:write; details: before and after; written in addition to pipeline.update)"
             ],
             [
               "Pipeline",

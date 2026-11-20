@@ -20,6 +20,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockRunners = jest.fn<AnyFn>();
 const mockCalendar = jest.fn<AnyFn>();
 const mockResolveOrgRollup = jest.fn<AnyFn>();
+const mockAncestors = jest.fn<AnyFn>();
 const mockGetReportingSettings = jest.fn<AnyFn>();
 const permCheck = (req: any, perm: string) =>
   req?.user?.isSuperAdmin === true || (req?.user?.permissions ?? []).includes(perm);
@@ -49,6 +50,7 @@ jest.unstable_mockModule('../src/helpers/report-helpers.js', () => {
       req?.query?.includeDescendants === 'true' && permCheck(req, 'reports:rollup')
         ? mockResolveOrgRollup(orgId)
         : Promise.resolve(undefined),
+    resolveOrgAncestors: mockAncestors,
   };
 });
 
@@ -74,6 +76,7 @@ beforeEach(() => {
   mockGetReportingSettings.mockResolvedValue(UNLIMITED);
   mockRunners.mockResolvedValue({ ok: 'runners' });
   mockCalendar.mockResolvedValue({ ok: 'calendar' });
+  mockAncestors.mockResolvedValue([]);
   router = createDeliveryReportRoutes();
 });
 
@@ -88,8 +91,22 @@ describe('GET /reports/delivery/runners', () => {
     expect(mockRunners).toHaveBeenCalledWith(
       { orgId: 'acme', from: '2026-09-01T05:00:00.000Z', to: '2026-10-01T05:00:00.000Z' },
       { interval: 'week', tz: 'America/Chicago', weekStart: 'sunday' },
+      { sharedByOrgIds: [] },
     );
     expect(sendSuccess).toHaveBeenCalledWith(expect.anything(), 200, { runners: { ok: 'runners' } });
+  });
+
+  it('passes the org\'s ancestor chain so idle runners shared by a parent are listed', async () => {
+    mockAncestors.mockResolvedValue(['parent', 'root']);
+    await handlerOf('/runners')({ query: {}, user: { organizationId: 'acme', parentOrganizationId: 'parent' } }, {});
+    // The caller's own parent (from the verified JWT) saves the first lookup.
+    expect(mockAncestors).toHaveBeenCalledWith('acme', 'parent');
+    expect(mockRunners).toHaveBeenCalledWith(expect.anything(), expect.anything(), { sharedByOrgIds: ['parent', 'root'] });
+  });
+
+  it('a parent claim for a DIFFERENT org (a sysadmin acting on acme) is not used as acme\'s parent', async () => {
+    await handlerOf('/runners')({ query: {}, user: { organizationId: 'other', parentOrganizationId: 'other-parent', isSuperAdmin: true } }, {});
+    expect(mockAncestors).toHaveBeenCalledWith('acme', undefined);
   });
 
   it('400s a bad interval or timezone without querying', async () => {
@@ -109,9 +126,9 @@ describe('GET /reports/delivery/runners', () => {
   it('rolls up over the team subtree only for a reports:rollup holder', async () => {
     mockResolveOrgRollup.mockResolvedValue(['acme', 'team-1']);
     await handlerOf('/runners')({ query: { includeDescendants: 'true' }, user: { permissions: ['reports:rollup'] } }, {});
-    expect(mockRunners).toHaveBeenLastCalledWith(expect.objectContaining({ orgIds: ['acme', 'team-1'] }), expect.anything());
+    expect(mockRunners).toHaveBeenLastCalledWith(expect.objectContaining({ orgIds: ['acme', 'team-1'] }), expect.anything(), expect.anything());
     await handlerOf('/runners')({ query: { includeDescendants: 'true' }, user: { permissions: ['reports:read'] } }, {});
-    expect(mockRunners).toHaveBeenLastCalledWith(expect.not.objectContaining({ orgIds: expect.anything() }), expect.anything());
+    expect(mockRunners).toHaveBeenLastCalledWith(expect.not.objectContaining({ orgIds: expect.anything() }), expect.anything(), expect.anything());
   });
 });
 

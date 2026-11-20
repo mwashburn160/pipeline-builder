@@ -71,6 +71,12 @@ export interface ReportReaders {
 
 export interface ReportIdentity {
   authority(orgId: string, userId: string): Promise<ReportAuthority | null>;
+  /**
+   * Whether the org still holds `stakeholder_reports`, judged through ANY active
+   * owner/admin — for a shared link whose owner has left. `null` when platform
+   * cannot say (callers treat it as "not entitled").
+   */
+  orgEntitlement(orgId: string): Promise<boolean | null>;
   recipientCheck(orgId: string, email: string): Promise<RecipientCheck | null>;
   /** Who a published report's in-app notice goes to; `null` when platform cannot say. */
   readers(orgId: string): Promise<ReportReaders | null>;
@@ -86,7 +92,9 @@ const headers = () => ({
 });
 
 /** The reads, defined once in api-core (paths, params, reply normalization). */
-const { reportAuthority: AUTHORITY, reportRecipientCheck: RECIPIENT, reportReaders: READERS } = PLATFORM_INTERNAL;
+const {
+  reportAuthority: AUTHORITY, reportOrgEntitlement: ORG_ENTITLEMENT, reportRecipientCheck: RECIPIENT, reportReaders: READERS,
+} = PLATFORM_INTERNAL;
 
 /** The live implementation (platform over HTTP). Exported for tests. */
 export const httpReportIdentity: ReportIdentity = {
@@ -103,6 +111,17 @@ export const httpReportIdentity: ReportIdentity = {
       };
     } catch (err) {
       logger.warn('Report-authority read failed', { orgId, userId, error: errorMessage(err) });
+      return null;
+    }
+  },
+
+  async orgEntitlement(orgId) {
+    try {
+      const res = await callInternal(client(), ORG_ENTITLEMENT, { params: { orgId }, options: { headers: headers() } });
+      if (!res.ok) return null;
+      return res.data.entitled;
+    } catch (err) {
+      logger.warn('Report org-entitlement read failed', { orgId, error: errorMessage(err) });
       return null;
     }
   },

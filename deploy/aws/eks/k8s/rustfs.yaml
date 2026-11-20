@@ -104,9 +104,9 @@ spec:
               valueFrom: { secretKeyRef: { name: rustfs-secret, key: thanos-access-key } }
             - name: THANOS_S3_SECRET_KEY
               valueFrom: { secretKeyRef: { name: rustfs-secret, key: thanos-secret-key } }
-            - name: PLUGIN_S3_ACCESS_KEY
+            - name: PLUGIN_S3_ACCESS_KEY_ID
               valueFrom: { secretKeyRef: { name: rustfs-secret, key: plugin-access-key } }
-            - name: PLUGIN_S3_SECRET_KEY
+            - name: PLUGIN_S3_SECRET_ACCESS_KEY
               valueFrom: { secretKeyRef: { name: rustfs-secret, key: plugin-secret-key } }
             - name: AUDIT_HEADS_ACCESS_KEY
               valueFrom: { secretKeyRef: { name: rustfs-secret, key: audit-heads-access-key } }
@@ -133,8 +133,43 @@ spec:
                   *) echo "$out" >&2; die "$what failed" ;;
                 esac
               }
+              # ensure_rule <bucket> <expiry|noncurrent> <days>: converge the bucket to
+              # EXACTLY ONE copy of this init's own rule. `rc bucket lifecycle rule add` is
+              # NOT idempotent (verified live on rc v0.1.36: every add stacks another copy,
+              # so a bucket re-provisioned 8 times held 8 identical rules), and rc's add has
+              # no --id, so "ours" is recognised by the rule's whole content: enabled, no
+              # filter/prefix, and only this one expiration action of this many days. A rule
+              # with any other field (a prefix, a transition, a different day count, a
+              # disabled copy) is never matched, so a hand-added rule always survives.
+              # 0 copies -> add one; >1 -> remove all but the first; then assert exactly 1.
+              ensure_rule() {
+                er_b="$1"; er_kind="$2"; er_days="$3"
+                case "$er_kind" in
+                  expiry)     er_want="{\"id\":\"x\",\"status\":\"Enabled\",\"expiration\":{\"days\":$er_days}}"; er_flag=--expiry-days ;;
+                  noncurrent) er_want="{\"id\":\"x\",\"status\":\"Enabled\",\"noncurrentVersionExpiration\":{\"noncurrentDays\":$er_days}}"; er_flag=--noncurrent-expiry-days ;;
+                  *) die "ensure_rule: unknown kind $er_kind" ;;
+                esac
+                er_ids() {  # the ids of this rule's copies; non-zero if the list itself failed
+                  er_json=$(rc bucket lifecycle rule list "local/$er_b" --format json) || return 1
+                  printf '%s' "$er_json" | jq -r --argjson w "$er_want" '.rules[]? | select((.id = "x") == $w) | .id'
+                }
+                er_found=$(er_ids) || die "lifecycle list $er_b failed"
+                if [ -z "$er_found" ]; then
+                  rc bucket lifecycle rule add "local/$er_b" "$er_flag" "$er_days" >/dev/null || die "lifecycle $er_kind $er_b failed"
+                else
+                  er_first=1
+                  for er_id in $er_found; do
+                    if [ "$er_first" = 1 ]; then er_first=0; continue; fi
+                    rc bucket lifecycle rule remove "local/$er_b" --id "$er_id" >/dev/null || die "lifecycle remove duplicate $er_id on $er_b failed"
+                    echo "rustfs-init: removed duplicate $er_kind-$er_days rule $er_id from $er_b"
+                  done
+                fi
+                er_found=$(er_ids) || die "lifecycle list $er_b failed"
+                er_n=$(printf '%s\n' "$er_found" | grep -c .) || true
+                [ "$er_n" = 1 ] || die "$er_b holds $er_n copies of its $er_kind-$er_days lifecycle rule, want exactly 1"
+              }
               until rc alias set local http://rustfs:9000 "$RUSTFS_ROOT_USER" "$RUSTFS_ROOT_PASSWORD"; do echo 'waiting for rustfs...'; sleep 2; done
-              for b in message-attachments registry loki thanos plugins plugin-quarantine; do rc bucket create --ignore-existing "local/$b"; done
+              for b in message-attachments registry loki thanos plugins plugin-quarantine plugin-sources; do rc bucket create --ignore-existing "local/$b"; done
               # Object Lock can only be switched on at bucket creation. `--format
               # json`'s own `data.effective_object_lock` is the verification (checked
               # live: this is `true` even on the idempotent already-exists path, so it
@@ -148,14 +183,41 @@ spec:
               # NOT enabled on loki/registry/thanos/plugins — they churn objects and
               # versioning would retain deleted versions unbounded.
               run_ok "version enable message-attachments" rc bucket version enable local/message-attachments
-              run_ok "lifecycle noncurrent-expire message-attachments" rc bucket lifecycle rule add local/message-attachments --noncurrent-expiry-days 30
+              ensure_rule message-attachments noncurrent 30
               # plugins holds transient build-context ZIPs (deleted post-build);
               # expire after 7 days as a backstop against a missed delete.
-              run_ok "lifecycle expire plugins" rc bucket lifecycle rule add local/plugins --expiry-days 7
+              ensure_rule plugins expiry 7
               # plugin-quarantine holds anonymous-submission zips — 30 days is the
               # quarantine retention promise — the same window as a pending
               # submission's expiry and the image-registry quarantine/* GC.
-              run_ok "lifecycle expire plugin-quarantine" rc bucket lifecycle rule add local/plugin-quarantine --expiry-days 30
+              ensure_rule plugin-quarantine expiry 30
+              # plugin-sources keeps every stored plugin version's build-context ZIP
+              # (and its remediation patches) for the version's whole life, so it has
+              # NO expiry rule: a purge deletes the version's prefix. UNVERSIONED, so a
+              # delete leaves no older object versions; the 1-day noncurrent expiry is
+              # only a backstop should versioning ever be switched on (ensure_rule
+              # keeps exactly one copy). SSE-S3 needs
+              # RUSTFS_SSE_S3_MASTER_KEY on the rustfs server; the end state of both
+              # is asserted, not assumed.
+              rc bucket version info local/plugin-sources --format json \
+                | jq -e '.enabled != true' >/dev/null \
+                || die "plugin-sources is VERSIONED — a purge would leave the deleted sources behind as noncurrent versions"
+              ensure_rule plugin-sources noncurrent 1
+              rc bucket lifecycle rule list local/plugin-sources --format json \
+                | jq -e '[.rules[]? | select(.expiration != null)] | length == 0' >/dev/null \
+                || die "plugin-sources has an EXPIRY rule — kept sources must live as long as their version"
+              run_ok "encryption plugin-sources" rc bucket encryption set local/plugin-sources --mode sse-s3
+              rc bucket encryption info local/plugin-sources --format json \
+                | jq -e '.mode == "SSE-S3"' >/dev/null \
+                || die "plugin-sources has no SSE-S3 default encryption"
+              # Prove an encrypted PUT works on THIS server before any source lands:
+              # without RUSTFS_SSE_S3_MASTER_KEY the bucket config above succeeds but
+              # every upload is refused, which would otherwise first show as failed builds.
+              SSEPROBE="$(mktemp)"; printf 'sse probe' > "$SSEPROBE"
+              rc put "$SSEPROBE" local/plugin-sources/_sse-probe >/dev/null 2>&1 \
+                || die "plugin-sources refused an encrypted PUT — set RUSTFS_SSE_S3_MASTER_KEY on the rustfs server"
+              rm -f "$SSEPROBE"
+              rc object remove local/plugin-sources/_sse-probe >/dev/null || die "plugin-sources probe delete failed"
               make_user() {  # $1=bucket $2=policy $3=access $4=secret
                 echo "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:*\"],\"Resource\":[\"arn:aws:s3:::$1\",\"arn:aws:s3:::$1/*\"]}]}" > /tmp/p.json
                 run_ok "policy create $2" rc admin policy create local "$2" /tmp/p.json
@@ -169,7 +231,7 @@ spec:
               make_user registry            registry-rw            "$REGISTRY_S3_ACCESS_KEY" "$REGISTRY_S3_SECRET_KEY"
               make_user loki                loki-rw                "$LOKI_S3_ACCESS_KEY"     "$LOKI_S3_SECRET_KEY"
               make_user thanos              thanos-rw              "$THANOS_S3_ACCESS_KEY"   "$THANOS_S3_SECRET_KEY"
-              make_user plugins             plugins-rw             "$PLUGIN_S3_ACCESS_KEY"   "$PLUGIN_S3_SECRET_KEY"
+              make_user plugins             plugins-rw             "$PLUGIN_S3_ACCESS_KEY_ID" "$PLUGIN_S3_SECRET_ACCESS_KEY"
               # The plugin service's SAME bucket-scoped user also gets plugin-quarantine
               # (a second policy attached to it — no new credential to distribute).
               # `rc admin policy attach` REPLACES a user's policy set rather than
@@ -181,7 +243,11 @@ spec:
               # comma-separated attach call.
               echo '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::plugin-quarantine","arn:aws:s3:::plugin-quarantine/*"]}]}' > /tmp/q.json
               run_ok "policy create plugin-quarantine-rw" rc admin policy create local plugin-quarantine-rw /tmp/q.json
-              run_ok "policy attach plugins-rw,plugin-quarantine-rw -> plugins user" rc admin policy attach local plugins-rw,plugin-quarantine-rw --user "$PLUGIN_S3_ACCESS_KEY"
+              # plugin-sources: the same user's third policy (kept build sources). All
+              # three names in ONE attach call, for the reason above.
+              echo '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::plugin-sources","arn:aws:s3:::plugin-sources/*"]}]}' > /tmp/s.json
+              run_ok "policy create plugin-sources-rw" rc admin policy create local plugin-sources-rw /tmp/s.json
+              run_ok "policy attach plugins-rw,plugin-quarantine-rw,plugin-sources-rw -> plugins user" rc admin policy attach local plugins-rw,plugin-quarantine-rw,plugin-sources-rw --user "$PLUGIN_S3_ACCESS_KEY_ID"
               # audit-heads: the platform's signed audit chain-head export. Created
               # WITH Object Lock (write-once; versioning implied), and its user may
               # only Put (with its lock headers)/Get/List — no delete — so not even a
@@ -211,11 +277,12 @@ spec:
               # recoverable for the window.
               rc bucket create --ignore-existing local/db-backups
               run_ok "version enable db-backups" rc bucket version enable local/db-backups
-              # NOTE: `rule add` is additive and run_ok tolerates an existing rule, so
-              # CHANGING BACKUP_RETENTION_DAYS does not rewrite it — remove the old rule
-              # by hand and re-run, or the bucket keeps expiring on its first value.
-              run_ok "lifecycle expire db-backups" rc bucket lifecycle rule add local/db-backups --expiry-days "${BACKUP_RETENTION_DAYS:-7}"
-              run_ok "lifecycle noncurrent-expire db-backups" rc bucket lifecycle rule add local/db-backups --noncurrent-expiry-days "${BACKUP_RETENTION_DAYS:-7}"
+              # NOTE: ensure_rule matches on the day count, so CHANGING
+              # BACKUP_RETENTION_DAYS adds the new rule BESIDE the old one (it cannot tell
+              # the old one from a hand-added rule) and the shorter one wins — remove the
+              # old rule by hand (rc bucket lifecycle rule remove --id).
+              ensure_rule db-backups expiry "${BACKUP_RETENTION_DAYS:-7}"
+              ensure_rule db-backups noncurrent "${BACKUP_RETENTION_DAYS:-7}"
               echo '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:PutObject","s3:GetObject","s3:GetObjectVersion"],"Resource":["arn:aws:s3:::db-backups/*"]},{"Effect":"Allow","Action":["s3:ListBucket","s3:ListBucketVersions"],"Resource":["arn:aws:s3:::db-backups"]}]}' > /tmp/b.json
               run_ok "policy create db-backups-write" rc admin policy create local db-backups-write /tmp/b.json
               rc admin user add local "$BACKUP_ACCESS_KEY" "$BACKUP_SECRET_KEY" || die "user add db-backup failed"
@@ -398,6 +465,11 @@ spec:
                 secretKeyRef:
                   name: rustfs-secret
                   key: root-password
+            # SSE-S3 master key (plugin-sources is encrypted at rest). Without it
+            # RustFS refuses every PUT to a default-encrypted bucket (verified live).
+            # The same value on every node, from the same Secret.
+            - name: RUSTFS_SSE_S3_MASTER_KEY
+              valueFrom: { secretKeyRef: { name: rustfs-secret, key: sse-s3-master-key } }
             - name: RUSTFS_CONSOLE_ENABLE
               value: "true"
             - name: RUSTFS_CONSOLE_ADDRESS

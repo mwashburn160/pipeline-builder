@@ -223,15 +223,25 @@ const REQUIRED_FEATURE = 'stakeholder_reports';
  * (the identity the scheduler authorizes runs as). A link minted before the
  * subscription lapsed must stop working when it does.
  *
+ * OWNER LEFT: an inactive owner says nothing about the ACCOUNT, so the entitlement
+ * is then asked through any active owner/admin of the link's org
+ * (`orgEntitlement`). An active owner whose account lapsed gets no such fallback.
+ *
  * FAIL CLOSED: platform unreachable (`null`) is "not entitled". Every refusal is the
  * same null, so the caller answers the one indistinguishable 404.
  */
 async function resolveServable(token: string): Promise<ResolvedShareLink | null> {
   const resolved = await stakeholderReportStore.resolveShareLink(token);
   if (!resolved) return null;
-  const authority = await reportIdentity().authority(resolved.link.orgId, resolved.ownerId);
-  if (!authority?.features.includes(REQUIRED_FEATURE)) return null;
-  return resolved;
+  const identity = reportIdentity();
+  const authority = await identity.authority(resolved.link.orgId, resolved.ownerId);
+  if (!authority) return null;
+  if (authority.active) return authority.features.includes(REQUIRED_FEATURE) ? resolved : null;
+  // The OWNER left (platform answers an inactive owner with no features — a fact
+  // about the person, not the account). The link keeps working while the account
+  // still holds the add-on, judged through any active owner/admin of the link's
+  // org; nobody qualifying (or platform unable to say) is the same 404.
+  return (await identity.orgEntitlement(resolved.link.orgId)) === true ? resolved : null;
 }
 
 export function createPublicReportRoutes(): Router {

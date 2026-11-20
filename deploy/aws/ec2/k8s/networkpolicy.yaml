@@ -1142,6 +1142,53 @@ spec:
       ports:
         - port: 3000
 ---
+# =============================================================================
+# pipeline <-> plugin: the nightly CVE remediation's Stage 3 hops.
+#   plugin   -> pipeline  POST /pipelines/internal/plugin-remediations/:id/rollout
+#                         POST /pipelines/internal/plugin-remediations/:id/cancel
+#   pipeline -> plugin    POST /internal/plugins/remediations/:id/rollout (progress)
+# Without these, default-deny drops them: a published fix never reaches a
+# pipeline, a deleted version's rollout is never stopped, and the remediation
+# card never leaves rolling_out. Who may call is enforced app-side
+# (requireInternalService) and at the workload layer (pipeline-allow /
+# plugin-allow in istio.yaml); this only stops the CNI dropping the hop.
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-pipeline-from-plugin
+spec:
+  podSelector:
+    matchLabels:
+      app: pipeline
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: plugin
+      ports:
+        - port: 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-plugin-from-pipeline
+spec:
+  podSelector:
+    matchLabels:
+      app: plugin
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: pipeline
+      ports:
+        - port: 3000
+---
 # prometheus -> the Istio mesh components in istio-system (scrape only).
 #
 # REQUIRED for the `istio-mesh` scrape job in config/prometheus/prometheus.yml.

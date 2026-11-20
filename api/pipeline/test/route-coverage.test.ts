@@ -71,6 +71,18 @@ const EXCEPTIONS: RouteCoverageException[] = [
     waive: 'audit',
     reason: 'Read-only: reports whether a create would land and persists nothing. Its compliance check is a dryRun (no audit event, no notification) precisely so validating does not appear in the trail as a create attempt.',
   },
+  {
+    method: 'POST',
+    path: '/pipelines/:id/remediation-upgrades/:upgradeId/dismiss',
+    waive: 'audit',
+    reason: 'UI state: hides an open remediation proposal on the pipeline page. It writes no pipeline config, and the proposal row itself keeps the dismissal (state dismissed).',
+  },
+  {
+    method: 'POST',
+    path: '/pipelines/internal/plugin-remediations/:remediationId/cancel',
+    waive: 'audit',
+    reason: 'Service-to-service: drops a remediation rollout\'s queued moves and supersedes its open proposals; writes no pipeline config. The plugin service audits the cancellation of the remediation itself.',
+  },
 ];
 
 /**
@@ -83,6 +95,9 @@ const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   { method: 'POST', path: '/pipelines/internal/orgs/:orgId/purge', callers: ['platform'] },
   // platform's master-key / per-org KMS rotation flow: re-wrap the runner signing keys under the current encryption.
   { method: 'POST', path: '/pipelines/internal/runner-signing-keys/reencrypt', callers: ['platform'] },
+  // the plugin service's CVE remediation job: start / cancel Stage 3 (the pipeline rollout) of a published fix.
+  { method: 'POST', path: '/pipelines/internal/plugin-remediations/:remediationId/rollout', callers: ['plugin'] },
+  { method: 'POST', path: '/pipelines/internal/plugin-remediations/:remediationId/cancel', callers: ['plugin'] },
 ];
 
 /**

@@ -76,6 +76,8 @@ jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
 const mockEmitPluginAudit = jest.fn<AnyFn>();
 
 const mockOnVersionWithdrawn = jest.fn<(...a: any[]) => Promise<any>>(async () => null);
+const mockCancelRemediationsFor = jest.fn<(...a: any[]) => Promise<number>>(async () => 0);
+jest.unstable_mockModule('../src/services/remediation/cancel.js', () => ({ cancelRemediationsFor: mockCancelRemediationsFor }));
 jest.unstable_mockModule('../src/services/version-withdrawal.js', () => ({ onVersionWithdrawn: mockOnVersionWithdrawn }));
 
 
@@ -165,6 +167,29 @@ describe('DELETE /plugins/:id (delete)', () => {
       statusCode: 200,
       message: 'Plugin deleted.',
     }));
+  });
+
+  it('cancels the remediations of the deleted version (and those it was about to replace)', async () => {
+    mockFindById.mockResolvedValue(existingPlugin);
+    mockDeleteVersion.mockResolvedValue({ deleted: existingPlugin, inUse: 0, listed: false, promoted: null });
+    await handler(mockReq(), mockRes());
+    expect(mockCancelRemediationsFor).toHaveBeenCalledWith({ orgId: 'org-1', pluginIds: [existingPlugin.id], reason: 'version_deleted' });
+  });
+
+  it('a failed remediation cancel never undoes or fails the delete', async () => {
+    mockFindById.mockResolvedValue(existingPlugin);
+    mockDeleteVersion.mockResolvedValue({ deleted: existingPlugin, inUse: 0, listed: false, promoted: null });
+    mockCancelRemediationsFor.mockRejectedValueOnce(new Error('pipeline down'));
+    const res = mockRes();
+    await handler(mockReq(), res);
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('a refused delete cancels nothing', async () => {
+    mockFindById.mockResolvedValue(existingPlugin);
+    mockDeleteVersion.mockResolvedValue({ deleted: null, inUse: 0, listed: false, promoted: null });
+    await handler(mockReq(), mockRes());
+    expect(mockCancelRemediationsFor).not.toHaveBeenCalled();
   });
 
   it('returns 400 when ID is missing', async () => {

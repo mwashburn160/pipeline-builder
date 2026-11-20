@@ -6,7 +6,16 @@ import { afterEach, describe, it, expect } from '@jest/globals';
 import { scanFlagFor, vulnGateError } from '../src/helpers/scan-gates.js';
 
 const f = (id: string, severity: 'critical' | 'high', fixedIn: string[] = ['1.0.1']) =>
-  ({ id, severity, packageName: 'openssl', packageVersion: '1.0.0', fixedIn });
+  ({
+    id,
+    severity,
+    packageName: 'openssl',
+    packageVersion: '1.0.0',
+    fixedIn,
+    packageType: 'deb' as const,
+    purl: 'pkg:deb/debian/openssl@1.0.0',
+    locations: [{ path: '/var/lib/dpkg/status', layerID: `sha256:${'c'.repeat(64)}` }],
+  });
 
 afterEach(() => {
   delete process.env.PLUGIN_VULN_FAIL_ON;

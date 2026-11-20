@@ -37,6 +37,7 @@ import {
   type Permission,
   type PluginCatalogEdits,
   parsePage,
+  PLUGIN_REMEDIATION_SUBMITTER,
 } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import {
@@ -455,6 +456,26 @@ function submitPermission(kind: string): Permission {
  * an auto-approval rule covers it.
  */
 export async function submit(caller: Caller, body: Record<string, unknown>): Promise<{ request: ReturnType<typeof requestView>; autoApproved: boolean }> {
+  return submitRequest(caller, body, null);
+}
+
+/**
+ * The new-version request a nightly CVE remediation opens for an Official
+ * (system-org) fix: submitted by the `plugin-remediation` service account in
+ * the system org, digest pinned like any version request, with
+ * `remediation_id` set and a `payload.remediation` marker the publish queue
+ * shows. The seeded "Remediation fixes" rule (`remediationOnly`) approves it
+ * when the ecosystem gates pass; anything else waits for a manager. The id
+ * never comes from a request body: only this entry point sets it.
+ */
+export async function submitRemediationFix(caller: Caller, pluginId: string, remediationId: string): Promise<{ request: ReturnType<typeof requestView>; autoApproved: boolean }> {
+  if (!(caller.principalType === 'service_account' && caller.name === PLUGIN_REMEDIATION_SUBMITTER && isSystemOrgId(caller.orgId))) {
+    throw new EcosystemError(ErrorCode.INSUFFICIENT_PERMISSIONS, 'Only the plugin-remediation service account opens remediation publish requests.');
+  }
+  return submitRequest(caller, { kind: 'new_version', pluginId }, remediationId);
+}
+
+async function submitRequest(caller: Caller, body: Record<string, unknown>, remediationId: string | null): Promise<{ request: ReturnType<typeof requestView>; autoApproved: boolean }> {
   const kind = body.kind as PublishRequestKind;
   if (!(TENANT_REQUEST_KINDS as readonly string[]).includes(kind)) {
     throw new EcosystemError(ErrorCode.VALIDATION_ERROR, `kind must be one of: ${TENANT_REQUEST_KINDS.join(', ')}`);
@@ -467,6 +488,10 @@ export async function submit(caller: Caller, body: Record<string, unknown>): Pro
   assertPublisherActive(publisher);
 
   const built = await buildRequest(caller, publisher, kind, body);
+  if (remediationId) {
+    built.remediationId = remediationId;
+    built.payload = { ...(built.payload as Record<string, unknown>), remediation: { remediationId } };
+  }
   const listingName = (built.payload as Record<string, unknown>).name as string;
   // Managed toolchain names are never listed: no request of any kind names
   // one (new_listing / new_version refused before their freeze, above).
@@ -498,7 +523,7 @@ export async function submit(caller: Caller, body: Record<string, unknown>): Pro
     affectedOrgId: caller.orgId,
     targetType: 'plugin-publish-request',
     targetId: stored.id,
-    details: { kind, ...(stored.digest ? { digest: stored.digest } : {}), ...(stored.version ? { version: stored.version } : {}), securityFix: stored.lane === 'security' },
+    details: { kind, ...(stored.digest ? { digest: stored.digest } : {}), ...(stored.version ? { version: stored.version } : {}), securityFix: stored.lane === 'security', ...(remediationId ? { remediationId } : {}) },
   });
   if (kind === 'advisory') {
     const p = stored.payload as { advisoryId: string; severity: string; affectedRange: string };

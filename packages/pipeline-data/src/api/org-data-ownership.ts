@@ -94,6 +94,8 @@ export const ORG_DATA_OWNERSHIP: Readonly<Record<OrgDataOwner, OrgDataSlice>> = 
       // material and all — never tombstoned) and its key mode.
       t(schema.pipelineRunnerSigningKey, 'pipeline_runner_signing_keys', ['private_key_enc']),
       t(schema.pipelineRunnerKeySettings, 'pipeline_runner_key_settings'),
+      // Stage 3 of nightly CVE remediation: per-pipeline proposals, waves and rollbacks.
+      t(schema.pipelineRemediationUpgrade, 'pipeline_remediation_upgrades'),
     ],
   },
   'plugin': {
@@ -117,6 +119,17 @@ export const ORG_DATA_OWNERSHIP: Readonly<Record<OrgDataOwner, OrgDataSlice>> = 
       t(schema.toolchainRollout, 'toolchain_rollout'),
       t(schema.orgToolchainDefault, 'org_toolchain_default'),
       t(schema.orgToolchainDefaultHistory, 'org_toolchain_default_history'),
+      // Nightly CVE remediation: the records, the org's settings, and the RustFS
+      // deletes a purge could not finish. The plugin purge leg deletes the
+      // org's whole plugin-sources/<orgId>/ prefix BEFORE these rows go (and
+      // fails the leg rather than ack when it can't), so dropping an org's
+      // orphan rows never strands an object.
+      // findings_hash is an idempotency key, not a credential, but it is
+      // `_hash`-shaped and never needed outside the plugin service (the DTO
+      // omits it), so it stays out of the export like the real ones.
+      t(schema.pluginRemediation, 'plugin_remediations', ['findings_hash']),
+      t(schema.pluginRemediationSetting, 'plugin_remediation_settings'),
+      t(schema.pluginSourceOrphan, 'plugin_source_orphans'),
     ],
   },
   'compliance': {

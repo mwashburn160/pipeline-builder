@@ -36,6 +36,11 @@ jest.unstable_mockModule('../src/helpers/plugin-contract-check.js', () => ({
   recordPipelineResolution: (...args: unknown[]) => mockRecordPipelineResolution(...args),
 }));
 
+const mockElectionRefusal = jest.fn<(...a: any[]) => Promise<string | null>>(async () => null);
+jest.unstable_mockModule('../src/helpers/remediation-settings.js', () => ({
+  electionRefusal: (...a: unknown[]) => mockElectionRefusal(...a),
+}));
+
 jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
   pipelineService: {
     update: mockUpdate,
@@ -400,5 +405,33 @@ describe('bulk routes — catalog metadata parity with single create/update', ()
       user: { sub: 'actor-1', isAdmin: true },
     }, mockRes());
     expect(mockUpdate.mock.calls[0][1]).toEqual({ ...catalog, ownerId: 'u-2', ownerType: 'user' });
+  });
+});
+
+describe('PUT /pipelines/bulk/update — plugin security fixes election', () => {
+  const handler = getHandler('put', '/bulk/update');
+
+  beforeEach(() => {
+    mockUpdate.mockReset();
+    mockEmitAudit.mockClear();
+    mockElectionRefusal.mockReset().mockResolvedValue(null);
+  });
+
+  it('403s the whole request when the org forbids apply, writing nothing', async () => {
+    mockElectionRefusal.mockResolvedValueOnce('not allowed');
+    mockFindByIds.mockResolvedValueOnce([{ id: ID1, remediationUpgrades: 'inherit' }]);
+    const res = mockRes();
+    await handler(mockReq({ ids: [ID1], data: { remediationUpgrades: 'apply' } }), res);
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('writes the election and audits each row whose value changed, with before / after', async () => {
+    mockFindByIds.mockResolvedValueOnce([{ id: ID1, remediationUpgrades: 'inherit' }, { id: ID2, remediationUpgrades: 'off' }]);
+    mockUpdate.mockImplementation(async (id: string, data: any) => ({ id, pipelineName: 'p', remediationUpgrades: data.remediationUpgrades }));
+    await handler(mockReq({ ids: [ID1, ID2], data: { remediationUpgrades: 'off' } }), mockRes());
+    expect(mockUpdate.mock.calls[0][1]).toMatchObject({ remediationUpgrades: 'off' });
+    const election = mockEmitAudit.mock.calls.map((c: any[]) => c[0]).filter((e: any) => e.action === 'pipeline.remediation-upgrades.update');
+    expect(election).toEqual([expect.objectContaining({ targetId: ID1, details: expect.objectContaining({ before: 'inherit', after: 'off', bulk: true }) })]);
   });
 });

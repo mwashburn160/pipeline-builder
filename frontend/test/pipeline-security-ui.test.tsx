@@ -24,6 +24,7 @@ jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastMod
 
 const api = {
   getPipelineSecurity: jest.fn<AnyFn>(),
+  getPipelineRemediationUpgrades: jest.fn<AnyFn>(),
   listPipelineExposures: jest.fn<AnyFn>(),
   triagePipelineExposure: jest.fn<AnyFn>(),
   previewPluginUpgrades: jest.fn<AnyFn>(),
@@ -108,6 +109,10 @@ beforeEach(() => {
   for (const fn of Object.values(api)) fn.mockReset();
   for (const fn of Object.values(toast)) fn.mockReset();
   api.getPipelineSecurity.mockReturnValue(ok(SECURITY));
+  api.getPipelineRemediationUpgrades.mockImplementation(() => ok({
+    election: 'inherit', effective: { mode: 'propose', source: 'root', orgDefault: 'propose', applyRefused: false },
+    orgDefault: 'propose', allowPipelineApply: true, upgrades: [],
+  }));
   api.getPipelineSecurityReports.mockReturnValue(ok({ pipelineId: 'p1', reports: [], counts: { critical: 0, high: 0, medium: 0, low: 0, kev: 0, criticalFixable: 0, highFixable: 0 }, latestAt: null }));
 });
 
@@ -186,6 +191,16 @@ describe('PipelineSecurityTab', () => {
     expect(items.map((i) => i.getAttribute('data-severity'))).toEqual(['critical', 'error']);
     expect(screen.getByTestId('exposure-e1')).toHaveTextContent('acme/trivy@1.4.0');
     expect(screen.queryByText(/blocked/i)).not.toBeInTheDocument();
+  });
+
+  it('banners a KEV-listed step when the pipeline opted out of plugin security fixes, and still shows its warnings', async () => {
+    api.getPipelineRemediationUpgrades.mockImplementation(() => ok({
+      election: 'off', effective: { mode: 'off', source: 'pipeline', orgDefault: 'propose', applyRefused: false },
+      orgDefault: 'propose', allowPipelineApply: true, upgrades: [],
+    }));
+    render(<PipelineSecurityTab pipelineId="p1" canWrite />);
+    expect(await screen.findByTestId('kev-opt-out-banner')).toHaveTextContent('acme/trivy@1.4.0 has a CISA KEV-listed finding');
+    expect(within(screen.getByTestId('security-step-build/scan')).getByText('1 KEV')).toBeInTheDocument();
   });
 
   it('shows the Build image row: release, digest, how it was chosen, scan, the build-image lookup warnings, behind the effective default and the last change', async () => {
@@ -460,7 +475,7 @@ describe('KeptSetupImagesPanel', () => {
   it('shows the findings a 409 says remain, and locks Promote without plugins:moderate', async () => {
     api.listKeptSetupImages.mockReturnValue(ok({ images: [IMG] }));
     api.promoteKeptSetupImage.mockRejectedValue(new ApiError('Still refused: 1 fixable Critical', 409, 'PLUGIN_VULN_GATE', {
-      findings: [{ id: 'CVE-2026-7', severity: 'critical', packageName: 'openssl', packageVersion: '3.0.1', fixedIn: ['3.0.2'] }],
+      findings: [{ id: 'CVE-2026-7', severity: 'critical', packageName: 'openssl', packageVersion: '3.0.1', packageType: 'deb', purl: 'pkg:deb/debian/openssl@3.0.1', locations: [{ path: '/var/lib/dpkg/status', layerID: 'sha256:base' }], fixedIn: ['3.0.2'] }],
     }));
     const { unmount } = render(<KeptSetupImagesPanel can={() => true} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Promote' }));

@@ -15,6 +15,7 @@ export {
   InstantiateTemplateSchema,
 } from './pipeline-template-schemas.js';
 export * from './plugin-schemas.js';
+export * from './plugin-remediation-schemas.js';
 export {
   isAllowedSpdxId,
   projectUrlProblem,

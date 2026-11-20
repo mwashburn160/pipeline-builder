@@ -46,7 +46,7 @@
 # Why this exists: each target seeds .env from .env.example only when .env is
 # ABSENT, so a key added to the example later never reaches an existing install.
 # The setup scripts then dereference it under `set -u` and die with a bare
-#   setup.sh: line N: PLUGIN_S3_ACCESS_KEY: unbound variable
+#   setup.sh: line N: PLUGIN_S3_ACCESS_KEY_ID: unbound variable
 # which says nothing about the actual cause. (That is exactly how the MinIO
 # credential rework broke provisioning on clusters whose .env predated it.)
 #
@@ -466,7 +466,7 @@ _pb_send_slack_test() {
 
 pb_gen_env_secrets() {
   local env_file="$1" ghcr_user="${2:-mwashburn160}"
-  local pg pgapp pgreader mongo me pgadmin registry seckey rustfsroot s3msg s3reg s3loki s3thanos s3plugin grafana kiali alerttoken
+  local pg pgapp pgreader mongo me pgadmin registry seckey rustfsroot s3msg s3reg s3loki s3thanos s3plugin rustfssse grafana kiali alerttoken
   local powsecret emailhash auditkey reghttp auditheads
   # No token secret is generated here any more: every token is asymmetrically
   # signed and its private key is a FILE, never an env value — the user-token key
@@ -508,6 +508,11 @@ pb_gen_env_secrets() {
   s3thanos=$(openssl rand -base64 24 | tr -d '=+/')
   s3plugin=$(openssl rand -base64 24 | tr -d '=+/')
   s3backup=$(openssl rand -base64 24 | tr -d '=+/')
+  # RustFS SSE-S3 master key (plugin-sources is encrypted at rest). RustFS
+  # wants EXACTLY base64 of 32 bytes, so this one keeps its =+/ — none of them
+  # is special inside the s|…| replacement below. Never rotated by this script:
+  # objects written under it are unreadable without it.
+  rustfssse=$(openssl rand -base64 32)
   grafana=$(openssl rand -base64 24 | tr -d '=+/')
   # Kiali's session-signing key must be EXACTLY 16/24/32 bytes; hex 16 = 32 chars.
   kiali=$(openssl rand -hex 16)
@@ -543,7 +548,8 @@ pb_gen_env_secrets() {
     -e "s|REGISTRY_S3_SECRET_KEY=CHANGE_ME|REGISTRY_S3_SECRET_KEY=${s3reg}|" \
     -e "s|LOKI_S3_SECRET_KEY=CHANGE_ME|LOKI_S3_SECRET_KEY=${s3loki}|" \
     -e "s|THANOS_S3_SECRET_KEY=CHANGE_ME|THANOS_S3_SECRET_KEY=${s3thanos}|" \
-    -e "s|PLUGIN_S3_SECRET_KEY=CHANGE_ME|PLUGIN_S3_SECRET_KEY=${s3plugin}|" \
+    -e "s|PLUGIN_S3_SECRET_ACCESS_KEY=CHANGE_ME|PLUGIN_S3_SECRET_ACCESS_KEY=${s3plugin}|" \
+    -e "s|^RUSTFS_SSE_S3_MASTER_KEY=CHANGE_ME$|RUSTFS_SSE_S3_MASTER_KEY=${rustfssse}|" \
     -e "s|BACKUP_S3_SECRET_KEY=CHANGE_ME|BACKUP_S3_SECRET_KEY=${s3backup}|" \
     -e "s|GRAFANA_ADMIN_PASSWORD=CHANGE_ME|GRAFANA_ADMIN_PASSWORD=${grafana}|" \
     -e "s|KIALI_SIGNING_KEY=CHANGE_ME|KIALI_SIGNING_KEY=${kiali}|" \
@@ -561,7 +567,7 @@ pb_gen_env_secrets() {
   # and the sed above silently matched nothing — shipping a literal `CHANGE_ME`
   # credential (a real security hole that would otherwise pass green). Scoped to
   # these keys so optional user-supplied CHANGE_ME placeholders aren't flagged.
-  if grep -qE '^(SECRET_ENCRYPTION_KEY|POSTGRES_PASSWORD|DB_PASSWORD|ECOSYSTEM_PUBLIC_READER_PASSWORD|DB_REPLICATION_PASSWORD|MONGO_INITDB_ROOT_PASSWORD|ME_CONFIG_BASICAUTH_PASSWORD|PGADMIN_DEFAULT_PASSWORD|IMAGE_REGISTRY_TOKEN|RUSTFS_ROOT_SECRET_KEY|MESSAGE_S3_SECRET_KEY|REGISTRY_S3_SECRET_KEY|LOKI_S3_SECRET_KEY|THANOS_S3_SECRET_KEY|PLUGIN_S3_SECRET_KEY|GRAFANA_ADMIN_PASSWORD|KIALI_SIGNING_KEY|ALERT_WEBHOOK_INSTANCE_TOKEN|AUDIT_CHAIN_HMAC_KEY|AUDIT_HEAD_EXPORT_S3_SECRET_ACCESS_KEY|REGISTRY_HTTP_SECRET|SUBMISSION_POW_SECRET|SUBMISSION_EMAIL_HASH_SECRET)=CHANGE_ME' "$env_file" \
+  if grep -qE '^(SECRET_ENCRYPTION_KEY|POSTGRES_PASSWORD|DB_PASSWORD|ECOSYSTEM_PUBLIC_READER_PASSWORD|DB_REPLICATION_PASSWORD|MONGO_INITDB_ROOT_PASSWORD|ME_CONFIG_BASICAUTH_PASSWORD|PGADMIN_DEFAULT_PASSWORD|IMAGE_REGISTRY_TOKEN|RUSTFS_ROOT_SECRET_KEY|MESSAGE_S3_SECRET_KEY|REGISTRY_S3_SECRET_KEY|LOKI_S3_SECRET_KEY|THANOS_S3_SECRET_KEY|PLUGIN_S3_SECRET_ACCESS_KEY|RUSTFS_SSE_S3_MASTER_KEY|GRAFANA_ADMIN_PASSWORD|KIALI_SIGNING_KEY|ALERT_WEBHOOK_INSTANCE_TOKEN|AUDIT_CHAIN_HMAC_KEY|AUDIT_HEAD_EXPORT_S3_SECRET_ACCESS_KEY|REGISTRY_HTTP_SECRET|SUBMISSION_POW_SECRET|SUBMISSION_EMAIL_HASH_SECRET)=CHANGE_ME' "$env_file" \
      || grep -q 'mongodb://mongo:CHANGE_ME@' "$env_file"; then
     echo "ERROR: gen-env-secrets left an unsubstituted CHANGE_ME in a required secret in $env_file" >&2
     echo "  — a placeholder in .env.example drifted from this script's sed patterns." >&2

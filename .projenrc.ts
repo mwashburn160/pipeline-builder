@@ -1268,8 +1268,12 @@ if (frontend.jest) {
     // dependency-free leaves, written with the `.js` extension the compiled lib
     // needs. Mapped to source, those specifiers name files that do not exist
     // beside the .ts, so they are pointed at the leaves' sources too. Exactly
-    // these two: a generic `.js` strip would also rewrite node_modules imports.
+    // these: a generic `.js` strip would also rewrite node_modules imports.
+    // plugin-scan.ts also re-exports ./plugin-remediation.js, which imports
+    // ../utils/semver.js.
     '^\\.\\./(middleware/system-org|utils/env)\\.js$': '<rootDir>/../packages/api-core/src/$1.ts',
+    '^\\./plugin-remediation\\.js$': '<rootDir>/../packages/api-core/src/types/plugin-remediation.ts',
+    '^\\.\\./utils/semver\\.js$': '<rootDir>/../packages/api-core/src/utils/semver.ts',
     '^@pipeline-builder/pipeline-core/template$': '<rootDir>/../packages/pipeline-core/src/template/tokenizer.ts',
   };
   // Next.js's standalone build copies frontend/package.json into

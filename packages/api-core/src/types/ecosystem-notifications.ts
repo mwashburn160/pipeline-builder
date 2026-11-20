@@ -53,7 +53,7 @@ export interface EcosystemEventSpec {
   channels: readonly EcosystemNotificationChannel[];
   /**
    * Email opt-out key, or `null` when the email is TRANSACTIONAL / security
-   * (N1, N3–N5, N7–N10, N18–N23, N25, N28–N34 can't be turned off).
+   * (N1, N3–N5, N7–N10, N18–N23, N25, N28–N34, N36–N40 can't be turned off).
    */
   preference: EcosystemEmailPreference | null;
   /** When the email is batched rather than immediate, its cadence. */
@@ -120,6 +120,15 @@ const EVENTS = {
   // version to move to — never one per version. The upgrade/deprecation opt-out
   // covers it, like N14 which it replaces for retention-driven changes.
   N35: { description: 'Superseded plugin versions are being retired (deprecated, then yanked)', channels: ['in_app', 'email'], preference: 'ecosystem.upgrades.email' },
+  // Nightly plugin CVE remediation. N36–N39 follow the org's plugin security
+  // notification settings (recipients, verified external address, digest —
+  // the sender batches by digestMode like N31); N40 goes to a third-party
+  // listing's publisher managers and, as a separate leg, its installers.
+  N36: { description: 'A fixed plugin version was published by remediation (or is awaiting approval)', channels: ['in_app', 'email'], preference: null, allowsAddress: true },
+  N37: { description: 'A remediation rollout to pipelines finished or paused', channels: ['in_app', 'email'], preference: null, allowsAddress: true },
+  N38: { description: 'A pipeline was rolled back from a remediation fix version', channels: ['in_app', 'email'], preference: null, allowsAddress: true },
+  N39: { description: 'Remediation request: findings the platform could not fix, for the plugin owner', channels: ['in_app', 'email'], preference: null, allowsAddress: true },
+  N40: { description: 'Fix request sent to a listing\'s publisher (and its installers told)', channels: ['in_app', 'email'], preference: null },
 } satisfies Record<string, EcosystemEventSpec>;
 
 /** A notification event number. */
@@ -254,7 +263,7 @@ function parseRecipient(raw: unknown, spec: EcosystemEventSpec): EcosystemRecipi
 export function parseEcosystemNotifyRequest(body: unknown): EcosystemNotifyRequest | string {
   if (!body || typeof body !== 'object') return 'body must be an object';
   const b = body as Record<string, unknown>;
-  if (!isEcosystemNotificationEvent(b.event)) return 'event must be one of N1..N35';
+  if (!isEcosystemNotificationEvent(b.event)) return 'event must be one of N1..N40';
   const spec = ECOSYSTEM_NOTIFICATION_EVENTS[b.event];
   if (!nonEmptyString(b.subject, ECOSYSTEM_NOTIFY_SUBJECT_MAX)) return `subject is required (max ${ECOSYSTEM_NOTIFY_SUBJECT_MAX})`;
   if (!nonEmptyString(b.text, ECOSYSTEM_NOTIFY_TEXT_MAX)) return `text is required (max ${ECOSYSTEM_NOTIFY_TEXT_MAX})`;

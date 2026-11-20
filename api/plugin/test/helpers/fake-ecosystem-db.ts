@@ -85,6 +85,7 @@ const DEFAULTS: Record<string, () => NewRow> = {
     publishedAt: new Date(),
   }),
   plugin_publish_requests: () => ({
+    remediationId: null,
     listingId: null,
     pluginId: null,
     version: null,
@@ -203,6 +204,7 @@ export const TABLES = {
   pluginSubmission: 'plugin_submissions',
   pluginSecurityNotificationPref: 'plugin_security_notification_prefs',
   pluginKeptSetupImage: 'plugin_kept_setup_images',
+  pluginRemediation: 'plugin_remediations',
 } as const;
 
 function tableObject(name: string): Record<string, unknown> {

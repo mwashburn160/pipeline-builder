@@ -14,8 +14,9 @@ import {
 /**
  * Plugin record fields that building a pipeline never reads, for any plugin it
  * uses (every stage's steps, the synth plugin, the build image): display text
- * (README, changelog, icons), the build's Dockerfile, and the last scan's
- * findings list (up to 500 Critical/High findings, tens of KB per image).
+ * (README, changelog, icons), the build's Dockerfile, the last scan's
+ * findings list (up to 500 Critical/High findings, tens of KB per image), and
+ * the kept build source's storage pointer.
  * `/plugins/lookup` leaves them out of its answer, because the resolved
  * records travel into the CDK app's props whole: a
  * few large summaries once made the props exceed what a single process
@@ -23,6 +24,10 @@ import {
  */
 export const RESOLVED_PLUGIN_OMITTED_FIELDS = [
   'readmeMd', 'readmeHtml', 'changelog', 'scanSummary', 'dockerfile', 'icon', 'uploadedIcon',
+  // The kept build source's storage pointer and the delete batch: server-side
+  // bookkeeping for CVE remediation and deletion that no pipeline build reads,
+  // and a source object key has no business travelling into CDK props.
+  'sourceKey', 'sourceSha256', 'sourceSizeBytes', 'sourceKind', 'sourceKeptAt', 'deleteBatchId',
 ] as const satisfies readonly (keyof Plugin)[];
 
 type ResolvedPluginOmittedField = typeof RESOLVED_PLUGIN_OMITTED_FIELDS[number];

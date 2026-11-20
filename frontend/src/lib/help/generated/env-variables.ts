@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: e25063f66ef999449c85c49629332daa1a6b21fdcc467020cadd23e4d17002e8
+// SOURCE-SHA256: 97893ed52bdb24989490284baf7ac90e139e6292539637a40f0e5989b317b092
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1890,6 +1890,36 @@ export const envVariablesTopic: HelpTopic = {
               "PLUGIN_RETENTION_MAX_FRACTION",
               "0.5",
               "Safety limit: at most this fraction of one plugin's live versions (at least one) is newly deprecated per pass, oldest first; the rest are deferred to the next pass. A selection bug can therefore only deprecate part of a plugin, which is reversible, and nothing is yanked before the notice period. Plugin service"
+            ],
+            [
+              "PLUGIN_REMEDIATION_ENABLED",
+              "true",
+              "The operator switch for nightly CVE remediation (Plugin Publishing). Only the literal false (trimmed, any case) turns it off; any other value, a typo included, leaves it on. Off: nothing is queued, built, published or rolled out and no remediation notice is sent; GET /plugins/remediations and /plugins/remediation-settings answer enabled: false and the dashboard says the operator turned it off. Org remediation settings stay editable, and source retention and Delete plugin are unaffected. Plugin and pipeline services (pipeline's Stage 3 rollout worker does nothing while it is off)"
+            ],
+            [
+              "PLUGIN_REMEDIATION_SEVERITIES",
+              "critical,high",
+              "Which findings with a fixed version remediation targets: a comma list of critical and/or high (case and spaces ignored). KEV-listed findings are always targeted, whatever this says; one with no fix goes to the owner request. An unknown entry, or no valid entry, falls back to critical,high with one warning in the plugin log, so a typo never silently narrows it. Waived and VEX-covered findings are never targeted. Plugin service"
+            ],
+            [
+              "PLUGIN_REMEDIATION_CONCURRENCY",
+              "2",
+              "Tenant remediation jobs running at once across the build queue's workers. Remediation builds run on the org's build tier queue behind user builds and spend no build credits. Plugin service"
+            ],
+            [
+              "PLUGIN_REMEDIATION_BASE_CONCURRENCY",
+              "4",
+              "Concurrency of the system-org shared-base pass (a CVE in plugin-base reaches every plugin built on it), which runs ahead of tenant remediations. Plugin service"
+            ],
+            [
+              "PLUGIN_REMEDIATION_MAX_PER_ORG_PER_DAY",
+              "20",
+              "Remediations started per org per rolling 24 hours, retries included (a retry over it answers 429 QUOTA_EXCEEDED). Shown on the Quotas page as used today. Plugin service"
+            ],
+            [
+              "PLUGIN_SOURCES_BUCKET",
+              "plugin-sources",
+              "Object-storage bucket each stored version's build-context ZIP is kept in (<orgId>/<pluginId>/<version>/<sha256>.zip, plus remediation patches under …/remediations/<id>/), so a version can be rebuilt and patched later. Created by the bootstrap Job unversioned, with SSE-S3 and no expiry rule (a purge deletes the version's prefix); counts toward the org's storage quota. Renaming it means creating the bucket and granting the plugin user yourself. Plugin service"
             ]
           ]
         },
@@ -4611,9 +4641,14 @@ export const envVariablesTopic: HelpTopic = {
               "Object-store credential for message attachments"
             ],
             [
-              "PLUGIN_S3_ACCESS_KEY / PLUGIN_S3_SECRET_KEY",
+              "PLUGIN_S3_ACCESS_KEY_ID / PLUGIN_S3_SECRET_ACCESS_KEY",
               "plugin-svc / CHANGE_ME",
-              "Object-store credential for the plugin build-context bucket, which holds transient build ZIPs so a build can run on any plugin replica"
+              "The plugin service's own object-store user, scoped by the bootstrap Job to exactly plugins (transient build ZIPs), plugin-quarantine (anonymous submissions) and plugin-sources (kept build sources). Deploy-only: mapped into the plugin container as S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY and never given to another service (the Kubernetes app-env split drops it; the plugin pod reads it from rustfs-secret)"
+            ],
+            [
+              "RUSTFS_SSE_S3_MASTER_KEY",
+              "CHANGE_ME (generated)",
+              "RustFS's SSE-S3 master key, base64 of 32 bytes, read by the RustFS server only. plugin-sources is encrypted at rest with it, and without it RustFS refuses every write to that bucket (the bootstrap Job proves an encrypted write before it exits). Never rotate or lose it: objects written under it cannot be read without it. An rclone object-store mirror holds the decrypted bytes, so restoring from the mirror works under a new key; restoring the raw drives needs this one"
             ],
             [
               "ME_CONFIG_MONGODB_URL",

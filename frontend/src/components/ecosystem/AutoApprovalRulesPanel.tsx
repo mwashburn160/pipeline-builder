@@ -60,6 +60,7 @@ export function describeConditions(c: AutoRuleConditions): string[] {
     `Version bumps: ${c.bumps.join(', ') || 'none'}`,
   ];
   if (c.submitterServiceAccount) out.push(`Submitted by service account ${c.submitterServiceAccount}`);
+  if (c.remediationOnly) out.push('Only fixes opened by nightly CVE remediation (that pass the ecosystem vulnerability gate)');
   if (c.textOnlyListingUpdates) out.push('Listing updates: text fields only (no links, no icon)');
   if (c.maxPerListingPerDay != null) out.push(`At most ${c.maxPerListingPerDay} per listing per day`);
   if (c.maxPerDay != null) out.push(`At most ${c.maxPerDay} per day`);
@@ -164,6 +165,13 @@ function RuleFormDialog({ rule, draft, initialError, onClose, onSave }: {
           ))}
           <p className="form-hint">Majors and breaking versions never auto-approve.</p>
         </fieldset>
+        <FormField label="Submitted by service account" hint="Optional. Only requests this service account submitted (the Remediation fixes rule uses plugin-remediation).">
+          <Input value={c.submitterServiceAccount ?? ''} onChange={(e) => setC({ ...c, submitterServiceAccount: e.target.value.trim() || undefined })} />
+        </FormField>
+        <label className="flex items-center gap-2">
+          <Checkbox checked={!!c.remediationOnly} onChange={(e) => setC({ ...c, remediationOnly: e.target.checked || undefined })} />
+          Only fixes opened by nightly CVE remediation
+        </label>
         <label className="flex items-center gap-2">
           <Checkbox checked={!!c.textOnlyListingUpdates} onChange={(e) => setC({ ...c, textOnlyListingUpdates: e.target.checked || undefined })} />
           Listing updates: text fields only (no links, no icon)

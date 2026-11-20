@@ -14,6 +14,7 @@
 import type { Criticality, EntityLabels, EntityLink, Lifecycle, OwnerType } from './catalog-metadata.js';
 import type { ComputeType, PluginType } from './pipeline.js';
 import type { MetadataSources } from './plugin-catalog.js';
+import type { PluginSourceKind } from './plugin-remediation.js';
 import type { PluginScanFlag, PluginScanSummary } from './plugin-scan.js';
 import type { Visibility } from './visibility.js';
 
@@ -144,6 +145,18 @@ export interface PluginRecord {
   deletedBy: string | null;
   purgeAfter: Date | null;
   quotaResetAt: Date | null;
+  /**
+   * Kept build context (nightly CVE remediation). Internal pointers: the
+   * plugin service never returns `sourceKey` in an API answer, and no route
+   * returns the ZIP itself; `sourceKind` / `sourceSizeBytes` may be shown.
+   */
+  sourceKey: string | null;
+  sourceSha256: string | null;
+  sourceSizeBytes: number | null;
+  sourceKind: PluginSourceKind;
+  sourceKeptAt: Date | null;
+  /** The by-name delete batch that soft-deleted this version (null otherwise). */
+  deleteBatchId: string | null;
 }
 
 /**

@@ -1,0 +1,137 @@
+{
+ "matches": [
+  {
+   "vulnerability": {
+    "id": "CVE-2021-42377",
+    "dataSource": "https://nvd.nist.gov/vuln/detail/CVE-2021-42377",
+    "namespace": "nvd:cpe",
+    "severity": "Critical",
+    "urls": [
+     "https://claroty.com/team82/research/unboxing-busybox-14-vulnerabilities-uncovered-by-claroty-jfrog",
+     "https://jfrog.com/blog/unboxing-busybox-14-new-vulnerabilities-uncovered-by-claroty-and-jfrog/"
+    ],
+    "description": "An attacker-controlled pointer free in Busybox's hush applet leads to denial of service and possible code execution when processing a crafted shell command, due to the shell mishandling the &&& string. This may be used for remote code execution under rare conditions of filtered command input.",
+    "cvss": [
+     {
+      "source": "nvd@nist.gov",
+      "type": "Primary",
+      "version": "3.1",
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      "metrics": {
+       "baseScore": 9.8,
+       "exploitabilityScore": 3.9,
+       "impactScore": 5.9
+      },
+      "vendorMetadata": {}
+     },
+     {
+      "source": "nvd@nist.gov",
+      "type": "Primary",
+      "version": "2.0",
+      "vector": "AV:N/AC:M/Au:N/C:P/I:P/A:P",
+      "metrics": {
+       "baseScore": 6.8,
+       "exploitabilityScore": 8.6,
+       "impactScore": 6.5
+      },
+      "vendorMetadata": {}
+     }
+    ],
+    "epss": [
+     {
+      "cve": "CVE-2021-42377",
+      "epss": 0.03615,
+      "percentile": 0.89737,
+      "date": "2026-11-19"
+     }
+    ],
+    "cwes": [
+     {
+      "cve": "CVE-2021-42377",
+      "cwe": "CWE-590",
+      "source": "reefs@jfrog.com",
+      "type": "Secondary"
+     },
+     {
+      "cve": "CVE-2021-42377",
+      "cwe": "CWE-763",
+      "source": "nvd@nist.gov",
+      "type": "Primary"
+     }
+    ],
+    "fix": {
+     "versions": [],
+     "state": ""
+    },
+    "advisories": [],
+    "risk": 3.126975
+   },
+   "relatedVulnerabilities": [],
+   "matchDetails": [
+    {
+     "type": "cpe-match",
+     "matcher": "stock-matcher",
+     "searchedBy": {
+      "namespace": "nvd:cpe",
+      "cpes": [
+       "cpe:2.3:a:busybox:busybox:1.33.0:*:*:*:*:*:*:*"
+      ],
+      "package": {
+       "name": "busybox",
+       "version": "1.33.0"
+      }
+     },
+     "found": {
+      "vulnerabilityID": "CVE-2021-42377",
+      "versionConstraint": "= 1.33.0||= 1.33.1 (unknown)",
+      "cpes": [
+       "cpe:2.3:a:busybox:busybox:*:*:*:*:*:*:*:*"
+      ]
+     }
+    }
+   ],
+   "artifact": {
+    "id": "Package-binary-busybox-12de2700032f59ed",
+    "name": "busybox",
+    "version": "1.33.0",
+    "type": "UnknownPackage",
+    "locations": null,
+    "language": "",
+    "licenses": [],
+    "cpes": [
+     "cpe:2.3:a:busybox:busybox:1.33.0:*:*:*:*:*:*:*"
+    ],
+    "purl": "pkg:generic/busybox@1.33.0",
+    "upstreams": []
+   }
+  }
+ ],
+ "source": {
+  "type": "image",
+  "target": {
+   "userInput": "/w/fixture.tar:sha256:e83e2fb0b007d2a3eb104b5d08b1f354e59748e4445ccd0166ca4f48b9168df9",
+   "imageID": "DocumentRoot-Image--w-fixture.tar",
+   "manifestDigest": "sha256:e83e2fb0b007d2a3eb104b5d08b1f354e59748e4445ccd0166ca4f48b9168df9",
+   "mediaType": "",
+   "tags": [],
+   "imageSize": 0,
+   "layers": null,
+   "manifest": null,
+   "config": null,
+   "repoDigests": [],
+   "architecture": "",
+   "os": ""
+  }
+ },
+ "distro": {
+  "name": "debian",
+  "version": "11.0",
+  "idLike": [
+   "debian"
+  ]
+ },
+ "descriptor": {
+  "name": "grype",
+  "version": "0.121.1"
+ }
+}

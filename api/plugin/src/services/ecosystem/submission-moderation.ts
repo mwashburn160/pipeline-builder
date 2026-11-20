@@ -258,6 +258,15 @@ export async function publishSubmission(r: PluginPublishRequest, publisher: Publ
         vulnCriticalFixable: facts.vulnCriticalFixable,
         vulnHighFixable: facts.vulnHighFixable,
         scannedAt: facts.scannedAt ? new Date(facts.scannedAt) : null,
+        // No org version to copy a kept source from (and the quarantined
+        // package is dropped below): a community version is listed source-less
+        // (services/plugin-sources.ts sourceColumns(null)), and remediation
+        // reaches its publisher as a fix request only.
+        sourceKey: null,
+        sourceSha256: null,
+        sourceSizeBytes: null,
+        sourceKind: 'none',
+        sourceKeptAt: null,
         publishedBy: actor,
       });
       const latest = await recomputeLatest(into.id);

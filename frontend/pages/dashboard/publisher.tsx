@@ -38,6 +38,7 @@ import { PublishRequestForm } from '@/components/publisher/PublishRequestForm';
 import { PublishRequestsPanel } from '@/components/publisher/PublishRequestsPanel';
 import { PublisherAdvisoriesPanel } from '@/components/publisher/PublisherAdvisoriesPanel';
 import { PublisherInsightsPanel } from '@/components/publisher/PublisherInsightsPanel';
+import { PublisherFixRequestsPanel } from '@/components/publisher/PublisherFixRequestsPanel';
 import api from '@/lib/api';
 import { queryTags } from '@/lib/api-cache';
 import { formatError } from '@/lib/constants';
@@ -53,6 +54,7 @@ const TABS = [
   { id: 'publish', label: 'Publish' },
   { id: 'requests', label: 'Requests' },
   { id: 'advisories', label: 'Advisories' },
+  { id: 'fixes', label: 'Fix requests' },
 ] as const;
 type TabId = (typeof TABS)[number]['id'];
 const TAB_IDS = TABS.map((t) => t.id) as TabId[];
@@ -171,6 +173,9 @@ export default function PublisherPage() {
       return <PublisherAdvisoriesPanel canManage={canManage} />;
     }
     if (tab === 'insights') return <PublisherInsightsPanel />;
+    // Fix requests (N40) from nightly CVE remediation are delivered as notices
+    // only (no stored list or route), so the tab points at where they arrive.
+    if (tab === 'fixes') return <PublisherFixRequestsPanel />;
     if (tab === 'publish') {
       if (!canPublish) {
         return <Callout variant="neutral">Submitting listings and versions needs the plugins:publish permission.</Callout>;

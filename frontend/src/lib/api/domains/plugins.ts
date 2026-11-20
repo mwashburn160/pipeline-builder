@@ -19,6 +19,10 @@ import type {
 import type {
   PluginSecurityNotificationPrefs, PluginSecurityNotificationPrefsWrite, PluginSecurityTestResult,
 } from '@/types/plugin-security-notifications';
+import type {
+  LibraryUpgradeLevel, PluginBatchActionResult, PluginDeleteAllResult, PluginDeletePreview, PluginRemediationDto,
+  PluginRemediationList, PluginRemediationListQuery, PluginRemediationSettingsView, PluginRemediationSettingsWrite,
+} from '@/types/plugin-remediation';
 
 /**
  * Page envelope of the build-queue listings (`/plugins/queue/failed`, `/dlq`).
@@ -48,6 +52,8 @@ export const PLUGIN_LIST_FIELDS = [
   'deprecatedAt', 'deprecationMessage', 'yankedAt', 'yankReason',
   // Scan standing: the fixable / total, Unscanned and Flagged badges.
   'vulnCritical', 'vulnHigh', 'vulnCriticalFixable', 'vulnHighFixable', 'scannedAt', 'scanFlaggedAt', 'scanFlag',
+  // Kept build source: the Storage section's per-version bytes (never its key or checksum, which the server refuses).
+  'sourceKind', 'sourceSizeBytes',
 ] as const satisfies ReadonlyArray<keyof Plugin>;
 
 /** A plugin row as the list view receives it (see {@link PLUGIN_LIST_FIELDS}). */
@@ -548,6 +554,128 @@ export function pluginsApi(core: ApiCore) {
         method: 'POST',
         body: JSON.stringify({}),
       });
+    },
+
+    // ============================================
+    // Nightly CVE remediation (api/plugin routes/remediations.ts)
+    // ============================================
+
+    /**
+     * The org's remediations, newest first, plus the operator knob (`enabled`),
+     * today's count against the daily cap and the opted-out pipeline count.
+     * `stage` filters to one stage or a comma list. `plugins:read`.
+     */
+    listPluginRemediations: async (query: PluginRemediationListQuery = {}, opts?: { signal?: AbortSignal }) => {
+      const params: Record<string, string> = {};
+      for (const [k, v] of Object.entries(query)) if (v !== undefined && v !== '') params[k] = String(v);
+      return core.request<ApiResponse<PluginRemediationList>>(`/api/plugins/remediations${buildQuery(params)}`, { signal: opts?.signal });
+    },
+
+    /** The remediation's patch diff as text (404 when none is stored). Never the source ZIP. `plugins:read`. */
+    getPluginRemediationPatch: async (id: string) => {
+      return core.requestText(`/api/plugins/remediations/${encodeURIComponent(id)}/patch`, { errorMessage: 'Could not load the patch' });
+    },
+
+    /** Official fixes: the patch re-rooted at `deploy/plugins/<name>/` for maintainers (system org, `plugins:write`). */
+    downloadPluginRemediationExport: async (id: string): Promise<{ blob: Blob; filename: string }> => {
+      return core.requestBlob(`/api/plugins/remediations/${encodeURIComponent(id)}/export`, 'remediation-export.diff', {
+        errorMessage: 'Export download failed',
+      });
+    },
+
+    /**
+     * Approve and publish a fix held in propose mode (`awaiting_approval` only;
+     * 409 REMEDIATION_STAGE_CONFLICT otherwise). `plugins:write` + step-up: pass
+     * the token the caller's own StepUpModal minted.
+     */
+    approvePluginRemediation: async (id: string, body: { reason?: string } = {}, stepUpToken?: string) => {
+      return core.request<ApiResponse<PluginRemediationDto>>(`/api/plugins/remediations/${encodeURIComponent(id)}/approve`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+        replayOnStepUp: false,
+        headers: core.stepUpHeader(stepUpToken),
+      });
+    },
+
+    /** Reject a fix held in propose mode (moves it to failed / rejected). `plugins:write` + step-up. */
+    rejectPluginRemediation: async (id: string, body: { reason?: string } = {}, stepUpToken?: string) => {
+      return core.request<ApiResponse<PluginRemediationDto>>(`/api/plugins/remediations/${encodeURIComponent(id)}/reject`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+        replayOnStepUp: false,
+        headers: core.stepUpHeader(stepUpToken),
+      });
+    },
+
+    /** Start a new attempt of a failed / needs-owner / needs-review remediation (counts toward the daily cap; 429 over it). `plugins:write`. */
+    retryPluginRemediation: async (id: string) => {
+      return core.request<ApiResponse<PluginRemediationDto>>(`/api/plugins/remediations/${encodeURIComponent(id)}/retry`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+    },
+
+    /** The org's remediation settings, the root's inherited values for a team, and the operator knob. `plugins:read`. */
+    getPluginRemediationSettings: async (opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<PluginRemediationSettingsView>>('/api/plugins/remediation-settings', { signal: opts?.signal });
+    },
+
+    /** Save them (`org_settings:write`); editable even while the operator knob is off. */
+    updatePluginRemediationSettings: async (body: PluginRemediationSettingsWrite, opts?: ProposedByOptions) => {
+      return core.request<ApiResponse<PluginRemediationSettingsView>>('/api/plugins/remediation-settings', {
+        method: 'PUT',
+        body: JSON.stringify(body),
+        headers: core.proposedByHeader(opts),
+      });
+    },
+
+    /** One plugin's own library upgrade level (`null` = Follow organization). `plugins:write`. */
+    setPluginRemediationLevel: async (name: string, level: LibraryUpgradeLevel | null) => {
+      return core.request<ApiResponse<PluginRemediationSettingsView>>(`/api/plugins/by-name/${encodeURIComponent(name)}/remediation-level`, {
+        method: 'PUT',
+        body: JSON.stringify({ level }),
+      });
+    },
+
+    // ============================================
+    // Delete / restore / purge a whole plugin (api/plugin routes/plugin-by-name.ts)
+    // ============================================
+
+    /** What "Delete plugin" would delete and skip, and why — the dialog shows exactly this. `plugins:write`. */
+    getPluginDeletePreview: async (name: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<PluginDeletePreview>>(`/api/plugins/by-name/${encodeURIComponent(name)}/delete-preview`, { signal: opts?.signal });
+    },
+
+    /**
+     * Soft-delete every eligible version of `name` (one batch). `force` also
+     * deletes listed source versions. `plugins:write` + step-up; 10 per org per hour.
+     */
+    deletePluginByName: async (name: string, opts: { force?: boolean; stepUpToken?: string } = {}) => {
+      return core.request<ApiResponse<PluginDeleteAllResult>>(`/api/plugins/by-name/${encodeURIComponent(name)}${opts.force ? '?force=true' : ''}`, {
+        method: 'DELETE',
+        replayOnStepUp: false,
+        headers: core.stepUpHeader(opts.stepUpToken),
+      });
+    },
+
+    /** Restore one "Delete plugin" batch, within the retention window. `plugins:write` + step-up. */
+    restorePluginByName: async (name: string, batchId: string, stepUpToken?: string) => {
+      return core.request<ApiResponse<PluginBatchActionResult>>(
+        `/api/plugins/by-name/${encodeURIComponent(name)}/restore${buildQuery({ batchId })}`, {
+          method: 'POST',
+          replayOnStepUp: false,
+          headers: core.stepUpHeader(stepUpToken),
+        });
+    },
+
+    /** Permanently purge one batch's soft-deleted versions (sources, image, remediation rows). `plugins:write` + step-up. */
+    purgePluginByName: async (name: string, batchId: string, stepUpToken?: string) => {
+      return core.request<ApiResponse<PluginBatchActionResult>>(
+        `/api/plugins/by-name/${encodeURIComponent(name)}/purge${buildQuery({ batchId })}`, {
+          method: 'POST',
+          replayOnStepUp: false,
+          headers: core.stepUpHeader(stepUpToken),
+        });
     },
 
     /**

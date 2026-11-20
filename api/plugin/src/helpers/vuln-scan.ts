@@ -44,7 +44,8 @@ import path from 'path';
 
 import {
   envInt, createLogger, errorMessage, scanFindingKey, SCAN_SUMMARY_MAX_BINARIES, SCAN_SUMMARY_MAX_FINDINGS,
-  type PluginScanFinding, type PluginScanSummary,
+  GRYPE_PACKAGE_TYPES, toGrypePackageType,
+  type GrypePackageType, type PluginScanFinding, type PluginScanFindingLocation, type PluginScanSummary,
 } from '@pipeline-builder/api-core';
 import { incCounter, observe, setGauge } from '@pipeline-builder/api-server';
 import { Config } from '@pipeline-builder/pipeline-core';
@@ -339,7 +340,121 @@ interface GrypeExploitability {
 interface GrypeMatch {
   vulnerability?: GrypeExploitability & { id?: unknown; severity?: unknown; fix?: { state?: unknown; versions?: unknown } };
   relatedVulnerabilities?: unknown;
-  artifact?: { name?: unknown; version?: unknown };
+  artifact?: { id?: unknown; name?: unknown; version?: unknown; type?: unknown; purl?: unknown; locations?: unknown };
+}
+
+/**
+ * Where each SBOM package came from, read from the SIGNED SPDX document the
+ * scan ran over.
+ *
+ * grype keeps `artifact.type`, `artifact.purl` and `artifact.id` from an SPDX
+ * input, but NOT the locations: SPDX has no per-package location field, so
+ * grype 0.121 reports `artifact.locations: null` for every match (verified on
+ * the test/fixtures/grype reports). syft encodes them another way, and that is
+ * what this reads back:
+ *
+ * - each location is an SPDX file the package is related to by an `OTHER`
+ *   relationship whose comment starts `evident-by` (the dpkg status file, the
+ *   package.json, the jar, the binary), and
+ * - each such file carries its layer in its comment, `layerID: sha256:…`.
+ *
+ * syft also loses the `binary` type in SPDX (grype reads the classifier's
+ * packages back as `UnknownPackage`), but the SPDXID keeps it
+ * (`SPDXRef-Package-binary-busybox-…`), so the id's type segment is the
+ * fallback for a type grype reports as uncatalogued.
+ *
+ * Indexed by SPDXID. Packages syft wrote no evident-by file for fall back to the
+ * paths in their `sourceInfo` text, with an unknown (empty) layer.
+ */
+interface SbomPackageFacts {
+  type: GrypePackageType | null;
+  locations: PluginScanFindingLocation[];
+}
+
+/** Longest first, so `go-module` wins over a hypothetical `go`. */
+const TYPES_BY_LENGTH = [...GRYPE_PACKAGE_TYPES].sort((a, b) => b.length - a.length);
+
+/** The package type in a syft SPDXID (`SPDXRef-Package-<type>-<name>-<hash>`), or null. */
+function typeFromSpdxId(spdxId: string): GrypePackageType | null {
+  const rest = spdxId.replace(/^SPDXRef-/, '').replace(/^Package-/, '');
+  return TYPES_BY_LENGTH.find((t) => t !== 'other' && rest.startsWith(`${t}-`)) ?? null;
+}
+
+const LAYER_COMMENT = /layerID:\s*(sha256:[0-9a-f]{64})/i;
+const SOURCE_INFO_PATHS = /(?:^|[\s:,])(\/[^\s,]+)/g;
+
+/** @internal exported for tests. */
+export function sbomPackageFacts(sbom: Record<string, unknown> | null | undefined): Map<string, SbomPackageFacts> {
+  const out = new Map<string, SbomPackageFacts>();
+  if (!sbom || typeof sbom !== 'object') return out;
+  const packages = Array.isArray(sbom.packages) ? sbom.packages as Array<Record<string, unknown>> : [];
+  const files = Array.isArray(sbom.files) ? sbom.files as Array<Record<string, unknown>> : [];
+  const relationships = Array.isArray(sbom.relationships) ? sbom.relationships as Array<Record<string, unknown>> : [];
+  const fileById = new Map<string, PluginScanFindingLocation>();
+  for (const f of files) {
+    if (typeof f?.SPDXID !== 'string' || typeof f.fileName !== 'string' || !f.fileName) continue;
+    const layer = typeof f.comment === 'string' ? LAYER_COMMENT.exec(f.comment)?.[1] ?? '' : '';
+    fileById.set(f.SPDXID, { path: f.fileName.startsWith('/') ? f.fileName : `/${f.fileName}`, layerID: layer });
+  }
+  const evidence = new Map<string, PluginScanFindingLocation[]>();
+  for (const r of relationships) {
+    if (r?.relationshipType !== 'OTHER' || typeof r.comment !== 'string' || !r.comment.startsWith('evident-by')) continue;
+    if (typeof r.spdxElementId !== 'string' || typeof r.relatedSpdxElement !== 'string') continue;
+    const loc = fileById.get(r.relatedSpdxElement);
+    if (!loc) continue;
+    const list = evidence.get(r.spdxElementId) ?? [];
+    if (!list.some((l) => l.path === loc.path && l.layerID === loc.layerID)) list.push(loc);
+    evidence.set(r.spdxElementId, list);
+  }
+  for (const p of packages) {
+    if (typeof p?.SPDXID !== 'string' || p.SPDXID.startsWith('SPDXRef-DocumentRoot')) continue;
+    let locations = evidence.get(p.SPDXID) ?? [];
+    if (locations.length === 0 && typeof p.sourceInfo === 'string') {
+      locations = [...new Set([...p.sourceInfo.matchAll(SOURCE_INFO_PATHS)].map((m) => m[1]!))].map((file) => ({ path: file, layerID: '' }));
+    }
+    out.set(p.SPDXID, { type: typeFromSpdxId(p.SPDXID), locations });
+  }
+  return out;
+}
+
+/** grype's own `artifact.locations` (a syft-JSON or image input), or null when absent / empty. */
+function grypeLocations(raw: unknown): PluginScanFindingLocation[] | null {
+  if (!Array.isArray(raw)) return null;
+  const locs = raw
+    .filter((l): l is { path: string; layerID?: unknown } => typeof (l as { path?: unknown })?.path === 'string' && (l as { path: string }).path !== '')
+    .map((l) => ({ path: l.path, layerID: typeof l.layerID === 'string' ? l.layerID : '' }));
+  return locs.length > 0 ? locs : null;
+}
+
+/** A Critical/High finding grype reported without the package details remediation needs. */
+export class GrypeFindingIncompleteError extends Error {
+  constructor(readonly advisoryId: string, readonly missing: 'type' | 'purl' | 'locations') {
+    super(`grype finding ${advisoryId} has no package ${missing}; the scan is incomplete`);
+    this.name = 'GrypeFindingIncompleteError';
+  }
+}
+
+/**
+ * The package details of a Critical/High match: type, purl and locations.
+ * Throws {@link GrypeFindingIncompleteError} when any is missing — a finding
+ * nothing can patch or trace to a layer is a scan that did not complete.
+ */
+function packageDetails(
+  match: GrypeMatch,
+  id: string,
+  sbomFacts: Map<string, SbomPackageFacts>,
+): Pick<VulnFinding, 'packageType' | 'purl' | 'locations'> {
+  const a = match.artifact ?? {};
+  if (typeof a.type !== 'string' || !a.type.trim()) throw new GrypeFindingIncompleteError(id, 'type');
+  if (typeof a.purl !== 'string' || !a.purl.trim()) throw new GrypeFindingIncompleteError(id, 'purl');
+  const facts = typeof a.id === 'string'
+    ? sbomFacts.get(a.id.startsWith('SPDXRef-') ? a.id : `SPDXRef-${a.id}`)
+    : undefined;
+  let packageType = toGrypePackageType(a.type);
+  if (packageType === 'other' && facts?.type) packageType = facts.type;
+  const locations = grypeLocations(a.locations) ?? (facts && facts.locations.length > 0 ? facts.locations.map((l) => ({ ...l })) : null);
+  if (!locations) throw new GrypeFindingIncompleteError(id, 'locations');
+  return { packageType, purl: a.purl.trim(), locations };
 }
 
 /**
@@ -387,8 +502,17 @@ function fixedVersions(match: GrypeMatch): string[] {
  * version; the fixable counts are what the platform floor gates on. Throws on
  * anything that is not a grype report: an unparseable report is a scan that
  * did not run, never a clean one.
+ *
+ * Every Critical/High finding carries its package's type, purl and locations
+ * (see {@link sbomPackageFacts} for how they survive an SPDX input). `sbom` is
+ * the document grype scanned; a finding whose details can be read from neither
+ * the report nor the SBOM throws {@link GrypeFindingIncompleteError}, so the
+ * scan fails like any other scan failure.
  */
-export function parseGrypeReport(stdout: string): VulnCounts & FixableCounts & { findings: VulnFinding[] } {
+export function parseGrypeReport(
+  stdout: string,
+  sbom: Record<string, unknown> | null = null,
+): VulnCounts & FixableCounts & { findings: VulnFinding[] } {
   let report: { matches?: unknown };
   try {
     report = JSON.parse(stdout) as { matches?: unknown };
@@ -401,6 +525,7 @@ export function parseGrypeReport(stdout: string): VulnCounts & FixableCounts & {
   const counts: VulnCounts & FixableCounts = { critical: 0, high: 0, medium: 0, low: 0, criticalFixable: 0, highFixable: 0 };
   const findings: VulnFinding[] = [];
   const seen = new Set<string>();
+  let sbomFacts: Map<string, SbomPackageFacts> | null = null;
   for (const match of report.matches as GrypeMatch[]) {
     const id = typeof match?.vulnerability?.id === 'string' ? match.vulnerability.id : '';
     const severity = typeof match?.vulnerability?.severity === 'string' ? match.vulnerability.severity.toLowerCase() : '';
@@ -425,7 +550,9 @@ export function parseGrypeReport(stdout: string): VulnCounts & FixableCounts & {
     if (severity === 'critical' || severity === 'high') {
       const fixedIn = fixedVersions(match);
       if (fixedIn.length > 0) counts[severity === 'critical' ? 'criticalFixable' : 'highFixable']++;
-      findings.push(withExploitability({ id, severity, packageName, packageVersion, fixedIn }, exploitability(match)));
+      sbomFacts ??= sbomPackageFacts(sbom);
+      const details = packageDetails(match, id, sbomFacts);
+      findings.push(withExploitability({ id, severity, packageName, packageVersion, ...details, fixedIn }, exploitability(match)));
     }
   }
   // Criticals first; within a severity known-exploited first, then fixable
@@ -537,7 +664,7 @@ export async function scanSbom(sbom: Record<string, unknown>, trigger: ScanTrigg
     fs.writeFileSync(sbomFile, JSON.stringify(sbom));
     const stdout = await run('grype', [`sbom:${sbomFile}`, '-o', 'json', '-q', ...vexArgs()], SCAN_TIMEOUT_MS,
       grypeEnv({ GRYPE_DB_AUTO_UPDATE: 'false', TMPDIR: workDir }), { captureStdout: true });
-    const result: VulnScanResult = { ...parseGrypeReport(stdout), scannedAt: new Date(), dbBuiltAt };
+    const result: VulnScanResult = { ...parseGrypeReport(stdout, sbom), scannedAt: new Date(), dbBuiltAt };
     incCounter('plugin_vuln_scans_total', { trigger, outcome: 'scanned' });
     for (const severity of COUNTED) {
       if (result[severity] > 0) incCounter('plugin_vuln_findings_total', { trigger, severity }, result[severity]);

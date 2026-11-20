@@ -81,6 +81,8 @@ export function createStorageRoutes(): Router {
       // Said once, here, so every surface words the headline figures alike.
       usedLabel: formatQuotaAmount('storageBytes', plan.bytes),
       reclaimableLabel: formatQuotaAmount('storageBytes', plan.reclaimableBytes),
+      sourceLabel: formatQuotaAmount('storageBytes', plan.sourceBytes),
+      totalLabel: formatQuotaAmount('storageBytes', plan.totalBytes),
     });
   }));
 

@@ -321,6 +321,12 @@ export interface AutoRuleConditions {
   maxPerDay?: number;
   instanceFlag?: string;
   seeded?: string;
+  /**
+   * Only requests opened by a nightly CVE remediation qualify
+   * (`plugin_publish_requests.remediation_id` set): the seeded "Remediation
+   * fixes" rule. Paired with `submitterServiceAccount: 'plugin-remediation'`.
+   */
+  remediationOnly?: boolean;
 }
 
 /** Everything a rule decides on, gathered by the request service. */
@@ -347,6 +353,8 @@ export interface AutoApprovalContext {
   flagOn: boolean;
   /** An open security advisory fix never waits on the cap. */
   securityLane?: boolean;
+  /** The request was opened by a nightly CVE remediation (its `remediation_id` is set). */
+  remediation?: boolean;
 }
 
 /**
@@ -365,6 +373,7 @@ export function evaluateAutoRule(conditions: AutoRuleConditions, ctx: AutoApprov
   if (conditions.submitterServiceAccount && ctx.submitterServiceAccount !== conditions.submitterServiceAccount) {
     reasons.push(`only requests from the ${conditions.submitterServiceAccount} service account qualify`);
   }
+  if (conditions.remediationOnly && ctx.remediation !== true) reasons.push('only requests opened by a remediation qualify');
   if (!ctx.listingLive) reasons.push('the listing must already exist and be listed');
 
   if (ctx.kind === 'new_version') {
@@ -403,8 +412,8 @@ export function evaluateAutoRule(conditions: AutoRuleConditions, ctx: AutoApprov
 /**
  * Whether `next` widens `previous` (enabling or broadening a rule needs a
  * second approver). Anything other than a pure narrowing counts: more
- * kinds, tiers or bumps; a dropped submitter pin, text-only restriction or
- * instance flag; a higher (or removed) cap.
+ * kinds, tiers or bumps; a dropped submitter pin, text-only or
+ * remediation-only restriction, or instance flag; a higher (or removed) cap.
  */
 export function widensRule(previous: AutoRuleConditions, next: AutoRuleConditions): boolean {
   const superset = (a: unknown[] | undefined, b: unknown[] | undefined) => (b ?? []).some((x) => !(a ?? []).includes(x));
@@ -413,6 +422,7 @@ export function widensRule(previous: AutoRuleConditions, next: AutoRuleCondition
   if (superset(previous.bumps, next.bumps)) return true;
   if (previous.submitterServiceAccount && next.submitterServiceAccount !== previous.submitterServiceAccount) return true;
   if (previous.textOnlyListingUpdates && !next.textOnlyListingUpdates) return true;
+  if (previous.remediationOnly && !next.remediationOnly) return true;
   if (previous.instanceFlag && next.instanceFlag !== previous.instanceFlag) return true;
   const capWidened = (a: number | undefined, b: number | undefined) => a !== undefined && (b === undefined || b > a);
   return capWidened(previous.maxPerDay, next.maxPerDay) || capWidened(previous.maxPerListingPerDay, next.maxPerListingPerDay);

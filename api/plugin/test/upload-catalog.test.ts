@@ -79,6 +79,13 @@ jest.unstable_mockModule('../src/queue/connections.js', () => ({ enqueueBuild: m
 jest.unstable_mockModule('../src/services/plugin-artifact-storage.js', () => ({
   putPluginArtifact: jest.fn(async () => undefined), putPluginArtifactFile: jest.fn(async () => undefined), deletePluginArtifact: jest.fn(), pluginArtifactKey: () => 'org-1/req-1.zip',
 }));
+const mockIsPluginNameLocked = jest.fn(async (_o: string, _n: string) => false);
+const mockKeepVersionSource = jest.fn(async (_i: unknown) => null);
+jest.unstable_mockModule('../src/helpers/plugin-name-lock.js', () => ({
+  isPluginNameLocked: mockIsPluginNameLocked,
+  pluginNameLockedError: (name: string) => Object.assign(new Error(`Plugin "${name}" is locked`), { statusCode: 409, code: 'PLUGIN_NAME_LOCKED' }),
+}));
+jest.unstable_mockModule('../src/services/plugin-sources.js', () => ({ keepVersionSource: mockKeepVersionSource }));
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
   pluginService: { assertDeployable: mockAssertDeployable, deployVersion: mockDeployVersion },
 }));
@@ -201,6 +208,23 @@ describe('POST /plugins — the optional `metadata` part', () => {
       expect(mockReserveQuota).not.toHaveBeenCalled();
     },
   );
+
+  it('a metadata-only version keeps no source (source_kind none, any earlier one dropped)', async () => {
+    mockParsePluginZip.mockResolvedValue(parsed(newExtractDir()));
+    await upload(fileReq().req, mockRes());
+    const deployed = await mockDeployVersion.mock.results[0]!.value as { id: string; version: string };
+    expect(mockKeepVersionSource).toHaveBeenCalledWith({ orgId: 'org-1', pluginId: deployed.id, version: deployed.version, stagingKey: null });
+  });
+
+  it('refuses an upload while a by-name delete / restore / purge holds the name: nothing is deployed, the slot goes back', async () => {
+    mockParsePluginZip.mockResolvedValue(parsed(newExtractDir()));
+    mockIsPluginNameLocked.mockResolvedValueOnce(true);
+    const res = mockRes();
+    await upload(fileReq().req, res).catch(() => undefined);
+    expect(mockIsPluginNameLocked).toHaveBeenCalledWith('org-1', expect.any(String));
+    expect(mockDeployVersion).not.toHaveBeenCalled();
+    expect(mockKeepVersionSource).not.toHaveBeenCalled();
+  });
 
   it('accepts every detected value when the part is absent, with provenance and the quota snapshot', async () => {
     mockParsePluginZip.mockResolvedValue(parsed(newExtractDir()));

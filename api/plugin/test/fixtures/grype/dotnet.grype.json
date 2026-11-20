@@ -1,0 +1,192 @@
+{
+ "matches": [
+  {
+   "vulnerability": {
+    "id": "GHSA-5crp-9r3c-p9vr",
+    "dataSource": "https://github.com/advisories/GHSA-5crp-9r3c-p9vr",
+    "namespace": "github:language:dotnet",
+    "severity": "High",
+    "urls": [
+     "https://github.com/JamesNK/Newtonsoft.Json/issues/2457",
+     "https://github.com/JamesNK/Newtonsoft.Json/pull/2462"
+    ],
+    "description": "Improper Handling of Exceptional Conditions in Newtonsoft.Json",
+    "cvss": [
+     {
+      "type": "Secondary",
+      "version": "3.1",
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "metrics": {
+       "baseScore": 7.5,
+       "exploitabilityScore": 3.9,
+       "impactScore": 3.6
+      },
+      "vendorMetadata": {}
+     }
+    ],
+    "epss": [
+     {
+      "cve": "CVE-2024-21907",
+      "epss": 0.32908,
+      "percentile": 0.98389,
+      "date": "2026-11-19"
+     }
+    ],
+    "cwes": [
+     {
+      "cve": "CVE-2024-21907",
+      "cwe": "CWE-755",
+      "source": "disclosure@vulncheck.com",
+      "type": "Secondary"
+     },
+     {
+      "cve": "CVE-2024-21907",
+      "cwe": "CWE-755",
+      "source": "nvd@nist.gov",
+      "type": "Primary"
+     }
+    ],
+    "fix": {
+     "versions": [
+      "13.0.1"
+     ],
+     "state": "fixed",
+     "available": [
+      {
+       "version": "13.0.1",
+       "date": "2022-06-23",
+       "kind": "first-observed"
+      }
+     ]
+    },
+    "advisories": [],
+    "risk": 24.680999999999997
+   },
+   "relatedVulnerabilities": [
+    {
+     "id": "CVE-2024-21907",
+     "dataSource": "https://nvd.nist.gov/vuln/detail/CVE-2024-21907",
+     "namespace": "nvd:cpe",
+     "severity": "High",
+     "urls": [
+      "https://alephsecurity.com/2018/10/22/StackOverflowException/",
+      "https://alephsecurity.com/vulns/aleph-2018004"
+     ],
+     "description": "Newtonsoft.Json before version 13.0.1 is affected by a mishandling of exceptional conditions vulnerability. Crafted data that is passed to the JsonConvert.DeserializeObject method may trigger a StackOverflow exception resulting in denial of service. Depending on the usage of the library, an unauthen",
+     "cvss": [
+      {
+       "source": "nvd@nist.gov",
+       "type": "Primary",
+       "version": "3.1",
+       "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+       "metrics": {
+        "baseScore": 7.5,
+        "exploitabilityScore": 3.9,
+        "impactScore": 3.6
+       },
+       "vendorMetadata": {}
+      },
+      {
+       "source": "134c704f-9b21-4f2e-91b3-4a467353bcc0",
+       "type": "Secondary",
+       "version": "3.1",
+       "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+       "metrics": {
+        "baseScore": 7.5,
+        "exploitabilityScore": 3.9,
+        "impactScore": 3.6
+       },
+       "vendorMetadata": {}
+      }
+     ],
+     "epss": [
+      {
+       "cve": "CVE-2024-21907",
+       "epss": 0.32908,
+       "percentile": 0.98389,
+       "date": "2026-11-19"
+      }
+     ],
+     "cwes": [
+      {
+       "cve": "CVE-2024-21907",
+       "cwe": "CWE-755",
+       "source": "disclosure@vulncheck.com",
+       "type": "Secondary"
+      },
+      {
+       "cve": "CVE-2024-21907",
+       "cwe": "CWE-755",
+       "source": "nvd@nist.gov",
+       "type": "Primary"
+      }
+     ]
+    }
+   ],
+   "matchDetails": [
+    {
+     "type": "exact-direct-match",
+     "matcher": "dotnet-matcher",
+     "searchedBy": {
+      "language": "dotnet",
+      "namespace": "github:language:dotnet",
+      "package": {
+       "name": "Newtonsoft.Json",
+       "version": "12.0.1"
+      }
+     },
+     "found": {
+      "vulnerabilityID": "GHSA-5crp-9r3c-p9vr",
+      "versionConstraint": "<13.0.1 (semantic)"
+     },
+     "fix": {
+      "suggestedVersion": "13.0.1"
+     }
+    }
+   ],
+   "artifact": {
+    "id": "Package-dotnet-Newtonsoft.Json-fe29d1adf1e61b2f",
+    "name": "Newtonsoft.Json",
+    "version": "12.0.1",
+    "type": "dotnet",
+    "locations": null,
+    "language": "dotnet",
+    "licenses": [],
+    "cpes": [
+     "cpe:2.3:a:newtonsoft_json:newtonsoft_json_.net:12.0.1:*:*:*:*:*:*:*",
+     "cpe:2.3:a:newtonsoft_json:newtonsoft_json:12.0.1:*:*:*:*:*:*:*"
+    ],
+    "purl": "pkg:nuget/Newtonsoft.Json@12.0.1",
+    "upstreams": []
+   }
+  }
+ ],
+ "source": {
+  "type": "image",
+  "target": {
+   "userInput": "/w/fixture.tar:sha256:e83e2fb0b007d2a3eb104b5d08b1f354e59748e4445ccd0166ca4f48b9168df9",
+   "imageID": "DocumentRoot-Image--w-fixture.tar",
+   "manifestDigest": "sha256:e83e2fb0b007d2a3eb104b5d08b1f354e59748e4445ccd0166ca4f48b9168df9",
+   "mediaType": "",
+   "tags": [],
+   "imageSize": 0,
+   "layers": null,
+   "manifest": null,
+   "config": null,
+   "repoDigests": [],
+   "architecture": "",
+   "os": ""
+  }
+ },
+ "distro": {
+  "name": "debian",
+  "version": "11.0",
+  "idLike": [
+   "debian"
+  ]
+ },
+ "descriptor": {
+  "name": "grype",
+  "version": "0.121.1"
+ }
+}

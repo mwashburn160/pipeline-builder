@@ -115,6 +115,7 @@ import { listings, publishers } from '../services/ecosystem/store.js';
 import { isActiveListing } from '../services/ecosystem/util.js';
 import { sweepKeptSetupImages } from '../services/kept-setup-images.js';
 import { notifyAcceptancesLapsed, notifyRescanFindings } from '../services/plugin-security-notifications.js';
+import type { RemediationCandidate } from '../services/remediation/queueing.js';
 import { notifyToolchainHygiene } from '../services/toolchain-hygiene.js';
 
 const logger = createLogger('vuln-rescan');
@@ -151,6 +152,8 @@ interface TenantRow {
   scanSummary: PluginScanSummary | null;
   runAsRoot: boolean | null;
   createdBy: string | null;
+  deletedAt: Date | null;
+  yankedAt: Date | null;
 }
 
 /** One listed version (set b) as the rescan reads it. */
@@ -221,6 +224,8 @@ interface PassContext {
   dbBuiltAt: Date;
   /** `vulnWaiverLabels` keys of the waiver entries that exempted something this pass. */
   matchedWaivers: Set<string>;
+  /** Every rescanned version with its fresh summary — what remediation is queued from once the pass completes. */
+  remediationCandidates: RemediationCandidate[];
 }
 
 /**
@@ -359,6 +364,18 @@ async function rescanTenantRow(ctx: PassContext, row: TenantRow): Promise<'resca
     .where(eq(schema.plugin.id, row.id)));
   for (const a of audits) recordAudit(a);
   if (cols.scanFlag) ctx.result.flagged++;
+  ctx.remediationCandidates.push({
+    kind: 'plugin',
+    id: row.id,
+    orgId: row.orgId,
+    name: row.name,
+    version: row.version,
+    imageDigest: row.imageDigest,
+    deleted: row.deletedAt !== null,
+    yanked: row.yankedAt !== null,
+    createdBy: row.createdBy,
+    summary: cols.scanSummary,
+  });
   await syncVersionExposures(
     { pluginName: row.name, pluginVersion: row.version, pluginPublisher: null, imageDigest: row.imageDigest! },
     { scanSummary: cols.scanSummary, scanFlag: cols.scanFlag, scanFlaggedAt: cols.scanFlaggedAt },
@@ -452,6 +469,9 @@ async function rescanListedVersion(ctx: PassContext, lv: ListedRow): Promise<'re
     .where(eq(schema.pluginListingVersion.id, lv.id)));
   for (const a of audits) recordAudit(a);
   if (gate.scanFlag) ctx.result.flagged++;
+  if (publisher && !lv.yankedAt) {
+    ctx.remediationCandidates.push({ kind: 'listing_version', listingId: lv.listingId, version: lv.version, publisherHandle: publisher.handle, summary: gate.scanSummary });
+  }
   await syncVersionExposures(
     { pluginName: name, pluginVersion: lv.version, pluginPublisher: publisherOfRepository(repo), imageDigest: lv.imageDigest! },
     { scanSummary: gate.scanSummary, scanFlag: gate.scanFlag, scanFlaggedAt: gate.scanFlaggedAt },
@@ -591,6 +611,8 @@ async function rescanTenantRows(ctx: PassContext): Promise<void> {
         scanSummary: p.scanSummary,
         runAsRoot: p.runAsRoot,
         createdBy: p.createdBy,
+        deletedAt: p.deletedAt,
+        yankedAt: p.yankedAt,
       })
       .from(p)
       .where(and(
@@ -666,6 +688,29 @@ function publishUnmatchedWaivers(ctx: PassContext): void {
 }
 
 /**
+ * Queue the nightly remediations of a COMPLETED pass (services/remediation/
+ * queueing.ts) and load any missing canary fixture. Never fails the pass; a
+ * no-op when PLUGIN_REMEDIATION_ENABLED=false.
+ */
+async function queueRemediations(candidates: RemediationCandidate[]): Promise<void> {
+  try {
+    const { remediationConfig } = await import('../config.js');
+    if (!remediationConfig().enabled) return;
+    const [{ queuePassRemediations }, { enqueueRemediationJob }, { ensureRemediationCanaries }, { enqueueBuild }] = await Promise.all([
+      import('../services/remediation/queueing.js'),
+      import('./plugin-remediation.js'),
+      import('../services/remediation/canary.js'),
+      import('./connections.js'),
+    ]);
+    const queued = await queuePassRemediations(candidates, { enqueue: (orgId, data, opts) => enqueueRemediationJob(orgId, data, opts) });
+    logger.info('Remediations queued after the rescan pass', { ...queued });
+    await ensureRemediationCanaries((jobName, data) => enqueueBuild('unlimited', jobName, data));
+  } catch (err) {
+    logger.error('Remediation queueing failed after a completed pass', { error: errorMessage(err) });
+  }
+}
+
+/**
  * One full pass: every image plugin (a), then every listed version from its own
  * public image (b). Throws when the vulnerability DB can't be refreshed, or is
  * older than `PLUGIN_VULN_DB_MAX_AGE_HOURS` ({@link VulnDbStaleError}) — the
@@ -680,6 +725,7 @@ export async function rescanAllPlugins(): Promise<RescanPassResult> {
     now: new Date(),
     dbBuiltAt,
     matchedWaivers: new Set(),
+    remediationCandidates: [],
     result: { total: 0, rescanned: 0, failed: 0, listed: 0, newCriticalOrHigh: 0, advisoryDrafts: 0, flagged: 0, catalog: { critical: 0, high: 0, medium: 0, low: 0 } },
   };
 
@@ -697,6 +743,8 @@ export async function rescanAllPlugins(): Promise<RescanPassResult> {
   }
   setGauge('plugin_vuln_flagged_versions', {}, ctx.result.flagged);
   publishUnmatchedWaivers(ctx);
+  // The pass completed: queue tonight's remediations from what it found.
+  await queueRemediations(ctx.remediationCandidates);
   return ctx.result;
 }
 

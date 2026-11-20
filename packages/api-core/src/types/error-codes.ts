@@ -230,6 +230,16 @@ export enum ErrorCode {
    *  than silently falling through to a same-named listing, which would swap the
    *  image a pipeline runs without anyone choosing it (`details.state: 'deleted'`). */
   PLUGIN_DELETED = 'PLUGIN_DELETED',
+  /** approve / reject / retry on a remediation not in a stage that allows it
+   *  (`details.stage`). */
+  REMEDIATION_STAGE_CONFLICT = 'REMEDIATION_STAGE_CONFLICT',
+  /** A pipeline elected `apply` for plugin security fixes while its root org
+   *  disallows pipeline apply (pluginRemediation.allowPipelineApply = false)
+   *  and the org default is not `apply`. */
+  PIPELINE_REMEDIATION_APPLY_NOT_ALLOWED = 'PIPELINE_REMEDIATION_APPLY_NOT_ALLOWED',
+  /** A by-name delete / restore / purge holds the name's lock: uploads and
+   *  builds of the name are refused until it finishes. */
+  PLUGIN_NAME_LOCKED = 'PLUGIN_NAME_LOCKED',
 
   // Plugin build outcomes (422) — terminal build failures, reported on the build
   // stream and in the build's failure record, never answered on a request.
@@ -356,6 +366,9 @@ export const ErrorCodeStatus: Record<ErrorCode, number> = {
   [ErrorCode.PLUGIN_NAME_LISTED]: 409,
   [ErrorCode.NAME_TAKEN]: 409,
   [ErrorCode.PLUGIN_DELETED]: 410,
+  [ErrorCode.REMEDIATION_STAGE_CONFLICT]: 409,
+  [ErrorCode.PIPELINE_REMEDIATION_APPLY_NOT_ALLOWED]: 403,
+  [ErrorCode.PLUGIN_NAME_LOCKED]: 409,
   [ErrorCode.IMAGE_SCAN_UNAVAILABLE]: 422,
   [ErrorCode.PLUGIN_VULN_GATE]: 422,
   [ErrorCode.PLUGIN_NAME_SHADOWS]: 409,

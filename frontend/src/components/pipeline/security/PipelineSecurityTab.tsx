@@ -21,6 +21,7 @@ import { RESOLVED_VIA_LABELS, exposureHasKev } from '@/lib/pipeline-security';
 import { shortDigest } from '@/lib/format';
 import { ExposureTriageModal } from './ExposureTriageModal';
 import { PluginUpgradePanel } from './PluginUpgradePanel';
+import { RemediationUpgradesPanel } from './RemediationUpgradesPanel';
 import { ArtifactSecurityReportsCard } from './ArtifactSecurityReportsCard';
 
 const TRIAGE_BADGE: Record<string, { color: BadgeColor; label: string }> = {
@@ -221,6 +222,11 @@ export function PipelineSecurityTab({ pipelineId, canWrite }: { pipelineId: stri
 
   const [triage, setTriage] = useState<{ exposure: PipelineExposureView; action: ExposureTriageBody['action'] } | null>(null);
 
+  // Steps whose version carries a KEV-listed finding: an opted-out pipeline gets a banner for these.
+  const kevSteps = [...new Set((data?.steps ?? [])
+    .filter((s) => (s.scan?.kev ?? 0) > 0 && s.plugin)
+    .map((s) => `${s.plugin}${s.version ? `@${s.version}` : ''}`))];
+
   const reload = () => { void read.refetch(); if (includeFixed) void fixedRead.refetch(); };
 
   return (
@@ -261,6 +267,7 @@ export function PipelineSecurityTab({ pipelineId, canWrite }: { pipelineId: stri
         </SectionCard>
       )}
 
+      <RemediationUpgradesPanel pipelineId={pipelineId} canWrite={canWrite} kevSteps={kevSteps} onChanged={reload} />
       <PluginUpgradePanel pipelineId={pipelineId} canWrite={canWrite} onApplied={reload} />
       <ArtifactSecurityReportsCard pipelineId={pipelineId} canWrite={canWrite} />
 

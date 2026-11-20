@@ -45,9 +45,15 @@ const DIGEST = `sha256:${'a'.repeat(64)}`;
 const REF = { orgId: 'org-1', name: 'trivy', imageDigest: DIGEST };
 const REGISTRY = { host: 'registry', port: 5000, network: '', http: true };
 
+const LOC = { path: '/var/lib/dpkg/status', layerID: `sha256:${'b'.repeat(64)}` };
+/** The package details every Critical/High finding carries (a deb in these unit cases). */
+const pkg = (name: string, version: string) => ({ packageType: 'deb' as const, purl: `pkg:deb/debian/${name}@${version}`, locations: [LOC] });
+const artifact = (name: unknown, version: unknown) => ({
+  name, version, type: 'deb', purl: `pkg:deb/debian/${String(name)}@${String(version)}`, locations: [{ ...LOC, accessPath: LOC.path }],
+});
 const match = (id: string, severity: string, name = 'openssl', version = '1.0', fix?: { state: string; versions: unknown[] }) => ({
   vulnerability: { id, severity, ...(fix ? { fix } : {}) },
-  artifact: { name, version },
+  artifact: artifact(name, version),
 });
 const report = (...matches: unknown[]) => JSON.stringify({ matches });
 
@@ -70,8 +76,8 @@ describe('parseGrypeReport', () => {
     ));
     expect(r).toMatchObject({ critical: 1, high: 1, medium: 1, low: 2, criticalFixable: 0, highFixable: 0 });
     expect(r.findings).toEqual([
-      { id: 'CVE-1', severity: 'critical', packageName: 'openssl', packageVersion: '1.0', fixedIn: [] },
-      { id: 'CVE-2', severity: 'high', packageName: 'curl', packageVersion: '8.0', fixedIn: [] },
+      { id: 'CVE-1', severity: 'critical', packageName: 'openssl', packageVersion: '1.0', ...pkg('openssl', '1.0'), fixedIn: [] },
+      { id: 'CVE-2', severity: 'high', packageName: 'curl', packageVersion: '8.0', ...pkg('curl', '8.0'), fixedIn: [] },
     ]);
   });
 
@@ -98,7 +104,7 @@ describe('parseGrypeReport', () => {
       match('CVE-1', 'Critical', 'openssl', '1.0', { state: 'fixed', versions: ['1.2'] }),
     ));
     expect(r).toMatchObject({ critical: 1, criticalFixable: 1 });
-    expect(r.findings).toEqual([{ id: 'CVE-1', severity: 'critical', packageName: 'openssl', packageVersion: '1.0', fixedIn: ['1.1'] }]);
+    expect(r.findings).toEqual([{ id: 'CVE-1', severity: 'critical', packageName: 'openssl', packageVersion: '1.0', ...pkg('openssl', '1.0'), fixedIn: ['1.1'] }]);
   });
 
   it('counts one (vulnerability, package, version) once, however many matchers report it', () => {
@@ -114,10 +120,10 @@ describe('parseGrypeReport', () => {
       { vulnerability: { severity: 'High' } }, // no id
       { vulnerability: { id: 'CVE-3', severity: 7 } },
       null,
-      { vulnerability: { id: 'CVE-4', severity: 'High' }, artifact: { name: 5 } },
+      { vulnerability: { id: 'CVE-4', severity: 'High' }, artifact: { ...artifact(5, undefined), purl: 'pkg:deb/debian/x@', name: 5 } },
     ));
     expect(r).toMatchObject({ critical: 0, high: 1, medium: 0, low: 0 });
-    expect(r.findings).toEqual([{ id: 'CVE-4', severity: 'high', packageName: '', packageVersion: '', fixedIn: [] }]);
+    expect(r.findings).toEqual([{ id: 'CVE-4', severity: 'high', packageName: '', packageVersion: '', ...pkg('', ''), purl: 'pkg:deb/debian/x@', fixedIn: [] }]);
   });
 
   it('reads CISA KEV and EPSS from the primary record AND its related ones, and ranks known-exploited first', () => {
@@ -127,24 +133,24 @@ describe('parseGrypeReport', () => {
       {
         vulnerability: { id: 'GHSA-aaaa-bbbb-cccc', severity: 'Critical', epss: [{ cve: 'CVE-2', epss: 0.12, percentile: 0.9 }] },
         relatedVulnerabilities: [{ id: 'CVE-2', knownExploited: [{ cve: 'CVE-2', dateAdded: '2026-10-01' }], epss: [{ cve: 'CVE-2', epss: 0.97 }] }],
-        artifact: { name: 'lodash', version: '4.0.0' },
+        artifact: artifact('lodash', '4.0.0'),
       },
       { ...match('CVE-3', 'High'), vulnerability: { id: 'CVE-3', severity: 'High', knownExploited: [] } },
     ));
     expect(r.findings).toEqual([
-      { id: 'GHSA-aaaa-bbbb-cccc', severity: 'critical', packageName: 'lodash', packageVersion: '4.0.0', fixedIn: [], kev: true, epss: 0.97 },
-      { id: 'CVE-1', severity: 'critical', packageName: 'openssl', packageVersion: '1.0', fixedIn: ['1.1'] },
+      { id: 'GHSA-aaaa-bbbb-cccc', severity: 'critical', packageName: 'lodash', packageVersion: '4.0.0', ...pkg('lodash', '4.0.0'), fixedIn: [], kev: true, epss: 0.97 },
+      { id: 'CVE-1', severity: 'critical', packageName: 'openssl', packageVersion: '1.0', ...pkg('openssl', '1.0'), fixedIn: ['1.1'] },
       // An empty knownExploited list is not a listing; no score → no epss field.
-      { id: 'CVE-3', severity: 'high', packageName: 'openssl', packageVersion: '1.0', fixedIn: [] },
+      { id: 'CVE-3', severity: 'high', packageName: 'openssl', packageVersion: '1.0', ...pkg('openssl', '1.0'), fixedIn: [] },
     ]);
   });
 
   it('a later matcher of the same finding can add the KEV listing', () => {
     const r = vs.parseGrypeReport(report(
       match('CVE-1', 'Critical'),
-      { vulnerability: { id: 'CVE-1', severity: 'Critical', knownExploited: [{ cve: 'CVE-1' }] }, artifact: { name: 'openssl', version: '1.0' } },
+      { vulnerability: { id: 'CVE-1', severity: 'Critical', knownExploited: [{ cve: 'CVE-1' }] }, artifact: artifact('openssl', '1.0') },
     ));
-    expect(r.findings).toEqual([{ id: 'CVE-1', severity: 'critical', packageName: 'openssl', packageVersion: '1.0', fixedIn: [], kev: true }]);
+    expect(r.findings).toEqual([{ id: 'CVE-1', severity: 'critical', packageName: 'openssl', packageVersion: '1.0', ...pkg('openssl', '1.0'), fixedIn: [], kev: true }]);
   });
 
   it('a clean report is all zeros', () => {
@@ -156,6 +162,128 @@ describe('parseGrypeReport', () => {
     expect(() => vs.parseGrypeReport('{}')).toThrow(/no matches array/);
     expect(() => vs.parseGrypeReport('null')).toThrow(/no matches array/);
     expect(() => vs.parseGrypeReport('{"matches":{}}')).toThrow(/no matches array/);
+  });
+});
+
+/**
+ * REAL grype 0.121.1 output (test/fixtures/grype/<type>.grype.json) over the
+ * REAL syft 1.56.0 SPDX SBOM it scanned (<type>.spdx.json), one pair per
+ * package type, trimmed to a few Critical/High matches and the packages, files
+ * and relationships they reference. deb, npm, python, go-module, java-archive,
+ * gem, rust-crate, dotnet and binary come from one image (debian bullseye
+ * 2021-08 plus pinned old language packages and busybox 1.33.0), apk from
+ * alpine:3.12.0 and rpm from ubi8/ubi-micro:8.4. grype reports
+ * `artifact.locations: null` for an SPDX input (and `UnknownPackage` for a
+ * binary-classifier package), which is why locations and that type are read
+ * back from the SBOM.
+ */
+describe('parseGrypeReport — package details from real grype JSON per package type', () => {
+  const fixture = (type: string) => {
+    const dir = path.join(path.dirname(new URL(import.meta.url).pathname), 'fixtures', 'grype');
+    return {
+      report: fs.readFileSync(path.join(dir, `${type}.grype.json`), 'utf8'),
+      sbom: JSON.parse(fs.readFileSync(path.join(dir, `${type}.spdx.json`), 'utf8')) as Record<string, unknown>,
+    };
+  };
+  const LAYER = /^sha256:[0-9a-f]{64}$/;
+
+  const cases: Array<[string, { id: string; packageName: string; purl: string; path: string; fixedIn?: string[] }]> = [
+    ['deb', { id: 'CVE-2021-3711', packageName: 'libssl1.1', purl: 'pkg:deb/debian/libssl1.1@1.1.1k-1?arch=arm64&distro=debian-11.0&upstream=openssl', path: '/var/lib/dpkg/status' }],
+    ['apk', { id: 'CVE-2021-3711', packageName: 'libcrypto1.1', purl: 'pkg:apk/alpine/libcrypto1.1@1.1.1g-r0?arch=aarch64&distro=alpine-3.12.0&upstream=openssl', path: '/lib/apk/db/installed' }],
+    ['rpm', { id: 'CVE-2023-4911', packageName: 'glibc', purl: 'pkg:rpm/redhat/glibc@2.28-151.el8?arch=aarch64&distro=rhel-8.4&upstream=glibc-2.28-151.el8.src.rpm', path: '/var/lib/rpm/Packages' }],
+    ['npm', { id: 'GHSA-35jh-r3h4-6jhm', packageName: 'lodash', purl: 'pkg:npm/lodash@4.17.15', path: '/app/node_modules/lodash/package.json', fixedIn: ['4.17.21'] }],
+    ['python', { id: 'GHSA-8q59-q68h-6hv4', packageName: 'pyyaml', purl: 'pkg:pypi/pyyaml@5.3', path: '/usr/local/lib/python3.9/site-packages/PyYAML-5.3.dist-info/METADATA' }],
+    ['go-module', { id: 'GHSA-69ch-w2m2-3vjp', packageName: 'golang.org/x/text', purl: 'pkg:golang/golang.org/x/text@v0.3.0', path: '/usr/local/bin/gobin' }],
+    ['java-archive', { id: 'GHSA-jfh8-c2jp-5v3q', packageName: 'log4j-core', purl: 'pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1', path: '/opt/app/lib/log4j-core-2.14.1.jar' }],
+    ['gem', { id: 'GHSA-5f9h-9pjv-v6j7', packageName: 'rack', purl: 'pkg:gem/rack@2.0.0', path: '/usr/local/lib/ruby/gems/3.0.0/specifications/rack-2.0.0.gemspec' }],
+    ['rust-crate', { id: 'GHSA-43w2-9j62-hq99', packageName: 'smallvec', purl: 'pkg:cargo/smallvec@1.6.0', path: '/src/rustapp/Cargo.lock' }],
+    ['dotnet', { id: 'GHSA-5crp-9r3c-p9vr', packageName: 'Newtonsoft.Json', purl: 'pkg:nuget/Newtonsoft.Json@12.0.1', path: '/opt/dotnet-app/app.deps.json', fixedIn: ['13.0.1'] }],
+    ['binary', { id: 'CVE-2021-42377', packageName: 'busybox', purl: 'pkg:generic/busybox@1.33.0', path: '/usr/local/bin/busybox', fixedIn: [] }],
+  ];
+
+  it.each(cases)('%s: packageType, purl and locations (path + layerID) on every finding', (type, want) => {
+    const { report: stdout, sbom } = fixture(type);
+    const raw = JSON.parse(stdout) as { matches: Array<{ artifact: { locations: unknown } }> };
+    // The premise: grype drops the locations for an SPDX input.
+    expect(raw.matches.every((m) => m.artifact.locations === null)).toBe(true);
+
+    const r = vs.parseGrypeReport(stdout, sbom);
+    expect(r.findings.length).toBeGreaterThan(0);
+    for (const f of r.findings) {
+      expect(f.packageType).toBe(type);
+      expect(f.purl).toMatch(/^pkg:/);
+      expect(f.locations.length).toBeGreaterThan(0);
+      for (const l of f.locations) {
+        expect(l.path.startsWith('/')).toBe(true);
+        expect(l.layerID).toMatch(LAYER);
+      }
+    }
+    const hit = r.findings.find((f) => f.id === want.id && f.packageName === want.packageName);
+    expect(hit).toBeDefined();
+    expect(hit!.purl).toBe(want.purl);
+    expect(hit!.locations.map((l) => l.path)).toContain(want.path);
+    if (want.fixedIn) expect(hit!.fixedIn).toEqual(want.fixedIn);
+  });
+
+  it('the same report WITHOUT its SBOM cannot locate its findings, so it fails like any scan failure', () => {
+    const { report: stdout } = fixture('npm');
+    expect(() => vs.parseGrypeReport(stdout)).toThrow(vs.GrypeFindingIncompleteError);
+    expect(() => vs.parseGrypeReport(stdout)).toThrow(/GHSA-35jh-r3h4-6jhm has no package locations/);
+  });
+
+  it('a type grype reads back as UnknownPackage keeps the type in its SPDXID (binary)', () => {
+    const { report: stdout, sbom } = fixture('binary');
+    expect((JSON.parse(stdout) as { matches: Array<{ artifact: { type: string } }> }).matches[0]!.artifact.type).toBe('UnknownPackage');
+    expect(vs.parseGrypeReport(stdout, sbom).findings[0]!.packageType).toBe('binary');
+  });
+
+  it("grype's own locations win when present (a syft-JSON input); an uncatalogued type with no SBOM hint is other", () => {
+    const r = vs.parseGrypeReport(JSON.stringify({
+      matches: [{
+        vulnerability: { id: 'CVE-9', severity: 'High' },
+        artifact: { id: 'abc', name: 'thing', version: '1', type: 'conan', purl: 'pkg:conan/thing@1', locations: [{ path: '/x', layerID: 'sha256:1' }, { accessPath: '/nopath' }] },
+      }],
+    }), { packages: [], files: [], relationships: [] });
+    expect(r.findings[0]).toMatchObject({ packageType: 'other', purl: 'pkg:conan/thing@1', locations: [{ path: '/x', layerID: 'sha256:1' }] });
+  });
+
+  it('a package syft wrote no evident-by file for falls back to its sourceInfo paths, with an unknown layer', () => {
+    const facts = vs.sbomPackageFacts({
+      packages: [{
+        SPDXID: 'SPDXRef-Package-go-module-stdlib-1',
+        name: 'stdlib',
+        sourceInfo: 'acquired package info from go module information: /usr/local/bin/tool, /usr/local/bin/tool2',
+      }],
+    });
+    expect(facts.get('SPDXRef-Package-go-module-stdlib-1')).toEqual({
+      type: 'go-module', locations: [{ path: '/usr/local/bin/tool', layerID: '' }, { path: '/usr/local/bin/tool2', layerID: '' }],
+    });
+  });
+
+  it.each([
+    ['type', { purl: 'pkg:deb/x@1', locations: [{ path: '/a', layerID: '' }] }],
+    ['purl', { type: 'deb', purl: ' ', locations: [{ path: '/a', layerID: '' }] }],
+    ['locations', { type: 'deb', purl: 'pkg:deb/x@1', locations: [] }],
+  ])('a Critical/High finding with no %s fails the parse (and so the scan)', (missing, art) => {
+    const stdout = JSON.stringify({ matches: [{ vulnerability: { id: 'CVE-7', severity: 'Critical' }, artifact: { name: 'x', version: '1', ...art } }] });
+    expect(() => vs.parseGrypeReport(stdout)).toThrow(new RegExp(`CVE-7 has no package ${missing}`));
+  });
+
+  it('a Medium/Low match needs no package details (it is counted, not itemized)', () => {
+    const r = vs.parseGrypeReport(JSON.stringify({ matches: [{ vulnerability: { id: 'CVE-8', severity: 'Medium' }, artifact: { name: 'x' } }] }));
+    expect(r).toMatchObject({ medium: 1, findings: [] });
+  });
+
+  it('scanSbom hands its SBOM to the parse, and an incomplete finding is a FAILED scan', async () => {
+    const { report: stdout, sbom } = fixture('deb');
+    mockRun.mockResolvedValue(stdout);
+    const ok = await vs.scanSbom(sbom, 'build');
+    expect(ok.findings[0]!.locations[0]!.layerID).toMatch(LAYER);
+
+    jest.clearAllMocks();
+    mockRun.mockResolvedValue(stdout);
+    await expect(vs.scanSbom({ packages: [] }, 'rescan')).rejects.toThrow(vs.GrypeFindingIncompleteError);
+    expect(mockIncCounter).toHaveBeenCalledWith('plugin_vuln_scans_total', { trigger: 'rescan', outcome: 'failed' });
   });
 });
 
@@ -274,7 +402,7 @@ describe('scanSummary', () => {
     ...over,
   });
   const f = (id: string, severity: 'critical' | 'high' = 'critical', extra: Record<string, unknown> = {}) =>
-    ({ id, severity, packageName: 'openssl', packageVersion: '1.0', fixedIn: [], ...extra });
+    ({ id, severity, packageName: 'openssl', packageVersion: '1.0', ...pkg('openssl', '1.0'), fixedIn: [], ...extra });
 
   it('carries every count, all critical/high findings (fixable or not), the waived keys, the DB and the opaque binaries', () => {
     const findings = [f('CVE-1', 'critical', { kev: true }), f('CVE-2', 'critical', { fixedIn: ['1.1'] }), f('CVE-3', 'high')];
@@ -583,7 +711,7 @@ describe('inspectRunAsRoot — crane config', () => {
 describe('onNewCriticalOrHigh', () => {
   const plugin = { id: 'p-1', orgId: 'org-1', name: 'trivy', version: '1.0.0', imageDigest: DIGEST, listingVersionIds: [] as string[] };
   const after = { critical: 3, high: 1, medium: 0, low: 0, criticalFixable: 0, highFixable: 0, scannedAt: new Date(), findings: [], dbBuiltAt: null };
-  const f = (id: string, severity: 'critical' | 'high') => ({ id, severity, packageName: 'openssl', packageVersion: '1.0', fixedIn: [] });
+  const f = (id: string, severity: 'critical' | 'high') => ({ id, severity, packageName: 'openssl', packageVersion: '1.0', ...pkg('openssl', '1.0'), fixedIn: [] });
 
   it('counts exactly the NEW findings it is given, labelled by severity and listed', () => {
     vs.onNewCriticalOrHigh(plugin, [f('CVE-1', 'critical'), f('CVE-2', 'critical')], after);

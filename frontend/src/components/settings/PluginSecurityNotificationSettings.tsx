@@ -14,6 +14,7 @@ import { LoadingSpinner } from '@/components/ui/Loading';
 import { RetryError } from '@/components/ui/RetryError';
 import { Select } from '@/components/ui/Select';
 import { ToggleRow } from '@/components/ui/SettingRow';
+import { PluginRemediationSettings } from '@/components/settings/PluginRemediationSettings';
 import { useToast } from '@/components/ui/Toast';
 import { useFetch } from '@/hooks/useFetch';
 import { useMutation } from '@/hooks/useMutation';
@@ -78,7 +79,9 @@ function testProblems(result: PluginSecurityTestResult | undefined): string[] {
 const looksLikeEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
 
 /**
- * Settings → Organization → "Plugin security notifications".
+ * Settings → Organization → "Plugin security": the nightly CVE remediation
+ * settings ({@link PluginRemediationSettings}, "Security fixes") and, below
+ * them, the notification settings.
  *
  * Who hears when the scan gates block a plugin version (unscanned, or fixable
  * Critical findings over the platform floor — always sent at once) and when a
@@ -218,8 +221,8 @@ export function PluginSecurityNotificationSettings({ orgId, canEdit, readOnly }:
   return (
     <SectionCard
       icon={ShieldAlert}
-      title="Plugin security notifications"
-      description="Who hears when a plugin build is refused for vulnerabilities, a rescan finds new Critical or High findings in a stored version, or a pipeline runs a vulnerable plugin."
+      title="Plugin security"
+      description="How vulnerable plugin versions are fixed and rolled out to pipelines, and who hears when a plugin build is refused for vulnerabilities, a rescan finds new Critical or High findings in a stored version, or a pipeline runs a vulnerable plugin."
       actions={canEdit ? (
         <Button variant="secondary" size="sm" onClick={sendTest} loading={testing} readOnly={readOnly} disabled={!prefs || dirty}
           title={dirty ? 'Save your changes first' : undefined}>
@@ -227,6 +230,10 @@ export function PluginSecurityNotificationSettings({ orgId, canEdit, readOnly }:
         </Button>
       ) : undefined}
     >
+      <div className="mb-5 border-b border-default pb-5">
+        <PluginRemediationSettings orgId={orgId} canEdit={canEdit} readOnly={readOnly} />
+      </div>
+      <h3 className="mb-3 text-sm font-semibold text-fg">Notifications</h3>
       {error && <div className="mb-3"><Callout variant="danger">{error}</Callout></div>}
 
       {read.error && !prefs ? (

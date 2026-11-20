@@ -1,6 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { AsyncLocalStorage } from 'node:async_hooks';
+
 import {
   SYSTEM_ACTOR_ID, checkWriteAccess, ConcurrencyConflictError, ConflictError, ErrorCode, ForbiddenError, NotFoundError, ValidationError, VISIBILITY_WRITE_REFUSAL, entityEvents, createCacheService, createLogger, errorMessage,
   isManagedToolchainPlugin,
@@ -21,11 +23,15 @@ import type { PgTable } from 'drizzle-orm/pg-core';
 
 import { installingOrgs } from './ecosystem/install-notify.js';
 import { listingsWithPublishers, versions as ecosystemVersions } from './ecosystem/store.js';
+import { autoRemovalProtectedSql, autoRemovalReasonSql, recordAutoRemovalSkip, type AutoRemovalProtection } from '../helpers/auto-removal.js';
 import { DEFAULT_PLUGIN_VERSION, shouldBecomeDefault } from '../helpers/default-version.js';
 import { assertManagedUploadAllowed, assertNotManaged, isYankedVersion } from '../helpers/managed-toolchain.js';
 import { pipelinePluginRefs } from '../helpers/pipeline-plugin-refs.js';
 
 const logger = createLogger('plugin-service');
+
+/** Set while the AUTOMATIC soft-delete sweep runs: its purges honour the auto-removal protection. */
+const autoSweep = new AsyncLocalStorage<true>();
 
 /** Server-side cache for plugin reads. */
 const pluginCache = createCacheService('plugin:', CoreConstants.CACHE_TTL_ENTITY_SECONDS);
@@ -787,10 +793,67 @@ export class PluginService extends CrudService<
     });
   }
 
-  /** A tombstone any pipeline still references is never purged (the sweep retries it later). */
+  /**
+   * A tombstone any pipeline still references is never purged (the sweep
+   * retries it later). The AUTOMATIC sweep ({@link purgeExpired}) also never
+   * purges a version protected from automatic removal — an active one, or a
+   * name's only remaining one (helpers/auto-removal.ts); an owner's explicit
+   * purge ({@link purgeById}) is not held by that rule.
+   */
   protected override purgeGuard(): SQL {
     const p = schema.plugin;
-    return sql`NOT ${versionReferencedPredicate({ digest: sql`${p.imageDigest}`, name: sql`${p.name}`, version: sql`${p.version}`, orgId: sql`${p.orgId}` })}`;
+    const referenced = sql`NOT ${versionReferencedPredicate({ digest: sql`${p.imageDigest}`, name: sql`${p.name}`, version: sql`${p.version}`, orgId: sql`${p.orgId}` })}`;
+    return autoSweep.getStore() ? sql`${referenced} AND NOT ${autoRemovalProtectedSql(sql`plugins`)}` : referenced;
+  }
+
+  /**
+   * The soft-delete purge sweep (automatic): protected tombstones are skipped
+   * and counted (`plugin_auto_removal_skipped_total{reason}`), then the
+   * expired rest are purged, then the failed source / image deletes of
+   * earlier purges are retried (services/version-purge.ts).
+   */
+  override async purgeExpired(now: Date, limit = 500): Promise<number> {
+    try {
+      const skipped = await withTenantTx((tx) => executeRows<{ reason: AutoRemovalProtection; n: number }>(tx, sql`
+        SELECT r.reason, count(*)::int AS n FROM (
+          SELECT ${autoRemovalReasonSql(sql`plugins`)} AS reason FROM plugins
+           WHERE deleted_at IS NOT NULL AND purge_after < ${now}
+        ) r WHERE r.reason IS NOT NULL GROUP BY r.reason`));
+      for (const s of skipped) recordAutoRemovalSkip(s.reason, { path: 'soft-delete-sweep' }, s.n);
+    } catch (err) {
+      logger.warn('Protected tombstones not counted', { error: errorMessage(err) });
+    }
+    const purged = await autoSweep.run(true, () => super.purgeExpired(now, limit));
+    try {
+      const { retryPurgeOrphans } = await import('./version-purge.js');
+      await retryPurgeOrphans();
+    } catch (err) {
+      logger.warn('Failed source / image deletes not retried this sweep', { error: errorMessage(err) });
+    }
+    return purged;
+  }
+
+  /** The rows about to be hard-purged, kept for {@link onAfterPurge}'s teardown outside Postgres. */
+  private readonly purging = new Map<string, { id: string; orgId: string; name: string; version: string; imageDigest: string | null }>();
+
+  protected override async onBeforePurge(ids: string[], tx: TenantTx): Promise<void> {
+    const p = schema.plugin;
+    const rows = await tx.select({ id: p.id, orgId: p.orgId, name: p.name, version: p.version, imageDigest: p.imageDigest }).from(p).where(inArray(p.id, ids));
+    for (const r of rows) this.purging.set(String(r.id), { id: String(r.id), orgId: String(r.orgId), name: String(r.name), version: String(r.version), imageDigest: (r.imageDigest as string | null) ?? null });
+  }
+
+  /**
+   * Every purge — the sweep's and an owner's — removes what the version kept
+   * outside Postgres once its row is gone: its kept-source prefix and its image
+   * (unless another stored version shares the digest). Never throws; a failed
+   * delete is an orphan the next sweep retries.
+   */
+  protected override async onAfterPurge(ids: string[]): Promise<void> {
+    const rows = ids.map((id) => this.purging.get(id)).filter((r): r is NonNullable<typeof r> => !!r);
+    for (const id of ids) this.purging.delete(id);
+    if (rows.length === 0) return;
+    const { teardownPurgedVersions } = await import('./version-purge.js');
+    await teardownPurgedVersions(rows);
   }
 
   /** A manual purge of a referenced tombstone is refused 409 (not a silent 404). */

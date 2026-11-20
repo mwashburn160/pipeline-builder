@@ -26,6 +26,29 @@ function decide(versions: VersionFacts[], over: Partial<DecideInput> = {}) {
 
 const states = (out: ReturnType<typeof decide>) => Object.fromEntries(out.decisions.map((d) => [d.version, `${d.state}:${d.rule}`]));
 
+describe('protected from automatic removal', () => {
+  it('an active or only version is kept with its reason, after every other keep rule', () => {
+    const out = decide([v('1.0.0', { protection: 'active' }), v('1.1.0', { protection: 'only_version' }), v('1.2.0'), v('1.3.0'), v('1.4.0'), v('1.5.0')], { keep: 1 });
+    const by = Object.fromEntries(out.decisions.map((d) => [d.version, d]));
+    expect(by['1.0.0']).toMatchObject({ state: 'keep', rule: 'active' });
+    expect(by['1.1.0']).toMatchObject({ state: 'keep', rule: 'only_version' });
+    expect(by['1.2.0']!.state).toBe('deprecate');
+    // The ordering rule's own reason stays first.
+    expect(decide([v('2.0.0', { protection: 'active' })]).decisions[0]).toMatchObject({ state: 'keep', rule: 'implicit_install' });
+  });
+
+  it('a version this pass deprecated that is now protected is reversed, and a pending yank is not finished', () => {
+    const out = decide([
+      v('1.0.0', { deprecated: true, retirement: { deprecatedAt: new Date(NOW.getTime() - 40 * DAY) }, protection: 'active' }),
+      v('1.1.0', { yanked: true, retirement: { deprecatedAt: NOW }, protection: 'active' }),
+      v('1.2.0'), v('1.3.0'), v('1.4.0'),
+    ], { keep: 1 });
+    const by = Object.fromEntries(out.decisions.map((d) => [d.version, d]));
+    expect(by['1.0.0']).toMatchObject({ state: 'reverse', rule: 'active' });
+    expect(by['1.1.0']).toMatchObject({ state: 'keep', rule: 'active' });
+  });
+});
+
 describe('ordering: N per live major', () => {
   it('keeps the newest N of each major and the newest of every major, retires the rest', () => {
     const out = decide(['1.0.0', '1.1.0', '1.2.0', '1.3.0', '1.4.0', '2.0.0', '2.1.0'].map((x) => v(x)));

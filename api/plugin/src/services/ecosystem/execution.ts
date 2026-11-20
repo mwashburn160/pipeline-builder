@@ -40,6 +40,7 @@ import { EcosystemError } from './context.js';
 import { execute } from './execute.js';
 import { notifyDecision, titleOfRequest } from './notify.js';
 import { RegistryPublicationError } from './registry.js';
+import { onRemediationRequestPublished } from './remediation-fixes.js';
 import { publishers, requests } from './store.js';
 import { getHealthRedisConnection } from '../../queue/connections.js';
 
@@ -210,6 +211,9 @@ async function runClaimed(id: string, now: () => Date): Promise<ExecutionOutcome
     return { status: 'refused', error: err };
   }
   await finalize(r, publisher, state);
+  // A remediation's request published its listing version (an automatic or a
+  // manager's approval alike): start the Official fix's rollout. Never throws.
+  await onRemediationRequestPublished(r);
   return { status: 'executed' };
 }
 

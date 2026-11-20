@@ -602,6 +602,84 @@ groups:
           summary: "{{ $value }} more plugin versions were flagged by the vulnerability rescan than a day ago"
           description: "Look at what the newly flagged versions share (audit plugin.vuln.flagged, details.findings) — usually one base image or one bundled toolchain. Rebuild the base and its dependants; if no fix exists yet, a fleet-wide advisory-id waiver (PLUGIN_VULN_WAIVERS='*:<date>:<id>') is the narrow lever."
 
+      - alert: PluginRemediationErrors
+        # Nightly CVE remediation jobs that ENDED IN AN ERROR (outcome="error"):
+        # a build infrastructure failure, or a kept source whose SHA-256 no
+        # longer matches its pointer (error SOURCE_CHECKSUM_MISMATCH, which fails
+        # the remediation closed). "Could not fix" is NOT an error — it ends
+        # needs_owner and the owner is sent N39 — so any error is worth a look.
+        # The flagged version is untouched either way and stays flagged.
+        expr: sum(increase(plugin_remediations_total{outcome="error"}[6h])) > 0
+        labels:
+          severity: warning
+          component: plugin
+          tenancy: platform
+        annotations:
+          summary: "{{ $value | humanize }} plugin remediations failed with an error in 6h"
+          description: "Plugins → Remediations, filter Failed: each row's error is a short code. SOURCE_CHECKSUM_MISMATCH means a kept build source in the plugin-sources bucket changed under its pointer — treat it as tampering until the object's history says otherwise, and never retry it blind. Anything else is usually the build queue or buildkit; the next rescan does not retry a failed findings set until the findings change, so retry it from the card once fixed."
+
+      - alert: PluginSourceDeleteFailing
+        # A purge could not delete a version's RustFS prefix, an org's
+        # plugin-sources/<orgId>/ prefix, or a purged version's image. The purge
+        # still completed; the leftover is in plugin_source_orphans and the next
+        # purge sweep retries it. This fires on the failure so a delete that keeps
+        # failing (a credential or policy change on the scoped plugin key) is seen
+        # before the orphan list grows.
+        expr: sum by (kind) (increase(plugin_source_delete_failures_total[6h])) > 0
+        labels:
+          severity: warning
+          component: plugin
+          tenancy: platform
+        annotations:
+          summary: "Plugin {{ $labels.kind }} deletes are failing after a purge"
+          description: "{{ $value | humanize }} {{ $labels.kind }} deletes failed in 6h. Purged tenant sources or images are still stored until the orphan retry succeeds. kind=object|prefix: check the plugin service's RustFS key still reaches plugin-sources (rustfs-init policy plugin-sources-rw); kind=image: check image-registry's discardPluginImage."
+
+      - alert: PluginSourcesMissing
+        # A stored version's kept build source was not in plugin-sources when a
+        # remediation went to read it — almost always after an object-store
+        # restore that left the bucket out. The version is switched to
+        # source-less (overlay-only remediation) instead of failing its checksum
+        # every night, so this is the only place the loss shows.
+        expr: sum(increase(plugin_source_missing_total[1d])) > 0
+        labels:
+          severity: warning
+          component: plugin
+          tenancy: platform
+        annotations:
+          summary: "{{ $value | humanize }} plugin versions lost their kept build source"
+          description: "Their sources are gone from the plugin-sources bucket, so they can now only be fixed with an overlay layer (no library source patches, nothing for compiled Go/Rust/.NET/Java). Restore plugin-sources from the object-store mirror (restore.sh --object-store) if it was left out; a version marked source-less stays that way until its owner uploads a new version."
+
+      - alert: PluginSourceChecksumMismatch
+        # A kept build source in plugin-sources no longer hashes to the SHA-256
+        # recorded when it was kept. Nothing in the platform rewrites a kept
+        # object, so treat it as tampering: the remediation that read it failed
+        # closed (SOURCE_CHECKSUM_MISMATCH) and nothing was built from it.
+        expr: sum(increase(plugin_source_checksum_mismatch_total[1d])) > 0
+        labels:
+          severity: critical
+          component: plugin
+          tenancy: platform
+        annotations:
+          summary: "{{ $value | humanize }} kept plugin sources failed their checksum"
+          description: "A kept build source in the plugin-sources bucket changed under its recorded SHA-256: treat it as tampering. Nothing was built from it (the remediation failed closed with SOURCE_CHECKSUM_MISMATCH). Check the bucket's access log for writes outside the plugin service's scoped key, rotate PLUGIN_S3_ACCESS_KEY_ID if in doubt, and never retry the remediation until the object's history is understood."
+
+      - alert: PluginRemediationCanaryStale
+        # The per-package-type fixture plugins in the system org are flagged and
+        # fixed every night as a canary; the plugin service exports the epoch of
+        # the last pass in which every fixture came out clean. Stale for 48h (two
+        # nightly passes) means the scanner or a patcher broke, and real flagged
+        # versions of that type are going unfixed. Absent while
+        # PLUGIN_REMEDIATION_ENABLED=false or before the first canary pass.
+        expr: (time() - max(plugin_remediation_canary_last_success_timestamp_seconds)) > 172800
+        for: 30m
+        labels:
+          severity: warning
+          component: plugin
+          tenancy: platform
+        annotations:
+          summary: "The plugin remediation fixture canary has not passed in 48h"
+          description: "Last clean canary pass {{ $value | humanizeDuration }} ago. Open the system org's Remediations list (fixture plugins) or the Ecosystem console fleet view: the failing package type is the patcher or scanner to look at. PluginVulnRescanStale firing too means the rescan, not remediation, stopped."
+
       - alert: PluginRefusedImageDiscardFailing
         # A build the scan gates or compliance REFUSED was already pushed and
         # signed (the gates read the signed SBOM). Removing it is best-effort;

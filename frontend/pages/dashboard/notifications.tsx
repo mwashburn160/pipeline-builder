@@ -33,6 +33,19 @@ type EcosystemPrefKey = keyof NotificationPrefs['ecosystem'];
 
 /** Ecosystem email opt-outs. `systemOrgOnly` rows exist only for the system
  *  org's moderators (the daily moderation digest). */
+/**
+ * The plugin security FIX notices (nightly CVE remediation). They follow the
+ * org's plugin security recipients and digest, are transactional (no opt-out),
+ * and each lands where its follow-up happens.
+ */
+export const REMEDIATION_NOTICES: { code: string; label: string; href: string; where: string }[] = [
+  { code: 'N36', label: 'A fixed version was published, or is awaiting approval', href: '/dashboard/plugins?tab=remediations', where: 'Remediations' },
+  { code: 'N37', label: 'A rollout of a fix finished or paused', href: '/dashboard/plugins?tab=remediations', where: 'Remediations' },
+  { code: 'N38', label: 'A pipeline was moved back after a failed run', href: '/dashboard/pipelines', where: 'Pipelines' },
+  { code: 'N39', label: 'Findings remediation could not fix were sent to the plugin owner', href: '/dashboard/plugins?tab=remediations', where: 'Remediations' },
+  { code: 'N40', label: 'A fix request was sent to a listed plugin\'s publisher (installers are told)', href: '/dashboard/publisher', where: 'Publisher' },
+];
+
 const ECOSYSTEM_PREFS: { key: EcosystemPrefKey; label: string; hint: string; systemOrgOnly?: boolean }[] = [
   {
     key: 'reviewsEmail',
@@ -158,13 +171,25 @@ export default function NotificationsPage() {
         <SectionCard
           icon={ShieldAlert}
           title="Plugin security notices"
-          description="Who hears about plugin versions blocked for vulnerabilities and new findings from the nightly rescan."
+          description="Who hears about plugin versions blocked for vulnerabilities, new findings from the nightly rescan, and the security fixes remediation builds."
           actions={
             <Link href="/dashboard/settings?tab=organization" className="action-link text-sm shrink-0">
               Organization settings →
             </Link>
           }
-        />
+          bodyClassName="px-5 pb-4"
+        >
+          <p className="text-xs font-medium text-fg-muted">Security fix notices (always sent, in-app and email)</p>
+          <ul className="mt-2 space-y-1.5" aria-label="Security fix notices">
+            {REMEDIATION_NOTICES.map((n) => (
+              <li key={n.code} className="flex flex-wrap items-baseline gap-2 text-sm">
+                <span className="font-mono text-xs text-fg-subtle">{n.code}</span>
+                <span className="text-fg">{n.label}</span>
+                <Link href={n.href} className="action-link text-xs">{n.where} →</Link>
+              </li>
+            ))}
+          </ul>
+        </SectionCard>
       </div>
     </DashboardLayout>
   );

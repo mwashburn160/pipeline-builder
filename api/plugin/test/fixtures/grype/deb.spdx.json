@@ -1,0 +1,501 @@
+{
+ "spdxVersion": "SPDX-2.3",
+ "dataLicense": "CC0-1.0",
+ "SPDXID": "SPDXRef-DOCUMENT",
+ "name": "/w/fixture.tar",
+ "documentNamespace": "https://anchore.com/syft/image/w/fixture.tar-8d05770d-a43c-4a47-9443-45585e8c72be",
+ "creationInfo": {
+  "licenseListVersion": "3.29",
+  "creators": [
+   "Organization: Anchore, Inc",
+   "Tool: syft-1.56.0"
+  ],
+  "created": "2026-11-20T16:33:06Z"
+ },
+ "packages": [
+  {
+   "name": "libc-bin",
+   "SPDXID": "SPDXRef-Package-deb-libc-bin-ea23df937d81f227",
+   "versionInfo": "2.31-13",
+   "supplier": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": true,
+   "packageVerificationCode": {
+    "packageVerificationCodeValue": "5318ffe014bac9187a0e3315e71f1d2772ec666b"
+   },
+   "sourceInfo": "acquired package info from DPKG DB: /var/lib/dpkg/status, /usr/share/doc/libc-bin/copyright, /var/lib/dpkg/info/libc-bin.conffiles, /var/lib/dpkg/info/libc-bin.md5sums, /var/lib/dpkg/info/libc-bin.list, /var/lib/dpkg/info/libc-bin.postinst, /var/lib/dpkg/info/libc-bin.triggers",
+   "licenseConcluded": "LicenseRef-40c7e1f2118531f038ca22999bd976901254e1bc5cd1b0f0211bdd064c599987",
+   "licenseDeclared": "NOASSERTION",
+   "copyrightText": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:libc-bin:libc-bin:2.31-13:*:*:*:*:*:*:*"
+    },
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:libc-bin:libc_bin:2.31-13:*:*:*:*:*:*:*"
+    },
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:libc_bin:libc-bin:2.31-13:*:*:*:*:*:*:*"
+    },
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:libc_bin:libc_bin:2.31-13:*:*:*:*:*:*:*"
+    },
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:libc:libc-bin:2.31-13:*:*:*:*:*:*:*"
+    },
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:libc:libc_bin:2.31-13:*:*:*:*:*:*:*"
+    },
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceType": "purl",
+     "referenceLocator": "pkg:deb/debian/libc-bin@2.31-13?arch=arm64&distro=debian-11.0&upstream=glibc"
+    }
+   ]
+  },
+  {
+   "name": "libdb5.3",
+   "SPDXID": "SPDXRef-Package-deb-libdb5.3-2ef65e1831d17a78",
+   "versionInfo": "5.3.28+dfsg1-0.8",
+   "supplier": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": true,
+   "packageVerificationCode": {
+    "packageVerificationCodeValue": "12bd0c2d95ab34785fb8e84185caa9bdfdf41aa6"
+   },
+   "sourceInfo": "acquired package info from DPKG DB: /var/lib/dpkg/status, /usr/share/doc/libdb5.3/copyright, /var/lib/dpkg/info/libdb5.3:arm64.md5sums",
+   "licenseConcluded": "LicenseRef-b3bbc6fbb3f2a0e6a487e953eb8c3cc4bdb6f4150f7f51d20b1e9a3c8ef92d3d",
+   "licenseDeclared": "NOASSERTION",
+   "copyrightText": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:libdb5.3:libdb5.3:5.3.28\\+dfsg1-0.8:*:*:*:*:*:*:*"
+    },
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceType": "purl",
+     "referenceLocator": "pkg:deb/debian/libdb5.3@5.3.28%2Bdfsg1-0.8?arch=arm64&distro=debian-11.0&upstream=db5.3"
+    }
+   ]
+  },
+  {
+   "name": "libssl1.1",
+   "SPDXID": "SPDXRef-Package-deb-libssl1.1-a382c1d01f860222",
+   "versionInfo": "1.1.1k-1",
+   "supplier": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": true,
+   "packageVerificationCode": {
+    "packageVerificationCodeValue": "529fc2da0bb5ce501af1119c65698877eebaf0b3"
+   },
+   "sourceInfo": "acquired package info from DPKG DB: /var/lib/dpkg/status, /usr/share/doc/libssl1.1/copyright, /var/lib/dpkg/info/libssl1.1:arm64.md5sums",
+   "licenseConcluded": "OpenSSL",
+   "licenseDeclared": "NOASSERTION",
+   "copyrightText": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:libssl1.1:libssl1.1:1.1.1k-1:*:*:*:*:*:*:*"
+    },
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceType": "purl",
+     "referenceLocator": "pkg:deb/debian/libssl1.1@1.1.1k-1?arch=arm64&distro=debian-11.0&upstream=openssl"
+    }
+   ]
+  },
+  {
+   "name": "/w/fixture.tar",
+   "SPDXID": "SPDXRef-DocumentRoot-Image--w-fixture.tar",
+   "versionInfo": "sha256:e83e2fb0b007d2a3eb104b5d08b1f354e59748e4445ccd0166ca4f48b9168df9",
+   "supplier": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": true,
+   "packageVerificationCode": {
+    "packageVerificationCodeValue": "45ab0b7e36725547867243264f62aed46e90ddcd"
+   },
+   "checksums": [
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "e83e2fb0b007d2a3eb104b5d08b1f354e59748e4445ccd0166ca4f48b9168df9"
+    }
+   ],
+   "licenseConcluded": "NOASSERTION",
+   "licenseDeclared": "NOASSERTION",
+   "copyrightText": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceType": "purl",
+     "referenceLocator": "pkg:oci/%2Fw%2Ffixture.tar@sha256%3Ae83e2fb0b007d2a3eb104b5d08b1f354e59748e4445ccd0166ca4f48b9168df9?arch=arm64"
+    }
+   ],
+   "primaryPackagePurpose": "CONTAINER"
+  }
+ ],
+ "files": [
+  {
+   "fileName": "usr/share/doc/libc-bin/copyright",
+   "SPDXID": "SPDXRef-File-usr-share-doc-libc-bin-copyright-d4234ba9a019464c",
+   "fileTypes": [
+    "TEXT"
+   ],
+   "checksums": [
+    {
+     "algorithm": "SHA1",
+     "checksumValue": "5c4df62d190848821200ce4041d2753bd431a7eb"
+    },
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "40c7e1f2118531f038ca22999bd976901254e1bc5cd1b0f0211bdd064c599987"
+    }
+   ],
+   "licenseConcluded": "NOASSERTION",
+   "licenseInfoInFiles": [
+    "NOASSERTION"
+   ],
+   "copyrightText": "NOASSERTION",
+   "comment": "layerID: sha256:86cd85a03b6d3b0eed0957346e6d6996b40f5ac1a1da62b63b2c71293a936649"
+  },
+  {
+   "fileName": "usr/share/doc/libdb5.3/copyright",
+   "SPDXID": "SPDXRef-File-usr-share-doc-libdb5.3-copyright-210d9f46b3d1d1e4",
+   "fileTypes": [
+    "TEXT"
+   ],
+   "checksums": [
+    {
+     "algorithm": "SHA1",
+     "checksumValue": "6b19d88c2421c47ec380b588ce0558f9b80574f6"
+    },
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "b3bbc6fbb3f2a0e6a487e953eb8c3cc4bdb6f4150f7f51d20b1e9a3c8ef92d3d"
+    }
+   ],
+   "licenseConcluded": "NOASSERTION",
+   "licenseInfoInFiles": [
+    "NOASSERTION"
+   ],
+   "copyrightText": "NOASSERTION",
+   "comment": "layerID: sha256:86cd85a03b6d3b0eed0957346e6d6996b40f5ac1a1da62b63b2c71293a936649"
+  },
+  {
+   "fileName": "usr/share/doc/libssl1.1/copyright",
+   "SPDXID": "SPDXRef-File-usr-share-doc-libssl1.1-copyright-78444c783f14ac28",
+   "fileTypes": [
+    "TEXT"
+   ],
+   "checksums": [
+    {
+     "algorithm": "SHA1",
+     "checksumValue": "d2d7b4d2d035a7732fcded56e31300b65d471545"
+    },
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "bd7fb9ce3586c01003ff505d69fade885b68b0f8a1cdd7ce43630f8ed3dc119a"
+    }
+   ],
+   "licenseConcluded": "NOASSERTION",
+   "licenseInfoInFiles": [
+    "NOASSERTION"
+   ],
+   "copyrightText": "NOASSERTION",
+   "comment": "layerID: sha256:86cd85a03b6d3b0eed0957346e6d6996b40f5ac1a1da62b63b2c71293a936649"
+  },
+  {
+   "fileName": "var/lib/dpkg/info/libc-bin.conffiles",
+   "SPDXID": "SPDXRef-File-var-lib-dpkg-info-libc-bin.conffiles-d16952be412d19a2",
+   "fileTypes": [
+    "TEXT"
+   ],
+   "checksums": [
+    {
+     "algorithm": "SHA1",
+     "checksumValue": "a880cffda6ebe9d4cc01bc315adda184e33570ee"
+    },
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "ed1819b3573af7f7dfa94bc34567884dce8f5fabd0ae065a646d4f23d28ade32"
+    }
+   ],
+   "licenseConcluded": "NOASSERTION",
+   "licenseInfoInFiles": [
+    "NOASSERTION"
+   ],
+   "copyrightText": "NOASSERTION",
+   "comment": "layerID: sha256:86cd85a03b6d3b0eed0957346e6d6996b40f5ac1a1da62b63b2c71293a936649"
+  },
+  {
+   "fileName": "var/lib/dpkg/info/libc-bin.list",
+   "SPDXID": "SPDXRef-File-var-lib-dpkg-info-libc-bin.list-f9c97d77c4829101",
+   "fileTypes": [
+    "TEXT"
+   ],
+   "checksums": [
+    {
+     "algorithm": "SHA1",
+     "checksumValue": "e0efa30593b8d93d5d0a7ecf77baa88e7ab18f89"
+    },
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "5f95bcc50c60a7da16e8712cf72a7e7eae8a4f89640a790b0f86414ae5498a90"
+    }
+   ],
+   "licenseConcluded": "NOASSERTION",
+   "licenseInfoInFiles": [
+    "NOASSERTION"
+   ],
+   "copyrightText": "NOASSERTION",
+   "comment": "layerID: sha256:86cd85a03b6d3b0eed0957346e6d6996b40f5ac1a1da62b63b2c71293a936649"
+  },
+  {
+   "fileName": "var/lib/dpkg/info/libc-bin.md5sums",
+   "SPDXID": "SPDXRef-File-var-lib-dpkg-info-libc-bin.md5sums-a93af58c6f5fb571",
+   "fileTypes": [
+    "TEXT"
+   ],
+   "checksums": [
+    {
+     "algorithm": "SHA1",
+     "checksumValue": "52b1748de4c0751f15a77a6e2342372fc7e510eb"
+    },
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "5f80de4da8ae8a359b06fdc83a865e49300e297c10df76b8ad8d7ba2ef969308"
+    }
+   ],
+   "licenseConcluded": "NOASSERTION",
+   "licenseInfoInFiles": [
+    "NOASSERTION"
+   ],
+   "copyrightText": "NOASSERTION",
+   "comment": "layerID: sha256:86cd85a03b6d3b0eed0957346e6d6996b40f5ac1a1da62b63b2c71293a936649"
+  },
+  {
+   "fileName": "var/lib/dpkg/info/libc-bin.postinst",
+   "SPDXID": "SPDXRef-File-var-lib-dpkg-info-libc-bin.postinst-b397fe16e00b8b4c",
+   "fileTypes": [
+    "TEXT"
+   ],
+   "checksums": [
+    {
+     "algorithm": "SHA1",
+     "checksumValue": "70967560d386f55f34e3337d990344af985f7ef5"
+    },
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "47fc92ea75c72d16a695f78d1fc35671020810e4bef594266a269b34d6e9ac9a"
+    }
+   ],
+   "licenseConcluded": "NOASSERTION",
+   "licenseInfoInFiles": [
+    "NOASSERTION"
+   ],
+   "copyrightText": "NOASSERTION",
+   "comment": "layerID: sha256:86cd85a03b6d3b0eed0957346e6d6996b40f5ac1a1da62b63b2c71293a936649"
+  },
+  {
+   "fileName": "var/lib/dpkg/info/libc-bin.triggers",
+   "SPDXID": "SPDXRef-File-var-lib-dpkg-info-libc-bin.triggers-64a604652cfdc65d",
+   "fileTypes": [
+    "TEXT"
+   ],
+   "checksums": [
+    {
+     "algorithm": "SHA1",
+     "checksumValue": "a50727aa5c561e2e012d0d54fee760e600cda1e6"
+    },
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "c3d6b5df131336e54c31dc5687929467de7abea5c5798e3d6a6b2a64ef971fd4"
+    }
+   ],
+   "licenseConcluded": "NOASSERTION",
+   "licenseInfoInFiles": [
+    "NOASSERTION"
+   ],
+   "copyrightText": "NOASSERTION",
+   "comment": "layerID: sha256:86cd85a03b6d3b0eed0957346e6d6996b40f5ac1a1da62b63b2c71293a936649"
+  },
+  {
+   "fileName": "var/lib/dpkg/info/libdb5.3:arm64.md5sums",
+   "SPDXID": "SPDXRef-File-...lib-dpkg-info-libdb5.3-arm64.md5sums-86e6687d50570a74",
+   "fileTypes": [
+    "TEXT"
+   ],
+   "checksums": [
+    {
+     "algorithm": "SHA1",
+     "checksumValue": "952aedb3ceacdf2517e541f6084f168515b0e3a1"
+    },
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "343efb1ba2262683c42dd8c3170ac4689acecbee1459968aa6fe3da17ee1a1d3"
+    }
+   ],
+   "licenseConcluded": "NOASSERTION",
+   "licenseInfoInFiles": [
+    "NOASSERTION"
+   ],
+   "copyrightText": "NOASSERTION",
+   "comment": "layerID: sha256:86cd85a03b6d3b0eed0957346e6d6996b40f5ac1a1da62b63b2c71293a936649"
+  },
+  {
+   "fileName": "var/lib/dpkg/info/libssl1.1:arm64.md5sums",
+   "SPDXID": "SPDXRef-File-...lib-dpkg-info-libssl1.1-arm64.md5sums-d13c77b84ae25638",
+   "fileTypes": [
+    "TEXT"
+   ],
+   "checksums": [
+    {
+     "algorithm": "SHA1",
+     "checksumValue": "ca72b77625139fcf45ceea5e0480d16ea618e50b"
+    },
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "0bebe0c2471299fb1611626aeecca5632013906597ad28b5faa697a554e265b7"
+    }
+   ],
+   "licenseConcluded": "NOASSERTION",
+   "licenseInfoInFiles": [
+    "NOASSERTION"
+   ],
+   "copyrightText": "NOASSERTION",
+   "comment": "layerID: sha256:86cd85a03b6d3b0eed0957346e6d6996b40f5ac1a1da62b63b2c71293a936649"
+  },
+  {
+   "fileName": "var/lib/dpkg/status",
+   "SPDXID": "SPDXRef-File-var-lib-dpkg-status-5049489efa86ea52",
+   "fileTypes": [
+    "TEXT"
+   ],
+   "checksums": [
+    {
+     "algorithm": "SHA1",
+     "checksumValue": "dfcc7ac1fda9d5b255405c0d9ecb5794e31956b5"
+    },
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "1c3d728ecdd9bdba3bf2751c08396a4d3d5cfc52194ec43d3ef38d6f0f6c2503"
+    }
+   ],
+   "licenseConcluded": "NOASSERTION",
+   "licenseInfoInFiles": [
+    "NOASSERTION"
+   ],
+   "copyrightText": "NOASSERTION",
+   "comment": "layerID: sha256:86cd85a03b6d3b0eed0957346e6d6996b40f5ac1a1da62b63b2c71293a936649"
+  }
+ ],
+ "relationships": [
+  {
+   "spdxElementId": "SPDXRef-Package-deb-libdb5.3-2ef65e1831d17a78",
+   "relatedSpdxElement": "SPDXRef-File-usr-share-doc-libdb5.3-copyright-210d9f46b3d1d1e4",
+   "relationshipType": "OTHER",
+   "comment": "evident-by: indicates the package's existence is evident by the given file"
+  },
+  {
+   "spdxElementId": "SPDXRef-Package-deb-libdb5.3-2ef65e1831d17a78",
+   "relatedSpdxElement": "SPDXRef-File-var-lib-dpkg-status-5049489efa86ea52",
+   "relationshipType": "OTHER",
+   "comment": "evident-by: indicates the package's existence is evident by the given file"
+  },
+  {
+   "spdxElementId": "SPDXRef-Package-deb-libdb5.3-2ef65e1831d17a78",
+   "relatedSpdxElement": "SPDXRef-File-...lib-dpkg-info-libdb5.3-arm64.md5sums-86e6687d50570a74",
+   "relationshipType": "OTHER",
+   "comment": "evident-by: indicates the package's existence is evident by the given file"
+  },
+  {
+   "spdxElementId": "SPDXRef-Package-deb-libssl1.1-a382c1d01f860222",
+   "relatedSpdxElement": "SPDXRef-File-var-lib-dpkg-status-5049489efa86ea52",
+   "relationshipType": "OTHER",
+   "comment": "evident-by: indicates the package's existence is evident by the given file"
+  },
+  {
+   "spdxElementId": "SPDXRef-Package-deb-libssl1.1-a382c1d01f860222",
+   "relatedSpdxElement": "SPDXRef-File-usr-share-doc-libssl1.1-copyright-78444c783f14ac28",
+   "relationshipType": "OTHER",
+   "comment": "evident-by: indicates the package's existence is evident by the given file"
+  },
+  {
+   "spdxElementId": "SPDXRef-Package-deb-libssl1.1-a382c1d01f860222",
+   "relatedSpdxElement": "SPDXRef-File-...lib-dpkg-info-libssl1.1-arm64.md5sums-d13c77b84ae25638",
+   "relationshipType": "OTHER",
+   "comment": "evident-by: indicates the package's existence is evident by the given file"
+  },
+  {
+   "spdxElementId": "SPDXRef-Package-deb-libc-bin-ea23df937d81f227",
+   "relatedSpdxElement": "SPDXRef-File-var-lib-dpkg-status-5049489efa86ea52",
+   "relationshipType": "OTHER",
+   "comment": "evident-by: indicates the package's existence is evident by the given file"
+  },
+  {
+   "spdxElementId": "SPDXRef-Package-deb-libc-bin-ea23df937d81f227",
+   "relatedSpdxElement": "SPDXRef-File-var-lib-dpkg-info-libc-bin.triggers-64a604652cfdc65d",
+   "relationshipType": "OTHER",
+   "comment": "evident-by: indicates the package's existence is evident by the given file"
+  },
+  {
+   "spdxElementId": "SPDXRef-Package-deb-libc-bin-ea23df937d81f227",
+   "relatedSpdxElement": "SPDXRef-File-var-lib-dpkg-info-libc-bin.md5sums-a93af58c6f5fb571",
+   "relationshipType": "OTHER",
+   "comment": "evident-by: indicates the package's existence is evident by the given file"
+  },
+  {
+   "spdxElementId": "SPDXRef-Package-deb-libc-bin-ea23df937d81f227",
+   "relatedSpdxElement": "SPDXRef-File-var-lib-dpkg-info-libc-bin.postinst-b397fe16e00b8b4c",
+   "relationshipType": "OTHER",
+   "comment": "evident-by: indicates the package's existence is evident by the given file"
+  },
+  {
+   "spdxElementId": "SPDXRef-Package-deb-libc-bin-ea23df937d81f227",
+   "relatedSpdxElement": "SPDXRef-File-var-lib-dpkg-info-libc-bin.conffiles-d16952be412d19a2",
+   "relationshipType": "OTHER",
+   "comment": "evident-by: indicates the package's existence is evident by the given file"
+  },
+  {
+   "spdxElementId": "SPDXRef-Package-deb-libc-bin-ea23df937d81f227",
+   "relatedSpdxElement": "SPDXRef-File-usr-share-doc-libc-bin-copyright-d4234ba9a019464c",
+   "relationshipType": "OTHER",
+   "comment": "evident-by: indicates the package's existence is evident by the given file"
+  },
+  {
+   "spdxElementId": "SPDXRef-Package-deb-libc-bin-ea23df937d81f227",
+   "relatedSpdxElement": "SPDXRef-File-var-lib-dpkg-info-libc-bin.list-f9c97d77c4829101",
+   "relationshipType": "OTHER",
+   "comment": "evident-by: indicates the package's existence is evident by the given file"
+  },
+  {
+   "spdxElementId": "SPDXRef-DocumentRoot-Image--w-fixture.tar",
+   "relatedSpdxElement": "SPDXRef-Package-deb-libc-bin-ea23df937d81f227",
+   "relationshipType": "CONTAINS"
+  },
+  {
+   "spdxElementId": "SPDXRef-DocumentRoot-Image--w-fixture.tar",
+   "relatedSpdxElement": "SPDXRef-Package-deb-libdb5.3-2ef65e1831d17a78",
+   "relationshipType": "CONTAINS"
+  },
+  {
+   "spdxElementId": "SPDXRef-DocumentRoot-Image--w-fixture.tar",
+   "relatedSpdxElement": "SPDXRef-Package-deb-libssl1.1-a382c1d01f860222",
+   "relationshipType": "CONTAINS"
+  }
+ ]
+}

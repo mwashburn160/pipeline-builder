@@ -46,6 +46,7 @@ import { resolve } from 'node:path';
 import { createElement, type ComponentType, type ReactElement } from 'react';
 import { render, screen, cleanup, act, fireEvent } from '@testing-library/react';
 import { mockAuthGuard, mockOrgHierarchy, type PageAuthGuard } from './helpers/pageMocks';
+import { REMEDIATION } from './helpers/remediationFixtures';
 import { resolvePageGate } from '../src/lib/page-access';
 import { FEATURE_GATES } from '../src/lib/feature-gates';
 import { ALL_FEATURE_FLAGS, type FeatureFlag } from '../src/lib/feature-flags';
@@ -471,6 +472,17 @@ const API_DEFAULTS: Record<string, unknown> = {
   },
   listOrgDomains: { domains: [] },
   listOrgJoinRequests: { requests: [] },
+  // Nightly CVE remediation: the settings section, the Remediations tab, the quotas cap
+  // card, the inbox source and the pipeline Plugin security fixes card all read these.
+  getPluginRemediationSettings: {
+    settings: { mode: 'propose', libraryUpgradeLevel: 'minor', libraryUpgradeLevelByType: {}, libraryUpgradeLevelByPlugin: {}, rollout: 'propose', allowPipelineApply: true },
+    isTeam: false, root: null, enabled: true, severities: ['critical', 'high'], canEdit: true,
+  },
+  listPluginRemediations: { remediations: [], nextCursor: null, enabled: true, severities: ['critical', 'high'], usedToday: 0, maxPerDay: 20 },
+  getPipelineRemediationUpgrades: {
+    election: 'inherit', effective: { mode: 'propose', source: 'root', orgDefault: 'propose', applyRefused: false },
+    orgDefault: 'propose', allowPipelineApply: true, upgrades: [],
+  },
   listIdpGroupMappings: { mappings: [] },
 };
 
@@ -762,6 +774,80 @@ const CONTROLS: Control[] = [
     behaviour: {
       mount: page('../pages/dashboard/plugins'),
       find: byRole('tab', /^failed builds$/i),
+    },
+  },
+  {
+    control: 'Approve and publish / reject a remediation fix held in propose mode',
+    file: 'pages/dashboard/plugins.tsx',
+    // The page passes `canWrite = can('plugins:write')` to the Remediations tab;
+    // the card renders both buttons only for it, and only in awaiting_approval.
+    // Both go through the card's own StepUpModal (the routes require step-up).
+    gateFiles: ['src/components/plugin/RemediationsPanel.tsx', 'src/components/plugin/RemediationCard.tsx'],
+    permissions: ['plugins:write'],
+    stepUp: true,
+    routes: ['plugin POST /plugins/remediations/:id/approve', 'plugin POST /plugins/remediations/:id/reject'],
+    behaviour: {
+      mount: page('../pages/dashboard/plugins'),
+      // The `remediation=` deep link (the notices' link) expands the row, so the card renders without a click.
+      router: { query: { tab: 'remediations', remediation: 'rem-1' }, pathname: '/dashboard/plugins' },
+      api: { listPluginRemediations: { remediations: [REMEDIATION], nextCursor: null, enabled: true, severities: ['critical', 'high'], usedToday: 1, maxPerDay: 20 } },
+      find: button(/^approve and publish$/i),
+    },
+  },
+  {
+    control: 'Retry a failed / needs-owner / needs-review remediation',
+    file: 'pages/dashboard/plugins.tsx',
+    gateFiles: ['src/components/plugin/RemediationsPanel.tsx', 'src/components/plugin/RemediationCard.tsx'],
+    permissions: ['plugins:write'],
+    routes: ['plugin POST /plugins/remediations/:id/retry'],
+    behaviour: {
+      mount: page('../pages/dashboard/plugins'),
+      router: { query: { tab: 'remediations', remediation: 'rem-1' }, pathname: '/dashboard/plugins' },
+      api: { listPluginRemediations: { remediations: [{ ...REMEDIATION, stage: 'needs_owner' }], nextCursor: null, enabled: true, severities: ['critical', 'high'], usedToday: 1, maxPerDay: 20 } },
+      find: button(/^retry remediation$/i),
+    },
+  },
+  {
+    control: 'Delete plugin (all versions), from its delete preview',
+    file: 'pages/dashboard/plugins.tsx',
+    // The page passes `onDeleteAll` to the detail modal only for plugins:write;
+    // the dialog loads the preview, then deletes through its own StepUpModal.
+    gateFiles: ['src/components/plugin/PluginDetailModal.tsx', 'src/components/plugin/DeletePluginDialog.tsx'],
+    permissions: ['plugins:write'],
+    stepUp: true,
+    routes: ['plugin GET /plugins/by-name/:name/delete-preview', 'plugin DELETE /plugins/by-name/:name'],
+    behaviour: {
+      mount: page('../pages/dashboard/plugins'),
+      api: { listPlugins: { plugins: [{ id: 'pl1', name: 'one', version: '1.0.0', organizationId: 'org-1', visibility: 'private', createdBy: 'u1' }], pagination: { ...EMPTY_PAGE, total: 1 } } },
+      reveal: () => { const name = screen.queryAllByRole('button', { name: /^one$/ })[0]; if (name) fireEvent.click(name); },
+      find: button(/^delete plugin \(all versions\)/i),
+    },
+  },
+  {
+    control: 'Restore plugin / Purge plugin (one Delete plugin batch, deleted view)',
+    file: 'pages/dashboard/plugins.tsx',
+    gateFiles: ['src/components/plugin/DeletedPluginBatches.tsx'],
+    permissions: ['plugins:write'],
+    stepUp: true,
+    routes: ['plugin POST /plugins/by-name/:name/restore', 'plugin POST /plugins/by-name/:name/purge'],
+    behaviour: {
+      mount: page('../pages/dashboard/plugins'),
+      router: { query: { view: 'deleted' }, pathname: '/dashboard/plugins' },
+      api: { listDeletedPlugins: { plugins: [{ id: 'v1', name: 'tf-plan', version: '1.0.0', deleteBatchId: 'b1', deletedAt: '2026-11-19T10:00:00Z', visibility: 'org', createdBy: 'u1' }] } },
+      find: button(/^restore plugin/i),
+    },
+  },
+  {
+    control: 'Edit plugin security fix (remediation) settings (Settings → Organization → Plugin security)',
+    file: 'pages/dashboard/settings.tsx',
+    gateFiles: ['src/components/settings/PluginSecurityNotificationSettings.tsx', 'src/components/settings/PluginRemediationSettings.tsx'],
+    // Shown read-only with `plugins:read`; the save needs `org_settings:write`.
+    permissions: ['org_settings:write'],
+    routes: ['plugin PUT /plugins/remediation-settings'],
+    behaviour: {
+      mount: page('../pages/dashboard/settings'),
+      router: { query: { tab: 'organization' }, pathname: '/dashboard/settings' },
+      find: button(/^save security fix settings$/i),
     },
   },
   {
@@ -2862,6 +2948,30 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     coveredBy: 'Run / cancel a pipeline execution',
     why: '"Apply N upgrades" in the Plugin security tab (src/components/pipeline/security/PluginUpgradePanel.tsx, api.applyPluginUpgrades): disabled with a reason unless canWritePipeline (pipelines:write + ownership), the same gate and page as Run pipeline. Audited pipeline.plugin.upgraded; with redeploy it also starts an execution, which is that row\'s route.',
   },
+  'pipeline POST /pipelines/:id/remediation-upgrades/:upgradeId/apply': {
+    category: 'same-control',
+    coveredBy: 'Run / cancel a pipeline execution',
+    why: 'Apply on a remediation upgrade proposal banner in the Plugin security tab (src/components/pipeline/security/RemediationUpgradesPanel.tsx, api.applyPipelineRemediationUpgrade): disabled with a reason unless canWritePipeline (pipelines:write + ownership), the same gate and page as Run pipeline. Moves the step through the plugin-upgrades apply path; audited pipeline.plugin.upgraded.',
+  },
+  'pipeline POST /pipelines/:id/remediation-upgrades/:upgradeId/dismiss': {
+    category: 'same-control',
+    coveredBy: 'Run / cancel a pipeline execution',
+    why: 'Dismiss on a remediation upgrade proposal banner in the Plugin security tab (src/components/pipeline/security/RemediationUpgradesPanel.tsx, api.dismissPipelineRemediationUpgrade): disabled with a reason unless canWritePipeline (pipelines:write + ownership), the same gate and page as Run pipeline. UI state only, not audited.',
+  },
+  'plugin PUT /plugins/by-name/:name/remediation-level': {
+    category: 'same-control',
+    coveredBy: 'Upload / edit / delete a plugin',
+    why: 'The "Library upgrade level" select in the plugin edit modal (src/components/plugin/EditPluginModal.tsx, api.setPluginRemediationLevel), saved with the rest of the edit. The modal opens only from the row Edit action, which is gated on plugins:write (canWriteRow), the gate of the edit row.',
+  },
+  'plugin GET /plugins/remediations/:id': {
+    category: 'no-ui',
+    why: 'One remediation by id, for scripts and the CLI. The dashboard never fetches a single remediation: the Remediations tab and the plugin detail card render the rows of GET /plugins/remediations (filtered by pluginId), which carry the same PluginRemediationDto. plugins:read, own org only.',
+  },
+  'plugin GET /plugins/remediations/:id/export': {
+    category: 'same-control',
+    coveredBy: 'Approve and publish / reject a remediation fix held in propose mode',
+    why: '"Download patch for deploy/plugins" on the remediation card (src/components/plugin/RemediationCard.tsx, api.downloadPluginRemediationExport): rendered only with plugins:write AND the system org active (isSystemOrgActive), for an Official fix with hasExport. requireSystemOrgPermission adds the system-org and aal2 checks; a tenant never sees the button.',
+  },
   'pipeline DELETE /pipelines/:id/security-reports': {
     category: 'same-control',
     coveredBy: 'Run / cancel a pipeline execution',
@@ -2970,6 +3080,10 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     category: 'machine-only',
     why: 'Service-principal routes (callers: reporting): a SCHEDULED stakeholder report is authorized as its definition\'s OWNER, so the reporting service asks platform whether that person is still an active member holding reports:write / reports:publish and whether the org still holds the add-on (api/reporting/src/services/report-identity.ts), and whether ONE named address is a member. No user token is admitted, and neither answer carries a member list.',
   }),
+  'platform GET /internal/reporting/org-entitlement/:orgId': {
+    category: 'machine-only',
+    why: 'Service-principal route (callers: reporting): whether the org still holds the stakeholder_reports add-on, judged through any active owner/admin, so a shared report link keeps working after its OWNER leaves while the account still pays (api/reporting/src/routes/public-reports.ts). A boolean only, never an id, role or feature list; no user token is admitted.',
+  },
   'platform GET /internal/reporting/report-readers/:orgId': {
     category: 'machine-only',
     why: 'Service-principal route (callers: reporting; token scoped to the path org): the USER IDS of the org\'s active members holding reports:read, capped at 500, so a published report\'s in-app headline notice goes only to people allowed to open it (api/reporting/src/services/report-delivery.ts). Ids only, never names or emails; no user token is admitted.',
@@ -3071,6 +3185,9 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   'message POST /messages/internal/orgs/:orgId/purge': { category: 'machine-only', why: 'Internal route (callers: platform): the cascade outbox\'s org-purge leg; no user token is admitted.' },
   'pipeline POST /pipelines/internal/orgs/:orgId/purge': { category: 'machine-only', why: 'Internal route (callers: platform): the cascade outbox\'s org-purge leg; no user token is admitted.' },
   'plugin POST /internal/plugins/orgs/:orgId/purge': { category: 'machine-only', why: 'Internal route (callers: platform): the cascade outbox\'s org-purge leg; no user token is admitted.' },
+  'plugin POST /internal/plugins/remediations/:remediationId/rollout': { category: 'machine-only', why: 'Internal route (callers: pipeline): the pipeline service reports a remediation rollout\'s progress (waves, rollbacks) back to the plugin service; no user token is admitted.' },
+  'pipeline POST /pipelines/internal/plugin-remediations/:remediationId/rollout': { category: 'machine-only', why: 'Internal route (callers: plugin): the plugin service starts a published fix\'s rollout across the pipelines using the flagged version; no user token is admitted.' },
+  'pipeline POST /pipelines/internal/plugin-remediations/:remediationId/cancel': { category: 'machine-only', why: 'Internal route (callers: plugin): the plugin service cancels a rollout when its version or name is deleted; no user token is admitted.' },
   'plugin POST /internal/plugins/users/:userId/erase': { category: 'machine-only', why: 'Internal route (callers: platform): the cascade outbox\'s GDPR user-erasure leg; no user token is admitted.' },
   'reporting POST /reports/internal/orgs/:orgId/purge': { category: 'machine-only', why: 'Internal route (callers: platform): the cascade outbox\'s org-purge leg; no user token is admitted.' },
   'quota POST /quotas/internal/orgs/:orgId/purge': { category: 'machine-only', why: 'Internal route (callers: platform): the cascade outbox\'s org-purge leg (drops the org\'s quota document); no user token is admitted, and no person should drop a live org\'s enforcement record.' },

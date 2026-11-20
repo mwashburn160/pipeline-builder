@@ -17,8 +17,21 @@
  * ship it, when the vulnerability is being exploited in the wild.
  */
 
+import type { GrypePackageType } from './plugin-remediation.js';
 import { SYSTEM_ORG_ID } from '../middleware/system-org.js';
 import { envBool, envInt, envStr } from '../utils/env.js';
+
+// The remediation vocabulary rides this module's browser subpath
+// (`@pipeline-builder/api-core/plugin-scan`) so no new entry point is needed.
+export * from './plugin-remediation.js';
+
+/** Where grype found a package: the file path in the image and the layer it came from. */
+export interface PluginScanFindingLocation {
+  /** Path inside the image (grype `artifact.locations[].path`). */
+  path: string;
+  /** The image layer digest (grype `artifact.locations[].layerID`); shows whether the package came from a shared base. */
+  layerID: string;
+}
 
 /** One Critical/High finding as the flag and the gate messages carry it. */
 export interface PluginScanFinding {
@@ -27,6 +40,16 @@ export interface PluginScanFinding {
   severity: 'critical' | 'high';
   packageName: string;
   packageVersion: string;
+  /**
+   * grype's `artifact.type`, normalized ({@link toGrypePackageType}: an
+   * uncatalogued type is `other`). Required: a scan that can't produce it
+   * fails like any other scan failure.
+   */
+  packageType: GrypePackageType;
+  /** grype's `artifact.purl` — the package identity remediation groups by. */
+  purl: string;
+  /** grype's `artifact.locations` (path + layerID). */
+  locations: PluginScanFindingLocation[];
   /** Versions that fix it; empty = no fix available (not fixable). */
   fixedIn: string[];
   /**

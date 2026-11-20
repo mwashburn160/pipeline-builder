@@ -1,0 +1,190 @@
+{
+ "spdxVersion": "SPDX-2.3",
+ "dataLicense": "CC0-1.0",
+ "SPDXID": "SPDXRef-DOCUMENT",
+ "name": "/w/registry.access.redhat.com_ubi8_ubi-micro_8.4.tar",
+ "documentNamespace": "https://anchore.com/syft/image/w/registry.access.redhat.com_ubi8_ubi-micro_8.4.tar-0705a140-45c3-4a8b-8abb-937f3e3719ab",
+ "creationInfo": {
+  "licenseListVersion": "3.29",
+  "creators": [
+   "Organization: Anchore, Inc",
+   "Tool: syft-1.56.0"
+  ],
+  "created": "2026-11-20T16:33:17Z"
+ },
+ "packages": [
+  {
+   "name": "glibc",
+   "SPDXID": "SPDXRef-Package-rpm-glibc-7a388abeac879a9d",
+   "versionInfo": "2.28-151.el8",
+   "supplier": "Organization: Red Hat, Inc.",
+   "originator": "Organization: Red Hat, Inc.",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": true,
+   "packageVerificationCode": {
+    "packageVerificationCodeValue": "e7892ba1d9d9269061ac27aa9a7c4051d42c276b"
+   },
+   "sourceInfo": "acquired package info from RPM DB: /var/lib/rpm/Packages",
+   "licenseConcluded": "NOASSERTION",
+   "licenseDeclared": "LicenseRef-LGPLv2--and-LGPLv2--with-exceptions-and-GPLv2--and-GPLv2--with-exceptions-and-BSD-and-Inner-Net-and-ISC-and-Public-Domain-and-GFDL",
+   "copyrightText": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:redhat:glibc:2.28-151.el8:*:*:*:*:*:*:*"
+    },
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:glibc:glibc:2.28-151.el8:*:*:*:*:*:*:*"
+    },
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceType": "purl",
+     "referenceLocator": "pkg:rpm/redhat/glibc@2.28-151.el8?arch=aarch64&distro=rhel-8.4&upstream=glibc-2.28-151.el8.src.rpm"
+    }
+   ]
+  },
+  {
+   "name": "glibc-common",
+   "SPDXID": "SPDXRef-Package-rpm-glibc-common-8f9112172346fa33",
+   "versionInfo": "2.28-151.el8",
+   "supplier": "Organization: Red Hat, Inc.",
+   "originator": "Organization: Red Hat, Inc.",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": true,
+   "packageVerificationCode": {
+    "packageVerificationCodeValue": "fba58f860f3662fd7fc7b717f760385ec02b5e2c"
+   },
+   "sourceInfo": "acquired package info from RPM DB: /var/lib/rpm/Packages",
+   "licenseConcluded": "NOASSERTION",
+   "licenseDeclared": "LicenseRef-LGPLv2--and-LGPLv2--with-exceptions-and-GPLv2--and-GPLv2--with-exceptions-and-BSD-and-Inner-Net-and-ISC-and-Public-Domain-and-GFDL",
+   "copyrightText": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:glibc-common:glibc-common:2.28-151.el8:*:*:*:*:*:*:*"
+    },
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:glibc-common:glibc_common:2.28-151.el8:*:*:*:*:*:*:*"
+    },
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:glibc_common:glibc-common:2.28-151.el8:*:*:*:*:*:*:*"
+    },
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:glibc_common:glibc_common:2.28-151.el8:*:*:*:*:*:*:*"
+    },
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:redhat:glibc-common:2.28-151.el8:*:*:*:*:*:*:*"
+    },
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:redhat:glibc_common:2.28-151.el8:*:*:*:*:*:*:*"
+    },
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:glibc:glibc-common:2.28-151.el8:*:*:*:*:*:*:*"
+    },
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:glibc:glibc_common:2.28-151.el8:*:*:*:*:*:*:*"
+    },
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceType": "purl",
+     "referenceLocator": "pkg:rpm/redhat/glibc-common@2.28-151.el8?arch=aarch64&distro=rhel-8.4&upstream=glibc-2.28-151.el8.src.rpm"
+    }
+   ]
+  },
+  {
+   "name": "/w/registry.access.redhat.com_ubi8_ubi-micro_8.4.tar",
+   "SPDXID": "SPDXRef-DocumentRoot-Image--w-registry.access.redhat.com-ubi8-ubi-micro-8.4.tar",
+   "versionInfo": "sha256:dc120fdf78d9a05dfc5956fe1ecf26dbfb07eff33b92d32625cac6602483ea22",
+   "supplier": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": true,
+   "packageVerificationCode": {
+    "packageVerificationCodeValue": "4c30a745572e5757782d76d059f81e6df6357c96"
+   },
+   "checksums": [
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "dc120fdf78d9a05dfc5956fe1ecf26dbfb07eff33b92d32625cac6602483ea22"
+    }
+   ],
+   "licenseConcluded": "NOASSERTION",
+   "licenseDeclared": "NOASSERTION",
+   "copyrightText": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceType": "purl",
+     "referenceLocator": "pkg:oci/%2Fw%2Fregistry.access.redhat.com_ubi8_ubi-micro_8.4.tar@sha256%3Adc120fdf78d9a05dfc5956fe1ecf26dbfb07eff33b92d32625cac6602483ea22?arch=arm64"
+    }
+   ],
+   "primaryPackagePurpose": "CONTAINER"
+  }
+ ],
+ "files": [
+  {
+   "fileName": "var/lib/rpm/Packages",
+   "SPDXID": "SPDXRef-File-var-lib-rpm-Packages-5d8bf27defb992b9",
+   "fileTypes": [
+    "APPLICATION"
+   ],
+   "checksums": [
+    {
+     "algorithm": "SHA1",
+     "checksumValue": "6dd994bdeebbd987eb516bfc1300f8c9f73410d4"
+    },
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "5ea39503aafe5ddb41e2c35053f076e468cf65af01ec6d00267e2d60153fb786"
+    }
+   ],
+   "licenseConcluded": "NOASSERTION",
+   "licenseInfoInFiles": [
+    "NOASSERTION"
+   ],
+   "copyrightText": "NOASSERTION",
+   "comment": "layerID: sha256:2dc1d47033287058aa7d8a91cc8d38654698bf5edd23c9fa457009b177b488fd"
+  }
+ ],
+ "relationships": [
+  {
+   "spdxElementId": "SPDXRef-Package-rpm-glibc-7a388abeac879a9d",
+   "relatedSpdxElement": "SPDXRef-File-var-lib-rpm-Packages-5d8bf27defb992b9",
+   "relationshipType": "OTHER",
+   "comment": "evident-by: indicates the package's existence is evident by the given file"
+  },
+  {
+   "spdxElementId": "SPDXRef-Package-rpm-glibc-common-8f9112172346fa33",
+   "relatedSpdxElement": "SPDXRef-File-var-lib-rpm-Packages-5d8bf27defb992b9",
+   "relationshipType": "OTHER",
+   "comment": "evident-by: indicates the package's existence is evident by the given file"
+  },
+  {
+   "spdxElementId": "SPDXRef-DocumentRoot-Image--w-registry.access.redhat.com-ubi8-ubi-micro-8.4.tar",
+   "relatedSpdxElement": "SPDXRef-Package-rpm-glibc-7a388abeac879a9d",
+   "relationshipType": "CONTAINS"
+  },
+  {
+   "spdxElementId": "SPDXRef-DocumentRoot-Image--w-registry.access.redhat.com-ubi8-ubi-micro-8.4.tar",
+   "relatedSpdxElement": "SPDXRef-Package-rpm-glibc-common-8f9112172346fa33",
+   "relationshipType": "CONTAINS"
+  }
+ ]
+}

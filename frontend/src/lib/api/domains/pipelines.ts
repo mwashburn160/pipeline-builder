@@ -6,7 +6,9 @@ import type {
   RunnerHealth, RunnerKeyMode, RunnerKeyRotationState, RunnerKeyStatusRow, RunnerLinkDto, RunnerSigningKeyDto,
   RunnerSigningKeySummary, RunnerStatus, RunRequestAction, RunRequestStatus,
 } from '@pipeline-builder/api-core/pipeline-runners';
+import type { PipelineRemediationElection } from '@pipeline-builder/api-core/plugin-scan';
 import type { ApiCore } from '../core';
+import type { PipelineRemediationUpgrades, PipelineRemediationUpgradeView } from '@/types/plugin-remediation';
 import { buildQuery, type ProposedByOptions } from '../util';
 import { ApiError } from '../errors';
 import type {
@@ -328,6 +330,9 @@ export function pipelinesApi(core: ApiCore) {
        *  non-empty string, so ownership is reassigned, never cleared. */
       ownerId?: string;
       ownerType?: OwnerType;
+      /** Plugin security fixes election. `apply` answers 403
+       *  PIPELINE_REMEDIATION_APPLY_NOT_ALLOWED when the org disallows it. */
+      remediationUpgrades?: PipelineRemediationElection;
       /** Optimistic concurrency: the `updatedAt` the edit was based on. When the
        *  pipeline changed since, the server answers 412 PRECONDITION_FAILED
        *  (see `isConcurrencyConflict`). Absent: last write wins. */
@@ -639,6 +644,32 @@ export function pipelinesApi(core: ApiCore) {
         method: 'POST',
         body: JSON.stringify(body),
       });
+    },
+
+    /**
+     * The pipeline's Plugin security fixes election, its effective mode (and
+     * where it came from), and every remediation upgrade row: open proposals,
+     * wave status and rollback history. `pipelines:read`.
+     */
+    getPipelineRemediationUpgrades: async (pipelineId: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<PipelineRemediationUpgrades>>(
+        `/api/pipelines/${encodeURIComponent(pipelineId)}/remediation-upgrades`, { signal: opts?.signal });
+    },
+
+    /** Apply an open remediation proposal through the normal validated upgrade path (audited `pipeline.plugin.upgraded`). `pipelines:write`. */
+    applyPipelineRemediationUpgrade: async (pipelineId: string, upgradeId: string) => {
+      return core.request<ApiResponse<{ upgrade: PipelineRemediationUpgradeView }>>(
+        `/api/pipelines/${encodeURIComponent(pipelineId)}/remediation-upgrades/${encodeURIComponent(upgradeId)}/apply`,
+        { method: 'POST', body: JSON.stringify({}) },
+      );
+    },
+
+    /** Dismiss an open remediation proposal (the pipeline keeps its version). `pipelines:write`. */
+    dismissPipelineRemediationUpgrade: async (pipelineId: string, upgradeId: string) => {
+      return core.request<ApiResponse<{ upgrade: PipelineRemediationUpgradeView }>>(
+        `/api/pipelines/${encodeURIComponent(pipelineId)}/remediation-upgrades/${encodeURIComponent(upgradeId)}/dismiss`,
+        { method: 'POST', body: JSON.stringify({}) },
+      );
     },
 
     /** The latest application-artifact scan report per (tool, stage) the pipeline's runs uploaded, plus summed counts. `pipelines:read`. */

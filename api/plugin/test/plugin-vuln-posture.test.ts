@@ -46,8 +46,8 @@ describe('findingsCsv', () => {
       flagged: false,
       scanFlaggedAt: null,
       findings: [
-        { id: 'CVE-1', severity: 'critical', packageName: 'openssl', packageVersion: '3.0.1', fixedIn: ['3.0.2', '3.1.0'], kev: true, epss: 0.5, waived: false },
-        { id: 'CVE-2', severity: 'high', packageName: 'zlib', packageVersion: '1.2', fixedIn: [], waived: true },
+        { packageType: 'deb' as const, purl: 'pkg:deb/debian/x@1', locations: [] as { path: string; layerID: string }[], id: 'CVE-1', severity: 'critical', packageName: 'openssl', packageVersion: '3.0.1', fixedIn: ['3.0.2', '3.1.0'], kev: true, epss: 0.5, waived: false },
+        { packageType: 'deb' as const, purl: 'pkg:deb/debian/x@1', locations: [] as { path: string; layerID: string }[], id: 'CVE-2', severity: 'high', packageName: 'zlib', packageVersion: '1.2', fixedIn: [], waived: true },
       ],
     });
     const lines = csv.trimEnd().split('\r\n');
@@ -62,7 +62,7 @@ describe('findingsCsv', () => {
       summary: null,
       flagged: false,
       scanFlaggedAt: null,
-      findings: [{ id: 'GHSA-1', severity: 'high', packageName: '=HYPERLINK("x")', packageVersion: '1,2', fixedIn: [], waived: false }],
+      findings: [{ packageType: 'deb' as const, purl: 'pkg:deb/debian/x@1', locations: [] as { path: string; layerID: string }[], id: 'GHSA-1', severity: 'high', packageName: '=HYPERLINK("x")', packageVersion: '1,2', fixedIn: [], waived: false }],
     });
     expect(csv).toContain('"\'=HYPERLINK(""x"")"');
     expect(csv).toContain('"1,2"');

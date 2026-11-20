@@ -19,7 +19,7 @@
 
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QuotaBanner } from '../src/components/ui/QuotaBanner';
 import NotificationsPage from '../pages/dashboard/notifications';
 import { saveNotificationPrefs } from '../src/lib/notification-prefs';
@@ -201,6 +201,18 @@ describe('Notifications page', () => {
     await act(async () => { resolveLoad(serverPrefs(false)); await Promise.resolve(); await Promise.resolve(); });
 
     expect(toggle).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('names the security fix notices N36 to N40, each linking where its follow-up happens', async () => {
+    render(<NotificationsPage />);
+    const list = await screen.findByRole('list', { name: 'Security fix notices' });
+    const rows = within(list).getAllByRole('listitem');
+    expect(rows.map((r) => r.textContent?.slice(0, 3))).toEqual(['N36', 'N37', 'N38', 'N39', 'N40']);
+    const hrefs = rows.map((r) => within(r).getByRole('link').getAttribute('href'));
+    expect(hrefs).toEqual([
+      '/dashboard/plugins?tab=remediations', '/dashboard/plugins?tab=remediations', '/dashboard/pipelines',
+      '/dashboard/plugins?tab=remediations', '/dashboard/publisher',
+    ]);
   });
 
   it('disables the toggle during read-only impersonation', async () => {

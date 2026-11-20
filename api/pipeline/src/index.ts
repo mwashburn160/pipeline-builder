@@ -6,6 +6,7 @@ import { createApp, runServer, attachRequestContext, postgresHealthCheck } from 
 import { createSoftDeletePurgeScheduler } from '@pipeline-builder/pipeline-data';
 
 import { mountRoutes } from './app-routes.js';
+import { startRemediationRolloutWorker } from './helpers/remediation-rollout.js';
 import { startKeyInvalidation } from './runners/deps.js';
 import { startRunnerDispatch } from './runners/dispatch-queue.js';
 import { initRunnerKeyEncryption } from './runners/key-crypto.js';
@@ -58,11 +59,14 @@ startKeyInvalidation();
 // Runner dispatch (BullMQ `runner-dispatch` + the sweep).
 const runnerDispatch = startRunnerDispatch();
 
+// Nightly CVE remediation, Stage 3: the leader-locked rollout worker (waves, rollbacks, progress reports).
+const remediationRollout = startRemediationRolloutWorker();
+
 void runServer(app, {
   name: 'Pipeline Service',
   sseManager,
   // No boot-time migrations: the schema is owned by postgres-init.sql and the
   // service connects as a non-superuser app role without DDL rights.
-  onShutdown: async () => { purgeScheduler?.stop(); await runnerDispatch.stop(); },
+  onShutdown: async () => { purgeScheduler?.stop(); remediationRollout.stop(); await runnerDispatch.stop(); },
 });
 purgeScheduler?.start();

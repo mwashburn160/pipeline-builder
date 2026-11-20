@@ -6,7 +6,10 @@
  * stub can't load the real module inside its factory, so this mirrors it;
  * resolved-plugin-helper.test.ts compares it with the real one.
  */
-export const RESOLVED_PLUGIN_OMITTED_FIELDS = ['readmeMd', 'readmeHtml', 'changelog', 'scanSummary', 'dockerfile', 'icon', 'uploadedIcon'] as const;
+export const RESOLVED_PLUGIN_OMITTED_FIELDS = [
+  'readmeMd', 'readmeHtml', 'changelog', 'scanSummary', 'dockerfile', 'icon', 'uploadedIcon',
+  'sourceKey', 'sourceSha256', 'sourceSizeBytes', 'sourceKind', 'sourceKeptAt', 'deleteBatchId',
+] as const;
 
 export function toResolvedPlugin(record: Record<string, unknown>): Record<string, unknown> {
   const out = { ...record };

@@ -12,6 +12,7 @@
  */
 
 import { ALERT_CHANNELS, ALERT_RULE_SEVERITIES, type AlertChannel, type AlertRuleSeverity } from '@pipeline-builder/api-core/wire-vocabulary';
+import { PLUGIN_REMEDIATION_METRICS } from '@pipeline-builder/api-core/plugin-scan';
 import { Bell, Mail, MessageSquare, Webhook, type LucideIcon } from 'lucide-react';
 import type { BadgeColor } from '@/components/ui/Badge';
 
@@ -83,3 +84,56 @@ export function alertSeverityMeta(severity: string): (typeof ALERT_SEVERITY_META
     ? ALERT_SEVERITY_META[severity as AlertRuleSeverity]
     : ALERT_SEVERITY_META.warning;
 }
+
+/**
+ * Alerts the PLATFORM ships (deploy alert-rules.yml, evaluated by the
+ * operator's Prometheus), listed read-only beside an org's own rules so a
+ * reader knows what is already watched. They page the operator, not this
+ * org's destinations, and cannot be edited here.
+ */
+export interface BuiltInAlertRule {
+  id: string;
+  name: string;
+  severity: AlertRuleSeverity;
+  /** What it watches, as PromQL over the metric (illustrative of the shipped rule). */
+  watches: string;
+  summary: string;
+}
+
+export const BUILT_IN_ALERT_RULES: readonly BuiltInAlertRule[] = [
+  {
+    id: 'plugin-remediation-failures',
+    name: 'Plugin remediation failures',
+    severity: 'warning',
+    watches: `increase(${PLUGIN_REMEDIATION_METRICS.remediations}{outcome="error"}[1h]) > 0`,
+    summary: 'A nightly CVE remediation job failed (build infrastructure, checksum mismatch or an internal error).',
+  },
+  {
+    id: 'plugin-source-delete-failures',
+    name: 'Plugin source delete failures',
+    severity: 'warning',
+    watches: `increase(${PLUGIN_REMEDIATION_METRICS.sourceDeleteFailures}[1h]) > 0`,
+    summary: 'A purge could not delete a kept plugin source, image or prefix; it is recorded as an orphan and retried by the next sweep.',
+  },
+  {
+    id: 'plugin-source-missing',
+    name: 'Missing plugin sources',
+    severity: 'warning',
+    watches: 'increase(plugin_source_missing_total[1h]) > 0',
+    summary: 'A version\'s kept build source was missing (for example after a restore); it can now only be remediated with an overlay layer.',
+  },
+  {
+    id: 'plugin-source-checksum-mismatch',
+    name: 'Plugin source checksum mismatch',
+    severity: 'critical',
+    watches: 'increase(plugin_source_checksum_mismatch_total[1h]) > 0',
+    summary: 'A kept build source no longer matches the SHA-256 recorded when it was kept: treat it as tampering. Nothing was built from it.',
+  },
+  {
+    id: 'plugin-remediation-canary-stale',
+    name: 'Stale remediation canary',
+    severity: 'warning',
+    watches: 'The nightly fixture canary in the system org has not been flagged and fixed on schedule',
+    summary: 'The per-package-type fixture plugins stopped being flagged and fixed: the scanner or a patcher broke.',
+  },
+];

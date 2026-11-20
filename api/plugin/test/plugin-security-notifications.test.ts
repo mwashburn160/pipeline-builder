@@ -37,7 +37,7 @@ const dedupe = {
 
 const row = () => (h.db.tables.plugin_security_notification_prefs ?? []).find((r) => r.orgId === ORG);
 const finding = (id: string, fixedIn: string[] = ['3.0.2'], severity: 'critical' | 'high' = 'critical') =>
-  ({ id, severity, packageName: 'openssl', packageVersion: '3.0.1', fixedIn });
+  ({ id, severity, packageName: 'openssl', packageVersion: '3.0.1', fixedIn, packageType: 'deb' as const, purl: 'pkg:deb/debian/openssl@3.0.1', locations: [{ path: '/var/lib/dpkg/status', layerID: 'sha256:l' }] });
 /** The token in the last confirmation email the relay was asked to send. */
 function lastConfirmToken(): string {
   const call = [...h.notify.mock.calls].reverse().find((c: any[]) => (c[2] as { subject: string }).subject.startsWith('Confirm this address'));

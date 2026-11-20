@@ -3,6 +3,8 @@
 
 import { audited, isManagedToolchainPlugin, loadAndRestore, sendSuccess, actorId, recordAudit, type QuotaService } from '@pipeline-builder/api-core';
 import { withQuotaReservation, withRoute } from '@pipeline-builder/api-server';
+import { schema, withTenantTx } from '@pipeline-builder/pipeline-data';
+import { eq } from 'drizzle-orm';
 import { Router } from 'express';
 import { toolchainUseConsoleError } from '../helpers/managed-toolchain.js';
 import { shapePlugin } from '../helpers/plugin-helpers.js';
@@ -49,6 +51,12 @@ export function createRestorePluginRoutes(quotaService: QuotaService): Router {
         // The row is live again: it holds the slot from here, so a failure
         // recording the period below must not refund it.
         slot.markConsumed();
+        // Restored on its own, it leaves any whole-plugin delete batch: a later
+        // Restore / Purge plugin of that batch must not act on it again.
+        // Best-effort: a batch action only ever selects TOMBSTONES of its batch,
+        // so a stale id on a live row is harmless until it is deleted again.
+        await withTenantTx((tx) => tx.update(schema.plugin).set({ deleteBatchId: null }).where(eq(schema.plugin.id, restoredResult.restored.id)))
+          .catch((err: unknown) => ctx.log('WARN', 'Could not clear the restored version\'s delete batch id', { id: restoredResult.restored.id, error: String(err) }));
         await pluginService.setQuotaSnapshot(restoredResult.restored.id, slot.reservation.quota.resetAt ?? null);
         return restoredResult;
       },

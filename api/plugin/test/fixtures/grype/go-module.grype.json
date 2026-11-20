@@ -1,0 +1,185 @@
+{
+ "matches": [
+  {
+   "vulnerability": {
+    "id": "GHSA-69ch-w2m2-3vjp",
+    "dataSource": "https://github.com/advisories/GHSA-69ch-w2m2-3vjp",
+    "namespace": "github:language:go",
+    "severity": "High",
+    "urls": [
+     "https://nvd.nist.gov/vuln/detail/CVE-2022-32149",
+     "https://go.dev/cl/442235"
+    ],
+    "description": "golang.org/x/text/language Denial of service via crafted Accept-Language header",
+    "cvss": [
+     {
+      "type": "Secondary",
+      "version": "3.1",
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "metrics": {
+       "baseScore": 7.5,
+       "exploitabilityScore": 3.9,
+       "impactScore": 3.6
+      },
+      "vendorMetadata": {}
+     }
+    ],
+    "epss": [
+     {
+      "cve": "CVE-2022-32149",
+      "epss": 0.01841,
+      "percentile": 0.79455,
+      "date": "2026-11-19"
+     }
+    ],
+    "cwes": [
+     {
+      "cve": "CVE-2022-32149",
+      "cwe": "CWE-772",
+      "source": "nvd@nist.gov",
+      "type": "Primary"
+     }
+    ],
+    "fix": {
+     "versions": [
+      "0.3.8"
+     ],
+     "state": "fixed",
+     "available": [
+      {
+       "version": "0.3.8",
+       "date": "2023-02-23",
+       "kind": "first-observed"
+      }
+     ]
+    },
+    "advisories": [],
+    "risk": 1.38075
+   },
+   "relatedVulnerabilities": [
+    {
+     "id": "CVE-2022-32149",
+     "dataSource": "https://nvd.nist.gov/vuln/detail/CVE-2022-32149",
+     "namespace": "nvd:cpe",
+     "severity": "High",
+     "urls": [
+      "https://go.dev/cl/442235",
+      "https://go.dev/issue/56152"
+     ],
+     "description": "An attacker may cause a denial of service by crafting an Accept-Language header which ParseAcceptLanguage will take significant time to parse.",
+     "cvss": [
+      {
+       "source": "nvd@nist.gov",
+       "type": "Primary",
+       "version": "3.1",
+       "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+       "metrics": {
+        "baseScore": 7.5,
+        "exploitabilityScore": 3.9,
+        "impactScore": 3.6
+       },
+       "vendorMetadata": {}
+      },
+      {
+       "source": "134c704f-9b21-4f2e-91b3-4a467353bcc0",
+       "type": "Secondary",
+       "version": "3.1",
+       "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+       "metrics": {
+        "baseScore": 7.5,
+        "exploitabilityScore": 3.9,
+        "impactScore": 3.6
+       },
+       "vendorMetadata": {}
+      }
+     ],
+     "epss": [
+      {
+       "cve": "CVE-2022-32149",
+       "epss": 0.01841,
+       "percentile": 0.79455,
+       "date": "2026-11-19"
+      }
+     ],
+     "cwes": [
+      {
+       "cve": "CVE-2022-32149",
+       "cwe": "CWE-772",
+       "source": "nvd@nist.gov",
+       "type": "Primary"
+      }
+     ]
+    }
+   ],
+   "matchDetails": [
+    {
+     "type": "exact-direct-match",
+     "matcher": "go-module-matcher",
+     "searchedBy": {
+      "language": "go",
+      "namespace": "github:language:go",
+      "package": {
+       "name": "golang.org/x/text",
+       "version": "v0.3.0"
+      }
+     },
+     "found": {
+      "vulnerabilityID": "GHSA-69ch-w2m2-3vjp",
+      "versionConstraint": "<0.3.8 (go)"
+     },
+     "fix": {
+      "suggestedVersion": "0.3.8"
+     }
+    }
+   ],
+   "artifact": {
+    "id": "Package-go-module-golang.org-x-text-3a1dc7ab38a42f56",
+    "name": "golang.org/x/text",
+    "version": "v0.3.0",
+    "type": "go-module",
+    "locations": null,
+    "language": "go",
+    "licenses": [],
+    "cpes": [
+     "cpe:2.3:a:golang:text:v0.3.0:*:*:*:*:*:*:*"
+    ],
+    "purl": "pkg:golang/golang.org/x/text@v0.3.0",
+    "upstreams": [],
+    "metadataType": "GolangBinMetadata",
+    "metadata": {
+     "goCompiledVersion": "",
+     "architecture": "",
+     "h1Digest": "h1:g61tztE5qeGQ89tm6NTjjM9VPIm088od1l6aSorWRWg="
+    }
+   }
+  }
+ ],
+ "source": {
+  "type": "image",
+  "target": {
+   "userInput": "/w/fixture.tar:sha256:e83e2fb0b007d2a3eb104b5d08b1f354e59748e4445ccd0166ca4f48b9168df9",
+   "imageID": "DocumentRoot-Image--w-fixture.tar",
+   "manifestDigest": "sha256:e83e2fb0b007d2a3eb104b5d08b1f354e59748e4445ccd0166ca4f48b9168df9",
+   "mediaType": "",
+   "tags": [],
+   "imageSize": 0,
+   "layers": null,
+   "manifest": null,
+   "config": null,
+   "repoDigests": [],
+   "architecture": "",
+   "os": ""
+  }
+ },
+ "distro": {
+  "name": "debian",
+  "version": "11.0",
+  "idLike": [
+   "debian"
+  ]
+ },
+ "descriptor": {
+  "name": "grype",
+  "version": "0.121.1"
+ }
+}

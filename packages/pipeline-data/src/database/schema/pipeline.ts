@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
-  SYSTEM_ORG_ID, type Criticality, type EntityLabels, type EntityLink, type Lifecycle, type MetaDataType,
+  SYSTEM_ORG_ID, type Criticality, type PipelineRemediationElection, type EntityLabels, type EntityLink, type Lifecycle, type MetaDataType,
   type OwnerType, type Visibility,
 } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
-import { bigint, boolean, integer, varchar, pgTable, text, timestamp, uuid, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { bigint, boolean, check, integer, varchar, pgTable, text, timestamp, uuid, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import type { PipelineCreationSource } from './reporting-analytics.js';
 
 /**
@@ -136,7 +136,16 @@ export const pipeline = pgTable('pipelines', {
   // Soft-delete purge deadline: the retention sweep hard-deletes tombstoned
   // rows once `purge_after` has passed (set on delete alongside deleted_at).
   purgeAfter: timestamp('purge_after', { withTimezone: true }),
+
+  // Plugin security fixes election (nightly CVE remediation, Stage 3):
+  // inherit (the org's pluginRemediation.rollout), off, propose or apply.
+  remediationUpgrades: varchar('remediation_upgrades', { length: 10 })
+    .$type<PipelineRemediationElection>()
+    .default('inherit')
+    .notNull(),
 }, (table) => ({
+  remediationUpgradesCheck: check('pipeline_remediation_upgrades_check',
+    sql`${table.remediationUpgrades} IN ('inherit', 'off', 'propose', 'apply')`),
   // Partial index over just the tombstones — drives the retention purge sweep
   // (`WHERE deleted_at IS NOT NULL AND purge_after < now`) without scanning live rows.
   purgeIdx: index('pipeline_purge_idx').on(table.purgeAfter).where(sql`deleted_at IS NOT NULL`),

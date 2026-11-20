@@ -108,6 +108,38 @@ describe('processDelivery', () => {
     expect(deps.counters).toContainEqual(['pipeline_runner_requests_total', { status: 'started' }]);
   });
 
+  it('stamps accepted_at with the time the runner accepted a start, after retries', async () => {
+    const { deps, req } = await setup();
+    expect(deps.store.requests.get(req.id)!.acceptedAt).toBeNull();
+    deps.fetchMock.mockResolvedValue(reply(503, {}));
+    await processDelivery(deps, req.id);
+    expect(deps.store.requests.get(req.id)!.acceptedAt).toBeNull();
+    deps.clock.t += 1000;
+    deps.fetchMock.mockResolvedValue(reply(200, { outcome: 'started', executionId: 'exec-9' }));
+    await processDelivery(deps, req.id);
+    const row = deps.store.requests.get(req.id)!;
+    expect(row.status).toBe('started');
+    expect(row.acceptedAt).toEqual(new Date(deps.clock.t));
+    expect(row.acceptedAt!.getTime() - row.requestedAt!.getTime()).toBe(1000);
+  });
+
+  it('stamps accepted_at on an accepted stop; a refused or expired request has none', async () => {
+    const stop = await setup('stop');
+    stop.deps.fetchMock.mockResolvedValue(reply(200, { outcome: 'stopped' }));
+    await processDelivery(stop.deps, stop.req.id);
+    expect(stop.deps.store.requests.get(stop.req.id)!.acceptedAt).toEqual(new Date(stop.deps.clock.t));
+
+    const refused = await setup();
+    refused.deps.fetchMock.mockResolvedValue(reply(403, { errorCode: 'RUNNER_REFUSED' }));
+    await processDelivery(refused.deps, refused.req.id);
+    expect(refused.deps.store.requests.get(refused.req.id)).toMatchObject({ status: 'failed', acceptedAt: null });
+
+    const expired = await setup();
+    expired.deps.clock.t += 600_001;
+    await processDelivery(expired.deps, expired.req.id);
+    expect(expired.deps.store.requests.get(expired.req.id)).toMatchObject({ status: 'expired', acceptedAt: null });
+  });
+
   it('a stop carries the execution id and finishes stopped (audited as cancel)', async () => {
     const { deps, req } = await setup('stop');
     deps.fetchMock.mockResolvedValue(reply(200, { outcome: 'stopped' }));

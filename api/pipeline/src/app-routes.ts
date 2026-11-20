@@ -11,11 +11,13 @@ import { createDeletePipelineRoutes } from './routes/delete-pipeline.js';
 import { createExecutionRoutes } from './routes/executions.js';
 import { createGeneratePipelineRoutes } from './routes/generate-pipeline.js';
 import { createInternalOrgPurgeRoutes } from './routes/internal-org-purge.js';
+import { createInternalRemediationRoutes } from './routes/internal-remediation-routes.js';
 import { createPipelineTemplateRoutes } from './routes/pipeline-template-routes.js';
 import { createPluginUpgradeRoutes } from './routes/plugin-upgrade-routes.js';
 import { createPurgePipelineRoutes } from './routes/purge-pipeline.js';
 import { createReadPipelineRoutes } from './routes/read-pipelines.js';
 import { createRegistryRoutes } from './routes/registry.js';
+import { createRemediationUpgradeRoutes } from './routes/remediation-upgrade-routes.js';
 import { createRestorePipelineRoutes } from './routes/restore-pipeline.js';
 import { createRunnerLinkRoutes } from './routes/runner-link-routes.js';
 import { createInternalRunnerKeyRoutes, createRunnerJwksRoutes, createRunnerRoutes } from './routes/runner-routes.js';
@@ -80,6 +82,8 @@ export function mountRoutes(app: Express, { quotaService }: PipelineRouteDeps): 
   app.use('/pipelines/internal', createInternalOrgPurgeRoutes());
   //    - internal runner-key re-encrypt: platform's master-key rotation flow (service token only).
   app.use('/pipelines/internal', createInternalRunnerKeyRoutes());
+  //    - internal remediation rollout: the plugin service starts / cancels Stage 3 of a CVE fix (service token only).
+  app.use('/pipelines/internal', createInternalRemediationRoutes());
   app.use('/pipelines', createCreatePipelineRoutes(quotaService));
   //    - validate: auth + orgId + pipelines:write per route. Writes nothing and
   //      reserves no 'pipelines' slot, so it is deliberately NOT behind the create mount's
@@ -101,6 +105,9 @@ export function mountRoutes(app: Express, { quotaService }: PipelineRouteDeps): 
   //      so it must not fall into the shared pipelines:write chain below).
   app.use('/pipelines', createPluginUpgradeRoutes());
   app.use('/pipelines', createSecurityReportRoutes());
+  //    - remediation upgrades: `/:id/remediation-upgrades` (pipelines:read) and its
+  //      apply / dismiss (pipelines:write), each self-guarded; claimed before `/:id`.
+  app.use('/pipelines', createRemediationUpgradeRoutes());
 
   // -- Shared chain: auth + orgId + idempotency + tenant scope, ONCE ------------
   app.use('/pipelines', ...createAuthenticatedWithOrgRoute());

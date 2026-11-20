@@ -42,6 +42,15 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
   distinctPipelines: (refs: Array<{ pipelineId: string; pipelineName: string | null }>) => refs,
 }));
 jest.unstable_mockModule('drizzle-orm', () => drizzleMock({}));
+/** Kept build sources per version id (plugin-sources). */
+let keptSources = new Map<string, { name: string; version: string; bytes: number }>();
+let keptSourcesThrow = false;
+jest.unstable_mockModule('../src/services/plugin-sources.js', () => ({
+  sourceBytesByVersion: async () => {
+    if (keptSourcesThrow) throw new Error('db down');
+    return keptSources;
+  },
+}));
 
 const { reclaimPlan, pruneVersion, setStorageRegistryClientForTests } = await import('../src/services/storage-reclaim.js');
 
@@ -57,11 +66,40 @@ beforeEach(() => {
   versions = [];
   references = {};
   referencesThrow = false;
+  keptSources = new Map();
+  keptSourcesThrow = false;
   setStorageRegistryClientForTests({ get, delete: del } as never);
   del.mockResolvedValue({ statusCode: 200, body: { data: {} } });
 });
 
 describe('reclaimPlan', () => {
+  it('counts kept build sources toward the org\'s storage, per version and in total', async () => {
+    versions = [{ name: 'app', version: '1.0.0', imageDigest: 'sha256:a' }];
+    keptSources = new Map([
+      ['id-1', { name: 'app', version: '1.0.0', bytes: 3 * MB }],
+      // A soft-deleted version keeps its source (restore window) — it counts too.
+      ['id-2', { name: 'app', version: '0.9.0', bytes: 5 * MB }],
+    ]);
+    breakdown([{ repo: 'org-acme/app', tag: '1.0.0', totalBytes: 400 * MB, marginalBytes: 10 * MB, published: false }]);
+
+    const plan = (await reclaimPlan('acme'))!;
+    expect(plan.candidates[0]).toEqual(expect.objectContaining({ version: '1.0.0', sourceBytes: 3 * MB }));
+    expect(plan.sourceBytes).toBe(8 * MB);
+    expect(plan.totalBytes).toBe(1000 + 8 * MB);
+    expect(plan.sources).toEqual([
+      { pluginId: 'id-2', pluginName: 'app', version: '0.9.0', bytes: 5 * MB },
+      { pluginId: 'id-1', pluginName: 'app', version: '1.0.0', bytes: 3 * MB },
+    ]);
+    expect(plan.incomplete).toBe(false);
+  });
+
+  it('an unreadable kept-source figure reads as 0 and marks the plan incomplete', async () => {
+    keptSourcesThrow = true;
+    breakdown([]);
+    const plan = (await reclaimPlan('acme'))!;
+    expect(plan).toMatchObject({ sourceBytes: 0, totalBytes: 1000, incomplete: true });
+  });
+
   it('offers an unreferenced private version, with the MARGINAL figure', async () => {
     versions = [{ name: 'app', version: '1.0.0', imageDigest: 'sha256:a' }];
     breakdown([{ repo: 'org-acme/app', tag: '1.0.0', totalBytes: 400 * MB, marginalBytes: 10 * MB, published: false }]);

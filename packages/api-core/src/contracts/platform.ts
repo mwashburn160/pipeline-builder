@@ -420,6 +420,24 @@ export const PLATFORM_INTERNAL = {
       tier: z.unknown().optional().transform((v) => (typeof v === 'string' ? v : undefined)),
     }),
   }),
+  /**
+   * Does the org still hold the reporting entitlement (`stakeholder_reports`),
+   * judged through ANY active owner/admin of it? For a shared report link whose
+   * owner has left the org: the link keeps working while the account still pays
+   * for the add-on. A boolean only — never which admin, a role or a feature list.
+   */
+  reportOrgEntitlement: defineInternalEndpoint({
+    id: 'platform.reportOrgEntitlement',
+    service: 'platform',
+    method: 'GET',
+    path: '/internal/reporting/org-entitlement/:orgId',
+    callers: ['reporting'],
+    auth: SERVICE_TOKEN,
+    params: z.object({ orgId: orgIdParam }),
+    response: z.object({
+      entitled: z.boolean(),
+    }),
+  }),
   /** Is this ONE address an active member of the org? */
   reportRecipientCheck: defineInternalEndpoint({
     id: 'platform.reportRecipientCheck',

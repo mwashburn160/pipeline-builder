@@ -44,7 +44,7 @@ function AffectedVersion({ v }: { v: AdvisoryAffectedVersion }) {
       <ul className="font-mono text-xs text-fg-muted">
         {v.findings.map((f) => (
           <li key={`${f.id}:${f.packageName}:${f.packageVersion}`}>
-            {describeFinding({ id: f.id, severity: f.severity, package: f.packageName, packageVersion: f.packageVersion, fixedIn: f.fixedIn })}
+            {describeFinding({ id: f.id, package: f.packageName, packageVersion: f.packageVersion, fixedIn: f.fixedIn })}
             {' '}<span className="uppercase">{f.severity}</span>{f.kev ? ' · KEV' : ''}
           </li>
         ))}

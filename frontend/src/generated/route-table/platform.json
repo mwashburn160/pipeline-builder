@@ -2073,6 +2073,25 @@
   },
   {
     "method": "GET",
+    "path": "/internal/reporting/org-entitlement/:orgId",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "dynamicAuthz": [],
+    "internalCallers": [
+      "reporting"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "GET",
     "path": "/internal/reporting/recipient-check/:orgId",
     "auth": true,
     "permissions": [],

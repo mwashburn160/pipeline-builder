@@ -7,6 +7,7 @@
 
 import type { Criticality, EntityLink, Lifecycle, OwnerType, TemplateInput, Visibility } from '@pipeline-builder/api-core';
 import type { DoraLevel } from '@pipeline-builder/api-core/wire-vocabulary';
+import type { PipelineRemediationElection } from '@pipeline-builder/api-core/plugin-scan';
 
 /**
  * Builder props for pipeline configuration.
@@ -82,6 +83,9 @@ export interface Pipeline {
   visibility: Visibility;
   isDefault: boolean;
   isActive: boolean;
+
+  /** Plugin security fixes election (Stage 3): `inherit` follows the org; `off` opts out of every rollout. */
+  remediationUpgrades?: PipelineRemediationElection;
 
   // Deletion tracking (soft delete)
   deletedAt?: string;

@@ -26,7 +26,7 @@ import {
 } from '../src/types/plugin-scan.js';
 
 const crit = (pkg: string, fixed = ['9.9.9']): PluginScanFinding => ({
-  id: `CVE-${pkg}`, severity: 'critical', packageName: pkg, packageVersion: '1.0.0', fixedIn: fixed,
+  id: `CVE-${pkg}`, severity: 'critical', packageName: pkg, packageVersion: '1.0.0', fixedIn: fixed, packageType: 'deb', purl: `pkg:deb/debian/${pkg}@1.0.0`, locations: [],
 });
 
 const FUTURE = '2099-01-01';
@@ -211,7 +211,7 @@ describe('applyVulnWaivers — version pinning', () => {
  */
 describe('fleet-wide waivers', () => {
   const stdlib = (id: string): PluginScanFinding => ({
-    id, severity: 'critical', packageName: 'stdlib', packageVersion: 'go1.26.4', fixedIn: ['1.26.9'],
+    id, severity: 'critical', packageName: 'stdlib', packageVersion: 'go1.26.4', fixedIn: ['1.26.9'], packageType: 'binary', purl: 'pkg:golang/stdlib@go1.26.4', locations: [],
   });
 
   it('parses advisory ids under *', () => {
@@ -319,7 +319,7 @@ describe('applyVulnWaivers — which entries matched', () => {
 /** The rescan's baseline: "new" is a finding IDENTITY the previous summary did not carry. */
 describe('newScanFindings', () => {
   const f = (id: string, severity: 'critical' | 'high' = 'critical', pkg = 'openssl'): PluginScanFinding =>
-    ({ id, severity, packageName: pkg, packageVersion: '1.0', fixedIn: [] });
+    ({ id, severity, packageName: pkg, packageVersion: '1.0', fixedIn: [], packageType: 'deb', purl: `pkg:deb/debian/${pkg}@1.0`, locations: [] });
 
   it('no baseline: everything is new', () => {
     expect(newScanFindings(null, [f('CVE-1')])).toEqual([f('CVE-1')]);

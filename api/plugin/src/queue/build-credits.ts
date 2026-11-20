@@ -68,12 +68,15 @@ export function creditsForBuild(processedOn?: number, finishedOn?: number, build
  * on its own seed data:
  *
  *  - the SYSTEM org, which is where the sample plugin catalogue loads;
- *  - a setup-load build, which is the install-time image bake.
+ *  - a setup-load build, which is the install-time image bake;
+ *  - a nightly CVE remediation build (queue/plugin-remediation.ts).
  *
  * Both are platform work done on the tenant's behalf rather than work the tenant
  * asked for, which is the same line `meteredQuotaTypeFor` draws for API calls.
  */
-export function buildSpendsCredits(data: Pick<PluginBuildJobData, 'orgId' | 'setupLoad'>): boolean {
+export function buildSpendsCredits(data: Pick<PluginBuildJobData, 'orgId' | 'setupLoad'> & { kind?: unknown }): boolean {
+  // A nightly CVE remediation is platform work too: never charged.
+  if (data.kind === 'plugin-remediation') return false;
   // `isSystemOrgId`, not `===`: it lowercases, and this is the one site where
   // a near-miss fails UNSAFE. `callerFromRequest` lowercases an incoming org
   // id, but a build job's `data.orgId` is not normalised on its way through

@@ -22,7 +22,7 @@ import { registerVulnerabilityRoutes } from './plugin-vulnerabilities.js';
 import { acceptancesFor, assessmentFor, consumptionPolicyFor, NO_ACCEPTANCES, ownedPipeline } from '../helpers/lookup-vuln-policy.js';
 import { isDeprecatedVersion, isYankedVersion } from '../helpers/managed-toolchain.js';
 import { pipelinePluginRefs } from '../helpers/pipeline-plugin-refs.js';
-import { parentOrgIdOf, pluginRequiresImage, shapePlugin } from '../helpers/plugin-helpers.js';
+import { parentOrgIdOf, PLUGIN_SERVER_ONLY_FIELDS, pluginRequiresImage, shapePlugin } from '../helpers/plugin-helpers.js';
 import { fetchImageSbom, ImageVerificationError, verifyImageSignature } from '../helpers/supply-chain.js';
 import { resolveListedLookup, shadowedListing, verifyListedImage } from '../services/ecosystem/lookup.js';
 import { pluginRowState, type PluginRowState } from '../services/plugin-row-state.js';
@@ -283,6 +283,10 @@ export function createReadPluginRoutes(): Router {
     }
     const cursor = rawCursor;
     const fields = rawFields ? rawFields.split(',') : undefined;
+    const serverOnly = fields?.filter((f) => (PLUGIN_SERVER_ONLY_FIELDS as readonly string[]).includes(f.trim())) ?? [];
+    if (serverOnly.length > 0) {
+      return sendBadRequest(res, `fields may not name ${serverOnly.join(', ')}.`, ErrorCode.VALIDATION_ERROR);
+    }
 
     // Org → team hierarchy: a team org also sees its parent's public plugins.
     // `parentOrganizationId` rides in the JWT (absent for root orgs), so this

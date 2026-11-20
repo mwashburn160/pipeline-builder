@@ -12,7 +12,8 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { useToast } from '@/components/ui/Toast';
 import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
-import type { PluginVersionFindings } from '@/lib/api/plugin-vulnerability-types';
+import type { PluginFinding, PluginVersionFindings } from '@/lib/api/plugin-vulnerability-types';
+import { findingRemediationMarker, packageTypeLabel, shortLayer } from '@/lib/plugin-remediation';
 import { formatError } from '@/lib/constants';
 import { triggerBlobDownload } from '@/lib/download';
 import { formatDateTime } from '@/lib/format';
@@ -34,6 +35,36 @@ function dbAgeDays(dbBuiltAt: string | null | undefined, now = Date.now()): numb
   if (!dbBuiltAt) return null;
   const t = Date.parse(dbBuiltAt);
   return Number.isNaN(t) ? null : Math.floor((now - t) / 86_400_000);
+}
+
+/** "Needs a major upgrade" / "Not patchable": what stops remediation fixing a finding within the defaults. */
+function FindingMarker({ finding }: { finding: PluginFinding }) {
+  const marker = findingRemediationMarker({
+    packageType: finding.packageType ?? null,
+    packageVersion: finding.packageVersion ?? null,
+    fixedIn: finding.fixedIn ?? [],
+  });
+  if (!marker) return null;
+  if (marker.kind === 'major') {
+    return (
+      <span
+        className="ml-1 inline-block font-sans"
+        data-testid="finding-marker-major"
+        title={marker.requirement === 'owner'
+          ? `The fix (${marker.fixVersion}) is a new Go module major version; only the owner can take it.`
+          : `The smallest fix (${marker.fixVersion}) crosses a major version: proposed for review, never published automatically.`}
+      >
+        <Badge color="purple">Needs a major upgrade</Badge>
+      </span>
+    );
+  }
+  // "No fixed version" already reads "no fix" in the cell; mark only the type-driven case.
+  if (finding.fixedIn.length === 0) return null;
+  return (
+    <span className="ml-1 inline-block font-sans" data-testid="finding-marker-not-patchable" title={marker.why}>
+      <Badge color="gray">Not patchable</Badge>
+    </span>
+  );
 }
 
 /** The loaded finding list: counts, notices and the table. */
@@ -79,6 +110,7 @@ function FindingsBody({ data, onNavigate }: { data: PluginVersionFindings; onNav
                 <th scope="col" className="px-2 py-1 font-medium">Severity</th>
                 <th scope="col" className="px-2 py-1 font-medium">Advisory</th>
                 <th scope="col" className="px-2 py-1 font-medium">Package</th>
+                <th scope="col" className="px-2 py-1 font-medium" title="Package type, where in the image it was found, and the layer it came from">Type and location</th>
                 <th scope="col" className="px-2 py-1 font-medium">Fixed in</th>
                 <th scope="col" className="px-2 py-1 font-medium" title="Probability of exploitation in the next 30 days (EPSS)">EPSS</th>
               </tr>
@@ -102,7 +134,19 @@ function FindingsBody({ data, onNavigate }: { data: PluginVersionFindings; onNav
                     {f.waived && <span className="ml-1 inline-block" title="Exempted by a vulnerability waiver"><Badge color="gray">Waived</Badge></span>}
                   </td>
                   <td className="px-2 py-1 font-mono break-all">{f.packageName}@{f.packageVersion}</td>
-                  <td className="px-2 py-1 font-mono">{f.fixedIn.length > 0 ? f.fixedIn.join(', ') : <span className="text-fg-muted">no fix</span>}</td>
+                  <td className="px-2 py-1" data-testid="finding-location">
+                    <span>{packageTypeLabel(f.packageType)}</span>
+                    {(f.locations ?? []).slice(0, 2).map((l) => (
+                      <span key={`${l.path}:${l.layerID}`} className="block font-mono break-all text-fg-muted" title={l.layerID || undefined}>
+                        {l.path}{l.layerID ? ` · layer ${shortLayer(l.layerID)}` : ''}
+                      </span>
+                    ))}
+                    {(f.locations?.length ?? 0) > 2 && <span className="block text-fg-muted">+{(f.locations?.length ?? 0) - 2} more</span>}
+                  </td>
+                  <td className="px-2 py-1 font-mono">
+                    {f.fixedIn.length > 0 ? f.fixedIn.join(', ') : <span className="text-fg-muted">no fix</span>}
+                    <FindingMarker finding={f} />
+                  </td>
                   <td className="px-2 py-1">{formatEpss(f.epss)}</td>
                 </tr>
               ))}

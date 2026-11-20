@@ -11,6 +11,7 @@
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule, MOCK_TIER_NAMES } from '@pipeline-builder/api-core/testing';
+import { createFakeS3Store, fakeS3Module } from './helpers/fake-s3.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 // Type-only import (erased at compile), safe to sit with the other imports even
 // though it references a mocked module — it has no runtime effect.
@@ -64,6 +65,9 @@ class MockBuildProcessError extends Error {
 }
 
 const mockDeployVersion = jest.fn<(...args: any[]) => any>();
+const fakeS3 = createFakeS3Store();
+/** Every `UPDATE … SET` the worker's tenant transactions wrote (the kept-source pointer lands here). */
+const mockUpdateSets: Array<Record<string, unknown>> = [];
 // Plugin ecosystem: the post-build publish request (`publishRequest=true`).
 const mockSubmitAfterBuild = jest.fn<(...args: any[]) => any>();
 
@@ -270,6 +274,9 @@ function registerMocks() {
     },
     Config: { get: (section: string) => mockPipelineCoreConfig[section] ?? {}, getAny: (section: string) => mockPipelineCoreConfig[section] ?? {} },
   }));
+  // Object storage: the kept-source copy (services/plugin-sources.ts) runs for
+  // real against an in-memory RustFS, so a stored build's pointer is assertable.
+  jest.unstable_mockModule('@aws-sdk/client-s3', () => fakeS3Module(fakeS3));
   jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
     db: { execute: jest.fn<AnyFn>(), insert: jest.fn<AnyFn>(), select: jest.fn<AnyFn>(), update: jest.fn<AnyFn>() },
     schema: { plugin: {} },
@@ -278,9 +285,9 @@ function registerMocks() {
     withTenantTx: <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => fn({
       insert: () => ({ values: () => Object.assign(Promise.resolve(), { onConflictDoNothing: () => Promise.resolve() }) }),
       select: () => ({ from: () => ({ where: () => Object.assign(Promise.resolve([]), { limit: async () => mockInUseRows }) }) }),
-      update: () => ({ set: () => ({ where: () => ({ returning: () => Promise.resolve([]) }) }) }),
+      update: () => ({ set: (cols: Record<string, unknown>) => { mockUpdateSets.push(cols); return Object.assign(Promise.resolve(), { where: () => Object.assign(Promise.resolve([]), { returning: () => Promise.resolve([]) }) }); } }),
     }),
-  }));;
+  }));
 
   jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
     // ONE shared logger so the worker's startup warnings are assertable;
@@ -796,6 +803,25 @@ describe('plugin-build-queue', () => {
       const reset = written.find((d: any) => !('slotWaitStartedAt' in d));
       expect(reset).not.toHaveProperty('slotDelays');
       expect(reset).toMatchObject({ requestId: 'req-123', orgId: 'org-1' });
+    });
+
+    it('keeps a build_image build\'s staged ZIP as the version source (source_kind zip, key, checksum)', async () => {
+      queueModule.startWorker(makeSseManager(), makeQuotaService());
+      mockBuildAndPush.mockResolvedValue({ fullImage: 'img', digest: `sha256:${'a'.repeat(64)}`, imageSource: 'built' });
+      mockDeployVersion.mockResolvedValue({ id: 'plugin-1', name: 'my-plugin', version: '1.0.0' });
+      fakeS3.reset();
+      mockUpdateSets.length = 0;
+      fakeS3.put('plugins', 'org-1/req-123.zip', 'PK-build-context');
+      const { createHash } = await import('node:crypto');
+      const sha256 = createHash('sha256').update('PK-build-context').digest('hex');
+
+      await getMainProcessor()(makeJob(makeJobData()));
+
+      const key = `org-1/plugin-1/1.0.0/${sha256}.zip`;
+      expect(fakeS3.get('plugin-sources', key)?.body.toString()).toBe('PK-build-context');
+      expect(mockUpdateSets).toContainEqual(expect.objectContaining({
+        sourceKind: 'zip', sourceKey: key, sourceSha256: sha256, sourceSizeBytes: 16,
+      }));
     });
 
     it('competes for the slot counter of its OWN class, and defaults to standard', async () => {

@@ -200,3 +200,26 @@ describe('GET /pipelines — list query params', () => {
     );
   });
 });
+
+describe('GET /pipelines?remediationUpgrades= — the opted-out filter', () => {
+  const handler = getHandler('get', '/');
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockFindPaginated.mockResolvedValue({ data: [], limit: 25, offset: 0, hasMore: false });
+  });
+
+  it('passes a known election to the service filter', async () => {
+    await handler(mockReq({ remediationUpgrades: 'off' }), mockRes());
+    expect(mockFindPaginated).toHaveBeenCalledWith({ remediationUpgrades: 'off' }, 'org-1', expect.anything(), undefined);
+  });
+
+  it('answers 400 for an unknown or repeated value', async () => {
+    for (const v of ['never', ['off', 'apply']]) {
+      const res = mockRes();
+      await handler(mockReq({ remediationUpgrades: v }), res);
+      expect(res.status).toHaveBeenCalledWith(400);
+    }
+    expect(mockFindPaginated).not.toHaveBeenCalled();
+  });
+});

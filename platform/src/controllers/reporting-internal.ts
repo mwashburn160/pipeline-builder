@@ -29,6 +29,10 @@
  *    in-app notice goes to. The one list on this router, and deliberately the
  *    narrowest one that does the job — no names, no addresses, no roles.
  *
+ *  - `GET /internal/reporting/org-entitlement/:orgId` — does the org still hold
+ *    `stakeholder_reports`, judged through any active owner/admin? A boolean: a
+ *    shared report link whose owner left keeps working while the account pays.
+ *
  *  - `GET /internal/reporting/access-posture/:orgId` — counts only (members,
  *    second-factor coverage, SSO, service accounts, live keys, permission changes).
  *
@@ -50,6 +54,7 @@ import {
   resolveUserFeatures,
   resolveUserPermissions,
 } from '@pipeline-builder/api-core';
+import { ADMIN_ORG_ROLES, isAdminOrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import { withController } from '../helpers/controller-helper.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { orgFeatureOverrides, type StoredFeatureOverrides } from '../helpers/user-response.js';
@@ -77,6 +82,7 @@ const {
   reportRecipientCheck: RECIPIENT,
   reportAccessPosture: POSTURE,
   reportReaders: READERS,
+  reportOrgEntitlement: ORG_ENTITLEMENT,
 } = PLATFORM_INTERNAL;
 
 /** Answer order for the `reports:*` family: escalating authority, so the
@@ -321,4 +327,53 @@ export const getReportReaders = withController('Report readers', async (req, res
     userIds: readers.slice(0, REPORT_READERS_CAP),
     truncated: readers.length > REPORT_READERS_CAP,
   });
+});
+
+/** The entitlement a shared stakeholder report is served under. */
+const REPORT_ENTITLEMENT = 'stakeholder_reports';
+/** The most admin memberships one entitlement answer resolves. */
+const ORG_ENTITLEMENT_ADMIN_CAP = 50;
+
+/**
+ * GET /internal/reporting/org-entitlement/:orgId → `{ entitled }`
+ *
+ * For a shared report link whose OWNER has left: the account still holds the
+ * reporting add-on if any ACTIVE owner/admin of the org resolves
+ * `stakeholder_reports` — resolved exactly as `report-authority` resolves it
+ * (`membershipForOrg`, this org's overrides, the account's entitlements), except
+ * that a superadmin's all-features bypass is NOT applied: a sysadmin holding an
+ * admin seat must not make a lapsed account look paid-for.
+ *
+ * The resolved role must still be owner/admin, the account must still exist,
+ * and the org must not be torn down (`membershipForOrg` refuses that). Capped,
+ * in a stable order. A boolean only — never which admin, a role or a feature list.
+ */
+export const getReportOrgEntitlement = withController('Report org entitlement', async (req, res) => {
+  const params = parseContractParams(ORG_ENTITLEMENT, req);
+  if (!params.ok) return sendError(res, 400, contractErrorMessage(params));
+  const { orgId } = params.value;
+
+  const memberships = await UserOrganization.find({
+    organizationId: toOrgId(orgId),
+    isActive: true,
+    role: { $in: [...ADMIN_ORG_ROLES] },
+  }).select('userId').lean();
+  const adminIds = [...new Set(memberships.map((m) => String(m.userId)))].sort().slice(0, ORG_ENTITLEMENT_ADMIN_CAP);
+  const users = adminIds.length > 0
+    ? await User.find({ _id: { $in: adminIds } }).select('featureOverrides').lean()
+    : [];
+  const overridesOf = new Map(users.map((u) => [String(u._id), (u as { featureOverrides?: StoredFeatureOverrides }).featureOverrides]));
+
+  for (const userId of adminIds) {
+    if (!overridesOf.has(userId)) continue;
+    const membership = await membershipForOrg(userId, orgId);
+    if (!membership || !isAdminOrgRole(membership.role)) continue;
+    const features = resolveUserFeatures(membership.tier ?? 'developer', {
+      overrides: orgFeatureOverrides(overridesOf.get(userId), orgId) ?? null,
+      isSuperAdmin: false,
+      accountFeatures: membership.featureEntitlements ?? null,
+    });
+    if (features.includes(REPORT_ENTITLEMENT)) return sendSuccess(res, 200, { entitled: true });
+  }
+  sendSuccess(res, 200, { entitled: false });
 });

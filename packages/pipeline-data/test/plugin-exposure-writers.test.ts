@@ -249,7 +249,7 @@ describe('closeFixedExposures', () => {
 describe('exposureFromScan', () => {
   const DIGEST = `sha256:${'c'.repeat(64)}`;
   const finding = (over: Record<string, unknown> = {}) => ({
-    id: 'CVE-1', severity: 'critical', packageName: 'openssl', packageVersion: '3.0.1', fixedIn: ['3.0.2'], ...over,
+    id: 'CVE-1', severity: 'critical', packageName: 'openssl', packageVersion: '3.0.1', fixedIn: ['3.0.2'], packageType: 'deb', purl: 'pkg:deb/debian/openssl@3.0.1', locations: [], ...over,
   });
 
   it('reads fixable counts and only fixable findings from the summary', () => {

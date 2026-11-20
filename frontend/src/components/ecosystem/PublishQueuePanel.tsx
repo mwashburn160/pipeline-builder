@@ -49,6 +49,19 @@ const STATUS_OPTIONS: ReadonlyArray<{ value: QueueStatusFilter; label: string }>
   { value: 'decided', label: 'Decided' },
 ];
 
+/**
+ * The service-account name an Official fix's publish request is submitted as
+ * (api-core `PLUGIN_REMEDIATION_SUBMITTER`; that module is server-side, so the
+ * literal is repeated here).
+ */
+const PLUGIN_REMEDIATION_SUBMITTER = 'plugin-remediation';
+
+/** A request a nightly CVE remediation opened: the server's marker, or its submitter. */
+export function isRemediationRequest(item: Pick<QueueItem, 'payload'>): boolean {
+  return !!item.payload.remediation?.remediationId
+    || (item.payload.submitter?.principalType === 'service_account' && item.payload.submitter.name === PLUGIN_REMEDIATION_SUBMITTER);
+}
+
 /** What a queue row / detail header calls a request. */
 function subjectOf(item: QueueItem): string {
   if (item.kind === 'moderation' && item.payload.action) {
@@ -195,6 +208,7 @@ export function QueueItemDetail({ id, can, holds, onBack, onDecided, backLabel =
           <Badge color={REQUEST_STATUS_COLORS[item.status]}>{REQUEST_STATUS_LABELS[item.status]}</Badge>
           {item.lane === 'security' && <Badge color="red">Security lane</Badge>}
           {item.payload.bootstrap && <Badge color="blue">Bootstrap</Badge>}
+          {isRemediationRequest(item) && <Badge color="indigo">Remediation fix</Badge>}
         </div>
         <p className="flex flex-wrap items-center gap-2 text-xs text-fg-muted">
           <TrustTierBadge tier={item.publisherTier} compact /> {item.publisherHandle}
@@ -416,6 +430,7 @@ export function PublishQueuePanel({ can, holds }: Props) {
                         {item.slaBreached && <Badge color="red">SLA breached</Badge>}
                         {item.requiresTwoPerson && <Badge color="indigo">Two-person</Badge>}
                         {item.autoRuleId && <Badge color="blue">Auto-approved</Badge>}
+                        {isRemediationRequest(item) && <Badge color="indigo">Remediation fix</Badge>}
                         {item.conflictOfInterest && <Badge color="gray">Not yours to decide</Badge>}
                         {item.kind === 'submission' && (
                           <Badge color="purple">{item.payload.newListing === false ? 'Anonymous · update' : 'Anonymous · new'}</Badge>

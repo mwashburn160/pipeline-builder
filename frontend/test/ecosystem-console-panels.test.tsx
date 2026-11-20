@@ -251,6 +251,20 @@ describe('Publish queue — overview and filters', () => {
   });
 });
 
+describe('Publish queue — remediation fixes', () => {
+  it('marks a request a nightly remediation opened, by its marker or its submitter', async () => {
+    api.listEcosystemRequests.mockResolvedValue({ success: true, data: { requests: [
+      { ...baseItem, id: 'r-m', payload: { name: 'eslint', remediation: { remediationId: 'rem-1' } } },
+      { ...baseItem, id: 'r-s', payload: { name: 'eslint', submitter: { principalType: 'service_account', name: 'plugin-remediation' } } },
+      { ...baseItem, id: 'r-o', payload: { name: 'eslint', submitter: { principalType: 'service_account', name: 'other' } } },
+    ] } });
+    render(<PublishQueuePanel can={canAll} holds={canAll} />);
+    expect(within(await screen.findByTestId('queue-item-r-m')).getByText('Remediation fix')).toBeInTheDocument();
+    expect(within(screen.getByTestId('queue-item-r-s')).getByText('Remediation fix')).toBeInTheDocument();
+    expect(within(screen.getByTestId('queue-item-r-o')).queryByText('Remediation fix')).not.toBeInTheDocument();
+  });
+});
+
 describe('Publish queue — review diff', () => {
   it('shows provenance, the highlighted edited link, contract deltas, vuln, Dockerfile and SBOM', async () => {
     render(<PublishQueuePanel can={canAll} holds={canAll} />);
@@ -429,6 +443,32 @@ describe('Auto-approval rules', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Disable Verified updates' }));
     fireEvent.click(screen.getByRole('button', { name: 'Verify step-up' }));
     await waitFor(() => expect(api.updateAutoRule).toHaveBeenCalledWith('rule-1', { enabled: false }, 'step-tok'));
+  });
+
+  it('shows the seeded Remediation fixes rule as remediation-only and edits that condition', async () => {
+    const remediationRule = rule({
+      id: 'rule-a003', name: 'Remediation fixes',
+      conditions: { requestKinds: ['new_version'], publisherTiers: ['official'], bumps: ['patch', 'minor'], submitterServiceAccount: 'plugin-remediation', remediationOnly: true, seeded: 'remediation_fixes' },
+    });
+    api.listAutoRules.mockResolvedValue({ success: true, data: { rules: [remediationRule] } });
+    render(<AutoApprovalRulesPanel can={canAll} currentUserId="u-me" />);
+    const row = await screen.findByTestId('rule-rule-a003');
+    expect(within(row).getByText(/Only fixes opened by nightly CVE remediation/)).toBeInTheDocument();
+    expect(within(row).getByText('Submitted by service account plugin-remediation')).toBeInTheDocument();
+  });
+
+  it('a new rule can be limited to remediation fixes from one service account', async () => {
+    api.listAutoRules.mockResolvedValue({ success: true, data: { rules: [] } });
+    render(<AutoApprovalRulesPanel can={canAll} currentUserId="u-me" />);
+    fireEvent.click(await screen.findByRole('button', { name: /new rule/i }));
+    fireEvent.change(screen.getByLabelText(/^name/i), { target: { value: 'Fixes' } });
+    fireEvent.change(screen.getByLabelText(/submitted by service account/i), { target: { value: 'plugin-remediation' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Only fixes opened by nightly CVE remediation' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Verify step-up' }));
+    await waitFor(() => expect(api.createAutoRule).toHaveBeenCalledWith(expect.objectContaining({
+      conditions: expect.objectContaining({ remediationOnly: true, submitterServiceAccount: 'plugin-remediation' }),
+    }), 'step-tok'));
   });
 
   it('creates a rule (form, then step-up)', async () => {

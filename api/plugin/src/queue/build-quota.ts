@@ -9,7 +9,7 @@
  * requeue helpers share one implementation without importing each other.
  */
 
-import { createLogger, decrementQuota, errorMessage, getServiceAuthHeader, reserveQuota } from '@pipeline-builder/api-core';
+import { createLogger, decrementQuota, PLUGIN_REMEDIATION_JOB_NAME, errorMessage, getServiceAuthHeader, reserveQuota } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import type { Job } from 'bullmq';
 
@@ -27,6 +27,8 @@ const logger = createLogger('plugin-build-queue');
  * purged before it ever reached a terminal handler still gets its slot back.
  */
 export function releasePluginQuota(job: Job<PluginBuildJobData>, quotaService: QuotaService): void {
+  // A remediation job reserved no slot (remediation versions don't count toward the plugin quota).
+  if (pluginQuotaExempt(job)) return;
   // A DLQ record whose slot passed to its re-queued job owns nothing to release.
   if (job.data.quotaReleased || job.data.slotHandedOff) return;
   const { orgId, reservedResetAt } = job.data;
@@ -90,4 +92,13 @@ export async function reserveReplaySlot(quotaService: QuotaService, orgId: strin
     logger.warn('Re-enqueue quota reservation failed', { jobId, orgId, error: errorMessage(err) });
     return { quotaReleased: true, noSlot: 'unavailable' };
   }
+}
+
+/**
+ * Whether a job holds no `plugins` quota slot by design: a nightly CVE
+ * remediation (its fix versions are stored with `quota_reset_at` NULL, so they
+ * are never counted and never refunded).
+ */
+export function pluginQuotaExempt(job: Pick<Job<unknown>, 'name' | 'data'>): boolean {
+  return job.name === PLUGIN_REMEDIATION_JOB_NAME || (job.data as { kind?: unknown } | undefined)?.kind === 'plugin-remediation';
 }

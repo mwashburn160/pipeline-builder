@@ -20,6 +20,7 @@ const listAllPipelines = jest.fn<AnyFn>();
 const getExecutionCount = jest.fn<AnyFn>();
 const getExemptions = jest.fn<AnyFn>();
 const getUnreadCount = jest.fn<AnyFn>();
+const listPluginRemediations = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
@@ -27,6 +28,7 @@ jest.mock('@/lib/api', () => ({
     getExecutionCount: (...a: unknown[]) => getExecutionCount(...a),
     getExemptions: (...a: unknown[]) => getExemptions(...a),
     getUnreadCount: (...a: unknown[]) => getUnreadCount(...a),
+    listPluginRemediations: (...a: unknown[]) => listPluginRemediations(...a),
   },
 }));
 
@@ -40,6 +42,7 @@ function deferred<T>() {
 describe('InboxPage', () => {
   beforeEach(() => {
     mockAuthGuard({ user: { id: 'me', organizationId: 'org-1' }, can: () => true });
+    listPluginRemediations.mockReset().mockResolvedValue({ success: true, data: { remediations: [] } });
   });
 
   it('requests every source in parallel, not one after another', async () => {
@@ -80,6 +83,7 @@ describe('InboxPage', () => {
     getExecutionCount.mockRejectedValue(new Error('down'));
     getExemptions.mockResolvedValue({ success: false });
     getUnreadCount.mockRejectedValue(new Error('down'));
+    listPluginRemediations.mockRejectedValue(new Error('down'));
 
     render(<InboxPage />);
 
@@ -120,5 +124,47 @@ describe('InboxPage', () => {
     const more = await screen.findByText('30 more exemption requests pending review');
     expect(more.closest('a')).toHaveAttribute('href', '/dashboard/compliance?view=exemptions');
     expect(getExemptions).toHaveBeenCalledWith({ status: 'pending', limit: 20, offset: 0 });
+  });
+});
+
+describe('InboxPage — plugin security fixes', () => {
+  const rem = (over: Record<string, unknown>) => ({
+    id: 'r1', pluginId: 'p1', pluginName: 'terraform-plan', fromVersion: '1.4.2', stage: 'awaiting_approval',
+    outcome: null, toVersion: '1.4.3', toPluginId: 'p2', cleared: [{ id: 'CVE-1' }, { id: 'CVE-2' }], remaining: [],
+    rollout: null, rolledBackPipelineIds: [], ...over,
+  });
+
+  beforeEach(() => {
+    mockAuthGuard({ user: { id: 'me', organizationId: 'org-1' }, can: (p: string) => p === 'plugins:read' });
+    listPluginRemediations.mockReset();
+  });
+
+  it('lists fixes awaiting approval, owner requests, paused rollouts and rollbacks, each linking to the remediation', async () => {
+    listPluginRemediations.mockResolvedValue({
+      success: true,
+      data: {
+        remediations: [
+          rem({}),
+          rem({ id: 'r2', stage: 'needs_owner', toVersion: null, remaining: [{ id: 'CVE-3' }] }),
+          rem({ id: 'r3', stage: 'needs_review', rollout: { counts: { rolledBack: 2 } } }),
+        ],
+      },
+    });
+    render(<InboxPage />);
+    const approval = await screen.findByText('Security fix for terraform-plan 1.4.2 is awaiting approval');
+    expect(approval.closest('a')?.getAttribute('href')).toBe('/dashboard/plugins?tab=remediations&remediation=r1');
+    expect(screen.getByText('terraform-plan 1.4.2 needs its owner to fix 1 finding').closest('a')?.getAttribute('href'))
+      .toBe('/dashboard/plugins?tab=remediations&remediation=r2');
+    expect(screen.getByText('Rollout of terraform-plan 1.4.3 is paused and needs review')).toBeInTheDocument();
+    expect(screen.getByText('2 pipelines were rolled back from terraform-plan 1.4.3').closest('a')?.getAttribute('href'))
+      .toBe('/dashboard/plugins?tab=remediations&remediation=r3');
+    expect(listPluginRemediations).toHaveBeenCalledWith({ stage: 'awaiting_approval,needs_owner,needs_review,rolling_out', limit: 50 });
+  });
+
+  it('does not ask without plugins:read', async () => {
+    mockAuthGuard({ user: { id: 'me', organizationId: 'org-1' }, can: () => false });
+    render(<InboxPage />);
+    await screen.findByText('Inbox zero');
+    expect(listPluginRemediations).not.toHaveBeenCalled();
   });
 });

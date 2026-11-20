@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: c22ae10463f9e3ec9de3652c0c4b6c8b3decbb135adbb259c21f1eb1901d1be9
+// SOURCE-SHA256: 53284c5d0e7f50a338dea2cec6559f5e2e8b8cd119a97d0a07ed7cc133995f25
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -100,7 +100,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The buckets mirrored are the canonical PB_OBJECTSTORE_BUCKETS list in deploy/bin/common.sh: message-attachments, registry, loki, thanos, plugins, plugin-quarantine, audit-heads. A deploy-contract test keeps that list equal to what each target's rustfs-init bootstrap Job creates and what the EKS CronJob mirrors."
+          "content": "The buckets mirrored are the canonical PB_OBJECTSTORE_BUCKETS list in deploy/bin/common.sh: message-attachments, registry, loki, thanos, plugins, plugin-quarantine, plugin-sources, audit-heads. A deploy-contract test keeps that list equal to what each target's rustfs-init bootstrap Job creates and what the EKS CronJob mirrors."
         },
         {
           "type": "text",
@@ -297,6 +297,23 @@ export const deployOperationsTopic: HelpTopic = {
         {
           "type": "text",
           "content": "Leaving S3_BACKUP_TARGET_URL unset is a deliberate opt-out — but a DB-only restore can't rebuild a working platform without the blobs."
+        },
+        {
+          "type": "text",
+          "content": "Kept plugin sources (plugin-sources)"
+        },
+        {
+          "type": "text",
+          "content": "Every stored plugin version built from a ZIP keeps its build context in plugin-sources (<orgId>/<pluginId>/<version>/<sha256>.zip, plus remediation patches), with a pointer and SHA-256 in the plugins row. Nightly CVE remediation rebuilds and patches from it, so it belongs in the same restore as the Postgres dump:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Restore the dumps, then restore.sh --object-store --confirm-destructive. The mirror includes plugin-sources on every target.",
+            "The mirror holds the decrypted bytes (rclone reads through the S3 API), and the restore writes them back through it, so they are re-encrypted under whatever RUSTFS_SSE_S3_MASTER_KEY the restored RustFS has. Restoring the RustFS drives instead (PVC or EBS snapshots) needs the original master key from .env.",
+            "A source the restore did not bring back is not an outage. The next remediation that reads it finds the object missing, marks that version source-less (source_kind='none', overlay-only remediation from then on) and counts plugin_source_missing_total, which fires PluginSourcesMissing. Nothing fails its checksum every night. Restore the bucket again if it was left out; a version already marked source-less stays so until its owner uploads a new version.",
+            "A source that is present but whose SHA-256 no longer matches fails its remediation closed (SOURCE_CHECKSUM_MISMATCH, PluginRemediationErrors). A restore never causes that — the bytes are the same — so treat it as tampering."
+          ]
         }
       ]
     },
@@ -522,7 +539,7 @@ export const deployOperationsTopic: HelpTopic = {
           "rows": [
             [
               "deploy/<target>/.env",
-              "SECRET_ENCRYPTION_KEY"
+              "SECRET_ENCRYPTION_KEY, and RUSTFS_SSE_S3_MASTER_KEY (the at-rest key for plugin-sources — needed to read the RustFS drives back, not the rclone mirror)"
             ],
             [
               "deploy/<target>/certs/",
@@ -608,8 +625,31 @@ export const deployOperationsTopic: HelpTopic = {
               "thanos",
               "Thanos sidecar (Prometheus 2h TSDB blocks, long-term) — read back via the store-gateway and querier",
               "thanos-svc"
+            ],
+            [
+              "plugins",
+              "plugin service: transient build-context ZIPs (7-day expiry backstop)",
+              "plugin-svc"
+            ],
+            [
+              "plugin-quarantine",
+              "plugin service: anonymous-submission ZIPs (30-day expiry)",
+              "plugin-svc"
+            ],
+            [
+              "plugin-sources",
+              "plugin service: every stored version's kept build source and remediation patches. Unversioned, SSE-S3 (RUSTFS_SSE_S3_MASTER_KEY), no expiry — a purge deletes the version's prefix — plus a 1-day noncurrent-version expiry as a backstop. rustfs-init asserts all four and proves an encrypted write before it exits",
+              "plugin-svc"
             ]
           ]
+        },
+        {
+          "type": "text",
+          "content": "The plugin service's plugin-svc user (PLUGIN_S3_ACCESS_KEY_ID / PLUGIN_S3_SECRET_ACCESS_KEY) reaches those three buckets and nothing else — not message attachments, not the registry — and no other service holds it."
+        },
+        {
+          "type": "text",
+          "content": "Lifecycle rules converge on every run. rc bucket lifecycle rule add is not idempotent (each call stacks another copy), so rustfs-init adds each of its rules through ensure_rule: it adds the rule only when no identical copy exists, removes surplus copies left by an older init, and fails unless exactly one remains. A rule is recognised as the init's own by its whole content (enabled, that one expiration action, that day count), so a rule you add by hand — with a prefix, another day count, or disabled — is never removed. Changing BACKUP_RETENTION_DAYS therefore adds the new db-backups rule beside the old one; remove the old one with rc bucket lifecycle rule remove --id."
         },
         {
           "type": "text",
@@ -686,7 +726,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Signals. Gauges registry_storage_snapshot_last_success_timestamp_seconds and registry_storage_snapshot_interval_seconds, republished by every replica from the stored marker (the leader as it writes, the others each cycle), so a non-leader reports the fleet's last success. Histogram registry_storage_snapshot_phase_seconds{phase} (catalog, publication_records, tags, manifests, blob_heads, total; the three call phases are summed call time, so with concurrency they can exceed total). Counter registry_storage_snapshot_reads_total{outcome}: fresh, stale, missing per read, and skipped_recent per cycle that found a recent run. One Storage snapshot complete log line per run with phaseMs and the slowest orgs."
+          "content": "Signals. Gauges registry_storage_snapshot_last_success_timestamp_seconds and registry_storage_snapshot_interval_seconds, republished by every replica from the stored marker (the leader as it writes, the others each cycle), so a non-leader reports the fleet's last success. Histogram registry_storage_snapshot_phase_seconds{phase} (catalog, publication_records, tags, manifests, blob_heads, total; the three call phases are summed call time, so with concurrency they can exceed total). Counter registry_storage_snapshot_reads_total{outcome}: fresh, stale, missing, one per read. Counter registry_storage_snapshot_runs_total{outcome}, one per scheduled cycle on the pod that held the lock: ran (a full walk completed and was marked current), aborted (lock lost or shutdown part-way; nothing marked current) and skipped_recent (another pod's run started within 0.9 of the interval). A cycle that throws counts in none of them; the stale alert covers it. One Storage snapshot complete log line per run with phaseMs and the slowest orgs."
         },
         {
           "type": "table",
@@ -1299,6 +1339,53 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
+          "content": "Plugin remediation alerts"
+        },
+        {
+          "type": "text",
+          "content": "In alert-rules.yml on all four targets, read from the plugin service's /metrics; the promtool cases are in the minikube suite (which covers the three Kubernetes copies) and in deploy/local/docker/config/prometheus/alert-rules.test.yml. Runbook: Kept plugin sources and Plugin Publishing."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Alert",
+            "Fires when",
+            "Severity"
+          ],
+          "rows": [
+            [
+              "PluginRemediationErrors",
+              "a remediation ended with outcome error in the last 6 h (a job error or SOURCE_CHECKSUM_MISMATCH; \"could not fix\" is needs_owner, not an error)",
+              "warning"
+            ],
+            [
+              "PluginSourceDeleteFailing",
+              "a purge could not delete a version's plugin-sources prefix, an org's prefix, or a purged image (plugin_source_delete_failures_total{kind}); the leftover is retried from plugin_source_orphans",
+              "warning"
+            ],
+            [
+              "PluginSourcesMissing",
+              "a version's kept source was missing when read (after a restore) and the version became source-less",
+              "warning"
+            ],
+            [
+              "PluginSourceChecksumMismatch",
+              "a kept source in plugin-sources no longer hashes to its recorded SHA-256 (plugin_source_checksum_mismatch_total); treated as tampering, the remediation failed closed with SOURCE_CHECKSUM_MISMATCH",
+              "critical"
+            ],
+            [
+              "PluginRemediationCanaryStale",
+              "the system org's per-package-type fixture plugins have not all come out fixed for 48 h",
+              "warning"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Turning remediation off (PLUGIN_REMEDIATION_ENABLED=false) silences the error and canary rules (nothing runs); the delete and missing-source rules keep working, because source retention and purge do not depend on it."
+        },
+        {
+          "type": "text",
           "content": "Storage alerts"
         },
         {
@@ -1476,7 +1563,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "At 234 rules one root cause is a pager flood, and a flood is functionally the same as no alert. The inhibition tree in alertmanager.yml suppresses the consequences of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service being down."
+          "content": "At 239 rules one root cause is a pager flood, and a flood is functionally the same as no alert. The inhibition tree in alertmanager.yml suppresses the consequences of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service being down."
         },
         {
           "type": "text",

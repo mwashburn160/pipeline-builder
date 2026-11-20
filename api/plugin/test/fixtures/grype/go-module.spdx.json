@@ -1,0 +1,114 @@
+{
+ "spdxVersion": "SPDX-2.3",
+ "dataLicense": "CC0-1.0",
+ "SPDXID": "SPDXRef-DOCUMENT",
+ "name": "/w/fixture.tar",
+ "documentNamespace": "https://anchore.com/syft/image/w/fixture.tar-8d05770d-a43c-4a47-9443-45585e8c72be",
+ "creationInfo": {
+  "licenseListVersion": "3.29",
+  "creators": [
+   "Organization: Anchore, Inc",
+   "Tool: syft-1.56.0"
+  ],
+  "created": "2026-11-20T16:33:06Z"
+ },
+ "packages": [
+  {
+   "name": "golang.org/x/text",
+   "SPDXID": "SPDXRef-Package-go-module-golang.org-x-text-3a1dc7ab38a42f56",
+   "versionInfo": "v0.3.0",
+   "supplier": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": false,
+   "checksums": [
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "83ad6dced139a9e190f3db66e8d4e38ccf553c89b4f3ca1dd65e9a4a8ad64568"
+    }
+   ],
+   "sourceInfo": "acquired package info from go module information: /usr/local/bin/gobin",
+   "licenseConcluded": "NOASSERTION",
+   "licenseDeclared": "NOASSERTION",
+   "copyrightText": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:golang:text:v0.3.0:*:*:*:*:*:*:*"
+    },
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceType": "purl",
+     "referenceLocator": "pkg:golang/golang.org/x/text@v0.3.0"
+    }
+   ]
+  },
+  {
+   "name": "/w/fixture.tar",
+   "SPDXID": "SPDXRef-DocumentRoot-Image--w-fixture.tar",
+   "versionInfo": "sha256:e83e2fb0b007d2a3eb104b5d08b1f354e59748e4445ccd0166ca4f48b9168df9",
+   "supplier": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": true,
+   "packageVerificationCode": {
+    "packageVerificationCodeValue": "45ab0b7e36725547867243264f62aed46e90ddcd"
+   },
+   "checksums": [
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "e83e2fb0b007d2a3eb104b5d08b1f354e59748e4445ccd0166ca4f48b9168df9"
+    }
+   ],
+   "licenseConcluded": "NOASSERTION",
+   "licenseDeclared": "NOASSERTION",
+   "copyrightText": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceType": "purl",
+     "referenceLocator": "pkg:oci/%2Fw%2Ffixture.tar@sha256%3Ae83e2fb0b007d2a3eb104b5d08b1f354e59748e4445ccd0166ca4f48b9168df9?arch=arm64"
+    }
+   ],
+   "primaryPackagePurpose": "CONTAINER"
+  }
+ ],
+ "files": [
+  {
+   "fileName": "usr/local/bin/gobin",
+   "SPDXID": "SPDXRef-File-usr-local-bin-gobin-c14a3d66f3e8980d",
+   "fileTypes": [
+    "APPLICATION",
+    "BINARY"
+   ],
+   "checksums": [
+    {
+     "algorithm": "SHA1",
+     "checksumValue": "fc6b2e776ca73028687bb54c31eefae77aeb4794"
+    },
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "ac363d882ea5f85c7ee2b8274126fa4d477593fdbbc53fbbafb8e4d187ad66f5"
+    }
+   ],
+   "licenseConcluded": "NOASSERTION",
+   "licenseInfoInFiles": [
+    "NOASSERTION"
+   ],
+   "copyrightText": "NOASSERTION",
+   "comment": "layerID: sha256:6caaaa513a732434d6834a786485ce92b985a0912911bfb7b5270c2d2f36efaf"
+  }
+ ],
+ "relationships": [
+  {
+   "spdxElementId": "SPDXRef-Package-go-module-golang.org-x-text-3a1dc7ab38a42f56",
+   "relatedSpdxElement": "SPDXRef-File-usr-local-bin-gobin-c14a3d66f3e8980d",
+   "relationshipType": "OTHER",
+   "comment": "evident-by: indicates the package's existence is evident by the given file"
+  },
+  {
+   "spdxElementId": "SPDXRef-DocumentRoot-Image--w-fixture.tar",
+   "relatedSpdxElement": "SPDXRef-Package-go-module-golang.org-x-text-3a1dc7ab38a42f56",
+   "relationshipType": "CONTAINS"
+  }
+ ]
+}

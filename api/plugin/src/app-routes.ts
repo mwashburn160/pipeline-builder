@@ -12,15 +12,18 @@ import { createEcosystemConsoleRoutes } from './routes/ecosystem-console.js';
 import { createGeneratePluginRoutes } from './routes/generate-plugin.js';
 import { createInstallRoutes } from './routes/installs.js';
 import { createInternalRoutes } from './routes/internal.js';
+import { createInternalRemediationRoutes } from './routes/internal-remediation.js';
 import { createKeptSetupImageRoutes } from './routes/kept-setup-images.js';
 import { createOrgToolchainDefaultRoutes } from './routes/org-toolchain-default.js';
 import { createPipelineSecurityRoutes } from './routes/pipeline-security.js';
+import { createPluginByNameRoutes } from './routes/plugin-by-name.js';
 import { createPublicDirectoryRoutes } from './routes/public-directory.js';
 import { createPublicSubmissionRoutes } from './routes/public-submissions.js';
 import { createPublisherRoutes } from './routes/publisher.js';
 import { createPurgePluginRoutes } from './routes/purge-plugin.js';
 import { createQueueStatusRoutes } from './routes/queue-status.js';
 import { createReadPluginRoutes } from './routes/read-plugins.js';
+import { createRemediationRoutes } from './routes/remediations.js';
 import { createRestorePluginRoutes } from './routes/restore-plugin.js';
 import { createRetentionRoutes } from './routes/retention.js';
 import { createReviewRoutes } from './routes/reviews.js';
@@ -65,6 +68,8 @@ export function mountRoutes(app: Express, { quotaService, sseManager }: PluginRo
   // -- Service-to-service routes (image-registry → the team parent-pull set).
   //    Each route carries its own `requireInternalService` caller list.
   app.use('/internal', requireAuth, createInternalRoutes());
+  // The pipeline service's remediation rollout reports (its own requireInternalService).
+  app.use('/internal', requireAuth, createInternalRemediationRoutes());
 
   // -- apiCalls quota for the whole user surface, ONCE, ahead of every /plugins
   //    router (the upload route included). `apiCallsQuota` meters each 2xx and
@@ -131,6 +136,9 @@ export function mountRoutes(app: Express, { quotaService, sseManager }: PluginRo
   // Per-org plugin security notification settings — each route owns its gate
   // (plugins:read to view, org_settings:write to change); before the read routes for `/:id`.
   app.use('/plugins', createSecurityNotificationRoutes());
+  // Nightly CVE remediations + their settings + a plugin's own upgrade level — each
+  // route owns its gate (approve / reject layer their own step-up); before the read routes for `/:id`.
+  app.use('/plugins', createRemediationRoutes());
   // Kept setup images — gate-refused images from the setup catalog load, listed
   // and promoted by the system org (system org + plugins:moderate + aal2 on each
   // route); before the read routes for `/:id`.
@@ -162,6 +170,11 @@ export function mountRoutes(app: Express, { quotaService, sseManager }: PluginRo
 
   // -- Deploy AI-generated plugin — owns its plugins:write gate + quota reservation.
   app.use('/plugins', createDeployGeneratedPluginRoutes(quotaService, sseManager));
+
+  // -- Whole-plugin delete / restore / purge and the delete preview, by name
+  //    (before the read routes for `/:id`). Each route owns plugins:write, and
+  //    the destructive ones their own limiter + step-up (consumed once).
+  app.use('/plugins', createPluginByNameRoutes(quotaService));
 
   // -- Read routes (list, find, get-by-id).
   //    `plugins:read` is enforced PER ROUTE inside the router (a prefix-layer

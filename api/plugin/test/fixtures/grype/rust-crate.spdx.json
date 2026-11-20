@@ -1,0 +1,107 @@
+{
+ "spdxVersion": "SPDX-2.3",
+ "dataLicense": "CC0-1.0",
+ "SPDXID": "SPDXRef-DOCUMENT",
+ "name": "/w/fixture.tar",
+ "documentNamespace": "https://anchore.com/syft/image/w/fixture.tar-8d05770d-a43c-4a47-9443-45585e8c72be",
+ "creationInfo": {
+  "licenseListVersion": "3.29",
+  "creators": [
+   "Organization: Anchore, Inc",
+   "Tool: syft-1.56.0"
+  ],
+  "created": "2026-11-20T16:33:06Z"
+ },
+ "packages": [
+  {
+   "name": "smallvec",
+   "SPDXID": "SPDXRef-Package-rust-crate-smallvec-c2bbe7d37fc99d9a",
+   "versionInfo": "1.6.0",
+   "supplier": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": false,
+   "sourceInfo": "acquired package info from rust cargo manifest: /src/rustapp/Cargo.lock",
+   "licenseConcluded": "NOASSERTION",
+   "licenseDeclared": "NOASSERTION",
+   "copyrightText": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "SECURITY",
+     "referenceType": "cpe23Type",
+     "referenceLocator": "cpe:2.3:a:servo:smallvec:1.6.0:*:*:*:*:rust:*:*"
+    },
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceType": "purl",
+     "referenceLocator": "pkg:cargo/smallvec@1.6.0"
+    }
+   ]
+  },
+  {
+   "name": "/w/fixture.tar",
+   "SPDXID": "SPDXRef-DocumentRoot-Image--w-fixture.tar",
+   "versionInfo": "sha256:e83e2fb0b007d2a3eb104b5d08b1f354e59748e4445ccd0166ca4f48b9168df9",
+   "supplier": "NOASSERTION",
+   "downloadLocation": "NOASSERTION",
+   "filesAnalyzed": true,
+   "packageVerificationCode": {
+    "packageVerificationCodeValue": "45ab0b7e36725547867243264f62aed46e90ddcd"
+   },
+   "checksums": [
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "e83e2fb0b007d2a3eb104b5d08b1f354e59748e4445ccd0166ca4f48b9168df9"
+    }
+   ],
+   "licenseConcluded": "NOASSERTION",
+   "licenseDeclared": "NOASSERTION",
+   "copyrightText": "NOASSERTION",
+   "externalRefs": [
+    {
+     "referenceCategory": "PACKAGE-MANAGER",
+     "referenceType": "purl",
+     "referenceLocator": "pkg:oci/%2Fw%2Ffixture.tar@sha256%3Ae83e2fb0b007d2a3eb104b5d08b1f354e59748e4445ccd0166ca4f48b9168df9?arch=arm64"
+    }
+   ],
+   "primaryPackagePurpose": "CONTAINER"
+  }
+ ],
+ "files": [
+  {
+   "fileName": "src/rustapp/Cargo.lock",
+   "SPDXID": "SPDXRef-File-src-rustapp-Cargo.lock-6bbe1249a4bc6b00",
+   "fileTypes": [
+    "TEXT"
+   ],
+   "checksums": [
+    {
+     "algorithm": "SHA1",
+     "checksumValue": "43e3c0bebdf908e65393b79156c6230c16ec1409"
+    },
+    {
+     "algorithm": "SHA256",
+     "checksumValue": "7448dd9cf41707fb4ed2d27bb3445dece45667809f754573554cc0b4805321ae"
+    }
+   ],
+   "licenseConcluded": "NOASSERTION",
+   "licenseInfoInFiles": [
+    "NOASSERTION"
+   ],
+   "copyrightText": "NOASSERTION",
+   "comment": "layerID: sha256:800fb209cf69773009fa2ffc24996a90462791e4b14119ced790f251f3960b64"
+  }
+ ],
+ "relationships": [
+  {
+   "spdxElementId": "SPDXRef-Package-rust-crate-smallvec-c2bbe7d37fc99d9a",
+   "relatedSpdxElement": "SPDXRef-File-src-rustapp-Cargo.lock-6bbe1249a4bc6b00",
+   "relationshipType": "OTHER",
+   "comment": "evident-by: indicates the package's existence is evident by the given file"
+  },
+  {
+   "spdxElementId": "SPDXRef-DocumentRoot-Image--w-fixture.tar",
+   "relatedSpdxElement": "SPDXRef-Package-rust-crate-smallvec-c2bbe7d37fc99d9a",
+   "relationshipType": "CONTAINS"
+  }
+ ]
+}

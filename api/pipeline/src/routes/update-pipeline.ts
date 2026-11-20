@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { checkPipelineUpdateCompliance, isComplianceRelevantUpdate } from '../helpers/pipeline-update-compliance.js';
 import { auditedChanges, buildPipelineUpdateData, complianceBlockedDetails, pluginWarningsField, validatePipelineWrite } from '../helpers/pipeline-write.js';
 import { recordPipelineResolution } from '../helpers/plugin-contract-check.js';
+import { electionRefusal } from '../helpers/remediation-settings.js';
 import { pipelineService } from '../services/pipeline-service.js';
 
 /**
@@ -29,7 +30,7 @@ const PipelineUpdateRequestSchema = PipelineUpdateSchema.extend({
 export function createUpdatePipelineRoutes(): Router {
   const router: Router = Router();
 
-  router.put('/:id', requirePermission('pipelines:write'), audited('pipeline.update'), proposable, withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.put('/:id', requirePermission('pipelines:write'), audited('pipeline.update', 'pipeline.remediation-upgrades.update'), proposable, withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
 
     if (!id) return sendBadRequest(res, 'Pipeline ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
@@ -58,6 +59,16 @@ export function createUpdatePipelineRoutes(): Router {
     // isDefault is handled separately below via setDefault() for promotion.
     // The service stamps updatedAt/updatedBy.
     const updateData: Record<string, unknown> = buildPipelineUpdateData(req, body);
+
+    // The plugin security fixes election (nightly CVE remediation). Opting out
+    // is always allowed; `apply` only when the org default is apply or the
+    // root org allows pipelines to choose it (403 otherwise).
+    const electionBefore = existing.remediationUpgrades ?? 'inherit';
+    if (body.remediationUpgrades !== undefined && body.remediationUpgrades !== electionBefore) {
+      const refusal = await electionRefusal(body.remediationUpgrades, orgId, req.user?.parentOrganizationId);
+      if (refusal) return sendError(res, 403, refusal, ErrorCode.PIPELINE_REMEDIATION_APPLY_NOT_ALLOWED);
+      updateData.remediationUpgrades = body.remediationUpgrades;
+    }
 
     // -- Compliance re-check on UPDATE (fail-closed) ------------------------
     // Shared with bulk update (see pipeline-update-compliance.ts): only a
@@ -136,6 +147,17 @@ export function createUpdatePipelineRoutes(): Router {
         changes: auditedChanges(existing, updated),
       }),
     });
+
+    if (updateData.remediationUpgrades !== undefined) {
+      recordAudit({
+        action: 'pipeline.remediation-upgrades.update',
+        actorId: actorId({ userId }),
+        orgId,
+        targetType: 'pipeline',
+        targetId: updated.id,
+        details: { pipelineName: updated.pipelineName, before: electionBefore, after: updated.remediationUpgrades },
+      });
+    }
 
     return sendSuccess(res, 200, { pipeline: normalizeArrayFields(updated, ['keywords']), ...pluginWarningsField(check.pluginWarnings) });
   }));

@@ -19,6 +19,7 @@
 import { z } from 'zod';
 import { CASCADE_LEG_AUTH, CascadeOrgParams, CascadeUserParams, OrgPurgeResponse } from './cascade.js';
 import { defineInternalEndpoint } from './define.js';
+import { REMEDIATION_ROLLOUT_PAUSE_REASONS, REMEDIATION_ROLLOUT_STATUSES } from '../types/plugin-remediation.js';
 
 /** Digests one image-pipeline-references read may ask about (the caller chunks). */
 export const MAX_REFERENCE_DIGESTS = 50;
@@ -132,5 +133,60 @@ export const PLUGIN_INTERNAL = {
     auth: CASCADE_LEG_AUTH,
     params: CascadeUserParams,
     response: z.object({ userId: z.string(), reviews: z.number() }),
+  }),
+  /**
+   * The pipeline service's progress report on a remediation rollout
+   * (PIPELINE_INTERNAL.startRemediationRollout). The plugin service stores
+   * `summary` in plugin_remediations.rollout, moves the stage (rolling_out →
+   * done on `done`; → needs_review on `paused`), and sends the notices: N37
+   * when the rollout finished or paused, N38 per `rolledBack` event to that
+   * pipeline's owners. Idempotent per (remediationId, event.pipelineId,
+   * event.kind, event.at): a redelivered report notifies nobody twice. 404 for
+   * an unknown remediation (the pipeline side drops the rollout).
+   */
+  reportRemediationRollout: defineInternalEndpoint({
+    id: 'plugin.reportRemediationRollout',
+    service: 'plugin',
+    method: 'POST',
+    path: '/internal/plugins/remediations/:remediationId/rollout',
+    callers: ['pipeline'],
+    auth: 'pipeline service token; elevated write to the remediation row of any org (the row names its org).',
+    params: z.object({ remediationId: z.string().uuid() }),
+    body: z.object({
+      summary: z.object({
+        status: z.enum(REMEDIATION_ROLLOUT_STATUSES),
+        toVersion: z.string().min(1).max(50),
+        waves: z.array(z.object({
+          index: z.number().int().nonnegative(),
+          kind: z.enum(['canary', 'batch']),
+          pipelineIds: z.array(z.string().uuid()).max(50),
+          startedAt: z.string(),
+          finishedAt: z.string().nullable(),
+          outcome: z.enum(['running', 'succeeded', 'failed']),
+        })).max(1000),
+        counts: z.object({
+          eligible: z.number().int().nonnegative(),
+          proposed: z.number().int().nonnegative(),
+          changeRequested: z.number().int().nonnegative(),
+          moved: z.number().int().nonnegative(),
+          failed: z.number().int().nonnegative(),
+          rolledBack: z.number().int().nonnegative(),
+          skippedOptOut: z.number().int().nonnegative(),
+          skippedRunner: z.number().int().nonnegative(),
+        }),
+        pausedReason: z.enum(REMEDIATION_ROLLOUT_PAUSE_REASONS).optional(),
+        updatedAt: z.string(),
+      }),
+      /** New per-pipeline events since the last report (notice fan-out). */
+      events: z.array(z.object({
+        kind: z.enum(['rolled_back', 'rollback_blocked']),
+        orgId: z.string().min(1).max(255),
+        pipelineId: z.string().uuid(),
+        fromVersion: z.string().min(1).max(50),
+        toVersion: z.string().min(1).max(50),
+        at: z.string(),
+      })).max(500),
+    }).strict(),
+    response: z.object({ remediationId: z.string(), stage: z.string() }),
   }),
 } as const;

@@ -7,7 +7,24 @@ import { Router, type NextFunction, type Request, type Response } from 'express'
 import { assertNotManaged } from '../helpers/managed-toolchain.js';
 import { refundPluginSlot } from '../helpers/quota-refund.js';
 import { pluginService } from '../services/plugin-service.js';
+import { cancelRemediationsFor } from '../services/remediation/cancel.js';
 import { onVersionWithdrawn } from '../services/version-withdrawal.js';
+
+/**
+ * A deleted version takes its remediations with it: the ones running on it, and
+ * any on an older version whose fix it was about to become (the remediation
+ * engine's cancel, which also stops their rollouts). Best-effort: the delete
+ * has landed, and a remediation of a soft-deleted version is refused anyway.
+ */
+export async function cancelRemediationsOfDeleted(orgId: string, pluginIds: string[], logWarn: (message: string, data?: unknown) => void): Promise<number> {
+  if (pluginIds.length === 0) return 0;
+  try {
+    return await cancelRemediationsFor({ orgId, pluginIds, reason: 'version_deleted' });
+  } catch (err) {
+    logWarn('Remediations of a deleted version were not cancelled', { pluginIds, error: err instanceof Error ? err.message : String(err) });
+    return 0;
+  }
+}
 
 /** `?force=true` — delete a version that is in use or listed. */
 function isForce(req: Request): boolean {
@@ -73,7 +90,8 @@ function stepUpWhenForced(req: Request, res: Response, next: NextFunction): void
  *   unless `?force=true`, which requires a step-up; the orgs using it (the
  *   listing's installers included) are notified once it is gone;
  * - deleting the default promotes the next default automatically;
- * - the version's `plugins` quota slot is refunded (period-conditional).
+ * - the version's `plugins` quota slot is refunded (period-conditional);
+ * - remediations on it (or about to replace an older version with it) are cancelled.
  */
 export function createDeletePluginRoutes(quotaService: QuotaService): Router {
   const router: Router = Router();
@@ -104,8 +122,9 @@ export function createDeletePluginRoutes(quotaService: QuotaService): Router {
     if (!deleted) return sendEntityNotFound(res, 'Plugin');
 
     const refunded = refundPluginSlot(quotaService, existing, ctx.log.bind(null, 'WARN'));
+    const remediationsCancelled = await cancelRemediationsOfDeleted(orgId, [existing.id], ctx.log.bind(null, 'WARN'));
 
-    ctx.log('COMPLETED', 'Deleted plugin', { id, name: existing.name, inUse, listed, promotedId: promoted?.id, refunded });
+    ctx.log('COMPLETED', 'Deleted plugin', { id, name: existing.name, inUse, listed, promotedId: promoted?.id, refunded, remediationsCancelled });
     void onVersionWithdrawn(existing, 'deleted');
 
     recordAudit({

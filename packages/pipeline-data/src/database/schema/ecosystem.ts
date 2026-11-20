@@ -46,13 +46,14 @@ import type {
   SubmissionStatus,
   PluginScanFlag,
   PluginScanSummary,
+  PluginSourceKind,
   PluginSecurityRecipientMode,
   PluginSecurityDigestMode,
   HealthBreakdown,
 } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
 import {
-  boolean, check, customType, doublePrecision, index, integer, jsonb, pgTable, pgView, primaryKey, smallint, text,
+  bigint, boolean, check, customType, doublePrecision, index, integer, jsonb, pgTable, pgView, primaryKey, smallint, text,
   timestamp, uniqueIndex, uuid, varchar,
 } from 'drizzle-orm/pg-core';
 import type { PluginIcon, PluginSecret, PluginUploadedIcon } from './plugin.js';
@@ -279,6 +280,14 @@ export const pluginListingVersion = pgTable('plugin_listing_versions', {
   baseImageCreatedAt: timestamp('base_image_created_at', { withTimezone: true }),
   // When maintenance collected this long-yanked, unreferenced version's public/* image; NULL = still stored.
   imageCollectedAt: timestamp('image_collected_at', { withTimezone: true }),
+  // The listed version's own kept build context (plugin-sources
+  // `listings/<listingId>/<version>/<sha256>.zip`, api-core `listingSourceKey`),
+  // so it outlives the publisher org's row. Same rules as on plugins.
+  sourceKey: text('source_key'),
+  sourceSha256: varchar('source_sha256', { length: 64 }),
+  sourceSizeBytes: bigint('source_size_bytes', { mode: 'number' }),
+  sourceKind: varchar('source_kind', { length: 10 }).$type<PluginSourceKind>().default('none').notNull(),
+  sourceKeptAt: timestamp('source_kept_at', { withTimezone: true }),
   publishedAt: timestamp('published_at', { withTimezone: true }).defaultNow().notNull(),
   publishedBy: text('published_by').notNull(),
 }, (table) => ({
@@ -290,6 +299,9 @@ export const pluginListingVersion = pgTable('plugin_listing_versions', {
   ),
   imageDigestCheck: check('plugin_listing_versions_image_digest_check',
     sql`${table.imageDigest} IS NULL OR ${table.imageDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  sourceKindCheck: check('plugin_listing_versions_source_kind_check', sql`${table.sourceKind} IN ('zip', 'none')`),
+  sourceShaCheck: check('plugin_listing_versions_source_sha256_check', sql`${table.sourceSha256} IS NULL OR ${table.sourceSha256} ~ '^[0-9a-f]{64}$'`),
+  sourceCoherenceCheck: check('plugin_listing_versions_source_coherence_check', sql`(${table.sourceKind} = 'zip' AND ${table.sourceKey} IS NOT NULL AND ${table.sourceSha256} IS NOT NULL AND ${table.sourceSizeBytes} IS NOT NULL) OR (${table.sourceKind} = 'none' AND ${table.sourceKey} IS NULL AND ${table.sourceSha256} IS NULL AND ${table.sourceSizeBytes} IS NULL)`),
 }));
 
 /**
@@ -392,6 +404,11 @@ export const pluginPublishRequest = pgTable('plugin_publish_requests', {
   // executedAt past a grace period is one whose pod died mid-execution; the
   // ecosystem maintenance job hands it back (services/ecosystem/stalled.ts).
   executedAt: timestamp('executed_at', { withTimezone: true }),
+  // Set when the request was opened by a nightly CVE remediation (an Official
+  // fix's new listing version): the "Remediation fixes" auto-approval rule
+  // admits only these. Provenance only (no FK: plugin_remediations is
+  // org-scoped and purged on its own schedule).
+  remediationId: uuid('remediation_id'),
 }, (table) => ({
   statusCreatedIdx: index('plugin_publish_request_status_created_idx').on(table.status, table.createdAt),
   publisherIdx: index('plugin_publish_request_publisher_idx').on(table.publisherId, table.createdAt),
@@ -1036,10 +1053,12 @@ export const OFFICIAL_PUBLISHER_HANDLE = 'pipeline-builder';
 /** The platform-owned publisher anonymous submissions land under. */
 export const COMMUNITY_PUBLISHER_HANDLE = 'community';
 
-/** Fixed ids of the two auto-approval rules postgres-init.sql seeds. */
+/** Fixed ids of the three auto-approval rules postgres-init.sql seeds. */
 export const SEEDED_AUTO_APPROVAL_RULE_IDS = {
   verifiedUpdates: '00000000-0000-4000-8000-00000000a001',
   officialCatalog: '00000000-0000-4000-8000-00000000a002',
+  /** Official fixes opened by nightly CVE remediation (remediation_id set, submitter PLUGIN_REMEDIATION_SUBMITTER). */
+  remediationFixes: '00000000-0000-4000-8000-00000000a003',
 } as const;
 
 /**

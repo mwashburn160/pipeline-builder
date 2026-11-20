@@ -281,7 +281,27 @@ CREATE TABLE IF NOT EXISTS plugins (    -- Identity & Audit Fields
     -- Quota period (resetAt) this version's `plugins` slot was charged to at
     -- upload; NULL when none was charged or it was already refunded. Delete and
     -- purge refund conditionally on it, then clear it.
-    quota_reset_at TIMESTAMPTZ
+    quota_reset_at TIMESTAMPTZ,
+
+    -- Kept build context (nightly CVE remediation): the version's ZIP copied to
+    -- the plugin-sources bucket at store time (<orgId>/<pluginId>/<version>/<sha256>.zip), its SHA-256
+    -- (checked before any rebuild; a mismatch fails closed), size, and when it
+    -- was kept. source_kind 'none' = no kept source (a prebuilt-image upload, or
+    -- a source lost after a restore): overlay-only remediation.
+    source_key TEXT,
+    source_sha256 VARCHAR(64) CONSTRAINT plugin_source_sha256_check
+                        CHECK (source_sha256 IS NULL OR source_sha256 ~ '^[0-9a-f]{64}$'),
+    source_size_bytes BIGINT,
+    source_kind VARCHAR(10) NOT NULL DEFAULT 'none' CONSTRAINT plugin_source_kind_check
+                        CHECK (source_kind IN ('zip', 'none')),
+    source_kept_at TIMESTAMPTZ,
+    -- Set on every version a by-name delete (DELETE /plugins/by-name/:name)
+    -- soft-deleted; by-name restore and purge act on that batch only.
+    delete_batch_id UUID,
+    -- 'zip' carries key + checksum + size; 'none' carries none of them.
+    CONSTRAINT plugin_source_coherence_check
+        CHECK ((source_kind = 'zip' AND source_key IS NOT NULL AND source_sha256 IS NOT NULL AND source_size_bytes IS NOT NULL)
+            OR (source_kind = 'none' AND source_key IS NULL AND source_sha256 IS NULL AND source_size_bytes IS NULL))
 );
 
 -- ============================================================================
@@ -330,7 +350,13 @@ CREATE TABLE IF NOT EXISTS pipelines (    -- Identity & Audit Fields
 
     -- Soft Delete
     deleted_at TIMESTAMPTZ,
-    deleted_by TEXT
+    deleted_by TEXT,
+
+    -- Plugin security fixes election (nightly CVE remediation, Stage 3):
+    -- inherit (the org's pluginRemediation.rollout), off, propose or apply.
+    remediation_upgrades VARCHAR(10) NOT NULL DEFAULT 'inherit'
+        CONSTRAINT pipeline_remediation_upgrades_check
+        CHECK (remediation_upgrades IN ('inherit', 'off', 'propose', 'apply'))
 );
 
 -- ============================================================================
@@ -532,7 +558,10 @@ CREATE TABLE IF NOT EXISTS pipeline_run_requests (
     next_attempt_at TIMESTAMPTZ,
     last_delivery_error VARCHAR(64),
     result_execution_id VARCHAR(100),
-    error_code VARCHAR(64)
+    error_code VARCHAR(64),
+    -- When the runner accepted a start/stop (the dispatcher's success verdict);
+    -- NULL until then, and for every request that was never accepted.
+    accepted_at TIMESTAMPTZ
 );
 
 -- ============================================================================
@@ -952,6 +981,10 @@ CREATE INDEX IF NOT EXISTS idx_plugins_org_created
 
 CREATE INDEX IF NOT EXISTS idx_plugins_org_name
     ON plugins(org_id, name) WHERE deleted_at IS NULL;
+
+-- By-name restore / purge find the batch a by-name delete stamped.
+CREATE INDEX IF NOT EXISTS plugin_delete_batch_idx
+    ON plugins(org_id, delete_batch_id) WHERE delete_batch_id IS NOT NULL;
 
 -- Plugins unique constraint (required for ON CONFLICT upsert in plugin upload)
 CREATE UNIQUE INDEX IF NOT EXISTS plugin_name_version_org_unique
@@ -2509,8 +2542,25 @@ CREATE TABLE IF NOT EXISTS plugin_listing_versions (
     -- When maintenance collected the public/* image of this long-yanked,
     -- unreferenced version (NULL = still in the registry).
     image_collected_at TIMESTAMPTZ,
+    -- Kept build context (nightly CVE remediation): the version's ZIP copied to
+    -- the plugin-sources bucket at store time (listings/<listingId>/<version>/<sha256>.zip, so it
+    -- outlives the publisher org's row), its SHA-256
+    -- (checked before any rebuild; a mismatch fails closed), size, and when it
+    -- was kept. source_kind 'none' = no kept source (a prebuilt-image upload, or
+    -- a source lost after a restore): overlay-only remediation.
+    source_key TEXT,
+    source_sha256 VARCHAR(64) CONSTRAINT plugin_listing_versions_source_sha256_check
+                        CHECK (source_sha256 IS NULL OR source_sha256 ~ '^[0-9a-f]{64}$'),
+    source_size_bytes BIGINT,
+    source_kind VARCHAR(10) NOT NULL DEFAULT 'none' CONSTRAINT plugin_listing_versions_source_kind_check
+                        CHECK (source_kind IN ('zip', 'none')),
+    source_kept_at TIMESTAMPTZ,
     published_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    published_by TEXT NOT NULL
+    published_by TEXT NOT NULL,
+    -- 'zip' carries key + checksum + size; 'none' carries none of them.
+    CONSTRAINT plugin_listing_versions_source_coherence_check
+        CHECK ((source_kind = 'zip' AND source_key IS NOT NULL AND source_sha256 IS NOT NULL AND source_size_bytes IS NOT NULL)
+            OR (source_kind = 'none' AND source_key IS NULL AND source_sha256 IS NULL AND source_size_bytes IS NULL))
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS plugin_listing_version_unique
@@ -2599,7 +2649,11 @@ CREATE TABLE IF NOT EXISTS plugin_publish_requests (
     -- Set once an approved request's execution returned; an approved row
     -- without it past a grace period died mid-execution and is handed back
     -- by the ecosystem maintenance job.
-    executed_at TIMESTAMPTZ
+    executed_at TIMESTAMPTZ,
+    -- Set when a nightly CVE remediation opened the request, for an Official
+    -- fix's new listing version. The "Remediation fixes" rule admits only these.
+    -- Provenance only, no FK: plugin_remediations is org-scoped.
+    remediation_id UUID
 );
 
 CREATE INDEX IF NOT EXISTS plugin_publish_request_status_created_idx
@@ -3057,6 +3111,174 @@ CREATE INDEX IF NOT EXISTS plugin_kept_setup_image_expires_idx
     ON plugin_kept_setup_images(expires_at);
 
 -- ============================================================================
+-- Nightly plugin CVE remediation (docs/plugin-publishing.md "Scan gates")
+-- ============================================================================
+-- Vocabulary in api-core types/plugin-remediation.ts. Every table here is
+-- OWN-ORG ONLY under RLS (no system-org read carve-out; see the RLS block).
+
+-- One remediation of one flagged plugin version. At most one LIVE row per
+-- (plugin_id, findings_hash), and one row per version still building or
+-- awaiting approval. A failed / needs_owner / done row for the same hash keeps
+-- the nightly pass from re-queueing it until the findings (or their fixed
+-- versions) change; a retry inserts a new row (attempt + 1, retry_of).
+-- plugin_id cascades (purging the flagged version removes its remediations);
+-- to_plugin_id is SET NULL (deleting a fix version leaves the remediation).
+CREATE TABLE IF NOT EXISTS plugin_remediations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id VARCHAR(255) NOT NULL,
+    plugin_id UUID NOT NULL REFERENCES plugins(id) ON DELETE CASCADE,
+    plugin_name VARCHAR(255) NOT NULL,
+    from_version VARCHAR(50) NOT NULL,
+    findings_hash VARCHAR(64) NOT NULL CONSTRAINT plugin_remediation_findings_hash_check
+                        CHECK (findings_hash ~ '^[0-9a-f]{64}$'),
+    stage VARCHAR(20) NOT NULL DEFAULT 'queued' CONSTRAINT plugin_remediation_stage_check
+                        CHECK (stage IN ('queued', 'rebuild', 'libraries', 'awaiting_approval', 'published',
+                                         'rolling_out', 'done', 'needs_owner', 'needs_review', 'failed')),
+    outcome VARCHAR(20) CONSTRAINT plugin_remediation_outcome_check
+                        CHECK (outcome IS NULL OR outcome IN ('cleared', 'partial', 'owner_request', 'rejected',
+                                                              'cancelled', 'superseded', 'error')),
+    to_version VARCHAR(50),
+    to_plugin_id UUID REFERENCES plugins(id) ON DELETE SET NULL,
+    version_bump VARCHAR(10) CONSTRAINT plugin_remediation_version_bump_check
+                        CHECK (version_bump IS NULL OR version_bump IN ('patch', 'minor')),
+    upgrade_level VARCHAR(10) CONSTRAINT plugin_remediation_upgrade_level_check
+                        CHECK (upgrade_level IS NULL OR upgrade_level IN ('patch', 'minor', 'major')),
+    publish_mode VARCHAR(10) CONSTRAINT plugin_remediation_publish_mode_check
+                        CHECK (publish_mode IS NULL OR publish_mode IN ('propose', 'apply')),
+    propose_reasons TEXT[] NOT NULL DEFAULT '{}',
+    fix_methods TEXT[] NOT NULL DEFAULT '{}',
+    -- Findings targeted, cleared and left (each left one with its reason).
+    targeted JSONB NOT NULL DEFAULT '[]',
+    cleared JSONB NOT NULL DEFAULT '[]',
+    remaining JSONB NOT NULL DEFAULT '[]',
+    -- plugin-sources keys: the patch diff, and (Official) the deploy/plugins export.
+    patch_key TEXT,
+    export_key TEXT,
+    -- Stage 3 summary (waves, pipelines moved, rollbacks), from the pipeline service.
+    rollout JSONB,
+    publish_request_id UUID,
+    owner_request_sent_at TIMESTAMPTZ,
+    -- A short error CODE, never raw log text.
+    error VARCHAR(64),
+    attempt INTEGER NOT NULL DEFAULT 1 CONSTRAINT plugin_remediation_attempt_check CHECK (attempt >= 1),
+    retry_of UUID,
+    decided_by TEXT,
+    decided_at TIMESTAMPTZ,
+    decision_reason TEXT,
+    created_by TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    started_at TIMESTAMPTZ,
+    published_at TIMESTAMPTZ,
+    finished_at TIMESTAMPTZ
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS plugin_remediation_live_unique
+    ON plugin_remediations(plugin_id, findings_hash)
+    WHERE stage IN ('queued', 'rebuild', 'libraries', 'awaiting_approval', 'published', 'rolling_out', 'needs_review');
+CREATE UNIQUE INDEX IF NOT EXISTS plugin_remediation_active_version_unique
+    ON plugin_remediations(plugin_id)
+    WHERE stage IN ('queued', 'rebuild', 'libraries', 'awaiting_approval');
+CREATE INDEX IF NOT EXISTS plugin_remediation_findings_idx
+    ON plugin_remediations(plugin_id, findings_hash);
+CREATE INDEX IF NOT EXISTS plugin_remediation_org_stage_idx
+    ON plugin_remediations(org_id, stage, created_at DESC);
+CREATE INDEX IF NOT EXISTS plugin_remediation_to_plugin_idx
+    ON plugin_remediations(to_plugin_id) WHERE to_plugin_id IS NOT NULL;
+
+-- A RustFS object / prefix (or registry image) a purge failed to delete. Never
+-- blocks the purge: retried by the next purge sweep (as sysadmin), counted by
+-- plugin_source_delete_failures_total and alerted on. Hard-purged with the org:
+-- the org purge deletes the whole plugin-sources/<orgId>/ prefix before it acks.
+CREATE TABLE IF NOT EXISTS plugin_source_orphans (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id VARCHAR(255) NOT NULL,
+    kind VARCHAR(10) NOT NULL CONSTRAINT plugin_source_orphan_kind_check
+                        CHECK (kind IN ('object', 'prefix', 'image')),
+    -- Bucket for object / prefix; the image repository for image.
+    bucket VARCHAR(255) NOT NULL,
+    -- Object key, key prefix, or image digest.
+    target TEXT NOT NULL,
+    plugin_id UUID,
+    plugin_version VARCHAR(50),
+    -- A short error code / S3 error name (never credentials or contents).
+    last_error VARCHAR(255) NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 1,
+    first_failed_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_attempt_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS plugin_source_orphan_target_unique
+    ON plugin_source_orphans(org_id, kind, bucket, target);
+CREATE INDEX IF NOT EXISTS plugin_source_orphan_last_attempt_idx
+    ON plugin_source_orphans(last_attempt_at);
+
+-- An org's pluginRemediation settings (one row per org; absent = defaults).
+-- rollout NULL = the default for the org kind (root: propose, team: inherit);
+-- allow_pipeline_apply is read from the ROOT org's row only.
+CREATE TABLE IF NOT EXISTS plugin_remediation_settings (
+    org_id VARCHAR(255) PRIMARY KEY,
+    mode VARCHAR(10) NOT NULL DEFAULT 'propose' CONSTRAINT plugin_remediation_settings_mode_check
+                        CHECK (mode IN ('off', 'propose', 'apply')),
+    library_upgrade_level VARCHAR(10) NOT NULL DEFAULT 'minor' CONSTRAINT plugin_remediation_settings_level_check
+                        CHECK (library_upgrade_level IN ('patch', 'minor', 'major')),
+    library_upgrade_level_by_type JSONB NOT NULL DEFAULT '{}',
+    library_upgrade_level_by_plugin JSONB NOT NULL DEFAULT '{}',
+    rollout VARCHAR(10) CONSTRAINT plugin_remediation_settings_rollout_check
+                        CHECK (rollout IS NULL OR rollout IN ('inherit', 'off', 'propose', 'apply')),
+    allow_pipeline_apply BOOLEAN NOT NULL DEFAULT true,
+    updated_by TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Stage 3, per pipeline (owned by the PIPELINE service): the proposal, the wave
+-- it moved in, and its rollback. remediation_id is provenance (no FK).
+CREATE TABLE IF NOT EXISTS pipeline_remediation_upgrades (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id VARCHAR(255) NOT NULL,
+    remediation_id UUID NOT NULL,
+    pipeline_id UUID NOT NULL REFERENCES pipelines(id) ON DELETE CASCADE,
+    plugin_name VARCHAR(255) NOT NULL,
+    plugin_publisher VARCHAR(64),
+    from_version VARCHAR(50) NOT NULL,
+    to_version VARCHAR(50) NOT NULL,
+    mode VARCHAR(10) NOT NULL CONSTRAINT pipeline_remediation_upgrade_mode_check
+                        CHECK (mode IN ('off', 'propose', 'apply')),
+    state VARCHAR(20) NOT NULL CONSTRAINT pipeline_remediation_upgrade_state_check
+                        CHECK (state IN ('proposed', 'change_requested', 'queued', 'moved', 'failed', 'rolled_back',
+                                         'rollback_blocked', 'skipped_opt_out', 'skipped_runner', 'dismissed', 'superseded')),
+    -- 0 = canary; NULL until it is put in a wave.
+    wave INTEGER,
+    moved_at TIMESTAMPTZ,
+    run_request_id UUID,
+    rolled_back_at TIMESTAMPTZ,
+    rolled_back_to VARCHAR(50),
+    error VARCHAR(255),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS pipeline_remediation_upgrade_unique
+    ON pipeline_remediation_upgrades(remediation_id, pipeline_id);
+CREATE INDEX IF NOT EXISTS pipeline_remediation_upgrade_pipeline_idx
+    ON pipeline_remediation_upgrades(pipeline_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS pipeline_remediation_upgrade_state_idx
+    ON pipeline_remediation_upgrades(remediation_id, state);
+
+DO $$
+DECLARE
+    t TEXT;
+BEGIN
+    FOREACH t IN ARRAY ARRAY['plugin_remediations', 'plugin_remediation_settings', 'pipeline_remediation_upgrades']
+    LOOP
+        EXECUTE format('DROP TRIGGER IF EXISTS update_%s_modtime ON %I', t, t);
+        EXECUTE format('CREATE TRIGGER update_%s_modtime BEFORE UPDATE ON %I '
+                       'FOR EACH ROW EXECUTE PROCEDURE update_modified_column()', t, t);
+    END LOOP;
+END $$;
+
+-- ============================================================================
 -- Managed toolchain releases (docs/pipeline-manager.md, "The toolchain release")
 -- ============================================================================
 -- `pipeline-bootstrap@V` and `cdk-synth@V` are two plugin rows (system org)
@@ -3201,6 +3423,13 @@ VALUES
      'system', 'system'),
     ('00000000-0000-4000-8000-00000000a002', 'Official catalog', true,
      '{"seeded": "official_catalog", "requestKinds": ["new_version", "listing_update"], "publisherTiers": ["official"], "bumps": ["patch", "minor"], "submitterServiceAccount": "official-catalog-loader", "textOnlyListingUpdates": true, "maxPerListingPerDay": 1, "maxPerDay": 50, "instanceFlag": "OFFICIAL_AUTO_APPROVAL_ENABLED"}',
+     'system', 'system'),
+    -- Official fixes from nightly CVE remediation: a new_version request with
+    -- remediation_id set, submitted by the plugin-remediation service account
+    -- of the system org, still subject to every fixed safety check (signed,
+    -- scanned, no new critical/high, no new secrets / egress / inputs).
+    ('00000000-0000-4000-8000-00000000a003', 'Remediation fixes', true,
+     '{"seeded": "remediation_fixes", "requestKinds": ["new_version"], "publisherTiers": ["official"], "bumps": ["patch", "minor"], "submitterServiceAccount": "plugin-remediation", "remediationOnly": true}',
      'system', 'system')
 ON CONFLICT (id) DO NOTHING;
 
@@ -3545,6 +3774,26 @@ DECLARE
     t TEXT;
 BEGIN
     FOR t IN SELECT unnest(ARRAY['pipeline_runners', 'pipeline_run_requests', 'pipeline_runner_signing_keys', 'pipeline_runner_key_settings'])
+    LOOP
+        EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
+        PERFORM pb_reset_policies(t);
+        EXECUTE format('CREATE POLICY rls_own_org_read ON %I FOR SELECT USING (current_is_sysadmin() OR org_id = current_org_id())', t);
+        EXECUTE format('CREATE POLICY rls_own_org_insert ON %I FOR INSERT WITH CHECK (current_is_sysadmin() OR org_id = current_org_id())', t);
+        EXECUTE format('CREATE POLICY rls_own_org_update ON %I FOR UPDATE USING (current_is_sysadmin() OR org_id = current_org_id()) WITH CHECK (current_is_sysadmin() OR org_id = current_org_id())', t);
+        EXECUTE format('CREATE POLICY rls_own_org_delete ON %I FOR DELETE USING (current_is_sysadmin() OR org_id = current_org_id())', t);
+    END LOOP;
+END $$;
+
+-- Nightly plugin CVE remediation: OWN ORG ONLY, no system-org read carve-out.
+-- A remediation names a version's findings and its patch (the owning org's
+-- business, the system org's Official ones included). A team reads its root's
+-- settings, and the purge sweep retries orphans, under sysadmin scope with
+-- explicit org ids, never through this policy.
+DO $$
+DECLARE
+    t TEXT;
+BEGIN
+    FOR t IN SELECT unnest(ARRAY['plugin_remediations', 'plugin_source_orphans', 'plugin_remediation_settings', 'pipeline_remediation_upgrades'])
     LOOP
         EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
         PERFORM pb_reset_policies(t);
@@ -3944,6 +4193,12 @@ ALTER TABLE plugin_advisory_deliveries FORCE ROW LEVEL SECURITY;
 ALTER TABLE plugin_security_notification_prefs FORCE ROW LEVEL SECURITY;
 ALTER TABLE plugin_kept_setup_images FORCE ROW LEVEL SECURITY;
 
+-- Nightly plugin CVE remediation (own-org policies above).
+ALTER TABLE plugin_remediations FORCE ROW LEVEL SECURITY;
+ALTER TABLE plugin_source_orphans FORCE ROW LEVEL SECURITY;
+ALTER TABLE plugin_remediation_settings FORCE ROW LEVEL SECURITY;
+ALTER TABLE pipeline_remediation_upgrades FORCE ROW LEVEL SECURITY;
+
 -- Managed toolchain tables (dedicated policies above). Written only by the
 -- toolchain console / org-default routes under withTenantTx and read by the
 -- resolver as sysadmin, so a path with no tenant scope must hard-fail.
@@ -3997,7 +4252,7 @@ DROP FUNCTION pb_reset_policies(TEXT);
 
 \echo ''
 \echo '=== RLS POLICIES INSTALLED ==='
-\echo 'FORCE + org scope (SELECT carve-outs; own-org INSERT/UPDATE/DELETE) on every tenant table (58/58):'
+\echo 'FORCE + org scope (SELECT carve-outs; own-org INSERT/UPDATE/DELETE) on every tenant table (62/62):'
 \echo ' - dashboards, dashboard_panels, org_alert_destinations, org_alert_rules, alert_destination_status'
 \echo ' - messages (+ recipient read-state update), message_attachments, pipeline_registry'
 \echo ' - pipeline_runners, pipeline_run_requests, pipeline_runner_signing_keys, pipeline_runner_key_settings (own org only, no system-org read)'
@@ -4006,6 +4261,7 @@ DROP FUNCTION pb_reset_policies(TEXT);
 \echo ' - plugins, pipelines, pipeline_events, DORA tables (hot path)'
 \echo ' - pipeline_step_manifests, plugin_installs, plugin_install_policies, plugin_advisory_deliveries,'
 \echo '   plugin_security_notification_prefs, plugin_kept_setup_images'
+\echo ' - plugin_remediations, plugin_source_orphans, plugin_remediation_settings, pipeline_remediation_upgrades (own org only)'
 \echo ' - toolchain_release, toolchain_platform_default, toolchain_default_history, toolchain_rollout (system org only),'
 \echo '   org_toolchain_default, org_toolchain_default_history (own org; system org reads all)'
 \echo 'App-role-only policy (no FORCE) on the 18 ecosystem-global tables'

@@ -71,11 +71,16 @@ const LOCK_KEY = leaderLockKey('image-registry', 'storage-snapshot');
 
 /** Histogram: seconds a snapshot run spent per phase (`phase=total` is the whole run). */
 export const SNAPSHOT_PHASE_HISTOGRAM = 'registry_storage_snapshot_phase_seconds';
-/**
- * Counter: snapshot reads by outcome (`fresh`, `stale`, `missing`), plus the
- * scheduled cycles that found a recent run and skipped (`skipped_recent`).
- */
+/** Counter: snapshot reads by outcome (`fresh`, `stale`, `missing`) — one per read. */
 export const SNAPSHOT_READS_COUNTER = 'registry_storage_snapshot_reads_total';
+/**
+ * Counter: scheduled snapshot cycles by outcome — `ran` (a full walk completed),
+ * `aborted` (lock lost / shutdown mid-run, nothing marked current) or
+ * `skipped_recent` (another run started within {@link RECENT_RUN_FRACTION} of
+ * the interval). A cycle that throws records nothing here; the scheduler's own
+ * failure signal and `RegistryStorageSnapshotStale` cover it.
+ */
+export const SNAPSHOT_RUNS_COUNTER = 'registry_storage_snapshot_runs_total';
 /**
  * Gauge: epoch seconds the last COMPLETED run (on any pod) finished. Every pod
  * republishes it from the stored marker — the leader as it writes, the others
@@ -353,14 +358,16 @@ export async function runStorageSnapshotCycle(opts: { intervalMs: number; signal
   // recently; judging by completion instead would push every run out by the
   // previous run's duration.
   if (meta && Date.now() - meta.runId < RECENT_RUN_FRACTION * opts.intervalMs) {
-    incCounter(SNAPSHOT_READS_COUNTER, { outcome: 'skipped_recent' });
+    incCounter(SNAPSHOT_RUNS_COUNTER, { outcome: 'skipped_recent' });
     publishSnapshotGauges(meta);
     logger.debug('Storage snapshot cycle skipped — a run started recently', {
       runId: new Date(meta.runId).toISOString(), intervalMs: opts.intervalMs,
     });
     return 'skipped_recent';
   }
-  return (await runStorageSnapshot(opts)) ? 'ran' : 'aborted';
+  const outcome: SnapshotCycleOutcome = (await runStorageSnapshot(opts)) ? 'ran' : 'aborted';
+  incCounter(SNAPSHOT_RUNS_COUNTER, { outcome });
+  return outcome;
 }
 
 /** In-flight targeted refreshes, one per org; `again` coalesces a burst into one re-run. */

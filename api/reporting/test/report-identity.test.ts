@@ -103,6 +103,31 @@ describe('report identity reads', () => {
     });
   });
 
+  describe('orgEntitlement', () => {
+    it('asks whether any active owner/admin still holds the add-on, with the system-org token', async () => {
+      mockGet.mockResolvedValue(ok({ entitled: true }));
+      expect(await httpReportIdentity.orgEntitlement(ORG)).toBe(true);
+      expect(mockGet).toHaveBeenCalledWith(
+        `/internal/reporting/org-entitlement/${ORG}`,
+        { headers: { Authorization: 'Bearer reporting-service-token' } },
+      );
+    });
+
+    it('carries a "not entitled" answer through', async () => {
+      mockGet.mockResolvedValue(ok({ entitled: false }));
+      expect(await httpReportIdentity.orgEntitlement(ORG)).toBe(false);
+    });
+
+    it.each([
+      ['the request throws', () => { mockGet.mockRejectedValue(new Error('ECONNREFUSED')); }],
+      ['platform answers 500', () => { mockGet.mockResolvedValue({ statusCode: 500, body: {} }); }],
+      ['`entitled` is not a boolean', () => { mockGet.mockResolvedValue(ok({ entitled: 'yes' })); }],
+    ])('returns null when %s, so the caller fails closed', async (_case, arrange) => {
+      arrange();
+      expect(await httpReportIdentity.orgEntitlement(ORG)).toBeNull();
+    });
+  });
+
   describe('recipientCheck', () => {
     it('asks about one address and returns what platform said', async () => {
       mockGet.mockResolvedValue(ok({ member: true, userId: 'user-2', displayName: 'Dana Ng' }));
@@ -152,7 +177,7 @@ describe('report identity reads', () => {
 
   it('uses the HTTP implementation by default, and can be swapped for a test double', () => {
     expect(reportIdentity()).toBe(httpReportIdentity);
-    const stub = { authority: async () => null, recipientCheck: async () => null, readers: async () => null };
+    const stub = { authority: async () => null, orgEntitlement: async () => null, recipientCheck: async () => null, readers: async () => null };
     setReportIdentity(stub);
     expect(reportIdentity()).toBe(stub);
   });

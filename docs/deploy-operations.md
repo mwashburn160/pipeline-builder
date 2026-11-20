@@ -46,7 +46,7 @@ The single most important thing on it: **read [What the data tier actually is](#
 
 **What it moves:** the Postgres dump and the Mongo dump, to and from S3 (`restore.sh` requires `--confirm-destructive`). **Optionally** it also mirrors every object-storage bucket with `rclone`, when `S3_BACKUP_TARGET_URL` is set — the source side (`S3_ENDPOINT` plus root credentials) is already in every target's `.env`, so only the destination is opt-in.
 
-The buckets mirrored are the canonical `PB_OBJECTSTORE_BUCKETS` list in `deploy/bin/common.sh`: message-attachments, registry, loki, thanos, plugins, plugin-quarantine, audit-heads. A deploy-contract test keeps that list equal to what each target's `rustfs-init` bootstrap Job creates and what the EKS CronJob mirrors.
+The buckets mirrored are the canonical `PB_OBJECTSTORE_BUCKETS` list in `deploy/bin/common.sh`: message-attachments, registry, loki, thanos, plugins, plugin-quarantine, plugin-sources, audit-heads. A deploy-contract test keeps that list equal to what each target's `rustfs-init` bootstrap Job creates and what the EKS CronJob mirrors.
 
 ### Secret generation is automatic and per-deploy
 
@@ -154,6 +154,15 @@ Restore with `restore.sh --object-store --confirm-destructive`, a reverse mirror
 
 Leaving `S3_BACKUP_TARGET_URL` unset is a deliberate opt-out — but **a DB-only restore can't rebuild a working platform without the blobs.**
 
+#### Kept plugin sources (`plugin-sources`)
+
+Every stored plugin version built from a ZIP keeps its build context in `plugin-sources` (`<orgId>/<pluginId>/<version>/<sha256>.zip`, plus remediation patches), with a pointer and SHA-256 in the `plugins` row. Nightly CVE remediation rebuilds and patches from it, so it belongs in the same restore as the Postgres dump:
+
+1. Restore the dumps, then `restore.sh --object-store --confirm-destructive`. The mirror includes `plugin-sources` on every target.
+2. The mirror holds the **decrypted** bytes (`rclone` reads through the S3 API), and the restore writes them back through it, so they are re-encrypted under whatever `RUSTFS_SSE_S3_MASTER_KEY` the restored RustFS has. Restoring the RustFS **drives** instead (PVC or EBS snapshots) needs the original master key from `.env`.
+3. **A source the restore did not bring back is not an outage.** The next remediation that reads it finds the object missing, marks that version source-less (`source_kind='none'`, overlay-only remediation from then on) and counts `plugin_source_missing_total`, which fires `PluginSourcesMissing`. Nothing fails its checksum every night. Restore the bucket again if it was left out; a version already marked source-less stays so until its owner uploads a new version.
+4. A source that is present but whose SHA-256 no longer matches fails its remediation closed (`SOURCE_CHECKSUM_MISMATCH`, `PluginRemediationErrors`). A restore never causes that — the bytes are the same — so treat it as tampering.
+
 ## Secret rotation
 
 **There is deliberately NO blind `--rotate` flag.** A naive "regenerate `.env`" would rewrite passwords **out of sync with the running databases and break them** — the password in `.env` must match what the DB actually accepts. Rotate per secret, in order.
@@ -234,7 +243,7 @@ Tightening the **Mongo** RPO below a day means running `backup.sh` more often �
 
 | Location | Holds |
 |---|---|
-| `deploy/<target>/.env` | `SECRET_ENCRYPTION_KEY` |
+| `deploy/<target>/.env` | `SECRET_ENCRYPTION_KEY`, and `RUSTFS_SSE_S3_MASTER_KEY` (the at-rest key for `plugin-sources` — needed to read the RustFS drives back, not the `rclone` mirror) |
 | `deploy/<target>/certs/` | The ES256 user-token key, the per-service internal signing keys, the image-registry token keypair, the gateway TLS material |
 | `deploy/<target>/mongodb-keyfile` | The replica-set key |
 
@@ -269,6 +278,13 @@ Several stateful services store into **RustFS** (S3-compatible, on every deploy 
 | `registry` | Docker registry (S3 storage driver — now **stateless**, no PVC) | `registry-svc` |
 | `loki` | Loki (chunks + index; `/loki` is now ephemeral scratch) | `loki-svc` |
 | `thanos` | Thanos sidecar (Prometheus 2h TSDB blocks, long-term) — read back via the store-gateway and querier | `thanos-svc` |
+| `plugins` | plugin service: transient build-context ZIPs (7-day expiry backstop) | `plugin-svc` |
+| `plugin-quarantine` | plugin service: anonymous-submission ZIPs (30-day expiry) | `plugin-svc` |
+| `plugin-sources` | plugin service: every stored version's kept build source and remediation patches. **Unversioned**, **SSE-S3** (`RUSTFS_SSE_S3_MASTER_KEY`), **no expiry** — a purge deletes the version's prefix — plus a 1-day noncurrent-version expiry as a backstop. `rustfs-init` asserts all four and proves an encrypted write before it exits | `plugin-svc` |
+
+The plugin service's `plugin-svc` user (`PLUGIN_S3_ACCESS_KEY_ID` / `PLUGIN_S3_SECRET_ACCESS_KEY`) reaches those three buckets and nothing else — not message attachments, not the registry — and no other service holds it.
+
+**Lifecycle rules converge on every run.** `rc bucket lifecycle rule add` is not idempotent (each call stacks another copy), so `rustfs-init` adds each of its rules through `ensure_rule`: it adds the rule only when no identical copy exists, removes surplus copies left by an older init, and fails unless exactly one remains. A rule is recognised as the init's own by its whole content (enabled, that one expiration action, that day count), so a rule you add by hand — with a prefix, another day count, or disabled — is never removed. Changing `BACKUP_RETENTION_DAYS` therefore adds the new db-backups rule beside the old one; remove the old one with `rc bucket lifecycle rule remove --id`.
 
 See `deploy/aws/eks/k8s/rustfs.yaml` and each other target's `k8s/rustfs.yaml` for the full reasoning.
 
@@ -303,7 +319,7 @@ An org's registry storage is **measured**, not metered: its own `org-<id>/*` rep
 
 **When it reads as unknown.** No marker yet (a fresh install, ~30 s + one run), or a last completed run older than **2 × interval + that run's duration**: every org reads as unknown, the gate refuses every push by an org with a storage cap (`QUOTA_STORAGE_FAIL_OPEN=true` admits them) and the route answers 503 so the dashboard shows storage as unmeasured. An org whose own scan was incomplete reads as unknown on its own. Orgs with unlimited storage are never measured or refused. A failed run (catalog unlistable, lock lost) writes no marker, so the previous run stays in charge until it ages out.
 
-**Signals.** Gauges `registry_storage_snapshot_last_success_timestamp_seconds` and `registry_storage_snapshot_interval_seconds`, republished by **every** replica from the stored marker (the leader as it writes, the others each cycle), so a non-leader reports the fleet's last success. Histogram `registry_storage_snapshot_phase_seconds{phase}` (`catalog`, `publication_records`, `tags`, `manifests`, `blob_heads`, `total`; the three call phases are summed call time, so with concurrency they can exceed `total`). Counter `registry_storage_snapshot_reads_total{outcome}`: `fresh`, `stale`, `missing` per read, and `skipped_recent` per cycle that found a recent run. One `Storage snapshot complete` log line per run with `phaseMs` and the slowest orgs.
+**Signals.** Gauges `registry_storage_snapshot_last_success_timestamp_seconds` and `registry_storage_snapshot_interval_seconds`, republished by **every** replica from the stored marker (the leader as it writes, the others each cycle), so a non-leader reports the fleet's last success. Histogram `registry_storage_snapshot_phase_seconds{phase}` (`catalog`, `publication_records`, `tags`, `manifests`, `blob_heads`, `total`; the three call phases are summed call time, so with concurrency they can exceed `total`). Counter `registry_storage_snapshot_reads_total{outcome}`: `fresh`, `stale`, `missing`, one per read. Counter `registry_storage_snapshot_runs_total{outcome}`, one per scheduled cycle on the pod that held the lock: `ran` (a full walk completed and was marked current), `aborted` (lock lost or shutdown part-way; nothing marked current) and `skipped_recent` (another pod's run started within 0.9 of the interval). A cycle that throws counts in none of them; the stale alert covers it. One `Storage snapshot complete` log line per run with `phaseMs` and the slowest orgs.
 
 | Alert | Fires when | Severity |
 |-------|-----------|----------|
@@ -592,6 +608,20 @@ and an org can never reach a cap of 3. Nothing denies, so nothing times out. The
 become live the moment that concurrency is raised — which is also the moment the
 per-org cap starts doing real work.
 
+### Plugin remediation alerts
+
+In `alert-rules.yml` on **all four targets**, read from the plugin service's `/metrics`; the promtool cases are in the minikube suite (which covers the three Kubernetes copies) and in `deploy/local/docker/config/prometheus/alert-rules.test.yml`. Runbook: [Kept plugin sources](#kept-plugin-sources-plugin-sources) and [Plugin Publishing](plugin-publishing.md#automatic-remediation).
+
+| Alert | Fires when | Severity |
+|-------|-----------|----------|
+| `PluginRemediationErrors` | a remediation ended with outcome `error` in the last 6 h (a job error or `SOURCE_CHECKSUM_MISMATCH`; "could not fix" is `needs_owner`, not an error) | warning |
+| `PluginSourceDeleteFailing` | a purge could not delete a version's `plugin-sources` prefix, an org's prefix, or a purged image (`plugin_source_delete_failures_total{kind}`); the leftover is retried from `plugin_source_orphans` | warning |
+| `PluginSourcesMissing` | a version's kept source was missing when read (after a restore) and the version became source-less | warning |
+| `PluginSourceChecksumMismatch` | a kept source in `plugin-sources` no longer hashes to its recorded SHA-256 (`plugin_source_checksum_mismatch_total`); treated as tampering, the remediation failed closed with `SOURCE_CHECKSUM_MISMATCH` | critical |
+| `PluginRemediationCanaryStale` | the system org's per-package-type fixture plugins have not all come out fixed for 48 h | warning |
+
+Turning remediation off (`PLUGIN_REMEDIATION_ENABLED=false`) silences the error and canary rules (nothing runs); the delete and missing-source rules keep working, because source retention and purge do not depend on it.
+
 ### Storage alerts
 
 In `alert-rules.yml` on the three Kubernetes targets. Fed by two scrape jobs
@@ -719,7 +749,7 @@ accepts writes at all, because RustFS exposes no Prometheus endpoint of its own.
 
 #### Inhibition: suppressing consequences, and what cannot be suppressed
 
-At 234 rules one root cause is a pager flood, and a flood is functionally the same
+At 239 rules one root cause is a pager flood, and a flood is functionally the same
 as no alert. The inhibition tree in `alertmanager.yml` suppresses the consequences
 of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service
 being down.

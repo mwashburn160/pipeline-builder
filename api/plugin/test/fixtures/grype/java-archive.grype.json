@@ -1,0 +1,281 @@
+{
+ "matches": [
+  {
+   "vulnerability": {
+    "id": "GHSA-jfh8-c2jp-5v3q",
+    "dataSource": "https://github.com/advisories/GHSA-jfh8-c2jp-5v3q",
+    "namespace": "github:language:java",
+    "severity": "Critical",
+    "urls": [
+     "https://nvd.nist.gov/vuln/detail/CVE-2021-44228",
+     "https://github.com/apache/logging-log4j2/pull/608"
+    ],
+    "description": "Remote code injection in Log4j",
+    "cvss": [
+     {
+      "type": "Secondary",
+      "version": "3.1",
+      "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H/E:H",
+      "metrics": {
+       "baseScore": 10,
+       "exploitabilityScore": 3.9,
+       "impactScore": 6.1
+      },
+      "vendorMetadata": {}
+     }
+    ],
+    "knownExploited": [
+     {
+      "cve": "CVE-2021-44228",
+      "vendorProject": "Apache",
+      "product": "Log4j2",
+      "dateAdded": "2021-12-10",
+      "requiredAction": "For all affected software assets for which updates exist, the only acceptable remediation actions are: 1) Apply updates; OR 2) remove affected assets from agency networks. Temporary mitigations using one of the measures provided at https://www.cisa.gov/uscert/ed-22-02-apache-log4j-recommended-mitigation-measures are only acceptable until updates are available.",
+      "dueDate": "2021-12-24",
+      "knownRansomwareCampaignUse": "known",
+      "urls": [
+       "https://nvd.nist.gov/vuln/detail/CVE-2021-44228"
+      ],
+      "cwes": [
+       "CWE-20",
+       "CWE-400",
+       "CWE-502"
+      ]
+     }
+    ],
+    "epss": [
+     {
+      "cve": "CVE-2021-44228",
+      "epss": 0.99999,
+      "percentile": 1,
+      "date": "2026-11-19"
+     }
+    ],
+    "cwes": [
+     {
+      "cve": "CVE-2021-44228",
+      "cwe": "CWE-20",
+      "source": "security@apache.org",
+      "type": "Secondary"
+     },
+     {
+      "cve": "CVE-2021-44228",
+      "cwe": "CWE-400",
+      "source": "security@apache.org",
+      "type": "Secondary"
+     },
+     {
+      "cve": "CVE-2021-44228",
+      "cwe": "CWE-502",
+      "source": "security@apache.org",
+      "type": "Secondary"
+     },
+     {
+      "cve": "CVE-2021-44228",
+      "cwe": "CWE-917",
+      "source": "nvd@nist.gov",
+      "type": "Secondary"
+     }
+    ],
+    "fix": {
+     "versions": [
+      "2.15.0"
+     ],
+     "state": "fixed",
+     "available": [
+      {
+       "version": "2.15.0",
+       "date": "2021-12-10",
+       "kind": "first-observed"
+      }
+     ]
+    },
+    "advisories": [],
+    "risk": 100
+   },
+   "relatedVulnerabilities": [
+    {
+     "id": "CVE-2021-44228",
+     "dataSource": "https://nvd.nist.gov/vuln/detail/CVE-2021-44228",
+     "namespace": "nvd:cpe",
+     "severity": "Critical",
+     "urls": [
+      "http://packetstormsecurity.com/files/165225/Apache-Log4j2-2.14.1-Remote-Code-Execution.html",
+      "http://packetstormsecurity.com/files/165260/VMware-Security-Advisory-2021-0028.html"
+     ],
+     "description": "Apache Log4j2 2.0-beta9 through 2.15.0 (excluding security releases 2.12.2, 2.12.3, and 2.3.1) JNDI features used in configuration, log messages, and parameters do not protect against attacker controlled LDAP and other JNDI related endpoints. An attacker who can control log messages or log message p",
+     "cvss": [
+      {
+       "source": "nvd@nist.gov",
+       "type": "Primary",
+       "version": "3.1",
+       "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H",
+       "metrics": {
+        "baseScore": 10,
+        "exploitabilityScore": 3.9,
+        "impactScore": 6.1
+       },
+       "vendorMetadata": {}
+      },
+      {
+       "source": "nvd@nist.gov",
+       "type": "Primary",
+       "version": "2.0",
+       "vector": "AV:N/AC:M/Au:N/C:C/I:C/A:C",
+       "metrics": {
+        "baseScore": 9.3,
+        "exploitabilityScore": 8.6,
+        "impactScore": 10.1
+       },
+       "vendorMetadata": {}
+      },
+      {
+       "source": "134c704f-9b21-4f2e-91b3-4a467353bcc0",
+       "type": "Secondary",
+       "version": "3.1",
+       "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H",
+       "metrics": {
+        "baseScore": 10,
+        "exploitabilityScore": 3.9,
+        "impactScore": 6.1
+       },
+       "vendorMetadata": {}
+      }
+     ],
+     "knownExploited": [
+      {
+       "cve": "CVE-2021-44228",
+       "vendorProject": "Apache",
+       "product": "Log4j2",
+       "dateAdded": "2021-12-10",
+       "requiredAction": "For all affected software assets for which updates exist, the only acceptable remediation actions are: 1) Apply updates; OR 2) remove affected assets from agency networks. Temporary mitigations using one of the measures provided at https://www.cisa.gov/uscert/ed-22-02-apache-log4j-recommended-mitigation-measures are only acceptable until updates are available.",
+       "dueDate": "2021-12-24",
+       "knownRansomwareCampaignUse": "known",
+       "urls": [
+        "https://nvd.nist.gov/vuln/detail/CVE-2021-44228"
+       ],
+       "cwes": [
+        "CWE-20",
+        "CWE-400",
+        "CWE-502"
+       ]
+      }
+     ],
+     "epss": [
+      {
+       "cve": "CVE-2021-44228",
+       "epss": 0.99999,
+       "percentile": 1,
+       "date": "2026-11-19"
+      }
+     ],
+     "cwes": [
+      {
+       "cve": "CVE-2021-44228",
+       "cwe": "CWE-20",
+       "source": "security@apache.org",
+       "type": "Secondary"
+      },
+      {
+       "cve": "CVE-2021-44228",
+       "cwe": "CWE-400",
+       "source": "security@apache.org",
+       "type": "Secondary"
+      },
+      {
+       "cve": "CVE-2021-44228",
+       "cwe": "CWE-502",
+       "source": "security@apache.org",
+       "type": "Secondary"
+      },
+      {
+       "cve": "CVE-2021-44228",
+       "cwe": "CWE-917",
+       "source": "nvd@nist.gov",
+       "type": "Secondary"
+      }
+     ]
+    }
+   ],
+   "matchDetails": [
+    {
+     "type": "exact-direct-match",
+     "matcher": "java-matcher",
+     "searchedBy": {
+      "language": "java",
+      "namespace": "github:language:java",
+      "package": {
+       "name": "org.apache.logging.log4j:log4j-core",
+       "version": "2.14.1"
+      }
+     },
+     "found": {
+      "vulnerabilityID": "GHSA-jfh8-c2jp-5v3q",
+      "versionConstraint": ">=2.13.0,<2.15.0 (unknown)"
+     },
+     "fix": {
+      "suggestedVersion": "2.15.0"
+     }
+    }
+   ],
+   "artifact": {
+    "id": "Package-java-archive-log4j-core-625a5fe05b71fb18",
+    "name": "log4j-core",
+    "version": "2.14.1",
+    "type": "java-archive",
+    "locations": null,
+    "language": "java",
+    "licenses": [],
+    "cpes": [
+     "cpe:2.3:a:apache:log4j-core:2.14.1:*:*:*:*:*:*:*",
+     "cpe:2.3:a:apache:log4j_core:2.14.1:*:*:*:*:*:*:*",
+     "cpe:2.3:a:apache:log4j:2.14.1:*:*:*:*:*:*:*",
+     "cpe:2.3:a:apache:core:2.14.1:*:*:*:*:*:*:*"
+    ],
+    "purl": "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1",
+    "upstreams": [],
+    "metadataType": "JavaMetadata",
+    "metadata": {
+     "virtualPath": "",
+     "pomArtifactID": "log4j-core",
+     "pomGroupID": "org.apache.logging.log4j",
+     "manifestName": "",
+     "archiveDigests": [
+      {
+       "algorithm": "sha1",
+       "value": "9d941a0e1b5f4bc75ecca04b9507d2a672d91843"
+      }
+     ]
+    }
+   }
+  }
+ ],
+ "source": {
+  "type": "image",
+  "target": {
+   "userInput": "/w/fixture.tar:sha256:e83e2fb0b007d2a3eb104b5d08b1f354e59748e4445ccd0166ca4f48b9168df9",
+   "imageID": "DocumentRoot-Image--w-fixture.tar",
+   "manifestDigest": "sha256:e83e2fb0b007d2a3eb104b5d08b1f354e59748e4445ccd0166ca4f48b9168df9",
+   "mediaType": "",
+   "tags": [],
+   "imageSize": 0,
+   "layers": null,
+   "manifest": null,
+   "config": null,
+   "repoDigests": [],
+   "architecture": "",
+   "os": ""
+  }
+ },
+ "distro": {
+  "name": "debian",
+  "version": "11.0",
+  "idLike": [
+   "debian"
+  ]
+ },
+ "descriptor": {
+  "name": "grype",
+  "version": "0.121.1"
+ }
+}

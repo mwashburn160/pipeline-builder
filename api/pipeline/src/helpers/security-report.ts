@@ -28,8 +28,12 @@ import type { SecurityReportFormat } from '@pipeline-builder/pipeline-core';
 /** At most this many Critical/High findings are stored per report (counts are never capped). */
 export const SECURITY_REPORT_MAX_FINDINGS = 200;
 
-/** One stored finding: the plugin-scan shape plus where it was found. */
-export interface ArtifactFinding extends PluginScanFinding {
+/**
+ * One stored finding: the plugin-scan shape plus where it was found. A
+ * pipeline's uploaded report (SARIF, trivy, grype) is not a plugin image scan,
+ * so it carries none of the remediation package details (type, purl, layers).
+ */
+export interface ArtifactFinding extends Omit<PluginScanFinding, 'packageType' | 'purl' | 'locations'> {
   /** The scanned target — an image layer, a lockfile, a source path. */
   target?: string;
 }

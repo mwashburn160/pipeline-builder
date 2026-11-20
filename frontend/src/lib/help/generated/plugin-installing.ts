@@ -1,6 +1,6 @@
 // GENERATED FROM docs/plugin-installing.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: e0dcb35e918e47196f8161b331c371f8e8568050a86f5f8b7ebeb74488e02200
+// SOURCE-SHA256: afa6a62fbc6f9b11061943096a72a634cc36718bcba865f608530f754ef90fc7
 // SPDX-License-Identifier: Apache-2.0
 import { PackagePlus } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -35,6 +35,7 @@ export const pluginInstallingTopic: HelpTopic = {
             "Shadowing is the trap to know. An own-org plugin with the same name as an Official listing wins for unqualified references — add publisher: to use the listing.",
             "Some versions never resolve, whatever your pin says: yanked, paused, or flagged by a vulnerability rescan.",
             "Nightly rescans can flag a version you already use, which is why the warning path exists rather than a hard block by default.",
+            "A platform-built fix can move your pipelines for you, proposed or applied in waves with automatic rollback, and each pipeline can opt out. See Remediation upgrades.",
             "Pipeline create and update check installs per step, and report every unresolvable reference at once."
           ]
         }
@@ -399,6 +400,101 @@ export const pluginInstallingTopic: HelpTopic = {
         {
           "type": "text",
           "content": "Your organization decides who is told about rescan findings under Settings → Organization → Plugin security notifications (see Notifications)."
+        },
+        {
+          "type": "text",
+          "content": "Remediation upgrades"
+        },
+        {
+          "type": "text",
+          "content": "When the platform publishes a fixed version of a flagged plugin (see Automatic remediation), a rollout moves pipelines onto it, so the fix doesn't wait for someone to notice."
+        },
+        {
+          "type": "text",
+          "content": "Who gets it."
+        },
+        {
+          "type": "list",
+          "items": [
+            "A step or install on a patch, minor or latest policy already admits the fix and picks it up at its next synth. The rollout triggers that synth (a redeploy), so the fix doesn't wait for the next code change.",
+            "A pinned step or pinned install is moved through the same path as Upgrade plugins, which re-runs template validation, the contract check and compliance on each pipeline. Each move is audited as pipeline.plugin.upgraded with the actor system:plugin-remediation.",
+            "An install whose change needs approval (plugin_installs:manage) gets a change request instead, never an automatic move.",
+            "For an Official plugin, the fix arrives as a new listing version and the rollout runs against listing installs in every organization.",
+            "A team can't change an install it inherits from its root organization, so the root's rollout moves inherited installs. Teams get proposals only for pins in their own pipelines."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Choosing the mode. Each level picks off (publish and notify only), propose (open an upgrade proposal on the pipeline, listing the CVEs it clears, for its owners to Apply) or apply (upgrade and redeploy automatically, in waves). The most specific setting wins:"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Level",
+            "Setting",
+            "Values"
+          ],
+          "rows": [
+            [
+              "Root organization",
+              "rollout under Settings → Organization → Plugin security",
+              "off, propose (default), apply"
+            ],
+            [
+              "Team",
+              "the same setting on the team",
+              "inherit (default), off, propose, apply"
+            ],
+            [
+              "Pipeline",
+              "Plugin security fixes on the pipeline (remediationUpgrades on PUT /api/pipelines/:id, pipelines:write)",
+              "inherit (default), off, propose, apply"
+            ]
+          ]
+        },
+        {
+          "type": "list",
+          "items": [
+            "Opting out is always allowed. A pipeline set to off is skipped in every wave and never moved automatically.",
+            "Opting in to apply can be limited. The root organization's allowPipelineApply (default on) decides whether a pipeline may choose apply when its organization's default is propose or off. When it is off, choosing apply is refused with 403 PIPELINE_REMEDIATION_APPLY_NOT_ALLOWED, and the pipeline settings show Apply greyed out.",
+            "Opting out hides nothing. An opted-out pipeline still gets its warnings, exposures and notices for the flagged version, and its page shows the fix it isn't using. A KEV-listed finding adds a banner naming the opt-out.",
+            "A rollout in progress re-reads each pipeline's setting just before moving it, so a change made mid-rollout is honoured. Changes are audited as pipeline.remediation-upgrades.update with before and after."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "The pipeline list filters opted-out pipelines (GET /api/pipelines?remediationUpgrades=off). The pipeline's security tab shows its election, open proposals, wave status and rollback history (GET /api/pipelines/:id/remediation-upgrades); Apply and Dismiss act on one proposal."
+        },
+        {
+          "type": "text",
+          "content": "Waves, in apply mode."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Canary: up to 5 pipelines, preferring ones that ran successfully in the last 7 days. The rollout waits for each canary run; if one fails on a step using the new version, the rollout stops.",
+            "Batches of 50, within your organization's run limits, each waiting for the previous batch's runs to start."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Every redeploy goes through your organization's runner. A pipeline whose runner is unhealthy is skipped, retried in a later wave, and counted separately."
+        },
+        {
+          "type": "text",
+          "content": "Rollback. A run that fails on a step using the new version within 24 hours of the move puts that pipeline back on its previous version and notifies its owners (N38). The failed step is mapped to its plugin through the pipeline's stored step-to-plugin mapping; a pipeline with no mapping is rolled back on any failed run in the window."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Two rollbacks in one rollout pause it, and the remediation is marked needs review. The version stays published, so owners can still choose it.",
+            "Rollback only goes to a live version. If the previous version has been deleted since, that pipeline's rollout pauses and its owners are told, with the live versions they can choose.",
+            "Rollback never restores a version with a KEV-listed Critical unless a risk acceptance covers it."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "When the rollout finishes or pauses, your plugin security recipients are told (N37)."
         }
       ]
     },
@@ -775,6 +871,36 @@ export const pluginInstallingTopic: HelpTopic = {
               "The managed toolchain release your org default names was yanked or deprecated, picked up a KEV-listed or fixable Critical finding, or fell more than three promoted releases behind the platform default; or a release your pipelines pin was yanked (the notice names them). Also the Toolchain console's announcements: the platform default moved (\"updating to X\" if your org follows it, \"a newer platform toolchain is available\" if it has its own default), your org was added to a canary, or pipelines whose synth failed on a release need pipeline-manager pipeline deploy --id <id> to recover (the notice names them)",
               "Your toolchain:manage holders (a team without any: its root's, then the owners); for pins and the recovery notice, your pipeline writers",
               "In-app + email, immediate (Pipeline toolchain default)"
+            ],
+            [
+              "N36",
+              "A fixed version of one of your plugins was published, or is awaiting approval in propose mode",
+              "Your plugin security recipients",
+              "In-app + email; follows your digest setting"
+            ],
+            [
+              "N37",
+              "A remediation rollout finished or paused",
+              "Your plugin security recipients, plus the pipeline owners of affected organizations (notifyPipelineOwners)",
+              "In-app + email"
+            ],
+            [
+              "N38",
+              "A pipeline was rolled back off a remediation fix",
+              "That pipeline's owners (notifyPipelineOwners)",
+              "In-app + email"
+            ],
+            [
+              "N39",
+              "A remediation left findings it couldn't fix — each with its package, CVE, fixed version, reason and the upgrade level it would need",
+              "Your plugin security recipients",
+              "In-app + email"
+            ],
+            [
+              "N40",
+              "A fix request was sent to a third-party listing's publisher (with the findings and a suggested patch); installers are told it was sent",
+              "The publisher's publishers:manage members; installers' plugin_installs:manage members",
+              "In-app + email"
             ]
           ]
         },
@@ -1226,6 +1352,11 @@ export const pluginInstallingTopic: HelpTopic = {
               "DUPLICATE_ENTRY",
               "409",
               "You already reviewed this plugin (edit it instead), or already reported this review."
+            ],
+            [
+              "PIPELINE_REMEDIATION_APPLY_NOT_ALLOWED",
+              "403",
+              "Your root organization does not let a pipeline choose apply for remediation upgrades while the organization default is propose or off. Choose inherit, off or propose."
             ]
           ]
         }

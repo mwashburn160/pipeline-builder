@@ -152,6 +152,9 @@ jest.unstable_mockModule('../src/routes/purge-plugin.js', () => ({ createPurgePl
 jest.unstable_mockModule('../src/routes/public-directory.js', () => ({ createPublicDirectoryRoutes: () => Router() }));
 jest.unstable_mockModule('../src/routes/public-submissions.js', () => ({ createPublicSubmissionRoutes: () => Router() }));
 jest.unstable_mockModule('../src/routes/kept-setup-images.js', () => ({ createKeptSetupImageRoutes: () => Router() }));
+jest.unstable_mockModule('../src/routes/remediations.js', () => ({ createRemediationRoutes: () => Router() }));
+jest.unstable_mockModule('../src/routes/plugin-by-name.js', () => ({ createPluginByNameRoutes: () => Router() }));
+jest.unstable_mockModule('../src/routes/internal-remediation.js', () => ({ createInternalRemediationRoutes: () => Router() }));
 // Purge-scheduler deps the index now imports — mock so the real pipeline-data
 // barrel / pluginService aren't pulled into this route-mount test.
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({ pluginService: {} }));
@@ -173,6 +176,9 @@ jest.unstable_mockModule('../src/services/ecosystem/maintenance.js', () => ({
 // The approved-request retry sweep — index.ts builds + starts it at boot.
 jest.unstable_mockModule('../src/services/ecosystem/execution.js', () => ({
   createEcosystemExecutionScheduler: () => ({ start: () => undefined, stop: () => undefined }),
+  // Imported by the decision / auto-approval paths (linked, never reached here).
+  claimPayload: () => ({}),
+  executeClaimNow: async () => ({ ran: false }),
 }));
 // The ecosystem gauge sampler — index.ts builds + starts it at boot.
 jest.unstable_mockModule('../src/services/ecosystem/metrics.js', () => ({

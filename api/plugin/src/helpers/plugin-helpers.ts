@@ -58,6 +58,15 @@ interface PluginRow {
 const PLUGIN_ARRAY_FIELDS = ['keywords', 'installCommands', 'commands'] as const;
 
 /**
+ * Columns that never leave the plugin service: a kept build source's object
+ * key and checksum (server-side remediation bookkeeping). Its size, kind,
+ * kept-at time and the delete batch are answered (the Storage section and the
+ * batch restore read them). {@link shapePlugin} strips these, and `?fields=`
+ * refuses to name them.
+ */
+export const PLUGIN_SERVER_ONLY_FIELDS = ['sourceKey', 'sourceSha256'] as const;
+
+/**
  * Shape a Plugin row for HTTP responses: normalize array-typed columns and
  * attach the computed `uri`. Single seam so all read routes return the
  * same shape.
@@ -71,6 +80,7 @@ export function shapePlugin<P extends PluginRow>(plugin: P): P & { uri?: string 
     plugin as unknown as Record<string, unknown>,
     [...PLUGIN_ARRAY_FIELDS],
   ) as unknown as P;
+  for (const field of PLUGIN_SERVER_ONLY_FIELDS) delete (normalized as Record<string, unknown>)[field];
   // A sparse-fieldset list row (`?fields=`) may omit the columns the URI is
   // derived from; omit `uri` then rather than emit "org-undefined/…:undefined".
   const hasUriParts = [plugin.orgId, plugin.name, plugin.version].every((v) => typeof v === 'string' && v !== '');

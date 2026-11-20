@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/Badge';
 import { VulnSeverityBadge } from '@/components/plugin/VulnSeverity';
 import { ApiError } from '@/lib/api/errors';
 import type { PluginVersionInUseDetails } from '@/lib/api/pipeline-security-types';
+import type { PluginDeleteSkip, PluginDeleteSkipReason } from '@/types/plugin-remediation';
 
 /** A delete / purge refused because pipelines still reference the version. */
 export interface PluginInUseRefusal {
@@ -95,5 +96,43 @@ export function PluginInUseModal({ refusal, onClose }: { refusal: PluginInUseRef
         <p className="text-xs text-fg-subtle">{refusal.message}</p>
       </div>
     </Modal>
+  );
+}
+
+/** Why "Delete plugin" leaves a version in place, in words. */
+export const PLUGIN_DELETE_SKIP_LABELS: Record<PluginDeleteSkipReason, string> = {
+  in_use: 'Used by pipelines',
+  frozen: 'Frozen by a publish request',
+  listed: 'Listed in the ecosystem',
+};
+
+/**
+ * The versions a whole-plugin delete skipped (or would skip), each with its
+ * reason and — for one still in use — the pipelines using it, linked to their
+ * Plugin security tab like the single-version refusal above.
+ */
+export function PluginDeleteSkipList({ name, skipped }: { name: string; skipped: PluginDeleteSkip[] }) {
+  if (skipped.length === 0) return null;
+  return (
+    <ul className="space-y-2" aria-label="Skipped versions" data-testid="plugin-delete-skipped">
+      {skipped.map((s) => (
+        <li key={s.id} className="rounded-md border border-default p-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-mono text-xs">{name}@{s.version}</span>
+            <Badge color={s.reason === 'in_use' ? 'yellow' : 'gray'}>{PLUGIN_DELETE_SKIP_LABELS[s.reason] ?? s.reason}</Badge>
+          </div>
+          {s.reason === 'in_use' && (s.pipelines?.length ?? 0) > 0 && (
+            <ul className="mt-1 space-y-0.5 text-xs">
+              {s.pipelines!.map((p) => (
+                <li key={p.id} className="flex items-center justify-between gap-2">
+                  <Link href={`/dashboard/pipelines/${p.id}`} className="action-link">{p.name || p.id}</Link>
+                  <Link href={`/dashboard/pipelines/${p.id}?tab=security`} className="action-link">Upgrade plugins →</Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </li>
+      ))}
+    </ul>
   );
 }

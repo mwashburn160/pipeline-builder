@@ -25,6 +25,20 @@ const SAMPLES: Record<keyof typeof PLUGIN_INTERNAL, ContractSample> = {
   orgImageReferences: { query: { orgId: 'acme' }, response: { digests: [DIGEST] } },
   purgeOrg: { params: { orgId: 'acme' }, response: { orgId: 'acme', tables: { plugins: 3, plugin_installs: 1 } } },
   eraseUser: { params: { userId: 'u-1' }, response: { userId: 'u-1', reviews: 2 } },
+  reportRemediationRollout: {
+    params: { remediationId: '00000000-0000-4000-8000-000000000001' },
+    body: {
+      summary: {
+        status: 'canary',
+        toVersion: '1.4.3',
+        waves: [],
+        updatedAt: '2026-11-20T00:00:00.000Z',
+        counts: { eligible: 1, proposed: 0, changeRequested: 0, moved: 0, failed: 0, rolledBack: 0, skippedOptOut: 0, skippedRunner: 0 },
+      },
+      events: [],
+    },
+    response: { remediationId: '00000000-0000-4000-8000-000000000001', stage: 'rolling_out' },
+  },
   imagePipelineReferences: {
     query: { digests: `${DIGEST},${DIGEST}` },
     response: {

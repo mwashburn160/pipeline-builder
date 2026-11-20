@@ -13,6 +13,7 @@ import {
   errorMessage,
   validateQuery,
   PipelineFilterSchema,
+  PIPELINE_REMEDIATION_ELECTIONS,
   requirePermission,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
@@ -30,6 +31,12 @@ export function createReadPipelineRoutes(): Router {
   router.get('/', requirePermission('pipelines:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const filter = validateQuery(req, PipelineFilterSchema);
     if (!filter.ok) return sendBadRequest(res, filter.error);
+    // `?remediationUpgrades=off` — the opted-out pipelines (plugin security fixes election).
+    const { remediationUpgrades } = req.query;
+    if (remediationUpgrades !== undefined
+      && (typeof remediationUpgrades !== 'string' || !(PIPELINE_REMEDIATION_ELECTIONS as readonly string[]).includes(remediationUpgrades))) {
+      return sendBadRequest(res, `remediationUpgrades must be one of ${PIPELINE_REMEDIATION_ELECTIONS.join(', ')}.`, ErrorCode.VALIDATION_ERROR);
+    }
 
     const { limit, offset, sortBy, sortOrder } = parsePaginationParams(
       req.query as Record<string, unknown>,
@@ -51,7 +58,7 @@ export function createReadPipelineRoutes(): Router {
     const parentOrgId = (req.user as { parentOrganizationId?: string } | undefined)?.parentOrganizationId;
 
     const result = await pipelineService.findPaginated(
-      filter.value,
+      (remediationUpgrades ? { ...filter.value, remediationUpgrades } : filter.value) as typeof filter.value,
       orgId,
       { limit, offset, sortBy, sortOrder, includeTotal, cursor, fields },
       parentOrgId,

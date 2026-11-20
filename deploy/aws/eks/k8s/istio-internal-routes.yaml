@@ -47,6 +47,20 @@
 # the routes in BOTH directions — so adding or re-scoping an internal route is a
 # visible change there, and this file is reviewed against that one list.
 #
+# -- Internal routes on Services with NO waypoint -----------------------------
+# pipeline and plugin are not waypoint-attached, so an L7 path rule on them would
+# be enforced by nobody (ztunnel is L4-only). Their internal routes are carried
+# by the app-side gate (`requireInternalService`, callers from the api-core
+# contract) plus the WORKLOAD layer in istio.yaml, and the NetworkPolicy hop in
+# networkpolicy.yaml. That includes the nightly CVE remediation's Stage 3:
+#   plugin   -> POST /pipelines/internal/plugin-remediations/:id/rollout  (start)
+#   plugin   -> POST /pipelines/internal/plugin-remediations/:id/cancel   (cancel)
+#   pipeline -> POST /internal/plugins/remediations/:id/rollout           (report)
+# admitted at L4 by `pipeline-allow` (sa/plugin) and `plugin-allow`
+# (sa/pipeline), and at the CNI by allow-pipeline-from-plugin /
+# allow-plugin-from-pipeline. test/deploy-contracts/test/mesh-callers-contract.test.ts
+# evaluates every contract's callers against these policies on each target.
+#
 # -- Rollback ----------------------------------------------------------------
 # Remove the `istio.io/use-waypoint` label from a Service and its traffic stops
 # going through the waypoint; the policies below then match nothing and the

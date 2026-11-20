@@ -69,6 +69,22 @@ beforeEach(() => {
 });
 
 describe('pipelines catalog', () => {
+  it('filters to pipelines opted out of plugin security fixes, from the URL and from the filter', async () => {
+    mockRouter.pathname = '/dashboard/pipelines';
+    mockRouter.query = { remediationUpgrades: 'off' };
+    render(<PipelinesPage />);
+    await screen.findByText('web-pipeline');
+    await waitFor(() => expect(listPipelines.mock.calls.some(([p]) => (p as Record<string, string>).remediationUpgrades === 'off')).toBe(true));
+
+    mockRouter.query = {};
+    listPipelines.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: /Filters/ }));
+    expect((screen.getByLabelText('Filter by plugin security fixes') as HTMLSelectElement).value).toBe('off');
+    fireEvent.change(screen.getByLabelText('Filter by plugin security fixes'), { target: { value: 'all' } });
+    await waitFor(() => expect(listPipelines).toHaveBeenCalled());
+    expect((listPipelines.mock.calls.at(-1)![0] as Record<string, string>).remediationUpgrades).toBeUndefined();
+  });
+
   it('requests the list columns only — never `props`', async () => {
     mockRouter.pathname = '/dashboard/pipelines';
     mockRouter.query = {};
