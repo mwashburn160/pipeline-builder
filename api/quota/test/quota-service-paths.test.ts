@@ -137,11 +137,27 @@ describe('registry storage filling', () => {
   it('a pool reports its whole subtree against the pooled cap', async () => {
     findOrgWithHierarchy.mockResolvedValue({ self: flat, hasChildren: true });
     expandOrgScope.mockResolvedValue(['o', 't']);
-    find.mockReturnValue({ select: () => ({ lean: async () => [{ ...flat, quotas: { storageBytes: -1 } }, { _id: 't', usage: {} }] }) });
+    find.mockReturnValue({ select: () => ({ lean: async () => [{ ...flat, quotas: { storageBytes: 8_000 } }, { _id: 't', usage: {} }] }) });
     fetchStorageBytes.mockResolvedValue(5_000);
     const quota = await quotaService.findByOrgId('o');
     expect(fetchStorageBytes).toHaveBeenCalledWith(['o', 't']);
-    expect(quota.quotas.storageBytes).toMatchObject({ used: 5_000, remaining: -1 });
+    expect(quota.quotas.storageBytes).toMatchObject({ used: 5_000, remaining: 3_000 });
+  });
+
+  it('unlimited storage is never measured: the registry walk has no figure to compare against', async () => {
+    findOrgWithHierarchy.mockResolvedValue({ self: { ...flat, quotas: { storageBytes: -1 } }, hasChildren: false });
+    const quota = await quotaService.findByOrgId('o');
+    expect(fetchStorageBytes).not.toHaveBeenCalled();
+    expect(quota.quotas.storageBytes).toMatchObject({ limit: -1, remaining: -1 });
+  });
+
+  it('the push gate\'s read for an unlimited org skips the registry and stays allowed', async () => {
+    findOrgWithHierarchy.mockResolvedValue({ self: { ...flat, quotas: { storageBytes: -1 } }, hasChildren: false });
+    resolveRootOrgId.mockResolvedValue('o');
+    const status = await quotaService.getQuotaStatus('o', 'storageBytes');
+    expect(fetchStorageBytes).not.toHaveBeenCalled();
+    expect(expandOrgScope).not.toHaveBeenCalled();
+    expect(status).toMatchObject({ limit: -1, allowed: true });
   });
 
   it('the push gate\'s single-type read asks for a COMPLETE account total, and an unknown one leaves the stored 0', async () => {

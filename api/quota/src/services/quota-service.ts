@@ -476,6 +476,10 @@ export class QuotaService {
   private async fillStorageUsage(response: OrgQuotaResponse): Promise<void> {
     const slot = response.quotas.storageBytes;
     if (!slot) return;
+    // Unlimited storage has no figure to compare against, and the registry walk
+    // behind a reading is expensive (it can time out and trip the S2S breaker).
+    // Skip it rather than spend a registry call on a number nothing acts on.
+    if (slot.limit === -1) return;
     try {
       const scope = response.pool ? await expandOrgScope(response.pool.rootOrgId) : [response.orgId];
       const bytes = await fetchStorageBytes(scope);
@@ -508,6 +512,10 @@ export class QuotaService {
    * own fail-closed rule decides what to do with an unverifiable figure.
    */
   private async withAccountStorage(orgId: string, status: QuotaStatus): Promise<QuotaStatus> {
+    // Unlimited (-1) is allowed whatever is used — the push gate returns before
+    // reading `used` — so measuring here only adds a registry call (and its
+    // timeout) to the token-issuance path.
+    if (status.limit === -1) return status;
     try {
       // The pool ROOT's subtree, not this org's own: a team's storage counts
       // toward the account, which is the whole point of an account budget.
