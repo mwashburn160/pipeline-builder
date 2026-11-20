@@ -56,6 +56,8 @@ type Scope = 'main' | 'http' | 'server' | 'location';
 /** Declared target-specific directives/blocks: exactly these targets carry them. */
 const TARGET_SPECIFIC: { scope: Scope; item: string; targets: Target[]; why: string }[] = [
   { scope: 'main', item: 'pid /tmp/nginx.pid;', targets: ['deploy/local/docker'], why: 'compose runs nginx as UID 101; the default pid path is root-only' },
+  { scope: 'main', item: 'worker_processes 2;', targets: AWS, why: 'auto = one worker per NODE core under a 1-CPU limit; bursts exhausted the CFS quota (nginx throttled ~30% of periods on EKS)' },
+  { scope: 'main', item: 'worker_processes auto;', targets: LOCAL, why: 'left at the default on purpose: the pinned count was only applied where throttling was observed (AWS); minikube keeps a 300m limit, so revisit if it throttles there' },
   { scope: 'http', item: 'resolver 127.0.0.11 valid=30s ipv6=off;', targets: ['deploy/local/docker'], why: 'Docker embedded DNS' },
   { scope: 'http', item: 'resolver kube-dns.kube-system.svc.cluster.local valid=30s ipv6=off;', targets: ['deploy/local/minikube', ...AWS], why: 'cluster DNS' },
   { scope: 'http', item: 'js_import registry_auth from registry-auth.js;', targets: AWS, why: 'registry token-realm rewrite for the public /v2/ route' },
