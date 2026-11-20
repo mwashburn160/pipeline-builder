@@ -183,7 +183,7 @@ spec:
               name: rustfs-console
           resources:
             limits:
-              cpu: "300m"
+              cpu: "1000m"  # 2 workers x full period; 300m throttled ~30% of periods
               memory: 256Mi
             requests:
               cpu: "50m"
