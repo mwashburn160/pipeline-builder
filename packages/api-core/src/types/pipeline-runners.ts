@@ -545,6 +545,8 @@ export type RunnerKeyServiceSource = (typeof RUNNER_KEY_SERVICE_SOURCES)[number]
 export class RunnerKeyServiceUnavailableError extends Error {
   /** The catalog code this maps to. */
   readonly code = 'RUNNERS_UNAVAILABLE' as const satisfies RunnerApiErrorCode;
+  /** The unavailable reason it answers with (`details.reason`): never the operator pause. */
+  readonly reason = 'key_service' as const satisfies RunnersUnavailableReason;
 
   constructor(readonly source: RunnerKeyServiceSource, message: string, options?: { cause?: unknown }) {
     super(message, options);
@@ -558,8 +560,16 @@ export function isRunnerKeyServiceUnavailable(err: unknown): err is RunnerKeySer
     || (err instanceof Error && err.name === 'RunnerKeyServiceUnavailableError' && (err as { code?: unknown }).code === 'RUNNERS_UNAVAILABLE');
 }
 
-/** Why runners are unavailable on this deployment (`available: false`). */
-export const RUNNERS_UNAVAILABLE_REASONS = ['paused', 'encryption_not_configured', 'tables_missing'] as const;
+/**
+ * Why runners are unavailable (`available: false`, and `details.reason` of a
+ * 409 RUNNERS_UNAVAILABLE): `paused` — the operator's pause toggle;
+ * `encryption_not_configured` / `tables_missing` — the deployment is not set
+ * up; `key_service` — a transient key-service failure (the org's KMS config
+ * lookup or KMS itself, {@link RunnerKeyServiceUnavailableError}) while
+ * resolving a signing key: queued runs retry on their own. Only the first
+ * three are ever a deployment-wide `available: false`.
+ */
+export const RUNNERS_UNAVAILABLE_REASONS = ['paused', 'encryption_not_configured', 'tables_missing', 'key_service'] as const;
 export type RunnersUnavailableReason = (typeof RUNNERS_UNAVAILABLE_REASONS)[number];
 
 /** One runner on `GET /pipelines/runners`. Never an AWS account id. */

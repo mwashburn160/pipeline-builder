@@ -11,7 +11,9 @@
  */
 
 import { errorMessage } from '@pipeline-builder/api-core';
-import { EXPECTED_OUTCOMES, RUNNER_DELIVERY_FAILURE_CLASSES, RUNNER_ERROR_CODES } from '@pipeline-builder/api-core/pipeline-runners';
+import {
+  EXPECTED_OUTCOMES, isRunnerKeyServiceUnavailable, RUNNER_DELIVERY_FAILURE_CLASSES, RUNNER_ERROR_CODES, type RunnersUnavailableReason,
+} from '@pipeline-builder/api-core/pipeline-runners';
 import type { RunnerDeps } from './deps.js';
 import type { RunRequestClaimsInput, RunRequestSigner } from './signing.js';
 import type { RunnerRow } from './store.js';
@@ -30,8 +32,11 @@ export type ReplyVerdict =
   | { kind: 'retry'; code: FailureClass | 'DUPLICATE'; transport: boolean; immediate?: boolean }
   /** The pipeline exists but the tagging API cannot see it yet (retry every 15 s, ≤ 60 s). */
   | { kind: 'not_yet_visible' }
-  /** Final refusal with the runner's code. */
-  | { kind: 'fail'; code: string; runnerVersion?: string };
+  /**
+   * Final refusal with the runner's code. A platform RUNNERS_UNAVAILABLE carries
+   * its `reason` (the operator pause, or the key service unreachable).
+   */
+  | { kind: 'fail'; code: string; runnerVersion?: string; reason?: RunnersUnavailableReason };
 
 const OUTCOMES = new Set<string>(RUNNER_OUTCOMES);
 const REPLY_ERRORS = new Set<string>(RUNNER_REPLY_ERRORS);
@@ -96,15 +101,18 @@ export function failureClassOf(err: unknown): { code: FailureClass; immediate: b
  */
 export async function deliverPush(deps: RunnerDeps, runner: RunnerRow, claims: RunRequestClaimsInput): Promise<ReplyVerdict> {
   // The system-org pause: nothing is signed or delivered while it is on.
-  if (await deps.deliveriesPaused()) return { kind: 'fail', code: 'RUNNERS_UNAVAILABLE' };
+  if (await deps.deliveriesPaused()) return { kind: 'fail', code: 'RUNNERS_UNAVAILABLE', reason: 'paused' };
   if (!runner.functionUrl) return { kind: 'fail', code: 'RUNNER_ERROR' };
   // The OWNING org's effective key, from the runner row — never from the request.
   let signer: RunRequestSigner;
   try {
     signer = await deps.signerFor(runner.orgId);
   } catch (err) {
-    const code = (err as { code?: unknown } | null)?.code;
-    return { kind: 'fail', code: code === 'RUNNER_KEY_MISSING' || code === 'RUNNER_KEY_UNREADABLE' ? code : 'RUNNERS_UNAVAILABLE' };
+    const e = err as { code?: unknown; reason?: unknown; details?: { reason?: unknown } } | null;
+    if (e?.code === 'RUNNER_KEY_MISSING' || e?.code === 'RUNNER_KEY_UNREADABLE') return { kind: 'fail', code: e.code };
+    // The key service unreachable (a RunnerRouteError from the signer, or the raw error) says so.
+    const reason = isRunnerKeyServiceUnavailable(err) ? err.reason : e?.details?.reason;
+    return { kind: 'fail', code: 'RUNNERS_UNAVAILABLE', ...(reason === 'key_service' ? { reason } : {}) };
   }
   const jws = signer.sign(claims);
   let verdict: ReplyVerdict;

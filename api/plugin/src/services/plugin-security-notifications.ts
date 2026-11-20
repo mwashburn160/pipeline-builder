@@ -247,7 +247,23 @@ async function webhookSecretOf(prefs: SecurityPrefs): Promise<string | undefined
   }
 }
 
-/** The settings as the API returns them: never the secret, never the address. */
+/** A webhook URL reduced to its scheme and host — what a caller who may not
+ *  change it is shown. Unparsable → null. */
+function redactedWebhookUrl(url: string): string | null {
+  try {
+    return `https://${new URL(url).host}/…`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The settings as the API returns them: never the secret, never the address.
+ * The webhook URL is often bearer-equivalent too (a Slack/Teams incoming
+ * webhook carries its token in the path), so only a caller who may change the
+ * settings (`canEdit` = `org_settings:write`) gets it in full; everyone else
+ * sees its host (`https://host/…`).
+ */
 export async function toApiPrefs(prefs: SecurityPrefs, canEdit: boolean) {
   const email = await externalEmailOf(prefs);
   return {
@@ -256,7 +272,7 @@ export async function toApiPrefs(prefs: SecurityPrefs, canEdit: boolean) {
     notifyRescan: prefs.notifyRescan,
     notifyPipelineOwners: prefs.notifyPipelineOwners,
     digestMode: prefs.digestMode,
-    webhookUrl: prefs.webhookUrl,
+    webhookUrl: prefs.webhookUrl && !canEdit ? redactedWebhookUrl(prefs.webhookUrl) : prefs.webhookUrl,
     hasWebhookSecret: !!prefs.webhookSecret,
     externalEmail: email
       ? {

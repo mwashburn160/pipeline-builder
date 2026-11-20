@@ -24,7 +24,7 @@ import { mockAuthGuard, pageToast } from './helpers/pageMocks';
 import { ApiError, MfaRequiredError } from '../src/lib/api/errors';
 import { PIPELINE_RUNNERS_HREF, RUNNER_ERROR_COPY } from '../src/lib/pipeline-runners';
 import { RUN_REQUEST_POLL } from '../src/hooks/useRunRequestTracker';
-import { runnerErrorBanner } from '../src/components/pipeline/RunnerError';
+import { runnerErrorBanner, runnerErrorMessage } from '../src/components/pipeline/RunnerError';
 import { RUNNER_LINK_CHECK_STALE_MS } from '../src/components/pipeline/RunnerLinkStatus';
 import PipelineDetailPage from '../pages/dashboard/pipelines/[id]';
 
@@ -264,6 +264,16 @@ describe('Re-run through a pipeline runner', () => {
       'RUNNER_PENDING', 'RUNNER_PERMISSION_DENIED', 'RUNNER_PING_FAILED', 'RUNNER_REFUSED', 'RUNNER_REVOKED', 'RUNNER_UNREACHABLE',
       'RUNNER_UPDATE_REQUIRED', 'RUN_REQUEST_EXPIRED', 'RUN_REQUEST_RATE_LIMITED', 'SIGNATURE_INVALID', 'TOO_MANY_PENDING',
     ]);
+  });
+
+  it('RUNNERS_UNAVAILABLE names its reason: a key-service outage is not an operator pause', () => {
+    const { unmount } = render(<>{runnerErrorMessage(new ApiError('x', 409, 'RUNNERS_UNAVAILABLE', { reason: 'key_service' }))}</>);
+    const banner = screen.getByTestId('runner-error');
+    expect(banner).toHaveTextContent("Runs can't be signed right now because the key service is unreachable. Queued runs retry automatically.");
+    expect(banner).not.toHaveTextContent(/paused/i);
+    unmount();
+    render(<>{runnerErrorMessage(new ApiError('x', 409, 'RUNNERS_UNAVAILABLE', { reason: 'paused' }))}</>);
+    expect(screen.getByTestId('runner-error')).toHaveTextContent('Pipeline runs are paused on this platform.');
   });
 
   it('an unknown failure code still gets a banner naming it', () => {

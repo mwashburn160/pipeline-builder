@@ -896,7 +896,7 @@ from …** on the card) is refused for a root org (409
   (`PUT /api/pipelines/admin/runner-deliveries`, audited) stops all runner
   traffic without a restart. Runners are the only execution path, so this
   pauses every pipeline run on the deployment: nothing is signed or delivered,
-  runs answer 409 `RUNNERS_UNAVAILABLE`, and pipeline pages show a banner. A
+  runs answer 409 `RUNNERS_UNAVAILABLE` (`details.reason: paused`), and pipeline pages show a banner. A
   run request is good for only 10 minutes, so nothing queued before the pause
   is delivered late. Use it while you revoke the affected orgs' keys, then
   turn it off.
@@ -949,9 +949,12 @@ and `RunnerSigningKeyUnreadable` (critical) fires.
 
 A **transient** key-service failure is not an unreadable key: when platform
 can't answer the org's per-org KMS config lookup, or KMS itself is unreachable,
-throttled or answers 5xx, runner writes and key writes answer 409
-`RUNNERS_UNAVAILABLE`, queued runs stay queued (and expire after their 10
-minutes if it lasts), and neither the gauge nor the operator notice fires. Only
+throttled or answers 5xx, runner writes, key writes and runs answer 409
+`RUNNERS_UNAVAILABLE` with `details.reason: key_service` ("Runs can't be
+signed right now because the key service is unreachable. Queued runs retry
+automatically." — never the operator-pause message, which only the pause toggle
+gives, as `details.reason: paused`), queued runs stay queued (and expire after
+their 10 minutes if it lasts), and neither the gauge nor the operator notice fires. Only
 a real decrypt failure of the stored ciphertext (a wrong master, a tampered or
 wrong-org blob, or KMS refusing the ciphertext or the grant) is
 `RUNNER_KEY_UNREADABLE`.

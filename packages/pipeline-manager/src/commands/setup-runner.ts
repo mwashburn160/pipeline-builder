@@ -341,6 +341,7 @@ const RUNNERS_UNAVAILABLE_MESSAGES = {
   paused: 'Pipeline runs through runners are paused on this platform by its operator. Try again once they are resumed.',
   encryption_not_configured: 'Runners are unavailable: this platform has no secret encryption configured for runner signing keys — ask your platform operator.',
   tables_missing: 'Runners are unavailable: this platform\'s database has no runner tables — ask your platform operator.',
+  key_service: 'Runs can\'t be signed right now because the key service is unreachable. Queued runs retry automatically.',
 } as const satisfies Record<RunnersUnavailableReason, string>;
 
 /** Why the platform cannot take runners right now (`available: false` / 409 RUNNERS_UNAVAILABLE). */
@@ -348,6 +349,12 @@ export function runnersUnavailableMessage(reason?: RunnersUnavailableReason | nu
   return reason && Object.hasOwn(RUNNERS_UNAVAILABLE_MESSAGES, reason)
     ? RUNNERS_UNAVAILABLE_MESSAGES[reason]
     : 'Runners are unavailable on this platform right now — ask your platform operator.';
+}
+
+/** A 409 RUNNERS_UNAVAILABLE refusal's `details.reason`, when the server sent one. */
+export function refusalUnavailableReason(err: unknown): RunnersUnavailableReason | null {
+  const reason = (err as { response?: { data?: { details?: { reason?: unknown } } } } | null)?.response?.data?.details?.reason;
+  return typeof reason === 'string' && Object.hasOwn(RUNNERS_UNAVAILABLE_MESSAGES, reason) ? reason as RunnersUnavailableReason : null;
 }
 
 /** The org has no effective signing key and none will be created by this run. */
@@ -381,6 +388,7 @@ export function explainRunnerError(err: unknown): never {
   const code = r.code && Object.hasOwn(RUNNER_REFUSALS, r.code)
     ? r.code as keyof typeof RUNNER_REFUSALS
     : r.status === RUNNER_ERRORS.RUNNER_PING_FAILED.httpStatus ? 'RUNNER_PING_FAILED' : undefined;
+  if (code === 'RUNNERS_UNAVAILABLE') throw new Error(runnersUnavailableMessage(refusalUnavailableReason(err)));
   if (code) throw new Error(RUNNER_REFUSALS[code]);
   throw err;
 }

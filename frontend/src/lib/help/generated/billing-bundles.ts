@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-bundles.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: b69dd95ee533738792331a0129b8280912b1509e9092d23d5a88e36d82ba5bb6
+// SOURCE-SHA256: bfc4aff1012d44ce777769ce36ee9d24dead368c74dacce98472faa7c450f68d
 // SPDX-License-Identifier: Apache-2.0
 import { Package } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -505,7 +505,7 @@ export const billingBundlesTopic: HelpTopic = {
           "items": [
             "It carries the report's DORA sections. A buyer does not also need Advanced Reporting to see them: the live DORA dashboard stays behind advanced_reporting, but a report's DORA panels do not. An add-on whose headline numbers are locked behind a second purchase is not what its own description promises.",
             "One free preview per organization, ever. An org without the add-on can generate a single watermarked sample report from its own data. It cannot be scheduled or shared — nothing is persisted, so there is no definition to schedule and no run to link to. Not per user and not per month: the preview exists so a lead can see their own numbers before asking anyone to pay, which takes one report.",
-            "On lapse, every report in the ACCOUNT pauses with the reason entitlement, including reports owned by teams under the root — entitlement is pooled at the root, so pausing only the root would leave the teams running on a cancelled subscription. Published snapshots stay readable and existing share links live until they expire; no new link is minted and nothing new is delivered. Re-subscribing resumes exactly what the lapse paused; a report paused because its owner was deactivated stays paused. Upgrading to Enterprise prunes the charge and keeps the capability.",
+            "On lapse, every report in the ACCOUNT pauses with the reason entitlement, including reports owned by teams under the root — entitlement is pooled at the root, so pausing only the root would leave the teams running on a cancelled subscription. Published snapshots stay readable in the product, but existing share links stop resolving while the add-on is lapsed (each public read re-checks the entitlement and answers the same 404 as an unknown link); no new link is minted and nothing new is delivered. Re-subscribing resumes exactly what the lapse paused; a report paused because its owner was deactivated stays paused. Upgrading to Enterprise prunes the charge and keeps the capability.",
             "Not sold to Developer. A single developer has nobody to report upward to, so the SKU would be an upsell for something they cannot use. It is included on Enterprise and Unlimited, and the on-demand report dashboards stay free on every plan — what this sells is saving, scheduling and publishing a report. See Stakeholder Reports."
           ]
         },

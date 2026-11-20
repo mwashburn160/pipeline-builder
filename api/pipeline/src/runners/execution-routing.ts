@@ -11,7 +11,7 @@
 
 import { runnerDeps, type RunnerDeps } from './deps.js';
 import {
-  discoverRunner, eligibleRunners, enqueueRun, linkedRunner, RunnerRouteError, RUNNERS_UNAVAILABLE_MESSAGES, type EligibleRunner, type QueuedRun, type RouteInput,
+  discoverRunner, eligibleRunners, enqueueRun, linkedRunner, RunnerRouteError, runnersUnavailable, RUNNERS_UNAVAILABLE_MESSAGES, type EligibleRunner, type QueuedRun, type RouteInput,
 } from './routing.js';
 import { pipelineService } from '../services/pipeline-service.js';
 
@@ -23,7 +23,7 @@ const EXECUTION_ID = /^[A-Za-z0-9_-]{1,100}$/;
 export async function assertRunnersAvailable(deps: RunnerDeps): Promise<void> {
   const state = await deps.runnersAvailable();
   if (state.available) return;
-  throw new RunnerRouteError('RUNNERS_UNAVAILABLE', RUNNERS_UNAVAILABLE_MESSAGES[state.reason ?? 'paused'] ?? RUNNERS_UNAVAILABLE_MESSAGES.paused);
+  throw runnersUnavailable(state.reason && Object.hasOwn(RUNNERS_UNAVAILABLE_MESSAGES, state.reason) ? state.reason : 'paused');
 }
 
 /**

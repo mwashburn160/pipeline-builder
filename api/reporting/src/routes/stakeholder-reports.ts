@@ -1047,8 +1047,14 @@ export function createStakeholderReportRoutes(): Router {
   /**
    * The admin's decision about who reports may reach. `org_settings:write`, not
    * `reports:write`: a lead must not be able to widen their own audience.
+   *
+   * TURNING `externalSharing` OFF REVOKES EVERY LIVE LINK in the org, in this request.
+   * The public route already refuses links while sharing is off (read-time check); the
+   * revoke makes the decision stick, so switching sharing back on later allows NEW
+   * links only and does not quietly re-open every URL handed out before. One
+   * `reporting.report.link.revoked` row carries the count.
    */
-  router.put('/policy', requirePermission('org_settings:write'), audited('reporting.report.policy.update'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.put('/policy', requirePermission('org_settings:write'), audited('reporting.report.policy.update', 'reporting.report.link.revoked'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, policyBody);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const patch = validation.value;
@@ -1075,7 +1081,11 @@ export function createStakeholderReportRoutes(): Router {
       ...(patch.defaultWeekStart !== undefined ? { defaultWeekStart: patch.defaultWeekStart } : {}),
     });
     const policy = await stakeholderReportStore.getReportPolicy(orgId);
-    ctx.log('COMPLETED', 'Updated report policy', { orgId, fields: Object.keys(patch) });
+    // After the policy write, so a link minted concurrently against the old policy is
+    // either caught here or refused at read time by the policy now stored.
+    const sharingTurnedOff = priorPolicy.externalSharing && patch.externalSharing === false;
+    const revokedLinks = sharingTurnedOff ? await stakeholderReportStore.revokeAllShareLinks(orgId, userId) : 0;
+    ctx.log('COMPLETED', 'Updated report policy', { orgId, fields: Object.keys(patch), ...(sharingTurnedOff ? { revokedLinks } : {}) });
     recordAudit({
       action: 'reporting.report.policy.update',
       actorId: actorId({ userId }),
@@ -1086,7 +1096,17 @@ export function createStakeholderReportRoutes(): Router {
       // recipient domains is the change this trail exists to catch.
       details: { ...policy, before: { ...priorPolicy } },
     });
-    return sendSuccess(res, 200, { policy });
+    if (sharingTurnedOff) {
+      recordAudit({
+        action: 'reporting.report.link.revoked',
+        actorId: actorId({ userId }),
+        orgId,
+        targetType: 'report-policy',
+        targetId: orgId,
+        details: { reason: 'external_sharing_disabled', count: revokedLinks },
+      });
+    }
+    return sendSuccess(res, 200, { policy, ...(sharingTurnedOff ? { revokedLinks } : {}) });
   }));
 
   return router;

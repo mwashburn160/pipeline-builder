@@ -45,10 +45,11 @@
 import { createHash } from 'node:crypto';
 import { ANONYMOUS_ACTOR_ID, audited, createLogger, emitCounter, ErrorCode, recordAudit, sendError, sendSuccess, validateBody } from '@pipeline-builder/api-core';
 import { rateLimitByOrg, withRoute } from '@pipeline-builder/api-server';
-import { renderReportHtml, reportFileName, stakeholderReportStore } from '@pipeline-builder/pipeline-data';
+import { renderReportHtml, reportFileName, stakeholderReportStore, type ResolvedShareLink } from '@pipeline-builder/pipeline-data';
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 import { z } from 'zod';
 import { sendPdf, sendPdfRefusal } from '../helpers/report-helpers.js';
+import { reportIdentity } from '../services/report-identity.js';
 import { pdfAvailable, renderPdf } from '../services/report-pdf.js';
 
 const logger = createLogger('public-reports');
@@ -209,6 +210,30 @@ const verifyBody = z.object({
 /** A token path segment: base64url, bounded. */
 const TOKEN = /^[A-Za-z0-9_-]{16,256}$/;
 
+/** The add-on a shared report is served under — the same one the scheduler requires. */
+const REQUIRED_FEATURE = 'stakeholder_reports';
+
+/**
+ * Resolve a token to something this route may SERVE, or null.
+ *
+ * The store already refuses unknown, revoked, expired and withdrawn links, and links
+ * in an org whose admin has turned `externalSharing` off. What it cannot know is
+ * whether the account still holds the `stakeholder_reports` add-on — that is
+ * platform's answer — so it is asked here, on every read, as the definition's owner
+ * (the identity the scheduler authorizes runs as). A link minted before the
+ * subscription lapsed must stop working when it does.
+ *
+ * FAIL CLOSED: platform unreachable (`null`) is "not entitled". Every refusal is the
+ * same null, so the caller answers the one indistinguishable 404.
+ */
+async function resolveServable(token: string): Promise<ResolvedShareLink | null> {
+  const resolved = await stakeholderReportStore.resolveShareLink(token);
+  if (!resolved) return null;
+  const authority = await reportIdentity().authority(resolved.link.orgId, resolved.ownerId);
+  if (!authority?.features.includes(REQUIRED_FEATURE)) return null;
+  return resolved;
+}
+
 export function createPublicReportRoutes(): Router {
   const router = Router();
 
@@ -249,7 +274,8 @@ export function createPublicReportRoutes(): Router {
    * `GET /public/reports/:token` — the shared report.
    *
    * ONE indistinguishable 404 for every failure: unknown token, revoked link,
-   * expired link, unpublished or deleted run. Someone holding a dead link learns
+   * expired link, unpublished or deleted run, external sharing turned off, or the
+   * account's reporting add-on lapsed. Someone holding a dead link learns
    * that it does not work and nothing else — not that it once did, not that the
    * org exists, not that the report was withdrawn.
    */
@@ -257,7 +283,7 @@ export function createPublicReportRoutes(): Router {
     const token = String(req.params.token ?? '');
     if (!TOKEN.test(token)) return notFound(res);
 
-    const resolved = await stakeholderReportStore.resolveShareLink(token);
+    const resolved = await resolveServable(token);
     if (!resolved) {
       // Logged without the token: an access log that carries working credentials is
       // a credential store.
@@ -328,7 +354,7 @@ export function createPublicReportRoutes(): Router {
     const token = String(req.params.token ?? '');
     if (!TOKEN.test(token)) return notFound(res);
 
-    const resolved = await stakeholderReportStore.resolveShareLink(token);
+    const resolved = await resolveServable(token);
     if (!resolved) {
       ctx.log('COMPLETED', 'Public report PDF not served', { reason: 'unresolved' });
       return notFound(res);

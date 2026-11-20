@@ -1840,7 +1840,8 @@
     ],
     "scopes": [],
     "audit": [
-      "reporting.report.policy.update"
+      "reporting.report.policy.update",
+      "reporting.report.link.revoked"
     ],
     "quota": {
       "metered": [

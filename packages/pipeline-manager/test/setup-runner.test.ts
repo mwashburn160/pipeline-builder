@@ -617,12 +617,21 @@ describe('platform refusals', () => {
     expect(f.calls).toEqual(['GET /api/pipelines/runners']);
   });
 
+  it('a 409 RUNNERS_UNAVAILABLE names its details.reason (a key-service outage is not a pause)', () => {
+    const body = (reason?: string) => refused(409, { code: 'RUNNERS_UNAVAILABLE', message: 'x', ...(reason ? { details: { reason } } : {}) });
+    expect(() => explainRunnerError(body('key_service'))).toThrow(runnersUnavailableMessage('key_service'));
+    expect(() => explainRunnerError(body('paused'))).toThrow(runnersUnavailableMessage('paused'));
+    expect(() => explainRunnerError(body())).toThrow(runnersUnavailableMessage(null));
+  });
+
   it('available:false names the reason, before touching AWS', async () => {
     const f = fakeDeps({ available: false, unavailableReason: 'paused' });
     await expect(setupRunnerFlow(basePlan(), f.deps)).rejects.toThrow(runnersUnavailableMessage('paused'));
     expect(runnersUnavailableMessage('paused')).toMatch(/paused/);
     expect(runnersUnavailableMessage('encryption_not_configured')).toMatch(/secret encryption/);
     expect(runnersUnavailableMessage('tables_missing')).toMatch(/runner tables/);
+    expect(runnersUnavailableMessage('key_service')).toBe("Runs can't be signed right now because the key service is unreachable. Queued runs retry automatically.");
+    expect(runnersUnavailableMessage('key_service')).not.toMatch(/paused/);
     expect(f.calls).toEqual(['GET /api/pipelines/runners']);
   });
 

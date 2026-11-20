@@ -144,7 +144,7 @@ function writeErrorMessage(e: unknown, keyWrite: boolean): string {
   if (e instanceof MfaRequiredError) return ''; // The shell already shows the "two-factor authentication required" dialog.
   if (keyWrite && e instanceof ApiError && e.statusCode === 429) return KEY_WRITE_RATE_LIMIT_COPY;
   if (isRunnerError(e)) {
-    const c = runnerErrorCopy(e.code);
+    const c = runnerErrorCopy(e.code, e.details?.reason);
     return `${c.title} ${c.body}`;
   }
   return formatError(e, keyWrite ? 'Could not change the signing key' : 'Could not save the pipeline runner');

@@ -144,6 +144,15 @@ const recipient = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
+/** A `dora_settings` policy row with external sharing on. */
+const SHARING_ON = {
+  externalSharing: true,
+  recipientDomains: null,
+  requireApproval: true,
+  defaultTimezone: null,
+  defaultWeekStart: null,
+};
+
 describe('StakeholderReportStore', () => {
   let store: Store;
 
@@ -499,6 +508,20 @@ describe('StakeholderReportStore', () => {
       await expect(store.revokeShareLink(ORG, 'link-1', 'lead')).rejects.toThrow('already revoked');
     });
 
+    /**
+     * The externalSharing turn-off leg: every live link in the org, in one statement,
+     * scoped to the org and to links not already revoked (so an earlier revoke keeps
+     * its own actor and instant).
+     */
+    it('revokes every live link in the org and returns the count', async () => {
+      tx.queue([{ id: 'link-1' }, { id: 'link-2' }, { id: 'link-3' }]);
+      expect(await store.revokeAllShareLinks(ORG, 'admin', NOW)).toBe(3);
+      const update = tx.of('update')[0];
+      expect(update.whereSql()).toContain('"org_id"');
+      expect(update.whereSql()).toContain('"revoked_at" is null');
+      expect(update.arg('set')).toEqual({ revokedAt: NOW, revokedBy: 'admin' });
+    });
+
     it('revokes every live link across a definition’s runs', async () => {
       tx.queue([{ id: 'run-1' }, { id: 'run-2' }], [{ id: 'link-1' }, { id: 'link-2' }]);
       expect(await store.revokeLinksForDefinition(ORG, 'def-1', 'lead')).toBe(2);
@@ -509,20 +532,48 @@ describe('StakeholderReportStore', () => {
      * has no tenant, but the RUN is read back under the link's OWN org — so a bug
      * in the second query cannot reach another tenant's rows.
      */
-    it('resolves a token as sysadmin, then reads the run under the link’s own org', async () => {
-      tx.queue([link()], [run({ status: 'published' })]);
+    it('resolves a token as sysadmin, then reads the policy, run and owner under the link’s own org', async () => {
+      tx.queue([link()], [SHARING_ON], [run({ status: 'published' })], [{ ownerId: 'user-lead' }]);
       const resolved = await store.resolveShareLink('a-token', NOW);
       expect(resolved?.run.id).toBe('run-1');
+      // The owner travels with the resolve so the route can re-check the account's
+      // entitlement against the same identity the scheduler authorizes runs as.
+      expect(resolved?.ownerId).toBe('user-lead');
       expect(scopes).toEqual([{ isSuperAdmin: true }, { orgId: ORG, isSuperAdmin: false }]);
+      expect(tx.of('select')[1].whereSql()).toContain('"dora_settings"');
       expect(tx.of('select')[1].whereSql()).toContain('"org_id"');
-      expect(tx.of('select')[1].whereSql()).toContain('"status"');
+      expect(tx.of('select')[2].whereSql()).toContain('"org_id"');
+      expect(tx.of('select')[2].whereSql()).toContain('"status"');
+      expect(tx.of('select')[3].whereSql()).toContain('"org_id"');
+    });
+
+    /**
+     * THE ADMIN'S SWITCH IS READ AT READ TIME, not only at mint time. A link minted
+     * while sharing was on must stop working the moment an admin turns it off, and
+     * look exactly like a link that never existed.
+     */
+    it('resolves to null once the org has turned external sharing off', async () => {
+      tx.queue([link()], [{ ...SHARING_ON, externalSharing: false }], [run({ status: 'published' })], [{ ownerId: 'user-lead' }]);
+      expect(await store.resolveShareLink('a-token', NOW)).toBeNull();
+    });
+
+    it('resolves to null for an org that never configured a policy (sharing defaults off)', async () => {
+      tx.queue([link()], [], [run({ status: 'published' })], [{ ownerId: 'user-lead' }]);
+      expect(await store.resolveShareLink('a-token', NOW)).toBeNull();
+    });
+
+    /** Turning sharing back on does not revive a link the turn-off revoked. */
+    it('keeps a link revoked by the turn-off dead after sharing is re-enabled', async () => {
+      tx.queue([link({ revokedAt: NOW, revokedBy: 'admin' })], [SHARING_ON], [run({ status: 'published' })], [{ ownerId: 'user-lead' }]);
+      expect(await store.resolveShareLink('a-token', NOW)).toBeNull();
     });
 
     it.each([
       ['an unknown token', () => { tx.queue([]); }],
       ['a revoked link', () => { tx.queue([link({ revokedAt: NOW })]); }],
       ['an expired link', () => { tx.queue([link({ expiresAt: new Date(NOW.getTime() - 1) })]); }],
-      ['a run that is no longer published', () => { tx.queue([link()], []); }],
+      ['a run that is no longer published', () => { tx.queue([link()], [SHARING_ON], []); }],
+      ['a run whose definition is gone', () => { tx.queue([link()], [SHARING_ON], [run({ status: 'published' })], []); }],
     ])('resolves to null for %s, so a dead link is indistinguishable', async (_case, arrange) => {
       arrange();
       expect(await store.resolveShareLink('a-token', NOW)).toBeNull();

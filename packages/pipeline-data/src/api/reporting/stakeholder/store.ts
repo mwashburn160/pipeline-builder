@@ -135,6 +135,12 @@ export interface MintedShareLink {
 export interface ResolvedShareLink {
   link: ReportShareLink;
   run: ReportRun;
+  /**
+   * The owner of the run's definition: the identity the route re-checks the
+   * account's `stakeholder_reports` entitlement against (the same one the scheduler
+   * authorizes runs as), since a public read has no caller of its own.
+   */
+  ownerId: string;
 }
 
 /** The `purge_after` stamp a soft-delete carries, or `{}` when purging is off. */
@@ -573,6 +579,25 @@ export class StakeholderReportStore {
   }
 
   /**
+   * Revoke every live share link in the org. The `externalSharing` turn-off leg:
+   * an admin who switches public links off means the ones already handed out too.
+   *
+   * Only links not already revoked are touched, so an earlier revoke keeps its own
+   * actor and instant. Turning sharing back on does NOT undo this — there is no
+   * un-revoke, so a link that died with the switch stays dead.
+   */
+  async revokeAllShareLinks(orgId: string, revokedBy: string, now = new Date()): Promise<number> {
+    const rows = await withTenantTx((tx) => tx.update(schema.reportShareLink)
+      .set({ revokedAt: now, revokedBy })
+      .where(and(
+        eq(schema.reportShareLink.orgId, orgId),
+        isNull(schema.reportShareLink.revokedAt),
+      ))
+      .returning({ id: schema.reportShareLink.id }));
+    return (rows as unknown[]).length;
+  }
+
+  /**
    * Resolve a share token to its link and run, for the UNAUTHENTICATED public
    * route.
    *
@@ -587,9 +612,16 @@ export class StakeholderReportStore {
    *    caller can widen — there is no other predicate to influence.
    *  - Expired and revoked links resolve to null here, so the caller cannot
    *    accidentally serve one by forgetting a check.
+   *  - The org's `externalSharing` policy is re-read HERE, at read time, not only
+   *    when the link was minted: an admin who turns sharing off has turned off the
+   *    links already out there, even before (or without) the turn-off revoke.
    *
-   * Returns null for every failure — unknown, revoked, expired, or pointing at a
-   * run that is no longer published — so the route answers one indistinguishable
+   * The caller still owes one check this store cannot make: whether the account
+   * still holds the `stakeholder_reports` entitlement (platform's answer, keyed by
+   * the returned `ownerId`).
+   *
+   * Returns null for every failure — unknown, revoked, expired, sharing turned off,
+   * or pointing at a run that is no longer published — so the route answers one indistinguishable
    * 404 and a holder of a dead link learns nothing about which of those it was.
    */
   async resolveShareLink(token: string, now = new Date()): Promise<ResolvedShareLink | null> {
@@ -607,18 +639,32 @@ export class StakeholderReportStore {
     if (link.revokedAt) return null;
     if (link.expiresAt.getTime() <= now.getTime()) return null;
 
-    const runs = await runWithTenantContext({ orgId: link.orgId, isSuperAdmin: false }, () =>
-      withTenantTx((tx) => tx.select().from(schema.reportRun)
+    return runWithTenantContext({ orgId: link.orgId, isSuperAdmin: false }, async () => {
+      const policy = await this.getReportPolicy(link.orgId);
+      if (!policy.externalSharing) return null;
+
+      const runs = await withTenantTx((tx) => tx.select().from(schema.reportRun)
         .where(and(
           eq(schema.reportRun.id, link.runId),
           eq(schema.reportRun.orgId, link.orgId),
           eq(schema.reportRun.status, 'published'),
           isNull(schema.reportRun.deletedAt),
         ))
-        .limit(1)));
-    const run = (runs as ReportRun[])[0];
-    if (!run) return null;
-    return { link, run };
+        .limit(1));
+      const run = (runs as ReportRun[])[0];
+      if (!run) return null;
+
+      const owners = await withTenantTx((tx) => tx.select({ ownerId: schema.reportDefinition.ownerId })
+        .from(schema.reportDefinition)
+        .where(and(
+          eq(schema.reportDefinition.id, run.definitionId),
+          eq(schema.reportDefinition.orgId, link.orgId),
+        ))
+        .limit(1));
+      const ownerId = (owners as Array<{ ownerId: string }>)[0]?.ownerId;
+      if (!ownerId) return null;
+      return { link, run, ownerId };
+    });
   }
 
   /**

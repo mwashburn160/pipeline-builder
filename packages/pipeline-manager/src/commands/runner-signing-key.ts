@@ -21,7 +21,7 @@ import {
   type RunnerErrorCode, type RunnerSigningKeyDto, type RunnerSigningKeySummary, type RunnersUnavailableReason,
 } from '@pipeline-builder/api-core/pipeline-runners';
 import { Command } from 'commander';
-import { runnersUnavailableMessage } from './setup-runner.js';
+import { refusalUnavailableReason, runnersUnavailableMessage } from './setup-runner.js';
 import { buildStepUpProvider, chooseStepUp } from './store-token.js';
 import { auditLog } from '../utils/audit-log.js';
 import { createAuthenticatedClientAsync, printCommandHeader, printSslWarning, withSslOptions } from '../utils/command-utils.js';
@@ -74,7 +74,7 @@ export function explainSigningKeyError(err: unknown): never {
   const { code, status } = apiRefusal(err);
   // Own keys only: a code such as `constructor` is not a refusal this command knows.
   if (code && Object.hasOwn(KEY_REFUSALS, code)) throw new Error(`${KEY_REFUSALS[code as keyof typeof KEY_REFUSALS]} (${code})`);
-  if (code === 'RUNNERS_UNAVAILABLE') throw new Error(runnersUnavailableMessage(null));
+  if (code === 'RUNNERS_UNAVAILABLE') throw new Error(runnersUnavailableMessage(refusalUnavailableReason(err)));
   if (status === 429) throw new Error('Too many signing-key changes for your organization this hour. Try again later.');
   throw err;
 }

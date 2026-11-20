@@ -122,6 +122,27 @@ describe('settings', () => {
     expect(JSON.stringify(audit)).not.toContain('key=abc');
   });
 
+  // A Slack/Teams incoming webhook carries its token in the path: the full URL
+  // goes only to a caller who may change it (org_settings:write = canEdit).
+  it('returns the webhook URL host-only to a reader, in full to a writer, and never the secret', async () => {
+    await svc.putSecurityPrefs(ORG, 'u-admin', { webhookUrl: 'https://93.184.216.34/services/T0/B0/tok3n?key=abc', webhookSecret: 's3cr3t' });
+    const reader = await svc.getSecurityPrefs(ORG, false);
+    expect(reader).toMatchObject({ webhookUrl: 'https://93.184.216.34/…', hasWebhookSecret: true, canEdit: false });
+    expect(JSON.stringify(reader)).not.toContain('tok3n');
+    expect(JSON.stringify(reader)).not.toContain('key=abc');
+    const writer = await svc.getSecurityPrefs(ORG, true);
+    expect(writer).toMatchObject({ webhookUrl: 'https://93.184.216.34/services/T0/B0/tok3n?key=abc', canEdit: true });
+    for (const out of [reader, writer]) {
+      expect(JSON.stringify(out)).not.toContain('s3cr3t');
+      expect(out).not.toHaveProperty('webhookSecret');
+    }
+  });
+
+  it('a reader of an unparsable stored webhook URL sees null, not the raw value', async () => {
+    h.db.seed('plugin_security_notification_prefs', { orgId: ORG, webhookUrl: 'not a url/tok3n' });
+    expect((await svc.getSecurityPrefs(ORG, false)).webhookUrl).toBeNull();
+  });
+
   // Design rule 6: the Ask panel commits a notification-preference proposal
   // through this service with the user's own session, so the audit event must
   // say an AI drafted it — and a client must not be able to say anything else.

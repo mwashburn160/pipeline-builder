@@ -106,7 +106,7 @@ describe('deliverPush', () => {
     const paused = testDeps();
     paused.availability.available = false;
     paused.availability.reason = 'paused';
-    expect(await deliverPush(paused, runnerRow(), claims())).toEqual({ kind: 'fail', code: 'RUNNERS_UNAVAILABLE' });
+    expect(await deliverPush(paused, runnerRow(), claims())).toEqual({ kind: 'fail', code: 'RUNNERS_UNAVAILABLE', reason: 'paused' });
     expect(paused.signerOrgs).toEqual([]);
     for (const code of ['RUNNER_KEY_MISSING', 'RUNNER_KEY_UNREADABLE'] as const) {
       const d = testDeps({ signerFor: async () => { throw new RunnerRouteError(code, 'm'); } });

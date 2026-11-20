@@ -48,7 +48,7 @@ import type { RunnerDeps } from './deps.js';
 import { ed25519Jwk } from './jws.js';
 import { sendKeyNotice, sendUnreadableKeyNotice, type KeyNoticeEvent } from './key-notices.js';
 import { isUniqueViolation, type KeyRow, type KeySettingsRow, type KeyTx } from './key-store.js';
-import { RunnerRouteError } from './routing.js';
+import { RunnerRouteError, runnersUnavailable } from './routing.js';
 import { createRunRequestSigner, type ResolvedSigner } from './signing.js';
 import { tunable } from './vocabulary.js';
 
@@ -161,14 +161,15 @@ function noteReadable(deps: RunnerDeps, orgId: string, readable: boolean): void 
   if (!readable && !wasUnreadable) void sendUnreadableKeyNotice(deps, orgId);
 }
 
-/** What a transient key-service failure answers (KMS config lookup or KMS unreachable): not the key's fault. */
-export const KEY_SERVICE_UNAVAILABLE_MESSAGE = "The platform can't reach its key service right now. Queued runs are delivered once it answers; try again in a few minutes.";
-
-/** A transient key-service failure as 409 RUNNERS_UNAVAILABLE (logged; no unreadable gauge, no operator notice), else null. */
+/**
+ * A transient key-service failure (KMS config lookup or KMS unreachable: not
+ * the key's fault) as 409 RUNNERS_UNAVAILABLE with reason `key_service` —
+ * never the operator pause (logged; no unreadable gauge, no operator notice), else null.
+ */
 function keyServiceRefusal(err: unknown, orgId: string): RunnerRouteError | null {
   if (!isRunnerKeyServiceUnavailable(err)) return null;
   logger.warn('Runner signing key service unavailable; retried later', { orgId, source: err.source, error: errorMessage(err) });
-  return new RunnerRouteError('RUNNERS_UNAVAILABLE', KEY_SERVICE_UNAVAILABLE_MESSAGE);
+  return runnersUnavailable(err.reason ?? 'key_service');
 }
 
 /**

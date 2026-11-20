@@ -107,6 +107,56 @@ describe('a transient key-service failure (KMS config lookup or KMS unreachable)
   });
 });
 
+describe('a key-service outage is RUNNERS_UNAVAILABLE with reason key_service, never "paused"', () => {
+  const KEY_SERVICE_MESSAGE = "Runs can't be signed right now because the key service is unreachable. Queued runs retry automatically.";
+
+  async function kmsDownDeps() {
+    const { RunnerKeyServiceUnavailableError } = await import('@pipeline-builder/api-core/pipeline-runners');
+    const { generateOrgKey } = await import('../../src/runners/keys.js');
+    const { keyedDeps } = await import('../helpers/key-fakes.js');
+    const deps = keyedDeps();
+    await generateOrgKey(deps, ORG, { userId: 'u' });
+    deps.secrets.decrypt = async () => { throw new RunnerKeyServiceUnavailableError('kms_config', 'KMS config lookup failed (HTTP 503)'); };
+    deps.keyCaches.signers.clear();
+    return deps;
+  }
+
+  it('signing: the refusal carries the key-service message and details.reason', async () => {
+    const deps = await kmsDownDeps();
+    await expect(deps.signerFor(ORG)).rejects.toMatchObject({ code: 'RUNNERS_UNAVAILABLE', status: 409, message: KEY_SERVICE_MESSAGE, details: { reason: 'key_service' } });
+  });
+
+  it('delivery: the verdict says key_service and the request stays queued', async () => {
+    const { deliverPush } = await import('../../src/runners/delivery.js');
+    const deps = await kmsDownDeps();
+    const { runner, req } = await queuedStart(deps);
+    const verdict = await deliverPush(deps, runner, { runnerId: runner.id, requestId: req.id, action: 'start', pipelineId: PIPE, requestedBy: 'u', expiresAt: req.expiresAt });
+    expect(verdict).toEqual({ kind: 'fail', code: 'RUNNERS_UNAVAILABLE', reason: 'key_service' });
+    deps.keyCaches.signers.clear();
+    expect(await processDelivery(deps, req.id)).toEqual({ done: true });
+    expect(deps.store.requests.get(req.id)).toMatchObject({ status: 'queued', lastDeliveryError: 'RUNNERS_UNAVAILABLE' });
+    expect(deps.keyCaches.unreadable.size).toBe(0);
+  });
+
+  it('discovery: answers the key-service message with details.reason key_service', async () => {
+    const deps = await kmsDownDeps();
+    deps.store.runners.set('r', runnerRow({ id: 'r', label: 'a' }));
+    deps.store.registry.set(PIPE, { orgId: ORG, pipelineName: 'p', region: null, runnerId: null, linkStatus: 'unlinked' });
+    const err = await routeExecution({ pipelineId: PIPE, orgId: ORG, requestedBy: 'user-1', action: 'start' }, deps).then(() => null, (e: unknown) => e);
+    expect(err).toMatchObject({ code: 'RUNNERS_UNAVAILABLE', status: 409, message: KEY_SERVICE_MESSAGE, details: { reason: 'key_service' } });
+    expect(deps.store.registry.get(PIPE)!.linkStatus).toBe('unlinked');
+  });
+
+  it('discovery: a real operator pause still answers paused', async () => {
+    const { RUNNERS_UNAVAILABLE_MESSAGES } = await import('../../src/runners/routing.js');
+    const deps = testDeps({ deliveriesPaused: async () => true });
+    deps.store.runners.set('r', runnerRow({ id: 'r', label: 'a' }));
+    deps.store.registry.set(PIPE, { orgId: ORG, pipelineName: 'p', region: null, runnerId: null, linkStatus: 'unlinked' });
+    const err = await routeExecution({ pipelineId: PIPE, orgId: ORG, requestedBy: 'user-1', action: 'start' }, deps).then(() => null, (e: unknown) => e);
+    expect(err).toMatchObject({ code: 'RUNNERS_UNAVAILABLE', message: RUNNERS_UNAVAILABLE_MESSAGES.paused, details: { reason: 'paused' } });
+  });
+});
+
 describe('discovery with an unusable key', () => {
   it('answers 409 RUNNER_KEY_MISSING, not 404 PIPELINE_NOT_FOUND_IN_RUNNERS, and keeps the registry row as it was', async () => {
     const deps = testDeps();

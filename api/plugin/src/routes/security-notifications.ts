@@ -6,7 +6,7 @@
  * "Scan gates"). ORG-LOCAL routes, mounted at `/plugins` behind the shared auth
  * + org chain (before the read routes, so `/:id` never sees them):
  *
- *   GET  /plugins/security-notifications       plugins:read   the org's settings (secret/address never returned)
+ *   GET  /plugins/security-notifications       plugins:read   the org's settings (secret/address never returned; webhook URL host-only without org_settings:write)
  *   PUT  /plugins/security-notifications       org_settings:write   update; a new external address gets a confirmation link
  *   POST /plugins/security-notifications/test  org_settings:write   one test notice on every configured channel
  *

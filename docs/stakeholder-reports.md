@@ -208,6 +208,7 @@ The recipient list shows each address's real state — confirmed, awaiting confi
 A read-only link to one published run, for a reader with no account.
 
 - **Off until an administrator turns them on.** An org that never considered public links has none.
+- **Turning sharing off ends the links already out there.** The org's `externalSharing` policy and the account's Stakeholder Reports add-on are re-checked on **every** read of a link (page and PDF), not only when it was minted. When an administrator turns sharing off, every live link in the org is also revoked in the same request (one `reporting.report.link.revoked` audit row, `details.reason: external_sharing_disabled`, `details.count`), so turning sharing back on allows new links only and never revives the old ones.
 - The token is 256 bits of CSPRNG output, stored only as a SHA-256 hash. A database copy cannot be turned back into working URLs, and the raw token is shown **once**, when the link is created.
 - It **expires** — 30 days by default, 180 at most — and can be revoked.
 - Optional **redaction** (`redactNames`, `--redact-names`) hides two things, in every section and on both the page and the PDF:
@@ -216,7 +217,7 @@ A read-only link to one published run, for a reader with no account.
 
   Redaction **keeps** stage and action names, environment names (`production`) and plugin names — product vocabulary, not internal project names — opaque UUID ids (they name nothing, and the snapshot joins rows on them), every number (counts, occurrences, rates, durations, last-seen times), the failure category and its label, and the generated needs-attention evidence. An absent error stays absent, so "no error" never reads as a hidden one.
 - The page sends `noindex`, `Referrer-Policy: no-referrer` and `Cache-Control: private, no-store`, and is rate-limited per client address.
-- An unknown, revoked, expired or withdrawn link returns **one indistinguishable 404**, so a holder of a dead link learns nothing else.
+- An unknown, revoked, expired or withdrawn link, a link in an org that turned sharing off, and a link whose account no longer holds the add-on (or whose entitlement the platform service cannot confirm) all return **one indistinguishable 404**, so a holder of a dead link learns nothing else.
 - Link unfurlers and mail scanners (Slack, Microsoft Safe Links, and the rest) are served but **not counted**, so a view count means a person read it.
 
 **A delivered copy cannot be recalled.** Revoking a link stops new views of the link; it does not pull back an email that has already arrived. The publish confirmation says so before the click, not after.
@@ -302,7 +303,7 @@ Included in **Enterprise** and **Unlimited**; sold as a $30/month add-on to **Pr
 ### When it lapses
 
 - Every report in the **account** pauses with the reason `entitlement` — including reports owned by teams under the root, since entitlement is pooled there and pausing only the root would leave the teams running on a cancelled subscription.
-- **Published reports stay readable** and existing share links live until they expire. No new link is minted and nothing new is delivered.
+- **Published reports stay readable in the product**, but existing share links stop resolving (the public link answers the same 404 as an unknown one) until the add-on is back. No new link is minted and nothing new is delivered.
 - Re-subscribing **resumes exactly what the lapse paused**, with a freshly derived schedule — and nothing else. A report paused because its owner was deactivated stays paused, because that is a different problem with a different fix.
 - Upgrading to **Enterprise** removes the add-on charge automatically and keeps the capability, since the tier includes it.
 - On a **billing-disabled** install every org runs as the unlimited tier, so the feature is simply on and the upsell and preview never appear.

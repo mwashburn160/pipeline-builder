@@ -77,6 +77,14 @@ jest.unstable_mockModule('../src/services/report-pdf.js', () => ({
   pdfAvailable: (...a: unknown[]) => mockPdfAvailable(...a),
 }));
 
+// Platform's answer to "does the account still hold the add-on?". Defaults to entitled
+// in beforeEach; the entitlement-lapse tests override it.
+const mockAuthority = jest.fn<AnyFn>();
+jest.unstable_mockModule('../src/services/report-identity.js', () => ({
+  __esModule: true,
+  reportIdentity: () => ({ authority: (...a: unknown[]) => mockAuthority(...a) }),
+}));
+
 const { createPublicReportRoutes, isPreviewFetch, redactNames } = await import('../src/routes/public-reports.js');
 
 /** What a redacted share link shows in place of an error message. */
@@ -143,6 +151,7 @@ describe('public report routes', () => {
     headers.clear();
     renderedWith.length = 0;
     store.recordShareView.mockResolvedValue(undefined);
+    mockAuthority.mockResolvedValue({ active: true, permissions: ['reports:publish'], features: ['stakeholder_reports'] });
     mockPdfAvailable.mockResolvedValue(true);
     mockRenderPdf.mockResolvedValue({ ok: true, pdf: Buffer.from('%PDF-1.4'), ms: 120 });
     router = createPublicReportRoutes();
@@ -413,6 +422,66 @@ describe('public report routes', () => {
       store.resolveShareLink.mockResolvedValue(null);
       await call('/reports/:token', 'get', { params: { token: TOKEN } });
       expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 404, expect.stringContaining('not available'), 'NOT_FOUND');
+    });
+
+    /**
+     * THE ENTITLEMENT IS RE-CHECKED ON EVERY READ. A link minted while the account held
+     * the add-on must stop working once it lapses, even with external sharing still on —
+     * otherwise a cancelled subscription keeps publishing reports to anyone with a URL.
+     */
+    describe('a link whose account no longer holds the add-on', () => {
+      const resolved = () => ({ link: link(), run: run(), ownerId: 'user-lead' });
+
+      it('is refused once the entitlement lapses, with sharing still on', async () => {
+        store.resolveShareLink.mockResolvedValue(resolved());
+        mockAuthority.mockResolvedValue({ active: true, permissions: ['reports:publish'], features: ['advanced_reporting'] });
+        await call('/reports/:token', 'get', { params: { token: TOKEN } });
+        // Asked about the link's OWN org, as the definition's owner — the identity the
+        // scheduler authorizes runs as.
+        expect(mockAuthority).toHaveBeenCalledWith('acme', 'user-lead');
+        expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 404, expect.any(String), 'NOT_FOUND');
+        expect(mockSendSuccess).not.toHaveBeenCalled();
+        expect(store.recordShareView).not.toHaveBeenCalled();
+      });
+
+      it('is refused (fail closed) when platform cannot answer', async () => {
+        store.resolveShareLink.mockResolvedValue(resolved());
+        mockAuthority.mockResolvedValue(null);
+        await call('/reports/:token', 'get', { params: { token: TOKEN } });
+        expect(mockSendError.mock.calls[0][1]).toBe(404);
+        expect(mockSendSuccess).not.toHaveBeenCalled();
+      });
+
+      it('answers EXACTLY the unknown-token 404: same status, body and headers', async () => {
+        const observe = async () => {
+          jest.clearAllMocks();
+          headers.clear();
+          const response = await call('/reports/:token', 'get', { params: { token: TOKEN } });
+          return {
+            // Everything sendError was handed except the (per-call) response object.
+            error: mockSendError.mock.calls.map((c) => c.slice(1)),
+            headers: [...headers.entries()],
+            status: response.status.mock.calls,
+            json: response.json.mock.calls,
+          };
+        };
+        store.resolveShareLink.mockResolvedValue(null);
+        const unknown = await observe();
+        store.resolveShareLink.mockResolvedValue(resolved());
+        mockAuthority.mockResolvedValue({ active: true, permissions: [], features: [] });
+        const blocked = await observe();
+        expect(blocked).toEqual(unknown);
+        expect(unknown.error[0][0]).toBe(404);
+      });
+
+      it('is refused for the PDF too, before any render', async () => {
+        store.resolveShareLink.mockResolvedValue(resolved());
+        mockAuthority.mockResolvedValue({ active: true, permissions: [], features: [] });
+        await call('/reports/:token/pdf', 'get', { params: { token: TOKEN }, headers: { 'user-agent': 'Mozilla/5.0 Chrome/141.0' } });
+        expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 404, expect.any(String), 'NOT_FOUND');
+        expect(mockRenderPdf).not.toHaveBeenCalled();
+        expect(mockPdfAvailable).not.toHaveBeenCalled();
+      });
     });
 
     it('refuses a malformed token without touching the database', async () => {

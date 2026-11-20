@@ -12,6 +12,8 @@ export interface RunnerErrorContext {
   runnerLabel?: string | null;
   lastDeliveryAt?: string | null;
   runnersChecked?: string[] | null;
+  /** RUNNERS_UNAVAILABLE's `details.reason` (the pause, the key service unreachable, …). */
+  reason?: string | null;
 }
 
 const LINK_TEXT = {
@@ -26,7 +28,7 @@ const LINK_TEXT = {
  * by LABEL only (the platform holds nothing else about the account).
  */
 export function runnerErrorBanner(code: string | null | undefined, ctx: RunnerErrorContext = {}): ReactNode {
-  const copy = runnerErrorCopy(code);
+  const copy = runnerErrorCopy(code, ctx.reason);
   const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v : null);
   const label = str(ctx.runnerLabel);
   const when = code === 'RUNNER_UNREACHABLE' ? str(ctx.lastDeliveryAt) : null;
@@ -57,5 +59,6 @@ export function runnerErrorMessage(err: unknown): ReactNode | null {
     runnerLabel: typeof d.runnerLabel === 'string' ? d.runnerLabel : null,
     lastDeliveryAt: typeof d.lastDeliveryAt === 'string' ? d.lastDeliveryAt : null,
     runnersChecked: Array.isArray(d.runnersChecked) ? (d.runnersChecked as string[]) : null,
+    reason: typeof d.reason === 'string' ? d.reason : null,
   });
 }

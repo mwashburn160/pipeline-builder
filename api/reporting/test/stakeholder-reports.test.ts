@@ -56,6 +56,7 @@ const store = {
   createShareLink: jest.fn<AnyFn>(),
   listShareLinks: jest.fn<AnyFn>(),
   revokeShareLink: jest.fn<AnyFn>(),
+  revokeAllShareLinks: jest.fn<AnyFn>(),
   listRecipients: jest.fn<AnyFn>(),
   getRecipients: jest.fn<AnyFn>(),
   upsertRecipient: jest.fn<AnyFn>(),
@@ -1217,6 +1218,51 @@ describe('stakeholder report routes', () => {
     it('audits the resulting policy', async () => {
       await call('/policy', 'put', { body: { externalSharing: true } });
       expect(audit()).toMatchObject({ action: 'reporting.report.policy.update', targetType: 'report-policy' });
+    });
+
+    /**
+     * TURNING SHARING OFF MEANS THE LINKS ALREADY OUT THERE TOO. The read-time check
+     * already stops them resolving; the revoke makes it permanent, so switching sharing
+     * back on later cannot quietly re-open every link handed out before.
+     */
+    describe('turning external sharing off', () => {
+      const audits = () => mockRecordAudit.mock.calls.map((c) => c[0] as any);
+
+      it('revokes every live link in the org in the same request, and audits the count once', async () => {
+        store.getReportPolicy
+          .mockResolvedValueOnce({ externalSharing: true, recipientDomains: null, requireApproval: true })
+          .mockResolvedValue({ externalSharing: false, recipientDomains: null, requireApproval: true });
+        store.revokeAllShareLinks.mockResolvedValue(3);
+        await call('/policy', 'put', { body: { externalSharing: false } });
+        expect(store.revokeAllShareLinks).toHaveBeenCalledTimes(1);
+        expect(store.revokeAllShareLinks).toHaveBeenCalledWith('acme', 'user-lead');
+        const revoked = audits().filter((a) => a.action === 'reporting.report.link.revoked');
+        expect(revoked).toHaveLength(1);
+        expect(revoked[0]).toMatchObject({
+          orgId: 'acme',
+          targetType: 'report-policy',
+          targetId: 'acme',
+          details: { reason: 'external_sharing_disabled', count: 3 },
+        });
+        expect(payload().revokedLinks).toBe(3);
+      });
+
+      it('does not revoke (or revive) anything when sharing is turned back ON', async () => {
+        store.getReportPolicy
+          .mockResolvedValueOnce({ externalSharing: false, recipientDomains: null, requireApproval: true })
+          .mockResolvedValue({ externalSharing: true, recipientDomains: null, requireApproval: true });
+        await call('/policy', 'put', { body: { externalSharing: true } });
+        expect(store.revokeAllShareLinks).not.toHaveBeenCalled();
+        // No un-revoke exists to call: re-enabling only allows NEW links.
+        expect(audits().map((a) => a.action)).toEqual(['reporting.report.policy.update']);
+      });
+
+      it('does nothing to links when sharing was already off, or another field changed', async () => {
+        store.getReportPolicy.mockResolvedValue({ externalSharing: false, recipientDomains: null, requireApproval: true });
+        await call('/policy', 'put', { body: { externalSharing: false } });
+        await call('/policy', 'put', { body: { requireApproval: false } });
+        expect(store.revokeAllShareLinks).not.toHaveBeenCalled();
+      });
     });
 
   });

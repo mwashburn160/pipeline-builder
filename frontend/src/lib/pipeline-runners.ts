@@ -13,7 +13,7 @@
 
 import {
   RUNNER_DELIVERY_FAILURE_CLASSES, TERMINAL_RUN_REQUEST_STATUSES as TERMINAL_RUN_REQUEST_STATUS_LIST,
-  type RunnerDeliveryFailureClass, type RunnerErrorCode, type RunnerHealth, type RunnerStatus, type RunRequestStatus,
+  type RunnerDeliveryFailureClass, type RunnerErrorCode, type RunnerHealth, type RunnerStatus, type RunnersUnavailableReason, type RunRequestStatus,
 } from '@pipeline-builder/api-core/pipeline-runners';
 import type { BadgeColor } from '@/components/ui/Badge';
 import type { PipelineRunner } from '@/lib/api/domains/pipelines';
@@ -290,8 +290,37 @@ export const RUNNER_ERROR_COPY: Readonly<Record<string, RunnerErrorCopy>> = COPY
  *  `RUNNER_ERROR_CODES`, which is the whole catalog.) */
 const CODES_WITH_COPY: ReadonlySet<string> = new Set(Object.keys(RUNNER_ERROR_COPY));
 
-/** The copy for a code (a generic sentence for an unknown one). */
-export function runnerErrorCopy(code: string | null | undefined): RunnerErrorCopy {
+/**
+ * RUNNERS_UNAVAILABLE's copy by its `details.reason`: only a real operator
+ * pause says "paused"; a key-service outage is transient and retried on its own.
+ */
+export const RUNNERS_UNAVAILABLE_COPY = {
+  paused: COPY.RUNNERS_UNAVAILABLE,
+  encryption_not_configured: {
+    title: 'Pipeline runners are not set up on this platform.',
+    body: 'Secret encryption for runner signing keys is not configured — ask your platform operator. pipeline-manager pipeline run with your own AWS credentials still works.',
+    link: null,
+  },
+  tables_missing: {
+    title: 'Pipeline runners are not set up on this platform.',
+    body: 'Its database has no runner tables — ask your platform operator. pipeline-manager pipeline run with your own AWS credentials still works.',
+    link: null,
+  },
+  key_service: {
+    title: 'Runs can\'t be signed right now because the key service is unreachable.',
+    body: 'Queued runs retry automatically.',
+    link: null,
+  },
+} satisfies Record<RunnersUnavailableReason, RunnerErrorCopy>;
+
+/**
+ * The copy for a code (a generic sentence for an unknown one). `reason` is a
+ * RUNNERS_UNAVAILABLE refusal's `details.reason` (an unknown one reads as the pause copy).
+ */
+export function runnerErrorCopy(code: string | null | undefined, reason?: unknown): RunnerErrorCopy {
+  if (code === 'RUNNERS_UNAVAILABLE' && typeof reason === 'string' && Object.hasOwn(RUNNERS_UNAVAILABLE_COPY, reason)) {
+    return RUNNERS_UNAVAILABLE_COPY[reason as RunnersUnavailableReason];
+  }
   if (code && Object.hasOwn(RUNNER_ERROR_COPY, code)) return RUNNER_ERROR_COPY[code];
   return {
     title: 'The pipeline runner could not complete the request.',

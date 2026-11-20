@@ -85,6 +85,27 @@ describe('PluginSecurityNotificationSettings', () => {
     expect(screen.getByRole('radio', { name: /only the members i choose/i })).toBeDisabled();
   });
 
+  it('shows a reader the host-only webhook URL the server returns, says why, and offers no save', async () => {
+    getPrefs.mockResolvedValue({ success: true, data: { preferences: prefs({ webhookUrl: 'https://hooks.example.com/…', canEdit: false }) } });
+    renderCard({ canEdit: false });
+    expect(await screen.findByDisplayValue('https://hooks.example.com/…')).toBeDisabled();
+    expect(screen.getByText(/only the host is shown/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /save notification settings/i })).not.toBeInTheDocument();
+  });
+
+  it('never sends a host-only (masked) webhook URL back as the URL on save', async () => {
+    // The server masked the URL (it did not see org_settings:write) while the
+    // page still offered the form: saving another field must not overwrite the
+    // stored URL with `https://host/…`.
+    getPrefs.mockResolvedValue({ success: true, data: { preferences: prefs({ webhookUrl: 'https://hooks.example.com/…', canEdit: false }) } });
+    renderCard();
+    fireEvent.click(await screen.findByRole('switch', { name: /rescan findings/i }));
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(updatePrefs).toHaveBeenCalledTimes(1));
+    expect(updatePrefs.mock.calls[0][0]).toMatchObject({ notifyRescan: false });
+    expect(updatePrefs.mock.calls[0][0]).not.toHaveProperty('webhookUrl');
+  });
+
   it('never shows the stored secret, and sends one only when typed', async () => {
     renderCard();
     const secret = await screen.findByLabelText(/webhook signing secret/i);

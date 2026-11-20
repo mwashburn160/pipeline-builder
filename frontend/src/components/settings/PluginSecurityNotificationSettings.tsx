@@ -128,6 +128,10 @@ export function PluginSecurityNotificationSettings({ orgId, canEdit, readOnly }:
   });
   const members = read.data?.members ?? NO_MEMBERS;
   const editable = canEdit && !readOnly;
+  // The server returns the full webhook URL only to a caller holding
+  // `org_settings:write`; anyone else gets its host (`https://host/…`), which
+  // must never be saved back as the URL.
+  const webhookMasked = !!prefs?.webhookUrl && prefs.canEdit === false;
 
   const urlProblem = draft ? webhookUrlProblem(draft.webhookUrl) : null;
   const emailProblem = newEmail.trim() && !looksLikeEmail(newEmail) ? 'Enter an email address' : null;
@@ -187,8 +191,9 @@ export function PluginSecurityNotificationSettings({ orgId, canEdit, readOnly }:
       notifyRescan: draft.notifyRescan,
       notifyPipelineOwners: draft.notifyPipelineOwners,
       digestMode: draft.digestMode,
-      webhookUrl: draft.webhookUrl.trim() || null,
     };
+    const webhookUrl = draft.webhookUrl.trim() || null;
+    if (!webhookMasked || webhookUrl !== prefs.webhookUrl) body.webhookUrl = webhookUrl;
     if (secret.trim()) body.webhookSecret = secret.trim();
     else if (clearSecret) body.webhookSecret = null;
     if (newEmail.trim()) body.externalEmail = newEmail.trim();
@@ -305,7 +310,13 @@ export function PluginSecurityNotificationSettings({ orgId, canEdit, readOnly }:
           </FormField>
 
           <div className="space-y-3 border-t border-default pt-4">
-            <FormField label="Webhook URL" error={editable ? urlProblem ?? undefined : undefined} hint="Optional. https only; each delivery is signed with X-PB-Signature when a secret is set.">
+            <FormField
+              label="Webhook URL"
+              error={editable ? urlProblem ?? undefined : undefined}
+              hint={webhookMasked
+                ? 'Only the host is shown: the full URL can carry a token, so it is visible to members who can change these settings.'
+                : 'Optional. https only; each delivery is signed with X-PB-Signature when a secret is set.'}
+            >
               <Input
                 type="url"
                 value={draft.webhookUrl}

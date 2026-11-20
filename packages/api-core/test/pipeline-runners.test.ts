@@ -212,6 +212,12 @@ describe('RunnerKeyServiceUnavailableError', () => {
     }
     expect(catalog.RUNNER_KEY_SERVICE_SOURCES).toEqual(['kms_config', 'kms']);
   });
+
+  it('carries its own unavailable reason (key_service), never the operator pause', () => {
+    const err = new catalog.RunnerKeyServiceUnavailableError('kms', 'throttled');
+    expect(err.reason).toBe('key_service');
+    expect(catalog.RUNNERS_UNAVAILABLE_REASONS).toEqual(['paused', 'encryption_not_configured', 'tables_missing', 'key_service']);
+  });
 });
 
 describe('key invalidation messages', () => {

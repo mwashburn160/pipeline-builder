@@ -23,7 +23,7 @@
 
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import {
-  isRunnerErrorCode, runnerErrorStatus, type PendingRunRequestStatus, type RunnerApiErrorCode, type RunnerErrorCode, type RunnerLinkDetail, type RunnerLinkStatus, type RunnerReplyErrorCode,
+  isRunnerErrorCode, isRunnerKeyServiceUnavailable, runnerErrorStatus, type PendingRunRequestStatus, type RunnerApiErrorCode, type RunnerErrorCode, type RunnerLinkDetail, type RunnerLinkStatus, type RunnerReplyErrorCode,
   type RunnersUnavailableReason,
 } from '@pipeline-builder/api-core/pipeline-runners';
 import { deliverPush } from './delivery.js';
@@ -47,7 +47,7 @@ export class RunnerRouteError extends Error {
   constructor(
     readonly code: RunnerRouteCode,
     message: string,
-    readonly details?: { runnerLabel?: string; lastDeliveryAt?: string | null; runnersChecked?: string[] },
+    readonly details?: { runnerLabel?: string; lastDeliveryAt?: string | null; runnersChecked?: string[]; reason?: RunnersUnavailableReason },
   ) {
     super(message);
     this.name = 'RunnerRouteError';
@@ -64,6 +64,7 @@ export class RunnerRouteError extends Error {
  */
 export function asRunnerRouteError(err: unknown): RunnerRouteError | null {
   if (err instanceof RunnerRouteError) return err;
+  if (isRunnerKeyServiceUnavailable(err)) return runnersUnavailable('key_service');
   const code = (err as { code?: unknown } | null)?.code;
   if (typeof code !== 'string' || !isRunnerErrorCode(code)) return null;
   const mapped = new RunnerRouteError(code as RunnerRouteCode, err instanceof Error ? err.message : code);
@@ -75,7 +76,13 @@ export const RUNNERS_UNAVAILABLE_MESSAGES = {
   paused: 'Pipeline runs are paused on this platform by its operator; try again once they resume.',
   encryption_not_configured: 'Pipeline runners are not set up on this deployment (secret encryption is not configured).',
   tables_missing: 'Pipeline runners are not set up on this deployment: the database has no runner tables.',
+  key_service: "Runs can't be signed right now because the key service is unreachable. Queued runs retry automatically.",
 } as const satisfies Record<RunnersUnavailableReason, string>;
+
+/** 409 RUNNERS_UNAVAILABLE for `reason`: its shared message, and the reason as `details.reason`. */
+export function runnersUnavailable(reason: RunnersUnavailableReason): RunnerRouteError {
+  return new RunnerRouteError('RUNNERS_UNAVAILABLE', RUNNERS_UNAVAILABLE_MESSAGES[reason], { reason });
+}
 
 /** A runner as routing sees it: the row plus the org it is inherited from (if any). */
 export interface EligibleRunner {
@@ -229,8 +236,9 @@ export const NO_RUNNER_MESSAGE = 'This pipeline needs a runner. Install one in t
 
 /**
  * The platform refusals a probe can come back with (deliverPush refused before
- * sending anything): the pause toggle flipped mid-request, or the runner-owning
- * org's key missing / unreadable. Discovery answers them as themselves.
+ * sending anything): the pause toggle flipped mid-request or the key service
+ * unreachable (RUNNERS_UNAVAILABLE, by the verdict's reason), or the
+ * runner-owning org's key missing / unreadable. Discovery answers them as themselves.
  */
 const PLATFORM_REFUSALS = {
   RUNNERS_UNAVAILABLE: RUNNERS_UNAVAILABLE_MESSAGES.paused,
@@ -240,7 +248,7 @@ const PLATFORM_REFUSALS = {
 type PlatformRefusal = keyof typeof PLATFORM_REFUSALS;
 
 /** One probe's verdict, by runner. */
-interface ProbeResult { entry: EligibleRunner; matched: boolean; ambiguousPipeline: boolean; platformRefusal?: PlatformRefusal }
+interface ProbeResult { entry: EligibleRunner; matched: boolean; ambiguousPipeline: boolean; platformRefusal?: PlatformRefusal; unavailableReason?: RunnersUnavailableReason }
 
 /** What the registry row said before a probe marked it `checking` (never `checking` itself). */
 function statusBefore(link: RegistryLink): RunnerLinkStatus {
@@ -289,7 +297,9 @@ async function probe(deps: RunnerDeps, input: RouteInput, entry: EligibleRunner,
     ? { status: 'started' }
     : { status: 'failed', errorCode: verdict.kind === 'fail' ? verdict.code : verdict.kind === 'success' ? 'NO_MATCH' : 'RUNNER_UNREACHABLE' });
   const platformRefusal = verdict.kind === 'fail' && PLATFORM_SIDE.has(verdict.code) && verdict.code in PLATFORM_REFUSALS ? verdict.code as PlatformRefusal : undefined;
-  return { entry, matched, ambiguousPipeline: verdict.kind === 'fail' && verdict.code === 'AMBIGUOUS_PIPELINE', ...(platformRefusal ? { platformRefusal } : {}) };
+  const unavailableReason = platformRefusal === 'RUNNERS_UNAVAILABLE' && verdict.kind === 'fail' ? verdict.reason : undefined;
+  const ambiguousPipeline = verdict.kind === 'fail' && verdict.code === 'AMBIGUOUS_PIPELINE';
+  return { entry, matched, ambiguousPipeline, ...(platformRefusal ? { platformRefusal } : {}), ...(unavailableReason ? { unavailableReason } : {}) };
 }
 
 /**
@@ -332,10 +342,11 @@ export async function discoverRunner(
     const level = results.filter((r) => r.entry.depth === depth);
     // The platform could not ask this level (one org: one key): fail closed
     // rather than let a farther level win, and record nothing new on the row.
-    const platformRefusal = level.find((r) => r.platformRefusal)?.platformRefusal;
-    if (platformRefusal) {
+    const refused = level.find((r) => r.platformRefusal);
+    if (refused?.platformRefusal) {
       if (link) await writeLink(deps, input, statusBefore(link), link.linkDetail ?? null);
-      throw new RunnerRouteError(platformRefusal, PLATFORM_REFUSALS[platformRefusal]);
+      if (refused.platformRefusal === 'RUNNERS_UNAVAILABLE') throw runnersUnavailable(refused.unavailableReason ?? 'paused');
+      throw new RunnerRouteError(refused.platformRefusal, PLATFORM_REFUSALS[refused.platformRefusal]);
     }
     // A runner that sees MORE than one pipeline carrying this id cannot pick one.
     const ambiguous = level.filter((r) => r.ambiguousPipeline).map((r) => r.entry.runner.label);

@@ -95,6 +95,8 @@ describe('runSigningKeyAction', () => {
 
   it('the per-org key-write limit (429) is explained; anything else is rethrown as-is', () => {
     expect(() => explainSigningKeyError(refused(429, {}))).toThrow(/Too many signing-key changes/);
+    expect(() => explainSigningKeyError(refused(409, { code: 'RUNNERS_UNAVAILABLE', details: { reason: 'key_service' } })))
+      .toThrow("Runs can't be signed right now because the key service is unreachable. Queued runs retry automatically.");
     const e = refused(403, { error: { code: 'INSUFFICIENT_PERMISSIONS' } });
     expect(() => explainSigningKeyError(e)).toThrow(e);
   });
