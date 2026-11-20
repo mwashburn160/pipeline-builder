@@ -97,14 +97,23 @@ export async function writePublicationRecord(publicRepository: string, publisher
  * Cached for {@link CACHE_TTL_MS}. `complete` is false when any record could
  * not be read — the fail-closed push-gate then treats the rollup as
  * inconclusive rather than under-count the org.
+ *
+ * `catalog`: a FULL catalog listing the caller already holds (the storage
+ * snapshot walks it once for every org). The record repositories are picked
+ * out of it instead of walking the catalog a second time — on an object-store
+ * backend that walk is the expensive part.
  */
-export async function readPublicationOwners(opts: { force?: boolean } = {}): Promise<{ owners: Map<string, string | null>; complete: boolean }> {
+export async function readPublicationOwners(
+  opts: { force?: boolean; catalog?: readonly string[] } = {},
+): Promise<{ owners: Map<string, string | null>; complete: boolean }> {
   if (!opts.force && cache && Date.now() - cache.computedAt < CACHE_TTL_MS) {
     return { owners: cache.map, complete: true };
   }
   const owners = new Map<string, string | null>();
   let complete = true;
-  const repos = await listRepositoriesUnderPrefix(PUBLICATION_RECORD_PREFIX);
+  const repos = opts.catalog
+    ? opts.catalog.filter((r) => r.startsWith(PUBLICATION_RECORD_PREFIX))
+    : await listRepositoriesUnderPrefix(PUBLICATION_RECORD_PREFIX);
   for (const repo of repos) {
     try {
       const { body } = await getManifest(repo, RECORD_TAG);

@@ -33,6 +33,10 @@ jest.unstable_mockModule('../src/services/gc-scheduler.js', () => ({
   stopGcScheduler: () => order.push('stop-gc'),
   stopQuarantineGcScheduler: () => order.push('stop-quarantine'),
 }));
+jest.unstable_mockModule('../src/services/storage-snapshot.js', () => ({
+  startStorageSnapshotScheduler: () => order.push('start-snapshot'),
+  stopStorageSnapshotScheduler: () => order.push('stop-snapshot'),
+}));
 
 const sigtermBefore = process.listenerCount('SIGTERM');
 await import('../src/index.js');
@@ -40,7 +44,7 @@ await import('../src/index.js');
 describe('image-registry shutdown wiring', () => {
   it('starts both GC schedulers at boot without registering a SIGTERM hook', async () => {
     await serverOpts!.onBeforeStart!();
-    expect(order).toEqual(['start-gc', 'start-quarantine']);
+    expect(order).toEqual(['start-gc', 'start-quarantine', 'start-snapshot']);
     expect(process.listenerCount('SIGTERM')).toBe(sigtermBefore);
   });
 
@@ -48,6 +52,6 @@ describe('image-registry shutdown wiring', () => {
     order.length = 0;
     expect(serverOpts?.onShutdown).toBeInstanceOf(Function);
     await serverOpts!.onShutdown!();
-    expect(order).toEqual(['stop-gc', 'stop-quarantine']);
+    expect(order).toEqual(['stop-gc', 'stop-quarantine', 'stop-snapshot']);
   });
 });
