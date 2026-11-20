@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { attachmentDisposition, createLogger, envInt, envStr, ErrorCode, fetchOrgDescendants, maskLine, RETENTION_MAX_DAYS, sendError, userHasPermission } from '@pipeline-builder/api-core';
+import { attachmentDisposition, createLogger, envInt, envStr, ErrorCode, fetchOrgDescendants, maskLine, parseReportTimezone, parseWeekStart, RETENTION_MAX_DAYS, sendError, userHasPermission, type WeekStart } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
 import type { PdfFailure, PdfRefusal } from '../services/report-pdf.js';
 
@@ -34,6 +34,25 @@ export function publicBaseUrl(): string {
 /** Where a manager reads a shared report. The page redeems the token against the API. */
 export function shareLinkUrl(token: string): string {
   return `${publicBaseUrl()}/reports/shared?token=${encodeURIComponent(token)}`;
+}
+
+/**
+ * The `?tz=` / `?weekStart=` bucketing of a time-series dashboard route, validated
+ * with the SAME parsers a stakeholder report definition uses, or `{ error }` for a
+ * 400 naming the field.
+ *
+ * Dashboards used to bucket in UTC with ISO Monday weeks whatever the viewer's
+ * timezone, while the stakeholder report bucketed in the report's timezone — so a
+ * Chicago team's dashboard week and report week disagreed by Sunday evening's
+ * runs. Absent params keep the old UTC / Monday answer for API callers that send
+ * neither; the dashboard sends the org's report timezone (or the browser's).
+ */
+export function parseReportBucket(query: Record<string, unknown>): { tz: string; weekStart: WeekStart } | { error: string } {
+  const tz = parseReportTimezone(query);
+  if (typeof tz !== 'string') return tz;
+  const weekStart = parseWeekStart(query);
+  if (typeof weekStart !== 'string') return weekStart;
+  return { tz, weekStart };
 }
 
 // Interval validation MUST happen at the route layer (against REPORT_INTERVALS):

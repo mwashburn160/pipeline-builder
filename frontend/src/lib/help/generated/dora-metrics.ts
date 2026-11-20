@@ -1,6 +1,6 @@
 // GENERATED FROM docs/dora-metrics.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 7fe4f9f6b01bde08a97a139d139193cba5f0a8804452f9825b091117279d1fc4
+// SOURCE-SHA256: c353f60458a56cf4cd1e0d38bb2ab1dc2c69012ea52aeb4cb1dddb33ab758391
 // SPDX-License-Identifier: Apache-2.0
 import { Gauge } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -33,7 +33,9 @@ export const doraMetricsTopic: HelpTopic = {
             "Lead time is measured, not proxied — commit → deploy. It reports unknown rather than substituting a run-duration guess.",
             "Lead time is off by default. Commit resolution makes SCM calls in your AWS account, so it needs setup-events --with-dora.",
             "Change failure rate is two-class: deploy-time failures plus post-deploy failures, deduped so a deploy flagged by both an incident and a manual outcome counts once.",
-            "MTTR is production-only, and incidents take precedence over manual outcomes when a deploy has both.",
+            "Post-deploy failures are anchored to their deploy: they count in the window (and trend bucket) the deploy completed in, whenever they were flagged.",
+            "Time to restore is a median, measured from the failure. It is production-only, and incidents take precedence over manual outcomes when a deploy has both. (The API field keeps its historical name, meanTimeToRestore.)",
+            "No band without a sample. Fewer than 5 deployments (frequency, CFR) or 5 measurements (lead time, time to restore) reads insufficient — \"Not enough data (n = X)\" — rather than elite or low.",
             "Coverage is the honesty check. A high withoutDeploys means DORA is blind to most of your fleet.",
             "Retention is split, tier-aware and bundle-extendable, and the query window now tracks it — so you can't request a range past your own retention."
           ]
@@ -54,7 +56,7 @@ export const doraMetricsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "These metrics are DEPLOY-BASIS ONLY. There is no run-based mode. This is a deliberate, no-backward-compatibility change: the old run-based frequency, the median-run-duration lead-time proxy, and the inferred CFR/MTTR are removed."
+          "content": "These metrics are DEPLOY-BASIS ONLY. There is no run-based mode. This is a deliberate, no-backward-compatibility change: the old run-based frequency, the median-run-duration lead-time proxy, and the inferred CFR/time-to-restore are removed."
         },
         {
           "type": "text",
@@ -71,8 +73,8 @@ export const doraMetricsTopic: HelpTopic = {
           "items": [
             "Declare — a user sets an environment on each deploy stage. pipeline-core derives the pb.deploys tag (see Declaring deployments).",
             "Ingest — the events Lambda parses pb.deploys, sets environment on the deploy-stage events, resolves the source commit range in-account (oldest unshipped commit time plus count) — only when enabled with setup-events --with-dora — and forwards normalized events to the reporting service.",
-            "Compute — DORA is derived over the deploy-stage executions in the window: deployment frequency, two-class change-failure rate, measured lead time, production MTTR, and coverage.",
-            "Classify — each metric gets a level band (elite / high / medium / low, or null when there is no sample).",
+            "Compute — DORA is derived over the deploy-stage executions in the window: deployment frequency, two-class change-failure rate, measured lead time, production median time to restore, and coverage.",
+            "Classify — each metric gets a level band (elite / high / medium / low; insufficient below the minimum sample; null when there is no sample) and its sample size n.",
             "Surface — results render as per-environment Reports-page cards, with production as the headline, or are consumed via the endpoints."
           ]
         }
@@ -121,7 +123,7 @@ export const doraMetricsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Point PagerDuty, Datadog, Opsgenie or Alertmanager at the incident webhook to get an automated post-deploy CFR signal and a real MTTR, instead of marking deploys by hand. Full setup: Incident webhook."
+          "content": "Point PagerDuty, Datadog, Opsgenie or Alertmanager at the incident webhook to get an automated post-deploy CFR signal and a real (median) time to restore, instead of marking deploys by hand. Full setup: Incident webhook."
         },
         {
           "type": "text",
@@ -165,7 +167,7 @@ export const doraMetricsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "The literal environment name production is the DORA headline: its card is the summary, and MTTR is measured production-only.",
+            "The literal environment name production is the DORA headline: its card is the summary, and time to restore is measured production-only.",
             "A stage listed in pb.deploys is a deploy, and the forwarder sets environment only on those stages' events. A stage that is absent is not a deployment and never enters DORA.",
             "isDeploy is not a field — it is derived server-side as \"environment IS NOT NULL on a STAGE event\"."
           ]
@@ -219,6 +221,10 @@ export const doraMetricsTopic: HelpTopic = {
         },
         {
           "type": "text",
+          "content": "A post-deploy failure is anchored to its deploy: it counts in the window its deploy completed in, however late it was flagged. A deploy completed on the 31st and marked failed on the 1st is the 31st's month's failure. (Windowing markers on their own time put the failure in one window and the attempt in another.) An incident opened up to the correlation window after to still counts for an in-window deploy. A failed marker on a deploy that already failed at deploy time adds nothing — that deployment is already one failure."
+        },
+        {
+          "type": "text",
           "content": "Lead time"
         },
         {
@@ -231,7 +237,11 @@ export const doraMetricsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Mean time to restore (MTTR)"
+          "content": "Median time to restore"
+        },
+        {
+          "type": "text",
+          "content": "The median recovery time — reported in the meanTimeToRestore field, a historical name kept so API consumers do not break. It is a median, not a mean, and every label presents it as one."
         },
         {
           "type": "text",
@@ -240,8 +250,10 @@ export const doraMetricsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "A webhook-ingested incident contributes the real recovery time (resolved_at − opened_at).",
-            "A manual outcome contributes restored.at − deployed.completed_at."
+            "A webhook-ingested incident opened in the window contributes the real recovery time (resolved_at − opened_at).",
+            "A manual outcome pair contributes restored.at − failed.at — measured from the failure (the same deploy's failed marker), not from the deploy.",
+            "Fallback: only when a deploy has no failed marker but itself failed at deploy time is the failure instant the deploy's completion (restored.at − deployed.completed_at); that deploy-time failure also counts as the incident.",
+            "A restored marker with no failure behind it (no failed marker, no incident, deploy succeeded) is not a recovery and is ignored — it adds nothing to restored or the median."
           ]
         },
         {
@@ -250,7 +262,7 @@ export const doraMetricsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "incidents counts production deploys flagged failed; restored counts those that recovered; medianSeconds is null when no recovery is resolvable."
+          "content": "incidents counts production failures; restored counts those that recovered; n is the number of recovery times measured; medianSeconds is null when none was."
         },
         {
           "type": "text",
@@ -272,7 +284,7 @@ export const doraMetricsTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Each metric carries a level band (elite / high / medium / low, or null when there's no sample). Thresholds follow the DORA/Accelerate reports:"
+          "content": "Each metric carries a level band (elite / high / medium / low; insufficient below the minimum sample; null when there's no sample) and the sample size n it rests on. Thresholds follow the DORA/Accelerate reports:"
         },
         {
           "type": "table",
@@ -299,7 +311,7 @@ export const doraMetricsTopic: HelpTopic = {
               "> 15%"
             ],
             [
-              "Mean Time To Restore",
+              "Median Time To Restore",
               "< 1 hour",
               "< 1 day",
               "< 1 week",
@@ -317,6 +329,48 @@ export const doraMetricsTopic: HelpTopic = {
         {
           "type": "text",
           "content": "The dashboard renders each band as a coloured badge; null bands show no badge."
+        },
+        {
+          "type": "text",
+          "content": "Minimum sample"
+        },
+        {
+          "type": "text",
+          "content": "A band needs at least MIN_DORA_SAMPLE = 5 observations (exported from @pipeline-builder/api-core, shared by the reporting service and the maturity scorecard):"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Metric",
+            "n is",
+            "Below 5"
+          ],
+          "rows": [
+            [
+              "Deployment frequency",
+              "successful deployments",
+              "insufficient"
+            ],
+            [
+              "Change failure rate",
+              "deploy attempts",
+              "insufficient"
+            ],
+            [
+              "Lead time",
+              "measured commit → deploy gaps",
+              "insufficient"
+            ],
+            [
+              "Median time to restore",
+              "measured recovery times",
+              "insufficient"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "An insufficient band shows \"Not enough data (n = X)\" on the DORA cards, the per-pipeline view and the scorecard, and as a note on the stakeholder report's DORA section. The maturity scorecard treats it as unscored, exactly like null — never as low. The figure itself (rate, median) is still reported."
         }
       ]
     },
@@ -387,16 +441,47 @@ export const doraMetricsTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "GET /api/reports/execution/dora/trend?interval=<day|week|month>&from=<iso>&to=<iso>"
+          "content": "GET /api/reports/execution/dora/trend?interval=<day|week|month>&from=<iso>&to=<iso>&tz=<iana>&weekStart=<monday|sunday>"
         },
         {
           "type": "text",
-          "content": "Returns data.trend — deploy frequency plus deploy-time change-failure rate, bucketed by interval on the deploy completed_at. Same guards, rollup and optional scoping (pipelineId / environment) as /dora. Each point:"
+          "content": "Returns data.trend — deploy frequency plus the same two-class change-failure rate as the headline, bucketed by interval on the deploy completed_at. Same guards, rollup, optional scoping (pipelineId / environment) and per-org incident window as /dora. Each point:"
         },
         {
           "type": "code",
-          "content": "{ \"period\": \"2026-07-01T00:00:00.000Z\", \"deployments\": 4, \"failed\": 1, \"total\": 5, \"changeFailurePct\": 20 }",
+          "content": "{ \"period\": \"2026-07-01T00:00:00\", \"deployments\": 4, \"failed\": 1, \"postDeployFailures\": 1, \"total\": 5, \"changeFailurePct\": 40 }",
           "language": "json"
+        },
+        {
+          "type": "text",
+          "content": "failed is deploy-time failures; postDeployFailures is successful deploys in the bucket later flagged failed, anchored to the deploy's bucket; changeFailurePct = (failed + postDeployFailures) ÷ total. Summed over the buckets, failed, postDeployFailures and total equal the headline's deployTimeFailures, postDeployFailures and attempts for the same window and scope."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Param",
+            "Values",
+            "Default",
+            "Notes"
+          ],
+          "rows": [
+            [
+              "tz",
+              "IANA timezone name",
+              "UTC",
+              "Buckets are cut at local midnight in this zone. An invalid name or a bare offset (+05:00) is HTTP 400."
+            ],
+            [
+              "weekStart",
+              "monday, sunday",
+              "monday",
+              "Where a week bucket starts. Anything else is HTTP 400."
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "The dashboard sends the org's stakeholder-report default timezone and week start when the org has set them, otherwise the browser's timezone — so its buckets match the stakeholder report's."
         },
         {
           "type": "text",
@@ -412,7 +497,7 @@ export const doraMetricsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Marks a deployment failed (a production incident linked to the deploy) or restored, feeding the post-deploy CFR component and real MTTR."
+          "content": "Marks a deployment failed (a production incident linked to the deploy) or restored, feeding the post-deploy CFR component and the median time to restore (a restored marker is measured from the same deploy's failed marker)."
         },
         {
           "type": "text",
@@ -471,7 +556,7 @@ export const doraMetricsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Idempotent on (org, incidentId): a later resolve re-post updates resolvedAt. Each incident is correlated to the most recent successful deploy to its environment with completed_at ≤ openedAt within DORA_INCIDENT_WINDOW_HOURS (default 24, overridable per-org), producing an automated post-deploy CFR signal and a real MTTR."
+          "content": "Idempotent on (org, incidentId): a later resolve re-post updates resolvedAt. Each incident is correlated to the most recent successful deploy to its environment with completed_at ≤ openedAt within DORA_INCIDENT_WINDOW_HOURS (default 24, overridable per-org), producing an automated post-deploy CFR signal and a real recovery time for the median time to restore."
         },
         {
           "type": "text",
@@ -598,7 +683,7 @@ export const doraMetricsTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "{\n  \"data\": {\n    \"dora\": {\n      \"window\": { \"from\": \"2026-06-27T00:00:00.000Z\", \"to\": \"2026-07-27T00:00:00.000Z\" },\n      \"filters\": { \"pipelineId\": null, \"environment\": null },\n      \"headline\": \"production\",\n      \"environments\": [\n        {\n          \"environment\": \"production\",\n          \"deploymentFrequency\": { \"deployments\": 128, \"perDay\": 4.27, \"level\": \"elite\" },\n          \"changeFailureRate\": { \"rate\": 7.9, \"deployTimeFailures\": 8, \"postDeployFailures\": 3, \"attempts\": 139, \"level\": \"high\" },\n          \"leadTime\": { \"deployments\": 120, \"medianSeconds\": 5400, \"level\": \"high\" }\n        }\n      ],\n      \"meanTimeToRestore\": { \"incidents\": 4, \"restored\": 3, \"medianSeconds\": 1840, \"level\": \"high\" },\n      \"coverage\": { \"registered\": 20, \"deploying\": 12, \"withoutDeploys\": 8 }\n    }\n  }\n}",
+          "content": "{\n  \"data\": {\n    \"dora\": {\n      \"window\": { \"from\": \"2026-06-27T00:00:00.000Z\", \"to\": \"2026-07-27T00:00:00.000Z\" },\n      \"filters\": { \"pipelineId\": null, \"environment\": null },\n      \"headline\": \"production\",\n      \"environments\": [\n        {\n          \"environment\": \"production\",\n          \"deploymentFrequency\": { \"deployments\": 128, \"perDay\": 4.27, \"level\": \"elite\", \"n\": 128 },\n          \"changeFailureRate\": { \"rate\": 7.9, \"deployTimeFailures\": 8, \"postDeployFailures\": 3, \"attempts\": 139, \"level\": \"high\", \"n\": 139 },\n          \"leadTime\": { \"deployments\": 120, \"medianSeconds\": 5400, \"level\": \"high\", \"n\": 120 }\n        }\n      ],\n      \"meanTimeToRestore\": { \"incidents\": 4, \"restored\": 3, \"medianSeconds\": 1840, \"level\": \"insufficient\", \"n\": 3 },\n      \"coverage\": { \"registered\": 20, \"deploying\": 12, \"withoutDeploys\": 8 }\n    }\n  }\n}",
           "language": "json"
         },
         {
@@ -626,19 +711,19 @@ export const doraMetricsTopic: HelpTopic = {
             ],
             [
               "environments[].deploymentFrequency",
-              "deployments (successful deploys), perDay, level"
+              "deployments (successful deploys), perDay, level, n"
             ],
             [
               "environments[].changeFailureRate",
-              "Two-class: rate, deployTimeFailures, postDeployFailures, attempts, level"
+              "Two-class: rate, deployTimeFailures, postDeployFailures, attempts, level, n"
             ],
             [
               "environments[].leadTime",
-              "deployments (median sample), medianSeconds (null = unknown), level"
+              "deployments (median sample), medianSeconds (null = unknown), level, n"
             ],
             [
               "meanTimeToRestore",
-              "Production-only: incidents, restored, medianSeconds (null when none), level"
+              "The median time to restore (historical field name). Production-only: incidents, restored, medianSeconds (null when none), level, n"
             ],
             [
               "coverage",
@@ -646,7 +731,11 @@ export const doraMetricsTopic: HelpTopic = {
             ],
             [
               "*.level",
-              "Performance band: elite / high / medium / low, or null"
+              "Performance band: elite / high / medium / low, insufficient (0 < n < 5), or null (no sample)"
+            ],
+            [
+              "*.n",
+              "The sample the band rests on (see Minimum sample)"
             ]
           ]
         }
@@ -659,7 +748,7 @@ export const doraMetricsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Incident webhook — automated post-deploy CFR and real MTTR from your incident tooling",
+            "Incident webhook — automated post-deploy CFR and real recovery times from your incident tooling",
             "API Reference — full reporting endpoint list",
             "AWS Deployment — Report API Endpoints",
             "Roles & Permissions — reports:read and reports:rollup",

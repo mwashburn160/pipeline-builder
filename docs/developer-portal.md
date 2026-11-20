@@ -116,7 +116,7 @@ Each pipeline has a **maturity scorecard** — a single 0–100 score and an A�
 | Dimension | How it scores |
 |---|---|
 | **Compliance posture** | The pipeline is dry-run against the org's compliance rules; the score is the pass ratio, with a warning counting as half a violation. |
-| **Delivery performance** | The four per-pipeline DORA bands — deployment frequency, change-failure rate, time-to-restore, measured lead time — over the trailing 30 days, mapped Elite→Low to points. |
+| **Delivery performance** | The four per-pipeline DORA bands — deployment frequency, change-failure rate, median time to restore, measured lead time — over the trailing 30 days, mapped Elite→Low to points. A band resting on fewer than 5 observations is `insufficient` and **unscored** (left out of the average, never counted as Low); the card shows "Not enough data (n = X)". |
 
 The two dimensions are weighted 50/50, and either is independently nullable, so a pipeline with no rules or no run history scores on whichever dimension has data. The scorecard surfaces as a card on the pipeline detail page.
 
@@ -134,7 +134,8 @@ Response (abridged):
     "grade": "B",
     "compliance": { "score": 90, "rulesEvaluated": 10, "violations": 1, "warnings": 0 },
     "dora": { "score": 74, "basis": "run", "deploymentFrequency": "high", "changeFailureRate": "high",
-              "meanTimeToRestore": "medium", "leadTime": "high" },
+              "meanTimeToRestore": "insufficient", "leadTime": "high",
+              "samples": { "deploymentFrequency": 12, "changeFailureRate": 13, "meanTimeToRestore": 2, "leadTime": 11 } },
     "computedAt": "…"
   }
 }

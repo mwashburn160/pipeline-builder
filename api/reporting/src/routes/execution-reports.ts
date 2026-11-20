@@ -15,7 +15,7 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { reportingService } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import type { Request } from 'express';
-import { MAX_REPORT_LIMIT, MAX_REPORT_RANGE_MS, scrubField, rollupIds } from '../helpers/report-helpers.js';
+import { MAX_REPORT_LIMIT, MAX_REPORT_RANGE_MS, parseReportBucket, scrubField, rollupIds } from '../helpers/report-helpers.js';
 import { resolveReportScope } from '../helpers/report-scope.js';
 import { orgRetentionWindowFromSettings, floorFrom, retentionOrgIdFor } from '../helpers/retention-cap.js';
 
@@ -60,13 +60,17 @@ export function createExecutionReportRoutes(): Router {
     });
   }));
 
+  // `?tz=` (IANA name) and `?weekStart=` (monday|sunday) bucket the series the
+  // way the stakeholder report does (see parseReportBucket); invalid → 400.
   router.get('/success-rate', withRoute(async ({ req, res, orgId }) => {
     const interval = parseReportInterval(req.query);
     if (typeof interval === 'object') return sendBadRequest(res, interval.error, ErrorCode.VALIDATION_ERROR);
+    const bucket = parseReportBucket(req.query);
+    if ('error' in bucket) return sendBadRequest(res, bucket.error, ErrorCode.VALIDATION_ERROR);
     const scope = await resolveReportScope(req, orgId, 'event');
     if ('error' in scope) return sendBadRequest(res, scope.error, ErrorCode.VALIDATION_ERROR);
     const { range, orgIds } = scope;
-    sendSuccess(res, 200, { timeline: await reportingService.getSuccessRate(orgId, interval, range.from, range.to, orgIds) });
+    sendSuccess(res, 200, { timeline: await reportingService.getSuccessRate(orgId, interval, range.from, range.to, orgIds, bucket) });
   }));
 
   router.get('/duration', withRoute(async ({ req, res, orgId }) => {
@@ -133,15 +137,30 @@ export function createExecutionReportRoutes(): Router {
   }));
 
   // DORA trend — deployment frequency + change-failure rate bucketed by
-  // `interval` for a sparkline. Same guards + optional scoping as /dora.
+  // `interval` for a sparkline. Same guards + optional scoping as /dora, plus
+  // `?tz=` / `?weekStart=` bucketing (see /success-rate). The org's incident
+  // window is threaded in like /dora's: the trend's CFR includes post-deploy
+  // (incident-correlated) failures, so it must correlate with the same window or
+  // its buckets would not add up to the headline.
   router.get('/dora/trend', requireFeature('advanced_reporting'), withRoute(async ({ req, res, orgId }) => {
     const interval = parseReportInterval(req.query);
     if (typeof interval === 'object') return sendBadRequest(res, interval.error, ErrorCode.VALIDATION_ERROR);
-    const scope = await resolveReportScope(req, orgId, 'dora');
-    if ('error' in scope) return sendBadRequest(res, scope.error, ErrorCode.VALIDATION_ERROR);
-    const { range, orgIds } = scope;
+    const bucket = parseReportBucket(req.query);
+    if ('error' in bucket) return sendBadRequest(res, bucket.error, ErrorCode.VALIDATION_ERROR);
+    const [settings, orgIds] = await Promise.all([
+      reportingService.getReportingSettings(orgId, retentionOrgIdFor(req, orgId)),
+      rollupIds(req, orgId),
+    ]);
+    const win = orgRetentionWindowFromSettings(settings, 'dora');
+    const parsed = parseDateRange(req.query, { maxRangeMs: win.maxRangeMs });
+    if ('error' in parsed) return sendBadRequest(res, parsed.error, ErrorCode.VALIDATION_ERROR);
+    const range = floorFrom(parsed, win.minFromMs);
     sendSuccess(res, 200, {
-      trend: await reportingService.getDoraTrend(orgId, interval, range.from, range.to, orgIds, doraOptions(req)),
+      trend: await reportingService.getDoraTrend(orgId, interval, range.from, range.to, orgIds, {
+        ...doraOptions(req),
+        incidentWindowHours: settings.incidentWindowHours ?? undefined,
+        ...bucket,
+      }),
     });
   }));
 

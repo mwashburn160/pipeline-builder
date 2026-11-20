@@ -33,7 +33,7 @@ export default function IncidentReportingSettingsPage() {
   return (
     <DashboardLayout
       title="Incident reporting"
-      subtitle="Automated post-deploy CFR + real MTTR from your incident tooling"
+      subtitle="Automated post-deploy CFR + measured median time to restore from your incident tooling"
       titleExtra={<Siren className="w-5 h-5 text-brand" />}
     >
       <div className="space-y-6">

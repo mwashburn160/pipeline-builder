@@ -448,8 +448,20 @@ export const DORA_LEVELS = ['elite', 'high', 'medium', 'low'] as const;
 /** A rated DORA band. */
 export type DoraBand = (typeof DORA_LEVELS)[number];
 /**
- * A metric's DORA band. `null` = insufficient data to classify (no
- * deployments/failures/lead-time sample in the window), so the UI shows a
- * neutral state rather than mislabeling an empty window as "low".
+ * The smallest sample a DORA metric is banded on: deployments for deployment
+ * frequency and change failure rate, measurements (commit-to-deploy gaps,
+ * recovery times) for lead time and time to restore. Below it the band is
+ * `insufficient` — one deploy in a window is not "elite" and one slow recovery is
+ * not "low". Shared by the reporting service and the maturity scorecard so the
+ * two cannot disagree about which metrics are scored.
  */
-export type DoraLevel = DoraBand | null;
+export const MIN_DORA_SAMPLE = 5;
+
+/**
+ * A metric's DORA band.
+ * - `null`: no sample at all (no deployments/attempts/measurements in the window).
+ * - `'insufficient'`: a sample exists but is smaller than {@link MIN_DORA_SAMPLE};
+ *   the metric reports its `n` alongside so the UI can say "Not enough data (n = 3)".
+ * Neither is a rating: the scorecard leaves both unscored rather than treating them as "low".
+ */
+export type DoraLevel = DoraBand | 'insufficient' | null;

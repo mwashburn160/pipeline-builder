@@ -18,7 +18,7 @@
  *    when it is really the second draws exactly the wrong conclusion.
  */
 
-import type { WeekStart } from '@pipeline-builder/api-core';
+import { MIN_DORA_SAMPLE, type WeekStart } from '@pipeline-builder/api-core';
 import type { ResolvedPeriod } from './period.js';
 import { getReportSection, type SectionContext, type SectionDataSource, type SectionSpec } from './sections.js';
 
@@ -30,7 +30,7 @@ export type TrendDirection = 'up' | 'down' | 'flat' | 'unknown';
 
 /** A data-quality caveat attached to the whole snapshot. */
 export interface DataQualityNote {
-  code: 'missing_deploy_tag' | 'missing_commit_data' | 'low_sample' | 'section_failed' | 'section_locked' | 'rule_unavailable';
+  code: 'missing_deploy_tag' | 'missing_commit_data' | 'low_sample' | 'insufficient_sample' | 'section_failed' | 'section_locked' | 'rule_unavailable';
   /** Manager-readable. Not a metric name and not a stack trace. */
   message: string;
   /** The section it concerns, when it is section-specific. */
@@ -215,6 +215,37 @@ function deployCoverageNotes(dora: unknown): DataQualityNote[] {
   return notes;
 }
 
+/**
+ * The DORA bands that rest on too small a sample to rate (`level: 'insufficient'`,
+ * below MIN_DORA_SAMPLE), worded exactly as the dashboard's cards word them:
+ * "Not enough data (n = 3)". Without it a report would show the measure with no
+ * band and no reason, which reads as a rendering fault — or, worse, a lead would
+ * remember last quarter's "elite" from a single deploy.
+ *
+ * The headline environment (the first; the service sorts production first) and
+ * production time to restore, the same four the dashboard's headline cards show.
+ */
+function insufficientSampleNotes(dora: unknown): DataQualityNote[] {
+  const obj = dora as Record<string, unknown> | null;
+  const envs = obj?.environments;
+  const head = Array.isArray(envs) ? envs[0] as Record<string, unknown> | undefined : undefined;
+  const parts: string[] = [];
+  const check = (label: string, block: unknown): void => {
+    const b = block as Record<string, unknown> | undefined;
+    if (b?.level === 'insufficient') parts.push(`${label}: Not enough data (n = ${typeof b.n === 'number' ? b.n : 0})`);
+  };
+  check('Deployment frequency', head?.deploymentFrequency);
+  check('Change failure rate', head?.changeFailureRate);
+  check('Lead time', head?.leadTime);
+  check('Median time to restore', obj?.meanTimeToRestore);
+  if (parts.length === 0) return [];
+  return [{
+    code: 'insufficient_sample',
+    sectionId: 'dora',
+    message: `${parts.join('; ')}. A DORA band needs at least ${MIN_DORA_SAMPLE} observations, so these are not rated this period.`,
+  }];
+}
+
 /** Manager-facing names of the needs-attention rules, for the unavailable note. */
 const ATTENTION_RULE_LABELS: Record<string, string> = {
   low_success_rate: 'low success rate',
@@ -324,7 +355,7 @@ export async function composeSnapshot(sectionIdList: readonly string[], opts: Co
         });
       }
 
-      if (id === 'dora') notes.push(...deployCoverageNotes(current));
+      if (id === 'dora') notes.push(...deployCoverageNotes(current), ...insufficientSampleNotes(current));
       if (id === 'needs_attention') notes.push(...attentionNotes(current));
       sections.push(composed);
     } catch (err) {

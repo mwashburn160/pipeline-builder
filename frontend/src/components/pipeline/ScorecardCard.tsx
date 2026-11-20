@@ -30,8 +30,10 @@ function SecurityRow({ security }: { security: PipelineScorecard['security'] | u
   );
 }
 
-function Band({ label, level }: { label: string; level: ScorecardDoraLevel }) {
-  const badge = doraLevelBadge(level);
+/** One DORA band row. An `insufficient` level (sample under the minimum) is
+ *  unscored and says "Not enough data (n = X)" rather than a rating. */
+function Band({ label, level, n }: { label: string; level: ScorecardDoraLevel; n?: number }) {
+  const badge = doraLevelBadge(level, n);
   return (
     <div className="flex items-center justify-between text-sm">
       <span className="text-fg-muted">{label}</span>
@@ -130,14 +132,14 @@ export function ScorecardCard({ pipelineId }: { pipelineId: string }) {
                 {scorecard.compliance.rulesEvaluated} rules · {scorecard.compliance.violations} viol · {scorecard.compliance.warnings} warn
               </span>
             </div>
-            <Band label="Deploy frequency" level={scorecard.dora.deploymentFrequency} />
-            <Band label="Change failure rate" level={scorecard.dora.changeFailureRate} />
-            <Band label="Time to restore" level={scorecard.dora.meanTimeToRestore} />
-            <Band label="Lead time" level={scorecard.dora.leadTime} />
+            <Band label="Deploy frequency" level={scorecard.dora.deploymentFrequency} n={scorecard.dora.samples?.deploymentFrequency} />
+            <Band label="Change failure rate" level={scorecard.dora.changeFailureRate} n={scorecard.dora.samples?.changeFailureRate} />
+            <Band label="Median time to restore" level={scorecard.dora.meanTimeToRestore} n={scorecard.dora.samples?.meanTimeToRestore} />
+            <Band label="Lead time" level={scorecard.dora.leadTime} n={scorecard.dora.samples?.leadTime} />
             <SecurityRow security={scorecard.security} />
           </div>
           <p className="text-2xs text-fg-subtle">
-            DORA basis: deploy-stage. Lead time is measured (commit → deploy); shown for the production environment.
+            DORA basis: deploy-stage. Lead time is measured (commit → deploy); shown for the production environment. A band needs at least five deploys or measurements — below that it says “Not enough data” and is left out of the score.
             Security counts open plugin exposures and the latest artifact scans; it is unscored until either exists.
           </p>
         </div>

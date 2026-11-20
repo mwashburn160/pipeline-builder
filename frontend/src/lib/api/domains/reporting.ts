@@ -6,7 +6,11 @@ import type { ApiCore } from '../core';
 import { buildQuery, type ProposedByOptions } from '../util';
 import type { ApiResponse } from '@/types';
 
-/** DORA performance band for a metric (elite → low), or null when unrated — api-core's `DORA_LEVELS`. */
+/**
+ * DORA performance band for a metric (elite → low) — api-core's `DORA_LEVELS` —
+ * `'insufficient'` when the sample is under api-core's `MIN_DORA_SAMPLE` (shown as
+ * "Not enough data (n = X)", never as a band), or null when there is no sample.
+ */
 export type { DoraLevel } from '@pipeline-builder/api-core/wire-vocabulary';
 
 /**
@@ -16,7 +20,8 @@ export type { DoraLevel } from '@pipeline-builder/api-core/wire-vocabulary';
 export interface DoraEnvMetrics {
   environment: string;
   /** Successful deploy-stage executions in the window (+ per-day rate). */
-  deploymentFrequency: { deployments: number; perDay: number; level: DoraLevel };
+  /** `n` = successful deployments (the sample the band needs ≥ MIN_DORA_SAMPLE of). */
+  deploymentFrequency: { deployments: number; perDay: number; level: DoraLevel; n: number };
   /**
    * Measured commit→deploy lead time. `medianSeconds` null = "unknown" (commit
    * timestamps couldn't be resolved for the in-window deploys). No proxy.
@@ -28,6 +33,8 @@ export interface DoraEnvMetrics {
     p90Seconds: number | null;
     p95Seconds: number | null;
     level: DoraLevel;
+    /** Measured commit→deploy gaps — the median's sample. */
+    n: number;
   };
   /**
    * Change-failure rate = (deploy-time failures + post-deploy failures) / attempts.
@@ -40,13 +47,15 @@ export interface DoraEnvMetrics {
     postDeployFailures: number;
     attempts: number;
     level: DoraLevel;
+    /** Deploy attempts — the rate's denominator and the band's sample. */
+    n: number;
   };
 }
 
 /**
  * DORA metrics envelope returned under `data.dora`. Deploy-basis, per-environment
- * (no run-basis fallback, no lead-time proxy, no inferred CFR/MTTR). Deployment
- * frequency / lead time / CFR are per-environment; MTTR + coverage are top-level.
+ * (no run-basis fallback, no lead-time proxy, no inferred CFR/restore time). Deployment
+ * frequency / lead time / CFR are per-environment; median time to restore + coverage are top-level.
  */
 export interface DoraMetrics {
   window: { from: string; to: string };
@@ -57,8 +66,11 @@ export interface DoraMetrics {
   /** Per-environment metrics, sorted headline-first then A→Z. */
   environments: DoraEnvMetrics[];
   /**
-   * Mean (median) time to restore over post-deploy incidents (production-only).
-   * `medianSeconds` is null when no incidents were restored in-window.
+   * MEDIAN time to restore (production-only) — the field keeps its historical
+   * `meanTimeToRestore` name for API stability, but the figure is a median and is
+   * labelled so. Measured from the failure (incident opened, or the deploy's
+   * `failed` marker) to its restoration. `medianSeconds` is null when no recovery
+   * was measured in-window.
    */
   meanTimeToRestore: {
     incidents: number;
@@ -67,6 +79,8 @@ export interface DoraMetrics {
     p90Seconds: number | null;
     p95Seconds: number | null;
     level: DoraLevel;
+    /** Measured recovery gaps — the median's sample. */
+    n: number;
   };
   /**
    * Coverage reconciliation: registered pipelines vs. how many produced observed
@@ -74,6 +88,18 @@ export interface DoraMetrics {
    */
   coverage: { registered: number; deploying: number; withoutDeploys: number };
 }
+
+/**
+ * Bucketing for the time-series reports (success rate, build success, DORA
+ * trend): the IANA `tz` the buckets are cut in and the week start. Omitted ⇒
+ * UTC / Monday on the backend; an invalid value is a 400.
+ */
+// A type alias, not an interface: the params bag must stay assignable to
+// buildQuery's Record<string, unknown> (interfaces carry no index signature).
+export type ReportBucketParams = {
+  tz?: string;
+  weekStart?: 'monday' | 'sunday';
+};
 
 /** One deploy execution row for the DORA deploy list (mark failed/restored). */
 export interface DeploymentRow {
@@ -90,9 +116,15 @@ export interface DeploymentRow {
 export interface DoraTrendPoint {
   period: string;
   deployments: number;
+  /** Deploy-time failures (the deploy stage itself failed) in the bucket. */
   failed: number;
+  /** Successful deploys in the bucket later failed in production (incident or
+   *  manual mark), anchored to the deploy's completion like the headline CFR. */
+  postDeployFailures: number;
+  /** Deploy attempts (succeeded + deploy-time failed) in the bucket. */
   total: number;
-  /** failed/total as a percent (0 when total is 0) — deploy-time CFR only. */
+  /** (failed + postDeployFailures)/total as a percent (0 when total is 0) —
+   *  two-class, the same rate as the headline change-failure card. */
   changeFailurePct: number;
 }
 
@@ -253,7 +285,7 @@ export function reportingApi(core: ApiCore) {
     },
 
     /** Pipeline success rate over time. */
-    getSuccessRate: async (params?: { interval?: string; from?: string; to?: string; includeDescendants?: boolean }, opts?: { signal?: AbortSignal }) => {
+    getSuccessRate: async (params?: { interval?: string; from?: string; to?: string; includeDescendants?: boolean } & ReportBucketParams, opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<{ timeline: Array<{ period: string; succeeded: number; failed: number; canceled: number; success_pct: number }> }>>(`/api/reports/execution/success-rate${buildQuery(params)}`, { signal: opts?.signal });
     },
 
@@ -282,14 +314,14 @@ export function reportingApi(core: ApiCore) {
       return core.request<ApiResponse<{ errors: Array<{ error_pattern: string; occurrences: number; affected_pipelines: number; last_seen: string }> }>>(`/api/reports/execution/errors${buildQuery(params)}`, { signal: opts?.signal });
     },
 
-    /** DORA metrics (deployment frequency, change failure rate, MTTR, lead time). Deploy-basis. */
+    /** DORA metrics (deployment frequency, change failure rate, median time to restore, lead time). Deploy-basis. */
     getDora: async (params?: { from?: string; to?: string; includeDescendants?: boolean; pipelineId?: string; environment?: string }, opts?: { signal?: AbortSignal }) => {
       const res = await core.request<ApiResponse<{ dora: DoraMetrics }>>(`/api/reports/execution/dora${buildQuery(params)}`, { signal: opts?.signal });
       return res.data?.dora;
     },
 
     /** DORA change-failure trend over time (deployments / failures per bucket). Deploy-basis. */
-    getDoraTrend: async (params?: { interval?: string; from?: string; to?: string; includeDescendants?: boolean; pipelineId?: string; environment?: string }, opts?: { signal?: AbortSignal }) => {
+    getDoraTrend: async (params?: { interval?: string; from?: string; to?: string; includeDescendants?: boolean; pipelineId?: string; environment?: string } & ReportBucketParams, opts?: { signal?: AbortSignal }) => {
       const res = await core.request<ApiResponse<{ trend: DoraTrendPoint[] }>>(`/api/reports/execution/dora/trend${buildQuery(params)}`, { signal: opts?.signal });
       return res.data?.trend ?? [];
     },
@@ -297,7 +329,7 @@ export function reportingApi(core: ApiCore) {
     /**
      * Mark a deployment's post-deploy outcome — `failed` (a shipped deploy later
      * found broken) or `restored` (the recovery). Feeds the post-deploy component
-     * of change-failure rate + MTTR. `advanced_reporting`-gated on the backend.
+     * of change-failure rate + median time to restore. `advanced_reporting`-gated on the backend.
      * `at` is the ISO 8601 time the failure/restoration occurred.
      */
     markDeploymentOutcome: async (
@@ -395,7 +427,7 @@ export function reportingApi(core: ApiCore) {
     },
 
     /** Plugin build success rate over time. */
-    getBuildSuccessRate: async (params?: { interval?: string; from?: string; to?: string; includeDescendants?: boolean }, opts?: { signal?: AbortSignal }) => {
+    getBuildSuccessRate: async (params?: { interval?: string; from?: string; to?: string; includeDescendants?: boolean } & ReportBucketParams, opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<{ timeline: Array<{ period: string; succeeded: number; failed: number; success_pct: number }> }>>(`/api/reports/plugins/build-success-rate${buildQuery(params)}`, { signal: opts?.signal });
     },
 

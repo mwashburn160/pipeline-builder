@@ -1,6 +1,6 @@
 // GENERATED FROM docs/aws-deployment.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: a322843485f5bae5b3b588aabc277d6fd1307af6f9c368074f2af9a0af7e31d7
+// SOURCE-SHA256: 88e2abe54a201f2312ee396be79c3a0f6c564b6eed390f26d71026e77d4977a2
 // SPDX-License-Identifier: Apache-2.0
 import { Server } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -2605,7 +2605,7 @@ export const deploymentTopic: HelpTopic = {
             [
               "GET /api/reports/execution/success-rate",
               "Pass/fail rate over time",
-              "interval, from, to"
+              "interval, from, to, tz, weekStart"
             ],
             [
               "GET /api/reports/execution/timeline",
@@ -2669,7 +2669,7 @@ export const deploymentTopic: HelpTopic = {
             [
               "GET /api/reports/plugins/build-success-rate",
               "Docker build success rate over time",
-              "interval, from, to"
+              "interval, from, to, tz, weekStart"
             ],
             [
               "GET /api/reports/plugins/build-duration",

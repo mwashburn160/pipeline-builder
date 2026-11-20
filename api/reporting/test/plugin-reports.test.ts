@@ -187,7 +187,21 @@ describe('Plugin Report Routes', () => {
 
       // 5th arg is the optional org→team rollup id-list (undefined without ?includeDescendants).
       expect(mockResolveOrgRollup).not.toHaveBeenCalled();
-      expect(mockGetBuildSuccessRate).toHaveBeenCalledWith('acme', 'week', expect.any(String), expect.any(String), undefined);
+      expect(mockGetBuildSuccessRate).toHaveBeenCalledWith('acme', 'week', expect.any(String), expect.any(String), undefined,
+        { tz: 'UTC', weekStart: 'monday' });
+    });
+
+    it('buckets in the requested timezone and week start; 400s on an invalid timezone', async () => {
+      mockGetBuildSuccessRate.mockResolvedValue([]);
+      const handler = getHandler('/build-success-rate');
+      await handler({ query: { interval: 'week', tz: 'Asia/Tokyo', weekStart: 'sunday' } }, {});
+      expect(mockGetBuildSuccessRate).toHaveBeenCalledWith('acme', 'week', expect.any(String), expect.any(String), undefined,
+        { tz: 'Asia/Tokyo', weekStart: 'sunday' });
+
+      mockGetBuildSuccessRate.mockClear();
+      await handler({ query: { tz: 'Nowhere/Land' } }, {});
+      expect(sendBadRequest).toHaveBeenCalled();
+      expect(mockGetBuildSuccessRate).not.toHaveBeenCalled();
     });
 
     it('should reject invalid interval', async () => {
@@ -207,7 +221,8 @@ describe('Plugin Report Routes', () => {
       await handler({ query: { interval: 'week', includeDescendants: 'true' }, user: { permissions: ['reports:rollup'] } }, {});
 
       expect(mockResolveOrgRollup).toHaveBeenCalledWith('acme');
-      expect(mockGetBuildSuccessRate).toHaveBeenCalledWith('acme', 'week', expect.any(String), expect.any(String), ['acme', 'team-child']);
+      expect(mockGetBuildSuccessRate).toHaveBeenCalledWith('acme', 'week', expect.any(String), expect.any(String), ['acme', 'team-child'],
+        { tz: 'UTC', weekStart: 'monday' });
     });
 
     it('ignores ?includeDescendants without reports:rollup (single-org)', async () => {
@@ -216,7 +231,8 @@ describe('Plugin Report Routes', () => {
       await handler({ query: { interval: 'week', includeDescendants: 'true' }, user: { permissions: ['reports:read'] } }, {});
 
       expect(mockResolveOrgRollup).not.toHaveBeenCalled();
-      expect(mockGetBuildSuccessRate).toHaveBeenCalledWith('acme', 'week', expect.any(String), expect.any(String), undefined);
+      expect(mockGetBuildSuccessRate).toHaveBeenCalledWith('acme', 'week', expect.any(String), expect.any(String), undefined,
+        { tz: 'UTC', weekStart: 'monday' });
     });
   });
 

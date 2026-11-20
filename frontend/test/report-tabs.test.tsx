@@ -26,6 +26,7 @@ const getPluginSummary = jest.fn<AnyFn>();
 const getPluginDistribution = jest.fn<AnyFn>();
 const getDora = jest.fn<AnyFn>();
 const getDoraTrend = jest.fn<AnyFn>();
+const getReportPolicy = jest.fn<AnyFn>();
 // Every rollup-aware report the tabs call — asserted to share ONE scope.
 const scoped = {
   getStageFailures: jest.fn<AnyFn>(),
@@ -57,6 +58,7 @@ jest.mock('@/lib/api', () => ({
     getDoraTrend: (...a: unknown[]) => getDoraTrend(...a),
     listPipelines: jest.fn<AnyFn>().mockResolvedValue({ data: { pipelines: [] } }),
     getReportEnvironments: (...a: unknown[]) => scoped.getReportEnvironments(...a),
+    getReportPolicy: (...a: unknown[]) => getReportPolicy(...a),
   },
 }));
 
@@ -78,6 +80,7 @@ beforeEach(() => {
   scoped.getBuildDuration.mockReset().mockResolvedValue({ data: { plugins: [] } });
   scoped.getBuildFailures.mockReset().mockResolvedValue({ data: { failures: [] } });
   scoped.getReportEnvironments.mockReset().mockResolvedValue({ data: { environments: [] } });
+  getReportPolicy.mockReset().mockResolvedValue({ data: { policy: { defaultTimezone: null, defaultWeekStart: null } } });
 });
 
 /** The first-argument params bag of every call to a report mock. */
@@ -89,6 +92,8 @@ describe('one scope for every panel (includeDescendants)', () => {
   it('threads the team rollup into EVERY pipelines report, failures included', async () => {
     render(<PipelinesTab filters={rollup} onStatus={jest.fn<AnyFn>()} />);
     await waitFor(() => expect(getExecutionCount).toHaveBeenCalled());
+    // The time-bucketed read waits for the org's reporting timezone.
+    await waitFor(() => expect(getSuccessRate).toHaveBeenCalled());
     fireEvent.click(screen.getByRole('tab', { name: 'Performance' }));
     await waitFor(() => expect(getStageBottlenecks).toHaveBeenCalled());
     fireEvent.click(screen.getByRole('tab', { name: 'Failures' }));
@@ -107,6 +112,7 @@ describe('one scope for every panel (includeDescendants)', () => {
     expect(screen.getByText(/plugin inventory is per-organization/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: 'Builds' }));
     await waitFor(() => expect(scoped.getBuildFailures).toHaveBeenCalled());
+    await waitFor(() => expect(scoped.getBuildSuccessRate).toHaveBeenCalled());
     for (const fn of [scoped.getBuildSuccessRate, scoped.getBuildDuration, scoped.getBuildFailures]) {
       expect(paramsOf(fn)).toEqual([expect.objectContaining({ includeDescendants: true })]);
     }
@@ -140,7 +146,7 @@ describe('PipelinesTab', () => {
     expect(screen.getByRole('tab', { name: 'Failures' })).toBeInTheDocument();
 
     await waitFor(() => expect(getExecutionCount).toHaveBeenCalled());
-    expect(getSuccessRate).toHaveBeenCalled();
+    await waitFor(() => expect(getSuccessRate).toHaveBeenCalled());
     // onStatus receives a { loading, error, refetch } bag.
     await waitFor(() => expect(onStatus).toHaveBeenCalledWith(
       expect.objectContaining({ error: null, refetch: expect.any(Function) }),
@@ -179,9 +185,39 @@ describe('DoraTab', () => {
     getDora.mockResolvedValue(null);
     render(<DoraTab filters={filters} enabled canMark onStatus={onStatus} />);
     await waitFor(() => expect(getDora).toHaveBeenCalled());
-    expect(getDoraTrend).toHaveBeenCalled();
+    await waitFor(() => expect(getDoraTrend).toHaveBeenCalled());
     await waitFor(() => expect(onStatus).toHaveBeenCalledWith(
       expect.objectContaining({ refetch: expect.any(Function) }),
     ));
+  });
+});
+
+// The dashboards bucket in the SAME timezone the stakeholder reports use: the
+// org's reporting default when one is set, else the viewer's browser zone. A
+// UTC-bucketed dashboard put a Chicago team's Sunday evening in Monday's week,
+// so its numbers never matched the report the lead had just read.
+describe('time-bucketed reads carry a timezone', () => {
+  const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+  it('uses the org reporting default timezone + week start when the policy sets them', async () => {
+    getReportPolicy.mockResolvedValue({ data: { policy: { defaultTimezone: 'America/Chicago', defaultWeekStart: 'sunday' } } });
+    render(<PipelinesTab filters={filters} onStatus={jest.fn<AnyFn>()} />);
+    await waitFor(() => expect(getSuccessRate).toHaveBeenCalled());
+    expect(paramsOf(getSuccessRate)).toEqual([expect.objectContaining({ tz: 'America/Chicago', weekStart: 'sunday' })]);
+  });
+
+  it('falls back to the browser timezone when the org has no default', async () => {
+    render(<PluginsTab filters={filters} onStatus={jest.fn<AnyFn>()} />);
+    fireEvent.click(screen.getByRole('tab', { name: 'Builds' }));
+    await waitFor(() => expect(scoped.getBuildSuccessRate).toHaveBeenCalled());
+    expect(paramsOf(scoped.getBuildSuccessRate)[0]).toEqual(expect.objectContaining({ tz: browserTz }));
+    expect(paramsOf(scoped.getBuildSuccessRate)[0]).not.toHaveProperty('weekStart');
+  });
+
+  it('a failed policy read never blocks the dashboard: browser zone, DORA trend included', async () => {
+    getReportPolicy.mockRejectedValue(new Error('403'));
+    render(<DoraTab filters={filters} enabled canMark onStatus={jest.fn<AnyFn>()} />);
+    await waitFor(() => expect(getDoraTrend).toHaveBeenCalled());
+    expect(paramsOf(getDoraTrend)[0]).toEqual(expect.objectContaining({ tz: browserTz }));
   });
 });

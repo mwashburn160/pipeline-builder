@@ -390,8 +390,9 @@ export const pipelineEvent = pgTable('pipeline_events', {
 /**
  * Manual post-deploy outcome markers. A user marks a deployment
  * `failed` (production incident linked to a deploy) or `restored` (recovered).
- * These feed the DORA post-deploy Change Failure Rate component and the real
- * MTTR (restored − deployed). Correlated to a deploy execution by `executionId`.
+ * These feed the DORA post-deploy Change Failure Rate component and the median
+ * time to restore (restored − failed, the same execution's pair). Correlated to a
+ * deploy execution by `executionId`.
  *
  * @table deployment_outcomes
  */

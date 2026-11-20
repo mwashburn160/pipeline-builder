@@ -26,6 +26,7 @@
 
 import { jest, describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
 import { integrationSuite } from './helpers/integration-gate.js';
+import { hashInvitationToken } from '../src/utils/invitation-token.js';
 
 process.env.SECRET_ENCRYPTION_KEY ||= '0000000000000000000000000000000000000000000000000000000000000000';
 process.env.JWT_SECRET ||= 'test-only-jwt-secret';
@@ -248,8 +249,8 @@ suite('SCIM 2.0 provisioning (real Mongo replica set)', () => {
     const id = created.resource.id;
     const otherOrg = await makeOrg({}, { domain: null });
     const expiresAt = new Date(Date.now() + 86_400_000);
-    const mine = await m.Invitation.create({ email: 'new@acme.com', organizationId: orgId, invitedBy: id, token: 'tok-mine', expiresAt });
-    const elsewhere = await m.Invitation.create({ email: 'x@acme.com', organizationId: otherOrg, invitedBy: id, token: 'tok-other', expiresAt });
+    const mine = await m.Invitation.create({ email: 'new@acme.com', organizationId: orgId, invitedBy: id, tokenHash: hashInvitationToken('tok-mine'), expiresAt });
+    const elsewhere = await m.Invitation.create({ email: 'x@acme.com', organizationId: otherOrg, invitedBy: id, tokenHash: hashInvitationToken('tok-other'), expiresAt });
 
     const out = await scim.patchUser(ctx, id, [{ op: 'replace', path: 'active', value: false }]);
     expect(out.revokedInvitations).toEqual([

@@ -102,7 +102,7 @@ A **template** fixes the section list and the cadence:
 
 Sections come from the same queries the dashboards run, over the same window — so a manager who compares a report with the dashboard finds the same numbers. A section whose entitlement the org lacks (the DORA sections need `advanced_reporting`) renders **locked** and the rest of the report still goes out; a section that fails to compute says so. Neither silently becomes a zero.
 
-**Periods are cut in the report's own timezone**, chosen when the report is saved — not the reader's, and not the server's. A weekly report for a team in Chicago that bucketed in UTC would put Sunday evening's deploys in the wrong week. Weeks start Monday by default; Sunday is an option.
+**Periods are cut in the report's own timezone**, chosen when the report is saved — not the reader's, and not the server's. A weekly report for a team in Chicago that bucketed in UTC would put Sunday evening's deploys in the wrong week. Weeks start Monday by default; Sunday is an option. The dashboards bucket the same way: their time-series charts (success rate, plugin build success, DORA trend) send the org's **default report timezone and week start** from the report policy, or the browser's timezone when the org has not set one, so a dashboard week and a report week cover the same days.
 
 **A report labelled `2026-Q1` covers 2026-Q1.** When the data behind a period is incomplete the report is **refused with the reason** rather than quietly narrowed, so every figure a manager forwards is the figure its label promises — and when something is missing you are told what and why, while there is still time to fix it.
 
@@ -113,6 +113,7 @@ Every snapshot carries the caveats, in the report itself rather than in a runboo
 - **Missing deploy tags.** "No deploys" and "we cannot see your deploys" look identical on a chart and mean opposite things. A pipeline that has not re-synthed with deploy tags is named as uncounted.
 - **Unresolvable lead time.** When no successful deploy carried a resolvable commit timestamp, commit-to-deploy time is *unknown*, never a proxy.
 - **Small samples.** Below five observations a percentage swings wildly, and the footer says to read the counts instead.
+- **Unrated DORA bands.** A DORA band needs at least five observations (`MIN_DORA_SAMPLE`). Below that the report says, per measure, "Not enough data (n = X)" — exactly as the dashboard's cards do — instead of calling a single deploy elite or low. Time to restore is reported as a **median**.
 
 A footer states how every number was produced, including the window and the comparison period. Managers compare reports to dashboards; saying plainly that both run the same queries is what makes a difference investigable rather than a reason to distrust both.
 

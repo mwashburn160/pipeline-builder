@@ -1424,7 +1424,7 @@ All endpoints require authentication and org context. Time range defaults to las
 | Endpoint | Description | Query Params |
 |----------|-------------|--------------|
 | `GET /api/reports/execution/count` | Execution count per pipeline with status breakdown | — |
-| `GET /api/reports/execution/success-rate` | Pass/fail rate over time | `interval`, `from`, `to` |
+| `GET /api/reports/execution/success-rate` | Pass/fail rate over time | `interval`, `from`, `to`, `tz`, `weekStart` |
 | `GET /api/reports/execution/timeline` | Execution timeline (alias for success-rate) | `interval`, `from`, `to` |
 | `GET /api/reports/execution/duration` | Average/min/max/p95 execution duration | `from`, `to` |
 | `GET /api/reports/execution/stage-failures` | Stage failure heatmap | `from`, `to` |
@@ -1439,7 +1439,7 @@ All endpoints require authentication and org context. Time range defaults to las
 | `GET /api/reports/plugins/summary` | Plugin inventory (total/active/public/private) | — |
 | `GET /api/reports/plugins/distribution` | Type and compute distribution | — |
 | `GET /api/reports/plugins/versions` | Version counts per plugin name | — |
-| `GET /api/reports/plugins/build-success-rate` | Docker build success rate over time | `interval`, `from`, `to` |
+| `GET /api/reports/plugins/build-success-rate` | Docker build success rate over time | `interval`, `from`, `to`, `tz`, `weekStart` |
 | `GET /api/reports/plugins/build-duration` | Build time per plugin | `from`, `to` |
 | `GET /api/reports/plugins/build-failures` | Build failure reasons (top N), across every org (operator only) | `from`, `to`, `limit` |
 | `GET /api/reports/plugins/runtime-success-rate` | Runtime success rate per plugin version (pipeline runs) | `from`, `to`, `name`, `publisher`, `version` |

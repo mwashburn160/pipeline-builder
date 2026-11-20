@@ -21,9 +21,10 @@ interface ScorecardTabProps {
   onStatus: (status: TabDataStatus) => void;
 }
 
-/** Compact DORA band pill (elite/high/…); dash when a dimension has no data. */
-function Band({ level }: { level: ScorecardLeaderboardEntry['dora']['deploymentFrequency'] }) {
-  const badge = doraLevelBadge(level);
+/** Compact DORA band pill (elite/high/…); "Not enough data (n = X)" below the
+ *  minimum sample (unscored, never "low"); dash when a dimension has no data. */
+function Band({ level, n }: { level: ScorecardLeaderboardEntry['dora']['deploymentFrequency']; n?: number }) {
+  const badge = doraLevelBadge(level, n);
   return badge ? <span className={badge.className}>{badge.label}</span> : <span className="text-fg-subtle text-xs">—</span>;
 }
 
@@ -170,7 +171,7 @@ export function ScorecardTab({ enabled, onStatus }: ScorecardTabProps) {
               <th scope="col" className="py-2 pr-3 font-medium text-right">Security</th>
               <th scope="col" className="py-2 pr-3 font-medium">Deploy freq</th>
               <th scope="col" className="py-2 pr-3 font-medium">Change fail</th>
-              <th scope="col" className="py-2 pr-3 font-medium">Restore</th>
+              <th scope="col" className="py-2 pr-3 font-medium">Median restore</th>
               <th scope="col" className="py-2 font-medium">Lead time</th>
             </tr>
           </thead>
@@ -189,10 +190,10 @@ export function ScorecardTab({ enabled, onStatus }: ScorecardTabProps) {
                   {entry.security?.score ?? '—'}
                   {(entry.security?.exposures.kev ?? 0) + (entry.security?.artifact?.kev ?? 0) > 0 && <span className="ml-1 text-2xs font-semibold text-danger-strong">KEV</span>}
                 </td>
-                <td className="py-2 pr-3"><Band level={entry.dora.deploymentFrequency} /></td>
-                <td className="py-2 pr-3"><Band level={entry.dora.changeFailureRate} /></td>
-                <td className="py-2 pr-3"><Band level={entry.dora.meanTimeToRestore} /></td>
-                <td className="py-2"><Band level={entry.dora.leadTime} /></td>
+                <td className="py-2 pr-3"><Band level={entry.dora.deploymentFrequency} n={entry.dora.samples?.deploymentFrequency} /></td>
+                <td className="py-2 pr-3"><Band level={entry.dora.changeFailureRate} n={entry.dora.samples?.changeFailureRate} /></td>
+                <td className="py-2 pr-3"><Band level={entry.dora.meanTimeToRestore} n={entry.dora.samples?.meanTimeToRestore} /></td>
+                <td className="py-2"><Band level={entry.dora.leadTime} n={entry.dora.samples?.leadTime} /></td>
               </tr>
             ))}
           </tbody>

@@ -354,11 +354,17 @@ export interface DoraMetrics {
   /** Per-environment DF / CFR / lead time. Sorted headline-first, then A→Z. */
   environments: DoraEnvMetrics[];
   /**
-   * Mean Time To Restore — PRODUCTION-ONLY, from `deployment_outcomes`.
-   * `median(restored.at − deployed.completed_at)` over restored production
-   * incidents (deltas clamped ≥0). `incidents` counts production deploys marked
-   * failed; `restored` counts those that recovered; `medianSeconds` is null when
-   * no restored incident has a resolvable deploy time.
+   * Time to restore — the MEDIAN, not a mean. The field keeps its historical
+   * `meanTimeToRestore` name because renaming it would break API consumers;
+   * every label that presents it says "median".
+   *
+   * PRODUCTION-ONLY, from correlated incidents (`resolved_at − opened_at`) and
+   * manual `deployment_outcomes` markers (`restored.at − failed.at`, measured
+   * from the FAILURE). Only when a deploy has no `failed` marker but itself
+   * failed at deploy time is the failure instant its completion. A `restored`
+   * marker with no failure behind it is ignored. Deltas clamped ≥0.
+   * `incidents` counts production failures; `restored` counts those that
+   * recovered; `medianSeconds` is null when no recovery time was measured.
    */
   meanTimeToRestore: {
     incidents: number;
@@ -369,7 +375,10 @@ export interface DoraMetrics {
      *  `null` when no recovery gap was observed. */
     p90Seconds: number | null;
     p95Seconds: number | null;
+    /** Banded on {@link n} ≥ MIN_DORA_SAMPLE; `insufficient` below it. */
     level: DoraLevel;
+    /** Recovery times measured (the median's sample). */
+    n: number;
   };
   /**
    * Coverage reconciliation — registered pipelines with no observed deploy in
@@ -393,14 +402,18 @@ export interface DoraEnvMetrics {
   deploymentFrequency: {
     deployments: number;
     perDay: number;
+    /** Banded on {@link n} ≥ MIN_DORA_SAMPLE; `insufficient` below it. */
     level: DoraLevel;
+    /** The sample the band rests on: successful deployments. */
+    n: number;
   };
   /**
    * Change Failure Rate — two-class:
    * `(deployTimeFailures + postDeployFailures) / attempts`.
    * - `deployTimeFailures` — deploy stage `result=failed` (from events).
-   * - `postDeployFailures` — a successful deploy later marked failed in prod
-   *   (from `deployment_outcomes`).
+   * - `postDeployFailures` — a successful in-window deploy later flagged failed
+   *   (a `deployment_outcomes` marker or a correlated incident), ANCHORED TO THE
+   *   DEPLOY: it counts in the window the deploy completed in, whenever flagged.
    * - `attempts` — all terminal deploy-stage attempts (succeeded + failed).
    */
   changeFailureRate: {
@@ -408,7 +421,10 @@ export interface DoraEnvMetrics {
     deployTimeFailures: number;
     postDeployFailures: number;
     attempts: number;
+    /** Banded on {@link n} ≥ MIN_DORA_SAMPLE; `insufficient` below it. */
     level: DoraLevel;
+    /** The sample the band rests on: deploy attempts. */
+    n: number;
   };
   /**
    * Lead Time — MEASURED: `median(deploy_completed − oldest_commit_time)` over
@@ -425,7 +441,10 @@ export interface DoraEnvMetrics {
     medianSeconds: number | null;
     p90Seconds: number | null;
     p95Seconds: number | null;
+    /** Banded on {@link n} ≥ MIN_DORA_SAMPLE; `insufficient` below it. */
     level: DoraLevel;
+    /** Lead times measured (the median's sample; equals `deployments`). */
+    n: number;
   };
 }
 
@@ -435,11 +454,19 @@ export interface DoraTrendPoint {
   period: string;
   /** Successful deploy-stage executions in the bucket. */
   deployments: number;
-  /** Failed deploy-stage executions in the bucket. */
+  /** Failed deploy-stage executions in the bucket (deploy-time failures). */
   failed: number;
+  /**
+   * Successful deploys in the bucket later flagged failed (manual marker or
+   * correlated incident), anchored to the deploy's bucket — the headline's
+   * post-deploy component. Summed over the buckets it equals the headline's
+   * `postDeployFailures` for the same window and scope.
+   */
+  postDeployFailures: number;
   /** succeeded + failed in the bucket (deploy attempts). */
   total: number;
-  /** failed/total as a percent (0 when total is 0). Deploy-time CFR only. */
+  /** (failed + postDeployFailures)/total as a percent (0 when total is 0): the
+   *  same two-class change failure rate as the headline. */
   changeFailurePct: number;
 }
 
@@ -731,10 +758,17 @@ export interface OutcomeRow {
   execution_id: string | null;
 }
 
-/** Production restored-incident pair: recovery time + the deploy's completion. */
+/** A production outcome for MTTR: the recovery and the failure it ended. */
 export interface MttrPairRow {
+  outcome: 'failed' | 'restored' | string;
+  /** This outcome's `at` (the recovery, for a `restored` row). */
   restored_at: string | null;
+  /** The same deploy's `failed` marker `at` — where a recovery is measured from. */
+  failed_at?: string | null;
+  /** The deploy's completion — the failure instant only when `deploy_failed`. */
   deployed_at: string | null;
+  /** The production deploy itself failed (deploy-time failure). `t`/`f` tolerated. */
+  deploy_failed?: boolean | string | null;
   /** Execution id — lets incident precedence override the manual outcome per deploy. */
   execution_id: string | null;
 }
@@ -748,6 +782,12 @@ export interface IncidentRow {
   environment: string;
   opened_at: string | null;
   resolved_at: string | null;
+  /**
+   * Opened inside [from,to] (the scan reaches `windowHours` past `to` so an
+   * incident following a late in-window deploy still counts in its CFR). Only
+   * these count toward MTTR. Absent in a unit fixture ⇒ true.
+   */
+  opened_in_window?: boolean | string | null;
 }
 
 /** Coverage counts: registered pipelines vs those that actually deployed. */

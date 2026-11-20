@@ -70,18 +70,18 @@ const baseDora: DoraMetrics = {
   environments: [
     {
       environment: 'production',
-      deploymentFrequency: { deployments: 8, perDay: 0.27, level: null },
-      leadTime: { deployments: 8, medianSeconds: 330, p90Seconds: null, p95Seconds: null, level: 'elite' },
-      changeFailureRate: { rate: 25, deployTimeFailures: 1, postDeployFailures: 1, attempts: 8, level: 'medium' },
+      deploymentFrequency: { deployments: 8, perDay: 0.27, level: null, n: 8 },
+      leadTime: { deployments: 8, medianSeconds: 330, p90Seconds: null, p95Seconds: null, level: 'elite', n: 8 },
+      changeFailureRate: { rate: 25, deployTimeFailures: 1, postDeployFailures: 1, attempts: 8, level: 'medium', n: 8 },
     },
     {
       environment: 'staging',
-      deploymentFrequency: { deployments: 12, perDay: 0.4, level: null },
-      leadTime: { deployments: 12, medianSeconds: 120, p90Seconds: null, p95Seconds: null, level: 'high' },
-      changeFailureRate: { rate: 8, deployTimeFailures: 1, postDeployFailures: 0, attempts: 12, level: 'elite' },
+      deploymentFrequency: { deployments: 12, perDay: 0.4, level: null, n: 12 },
+      leadTime: { deployments: 12, medianSeconds: 120, p90Seconds: null, p95Seconds: null, level: 'high', n: 12 },
+      changeFailureRate: { rate: 8, deployTimeFailures: 1, postDeployFailures: 0, attempts: 12, level: 'elite', n: 12 },
     },
   ],
-  meanTimeToRestore: { medianSeconds: 3720, incidents: 2, restored: 2, p90Seconds: null, p95Seconds: null, level: null },
+  meanTimeToRestore: { medianSeconds: 3720, incidents: 2, restored: 2, p90Seconds: null, p95Seconds: null, level: null, n: 2 },
   coverage: { registered: 5, deploying: 3, withoutDeploys: 2 },
 };
 
@@ -115,7 +115,7 @@ describe('ReportsPage — DORA section', () => {
 
     expect(await screen.findByText('Deployment frequency')).toBeInTheDocument();
     expect(screen.getByText('Change failure rate')).toBeInTheDocument();
-    expect(screen.getByText('Time to Restore (MTTR)')).toBeInTheDocument();
+    expect(screen.getByText('Median time to restore')).toBeInTheDocument();
     // Lead time is measured (no proxy/approximation copy).
     expect(screen.getAllByText(/Lead time/).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText(/median commit/i)).toBeInTheDocument();
@@ -164,22 +164,64 @@ describe('ReportsPage — DORA section', () => {
       environments: [
         {
           environment: 'production',
-          deploymentFrequency: { deployments: 3, perDay: 0.1, level: null },
-          leadTime: { deployments: 3, medianSeconds: null, p90Seconds: null, p95Seconds: null, level: null },
-          changeFailureRate: { rate: 0, deployTimeFailures: 0, postDeployFailures: 0, attempts: 3, level: null },
+          deploymentFrequency: { deployments: 3, perDay: 0.1, level: null, n: 3 },
+          leadTime: { deployments: 3, medianSeconds: null, p90Seconds: null, p95Seconds: null, level: null, n: 0 },
+          changeFailureRate: { rate: 0, deployTimeFailures: 0, postDeployFailures: 0, attempts: 3, level: null, n: 3 },
         },
       ],
-      meanTimeToRestore: { medianSeconds: null, incidents: 0, restored: 0, p90Seconds: null, p95Seconds: null, level: null },
+      meanTimeToRestore: { medianSeconds: null, incidents: 0, restored: 0, p90Seconds: null, p95Seconds: null, level: null, n: 0 },
     });
 
     render(<ReportsPage />);
     await goToDora();
 
-    expect(await screen.findByText('Time to Restore (MTTR)')).toBeInTheDocument();
+    expect(await screen.findByText('Median time to restore')).toBeInTheDocument();
     expect(screen.getByText('0/0 incidents restored')).toBeInTheDocument();
     // MTTR falls back to the em dash; lead time is explicitly "unknown" (no proxy).
     expect(screen.getByText('—')).toBeInTheDocument();
     expect(screen.getByText('unknown')).toBeInTheDocument();
+  });
+
+  it('says "Not enough data (n = X)" instead of a band for an insufficient sample', async () => {
+    // One deploy is not "elite" and one slow recovery is not "low": below the
+    // minimum sample the server returns `insufficient`, and the card must say so
+    // with the count rather than show a band or nothing at all.
+    getDora.mockResolvedValue({
+      ...baseDora,
+      environments: [{
+        environment: 'production',
+        deploymentFrequency: { deployments: 3, perDay: 0.1, level: 'insufficient', n: 3 },
+        leadTime: { deployments: 2, medianSeconds: 600, p90Seconds: null, p95Seconds: null, level: 'insufficient', n: 2 },
+        changeFailureRate: { rate: 25, deployTimeFailures: 1, postDeployFailures: 0, attempts: 4, level: 'insufficient', n: 4 },
+      }],
+      meanTimeToRestore: { medianSeconds: 600, incidents: 1, restored: 1, p90Seconds: 600, p95Seconds: 600, level: 'insufficient', n: 1 },
+    });
+
+    render(<ReportsPage />);
+    await goToDora();
+
+    expect(await screen.findByText('Not enough data (n = 3)')).toBeInTheDocument();
+    expect(screen.getByText('Not enough data (n = 2)')).toBeInTheDocument();
+    expect(screen.getByText('Not enough data (n = 4)')).toBeInTheDocument();
+    expect(screen.getByText('Not enough data (n = 1)')).toBeInTheDocument();
+    expect(screen.queryByText('Elite')).not.toBeInTheDocument();
+    expect(screen.queryByText('Low')).not.toBeInTheDocument();
+  });
+
+  it('the trend counts post-deploy failures in its change-failure rate, like the headline', async () => {
+    getDora.mockResolvedValue(baseDora);
+    // No deploy-time failure at all, but 2 of 5 deploys failed AFTER deploying:
+    // 40% CFR, elevated. A deploy-time-only trend read this bucket as 0%.
+    getDoraTrend.mockResolvedValue([
+      { period: '2026-07-08T00:00:00.000Z', deployments: 5, failed: 0, postDeployFailures: 2, total: 5, changeFailurePct: 40 },
+    ]);
+
+    render(<ReportsPage />);
+    await goToDora();
+
+    await screen.findByText('Deployment trend');
+    expect(screen.getByText('Elevated change-failure')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /average change-failure rate 40%/i })).toBeInTheDocument();
   });
 
   it('renders the DORA upsell (not the metrics) on the DORA tab when advanced_reporting is disabled', async () => {
@@ -248,8 +290,8 @@ describe('ReportsPage — DORA section', () => {
   it('renders the deployment-trend sparkline (bars, sr-only table, role="img" summary) when trend points exist', async () => {
     getDora.mockResolvedValue(baseDora);
     getDoraTrend.mockResolvedValue([
-      { period: '2026-07-01T00:00:00.000Z', deployments: 3, failed: 1, total: 3 },
-      { period: '2026-07-08T00:00:00.000Z', deployments: 5, failed: 0, total: 5 },
+      { period: '2026-07-01T00:00:00.000Z', deployments: 3, failed: 1, postDeployFailures: 0, total: 3, changeFailurePct: 33.3 },
+      { period: '2026-07-08T00:00:00.000Z', deployments: 5, failed: 0, postDeployFailures: 0, total: 5, changeFailurePct: 0 },
     ]);
 
     render(<ReportsPage />);
@@ -360,5 +402,10 @@ describe('DORA helpers (unit)', () => {
     // A band the server adds later (or a prototype key) renders nothing, as the old switch's default did.
     expect(doraLevelBadge('toString' as never)).toBeNull();
     expect(doraLevelBadge('superb' as never)).toBeNull();
+  });
+
+  it('doraLevelBadge renders an insufficient sample as "Not enough data" with its n', () => {
+    expect(doraLevelBadge('insufficient', 3)?.label).toBe('Not enough data (n = 3)');
+    expect(doraLevelBadge('insufficient')?.label).toBe('Not enough data');
   });
 });

@@ -105,7 +105,7 @@ export const FEATURE_GATES: Record<FeatureFlag, FeatureGateSpec> = {
       'src/components/pipeline/ScorecardCard.tsx',
       'pages/dashboard/settings/incident-reporting.tsx',
     ],
-    unlocks: 'DORA metrics, the maturity scorecard, and incident-driven MTTR/change-failure reporting',
+    unlocks: 'DORA metrics, the maturity scorecard, and incident-driven time-to-restore and change-failure reporting',
   },
   stakeholder_reports: {
     enforcement: 'route',

@@ -88,7 +88,11 @@ export interface Pipeline {
   deletedBy?: string;
 }
 
-/** DORA performance band (api-core's `DORA_LEVELS`, the reporting domain's `DoraLevel`). */
+/**
+ * DORA performance band (api-core's `DORA_LEVELS`, the reporting domain's
+ * `DoraLevel`). `'insufficient'` = a sample under api-core's `MIN_DORA_SAMPLE`:
+ * unscored, rendered "Not enough data (n = X)"; `null` = no sample at all.
+ */
 export type ScorecardDoraLevel = DoraLevel;
 
 /**
@@ -118,8 +122,15 @@ export interface PipelineScorecard {
     basis: 'deploy' | 'run';
     deploymentFrequency: ScorecardDoraLevel;
     changeFailureRate: ScorecardDoraLevel;
+    /** A MEDIAN time to restore, despite the field name (kept for API stability). */
     meanTimeToRestore: ScorecardDoraLevel;
     leadTime: ScorecardDoraLevel;
+    /**
+     * The sample behind each band (deployments for frequency, attempts for CFR,
+     * measurements for lead time / restore) — the n in "Not enough data (n = X)".
+     * Optional so a card cached from an older server still renders.
+     */
+    samples?: { deploymentFrequency: number; changeFailureRate: number; meanTimeToRestore: number; leadTime: number };
   };
   /**
    * Security: the pipeline's LIVE plugin exposures (open, not under an

@@ -801,21 +801,22 @@ describe('ReportingService', () => {
         [
           // production: 3 succeeded (two with commit times → lead 600s + 3600s),
           // 1 failed. attempts = 4.
-          { environment: 'production', status: 'SUCCEEDED', completed_at: '2026-07-02T00:10:00Z', commit_ts: '2026-07-02T00:00:00Z' },
-          { environment: 'production', status: 'SUCCEEDED', completed_at: '2026-07-03T01:00:00Z', commit_ts: '2026-07-03T00:00:00Z' },
-          { environment: 'production', status: 'SUCCEEDED', completed_at: '2026-07-04T00:00:00Z', commit_ts: null },
-          { environment: 'production', status: 'FAILED', completed_at: '2026-07-05T00:00:00Z', commit_ts: null },
+          { environment: 'production', execution_id: 'e1', status: 'SUCCEEDED', completed_at: '2026-07-02T00:10:00Z', commit_ts: '2026-07-02T00:00:00Z' },
+          { environment: 'production', execution_id: 'e2', status: 'SUCCEEDED', completed_at: '2026-07-03T01:00:00Z', commit_ts: '2026-07-03T00:00:00Z' },
+          { environment: 'production', execution_id: 'e3', status: 'SUCCEEDED', completed_at: '2026-07-04T00:00:00Z', commit_ts: null },
+          { environment: 'production', execution_id: 'e4', status: 'FAILED', completed_at: '2026-07-05T00:00:00Z', commit_ts: null },
           // staging: 1 succeeded.
-          { environment: 'staging', status: 'SUCCEEDED', completed_at: '2026-07-02T00:00:00Z', commit_ts: null },
+          { environment: 'staging', execution_id: 's1', status: 'SUCCEEDED', completed_at: '2026-07-02T00:00:00Z', commit_ts: null },
         ],
         [
-          { environment: 'production', outcome: 'failed' }, // post-deploy failure
-          { environment: 'production', outcome: 'restored' },
-          { environment: 'staging', outcome: 'failed' },
+          // Post-deploy failures, each on (anchored to) an in-window successful deploy.
+          { environment: 'production', outcome: 'failed', execution_id: 'e3' },
+          { environment: 'staging', outcome: 'failed', execution_id: 's1' },
         ],
         [
-          { outcome: 'failed', restored_at: '2026-07-05T00:00:00Z', deployed_at: null },
-          { outcome: 'restored', restored_at: '2026-07-06T01:00:00Z', deployed_at: '2026-07-06T00:00:00Z' }, // 3600s
+          { outcome: 'failed', execution_id: 'e3', restored_at: '2026-07-05T00:00:00Z', deployed_at: '2026-07-04T00:00:00Z' },
+          // Measured from e3's failure (07-05 00:00), not its deploy (07-04): 3600s.
+          { outcome: 'restored', execution_id: 'e3', restored_at: '2026-07-05T01:00:00Z', failed_at: '2026-07-05T00:00:00Z', deployed_at: '2026-07-04T00:00:00Z' },
         ],
         [{ registered: 5, deploying: 2 }],
       );
@@ -829,27 +830,29 @@ describe('ReportingService', () => {
       expect(result.environments.map((e) => e.environment)).toEqual(['production', 'staging']);
 
       const prod = result.environments[0];
-      // Deployment Frequency: 3 successful deploys over 10 days → 0.3/day (high).
-      expect(prod.deploymentFrequency).toEqual({ deployments: 3, perDay: 0.3, level: 'high' });
-      // Two-class CFR: (1 deploy-time + 1 post-deploy) / 4 attempts = 50%.
+      // Deployment Frequency: 3 successful deploys over 10 days → 0.3/day — but 3
+      // deploys are below MIN_DORA_SAMPLE, so the band is `insufficient`, not high.
+      expect(prod.deploymentFrequency).toEqual({ deployments: 3, perDay: 0.3, level: 'insufficient', n: 3 });
+      // Two-class CFR: (1 deploy-time + 1 post-deploy) / 4 attempts = 50% (n = 4: unbanded).
       expect(prod.changeFailureRate).toEqual({
-        rate: 50, deployTimeFailures: 1, postDeployFailures: 1, attempts: 4, level: 'low',
+        rate: 50, deployTimeFailures: 1, postDeployFailures: 1, attempts: 4, level: 'insufficient', n: 4,
       });
       // Measured lead time: median(600s, 3600s) = 2100s (elite). Sample = 2.
       // p90/p95 interpolate the same 2-sample set [600, 3600] the median came from:
       // 600 + (3600-600)*0.90 and *0.95. Reported, never scored — the level is median-only.
-      expect(prod.leadTime).toEqual({ deployments: 2, medianSeconds: 2100, p90Seconds: 3300, p95Seconds: 3450, level: 'elite' });
+      expect(prod.leadTime).toEqual({ deployments: 2, medianSeconds: 2100, p90Seconds: 3300, p95Seconds: 3450, level: 'insufficient', n: 2 });
 
       const stg = result.environments[1];
-      expect(stg.deploymentFrequency).toEqual({ deployments: 1, perDay: 0.1, level: 'medium' });
+      expect(stg.deploymentFrequency).toEqual({ deployments: 1, perDay: 0.1, level: 'insufficient', n: 1 });
       expect(stg.changeFailureRate).toEqual({
-        rate: 100, deployTimeFailures: 0, postDeployFailures: 1, attempts: 1, level: 'low',
+        rate: 100, deployTimeFailures: 0, postDeployFailures: 1, attempts: 1, level: 'insufficient', n: 1,
       });
       // No commit timestamps in staging → lead time unknown.
-      expect(stg.leadTime).toEqual({ deployments: 0, medianSeconds: null, p90Seconds: null, p95Seconds: null, level: null });
+      expect(stg.leadTime).toEqual({ deployments: 0, medianSeconds: null, p90Seconds: null, p95Seconds: null, level: null, n: 0 });
 
-      // MTTR (production-only): 1 incident, 1 restored, median gap 3600s (high).
-      expect(result.meanTimeToRestore).toEqual({ incidents: 1, restored: 1, medianSeconds: 3600, p90Seconds: 3600, p95Seconds: 3600, level: 'high' });
+      // MTTR (production-only): 1 incident, 1 restored, median gap 3600s — one
+      // measurement, so `insufficient` rather than high.
+      expect(result.meanTimeToRestore).toEqual({ incidents: 1, restored: 1, medianSeconds: 3600, p90Seconds: 3600, p95Seconds: 3600, level: 'insufficient', n: 1 });
 
       // Coverage: 5 registered, 2 deploying → 3 without deploys.
       expect(result.coverage).toEqual({ registered: 5, deploying: 2, withoutDeploys: 3 });
@@ -861,30 +864,38 @@ describe('ReportingService', () => {
       const result = await service.getDoraMetrics('acme', FROM, TO);
 
       expect(result.environments).toEqual([]);
-      expect(result.meanTimeToRestore).toEqual({ incidents: 0, restored: 0, medianSeconds: null, p90Seconds: null, p95Seconds: null, level: null });
+      expect(result.meanTimeToRestore).toEqual({ incidents: 0, restored: 0, medianSeconds: null, p90Seconds: null, p95Seconds: null, level: null, n: 0 });
       expect(result.coverage).toEqual({ registered: 2, deploying: 0, withoutDeploys: 2 });
     });
 
-    it('surfaces an env from post-deploy outcomes even with no in-window deploy events', async () => {
-      // A prod deploy from before the window is marked failed now: the env still
-      // appears with attempts=0 (CFR level null — nothing to judge).
-      wireScans([], [{ environment: 'production', outcome: 'failed' }], [], [{ registered: 1, deploying: 0 }]);
+    it('anchors a post-deploy marker to its deploy: one on a deploy outside the window does not count', async () => {
+      // A prod deploy from before the window is marked failed now. It used to land
+      // in THIS window's numerator with attempts=0; anchored to its deploy, it is
+      // the earlier window's failure.
+      wireScans([], [{ environment: 'production', outcome: 'failed', execution_id: 'old' }], [], [{ registered: 1, deploying: 0 }]);
 
       const result = await service.getDoraMetrics('acme', FROM, TO);
 
-      expect(result.environments).toHaveLength(1);
-      const prod = result.environments[0];
-      expect(prod.changeFailureRate).toEqual({
-        rate: 0, deployTimeFailures: 0, postDeployFailures: 1, attempts: 0, level: null,
-      });
-      expect(prod.deploymentFrequency.deployments).toBe(0);
+      expect(result.environments).toEqual([]);
     });
 
-    it('clamps a negative MTTR gap to zero (restored before the recorded deploy time)', async () => {
+    it('a failed marker on a deploy that already failed at deploy time is one failure, not two', async () => {
+      wireScans(
+        [{ environment: 'production', execution_id: 'x', status: 'FAILED', completed_at: '2026-07-02T00:00:00Z', commit_ts: null }],
+        [{ environment: 'production', outcome: 'failed', execution_id: 'x' }],
+        [], [{ registered: 1, deploying: 1 }],
+      );
+
+      const result = await service.getDoraMetrics('acme', FROM, TO);
+
+      expect(result.environments[0].changeFailureRate).toMatchObject({ deployTimeFailures: 1, postDeployFailures: 0, attempts: 1, rate: 100 });
+    });
+
+    it('clamps a negative MTTR gap to zero (restored before the recorded failure time)', async () => {
       wireScans(
         [{ environment: 'production', status: 'SUCCEEDED', completed_at: '2026-07-02T00:00:00Z', commit_ts: null }],
         [],
-        [{ outcome: 'restored', restored_at: '2026-07-06T00:00:00Z', deployed_at: '2026-07-06T01:00:00Z' }], // -3600s
+        [{ outcome: 'restored', restored_at: '2026-07-06T00:00:00Z', failed_at: '2026-07-06T01:00:00Z', deployed_at: '2026-07-02T00:00:00Z' }], // -3600s
         [{ registered: 1, deploying: 1 }],
       );
 
@@ -902,7 +913,7 @@ describe('ReportingService', () => {
 
       const result = await service.getDoraMetrics('acme', FROM, TO);
 
-      expect(result.environments[0].leadTime).toEqual({ deployments: 1, medianSeconds: 0, p90Seconds: 0, p95Seconds: 0, level: 'elite' });
+      expect(result.environments[0].leadTime).toEqual({ deployments: 1, medianSeconds: 0, p90Seconds: 0, p95Seconds: 0, level: 'insufficient', n: 1 });
     });
 
     it('runs a rollup (multi-org) read when given an org subtree', async () => {
@@ -962,10 +973,10 @@ describe('ReportingService', () => {
       const prod = result.environments[0];
       // The successful deploy is now a post-deploy failure via the incident.
       expect(prod.changeFailureRate).toEqual({
-        rate: 100, deployTimeFailures: 0, postDeployFailures: 1, attempts: 1, level: 'low',
+        rate: 100, deployTimeFailures: 0, postDeployFailures: 1, attempts: 1, level: 'insufficient', n: 1,
       });
       // Real MTTR = resolved_at − opened_at = 3600s (not a manual restored−deployed).
-      expect(result.meanTimeToRestore).toEqual({ incidents: 1, restored: 1, medianSeconds: 3600, p90Seconds: 3600, p95Seconds: 3600, level: 'high' });
+      expect(result.meanTimeToRestore).toEqual({ incidents: 1, restored: 1, medianSeconds: 3600, p90Seconds: 3600, p95Seconds: 3600, level: 'insufficient', n: 1 });
     });
 
     it('keeps production incident recovery in MTTR under a NON-production env filter', async () => {
@@ -985,7 +996,7 @@ describe('ReportingService', () => {
 
       const result = await service.getDoraMetrics('acme', FROM, TO, undefined, { environment: 'staging' });
 
-      expect(result.meanTimeToRestore).toEqual({ incidents: 1, restored: 1, medianSeconds: 3600, p90Seconds: 3600, p95Seconds: 3600, level: 'high' });
+      expect(result.meanTimeToRestore).toEqual({ incidents: 1, restored: 1, medianSeconds: 3600, p90Seconds: 3600, p95Seconds: 3600, level: 'insufficient', n: 1 });
       // ...while the REPORTED environments are only the one that was asked for.
       // Production was fetched as plumbing for MTTR, not to be shown.
       expect(result.environments.map((e) => e.environment)).toEqual(['staging']);
@@ -1010,7 +1021,7 @@ describe('ReportingService', () => {
       const pastBoundary = await service.getDoraMetrics('acme', FROM, TO);
       expect(pastBoundary.environments[0].changeFailureRate.postDeployFailures).toBe(0);
       // Uncorrelated incident contributes nothing to MTTR either.
-      expect(pastBoundary.meanTimeToRestore).toEqual({ incidents: 0, restored: 0, medianSeconds: null, p90Seconds: null, p95Seconds: null, level: null });
+      expect(pastBoundary.meanTimeToRestore).toEqual({ incidents: 0, restored: 0, medianSeconds: null, p90Seconds: null, p95Seconds: null, level: null, n: 0 });
     });
 
     it('dedups an incident against a manual failed outcome on the SAME deploy (counts once)', async () => {
@@ -1031,7 +1042,7 @@ describe('ReportingService', () => {
       expect(result.environments[0].changeFailureRate.postDeployFailures).toBe(1);
       // Incident takes precedence for MTTR: 1 incident, resolved gap = 7200s (not
       // the manual failed marker double-counting it).
-      expect(result.meanTimeToRestore).toEqual({ incidents: 1, restored: 1, medianSeconds: 7200, p90Seconds: 7200, p95Seconds: 7200, level: 'high' });
+      expect(result.meanTimeToRestore).toEqual({ incidents: 1, restored: 1, medianSeconds: 7200, p90Seconds: 7200, p95Seconds: 7200, level: 'insufficient', n: 1 });
     });
 
     it('adds a 6th (incidents) scan and reads it last', async () => {
@@ -1069,7 +1080,7 @@ describe('ReportingService', () => {
       wireScans([prodDeploy], [], [], [{ registered: 1, deploying: 1 }], incident);
       const narrow = await service.getDoraMetrics('acme', FROM, TO, undefined, { incidentWindowHours: 1 });
       expect(narrow.environments[0].changeFailureRate.postDeployFailures).toBe(0);
-      expect(narrow.meanTimeToRestore).toEqual({ incidents: 0, restored: 0, medianSeconds: null, p90Seconds: null, p95Seconds: null, level: null });
+      expect(narrow.meanTimeToRestore).toEqual({ incidents: 0, restored: 0, medianSeconds: null, p90Seconds: null, p95Seconds: null, level: null, n: 0 });
     });
   });
 
@@ -1137,13 +1148,13 @@ describe('ReportingService', () => {
         [], [], [{ registered: 1, deploying: 1 }],
       );
       const result = await service.getDoraMetrics('acme', FROM, TO);
-      expect(result.environments[0].leadTime).toEqual({ deployments: 1, medianSeconds: 3600, p90Seconds: 3600, p95Seconds: 3600, level: 'elite' });
+      expect(result.environments[0].leadTime).toEqual({ deployments: 1, medianSeconds: 3600, p90Seconds: 3600, p95Seconds: 3600, level: 'insufficient', n: 1 });
     });
 
     // Correlation look-back — the deploy scan reaches back `from − windowHours`, and
     // a look-back-only row (in_window=false) correlates an incident WITHOUT itself
     // counting toward DF/CFR attempts.
-    it('correlates an incident at the window leading edge to a just-prior (out-of-window) deploy', async () => {
+    it('an incident at the window leading edge after a just-prior deploy: MTTR counts it, this window\'s CFR does not', async () => {
       wireScans(
         // Deploy completed 2h BEFORE `from` → in_window=false; kept only for correlation.
         [{ environment: 'production', execution_id: 'exec-LB', status: 'SUCCEEDED', completed_at: '2026-06-30T22:00:00Z', commit_ts: null, in_window: false }],
@@ -1152,13 +1163,13 @@ describe('ReportingService', () => {
         [{ environment: 'production', opened_at: '2026-07-01T01:00:00Z', resolved_at: '2026-07-01T02:00:00Z' }],
       );
       const result = await service.getDoraMetrics('acme', FROM, TO);
-      const prod = result.environments[0];
-      // The look-back deploy does NOT count as an in-window deployment/attempt…
-      expect(prod.deploymentFrequency.deployments).toBe(0);
-      expect(prod.changeFailureRate.attempts).toBe(0);
-      // …but it IS the deploy the incident correlates to → post-deploy failure + MTTR.
-      expect(prod.changeFailureRate.postDeployFailures).toBe(1);
-      expect(result.meanTimeToRestore).toEqual({ incidents: 1, restored: 1, medianSeconds: 3600, p90Seconds: 3600, p95Seconds: 3600, level: 'high' });
+      // The look-back deploy is not an in-window deployment, and a post-deploy
+      // failure is anchored to its deploy: the CFR it belongs to is the PREVIOUS
+      // window's, so no production CFR row appears here…
+      expect(result.environments).toEqual([]);
+      // …but it IS the deploy the incident correlates to, and the incident was
+      // opened in this window → it counts toward this window's MTTR.
+      expect(result.meanTimeToRestore).toEqual({ incidents: 1, restored: 1, medianSeconds: 3600, p90Seconds: 3600, p95Seconds: 3600, level: 'insufficient', n: 1 });
     });
 
     it('widens the deploy scan lower bound to from − windowHours (look-back), keeping [from,to] in_window', async () => {
@@ -1183,7 +1194,7 @@ describe('ReportingService', () => {
       const result = await service.getDoraMetrics('acme', FROM, TO);
       // Incident is attributed (CFR) but its resolution is not observed in-window.
       expect(result.environments[0].changeFailureRate.postDeployFailures).toBe(1);
-      expect(result.meanTimeToRestore).toEqual({ incidents: 1, restored: 0, medianSeconds: null, p90Seconds: null, p95Seconds: null, level: null });
+      expect(result.meanTimeToRestore).toEqual({ incidents: 1, restored: 0, medianSeconds: null, p90Seconds: null, p95Seconds: null, level: null, n: 0 });
     });
 
     // Cache key — the effective incident window is part of the key so the scorecard
@@ -1210,9 +1221,14 @@ describe('ReportingService', () => {
       }
       wireScans(
         deploys, [], [], [{ registered: 1, deploying: 1 }],
-        // Incident opens 12h after the deploy (within 24h) → correlates; resolved
-        // exactly 3600s after opened.
-        [{ environment: 'production', opened_at: '2026-07-03T12:00:00Z', resolved_at: '2026-07-03T13:00:00Z' }],
+        // Five incidents (MIN_DORA_SAMPLE recoveries, so MTTR is banded), each
+        // opened within 24h of the deploy → correlates; each resolved exactly
+        // 3600s after opened.
+        [12, 13, 14, 15, 16].map((h) => ({
+          environment: 'production',
+          opened_at: `2026-07-03T${h}:00:00Z`,
+          resolved_at: `2026-07-03T${h + 1}:00:00Z`,
+        })),
       );
       const result = await service.getDoraMetrics('acme', FROM, TO);
       const prod = result.environments[0];
@@ -1557,19 +1573,23 @@ describe('ReportingService', () => {
   });
 
   describe('getDoraTrend (deploy-basis)', () => {
-    it('returns per-bucket deploy frequency + deploy-time change-failure points', async () => {
-      mockExecute.mockResolvedValue({
-        rows: [
-          { period: '2026-07-01', deployments: 4, failed: 1, total: 5, changeFailurePct: 20 },
-          { period: '2026-07-02', deployments: 6, failed: 0, total: 6, changeFailurePct: 0 },
-        ],
+    it('returns per-bucket deploy frequency + two-class change-failure points', async () => {
+      const d = (exec: string, status: string, period: string) => ({
+        environment: 'production', execution_id: exec, status, completed_at: `${period}T10:00:00Z`, commit_ts: null, in_window: true, period,
       });
+      mockExecute
+        // 0 = deploys (with their bucket), 1 = failed outcomes, 2 = incidents
+        .mockResolvedValueOnce({ rows: [d('a', 'SUCCEEDED', '2026-07-01'), d('b', 'FAILED', '2026-07-01'), d('c', 'SUCCEEDED', '2026-07-02')] })
+        .mockResolvedValueOnce({ rows: [{ environment: 'production', outcome: 'failed', execution_id: 'a' }] })
+        .mockResolvedValueOnce({ rows: [] });
 
       const result = await service.getDoraTrend('acme', 'day', '2026-07-01', '2026-07-03');
 
-      expect(mockExecute).toHaveBeenCalledTimes(1);
-      expect(result).toHaveLength(2);
-      expect(result[0]).toMatchObject({ period: '2026-07-01', deployments: 4, changeFailurePct: 20 });
+      expect(mockExecute).toHaveBeenCalledTimes(3);
+      expect(result).toEqual([
+        { period: '2026-07-01', deployments: 1, failed: 1, postDeployFailures: 1, total: 2, changeFailurePct: 100 },
+        { period: '2026-07-02', deployments: 1, failed: 0, postDeployFailures: 0, total: 1, changeFailurePct: 0 },
+      ]);
     });
   });
 

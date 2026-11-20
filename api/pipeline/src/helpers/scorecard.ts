@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { DoraBand } from '@pipeline-builder/api-core';
 import type { DoraLevel, DoraMetrics } from '@pipeline-builder/pipeline-data';
 
 /**
@@ -52,6 +53,16 @@ export interface Scorecard {
     changeFailureRate: DoraLevel;
     meanTimeToRestore: DoraLevel;
     leadTime: DoraLevel;
+    /**
+     * The sample behind each band (`n`), so a band that is `insufficient` (below
+     * MIN_DORA_SAMPLE) can say "Not enough data (n = 3)" rather than look missing.
+     */
+    samples: {
+      deploymentFrequency: number;
+      changeFailureRate: number;
+      meanTimeToRestore: number;
+      leadTime: number;
+    };
   };
   security: {
     score: number | null;
@@ -61,8 +72,12 @@ export interface Scorecard {
   computedAt: string;
 }
 
-/** Points per DORA performance band (null bands are excluded from the average). */
-const BAND_POINTS: Record<Exclude<DoraLevel, null>, number> = {
+/**
+ * Points per RATED DORA band. `null` (no sample) and `insufficient` (fewer than
+ * api-core's MIN_DORA_SAMPLE observations) are not ratings and are excluded from
+ * the average — a pipeline that deployed once is unscored on that band, not "low".
+ */
+const BAND_POINTS: Record<DoraBand, number> = {
   elite: 100,
   high: 80,
   medium: 55,
@@ -74,6 +89,11 @@ const BAND_POINTS: Record<Exclude<DoraLevel, null>, number> = {
  *  frequency / lead time / CFR are per-environment in the DORA response. */
 function headlineEnv(d: DoraMetrics): DoraMetrics['environments'][number] | undefined {
   return d.environments.find(e => e.environment === d.headline) ?? d.environments[0];
+}
+
+/** A band that carries a rating (not `null`, not `insufficient`). */
+function isRated(level: DoraLevel): level is DoraBand {
+  return level !== null && level !== 'insufficient';
 }
 
 /** Average of the present DORA bands' points (null when every band is null).
@@ -89,7 +109,7 @@ export function doraScoreFromMetrics(d: DoraMetrics): number | null {
     d.meanTimeToRestore.level,
     env?.leadTime.level ?? null,
   ];
-  const points = levels.filter((l): l is Exclude<DoraLevel, null> => l !== null).map(l => BAND_POINTS[l]);
+  const points = levels.filter(isRated).map(l => BAND_POINTS[l]);
   if (points.length === 0) return null;
   return Math.round(points.reduce((a, b) => a + b, 0) / points.length);
 }
@@ -174,6 +194,7 @@ export function unavailableScorecard(pipelineId: string, computedAt: string): Sc
       changeFailureRate: null,
       meanTimeToRestore: null,
       leadTime: null,
+      samples: { deploymentFrequency: 0, changeFailureRate: 0, meanTimeToRestore: 0, leadTime: 0 },
     },
     security: { score: null, ...NO_SECURITY_SIGNAL },
     computedAt,
@@ -211,6 +232,12 @@ export function buildScorecard(
       changeFailureRate: env?.changeFailureRate.level ?? null,
       meanTimeToRestore: dora.meanTimeToRestore.level,
       leadTime: env?.leadTime.level ?? null,
+      samples: {
+        deploymentFrequency: env?.deploymentFrequency.n ?? 0,
+        changeFailureRate: env?.changeFailureRate.n ?? 0,
+        meanTimeToRestore: dora.meanTimeToRestore.n ?? 0,
+        leadTime: env?.leadTime.n ?? 0,
+      },
     },
     security: { score: sScore, exposures: security.exposures, artifact: security.artifact },
     computedAt,

@@ -948,21 +948,21 @@ Pipeline execution and plugin build analytics. Time ranges default to the last 3
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/reports/execution/count` | Execution count per pipeline with status breakdown |
-| `GET` | `/reports/execution/success-rate` | Pass/fail rate over time |
+| `GET` | `/reports/execution/success-rate` | Pass/fail rate over time (`interval`; optional `tz` IANA name and `weekStart` `monday`\|`sunday` bucket it like the stakeholder report — invalid → 400) |
 | `GET` | `/reports/execution/duration` | Avg/min/max/p95 execution duration |
-| `GET` | `/reports/execution/stage-failures` | Stage failure heatmap |
+| `GET` | `/reports/execution/stage-failures` | Stage failure heatmap — failures over terminal stage outcomes (lifecycle rows such as STARTED / IN_PROGRESS are not attempts) |
 | `GET` | `/reports/execution/stage-bottlenecks` | Slowest stages per pipeline |
 | `GET` | `/reports/execution/errors` | Error categorization (top N) across **every** org — the platform operator's view. Cross-org error TEXT, so the system-org-only `orgs:read` (plus aal2) rather than `reports:read`; no `includeDescendants`, and the retention floor does not apply |
-| `GET` | `/reports/execution/dora` | **Per-environment** DORA metrics (headline `production`) with performance-level bands: deploy-basis frequency, **measured** lead time (commit→deploy; `unknown` when unresolved — no proxy), two-class change-failure rate, production MTTR, coverage (`reports:read` **+ `advanced_reporting` feature** — Enterprise, or the Advanced Reporting add-on; `from`, `to`, `includeDescendants` needs `reports:rollup`; optional `pipelineId`, `environment`). See [DORA Metrics](dora-metrics.md) |
-| `GET` | `/reports/execution/dora/trend` | DORA deployment-frequency + change-failure trend bucketed by `interval` (same gates/scoping as `/dora`) |
+| `GET` | `/reports/execution/dora` | **Per-environment** DORA metrics (headline `production`) with performance-level bands: deploy-basis frequency, **measured** lead time (commit→deploy; `unknown` when unresolved — no proxy), two-class change-failure rate, production **median** time to restore (`meanTimeToRestore`), coverage; a band on fewer than 5 observations is `insufficient` with its `n` (`reports:read` **+ `advanced_reporting` feature** — Enterprise, or the Advanced Reporting add-on; `from`, `to`, `includeDescendants` needs `reports:rollup`; optional `pipelineId`, `environment`). See [DORA Metrics](dora-metrics.md) |
+| `GET` | `/reports/execution/dora/trend` | DORA deployment-frequency + two-class change-failure trend (`failed`, `postDeployFailures`, `total` sum to the headline) bucketed by `interval`, optional `tz` / `weekStart` (same gates/scoping as `/dora`) |
 | `GET` | `/reports/execution/build-health` | Per-pipeline **build health** — per-stage success rate + p50/p90/p99 timing (`reports:read`; **not** `advanced_reporting` — standard on every tier; `pipelineId`, `from`, `to`) |
-| `POST` | `/reports/deployments/:executionId/outcome` | Mark a **successful** production deploy as `failed`/`restored` (feeds post-deploy CFR + real MTTR); `pipelines:write` **+ `advanced_reporting`** |
+| `POST` | `/reports/deployments/:executionId/outcome` | Mark a **successful** production deploy as `failed`/`restored` (feeds post-deploy CFR + median time to restore, measured from the `failed` marker); `pipelines:write` **+ `advanced_reporting`** |
 | `POST` | `/reports/incidents` | Ingest a production **incident** `{incidentId, environment, openedAt, resolvedAt?, severity}` from your monitoring → automated post-deploy CFR/MTTR. Machine **`reporting:ingest`** scope, idempotent on `(org, incidentId)`. See [Incident Webhook](incidents-webhook.md) |
 | `POST` | `/reports/ingest-health` | The ingestion Lambda's delivery-health heartbeat `{forwarded, dropped, lastEventAt}`. Machine **`reporting:ingest`** scope |
 | `GET` | `/reports/ingest-health` | Read that heartbeat back — `{health, now}`, where `health` is `null` when the deployment has **never** reported ingestion (not the same as stale) and `now` is the server clock. Drives the Reports freshness strip, which separates "no deploys in range" from "nothing has reached the ingest pipeline since X". User-facing: org-scoped, `reports:read` (**not** the `reporting:ingest` scope, and **not** `advanced_reporting` — it applies to the execution reports every tier sees) |
 | `GET` | `/reports/retention` | The org's **effective** retention, read-only — `{eventRetentionDays, doraRetentionDays, eventMaxRangeDays, doraMaxRangeDays}` (`-1` = unlimited; `*MaxRangeDays` is the horizon clamped to the 730-day report ceiling). Drives the Reports date-range cap. `reports:read` only (**not** `advanced_reporting` — the Retention Pack is sold to every tier) |
 | `GET` | `/reports/plugins/summary` | Plugin inventory stats |
-| `GET` | `/reports/plugins/build-success-rate` | Docker build success rate over time |
+| `GET` | `/reports/plugins/build-success-rate` | Docker build success rate over time (optional `tz` / `weekStart`, as `/reports/execution/success-rate`) |
 | `GET` | `/reports/plugins/build-duration` | Build time per plugin |
 | `GET` | `/reports/plugins/build-failures` | Build failure reasons (top N) across **every** org — the platform operator's view. Cross-org failure TEXT, so the system-org-only `orgs:read` (plus aal2) rather than `reports:read`; no `includeDescendants` |
 | `GET` | `/reports/plugins/runtime-success-rate` | Runtime success rate per plugin version, from pipeline runs |

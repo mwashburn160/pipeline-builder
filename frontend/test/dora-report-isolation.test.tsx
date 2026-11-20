@@ -72,12 +72,12 @@ const doraWithData: DoraMetrics = {
   environments: [
     {
       environment: 'production',
-      deploymentFrequency: { deployments: 4, perDay: 0.13, level: null },
-      leadTime: { deployments: 4, medianSeconds: 300, p90Seconds: null, p95Seconds: null, level: 'elite' },
-      changeFailureRate: { rate: 25, deployTimeFailures: 1, postDeployFailures: 0, attempts: 4, level: 'medium' },
+      deploymentFrequency: { deployments: 4, perDay: 0.13, level: null, n: 4 },
+      leadTime: { deployments: 4, medianSeconds: 300, p90Seconds: null, p95Seconds: null, level: 'elite', n: 4 },
+      changeFailureRate: { rate: 25, deployTimeFailures: 1, postDeployFailures: 0, attempts: 4, level: 'medium', n: 4 },
     },
   ],
-  meanTimeToRestore: { medianSeconds: null, incidents: 0, restored: 0, p90Seconds: null, p95Seconds: null, level: null },
+  meanTimeToRestore: { medianSeconds: null, incidents: 0, restored: 0, p90Seconds: null, p95Seconds: null, level: null, n: 0 },
   coverage: { registered: 2, deploying: 1, withoutDeploys: 0 },
 };
 
@@ -145,7 +145,7 @@ describe('DoraReport — performance bands', () => {
             leadTime: { ...env.leadTime, level: null },
             changeFailureRate: { ...env.changeFailureRate, level: null },
           }],
-          meanTimeToRestore: { ...doraWithData.meanTimeToRestore, medianSeconds: 600, incidents: 1, restored: 1, level: 'high' },
+          meanTimeToRestore: { ...doraWithData.meanTimeToRestore, medianSeconds: 600, incidents: 1, restored: 1, level: 'high', n: 1 },
         }}
       />,
     );

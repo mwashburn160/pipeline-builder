@@ -45,7 +45,7 @@ import {
 import { report } from './reporting/query-scope.js';
 import { purgeExpiredReportingData as purgeReportingRetention } from './reporting/retention-sweep.js';
 import { REPORTING_EVENT_RETENTION_DAYS, REPORTING_DORA_RETENTION_DAYS } from './reporting/retention.js';
-import { assertReportInterval, bucketKey, notOvertaken, periodBucket, scrubOptional, optionalStartedAtRange, startedAtWindow, terminalStatusList } from './reporting/sql-helpers.js';
+import { assertReportInterval, bucketKey, nonOutcomeStatusList, notOvertaken, periodBucket, scrubOptional, optionalStartedAtRange, startedAtWindow, terminalStatusList } from './reporting/sql-helpers.js';
 import type {
   ExecutionCount, TimeSeriesEntry, DurationStats, PipelineExecution, StageFailure, StageBottleneck,
   ActionFailure, ErrorEntry, PluginSummary, TypeComputeDistribution, VersionCount,
@@ -279,6 +279,9 @@ export class ReportingService {
         FROM ${schema.pipelineEvent} e
         JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
         WHERE p.org_id ${pred} AND e.event_type = 'PIPELINE' AND e.duration_ms IS NOT NULL
+          -- A finished run only: a lifecycle row (STARTED, IN_PROGRESS…) that
+          -- happens to carry a duration is not a run and must not move the average.
+          AND e.status IN (${terminalStatusList})
           AND ${notOvertaken}
           AND ${startedAtWindow(from, to)}
         GROUP BY p.id ORDER BY avg_ms DESC
@@ -297,10 +300,16 @@ export class ReportingService {
         FROM ${schema.pipelineEvent} e
         JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
         WHERE p.org_id ${pred} AND e.event_type = 'STAGE' AND e.stage_name IS NOT NULL
-          -- A RESUMED row re-opens a stage that already has a row; counting it
-          -- would add an attempt that never happened. A retried stage's earlier
-          -- FAILED stays: the stage did fail, which is what this heatmap shows.
-          AND e.status <> 'RESUMED'
+          -- OUTCOMES only, counted the way the daily rollup counts them
+          -- (nonOutcomeStatusList): a STARTED / IN_PROGRESS / STOPPING row is a
+          -- lifecycle step of an attempt that has its own terminal row, so
+          -- counting it as an attempt understated the failure rate (one failed
+          -- run read as 1 of 3). A RESUMED row re-opens a stage that already has
+          -- a row, so it is not an attempt either. A retried stage's earlier
+          -- FAILED stays: the stage did fail, which is what this heatmap shows —
+          -- that, and only that, is where it differs from the rollup, which
+          -- counts a run's final outcome (notOvertaken).
+          AND e.status NOT IN (${nonOutcomeStatusList})
           AND ${startedAtWindow(from, to)}
         GROUP BY e.stage_name ORDER BY failures DESC
       `);
@@ -333,6 +342,8 @@ export class ReportingService {
         FROM ${schema.pipelineEvent} e
         JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
         WHERE p.org_id ${pred} AND e.event_type = 'STAGE' AND e.duration_ms IS NOT NULL
+          -- Finished stage attempts only (see getAverageDuration).
+          AND e.status IN (${terminalStatusList})
           AND ${startedAtWindow(from, to)}
         GROUP BY p.id, e.stage_name ORDER BY avg_ms DESC
       `);
@@ -350,6 +361,9 @@ export class ReportingService {
         FROM ${schema.pipelineEvent} e
         JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
         WHERE p.org_id ${pred} AND e.event_type = 'ACTION' AND e.action_name IS NOT NULL
+          -- Outcomes only, exactly as getStageFailures counts them: without this
+          -- every STARTED / IN_PROGRESS row was an "attempt" too.
+          AND e.status NOT IN (${nonOutcomeStatusList})
           AND ${startedAtWindow(from, to)}
         GROUP BY e.action_name ORDER BY failures DESC
       `);
@@ -525,6 +539,8 @@ export class ReportingService {
           COUNT(*)::int AS builds
         FROM ${schema.pipelineEvent} e
         WHERE e.org_id ${pred} AND e.event_source = 'plugin-build' AND e.duration_ms IS NOT NULL
+          -- Finished builds only: a 'started' row is a build still running.
+          AND e.status <> 'started'
           AND ${startedAtWindow(from, to)}
         GROUP BY plugin_name ORDER BY avg_ms DESC
       `);

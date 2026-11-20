@@ -20,7 +20,8 @@ jest.mock('@/lib/api', () => ({
   },
 }));
 
-const band = (level: 'elite' | 'high' | 'medium' | 'low' | null) => level;
+const band = (level: 'elite' | 'high' | 'medium' | 'low' | 'insufficient' | null) => level;
+const samples = (n: number) => ({ deploymentFrequency: n, changeFailureRate: n, meanTimeToRestore: n, leadTime: n });
 const rollup: ScorecardRollup = {
   orgId: 'org-1',
   pipelineCount: 2,
@@ -31,14 +32,14 @@ const rollup: ScorecardRollup = {
     {
       pipelineId: 'p1', name: 'Alpha', score: 88, grade: 'A',
       compliance: { score: 95, rulesEvaluated: 10, violations: 0, warnings: 1 },
-      dora: { score: 80, basis: 'deploy', deploymentFrequency: band('elite'), changeFailureRate: band('high'), meanTimeToRestore: band(null), leadTime: band('high') },
+      dora: { score: 80, basis: 'deploy', deploymentFrequency: band('elite'), changeFailureRate: band('high'), meanTimeToRestore: band('insufficient'), leadTime: band('high'), samples: { ...samples(10), meanTimeToRestore: 2 } },
       security: { score: 77, exposures: { count: 1, critical: 0, high: 1, kev: 1 }, artifact: null },
       computedAt: '2026-08-20T00:00:00.000Z',
     },
     {
       pipelineId: 'p2', name: 'Bravo', score: 54, grade: 'C',
       compliance: { score: 60, rulesEvaluated: 8, violations: 2, warnings: 0 },
-      dora: { score: 48, basis: 'deploy', deploymentFrequency: band('low'), changeFailureRate: band('medium'), meanTimeToRestore: band('low'), leadTime: band('medium') },
+      dora: { score: 48, basis: 'deploy', deploymentFrequency: band('low'), changeFailureRate: band('medium'), meanTimeToRestore: band('low'), leadTime: band('medium'), samples: samples(8) },
       security: { score: null, exposures: { count: 0, critical: 0, high: 0, kev: 0 }, artifact: null },
       computedAt: '2026-08-20T00:00:00.000Z',
     },
@@ -68,6 +69,8 @@ describe('ScorecardTab', () => {
     // Individual pipeline scores appear in the leaderboard.
     expect(screen.getByText('88')).toBeInTheDocument();
     expect(screen.getByText('54')).toBeInTheDocument();
+    // An insufficient band is labelled with its sample, not rated.
+    expect(screen.getByText('Not enough data (n = 2)')).toBeInTheDocument();
   });
 
   it('does NOT fetch and shows an upsell when advanced_reporting is disabled', async () => {

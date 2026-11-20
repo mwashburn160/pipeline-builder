@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 73528f76ebee4d9c995b89cb591e2ce63c27b41ec801a30dd0ae2f9c22dd1572
+// SOURCE-SHA256: cccce3010dac096cffd0bedc36a13bec23ecc614950ff4f2d573ad88c34333e4
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -3800,7 +3800,8 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/reports/execution/success-rate",
-              "Pass/fail rate over time"
+              "Pass/fail rate over time (interval; optional tz IANA name and weekStart monday\\",
+              "sunday bucket it like the stakeholder report — invalid → 400)"
             ],
             [
               "GET",
@@ -3810,7 +3811,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/reports/execution/stage-failures",
-              "Stage failure heatmap"
+              "Stage failure heatmap — failures over terminal stage outcomes (lifecycle rows such as STARTED / IN_PROGRESS are not attempts)"
             ],
             [
               "GET",
@@ -3825,12 +3826,12 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/reports/execution/dora",
-              "Per-environment DORA metrics (headline production) with performance-level bands: deploy-basis frequency, measured lead time (commit→deploy; unknown when unresolved — no proxy), two-class change-failure rate, production MTTR, coverage (reports:read + advanced_reporting feature — Enterprise, or the Advanced Reporting add-on; from, to, includeDescendants needs reports:rollup; optional pipelineId, environment). See DORA Metrics"
+              "Per-environment DORA metrics (headline production) with performance-level bands: deploy-basis frequency, measured lead time (commit→deploy; unknown when unresolved — no proxy), two-class change-failure rate, production median time to restore (meanTimeToRestore), coverage; a band on fewer than 5 observations is insufficient with its n (reports:read + advanced_reporting feature — Enterprise, or the Advanced Reporting add-on; from, to, includeDescendants needs reports:rollup; optional pipelineId, environment). See DORA Metrics"
             ],
             [
               "GET",
               "/reports/execution/dora/trend",
-              "DORA deployment-frequency + change-failure trend bucketed by interval (same gates/scoping as /dora)"
+              "DORA deployment-frequency + two-class change-failure trend (failed, postDeployFailures, total sum to the headline) bucketed by interval, optional tz / weekStart (same gates/scoping as /dora)"
             ],
             [
               "GET",
@@ -3840,7 +3841,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "POST",
               "/reports/deployments/:executionId/outcome",
-              "Mark a successful production deploy as failed/restored (feeds post-deploy CFR + real MTTR); pipelines:write + advanced_reporting"
+              "Mark a successful production deploy as failed/restored (feeds post-deploy CFR + median time to restore, measured from the failed marker); pipelines:write + advanced_reporting"
             ],
             [
               "POST",
@@ -3870,7 +3871,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/reports/plugins/build-success-rate",
-              "Docker build success rate over time"
+              "Docker build success rate over time (optional tz / weekStart, as /reports/execution/success-rate)"
             ],
             [
               "GET",

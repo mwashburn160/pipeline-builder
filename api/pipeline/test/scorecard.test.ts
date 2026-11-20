@@ -11,7 +11,7 @@ import {
   securityScore,
 } from '../src/helpers/scorecard.js';
 
-type Level = 'elite' | 'high' | 'medium' | 'low' | null;
+type Level = 'elite' | 'high' | 'medium' | 'low' | 'insufficient' | null;
 
 /** Minimal DoraMetrics (per-environment shape). Every per-env band — deployment
  *  frequency INCLUDED — now carries its own `level` in the response, and the
@@ -59,6 +59,30 @@ describe('doraScoreFromMetrics', () => {
   it('ignores null bands in the average', () => {
     // elite=100, high=80 → avg 90
     expect(doraScoreFromMetrics(dora(['elite', 'high', null, null]))).toBe(90);
+  });
+});
+
+describe('insufficient DORA bands (below MIN_DORA_SAMPLE)', () => {
+  it('are unscored, not low: they drop out of the average', () => {
+    // Were they scored as low (30), this would be (100 + 30) / 2 = 65.
+    expect(doraScoreFromMetrics(dora(['elite', 'insufficient', 'insufficient', 'insufficient']))).toBe(100);
+  });
+  it('leave DORA unscored when every band is insufficient', () => {
+    expect(doraScoreFromMetrics(dora(['insufficient', 'insufficient', 'insufficient', 'insufficient']))).toBeNull();
+  });
+  it('the scorecard carries each band\'s sample so the UI can say "Not enough data (n = X)"', () => {
+    const d = dora(['insufficient', 'insufficient', 'insufficient', 'insufficient']);
+    d.environments[0].deploymentFrequency.n = 3;
+    d.environments[0].changeFailureRate.n = 4;
+    d.environments[0].leadTime.n = 2;
+    d.meanTimeToRestore.n = 1;
+    const card = buildScorecard('p1', d, { rulesEvaluated: 0, violations: 0, warnings: 0 }, 'now');
+    expect(card.dora).toMatchObject({
+      score: null,
+      deploymentFrequency: 'insufficient',
+      samples: { deploymentFrequency: 3, changeFailureRate: 4, meanTimeToRestore: 1, leadTime: 2 },
+    });
+    expect(card.grade).toBe('N/A');
   });
 });
 

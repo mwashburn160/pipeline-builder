@@ -1,7 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { MIN_DORA_SAMPLE } from '@pipeline-builder/api-core';
 import type { DoraLevel } from './types.js';
+
+export { MIN_DORA_SAMPLE };
 
 /**
  * DORA performance banding plus the small statistics helpers it needs.
@@ -57,33 +60,55 @@ export function resolveIncidentWindowHours(override?: number | null): number {
  * a per-org override in `dora_settings` wins (see {@link resolveEventRetentionDays}).
  */
 
-/** Deployment frequency by deploys/day: elite ≥1/day, high ≥1/week, medium ≥1/month. */
+/**
+ * The band gate every level helper runs first: `null` with no sample at all,
+ * `insufficient` below {@link MIN_DORA_SAMPLE}, otherwise undefined (go on and
+ * band it). One deploy in a window used to be banded like a hundred — a team
+ * that shipped once read as "elite" or "low" on the strength of a single event.
+ */
+function sampleGate(n: number): DoraLevel | undefined {
+  if (!(n > 0)) return null;
+  if (n < MIN_DORA_SAMPLE) return 'insufficient';
+  return undefined;
+}
+
+/** Deployment frequency by deploys/day: elite ≥1/day, high ≥1/week, medium ≥1/month.
+ *  Banded on at least {@link MIN_DORA_SAMPLE} successful deployments. */
 export function doraLevelForFrequency(perDay: number, deployments: number): DoraLevel {
-  if (deployments <= 0) return null;
+  const gate = sampleGate(deployments);
+  if (gate !== undefined) return gate;
   if (perDay >= 1) return 'elite';
   if (perDay >= 1 / 7) return 'high';
   if (perDay >= 1 / 30) return 'medium';
   return 'low';
 }
-/** Change failure rate by percent: elite ≤5%, high ≤10%, medium ≤15%. */
+/** Change failure rate by percent: elite ≤5%, high ≤10%, medium ≤15%.
+ *  Banded on at least {@link MIN_DORA_SAMPLE} deploy attempts. */
 export function doraLevelForChangeFailure(pct: number, total: number): DoraLevel {
-  if (total <= 0) return null;
+  const gate = sampleGate(total);
+  if (gate !== undefined) return gate;
   if (pct <= 5) return 'elite';
   if (pct <= 10) return 'high';
   if (pct <= 15) return 'medium';
   return 'low';
 }
-/** Time to restore by seconds: elite <1h, high <1 day, medium <1 week. */
-export function doraLevelForRestore(avgSeconds: number | null): DoraLevel {
-  if (avgSeconds == null) return null;
-  if (avgSeconds < 3600) return 'elite';
-  if (avgSeconds < 86400) return 'high';
-  if (avgSeconds < 604800) return 'medium';
+/** Time to restore by its MEDIAN in seconds: elite <1h, high <1 day, medium <1 week.
+ *  Banded on at least {@link MIN_DORA_SAMPLE} measured recoveries (`n`). */
+export function doraLevelForRestore(medianSeconds: number | null, n: number): DoraLevel {
+  if (medianSeconds == null) return null;
+  const gate = sampleGate(n);
+  if (gate !== undefined) return gate;
+  if (medianSeconds < 3600) return 'elite';
+  if (medianSeconds < 86400) return 'high';
+  if (medianSeconds < 604800) return 'medium';
   return 'low';
 }
-/** Lead time by seconds: elite <1 day, high <1 week, medium <1 month. */
-export function doraLevelForLeadTime(medianSeconds: number | null): DoraLevel {
+/** Lead time by its median in seconds: elite <1 day, high <1 week, medium <1 month.
+ *  Banded on at least {@link MIN_DORA_SAMPLE} measured lead times (`n`). */
+export function doraLevelForLeadTime(medianSeconds: number | null, n: number): DoraLevel {
   if (medianSeconds == null) return null;
+  const gate = sampleGate(n);
+  if (gate !== undefined) return gate;
   if (medianSeconds < 86400) return 'elite';
   if (medianSeconds < 604800) return 'high';
   if (medianSeconds < 2592000) return 'medium';

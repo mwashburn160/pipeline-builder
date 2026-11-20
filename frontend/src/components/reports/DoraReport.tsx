@@ -69,7 +69,7 @@ function windowDays(window: { from: string; to: string }): number {
 /**
  * DORA (delivery-performance) tab: per-environment deployment frequency
  * (headline `production`), measured lead time (or "unknown"), a change-failure
- * breakdown (deploy-time + post-deploy of attempts), MTTR, and a coverage note —
+ * breakdown (deploy-time + post-deploy of attempts), median time to restore, and a coverage note —
  * plus a trend sparkline, a mark failed/restored deploy list, and per-pipeline /
  * environment / deploys-only scope controls. Feature-gated **at the tab level**
  * (`advanced_reporting`) — the page only mounts this when entitled, so it always
@@ -145,6 +145,7 @@ export function DoraReport({
                 value={String(headlineEnv.deploymentFrequency.deployments)}
                 sub={<>{headlineEnv.deploymentFrequency.deployments === 1 ? 'deploy' : 'deploys'} &middot; {headlineEnv.deploymentFrequency.perDay.toFixed(2)}/day</>}
                 level={headlineEnv.deploymentFrequency.level}
+                n={headlineEnv.deploymentFrequency.n}
                 tooltip={`Successful ${headlineEnv.environment} deploy-stage executions in the window. Per-environment breakdown below.`}
               />
               <DoraCard
@@ -156,6 +157,7 @@ export function DoraReport({
                     : <>median commit&rarr;deploy &middot; {headlineEnv.leadTime.deployments} deploys</>
                 }
                 level={headlineEnv.leadTime.level}
+                n={headlineEnv.leadTime.n}
                 tooltip={'Measured commit→deploy time (from resolved commit timestamps). "unknown" when commit times couldn’t be resolved for the in-window deploys.'}
               />
               <DoraCard
@@ -180,14 +182,16 @@ export function DoraReport({
                   </>
                 }
                 level={headlineEnv.changeFailureRate.level}
+                n={headlineEnv.changeFailureRate.n}
                 tooltip="(deploy-time failures + post-deploy failures) ÷ deploy attempts. Post-deploy failures are sourced automatically from the incident webhook (PagerDuty/Datadog/Alertmanager) or manually from the mark-failed control below (deduped by deploy)."
               />
               <DoraCard
-                label={<>Time to Restore (MTTR) <span className="text-fg-subtle">({headlineEnv.environment})</span></>}
+                label={<>Median time to restore <span className="text-fg-subtle">({headlineEnv.environment})</span></>}
                 value={formatDurationSeconds(dora.meanTimeToRestore.medianSeconds)}
                 sub={`${dora.meanTimeToRestore.restored}/${dora.meanTimeToRestore.incidents} incidents restored`}
                 level={dora.meanTimeToRestore.level}
-                tooltip={`Median time from a marked-failed ${headlineEnv.environment} deploy to its restoration. "—" means no post-deploy incidents in this window.`}
+                n={dora.meanTimeToRestore.n}
+                tooltip={`Median (not mean) time from a ${headlineEnv.environment} failure — an incident opening, or a deploy marked failed — to its restoration. "—" means no recovery was measured in this window.`}
               />
             </div>
           ) : (
@@ -259,7 +263,7 @@ interface DeploymentListProps {
 
 /**
  * Recent deploy executions for the scoped pipeline with mark-failed / mark-restored
- * row actions. Post-deploy outcomes feed the change-failure rate + MTTR. The
+ * row actions. Post-deploy outcomes feed the change-failure rate + median time to restore. The
  * outcome endpoint keys on an executionId, so the list only shows once a single
  * pipeline is scoped.
  */
@@ -338,7 +342,7 @@ function DeploymentList({ deployments, pipelineSelected, markEnvironment, canMar
                           readOnly={readOnly}
                           disabled={pending === d.execution_id}
                           onClick={() => mark(d.execution_id, 'restored')}
-                          title='Mark this deployment as restored (recovery — feeds MTTR)'
+                          title='Mark this deployment as restored (recovery — feeds median time to restore)'
                         >
                           Mark restored
                         </Button>

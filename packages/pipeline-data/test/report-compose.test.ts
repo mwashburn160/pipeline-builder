@@ -337,6 +337,45 @@ describe('composeSnapshot', () => {
     expect(snap.notes.some((n) => n.code === 'missing_commit_data')).toBe(true);
   });
 
+  it('renders an insufficient DORA band as "Not enough data (n = X)", the way the dashboard does', async () => {
+    const source = stubSource({
+      getDoraMetrics: {
+        environments: [{
+          environment: 'production',
+          deploymentFrequency: { deployments: 3, level: 'insufficient', n: 3 },
+          changeFailureRate: { attempts: 3, level: 'insufficient', n: 3 },
+          leadTime: { medianSeconds: 60, level: 'insufficient', n: 2 },
+        }],
+        meanTimeToRestore: { medianSeconds: 600, level: 'insufficient', n: 1 },
+        coverage: { registered: 1, deploying: 1, withoutDeploys: 0 },
+      },
+    });
+    const snap = await composeSnapshot(['dora'], opts({ source }));
+    const note = snap.notes.find((n) => n.code === 'insufficient_sample')!;
+    expect(note.sectionId).toBe('dora');
+    expect(note.message).toContain('Deployment frequency: Not enough data (n = 3)');
+    expect(note.message).toContain('Change failure rate: Not enough data (n = 3)');
+    expect(note.message).toContain('Lead time: Not enough data (n = 2)');
+    expect(note.message).toContain('Median time to restore: Not enough data (n = 1)');
+  });
+
+  it('adds no insufficient-sample note when every DORA band is rated', async () => {
+    const source = stubSource({
+      getDoraMetrics: {
+        environments: [{
+          environment: 'production',
+          deploymentFrequency: { deployments: 9, level: 'elite', n: 9 },
+          changeFailureRate: { attempts: 9, level: 'elite', n: 9 },
+          leadTime: { medianSeconds: 60, level: 'elite', n: 9 },
+        }],
+        meanTimeToRestore: { medianSeconds: null, level: null, n: 0 },
+        coverage: { registered: 1, deploying: 1, withoutDeploys: 0 },
+      },
+    });
+    const snap = await composeSnapshot(['dora'], opts({ source }));
+    expect(snap.notes.some((n) => n.code === 'insufficient_sample')).toBe(false);
+  });
+
   it('flags a low sample, because percentages swing wildly at that volume', async () => {
     const source = stubSource({ getExecutionCount: [{ total: LOW_SAMPLE_THRESHOLD - 2 }] });
     const snap = await composeSnapshot(['execution_count'], opts({ source }));

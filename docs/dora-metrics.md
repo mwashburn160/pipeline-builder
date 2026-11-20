@@ -20,7 +20,9 @@ The four DevOps Research and Assessment delivery-performance indicators, compute
 - **Lead time is measured, not proxied** — commit → deploy. It reports `unknown` rather than substituting a run-duration guess.
 - **Lead time is off by default.** Commit resolution makes SCM calls in your AWS account, so it needs `setup-events --with-dora`.
 - **Change failure rate is two-class**: deploy-time failures plus post-deploy failures, deduped so a deploy flagged by both an incident and a manual outcome counts once.
-- **MTTR is production-only**, and **incidents take precedence** over manual outcomes when a deploy has both.
+- **Post-deploy failures are anchored to their deploy**: they count in the window (and trend bucket) the deploy completed in, whenever they were flagged.
+- **Time to restore is a median, measured from the failure.** It is production-only, and **incidents take precedence** over manual outcomes when a deploy has both. (The API field keeps its historical name, `meanTimeToRestore`.)
+- **No band without a sample.** Fewer than 5 deployments (frequency, CFR) or 5 measurements (lead time, time to restore) reads `insufficient` — "Not enough data (n = X)" — rather than elite or low.
 - **Coverage is the honesty check.** A high `withoutDeploys` means DORA is blind to most of your fleet.
 - **Retention is split, tier-aware and bundle-extendable**, and the query window now tracks it — so you can't request a range past your own retention.
 
@@ -30,7 +32,7 @@ This page is for platform teams and engineering leaders tracking delivery health
 
 DORA is an **advanced analytics** feature, gated behind the `advanced_reporting` entitlement — included on Enterprise, or the [Advanced Reporting add-on](billing-bundles.md) on other tiers — and the `reports:read` permission.
 
-> **These metrics are DEPLOY-BASIS ONLY.** There is no run-based mode. This is a deliberate, **no-backward-compatibility** change: the old run-based frequency, the median-run-duration lead-time proxy, and the inferred CFR/MTTR are **removed**.
+> **These metrics are DEPLOY-BASIS ONLY.** There is no run-based mode. This is a deliberate, **no-backward-compatibility** change: the old run-based frequency, the median-run-duration lead-time proxy, and the inferred CFR/time-to-restore are **removed**.
 >
 > **Historical pre-cutover data is excluded**, and there is no migration or backfill.
 
@@ -38,8 +40,8 @@ DORA is an **advanced analytics** feature, gated behind the `advanced_reporting`
 
 1. **Declare** — a user sets an `environment` on each deploy stage. pipeline-core derives the `pb.deploys` tag (see [Declaring deployments](#declaring-deployments)).
 2. **Ingest** — the events Lambda parses `pb.deploys`, sets `environment` on the deploy-stage events, resolves the source **commit range in-account** (oldest unshipped commit time plus count) — **only when enabled with `setup-events --with-dora`** — and forwards normalized events to the reporting service.
-3. **Compute** — DORA is derived over the **deploy-stage** executions in the window: deployment frequency, two-class change-failure rate, measured lead time, production MTTR, and coverage.
-4. **Classify** — each metric gets a `level` band (elite / high / medium / low, or `null` when there is no sample).
+3. **Compute** — DORA is derived over the **deploy-stage** executions in the window: deployment frequency, two-class change-failure rate, measured lead time, production median time to restore, and coverage.
+4. **Classify** — each metric gets a `level` band (elite / high / medium / low; `insufficient` below the [minimum sample](#minimum-sample); `null` when there is no sample) and its sample size `n`.
 5. **Surface** — results render as per-environment **Reports**-page cards, with `production` as the headline, or are consumed via the [endpoints](#endpoints).
 
 ## Configuration
@@ -64,7 +66,7 @@ With it off, **standard reporting still works** and DORA lead time reports `unkn
 
 ### 4. Wire your incident tooling
 
-Point PagerDuty, Datadog, Opsgenie or Alertmanager at the incident webhook to get an automated post-deploy CFR signal and a real MTTR, instead of marking deploys by hand. Full setup: [Incident webhook](incidents-webhook.md).
+Point PagerDuty, Datadog, Opsgenie or Alertmanager at the incident webhook to get an automated post-deploy CFR signal and a real (median) time to restore, instead of marking deploys by hand. Full setup: [Incident webhook](incidents-webhook.md).
 
 ### 5. Tune the correlation window and retention
 
@@ -81,7 +83,7 @@ A **deployment** is a pipeline **stage** that ships to an environment. You decla
 
 `<stage>` is the **CodePipeline stage name** — the stage's `alias`, or `<stageName>-alias` when it has none — because that is the name CodePipeline events report and the forwarder matches. A stage named `Deploy-prod` with no alias therefore appears as `Deploy-prod-alias`.
 
-- The literal environment name **`production`** is the DORA **headline**: its card is the summary, and MTTR is measured production-only.
+- The literal environment name **`production`** is the DORA **headline**: its card is the summary, and time to restore is measured production-only.
 - A stage listed in `pb.deploys` is a deploy, and the forwarder sets `environment` only on those stages' events. A stage that is **absent** is not a deployment and never enters DORA.
 - `isDeploy` is **not** a field — it is derived server-side as "`environment IS NOT NULL` on a STAGE event".
 
@@ -103,22 +105,28 @@ The count of **successful deploy-stage** executions for the environment. `perDay
 | `postDeployFailures` | A **successful** deploy later flagged as failed in production, from **either** a manual [outcome](#post-deploy-outcomes) **or** a correlated [incident webhook](#incidents-automated-post-deploy-failures). The two sources are **deduped by deploy execution** — a deploy flagged by both counts once |
 | `attempts` | All terminal deploy-stage attempts (succeeded + failed) |
 
+A post-deploy failure is **anchored to its deploy**: it counts in the window its deploy completed in, however late it was flagged. A deploy completed on the 31st and marked failed on the 1st is the 31st's month's failure. (Windowing markers on their own time put the failure in one window and the attempt in another.) An incident opened up to the correlation window after `to` still counts for an in-window deploy. A failed marker on a deploy that already failed at deploy time adds nothing — that deployment is already one failure.
+
 ### Lead time
 
 **MEASURED**: `median(deploy_completed − oldest_commit_time)` over successful deploys that carry a `commit_timestamp`, resolved in-account by the forwarder.
 
 `medianSeconds` is **`null`, meaning unknown**, when no successful deploy in the environment carried a commit time. The median-run-duration proxy is **removed**.
 
-### Mean time to restore (MTTR)
+### Median time to restore
+
+The **median** recovery time — reported in the `meanTimeToRestore` field, a historical name kept so API consumers do not break. It is a median, not a mean, and every label presents it as one.
 
 **Production-only**, from **both** sources:
 
-- A webhook-ingested [incident](#incidents-automated-post-deploy-failures) contributes the **real** recovery time (`resolved_at − opened_at`).
-- A manual [outcome](#post-deploy-outcomes) contributes `restored.at − deployed.completed_at`.
+- A webhook-ingested [incident](#incidents-automated-post-deploy-failures) opened in the window contributes the **real** recovery time (`resolved_at − opened_at`).
+- A manual [outcome](#post-deploy-outcomes) pair contributes `restored.at − failed.at` — measured **from the failure** (the same deploy's `failed` marker), not from the deploy.
+- **Fallback:** only when a deploy has **no** `failed` marker but itself **failed at deploy time** is the failure instant the deploy's completion (`restored.at − deployed.completed_at`); that deploy-time failure also counts as the incident.
+- A `restored` marker with **no** failure behind it (no `failed` marker, no incident, deploy succeeded) is not a recovery and is ignored — it adds nothing to `restored` or the median.
 
 **Incidents take precedence** — when a deploy has both, the incident's recovery time is used.
 
-`incidents` counts production deploys flagged failed; `restored` counts those that recovered; `medianSeconds` is `null` when no recovery is resolvable.
+`incidents` counts production failures; `restored` counts those that recovered; `n` is the number of recovery times measured; `medianSeconds` is `null` when none was.
 
 ### Coverage
 
@@ -128,16 +136,29 @@ A high `withoutDeploys` means DORA is blind to most of the fleet — either pipe
 
 ## Performance levels
 
-Each metric carries a `level` band (`elite` / `high` / `medium` / `low`, or `null` when there's no sample). Thresholds follow the DORA/Accelerate reports:
+Each metric carries a `level` band (`elite` / `high` / `medium` / `low`; `insufficient` below the [minimum sample](#minimum-sample); `null` when there's no sample) and the sample size `n` it rests on. Thresholds follow the DORA/Accelerate reports:
 
 | Metric | Elite | High | Medium | Low |
 |--------|-------|------|--------|-----|
 | **Deployment Frequency** | ≥ 1/day | ≥ 1/week | ≥ 1/month | slower |
 | **Change Failure Rate** | ≤ 5% | ≤ 10% | ≤ 15% | > 15% |
-| **Mean Time To Restore** | < 1 hour | < 1 day | < 1 week | ≥ 1 week |
+| **Median Time To Restore** | < 1 hour | < 1 day | < 1 week | ≥ 1 week |
 | **Lead Time** | < 1 day | < 1 week | < 1 month | ≥ 1 month |
 
 The dashboard renders each band as a coloured badge; `null` bands show no badge.
+
+### Minimum sample
+
+A band needs at least **`MIN_DORA_SAMPLE` = 5** observations (exported from `@pipeline-builder/api-core`, shared by the reporting service and the maturity scorecard):
+
+| Metric | `n` is | Below 5 |
+|---|---|---|
+| Deployment frequency | successful deployments | `insufficient` |
+| Change failure rate | deploy attempts | `insufficient` |
+| Lead time | measured commit → deploy gaps | `insufficient` |
+| Median time to restore | measured recovery times | `insufficient` |
+
+An `insufficient` band shows **"Not enough data (n = X)"** on the DORA cards, the per-pipeline view and the scorecard, and as a note on the stakeholder report's DORA section. The maturity scorecard treats it as **unscored**, exactly like `null` — never as low. The figure itself (rate, median) is still reported.
 
 ## Endpoints
 
@@ -162,14 +183,23 @@ The window is capped at the org's effective **DORA retention** (`min(730, doraRe
 ### DORA trend
 
 ```
-GET /api/reports/execution/dora/trend?interval=<day|week|month>&from=<iso>&to=<iso>
+GET /api/reports/execution/dora/trend?interval=<day|week|month>&from=<iso>&to=<iso>&tz=<iana>&weekStart=<monday|sunday>
 ```
 
-Returns `data.trend` — deploy frequency plus **deploy-time** change-failure rate, bucketed by `interval` on the deploy `completed_at`. Same guards, rollup and optional scoping (`pipelineId` / `environment`) as `/dora`. Each point:
+Returns `data.trend` — deploy frequency plus the **same two-class** change-failure rate as the headline, bucketed by `interval` on the deploy `completed_at`. Same guards, rollup, optional scoping (`pipelineId` / `environment`) and per-org incident window as `/dora`. Each point:
 
 ```json
-{ "period": "2026-07-01T00:00:00.000Z", "deployments": 4, "failed": 1, "total": 5, "changeFailurePct": 20 }
+{ "period": "2026-07-01T00:00:00", "deployments": 4, "failed": 1, "postDeployFailures": 1, "total": 5, "changeFailurePct": 40 }
 ```
+
+`failed` is deploy-time failures; `postDeployFailures` is successful deploys in the bucket later flagged failed, anchored to the deploy's bucket; `changeFailurePct = (failed + postDeployFailures) ÷ total`. Summed over the buckets, `failed`, `postDeployFailures` and `total` equal the headline's `deployTimeFailures`, `postDeployFailures` and `attempts` for the same window and scope.
+
+| Param | Values | Default | Notes |
+|-------|--------|---------|-------|
+| `tz` | IANA timezone name | `UTC` | Buckets are cut at local midnight in this zone. An invalid name or a bare offset (`+05:00`) is **HTTP 400**. |
+| `weekStart` | `monday`, `sunday` | `monday` | Where a `week` bucket starts. Anything else is **HTTP 400**. |
+
+The dashboard sends the org's stakeholder-report default timezone and week start when the org has set them, otherwise the browser's timezone — so its buckets match the stakeholder report's.
 
 ### Post-deploy outcomes
 
@@ -179,7 +209,7 @@ POST /api/reports/deployments/:executionId/outcome
 
 Body: `{ "outcome": "failed" | "restored", "at": "<iso>", "environment": "<name>?" }`.
 
-Marks a deployment failed (a production incident linked to the deploy) or restored, feeding the **post-deploy** CFR component and **real MTTR**.
+Marks a deployment failed (a production incident linked to the deploy) or restored, feeding the **post-deploy** CFR component and the **median time to restore** (a `restored` marker is measured from the same deploy's `failed` marker).
 
 Requires `pipelines:write` — it is a write, and `reports:read` only views. `advanced_reporting`-gated, org-scoped, and idempotent: re-posting the same `(execution, outcome)` refreshes `at` instead of double-counting.
 
@@ -213,7 +243,7 @@ POST /api/reports/incidents
 
 Body: `{ "incidentId", "environment", "openedAt", "resolvedAt"?, "severity" }`. Posted by your incident tooling (PagerDuty / Datadog / Alertmanager) using the machine `reporting:ingest` scope — the same credential the event forwarder holds — with the org taken from the token identity.
 
-**Idempotent** on `(org, incidentId)`: a later resolve re-post updates `resolvedAt`. Each incident is **correlated** to the most recent successful deploy to its `environment` with `completed_at ≤ openedAt` within `DORA_INCIDENT_WINDOW_HOURS` (default 24, **overridable per-org**), producing an **automated** post-deploy CFR signal and a **real** MTTR.
+**Idempotent** on `(org, incidentId)`: a later resolve re-post updates `resolvedAt`. Each incident is **correlated** to the most recent successful deploy to its `environment` with `completed_at ≤ openedAt` within `DORA_INCIDENT_WINDOW_HOURS` (default 24, **overridable per-org**), producing an **automated** post-deploy CFR signal and a **real** recovery time for the median time to restore.
 
 Companion routes, all `advanced_reporting`-gated:
 
@@ -273,12 +303,12 @@ Effective retention = tier baseline + Σ(add-on pack grant), so the **[Standard 
       "environments": [
         {
           "environment": "production",
-          "deploymentFrequency": { "deployments": 128, "perDay": 4.27, "level": "elite" },
-          "changeFailureRate": { "rate": 7.9, "deployTimeFailures": 8, "postDeployFailures": 3, "attempts": 139, "level": "high" },
-          "leadTime": { "deployments": 120, "medianSeconds": 5400, "level": "high" }
+          "deploymentFrequency": { "deployments": 128, "perDay": 4.27, "level": "elite", "n": 128 },
+          "changeFailureRate": { "rate": 7.9, "deployTimeFailures": 8, "postDeployFailures": 3, "attempts": 139, "level": "high", "n": 139 },
+          "leadTime": { "deployments": 120, "medianSeconds": 5400, "level": "high", "n": 120 }
         }
       ],
-      "meanTimeToRestore": { "incidents": 4, "restored": 3, "medianSeconds": 1840, "level": "high" },
+      "meanTimeToRestore": { "incidents": 4, "restored": 3, "medianSeconds": 1840, "level": "insufficient", "n": 3 },
       "coverage": { "registered": 20, "deploying": 12, "withoutDeploys": 8 }
     }
   }
@@ -291,16 +321,17 @@ Effective retention = tier baseline + Σ(add-on pack grant), so the **[Standard 
 | `filters.pipelineId` / `filters.environment` | The scoping applied (echoed), or `null` |
 | `headline` | The headline environment name (`production`) |
 | `environments[]` | Per-environment cards (headline first, then A→Z) |
-| `environments[].deploymentFrequency` | `deployments` (successful deploys), `perDay`, `level` |
-| `environments[].changeFailureRate` | Two-class: `rate`, `deployTimeFailures`, `postDeployFailures`, `attempts`, `level` |
-| `environments[].leadTime` | `deployments` (median sample), `medianSeconds` (`null` = unknown), `level` |
-| `meanTimeToRestore` | Production-only: `incidents`, `restored`, `medianSeconds` (`null` when none), `level` |
+| `environments[].deploymentFrequency` | `deployments` (successful deploys), `perDay`, `level`, `n` |
+| `environments[].changeFailureRate` | Two-class: `rate`, `deployTimeFailures`, `postDeployFailures`, `attempts`, `level`, `n` |
+| `environments[].leadTime` | `deployments` (median sample), `medianSeconds` (`null` = unknown), `level`, `n` |
+| `meanTimeToRestore` | The **median** time to restore (historical field name). Production-only: `incidents`, `restored`, `medianSeconds` (`null` when none), `level`, `n` |
 | `coverage` | `registered`, `deploying`, `withoutDeploys` |
-| `*.level` | [Performance band](#performance-levels): `elite` / `high` / `medium` / `low`, or `null` |
+| `*.level` | [Performance band](#performance-levels): `elite` / `high` / `medium` / `low`, `insufficient` (0 < `n` < 5), or `null` (no sample) |
+| `*.n` | The sample the band rests on (see [Minimum sample](#minimum-sample)) |
 
 ## Related
 
-- [Incident webhook](incidents-webhook.md) — automated post-deploy CFR and real MTTR from your incident tooling
+- [Incident webhook](incidents-webhook.md) — automated post-deploy CFR and real recovery times from your incident tooling
 - [API Reference](api-reference.md) — full reporting endpoint list
 - [AWS Deployment — Report API Endpoints](aws-deployment.md#report-api-endpoints)
 - [Roles & Permissions](permissions.md) — `reports:read` and `reports:rollup`

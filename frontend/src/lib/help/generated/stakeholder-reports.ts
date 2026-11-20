@@ -1,6 +1,6 @@
 // GENERATED FROM docs/stakeholder-reports.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 7032222e450d96efab592f23705a9b1660248194197f53da13c19eddbdc3dfbd
+// SOURCE-SHA256: c1588bfdae5a941b2d1834b39e4492d65c6a7ecce257def2d148cab53584107a
 // SPDX-License-Identifier: Apache-2.0
 import { FileText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -245,7 +245,7 @@ export const stakeholderReportsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Periods are cut in the report's own timezone, chosen when the report is saved — not the reader's, and not the server's. A weekly report for a team in Chicago that bucketed in UTC would put Sunday evening's deploys in the wrong week. Weeks start Monday by default; Sunday is an option."
+          "content": "Periods are cut in the report's own timezone, chosen when the report is saved — not the reader's, and not the server's. A weekly report for a team in Chicago that bucketed in UTC would put Sunday evening's deploys in the wrong week. Weeks start Monday by default; Sunday is an option. The dashboards bucket the same way: their time-series charts (success rate, plugin build success, DORA trend) send the org's default report timezone and week start from the report policy, or the browser's timezone when the org has not set one, so a dashboard week and a report week cover the same days."
         },
         {
           "type": "text",
@@ -264,7 +264,8 @@ export const stakeholderReportsTopic: HelpTopic = {
           "items": [
             "Missing deploy tags. \"No deploys\" and \"we cannot see your deploys\" look identical on a chart and mean opposite things. A pipeline that has not re-synthed with deploy tags is named as uncounted.",
             "Unresolvable lead time. When no successful deploy carried a resolvable commit timestamp, commit-to-deploy time is unknown, never a proxy.",
-            "Small samples. Below five observations a percentage swings wildly, and the footer says to read the counts instead."
+            "Small samples. Below five observations a percentage swings wildly, and the footer says to read the counts instead.",
+            "Unrated DORA bands. A DORA band needs at least five observations (MIN_DORA_SAMPLE). Below that the report says, per measure, \"Not enough data (n = X)\" — exactly as the dashboard's cards do — instead of calling a single deploy elite or low. Time to restore is reported as a median."
           ]
         },
         {

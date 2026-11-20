@@ -51,7 +51,7 @@ export function fmtWindow(window?: { from: string; to: string }): string {
   return `${fromStr} – ${toStr}`;
 }
 
-type RatedDoraLevel = Exclude<DoraLevel, null>;
+type RatedDoraLevel = Exclude<DoraLevel, null | 'insufficient'>;
 
 /** Display label + Tailwind pill classes (dark-mode aware) per DORA performance band. */
 export const DORA_LEVEL_BADGES = {
@@ -61,11 +61,22 @@ export const DORA_LEVEL_BADGES = {
   low: { label: 'Low', className: 'bg-danger-bg text-danger' },
 } as const satisfies Record<RatedDoraLevel, { label: string; className: string }>;
 
+/** The label for a sample too small to band (below api-core's `MIN_DORA_SAMPLE`). */
+export function notEnoughDataLabel(n?: number | null): string {
+  return n != null ? `Not enough data (n = ${n})` : 'Not enough data';
+}
+
+/** Neutral pill for an insufficient sample — deliberately not a band colour. */
+const INSUFFICIENT_BADGE_CLASS = 'bg-surface-muted text-fg-muted';
+
 /**
  * Look up a DORA band's badge. Returns null for an unrated (null) level — or a
- * band this build doesn't know — so callers can render nothing.
+ * band this build doesn't know — so callers can render nothing. An
+ * `insufficient` level (a sample under the minimum) is NOT a rating: it renders
+ * as "Not enough data (n = X)" so one deploy never reads as elite or low.
  */
-export function doraLevelBadge(level: DoraLevel): { label: string; className: string } | null {
+export function doraLevelBadge(level: DoraLevel, n?: number | null): { label: string; className: string } | null {
+  if (level === 'insufficient') return { label: notEnoughDataLabel(n), className: INSUFFICIENT_BADGE_CLASS };
   return level && Object.prototype.hasOwnProperty.call(DORA_LEVEL_BADGES, level) ? DORA_LEVEL_BADGES[level] : null;
 }
 
@@ -74,14 +85,16 @@ interface DoraCardProps {
   value: string;
   sub: ReactNode;
   level?: DoraLevel;
+  /** The sample behind the band, shown when it is too small to rate. */
+  n?: number;
   /** Optional a11y tooltip (keyboard/SR-visible via the shared Tooltip). */
   tooltip?: string;
 }
 
 /** A single DORA metric card with an optional performance-level badge + tooltip. */
 /** Shared level-badge pill for a DORA metric. Returns null for an unrated level. */
-function DoraLevelBadge({ level }: { level: DoraLevel }) {
-  const badge = doraLevelBadge(level);
+function DoraLevelBadge({ level, n }: { level: DoraLevel; n?: number }) {
+  const badge = doraLevelBadge(level, n);
   if (!badge) return null;
   return (
     <span className={`shrink-0 px-1.5 py-0.5 rounded text-2xs font-medium leading-none ${badge.className}`}>
@@ -90,7 +103,7 @@ function DoraLevelBadge({ level }: { level: DoraLevel }) {
   );
 }
 
-export function DoraCard({ label, value, sub, level = null, tooltip }: DoraCardProps) {
+export function DoraCard({ label, value, sub, level = null, n, tooltip }: DoraCardProps) {
   // When a tooltip is present the card becomes a focusable group so keyboard
   // and screen-reader users reach the caveat: `tabIndex` lets the shared
   // Tooltip's onFocus fire and `role="group"` marks the region. The caveat text
@@ -104,7 +117,7 @@ export function DoraCard({ label, value, sub, level = null, tooltip }: DoraCardP
       label={label}
       value={value}
       sub={sub}
-      badge={<DoraLevelBadge level={level} />}
+      badge={<DoraLevelBadge level={level} n={n} />}
       className={tooltip ? 'focus:outline-none focus:ring-2 focus:ring-brand/50 rounded-lg' : ''}
       wrapperProps={tooltip ? { tabIndex: 0, role: 'group' } : undefined}
     />
@@ -129,14 +142,16 @@ export function DoraCard({ label, value, sub, level = null, tooltip }: DoraCardP
 export function DoraTrendSparkline({ points }: { points: DoraTrendPoint[] }) {
   if (points.length === 0) return null;
   const max = Math.max(1, ...points.map((p) => p.deployments));
-  // Per-bucket change-failure rate, derived from failed/total (the backend trend
-  // now carries counts only, not a precomputed pct).
-  const cfrPct = (p: DoraTrendPoint) => (p.total > 0 ? Math.round((p.failed / p.total) * 100) : 0);
+  // Per-bucket change-failure rate, TWO-CLASS like the headline card:
+  // (deploy-time + post-deploy failures) / attempts. Counting deploy-time
+  // failures alone made the trend disagree with the CFR card above it.
+  const failuresOf = (p: DoraTrendPoint) => p.failed + (p.postDeployFailures ?? 0);
+  const cfrPct = (p: DoraTrendPoint) => (p.total > 0 ? Math.round((failuresOf(p) / p.total) * 100) : 0);
   // Summary conveyed to assistive tech so the chart isn't an opaque "image":
   // total deploys + the deploy-weighted average change-failure rate over the
   // window, plus how many buckets sat in the elevated (>=30% CFR) band.
   const totalDeploys = points.reduce((s, p) => s + p.deployments, 0);
-  const totalFailed = points.reduce((s, p) => s + p.failed, 0);
+  const totalFailed = points.reduce((s, p) => s + failuresOf(p), 0);
   const totalConsidered = points.reduce((s, p) => s + p.total, 0);
   const avgCfr = totalConsidered > 0 ? Math.round((totalFailed / totalConsidered) * 100) : 0;
   const hotCount = points.filter((p) => cfrPct(p) >= CFR_ELEVATED_PCT).length;
@@ -201,7 +216,7 @@ const SAMPLE_DORA_CARDS: { label: string; value: string; sub: string; level: Dor
   { label: 'Deployment frequency', value: '8', sub: 'deploys · 0.27/day', level: 'high' },
   { label: 'Lead time', value: '5m 30s', sub: 'median commit→deploy · 8 measured', level: 'elite' },
   { label: 'Change failure rate', value: '25%', sub: '2/8 deploys failed', level: 'medium' },
-  { label: 'Time to Restore (MTTR)', value: '1h 2m', sub: '2/2 incidents restored', level: 'high' },
+  { label: 'Median time to restore', value: '1h 2m', sub: '2/2 incidents restored', level: 'high' },
 ];
 
 /**
@@ -235,7 +250,7 @@ export function DoraUpsell() {
           </span>
           <h4 className="text-base font-semibold text-fg">{meta.label} &mdash; DORA metrics</h4>
           <p className="max-w-md text-sm text-fg-muted">
-            Track deployment frequency, change failure rate, mean time to restore (MTTR) and measured lead time,
+            Track deployment frequency, change failure rate, median time to restore and measured lead time,
             each rated against elite/high/medium/low performance bands. {meta.description}.
           </p>
           <LinkButton href="/dashboard/billing?highlight=advanced_reporting" size="sm" className="mt-1">

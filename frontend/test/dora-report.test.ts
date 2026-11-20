@@ -45,12 +45,12 @@ describe('getDora', () => {
       environments: [
         {
           environment: 'production',
-          deploymentFrequency: { deployments: 8, perDay: 0.27, level: null },
-          leadTime: { deployments: 8, medianSeconds: 300, p90Seconds: null, p95Seconds: null, level: 'elite' },
-          changeFailureRate: { rate: 25, deployTimeFailures: 1, postDeployFailures: 1, attempts: 8, level: 'medium' },
+          deploymentFrequency: { deployments: 8, perDay: 0.27, level: null, n: 8 },
+          leadTime: { deployments: 8, medianSeconds: 300, p90Seconds: null, p95Seconds: null, level: 'elite', n: 8 },
+          changeFailureRate: { rate: 25, deployTimeFailures: 1, postDeployFailures: 1, attempts: 8, level: 'medium', n: 8 },
         },
       ],
-      meanTimeToRestore: { medianSeconds: 3720, incidents: 2, restored: 2, p90Seconds: null, p95Seconds: null, level: null },
+      meanTimeToRestore: { medianSeconds: 3720, incidents: 2, restored: 2, p90Seconds: null, p95Seconds: null, level: null, n: 2 },
       coverage: { registered: 3, deploying: 2, withoutDeploys: 1 },
     };
     const { api, calls } = makeApi({ dora });
@@ -91,11 +91,11 @@ describe('markDeploymentOutcome', () => {
 describe('getDoraTrend', () => {
   it('GETs /api/reports/execution/dora/trend with interval + filter params and unwraps data.trend', async () => {
     const trend: DoraTrendPoint[] = [
-      { period: '2026-01-01', deployments: 3, failed: 1, total: 3, changeFailurePct: 33.3 },
-      { period: '2026-01-08', deployments: 5, failed: 0, total: 5, changeFailurePct: 0 },
+      { period: '2026-01-01', deployments: 3, failed: 1, postDeployFailures: 0, total: 3, changeFailurePct: 33.3 },
+      { period: '2026-01-08', deployments: 5, failed: 0, postDeployFailures: 1, total: 5, changeFailurePct: 20 },
     ];
     const { api, calls } = makeApi({ trend });
-    const result = await api.getDoraTrend({ interval: 'week', from: '2026-01-01', to: '2026-01-31', includeDescendants: true });
+    const result = await api.getDoraTrend({ interval: 'week', from: '2026-01-01', to: '2026-01-31', includeDescendants: true, tz: 'America/Chicago', weekStart: 'sunday' });
     expect(calls).toHaveLength(1);
     const [path, query] = calls[0].split('?');
     expect(path).toBe('/api/reports/execution/dora/trend');
@@ -104,6 +104,9 @@ describe('getDoraTrend', () => {
     expect(params.get('from')).toBe('2026-01-01');
     expect(params.get('to')).toBe('2026-01-31');
     expect(params.get('includeDescendants')).toBe('true');
+    // The bucketing travels so the trend groups days like the stakeholder report.
+    expect(params.get('tz')).toBe('America/Chicago');
+    expect(params.get('weekStart')).toBe('sunday');
     expect(result).toEqual(trend);
   });
 

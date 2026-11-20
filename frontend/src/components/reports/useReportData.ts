@@ -87,6 +87,59 @@ export function useIngestHealth(): IngestHealthState {
   };
 }
 
+// ─── Bucketing timezone ─────────────────────────────────
+
+/** The timezone + week start a time-bucketed report is grouped in. */
+export interface ReportBucketing {
+  tz: string;
+  /** Sent only when the org set one; absent ⇒ the backend's Monday default. */
+  weekStart?: 'monday' | 'sunday';
+}
+
+/** The viewer's own IANA zone, or UTC when the runtime cannot name one. */
+function browserTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    return 'UTC';
+  }
+}
+
+/**
+ * Resolve the bucketing from the org's stakeholder-report policy: its default
+ * timezone/week start when set, else the browser's zone. Pure, for the tests.
+ */
+export function resolveBucketing(
+  policy: { defaultTimezone?: string | null; defaultWeekStart?: string | null } | null | undefined,
+  browserTz: string = browserTimeZone(),
+): ReportBucketing {
+  const tz = policy?.defaultTimezone?.trim() || browserTz;
+  const ws = policy?.defaultWeekStart;
+  return ws === 'monday' || ws === 'sunday' ? { tz, weekStart: ws } : { tz };
+}
+
+/**
+ * The bucketing every time-bucketed dashboard read sends, so a dashboard groups
+ * its days the way the stakeholder report does (the report runs in the org's
+ * reporting timezone; a UTC dashboard put a Chicago team's Sunday evening in the
+ * next week and the two never agreed).
+ *
+ * `ready` is false only while the policy read is in flight, so the bucketed
+ * slices fire once with the right zone instead of twice. A FAILED read (no
+ * `reports:read`, network) resolves to the browser zone — never blocks a panel.
+ */
+export function useReportBucketing(): ReportBucketing & { ready: boolean } {
+  const { data, loading } = useFetch(async (signal) => {
+    try {
+      return (await api.getReportPolicy?.({ signal }))?.data?.policy ?? null;
+    } catch {
+      return null;
+    }
+  }, []);
+  const bucketing = useMemo(() => resolveBucketing(data), [data]);
+  return { ...bucketing, ready: !loading };
+}
+
 // ─── Shared filter shape ────────────────────────────────
 
 /** Filters shared by every tab's fetch (already clamped to the tab's cap). */
@@ -173,11 +226,12 @@ export function usePipelinesData(subTab: PipelineSubTab, filters: SharedFilters)
   const overview = subTab === 'overview';
   const performance = subTab === 'performance';
   const failures = subTab === 'failures';
+  const { ready: bucketReady, ...bucket } = useReportBucketing();
 
   // Execution counts are shared with the executions page / DORA tab via the cache.
   const exec = useQuery(!failures ? queries.executionCount(range) : null);
-  const timeline = useSlice(overview, `${key}|${interval}`, async (signal) =>
-    (await api.getSuccessRate({ interval, ...range }, { signal })).data?.timeline ?? []);
+  const timeline = useSlice(overview && bucketReady, `${key}|${interval}|${JSON.stringify(bucket)}`, async (signal) =>
+    (await api.getSuccessRate({ interval, ...range, ...bucket }, { signal })).data?.timeline ?? []);
   const durations = useSlice(performance, key, async (signal) =>
     (await api.getPipelineDuration(range, { signal })).data?.pipelines ?? []);
   const bottlenecks = useSlice(performance, key, async (signal) =>
@@ -241,13 +295,14 @@ export function usePluginsData(subTab: PluginSubTab, filters: SharedFilters): Pl
   const { interval } = filters;
   const overview = subTab === 'overview';
   const builds = subTab === 'builds';
+  const { ready: bucketReady, ...bucket } = useReportBucketing();
 
   const summary = useSlice(overview, '', async (signal) =>
     (await api.getPluginSummary({ signal })).data?.summary ?? null);
   const distribution = useSlice(overview, '', async (signal) =>
     (await api.getPluginDistribution({ signal })).data?.distribution ?? []);
-  const buildTimeline = useSlice(builds, `${key}|${interval}`, async (signal) =>
-    (await api.getBuildSuccessRate({ interval, ...range }, { signal })).data?.timeline ?? []);
+  const buildTimeline = useSlice(builds && bucketReady, `${key}|${interval}|${JSON.stringify(bucket)}`, async (signal) =>
+    (await api.getBuildSuccessRate({ interval, ...range, ...bucket }, { signal })).data?.timeline ?? []);
   const buildDurations = useSlice(builds, key, async (signal) =>
     (await api.getBuildDuration(range, { signal })).data?.plugins ?? []);
   const buildFailures = useSlice(builds && !!filters.systemAdmin, key, async (signal) =>
@@ -308,13 +363,14 @@ export function useDoraData(filters: DoraFilters): DoraData {
   // Per-pipeline aux reads (deploy list + build health) key on a pipelineId, so
   // they only fire once a single pipeline is scoped.
   const scoped = enabled && !!pipelineId;
+  const { ready: bucketReady, ...bucket } = useReportBucketing();
 
   // Non-entitled: the tab renders the upsell teaser — no read fires (avoids a
   // pointless 403), and there is nothing to load.
   const dora = useSlice(enabled, scopeKey, async (signal) =>
     (await api.getDora({ ...range, ...scope }, { signal })) ?? null);
-  const doraTrend = useSlice(enabled, `${scopeKey}|${interval}`, (signal) =>
-    api.getDoraTrend({ interval, ...range, ...scope }, { signal }));
+  const doraTrend = useSlice(enabled && bucketReady, `${scopeKey}|${interval}|${JSON.stringify(bucket)}`, (signal) =>
+    api.getDoraTrend({ interval, ...range, ...scope, ...bucket }, { signal }));
   const exec = useQuery(enabled ? queries.executionCount(range) : null);
   // The rest are best-effort pickers / aux panels: a failure leaves them empty
   // rather than raising the shared banner.

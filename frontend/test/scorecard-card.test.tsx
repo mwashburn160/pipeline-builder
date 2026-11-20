@@ -48,6 +48,7 @@ const baseScorecard: PipelineScorecard = {
     changeFailureRate: 'medium',
     meanTimeToRestore: null, // unrated → renders "n/a"
     leadTime: 'high',
+    samples: { deploymentFrequency: 12, changeFailureRate: 12, meanTimeToRestore: 0, leadTime: 9 },
   },
   security: {
     score: 60,
@@ -97,8 +98,29 @@ describe('ScorecardCard', () => {
     await screen.findByText('A');
     // Rated bands surface their labels; MTTR (null) falls back to "n/a".
     expect(screen.getByText('Elite')).toBeInTheDocument();
-    expect(screen.getByText('Time to restore')).toBeInTheDocument();
+    expect(screen.getByText('Median time to restore')).toBeInTheDocument();
     expect(screen.getByText('n/a')).toBeInTheDocument();
+  });
+
+  it('shows "Not enough data (n = X)" for an insufficient band, not a rating', async () => {
+    getPipelineScorecard.mockResolvedValue({
+      success: true,
+      data: {
+        scorecard: {
+          ...baseScorecard,
+          dora: {
+            ...baseScorecard.dora,
+            meanTimeToRestore: 'insufficient',
+            leadTime: 'insufficient',
+            samples: { deploymentFrequency: 12, changeFailureRate: 12, meanTimeToRestore: 1, leadTime: 3 },
+          },
+        },
+      },
+    });
+    render(<ScorecardCard pipelineId="p1" />);
+    expect(await screen.findByText('Not enough data (n = 1)')).toBeInTheDocument();
+    expect(screen.getByText('Not enough data (n = 3)')).toBeInTheDocument();
+    expect(screen.getByText('Median time to restore')).toBeInTheDocument();
   });
 
   it('shows a "not enough data yet" empty state for an ungraded (N/A + null score) scorecard', async () => {
@@ -110,7 +132,7 @@ describe('ScorecardCard', () => {
           score: null,
           grade: 'N/A',
           compliance: { score: null, rulesEvaluated: 0, violations: 0, warnings: 0 },
-          dora: { score: null, basis: 'deploy', deploymentFrequency: null, changeFailureRate: null, meanTimeToRestore: null, leadTime: null },
+          dora: { score: null, basis: 'deploy', deploymentFrequency: null, changeFailureRate: null, meanTimeToRestore: null, leadTime: null, samples: { deploymentFrequency: 0, changeFailureRate: 0, meanTimeToRestore: 0, leadTime: 0 } },
         },
       },
     });
@@ -134,7 +156,7 @@ describe('ScorecardCard', () => {
           grade: 'N/A',
           unavailable: true,
           compliance: { score: null, rulesEvaluated: 0, violations: 0, warnings: 0 },
-          dora: { score: null, basis: 'deploy', deploymentFrequency: null, changeFailureRate: null, meanTimeToRestore: null, leadTime: null },
+          dora: { score: null, basis: 'deploy', deploymentFrequency: null, changeFailureRate: null, meanTimeToRestore: null, leadTime: null, samples: { deploymentFrequency: 0, changeFailureRate: 0, meanTimeToRestore: 0, leadTime: 0 } },
         },
       },
     });

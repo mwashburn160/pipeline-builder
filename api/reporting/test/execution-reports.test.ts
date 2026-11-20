@@ -175,7 +175,34 @@ describe('Execution Report Routes', () => {
 
       await handler(req, res);
 
-      expect(mockGetSuccessRate).toHaveBeenCalledWith('acme', 'month', '2026-01-01', '2026-03-15', undefined);
+      expect(mockGetSuccessRate).toHaveBeenCalledWith('acme', 'month', '2026-01-01', '2026-03-15', undefined,
+        { tz: 'UTC', weekStart: 'monday' });
+    });
+
+    it('buckets in the requested timezone and week start (the stakeholder report\'s bucketing)', async () => {
+      mockGetSuccessRate.mockResolvedValue([]);
+      const handler = getHandler('/success-rate');
+      await handler({ query: { interval: 'week', tz: 'America/Chicago', weekStart: 'sunday' } }, {});
+
+      expect(mockGetSuccessRate).toHaveBeenCalledWith('acme', 'week', expect.any(String), expect.any(String), undefined,
+        { tz: 'America/Chicago', weekStart: 'sunday' });
+    });
+
+    it('400s on an invalid timezone and does not query', async () => {
+      const handler = getHandler('/success-rate');
+      await handler({ query: { tz: 'Mars/Olympus_Mons' } }, {});
+
+      expect(sendBadRequest).toHaveBeenCalledWith(expect.anything(), expect.stringContaining('tz must be a valid IANA timezone'), expect.anything());
+      expect(mockGetSuccessRate).not.toHaveBeenCalled();
+    });
+
+    it('400s on a bare UTC offset (no DST rules) and on an unknown week start', async () => {
+      const handler = getHandler('/success-rate');
+      await handler({ query: { tz: '+05:00' } }, {});
+      await handler({ query: { weekStart: 'friday' } }, {});
+
+      expect(sendBadRequest).toHaveBeenCalledTimes(2);
+      expect(mockGetSuccessRate).not.toHaveBeenCalled();
     });
 
     it('should reject invalid interval', async () => {
@@ -196,7 +223,8 @@ describe('Execution Report Routes', () => {
 
       await handler(req, res);
 
-      expect(mockGetSuccessRate).toHaveBeenCalledWith('acme', 'week', expect.any(String), expect.any(String), undefined);
+      expect(mockGetSuccessRate).toHaveBeenCalledWith('acme', 'week', expect.any(String), expect.any(String), undefined,
+        { tz: 'UTC', weekStart: 'monday' });
     });
   });
 
@@ -385,8 +413,25 @@ describe('Execution Report Routes', () => {
       await handler({ query: { interval: 'day', from: '2026-06-01', to: '2026-07-01' } }, {});
 
       expect(mockGetDoraTrend).toHaveBeenCalledWith('acme', 'day', '2026-06-01', '2026-07-01', undefined,
-        { pipelineId: undefined, environment: undefined });
+        { pipelineId: undefined, environment: undefined, incidentWindowHours: undefined, tz: 'UTC', weekStart: 'monday' });
       expect(sendSuccess).toHaveBeenCalledWith(expect.anything(), 200, { trend: sampleTrend });
+    });
+
+    it('threads tz + weekStart into the trend buckets, like the dora_trend section', async () => {
+      mockGetDoraTrend.mockResolvedValue([]);
+      const handler = getHandler('/dora/trend');
+      await handler({ query: { interval: 'week', tz: 'Europe/Berlin', weekStart: 'sunday' } }, {});
+
+      expect(mockGetDoraTrend).toHaveBeenCalledWith('acme', 'week', expect.any(String), expect.any(String), undefined,
+        expect.objectContaining({ tz: 'Europe/Berlin', weekStart: 'sunday' }));
+    });
+
+    it('400s on an invalid timezone and does not query', async () => {
+      const handler = getHandler('/dora/trend');
+      await handler({ query: { tz: 'Not/AZone' } }, {});
+
+      expect(sendBadRequest).toHaveBeenCalled();
+      expect(mockGetDoraTrend).not.toHaveBeenCalled();
     });
 
     it('400s on a bad interval and does not query', async () => {

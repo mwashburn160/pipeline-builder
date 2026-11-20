@@ -197,8 +197,8 @@ describe('RESUMED rows (accepted at ingest from now on)', () => {
     expect((await list())[0]).toMatchObject({ status: 'succeeded', retried: true });
     expect(await count()).toMatchObject({ total: 1, succeeded: 1, failed: 0 });
     const stages = await reportingService.getStageFailures(ORG, FROM, TO);
-    // STARTED + FAILED + SUCCEEDED; the RESUMED row is not an attempt.
-    expect(stages.find((s) => s.stage_name === 'Build')).toMatchObject({ failures: 1, total: 3 });
+    // FAILED + SUCCEEDED; neither the STARTED nor the RESUMED row is an attempt.
+    expect(stages.find((s) => s.stage_name === 'Build')).toMatchObject({ failures: 1, total: 2 });
   });
 
   it('a run resumed and still running is in progress, and counted nowhere yet', async () => {

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/developer-portal.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 2089b9c34a629f32c60161602d1e41be9c979fea553655f197897c14a5744649
+// SOURCE-SHA256: d0ab97ca88acbe4e7fe692d3070e214d40e04690b05ddc55ba2ed0a0fd3a00dd
 // SPDX-License-Identifier: Apache-2.0
 import { LayoutDashboard } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -284,7 +284,7 @@ export const developerPortalTopic: HelpTopic = {
             ],
             [
               "Delivery performance",
-              "The four per-pipeline DORA bands — deployment frequency, change-failure rate, time-to-restore, measured lead time — over the trailing 30 days, mapped Elite→Low to points."
+              "The four per-pipeline DORA bands — deployment frequency, change-failure rate, median time to restore, measured lead time — over the trailing 30 days, mapped Elite→Low to points. A band resting on fewer than 5 observations is insufficient and unscored (left out of the average, never counted as Low); the card shows \"Not enough data (n = X)\"."
             ]
           ]
         },
@@ -302,7 +302,7 @@ export const developerPortalTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "{\n  \"scorecard\": {\n    \"pipelineId\": \"…\",\n    \"score\": 82,\n    \"grade\": \"B\",\n    \"compliance\": { \"score\": 90, \"rulesEvaluated\": 10, \"violations\": 1, \"warnings\": 0 },\n    \"dora\": { \"score\": 74, \"basis\": \"run\", \"deploymentFrequency\": \"high\", \"changeFailureRate\": \"high\",\n              \"meanTimeToRestore\": \"medium\", \"leadTime\": \"high\" },\n    \"computedAt\": \"…\"\n  }\n}",
+          "content": "{\n  \"scorecard\": {\n    \"pipelineId\": \"…\",\n    \"score\": 82,\n    \"grade\": \"B\",\n    \"compliance\": { \"score\": 90, \"rulesEvaluated\": 10, \"violations\": 1, \"warnings\": 0 },\n    \"dora\": { \"score\": 74, \"basis\": \"run\", \"deploymentFrequency\": \"high\", \"changeFailureRate\": \"high\",\n              \"meanTimeToRestore\": \"insufficient\", \"leadTime\": \"high\",\n              \"samples\": { \"deploymentFrequency\": 12, \"changeFailureRate\": 13, \"meanTimeToRestore\": 2, \"leadTime\": 11 } },\n    \"computedAt\": \"…\"\n  }\n}",
           "language": "json"
         }
       ]

@@ -13,7 +13,7 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { reportingService, type PluginRuntimeFilter, type PluginRuntimeStats } from '@pipeline-builder/pipeline-data';
 import { Router, type Request, type Response } from 'express';
-import { MAX_REPORT_LIMIT, MAX_REPORT_RANGE_MS, scrubField } from '../helpers/report-helpers.js';
+import { MAX_REPORT_LIMIT, MAX_REPORT_RANGE_MS, parseReportBucket, scrubField } from '../helpers/report-helpers.js';
 import { resolveReportScope } from '../helpers/report-scope.js';
 
 /** Plugin name shape (the plugin spec's `name` rule). */
@@ -89,10 +89,13 @@ export function createPluginReportRoutes(): Router {
   router.get('/build-success-rate', withRoute(async ({ req, res, orgId }) => {
     const interval = parseReportInterval(req.query);
     if (typeof interval === 'object') return sendBadRequest(res, interval.error, ErrorCode.VALIDATION_ERROR);
+    // `?tz=` / `?weekStart=` bucketing, as on /execution/success-rate.
+    const bucket = parseReportBucket(req.query);
+    if ('error' in bucket) return sendBadRequest(res, bucket.error, ErrorCode.VALIDATION_ERROR);
     const scope = await resolveReportScope(req, orgId, 'event');
     if ('error' in scope) return sendBadRequest(res, scope.error, ErrorCode.VALIDATION_ERROR);
     const { range, orgIds } = scope;
-    sendSuccess(res, 200, { timeline: await reportingService.getBuildSuccessRate(orgId, interval, range.from, range.to, orgIds) });
+    sendSuccess(res, 200, { timeline: await reportingService.getBuildSuccessRate(orgId, interval, range.from, range.to, orgIds, bucket) });
   }));
 
   router.get('/build-duration', withRoute(async ({ req, res, orgId }) => {

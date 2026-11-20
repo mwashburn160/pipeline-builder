@@ -11,7 +11,8 @@
  * ./dora-scoring.ts, deliberately separate so they can be tested without a DB.
  */
 
-import { sql } from 'drizzle-orm';
+import type { WeekStart } from '@pipeline-builder/api-core';
+import { sql, type SQL } from 'drizzle-orm';
 import {
   HEADLINE_ENV, DORA_INCIDENT_WINDOW_HOURS, resolveIncidentWindowHours,
   doraLevelForFrequency, doraLevelForChangeFailure, doraLevelForRestore, doraLevelForLeadTime,
@@ -41,8 +42,9 @@ import { drizzleRows } from '../crud-service.js';
  * measured lead time (lead time joins the execution's earliest commit);
  * the scan also reaches back `windowHours` before `from` so incidents opened
  * near the window start can correlate to a just-prior deploy; (2) `deployment_outcomes`
- * in-window → post-deploy CFR component; (3) production restored/failed
- * outcomes joined to their deploy → MTTR; (4) registry vs deploying → coverage.
+ * anchored to their deploy's completion → post-deploy CFR component; (3)
+ * production restored/failed outcomes paired with their failure → MTTR; (4)
+ * registry vs deploying → coverage.
  * The cross-source medians (lead time, MTTR) are computed in JS from clamped
  * (≥0) deltas.
  *
@@ -97,86 +99,49 @@ export async function getDoraMetrics(
     ? new Date(fromMs - effectiveWindowHours * 3600 * 1000).toISOString()
     : from;
 
-  // (1) Terminal deploy rows: PER-EXECUTION, one row per (environment,
-  // execution) — every deploy STAGE targeting that env within the execution is
-  // rolled up to a terminal status (FAILED wins, then SUCCEEDED). A single
-  // execution with two deploy stages to the same env is ONE deployment, not two.
-  // completed_at = the deploy's completion (MAX over its stages). `commit_ts`
-  // is the execution's EARLIEST commit time across ALL its events (commit
-  // enrichment rides the PIPELINE/source event where environment IS NULL, never
-  // the deploy STAGE row), joined by execution_id. `in_window` marks whether the
-  // deploy completed inside [from,to] (vs. a look-back-only row kept solely for
-  // incident correlation). execution_id is projected so post-deploy failures
-  // (manual outcomes + correlated incidents) can dedup against their deploy.
-  const deploySql = sql`
-      WITH deploy_stages AS (
-        SELECT
-          e.environment AS environment,
-          e.execution_id AS execution_id,
-          ${terminalStatusRollup} AS status,
-          MAX(e.completed_at) AS completed_at
-        FROM ${schema.pipelineEvent} e
-        JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
-        WHERE p.org_id ${pred} AND e.event_type = 'STAGE' AND e.environment IS NOT NULL
-          AND ${notOvertaken}
-          ${pipelineClause} ${scanEnvClause}
-          AND e.completed_at >= ${lookbackFrom}::timestamptz AND e.completed_at <= ${to}::timestamptz
-        GROUP BY e.environment, e.execution_id
-      ),
-      exec_commits AS (
-        SELECT c.execution_id AS execution_id, MIN(c.commit_timestamp) AS commit_ts
-        FROM ${schema.pipelineEvent} c
-        JOIN ${schema.pipeline} p ON p.id = c.pipeline_id
-        WHERE p.org_id ${pred} AND c.commit_timestamp IS NOT NULL
-          AND c.execution_id IN (SELECT execution_id FROM deploy_stages)
-        GROUP BY c.execution_id
-      )
-      SELECT
-        ds.environment AS environment,
-        ds.execution_id AS execution_id,
-        ds.status AS status,
-        ds.completed_at::text AS completed_at,
-        (ds.completed_at >= ${from}::timestamptz) AS in_window,
-        ec.commit_ts::text AS commit_ts
-      FROM deploy_stages ds
-      LEFT JOIN exec_commits ec ON ec.execution_id = ds.execution_id`;
-
-  // (2) Post-deploy outcome markers in-window (per env). Post-deploy failures
-  // (outcome='failed') add to the CFR numerator without changing attempts.
-  // execution_id lets the CFR dedup a manual failure against an incident that
-  // correlates to the same deploy (no double-count).
-  const outcomeSql = sql`
-      SELECT o.environment AS environment, o.outcome AS outcome, o.execution_id AS execution_id
-      FROM ${schema.deploymentOutcome} o
-      WHERE o.org_id ${pred} ${outcomeEnvClause} ${outcomePipelineClause}
-        AND o.at >= ${from}::timestamptz AND o.at <= ${to}::timestamptz`;
+  const { deploySql, outcomeSql, incidentSql } = doraScans({
+    pred,
+    from,
+    to,
+    lookbackFrom,
+    windowHours: effectiveWindowHours,
+    pipelineClause,
+    deployEnvClause: scanEnvClause,
+    outcomeEnvClause,
+    outcomePipelineClause,
+    incidentEnvClause: scanIncidentEnvClause,
+  });
 
   // (3) MTTR — PRODUCTION-ONLY, independent of the env filter. Every production
-  // outcome in-window; for a 'restored' one, correlate to its deploy's
-  // completion via execution_id to measure restored.at − deployed.completed_at.
+  // outcome in-window. A 'restored' one is measured from the FAILURE it ended:
+  // the same deploy's `failed` marker (`failed_at`). Only when there is no failed
+  // marker and the deploy itself FAILED is the failure instant the deploy's
+  // completion (`deployed_at`, with `deploy_failed` true); a 'restored' marker
+  // with neither is not a recovery of anything and is ignored (see computeMttr).
+  // It used to be measured from the deploy's completion every time, which added
+  // however long the deploy had been healthy BEFORE it broke to every recovery.
   // execution_id is projected so an incident-sourced recovery for the same
-  // deploy takes precedence over the manual restored gap.
+  // deploy takes precedence over the manual pair.
   const mttrSql = sql`
       SELECT
         o.outcome AS outcome,
         o.execution_id AS execution_id,
         o.at::text AS restored_at,
+        (SELECT MAX(f.at) FROM ${schema.deploymentOutcome} f
+           WHERE f.org_id ${pred} AND f.execution_id = o.execution_id
+             AND f.outcome = 'failed')::text AS failed_at,
         (SELECT MAX(d.completed_at) FROM ${schema.pipelineEvent} d
            JOIN ${schema.pipeline} p2 ON p2.id = d.pipeline_id
            WHERE p2.org_id ${pred} AND d.execution_id = o.execution_id
-             AND d.event_type = 'STAGE' AND d.environment = ${HEADLINE_ENV})::text AS deployed_at
+             AND d.event_type = 'STAGE' AND d.environment = ${HEADLINE_ENV})::text AS deployed_at,
+        EXISTS (SELECT 1 FROM ${schema.pipelineEvent} e
+           JOIN ${schema.pipeline} p3 ON p3.id = e.pipeline_id
+           WHERE p3.org_id ${pred} AND e.execution_id = o.execution_id
+             AND e.event_type = 'STAGE' AND e.environment = ${HEADLINE_ENV}
+             AND e.status = 'FAILED' AND ${notOvertaken}) AS deploy_failed
       FROM ${schema.deploymentOutcome} o
       WHERE o.org_id ${pred} AND o.environment = ${HEADLINE_ENV} ${outcomePipelineClause}
         AND o.at >= ${from}::timestamptz AND o.at <= ${to}::timestamptz`;
-
-  // (5) Incidents opened in-window (per env). Correlated in JS to the most
-  // recent successful deploy → automated post-deploy failure (CFR) + real
-  // recovery time (resolved_at − opened_at) for MTTR (production).
-  const incidentSql = sql`
-      SELECT i.environment AS environment, i.opened_at::text AS opened_at, i.resolved_at::text AS resolved_at
-      FROM ${schema.incident} i
-      WHERE i.org_id ${pred} ${scanIncidentEnvClause}
-        AND i.opened_at >= ${from}::timestamptz AND i.opened_at <= ${to}::timestamptz`;
 
   // (4) Coverage: registered pipelines vs those that actually deployed in-window.
   const coverageSql = sql`
@@ -195,7 +160,7 @@ export async function getDoraMetrics(
     // earlier indices stay stable).
     const deployRows = drizzleRows<DeployRow>((await tx.execute(deploySql)).rows);
     const outcomeRows = drizzleRows<OutcomeRow>((await tx.execute(outcomeSql)).rows);
-    const mttrRows = drizzleRows<MttrPairRow & { outcome: string }>((await tx.execute(mttrSql)).rows);
+    const mttrRows = drizzleRows<MttrPairRow>((await tx.execute(mttrSql)).rows);
     const coverageRow = drizzleRows<CoverageRow>((await tx.execute(coverageSql)).rows)[0];
     const incidentRows = drizzleRows<IncidentRow>((await tx.execute(incidentSql)).rows);
     return shapeDora(deployRows, outcomeRows, mttrRows, coverageRow, incidentRows, from, to, {
@@ -210,6 +175,119 @@ export async function getDoraMetrics(
   return runReport(key, multi, exec);
 }
 
+/** What {@link doraScans} needs: the org predicate, the window, and the scoping clauses. */
+interface DoraScanInput {
+  pred: ReturnType<typeof orgScope>['pred'];
+  from: string;
+  to: string;
+  /** `from − windowHours`: deploys this far back are kept for incident correlation. */
+  lookbackFrom: string;
+  windowHours: number;
+  pipelineClause: SQL;
+  deployEnvClause: SQL;
+  outcomeEnvClause: SQL;
+  outcomePipelineClause: SQL;
+  incidentEnvClause: SQL;
+  /** When set, each deploy row also carries its time bucket (the trend). */
+  bucket?: { interval: string; tz: string; weekStart: WeekStart };
+}
+
+/**
+ * The three scans the change-failure rate is built from, shared by the headline
+ * ({@link getDoraMetrics}) and the trend ({@link getDoraTrend}) so the two cannot
+ * count it differently. They used to: the trend counted deploy-time failures only
+ * while the headline added post-deploy failures, so the sparkline read better
+ * than the number above it.
+ *
+ * (1) Terminal deploy rows: PER-EXECUTION, one row per (environment,
+ * execution) — every deploy STAGE targeting that env within the execution is
+ * rolled up to a terminal status (FAILED wins, then SUCCEEDED). A single
+ * execution with two deploy stages to the same env is ONE deployment, not two.
+ * completed_at = the deploy's completion (MAX over its stages). `commit_ts`
+ * is the execution's EARLIEST commit time across ALL its events (commit
+ * enrichment rides the PIPELINE/source event where environment IS NULL, never
+ * the deploy STAGE row), joined by execution_id. `in_window` marks whether the
+ * deploy completed inside [from,to] (vs. a look-back-only row kept solely for
+ * incident correlation). execution_id is projected so post-deploy failures
+ * (manual outcomes + correlated incidents) can dedup against their deploy.
+ *
+ * (2) Manual `failed` outcome markers, ANCHORED TO THEIR DEPLOY: an outcome
+ * counts in the window its deploy completed in, whenever the marker was
+ * recorded. Windowing them on their own `at` put a deploy completed on the 31st
+ * and marked failed on the 1st in NEXT month's CFR numerator, against this
+ * month's attempts — a numerator and denominator from different windows, which
+ * is how a CFR could exceed 100%.
+ *
+ * (3) Incidents opened from `from` to `to + windowHours`: an incident opened just
+ * after the window can still follow an in-window deploy (and, anchored to that
+ * deploy, counts in this window's CFR). `opened_in_window` keeps MTTR to the
+ * incidents actually opened in the window.
+ */
+function doraScans(input: DoraScanInput): { deploySql: SQL; outcomeSql: SQL; incidentSql: SQL } {
+  const { pred, from, to, lookbackFrom, windowHours, pipelineClause, deployEnvClause, bucket } = input;
+  const toMs = Date.parse(to);
+  const incidentTo = Number.isFinite(toMs) ? new Date(toMs + windowHours * 3600 * 1000).toISOString() : to;
+  const periodCol = bucket
+    ? sql`, ${periodBucket(bucket.interval, sql`ds.completed_at`, bucket.tz, bucket.weekStart)}::text AS period`
+    : sql``;
+
+  const deploySql = sql`
+      WITH deploy_stages AS (
+        SELECT
+          e.environment AS environment,
+          e.execution_id AS execution_id,
+          ${terminalStatusRollup} AS status,
+          MAX(e.completed_at) AS completed_at
+        FROM ${schema.pipelineEvent} e
+        JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
+        WHERE p.org_id ${pred} AND e.event_type = 'STAGE' AND e.environment IS NOT NULL
+          AND ${notOvertaken}
+          ${pipelineClause} ${deployEnvClause}
+          AND e.completed_at >= ${lookbackFrom}::timestamptz AND e.completed_at <= ${to}::timestamptz
+        GROUP BY e.environment, e.execution_id
+      ),
+      exec_commits AS (
+        SELECT c.execution_id AS execution_id, MIN(c.commit_timestamp) AS commit_ts
+        FROM ${schema.pipelineEvent} c
+        JOIN ${schema.pipeline} p ON p.id = c.pipeline_id
+        WHERE p.org_id ${pred} AND c.commit_timestamp IS NOT NULL
+          AND c.execution_id IN (SELECT execution_id FROM deploy_stages)
+        GROUP BY c.execution_id
+      )
+      SELECT
+        ds.environment AS environment,
+        ds.execution_id AS execution_id,
+        ds.status AS status,
+        ds.completed_at::text AS completed_at,
+        (ds.completed_at >= ${from}::timestamptz) AS in_window,
+        ec.commit_ts::text AS commit_ts
+        ${periodCol}
+      FROM deploy_stages ds
+      LEFT JOIN exec_commits ec ON ec.execution_id = ds.execution_id`;
+
+  const outcomeSql = sql`
+      SELECT o.environment AS environment, o.outcome AS outcome, o.execution_id AS execution_id
+      FROM ${schema.deploymentOutcome} o
+      WHERE o.org_id ${pred} ${input.outcomeEnvClause} ${input.outcomePipelineClause}
+        AND o.outcome = 'failed'
+        AND o.execution_id IN (
+          SELECT e.execution_id FROM ${schema.pipelineEvent} e
+          JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
+          WHERE p.org_id ${pred} AND e.event_type = 'STAGE' AND e.environment IS NOT NULL
+            ${pipelineClause}
+            AND e.completed_at >= ${from}::timestamptz AND e.completed_at <= ${to}::timestamptz
+        )`;
+
+  const incidentSql = sql`
+      SELECT i.environment AS environment, i.opened_at::text AS opened_at, i.resolved_at::text AS resolved_at,
+        (i.opened_at <= ${to}::timestamptz) AS opened_in_window
+      FROM ${schema.incident} i
+      WHERE i.org_id ${pred} ${input.incidentEnvClause}
+        AND i.opened_at >= ${from}::timestamptz AND i.opened_at <= ${incidentTo}::timestamptz`;
+
+  return { deploySql, outcomeSql, incidentSql };
+}
+
 /** Per-environment deploy accumulator. */
 interface EnvAcc {
   deployments: number;
@@ -219,7 +297,15 @@ interface EnvAcc {
 }
 
 /** A production-or-other incident attributed to the deploy execution it followed. */
-interface CorrelatedIncident { environment: string; exec: string; resolvedGap: number | null }
+interface CorrelatedIncident {
+  environment: string;
+  exec: string;
+  resolvedGap: number | null;
+  /** The deploy it follows completed inside [from,to] — it then counts in this window's CFR. */
+  deployInWindow: boolean;
+  /** The incident was opened inside [from,to] — it then counts in this window's MTTR. */
+  openedInWindow: boolean;
+}
 
 /** Get-or-create the accumulator for `env`. */
 function accFor(envs: Map<string, EnvAcc>, env: string): EnvAcc {
@@ -228,14 +314,22 @@ function accFor(envs: Map<string, EnvAcc>, env: string): EnvAcc {
   return a;
 }
 
+/** A pg boolean read back as `true`/`'t'`; absent (a unit fixture) ⇒ `true`. */
+function flag(value: boolean | string | null | undefined): boolean {
+  return value == null ? true : (value === true || value === 't');
+}
+
 /**
  * A deploy row counts toward DF/CFR/lead only if it completed inside [from,to].
  * Look-back-only rows (in_window=false, kept for incident correlation) are
  * skipped. Absent in a fixture ⇒ in-window (unit tests omit the flag).
  */
 function isInWindow(row: DeployRow): boolean {
-  return row.in_window == null ? true : (row.in_window === true || row.in_window === 't');
+  return flag(row.in_window);
 }
+
+/** The dedup key of one deployment: one execution reaching one environment. */
+const deployKey = (env: string, exec: string): string => `${env}\u0000${exec}`;
 
 /** Bucket the in-window terminal deploy rows by environment (DF / deploy-time CFR / measured lead). */
 function accumulateDeploys(deployRows: DeployRow[]): Map<string, EnvAcc> {
@@ -283,22 +377,22 @@ function correlateIncidents(
   // Index the SUCCESSFUL deploys per env (execution id + completion instant),
   // newest first.
   const windowMs = windowHours * 3600 * 1000;
-  const successfulByEnv = new Map<string, Array<{ exec: string; completedMs: number }>>();
+  const successfulByEnv = new Map<string, Array<{ exec: string; completedMs: number; inWindow: boolean }>>();
   for (const row of deployRows) {
     if (row.status !== 'SUCCEEDED' || !row.environment || row.execution_id == null || row.completed_at == null) continue;
     const ms = Date.parse(row.completed_at);
     if (!Number.isFinite(ms)) continue;
     const list = successfulByEnv.get(row.environment) ?? [];
-    list.push({ exec: row.execution_id, completedMs: ms });
+    list.push({ exec: row.execution_id, completedMs: ms, inWindow: isInWindow(row) });
     successfulByEnv.set(row.environment, list);
   }
   for (const list of successfulByEnv.values()) list.sort((a, b) => b.completedMs - a.completedMs);
 
-  const correlate = (env: string, openedMs: number): string | null => {
+  const correlate = (env: string, openedMs: number) => {
     const list = successfulByEnv.get(env);
     if (!list) return null;
     for (const d of list) {
-      if (d.completedMs <= openedMs && openedMs - d.completedMs <= windowMs) return d.exec;
+      if (d.completedMs <= openedMs && openedMs - d.completedMs <= windowMs) return d;
     }
     return null;
   };
@@ -308,8 +402,8 @@ function correlateIncidents(
     if (!inc.environment || inc.opened_at == null) continue;
     const openedMs = Date.parse(inc.opened_at);
     if (!Number.isFinite(openedMs)) continue;
-    const exec = correlate(inc.environment, openedMs);
-    if (exec == null) continue; // uncorrelated → not attributable to a deploy
+    const deploy = correlate(inc.environment, openedMs);
+    if (deploy == null) continue; // uncorrelated → not attributable to a deploy
     let resolvedGap: number | null = null;
     if (inc.resolved_at != null) {
       const resolvedMs = Date.parse(inc.resolved_at);
@@ -322,42 +416,58 @@ function correlateIncidents(
         if (Number.isFinite(g)) resolvedGap = Math.max(g, 0);
       }
     }
-    correlated.push({ environment: inc.environment, exec, resolvedGap });
+    correlated.push({
+      environment: inc.environment,
+      exec: deploy.exec,
+      resolvedGap,
+      deployInWindow: deploy.inWindow,
+      openedInWindow: flag(inc.opened_in_window),
+    });
   }
   return correlated;
 }
 
 /**
- * Post-deploy failures per env — the DISTINCT set of deploy executions flagged
- * by a manual `failed` outcome OR a correlated incident (deduped by execution,
- * so a deploy flagged by both counts once). A manual outcome without an
- * execution id still counts via a per-row sentinel. Every flagged env is added
- * to `envs` so it appears even with no in-window deploy events.
+ * Post-deploy failures — the DISTINCT set of in-window SUCCESSFUL deployments
+ * flagged by a manual `failed` outcome OR a correlated incident (deduped by
+ * execution, so a deploy flagged by both counts once), as `deployKey`s.
+ *
+ * ANCHORED TO THE DEPLOY: a flag counts in the window its deploy completed in,
+ * so the numerator and the attempts it is divided by always describe the same
+ * deployments. A failed marker on a deploy that already failed at deploy time
+ * adds nothing — that deployment is already one failure.
  */
-function countPostDeployFailures(
-  envs: Map<string, EnvAcc>,
+function postDeployFailedKeys(
+  deployRows: DeployRow[],
   outcomeRows: OutcomeRow[],
   correlated: CorrelatedIncident[],
-): Map<string, number> {
-  const postDeployExecsByEnv = new Map<string, Set<string>>();
-  let sentinel = 0;
-  const flagFor = (env: string): Set<string> => {
-    let s = postDeployExecsByEnv.get(env);
-    if (!s) { s = new Set<string>(); postDeployExecsByEnv.set(env, s); }
-    return s;
-  };
+): Set<string> {
+  const inWindowSuccess = new Set<string>();
+  for (const row of deployRows) {
+    if (row.status === 'SUCCEEDED' && row.environment && row.execution_id != null && isInWindow(row)) {
+      inWindowSuccess.add(deployKey(row.environment, row.execution_id));
+    }
+  }
+  const flagged = new Set<string>();
   for (const o of outcomeRows) {
-    if (o.outcome !== 'failed' || !o.environment) continue;
-    flagFor(o.environment).add(o.execution_id ?? `manual-${sentinel++}`);
-    accFor(envs, o.environment);
+    if (o.outcome !== 'failed' || !o.environment || o.execution_id == null) continue;
+    const key = deployKey(o.environment, o.execution_id);
+    if (inWindowSuccess.has(key)) flagged.add(key);
   }
   for (const ci of correlated) {
-    flagFor(ci.environment).add(ci.exec);
-    accFor(envs, ci.environment);
+    if (ci.deployInWindow) flagged.add(deployKey(ci.environment, ci.exec));
   }
-  const postDeployByEnv = new Map<string, number>();
-  for (const [env, set] of postDeployExecsByEnv) postDeployByEnv.set(env, set.size);
-  return postDeployByEnv;
+  return flagged;
+}
+
+/** {@link postDeployFailedKeys} counted per environment. */
+function countPostDeployFailures(flagged: Set<string>): Map<string, number> {
+  const byEnv = new Map<string, number>();
+  for (const key of flagged) {
+    const env = key.slice(0, key.indexOf('\u0000'));
+    byEnv.set(env, (byEnv.get(env) ?? 0) + 1);
+  }
+  return byEnv;
 }
 
 /** Per-environment DF / CFR / lead-time rows, production first. */
@@ -377,9 +487,9 @@ function buildEnvMetrics(
       const postDeployFailures = postDeployByEnv.get(environment) ?? 0;
       const rawPerDay = a.deployments / days;
       const numerator = a.deployTimeFailures + postDeployFailures;
-      // Clamp to [0,100]: post-deploy failures can correlate to a deploy that
-      // completed just before the window (kept for correlation), so the numerator
-      // can transiently exceed in-window attempts — a CFR > 100% is never valid.
+      // Anchored to the deploy (postDeployFailedKeys), the numerator can no longer
+      // exceed the attempts; the clamp stays as a guard, since a CFR > 100% is
+      // never valid.
       const rawRate = a.attempts > 0 ? Math.min(100, (numerator / a.attempts) * 100) : 0;
       const ltMedian = median(a.leadGaps);
       return {
@@ -388,6 +498,7 @@ function buildEnvMetrics(
           deployments: a.deployments,
           perDay: round(rawPerDay, 2),
           level: doraLevelForFrequency(rawPerDay, a.deployments),
+          n: a.deployments,
         },
         changeFailureRate: {
           rate: round(rawRate, 1),
@@ -395,13 +506,15 @@ function buildEnvMetrics(
           postDeployFailures,
           attempts: a.attempts,
           level: doraLevelForChangeFailure(rawRate, a.attempts),
+          n: a.attempts,
         },
         leadTime: {
           deployments: a.leadGaps.length,
           medianSeconds: ltMedian != null ? round(ltMedian, 1) : null,
           ...tails(a.leadGaps),
           // Scored off the MEDIAN only — the tails are reported, not banded.
-          level: doraLevelForLeadTime(ltMedian),
+          level: doraLevelForLeadTime(ltMedian, a.leadGaps.length),
+          n: a.leadGaps.length,
         },
       };
     })
@@ -426,15 +539,23 @@ function tails(gaps: number[]): { p90Seconds: number | null; p95Seconds: number 
 }
 
 /**
- * MTTR — PRODUCTION-ONLY, from BOTH sources. Incidents take precedence: a
- * production incident correlated to a deploy contributes the real recovery
- * (`resolved_at − opened_at`), and any manual outcome on the SAME deploy is
- * skipped. Manual outcomes on other deploys count as recorded (`failed` → an
- * incident; `restored` → a recovery gap of `restored − deployed`).
+ * Time to restore (the MEDIAN, despite the field's historical `meanTimeToRestore`
+ * name) — PRODUCTION-ONLY, from BOTH sources. Incidents take precedence: a
+ * production incident opened in the window and correlated to a deploy contributes
+ * the real recovery (`resolved_at − opened_at`), and any manual outcome on the
+ * SAME deploy is skipped. Manual outcomes on other deploys count as recorded:
+ *  - `failed` → an incident;
+ *  - `restored` → a recovery measured FROM THE FAILURE: `restored − failed`,
+ *    the same deploy's `failed` marker. With no failed marker, only a deploy that
+ *    itself FAILED has a failure to recover from, and its failure instant is the
+ *    deploy's completion (`restored − deployed`; that failure is also counted as
+ *    the incident). A `restored` marker with no failure at all is not a recovery
+ *    and adds nothing — it used to add to `restored` and contribute
+ *    `restored − deployed`, i.e. however long the deploy had been healthy.
  */
 function computeMttr(
   correlated: CorrelatedIncident[],
-  mttrRows: Array<MttrPairRow & { outcome: string }>,
+  mttrRows: MttrPairRow[],
 ): DoraMetrics['meanTimeToRestore'] {
   let incidents = 0, restored = 0;
   const mttrGaps: number[] = [];
@@ -442,6 +563,7 @@ function computeMttr(
   const incidentExecs = new Set<string>();
   for (const ci of correlated) {
     if (ci.environment !== HEADLINE_ENV) continue; // MTTR is production-only
+    if (!ci.openedInWindow) continue; // opened after `to`: next window's incident
     incidents++;
     incidentExecs.add(ci.exec);
     if (ci.resolvedGap != null) { restored++; mttrGaps.push(ci.resolvedGap); }
@@ -450,12 +572,15 @@ function computeMttr(
     // Incident precedence: don't double-count a deploy already flagged by an incident.
     if (m.execution_id != null && incidentExecs.has(m.execution_id)) continue;
     if (m.outcome === 'failed') { incidents++; continue; }
-    if (m.outcome === 'restored') {
-      restored++;
-      if (m.restored_at != null && m.deployed_at != null) {
-        const gap = (Date.parse(m.restored_at) - Date.parse(m.deployed_at)) / 1000;
-        if (Number.isFinite(gap)) mttrGaps.push(Math.max(gap, 0));
-      }
+    if (m.outcome !== 'restored') continue;
+    const deployFailed = flag(m.deploy_failed ?? false);
+    const failedAt = m.failed_at ?? (deployFailed ? m.deployed_at : null);
+    if (failedAt == null) continue; // nothing failed: not a recovery
+    if (m.failed_at == null) incidents++; // the deploy-time failure is the incident
+    restored++;
+    if (m.restored_at != null) {
+      const gap = (Date.parse(m.restored_at) - Date.parse(failedAt)) / 1000;
+      if (Number.isFinite(gap)) mttrGaps.push(Math.max(gap, 0));
     }
   }
   const mttrMedian = median(mttrGaps);
@@ -464,8 +589,21 @@ function computeMttr(
     restored,
     medianSeconds: mttrMedian != null ? round(mttrMedian, 1) : null,
     ...tails(mttrGaps),
-    level: doraLevelForRestore(mttrMedian),
+    level: doraLevelForRestore(mttrMedian, mttrGaps.length),
+    n: mttrGaps.length,
   };
+}
+
+/** Window length in days, floored at 1 (a sub-day window reads its count as the rate). */
+function windowDays(from: string, to: string): number {
+  const spanDays = (Date.parse(to) - Date.parse(from)) / 86400000;
+  return Number.isFinite(spanDays) ? Math.max(spanDays, 1) : 1;
+}
+
+/** The window end instant for right-censoring; +Infinity when unparseable (fail-open). */
+function windowEndMs(to: string): number {
+  const toParsed = Date.parse(to);
+  return Number.isFinite(toParsed) ? toParsed : Number.POSITIVE_INFINITY;
 }
 
 /**
@@ -477,7 +615,7 @@ function computeMttr(
 function shapeDora(
   deployRows: DeployRow[],
   outcomeRows: OutcomeRow[],
-  mttrRows: Array<MttrPairRow & { outcome: string }>,
+  mttrRows: MttrPairRow[],
   coverageRow: CoverageRow | undefined,
   incidentRows: IncidentRow[],
   from: string,
@@ -485,18 +623,12 @@ function shapeDora(
   filters: { pipelineId?: string; environment?: string },
   windowHours: number = DORA_INCIDENT_WINDOW_HOURS,
 ): DoraMetrics {
-  // Window length in days (floored at 1 so a sub-day window yields the count as
-  // the rate, never /0 or an extrapolation). Guard unparseable dates → 1 day.
-  const spanDays = (Date.parse(to) - Date.parse(from)) / 86400000;
-  const days = Number.isFinite(spanDays) ? Math.max(spanDays, 1) : 1;
-  // Window end instant for MTTR right-censoring (a resolution after `to` is
-  // unobserved). +Infinity when `to` is unparseable ⇒ no censoring (fail-open).
-  const toParsed = Date.parse(to);
-  const toMs = Number.isFinite(toParsed) ? toParsed : Number.POSITIVE_INFINITY;
+  const days = windowDays(from, to);
+  const toMs = windowEndMs(to);
 
   const envs = accumulateDeploys(deployRows);
   const correlated = correlateIncidents(deployRows, incidentRows, windowHours, toMs);
-  const postDeployByEnv = countPostDeployFailures(envs, outcomeRows, correlated);
+  const postDeployByEnv = countPostDeployFailures(postDeployFailedKeys(deployRows, outcomeRows, correlated));
 
   const registered = Number(coverageRow?.registered) || 0;
   const deploying = Number(coverageRow?.deploying) || 0;
@@ -516,11 +648,53 @@ function shapeDora(
 }
 
 /**
- * DORA trend — deployment frequency + deploy-time change-failure rate
- * bucketed by `interval` (day/week/month) for a sparkline. Deploy-basis like
- * getDoraMetrics: buckets terminal deploy-stage executions on their
- * `completed_at`. Shares the org/rollup + pipelineId/environment scoping. MTTR,
- * lead time, and post-deploy CFR are intentionally omitted (too heavy to bucket).
+ * Bucket the in-window deploys for the trend — the SAME change-failure rate as
+ * the headline, per bucket: deploy-time failures plus post-deploy failures
+ * (manual markers and correlated incidents), each anchored to the bucket its
+ * deploy completed in. Summed over the buckets, `failed`, `postDeployFailures`
+ * and `total` are exactly the headline's `deployTimeFailures`,
+ * `postDeployFailures` and `attempts` for the same window and scope.
+ */
+function shapeTrend(
+  deployRows: Array<DeployRow & { period?: string | null }>,
+  outcomeRows: OutcomeRow[],
+  incidentRows: IncidentRow[],
+  to: string,
+  windowHours: number,
+): DoraTrendPoint[] {
+  const correlated = correlateIncidents(deployRows, incidentRows, windowHours, windowEndMs(to));
+  const flagged = postDeployFailedKeys(deployRows, outcomeRows, correlated);
+  const buckets = new Map<string, DoraTrendPoint>();
+  for (const row of deployRows) {
+    if (!row.environment || !isInWindow(row) || row.period == null) continue;
+    if (row.status !== 'SUCCEEDED' && row.status !== 'FAILED') continue;
+    let b = buckets.get(row.period);
+    if (!b) {
+      b = { period: row.period, deployments: 0, failed: 0, postDeployFailures: 0, total: 0, changeFailurePct: 0 };
+      buckets.set(row.period, b);
+    }
+    b.total++;
+    if (row.status === 'FAILED') {
+      b.failed++;
+    } else {
+      b.deployments++;
+      if (row.execution_id != null && flagged.has(deployKey(row.environment, row.execution_id))) b.postDeployFailures++;
+    }
+  }
+  return [...buckets.values()]
+    .map((b) => ({ ...b, changeFailurePct: b.total > 0 ? round(((b.failed + b.postDeployFailures) / b.total) * 100, 1) : 0 }))
+    .sort((a, b) => a.period.localeCompare(b.period));
+}
+
+/**
+ * DORA trend — deployment frequency + change-failure rate bucketed by
+ * `interval` (day/week/month) for a sparkline, in the report's timezone and week
+ * start. Deploy-basis like getDoraMetrics and built from the SAME scans
+ * ({@link doraScans}): terminal deploy-stage executions bucketed on their
+ * `completed_at`, with the two-class CFR (deploy-time + post-deploy, anchored to
+ * the deploy) the headline uses. Shares the org/rollup + pipelineId/environment
+ * scoping and the incident correlation window. MTTR and lead time are not
+ * bucketed.
  */
 export async function getDoraTrend(
   orgId: string,
@@ -533,38 +707,38 @@ export async function getDoraTrend(
   assertReportInterval(interval);
   const { pred, multi } = orgScope(orgId, orgIds);
   const { pipelineId, environment, tz = 'UTC', weekStart = 'monday' } = opts;
+  const windowHours = resolveIncidentWindowHours(opts.incidentWindowHours);
   const pipelineClause = pipelineId ? sql`AND e.pipeline_id = ${pipelineId}` : sql``;
-  const envClause = environment ? sql`AND e.environment = ${environment}` : sql``;
-  const exec = () => withTenantTx((tx) => tx.execute(sql`
-      WITH deploys AS (
-        -- PER-EXECUTION deploy unit: one row per (environment, execution),
-        -- every deploy STAGE to that env within the execution rolled up to a
-        -- single terminal status — NOT one row per stage.
-        SELECT
-          ${terminalStatusRollup} AS status,
-          MAX(e.completed_at) AS completed_at
-        FROM ${schema.pipelineEvent} e
-        JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
-        WHERE p.org_id ${pred} AND e.event_type = 'STAGE' AND e.environment IS NOT NULL
-          AND ${notOvertaken}
-          ${pipelineClause} ${envClause}
-          AND e.completed_at >= ${from}::timestamptz AND e.completed_at <= ${to}::timestamptz
-        GROUP BY e.environment, e.execution_id
-      )
-      SELECT
-        ${periodBucket(interval, sql`completed_at`, tz, weekStart)}::text AS period,
-        COUNT(*) FILTER (WHERE status = 'SUCCEEDED')::int AS deployments,
-        COUNT(*) FILTER (WHERE status = 'FAILED')::int AS failed,
-        COUNT(*) FILTER (WHERE status IN ('SUCCEEDED', 'FAILED'))::int AS total,
-        -- quoted alias so the raw row key is exactly the DoraTrendPoint field
-        COALESCE(ROUND(COUNT(*) FILTER (WHERE status = 'FAILED')::numeric
-          / NULLIF(COUNT(*) FILTER (WHERE status IN ('SUCCEEDED', 'FAILED')), 0) * 100, 1), 0)::float AS "changeFailurePct"
-      FROM deploys
-      GROUP BY period ORDER BY period
-    `).then(r => drizzleRows<DoraTrendPoint>(r.rows)));
+  const outcomePipelineClause = pipelineId
+    ? sql`AND o.execution_id IN (SELECT pe.execution_id FROM ${schema.pipelineEvent} pe WHERE pe.pipeline_id = ${pipelineId})`
+    : sql``;
+  const fromMs = Date.parse(from);
+  const lookbackFrom = Number.isFinite(fromMs) ? new Date(fromMs - windowHours * 3600 * 1000).toISOString() : from;
+  const { deploySql, outcomeSql, incidentSql } = doraScans({
+    pred,
+    from,
+    to,
+    lookbackFrom,
+    windowHours,
+    pipelineClause,
+    // The trend reports only the requested environment, so — unlike the headline,
+    // which widens to production for MTTR — every scan is strict.
+    deployEnvClause: environment ? sql`AND e.environment = ${environment}` : sql``,
+    outcomeEnvClause: environment ? sql`AND o.environment = ${environment}` : sql``,
+    outcomePipelineClause,
+    incidentEnvClause: environment ? sql`AND i.environment = ${environment}` : sql``,
+    bucket: { interval, tz, weekStart },
+  });
+  const exec = () => withTenantTx(async (tx) => {
+    const deployRows = drizzleRows<DeployRow & { period?: string | null }>((await tx.execute(deploySql)).rows);
+    const outcomeRows = drizzleRows<OutcomeRow>((await tx.execute(outcomeSql)).rows);
+    const incidentRows = drizzleRows<IncidentRow>((await tx.execute(incidentSql)).rows);
+    return shapeTrend(deployRows, outcomeRows, incidentRows, to, windowHours);
+  });
   // The bucketing settings belong in the key: they change which days land in which
-  // period, so a Chicago answer must never be served to a UTC request.
-  const key = `${orgId}:dora-trend:${interval}:${from}:${to}:${pipelineId ?? ''}:${environment ?? ''}:${bucketKey(tz, weekStart)}`;
+  // period, so a Chicago answer must never be served to a UTC request. The
+  // incident window too: it changes which deploys an incident is attributed to.
+  const key = `${orgId}:dora-trend:${interval}:${from}:${to}:${pipelineId ?? ''}:${environment ?? ''}:${bucketKey(tz, weekStart)}:${windowHours}`;
   return runReport(key, multi, exec);
 }
 
