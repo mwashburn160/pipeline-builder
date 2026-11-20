@@ -303,17 +303,28 @@ groups:
       # spec series do not carry identical label sets (`id`, `image`, `name`
       # differ), so an unqualified division silently yields an empty vector.
       #
+      # Every operand is also AGGREGATED to one series per namespace/pod/container
+      # first (`sum by` for the CPU rate, `max by` for the gauges). Without it a
+      # container restart or reschedule breaks the rule: for the length of the
+      # rate window the range still holds the dead container's series beside the
+      # new one (same namespace/pod/container, different `id`/`name`/`node`), the
+      # `on()` join finds two matches, and Prometheus refuses to evaluate it —
+      # "many-to-one matching must be explicit". A failing rule never fires, so
+      # for 5m (Saturated) or 30m (Underutilised) after every postgres move the
+      # rung controller went blind. `sum` is the honest CPU figure across the
+      # restart: total cores used by that container slot over the window.
+      #
       # Primary and standby are told apart by CONTAINER NAME — `postgres` vs
       # `postgres-replica` — because cAdvisor series carry only
       # namespace/pod/container, and a pod-name regex cannot separate
       # `postgres-0` from `postgres-replica-0` robustly.
       - alert: PostgresPrimaryCpuSaturated
         expr: |
-          rate(container_cpu_usage_seconds_total{namespace="pipeline-builder",container="postgres"}[5m])
+          sum by(namespace,pod,container) (rate(container_cpu_usage_seconds_total{namespace="pipeline-builder",container="postgres"}[5m]))
             / on(namespace,pod,container)
-          (container_spec_cpu_quota{namespace="pipeline-builder",container="postgres"}
+          (max by(namespace,pod,container) (container_spec_cpu_quota{namespace="pipeline-builder",container="postgres"})
             / on(namespace,pod,container)
-           container_spec_cpu_period{namespace="pipeline-builder",container="postgres"})
+           max by(namespace,pod,container) (container_spec_cpu_period{namespace="pipeline-builder",container="postgres"}))
             > 0.85
         for: 15m
         labels:
@@ -332,9 +343,9 @@ groups:
       # has to fire while there is still headroom, not at the limit.
       - alert: PostgresPrimaryMemoryPressure
         expr: |
-          container_memory_working_set_bytes{namespace="pipeline-builder",container="postgres"}
+          max by(namespace,pod,container) (container_memory_working_set_bytes{namespace="pipeline-builder",container="postgres"})
             / on(namespace,pod,container)
-          container_spec_memory_limit_bytes{namespace="pipeline-builder",container="postgres"}
+          max by(namespace,pod,container) (container_spec_memory_limit_bytes{namespace="pipeline-builder",container="postgres"})
             > 0.80
         for: 10m
         labels:
@@ -351,11 +362,11 @@ groups:
       # what keeps one alert file for every Kubernetes target.
       - alert: PostgresReadReplicaSaturated
         expr: |
-          rate(container_cpu_usage_seconds_total{namespace="pipeline-builder",container="postgres-replica"}[5m])
+          sum by(namespace,pod,container) (rate(container_cpu_usage_seconds_total{namespace="pipeline-builder",container="postgres-replica"}[5m]))
             / on(namespace,pod,container)
-          (container_spec_cpu_quota{namespace="pipeline-builder",container="postgres-replica"}
+          (max by(namespace,pod,container) (container_spec_cpu_quota{namespace="pipeline-builder",container="postgres-replica"})
             / on(namespace,pod,container)
-           container_spec_cpu_period{namespace="pipeline-builder",container="postgres-replica"})
+           max by(namespace,pod,container) (container_spec_cpu_period{namespace="pipeline-builder",container="postgres-replica"}))
             > 0.85
         for: 15m
         labels:
@@ -491,18 +502,18 @@ groups:
       - alert: PostgresPrimaryUnderutilised
         expr: |
           (
-            rate(container_cpu_usage_seconds_total{namespace="pipeline-builder",container="postgres"}[30m])
+            sum by(namespace,pod,container) (rate(container_cpu_usage_seconds_total{namespace="pipeline-builder",container="postgres"}[30m]))
               / on(namespace,pod,container)
-            (container_spec_cpu_quota{namespace="pipeline-builder",container="postgres"}
+            (max by(namespace,pod,container) (container_spec_cpu_quota{namespace="pipeline-builder",container="postgres"})
               / on(namespace,pod,container)
-             container_spec_cpu_period{namespace="pipeline-builder",container="postgres"})
+             max by(namespace,pod,container) (container_spec_cpu_period{namespace="pipeline-builder",container="postgres"}))
               < 0.30
           )
           and on(namespace,pod,container)
           (
-            container_memory_working_set_bytes{namespace="pipeline-builder",container="postgres"}
+            max by(namespace,pod,container) (container_memory_working_set_bytes{namespace="pipeline-builder",container="postgres"})
               / on(namespace,pod,container)
-            container_spec_memory_limit_bytes{namespace="pipeline-builder",container="postgres"}
+            max by(namespace,pod,container) (container_spec_memory_limit_bytes{namespace="pipeline-builder",container="postgres"})
               < 0.40
           )
         for: 2h
@@ -536,18 +547,18 @@ groups:
       - alert: PostgresReadReplicaUnderutilised
         expr: |
           (
-            rate(container_cpu_usage_seconds_total{namespace="pipeline-builder",container="postgres-replica"}[30m])
+            sum by(namespace,pod,container) (rate(container_cpu_usage_seconds_total{namespace="pipeline-builder",container="postgres-replica"}[30m]))
               / on(namespace,pod,container)
-            (container_spec_cpu_quota{namespace="pipeline-builder",container="postgres-replica"}
+            (max by(namespace,pod,container) (container_spec_cpu_quota{namespace="pipeline-builder",container="postgres-replica"})
               / on(namespace,pod,container)
-             container_spec_cpu_period{namespace="pipeline-builder",container="postgres-replica"})
+             max by(namespace,pod,container) (container_spec_cpu_period{namespace="pipeline-builder",container="postgres-replica"}))
               < 0.30
           )
           and on(namespace,pod,container)
           (
-            container_memory_working_set_bytes{namespace="pipeline-builder",container="postgres-replica"}
+            max by(namespace,pod,container) (container_memory_working_set_bytes{namespace="pipeline-builder",container="postgres-replica"})
               / on(namespace,pod,container)
-            container_spec_memory_limit_bytes{namespace="pipeline-builder",container="postgres-replica"}
+            max by(namespace,pod,container) (container_spec_memory_limit_bytes{namespace="pipeline-builder",container="postgres-replica"})
               < 0.40
           )
         for: 2h
