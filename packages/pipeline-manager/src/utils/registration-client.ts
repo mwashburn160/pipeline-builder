@@ -60,7 +60,7 @@ export async function resolveRegistrationClient(opts: {
     return undefined;
   }
 
-  printInfo('Registering with the pipeline-registration key', { secret: secretName });
+  printInfo('Registering with the pipeline-registration key', { secretName });
   const config = opts.client.getConfig();
   return new ApiClient({ ...config, auth: { ...config.auth, token: key } });
 }

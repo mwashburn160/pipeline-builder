@@ -201,11 +201,12 @@ fi
 # The policies are created by bin/setup.sh with `aws iam create-policy` — they
 # belong to no CloudFormation stack, so NOTHING else deletes them. Every one
 # setup.sh can create must be named below, or a teardown that claims to leak
-# nothing orphans it: <cluster>-eks-ses (EMAIL_ENABLED), -eks-pipeline-exec
-# (ALWAYS), -eks-marketplace (BILLING_PROVIDER=aws-marketplace),
+# nothing orphans it: <cluster>-eks-ses (EMAIL_ENABLED),
+# -eks-marketplace (BILLING_PROVIDER=aws-marketplace),
 # -eks-plugin-signing (PLUGIN_SIGNING_MODE=kms), -eks-token-signing
-# (TOKEN_SIGNING_MODE=kms — the AWS default), -eks-secret-encryption-platform
-# and -plugin (SECRET_ENCRYPTION_KMS_KEY_ID) and -eks-secret-encryption-per-org
+# (TOKEN_SIGNING_MODE=kms — the AWS default), -eks-secret-encryption-platform,
+# -plugin and -pipeline (SECRET_ENCRYPTION_KMS_KEY_ID) and
+# -eks-secret-encryption-per-org and -per-org-pipeline
 # (SECRET_ENCRYPTION_PER_ORG_KMS=true).
 #
 # These are deleted with or without --domain: each is bound to a Pod Identity
@@ -264,13 +265,14 @@ delete_token_signing_key() {
 
 if [ -n "$ACCOUNT_ID" ] && [ "$ACCOUNT_ID" != None ]; then
   delete_managed_policy "${CLUSTER_NAME}-eks-ses"
-  delete_managed_policy "${CLUSTER_NAME}-eks-pipeline-exec"
   delete_managed_policy "${CLUSTER_NAME}-eks-marketplace"
   delete_managed_policy "${CLUSTER_NAME}-eks-plugin-signing"
   delete_managed_policy "${CLUSTER_NAME}-eks-token-signing"
   delete_managed_policy "${CLUSTER_NAME}-eks-secret-encryption-platform"
   delete_managed_policy "${CLUSTER_NAME}-eks-secret-encryption-plugin"
+  delete_managed_policy "${CLUSTER_NAME}-eks-secret-encryption-pipeline"
   delete_managed_policy "${CLUSTER_NAME}-eks-secret-encryption-per-org"
+  delete_managed_policy "${CLUSTER_NAME}-eks-secret-encryption-per-org-pipeline"
   delete_token_signing_key
 
   # The Marketplace license-events rule + topic (BILLING_PROVIDER=aws-marketplace).

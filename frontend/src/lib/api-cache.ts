@@ -32,14 +32,15 @@ import type { LookupWarning } from './plugin-vulns';
 /**
  * Stable key fragment for a params object — sorted, `undefined` dropped — so
  * `{limit:1, search:''}` and `{search:'', limit:1}` are one cache entry rather
- * than two.
+ * than two. Names and values are URI-encoded so a search term holding `&` or
+ * `=` cannot collide with a different filter's key.
  */
 function stable(params?: Record<string, unknown>): string {
   if (!params) return '';
   return Object.keys(params)
     .filter((k) => params[k] !== undefined)
     .sort()
-    .map((k) => `${k}=${String(params[k])}`)
+    .map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(String(params[k]))}`)
     .join('&');
 }
 

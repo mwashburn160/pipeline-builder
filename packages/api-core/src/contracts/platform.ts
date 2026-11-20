@@ -12,6 +12,8 @@
  *  - `/internal/reporting/*` — identity facts and access posture (reporting).
  *  - `/internal/support/entitlement/:orgId` — support entitlement (message).
  *  - `/internal/ai/*` — an org's AI switch, providers and decrypted key.
+ *  - `/internal/kms-config/:orgId` — an org's per-org KMS config (pipeline's
+ *    runner-signing-key encryption).
  *  - `/internal/ops/*` — the identity facts ops-center needs (an org's
  *    account root for feature quotas, and the audit-activity aggregations its
  *    dashboards render over platform's Mongo audit trail).
@@ -521,21 +523,25 @@ export const PLATFORM_INTERNAL = {
     response: z.object({ provider: z.string().optional(), apiKey: z.string().min(1) }),
   }),
   /**
-   * The org's resolved feature flags: its tier defaults plus the account's
-   * feature entitlements (pooled at the account root for a team) — the
-   * org-level half of a token's `features`, without any user's overrides. The
-   * pipeline service's runner dispatcher re-checks `cross_account_runners`
-   * with it outside any request. 404 for an unknown or deleted org.
+   * An org's per-org KMS config (`Organization.kmsConfig`) — what the pipeline
+   * service's `PerOrgKmsResolver` needs to encrypt and decrypt that org's runner
+   * signing keys when `SECRET_ENCRYPTION_PER_ORG_KMS=true` (the provider is only
+   * wired in platform otherwise). `kmsConfig: null` = the org has none and uses
+   * the shared provider. The ciphertext is the KMS-WRAPPED master (useless
+   * without `kms:Decrypt`), but it is still never logged. The caller caches it
+   * (60 s). 404 for an unknown or deleted org.
    */
-  orgFeatures: defineInternalEndpoint({
-    id: 'platform.orgFeatures',
+  orgKmsConfig: defineInternalEndpoint({
+    id: 'platform.orgKmsConfig',
     service: 'platform',
     method: 'GET',
-    path: '/internal/features/:orgId',
+    path: '/internal/kms-config/:orgId',
     callers: ['pipeline'],
-    auth: AI_AUTH,
+    auth: SERVICE_TOKEN,
     params: z.object({ orgId: orgIdParam }),
-    response: z.object({ features: stringList }),
+    response: z.object({
+      kmsConfig: z.object({ keyId: z.string().min(1), ciphertextBase64: z.string().min(1) }).nullable(),
+    }),
   }),
   /**
    * The ACCOUNT ROOT of an org (the top of its team ancestry; a flat org is its

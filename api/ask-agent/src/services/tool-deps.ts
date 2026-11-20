@@ -6,8 +6,8 @@
  * tool module can depend on the deps without depending on the composer.
  */
 
-import type { Permission } from '@pipeline-builder/api-core';
 import type { GroundingIndex, ResolvedModelSelection } from '@pipeline-builder/ai-core';
+import type { Permission } from '@pipeline-builder/api-core';
 import { z } from 'zod';
 
 import type { EmailSwitch, ServiceClient } from './internal-http.js';

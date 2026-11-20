@@ -16,10 +16,12 @@ export interface OnboardingSignals {
   pipelineCount: number;
   /** Total executions ever, across all pipelines. */
   executionCount: number;
+  /** Runners the org has registered, when known (a run implies one). */
+  runnerCount?: number;
 }
 
 interface OnboardingStep {
-  id: 'explore-plugins' | 'create-pipeline' | 'run-build';
+  id: 'explore-plugins' | 'create-pipeline' | 'install-runner' | 'run-build';
   title: string;
   description: string;
   href: string;
@@ -58,7 +60,12 @@ export function isFreshAccount(
   return true;
 }
 
-/** Compute the current 3-step state. */
+/** Settings → Organization → Pipeline runners (kept here, not imported, so this
+ *  module stays free of the runner copy). */
+const PIPELINE_RUNNERS_SETTINGS_HREF = '/dashboard/settings?tab=organization#pipeline-runners';
+
+/** Compute the current step state. Every pipeline runs through a runner, so
+ *  "Install a runner" comes before "Run your first pipeline". */
 export function buildSteps(signals: OnboardingSignals): OnboardingStep[] {
   return [
     {
@@ -76,8 +83,15 @@ export function buildSteps(signals: OnboardingSignals): OnboardingStep[] {
       done: signals.pipelineCount > 0,
     },
     {
+      id: 'install-runner',
+      title: 'Install a runner',
+      description: 'Every pipeline runs through a runner in its AWS account — one runner per account for your organization.',
+      href: PIPELINE_RUNNERS_SETTINGS_HREF,
+      done: (signals.runnerCount ?? 0) > 0 || signals.executionCount > 0,
+    },
+    {
       id: 'run-build',
-      title: 'Run your first build',
+      title: 'Run your first pipeline',
       description: 'Trigger a pipeline from the pipelines list to see it in action.',
       href: '/dashboard/pipelines',
       done: signals.executionCount > 0,
@@ -85,7 +99,7 @@ export function buildSteps(signals: OnboardingSignals): OnboardingStep[] {
   ];
 }
 
-/** Number of steps already completed (0–3). */
+/** Number of steps already completed. */
 export function completedCount(steps: OnboardingStep[]): number {
   return steps.filter((s) => s.done).length;
 }

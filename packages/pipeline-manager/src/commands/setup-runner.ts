@@ -6,18 +6,39 @@
  * PIPELINE RUNNER in the AWS account the operator's credentials point at.
  *
  * The runner is a Lambda (src/lambda/runner-handler.ts) that starts and stops
- * this account's pipelines with its own role, on requests the platform SIGNS and
- * POSTs to its endpoint. The platform never gets AWS access, a role ARN or this
- * account's number, and the runner holds no platform credential.
+ * this account's pipelines with its own role, on requests the platform SIGNS
+ * with the owning organization's runner signing key and POSTs to its endpoint.
+ * The runner verifies them against its own key set,
+ * `<platform>/api/pipelines/runner/runners/<runnerId>/jwks.json`. The platform
+ * never gets AWS access, a role ARN or this account's number, and the runner
+ * holds no platform credential.
  *
- *   install: register a PENDING runner (step-up) → deploy the stack ONCE with
- *     its RUNNER_ID → upload the handler → read the endpoint (Function URL, or
- *     the IP-allowlisted API Gateway) from the stack outputs → PATCH it onto the
- *     runner (step-up). The platform then sends a signed ping addressed to that
- *     id; a `pong` makes the runner active. A runner never answers anyone else.
- *   update (the stack already names a runner): redeploy + upload in place; a
- *     still-pending runner, or one whose endpoint changed, gets the URL PATCHed;
- *     an active one is test-pinged.
+ * ONE RUNNER PER AWS ACCOUNT PER ORGANIZATION. One runner covers every region
+ * in its --regions, so an organization never needs a second one in an account.
+ * Before anything is created, the account's runner stacks
+ * (`pipeline-builder-runner-*` in the stack region and every --regions region)
+ * are listed and each one's RunnerId is checked against the org's runner list:
+ *   - the org's own runner with this --label: update it in place;
+ *   - the org's own runner with another label: refused (update that one);
+ *   - a parent organization's shared runner: warned (the team already reaches
+ *     this account through it) and confirmed (--yes skips the question);
+ *   - anyone else's: allowed, with a warning that a shared AWS account is a
+ *     shared trust boundary and that each org should use distinct
+ *     ALLOWED_PIPELINE_PREFIXES (--pipeline-prefix).
+ *
+ *   install: register a PENDING runner (step-up) → deploy the stack
+ *     `pipeline-builder-runner-<runnerId>` ONCE with its RUNNER_ID (the label is
+ *     the stack tag pb.runner-label) → upload the handler → read the endpoint
+ *     (Function URL, or the IP-allowlisted API Gateway) from the stack outputs →
+ *     PATCH it onto the runner (step-up). The platform then sends a signed ping
+ *     addressed to that id; a `pong` makes the runner active.
+ *   signing key: a root org's key is created with its first runner. An org with
+ *     no effective key is refused before anything is deployed, unless
+ *     --generate-key creates one (step-up); an org that inherits its key from a
+ *     parent with none is told to ask that parent.
+ *   update (the account has this org's runner with this label): redeploy +
+ *     upload in place; a still-pending runner, or one whose endpoint changed,
+ *     gets the URL PATCHed; an active one is test-pinged.
  *   --delete: revoke on the platform FIRST (step-up), then delete the stack.
  *   --with-events: afterwards run `infra setup-events --scoped-ingest`, so
  *     executions started through the runner report their status.
@@ -28,13 +49,17 @@
 import { execFileSync } from 'child_process';
 import { createHash } from 'crypto';
 import * as fs from 'fs';
+import * as readline from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
 import * as os from 'os';
 import path from 'path';
-import { CloudFormationClient, DeleteStackCommand, DescribeStacksCommand, waitUntilStackDeleteComplete } from '@aws-sdk/client-cloudformation';
+import {
+  CloudFormationClient, DeleteStackCommand, DescribeStacksCommand, type Stack, waitUntilStackDeleteComplete,
+} from '@aws-sdk/client-cloudformation';
 import { LambdaClient, UpdateFunctionCodeCommand, waitUntilFunctionUpdatedV2 } from '@aws-sdk/client-lambda';
 import {
-  RUNNER_ERRORS, RUNNER_FEATURE, type RunnerErrorCode, type RunnerHealth, type RunnerOutcome, type RunnerStatus,
+  RUNNER_ERRORS, runnerJwksPath, type RunnerErrorCode, type RunnerHealth, type RunnerOutcome, type RunnerSigningKeyDto,
+  type RunnersUnavailableReason, type RunnerStatus,
 } from '@pipeline-builder/api-core/pipeline-runners';
 import { Command } from 'commander';
 import { buildStepUpProvider, chooseStepUp } from './store-token.js';
@@ -48,14 +73,16 @@ import { printInfo, printKeyValue, printSection, printSuccess, printWarning, set
 import { ensurePlatformToken } from '../utils/platform-secret.js';
 import { extractListPage } from '../utils/response-utils.js';
 import {
-  buildRunnerTemplate, pipelineActionResources, RUNNER_PIPELINE_ACTIONS, runnerFunctionName,
-  runnerStackName, runnerStackParameters,
+  buildRunnerTemplate, DEFAULT_WAF_RATE_LIMIT, pipelineActionResources, RUNNER_LABEL_TAG, RUNNER_PIPELINE_ACTIONS, RUNNER_STACK_PREFIX,
+  runnerFunctionName, runnerStackName, runnerStackParameters, WAF_RATE_LIMIT_MAX, WAF_RATE_LIMIT_MIN,
 } from '../utils/runner-template.js';
 import { STEP_UP_HEADER, type StepUpProvider } from '../utils/service-account.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const RUNNERS_ROUTE = '/api/pipelines/runners';
+const SIGNING_KEY_ROUTE = `${RUNNERS_ROUTE}/signing-key`;
+const RUNNERS_PANEL = 'Settings → Organization → Pipeline runners';
 
 // ─── Plan (pure, offline) ────────────────────────────────────────────────────
 
@@ -66,6 +93,12 @@ export interface RunnerPlanInput {
   pipelinePrefix?: string;
   apiGateway?: boolean;
   allowIp?: string[];
+  /** commander's `--no-waf` (true unless given). */
+  waf?: boolean;
+  /** `--waf-rate-limit <n>` as typed. */
+  wafRateLimit?: string | number;
+  /** `--generate-key`: create the org's signing key (step-up) when it has none. */
+  generateKey?: boolean;
   yes?: boolean;
   delete?: boolean;
   withEvents?: boolean;
@@ -77,12 +110,19 @@ export interface RunnerPlan {
   region: string;
   /** Where the runner may act. */
   regions: string[];
+  /** Where the account's runner stacks are looked for: the stack region, then every --regions region. */
+  scanRegions: string[];
   /** Explicit prefixes, or undefined = derive from the org's registered pipeline names. */
   prefixes?: string[];
   apiGateway: boolean;
   allowIps: string[];
-  stackName: string;
-  functionName: string;
+  /** The API's WAFv2 rate limit is attached (api-gateway only). */
+  waf: boolean;
+  /** Requests per 5 minutes per source IP (meaningful when `waf`). */
+  wafRateLimit: number;
+  generateKey: boolean;
+  /** --yes: confirms '*' prefixes and installing beside a parent organization's shared runner. */
+  yes: boolean;
   delete: boolean;
   withEvents: boolean;
 }
@@ -125,15 +165,32 @@ export function planRunner(input: RunnerPlanInput): RunnerPlan {
   if (!apiGateway && allowIps.length > 0) throw new ValidationError('--allow-ip applies only with --api-gateway', 'allow-ip');
   for (const ip of allowIps) if (!IPV4_CIDR_RE.test(ip) && !IPV6_CIDR_RE.test(ip)) throw new ValidationError(`--allow-ip "${ip}" is not a CIDR`, 'allow-ip');
 
+  const wafWanted = input.waf !== false;
+  let wafRateLimit = DEFAULT_WAF_RATE_LIMIT;
+  if (input.wafRateLimit !== undefined) {
+    if (!apiGateway) throw new ValidationError('--waf-rate-limit applies only with --api-gateway (a Function URL has no WAF)', 'waf-rate-limit');
+    if (!wafWanted) throw new ValidationError('--waf-rate-limit and --no-waf contradict each other', 'waf-rate-limit');
+    const raw = String(input.wafRateLimit).trim();
+    const n = Number(raw);
+    if (!/^\d+$/.test(raw) || n < WAF_RATE_LIMIT_MIN || n > WAF_RATE_LIMIT_MAX) {
+      throw new ValidationError(`--waf-rate-limit "${input.wafRateLimit}" must be a whole number of requests per 5 minutes per IP, ${WAF_RATE_LIMIT_MIN}-${WAF_RATE_LIMIT_MAX}`, 'waf-rate-limit');
+    }
+    wafRateLimit = n;
+  }
+  if (input.generateKey && input.delete) throw new ValidationError('--generate-key and --delete contradict each other', 'generate-key');
+
   return {
     label,
     region: input.region,
     regions,
+    scanRegions: [...new Set([input.region, ...regions])],
     ...(prefixes ? { prefixes } : {}),
     apiGateway,
     allowIps,
-    stackName: runnerStackName(label),
-    functionName: runnerFunctionName(label),
+    waf: apiGateway && wafWanted,
+    wafRateLimit,
+    generateKey: !!input.generateKey,
+    yes: !!input.yes,
     delete: !!input.delete,
     withEvents: !!input.withEvents && !input.delete,
   };
@@ -153,28 +210,38 @@ export function prefixesFromPipelineNames(names: string[]): string[] {
   return [...out].sort();
 }
 
+/** The stack name and JWKS path before the runner id is known (dry run, help). */
+const STACK_NAME_PATTERN = runnerStackName('<runnerId>');
+const JWKS_PATH_PATTERN = runnerJwksPath('RUNNER_ID').replace('RUNNER_ID', '<runnerId>');
+
 /** What a dry run prints. No call of any kind is made to build it. */
 export function describePlan(plan: RunnerPlan, bundleSha256?: string): Record<string, unknown> {
   const steps = plan.delete
-    ? ['revoke the runner on the platform (step-up)', `delete stack ${plan.stackName}`]
-    : ['register a pending runner with the platform (step-up)', `deploy stack ${plan.stackName} with its RUNNER_ID`, 'upload the runner handler',
+    ? [`find this organization's runner "${plan.label}" among the account's runner stacks (${plan.scanRegions.join(', ')})`,
+      'revoke the runner on the platform (step-up)', 'delete its stack']
+    : [`list the account's runner stacks (${plan.scanRegions.join(', ')}): one runner per AWS account per organization`,
+      ...(plan.generateKey ? ['generate the organization\'s runner signing key if it has none (step-up)'] : []),
+      'register a pending runner with the platform (step-up)', `deploy stack ${STACK_NAME_PATTERN} with its RUNNER_ID`, 'upload the runner handler',
       `read the ${plan.apiGateway ? 'API Gateway' : 'Function URL'} endpoint from the stack (never printed)`,
       'send the endpoint to the platform (step-up); it pings the runner, and a pong makes it active',
       ...(plan.withEvents ? [`run infra setup-events --scoped-ingest in ${plan.region}`] : [])];
   return {
-    stackName: plan.stackName,
+    stackName: STACK_NAME_PATTERN,
+    stackTags: { [RUNNER_LABEL_TAG]: plan.label },
     label: plan.label,
     region: plan.region,
     regions: plan.regions,
     pipelinePrefixes: plan.prefixes ?? '(derived from your org\'s registered pipeline names at setup)',
     entryPoint: plan.apiGateway ? 'api-gateway' : 'function-url',
     ...(plan.apiGateway ? { allowIps: plan.allowIps } : {}),
+    ...(plan.apiGateway ? { waf: plan.waf ? { rateLimit: plan.wafRateLimit, per: '5 minutes per source IP', action: 'block' } : 'disabled (--no-waf)' } : {}),
     iam: {
       'tag:GetResources': '*',
       [RUNNER_PIPELINE_ACTIONS.join(', ')]: plan.prefixes
         ? pipelineActionResources(plan.regions, plan.prefixes).map((r) => r['Fn::Sub'])
         : '(one ARN per region x derived prefix)',
     },
+    jwksUrl: `<platform>${JWKS_PATH_PATTERN}`,
     ...(bundleSha256 ? { bundleSha256 } : {}),
     steps,
   };
@@ -200,14 +267,41 @@ export interface RunnerDto {
   functionUrl?: string | null;
 }
 
+/** A parent organization's runner shared with this team (`inherited` on the runner list). */
+export interface InheritedRunnerDto extends RunnerDto {
+  fromOrgId?: string;
+  fromOrgName?: string;
+}
+
+/** What `GET /pipelines/runners` tells setup-runner. */
+export interface RunnerList {
+  own: RunnerDto[];
+  inherited: InheritedRunnerDto[];
+  signingKey: RunnerSigningKeyDto | null;
+}
+
+/** One `pipeline-builder-runner-*` stack in the account (read with the operator's credentials, never sent to the platform). */
+export interface RunnerStackInfo {
+  stackName: string;
+  region: string;
+  /** Its RunnerId parameter (the function's RUNNER_ID). */
+  runnerId?: string;
+  /** Its pb.runner-label tag. */
+  label?: string;
+  /** Its AllowedPipelinePrefixes parameter. */
+  prefixes: string[];
+}
+
 export interface SetupRunnerDeps {
   platform: PlatformApi;
   platformBaseUrl: string;
   stepUp: StepUpProvider;
   /** `aws cloudformation deploy` of the given template (written to a temp file). */
-  deployStack(a: { stackName: string; template: Record<string, unknown>; parameters: string[]; region: string }): Promise<void>;
+  deployStack(a: { stackName: string; template: Record<string, unknown>; parameters: string[]; tags: Record<string, string>; region: string }): Promise<void>;
   /** The stack's outputs and parameters, or undefined when it does not exist. */
   describeStack(stackName: string, region: string): Promise<{ outputs: Record<string, string>; parameters: Record<string, string> } | undefined>;
+  /** Every runner stack (`pipeline-builder-runner-*`) in these regions of the account. */
+  listRunnerStacks(regions: string[]): Promise<RunnerStackInfo[]>;
   deleteStack(stackName: string, region: string): Promise<void>;
   /** Upload the bundled runner handler and wait until the function is updated. */
   uploadCode(functionName: string, region: string): Promise<void>;
@@ -217,6 +311,8 @@ export interface SetupRunnerDeps {
   bundleSha256(): string;
   /** `infra setup-events --scoped-ingest` in the region (--with-events). */
   runSetupEvents(region: string): Promise<void>;
+  /** A y/N question; false when nobody can answer (not a terminal, --json). */
+  confirm(question: string): Promise<boolean>;
   warn(message: string): void;
 }
 
@@ -244,8 +340,25 @@ function refusal(err: unknown): { status?: number; code?: string; message: strin
   };
 }
 
-export const RUNNERS_NOT_ENABLED_MESSAGE = 'Cross-account runners are not enabled for your organization — ask your platform operator.';
-export const NO_SIGNING_KEY_MESSAGE = 'Cross-account runners are unavailable: this platform has no runner signing key configured (RUNNER_SIGNING_KEY) — ask your platform operator.';
+/** Why the platform cannot take runners right now (`available: false` / 409 RUNNERS_UNAVAILABLE). */
+export function runnersUnavailableMessage(reason?: RunnersUnavailableReason | null): string {
+  if (reason === 'paused') return 'Pipeline runs through runners are paused on this platform by its operator. Try again once they are resumed.';
+  if (reason === 'encryption_not_configured') return 'Runners are unavailable: this platform has no secret encryption configured for runner signing keys — ask your platform operator.';
+  if (reason === 'tables_missing') return 'Runners are unavailable: this platform\'s database has no runner tables — ask your platform operator.';
+  return 'Runners are unavailable on this platform right now — ask your platform operator.';
+}
+
+/** The org has no effective signing key and none will be created by this run. */
+export const NO_ORG_KEY_MESSAGE = 'Your organization has no runner signing key yet, so the platform cannot sign requests to a runner. '
+  + `Re-run with --generate-key, or generate one under ${RUNNERS_PANEL} (Signing key), then run setup-runner again.`;
+
+export const KEY_UNREADABLE_MESSAGE = 'Your organization\'s runner signing key can\'t be read, so runs through your runners are paused until your platform operator fixes it (RUNNER_KEY_UNREADABLE).';
+
+/** A team that inherits its key from a parent with no key: only that parent (or switching to its own key) can fix it. */
+export function inheritedNoKeyMessage(parentName: string | undefined): string {
+  return `Your organization uses the runner signing key of ${parentName ? `"${parentName}"` : 'its parent organization'}, which has no key yet. `
+    + `Ask that organization's admins to generate one, or switch to your own key (Use our own key) under ${RUNNERS_PANEL}.`;
+}
 
 /** Turn the runner-specific refusals into what the operator should do. Anything else is rethrown as-is. */
 export function explainRunnerError(err: unknown): never {
@@ -253,16 +366,16 @@ export function explainRunnerError(err: unknown): never {
   const code = r.code as RunnerErrorCode | undefined;
   if (code === 'RUNNER_PING_FAILED' || r.status === RUNNER_ERRORS.RUNNER_PING_FAILED.httpStatus) {
     throw new Error('The platform could not get a pong from the runner at its endpoint (RUNNER_PING_FAILED). The stack is deployed and the runner stays pending: '
-      + 'check the runner\'s CloudWatch logs (/aws/lambda/pipeline-builder-runner-<label>) — a wrong PLATFORM_BASE_URL or RUNNER_ID, or an endpoint the platform cannot reach, shows there — '
+      + 'check the runner\'s CloudWatch logs (/aws/lambda/pipeline-builder-runner-<runnerId>) — a wrong PLATFORM_BASE_URL or RUNNER_ID, or an endpoint the platform cannot reach, shows there — '
       + 'then re-run setup-runner to retry. The platform removes a runner still pending after 24 h.');
   }
   if (code === 'RUNNER_PENDING') {
     throw new Error('The runner is still pending: its endpoint has not answered the platform\'s ping yet. Re-run setup-runner to send the endpoint again.');
   }
-  // requireFeature's 403 (code INSUFFICIENT_PERMISSIONS) names the flag: `... (cross_account_runners)`.
-  if (r.status === 403 && r.message.includes(RUNNER_FEATURE)) {
-    throw new Error(RUNNERS_NOT_ENABLED_MESSAGE);
-  }
+  if (code === 'RUNNER_KEY_MISSING') throw new Error(NO_ORG_KEY_MESSAGE);
+  if (code === 'RUNNER_KEY_UNREADABLE') throw new Error(KEY_UNREADABLE_MESSAGE);
+  if (code === 'RUNNER_KEY_INHERITED') throw new Error(inheritedNoKeyMessage(undefined));
+  if (code === 'RUNNERS_UNAVAILABLE') throw new Error(runnersUnavailableMessage(null));
   throw err;
 }
 
@@ -274,10 +387,12 @@ async function guarded<T>(call: () => Promise<T>): Promise<T> {
   }
 }
 
-async function listOwnRunners(deps: SetupRunnerDeps): Promise<RunnerDto[]> {
-  const res = unwrap<{ available?: boolean; own?: RunnerDto[] }>(await guarded(() => deps.platform.get(RUNNERS_ROUTE)));
-  if (res.available === false) throw new Error(NO_SIGNING_KEY_MESSAGE);
-  return res.own ?? [];
+async function listRunners(deps: SetupRunnerDeps): Promise<RunnerList> {
+  const res = unwrap<{ available?: boolean; unavailableReason?: RunnersUnavailableReason | null; own?: RunnerDto[]; inherited?: InheritedRunnerDto[]; signingKey?: RunnerSigningKeyDto | null }>(
+    await guarded(() => deps.platform.get(RUNNERS_ROUTE)),
+  );
+  if (res.available === false) throw new Error(runnersUnavailableMessage(res.unavailableReason));
+  return { own: res.own ?? [], inherited: res.inherited ?? [], signingKey: res.signingKey ?? null };
 }
 
 async function testRunner(deps: SetupRunnerDeps, runnerId: string): Promise<{ ok: boolean; outcome?: RunnerOutcome; errorCode?: string }> {
@@ -302,6 +417,14 @@ async function resolvePrefixes(plan: RunnerPlan, deps: SetupRunnerDeps): Promise
   return derived;
 }
 
+/** Where the org's signing key came from on this run. Key ids only. */
+export interface SigningKeyStatus {
+  /** existing: the org (own mode) has one; inherited: a parent's; generated: --generate-key now; with-first-runner: the platform creates it on registration. */
+  origin: 'existing' | 'inherited' | 'generated' | 'with-first-runner';
+  kid: string | null;
+  inheritedFrom?: string;
+}
+
 export interface SetupRunnerResult {
   action: 'created' | 'updated' | 'deleted';
   runnerId?: string;
@@ -313,33 +436,141 @@ export interface SetupRunnerResult {
   /** pending | active, as the platform last reported it. */
   status?: string;
   test?: { ok: boolean; outcome?: RunnerOutcome; errorCode?: string };
+  /** The runner's own key set: what it verifies every request against. */
+  jwksUrl?: string;
+  signingKey?: SigningKeyStatus;
   bundleSha256?: string;
   eventsStack?: 'present' | 'missing' | 'deployed';
 }
 
-/**
- * Which runner this stack is: the one it already names, else a pending one left
- * by an interrupted install of this label, else a new pending runner (step-up).
- */
-async function bindRunner(plan: RunnerPlan, deps: SetupRunnerDeps, own: RunnerDto[]): Promise<{ runner: RunnerDto; action: 'created' | 'updated' }> {
-  const existing = await deps.describeStack(plan.stackName, plan.region);
-  const boundId = existing?.parameters.RunnerId || undefined;
-  if (boundId) {
-    const runner = own.find((r) => r.id === boundId);
-    if (!runner || runner.status === 'revoked') {
-      throw new ValidationError(
-        `Stack ${plan.stackName} belongs to runner ${boundId}, which the platform no longer has (revoked, or a pending runner older than 24 h). `
-        + `Remove it with "pipeline-manager infra setup-runner --label ${plan.label} --region ${plan.region} --delete", then install again.`, 'label');
-    }
-    return { runner, action: 'updated' };
+// ─── One runner per AWS account per organization ─────────────────────────────
+
+/** The account's runner stacks, sorted by whose runner each one is. */
+export interface AccountRunners {
+  /** This org's runners (RunnerId is in its own list). */
+  own: Array<{ stack: RunnerStackInfo; runner: RunnerDto }>;
+  /** A parent organization's runners shared with this org. */
+  inherited: Array<{ stack: RunnerStackInfo; runner: InheritedRunnerDto }>;
+  /** Anyone else's (another organization's, or a stale stack of a revoked runner). */
+  foreign: RunnerStackInfo[];
+}
+
+/** Sort the account's runner stacks by reading each RunnerId against the org's runner list. */
+export function classifyAccountRunners(stacks: RunnerStackInfo[], list: RunnerList): AccountRunners {
+  const out: AccountRunners = { own: [], inherited: [], foreign: [] };
+  for (const stack of stacks) {
+    const own = stack.runnerId ? list.own.find((r) => r.id === stack.runnerId) : undefined;
+    if (own) { out.own.push({ stack, runner: own }); continue; }
+    const inherited = stack.runnerId ? list.inherited.find((r) => r.id === stack.runnerId) : undefined;
+    if (inherited) { out.inherited.push({ stack, runner: inherited }); continue; }
+    out.foreign.push(stack);
   }
-  const pending = own.find((r) => r.label === plan.label && r.status === 'pending');
-  if (pending) return { runner: pending, action: 'updated' };
+  return out;
+}
+
+/** Two prefix sets can name the same pipeline ('*' overlaps everything; 'acme-' overlaps 'acme-web-'). */
+export function prefixesOverlap(a: string[], b: string[]): boolean {
+  if (a.includes('*') || b.includes('*')) return a.length > 0 && b.length > 0;
+  return a.some((x) => b.some((y) => x.startsWith(y) || y.startsWith(x)));
+}
+
+const where = (s: RunnerStackInfo): string => `stack ${s.stackName} in ${s.region}`;
+
+/**
+ * Enforce the rule against what is in the account, before anything is created:
+ * the runner to update (this org's, same label), or nothing (install a new one).
+ * Refuses a second runner of this org; warns about other orgs' runners and asks
+ * before installing beside a parent organization's shared runner.
+ */
+async function checkAccount(plan: RunnerPlan, deps: SetupRunnerDeps, account: AccountRunners, prefixes: string[]): Promise<{ stack: RunnerStackInfo; runner: RunnerDto } | undefined> {
+  const live = account.own.filter((o) => o.runner.status !== 'revoked');
+  const sameLabel = live.find((o) => o.runner.label === plan.label);
+  if (sameLabel && sameLabel.stack.region !== plan.region) {
+    throw new ValidationError(
+      `Your runner "${plan.label}" lives in ${where(sameLabel.stack)}. Update it there: `
+      + `pipeline-manager infra setup-runner --label ${plan.label} --region ${sameLabel.stack.region} (one runner covers every region in --regions).`, 'region');
+  }
+  const other = live.find((o) => o.runner.label !== plan.label);
+  if (other) {
+    const o = other;
+    throw new ValidationError(
+      `This AWS account already has your organization's runner "${o.runner.label}" (${o.runner.id}, ${where(o.stack)}). `
+      + 'An organization has at most one runner per AWS account: one runner covers every region it lists, so update that one instead: '
+      + `pipeline-manager infra setup-runner --label ${o.runner.label} --region ${o.stack.region} --regions <every region it should act in>.`, 'label');
+  }
+  const revoked = account.own.find((o) => o.runner.status === 'revoked' && o.runner.label === plan.label);
+  if (!sameLabel && revoked) {
+    throw new ValidationError(
+      `${where(revoked.stack)} belongs to runner ${revoked.runner.id}, which the platform has revoked. `
+      + `Remove it with "pipeline-manager infra setup-runner --label ${plan.label} --region ${revoked.stack.region} --delete", then install again.`, 'label');
+  }
+  if (sameLabel) return sameLabel;
+
+  if (account.inherited.length > 0) {
+    const names = account.inherited.map((i) => `"${i.runner.label}" of ${i.runner.fromOrgName ?? 'your parent organization'} (${where(i.stack)})`).join(', ');
+    const msg = `This AWS account already has a parent organization's shared runner: ${names}. Your organization already reaches this account's pipelines through it. `
+      + 'If you install your own runner here, your pipelines that it matches move to it (the nearest runner wins) and are signed with your organization\'s key.';
+    deps.warn(msg);
+    if (!plan.yes && !(await deps.confirm('Install your own runner in this account anyway?'))) {
+      throw new ValidationError('Not installed: this account already has your parent organization\'s shared runner. Re-run with --yes to install your own anyway.', 'yes');
+    }
+  }
+
+  if (account.foreign.length > 0) {
+    const overlapping = account.foreign.filter((s) => prefixesOverlap(prefixes, s.prefixes));
+    deps.warn(
+      `This AWS account already has ${account.foreign.length} runner stack(s) that are not your organization's (${account.foreign.map((s) => where(s)).join(', ')}). `
+      + 'Different organizations may each have their own runner in one account, but a shared AWS account is a shared trust boundary: '
+      + 'anyone with AWS access here can reach every organization\'s pipelines directly, and each runner\'s role can act on any pipeline in the account that matches its prefixes. '
+      + 'Give each organization distinct pipeline-name prefixes (ALLOWED_PIPELINE_PREFIXES, set with --pipeline-prefix).'
+      + (overlapping.length > 0
+        ? ` Your prefixes (${prefixes.join(', ')}) overlap those of ${overlapping.map((s) => s.stackName).join(', ')} (${[...new Set(overlapping.flatMap((s) => s.prefixes))].join(', ')}).`
+        : ''),
+    );
+  }
+  return undefined;
+}
+
+// ─── Signing key ─────────────────────────────────────────────────────────────
+
+/** The key the org's runners verify with, when it has one: its own active/next, or (inherit mode) its parent's active. */
+function effectiveKid(sk: RunnerSigningKeyDto): string | null {
+  if (sk.mode === 'inherit') return sk.inheritedFrom?.activeKid ?? sk.active?.kid ?? null;
+  return sk.active?.kid ?? sk.next?.kid ?? null;
+}
+
+/**
+ * Make sure requests to the runner can be signed, before anything is created:
+ * an existing key passes; a root org registering a new runner gets its key from
+ * the platform with that registration; --generate-key creates one (step-up);
+ * anything else is refused with what to do.
+ */
+async function ensureSigningKey(plan: RunnerPlan, deps: SetupRunnerDeps, sk: RunnerSigningKeyDto | null, willRegister: boolean): Promise<SigningKeyStatus> {
+  if (!sk) throw new Error(runnersUnavailableMessage(null));
+  if (sk.unreadable) throw new Error(KEY_UNREADABLE_MESSAGE);
+  const kid = effectiveKid(sk);
+  if (kid) {
+    return sk.mode === 'inherit' && sk.inheritedFrom
+      ? { origin: 'inherited', kid, inheritedFrom: sk.inheritedFrom.orgName }
+      : { origin: 'existing', kid };
+  }
+  if (sk.mode === 'inherit') throw new Error(inheritedNoKeyMessage(sk.inheritedFrom?.orgName));
+  if (plan.generateKey) {
+    const created = unwrap<RunnerSigningKeyDto>(await guarded(async () => deps.platform.post(SIGNING_KEY_ROUTE, {}, await stepUpHeaders(deps))));
+    return { origin: 'generated', kid: created?.active?.kid ?? null };
+  }
+  if (sk.isRootOrg && willRegister) return { origin: 'with-first-runner', kid: null };
+  throw new Error(NO_ORG_KEY_MESSAGE);
+}
+
+// ─── Install / update ────────────────────────────────────────────────────────
+
+async function registerRunner(plan: RunnerPlan, deps: SetupRunnerDeps): Promise<RunnerDto> {
   const created = unwrap<{ runner?: RunnerDto }>(await guarded(async () => deps.platform.post(
     RUNNERS_ROUTE, { label: plan.label, regions: plan.regions }, await stepUpHeaders(deps),
   )));
   if (!created.runner?.id) throw new Error('The platform registered the runner but returned no runner id');
-  return { runner: created.runner, action: 'created' };
+  return created.runner;
 }
 
 /**
@@ -370,35 +601,52 @@ async function ensureEventReporting(plan: RunnerPlan, deps: SetupRunnerDeps): Pr
   return 'missing';
 }
 
+/** The runner's own JWKS URL (absolute). */
+export function runnerJwksUrl(platformBaseUrl: string, runnerId: string): string {
+  return `${platformBaseUrl.replace(/\/+$/, '')}${runnerJwksPath(runnerId)}`;
+}
+
 /** Install or update a runner. */
 export async function setupRunnerFlow(plan: RunnerPlan, deps: SetupRunnerDeps): Promise<SetupRunnerResult> {
-  // First call: a feature refusal or a missing signing key stops here, before anything is created in AWS.
-  const own = await listOwnRunners(deps);
+  // First call: runners unavailable stops here, before anything is created in AWS.
+  const list = await listRunners(deps);
   const prefixes = await resolvePrefixes(plan, deps);
+  const account = classifyAccountRunners(await deps.listRunnerStacks(plan.scanRegions), list);
+  const existing = await checkAccount(plan, deps, account, prefixes);
+
+  // Which runner this stack is: this org's runner already in the account, else a
+  // pending one left by an interrupted install of this label, else a new one.
+  const pending = existing ? undefined : list.own.find((r) => r.label === plan.label && r.status === 'pending');
+  const bound = existing?.runner ?? pending;
+  const signingKey = await ensureSigningKey(plan, deps, list.signingKey, !bound);
+  const runner = bound ?? await registerRunner(plan, deps);
+  const action: SetupRunnerResult['action'] = bound ? 'updated' : 'created';
+
+  const stackName = runnerStackName(runner.id);
   const bundleSha256 = deps.bundleSha256();
   const template = buildRunnerTemplate({ regions: plan.regions, prefixes, apiGateway: plan.apiGateway, allowIps: plan.allowIps });
-  const { runner, action } = await bindRunner(plan, deps, own);
-
   // ONE deploy, already bound: the runner accepts only requests addressed to runner.id.
   await deps.deployStack({
-    stackName: plan.stackName,
+    stackName,
     template,
     parameters: runnerStackParameters({
       regions: plan.regions,
       prefixes,
       apiGateway: plan.apiGateway,
       allowIps: plan.allowIps,
+      waf: plan.waf,
+      ...(plan.waf ? { wafRateLimit: plan.wafRateLimit } : {}),
       runnerId: runner.id,
       platformBaseUrl: deps.platformBaseUrl,
-      label: plan.label,
       version: APP_VERSION,
     }),
+    tags: { [RUNNER_LABEL_TAG]: plan.label },
     region: plan.region,
   });
-  await deps.uploadCode(plan.functionName, plan.region);
+  await deps.uploadCode(runnerFunctionName(runner.id), plan.region);
 
-  const functionUrl = (await deps.describeStack(plan.stackName, plan.region))?.outputs.EndpointUrl;
-  if (!functionUrl) throw new Error(`Stack ${plan.stackName} has no EndpointUrl output`);
+  const functionUrl = (await deps.describeStack(stackName, plan.region))?.outputs.EndpointUrl;
+  if (!functionUrl) throw new Error(`Stack ${stackName} has no EndpointUrl output`);
   const { status, test } = await activateOrTest(deps, runner, functionUrl);
   const eventsStack = await ensureEventReporting(plan, deps);
 
@@ -406,49 +654,64 @@ export async function setupRunnerFlow(plan: RunnerPlan, deps: SetupRunnerDeps): 
     action,
     runnerId: runner.id,
     label: plan.label,
-    stackName: plan.stackName,
+    stackName,
     region: plan.region,
     regions: plan.regions,
     prefixes,
     ...(status ? { status } : {}),
     ...(test ? { test } : {}),
+    jwksUrl: runnerJwksUrl(deps.platformBaseUrl, runner.id),
+    signingKey,
     bundleSha256,
     eventsStack,
   };
 }
 
 /**
- * Revoke on the platform, THEN delete the stack. The runner is the one the
- * stack here names; without a stack, only a PENDING runner of that label (an
- * install that never got this far) is revoked by label — an active one lives in
- * a stack somewhere else (labels are not unique across accounts and regions),
- * and revoking it from the wrong account would silently cut that one off.
+ * Revoke on the platform, THEN delete the stack. The runner is this org's
+ * runner with that label among the account's runner stacks; without one, only a
+ * PENDING runner of that label (an install that never got this far) is revoked
+ * by label — an active one lives in another account or region, and revoking it
+ * from the wrong account would silently cut that one off. A stack whose runner
+ * is not this org's is never touched.
  */
 export async function deleteRunner(plan: RunnerPlan, deps: SetupRunnerDeps): Promise<SetupRunnerResult> {
-  const stack = await deps.describeStack(plan.stackName, plan.region);
-  let runnerId = stack?.parameters.RunnerId || undefined;
-  if (!runnerId) {
-    const byLabel = (await listOwnRunners(deps)).filter((r) => r.label === plan.label && r.status !== 'revoked');
-    runnerId = byLabel.find((r) => r.status === 'pending')?.id;
-    if (!runnerId && !stack && byLabel.length > 0) {
-      throw new ValidationError(
-        `Runner "${plan.label}" is active, but there is no stack ${plan.stackName} in ${plan.region} with these AWS credentials: it is installed in another AWS account or region. `
-        + 'Re-run --delete there (--region / --profile), or revoke it under Settings → Organization → Pipeline runners.', 'label');
-    }
+  const list = await listRunners(deps);
+  const account = classifyAccountRunners(await deps.listRunnerStacks(plan.scanRegions), list);
+  const mine = account.own.filter((o) => o.runner.label === plan.label);
+  const found = mine.find((o) => o.stack.region === plan.region) ?? mine[0];
+  if (found && found.stack.region !== plan.region) {
+    throw new ValidationError(
+      `Your runner "${plan.label}" lives in ${where(found.stack)}: re-run --delete with --region ${found.stack.region}.`, 'region');
   }
-  if (!stack && !runnerId) throw new ValidationError(`No runner "${plan.label}" found (no stack ${plan.stackName} in ${plan.region}, no platform runner with that label)`, 'label');
 
-  if (runnerId) {
-    try {
-      await deps.platform.delete(`${RUNNERS_ROUTE}/${encodeURIComponent(runnerId)}`, await stepUpHeaders(deps));
-    } catch (err) {
-      // Never delete the stack of a runner the platform still has.
-      if (refusal(err).status !== 404) explainRunnerError(err);
-      deps.warn('The platform has no such runner any more — removing the stack only');
+  let runnerId = found?.runner.id;
+  if (!runnerId) {
+    const byLabel = list.own.filter((r) => r.label === plan.label && r.status !== 'revoked');
+    runnerId = byLabel.find((r) => r.status === 'pending')?.id;
+    if (!runnerId && byLabel.length > 0) {
+      throw new ValidationError(
+        `Runner "${plan.label}" is active, but there is no stack of it in ${plan.scanRegions.join(', ')} with these AWS credentials: it is installed in another AWS account or region. `
+        + `Re-run --delete there (--region / --profile), or revoke it under ${RUNNERS_PANEL}.`, 'label');
     }
   }
-  if (stack) await deps.deleteStack(plan.stackName, plan.region);
-  return { action: 'deleted', ...(runnerId ? { runnerId } : {}), label: plan.label, stackName: plan.stackName, region: plan.region, regions: plan.regions };
+  if (!runnerId) {
+    const others = account.own.map((o) => `"${o.runner.label}" (${where(o.stack)})`);
+    throw new ValidationError(`No runner "${plan.label}" found (no stack of it in ${plan.scanRegions.join(', ')}, no pending platform runner with that label)`
+      + (others.length ? `. This account has your runner ${others.join(', ')}.` : ''), 'label');
+  }
+
+  try {
+    await deps.platform.delete(`${RUNNERS_ROUTE}/${encodeURIComponent(runnerId)}`, await stepUpHeaders(deps));
+  } catch (err) {
+    // Never delete the stack of a runner the platform still has.
+    if (refusal(err).status !== 404) explainRunnerError(err);
+    deps.warn('The platform has no such runner any more — removing the stack only');
+  }
+  if (found) await deps.deleteStack(found.stack.stackName, found.stack.region);
+  return {
+    action: 'deleted', runnerId, label: plan.label, stackName: found?.stack.stackName ?? runnerStackName(runnerId), region: plan.region, regions: plan.regions,
+  };
 }
 
 // ─── Real dependencies ───────────────────────────────────────────────────────
@@ -463,9 +726,23 @@ export function sha256OfFile(file: string): string {
   return createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
 
-type RealDeps = 'deployStack' | 'describeStack' | 'deleteStack' | 'uploadCode' | 'bundleSha256' | 'runSetupEvents' | 'warn';
+type RealDeps = 'deployStack' | 'describeStack' | 'listRunnerStacks' | 'deleteStack' | 'uploadCode' | 'bundleSha256' | 'runSetupEvents' | 'confirm' | 'warn';
 
-function realAwsDeps(profile: string | undefined): Pick<SetupRunnerDeps, RealDeps> {
+/** A DescribeStacks entry as {@link RunnerStackInfo}, or undefined when it is not a runner stack. */
+export function runnerStackInfo(s: Stack, region: string): RunnerStackInfo | undefined {
+  if (!s.StackName?.startsWith(RUNNER_STACK_PREFIX) || s.StackStatus === 'DELETE_COMPLETE') return undefined;
+  const params = Object.fromEntries((s.Parameters ?? []).map((p) => [p.ParameterKey ?? '', p.ParameterValue ?? '']));
+  const label = (s.Tags ?? []).find((t) => t.Key === RUNNER_LABEL_TAG)?.Value;
+  return {
+    stackName: s.StackName,
+    region,
+    ...(params.RunnerId ? { runnerId: params.RunnerId } : {}),
+    ...(label ? { label } : {}),
+    prefixes: csv(params.AllowedPipelinePrefixes),
+  };
+}
+
+function realAwsDeps(profile: string | undefined, interactive: boolean): Pick<SetupRunnerDeps, RealDeps> {
   return {
     bundleSha256: () => sha256OfFile(runnerBundlePath()),
     async runSetupEvents(region) {
@@ -474,13 +751,39 @@ function realAwsDeps(profile: string | undefined): Pick<SetupRunnerDeps, RealDep
       execFileSync(process.execPath, args, { stdio: ['inherit', 2, 2] });
     },
     warn: (m) => printWarning(m),
-    async deployStack({ stackName, template, parameters, region }) {
+    async confirm(question) {
+      if (!interactive) return false;
+      // stderr: stdout stays clean for --json.
+      const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+      try {
+        return /^y(es)?$/i.test((await rl.question(`${question} [y/N] `)).trim());
+      } finally {
+        rl.close();
+      }
+    },
+    async listRunnerStacks(regions) {
+      const out: RunnerStackInfo[] = [];
+      for (const region of regions) {
+        const cfn = new CloudFormationClient({ region });
+        let next: string | undefined;
+        do {
+          const page = await cfn.send(new DescribeStacksCommand({ ...(next ? { NextToken: next } : {}) }));
+          for (const s of page.Stacks ?? []) {
+            const info = runnerStackInfo(s, region);
+            if (info) out.push(info);
+          }
+          next = page.NextToken;
+        } while (next);
+      }
+      return out;
+    },
+    async deployStack({ stackName, template, parameters, tags, region }) {
       const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'runner-stack-'));
       try {
         const file = path.join(tmp, 'runner-stack.json');
         fs.writeFileSync(file, JSON.stringify(template));
         const args = ['cloudformation', 'deploy', '--stack-name', stackName, '--template-file', file,
-          '--parameter-overrides', ...parameters, '--capabilities', 'CAPABILITY_NAMED_IAM', '--no-fail-on-empty-changeset', '--region', region];
+          '--parameter-overrides', ...parameters, '--tags', ...Object.entries(tags).map(([k, v]) => `${k}=${v}`), '--capabilities', 'CAPABILITY_NAMED_IAM', '--no-fail-on-empty-changeset', '--region', region];
         if (profile) args.push('--profile', profile);
         // Progress to stderr: stdout stays clean for --json (and never carries outputs).
         execFileSync('aws', args, { stdio: ['ignore', 2, 2] });
@@ -528,6 +831,13 @@ function realAwsDeps(profile: string | undefined): Pick<SetupRunnerDeps, RealDep
   };
 }
 
+function describeSigningKey(k: SigningKeyStatus): string {
+  if (k.origin === 'inherited') return `${k.kid} (inherited from ${k.inheritedFrom ?? 'the parent organization'})`;
+  if (k.origin === 'generated') return `${k.kid ?? '(created)'} (generated now)`;
+  if (k.origin === 'with-first-runner') return 'created by the platform with this runner';
+  return k.kid ?? '(none)';
+}
+
 function printResult(r: SetupRunnerResult, json: boolean): void {
   if (json) {
     console.log(JSON.stringify({ success: true, ...r }, null, 2));
@@ -543,12 +853,42 @@ function printResult(r: SetupRunnerResult, json: boolean): void {
     ...(r.action !== 'deleted' ? { 'Acts In': r.regions.join(', '), 'Pipeline Prefixes': (r.prefixes ?? []).join(', ') } : {}),
     ...(r.test ? { 'Test Ping': r.test.ok ? `✓ ${r.test.outcome ?? 'pong'}` : `✗ ${r.test.errorCode ?? 'failed'}` } : {}),
     ...(r.status ? { Status: r.status } : {}),
+    ...(r.jwksUrl ? { 'JWKS URL': r.jwksUrl } : {}),
+    ...(r.signingKey ? { 'Signing Key': describeSigningKey(r.signingKey) } : {}),
     ...(r.bundleSha256 ? { 'Bundle SHA-256': r.bundleSha256 } : {}),
     ...(r.eventsStack ? { 'Event Reporting': r.eventsStack === 'missing' ? 'not set up in this region' : '✓' } : {}),
   });
   if (r.test && !r.test.ok) printWarning('The test ping failed — check the runner\'s CloudWatch logs, then retest from Settings → Organization → Pipeline runners.');
-  if (r.action !== 'deleted') printSuccess(`Runner ${r.action}. Remove it with: pipeline-manager infra setup-runner --label ${r.label} --region ${r.region} --delete`);
+  if (r.action !== 'deleted') {
+    printInfo(`The runner verifies every request against its own key set: ${r.jwksUrl ?? 'its JWKS URL'}. See the signing key with "pipeline-manager runner signing-key status".`);
+    printSuccess(`Runner ${r.action}. Remove it with: pipeline-manager infra setup-runner --label ${r.label} --region ${r.region} --delete`);
+  }
 }
+
+/** The rule, after the options in `setup-runner --help`. */
+export const SETUP_RUNNER_HELP = `
+One runner per AWS account per organization:
+  Your organization has at most one runner in an AWS account. One runner covers every
+  region it lists in --regions, so update it (same --label and --region) rather than
+  adding another; a second one for your organization is refused. setup-runner lists the
+  account's runner stacks (${STACK_NAME_PATTERN}) and reads each one's RUNNER_ID
+  to check this; the platform never learns the account id.
+
+  Another organization may have its own runner in the same account. That is allowed, but a
+  shared AWS account is a shared trust boundary: anyone with AWS access there can reach
+  both organizations' pipelines directly. Give each organization distinct pipeline-name
+  prefixes (--pipeline-prefix, the runner's ALLOWED_PIPELINE_PREFIXES).
+
+  A team already reaches an account through its parent organization's shared runner. If
+  that runner is in the account, setup-runner warns and asks before installing the team's
+  own runner (--yes to skip the question); the team's own runner then wins for its pipelines.
+
+Signing key:
+  The platform signs every request with your organization's runner signing key, and the
+  runner verifies it against its own key set, <platform>${JWKS_PATH_PATTERN}.
+  A top-level organization's key is created with its first runner. If your organization has
+  no key, pass --generate-key (step-up) or generate one under ${RUNNERS_PANEL}.
+`;
 
 /**
  * Registers `infra setup-runner`.
@@ -557,6 +897,8 @@ function printResult(r: SetupRunnerResult, json: boolean): void {
  * ```bash
  * pipeline-manager infra setup-runner --region us-east-1 --regions us-east-1,eu-west-2 --pipeline-prefix acme-
  * pipeline-manager infra setup-runner --region us-east-1 --api-gateway --allow-ip 203.0.113.10/32
+ * pipeline-manager infra setup-runner --region us-east-1 --api-gateway --allow-ip 203.0.113.10/32 --waf-rate-limit 500
+ * pipeline-manager infra setup-runner --region us-east-1 --generate-key
  * pipeline-manager infra setup-runner --region us-east-1 --label ops --delete
  * pipeline-manager infra setup-runner --region us-east-1 --dry-run --json
  * ```
@@ -564,21 +906,26 @@ function printResult(r: SetupRunnerResult, json: boolean): void {
 export function setupRunner(program: Command): void {
   withSslOptions(withProfileOption(program
     .command('setup-runner')
-    .description('Install a cross-account pipeline runner in this AWS account (the platform pushes signed run requests to it), or remove it with --delete')
+    .description('Install a cross-account pipeline runner in this AWS account (the platform pushes signed run requests to it), or remove it with --delete. '
+      + 'One runner per AWS account per organization.')
     .option('--region <region>', 'Region for the runner stack (default: AWS_REGION / the profile\'s region)')
     .option('--regions <csv>', 'Regions the runner may act in (default: the stack region)')
     .option('--pipeline-prefix <csv>', "CodePipeline name prefixes the runner may act on (default: your org's prefix from its registered pipelines; '*' = all, needs --yes)")
-    .option('--label <label>', 'Runner label (stack pipeline-builder-runner-<label>)', 'default')
+    .option('--label <label>', `Runner label, shown on the platform (stack ${STACK_NAME_PATTERN}, tagged ${RUNNER_LABEL_TAG}=<label>)`, 'default')
     .option('--api-gateway', 'Front the runner with an API Gateway restricted to --allow-ip instead of a Function URL', false)
     .option('--allow-ip <cidr...>', 'With --api-gateway: the platform egress CIDRs the API admits')
+    .option('--waf-rate-limit <n>', `With --api-gateway: requests per 5 minutes one source IP may send before WAF blocks it (default ${DEFAULT_WAF_RATE_LIMIT})`)
+    .option('--no-waf', 'With --api-gateway: do not attach the WAF rate limit (no WAFv2 web ACL)')
     .option('-p, --password <password>', 'Password for the step-up the runner writes require (prefer PLATFORM_PASSWORD)')
     .option('--step-up <method>', 'auto, password, totp or browser', 'auto')
     .option('--no-browser', 'With browser step-up: print the approval URL instead of opening a browser')
+    .option('--generate-key', 'If your organization has no runner signing key yet, generate one (step-up) instead of stopping', false)
     .option('--with-events', 'Afterwards run "infra setup-events --scoped-ingest" in the region, so runner-started executions report their progress', false)
     .option('--delete', 'Revoke the runner on the platform, then delete its stack', false)
-    .option('-y, --yes', "Confirm --pipeline-prefix '*'", false)
+    .option('-y, --yes', "Confirm --pipeline-prefix '*', and installing beside a parent organization's shared runner", false)
     .option('--dry-run', 'Show what would be deployed without calling AWS or the platform', false)
     .option('--json', 'Output result as JSON', false)))
+    .addHelpText('after', SETUP_RUNNER_HELP)
     .action(async (options) => {
       const executionId = printCommandHeader('Setup Runner', undefined, { quiet: options.json });
       if (options.json) setMachineOutput(true);
@@ -593,6 +940,9 @@ export function setupRunner(program: Command): void {
           pipelinePrefix: options.pipelinePrefix,
           apiGateway: options.apiGateway,
           allowIp: options.allowIp,
+          waf: options.waf,
+          wafRateLimit: options.wafRateLimit,
+          generateKey: options.generateKey,
           yes: options.yes,
           delete: options.delete,
           withEvents: options.withEvents,
@@ -615,7 +965,7 @@ export function setupRunner(program: Command): void {
         const method = chooseStepUp({ requested: options.stepUp, password, interactive: !!process.stdin.isTTY && !options.json });
         const client = await createAuthenticatedClientAsync(options);
         const deps: SetupRunnerDeps = {
-          ...realAwsDeps(options.profile),
+          ...realAwsDeps(options.profile, !!process.stdin.isTTY && !options.json),
           platform: client,
           platformBaseUrl: client.getBaseUrl() || getApiConfig().api.baseUrl,
           stepUp: buildStepUpProvider(method, client, {

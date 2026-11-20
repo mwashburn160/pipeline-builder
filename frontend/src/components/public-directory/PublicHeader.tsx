@@ -31,9 +31,9 @@ export function useMounted(): boolean {
 /** The viewer's sign-in state, but ONLY after mount — always "guest" during SSR and hydration. */
 export function useClientAuth() {
   const mounted = useMounted();
-  const { user, isAuthenticated, isInitialized } = useAuth();
+  const { user, isAuthenticated, isInitialized, isReadOnly } = useAuth();
   const signedIn = mounted && isInitialized && isAuthenticated && !!user;
-  return { mounted, signedIn, user: signedIn ? user : null };
+  return { mounted, signedIn, user: signedIn ? user : null, isReadOnly: signedIn && !!isReadOnly };
 }
 
 export function PublicHeader() {

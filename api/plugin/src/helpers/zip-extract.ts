@@ -69,15 +69,24 @@ function describeFileType(type: number): string {
 }
 
 /**
+ * Per-entry refusal hook: returns a refusal message for an entry name that must
+ * not be extracted (e.g. a credential file), or null to allow it. Runs before
+ * anything of that entry is written.
+ */
+export type ZipEntryScreen = (fileName: string) => string | null;
+
+/**
  * Read specific text entries and extract all files in a single pass. `limits`
  * overrides the service-wide {@link extractionLimits} for one call — the
  * anonymous submission path passes much tighter ones (its caller is unknown).
+ * `screen` refuses individual entries by name (the upload path's credential-file check).
  */
 export async function readAndExtractZip(
   zipPath: string,
   textEntries: string[],
   extractDir: string,
   limits: ExtractionLimits = extractionLimits(),
+  screen?: ZipEntryScreen,
 ): Promise<Map<string, string>> {
   const results = new Map<string, string>();
   const wanted = new Set(textEntries);
@@ -137,6 +146,9 @@ export async function readAndExtractZip(
             `ZIP entry ${entry.fileName} is a ${describeFileType(fileType)} — only regular files and directories are allowed`,
           ));
         }
+
+        const screened = screen?.(entry.fileName);
+        if (screened) return rejectOnce(new ValidationError(screened));
 
         const targetPath = path.join(root, entry.fileName);
 

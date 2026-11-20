@@ -80,6 +80,20 @@ describe('IncidentReportingSettings', () => {
     expect(await screen.findByText(/6h/)).toBeInTheDocument();
   });
 
+  it('the provider picker lists every preset and shows each one\u2019s label and endpoint', async () => {
+    render(<IncidentReportingSettings readOnly={false} />);
+    goTab(/^Providers$/);
+    const picker = screen.getByRole('combobox');
+    expect(Array.from((picker as HTMLSelectElement).options).map((o) => [o.value, o.textContent]))
+      .toEqual([['alertmanager', 'Alertmanager (native)'], ['pagerduty', 'PagerDuty'], ['datadog', 'Datadog'], ['generic', 'Generic (JSON)']]);
+    expect(screen.getByText(/Prometheus Alertmanager \(native\) — POST to:/)).toBeInTheDocument();
+    expect(screen.getAllByText(/\/api\/reports\/incidents\/alertmanager$/).length).toBeGreaterThanOrEqual(1);
+    fireEvent.change(picker, { target: { value: 'datadog' } });
+    expect(screen.getByText(/Datadog \(webhook notification\) — POST to:/)).toBeInTheDocument();
+    expect(screen.getByText(/\$ALERT_ID → incidentId/)).toBeInTheDocument();
+    expect(screen.queryAllByText(/\/api\/reports\/incidents\/alertmanager$/)).toHaveLength(0);
+  });
+
   it('opens the step-up modal when generating a webhook token', async () => {
     render(<IncidentReportingSettings readOnly={false} />);
     goTab(/^Webhooks$/);

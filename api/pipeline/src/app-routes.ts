@@ -17,7 +17,8 @@ import { createPurgePipelineRoutes } from './routes/purge-pipeline.js';
 import { createReadPipelineRoutes } from './routes/read-pipelines.js';
 import { createRegistryRoutes } from './routes/registry.js';
 import { createRestorePipelineRoutes } from './routes/restore-pipeline.js';
-import { createRunnerJwksRoutes, createRunnerRoutes } from './routes/runner-routes.js';
+import { createRunnerLinkRoutes } from './routes/runner-link-routes.js';
+import { createInternalRunnerKeyRoutes, createRunnerJwksRoutes, createRunnerRoutes } from './routes/runner-routes.js';
 import { createScorecardRoutes } from './routes/scorecard-routes.js';
 import { createSecurityReportRoutes } from './routes/security-report-routes.js';
 import { createUpdatePipelineRoutes } from './routes/update-pipeline.js';
@@ -42,8 +43,9 @@ export function mountRoutes(app: Express, { quotaService }: PipelineRouteDeps): 
   // principals and unauthenticated requests are skipped by both halves. Quotas of
   // OTHER types (create/bulk's 'pipelines' reservation, generate's 'aiCalls')
   // stay on their routes: an AI generation spends one apiCall AND one aiCall.
-  // The runner-signing JWKS is PUBLIC (unauthenticated runner Lambdas fetch
-  // it), so it is served ahead of the apiCalls meter and every auth chain.
+  // The per-runner JWKS (/pipelines/runner/runners/:runnerId/jwks.json) is
+  // PUBLIC (unauthenticated runner Lambdas fetch it), so it is served ahead of
+  // the apiCalls meter and every auth chain.
   app.use('/pipelines/runner', createRunnerJwksRoutes());
 
   app.use('/pipelines', ...apiCallsQuota(quotaService));
@@ -76,6 +78,8 @@ export function mountRoutes(app: Express, { quotaService }: PipelineRouteDeps): 
   //    - internal org purge: platform's cascade outbox (service token only —
   //      requireAuth + requireInternalService on the route), so no user chain.
   app.use('/pipelines/internal', createInternalOrgPurgeRoutes());
+  //    - internal runner-key re-encrypt: platform's master-key rotation flow (service token only).
+  app.use('/pipelines/internal', createInternalRunnerKeyRoutes());
   app.use('/pipelines', createCreatePipelineRoutes(quotaService));
   //    - validate: auth + orgId + pipelines:write per route. Writes nothing and
   //      reserves no 'pipelines' slot, so it is deliberately NOT behind the create mount's
@@ -88,6 +92,10 @@ export function mountRoutes(app: Express, { quotaService }: PipelineRouteDeps): 
   //      MFA-grade + step-up); `/:pipelineId/run-requests/:requestId` is a
   //      pipelines:read. Literal `/runners` is claimed before the read `/:id`.
   app.use('/pipelines', createRunnerRoutes());
+  //    - runner link: `/:pipelineId/runner-link` (pipelines:read; refresh adds
+  //      pipelines:write + MFA-grade + step-up) and `/runners/:id/pipelines`
+  //      (org_settings:write), each self-guarded; claimed before the read `/:id`.
+  app.use('/pipelines', createRunnerLinkRoutes());
   //    - plugin upgrades + security reports: auth + orgId + their own permission
   //      per route (`/:id/plugin-upgrades/preview` is a READ despite being a POST,
   //      so it must not fall into the shared pipelines:write chain below).

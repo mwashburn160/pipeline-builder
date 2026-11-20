@@ -56,7 +56,8 @@ const createBillingEvent = jest.fn<AnyFn>(async () => undefined);
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({ createBillingEvent, getBundleCatalog: () => [] }));
 const parseAuthoringForm = jest.fn<AnyFn>();
 const encodeDiscountCode = jest.fn<AnyFn>(() => 'tok');
-jest.unstable_mockModule('../src/helpers/discount-code.js', () => ({ parseAuthoringForm, encodeDiscountCode }));
+// The vocabulary stays real: the models build their schema enums from it.
+jest.unstable_mockModule('../src/helpers/discount-code.js', () => ({ DISCOUNT_UNITS: ['dollar', 'percent'], DISCOUNT_KINDS: ['onetime', 'recurring', 'credit'], parseAuthoringForm, encodeDiscountCode }));
 const helpers = {
   discountsEnabled: jest.fn<AnyFn>(() => true),
   withinCeiling: jest.fn<AnyFn>(() => true),

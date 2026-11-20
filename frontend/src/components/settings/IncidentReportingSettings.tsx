@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useUrlTab } from '@/hooks/useUrlTab';
 import { Siren, KeyRound, Webhook, FlaskConical, Clock, Archive, ChevronLeft, ChevronRight } from 'lucide-react';
 import { SectionCard } from '@/components/ui/SectionCard';
@@ -63,57 +63,63 @@ function fmtRetentionDays(days: number): string {
   return days < 0 ? 'Unlimited' : `${days} ${days === 1 ? 'day' : 'days'}`;
 }
 
-type ProviderKey = 'alertmanager' | 'pagerduty' | 'datadog' | 'generic';
+/** Where a provider POSTs: the native Alertmanager adapter, or the generic JSON endpoint. */
+type ProviderEndpoint = 'alertmanager' | 'generic';
 
-/** Per-provider copy-paste setup guidance, including the required environment mapping. */
-function providerGuide(key: ProviderKey, genericUrl: string, alertmanagerUrl: string): { label: string; endpoint: string; steps: string[] } {
-  switch (key) {
-    case 'alertmanager':
-      return {
-        label: 'Prometheus Alertmanager (native)',
-        endpoint: alertmanagerUrl,
-        steps: [
-          'Add a webhook_config receiver in your Alertmanager config pointing at the adapter URL above, with the bearer token below.',
-          'The adapter maps each alert → one incident: fingerprint → incidentId, startsAt → openedAt, endsAt → resolvedAt (on resolve).',
-          'Set an `environment` label on the alerting rules (e.g. environment="production"). Override the label name with ?environmentLabel=<label> on the URL.',
-          'Set a `severity` label (critical/warning/…); it maps to the incident severity. Alerts missing environment or a stable fingerprint are skipped.',
-        ],
-      };
-    case 'pagerduty':
-      return {
-        label: 'PagerDuty (generic webhook)',
-        endpoint: genericUrl,
-        steps: [
-          'Create a Webhook v3 subscription (or a custom payload template) targeting the generic URL above with the bearer token below.',
-          'Map fields to the contract: incident.id → incidentId, incident.created_at → openedAt, incident.resolved_at → resolvedAt, urgency/priority → severity.',
-          'Set `environment` from the affected service — it MUST match the environment you declared on the deploy stage (e.g. production).',
-          'Fire the webhook on both incident open and resolve; the resolve POST re-uses the same incidentId (idempotent upsert).',
-        ],
-      };
-    case 'datadog':
-      return {
-        label: 'Datadog (webhook notification)',
-        endpoint: genericUrl,
-        steps: [
-          'Create a Webhooks integration notification on your monitor targeting the generic URL above with the bearer token below.',
-          'Template the JSON body: $ALERT_ID → incidentId, $DATE/$LAST_UPDATED → openedAt/resolvedAt, and use $ALERT_STATUS to decide whether resolvedAt is sent.',
-          'Set `environment` from a monitor tag — it MUST match your deploy-stage environment (e.g. production).',
-          'Notify on both trigger and recovery so the resolve updates resolvedAt (idempotent on incidentId).',
-        ],
-      };
-    default:
-      return {
-        label: 'Generic (any tool that POSTs JSON)',
-        endpoint: genericUrl,
-        steps: [
-          'POST JSON to the generic URL above with the bearer token below (Authorization: Bearer <token>).',
-          'Body: { incidentId, environment, openedAt (ISO 8601), resolvedAt? (ISO 8601), severity }.',
-          '`environment` MUST match the environment declared on your deploy stage (e.g. production) so DORA can correlate.',
-          'Re-POST the same incidentId with resolvedAt set when the incident resolves — it is an idempotent upsert keyed on (org, incidentId).',
-        ],
-      };
-  }
-}
+/**
+ * Per-provider copy-paste setup guidance, including the required environment
+ * mapping, keyed by provider. Order is the picker's order.
+ */
+const PROVIDER_GUIDES = {
+  alertmanager: {
+    option: 'Alertmanager (native)',
+    label: 'Prometheus Alertmanager (native)',
+    endpoint: 'alertmanager',
+    steps: [
+      'Add a webhook_config receiver in your Alertmanager config pointing at the adapter URL above, with the bearer token below.',
+      'The adapter maps each alert → one incident: fingerprint → incidentId, startsAt → openedAt, endsAt → resolvedAt (on resolve).',
+      'Set an `environment` label on the alerting rules (e.g. environment="production"). Override the label name with ?environmentLabel=<label> on the URL.',
+      'Set a `severity` label (critical/warning/…); it maps to the incident severity. Alerts missing environment or a stable fingerprint are skipped.',
+    ],
+  },
+  pagerduty: {
+    option: 'PagerDuty',
+    label: 'PagerDuty (generic webhook)',
+    endpoint: 'generic',
+    steps: [
+      'Create a Webhook v3 subscription (or a custom payload template) targeting the generic URL above with the bearer token below.',
+      'Map fields to the contract: incident.id → incidentId, incident.created_at → openedAt, incident.resolved_at → resolvedAt, urgency/priority → severity.',
+      'Set `environment` from the affected service — it MUST match the environment you declared on the deploy stage (e.g. production).',
+      'Fire the webhook on both incident open and resolve; the resolve POST re-uses the same incidentId (idempotent upsert).',
+    ],
+  },
+  datadog: {
+    option: 'Datadog',
+    label: 'Datadog (webhook notification)',
+    endpoint: 'generic',
+    steps: [
+      'Create a Webhooks integration notification on your monitor targeting the generic URL above with the bearer token below.',
+      'Template the JSON body: $ALERT_ID → incidentId, $DATE/$LAST_UPDATED → openedAt/resolvedAt, and use $ALERT_STATUS to decide whether resolvedAt is sent.',
+      'Set `environment` from a monitor tag — it MUST match your deploy-stage environment (e.g. production).',
+      'Notify on both trigger and recovery so the resolve updates resolvedAt (idempotent on incidentId).',
+    ],
+  },
+  generic: {
+    option: 'Generic (JSON)',
+    label: 'Generic (any tool that POSTs JSON)',
+    endpoint: 'generic',
+    steps: [
+      'POST JSON to the generic URL above with the bearer token below (Authorization: Bearer <token>).',
+      'Body: { incidentId, environment, openedAt (ISO 8601), resolvedAt? (ISO 8601), severity }.',
+      '`environment` MUST match the environment declared on your deploy stage (e.g. production) so DORA can correlate.',
+      'Re-POST the same incidentId with resolvedAt set when the incident resolves — it is an idempotent upsert keyed on (org, incidentId).',
+    ],
+  },
+} as const satisfies Record<string, { option: string; label: string; endpoint: ProviderEndpoint; steps: readonly string[] }>;
+
+type ProviderKey = keyof typeof PROVIDER_GUIDES;
+const PROVIDER_KEYS = Object.keys(PROVIDER_GUIDES) as ProviderKey[];
+
 
 /**
  * Org-admin "Incident reporting" settings panel. Sets up + configures
@@ -207,7 +213,8 @@ export function IncidentReportingSettings({ readOnly }: { readOnly: boolean }) {
 
   // ── Provider presets ──
   const [provider, setProvider] = useState<ProviderKey>('alertmanager');
-  const guide = useMemo(() => providerGuide(provider, genericUrl, alertmanagerUrl), [provider, genericUrl, alertmanagerUrl]);
+  const guide = PROVIDER_GUIDES[provider];
+  const guideEndpoint = guide.endpoint === 'alertmanager' ? alertmanagerUrl : genericUrl;
 
   // ── Send test incident (non-persisting dry-run) ──
   const [testEnv, setTestEnv] = useState('production');
@@ -345,14 +352,11 @@ export function IncidentReportingSettings({ readOnly }: { readOnly: boolean }) {
       <SectionCard title="Provider setup">
         <FormField label="Provider" className="max-w-xs mb-3">
           <Select value={provider} onChange={(e) => setProvider(e.target.value as ProviderKey)}>
-            <option value="alertmanager">Alertmanager (native)</option>
-            <option value="pagerduty">PagerDuty</option>
-            <option value="datadog">Datadog</option>
-            <option value="generic">Generic (JSON)</option>
+            {PROVIDER_KEYS.map((k) => <option key={k} value={k}>{PROVIDER_GUIDES[k].option}</option>)}
           </Select>
         </FormField>
         <p className="text-xs font-medium text-fg-muted mb-1">{guide.label} — POST to:</p>
-        <CodeBlock code={guide.endpoint} language="POST" className="mb-3" />
+        <CodeBlock code={guideEndpoint} language="POST" className="mb-3" />
         <ol className="list-decimal ml-5 space-y-1 text-sm text-fg-muted">
           {guide.steps.map((s, i) => <li key={i}>{s}</li>)}
         </ol>

@@ -578,12 +578,6 @@ pb_create_token_signing_secret "$DEPLOY_DIR/certs/token-signing/token-signing.ke
 # only ever gets the public Secret — see pb_create_plugin_signing_secrets.
 AWS_REGION="$REGION" bash "$BIN_DIR/plugin-signing-keys.sh" "$DEPLOY_DIR/certs"
 pb_create_plugin_signing_secrets "$DEPLOY_DIR/certs/plugin-signing"
-# Ed25519 RUNNER-signing key (cross-account pipeline runners) → the
-# `runner-signing-key` Secret, mounted by pipeline ONLY. A local key (no KMS
-# mode): the platform holds no AWS access for the runner's account, and the
-# key only signs short-lived run requests. Idempotent.
-bash "$BIN_DIR/runner-signing-keys.sh" "$DEPLOY_DIR/certs"
-pb_create_runner_signing_secret "$DEPLOY_DIR/certs/runner-signing"
 
 # PER-SERVICE ES256 keys for INTERNAL service-to-service tokens. Like the
 # user-token key these must SURVIVE the deploy (regenerating one would break
@@ -620,16 +614,18 @@ pb_create_config_maps "$DEPLOY_DIR" "$CONFIG_DIR" "$NGINX_DIR"
 # Parity with the ec2 target's in-stack SES (template.yaml): Easy-DKIM identity +
 # Route 53 CNAMEs, a configuration set, a bounce/complaint SNS topic, and a
 # Pod Identity association carrying policies SCOPED to exactly what the pods need
-# (ses:SendEmail on this identity; codepipeline:Start/StopPipelineExecution on
-# this account's pipelines) — never the *FullAccess managed policies. Idempotent.
+# (ses:SendEmail on this identity, kms:Decrypt on the secret-encryption master)
+# — never the *FullAccess managed policies. Idempotent. The platform holds NO
+# CodePipeline access: pipelines live in customers' accounts and run only
+# through their pipeline runners.
 #
 # Pod Identity binds ONE IAM role per ServiceAccount, and — critically — each
 # workload runs as its OWN named SA (platform, pipeline, message, …), NOT the
 # namespace 'default' SA (see k8s/istio.yaml + each Deployment's
 # serviceAccountName). So a grant must be associated with the SA of the pod that
 # actually needs it: SES (ses:SendEmail) → the 'platform' SA (platform/src/utils
-# /email.ts sends), and CodePipeline Start/Stop → the 'pipeline' SA (api/pipeline
-# pipeline-execution-service). Binding to 'default' would strand the credentials.
+# /email.ts sends), and the secret-encryption unwrap → every SA that decrypts
+# org secrets (below). Binding to 'default' would strand the credentials.
 fi
 if pb_phase 5; then
 log "Phase 5: SES email + Pod Identity IAM"
@@ -740,16 +736,6 @@ if [ "${EMAIL_ENABLED:-false}" = true ]; then
 else
   echo "  EMAIL_ENABLED!=true — skipping SES resources"
 fi
-
-# CodePipeline run/cancel grant for the pipeline service (ALWAYS). Scoped to
-# codepipeline actions on THIS account's pipelines — names vary per org/project,
-# so a single-resource ARN isn't possible; the account+service scope is the
-# tightest bound. Consumed by api/pipeline's pipeline-execution-service, which
-# resolves the CodePipeline name from the registry and calls Start/Stop.
-# Consumed by the pipeline service → bind to the 'pipeline' SA.
-grant_pod_identity pipeline pipeline-exec \
-  "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"CodePipelineExec\",\"Effect\":\"Allow\",\"Action\":[\"codepipeline:StartPipelineExecution\",\"codepipeline:StopPipelineExecution\",\"codepipeline:GetPipelineState\",\"codepipeline:GetPipelineExecution\"],\"Resource\":\"arn:aws:codepipeline:*:${ACCOUNT_ID}:*\"}]}" \
-  "codepipeline Start/Stop on this account's pipelines"
 
 # ---- AWS Marketplace billing provider --------------------------------------
 # WITHOUT THIS, BILLING_PROVIDER=aws-marketplace CANNOT WORK. The provider
@@ -873,10 +859,13 @@ fi
 #     RESOURCE TAG instead of `Resource: "*"` — tag each per-org CMK
 #     `pipeline-builder:secret-encryption=true` or Decrypt is denied.
 #
-# Both platform AND plugin get it: plugin encrypts org secrets of its own (the
-# security-notification address and webhook secret) and initializes the same
-# base provider. plugin never gets the per-org grant — the per-org resolver
-# reads platform's Mongo, which plugin cannot reach, so it stays on the base.
+# platform, plugin AND pipeline get it: plugin encrypts org secrets of its own
+# (the security-notification address and webhook secret), and pipeline holds
+# every org's runner signing key encrypted under the same scheme. plugin never
+# gets the per-org grant — the per-org resolver reads platform's Mongo, which
+# plugin cannot reach, so it stays on the base. pipeline does: it resolves each
+# org's KMS config through platform's GET /internal/kms-config/:orgId and then
+# unwraps that org's master itself.
 if [ -n "${SECRET_ENCRYPTION_KMS_KEY_ID:-}" ]; then
   case "${SECRET_ENCRYPTION_KMS_KEY_ID}" in
     arn:*) echo "ERROR: SECRET_ENCRYPTION_KMS_KEY_ID must be alias/<name> or a key UUID, never an ARN (it embeds the AWS account id)." >&2; exit 1 ;;
@@ -888,7 +877,7 @@ if [ -n "${SECRET_ENCRYPTION_KMS_KEY_ID:-}" ]; then
     exit 1; }
   _secret_key_arn=$(aws kms describe-key --key-id "$SECRET_ENCRYPTION_KMS_KEY_ID" --region "$REGION" \
     --query KeyMetadata.Arn --output text)
-  for _sa in platform plugin; do
+  for _sa in platform plugin pipeline; do
     grant_pod_identity "$_sa" "secret-encryption-${_sa}" \
       "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"SecretEncryptionUnwrap\",\"Effect\":\"Allow\",\"Action\":\"kms:Decrypt\",\"Resource\":\"${_secret_key_arn}\"}]}" \
       "kms:Decrypt on $SECRET_ENCRYPTION_KMS_KEY_ID (secret-encryption master)"
@@ -899,9 +888,13 @@ else
 fi
 
 if [ "${SECRET_ENCRYPTION_PER_ORG_KMS:-false}" = true ]; then
-  grant_pod_identity platform secret-encryption-per-org \
-    "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"PerOrgSecretEncryptionUnwrap\",\"Effect\":\"Allow\",\"Action\":\"kms:Decrypt\",\"Resource\":\"*\",\"Condition\":{\"StringEquals\":{\"aws:ResourceTag/pipeline-builder:secret-encryption\":\"true\"}}}]}" \
-    "kms:Decrypt on CMKs tagged pipeline-builder:secret-encryption=true (per-org masters)"
+  for _sa in platform pipeline; do
+    _suffix=secret-encryption-per-org; [ "$_sa" = platform ] || _suffix="secret-encryption-per-org-${_sa}"
+    grant_pod_identity "$_sa" "$_suffix" \
+      "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"PerOrgSecretEncryptionUnwrap\",\"Effect\":\"Allow\",\"Action\":\"kms:Decrypt\",\"Resource\":\"*\",\"Condition\":{\"StringEquals\":{\"aws:ResourceTag/pipeline-builder:secret-encryption\":\"true\"}}}]}" \
+      "kms:Decrypt on CMKs tagged pipeline-builder:secret-encryption=true (per-org masters, $_sa)"
+  done
+  unset _sa _suffix
   echo "  NOTE: tag every per-org CMK \`pipeline-builder:secret-encryption=true\` or its Decrypt is denied."
 else
   echo "  SECRET_ENCRYPTION_PER_ORG_KMS!=true — no per-org KMS grant"
@@ -1241,7 +1234,7 @@ fi
 
 # ---- Phase 10: post-provision smoke checks (non-fatal) ----------------------
 # Test alert through Alertmanager -> Slack, a test email through platform,
-# a CodePipeline credential dry-run from the pipeline pod, and a probe that a
+# and a probe that a
 # connection the NetworkPolicies deny really is denied (Auto Mode ignores
 # NetworkPolicy unless Phase 1b's ConfigMap + NodeClass took effect).
 fi
@@ -1278,7 +1271,7 @@ if [ "${BILLING_PROVIDER:-stub}" = "aws-marketplace" ]; then
     fi
   fi
 fi
-NAMESPACE="$NAMESPACE" ALERT_EMAIL="${ALERT_EMAIL:-}" bash "$BIN_DIR/post-provision-smoke.sh" k8s --aws || true
+NAMESPACE="$NAMESPACE" ALERT_EMAIL="${ALERT_EMAIL:-}" bash "$BIN_DIR/post-provision-smoke.sh" k8s || true
 fi
 
 # ---- Summary ----------------------------------------------------------------

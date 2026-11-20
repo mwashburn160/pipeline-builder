@@ -11,17 +11,18 @@ import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router, type Request, type Response, type RequestHandler, type ErrorRequestHandler } from 'express';
 import multer from 'multer';
 
+import { resolveBuildShape } from '../helpers/build-shape.js';
 import { getBuildStrategy } from '../helpers/build-strategy.js';
 import { compliancePreflight, queuePluginBuild } from '../helpers/build-submission.js';
-import { resolveBuildShape } from '../helpers/build-shape.js';
-import { getOrgTier } from '../queue/connections.js';
 import { catalogColumns } from '../helpers/catalog-metadata.js';
 import { DEFAULT_PLUGIN_VERSION } from '../helpers/default-version.js';
 import { assertManagedUploadAllowed } from '../helpers/managed-toolchain.js';
 import { enforceNameShadowingPolicy } from '../helpers/name-shadowing-gate.js';
 import { createBuildJobData, toPluginInsert } from '../helpers/plugin-helpers.js';
 import { parsePluginZip, specContractFields, validateBuildArgs, type ParsedPlugin } from '../helpers/plugin-spec.js';
+import { UPLOAD_DEST, isZipUpload } from '../helpers/zip-upload.js';
 import { admitBuildOnCredits } from '../queue/build-credits.js';
+import { getOrgTier } from '../queue/connections.js';
 import { callerFromRequest } from '../services/ecosystem/context.js';
 import { submitAfterBuild } from '../services/ecosystem/requests.js';
 import { deletePluginArtifact, pluginArtifactKey, putPluginArtifact } from '../services/plugin-artifact-storage.js';
@@ -38,26 +39,12 @@ function buildImageToolchainMetadata(spec: PluginSpec): Record<string, string> |
 
 const MAX_UPLOAD_SIZE = CoreConstants.PLUGIN_MAX_UPLOAD_MB * 1024 * 1024;
 
-// Multer needs a writable destination for the incoming multipart ZIP. The
-// plugin container runs with readOnlyRootFilesystem=true, so a relative path
-// like `uploads/` resolves under `/app` and EROFS-fails. It writes into the
-// per-pod build-scratch volume mounted at the canonical
-// /opt/pipeline/pipeline-data/plugins-data. The staged ZIP is transient — it is
-// uploaded to object storage (for cross-replica builds) and extracted locally,
-// then deleted in the finally block. Override via PLUGIN_UPLOAD_DIR for tests.
-const UPLOAD_DEST = process.env.PLUGIN_UPLOAD_DIR
-  || '/opt/pipeline/pipeline-data/plugins-data';
-
 const upload = multer({
   limits: { files: 1, fileSize: MAX_UPLOAD_SIZE },
   dest: UPLOAD_DEST,
   fileFilter: (_req, file, cb) => {
-    const allowedMimes = ['application/zip', 'application/x-zip-compressed', 'application/octet-stream'];
-    if (allowedMimes.includes(file.mimetype) || file.originalname.endsWith('.zip')) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only ZIP files are allowed'));
-    }
+    if (isZipUpload(file)) cb(null, true);
+    else cb(new Error('Only ZIP files are allowed'));
   },
 });
 
@@ -80,6 +67,20 @@ function cleanupUploadFile(req: Request): void {
     logger.debug('Upload temp cleanup failed', { path: uploaded.path, error: String(err) });
   }
 }
+
+/**
+ * Multer/busboy failures (an over-size ZIP, "Unexpected end of form", a non-ZIP
+ * file) short-circuit before the handler, so its `finally` never runs: reclaim
+ * any partially-written temp file here. An over-size ZIP is a 413, like the
+ * anonymous submission path; everything else is a 400.
+ */
+const multipartErrors: ErrorRequestHandler = (err, req, res, next) => {
+  if (!err) return next();
+  logger.error('Multipart parse error', { error: errorMessage(err) });
+  cleanupUploadFile(req);
+  const tooLarge = (err as { code?: string }).code === 'LIMIT_FILE_SIZE';
+  sendError(res, tooLarge ? 413 : 400, `File upload failed: ${errorMessage(err)}`, tooLarge ? ErrorCode.PAYLOAD_TOO_LARGE : ErrorCode.VALIDATION_ERROR);
+};
 
 /** What catalog detection reads from a parsed zip. */
 function catalogInputs(plugin: Pick<ParsedPlugin, 'pluginSpec' | 'readmeMd' | 'dockerfileContent'>): {
@@ -129,18 +130,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
     // async Docker build). Keys on the verified org.
     rateLimitByOrg({ name: 'plugin-upload', max: 30, windowMs: 60_000, message: 'Too many plugin uploads, please slow down.' }) as RequestHandler,
     upload.single('plugin') as RequestHandler,
-    // Handle multer/busboy errors (e.g. "Unexpected end of form") before proceeding
-    ((err, req, res, next) => {
-      if (err) {
-        logger.error('Multipart parse error', { error: err.message });
-        // Reclaim a partially-written upload: multer may have created the temp
-        // file before failing, and the handler's `finally` never runs.
-        cleanupUploadFile(req as Request);
-        sendError(res, 400, `File upload failed: ${err.message}`, ErrorCode.VALIDATION_ERROR);
-        return;
-      }
-      next();
-    }) as ErrorRequestHandler,
+    multipartErrors,
     // Open the RLS tenant scope (orgId + isSuperAdmin) so deployVersion's reads/writes
     // against the FORCE-RLS plugins table see the caller's org — the factory routes get
     // this via createAuthenticatedWithOrgRoute, but this route hand-wires its chain.
@@ -522,14 +512,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
     requirePermission('plugins:write') as RequestHandler,
     rateLimitByOrg({ name: 'plugin-inspect', max: 30, windowMs: 60_000, message: 'Too many plugin inspections, please slow down.' }) as RequestHandler,
     upload.single('plugin') as RequestHandler,
-    ((err, req, res, next) => {
-      if (err) {
-        cleanupUploadFile(req as Request);
-        sendError(res, 400, `File upload failed: ${err.message}`, ErrorCode.VALIDATION_ERROR);
-        return;
-      }
-      next();
-    }) as ErrorRequestHandler,
+    multipartErrors,
     withRoute(async ({ req, res, ctx }) => {
       let extractDir: string | null = null;
       try {

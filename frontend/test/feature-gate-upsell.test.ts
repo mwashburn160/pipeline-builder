@@ -73,10 +73,10 @@ describe('feature-gate upsell routing', () => {
     // Enterprise is every flag EXCEPT the add-on-only support levels: support is
     // an add-on at every tier and included in none, so `TIER_FEATURES.enterprise`
     // is an explicit list rather than a spread of ALL_FEATURE_FLAGS.
-    // …and except the operator-granted flags (cross-account runners), which no
-    // tier includes and no bundle sells.
-    expect(tierFeatures('enterprise').size).toBe(ALL_FEATURE_FLAGS.length - SUPPORT_FEATURE_FLAGS.length - 1);
-    expect(tierFeatures('enterprise').has('cross_account_runners')).toBe(false);
+    // (No flag is operator-granted any more: pipeline runners are a core
+    // capability, not the cross_account_runners flag.)
+    expect(tierFeatures('enterprise').size).toBe(ALL_FEATURE_FLAGS.length - SUPPORT_FEATURE_FLAGS.length - OPERATOR_GRANTED_FEATURE_FLAGS.length);
+    expect((ALL_FEATURE_FLAGS as readonly string[]).includes('cross_account_runners')).toBe(false);
     // Developer holds exactly one flag: AI generation, as a trial (its small
     // `aiCalls` allowance is what makes it a trial).
     expect([...tierFeatures('developer')]).toEqual(['ai_generation']);
@@ -91,7 +91,8 @@ describe('feature-gate upsell routing', () => {
     const operator = ALL_FEATURE_FLAGS.filter((f) => FEATURE_GATES[f].acquiredVia === 'operator');
     // Exactly api-core's operator-granted list — the server's own classification.
     expect(operator).toEqual([...OPERATOR_GRANTED_FEATURE_FLAGS]);
-    expect(operator).toEqual(['cross_account_runners']);
+    // None today: runners were the only one, and they are no longer gated.
+    expect(operator).toEqual([]);
     for (const flag of operator) {
       expect(lowestPlanIncluding(flag)).toBeNull();
       expect(isSoldAsBundle(flag)).toBe(false);

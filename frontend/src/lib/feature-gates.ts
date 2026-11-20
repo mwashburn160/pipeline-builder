@@ -182,21 +182,6 @@ export const FEATURE_GATES: Record<FeatureFlag, FeatureGateSpec> = {
     unlocks: 'applying for the Verified badge on your plugin-ecosystem publisher',
     note: 'Eligibility only, and not yet checked by any route: the ecosystem publisher routes will gate the Verified application on it. Reclassify to `handler`/`route` and add the control when they land.',
   },
-  cross_account_runners: {
-    // Every admin route under /pipelines/runners carries requireFeature, but the
-    // UI HIDES the runner surfaces without the flag (not locked, no upsell): an
-    // operator grants it, nobody can buy it.
-    enforcement: 'route',
-    acquiredVia: 'operator',
-    controls: [
-      'src/lib/pipeline-runners.ts',
-      'pages/dashboard/settings.tsx',
-      'pages/dashboard/pipelines/[id].tsx',
-      'src/components/onboarding/OrgSetupStep.tsx',
-    ],
-    unlocks: 'Re-run and Stop for pipelines in your own AWS accounts, through a pipeline runner',
-    note: 'Operator-granted per org. Hidden, never locked.',
-  },
   custom_integrations: {
     enforcement: 'entitlement-only',
     acquiredVia: 'tier',

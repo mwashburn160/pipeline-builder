@@ -137,3 +137,20 @@ export function toolchainReleasePin(props: unknown): string | undefined {
 export const BUILD_IMAGE_STEP_KEY = 'build-image';
 export const BUILD_IMAGE_MANIFEST_STAGE = '(toolchain)';
 export const BUILD_IMAGE_MANIFEST_ACTION = 'build-image';
+
+/**
+ * Why a plugin lookup found nothing, as the plugin service's 404
+ * `details.state` reports it — ONE keyed catalog shared by the service (which
+ * classifies the org's rows) and the CLI (which reads the state back): each
+ * state and what an exact pin that hit it is told
+ * (`Plugin "<label>" version <pin> <pinRefusal>`). The service's row check can
+ * also answer `live` (a row would resolve under a different filter); that is
+ * not a not-found state and never rides a 404.
+ */
+export const PLUGIN_LOOKUP_NOT_FOUND_STATES = {
+  deleted: { pinRefusal: 'was deleted from your organization' },
+  inactive: { pinRefusal: 'is inactive' },
+  yanked: { pinRefusal: 'was yanked' },
+  missing: { pinRefusal: 'does not exist' },
+} as const satisfies Record<string, { pinRefusal: string }>;
+export type PluginLookupNotFoundState = keyof typeof PLUGIN_LOOKUP_NOT_FOUND_STATES;

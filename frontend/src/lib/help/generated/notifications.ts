@@ -1,6 +1,6 @@
 // GENERATED FROM docs/notifications.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: bc96392932d4863b2cfb8ec3d59bcd25b99678f6419a12e60471812d870d2fc2
+// SOURCE-SHA256: 0dab25ad2eefd225f888f271f2d8e189066c8b58daec59988339d933f423cde0
 // SPDX-License-Identifier: Apache-2.0
 import { Bell } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -108,7 +108,7 @@ export const notificationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "bash SMOKE_EMAIL_TO=you@example.com bash deploy/bin/post-provision-smoke.sh k8s --aws"
+          "content": "bash SMOKE_EMAIL_TO=you@example.com bash deploy/bin/post-provision-smoke.sh k8s"
         },
         {
           "type": "list",
@@ -400,7 +400,7 @@ export const notificationsTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "SMOKE_EMAIL_TO=you@example.com bash deploy/bin/post-provision-smoke.sh k8s --aws",
+          "content": "SMOKE_EMAIL_TO=you@example.com bash deploy/bin/post-provision-smoke.sh k8s",
           "language": "bash"
         },
         {

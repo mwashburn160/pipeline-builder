@@ -12,7 +12,7 @@
 import { createLogger } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { recurringInvoicePeriod, type InvoiceLineLike } from './stripe-period.js';
-import { BillingInvoice } from '../models/billing-invoice.js';
+import { BillingInvoice, type BillingInvoiceStatus } from '../models/billing-invoice.js';
 import { BillingPendingReversal, PENDING_REVERSAL_TTL_MS } from '../models/billing-pending-reversal.js';
 
 const logger = createLogger('billing-ledger');
@@ -34,19 +34,22 @@ export interface StripeInvoiceLike {
   lines?: { data?: InvoiceLineLike[] };
 }
 
-type LedgerStatus = 'paid' | 'open' | 'void' | 'uncollectible' | 'refunded' | 'disputed';
+type LedgerStatus = BillingInvoiceStatus;
 
-/** Map a Stripe invoice status to the ledger's coarser set (draft → open). The
- *  `void`/`uncollectible` branches are driven live by the invoice.voided /
- *  invoice.marked_uncollectible webhooks (which re-ingest the reversed invoice);
- *  `refunded`/`disputed` are set separately by {@link reverseLedgerInvoice}. */
+/** The Stripe invoice statuses the ledger keeps as-is; every other one (draft,
+ *  open, an unknown future value) is `open`. The `void`/`uncollectible` entries
+ *  are driven live by the invoice.voided / invoice.marked_uncollectible webhooks
+ *  (which re-ingest the reversed invoice); `refunded`/`disputed` are set
+ *  separately by {@link reverseLedgerInvoice}. */
+const STRIPE_INVOICE_STATUS_MAP: Readonly<Partial<Record<string, LedgerStatus>>> = {
+  paid: 'paid',
+  void: 'void',
+  uncollectible: 'uncollectible',
+} satisfies Partial<Record<string, LedgerStatus>>;
+
+/** Map a Stripe invoice status to the ledger's coarser set (draft → open). */
 function mapInvoiceStatus(status?: string | null): LedgerStatus {
-  switch (status) {
-    case 'paid': return 'paid';
-    case 'void': return 'void';
-    case 'uncollectible': return 'uncollectible';
-    default: return 'open';
-  }
+  return (status && Object.hasOwn(STRIPE_INVOICE_STATUS_MAP, status) ? STRIPE_INVOICE_STATUS_MAP[status] : undefined) ?? 'open';
 }
 
 /** Write a reversal onto an existing ledger row; null when the row is absent. */

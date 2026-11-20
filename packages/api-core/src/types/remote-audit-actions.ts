@@ -105,6 +105,33 @@ export const REMOTE_AUDIT_ACTIONS = [
   // A runner's health changed (unreachable / offline / recovered), recorded by
   // the dispatcher as the system actor.
   'pipeline.runner.health',
+  // Per-org runner signing keys (api/pipeline signing-key routes). `targetType`
+  // pipeline_runner_signing_key, `targetId` the kid; `details` carry kids,
+  // states and dates only — never a private key, its ciphertext or a PEM.
+  // generate (first key, also auto-created at first runner registration by the
+  // registering user), rotate (a next key), cancel (DELETE of a next key),
+  // finish (retire a retiring key early), revoke (emergency: retire active now),
+  // mode (inherit <-> own; details { from, to }), promote / retire (the sweep,
+  // as the system actor), system_revoke (a system-org operator revoking one
+  // org's key; `affectedOrgId` is that org, the actor names the operator) and
+  // reencrypt (the re-encrypt job after a master or per-org KMS rotation;
+  // details carry counts only).
+  'pipeline.runner.key.generate',
+  'pipeline.runner.key.rotate',
+  'pipeline.runner.key.cancel',
+  'pipeline.runner.key.finish',
+  'pipeline.runner.key.revoke',
+  'pipeline.runner.key.mode',
+  'pipeline.runner.key.promote',
+  'pipeline.runner.key.retire',
+  'pipeline.runner.key.system_revoke',
+  'pipeline.runner.key.reencrypt',
+  // The system-org "Pause all pipeline runs" toggle (details { reason }).
+  'pipeline.runner.deliveries.pause',
+  'pipeline.runner.deliveries.resume',
+  // "Find runner again" on a pipeline (`targetId` the pipeline id; details:
+  // the resulting link status and runner labels, never an account id).
+  'pipeline.runner.link.refresh',
   // Quota administration (api/quota) — a superadmin resetting an org's usage
   // counter or editing its tier limits. `affectedOrgId` is the org changed;
   // `details` carries the quotaType + old/new value.

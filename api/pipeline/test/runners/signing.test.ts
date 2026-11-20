@@ -3,17 +3,20 @@
 
 /**
  * The run-request signature: EdDSA compact JWS, the protocol's header and
- * claims, the public JWK set (RFC 7638 kids, two keys during a rotation), and
- * where the key comes from.
+ * claims, the public JWK set (RFC 7638 kids), and the per-org signer: which
+ * org's key signs, RUNNER_KEY_MISSING / RUNNER_KEY_UNREADABLE, cross-org
+ * isolation, and the per-replica cache (pub/sub invalidation and the 60 s
+ * version poll, across two replicas).
  */
 
-import { createHash, generateKeyPairSync, type KeyObject } from 'node:crypto';
-import { describe, expect, it } from '@jest/globals';
+import { createHash, generateKeyPairSync } from 'node:crypto';
+import { describe, expect, it, jest } from '@jest/globals';
+import { applyKeyInvalidation } from '../../src/runners/deps.js';
 import { ed25519Jwk, JwsVerifyError, okpThumbprint, signEdDsaJws, verifyEdDsaJws } from '../../src/runners/jws.js';
-import { createRunRequestSigner, loadRunnerSigner, runnerSigningKeyConfigured } from '../../src/runners/signing.js';
-import { claimsOf, headerOf } from '../helpers/runner-fakes.js';
-
-const pem = (k: KeyObject) => k.export({ type: 'pkcs8', format: 'pem' }).toString();
+import { generateOrgKey, promoteDueKeys, publicKeysForRunner, revokeOrgKey, rotateOrgKey, setOrgKeyMode } from '../../src/runners/keys.js';
+import { createOrgSignerCache, createRunRequestSigner, type ResolvedSigner } from '../../src/runners/signing.js';
+import { fakeKeyStore, keyedDeps } from '../helpers/key-fakes.js';
+import { claimsOf, headerOf, ORG, PARENT, runnerRow } from '../helpers/runner-fakes.js';
 const NOW = Date.parse('2026-11-19T12:00:00Z');
 
 describe('EdDSA JWS helpers', () => {
@@ -106,36 +109,191 @@ describe('createRunRequestSigner', () => {
   });
 });
 
-describe('loadRunnerSigner', () => {
-  const a = generateKeyPairSync('ed25519').privateKey;
-  const b = generateKeyPairSync('ed25519').privateKey;
 
-  it('reads an inline PEM, or the _FILE, and a previous key when present', () => {
-    expect(loadRunnerSigner({ RUNNER_SIGNING_KEY: pem(a) })?.jwks().keys).toHaveLength(1);
-    const files: Record<string, string> = { '/k/cur': pem(a), '/k/prev': pem(b) };
-    const read = (p: string) => { if (!(p in files)) throw Object.assign(new Error('nope'), { code: 'ENOENT' }); return files[p]!; };
-    expect(loadRunnerSigner({ RUNNER_SIGNING_KEY_FILE: '/k/cur', RUNNER_SIGNING_KEY_PREVIOUS_FILE: '/k/prev' }, read)?.jwks().keys).toHaveLength(2);
-    // A missing previous file is "no rotation in progress".
-    expect(loadRunnerSigner({ RUNNER_SIGNING_KEY_FILE: '/k/cur', RUNNER_SIGNING_KEY_PREVIOUS_FILE: '/k/none' }, read)?.jwks().keys).toHaveLength(1);
-    expect(loadRunnerSigner({ RUNNER_SIGNING_KEY_FILE: '/k/cur', RUNNER_SIGNING_KEY_PREVIOUS_FILE: '' }, read)?.jwks().keys).toHaveLength(1);
+const OTHER = 'bbbbbbbbbbbbbbbbbbbbbbbb';
+const TEAM = ORG;
+const ROOT = PARENT;
+const ping = (runnerId: string) => ({ runnerId, requestId: 'q', action: 'ping' as const, requestedBy: 'u' });
+const kidOf = (jws: string) => headerOf(jws).kid as string;
+const user = { userId: 'admin-1' };
+
+describe('createOrgSignerCache', () => {
+  const resolved = (kid: string, version: number): ResolvedSigner => ({
+    signer: { kid, jwks: () => ({ keys: [] }), sign: () => kid },
+    versionOrgIds: ['o'],
+    version,
   });
 
-  it('is null (runners unavailable) with no key, a missing file, a non-Ed25519 key or an unreadable one', () => {
-    expect(loadRunnerSigner({})).toBeNull();
-    expect(loadRunnerSigner({ RUNNER_SIGNING_KEY_FILE: '/none' }, () => { throw Object.assign(new Error('x'), { code: 'ENOENT' }); })).toBeNull();
-    expect(loadRunnerSigner({ RUNNER_SIGNING_KEY_FILE: '/k' }, () => '  ')).toBeNull();
-    const ec = generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey;
-    expect(loadRunnerSigner({ RUNNER_SIGNING_KEY: pem(ec) })).toBeNull();
-    expect(loadRunnerSigner({ RUNNER_SIGNING_KEY: 'not a pem' })).toBeNull();
-    expect(loadRunnerSigner({ RUNNER_SIGNING_KEY_FILE: '/k' }, () => { throw Object.assign(new Error('denied'), { code: 'EACCES' }); })).toBeNull();
+  it('serves a hit for the TTL without a version read, then keeps it while the version is unchanged', async () => {
+    let t = 0;
+    const resolve = jest.fn(async () => resolved('k1', 7));
+    const version = jest.fn(async () => 7);
+    const cache = createOrgSignerCache({ resolve, version, now: () => t, ttlMs: 60_000 });
+    expect((await cache.signerFor('O')).kid).toBe('k1');
+    t = 59_000;
+    await cache.signerFor('o');
+    expect(version).not.toHaveBeenCalled();
+    t = 61_000;
+    await cache.signerFor('o');
+    expect(version).toHaveBeenCalledTimes(1);
+    expect(resolve).toHaveBeenCalledTimes(1);
+  });
+
+  it('a version bump seen by the poll rebuilds the entry (counted source=poll); an invalidation drops it at once (source=pubsub)', async () => {
+    let t = 0;
+    let v = 1;
+    const sources: string[] = [];
+    const resolve = jest.fn(async () => resolved(`k${v}`, v));
+    const cache = createOrgSignerCache({ resolve, version: async () => v, now: () => t, onInvalidate: (s) => sources.push(s) });
+    expect((await cache.signerFor('o')).kid).toBe('k1');
+    v = 2;
+    t += 60_000;
+    expect((await cache.signerFor('o')).kid).toBe('k2');
+    v = 3;
+    cache.invalidate(['O']);
+    expect((await cache.signerFor('o')).kid).toBe('k3');
+    expect(sources).toEqual(['poll', 'pubsub']);
+    cache.invalidate(['never-cached']);
+    expect(sources).toHaveLength(2);
+  });
+
+  it('concurrent first calls share one resolution; a resolution racing an invalidation is not cached; failures are not cached', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    let n = 0;
+    const resolve = jest.fn(async () => { n++; await gate; return resolved(`k${n}`, n); });
+    const cache = createOrgSignerCache({ resolve, version: async () => 0 });
+    const a = cache.signerFor('o');
+    const b = cache.signerFor('o');
+    cache.invalidate(['o']);
+    release();
+    expect((await a).kid).toBe((await b).kid);
+    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(cache.size()).toBe(0);
+    const failing = createOrgSignerCache({ resolve: jest.fn(async () => { throw new Error('nope'); }), version: async () => 0 });
+    await expect(failing.signerFor('o')).rejects.toThrow('nope');
+    expect(failing.size()).toBe(0);
   });
 });
 
-describe('runnerSigningKeyConfigured (readiness)', () => {
-  it('a deployment is runner-ready only with a key configured', () => {
-    expect(runnerSigningKeyConfigured({})).toBe(false);
-    expect(runnerSigningKeyConfigured({ RUNNER_SIGNING_KEY_FILE: ' ' })).toBe(false);
-    expect(runnerSigningKeyConfigured({ RUNNER_SIGNING_KEY_FILE: '/k' })).toBe(true);
-    expect(runnerSigningKeyConfigured({ RUNNER_SIGNING_KEY: 'pem' })).toBe(true);
+describe('signerFor: the owning org\'s effective key', () => {
+  it('a root org signs with its own active key; a team in inherit mode (the default) with its parent\'s', async () => {
+    const deps = keyedDeps();
+    deps.parents.set(TEAM, ROOT);
+    const { kid } = await generateOrgKey(deps, ROOT, user);
+    expect((await deps.signerFor(ROOT)).kid).toBe(kid);
+    expect((await deps.signerFor(TEAM)).kid).toBe(kid);
+  });
+
+  it('a team with its own key signs with it; a parent runner shared with the team still uses the parent\'s key', async () => {
+    const deps = keyedDeps();
+    deps.parents.set(TEAM, ROOT);
+    const root = await generateOrgKey(deps, ROOT, user);
+    await setOrgKeyMode(deps, TEAM, 'own', user);
+    deps.clock.t += 11 * 60_000;
+    await promoteDueKeys(deps);
+    const team = (await deps.keyStore.publishedKeys([TEAM]))[0]!;
+    expect(team.state).toBe('active');
+    deps.keyCaches.signers.clear();
+    expect((await deps.signerFor(TEAM)).kid).toBe(team.kid);
+    // The runner row's org decides: the parent's shared runner signs with the parent's key.
+    const shared = runnerRow({ orgId: ROOT, shareWithTeams: true });
+    deps.store.runners.set(shared.id, shared);
+    expect((await deps.signerFor(shared.orgId)).kid).toBe(root.kid);
+  });
+
+  it('no effective key: RUNNER_KEY_MISSING (no shared key to fall back to)', async () => {
+    const deps = keyedDeps();
+    await expect(deps.signerFor(ROOT)).rejects.toMatchObject({ code: 'RUNNER_KEY_MISSING', status: 409 });
+    deps.parents.set(TEAM, ROOT);
+    await expect(deps.signerFor(TEAM)).rejects.toMatchObject({ code: 'RUNNER_KEY_MISSING' });
+  });
+
+  it('an unreadable key fails closed for that org only, raises the alert gauge once and tells the operator once', async () => {
+    const deps = keyedDeps();
+    await generateOrgKey(deps, ROOT, user);
+    const other = await generateOrgKey(deps, OTHER, user);
+    deps.notified.length = 0;
+    deps.secrets.unreadable.add(ROOT);
+    await expect(deps.signerFor(ROOT)).rejects.toMatchObject({ code: 'RUNNER_KEY_UNREADABLE', status: 409 });
+    await expect(deps.signerFor(ROOT)).rejects.toMatchObject({ code: 'RUNNER_KEY_UNREADABLE' });
+    expect((await deps.signerFor(OTHER)).kid).toBe(other.kid);
+    expect(deps.gaugeValues.get('pipeline_runner_signing_keys_unreadable')).toBe(1);
+    await new Promise((r) => setImmediate(r));
+    expect(deps.notified).toHaveLength(1);
+    expect(deps.notified[0]).toMatchObject({ recipientOrgId: '000000000000000000000001', subject: 'Runner signing key unreadable' });
+    // Fixed: the next decrypt clears it.
+    deps.secrets.unreadable.clear();
+    await deps.signerFor(ROOT);
+    expect(deps.gaugeValues.get('pipeline_runner_signing_keys_unreadable')).toBe(0);
+  });
+
+  it('cross-org: org B\'s runner rejects a request signed with org A\'s key', async () => {
+    const deps = keyedDeps();
+    await generateOrgKey(deps, ROOT, user);
+    await generateOrgKey(deps, OTHER, user);
+    const runnerB = runnerRow({ orgId: OTHER, id: '11111111-1111-4111-8111-111111111111' });
+    deps.store.runners.set(runnerB.id, runnerB);
+    const jwksB = (await publicKeysForRunner(deps, runnerB.id))!.keys;
+    const fromA = (await deps.signerFor(ROOT)).sign(ping(runnerB.id));
+    expect(() => verifyEdDsaJws(fromA, jwksB)).toThrow(JwsVerifyError);
+    // Its own org's key verifies.
+    expect(verifyEdDsaJws((await deps.signerFor(OTHER)).sign(ping(runnerB.id)), jwksB).payload.aud).toBe(runnerB.id);
+  });
+
+  it('the cache refreshes on a version bump: after a promotion the new key signs within the 60 s poll', async () => {
+    const deps = keyedDeps();
+    const first = await generateOrgKey(deps, ROOT, user);
+    expect((await deps.signerFor(ROOT)).kid).toBe(first.kid);
+    const next = await rotateOrgKey(deps, ROOT, user);
+    deps.clock.t += 11 * 60_000;
+    await promoteDueKeys(deps);
+    // No pub/sub delivered here (publishKeyInvalidation is a recorder): the poll catches it.
+    expect(deps.counterAdds.filter(([n]) => n === 'pipeline_runner_signing_key_invalidations_total')).toHaveLength(0);
+    expect(kidOf((await deps.signerFor(ROOT)).sign(ping('r')))).toBe(next.kid);
+    expect(deps.counterAdds).toContainEqual(['pipeline_runner_signing_key_invalidations_total', { source: 'poll' }, 1]);
+  });
+});
+
+describe('invalidation across two replicas (two signer caches over one store)', () => {
+  function replicas() {
+    const store = fakeKeyStore();
+    const a = keyedDeps({}, { keyStore: store });
+    const b = keyedDeps({}, { keyStore: store });
+    b.clock = a.clock;
+    b.now = a.now;
+    // The bus: every publish reaches both replicas (the sender's own echo included).
+    const deliver = (m: Record<string, unknown>) => { for (const d of [a, b]) applyKeyInvalidation(d, { v: 1, origin: 'a', ...m } as never); };
+    return { a, b, deliver };
+  }
+
+  it('a revoke on one replica stops signing with the old key on the other at once (pub/sub)', async () => {
+    const { a, b, deliver } = replicas();
+    a.publishKeyInvalidation = (m) => deliver(m as Record<string, unknown>);
+    const first = await generateOrgKey(a, ROOT, user);
+    expect((await b.signerFor(ROOT)).kid).toBe(first.kid);
+    const out = await revokeOrgKey(a, ROOT, user, first.kid.slice(-6));
+    // Same clock instant on b: only the message can have dropped its entry.
+    expect((await b.signerFor(ROOT)).kid).toBe(out.activeKid);
+    expect(b.counterAdds).toContainEqual(['pipeline_runner_signing_key_invalidations_total', { source: 'pubsub' }, 1]);
+  });
+
+  it('a dropped message is caught by the 60 s version poll', async () => {
+    const { a, b } = replicas();
+    const first = await generateOrgKey(a, ROOT, user);
+    expect((await b.signerFor(ROOT)).kid).toBe(first.kid);
+    const out = await revokeOrgKey(a, ROOT, user, first.kid.slice(-6)); // message lost
+    expect((await b.signerFor(ROOT)).kid).toBe(first.kid);
+    a.clock.t += 60_000;
+    expect((await b.signerFor(ROOT)).kid).toBe(out.activeKid);
+  });
+
+  it('a pause message makes the next pause read hit the store', async () => {
+    const { a, b } = replicas();
+    expect(await b.deliveriesPaused()).toBe(false);
+    await a.keyStore.setPause({ paused: true, by: 'op', reason: null, at: new Date(a.now()) });
+    expect(await b.deliveriesPaused()).toBe(false); // cached
+    applyKeyInvalidation(b, { v: 1, kind: 'pause', origin: 'a', paused: true });
+    expect(await b.deliveriesPaused()).toBe(true);
   });
 });

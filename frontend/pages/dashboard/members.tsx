@@ -237,6 +237,10 @@ export default function MembersPage() {
   // Two-person MFA reset: only an owner/admin (or a sysadmin) may file or decide
   // one — the server checks `canAdministerOrg` on top of `members:manage`.
   const canResetMfa = can('members:manage') && (isAdmin || isSuperAdmin);
+  // The pending-resets LIST is a read (`GET …/mfa-resets`), so it rides the raw
+  // permission and stays visible under read-only impersonation; the panel's
+  // `readOnly` disables its decisions. Same split as `canViewMembers`.
+  const canSeeMfaResets = hasPermission(user, 'members:manage') && (isAdmin || isSuperAdmin);
   const [resetMfaTarget, setResetMfaTarget] = useState<OrganizationMember | null>(null);
   const [mfaResetsVersion, setMfaResetsVersion] = useState(0);
 
@@ -452,7 +456,7 @@ export default function MembersPage() {
 
       {/* Two-person MFA resets waiting on a second owner/admin (hidden when there
           are none). Covers this org and its teams. */}
-      {orgId && canResetMfa && (
+      {orgId && canSeeMfaResets && (
         <div className="mb-4">
           <MfaResetPanel orgId={orgId} currentUserId={user.id} readOnly={isReadOnly} refreshKey={mfaResetsVersion} />
         </div>

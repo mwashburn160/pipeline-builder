@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type {
-  PendingRunRequestStatus, RunnerHealth, RunnerStatus, RunRequestAction, RunRequestStatus,
+  InheritedPipelineRunnerDto, PipelineRunnerDto, PipelineRunnersListDto, QueuedRunRequestDto, RunnerDeliveriesDto,
+  RunnerHealth, RunnerKeyMode, RunnerKeyRotationState, RunnerKeyStatusRow, RunnerLinkDto, RunnerSigningKeyDto,
+  RunnerSigningKeySummary, RunnerStatus, RunRequestAction, RunRequestStatus,
 } from '@pipeline-builder/api-core/pipeline-runners';
 import type { ApiCore } from '../core';
 import { buildQuery, type ProposedByOptions } from '../util';
@@ -58,55 +60,34 @@ export interface PipelineDeployment {
   organization?: string;
   stackName?: string;
   lastDeployed: string;
-  /** The pipeline runner Re-run / Stop go through when the pipeline lives in a
-   *  customer AWS account — by LABEL only. Absent from servers that predate
-   *  runners; null = the platform's own account (or not yet linked). */
+  /** The pipeline runner Re-run / Stop go through — by LABEL only; null = not
+   *  linked yet (the pipeline page reads the full link status separately). */
   runner?: { id: string; label: string } | null;
 }
 
-// -- Pipeline runners (cross-account Re-run / Stop) -----------------------------
+// -- Pipeline runners (the only way a pipeline is started or stopped) ----------
 
-/** Delivery health: `unreachable` after 5 consecutive failed deliveries (a
- *  health ping every 5 minutes; a success resumes delivery). */
+/** Delivery health: `unreachable` after failed health pings or deliveries in a
+ *  row (a ping every minute; a success resumes delivery). */
 export type PipelineRunnerHealth = RunnerHealth;
 /** `pending`: registered but setup not finished (the ping has not answered yet). */
 export type PipelineRunnerStatus = RunnerStatus;
 
 /** A runner Lambda in a customer AWS account, pushed to by the platform at its
- *  Function URL (or API Gateway URL). Never carries an account number. */
-export interface PipelineRunner {
-  id: string;
-  orgId: string;
-  label: string;
-  /** Only for the OWNING org's admins (null everywhere else). A secret. */
-  functionUrl: string | null;
-  shareWithTeams: boolean;
-  version: string | null;
-  regions: string[];
-  health: PipelineRunnerHealth;
-  status: PipelineRunnerStatus;
-  lastDeliveryAt: string | null;
-  createdAt: string;
-  /** The runner's version is older than the platform supports — re-run setup-runner. */
-  updateRequired: boolean;
-}
+ *  Function URL (or API Gateway URL). Never carries an account number. Carries
+ *  its own JWKS URL (the keys it verifies requests with) and how many
+ *  pipelines are linked to it. */
+export type PipelineRunner = PipelineRunnerDto;
 
-/** A parent org's runner shared with this team — read-only here. */
-export interface InheritedPipelineRunner extends PipelineRunner {
-  fromOrgId: string;
-  fromOrgName: string;
-}
+/** A parent org's runner shared with this team — read-only here, and signed
+ *  with the parent's key. */
+export type InheritedPipelineRunner = InheritedPipelineRunnerDto;
 
-/** `GET /pipelines/runners`. `available: false` = the deployment has runners off. */
-export interface PipelineRunnersDto {
-  available: boolean;
-  /** Public keys the runner verifies the platform's signed requests with. */
-  jwksUrl: string;
-  /** The addresses the platform pushes from (for an API Gateway IP allowlist), when known. */
-  platformEgressIps: string[] | null;
-  own: PipelineRunner[];
-  inherited: InheritedPipelineRunner[];
-}
+/** `GET /pipelines/runners`. `available: false` = runners are unavailable on
+ *  this deployment right now (paused, or secret encryption not set up). */
+export type PipelineRunnersDto = PipelineRunnersListDto;
+
+export type { RunnerSigningKeyDto, RunnerSigningKeySummary, RunnerLinkDto, RunnerKeyStatusRow, RunnerDeliveriesDto };
 
 export type PipelineRunnerUpdate = { label?: string; shareWithTeams?: boolean; functionUrl?: string };
 
@@ -117,14 +98,28 @@ export interface PipelineRunnerTestResult {
   errorCode?: string | null;
 }
 
+/** `GET /pipelines/runners/:id/pipelines`: the pipelines linked to a runner. */
+export interface RunnerPipelinesPage {
+  pipelines: Array<{ id: string; name: string }>;
+  pagination: { total: number; limit: number; offset: number; hasMore: boolean };
+}
+
+/** `GET /pipelines/admin/runner-signing-keys` filters (operators). */
+export interface RunnerKeyStatusQuery {
+  mode?: RunnerKeyMode;
+  rotation?: RunnerKeyRotationState;
+  overAge?: boolean;
+  unreadable?: boolean;
+  inTransition?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
 export type { RunRequestStatus };
 
-/** A Re-run / Stop answered with `202` because it goes through a runner. */
-export interface QueuedRunRequest {
-  requestId: string;
-  status: PendingRunRequestStatus;
-  runnerLabel: string;
-}
+/** THE answer of Re-run and Stop (202): every run goes through a runner, so
+ *  the request is queued and followed with {@link pipelinesApi}'s `getRunRequest`. */
+export type QueuedRunRequest = QueuedRunRequestDto;
 
 /** `GET /pipelines/:id/run-requests/:requestId`. */
 export interface RunRequest {
@@ -139,12 +134,6 @@ export interface RunRequest {
   attempts: number;
   requestedAt: string | null;
   expiresAt: string;
-}
-
-/** Whether a Re-run / Stop answer is a queued runner request (vs. the
- *  platform-account path's immediate result). */
-export function isQueuedRunRequest(data: unknown): data is QueuedRunRequest {
-  return !!data && typeof data === 'object' && typeof (data as { requestId?: unknown }).requestId === 'string';
 }
 
 /** Pagination envelope of `GET /pipelines`. `total` is present only when the
@@ -420,27 +409,25 @@ export function pipelinesApi(core: ApiCore) {
     },
 
     /**
-     * Trigger a new AWS CodePipeline execution for a deployed pipeline.
-     * Resolves the pipeline's registered CodePipeline name/region server-side
-     * and calls StartPipelineExecution. Returns the new execution id (202).
-     * A pipeline in a customer AWS account goes through its pipeline runner
-     * instead: 202 `{ requestId, status, runnerLabel }` (`status` `delivering`
-     * when an in-flight start of the same pipeline is handed back rather than
-     * a second one queued) — follow it with {@link getRunRequest}.
+     * Start a new execution of a deployed pipeline. Every run goes through the
+     * pipeline's runner: 202 `{ requestId, status, runnerLabel }` (`status`
+     * `delivering` when an in-flight start of the same pipeline is handed back
+     * rather than a second one queued) — follow it with `getRunRequest`.
+     * 409 NO_RUNNER when the org has no runner that can reach it.
      */
     triggerPipelineExecution: async (pipelineId: string) => {
-      return core.request<ApiResponse<{ executionId: string } | QueuedRunRequest>>(`/api/pipelines/${pipelineId}/executions`, {
+      return core.request<ApiResponse<QueuedRunRequest>>(`/api/pipelines/${pipelineId}/executions`, {
         method: 'POST',
       });
     },
 
     /**
-     * Stop an in-flight AWS CodePipeline execution (StopPipelineExecution).
-     * `abandon` skips graceful completion of in-progress actions. Through a
-     * runner, the same queued 202 as {@link triggerPipelineExecution}.
+     * Stop an in-flight execution through the pipeline's runner. `abandon`
+     * skips graceful completion of in-progress actions. The same queued 202 as
+     * `triggerPipelineExecution`.
      */
     stopPipelineExecution: async (pipelineId: string, executionId: string, body?: { reason?: string; abandon?: boolean }) => {
-      return core.request<ApiResponse<{ stopped: boolean } | QueuedRunRequest>>(`/api/pipelines/${pipelineId}/executions/${executionId}/stop`, {
+      return core.request<ApiResponse<QueuedRunRequest>>(`/api/pipelines/${pipelineId}/executions/${executionId}/stop`, {
         method: 'POST',
         body: JSON.stringify(body ?? {}),
       });
@@ -483,6 +470,105 @@ export function pipelinesApi(core: ApiCore) {
     revokePipelineRunner: async (runnerId: string, stepUpToken?: string) => {
       return core.request<ApiResponse<{ runner?: PipelineRunner }>>(`/api/pipelines/runners/${encodeURIComponent(runnerId)}`, {
         method: 'DELETE',
+        headers: core.stepUpHeader(stepUpToken),
+      });
+    },
+    /** The pipelines linked to a runner (id and name), a page at a time. */
+    getRunnerPipelines: async (runnerId: string, params?: { limit?: number; offset?: number }, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<RunnerPipelinesPage>>(
+        `/api/pipelines/runners/${encodeURIComponent(runnerId)}/pipelines${buildQuery(params ?? {})}`,
+        { signal: opts?.signal },
+      );
+    },
+
+    // -- The org's runner signing key. Every write is step-up gated, MFA-grade
+    // and limited to 5 per org per hour; the answer is always the card's DTO
+    // (key ids and dates, never key material).
+
+    /** Generate the org's first key (created active). 409 RUNNER_KEY_EXISTS when it has one. */
+    generateRunnerSigningKey: async (stepUpToken?: string) => {
+      return core.request<ApiResponse<RunnerSigningKeyDto>>('/api/pipelines/runners/signing-key', {
+        method: 'POST',
+        headers: core.stepUpHeader(stepUpToken),
+      });
+    },
+    /** Publish a `next` key that starts signing in 10 minutes. */
+    rotateRunnerSigningKey: async (stepUpToken?: string) => {
+      return core.request<ApiResponse<RunnerSigningKeyDto>>('/api/pipelines/runners/signing-key/rotate', {
+        method: 'POST',
+        headers: core.stepUpHeader(stepUpToken),
+      });
+    },
+    /** Cancel a `next` key before it activates. */
+    cancelRunnerSigningKeyRotation: async (stepUpToken?: string) => {
+      return core.request<ApiResponse<RunnerSigningKeyDto>>('/api/pipelines/runners/signing-key/rotate', {
+        method: 'DELETE',
+        headers: core.stepUpHeader(stepUpToken),
+      });
+    },
+    /** Retire the `retiring` key early (refused before its retire-after time). */
+    finishRunnerSigningKeyRotation: async (stepUpToken?: string) => {
+      return core.request<ApiResponse<RunnerSigningKeyDto>>('/api/pipelines/runners/signing-key/finish', {
+        method: 'POST',
+        headers: core.stepUpHeader(stepUpToken),
+      });
+    },
+    /** Emergency: retire the active key now. `confirm` = the active kid's last 6 characters. */
+    revokeRunnerSigningKey: async (confirm: string, stepUpToken?: string) => {
+      return core.request<ApiResponse<RunnerSigningKeyDto>>('/api/pipelines/runners/signing-key/revoke', {
+        method: 'POST',
+        body: JSON.stringify({ confirm }),
+        headers: core.stepUpHeader(stepUpToken),
+      });
+    },
+    /** Inherit the parent's key, or use our own (sub-organizations only). */
+    setRunnerSigningKeyMode: async (mode: RunnerKeyMode, stepUpToken?: string) => {
+      return core.request<ApiResponse<RunnerSigningKeyDto>>('/api/pipelines/runners/signing-key/mode', {
+        method: 'PUT',
+        body: JSON.stringify({ mode }),
+        headers: core.stepUpHeader(stepUpToken),
+      });
+    },
+
+    // -- A pipeline's link to its runner (found by its pb.pipeline-id tag, never picked by hand).
+
+    /** Status, runner label, last checked, runners checked. 404 = not registered. */
+    getPipelineRunnerLink: async (pipelineId: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<RunnerLinkDto>>(`/api/pipelines/${encodeURIComponent(pipelineId)}/runner-link`, { signal: opts?.signal });
+    },
+    /** Find runner again: queues a re-probe (202, `status: 'checking'`). Step-up gated. */
+    refreshPipelineRunnerLink: async (pipelineId: string, stepUpToken?: string) => {
+      return core.request<ApiResponse<RunnerLinkDto>>(`/api/pipelines/${encodeURIComponent(pipelineId)}/runner-link/refresh`, {
+        method: 'POST',
+        headers: core.stepUpHeader(stepUpToken),
+      });
+    },
+
+    // -- Operators (system org): every org's signing-key status and the pause toggle.
+
+    /** Every org's key status (never key material), filterable. */
+    listRunnerSigningKeyStatus: async (query: RunnerKeyStatusQuery = {}, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ orgs: RunnerKeyStatusRow[]; pagination: RunnerPipelinesPage['pagination'] }>>(
+        `/api/pipelines/admin/runner-signing-keys${buildQuery({ ...query })}`,
+        { signal: opts?.signal },
+      );
+    },
+    /** Emergency revoke of one org's active key (system org). Step-up gated. */
+    systemRevokeRunnerSigningKey: async (orgId: string, body: { reason?: string }, stepUpToken?: string) => {
+      return core.request<ApiResponse<{ orgId: string; revokedKid: string | null; activeKid: string }>>(
+        `/api/pipelines/admin/orgs/${encodeURIComponent(orgId)}/runner-signing-key/revoke`,
+        { method: 'POST', body: JSON.stringify(body), headers: core.stepUpHeader(stepUpToken) },
+      );
+    },
+    /** The platform pause toggle for all runner traffic. */
+    getRunnerDeliveries: async (opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<RunnerDeliveriesDto>>('/api/pipelines/admin/runner-deliveries', { signal: opts?.signal });
+    },
+    /** Pause or resume every pipeline run on the deployment. Step-up gated. */
+    setRunnerDeliveriesPaused: async (body: { paused: boolean; reason?: string }, stepUpToken?: string) => {
+      return core.request<ApiResponse<RunnerDeliveriesDto>>('/api/pipelines/admin/runner-deliveries', {
+        method: 'PUT',
+        body: JSON.stringify(body),
         headers: core.stepUpHeader(stepUpToken),
       });
     },

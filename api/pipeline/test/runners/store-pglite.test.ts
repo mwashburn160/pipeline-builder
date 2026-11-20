@@ -116,16 +116,34 @@ describe('Drizzle runner store (real SQL)', () => {
   it('registry link: read (org-scoped), set, conditional clear, clear all, labels for the Deployment card', async () => {
     const r = await store.insertRunner({ orgId: ORG, label: 'prod', functionUrl: URL_A, status: 'active' });
     await registry();
-    expect(await store.getRegistryLink(PIPE, ORG)).toEqual({ pipelineName: 'acme-pipe', region: 'eu-west-1', runnerId: null });
+    expect(await store.getRegistryLink(PIPE, ORG)).toEqual({
+      pipelineName: 'acme-pipe', region: 'eu-west-1', runnerId: null, linkStatus: 'unlinked', linkCheckedAt: null, linkDetail: null,
+    });
     expect(await store.getRegistryLink(PIPE, OTHER)).toBeNull();
     expect(await store.setRegistryRunner(PIPE, ORG, r.id)).toBe(true);
     expect(await store.setRegistryRunner(PIPE, OTHER, r.id)).toBe(false);
+    expect((await store.getRegistryLink(PIPE, ORG))!.linkStatus).toBe('linked');
     expect((await store.runnerLinks([PIPE], ORG)).get(PIPE)).toEqual({ id: r.id, label: 'prod' });
     expect((await store.runnerLinks([PIPE], OTHER)).size).toBe(0);
     expect((await store.runnerLinks([], ORG)).size).toBe(0);
     expect(await store.setRegistryRunner(PIPE, ORG, null, '00000000-0000-4000-8000-000000000000')).toBe(false);
     expect((await store.getRegistryLink(PIPE, ORG))!.runnerId).toBe(r.id);
     expect(await store.clearRunnerLinks(r.id)).toBe(1);
-    expect((await store.getRegistryLink(PIPE, ORG))!.runnerId).toBeNull();
+    expect(await store.getRegistryLink(PIPE, ORG)).toMatchObject({ runnerId: null, linkStatus: 'unlinked' });
+  });
+
+  it('runner link columns: a probe\'s write (kept runner_id unless a single match), counts, the runner\'s pipelines and the teams using it', async () => {
+    const r = await store.insertRunner({ orgId: OTHER, label: 'parent', functionUrl: URL_A, status: 'active' });
+    await registry(ORG, r.id);
+    const detail = { runnersChecked: ['parent'], matched: [], errorCode: 'PIPELINE_NOT_FOUND_IN_RUNNERS' as const };
+    expect(await store.writeRunnerLink(PIPE, ORG, { status: 'not_found', checkedAt: T, detail })).toBe(true);
+    expect(await store.getRegistryLink(PIPE, ORG)).toMatchObject({ runnerId: r.id, linkStatus: 'not_found', linkCheckedAt: T, linkDetail: detail });
+    expect(await store.writeRunnerLink(PIPE, OTHER, { status: 'checking', checkedAt: T, detail: null })).toBe(false);
+    expect((await store.pipelineCounts([r.id, '00000000-0000-4000-8000-000000000000'])).get(r.id)).toBe(1);
+    expect((await store.pipelineCounts([])).size).toBe(0);
+    expect(await store.listRunnerPipelines(r.id, 10, 0)).toEqual({ rows: [{ id: PIPE, name: 'acme-pipe' }], total: 1 });
+    expect(await store.listRunnerPipelines(r.id, 10, 1)).toEqual({ rows: [], total: 1 });
+    expect(await store.linkedOrgIds(r.id, OTHER)).toEqual([ORG]);
+    expect(await store.linkedOrgIds(r.id, ORG)).toEqual([]);
   });
 });

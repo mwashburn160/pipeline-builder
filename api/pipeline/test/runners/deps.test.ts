@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-/** The injectable adapters: lock, rate limiter, org feature cache, hierarchy client, the bundle. */
+/** The injectable adapters: lock, rate limiter, hierarchy client, availability, the bundle. */
 
 import { jest, describe, expect, it, afterEach } from '@jest/globals';
 import type { AnyFn } from '@pipeline-builder/api-core/testing';
@@ -9,11 +9,13 @@ import { apiCoreMock } from '../helpers/mock-api-core.js';
 
 const mockParent = jest.fn<AnyFn>();
 const mockNames = jest.fn<AnyFn>();
-jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({ fetchParentOrgId: mockParent, fetchOrgNames: mockNames }));
+const mockDescendants = jest.fn<AnyFn>();
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({ fetchParentOrgId: mockParent, fetchOrgNames: mockNames, fetchOrgDescendants: mockDescendants }));
 
-const { createHierarchyClient, createPipelineLock, createRateLimiter, orgFeatureCache, runnerDeps, runnersAvailable, setDispatchQueue, setRunnerDepsForTesting } = await import('../../src/runners/deps.js');
+const { createHierarchyClient, createKeyDeps, createPipelineLock, createRateLimiter, resyncKeyCaches, runnerDeps, runnersReady, setDispatchQueue, setRunnerDepsForTesting } = await import('../../src/runners/deps.js');
+const { keyedDeps } = await import('../helpers/key-fakes.js');
 
-afterEach(() => { setRunnerDepsForTesting(null); delete process.env.RUNNER_SIGNING_KEY; });
+afterEach(() => { setRunnerDepsForTesting(null); });
 
 function fakeRedis(fail = false) {
   const kv = new Map<string, string>();
@@ -75,25 +77,6 @@ describe('createRateLimiter', () => {
   });
 });
 
-describe('orgFeatureCache', () => {
-  it('unknown → enabled; a recorded loss is shared through Redis; local fallback', async () => {
-    const redis = fakeRedis();
-    const a = orgFeatureCache(redis);
-    expect(await a.orgEnabled('ORG1')).toBe(true);
-    await a.noteOrgFeature('ORG1', false);
-    const b = orgFeatureCache(redis); // another replica
-    expect(await b.orgEnabled('org1')).toBe(false);
-    await b.noteOrgFeature('org1', true);
-    expect(await a.orgEnabled('org1')).toBe(true);
-    const down = orgFeatureCache(fakeRedis(true));
-    await down.noteOrgFeature('o', false);
-    expect(await down.orgEnabled('o')).toBe(false);
-    const none = orgFeatureCache(null);
-    await none.noteOrgFeature('o', false);
-    expect(await none.orgEnabled('o')).toBe(false);
-  });
-});
-
 describe('createHierarchyClient', () => {
   it('walks parents nearest first, cycle- and failure-safe; names fail soft', async () => {
     mockParent.mockImplementation(async (id: string) => ({ b: 'c', c: 'a' } as Record<string, string>)[id]);
@@ -105,20 +88,19 @@ describe('createHierarchyClient', () => {
     mockNames.mockResolvedValueOnce({ p1: 'Parent' }).mockRejectedValueOnce(new Error('down'));
     expect(await h.names(['p1'])).toEqual({ p1: 'Parent' });
     expect(await h.names(['p1'])).toEqual({});
+    // Descendants: without the org itself; none / a failed lookup is [].
+    mockDescendants.mockResolvedValueOnce(['P', 't1', 't2']).mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('down'));
+    expect(await h.descendants('p')).toEqual(['t1', 't2']);
+    expect(await h.descendants('p')).toEqual([]);
+    expect(await h.descendants('p')).toEqual([]);
   });
 });
 
 describe('the bundle', () => {
-  it('without a key configured, runners are unavailable without building anything', () => {
-    expect(runnersAvailable()).toBe(false);
-  });
-
-  it('builds the production wiring lazily; a key makes runners available', async () => {
-    const { generateKeyPairSync } = await import('node:crypto');
-    process.env.RUNNER_SIGNING_KEY = generateKeyPairSync('ed25519').privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
-    expect(runnersAvailable()).toBe(true);
+  it('builds the production wiring lazily (no signing key anywhere in it)', async () => {
     const deps = runnerDeps();
-    expect(deps.signer()).not.toBeNull();
+    expect(deps).not.toHaveProperty('signer');
+    expect(typeof deps.signerFor).toBe('function');
     expect(deps.newId()).toMatch(/^[0-9a-f-]{36}$/);
     await deps.queue.enqueue('r-1'); // no queue installed: a logged no-op
     const enqueue = jest.fn(async (..._a: unknown[]) => undefined);
@@ -126,6 +108,40 @@ describe('the bundle', () => {
     await deps.queue.enqueue('r-2', 5);
     expect(enqueue).toHaveBeenCalledWith('r-2', 5);
     await deps.sleep(1);
-    expect(setRunnerDepsForTesting({ signer: () => null })!.signer()).toBeNull();
+  });
+});
+
+describe('runnersAvailable: encryption, tables, pause', () => {
+  function bundle(ready: boolean) {
+    const d = keyedDeps();
+    Object.assign(d, createKeyDeps(() => d, { encryptionReady: () => ready }));
+    return d;
+  }
+
+  it('no secret encryption → encryption_not_configured; no tables → tables_missing; paused → paused; else available', async () => {
+    expect(await bundle(false).runnersAvailable()).toEqual({ available: false, reason: 'encryption_not_configured' });
+    const noTables = bundle(true);
+    noTables.keyStore.tablesPresent = async () => false;
+    expect(await noTables.runnersAvailable()).toEqual({ available: false, reason: 'tables_missing' });
+    const d = bundle(true);
+    expect(await d.runnersAvailable()).toEqual({ available: true });
+    setRunnerDepsForTesting(d);
+    expect(await runnersReady()).toBe(true);
+    await d.keyStore.setPause({ paused: true, by: 'op', reason: null, at: new Date() });
+    expect(await d.runnersAvailable()).toEqual({ available: true }); // cached for 60 s
+    resyncKeyCaches(d);
+    expect(await d.runnersAvailable()).toEqual({ available: false, reason: 'paused' });
+    expect(await runnersReady()).toBe(false);
+  });
+
+  it('an unreadable pause row keeps the last answer, or fails closed (paused) with none', async () => {
+    const d = bundle(true);
+    d.keyStore.getPause = async () => { throw new Error('db down'); };
+    expect(await d.deliveriesPaused()).toBe(true);
+    const e = bundle(true);
+    expect(await e.deliveriesPaused()).toBe(false);
+    e.keyStore.getPause = async () => { throw new Error('db down'); };
+    e.clock.t += 61_000;
+    expect(await e.deliveriesPaused()).toBe(false);
   });
 });

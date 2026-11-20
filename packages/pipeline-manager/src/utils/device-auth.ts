@@ -189,11 +189,18 @@ export async function pollForDeviceToken(
   throw new DeviceAuthError('Timed out waiting for the sign-in to be approved.', 'expired_token');
 }
 
-/** The OS command that opens a URL in the default browser. */
-function openCommand(): { command: string; args: string[] } | null {
-  if (process.platform === 'darwin') return { command: 'open', args: [] };
-  if (process.platform === 'win32') return { command: 'cmd', args: ['/c', 'start', ''] };
-  if (process.platform === 'linux') return { command: 'xdg-open', args: [] };
+/**
+ * The OS command (and full argv) that opens `url` in the default browser.
+ *
+ * Windows uses `rundll32 url.dll,FileProtocolHandler`, NOT `cmd /c start`: the
+ * URL comes from the platform's response, and cmd.exe re-parses its command
+ * line, so a `&` in the query (`?user_code=X&calc`) would chain a second command.
+ * rundll32 takes the URL as a plain argument with no shell in between.
+ */
+export function browserOpener(url: string, platform: NodeJS.Platform = process.platform): { command: string; args: string[] } | null {
+  if (platform === 'darwin') return { command: 'open', args: [url] };
+  if (platform === 'win32') return { command: 'rundll32', args: ['url.dll,FileProtocolHandler', url] };
+  if (platform === 'linux') return { command: 'xdg-open', args: [url] };
   return null;
 }
 
@@ -219,11 +226,11 @@ function openInBrowser(url: string): boolean {
   if (process.env.CI || process.env.SSH_CONNECTION || process.env.SSH_TTY) return false;
   if (!process.stdout.isTTY) return false;
 
-  const opener = openCommand();
+  const opener = browserOpener(parsed.href);
   if (!opener) return false;
 
   try {
-    const child = spawn(opener.command, [...opener.args, url], { stdio: 'ignore', detached: true });
+    const child = spawn(opener.command, opener.args, { stdio: 'ignore', detached: true });
     child.on('error', () => { /* no browser here; the printed URL is the fallback */ });
     child.unref();
     return true;

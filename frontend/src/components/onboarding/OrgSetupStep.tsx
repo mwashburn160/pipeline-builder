@@ -20,7 +20,7 @@ import { DEFAULT_CLI_NPM_PACKAGE, DEFAULT_CLI_NPM_URL } from '@/lib/constants';
 import type { TierKey } from '@/lib/tiers';
 import { isAwsTarget } from '@/lib/deploy-target';
 import { ACCESS_KEYS_HREF } from '@/lib/security-links';
-import { CROSS_ACCOUNT_RUNNERS_FEATURE, PIPELINE_RUNNERS_HREF, setupRunnerCommand } from '@/lib/pipeline-runners';
+import { ONE_RUNNER_PER_ACCOUNT_COPY, PIPELINE_RUNNERS_HREF, setupRunnerCommand } from '@/lib/pipeline-runners';
 import { CLI_MIN_NODE, DEFAULT_SETUP_REGION, isAwsRegion, setupCommands } from '@/lib/setup-guide';
 import { useFeatures } from '@/hooks/useFeatures';
 import type { User } from '@/types';
@@ -76,8 +76,9 @@ export function OrgSetupStep({
   const cliNpmUrl = features.cliNpmUrl || DEFAULT_CLI_NPM_URL;
   const installCmd = `npm install -g ${cliNpmPackage}`;
   const showEvents = isAwsTarget(deployTarget);
-  // The runner step: AWS targets, and only for orgs granted the feature.
-  const showRunner = showEvents && features.isEnabled(CROSS_ACCOUNT_RUNNERS_FEATURE);
+  // The runner step: AWS targets. Every pipeline runs through a runner, so it
+  // is not optional there.
+  const showRunner = showEvents;
   const [wantEvents, setWantEvents] = useState(false);
   const [withDora, setWithDora] = useState(false);
   const [region, setRegion] = useState(DEFAULT_SETUP_REGION);
@@ -105,7 +106,7 @@ export function OrgSetupStep({
           <li className="flex items-center gap-2"><Package className="w-4 h-4 text-brand shrink-0" /> Install the pipeline-manager CLI</li>
           {showEvents && <li className="flex items-center gap-2"><Terminal className="w-4 h-4 text-brand shrink-0" /> Store a service token</li>}
           {showEvents && <li className="flex items-center gap-2"><BarChart3 className="w-4 h-4 text-brand shrink-0" /> Set up pipeline event metrics <span className="text-xs">(optional{', '}with or without DORA)</span></li>}
-          {showRunner && <li className="flex items-center gap-2"><Server className="w-4 h-4 text-brand shrink-0" /> Install a pipeline runner <span className="text-xs">(optional)</span></li>}
+          {showRunner && <li className="flex items-center gap-2"><Server className="w-4 h-4 text-brand shrink-0" /> Install a pipeline runner <span className="text-xs">(before your first run)</span></li>}
         </ol>
       </div>
 
@@ -179,20 +180,19 @@ export function OrgSetupStep({
         </div>
       )}
 
-      {/* Step 3 — a pipeline runner (AWS targets only), so Re-run / Stop reach
-          pipelines deployed to the customer's own AWS account. Optional:
-          pipelines in the platform's account need none. Hidden without the
-          `cross_account_runners` feature. */}
+      {/* Step 3 — a pipeline runner (AWS targets only). Every pipeline run goes
+          through one, so it comes before the first run. */}
       {showRunner && (
         <div className="space-y-2" data-testid="setup-install-runner">
           <div className="text-sm font-semibold">
-            3 · Install a pipeline runner <span className="font-normal text-fg-muted">(optional)</span>
+            3 · Install a pipeline runner <span className="font-normal text-fg-muted">(before your first run)</span>
           </div>
           <p className="text-xs text-fg-muted">
-            If your pipelines deploy to your own AWS account, install a runner there so Re-run and Stop work from the
-            dashboard. It is a small Lambda that starts and stops your pipelines with its own role — the platform gets
-            no access to your account.
+            Every pipeline runs through a runner in the AWS account it deploys to: install one there before you run
+            your first pipeline. It is a small Lambda that starts and stops your pipelines with its own role — the
+            platform gets no access to your account.
           </p>
+          <p className="text-xs text-fg-muted" data-testid="setup-runner-one-per-account">{ONE_RUNNER_PER_ACCOUNT_COPY}</p>
           <HelpCodeBlock content={setupRunnerCommand({ region: regionValid ? region : DEFAULT_SETUP_REGION })} language="bash" />
           <LinkButton href={PIPELINE_RUNNERS_HREF} variant="secondary" size="sm">
             <Server className="w-4 h-4 mr-1.5" /> Pipeline runners

@@ -29,12 +29,11 @@ import multer from 'multer';
 
 import { bodyFrom, ecosystemRoute } from './ecosystem-route.js';
 import { InspectFields, SubmissionFields, TokenBody } from './ecosystem-schemas.js';
+import { UPLOAD_DEST, isZipUpload } from '../helpers/zip-upload.js';
 import { EcosystemError } from '../services/ecosystem/context.js';
 import { assertSubmissionsAvailable, submissionConfig } from '../services/ecosystem/submission-config.js';
 import { issueChallenge } from '../services/ecosystem/submission-guards.js';
 import { createSubmission, inspectSubmission, submissionStatus, verifySubmission } from '../services/ecosystem/submissions.js';
-
-const UPLOAD_DEST = process.env.PLUGIN_UPLOAD_DIR || '/opt/pipeline/pipeline-data/plugins-data';
 
 /** Multer for one submission zip, capped at `SUBMISSION_MAX_ZIP_BYTES`. */
 function zipUpload(): RequestHandler {
@@ -42,8 +41,7 @@ function zipUpload(): RequestHandler {
     dest: UPLOAD_DEST,
     limits: { files: 1, fileSize: submissionConfig().maxZipBytes, fields: 10, fieldSize: 64 * 1024 },
     fileFilter: (_req, file, cb) => {
-      const ok = ['application/zip', 'application/x-zip-compressed', 'application/octet-stream'].includes(file.mimetype) || file.originalname.endsWith('.zip');
-      if (ok) cb(null, true);
+      if (isZipUpload(file)) cb(null, true);
       else cb(new Error('Only ZIP files are allowed'));
     },
   }).single('plugin') as RequestHandler;

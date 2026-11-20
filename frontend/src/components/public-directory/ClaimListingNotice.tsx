@@ -32,9 +32,11 @@ import api from '@/lib/api';
 /** The community publisher's handle — listings under it are the claimable ones. */
 export const COMMUNITY_PUBLISHER = 'community';
 
-export function ClaimListingNotice({ listingName, signedIn, canClaim, loginHref }: {
+export function ClaimListingNotice({ listingName, signedIn, canClaim, readOnly = false, loginHref }: {
   listingName: string;
   signedIn: boolean;
+  /** A read-only (impersonation) session: every write is refused server-side. */
+  readOnly?: boolean;
   /** `publishers:manage` — what the claim (a publish request) needs. Without it
    *  the button is LOCKED with the reason, not offered as a form that can only fail. */
   canClaim: boolean;
@@ -56,6 +58,7 @@ export function ClaimListingNotice({ listingName, signedIn, canClaim, loginHref 
               size="xs"
               variant="secondary"
               onClick={() => setClaimOpen(true)}
+              readOnly={readOnly}
               disabledReason={canClaim ? undefined : 'Requires the publishers:manage permission — ask an organization admin to claim it'}
             >
               <BadgeCheck className="mr-1 h-3.5 w-3.5" aria-hidden />Claim this listing

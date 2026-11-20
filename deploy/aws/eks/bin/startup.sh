@@ -36,7 +36,7 @@
 # are already separate scripts and are deliberately not implied by re-applying
 # config:
 #   deploy/bin/init-platform.sh eks          # admin user, plugins, templates
-#   deploy/bin/post-provision-smoke.sh k8s --aws
+#   deploy/bin/post-provision-smoke.sh k8s
 #
 # Every setup.sh flag is accepted and forwarded unchanged (--domain, --region,
 # --cluster-name, --hosted-zone-id, …), because phases 4-8 need them: the domain

@@ -1025,7 +1025,9 @@ spec:
 # =============================================================================
 # platform -> pipeline + plugin: the durable cascade outbox's org-purge legs
 # (POST /pipelines/internal/orgs/:orgId/purge, /internal/plugins/orgs/:orgId/purge)
-# and the GDPR user-erasure leg (POST /internal/plugins/users/:userId/erase).
+# and the GDPR user-erasure leg (POST /internal/plugins/users/:userId/erase),
+# plus the runner-signing-key re-encrypt platform's secret-rotation flow calls
+# (POST /pipelines/internal/runner-signing-keys/reencrypt).
 # Without this, default-deny drops them and every purged org's pipelines and
 # plugins — and every erased user's reviews — retry until dead-lettered.
 # =============================================================================
@@ -1326,11 +1328,15 @@ spec:
 
 ---
 # =============================================================================
-# Pipeline External Egress — CodePipeline API (Start/Stop/GetPipelineState) and
-# the git-provider APIs pipeline registration calls, and customers' cross-account
-# pipeline runner URLs (signed run requests, *.lambda-url / *.execute-api), over 443; plus
+# Pipeline External Egress — customers' pipeline runner URLs (signed run
+# requests, *.lambda-url / *.execute-api) and the git-provider APIs pipeline
+# registration calls, over 443 (the regional KMS endpoint too, in a KMS
+# secret-encryption mode); plus
 # IMDS (169.254.169.254:80), where the AWS SDK picks up the instance role
-#   (this target has no per-pod identity) for the codepipeline:* grant.
+#   (this target has no per-pod identity) for kms:Decrypt on the
+#   secret-encryption master (SECRET_ENCRYPTION_KMS_KEY_ID /
+#   SECRET_ENCRYPTION_PER_ORG_KMS) that wraps every org's runner signing key.
+# The platform calls NO CodePipeline API: runners are the only execution path.
 # =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

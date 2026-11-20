@@ -7,7 +7,6 @@ import {
   sendBadRequest,
   sendError,
   ErrorCode,
-  errorMessage,
   getParam,
   validateBody,
   audited,
@@ -17,65 +16,35 @@ import {
 import { createAuthenticatedWithOrgRoute, withRoute, incCounter } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
-import { DUPLICATE_TRIGGER_MESSAGE, triggerExecutionInWindow } from '../helpers/trigger-execution.js';
-import { runnersAvailable } from '../runners/deps.js';
+import { DUPLICATE_TRIGGER_MESSAGE, queuedRunRequestDto, triggerExecutionInWindow } from '../helpers/trigger-execution.js';
 import { routeExecution } from '../runners/execution-routing.js';
-import { RunnerRouteError } from '../runners/routing.js';
-import { principalHasRunnerFeature } from '../runners/vocabulary.js';
-import {
-  pipelineExecutionService,
-  PipelineExecutionError,
-  PE_PIPELINE_NOT_REGISTERED,
-  PE_AWS_PIPELINE_NOT_FOUND,
-  PE_NOT_STOPPABLE,
-  PE_AWS_ERROR,
-} from '../services/pipeline-execution-service.js';
+import { asRunnerRouteError } from '../runners/routing.js';
 
+/**
+ * The stop body. `reason` / `abandon` are accepted for the dashboard's form,
+ * but the runner protocol carries neither: the runner stops the execution.
+ */
 const StopExecutionSchema = z.object({
   reason: z.string().max(200).optional(),
   abandon: z.boolean().optional(),
 });
 
-/** Pull the sanitized AWS name/message off a PipelineExecutionError, if present. */
-function awsDetail(err: unknown): Record<string, unknown> | undefined {
-  if (err instanceof PipelineExecutionError && (err.awsName || err.awsMessage)) {
-    return { awsName: err.awsName, awsMessage: err.awsMessage };
-  }
-  return undefined;
-}
-
 /**
- * Why an execution start/stop failed, as a fixed audit vocabulary. The AWS
- * name/message stay out of the audit trail — an AWS error can quote an ARN,
- * which carries the account id.
- */
-function executionFailureReason(code: string): string {
-  switch (code) {
-    case PE_PIPELINE_NOT_REGISTERED: return 'not_registered';
-    case PE_AWS_PIPELINE_NOT_FOUND: return 'aws_pipeline_not_found';
-    case PE_NOT_STOPPABLE: return 'not_stoppable';
-    case PE_AWS_ERROR: return 'aws_error';
-    default: return 'error';
-  }
-}
-
-/**
- * Register pipeline execution write routes — the AWS CodePipeline trigger /
- * cancel path. Both resolve pipelineId → the registered CodePipeline physical
- * name + region (org-scoped) and call CodePipeline directly.
+ * Register pipeline execution write routes. Runners are the only execution
+ * path: both routes queue a signed request for the pipeline's runner (linked,
+ * or found by discovery) and answer 202 with the queued run request; the
+ * dashboard polls `GET /:pipelineId/run-requests/:requestId`.
  *
- * - POST /:pipelineId/executions               — start a new execution (202).
- * - POST /:pipelineId/executions/:executionId/stop — stop an in-flight execution.
+ * - POST /:pipelineId/executions               — queue a start (202).
+ * - POST /:pipelineId/executions/:executionId/stop — queue a stop (202).
  *
  * Each route owns its auth + orgId + `pipelines:write` guard chain so the parent
  * can mount this router plainly on the shared '/pipelines' prefix without the
  * write permission leaking onto sibling reads.
  *
- * The trigger route's apiCalls meter + check come from the '/pipelines' prefix
- * mount in app-routes.ts (the check runs inside `requireAuth`, so an org over
- * budget is refused BEFORE any AWS call). It is also protected by a
- * short per-(org,pipeline) idempotency window so a double-submit can't launch two
- * CodePipeline runs.
+ * The start route's apiCalls meter + check come from the '/pipelines' prefix
+ * mount in app-routes.ts. It is also protected by a short per-(org, pipeline)
+ * idempotency window, so a double click queues one run.
  */
 export function createExecutionRoutes(): Router {
   const router = Router();
@@ -91,13 +60,9 @@ export function createExecutionRoutes(): Router {
       const pipelineId = getParam(req.params, 'pipelineId');
       if (!pipelineId) return sendBadRequest(res, 'Pipeline id is required.', ErrorCode.MISSING_REQUIRED_FIELD);
 
-      // Short idempotency window: refuse a duplicate trigger for the same
-      // (org, pipeline) within the window rather than starting a second run.
-      // Fails open when Redis is unavailable (single-replica / outage). The
-      // window is shared with every other start path (plugin-upgrade redeploy).
       try {
         const parentOrgId = req.user?.parentOrganizationId;
-        const started = await triggerExecutionInWindow(pipelineId, orgId, { requestedBy: userId, orgHasFeature: principalHasRunnerFeature(req.user), ...(parentOrgId ? { parentOrgId } : {}) });
+        const started = await triggerExecutionInWindow(pipelineId, orgId, { requestedBy: userId, ...(parentOrgId ? { parentOrgId } : {}) });
         if (started.status === 'duplicate') {
           ctx.log('WARN', 'Duplicate pipeline execution trigger suppressed', { pipelineId });
           recordAudit({
@@ -110,82 +75,37 @@ export function createExecutionRoutes(): Router {
           });
           return sendError(res, 409, DUPLICATE_TRIGGER_MESSAGE, ErrorCode.CONFLICT);
         }
-        if (started.status === 'queued') {
-          // Cross-account runner: recorded + queued; the dispatcher audits the
-          // terminal outcome. Never the runner's URL or an account id. A start
-          // already pending for this pipeline is returned, not queued again —
-          // audited as `reused` so the trail shows one run, asked for twice.
-          ctx.log('COMPLETED', started.reused ? 'Reused a pending runner start' : 'Queued pipeline execution for a runner', { pipelineId, requestId: started.requestId, runnerId: started.runnerId });
-          recordAudit({
-            action: 'pipeline.execution.start',
-            actorId: actorId({ userId }),
-            orgId,
-            targetType: 'pipeline_execution',
-            details: started.reused
-              ? { pipelineId, reusedRequestId: started.requestId, runnerId: started.runnerId, outcome: 'reused' }
-              : { pipelineId, requestId: started.requestId, runnerId: started.runnerId, attempts: 0, outcome: 'queued' },
-          });
-          return sendSuccess(res, 202, { requestId: started.requestId, status: started.requestStatus, runnerLabel: started.runnerLabel });
-        }
-        const { executionId } = started;
-        ctx.log('COMPLETED', 'Triggered pipeline execution', { pipelineId, executionId });
-
-        // Domain metric — CodePipeline execution started. Labelled by outcome
-        // only: org ids are an unbounded label set (and `/metrics` would list
-        // every tenant), so the per-tenant figure for pipeline usage is the
-        // audit trail below (`pipeline.execution.start`, one row per run).
-        incCounter('pipeline_executions_total', { outcome: 'started' });
-
-        // Best-effort attributed audit — the AWS CodePipeline start succeeded.
-        // The execution is the target; its pipeline rides in details.
+        const { run } = started;
+        // Recorded + queued; the dispatcher audits the terminal outcome. Never
+        // the runner's URL or an account id. A start already pending for this
+        // pipeline is returned, not queued again — audited as `reused` so the
+        // trail shows one run, asked for twice.
+        ctx.log('COMPLETED', run.reused ? 'Reused a pending runner start' : 'Queued pipeline execution for a runner', { pipelineId, requestId: run.requestId, runnerId: run.runnerId });
+        incCounter('pipeline_executions_total', { outcome: 'queued' });
         recordAudit({
           action: 'pipeline.execution.start',
           actorId: actorId({ userId }),
           orgId,
           targetType: 'pipeline_execution',
-          targetId: executionId,
-          details: { pipelineId },
+          details: run.reused
+            ? { pipelineId, reusedRequestId: run.requestId, runnerId: run.runnerId, outcome: 'reused' }
+            : { pipelineId, requestId: run.requestId, runnerId: run.runnerId, attempts: 0, outcome: 'queued' },
         });
-
-        return sendSuccess(res, 202, { executionId });
+        return sendSuccess(res, 202, queuedRunRequestDto(run));
       } catch (err) {
         incCounter('pipeline_executions_total', { outcome: 'failed' });
-        if (err instanceof RunnerRouteError) {
-          recordAudit({
-            action: 'pipeline.execution.start',
-            actorId: actorId({ userId }),
-            orgId,
-            targetType: 'pipeline_execution',
-            outcome: 'failure',
-            details: { pipelineId, reason: err.code.toLowerCase(), outcome: 'refused' },
-          });
-          return sendError(res, err.status, err.message, err.code, err.details);
-        }
-        const code = errorMessage(err);
-        // A failed start is audited too. No execution id exists (or is known —
-        // after a timeout the start may have landed), so there is no targetId.
+        const refusal = asRunnerRouteError(err);
+        // A failed start is audited too. No execution id exists, so there is no targetId.
         recordAudit({
           action: 'pipeline.execution.start',
           actorId: actorId({ userId }),
           orgId,
           targetType: 'pipeline_execution',
           outcome: 'failure',
-          details: { pipelineId, reason: executionFailureReason(code) },
+          details: { pipelineId, reason: refusal ? refusal.code.toLowerCase() : 'error', ...(refusal ? { outcome: 'refused' } : {}) },
         });
-        // The window was already reopened by the helper iff the run definitely
-        // never started.
-        if (code === PE_PIPELINE_NOT_REGISTERED) {
-          return sendError(res, 404, 'Pipeline is not deployed/registered', ErrorCode.NOT_FOUND);
-        }
-        if (code === PE_AWS_PIPELINE_NOT_FOUND) {
-          ctx.log('ERROR', 'CodePipeline not found for registered pipeline (stale registry)', { pipelineId, ...awsDetail(err) });
-          return sendError(res, 404, 'Pipeline not found in AWS', ErrorCode.NOT_FOUND);
-        }
-        if (code === PE_AWS_ERROR) {
-          ctx.log('ERROR', 'Upstream AWS error triggering pipeline', { pipelineId, ...awsDetail(err) });
-          return sendError(res, 502, 'Upstream AWS error', ErrorCode.INTERNAL_ERROR, awsDetail(err));
-        }
-        ctx.log('ERROR', 'Failed to trigger pipeline execution', { pipelineId });
+        if (refusal) return sendError(res, refusal.status, refusal.message, refusal.code, refusal.details);
+        ctx.log('ERROR', 'Failed to queue pipeline execution', { pipelineId });
         return sendError(res, 500, 'Failed to trigger pipeline execution', ErrorCode.INTERNAL_ERROR);
       }
     }));
@@ -202,65 +122,24 @@ export function createExecutionRoutes(): Router {
     }
 
     try {
-      const stop = () => pipelineExecutionService.stopExecution(pipelineId, orgId, executionId, {
-        reason: validation.value.reason,
-        abandon: validation.value.abandon,
-      });
-      if (runnersAvailable()) {
-        const parentOrgId = req.user?.parentOrganizationId;
-        const routed = await routeExecution({ pipelineId, orgId, action: 'stop', executionId, requestedBy: userId, orgHasFeature: principalHasRunnerFeature(req.user), ...(parentOrgId ? { parentOrgId } : {}) }, stop);
-        if (routed.kind === 'queued') {
-          ctx.log('COMPLETED', 'Queued pipeline execution stop for a runner', { pipelineId, executionId, requestId: routed.requestId, runnerId: routed.runnerId });
-          recordAudit({
-            action: 'pipeline.execution.cancel',
-            actorId: actorId({ userId }),
-            orgId,
-            targetType: 'pipeline_execution',
-            targetId: executionId,
-            details: { pipelineId, requestId: routed.requestId, runnerId: routed.runnerId, attempts: 0, outcome: 'queued' },
-          });
-          return sendSuccess(res, 202, { requestId: routed.requestId, status: routed.status, runnerLabel: routed.runnerLabel });
-        }
-      } else {
-        await stop();
-      }
-      ctx.log('COMPLETED', 'Stopped pipeline execution', { pipelineId, executionId });
-
-      // Domain metric — CodePipeline execution stopped/cancelled.
-      incCounter('pipeline_executions_total', { outcome: 'stopped' });
-
-      // Best-effort attributed audit — the AWS CodePipeline stop succeeded.
+      const parentOrgId = req.user?.parentOrganizationId;
+      const run = await routeExecution({ pipelineId, orgId, action: 'stop', executionId, requestedBy: userId, ...(parentOrgId ? { parentOrgId } : {}) });
+      ctx.log('COMPLETED', 'Queued pipeline execution stop for a runner', { pipelineId, executionId, requestId: run.requestId, runnerId: run.runnerId });
+      incCounter('pipeline_executions_total', { outcome: 'stop_queued' });
       recordAudit({
         action: 'pipeline.execution.cancel',
         actorId: actorId({ userId }),
         orgId,
         targetType: 'pipeline_execution',
         targetId: executionId,
-        details: {
-          pipelineId,
-          abandon: validation.value.abandon ?? false,
-        },
+        details: { pipelineId, requestId: run.requestId, runnerId: run.runnerId, attempts: 0, outcome: 'queued' },
       });
-
-      return sendSuccess(res, 200, { stopped: true });
+      return sendSuccess(res, 202, queuedRunRequestDto(run));
     } catch (err) {
-      // Counted like a failed start: a stop the user asked for that did not
-      // happen (not stoppable, not registered, AWS error) is otherwise invisible
-      // on the dashboard, which only saw the successful stops.
+      // Counted like a failed start: a stop the user asked for that was not
+      // queued is otherwise invisible on the dashboard.
       incCounter('pipeline_executions_total', { outcome: 'stop_failed' });
-      if (err instanceof RunnerRouteError) {
-        recordAudit({
-          action: 'pipeline.execution.cancel',
-          actorId: actorId({ userId }),
-          orgId,
-          targetType: 'pipeline_execution',
-          targetId: executionId,
-          outcome: 'failure',
-          details: { pipelineId, reason: err.code.toLowerCase(), outcome: 'refused' },
-        });
-        return sendError(res, err.status, err.message, err.code, err.details);
-      }
-      const code = errorMessage(err);
+      const refusal = asRunnerRouteError(err);
       recordAudit({
         action: 'pipeline.execution.cancel',
         actorId: actorId({ userId }),
@@ -268,23 +147,10 @@ export function createExecutionRoutes(): Router {
         targetType: 'pipeline_execution',
         targetId: executionId,
         outcome: 'failure',
-        details: { pipelineId, reason: executionFailureReason(code) },
+        details: { pipelineId, reason: refusal ? refusal.code.toLowerCase() : 'error', ...(refusal ? { outcome: 'refused' } : {}) },
       });
-      if (code === PE_PIPELINE_NOT_REGISTERED) {
-        return sendError(res, 404, 'Pipeline is not deployed/registered', ErrorCode.NOT_FOUND);
-      }
-      if (code === PE_AWS_PIPELINE_NOT_FOUND) {
-        ctx.log('ERROR', 'CodePipeline not found for registered pipeline (stale registry)', { pipelineId, executionId, ...awsDetail(err) });
-        return sendError(res, 404, 'Pipeline not found in AWS', ErrorCode.NOT_FOUND);
-      }
-      if (code === PE_NOT_STOPPABLE) {
-        return sendError(res, 409, 'Execution is not in a stoppable state', ErrorCode.CONFLICT);
-      }
-      if (code === PE_AWS_ERROR) {
-        ctx.log('ERROR', 'Upstream AWS error stopping pipeline execution', { pipelineId, executionId, ...awsDetail(err) });
-        return sendError(res, 502, 'Upstream AWS error', ErrorCode.INTERNAL_ERROR, awsDetail(err));
-      }
-      ctx.log('ERROR', 'Failed to stop pipeline execution', { pipelineId, executionId });
+      if (refusal) return sendError(res, refusal.status, refusal.message, refusal.code, refusal.details);
+      ctx.log('ERROR', 'Failed to queue pipeline execution stop', { pipelineId, executionId });
       return sendError(res, 500, 'Failed to stop pipeline execution', ErrorCode.INTERNAL_ERROR);
     }
   }));

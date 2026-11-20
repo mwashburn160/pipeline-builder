@@ -16,6 +16,11 @@ process.env.JWT_SECRET ||= 'internal-contracts-test-secret';
 
 const SAMPLES: Record<keyof typeof PIPELINE_INTERNAL, ContractSample> = {
   purgeOrg: { params: { orgId: 'org-1' }, response: { orgId: 'org-1', tables: { pipelines: 2 } } },
+  reencryptRunnerSigningKeys: {
+    params: {},
+    body: { orgId: '0123456789abcdef01234567', previousKmsConfig: { keyId: 'arn:aws:kms:us-east-1:000000000000:key/k', ciphertextBase64: 'AAAA' } },
+    response: { scanned: 2, reencrypted: 1, failures: [{ orgId: '0123456789abcdef01234567', kid: 'kid-1', error: 'decrypt failed' }] },
+  },
 };
 
 let table: RouteTableEntry[];

@@ -24,6 +24,7 @@ const error = jest.fn<AnyFn>();
 jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => ({ success, error })));
 
 let authState = { isAuthenticated: true, isInitialized: true };
+const canManageBilling = (permission: string) => permission === 'billing:manage';
 jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => authState));
 
 beforeEach(() => {
@@ -62,22 +63,37 @@ describe('marketplace ref storage helpers', () => {
 
 describe('usePendingMarketplaceClaim', () => {
   it('does nothing when there is no stashed ref', async () => {
-    renderHook(() => usePendingMarketplaceClaim(authState.isInitialized && authState.isAuthenticated));
+    renderHook(() => usePendingMarketplaceClaim(authState.isInitialized && authState.isAuthenticated, canManageBilling));
     await waitFor(() => expect(claim).not.toHaveBeenCalled());
   });
 
   it('does nothing until auth is initialized + authenticated', async () => {
     authState = { isAuthenticated: false, isInitialized: true };
     stashMarketplaceRef('ref-1', 'Team');
-    renderHook(() => usePendingMarketplaceClaim(authState.isInitialized && authState.isAuthenticated));
+    renderHook(() => usePendingMarketplaceClaim(authState.isInitialized && authState.isAuthenticated, canManageBilling));
     await waitFor(() => expect(claim).not.toHaveBeenCalled());
     expect(readMarketplaceRef()).not.toBeNull(); // still stashed for a later signed-in visit
+  });
+
+  // The claim route requires `billing:manage` (and a read-only impersonation
+  // session can write nothing, which `can` folds in). A member without it got a
+  // 403, which read as a definitive refusal: the ref was cleared and the
+  // purchase never linked, even once an admin of the org signed in.
+  it('does NOT claim (and keeps the ref) when the viewer cannot manage billing or the session is read-only', async () => {
+    claim.mockRejectedValue(new ApiError('Forbidden', 403, 'FORBIDDEN'));
+    stashMarketplaceRef('ref-1', 'Team');
+    const can = jest.fn((_permission: string) => false);
+    renderHook(() => usePendingMarketplaceClaim(true, can));
+    await waitFor(() => expect(can).toHaveBeenCalledWith('billing:manage'));
+    expect(claim).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
+    expect(readMarketplaceRef()).toEqual({ registrationRef: 'ref-1', planName: 'Team' });
   });
 
   it('claims a stashed ref, clears it, and toasts success', async () => {
     claim.mockResolvedValue({ success: true });
     stashMarketplaceRef('ref-1', 'Team');
-    renderHook(() => usePendingMarketplaceClaim(authState.isInitialized && authState.isAuthenticated));
+    renderHook(() => usePendingMarketplaceClaim(authState.isInitialized && authState.isAuthenticated, canManageBilling));
     await waitFor(() => expect(claim).toHaveBeenCalledWith('ref-1'));
     await waitFor(() => expect(success).toHaveBeenCalled());
     expect(readMarketplaceRef()).toBeNull(); // consumed
@@ -86,7 +102,7 @@ describe('usePendingMarketplaceClaim', () => {
   it('clears the ref on a DEFINITIVE server rejection (no retry loop)', async () => {
     claim.mockResolvedValue({ success: false, message: 'already linked' });
     stashMarketplaceRef('ref-1', 'Team');
-    renderHook(() => usePendingMarketplaceClaim(authState.isInitialized && authState.isAuthenticated));
+    renderHook(() => usePendingMarketplaceClaim(authState.isInitialized && authState.isAuthenticated, canManageBilling));
     await waitFor(() => expect(error).toHaveBeenCalledWith('already linked'));
     expect(readMarketplaceRef()).toBeNull();
   });
@@ -94,7 +110,7 @@ describe('usePendingMarketplaceClaim', () => {
   it('clears the ref when the claim is REFUSED with a 4xx (api throws, it does not resolve)', async () => {
     claim.mockRejectedValue(new ApiError('Organization already has a subscription', 409, 'CONFLICT'));
     stashMarketplaceRef('ref-1', 'Team');
-    renderHook(() => usePendingMarketplaceClaim(authState.isInitialized && authState.isAuthenticated));
+    renderHook(() => usePendingMarketplaceClaim(authState.isInitialized && authState.isAuthenticated, canManageBilling));
     await waitFor(() => expect(error).toHaveBeenCalled());
     expect(readMarketplaceRef()).toBeNull();
   });
@@ -102,7 +118,7 @@ describe('usePendingMarketplaceClaim', () => {
   it('KEEPS the ref on a 5xx so a later visit retries', async () => {
     claim.mockRejectedValue(new ApiError('Service unavailable', 503));
     stashMarketplaceRef('ref-1', 'Team');
-    renderHook(() => usePendingMarketplaceClaim(authState.isInitialized && authState.isAuthenticated));
+    renderHook(() => usePendingMarketplaceClaim(authState.isInitialized && authState.isAuthenticated, canManageBilling));
     await waitFor(() => expect(error).toHaveBeenCalled());
     expect(readMarketplaceRef()).toEqual({ registrationRef: 'ref-1', planName: 'Team' });
   });
@@ -110,7 +126,7 @@ describe('usePendingMarketplaceClaim', () => {
   it('KEEPS the ref on a transient failure so a later visit retries', async () => {
     claim.mockRejectedValue(new Error('network'));
     stashMarketplaceRef('ref-1', 'Team');
-    renderHook(() => usePendingMarketplaceClaim(authState.isInitialized && authState.isAuthenticated));
+    renderHook(() => usePendingMarketplaceClaim(authState.isInitialized && authState.isAuthenticated, canManageBilling));
     await waitFor(() => expect(error).toHaveBeenCalled());
     expect(readMarketplaceRef()).toEqual({ registrationRef: 'ref-1', planName: 'Team' });
   });

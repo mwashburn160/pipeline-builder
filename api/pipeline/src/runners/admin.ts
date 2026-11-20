@@ -11,7 +11,8 @@
  * reaches a log or an audit row.
  */
 
-import { deliverPush } from './delivery.js';
+import { runnerJwksPath } from '@pipeline-builder/api-core/pipeline-runners';
+import { deliverPush, verdictCode } from './delivery.js';
 import type { RunnerDeps } from './deps.js';
 import { finishRequest, notifyUpdateRequired, recordRunnerFailure, recordRunnerSuccess, versionPatch } from './lifecycle.js';
 import { eligibleRunners, RunnerRouteError } from './routing.js';
@@ -34,11 +35,21 @@ export interface RunnerDto {
   createdAt: string | null;
   /** Below MIN_RUNNER_VERSION: re-run setup-runner (refused after the grace period). */
   updateRequired: boolean;
+  /** This runner's own JWKS (absolute: PLATFORM_BASE_URL + its per-runner path). */
+  jwksUrl: string;
+  /** Pipelines linked to this runner (`pipeline_registry.runner_id`); 0 outside the list. */
+  pipelineCount: number;
 }
 
 const iso = (d: Date | null | undefined): string | null => (d ? d.toISOString() : null);
 
-export function runnerDto(row: RunnerRow, viewerOrgId: string): RunnerDto {
+/** A runner's public JWKS URL: PLATFORM_BASE_URL + `runnerJwksPath(id)`. */
+export function runnerJwksUrl(runnerId: string, env: NodeJS.ProcessEnv = process.env): string {
+  const base = (env.PLATFORM_BASE_URL ?? '').trim().replace(/\/+$/, '');
+  return `${base}${runnerJwksPath(runnerId)}`;
+}
+
+export function runnerDto(row: RunnerRow, viewerOrgId: string, pipelineCount = 0): RunnerDto {
   return {
     id: row.id,
     orgId: row.orgId,
@@ -53,6 +64,8 @@ export function runnerDto(row: RunnerRow, viewerOrgId: string): RunnerDto {
     lastDeliveryAt: iso(row.lastDeliveryAt),
     createdAt: iso(row.createdAt),
     updateRequired: versionBelow(row.version, runnerSettings().minRunnerVersion),
+    jwksUrl: runnerJwksUrl(row.id),
+    pipelineCount,
   };
 }
 
@@ -60,10 +73,11 @@ export async function listRunners(deps: RunnerDeps, orgId: string, parentOrgId?:
   const own = await deps.store.listRunners([orgId]);
   const inheritedRows = (await eligibleRunners(deps, orgId, parentOrgId)).filter((e) => e.depth > 0);
   const names = inheritedRows.length > 0 ? await deps.hierarchy.names([...new Set(inheritedRows.map((e) => e.runner.orgId))]) : {};
+  const counts = await deps.store.pipelineCounts([...own.map((r) => r.id), ...inheritedRows.map((e) => e.runner.id)]);
   return {
-    own: own.map((r) => runnerDto(r, orgId)),
+    own: own.map((r) => runnerDto(r, orgId, counts.get(r.id) ?? 0)),
     inherited: inheritedRows.map((e) => ({
-      ...runnerDto(e.runner, orgId),
+      ...runnerDto(e.runner, orgId, counts.get(e.runner.id) ?? 0),
       fromOrgId: e.runner.orgId,
       fromOrgName: names[e.runner.orgId.toLowerCase()] ?? e.runner.orgId,
     })),
@@ -74,8 +88,7 @@ export async function listRunners(deps: RunnerDeps, orgId: string, parentOrgId?:
 async function requirePong(deps: RunnerDeps, runner: RunnerRow, requestedBy: string) {
   const verdict = await deliverPush(deps, runner, { runnerId: runner.id, requestId: deps.newId(), action: 'ping', requestedBy });
   if (verdict.kind !== 'success') {
-    const code = verdict.kind === 'fail' ? verdict.code : verdict.kind === 'retry' ? verdict.code : 'NOT_YET_VISIBLE';
-    throw new RunnerRouteError('RUNNER_PING_FAILED', `The runner did not answer the signed ping (${code}). Check that it is deployed and its RUNNER_ID is ${runner.id}.`, { runnerLabel: runner.label });
+    throw new RunnerRouteError('RUNNER_PING_FAILED', `The runner did not answer the signed ping (${verdictCode(verdict)}). Check that it is deployed and its RUNNER_ID is ${runner.id}.`, { runnerLabel: runner.label });
   }
   return verdict;
 }
@@ -190,8 +203,8 @@ export async function testRunner(deps: RunnerDeps, orgId: string, userId: string
     await recordRunnerSuccess(deps, runner, verdict);
     return { ok: true, outcome: verdict.outcome };
   }
-  if (verdict.kind === 'retry' && verdict.transport) await recordRunnerFailure(deps, runner);
-  return { ok: false, errorCode: verdict.kind === 'not_yet_visible' ? 'NOT_YET_VISIBLE' : verdict.code };
+  if (verdict.kind === 'retry' && verdict.transport) await recordRunnerFailure(deps, runner, verdict.immediate);
+  return { ok: false, errorCode: verdictCode(verdict) };
 }
 
 export async function revokeRunner(deps: RunnerDeps, orgId: string, id: string): Promise<{ runner: RunnerRow; linksCleared: number; requestsExpired: number }> {

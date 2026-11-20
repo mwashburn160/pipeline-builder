@@ -1,6 +1,6 @@
 {
   "AWSTemplateFormatVersion": "2010-09-09",
-  "Description": "Pipeline Builder cross-account PIPELINE RUNNER — a Lambda that starts/stops this account's pipelines with its own role, on platform-signed requests POSTed to its Function URL (or an IP-allowlisted API Gateway). The platform holds no AWS access to this account and the runner holds no platform credential. Deployed by pipeline-manager infra setup-runner, which also fills PipelineActions with one ARN per allowlisted region x prefix and keys the API deployment to the IP allowlist (utils/runner-template.ts). Lambda code is uploaded separately.",
+  "Description": "Pipeline Builder cross-account PIPELINE RUNNER — a Lambda that starts/stops this account's pipelines with its own role, on platform-signed requests POSTed to its Function URL (or an IP-allowlisted, WAF rate-limited API Gateway). The platform holds no AWS access to this account and the runner holds no platform credential. Deployed by pipeline-manager infra setup-runner, which also fills PipelineActions with one ARN per allowlisted region x prefix and keys the API deployment to the IP allowlist (utils/runner-template.ts). Lambda code is uploaded separately.",
   "Parameters": {
     "RunnerId": {
       "Type": "String",
@@ -9,7 +9,7 @@
     },
     "PlatformBaseUrl": {
       "Type": "String",
-      "Description": "The platform's base URL (https). Signatures are verified against <PlatformBaseUrl>/api/pipelines/runner/jwks.json."
+      "Description": "The platform's base URL (https). Signatures are verified against this runner's own key set, <PlatformBaseUrl>/api/pipelines/runner/runners/<RunnerId>/jwks.json (its owning organization's keys only)."
     },
     "EntryPoint": {
       "Type": "String",
@@ -24,6 +24,22 @@
       "Type": "CommaDelimitedList",
       "Default": "255.255.255.255/32",
       "Description": "api-gateway entry point only: source CIDRs (the platform's egress IPs) the API admits."
+    },
+    "EnableWaf": {
+      "Type": "String",
+      "Default": "true",
+      "AllowedValues": [
+        "true",
+        "false"
+      ],
+      "Description": "api-gateway entry point only: attach a WAFv2 web ACL with a per-IP rate-based rule to the API stage ('false' = setup-runner --no-waf). Ignored for the Function URL entry point."
+    },
+    "WafRateLimit": {
+      "Type": "Number",
+      "Default": 1000,
+      "MinValue": 10,
+      "MaxValue": 2000000000,
+      "Description": "api-gateway entry point with EnableWaf: requests one source IP may send in any 5-minute window before WAF blocks it (WAFv2 rate-based rule; setup-runner --waf-rate-limit)."
     },
     "AllowedRegions": {
       "Type": "String",
@@ -41,7 +57,7 @@
     "NameSuffix": {
       "Type": "String",
       "Default": "",
-      "Description": "Suffix on the role/function/API names (e.g. '-default') so several runners coexist in one account."
+      "Description": "Suffix on the role/function/API names: setup-runner passes '-<RunnerId>', so runners of different organizations never collide in one account (an organization has at most one runner per account)."
     },
     "PipelineManagerVersion": {
       "Type": "String",
@@ -64,6 +80,21 @@
           "Ref": "EntryPoint"
         },
         "api-gateway"
+      ]
+    },
+    "UseWaf": {
+      "Fn::And": [
+        {
+          "Condition": "UseApiGateway"
+        },
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "EnableWaf"
+            },
+            "true"
+          ]
+        }
       ]
     }
   },
@@ -313,6 +344,67 @@
         "Principal": "apigateway.amazonaws.com",
         "SourceArn": {
           "Fn::Sub": "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${RunnerApi}/*/POST/"
+        }
+      }
+    },
+    "RunnerWebAcl": {
+      "Type": "AWS::WAFv2::WebACL",
+      "Condition": "UseWaf",
+      "Properties": {
+        "Name": {
+          "Fn::Sub": "pipeline-builder-runner${NameSuffix}"
+        },
+        "Description": "Pipeline Builder runner API: per-source-IP rate limit (in front of the resource-policy IP allowlist and the stage throttle)",
+        "Scope": "REGIONAL",
+        "DefaultAction": {
+          "Allow": {}
+        },
+        "Rules": [
+          {
+            "Name": "per-ip-rate-limit",
+            "Priority": 0,
+            "Action": {
+              "Block": {}
+            },
+            "Statement": {
+              "RateBasedStatement": {
+                "Limit": {
+                  "Ref": "WafRateLimit"
+                },
+                "AggregateKeyType": "IP",
+                "EvaluationWindowSec": 300
+              }
+            },
+            "VisibilityConfig": {
+              "SampledRequestsEnabled": true,
+              "CloudWatchMetricsEnabled": true,
+              "MetricName": {
+                "Fn::Sub": "pipeline-builder-runner${NameSuffix}-rate-limit"
+              }
+            }
+          }
+        ],
+        "VisibilityConfig": {
+          "SampledRequestsEnabled": true,
+          "CloudWatchMetricsEnabled": true,
+          "MetricName": {
+            "Fn::Sub": "pipeline-builder-runner${NameSuffix}"
+          }
+        }
+      }
+    },
+    "RunnerWebAclAssociation": {
+      "Type": "AWS::WAFv2::WebACLAssociation",
+      "Condition": "UseWaf",
+      "Properties": {
+        "ResourceArn": {
+          "Fn::Sub": "arn:${AWS::Partition}:apigateway:${AWS::Region}::/restapis/${RunnerApi}/stages/${RunnerApiStage}"
+        },
+        "WebACLArn": {
+          "Fn::GetAtt": [
+            "RunnerWebAcl",
+            "Arn"
+          ]
         }
       }
     }

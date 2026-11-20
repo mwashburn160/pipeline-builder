@@ -61,9 +61,9 @@ const EXCEPTIONS: RouteCoverageException[] = [
   },
   {
     method: 'GET',
-    path: '/pipelines/runner/jwks.json',
+    path: '/pipelines/runner/runners/:runnerId/jwks.json',
     waive: 'all',
-    reason: 'PUBLIC by design: the run-request signing keys (Ed25519 JWK set) that customer runner Lambdas fetch unauthenticated to verify the platform\'s signed requests. Public keys only; 409 RUNNERS_UNAVAILABLE when runners are off.',
+    reason: 'PUBLIC by design: the public halves (Ed25519 JWK set) of the signing keys runner :runnerId trusts — its owning org\'s effective key org — which the customer runner Lambda fetches unauthenticated to verify the platform\'s signed requests. Public keys only; unknown, revoked or keyless runners get one 404; rate-limited per runner id and per IP.',
   },
   {
     method: 'POST',
@@ -81,6 +81,8 @@ const EXCEPTIONS: RouteCoverageException[] = [
 const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   // platform's durable cascade outbox: tear a purged org's rows out of this service's own tables (idempotent).
   { method: 'POST', path: '/pipelines/internal/orgs/:orgId/purge', callers: ['platform'] },
+  // platform's master-key / per-org KMS rotation flow: re-wrap the runner signing keys under the current encryption.
+  { method: 'POST', path: '/pipelines/internal/runner-signing-keys/reencrypt', callers: ['platform'] },
 ];
 
 /**

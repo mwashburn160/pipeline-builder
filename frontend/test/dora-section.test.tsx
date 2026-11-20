@@ -353,4 +353,12 @@ describe('DORA helpers (unit)', () => {
   it('doraLevelBadge returns null for an unrated (null) level', () => {
     expect(doraLevelBadge(null)).toBeNull();
   });
+
+  it('doraLevelBadge looks each band up by key, and an unknown band is unrated', () => {
+    expect(doraLevelBadge('elite')).toEqual({ label: 'Elite', className: 'bg-success-bg text-success' });
+    expect(doraLevelBadge('low')?.label).toBe('Low');
+    // A band the server adds later (or a prototype key) renders nothing, as the old switch's default did.
+    expect(doraLevelBadge('toString' as never)).toBeNull();
+    expect(doraLevelBadge('superb' as never)).toBeNull();
+  });
 });

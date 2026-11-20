@@ -24,6 +24,8 @@ jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() =>
 
 let authState: Record<string, unknown> = { user: null, isAuthenticated: false, isInitialized: true };
 jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => authState));
+// The claim notice (community listings) raises toasts.
+jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule());
 jest.mock('@/hooks/useDarkMode', () => ({ __esModule: true, useDarkMode: () => ({ isDark: false, toggle: () => undefined }) }));
 jest.mock('@/generated/plugin-icons', () => ({
   __esModule: true,
@@ -340,6 +342,27 @@ describe('/plugins/[publisher]/[name]', () => {
     const listing = detail({ publisher: { handle: 'acme', displayName: 'Acme', tier: 'community' }, latestVersion: '2.1.0' });
     render(<PluginPage siteUrl="https://pb.example" listing={listing} tab="overview" />);
     expect(screen.getByText("plugin: { publisher: acme, name: trivy, filter: { version: '^2' } }")).toBeInTheDocument();
+  });
+});
+
+describe('/plugins/[publisher]/[name] — claim a community listing', () => {
+  const community = () => detail({ publisher: { handle: 'community', displayName: 'Community', tier: 'community' } });
+  const manager = { id: 'u1', username: 'dana', email: 'd@x', permissions: ['publishers:manage'] };
+
+  it('a publishers:manage holder may claim it', () => {
+    authState = { user: manager, isAuthenticated: true, isInitialized: true };
+    render(<PluginPage siteUrl="https://pb.example" listing={community()} tab="overview" />);
+    expect(screen.getByRole('button', { name: /claim this listing/i })).toBeEnabled();
+  });
+
+  // A read-only impersonation session has every non-GET refused, so the claim
+  // (a publish request) can only fail: it is locked with the read-only reason.
+  it('a read-only session is locked out of the claim', () => {
+    authState = { user: manager, isAuthenticated: true, isInitialized: true, isReadOnly: true };
+    render(<PluginPage siteUrl="https://pb.example" listing={community()} tab="overview" />);
+    const claim = screen.getByRole('button', { name: /claim this listing/i });
+    expect(claim).toHaveAttribute('aria-disabled', 'true');
+    expect(claim).toHaveAccessibleDescription(/Read-only session/);
   });
 });
 

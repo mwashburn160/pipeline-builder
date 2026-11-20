@@ -17,7 +17,7 @@ interface NewOrgWelcomeProps {
 }
 
 /**
- * 3-step onboarding card shown to fresh orgs (0 pipelines, 0 executions).
+ * Step-by-step onboarding card shown to fresh orgs (0 pipelines, 0 executions).
  * Steps auto-check from observed signals; no manual click needed.
  */
 export function NewOrgWelcome({ signals, onDismiss }: NewOrgWelcomeProps) {
@@ -33,7 +33,7 @@ export function NewOrgWelcome({ signals, onDismiss }: NewOrgWelcomeProps) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-semibold text-fg">
-              Get started — {done}/3 done
+              Get started — {done}/{steps.length} done
             </h2>
             <button
               type="button"
@@ -46,7 +46,7 @@ export function NewOrgWelcome({ signals, onDismiss }: NewOrgWelcomeProps) {
             </button>
           </div>
           <p className="text-xs text-fg-muted mt-0.5">
-            Three steps to your first build. Each checks off automatically as you go.
+            {steps.length} steps to your first pipeline run. Each checks off automatically as you go.
           </p>
         </div>
       </div>

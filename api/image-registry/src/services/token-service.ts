@@ -424,7 +424,7 @@ export async function authorizeAndIssue( identity: Identity,
 export interface StorageGateDecision {
   /** True when `push` must be stripped. */
   overBudget: boolean;
-  reason: 'under_budget' | 'unlimited' | 'over_budget' | 'quota_unreachable' | 'usage_incomplete' | 'gate_error';
+  reason: StorageGateReason;
   /** Measured bytes, or `null` when the usage read did not answer. */
   usageBytes: number | null;
   /** The org's NOMINAL cap (-1 unlimited, `null` unknown). */
@@ -433,17 +433,31 @@ export interface StorageGateDecision {
   enforcedBytes: number | null;
 }
 
-/** Each gate reason's sentence (keyed, so a new reason can't go unexplained). */
-const STORAGE_GATE_REASON_TEXT: Readonly<Record<StorageGateDecision['reason'], (d: StorageGateDecision) => string>> = {
-  over_budget: (d) => `push stripped: storage ${usedOf(d)} of ${capOf(d)}`
-    + (d.enforcedBytes !== null && d.limitBytes !== null && d.enforcedBytes > d.limitBytes
-      ? ` (including a grace band to ${formatQuotaAmount('storageBytes', d.enforcedBytes)})` : ''),
-  quota_unreachable: () => 'push stripped: the storage quota could not be read (fail-closed)',
-  usage_incomplete: (d) => `push stripped: the storage usage scan was incomplete, so ${usedOf(d)} of ${capOf(d)} under-counts (fail-closed)`,
-  gate_error: () => 'push stripped: the storage gate failed (fail-closed)',
-  unlimited: () => 'storage is unlimited for this organization',
-  under_budget: (d) => `storage ${usedOf(d)} of ${capOf(d)}`,
-};
+/**
+ * Every storage-gate reason, keyed: whether it is a FAIL-CLOSED verdict (the cap
+ * could not be verified, so push is stripped unless QUOTA_STORAGE_FAIL_OPEN) and
+ * the sentence that explains it. The reason union derives from the keys, so a
+ * new reason cannot go unexplained.
+ */
+const STORAGE_GATE_REASONS = {
+  over_budget: {
+    unverified: false,
+    text: (d: StorageGateDecision) => `push stripped: storage ${usedOf(d)} of ${capOf(d)}`
+      + (d.enforcedBytes !== null && d.limitBytes !== null && d.enforcedBytes > d.limitBytes
+        ? ` (including a grace band to ${formatQuotaAmount('storageBytes', d.enforcedBytes)})` : ''),
+  },
+  quota_unreachable: { unverified: true, text: () => 'the storage quota could not be read' },
+  usage_incomplete: {
+    unverified: true,
+    text: (d: StorageGateDecision) => `the storage usage scan was incomplete, so ${usedOf(d)} of ${capOf(d)} under-counts`,
+  },
+  gate_error: { unverified: true, text: () => 'the storage gate failed' },
+  unlimited: { unverified: false, text: () => 'storage is unlimited for this organization' },
+  under_budget: { unverified: false, text: (d: StorageGateDecision) => `storage ${usedOf(d)} of ${capOf(d)}` },
+} as const satisfies Record<string, { unverified: boolean; text: (d: StorageGateDecision) => string }>;
+
+/** Why the storage gate decided as it did. */
+export type StorageGateReason = keyof typeof STORAGE_GATE_REASONS;
 
 function usedOf(d: StorageGateDecision): string {
   return d.usageBytes === null ? 'unknown' : formatQuotaAmount('storageBytes', d.usageBytes);
@@ -459,7 +473,12 @@ function capOf(d: StorageGateDecision): string {
  * same units the dashboard and the quota notice use.
  */
 export function storageGateReason(d: StorageGateDecision): string {
-  return STORAGE_GATE_REASON_TEXT[d.reason](d);
+  const entry = STORAGE_GATE_REASONS[d.reason];
+  const text = entry.text(d);
+  if (!entry.unverified) return text;
+  // An unverifiable cap strips push (fail-closed) unless the escape hatch let it
+  // through — the sentence must agree with the audit row's `pushStripped`.
+  return d.overBudget ? `push stripped: ${text} (fail-closed)` : `push allowed (fail-open): ${text}`;
 }
 
 /**
@@ -480,7 +499,7 @@ const STORAGE_FAIL_OPEN = (process.env.QUOTA_STORAGE_FAIL_OPEN || '').toLowerCas
  * to restore the permissive behavior.
  */
 async function isStorageOverBudget(orgId: string): Promise<StorageGateDecision> {
-  const unknown = (reason: StorageGateDecision['reason']): StorageGateDecision =>
+  const unknown = (reason: StorageGateReason): StorageGateDecision =>
     ({ overBudget: !STORAGE_FAIL_OPEN, reason, usageBytes: null, limitBytes: null, enforcedBytes: null });
   try {
     const authHeader = getServiceAuthHeader({

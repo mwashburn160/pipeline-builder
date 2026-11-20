@@ -128,6 +128,15 @@ describe('getInitialDark', () => {
     expect(media).toHaveBeenCalledWith('(prefers-color-scheme: dark)');
   });
 
+  it('falls back to the OS preference when storage access throws (blocked site data)', () => {
+    const storage = mockLocalStorage({});
+    storage.getItem.mockImplementation(() => { throw new Error('SecurityError'); });
+    (globalThis as any).window = { localStorage: storage, matchMedia: mockMatchMedia(true) };
+    (globalThis as any).localStorage = storage;
+
+    expect(getInitialDark()).toBe(true);
+  });
+
   it('should return false when window is undefined (SSR)', () => {
     // Simulate SSR environment by removing window
     // @ts-ignore - intentionally removing window for SSR test

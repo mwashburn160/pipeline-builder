@@ -76,7 +76,7 @@ export interface AccessDenial {
  */
 export function useAuthGuard(options?: AuthGuardOptions) {
   const router = useRouter();
-  const { user, isAuthenticated, isInitialized, isLoading, isReadOnly, logout, refreshUser } = useAuth();
+  const { user, organizations, isAuthenticated, isInitialized, isLoading, isReadOnly, logout, refreshUser } = useAuth();
 
   const isSuperAdmin = isSystemAdmin(user);
   const isOrgAdminUser = isOrgAdmin(user);
@@ -165,6 +165,8 @@ export function useAuthGuard(options?: AuthGuardOptions) {
 
   return {
     user,
+    /** Every org the user belongs to (memberships carry `parentOrgName` for teams). */
+    organizations,
     isReady,
     /** Non-null when the route's read gate refuses this viewer. Pages render
      *  `<AccessDenied denial={accessDenied} />` before their loading state. */

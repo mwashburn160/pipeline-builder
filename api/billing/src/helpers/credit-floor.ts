@@ -37,7 +37,7 @@
 
 import { config } from '../config.js';
 import { activeComboCredits, discountBaseCents, getComboDiscounts, priceForInterval, volumeCredits } from './combo-pricing.js';
-import type { DiscountKind } from './discount-code.js';
+import type { DiscountKind, DiscountUnit } from './discount-code.js';
 import { snapNetCharge } from './price-rounding.js';
 import type { BillingInterval, SubscriptionDocument } from '../models/subscription.js';
 
@@ -192,7 +192,24 @@ export function recurringDiscountStandingCents(
   const rd = subscription.recurringDiscount;
   if (!rd) return 0;
   const base = discountBaseCents(rd, planPriceCents, subscription.addons ?? [], bundles, subscription.interval);
-  return Math.max(0, creditCents(rd, base));
+  return Math.max(0, recurringCreditCents(rd, base));
+}
+
+/**
+ * Cents a STANDING recurring rule grants for one period against `baseCents`
+ * (its `discountBaseCents`). A bundle-scoped DOLLAR rule is capped at the scoped
+ * subtotal (0 once no scoped bundle is held), as a scoped percent one already is
+ * by construction — otherwise removing the scoped bundle would leave the full
+ * amount re-granting every period against an add-on no longer held. The ONE
+ * spelling shared by the per-period re-grant and the floor's standing figure,
+ * so the floor never counts credit the account does not receive.
+ */
+export function recurringCreditCents(
+  rule: { unit: DiscountUnit; value: number; appliesToBundles?: readonly string[] },
+  baseCents: number,
+): number {
+  const cents = creditCents(rule, baseCents);
+  return rule.unit === 'dollar' && rule.appliesToBundles?.length ? Math.min(cents, baseCents) : cents;
 }
 
 /**
@@ -204,7 +221,7 @@ export function recurringDiscountStandingCents(
  * need it — the coupon redemption, the per-period re-grant and the promotion
  * grant — and `discount-helpers` is downstream of the promotion engine.
  */
-export function creditCents(rule: { unit: 'dollar' | 'percent'; value: number }, baseCents: number): number {
+export function creditCents(rule: { unit: DiscountUnit; value: number }, baseCents: number): number {
   if (rule.unit === 'dollar') return rule.value;
   return snapNetCharge(baseCents, Math.round((baseCents * rule.value) / 100)).creditCents;
 }

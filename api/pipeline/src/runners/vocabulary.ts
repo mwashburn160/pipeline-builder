@@ -8,14 +8,14 @@
  */
 
 import {
-  PENDING_RUN_REQUEST_STATUSES, RUNNER_API_ERROR_CODES, RUNNER_DELIVERY_FAILURE_CLASSES, RUNNER_FEATURE, RUNNER_REPLY_ERROR_CODES, TERMINAL_RUN_REQUEST_STATUSES,
+  PENDING_RUN_REQUEST_STATUSES, RUNNER_API_ERROR_CODES, RUNNER_DELIVERY_FAILURE_CLASSES, RUNNER_REPLY_ERROR_CODES, runnerTunable, TERMINAL_RUN_REQUEST_STATUSES,
   type RunnerApiErrorCode, type RunnerDeliveryFailureClass, type RunnerErrorCode, type RunnerReplyErrorCode, type RunRequestStatus,
 } from '@pipeline-builder/api-core/pipeline-runners';
 
 // The contract half (codes, statuses, outcomes, the request lifetime) is
 // api-core's `pipeline-runners` catalog, shared with the runner Lambda, the CLI
 // and the dashboard; re-exported here under the names this service uses.
-export { RUNNER_FEATURE, RUNNER_OUTCOMES, RUN_REQUEST_TTL_MS, type RunnerOutcome } from '@pipeline-builder/api-core/pipeline-runners';
+export { RUNNER_OUTCOMES, RUN_REQUEST_TTL_MS, UNREACHABLE_AFTER_FAILURES, type RunnerOutcome } from '@pipeline-builder/api-core/pipeline-runners';
 
 export const TERMINAL_STATUSES: readonly RunRequestStatus[] = TERMINAL_RUN_REQUEST_STATUSES;
 export const PENDING_STATUSES: readonly RunRequestStatus[] = PENDING_RUN_REQUEST_STATUSES;
@@ -23,11 +23,6 @@ export const PENDING_STATUSES: readonly RunRequestStatus[] = PENDING_RUN_REQUEST
 /** Error codes the pipeline service answers with on a runner path (`code` of the error envelope). */
 export const RUNNER_API_ERRORS = RUNNER_API_ERROR_CODES;
 export type RunnerApiError = RunnerApiErrorCode;
-
-/** Whether a request's principal holds the runner feature (superadmins hold every feature, as `requireFeature` rules). */
-export function principalHasRunnerFeature(user: { isSuperAdmin?: boolean; features?: readonly string[] } | undefined): boolean {
-  return !!user && (user.isSuperAdmin === true || !!user.features?.includes(RUNNER_FEATURE));
-}
 
 /** Error codes a RUNNER answers with (its 4xx/5xx `errorCode`). */
 export const RUNNER_REPLY_ERRORS = RUNNER_REPLY_ERROR_CODES;
@@ -47,18 +42,8 @@ export const MAX_BACKOFF_MS = 30_000;
 export const NOT_YET_VISIBLE_RETRY_MS = 15_000;
 /** … for at most this long after the request was made. */
 export const NOT_YET_VISIBLE_WINDOW_MS = 60_000;
-/** Consecutive transport failures that mark a runner unreachable. */
-export const UNREACHABLE_AFTER_FAILURES = 5;
-/** An unreachable runner is pinged this often. */
-export const UNREACHABLE_PING_INTERVAL_MS = 5 * 60_000;
-/** Start/stop requests per (org, pipeline) per minute through a runner. */
-export const RUN_REQUESTS_PER_MINUTE = 6;
 /** Runners one org may register. */
 export const MAX_RUNNERS_PER_ORG = 20;
-/** Pending (queued|delivering) run requests one org may have. */
-export const MAX_PENDING_PER_ORG = 50;
-/** Deliveries in flight to one runner at a time. */
-export const MAX_IN_FLIGHT_PER_RUNNER = 4;
 /** A `pending` runner (registered, never given a URL) is deleted after this long. */
 export const PENDING_RUNNER_TTL_MS = 24 * 60 * 60_000;
 /** An execution's status is refreshed from the runner at most this often. */
@@ -82,7 +67,7 @@ const envNumber = (raw: string | undefined, fallback: number, min: number): numb
  */
 export const RUNNER_SETTING_DEFAULTS = {
   RUNNER_DISPATCH_CONCURRENCY: '16',
-  MIN_RUNNER_VERSION: '',
+  MIN_RUNNER_VERSION: '7.0.0',
   RUNNER_UPGRADE_GRACE_DAYS: '30',
   RUNNER_PLATFORM_EGRESS_IPS: '',
   RUNNER_REQUEST_RETENTION_DAYS: '90',
@@ -104,6 +89,16 @@ export interface RunnerSettings {
   retentionDays: number;
   /** RUNNER_FAILED_REQUEST_RETENTION_DAYS (30) — failed/expired requests are deleted after this. */
   failedRetentionDays: number;
+  /** RUN_REQUESTS_PER_MINUTE (6) — user start/stop requests per (org, pipeline) per minute. */
+  runRequestsPerMinute: number;
+  /** MAX_PENDING_PER_ORG (500) — pending user-initiated start/stop requests per org (system-initiated runs queue past it). */
+  maxPendingPerOrg: number;
+  /** MAX_IN_FLIGHT_PER_RUNNER (8) — deliveries in flight to one runner at a time. */
+  maxInFlightPerRunner: number;
+  /** RUNNER_HEALTH_PING_INTERVAL_SECONDS (60), in ms — every active runner gets a signed ping this often. */
+  healthPingIntervalMs: number;
+  /** RUNNER_UNHEALTHY_AFTER_PINGS (2) — consecutive failed health pings that mark a runner unreachable. */
+  unhealthyAfterPings: number;
 }
 
 export function runnerSettings(env: NodeJS.ProcessEnv = process.env): RunnerSettings {
@@ -116,6 +111,11 @@ export function runnerSettings(env: NodeJS.ProcessEnv = process.env): RunnerSett
     platformEgressIps: ips.length > 0 ? ips : null,
     retentionDays: envNumber(env.RUNNER_REQUEST_RETENTION_DAYS, Number(DEFAULTS.RUNNER_REQUEST_RETENTION_DAYS), 1),
     failedRetentionDays: envNumber(env.RUNNER_FAILED_REQUEST_RETENTION_DAYS, Number(DEFAULTS.RUNNER_FAILED_REQUEST_RETENTION_DAYS), 1),
+    runRequestsPerMinute: runnerTunable('RUN_REQUESTS_PER_MINUTE', env),
+    maxPendingPerOrg: runnerTunable('MAX_PENDING_PER_ORG', env),
+    maxInFlightPerRunner: runnerTunable('MAX_IN_FLIGHT_PER_RUNNER', env),
+    healthPingIntervalMs: runnerTunable('RUNNER_HEALTH_PING_INTERVAL_SECONDS', env) * 1000,
+    unhealthyAfterPings: runnerTunable('RUNNER_UNHEALTHY_AFTER_PINGS', env),
   };
 }
 
@@ -137,6 +137,16 @@ export function versionBelow(version: string | null | undefined, min: string | n
 /** The `requestedBy` of system-initiated requests. */
 export const SYSTEM_PLUGIN_UPGRADE = 'system:plugin-upgrade';
 export const SYSTEM_RUNNER_PING = 'system:runner-ping';
+/** The background runner-link probe at pipeline registration. */
+export const SYSTEM_RUNNER_LINK = 'system:runner-link';
+
+/**
+ * A system-initiated request (a plugin-upgrade redeploy): it waits in the queue
+ * past the org's pending cap instead of being refused 429 TOO_MANY_PENDING.
+ */
+export function isSystemRequester(requestedBy: string): boolean {
+  return requestedBy.startsWith('system:');
+}
 
 /** Retry delay after the Nth (1-based) failed delivery attempt: 1, 2, 4, …, capped at 30 s. */
 export function backoffMs(attempt: number): number {

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, it, expect, jest } from '@jest/globals';
+import { describe, it, expect, jest, afterEach } from '@jest/globals';
 
 import { extractListResponse } from '../src/utils/response-utils.js';
 
@@ -127,5 +127,22 @@ describe('extractListResponse', () => {
     expect(result.items).toEqual([{ id: '1' }, { id: '2' }]);
     expect(result.total).toBeUndefined();
     expect(result.hasMore).toBe(false);
+  });
+});
+
+describe('log data redaction', () => {
+  afterEach(() => { jest.restoreAllMocks(); delete process.env.DEBUG; });
+
+  it('never prints a credential passed as log data (top level or nested), under DEBUG or not', async () => {
+    const { printDebug, printInfo } = await import('../src/utils/output-utils.js');
+    const lines: string[] = [];
+    jest.spyOn(console, 'log').mockImplementation((...a: unknown[]) => { lines.push(a.map(String).join(' ')); });
+    process.env.DEBUG = 'true';
+    printDebug('API error response body', { data: { accessToken: 'tok-SECRET-1', ok: 'visible' } });
+    printInfo('x', { password: 'tok-SECRET-2', url: 'https://p.example' });
+    const out = lines.join('\n');
+    expect(out).not.toMatch(/tok-SECRET/);
+    expect(out).toContain('visible');
+    expect(out).toContain('https://p.example');
   });
 });

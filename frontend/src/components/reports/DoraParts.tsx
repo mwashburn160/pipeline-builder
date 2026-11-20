@@ -51,24 +51,22 @@ export function fmtWindow(window?: { from: string; to: string }): string {
   return `${fromStr} – ${toStr}`;
 }
 
+type RatedDoraLevel = Exclude<DoraLevel, null>;
+
+/** Display label + Tailwind pill classes (dark-mode aware) per DORA performance band. */
+export const DORA_LEVEL_BADGES = {
+  elite: { label: 'Elite', className: 'bg-success-bg text-success' },
+  high: { label: 'High', className: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300' },
+  medium: { label: 'Medium', className: 'bg-warning-bg text-warning' },
+  low: { label: 'Low', className: 'bg-danger-bg text-danger' },
+} as const satisfies Record<RatedDoraLevel, { label: string; className: string }>;
+
 /**
- * Map a DORA performance band to a display label + Tailwind pill classes
- * (dark-mode aware). Returns null for an unrated (null) level so callers can
- * render nothing.
+ * Look up a DORA band's badge. Returns null for an unrated (null) level — or a
+ * band this build doesn't know — so callers can render nothing.
  */
 export function doraLevelBadge(level: DoraLevel): { label: string; className: string } | null {
-  switch (level) {
-    case 'elite':
-      return { label: 'Elite', className: 'bg-success-bg text-success' };
-    case 'high':
-      return { label: 'High', className: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300' };
-    case 'medium':
-      return { label: 'Medium', className: 'bg-warning-bg text-warning' };
-    case 'low':
-      return { label: 'Low', className: 'bg-danger-bg text-danger' };
-    default:
-      return null;
-  }
+  return level && Object.prototype.hasOwnProperty.call(DORA_LEVEL_BADGES, level) ? DORA_LEVEL_BADGES[level] : null;
 }
 
 interface DoraCardProps {

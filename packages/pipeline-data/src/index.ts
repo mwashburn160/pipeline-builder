@@ -69,6 +69,7 @@ export {
   ORG_DATA_OWNERSHIP,
   ORG_SCOPED_TABLE_NAMES,
   allOrgScopedTables,
+  redactSecretColumns,
   type OrgDataOwner,
   type OrgDataSlice,
   type OrgScopedTable,

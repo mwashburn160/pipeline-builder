@@ -234,7 +234,7 @@ describe('Security — one page, four answers', () => {
 
   it('shows them to someone who holds service_accounts:manage', async () => {
     mockAuthGuard({
-      user: { id: 'u1', organizationId: 'org-1' },
+      user: { id: 'u1', organizationId: 'org-1', permissions: ['service_accounts:manage'] },
       can: (p: string) => p === 'service_accounts:manage',
     });
     query = { tab: 'service-accounts' };
@@ -243,9 +243,25 @@ describe('Security — one page, four answers', () => {
     await postureSettled();
   });
 
+  it('keeps them visible (disabled by the section) in a read-only session — the list is a read', async () => {
+    // `can()` is false for every mutation under read-only impersonation, so
+    // gating on it swapped the org's service accounts for "managed by an
+    // administrator" — wrong, and the section's `readOnly` could never apply.
+    mockAuthGuard({
+      user: { id: 'u1', organizationId: 'org-1', permissions: ['service_accounts:manage'] },
+      isReadOnly: true,
+      can: () => false,
+    });
+    query = { tab: 'service-accounts' };
+    render(<SecurityPage />);
+    await waitFor(() => expect(screen.getByText('service-accounts-section')).toBeInTheDocument());
+    expect(screen.queryByText(/managed by an administrator/i)).not.toBeInTheDocument();
+    await postureSettled();
+  });
+
   it('discloses a read-only impersonation on every tab (service accounts included)', async () => {
     mockAuthGuard({
-      user: { id: 'u1', organizationId: 'org-1' },
+      user: { id: 'u1', organizationId: 'org-1', permissions: ['service_accounts:manage'] },
       isReadOnly: true,
       can: (p: string) => p === 'service_accounts:manage',
     });

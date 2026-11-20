@@ -51,18 +51,29 @@ import { resolveSecurityGroup } from '../core/security-group.js';
 import { selfMutationPartialBuildSpec } from '../core/self-mutation.js';
 import type { StepManifestEntry } from '../core/step-manifest.js';
 
-const PIPELINE_EVENT_MAP: Record<string, PipelineNotificationEvents> = {
+/** `operations.notificationevents` names (case-insensitive) → the CodePipeline notification event. */
+const PIPELINE_EVENTS = {
   FAILED: PipelineNotificationEvents.PIPELINE_EXECUTION_FAILED,
   SUCCEEDED: PipelineNotificationEvents.PIPELINE_EXECUTION_SUCCEEDED,
   STARTED: PipelineNotificationEvents.PIPELINE_EXECUTION_STARTED,
   CANCELED: PipelineNotificationEvents.PIPELINE_EXECUTION_CANCELED,
   SUPERSEDED: PipelineNotificationEvents.PIPELINE_EXECUTION_SUPERSEDED,
-};
+} as const satisfies Record<string, PipelineNotificationEvents>;
+type PipelineEventName = keyof typeof PIPELINE_EVENTS;
 
-function parseNotificationEvents(value: unknown): string[] {
+/** Notified when the metadata names no events. */
+const DEFAULT_PIPELINE_EVENTS: readonly PipelineEventName[] = ['FAILED', 'SUCCEEDED'];
+
+function parseNotificationEvents(value: unknown): readonly string[] {
   if (Array.isArray(value)) return value;
   if (typeof value === 'string') return value.split(',').map(s => s.trim());
-  return ['FAILED', 'SUCCEEDED'];
+  return DEFAULT_PIPELINE_EVENTS;
+}
+
+/** The notification event for a metadata name; undefined for an unknown name (it is skipped). */
+function pipelineEvent(name: unknown): PipelineNotificationEvents | undefined {
+  const key = String(name).toUpperCase();
+  return Object.hasOwn(PIPELINE_EVENTS, key) ? PIPELINE_EVENTS[key as PipelineEventName] : undefined;
 }
 
 /**
@@ -560,8 +571,8 @@ export class PipelineBuilder extends Construct {
       if (typeof notificationTopicArn === 'string') {
         const topic = sns.Topic.fromTopicArn(this, 'NotificationTopic', notificationTopicArn);
         const notificationEvents = parseNotificationEvents(meta[MetadataKeys.NOTIFICATION_EVENTS])
-          .map(e => PIPELINE_EVENT_MAP[e.toUpperCase()])
-          .filter(Boolean);
+          .map(pipelineEvent)
+          .filter((e): e is PipelineNotificationEvents => e !== undefined);
         if (notificationEvents.length > 0) {
           cdkPipeline.notifyOn('PipelineNotification', topic, { events: notificationEvents });
         }

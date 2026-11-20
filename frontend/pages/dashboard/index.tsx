@@ -84,6 +84,19 @@ export default function DashboardPage() {
   // one — an owner who has invited a teammate has "started" and graduates to
   // the org-admin home. Gated so member-users don't 403 on the roster.
   const memberQ = useQuery(isAuthenticated && isOrgAdmin && orgId ? queries.orgMembers(orgId, { limit: 1 }) : null);
+  // Org-admin only (the runner list needs org_settings:write): how many runners
+  // the org can use, own plus shared by a parent, so onboarding's "Install a
+  // runner" step ticks as soon as one exists, not only after the first run.
+  // Best effort: a refusal or an outage just leaves the step to the run count.
+  const runnerCountQ = useFetch(async (signal) => {
+    if (!isAuthenticated || !isOrgAdmin || !orgId) return null;
+    try {
+      const dto = (await api.getPipelineRunners({ signal })).data;
+      return dto ? dto.own.length + dto.inherited.length : null;
+    } catch {
+      return null;
+    }
+  }, [isAuthenticated, isOrgAdmin, orgId]);
   const pluginSummaryQ = useFetch(async (signal) => {
     if (!isAuthenticated) return null;
     return (await api.getPluginSummary({ signal })).data?.summary ?? null;
@@ -181,7 +194,8 @@ export default function DashboardPage() {
     visitedPlugins: onboardingVisitedPlugins,
     pipelineCount: pipelineCount ?? 0,
     executionCount: executionTotal,
-  }), [onboardingVisitedPlugins, pipelineCount, executionTotal]);
+    ...(runnerCountQ.data != null ? { runnerCount: runnerCountQ.data } : {}),
+  }), [onboardingVisitedPlugins, pipelineCount, executionTotal, runnerCountQ.data]);
 
   const dismissOnboarding = useCallback(() => {
     if (typeof window !== 'undefined' && user?.organizationId) {

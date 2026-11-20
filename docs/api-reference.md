@@ -534,7 +534,7 @@ Every route of the Pipeline, Plugin and Ask Agent services, generated from the r
 
 ### Pipeline Service — every route
 
-48 routes, from `frontend/src/generated/route-table/pipeline.json`.
+61 routes, from `frontend/src/generated/route-table/pipeline.json`.
 
 | Method | Endpoint | Requires | Meters | Audit action |
 |--------|----------|----------|--------|--------------|
@@ -562,6 +562,12 @@ Every route of the Pipeline, Plugin and Ask Agent services, generated from the r
 | `POST` | `/pipelines/:pipelineId/executions` | `pipelines:write` | `apiCalls` | `pipeline.execution.start` |
 | `POST` | `/pipelines/:pipelineId/executions/:executionId/stop` | `pipelines:write` | `apiCalls` | `pipeline.execution.cancel` |
 | `GET` | `/pipelines/:pipelineId/run-requests/:requestId` | `pipelines:read` | `apiCalls` | — |
+| `GET` | `/pipelines/:pipelineId/runner-link` | `pipelines:read` | `apiCalls` | — |
+| `POST` | `/pipelines/:pipelineId/runner-link/refresh` | `pipelines:write`; MFA session (aal2); step-up | `apiCalls` | `pipeline.runner.link.refresh` |
+| `POST` | `/pipelines/admin/orgs/:orgId/runner-signing-key/revoke` | system org; `orgs:manage`; MFA session (aal2); step-up | `apiCalls` | `pipeline.runner.key.system_revoke` |
+| `GET` | `/pipelines/admin/runner-deliveries` | system org; `orgs:read`; MFA session (aal2) | `apiCalls` | — |
+| `PUT` | `/pipelines/admin/runner-deliveries` | system org; `orgs:manage`; MFA session (aal2); step-up | `apiCalls` | `pipeline.runner.deliveries.pause`, `pipeline.runner.deliveries.resume` |
+| `GET` | `/pipelines/admin/runner-signing-keys` | system org; `orgs:read`; MFA session (aal2) | `apiCalls` | — |
 | `POST` | `/pipelines/analyze/from-url` | `pipelines:write`; feature `ai_generation` | `apiCalls` | — |
 | `POST` | `/pipelines/bulk/create` | `pipelines:write`; feature `bulk_operations` | `apiCalls` | `pipeline.create`, `pipeline.update` |
 | `POST` | `/pipelines/bulk/delete` | `pipelines:write`; feature `bulk_operations` | `apiCalls` | `pipeline.delete` |
@@ -578,12 +584,19 @@ Every route of the Pipeline, Plugin and Ask Agent services, generated from the r
 | `GET` | `/pipelines/registry` | `pipelines:read`; decided per request | `apiCalls` | — |
 | `POST` | `/pipelines/registry` | `pipeline_registry:write` | `apiCalls` | `pipeline.registry.register` |
 | `DELETE` | `/pipelines/registry/:id` | `pipeline_registry:write` | `apiCalls` | `pipeline.registry.deregister` |
-| `GET` | `/pipelines/runner/jwks.json` | no bearer token | — | — |
-| `GET` | `/pipelines/runners` | `org_settings:write`; feature `cross_account_runners` | `apiCalls` | — |
-| `POST` | `/pipelines/runners` | `org_settings:write`; MFA session (aal2); step-up; feature `cross_account_runners` | `apiCalls` | `pipeline.runner.register` |
-| `DELETE` | `/pipelines/runners/:id` | `org_settings:write`; MFA session (aal2); step-up; feature `cross_account_runners` | `apiCalls` | `pipeline.runner.revoke` |
-| `PATCH` | `/pipelines/runners/:id` | `org_settings:write`; MFA session (aal2); step-up; feature `cross_account_runners` | `apiCalls` | `pipeline.runner.update` |
-| `POST` | `/pipelines/runners/:id/test` | `org_settings:write`; MFA session (aal2); step-up; feature `cross_account_runners` | `apiCalls` | `pipeline.runner.test` |
+| `GET` | `/pipelines/runner/runners/:runnerId/jwks.json` | no bearer token | — | — |
+| `GET` | `/pipelines/runners` | `org_settings:write` | `apiCalls` | — |
+| `POST` | `/pipelines/runners` | `org_settings:write`; MFA session (aal2); step-up | `apiCalls` | `pipeline.runner.register` |
+| `DELETE` | `/pipelines/runners/:id` | `org_settings:write`; MFA session (aal2); step-up | `apiCalls` | `pipeline.runner.revoke` |
+| `PATCH` | `/pipelines/runners/:id` | `org_settings:write`; MFA session (aal2); step-up | `apiCalls` | `pipeline.runner.update` |
+| `GET` | `/pipelines/runners/:id/pipelines` | `org_settings:write` | `apiCalls` | — |
+| `POST` | `/pipelines/runners/:id/test` | `org_settings:write`; MFA session (aal2); step-up | `apiCalls` | `pipeline.runner.test` |
+| `POST` | `/pipelines/runners/signing-key` | `org_settings:write`; MFA session (aal2); step-up | `apiCalls` | `pipeline.runner.key.generate` |
+| `POST` | `/pipelines/runners/signing-key/finish` | `org_settings:write`; MFA session (aal2); step-up | `apiCalls` | `pipeline.runner.key.finish` |
+| `PUT` | `/pipelines/runners/signing-key/mode` | `org_settings:write`; MFA session (aal2); step-up | `apiCalls` | `pipeline.runner.key.mode` |
+| `POST` | `/pipelines/runners/signing-key/revoke` | `org_settings:write`; MFA session (aal2); step-up | `apiCalls` | `pipeline.runner.key.revoke` |
+| `DELETE` | `/pipelines/runners/signing-key/rotate` | `org_settings:write`; MFA session (aal2); step-up | `apiCalls` | `pipeline.runner.key.cancel` |
+| `POST` | `/pipelines/runners/signing-key/rotate` | `org_settings:write`; MFA session (aal2); step-up | `apiCalls` | `pipeline.runner.key.rotate` |
 | `GET` | `/pipelines/scorecard` | `pipelines:read`; feature `advanced_reporting` | `apiCalls` | — |
 | `POST` | `/pipelines/validate` | `pipelines:write` | `apiCalls` | — |
 

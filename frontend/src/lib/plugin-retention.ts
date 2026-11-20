@@ -47,29 +47,30 @@ export function retentionRuleLabel(rule: string): string {
   return RULE_LABEL[rule] ?? rule.replace(/_/g, ' ');
 }
 
-const STATE_LABEL: Record<RetentionState, string> = {
-  keep: 'Kept',
-  deprecate: 'Deprecate',
-  notice: 'In notice',
-  yank: 'Yank',
-  reverse: 'Reverse deprecation',
-  refused: 'Refused',
-};
+type BadgeColor = 'green' | 'yellow' | 'red' | 'blue' | 'gray';
+
+/** Every retention state: its words and its badge colour, in one place. */
+const RETENTION_STATE = {
+  keep: { label: 'Kept', color: 'green' },
+  deprecate: { label: 'Deprecate', color: 'yellow' },
+  notice: { label: 'In notice', color: 'yellow' },
+  yank: { label: 'Yank', color: 'red' },
+  reverse: { label: 'Reverse deprecation', color: 'blue' },
+  refused: { label: 'Refused', color: 'gray' },
+} as const satisfies Record<RetentionState, { label: string; color: BadgeColor }>;
+
+function retentionStateMeta(state: string): (typeof RETENTION_STATE)[RetentionState] | undefined {
+  return Object.hasOwn(RETENTION_STATE, state) ? RETENTION_STATE[state as RetentionState] : undefined;
+}
 
 /** A state in words; an unknown one is shown as itself. */
 export function retentionStateLabel(state: string): string {
-  return STATE_LABEL[state as RetentionState] ?? state;
+  return retentionStateMeta(state)?.label ?? state;
 }
 
-/** Badge colour for a state. */
-export function retentionStateColor(state: string): 'green' | 'yellow' | 'red' | 'blue' | 'gray' {
-  switch (state) {
-    case 'keep': return 'green';
-    case 'deprecate': case 'notice': return 'yellow';
-    case 'yank': return 'red';
-    case 'reverse': return 'blue';
-    default: return 'gray';
-  }
+/** Badge colour for a state; an unknown one is gray. */
+export function retentionStateColor(state: string): BadgeColor {
+  return retentionStateMeta(state)?.color ?? 'gray';
 }
 
 const ACTION_LABEL: Record<RetentionAction, string> = {

@@ -17,7 +17,7 @@ jest.unstable_mockModule('bullmq', () => ({
   },
 }));
 
-const { bullDispatchQueue, dispatchProcessor, inProcessDispatchQueue, startRunnerDispatch, RUNNER_DISPATCH_QUEUE } = await import('../../src/runners/dispatch-queue.js');
+const { bullDispatchQueue, dispatchProcessor, inProcessDispatchQueue, runnerSweepOptions, startRunnerDispatch, RUNNER_DISPATCH_QUEUE } = await import('../../src/runners/dispatch-queue.js');
 const { setRunnerDepsForTesting } = await import('../../src/runners/deps.js');
 const { ORG, PIPE, reply, runnerRow, testDeps } = await import('../helpers/runner-fakes.js');
 
@@ -103,11 +103,36 @@ describe('startRunnerDispatch', () => {
     }
   });
 
+  it('primes the alerted runner series at zero on start', async () => {
+    const deps = testDeps();
+    setRunnerDepsForTesting(deps);
+    const handle = startRunnerDispatch();
+    await handle.stop();
+    expect(deps.counterAdds).toContainEqual(['pipeline_runner_delivery_total', { outcome: 'refused', code: 'SIGNATURE_INVALID' }, 0]);
+    expect(deps.counterAdds).toContainEqual(['pipeline_runner_requests_total', { status: 'expired' }, 0]);
+  });
+
   it('without Redis: in-process dispatch', async () => {
     setRunnerDepsForTesting(testDeps());
     const before = workers.length;
     const handle = startRunnerDispatch();
     expect(workers.length).toBe(before);
     await handle.stop();
+  });
+});
+
+describe('the runner sweep scheduler', () => {
+  it('is leader-locked, and a replica that sweeps WITHOUT the lock stops exporting the unhealthy count it last published', async () => {
+    const deps = testDeps();
+    for (let i = 0; i < 3; i++) { const r = runnerRow({ status: 'active', health: 'unreachable' }); deps.store.runners.set(r.id, r); }
+    deps.fetchMock.mockRejectedValue(new Error('Request timed out')); // the sweep's pings do not recover them
+    const opts = runnerSweepOptions(() => deps);
+    expect(opts.lock?.key).toMatch(/runner-sweep/);
+    // As leader: publishes N = 3.
+    await opts.run({ signal: new AbortController().signal });
+    expect(deps.gaugeValues.get('pipeline_runners_unhealthy')).toBe(3);
+    // Leadership moved to another replica: this one's next cycle is skipped.
+    await opts.onSkipped!();
+    expect(deps.gaugeValues.has('pipeline_runners_unhealthy')).toBe(false);
   });
 });

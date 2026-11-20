@@ -183,6 +183,17 @@ describe('searchPublicListings', () => {
       expect(executed[0].sql).toMatch(/name ASC, publisher_handle ASC/);
     },
   );
+
+  it('an unknown (or prototype-named) sort falls back to relevance, which without a query is "updated"', async () => {
+    for (const sort of ['bogus', 'constructor', 'toString']) {
+      executed.length = 0;
+      await searchPublicListings({ sort: sort as never });
+      expect(executed[0].sql).toMatch(/ORDER BY\s+updated_at DESC, name ASC, publisher_handle ASC/);
+    }
+    executed.length = 0;
+    await searchPublicListings({ sort: 'constructor' as never, q: 'terraform' });
+    expect(executed[0].sql).toMatch(/ORDER BY\s+\(rank \*/);
+  });
 });
 
 describe('listPublicCategories', () => {

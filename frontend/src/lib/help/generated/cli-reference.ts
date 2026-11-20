@@ -1,6 +1,6 @@
 // GENERATED FROM docs/pipeline-manager.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 72d8e55664954200b27cc40f78b7a627d183ac14bd140ad77bc829192d32a9e6
+// SOURCE-SHA256: 1ebee72ee68be0df7b6d6a0aea61c987d4918c05084b337f0add9a1ccaaef85d
 // SPDX-License-Identifier: Apache-2.0
 import { Terminal } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -616,7 +616,17 @@ export const cliReferenceTopic: HelpTopic = {
             ],
             [
               "infra setup-runner",
-              "Install a cross-account pipeline runner in the AWS account your credentials point at, so Re-run and Stop in the dashboard work for pipelines deployed there, without giving the platform any AWS access. Your org needs the cross_account_runners feature, and the platform a runner signing key; the command says which is missing. It registers a pending runner (step-up), deploys pipeline-builder-runner-<label> once with that runner's id, then sends the endpoint (a Lambda Function URL, or with --api-gateway --allow-ip <cidr>... an API Gateway that admits only the platform's egress IPs) to the platform (step-up), which pings it and activates it on pong. --regions <csv> (default: the stack region) and --pipeline-prefix <csv> (default: your org's prefix, from its registered pipeline names) are the runner's local allowlist and scope its IAM role; --pipeline-prefix '*' covers every pipeline and requires --yes. It warns when the region has no pipeline-builder-events stack; --with-events runs infra setup-events --scoped-ingest afterwards. It prints the deployed bundle's SHA-256. Re-running updates the stack in place (and finishes a pending install). --delete revokes the runner the stack names on the platform, then deletes the stack (with no stack in that account and region it revokes only a still-pending runner of that label). --dry-run prints the plan and the exact IAM without calling AWS or the platform; --json for scripts. The endpoint URL is never printed. See Cross-account pipeline runner"
+              "Install a pipeline runner in the AWS account your credentials point at. Runners are the only way the platform starts and stops pipelines (Run and Stop in the dashboard, plugin-upgrade redeploys), and the platform holds no AWS access to any account; every org can install them, with no feature flag. One runner per AWS account per organization: the command lists the account's runner stacks and reads each one's RUNNER_ID, refuses a second runner of your org there (update the existing one instead: same --label and --region), and installs beside another org's runner with a warning that a shared AWS account is a shared trust boundary (anyone with AWS access there can reach both orgs' pipelines), recommending distinct --pipeline-prefix values per org. If a parent organization's shared runner is already in the account, it warns that the team already reaches it and asks first (--yes to skip). It registers a pending runner (step-up), deploys pipeline-builder-runner-<runnerId> (the label is kept as the stack tag pb.runner-label) once with that runner's id, then sends the endpoint (a Lambda Function URL, or with --api-gateway --allow-ip <cidr>... an API Gateway that admits only the platform's egress IPs, rate-limited per source IP by an AWS WAF web ACL: --waf-rate-limit <n> requests per 5 minutes, default 1000, or --no-waf to leave it out) to the platform (step-up), which pings it and activates it on pong. --regions <csv> (default: the stack region) and --pipeline-prefix <csv> (default: your org's prefix, from its registered pipeline names) are the runner's local allowlist and scope its IAM role; --pipeline-prefix '*' covers every pipeline and requires --yes. It warns when the region has no pipeline-builder-events stack; --with-events runs infra setup-events --scoped-ingest afterwards. It prints the deployed bundle's SHA-256. Re-running updates the stack in place (and finishes a pending install). --delete revokes the runner the stack names on the platform, then deletes the stack (with no stack in that account and region it revokes only a still-pending runner of that label). --dry-run prints the plan and the exact IAM without calling AWS or the platform; --json for scripts. The endpoint URL is never printed. After registering it prints the runner's own JWKS URL (<platform>/api/pipelines/runner/runners/<runnerId>/jwks.json). A top-level org's runner signing key is created with its first runner; if your org has none, --generate-key generates it (same step-up) instead of stopping. See Cross-account pipeline runner"
+            ],
+            [
+              "`runner signing-key status\\",
+              "generate\\",
+              "rotate\\",
+              "finish`",
+              "Your organization's runner signing key, for scripts and settings-as-code; the same routes as the Signing key card in Settings → Organization → Pipeline runners. status shows the mode (own or inherited), the active, next and retiring key ids with their dates, and any rotation in progress. generate creates the first key (active at once; 409 if one exists), rotate publishes a new key that starts signing about 10 minutes later, and finish retires the old key once its hour is up. Every write needs org_settings:write, an MFA-grade session and step-up (`--step-up auto\\",
+              "password\\",
+              "totp\\",
+              "browser, -p/PLATFORM_PASSWORD), and is limited to 5 per org per hour. Only key ids and dates are ever printed; the key pair never leaves the platform. --json` for scripts. See secret rotation"
             ],
             [
               "infra setup-events",
@@ -999,11 +1009,15 @@ export const cliReferenceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Re-run pipelines deployed in another AWS account"
+          "content": "Run pipelines through a runner"
+        },
+        {
+          "type": "text",
+          "content": "Runners are the only way the platform runs pipelines, so install one before the first Run (a pipeline with none answers NO_RUNNER). One runner per AWS account per organization covers every region it lists."
         },
         {
           "type": "code",
-          "content": "pipeline-manager infra setup-runner --region us-east-1 --regions us-east-1,eu-west-2 --dry-run   # review the IAM\npipeline-manager infra setup-runner --region us-east-1 --regions us-east-1,eu-west-2 --with-events\npipeline-manager pipeline run  --id <pipelineId> --profile customer-account\npipeline-manager pipeline stop --id <pipelineId> --execution <executionId> --profile customer-account\npipeline-manager infra setup-runner --region us-east-1 --delete",
+          "content": "pipeline-manager infra setup-runner --region us-east-1 --regions us-east-1,eu-west-2 --dry-run   # review the IAM\npipeline-manager infra setup-runner --region us-east-1 --regions us-east-1,eu-west-2 --with-events\npipeline-manager pipeline run  --id <pipelineId> --profile customer-account\npipeline-manager pipeline stop --id <pipelineId> --execution <executionId> --profile customer-account\npipeline-manager infra setup-runner --region us-east-1 --delete\npipeline-manager runner signing-key status\npipeline-manager runner signing-key rotate      # signs in ~10 minutes\npipeline-manager runner signing-key finish      # after the old key's hour is up (the sweep also does it)",
           "language": "bash"
         },
         {

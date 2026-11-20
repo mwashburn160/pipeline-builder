@@ -225,6 +225,23 @@ describe('deactivate / activate member audit', () => {
   });
 });
 
+describe('deactivating yourself', () => {
+  // Self-deactivation locks the caller out of the org with no way back (an
+  // inactive member cannot reactivate themselves) — the same reason removal
+  // refuses it.
+  it('is refused with 400 before the service runs', async () => {
+    const res = mockRes();
+    const req: any = {
+      params: { id: 'org-acme', userId: 'admin-1' },
+      user: { sub: 'admin-1', organizationId: 'org-acme' },
+    };
+    await (deactivateMember as unknown as (req: any, res: any) => Promise<void>)(req, res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockDeactivateMember).not.toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
+});
+
 describe('failure path — no audit event on service error', () => {
   it('does not audit if removeMember throws', async () => {
     mockRemoveMember.mockRejectedValue(new Error('OM_NOT_A_MEMBER'));

@@ -82,7 +82,7 @@ function DashboardShell({
   breadcrumbs,
   subtitle,
 }: DashboardLayoutProps) {
-  const { user, isReady, isSuperAdmin, isAdmin, logout } = useAuthGuard();
+  const { user, isReady, isSuperAdmin, isAdmin, logout, can } = useAuthGuard();
   const toast = useToast();
   // Ask rides the ai_generation entitlement (the ask-agent service enforces it too).
   const askGate = useFeatureGate('ai_generation');
@@ -111,8 +111,11 @@ function DashboardShell({
   // purchaser clicks "Link to <org>" explicitly, and binding a subscription to
   // an org should stay an explicit act rather than firing from a mount.
   //
+  // Only a viewer holding `billing:manage` (and not in a read-only session)
+  // claims; anyone else leaves the stash for someone who can.
+  //
   // Cheap on every other page: the hook reads one storage key and returns.
-  usePendingMarketplaceClaim(isReady && !!user);
+  usePendingMarketplaceClaim(isReady && !!user, can);
 
   const { isDark, toggle } = useDarkMode();
   const { mobileOpen, toggleMobile, closeMobile, collapsed, toggleCollapsed } = useSidebarState();

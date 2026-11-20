@@ -28,6 +28,7 @@ const {
   regressionsAgainst,
 } = await import('../src/helpers/crossover.js');
 const { getBillingConfig } = await import('../src/config/billing-config.js');
+const { priceForInterval, volumeCredits } = await import('../src/helpers/combo-pricing.js');
 
 const { plans, bundles } = getBillingConfig();
 const seat = bundles.find((b) => b.id === 'seat')!;
@@ -49,6 +50,26 @@ describe('addonCostCents — the volume curve is part of the comparison', () => 
     const feature = bundles.find((b) => !b.stackable && b.prices.monthly > 0)!;
     expect(addonCostCents({ bundleId: feature.id, quantity: 5 }, bundles, 'monthly'))
       .toBe(feature.prices.monthly);
+  });
+
+  // What a pack COSTS is what the invoice nets: list minus the credit
+  // `volumeCredits` actually grants, whose net is snapped up to a whole dollar,
+  // .49 or .99. Re-deriving the raw percentage here drifted from that by cents
+  // (the same drift support-floor once had), so the comparison quoted a price
+  // the customer is never charged.
+  it('equals the invoiced net — list minus the granted volume credit — for every tiered pack and quantity', () => {
+    const drift: string[] = [];
+    for (const b of bundles.filter((x) => x.stackable && x.volumeTiers?.length)) {
+      for (let qty = 1; qty <= 25; qty++) {
+        for (const interval of ['monthly', 'annual'] as const) {
+          const credit = volumeCredits([{ bundleId: b.id, quantity: qty }], bundles, interval, []).reduce((n, c) => n + c.creditCents, 0);
+          const invoiced = priceForInterval(b.prices, interval) * qty - credit;
+          const got = addonCostCents({ bundleId: b.id, quantity: qty }, bundles, interval);
+          if (got !== invoiced) drift.push(`${b.id} x${qty} ${interval}: ${got} vs ${invoiced}`);
+        }
+      }
+    }
+    expect(drift).toEqual([]);
   });
 
   it('is zero for an unknown bundle or a non-positive quantity, never NaN', () => {

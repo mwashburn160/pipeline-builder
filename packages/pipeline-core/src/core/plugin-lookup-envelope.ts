@@ -3,7 +3,13 @@
 
 // The dependency-free plugin-catalog subpath: this module needs only its constants.
 import type { PluginRecord as Plugin, PluginToolchain } from '@pipeline-builder/api-core';
-import { TOOLCHAIN_METADATA_PREFIX, TOOLCHAIN_RESOLVED_VIA, type ToolchainResolvedVia } from '@pipeline-builder/api-core/plugin-catalog';
+import {
+  PLUGIN_LOOKUP_NOT_FOUND_STATES,
+  type PluginLookupNotFoundState,
+  TOOLCHAIN_METADATA_PREFIX,
+  TOOLCHAIN_RESOLVED_VIA,
+  type ToolchainResolvedVia,
+} from '@pipeline-builder/api-core/plugin-catalog';
 
 /**
  * Plugin record fields that building a pipeline never reads, for any plugin it
@@ -165,10 +171,22 @@ export function summarizeLookupWarnings(warnings: readonly Pick<LookupWarning, '
   return `${warnings.length} plugin warning${warnings.length === 1 ? '' : 's'}: ${parts.join(', ')}`;
 }
 
-/** Why a lookup found nothing, as the plugin service's 404 `details.state` reports it. */
-export type LookupNotFoundState = 'deleted' | 'inactive' | 'yanked' | 'missing';
+/**
+ * Why a lookup found nothing, as the plugin service's 404 `details.state`
+ * reports it, and what an exact pin that hit each state is told — api-core's
+ * catalog, which the plugin service classifies its rows by too.
+ */
+export const LOOKUP_NOT_FOUND_STATES = PLUGIN_LOOKUP_NOT_FOUND_STATES;
 
-const NOT_FOUND_STATES: readonly LookupNotFoundState[] = ['deleted', 'inactive', 'yanked', 'missing'];
+export type LookupNotFoundState = PluginLookupNotFoundState;
+
+/** The pin refusal when the service named no (or an unknown) state. */
+const UNKNOWN_STATE_PIN_REFUSAL = 'does not exist (never published, or refused by its build\'s vulnerability scan)';
+
+function isLookupNotFoundState(value: unknown): value is LookupNotFoundState {
+  // Own keys only: `constructor` / `toString` must not read as a state.
+  return typeof value === 'string' && Object.hasOwn(LOOKUP_NOT_FOUND_STATES, value);
+}
 
 /**
  * `details.state` of a refused lookup, read off either an axios-style error
@@ -179,7 +197,7 @@ export function lookupNotFoundState(errOrBody: unknown): LookupNotFoundState | n
   const data = (errOrBody as { response?: { data?: unknown } }).response?.data ?? errOrBody;
   const details = data && typeof data === 'object' ? (data as { details?: unknown }).details : undefined;
   const state = details && typeof details === 'object' ? (details as { state?: unknown }).state : undefined;
-  return typeof state === 'string' && (NOT_FOUND_STATES as readonly string[]).includes(state) ? state as LookupNotFoundState : null;
+  return isLookupNotFoundState(state) ? state : null;
 }
 
 /**
@@ -187,11 +205,6 @@ export function lookupNotFoundState(errOrBody: unknown): LookupNotFoundState | n
  * pre-resolution refusal).
  */
 export function exactPinNotFoundMessage(label: string, pin: string, state: LookupNotFoundState | null): string {
-  switch (state) {
-    case 'deleted': return `Plugin "${label}" version ${pin} was deleted from your organization`;
-    case 'inactive': return `Plugin "${label}" version ${pin} is inactive`;
-    case 'yanked': return `Plugin "${label}" version ${pin} was yanked`;
-    case 'missing': return `Plugin "${label}" version ${pin} does not exist`;
-    default: return `Plugin "${label}" version ${pin} does not exist (never published, or refused by its build's vulnerability scan)`;
-  }
+  const refusal = isLookupNotFoundState(state) ? LOOKUP_NOT_FOUND_STATES[state].pinRefusal : UNKNOWN_STATE_PIN_REFUSAL;
+  return `Plugin "${label}" version ${pin} ${refusal}`;
 }

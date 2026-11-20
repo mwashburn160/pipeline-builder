@@ -66,6 +66,9 @@ function InstallAction({ listing, path }: { listing: ListingDetail; path: string
  * If the state can't be read, the page still offers the in-app catalog.
  */
 function SignedInInstall({ listing }: { listing: ListingDetail }) {
+  // The state's `canInstall` is the caller's permission alone; a read-only
+  // (impersonation) session has every write refused on top of it.
+  const { isReadOnly } = useClientAuth();
   const state = useFetch(
     async (signal) => (await api.getListingInstallState(listing.publisher.handle, listing.name, { signal })).data ?? null,
     [listing.publisher.handle, listing.name],
@@ -83,14 +86,14 @@ function SignedInInstall({ listing }: { listing: ListingDetail }) {
   }
   return (
     <div className="flex flex-col items-start gap-1 sm:items-end">
-      <InstallControls entry={state.data.entry} canInstall={state.data.canInstall} align="end" onChanged={state.refetch} />
+      <InstallControls entry={state.data.entry} canInstall={state.data.canInstall && !isReadOnly} align="end" onChanged={state.refetch} />
       <Link href={catalogHref} className="action-link text-xs">Manage in your catalog</Link>
     </div>
   );
 }
 
 function PluginPageBody({ listing, tab, siteUrl, initialReviews, nonce }: { listing: ListingDetail; tab: ListingTab; siteUrl: string; initialReviews?: ReviewPage | null; nonce?: string }) {
-  const { signedIn, user } = useClientAuth();
+  const { signedIn, user, isReadOnly } = useClientAuth();
   const path = pluginPagePath(listing.publisher.handle, listing.name);
   const url = `${siteUrl}${path}`;
   const disclaimer = vendorDisclaimer(listing);
@@ -138,6 +141,7 @@ function PluginPageBody({ listing, tab, siteUrl, initialReviews, nonce }: { list
                 signedIn={signedIn}
                 // A claim is a publish request that needs `publishers:manage`.
                 canClaim={hasPermission(user, 'publishers:manage')}
+                readOnly={isReadOnly}
                 loginHref={loginHref(path)}
               />
             </div>

@@ -11,7 +11,10 @@
  *  - Revoke: the step-up dialog is the confirmation (cancel = no call).
  *  - Inherited runners: read-only, "Managed by <fromOrgName>".
  *  - `available: false` / 409 RUNNERS_UNAVAILABLE render nothing.
- *  - Install instructions: the setup-runner command (push only) and the JWKS URL.
+ *  - Install instructions: the setup-runner command (push only) and the
+ *    one-runner-per-account rule; each runner card carries its OWN JWKS URL.
+ *  - "Used by N pipelines" with the list, and unhealthy-runner banners.
+ * (The Signing key card has its own suite: runner-signing-key-card.test.tsx.)
  */
 
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
@@ -19,7 +22,7 @@ import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { PipelineRunnersSettings } from '../src/components/settings/PipelineRunnersSettings';
 import { ApiError, MfaRequiredError, StepUpRequiredError } from '../src/lib/api/errors';
-import { PIPELINE_RUNNERS_ANCHOR, PIPELINE_RUNNERS_HREF, RUNNER_ERROR_COPY, setupRunnerCommand } from '../src/lib/pipeline-runners';
+import { ONE_RUNNER_PER_ACCOUNT_COPY, PIPELINE_RUNNERS_ANCHOR, PIPELINE_RUNNERS_HREF, RUNNER_ERROR_COPY, setupRunnerCommand } from '../src/lib/pipeline-runners';
 import type { PipelineRunner, PipelineRunnersDto } from '../src/lib/api/domains/pipelines';
 import { pageToast } from './helpers/pageMocks';
 
@@ -47,22 +50,24 @@ const api = {
   updatePipelineRunner: jest.fn<AnyFn>(),
   testPipelineRunner: jest.fn<AnyFn>(),
   revokePipelineRunner: jest.fn<AnyFn>(),
+  getRunnerPipelines: jest.fn<AnyFn>(),
 };
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: new Proxy({}, { get: (_t, k: string) => (...a: unknown[]) => (api as Record<string, AnyFn>)[k]?.(...a) }),
 }));
 
-const JWKS = 'https://pb.example.com/api/pipelines/runner/jwks.json';
+const jwksOf = (id: string) => `https://pb.example.com/api/pipelines/runner/runners/${id}/jwks.json`;
 const FN_URL = 'https://abc123.lambda-url.us-east-1.on.aws/';
 const runner = (over: Partial<PipelineRunner> = {}): PipelineRunner => ({
   id: 'r1', orgId: 'org-1', label: 'Production', functionUrl: FN_URL, shareWithTeams: false,
   version: '1.2.0', regions: ['us-east-1', 'eu-west-2'], health: 'healthy', status: 'active',
   lastDeliveryAt: '2026-11-17T00:00:00Z', createdAt: '2026-11-01T00:00:00Z', updateRequired: false,
+  jwksUrl: jwksOf(over.id ?? 'r1'), pipelineCount: 0,
   ...over,
 });
 const dto = (over: Partial<PipelineRunnersDto> = {}): PipelineRunnersDto => ({
-  available: true, jwksUrl: JWKS, platformEgressIps: null, own: [runner()], inherited: [], ...over,
+  available: true, unavailableReason: null, platformEgressIps: null, own: [runner()], inherited: [], signingKey: null, ...over,
 });
 const ok = (data: unknown) => ({ success: true, data });
 
@@ -199,18 +204,26 @@ describe('PipelineRunnersSettings — what it shows', () => {
     expect(within(inherited).getByText('Shared prod')).toBeInTheDocument();
     expect(within(inherited).getByText('Managed by Acme Root')).toBeInTheDocument();
     expect(within(inherited).getByText('Healthy')).toBeInTheDocument();
-    expect(within(inherited).queryAllByRole('button')).toHaveLength(0);
+    // Signed with the owner's key, whatever this team's key mode.
+    expect(within(inherited).getByTestId('runner-inherited-key-p1')).toHaveTextContent("Uses Acme Root's signing key");
+    expect(within(inherited).getByTestId('runner-jwks-p1')).toHaveTextContent(jwksOf('p1'));
+    // No write control (its JWKS URL's copy button is not one).
+    expect(within(inherited).queryAllByRole('button').filter((b) => !/^Copy /.test(b.getAttribute('aria-label') ?? ''))).toHaveLength(0);
     expect(within(inherited).queryByRole('switch')).not.toBeInTheDocument();
   });
 
-  it('install instructions: the setup-runner command (no --mode) and the JWKS URL (open by default with no runners)', async () => {
+  it('install instructions: the setup-runner command (no --mode) and the one-runner-per-account rule (open by default with no runners)', async () => {
     api.getPipelineRunners.mockResolvedValue(ok(dto({ own: [] })));
     render(<PipelineRunnersSettings orgId="org-1" />);
     const install = await screen.findByTestId('runner-install');
     expect(screen.getByText('No pipeline runners')).toBeInTheDocument();
+    expect(screen.getByText('Pipelines cannot run until a runner is installed in their AWS account.')).toBeInTheDocument();
     expect(install).toHaveTextContent('pipeline-manager infra setup-runner --region us-east-1');
     expect(install).not.toHaveTextContent(/--mode|poll/i);
-    expect(install).toHaveTextContent(JWKS);
+    expect(within(install).getByTestId('runner-install-one-per-account')).toHaveTextContent(ONE_RUNNER_PER_ACCOUNT_COPY);
+    expect(ONE_RUNNER_PER_ACCOUNT_COPY).toMatch(/one runner per AWS account/i);
+    // No shared, deployment-wide JWKS URL any more.
+    expect(install).not.toHaveTextContent('/api/pipelines/runner/jwks.json');
     fireEvent.change(within(install).getByLabelText('AWS region'), { target: { value: 'eu-west-2' } });
     fireEvent.change(within(install).getByLabelText('Runner label (optional)'), { target: { value: 'Prod' } });
     expect(install).toHaveTextContent('pipeline-manager infra setup-runner --region eu-west-2 --label \'Prod\'');
@@ -384,14 +397,14 @@ describe('PipelineRunnersSettings — review fixes', () => {
     expect(result).not.toHaveTextContent(`It answered ${code}`);
   });
 
-  it('the Function URL, the egress CIDRs and the JWKS URL each have their own, distinctly labelled copy button', async () => {
+  it('the Function URL, the egress CIDRs and the runner\'s JWKS URL each have their own, distinctly labelled copy button', async () => {
     api.getPipelineRunners.mockResolvedValue(ok(dto({ platformEgressIps: ['203.0.113.10'] })));
     render(<PipelineRunnersSettings orgId="org-1" />);
     const url = await screen.findByTestId('runner-url-r1');
     expect(within(url).getByRole('button', { name: 'Copy the Function URL of Production' })).toBeInTheDocument();
+    expect(within(screen.getByTestId('runner-jwks-r1')).getByRole('button', { name: 'Copy the JWKS URL of Production' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Install a runner' }));
     expect(within(screen.getByTestId('runner-egress')).getByRole('button', { name: 'Copy the platform egress addresses' })).toBeInTheDocument();
-    expect(within(screen.getByTestId('runner-install')).getByRole('button', { name: 'Copy the JWKS URL' })).toBeInTheDocument();
   });
 
   it('the install command quotes the label for a POSIX shell: $, backticks and quotes stay literal', () => {
@@ -399,5 +412,64 @@ describe('PipelineRunnersSettings — review fixes', () => {
       .toBe('pipeline-manager infra setup-runner --region us-east-1 --label \'Team $HOME `id` "x"\'');
     expect(setupRunnerCommand({ region: 'us-east-1', label: "Bob's" }))
       .toBe("pipeline-manager infra setup-runner --region us-east-1 --label 'Bob'\\''s'");
+  });
+});
+
+describe('PipelineRunnersSettings — per-runner keys, linked pipelines, health', () => {
+  it('each runner card shows its OWN JWKS URL', async () => {
+    api.getPipelineRunners.mockResolvedValue(ok(dto({ own: [runner(), runner({ id: 'r2', label: 'Staging' })] })));
+    render(<PipelineRunnersSettings orgId="org-1" />);
+    expect(await screen.findByTestId('runner-jwks-r1')).toHaveTextContent(jwksOf('r1'));
+    expect(screen.getByTestId('runner-jwks-r2')).toHaveTextContent(jwksOf('r2'));
+  });
+
+  it('"Used by N pipelines" opens the list of linked pipelines, each a link to its page', async () => {
+    api.getPipelineRunners.mockResolvedValue(ok(dto({ own: [runner({ pipelineCount: 12 })] })));
+    api.getRunnerPipelines.mockResolvedValue(ok({
+      pipelines: [{ id: 'p1', name: 'acme-web' }, { id: 'p2', name: 'acme-api' }],
+      pagination: { total: 12, limit: 50, offset: 0, hasMore: true },
+    }));
+    render(<PipelineRunnersSettings orgId="org-1" />);
+    const used = await screen.findByRole('button', { name: 'Used by 12 pipelines' });
+    expect(api.getRunnerPipelines).not.toHaveBeenCalled(); // read only once opened
+    fireEvent.click(used);
+    await waitFor(() => expect(api.getRunnerPipelines).toHaveBeenCalledWith('r1', { limit: 50 }, expect.anything()));
+    const list = await screen.findByTestId('runner-pipelines-list-r1');
+    expect(within(list).getByRole('link', { name: 'acme-web' })).toHaveAttribute('href', '/dashboard/pipelines/p1');
+    expect(within(list).getByRole('link', { name: 'acme-api' })).toHaveAttribute('href', '/dashboard/pipelines/p2');
+    expect(list).toHaveTextContent('and 10 more');
+  });
+
+  it('a runner with no linked pipelines says so (no list to open)', async () => {
+    render(<PipelineRunnersSettings orgId="org-1" />);
+    expect(await screen.findByTestId('runner-pipelines-r1')).toHaveTextContent('No pipelines linked yet');
+    expect(screen.queryByRole('button', { name: /Used by/ })).not.toBeInTheDocument();
+  });
+
+  it('revoking a runner names how many pipelines are affected', async () => {
+    api.getPipelineRunners.mockResolvedValue(ok(dto({ own: [runner({ pipelineCount: 3 })] })));
+    render(<PipelineRunnersSettings orgId="org-1" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Revoke' }));
+    expect(within(dialog()).getByTestId('runner-revoke-affected')).toHaveTextContent('3 pipelines linked to it will need another runner.');
+  });
+
+  it('an unhealthy runner: a panel banner, and on its card the last successful contact, the pipelines affected and a Test button', async () => {
+    api.getPipelineRunners.mockResolvedValue(ok(dto({ own: [runner({ health: 'unreachable', pipelineCount: 4 }), runner({ id: 'r2', label: 'Staging' })] })));
+    render(<PipelineRunnersSettings orgId="org-1" />);
+    expect(await screen.findByTestId('runners-unhealthy-banner')).toHaveTextContent('Production');
+    expect(screen.getByTestId('runners-unhealthy-banner')).not.toHaveTextContent('Staging');
+    const banner = screen.getByTestId('runner-unhealthy-r1');
+    expect(banner).toHaveTextContent('Last successful contact');
+    expect(banner).toHaveTextContent('4 pipelines cannot run until it answers again.');
+    expect(screen.queryByTestId('runner-unhealthy-r2')).not.toBeInTheDocument();
+    fireEvent.click(within(banner).getByRole('button', { name: 'Test' }));
+    confirmStepUp();
+    await waitFor(() => expect(api.testPipelineRunner).toHaveBeenCalledWith('r1', 'tok'));
+  });
+
+  it('no banner while every runner answers', async () => {
+    render(<PipelineRunnersSettings orgId="org-1" />);
+    await screen.findByTestId('runner-r1');
+    expect(screen.queryByTestId('runners-unhealthy-banner')).not.toBeInTheDocument();
   });
 });

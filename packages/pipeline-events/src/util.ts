@@ -42,29 +42,41 @@ export function arnRef(arn: string): string {
 }
 
 /**
- * The AWS partition a region belongs to. ARNs embed the partition, so a
- * hard-coded `arn:aws:` names a resource that does not exist in GovCloud or
- * China and every lookup against it fails (the pipeline is then silently
- * skipped as "untagged"). Unknown prefixes fall back to the commercial
- * partition.
+ * Every AWS partition this package addresses, keyed by partition name: the
+ * region prefix that selects it and its service-endpoint DNS suffix. ARNs embed
+ * the partition, so a hard-coded `arn:aws:` names a resource that does not exist
+ * in GovCloud or China (every lookup fails and the pipeline is silently skipped
+ * as "untagged"); endpoints embed the suffix. One row per partition keeps the
+ * two facts from drifting apart. The commercial partition has no prefix: it is
+ * the fallback for any region no other row claims.
  */
+export const AWS_PARTITIONS = {
+  'aws': { regionPrefix: null, dnsSuffix: 'amazonaws.com' },
+  'aws-cn': { regionPrefix: 'cn-', dnsSuffix: 'amazonaws.com.cn' },
+  'aws-us-gov': { regionPrefix: 'us-gov-', dnsSuffix: 'amazonaws.com' },
+  'aws-iso': { regionPrefix: 'us-iso-', dnsSuffix: 'c2s.ic.gov' },
+  'aws-iso-b': { regionPrefix: 'us-isob-', dnsSuffix: 'sc2s.sgov.gov' },
+} as const satisfies Record<string, { regionPrefix: string | null; dnsSuffix: string }>;
+
+/** An AWS partition name (`aws`, `aws-cn`, …). */
+export type AwsPartition = keyof typeof AWS_PARTITIONS;
+
+const PARTITION_ENTRIES = Object.entries(AWS_PARTITIONS) as [AwsPartition, (typeof AWS_PARTITIONS)[AwsPartition]][];
+
+/** The AWS partition a region belongs to; unknown prefixes fall back to `aws`. */
 export function partitionForRegion(region: string | undefined): string {
   if (!region) return 'aws';
-  if (region.startsWith('cn-')) return 'aws-cn';
-  if (region.startsWith('us-gov-')) return 'aws-us-gov';
-  if (region.startsWith('us-iso-')) return 'aws-iso';
-  if (region.startsWith('us-isob-')) return 'aws-iso-b';
+  for (const [partition, { regionPrefix }] of PARTITION_ENTRIES) {
+    if (regionPrefix && region.startsWith(regionPrefix)) return partition;
+  }
   return 'aws';
 }
 
-/** The service-endpoint DNS suffix for a partition (`amazonaws.com`, or `.com.cn` in China). */
+/** The service-endpoint DNS suffix for a partition (`amazonaws.com` for an unknown one). */
 export function dnsSuffixForPartition(partition: string): string {
-  switch (partition) {
-    case 'aws-cn': return 'amazonaws.com.cn';
-    case 'aws-iso': return 'c2s.ic.gov';
-    case 'aws-iso-b': return 'sc2s.sgov.gov';
-    default: return 'amazonaws.com';
-  }
+  return Object.hasOwn(AWS_PARTITIONS, partition)
+    ? AWS_PARTITIONS[partition as AwsPartition].dnsSuffix
+    : AWS_PARTITIONS.aws.dnsSuffix;
 }
 
 /** Upper bound for every per-key cache below. */

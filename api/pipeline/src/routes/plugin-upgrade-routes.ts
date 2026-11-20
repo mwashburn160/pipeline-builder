@@ -16,7 +16,7 @@ import {
   sendSuccess,
   validateBody,
 } from '@pipeline-builder/api-core';
-import type { PendingRunRequestStatus } from '@pipeline-builder/api-core/pipeline-runners';
+import type { QueuedRunRequestDto } from '@pipeline-builder/api-core/pipeline-runners';
 import { createAuthenticatedWithOrgRoute, withRoute } from '@pipeline-builder/api-server';
 import { pipelinesOnVersion } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
@@ -26,8 +26,8 @@ import { complianceBlockedDetails, validatePipelineWrite } from '../helpers/pipe
 import { recordPipelineResolution } from '../helpers/plugin-contract-check.js';
 import type { PluginWarning } from '../helpers/plugin-save-check.js';
 import { applyPluginUpgrades, previewPluginUpgrades, type AppliedUpgrade, type StepUpgrade } from '../helpers/plugin-upgrades.js';
-import { DUPLICATE_TRIGGER_MESSAGE, triggerExecutionInWindow } from '../helpers/trigger-execution.js';
-import { principalHasRunnerFeature, SYSTEM_PLUGIN_UPGRADE } from '../runners/vocabulary.js';
+import { DUPLICATE_TRIGGER_MESSAGE, queuedRunRequestDto, triggerExecutionInWindow } from '../helpers/trigger-execution.js';
+import { SYSTEM_PLUGIN_UPGRADE } from '../runners/vocabulary.js';
 import { pipelineService, type Pipeline } from '../services/pipeline-service.js';
 
 /** Upper bound on pipelines per apply (each is a full validated write). */
@@ -91,7 +91,7 @@ function previewMoves(upgrades: readonly StepUpgrade[], widen: boolean) {
 
 /** Per-pipeline apply outcome. */
 type ApplyOutcome =
-  | { pipelineId: string; status: 'upgraded'; applied: AppliedUpgrade[]; pluginWarnings?: PluginWarning[]; redeploy?: { executionId: string } | { requestId: string; status: PendingRunRequestStatus; runnerLabel: string } | { error: string } }
+  | { pipelineId: string; status: 'upgraded'; applied: AppliedUpgrade[]; pluginWarnings?: PluginWarning[]; redeploy?: QueuedRunRequestDto | { error: string } }
   | { pipelineId: string; status: 'unchanged' }
   | { pipelineId: string; status: 'failed'; error: string };
 
@@ -204,12 +204,14 @@ export function createPluginUpgradeRoutes(): Router {
             details: { pipelineName: updated.pipelineName, widen, changes: applied, redeploy, batchId },
           });
 
-          let redeployOutcome: { executionId: string } | { requestId: string; status: PendingRunRequestStatus; runnerLabel: string } | { error: string } | undefined;
+          let redeployOutcome: QueuedRunRequestDto | { error: string } | undefined;
           if (redeploy) {
             // Through the same duplicate window as POST /:id/executions, so a
-            // manual trigger and this redeploy seconds apart start ONE run.
+            // manual trigger and this redeploy seconds apart start ONE run. A
+            // system-initiated start: it queues past the org's pending cap, so a
+            // fan-out over many pipelines queues every run.
             try {
-              const started = await triggerExecutionInWindow(id, orgId, { requestedBy: SYSTEM_PLUGIN_UPGRADE, orgHasFeature: principalHasRunnerFeature(req.user), ...(parentOrgId ? { parentOrgId } : {}) });
+              const started = await triggerExecutionInWindow(id, orgId, { requestedBy: SYSTEM_PLUGIN_UPGRADE, ...(parentOrgId ? { parentOrgId } : {}) });
               if (started.status === 'duplicate') {
                 redeployOutcome = { error: DUPLICATE_TRIGGER_MESSAGE };
                 recordAudit({
@@ -220,27 +222,18 @@ export function createPluginUpgradeRoutes(): Router {
                   outcome: 'failure',
                   details: { pipelineId: id, reason: 'duplicate_suppressed', batchId },
                 });
-              } else if (started.status === 'queued') {
-                // Through a cross-account runner: the dispatcher audits the outcome.
-                redeployOutcome = { requestId: started.requestId, status: started.requestStatus, runnerLabel: started.runnerLabel };
-                recordAudit({
-                  action: 'pipeline.execution.start',
-                  actorId: actorId({ userId }),
-                  orgId,
-                  targetType: 'pipeline_execution',
-                  details: started.reused
-                    ? { pipelineId: id, reason: 'plugin-upgrade', batchId, reusedRequestId: started.requestId, runnerId: started.runnerId, outcome: 'reused' }
-                    : { pipelineId: id, reason: 'plugin-upgrade', batchId, requestId: started.requestId, runnerId: started.runnerId, attempts: 0, outcome: 'queued' },
-                });
               } else {
-                redeployOutcome = { executionId: started.executionId };
+                // The dispatcher audits the terminal outcome.
+                const { run } = started;
+                redeployOutcome = queuedRunRequestDto(run);
                 recordAudit({
                   action: 'pipeline.execution.start',
                   actorId: actorId({ userId }),
                   orgId,
                   targetType: 'pipeline_execution',
-                  targetId: started.executionId,
-                  details: { pipelineId: id, reason: 'plugin-upgrade', batchId },
+                  details: run.reused
+                    ? { pipelineId: id, reason: 'plugin-upgrade', batchId, reusedRequestId: run.requestId, runnerId: run.runnerId, outcome: 'reused' }
+                    : { pipelineId: id, reason: 'plugin-upgrade', batchId, requestId: run.requestId, runnerId: run.runnerId, attempts: 0, outcome: 'queued' },
                 });
               }
             } catch (err) {

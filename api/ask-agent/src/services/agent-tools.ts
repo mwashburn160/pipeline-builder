@@ -19,9 +19,9 @@
 // it would for that user's own request. `orgId` is injected from the
 // authenticated caller and is never a model input.
 
-import { ASK_PROPOSAL_PERMISSION, orgSettingSpec, type AskProposalKind, type Permission } from '@pipeline-builder/api-core';
 import { buildGroundingContext, tool } from '@pipeline-builder/ai-core';
 import type { ToolSet } from '@pipeline-builder/ai-core';
+import { ASK_PROPOSAL_PERMISSION, orgSettingSpec, type AskProposalKind, type Permission } from '@pipeline-builder/api-core';
 import { z } from 'zod';
 
 import { redactForModel } from './secret-redaction.js';

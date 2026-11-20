@@ -859,6 +859,215 @@
     }
   },
   {
+    "method": "GET",
+    "path": "/pipelines/:pipelineId/runner-link",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "pipelines:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/pipelines/:pipelineId/runner-link/refresh",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "pipelines:write"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 2,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "pipeline.runner.link.refresh"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/pipelines/admin/orgs/:orgId/runner-signing-key/revoke",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "orgs:manage"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 2,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "pipeline.runner.key.system_revoke"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
+    "systemOrg": true
+  },
+  {
+    "method": "GET",
+    "path": "/pipelines/admin/runner-deliveries",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "orgs:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 2,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
+    "systemOrg": true
+  },
+  {
+    "method": "PUT",
+    "path": "/pipelines/admin/runner-deliveries",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "orgs:manage"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 2,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "pipeline.runner.deliveries.pause",
+      "pipeline.runner.deliveries.resume"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
+    "systemOrg": true
+  },
+  {
+    "method": "GET",
+    "path": "/pipelines/admin/runner-signing-keys",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "orgs:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 2,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
+    "systemOrg": true
+  },
+  {
     "method": "POST",
     "path": "/pipelines/analyze/from-url",
     "auth": true,
@@ -1285,6 +1494,35 @@
   },
   {
     "method": "POST",
+    "path": "/pipelines/internal/runner-signing-keys/reencrypt",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "dynamicAuthz": [],
+    "internalCallers": [
+      "platform"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "pipeline.runner.key.reencrypt"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
+    "method": "POST",
     "path": "/pipelines/plugin-upgrades/apply",
     "auth": true,
     "permissions": [
@@ -1464,7 +1702,7 @@
   },
   {
     "method": "GET",
-    "path": "/pipelines/runner/jwks.json",
+    "path": "/pipelines/runner/runners/:runnerId/jwks.json",
     "auth": false,
     "permissions": [],
     "systemAdmin": false,
@@ -1500,9 +1738,7 @@
     "stepUpMethods": [],
     "minAssurance": 0,
     "conditionalGates": [],
-    "features": [
-      "cross_account_runners"
-    ],
+    "features": [],
     "scopes": [],
     "audit": [],
     "quota": {
@@ -1535,9 +1771,7 @@
     "stepUpMethods": [],
     "minAssurance": 2,
     "conditionalGates": [],
-    "features": [
-      "cross_account_runners"
-    ],
+    "features": [],
     "scopes": [],
     "audit": [
       "pipeline.runner.register"
@@ -1572,9 +1806,7 @@
     "stepUpMethods": [],
     "minAssurance": 2,
     "conditionalGates": [],
-    "features": [
-      "cross_account_runners"
-    ],
+    "features": [],
     "scopes": [],
     "audit": [
       "pipeline.runner.revoke"
@@ -1609,13 +1841,44 @@
     "stepUpMethods": [],
     "minAssurance": 2,
     "conditionalGates": [],
-    "features": [
-      "cross_account_runners"
-    ],
+    "features": [],
     "scopes": [],
     "audit": [
       "pipeline.runner.update"
     ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/pipelines/runners/:id/pipelines",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "org_settings:write"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": [],
     "quota": {
       "metered": [
         "apiCalls"
@@ -1646,12 +1909,220 @@
     "stepUpMethods": [],
     "minAssurance": 2,
     "conditionalGates": [],
-    "features": [
-      "cross_account_runners"
-    ],
+    "features": [],
     "scopes": [],
     "audit": [
       "pipeline.runner.test"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/pipelines/runners/signing-key",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "org_settings:write"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 2,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "pipeline.runner.key.generate"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/pipelines/runners/signing-key/finish",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "org_settings:write"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 2,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "pipeline.runner.key.finish"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
+    "method": "PUT",
+    "path": "/pipelines/runners/signing-key/mode",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "org_settings:write"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 2,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "pipeline.runner.key.mode"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/pipelines/runners/signing-key/revoke",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "org_settings:write"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 2,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "pipeline.runner.key.revoke"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
+    "method": "DELETE",
+    "path": "/pipelines/runners/signing-key/rotate",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "org_settings:write"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 2,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "pipeline.runner.key.cancel"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/pipelines/runners/signing-key/rotate",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "org_settings:write"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 2,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "pipeline.runner.key.rotate"
     ],
     "quota": {
       "metered": [

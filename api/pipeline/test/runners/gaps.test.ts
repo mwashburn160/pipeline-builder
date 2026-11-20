@@ -10,7 +10,7 @@ jest.unstable_mockModule('../../src/services/pipeline-service.js', () => ({ pipe
 
 const { registerRunner, testRunner, updateRunner, runnerDto } = await import('../../src/runners/admin.js');
 const { processDelivery, runSweep } = await import('../../src/runners/lifecycle.js');
-const { routeExecution, isCredentialError } = await import('../../src/runners/execution-routing.js');
+const { routeExecution } = await import('../../src/runners/execution-routing.js');
 const { eligibleRunners } = await import('../../src/runners/routing.js');
 const { readRunRequest, resetRunRequestCachesForTesting } = await import('../../src/runners/run-request-status.js');
 const { runnerSettings, versionBelow } = await import('../../src/runners/vocabulary.js');
@@ -104,27 +104,6 @@ describe('G2 / G11 run-request status read', () => {
   });
 });
 
-describe('G3 no platform AWS credentials → discovery, never 502', () => {
-  const noCreds = () => Promise.reject(Object.assign(new Error('PE_AWS_ERROR'), { awsName: 'CredentialsProviderError', awsMessage: 'Could not load credentials from any providers' }));
-
-  it('discovers through the runners', async () => {
-    const deps = testDeps();
-    const r = add(deps);
-    deps.fetchMock.mockResolvedValue(reply(200, { outcome: 'match' }));
-    expect(await routeExecution(input(), noCreds, deps)).toMatchObject({ kind: 'queued', runnerId: r.id });
-  });
-
-  it('with no runner it is 409 NO_RUNNER, not the AWS error', async () => {
-    expect(await refusal(routeExecution(input(), noCreds, testDeps()))).toMatchObject({ status: 409, code: 'NO_RUNNER' });
-  });
-
-  it('only credential errors qualify', async () => {
-    expect(isCredentialError({ awsName: 'ThrottlingException' })).toBe(false);
-    expect(isCredentialError({ awsMessage: 'Region is missing' })).toBe(true);
-    await expect(routeExecution(input(), () => Promise.reject(Object.assign(new Error('PE_AWS_ERROR'), { awsName: 'ThrottlingException' })), testDeps())).rejects.toThrow('PE_AWS_ERROR');
-  });
-});
-
 describe('G4 linked runner no longer finds the pipeline → re-discovery once', () => {
   it('clears the link, probes the other runners, re-targets the SAME request', async () => {
     const deps = testDeps();
@@ -167,18 +146,18 @@ describe('G4 linked runner no longer finds the pipeline → re-discovery once', 
 });
 
 describe('G5 caps', () => {
-  it('≤ 50 pending requests per org → 429 TOO_MANY_PENDING', async () => {
+  it('≤ MAX_PENDING_PER_ORG (default 500) pending requests per org → 429 TOO_MANY_PENDING', async () => {
     const deps = testDeps();
     const r = add(deps);
     deps.store.registry.set(PIPE, { orgId: ORG, pipelineName: 'p', region: null, runnerId: r.id });
-    for (let i = 0; i < 50; i++) await queued(deps, r.id, { pipelineId: `p-${i}`, action: 'stop' });
-    expect(await refusal(routeExecution(input(), async () => ({}), deps))).toMatchObject({ status: 429, code: 'TOO_MANY_PENDING' });
+    for (let i = 0; i < 500; i++) await queued(deps, r.id, { pipelineId: `p-${i}`, action: 'stop' });
+    expect(await refusal(routeExecution(input(), deps))).toMatchObject({ status: 429, code: 'TOO_MANY_PENDING' });
   });
 
-  it('≤ 4 deliveries in flight per runner (the 5th waits)', async () => {
+  it('≤ MAX_IN_FLIGHT_PER_RUNNER (default 8) deliveries in flight per runner (the 9th waits)', async () => {
     const deps = testDeps();
     const r = add(deps);
-    for (let i = 0; i < 4; i++) await queued(deps, r.id, { pipelineId: `p-${i}`, status: 'delivering' });
+    for (let i = 0; i < 8; i++) await queued(deps, r.id, { pipelineId: `p-${i}`, status: 'delivering' });
     const q = await queued(deps, r.id);
     expect(await processDelivery(deps, q.id)).toEqual({ done: false, retryInMs: 1000 });
     expect(deps.fetchMock).not.toHaveBeenCalled();
@@ -189,6 +168,13 @@ describe('G5 caps', () => {
     expect(runnerSettings({ RUNNER_DISPATCH_CONCURRENCY: '4' }).dispatchConcurrency).toBe(4);
     expect(runnerSettings({ RUNNER_DISPATCH_CONCURRENCY: '0' }).dispatchConcurrency).toBe(16);
     expect(runnerSettings({ RUNNER_DISPATCH_CONCURRENCY: 'x' }).dispatchConcurrency).toBe(16);
+  });
+
+  it('the run limits and health settings are tunable, falling back to their defaults below the minimum', () => {
+    expect(runnerSettings({})).toMatchObject({ runRequestsPerMinute: 6, maxPendingPerOrg: 500, maxInFlightPerRunner: 8, healthPingIntervalMs: 60_000, unhealthyAfterPings: 2 });
+    expect(runnerSettings({ RUN_REQUESTS_PER_MINUTE: '12', MAX_PENDING_PER_ORG: '20', MAX_IN_FLIGHT_PER_RUNNER: '2', RUNNER_HEALTH_PING_INTERVAL_SECONDS: '30', RUNNER_UNHEALTHY_AFTER_PINGS: '3' }))
+      .toMatchObject({ runRequestsPerMinute: 12, maxPendingPerOrg: 20, maxInFlightPerRunner: 2, healthPingIntervalMs: 30_000, unhealthyAfterPings: 3 });
+    expect(runnerSettings({ RUNNER_HEALTH_PING_INTERVAL_SECONDS: '5', MAX_PENDING_PER_ORG: '0' })).toMatchObject({ healthPingIntervalMs: 60_000, maxPendingPerOrg: 500 });
   });
 });
 
@@ -215,17 +201,22 @@ describe('G7 MIN_RUNNER_VERSION', () => {
     expect(runnerDto(flagged, ORG).updateRequired).toBe(true);
     expect(deps.notified.filter((n) => (n as { subject: string }).subject.includes('needs an update'))).toHaveLength(1);
     // Inside the grace period: still routed.
-    expect(await routeExecution(input({ action: 'stop', executionId: 'e' }), async () => ({}), deps)).toMatchObject({ kind: 'queued' });
+    expect(await routeExecution(input({ action: 'stop', executionId: 'e' }), deps)).toMatchObject({ status: 'queued' });
     deps.clock.t += 31 * DAY;
-    expect(await refusal(routeExecution(input({ action: 'stop', executionId: 'e2' }), async () => ({}), deps))).toMatchObject({ status: 409, code: 'RUNNER_UPDATE_REQUIRED' });
+    expect(await refusal(routeExecution(input({ action: 'stop', executionId: 'e2' }), deps))).toMatchObject({ status: 409, code: 'RUNNER_UPDATE_REQUIRED' });
     deps.fetchMock.mockResolvedValue(reply(200, { outcome: 'pong', runnerVersion: '2.1.0' }));
     await testRunner(deps, ORG, 'u', r.id);
     expect(deps.store.runners.get(r.id)!.updateRequiredSince).toBeNull();
   });
 
-  it('without MIN_RUNNER_VERSION nothing is flagged', () => {
-    expect(runnerSettings({}).minRunnerVersion).toBeNull();
+  it('defaults to 7.0.0 (the first runner on the per-runner JWKS URL); an explicitly empty MIN_RUNNER_VERSION flags nothing', () => {
+    expect(runnerSettings({}).minRunnerVersion).toBe('7.0.0');
+    process.env.MIN_RUNNER_VERSION = '';
+    expect(runnerSettings({ MIN_RUNNER_VERSION: '' }).minRunnerVersion).toBeNull();
     expect(runnerDto(runnerRow({ version: '0.0.1' }), ORG).updateRequired).toBe(false);
+    delete process.env.MIN_RUNNER_VERSION;
+    expect(runnerDto(runnerRow({ version: '6.9.0' }), ORG).updateRequired).toBe(true);
+    expect(runnerDto(runnerRow({ version: '7.0.0' }), ORG).updateRequired).toBe(false);
   });
 });
 
@@ -245,23 +236,21 @@ describe('G8 retention sweep', () => {
   });
 });
 
-describe('G9 emergency stop: the signing key is removed (checked per job)', () => {
-  it('no signing key stops delivery immediately; the request stays queued', async () => {
-    let on = true;
+describe('G9 emergency stop: the platform pause toggle (checked per job)', () => {
+  it('paused stops delivery immediately; the request stays queued', async () => {
     const deps = testDeps();
-    const key = deps.signer;
-    deps.signer = () => (on ? key() : null);
     const r = add(deps);
     const q = await queued(deps, r.id);
-    on = false;
+    deps.availability.available = false;
+    deps.availability.reason = 'paused';
     expect(await processDelivery(deps, q.id)).toEqual({ done: true });
     expect(deps.fetchMock).not.toHaveBeenCalled();
     expect(deps.store.requests.get(q.id)!.status).toBe('queued');
-    // The sweep neither pings nor re-kicks while off…
+    // The sweep neither pings nor re-kicks while paused…
     add(deps, { health: 'unreachable', updatedAt: new Date(0) });
     expect(await runSweep(deps)).toMatchObject({ pinged: 0, rekicked: 0 });
-    // …and re-kicks the queued request once the key is back.
-    on = true;
+    // …and re-kicks the queued request once deliveries resume.
+    deps.availability.available = true;
     deps.fetchMock.mockResolvedValue(reply(500, {}));
     expect((await runSweep(deps)).rekicked).toBe(1);
     expect(deps.enqueued.map((e) => e.requestId)).toContain(q.id);
@@ -290,11 +279,11 @@ describe('G12 an in-flight start is reused', () => {
     const deps = testDeps();
     const r = add(deps);
     deps.store.registry.set(PIPE, { orgId: ORG, pipelineName: 'p', region: null, runnerId: r.id });
-    const first = await routeExecution(input(), async () => ({}), deps);
-    const again = await routeExecution(input(), async () => ({}), deps);
-    expect(again).toMatchObject({ kind: 'queued', requestId: (first as { requestId: string }).requestId, status: 'queued' });
+    const first = await routeExecution(input(), deps);
+    const again = await routeExecution(input(), deps);
+    expect(again).toMatchObject({ requestId: (first as { requestId: string }).requestId, status: 'queued' });
     deps.store.requests.set((first as { requestId: string }).requestId, { ...deps.store.requests.get((first as { requestId: string }).requestId)!, status: 'delivering' });
-    expect(await routeExecution(input(), async () => ({}), deps)).toMatchObject({ status: 'delivering' });
+    expect(await routeExecution(input(), deps)).toMatchObject({ status: 'delivering' });
     expect(deps.store.requests.size).toBe(1);
     expect(deps.enqueued).toHaveLength(1);
   });

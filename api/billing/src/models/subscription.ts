@@ -5,6 +5,7 @@ import {
   BILLING_INTERVALS, SUBSCRIPTION_STATUSES, type BillingInterval, type SubscriptionStatus,
 } from '@pipeline-builder/api-core';
 import mongoose, { Schema, Document } from 'mongoose';
+import { DISCOUNT_UNITS, type DiscountUnit } from '../helpers/discount-code.js';
 
 // Types
 
@@ -40,7 +41,7 @@ export interface SubscriptionDocument extends Document {
    *  the balance below). Price-only; realized as a customer-balance credit. */
   recurringDiscount?: {
     discountId: string;
-    unit: 'dollar' | 'percent';
+    unit: DiscountUnit;
     value: number;
     /** Carried onto the embedded record, not re-read from the Discount doc: the
      *  per-period re-grant sizes a `percent` discount from this record alone, so
@@ -182,7 +183,7 @@ const subscriptionSchema = new Schema<SubscriptionDocument>(
     recurringDiscount: {
       type: {
         discountId: { type: String, required: true },
-        unit: { type: String, enum: ['dollar', 'percent'], required: true },
+        unit: { type: String, enum: [...DISCOUNT_UNITS], required: true },
         value: { type: Number, required: true },
         appliesToBundles: { type: [String], default: undefined },
         appliedAt: { type: Date, required: true },

@@ -98,6 +98,15 @@ describe('handleOrgDataPurge', () => {
     expect(mockRecordAudit).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'failure', details: { owner: 'pipeline', error: 'pool exhausted' } }));
   });
 
+  it('never audits a failed query\'s SQL or bound params (real tenant data)', async () => {
+    const err = new Error('Failed query: delete from "pipelines" where "org_id" = $1\nparams: org-1,alice@example.com');
+    err.name = 'DrizzleQueryError';
+    mockPurge.mockRejectedValue(err);
+    await handleOrgDataPurge(req('org-1'), res, opts);
+    const details = (mockRecordAudit.mock.calls[0]![0] as { details: { error: string } }).details;
+    expect(details.error).toBe('DrizzleQueryError: database query failed');
+  });
+
   it('400s a missing orgId without purging anything', async () => {
     await handleOrgDataPurge(req(''), res, opts);
     expect(mockSendBadRequest).toHaveBeenCalledWith(res, 'orgId is required', expect.anything());

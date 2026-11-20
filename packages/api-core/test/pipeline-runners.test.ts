@@ -12,12 +12,16 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from '@jest/globals';
-import { OPERATOR_GRANTED_FEATURE_FLAGS } from '../src/types/feature-flags.js';
+import * as catalog from '../src/types/pipeline-runners.js';
 import {
   EXPECTED_OUTCOMES, isRunnerErrorCode, isTerminalExecutionStatus, PENDING_RUN_REQUEST_STATUSES, RUN_REQUEST_ACTIONS,
   RUN_REQUEST_MAX_LIFETIME_SECONDS, RUN_REQUEST_STATUSES, RUN_REQUEST_TTL_MS, RUNNER_ACTIONS, RUNNER_API_ERROR_CODES,
-  RUNNER_ERROR_CODES, RUNNER_ERRORS, RUNNER_FEATURE, RUNNER_OUTCOMES, RUNNER_REPLY_ERROR_CODES, runnerErrorStatus,
+  RUNNER_ERROR_CODES, RUNNER_ERRORS, RUNNER_OUTCOMES, RUNNER_REPLY_ERROR_CODES, runnerErrorStatus,
   RUNNER_DELIVERY_FAILURE_CLASSES, TERMINAL_RUN_REQUEST_STATUSES,
+  PUBLISHED_RUNNER_KEY_STATES, RUNNER_KEY_STATES, RUNNER_KEY_MODES, RUNNER_LINK_STATUSES,
+  RUNNER_KEY_ACTIVATION_DELAY_MS, RUNNER_KEY_RETIRE_WINDOW_MS, RUNNER_KEY_CACHE_MS, RUNNER_JWKS_CACHE_SECONDS,
+  RUNNER_KEY_INVALIDATION_CHANNEL, RUNNER_TUNABLE_DEFAULTS, RUNNER_TUNABLE_MINIMUMS, UNREACHABLE_AFTER_FAILURES,
+  parseRunnerKeyInvalidation, runnerJwksPath, runnerKeyAgeDays, runnerKeyRevokeConfirmation, runnerTunable,
 } from '../src/types/pipeline-runners.js';
 
 const pkgDir = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -29,8 +33,10 @@ describe('pipeline-runners catalog', () => {
     expect(imports.every((m) => m[1] !== undefined)).toBe(true);
   });
 
-  it('names the operator-granted runner feature', () => {
-    expect(OPERATOR_GRANTED_FEATURE_FLAGS).toContain(RUNNER_FEATURE);
+  it('has no feature gate and no shared JWKS path (per-org keys, per-runner URL)', () => {
+    expect(Object.keys(catalog)).not.toContain('RUNNER_FEATURE');
+    expect(Object.keys(catalog)).not.toContain('RUNNER_JWKS_PATH');
+    expect(isRunnerErrorCode('RUNNERS_NOT_ENABLED')).toBe(false);
   });
 
   it('splits request statuses into pending and terminal, with nothing left over', () => {
@@ -80,5 +86,120 @@ describe('delivery failure classes', () => {
   it('are the six classes recorded in lastDeliveryError, none a runner error code', () => {
     expect([...RUNNER_DELIVERY_FAILURE_CLASSES]).toEqual(['dns_nxdomain', 'aws_403_url_gone', 'conn_refused', 'timeout', 'http_5xx', 'http_429']);
     expect(RUNNER_DELIVERY_FAILURE_CLASSES.some((c) => isRunnerErrorCode(c))).toBe(false);
+  });
+});
+
+describe('per-runner JWKS path', () => {
+  it('is keyed by the runner id under the public runner mount', () => {
+    expect(runnerJwksPath('0b6f9a52-6a0c-4c39-9d77-1f1f6b1c2e3a')).toBe('/api/pipelines/runner/runners/0b6f9a52-6a0c-4c39-9d77-1f1f6b1c2e3a/jwks.json');
+  });
+
+  it('encodes the id so it can never escape its path segment', () => {
+    expect(runnerJwksPath('../x')).toBe('/api/pipelines/runner/runners/..%2Fx/jwks.json');
+  });
+});
+
+describe('signing-key codes', () => {
+  it.each(['RUNNER_KEY_UNREADABLE', 'RUNNER_KEY_MISSING', 'RUNNER_KEY_EXISTS', 'RUNNER_KEY_TRANSITION_IN_PROGRESS',
+    'RUNNER_KEY_NO_ROTATION', 'RUNNER_KEY_RETIRE_TOO_EARLY', 'RUNNER_KEY_INHERITED', 'RUNNER_KEY_MODE_ROOT_ORG'] as const)(
+    '%s is a platform 409, never retried', (code) => {
+      expect(RUNNER_ERRORS[code]).toEqual({ httpStatus: 409, retryable: false, category: 'platform' });
+      expect(RUNNER_API_ERROR_CODES).toContain(code);
+    },
+  );
+
+  it('a wrong revoke confirmation is a 400', () => {
+    expect(runnerErrorStatus('RUNNER_KEY_CONFIRMATION_MISMATCH')).toBe(400);
+  });
+});
+
+describe('signing-key catalog', () => {
+  it('publishes every state but retired', () => {
+    expect([...RUNNER_KEY_STATES]).toEqual(['next', 'active', 'retiring', 'retired']);
+    expect([...PUBLISHED_RUNNER_KEY_STATES]).toEqual(RUNNER_KEY_STATES.filter((s) => s !== 'retired'));
+    expect([...RUNNER_KEY_MODES]).toEqual(['inherit', 'own']);
+    expect([...RUNNER_LINK_STATUSES]).toEqual(['linked', 'unlinked', 'not_found', 'ambiguous', 'checking']);
+  });
+
+  it('times a rotation as the plan does: 10 min to sign, 1 h to retire, 60 s caches', () => {
+    expect(RUNNER_KEY_ACTIVATION_DELAY_MS).toBe(600_000);
+    expect(RUNNER_KEY_RETIRE_WINDOW_MS).toBe(3_600_000);
+    expect(RUNNER_KEY_CACHE_MS).toBe(60_000);
+    expect(RUNNER_JWKS_CACHE_SECONDS).toBe(60);
+    // The activation delay covers the route cache.
+    expect(RUNNER_KEY_ACTIVATION_DELAY_MS).toBeGreaterThan(RUNNER_JWKS_CACHE_SECONDS * 1000);
+  });
+
+  it('takes the last six characters of the kid as the revoke confirmation', () => {
+    expect(runnerKeyRevokeConfirmation('NzbLsXh8uDCcd-6MNwXF4W_7noWXFZAfHkxZsRGC9Xs')).toBe('RGC9Xs');
+  });
+
+  it('counts whole days of key age, never negative', () => {
+    const now = Date.parse('2026-11-19T12:00:00Z');
+    expect(runnerKeyAgeDays('2025-11-19T12:00:00Z', now)).toBe(365);
+    expect(runnerKeyAgeDays(new Date('2026-11-19T11:00:00Z'), now)).toBe(0);
+    expect(runnerKeyAgeDays('2026-11-20T00:00:00Z', now)).toBe(0);
+    expect(runnerKeyAgeDays('not a date', now)).toBe(0);
+  });
+});
+
+describe('tunable limits', () => {
+  it('ships the plan defaults', () => {
+    expect(RUNNER_TUNABLE_DEFAULTS).toEqual({
+      RUN_REQUESTS_PER_MINUTE: '6',
+      MAX_PENDING_PER_ORG: '500',
+      MAX_IN_FLIGHT_PER_RUNNER: '8',
+      RUNNER_HEALTH_PING_INTERVAL_SECONDS: '60',
+      RUNNER_UNHEALTHY_AFTER_PINGS: '2',
+      RUNNER_KEY_MAX_AGE_DAYS: '365',
+    });
+    expect(Object.keys(RUNNER_TUNABLE_MINIMUMS).sort()).toEqual(Object.keys(RUNNER_TUNABLE_DEFAULTS).sort());
+    for (const [k, v] of Object.entries(RUNNER_TUNABLE_DEFAULTS)) {
+      expect(Number(v)).toBeGreaterThanOrEqual(RUNNER_TUNABLE_MINIMUMS[k as keyof typeof RUNNER_TUNABLE_MINIMUMS]);
+    }
+    expect(UNREACHABLE_AFTER_FAILURES).toBe(3);
+  });
+
+  it('reads a valid override and falls back on anything else', () => {
+    expect(runnerTunable('MAX_PENDING_PER_ORG', {})).toBe(500);
+    expect(runnerTunable('MAX_PENDING_PER_ORG', { MAX_PENDING_PER_ORG: ' 1200 ' })).toBe(1200);
+    expect(runnerTunable('MAX_PENDING_PER_ORG', { MAX_PENDING_PER_ORG: '7.9' })).toBe(7);
+    expect(runnerTunable('MAX_PENDING_PER_ORG', { MAX_PENDING_PER_ORG: '' })).toBe(500);
+    expect(runnerTunable('MAX_PENDING_PER_ORG', { MAX_PENDING_PER_ORG: 'lots' })).toBe(500);
+    expect(runnerTunable('MAX_PENDING_PER_ORG', { MAX_PENDING_PER_ORG: '0' })).toBe(500);
+    expect(runnerTunable('RUNNER_HEALTH_PING_INTERVAL_SECONDS', { RUNNER_HEALTH_PING_INTERVAL_SECONDS: '5' })).toBe(60);
+  });
+});
+
+describe('key invalidation messages', () => {
+  it('names one channel', () => {
+    expect(RUNNER_KEY_INVALIDATION_CHANNEL).toBe('runner-keys:invalidate');
+  });
+
+  it('round-trips both kinds', () => {
+    const keys = { v: 1, kind: 'keys', origin: 'pipeline-1', orgIds: ['a', 'b'] } as const;
+    const pause = { v: 1, kind: 'pause', origin: 'pipeline-2', paused: true } as const;
+    expect(parseRunnerKeyInvalidation(JSON.stringify(keys))).toEqual(keys);
+    expect(parseRunnerKeyInvalidation(JSON.stringify(pause))).toEqual(pause);
+  });
+
+  it.each([
+    'not json', 'null', '[]', '{"v":2,"kind":"keys","origin":"x","orgIds":[]}',
+    '{"v":1,"kind":"keys","origin":"x","orgIds":[1]}', '{"v":1,"kind":"keys","orgIds":["a"]}',
+    '{"v":1,"kind":"pause","origin":"x","paused":"yes"}', '{"v":1,"kind":"other","origin":"x"}',
+  ])('rejects %s', (raw) => {
+    expect(parseRunnerKeyInvalidation(raw)).toBeNull();
+  });
+});
+
+describe('signing-key audit actions', () => {
+  it('are remote audit actions the pipeline service may emit', async () => {
+    const { isRemoteAuditAction } = await import('../src/types/remote-audit-actions.js');
+    for (const a of [
+      'pipeline.runner.key.generate', 'pipeline.runner.key.rotate', 'pipeline.runner.key.cancel', 'pipeline.runner.key.finish',
+      'pipeline.runner.key.revoke', 'pipeline.runner.key.mode', 'pipeline.runner.key.promote', 'pipeline.runner.key.retire',
+      'pipeline.runner.key.system_revoke', 'pipeline.runner.key.reencrypt',
+      'pipeline.runner.deliveries.pause', 'pipeline.runner.deliveries.resume', 'pipeline.runner.link.refresh',
+    ]) expect([a, isRemoteAuditAction(a)]).toEqual([a, true]);
   });
 });

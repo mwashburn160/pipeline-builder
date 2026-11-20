@@ -8,9 +8,13 @@
  *    a terminal state → a success toast, or the error code's banner (linking to
  *    Settings → Pipeline runners where that is the fix). Polling stops on
  *    unmount, and a request still pending past its expiry reads as expired.
- *  - A synchronous refusal with a runner code gets the same banner.
- *  - Platform-account pipelines (`202 { executionId }`) are unchanged.
- *  - The Deployment card says "Runs via: <runner label>".
+ *  - A synchronous refusal with a runner code gets the same banner (NO_RUNNER,
+ *    the expected first-run state, links to Install a runner).
+ *  - Every run goes through a runner: there is no `{ executionId }` answer and
+ *    no feature gate.
+ *  - The Deployment card's "Runs via" is the runner link status (Linked / Not
+ *    linked yet / Not found / Two runners matched / Checking) with Find runner
+ *    again behind step-up; the page shows pause and unhealthy-runner banners.
  */
 
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
@@ -32,15 +36,16 @@ jest.mock('@/hooks/useFeatureGate', () => ({
 }));
 jest.mock('@/components/pipeline/ScorecardCard', () => ({ __esModule: true, ScorecardCard: () => null }));
 jest.mock('@/components/pipeline/PipelineContextCard', () => ({ __esModule: true, PipelineContextCard: () => null }));
-// Runner surfaces show only with the per-org `cross_account_runners` feature.
-let mockFeatures = new Set<string>(['cross_account_runners']);
-jest.mock('@/hooks/useFeatures', () => ({
+// The step-up dialog has its own suite: here it shows its copy and confirms with a fixed token.
+jest.mock('@/components/admin/StepUpModal', () => ({
   __esModule: true,
-  useFeatures: () => ({
-    isEnabled: (f: string) => mockFeatures.has(f), features: [...mockFeatures], isLoaded: true, isSuperAdmin: false, canReachBilling: false,
-    supportAlias: '', supportAliases: [], deployTarget: 'aws-ec2', adminConsolesEnabled: true, tierPresets: undefined,
-    askUiMode: 'ask-agent', cliNpmPackage: 'pb-cli', cliNpmUrl: 'https://npm.example/pb-cli',
-  }),
+  StepUpModal: ({ onConfirmed, onClose, title }: { onConfirmed: (t: string) => Promise<void> | void; onClose: () => void; title?: string }) => (
+    <div data-testid="stepup-modal">
+      <h2>{title}</h2>
+      <button type="button" onClick={async () => { await onConfirmed('tok'); onClose(); }}>Confirm step-up</button>
+      <button type="button" onClick={onClose}>Cancel step-up</button>
+    </div>
+  ),
 }));
 
 const mockRouter = { query: {} as Record<string, string>, pathname: '/dashboard/pipelines/[id]', isReady: true, replace: jest.fn<AnyFn>(), push: jest.fn<AnyFn>() };
@@ -56,6 +61,9 @@ const api = {
   triggerPipelineExecution: jest.fn<AnyFn>(),
   stopPipelineExecution: jest.fn<AnyFn>(),
   getRunRequest: jest.fn<AnyFn>(),
+  getPipelineRunnerLink: jest.fn<AnyFn>(),
+  refreshPipelineRunnerLink: jest.fn<AnyFn>(),
+  testPipelineRunner: jest.fn<AnyFn>(),
 };
 jest.mock('@/lib/api', () => ({
   __esModule: true,
@@ -67,6 +75,13 @@ const pipeline = {
   props: {}, visibility: 'org', isActive: true, isDefault: false, createdBy: 'u1', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-02T00:00:00Z',
 };
 const row = (over: Record<string, unknown> = {}) => ({ pipelineId: 'p1', region: 'us-east-1', stackName: 'web-stack', lastDeployed: '2026-11-09T00:00:00Z', ...over });
+const linkDto = (over: Record<string, unknown> = {}) => ({
+  success: true,
+  data: {
+    pipelineId: 'p1', status: 'linked', runner: { id: 'r1', label: 'Production', health: 'healthy', lastDeliveryAt: '2026-11-17T00:00:00Z', ownerOrgName: null },
+    checkedAt: '2026-11-18T00:00:00Z', detail: { runnersChecked: ['Production'], matched: ['Production'], errorCode: null }, deliveriesPaused: false, ...over,
+  },
+});
 const QUEUED = { requestId: 'rq1', status: 'queued', runnerLabel: 'Production' };
 const rr = (over: Record<string, unknown> = {}) => ({
   success: true,
@@ -80,7 +95,6 @@ beforeEach(() => {
   jest.clearAllMocks();
   // mockReset, not just clear: a once-queue left by a failed test must not leak.
   for (const fn of Object.values(api)) fn.mockReset();
-  mockFeatures = new Set(['cross_account_runners']);
   mockRouter.query = { id: 'p1' };
   mockAuthGuard({ user: { id: 'u1', organizationId: 'org-1' }, can: () => true });
   api.getPipelineById.mockResolvedValue({ success: true, data: { pipeline, registration: { registered: true } } });
@@ -94,6 +108,9 @@ beforeEach(() => {
   api.triggerPipelineExecution.mockResolvedValue({ success: true, data: QUEUED });
   api.stopPipelineExecution.mockResolvedValue({ success: true, data: QUEUED });
   api.getRunRequest.mockResolvedValue(rr());
+  api.getPipelineRunnerLink.mockResolvedValue(linkDto());
+  api.refreshPipelineRunnerLink.mockResolvedValue(linkDto({ status: 'checking' }));
+  api.testPipelineRunner.mockResolvedValue({ success: true, data: { ok: true, outcome: 'pong' } });
   jest.useFakeTimers();
 });
 afterEach(() => {
@@ -240,7 +257,9 @@ describe('Re-run through a pipeline runner', () => {
   it('has copy for every code the spec names', () => {
     expect(Object.keys(RUNNER_ERROR_COPY).sort()).toEqual([
       'AMBIGUOUS_PIPELINE', 'AMBIGUOUS_RUNNER', 'NOT_YET_VISIBLE', 'NO_MATCH', 'NO_RUNNER', 'PIPELINE_IDENTITY_MISMATCH', 'PIPELINE_NOT_FOUND',
-      'PIPELINE_NOT_FOUND_IN_RUNNERS', 'PIPELINE_NOT_TAGGED', 'RUNNERS_NOT_ENABLED', 'RUNNERS_UNAVAILABLE', 'RUNNER_ERROR', 'RUNNER_LIMIT',
+      'PIPELINE_NOT_FOUND_IN_RUNNERS', 'PIPELINE_NOT_TAGGED', 'RUNNERS_UNAVAILABLE', 'RUNNER_ERROR', 'RUNNER_KEY_CONFIRMATION_MISMATCH',
+      'RUNNER_KEY_EXISTS', 'RUNNER_KEY_INHERITED', 'RUNNER_KEY_MISSING', 'RUNNER_KEY_MODE_ROOT_ORG', 'RUNNER_KEY_NO_ROTATION',
+      'RUNNER_KEY_RETIRE_TOO_EARLY', 'RUNNER_KEY_TRANSITION_IN_PROGRESS', 'RUNNER_KEY_UNREADABLE', 'RUNNER_LIMIT',
       'RUNNER_PENDING', 'RUNNER_PERMISSION_DENIED', 'RUNNER_PING_FAILED', 'RUNNER_REFUSED', 'RUNNER_REVOKED', 'RUNNER_UNREACHABLE',
       'RUNNER_UPDATE_REQUIRED', 'RUN_REQUEST_EXPIRED', 'RUN_REQUEST_RATE_LIMITED', 'SIGNATURE_INVALID', 'TOO_MANY_PENDING',
     ]);
@@ -311,11 +330,12 @@ describe('Re-run through a pipeline runner', () => {
     expect(pageToast.success).not.toHaveBeenCalled();
   });
 
-  it('a synchronous refusal with a runner code (409 NO_RUNNER) gets its banner, with the install link', async () => {
+  it('a synchronous refusal with a runner code (409 NO_RUNNER, the first-run state) gets its banner, with the install link', async () => {
     api.triggerPipelineExecution.mockRejectedValue(new ApiError('No runner', 409, 'NO_RUNNER'));
     await rerun();
     const banner = await screen.findByTestId('runner-error');
-    expect(banner).toHaveTextContent(RUNNER_ERROR_COPY.NO_RUNNER.title);
+    expect(banner).toHaveTextContent('This pipeline needs a runner.');
+    expect(banner).toHaveTextContent('one per account per organization');
     expect(within(banner).getByRole('link', { name: /Install a pipeline runner/ })).toHaveAttribute('href', PIPELINE_RUNNERS_HREF);
     expect(api.getRunRequest).not.toHaveBeenCalled();
   });
@@ -335,12 +355,17 @@ describe('Re-run through a pipeline runner', () => {
     expect(await screen.findByTestId('runner-error')).toHaveTextContent('Runners checked: Production, Staging.');
   });
 
-  it('409 RUNNERS_NOT_ENABLED: "no longer enabled for your organization", no link', async () => {
-    api.triggerPipelineExecution.mockRejectedValue(new ApiError('off', 409, 'RUNNERS_NOT_ENABLED'));
+  it('409 RUNNER_KEY_UNREADABLE: the unreadable-key copy, linking to the Signing key card\'s panel', async () => {
+    api.triggerPipelineExecution.mockRejectedValue(new ApiError('unreadable', 409, 'RUNNER_KEY_UNREADABLE'));
     await rerun();
     const banner = await screen.findByTestId('runner-error');
-    expect(banner).toHaveTextContent('Cross-account runners are no longer enabled for your organization');
-    expect(within(banner).queryByRole('link')).toBeNull();
+    expect(banner).toHaveTextContent("Your signing key can't be read.");
+    expect(banner).toHaveTextContent('Runs through your runners are paused until your platform operator fixes it.');
+    expect(within(banner).getByRole('link')).toHaveAttribute('href', PIPELINE_RUNNERS_HREF);
+  });
+
+  it('there is no RUNNERS_NOT_ENABLED copy any more (no feature gate)', () => {
+    expect(Object.hasOwn(RUNNER_ERROR_COPY, 'RUNNERS_NOT_ENABLED')).toBe(false);
   });
 
   it('any other refusal keeps the plain message', async () => {
@@ -350,14 +375,6 @@ describe('Re-run through a pipeline runner', () => {
     expect(screen.queryByTestId('runner-error')).not.toBeInTheDocument();
   });
 
-  it('platform-account pipelines are unchanged: 202 { executionId } toasts at once, no polling', async () => {
-    api.triggerPipelineExecution.mockResolvedValue({ success: true, data: { executionId: 'e-new' } });
-    await rerun();
-    await waitFor(() => expect(pageToast.success).toHaveBeenCalledWith('Started execution e-new'));
-    expect(screen.queryByTestId('run-request-status')).not.toBeInTheDocument();
-    await advance(30_000);
-    expect(api.getRunRequest).not.toHaveBeenCalled();
-  });
 });
 
 describe('Stop through a pipeline runner', () => {
@@ -406,66 +423,127 @@ describe('Stop through a pipeline runner', () => {
     expect(api.getRunRequest).not.toHaveBeenCalled();
   });
 
-  it('platform-account pipelines are unchanged: toast at once, no polling', async () => {
-    api.stopPipelineExecution.mockResolvedValue({ success: true, data: { stopped: true } });
-    await stop();
-    await waitFor(() => expect(pageToast.success).toHaveBeenCalledWith('Execution canceled'));
-    await advance(30_000);
-    expect(api.getRunRequest).not.toHaveBeenCalled();
+});
+
+describe('Deployment card — runner link', () => {
+  it('Linked: "Runs via: <runner label>", last checked', async () => {
+    render(<PipelineDetailPage />);
+    const status = await screen.findByTestId('runner-link-status');
+    expect(status).toHaveAttribute('data-status', 'linked');
+    expect(screen.getByTestId('deployment-runner')).toHaveTextContent('Production');
+    expect(status).toHaveTextContent(/Linked · checked/);
+    expect(screen.getByTestId('runner-link').firstElementChild).toHaveTextContent('Runs via');
+    expect(api.getPipelineRunnerLink).toHaveBeenCalledWith('p1', expect.anything());
+  });
+
+  it('a parent\'s shared runner names its owner', async () => {
+    api.getPipelineRunnerLink.mockResolvedValue(linkDto({ runner: { id: 'r9', label: 'Shared prod', health: 'healthy', lastDeliveryAt: null, ownerOrgName: 'Acme Root' } }));
+    render(<PipelineDetailPage />);
+    expect(await screen.findByTestId('deployment-runner')).toHaveTextContent('Shared prod (shared by Acme Root)');
+  });
+
+  it('Not linked yet', async () => {
+    api.getPipelineRunnerLink.mockResolvedValue(linkDto({ status: 'unlinked', runner: null, checkedAt: null, detail: null }));
+    render(<PipelineDetailPage />);
+    const status = await screen.findByTestId('runner-link-status');
+    expect(status).toHaveAttribute('data-status', 'unlinked');
+    expect(status).toHaveTextContent('Not linked yet');
+    expect(screen.queryByTestId('deployment-runner')).not.toBeInTheDocument();
+  });
+
+  it('Not found: lists the runners checked, and says when an old link is kept', async () => {
+    api.getPipelineRunnerLink.mockResolvedValue(linkDto({ status: 'not_found', detail: { runnersChecked: ['Production', 'Staging'], matched: [], errorCode: 'PIPELINE_NOT_FOUND_IN_RUNNERS' } }));
+    render(<PipelineDetailPage />);
+    const status = await screen.findByTestId('runner-link-status');
+    expect(status).toHaveTextContent('Not found');
+    expect(status).toHaveTextContent('Runners checked: Production, Staging.');
+    expect(screen.getByTestId('runner-link-kept')).toHaveTextContent('Still linked to Production.');
+  });
+
+  it('Not found with no runner at all links to Install a runner', async () => {
+    api.getPipelineRunnerLink.mockResolvedValue(linkDto({ status: 'not_found', runner: null, detail: { runnersChecked: [], matched: [], errorCode: 'NO_RUNNER' } }));
+    render(<PipelineDetailPage />);
+    const status = await screen.findByTestId('runner-link-status');
+    expect(within(status).getByRole('link', { name: 'Install a runner' })).toHaveAttribute('href', PIPELINE_RUNNERS_HREF);
+  });
+
+  it('Two runners matched: names both, and the one-runner-per-account rule', async () => {
+    api.getPipelineRunnerLink.mockResolvedValue(linkDto({ status: 'ambiguous', runner: null, detail: { runnersChecked: ['Production', 'Old prod'], matched: ['Production', 'Old prod'], errorCode: 'AMBIGUOUS_RUNNER' } }));
+    render(<PipelineDetailPage />);
+    const status = await screen.findByTestId('runner-link-status');
+    expect(status).toHaveTextContent('Two runners matched: Production and Old prod');
+    expect(status).toHaveTextContent(/one runner per AWS account/);
+  });
+
+  it('a pipeline that is not registered (404) shows no link row', async () => {
+    api.getPipelineRunnerLink.mockRejectedValue(new ApiError('nf', 404, 'NOT_FOUND'));
+    render(<PipelineDetailPage />);
+    expect(await screen.findByText('web-stack')).toBeInTheDocument();
+    expect(screen.queryByTestId('runner-link')).not.toBeInTheDocument();
+  });
+
+  it('Find runner again: step-up, then Checking, then the new link once the probe settles', async () => {
+    render(<PipelineDetailPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /Find runner again/ }));
+    expect(api.refreshPipelineRunnerLink).not.toHaveBeenCalled(); // not before the step-up
+    fireEvent.click(within(screen.getByTestId('stepup-modal')).getByRole('button', { name: 'Confirm step-up' }));
+    await waitFor(() => expect(api.refreshPipelineRunnerLink).toHaveBeenCalledWith('p1', 'tok'));
+    const status = await screen.findByTestId('runner-link-status');
+    await waitFor(() => expect(screen.getByTestId('runner-link-status')).toHaveAttribute('data-status', 'checking'));
+    expect(status).toHaveTextContent('Checking');
+    expect(screen.getByRole('button', { name: /Find runner again/ })).toBeDisabled();
+    api.getPipelineRunnerLink.mockResolvedValue(linkDto({ runner: { id: 'r2', label: 'New prod', health: 'healthy', lastDeliveryAt: null, ownerOrgName: null } }));
+    await advance(3_000);
+    await waitFor(() => expect(screen.getByTestId('deployment-runner')).toHaveTextContent('New prod'));
+  });
+
+  it('Find runner again: cancelling the step-up sends nothing', async () => {
+    render(<PipelineDetailPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /Find runner again/ }));
+    fireEvent.click(within(screen.getByTestId('stepup-modal')).getByRole('button', { name: 'Cancel step-up' }));
+    expect(api.refreshPipelineRunnerLink).not.toHaveBeenCalled();
+  });
+
+  it('Find runner again is not offered to a viewer who cannot write the pipeline', async () => {
+    mockAuthGuard({ user: { id: 'u2', organizationId: 'org-1' }, can: (p: string) => p === 'pipelines:read' });
+    render(<PipelineDetailPage />);
+    await screen.findByTestId('runner-link-status');
+    expect(screen.queryByRole('button', { name: /Find runner again/ })).not.toBeInTheDocument();
   });
 });
 
-describe('Deployment card — runner', () => {
-  it('shows "Runs via: <runner label>"', async () => {
-    api.listPipelineDeployments.mockResolvedValue({ success: true, data: { registry: [row({ runner: { id: 'r1', label: 'Production' } })], pagination: { hasMore: false } } });
+describe('runner banners', () => {
+  it('the platform pause toggle shows a banner', async () => {
+    api.getPipelineRunnerLink.mockResolvedValue(linkDto({ deliveriesPaused: true }));
     render(<PipelineDetailPage />);
-    const runner = await screen.findByTestId('deployment-runner');
-    expect(runner).toHaveTextContent('Production');
-    expect(runner.previousElementSibling).toHaveTextContent('Runs via');
+    expect(await screen.findByTestId('runner-paused-banner')).toHaveTextContent('Pipeline runs are paused on this platform.');
   });
 
-  it('no row for the platform\'s own account (runner null or absent)', async () => {
-    api.listPipelineDeployments.mockResolvedValue({ success: true, data: { registry: [row({ runner: null })], pagination: { hasMore: false } } });
+  it('an unhealthy runner: last successful contact and a Test button (step-up) for its admins', async () => {
+    api.getPipelineRunnerLink.mockResolvedValue(linkDto({ runner: { id: 'r1', label: 'Production', health: 'unreachable', lastDeliveryAt: '2026-11-17T00:00:00Z', ownerOrgName: null } }));
     render(<PipelineDetailPage />);
-    expect(await screen.findByText('web-stack')).toBeInTheDocument();
-    expect(screen.queryByTestId('deployment-runner')).not.toBeInTheDocument();
+    const banner = await screen.findByTestId('runner-unhealthy-banner');
+    expect(banner).toHaveTextContent('The runner Production is not answering.');
+    expect(banner).toHaveTextContent('Last successful contact');
+    fireEvent.click(within(banner).getByRole('button', { name: 'Test' }));
+    fireEvent.click(within(screen.getByTestId('stepup-modal')).getByRole('button', { name: 'Confirm step-up' }));
+    await waitFor(() => expect(api.testPipelineRunner).toHaveBeenCalledWith('r1', 'tok'));
+    await waitFor(() => expect(pageToast.success).toHaveBeenCalledWith('Production answered'));
   });
-});
 
-describe('without the cross_account_runners feature', () => {
-  beforeEach(() => { mockFeatures = new Set(); });
-
-  it('the Deployment card has no "Runs via" row, even if the registry carried one', async () => {
-    api.listPipelineDeployments.mockResolvedValue({ success: true, data: { registry: [row({ runner: { id: 'r1', label: 'Production' } })], pagination: { hasMore: false } } });
+  it('an unhealthy runner shared by a parent links to the panel instead of offering Test', async () => {
+    api.getPipelineRunnerLink.mockResolvedValue(linkDto({ runner: { id: 'r9', label: 'Shared prod', health: 'unreachable', lastDeliveryAt: null, ownerOrgName: 'Acme Root' } }));
     render(<PipelineDetailPage />);
-    expect(await screen.findByText('web-stack')).toBeInTheDocument();
-    expect(screen.queryByTestId('deployment-runner')).not.toBeInTheDocument();
-    expect(screen.queryByText(/Runs via/)).not.toBeInTheDocument();
+    const banner = await screen.findByTestId('runner-unhealthy-banner');
+    expect(within(banner).queryByRole('button', { name: 'Test' })).not.toBeInTheDocument();
+    expect(within(banner).getByRole('link')).toHaveAttribute('href', PIPELINE_RUNNERS_HREF);
   });
 
-  it('Re-run behaves exactly as before: 202 { executionId } toasts, nothing is polled', async () => {
-    api.triggerPipelineExecution.mockResolvedValue({ success: true, data: { executionId: 'e-new' } });
-    await rerun();
-    await waitFor(() => expect(pageToast.success).toHaveBeenCalledWith('Started execution e-new'));
-    await advance(30_000);
-    expect(api.getRunRequest).not.toHaveBeenCalled();
-    expect(screen.queryByTestId('run-request-status')).not.toBeInTheDocument();
-  });
-
-  it('Stop behaves exactly as before', async () => {
-    api.stopPipelineExecution.mockResolvedValue({ success: true, data: { stopped: true } });
-    await stop();
-    await waitFor(() => expect(pageToast.success).toHaveBeenCalledWith('Execution canceled'));
-    await advance(30_000);
-    expect(api.getRunRequest).not.toHaveBeenCalled();
-  });
-
-  it('a queued 202 the server does return is still followed (handled generically)', async () => {
-    api.getRunRequest.mockResolvedValue(rr({ status: 'started', executionId: 'e-7' }));
-    await rerun();
-    expect(await screen.findByTestId('run-request-status')).toHaveTextContent('Queued for runner Production');
-    await advance(RUN_REQUEST_POLL.initialMs);
-    await waitFor(() => expect(pageToast.success).toHaveBeenCalledWith('Started execution e-7'));
+  it('no banners while the runner answers and runs are not paused', async () => {
+    render(<PipelineDetailPage />);
+    await screen.findByTestId('runner-link-status');
+    expect(screen.queryByTestId('runner-paused-banner')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('runner-unhealthy-banner')).not.toBeInTheDocument();
   });
 });
 

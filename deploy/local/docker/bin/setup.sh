@@ -124,14 +124,6 @@ PLUGIN_SIGNING_KMS_KEY_ID="$(pb_env_value PLUGIN_SIGNING_KMS_KEY_ID "$DEPLOY_DIR
 # above — Docker would otherwise create the mount paths as directories and every
 # service would refuse to boot. Idempotent (never rotates an existing key).
 bash "$BIN_DIR/service-signing-keys.sh" "$CERT_DIR"
-# Ed25519 RUNNER-signing key → certs/runner-signing/runner-signing.key,
-# bind-mounted into the pipeline container ONLY: it signs the run requests sent
-# to customers' cross-account pipeline runners (public half at
-# GET /api/pipelines/runner/jwks.json). Its presence is what makes the
-# deployment runner-ready (orgs still need the `cross_account_runners` feature
-# flag). Generated before `up` for the same bind-mount reason as the keys
-# above. Idempotent.
-bash "$BIN_DIR/runner-signing-keys.sh" "$CERT_DIR"
 # The registry needs no htpasswd: it uses token auth (REGISTRY_AUTH: token in
 # docker-compose.yml), delegated to the image-registry service.
 

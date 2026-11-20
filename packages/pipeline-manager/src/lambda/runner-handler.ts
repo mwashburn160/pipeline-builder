@@ -17,7 +17,9 @@
  * is its endpoint plus the signatures it verifies.
  *
  * Every request, in order:
- *   1. the JWS verifies (runner-jws.ts): platform key, typ/alg, iss, aud ==
+ *   1. the JWS verifies (runner-jws.ts): a key from this runner's own JWKS
+ *      (PLATFORM_BASE_URL + runnerJwksPath(RUNNER_ID): the owning org's keys
+ *      only; a 404 there means no keys and fails closed), typ/alg, iss, aud ==
  *      RUNNER_ID (no RUNNER_ID → everything is refused), iat/exp with 120 s
  *      skew — else 401 SIGNATURE_INVALID, before any AWS call;
  *   2. its jti was not seen in the last 15 min (a repeat returns the earlier
@@ -47,7 +49,7 @@ import {
 } from '@aws-sdk/client-codepipeline';
 import { GetResourcesCommand, ResourceGroupsTaggingAPIClient } from '@aws-sdk/client-resource-groups-tagging-api';
 import {
-  PIPELINE_ID_TAG, RUNNER_ERRORS, RUNNER_JWKS_PATH,
+  PIPELINE_ID_TAG, RUNNER_ERRORS, runnerJwksPath,
   type RunnerOutcome, type RunnerReplyErrorCode,
 } from '@pipeline-builder/api-core/pipeline-runners';
 import { readPipelineIdTag, type Sender } from './pipeline-tag.js';
@@ -284,7 +286,11 @@ function isFinal(r: RunnerResult): boolean {
 }
 
 export function createRunner(config: RunnerConfig, deps: RunnerDeps): Runner {
-  const jwks = new JwksCache(`${config.platformBaseUrl}${RUNNER_JWKS_PATH}`, deps.fetch, deps.now);
+  // The runner's own key set: its owning org's keys only. Without a RUNNER_ID
+  // there is no URL to ask and no key is trusted (every request is refused).
+  const jwks: Pick<JwksCache, 'get'> = config.runnerId
+    ? new JwksCache(`${config.platformBaseUrl}${runnerJwksPath(config.runnerId)}`, deps.fetch, deps.now)
+    : { get: async () => undefined };
   const replay = new ReplayCache<RunnerResult>(deps.now);
 
   const ok = (outcome: Outcome, extra: { executionId?: string; executionStatus?: string; regions?: string[] } = {}): RunnerResult =>

@@ -6,9 +6,13 @@
  * runner sitting behind a public Function URL trust what arrives there.
  *
  * Format: a compact JWS, `alg: EdDSA` (Ed25519), header
- * `{ alg: 'EdDSA', typ: 'pb-run+jwt', kid }`, signed by the pipeline service's
- * DEDICATED runner-signing key (never the platform's user-token key). Public keys
- * are served, unauthenticated, at `<PLATFORM_BASE_URL>/api/pipelines/runner/jwks.json`.
+ * `{ alg: 'EdDSA', typ: 'pb-run+jwt', kid }`, signed by the runner-signing key of the
+ * organization that owns this runner (its effective key org; never the
+ * platform's user-token key). Public keys are served, unauthenticated, per
+ * runner at `<PLATFORM_BASE_URL>` + `runnerJwksPath(RUNNER_ID)`
+ * (`/api/pipelines/runner/runners/<runnerId>/jwks.json`). A 404 there (an
+ * unknown or revoked runner, or an owner with no keys) means NO keys: the
+ * runner then refuses every request.
  *
  * Every check fails CLOSED with {@link SignatureError} (→ 401 SIGNATURE_INVALID),
  * and all of them run before any AWS call. Node built-ins plus the
@@ -63,13 +67,18 @@ interface Jwk {
 }
 
 /**
- * The platform's runner-signing public keys, fetched from its JWKS endpoint and
+ * This runner's signing public keys, fetched from its own JWKS endpoint and
  * cached: trusted for {@link JWKS_TTL_MS}, refetched early when a request names
  * an unknown `kid` (a key rotation), but at most once per
  * {@link JWKS_MIN_REFETCH_MS} so a flood of bogus kids cannot turn the runner
  * into a fetch amplifier. The same throttle applies to a refresh that failed
  * while keys are cached. Redirects are refused: keys come from the configured
  * URL only.
+ *
+ * A 404 is an ANSWER, not an outage: the platform does not know this runner
+ * (revoked, or never activated and expired) or its owner has no keys. The key
+ * set becomes empty, cached keys included, so every request fails closed with
+ * 401 SIGNATURE_INVALID. Any other failure keeps serving the cached keys.
  */
 export class JwksCache {
   private keys = new Map<string, KeyObject>();
@@ -111,8 +120,12 @@ export class JwksCache {
       const timer = setTimeout(() => controller.abort(), this.timeoutMs);
       try {
         const res = await this.fetchFn(this.url, { method: 'GET', headers: { Accept: 'application/json' }, redirect: 'error', signal: controller.signal });
-        if (!res.ok) throw new Error(`JWKS endpoint answered ${res.status}`);
-        body = await res.json();
+        if (res.status === 404) {
+          body = { keys: [] };
+        } else {
+          if (!res.ok) throw new Error(`JWKS endpoint answered ${res.status}`);
+          body = await res.json();
+        }
       } finally {
         clearTimeout(timer);
       }

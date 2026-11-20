@@ -1,6 +1,6 @@
 // GENERATED FROM docs/runbooks/secret-rotation.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: c45274f47728975bc70fa7065e5ffd41fd5d3ee445d9d3cbeee8e17ff7121775
+// SOURCE-SHA256: 145a5ed57fd1e0f11c0d3441920407171fb65547387f7f75ca83522a141933be
 // SPDX-License-Identifier: Apache-2.0
 import { KeyRound } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -592,7 +592,7 @@ export const runbookSecretRotationTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "The AES-256-GCM master key behind every encrypted-at-rest secret. Platform is the only holder. Four stores are wrapped under it, and they do not all migrate the same way:"
+          "content": "The AES-256-GCM master key behind every encrypted-at-rest secret. Platform and pipeline hold it (pipeline for the per-org runner signing keys). Five stores are wrapped under it, and they do not all migrate the same way:"
         },
         {
           "type": "table",
@@ -621,12 +621,17 @@ export const runbookSecretRotationTopic: HelpTopic = {
               "saml_sp_keys.privateKeyEncrypted",
               "this deployment's SAML SP signing / encryption / test-marker keys",
               "scripts/reencrypt-secrets.js"
+            ],
+            [
+              "pipeline_runner_signing_keys.private_key_enc (Postgres)",
+              "every org's runner signing keys",
+              "the pipeline re-encrypt job, which scripts/reencrypt-secrets.js calls — see Runner signing keys"
             ]
           ]
         },
         {
           "type": "text",
-          "content": "The tool covers all four. It did not always: it swept orgs and IdP configs only, and the other two stores are salted per USER (user:<userId>) and per DEPLOYMENT (saml-sp-keys), so no org walk could reach them. A run then reported failures: 0 while leaving them wrapped under the outgoing key, and clearing SECRET_ENCRYPTION_KEY_PREVIOUS bricked every authenticator enrolment and the SAML SP identity at once. If you are rotating on a build from before that fix, treat steps 4 and 5 as mandatory manual work; on a current build the tool reports a count for each store and you verify the counts instead."
+          "content": "The tool covers all five; the fifth through the pipeline service. It did not always: it swept orgs and IdP configs only, and the other two stores are salted per USER (user:<userId>) and per DEPLOYMENT (saml-sp-keys), so no org walk could reach them. A run then reported failures: 0 while leaving them wrapped under the outgoing key, and clearing SECRET_ENCRYPTION_KEY_PREVIOUS bricked every authenticator enrolment and the SAML SP identity at once. If you are rotating on a build from before that fix, treat steps 4 and 5 as mandatory manual work; on a current build the tool reports a count for each store and you verify the counts instead."
         },
         {
           "type": "text",
@@ -649,12 +654,12 @@ export const runbookSecretRotationTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Push app-secrets (k8s) and restart platform. Reads now fall back to the"
+            "Push app-secrets (k8s) and restart platform and pipeline. Reads now"
           ]
         },
         {
           "type": "text",
-          "content": "previous key; writes use the new one."
+          "content": "fall back to the previous key; writes use the new one."
         },
         {
           "type": "list",
@@ -664,7 +669,7 @@ export const runbookSecretRotationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "the same key material and per-org KMS setting: bash # k8s targets kubectl -n pipeline-builder exec deploy/platform -- node scripts/reencrypt-secrets.js # docker docker compose exec platform node scripts/reencrypt-secrets.js  It walks every org, every IdP config, every authenticator enrolment and the SAML SP keys, decrypts each through the fallback and rewrites under the current key. It exits non-zero and lists each row it could not decrypt — such a row's secret was written under a key you no longer have and must be re-entered by the org admin (AI keys: Settings → AI providers; SSO: Admin → org → IdP). Re-run until it reports failures: 0."
+          "content": "the same key material and per-org KMS setting: bash # k8s targets kubectl -n pipeline-builder exec deploy/platform -- node scripts/reencrypt-secrets.js # docker docker compose exec platform node scripts/reencrypt-secrets.js  It walks every org, every IdP config, every authenticator enrolment and the SAML SP keys, decrypts each through the fallback and rewrites under the current key, then calls the pipeline service's runner-signing-key re-encrypt (a runner-key failure also makes it exit 1). It exits non-zero and lists each row it could not decrypt — such a row's secret was written under a key you no longer have and must be re-entered by the org admin (AI keys: Settings → AI providers; SSO: Admin → org → IdP). Re-run until it reports failures: 0."
         },
         {
           "type": "list",
@@ -698,7 +703,7 @@ export const runbookSecretRotationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "restart platform."
+          "content": "restart platform and pipeline."
         },
         {
           "type": "text",
@@ -736,7 +741,7 @@ export const runbookSecretRotationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Per-org KMS. Orgs with SECRET_ENCRYPTION_PER_ORG_KMS config are wrapped under their own CMK, not this master, and their blobs carry a kid; the shared previous key is never applied to them. Rotating an org's CMK is a separate flow (PUT /api/admin/orgs/:orgId/kms-config, which re-encrypts that org inline)."
+          "content": "Per-org KMS. Orgs with SECRET_ENCRYPTION_PER_ORG_KMS config are wrapped under their own CMK, not this master, and their blobs carry a kid; the shared previous key is never applied to them. Rotating an org's CMK is a separate flow (PUT /api/admin/orgs/:orgId/kms-config, which re-encrypts that org inline, including its runner signing keys through the pipeline re-encrypt job; a runner-key failure answers 500)."
         },
         {
           "type": "text",
@@ -1177,72 +1182,243 @@ export const runbookSecretRotationTopic: HelpTopic = {
       ]
     },
     {
-      "id": "runner-signing-key-ed25519-cross-account-pipeline-runners",
-      "title": "Runner-signing key (Ed25519, cross-account pipeline runners)",
+      "id": "runner-signing-keys-per-org-ed25519",
+      "title": "Runner signing keys (per org, Ed25519)",
       "blocks": [
         {
           "type": "text",
-          "content": "The pipeline service signs every run request it sends to a customer's pipeline runner (a Lambda in the customer's own AWS account) with a DEDICATED Ed25519 key: a compact JWS, alg: EdDSA, typ: pb-run+jwt, valid for 600 seconds. The runner verifies it against the public keys at GET /api/pipelines/runner/jwks.json (unauthenticated), which it caches for 10 minutes and re-fetches on an unknown kid. The key is generated by deploy/bin/runner-signing-keys.sh, lives at <target>/certs/runner-signing/runner-signing.key, and is mounted into the pipeline service ONLY (RUNNER_SIGNING_KEY_FILE; the runner-signing-key Secret on the k8s targets)."
-        },
-        {
-          "type": "text",
-          "content": "The overlap is expressed in the JWKS, not in an env value: while runner-signing-previous.key exists (RUNNER_SIGNING_KEY_PREVIOUS_FILE), the JWKS serves the current AND the previous public key, and only the current one signs."
-        },
-        {
-          "type": "text",
-          "content": "Steps"
+          "content": "Every organization has its own Ed25519 runner signing key. The pipeline service signs each run request it sends to a pipeline runner (a Lambda in the customer's own AWS account) with the key of the org that OWNS the runner: a compact JWS, alg: EdDSA, typ: pb-run+jwt, valid for 600 seconds. A leaked or rotated key therefore affects that org's runners only. There is no deployment-wide key, no key file, no Secret and no env setting for it."
         },
         {
           "type": "list",
           "items": [
-            "Generate the incoming key. The current key moves aside to"
+            "Where keys live. One row per key in pipeline_runner_signing_keys. The"
           ]
         },
         {
           "type": "text",
-          "content": "runner-signing-previous.key, so the next pipeline start publishes both: bash bash deploy/bin/runner-signing-keys.sh deploy/<target>/certs --rotate  The script refuses (run --finish first, keys untouched) while a runner-signing-previous.key from an earlier rotation still exists — finish that rotation (step 4) before starting another. k8s: re-run the target's setup script, or re-create the Secret (pb_create_runner_signing_secret deploy/<target>/certs/runner-signing)."
+          "content": "private half is a PKCS#8 PEM generated inside the pipeline service and stored encrypted with the per-org secret encryption: AES-256-GCM under an HKDF per-org key derived from SECRET_ENCRYPTION_KEY, or under the org's own KMS key when SECRET_ENCRYPTION_PER_ORG_KMS=true (the pipeline service resolves that config through platform's GET /internal/kms-config/:orgId). No route, log, audit entry or metric ever carries the private key, its ciphertext or the PEM: only key ids (RFC 7638 thumbprints) and dates leave the service."
         },
         {
           "type": "list",
           "items": [
-            "Wait at least 10 minutes so every runner's cached JWKS can refresh"
+            "Where runners read them. Each runner fetches"
           ]
         },
         {
           "type": "text",
-          "content": "(a runner also re-fetches on an unknown kid, at most once a minute)."
+          "content": "GET /api/pipelines/runner/runners/<runnerId>/jwks.json (public, no token, max-age=60, rate-limited per runner id), built from its own RUNNER_ID. It publishes the next, active and retiring keys of the runner owner's effective key org. A runner caches it for 10 minutes and re-fetches on an unknown kid at most once a minute. An unknown, revoked or malformed runner id gets 404, which the runner treats as \"no keys\" and refuses everything."
         },
         {
           "type": "list",
           "items": [
-            "Restart pipeline so it signs with the new key (and publishes both):"
+            "Who owns the key. A root org always uses its own key. A sub-organization"
           ]
         },
         {
           "type": "text",
-          "content": "kubectl -n pipeline-builder rollout restart deploy/pipeline, or docker: docker compose up -d --force-recreate pipeline."
+          "content": "either inherits its nearest own-mode ancestor's key (the default) or switches to its own. Runners a parent shares with its teams always use the parent's key. A parent's rotation therefore covers every team that inherits from it; its dialogs name those teams."
         },
         {
           "type": "list",
           "items": [
-            "After 1 hour (every request signed with the old key has long expired),"
+            "States. next (published, not signing yet) → active (signs) →"
           ]
         },
         {
           "type": "text",
-          "content": "finish: drop the retiring key, re-create the Secret as in step 1, and restart pipeline again: bash bash deploy/bin/runner-signing-keys.sh deploy/<target>/certs --finish"
+          "content": "retiring (published only) → retired (gone from the JWKS; the row is kept for audit with its private key wiped). At most one of each published state per org, enforced by partial unique indexes."
         },
         {
           "type": "text",
-          "content": "Verify — GET /api/pipelines/runner/jwks.json lists two keys between steps 3 and 4 and one key after; a runner test (Settings → Organization → Pipeline runners → Test) answers pong throughout."
+          "content": "The first key is created active when a root org registers its first runner (or from the card before that). An org with no effective key gets 409 RUNNER_KEY_MISSING; nothing falls back to a shared key."
         },
         {
           "type": "text",
-          "content": "Rollback — until step 4 the old key is still on disk: move runner-signing-previous.key back to runner-signing.key, re-create the Secret and restart pipeline."
+          "content": "Rotate an org's key (org admins)"
         },
         {
           "type": "text",
-          "content": "Emergency stop — there is no separate kill-switch env var: one would need a deploy edit and a restart, which is no faster than the controls that already exist. To stop all runner traffic, remove the runner signing key (delete the runner-signing-key Secret on k8s, or the files behind RUNNER_SIGNING_KEY_FILE on docker) and restart pipeline. Runners are then unavailable everywhere: nothing is signed or delivered, runner writes answer 409 RUNNERS_UNAVAILABLE, and executions of platform-account pipelines are unaffected. A run request is good for only 10 minutes, so nothing queued before the stop is delivered late once the key is back. To stop a single organization instead, revoke its cross_account_runners feature: its runner requests are refused, and its queued ones fail RUNNERS_NOT_ENABLED instead of being delivered. If the key may be compromised, stop first, then generate a fresh key (delete both key files and re-run runner-signing-keys.sh; --rotate would keep the old key published) and restart."
+          "content": "Org admins do this themselves, in Settings → Organization → Pipeline runners → Signing key, or with pipeline-manager runner signing-key rotate. Every key write needs org_settings:write, an MFA-grade session and a step-up, and is limited to 5 per org per hour. The server enforces the timing, not the operator."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Rotate. A new next key is published at once with"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "activates_at = now + 10 minutes, which covers the runner's 10-minute JWKS cache and the route's 60-second cache. Cancel it (Cancel rotation, or DELETE …/signing-key/rotate) any time before it activates."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Promote (automatic). The runner sweep, every 5 minutes under its leader"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "lock, makes the new key active and the old one retiring with retire_after = now + 1 hour — so 10 to 15 minutes after step 1."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Finish (automatic, or Finish now). The sweep retires the old key once"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "retire_after has passed; every request signed with it expired long before. Finish now is refused (409 RUNNER_KEY_RETIRE_TOO_EARLY) before that time."
+        },
+        {
+          "type": "text",
+          "content": "A rotation while another is pending or overlapping answers 409 RUNNER_KEY_TRANSITION_IN_PROGRESS (so does the loser of two concurrent rotations). Each step sends an org notice to the org's admins and to admins of every inheriting team, and writes pipeline.runner.key.rotate, .promote and .retire audit entries carrying key ids only."
+        },
+        {
+          "type": "text",
+          "content": "Verify — the runner's JWKS lists the old and new key between steps 1 and 3 and only the new one after; Test on the runner card answers pong throughout; deploy/bin/runner-smoke.sh checks the per-runner JWKS end to end."
+        },
+        {
+          "type": "text",
+          "content": "Rollback — cancel before step 2. After promotion, rotate again."
+        },
+        {
+          "type": "text",
+          "content": "Age reminders. An active key older than RUNNER_KEY_MAX_AGE_DAYS (365) earns an org notice, a \"consider rotating\" badge, and a second notice 30 days later. Rotation stays manual; pipeline_runner_signing_keys_over_age counts the keys past that age."
+        },
+        {
+          "type": "text",
+          "content": "Switch a team between inherit and own"
+        },
+        {
+          "type": "text",
+          "content": "PUT /pipelines/runners/signing-key/mode (Use our own key / Inherit from … on the card) is refused for a root org (409 RUNNER_KEY_MODE_ROOT_ORG). Both directions overlap like a rotation:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Inherit → own. The team's first key is created next and published next"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "to the parent's keys; it signs after 10 minutes, and the parent's keys leave the team's runners' JWKS 1 hour later."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Own → inherit. The parent's keys are published for the team's runners for"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "10 minutes, then signing switches to the parent; the team's keys go retiring and are retired after 1 hour."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Ancestry change (a team moved under another parent, or its parent"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "deleted) is handled by the sweep as a switch, with the same windows."
+        },
+        {
+          "type": "text",
+          "content": "Emergency revoke"
+        },
+        {
+          "type": "list",
+          "items": [
+            "One org, by its admins. Revoke (danger zone on the card; type the last 6"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "characters of the key id) retires the active key at once and promotes the next key, or creates a new active one. Every replica drops the key within a second through Redis pub/sub (runner-keys:invalidate), with a 60-second version poll as the backstop. In-flight requests signed with it fail and are retried with the new key."
+        },
+        {
+          "type": "list",
+          "items": [
+            "One org, by an operator. POST /api/pipelines/admin/orgs/<orgId>/runner-signing-key/revoke"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "(system org, orgs:manage, MFA-grade, step-up; audited as pipeline.runner.key.system_revoke naming the operator) does the same for any org. The ops-center Runner signing keys page lists every org's mode, active key id, age, rotation state and whether its key is unreadable."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Every org at once. The system-org Pause all pipeline runs toggle"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "(PUT /api/pipelines/admin/runner-deliveries, audited) stops all runner traffic without a restart. Runners are the only execution path, so this pauses every pipeline run on the deployment: nothing is signed or delivered, runs answer 409 RUNNERS_UNAVAILABLE, and pipeline pages show a banner. A run request is good for only 10 minutes, so nothing queued before the pause is delivered late. Use it while you revoke the affected orgs' keys, then turn it off."
+        },
+        {
+          "type": "text",
+          "content": "Master-key rotation and the re-encrypt job"
+        },
+        {
+          "type": "text",
+          "content": "The runner keys are wrapped under the same secret encryption as platform's stores, so a SECRET_ENCRYPTION_KEY rotation or an org's per-org KMS change must re-wrap them too. Platform's Mongo re-encrypt does not reach Postgres, so the pipeline service has its own job, POST /pipelines/internal/runner-signing-keys/reencrypt (platform service token only)."
+        },
+        {
+          "type": "list",
+          "items": [
+            "You normally run nothing extra. Platform's"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "scripts/reencrypt-secrets.js (step 3 of the SECRET_ENCRYPTION_KEY steps) calls it after its own re-encrypt, and so do the org KMS config PUT/DELETE /api/admin/orgs/:orgId/kms-config mutations. A runner-key failure fails them: the script exits 1 and the PUT/DELETE answer 500. Fix it and re-run before clearing SECRET_ENCRYPTION_KEY_PREVIOUS or the old KMS grant."
+        },
+        {
+          "type": "list",
+          "items": [
+            "To run it by hand, inside a pipeline container (so it has the same key"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "material and per-org KMS setting): bash # k8s targets kubectl -n pipeline-builder exec deploy/pipeline -- node lib/scripts/reencrypt-runner-keys.js # docker docker compose exec pipeline node lib/scripts/reencrypt-runner-keys.js # one org, after its per-org KMS config changed docker compose exec pipeline node lib/scripts/reencrypt-runner-keys.js --org <orgId>  Without --org it re-wraps every non-retired row under the current master, decrypting through SECRET_ENCRYPTION_KEY_PREVIOUS where needed. It reports scanned, reencrypted and failures (org id and key id per failed row; a failed row is left untouched), rewrites each row in its own transaction, and audits pipeline.runner.key.reencrypt."
+        },
+        {
+          "type": "text",
+          "content": "The pipeline service must therefore carry the same SECRET_ENCRYPTION_KEY, SECRET_ENCRYPTION_KEY_PREVIOUS and KMS secret-encryption settings as platform: restart pipeline as well as platform in steps 2 and 6 of the master-key rotation."
+        },
+        {
+          "type": "text",
+          "content": "Unreadable key"
+        },
+        {
+          "type": "text",
+          "content": "If an org's effective key can't be decrypted (a master changed without the re-encrypt job, a rotated or disabled per-org KMS key, a lost kms:Decrypt grant), that org's runner writes, deliveries and key writes fail closed with 409 RUNNER_KEY_UNREADABLE and its card tells its admins to contact you. Other orgs are unaffected. pipeline_runner_signing_keys_unreadable goes above zero and RunnerSigningKeyUnreadable (critical) fires."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Find the org: ops-center → Runner signing keys, filter unreadable.",
+            "If the old master or KMS key still exists, put it back as"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "SECRET_ENCRYPTION_KEY_PREVIOUS (or restore the org's KMS grant), restart pipeline and run the re-encrypt job until failures is empty."
+        },
+        {
+          "type": "list",
+          "items": [
+            "If it is gone, revoke the org's key from the system org. A fresh key is"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "created active; the org's runners pick it up from their JWKS, so nothing changes in the customer's account."
         },
         {
           "type": "text",

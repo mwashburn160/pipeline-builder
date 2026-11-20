@@ -35,6 +35,7 @@ export {
 export * from './visibility.js';
 export * from './reserved-tags.js';
 export * from './reserved-secrets.js';
+export * from './plugin-secret-files.js';
 // What each quota type is called and how its number renders — the one source the
 // browser also imports directly via `@pipeline-builder/api-core/quota-catalog`.
 export * from './quota-catalog.js';
@@ -68,6 +69,8 @@ export {
   BUILD_IMAGE_STEP_KEY,
   BUILD_IMAGE_MANIFEST_STAGE,
   BUILD_IMAGE_MANIFEST_ACTION,
+  PLUGIN_LOOKUP_NOT_FOUND_STATES,
+  type PluginLookupNotFoundState,
 } from './plugin-catalog.js';
 export {
   type HttpRequest,

@@ -5,8 +5,8 @@
  * Settings → Organization mounts the Pipeline runners panel only for holders of
  * `org_settings:write` (never even reading it otherwise), and its fragment
  * (`#pipeline-runners`, the pipeline page's link) opens the Organization tab.
- * Without the org's `cross_account_runners` feature it is not mounted at all
- * (hidden, not locked; the API is never read).
+ * Runners are a core capability: no feature flag gates the panel, and it
+ * renders nothing only while runners are unavailable on the deployment.
  */
 
 import { describe, it, expect, jest, beforeEach, afterEach, beforeAll } from '@jest/globals';
@@ -30,8 +30,8 @@ jest.mock('@/components/settings/OrgDataExport', () => ({ OrgDataExport: () => n
 jest.mock('@/components/settings/AIProviderConfig', () => ({ AIProviderConfig: () => null }));
 jest.mock('@/components/settings/PipelineToolchainSettings', () => ({ PipelineToolchainSettings: () => null }));
 jest.mock('@/components/admin/StepUpModal', () => ({ StepUpModal: () => null }));
-// Runner surfaces show only with the per-org `cross_account_runners` feature.
-let mockFeatures = new Set<string>(['cross_account_runners']);
+// No org features at all: the panel must not depend on any.
+let mockFeatures = new Set<string>();
 jest.mock('@/hooks/useFeatures', () => ({
   __esModule: true,
   useFeatures: () => ({
@@ -66,9 +66,9 @@ const admin = () => mockAuthGuard({
 beforeEach(() => {
   jest.clearAllMocks();
   query = {};
-  mockFeatures = new Set(['cross_account_runners']);
+  mockFeatures = new Set();
   window.location.hash = '';
-  getPipelineRunners.mockResolvedValue({ success: true, data: { available: true, jwksUrl: 'https://pb.example.com/api/pipelines/runner/jwks.json', own: [], inherited: [] } });
+  getPipelineRunners.mockResolvedValue({ success: true, data: { available: true, unavailableReason: null, platformEgressIps: null, own: [], inherited: [], signingKey: null } });
 });
 afterEach(() => { window.location.hash = ''; });
 
@@ -93,22 +93,20 @@ describe('Settings → Organization → Pipeline runners', () => {
     expect(getPipelineRunners).not.toHaveBeenCalled();
   });
 
-  it('is hidden — and never read — for an admin whose org lacks the cross_account_runners feature', async () => {
+  it('is shown to an admin whose org has no features at all (no cross_account_runners gate)', async () => {
     admin();
     mockFeatures = new Set();
-    window.location.hash = `#${PIPELINE_RUNNERS_ANCHOR}`;
+    query = { tab: 'organization' };
     const { container } = render(<SettingsPage />);
-    // The Organization tab still renders (the fragment opens it); the panel does not.
-    await waitFor(() => expect(container.querySelector(`#${PIPELINE_RUNNERS_ANCHOR}`)).toBeNull());
-    expect(screen.queryByText('Pipeline runners')).not.toBeInTheDocument();
-    expect(screen.queryByText(/Install a runner|upgrade|not on your plan/i)).not.toBeInTheDocument();
-    expect(getPipelineRunners).not.toHaveBeenCalled();
+    expect(await screen.findByText('Pipeline runners')).toBeInTheDocument();
+    expect(container.querySelector(`#${PIPELINE_RUNNERS_ANCHOR}`)).not.toBeNull();
+    expect(getPipelineRunners).toHaveBeenCalled();
   });
 
-  it('renders nothing when the deployment has runners off', async () => {
+  it('renders nothing while runners are unavailable (paused)', async () => {
     admin();
     query = { tab: 'organization' };
-    getPipelineRunners.mockResolvedValue({ success: true, data: { available: false, jwksUrl: '', own: [], inherited: [] } });
+    getPipelineRunners.mockResolvedValue({ success: true, data: { available: false, unavailableReason: 'paused', platformEgressIps: null, own: [], inherited: [], signingKey: null } });
     render(<SettingsPage />);
     await waitFor(() => expect(getPipelineRunners).toHaveBeenCalled());
     expect(screen.queryByText('Pipeline runners')).not.toBeInTheDocument();

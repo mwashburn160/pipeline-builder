@@ -40,7 +40,7 @@ describe('runner route gates', () => {
     const r = route(method, path);
     expect(r.auth).toBe(true);
     expect(perms(r)).toEqual(['org_settings:write']);
-    expect(r.features).toEqual(['cross_account_runners']);
+    expect(r.features).toEqual([]);
     expect(r.stepUp).toBe(true);
     expect(r.minAssurance).toBe(2);
     expect(r.audit).toEqual([action]);
@@ -49,7 +49,7 @@ describe('runner route gates', () => {
   it('GET /pipelines/runners: org_settings:write, no step-up', () => {
     const r = route('GET', '/pipelines/runners');
     expect(perms(r)).toEqual(['org_settings:write']);
-    expect(r.features).toEqual(['cross_account_runners']);
+    expect(r.features).toEqual([]);
     expect(r.stepUp).toBe(false);
   });
 
@@ -57,11 +57,49 @@ describe('runner route gates', () => {
     expect(perms(route('GET', '/pipelines/:pipelineId/run-requests/:requestId'))).toEqual(['pipelines:read']);
   });
 
-  it('GET /pipelines/runner/jwks.json is PUBLIC and unmetered', () => {
-    const r = route('GET', '/pipelines/runner/jwks.json');
+  it('GET /pipelines/runner/runners/:runnerId/jwks.json is PUBLIC and unmetered; the shared JWKS route is gone', () => {
+    const r = route('GET', '/pipelines/runner/runners/:runnerId/jwks.json');
     expect(r.auth).toBe(false);
     expect(r.permissions).toEqual([]);
     expect(r.quota?.metered ?? []).toEqual([]);
+    expect(table.some((e) => e.path === '/pipelines/runner/jwks.json')).toBe(false);
+  });
+
+  it.each([
+    ['POST', '/pipelines/runners/signing-key', 'pipeline.runner.key.generate'],
+    ['POST', '/pipelines/runners/signing-key/rotate', 'pipeline.runner.key.rotate'],
+    ['DELETE', '/pipelines/runners/signing-key/rotate', 'pipeline.runner.key.cancel'],
+    ['POST', '/pipelines/runners/signing-key/finish', 'pipeline.runner.key.finish'],
+    ['POST', '/pipelines/runners/signing-key/revoke', 'pipeline.runner.key.revoke'],
+    ['PUT', '/pipelines/runners/signing-key/mode', 'pipeline.runner.key.mode'],
+  ])('%s %s: org_settings:write + MFA-grade + step-up, no feature, audited %s', (method, path, action) => {
+    const r = route(method, path);
+    expect(r.auth).toBe(true);
+    expect(perms(r)).toEqual(['org_settings:write']);
+    expect(r.features).toEqual([]);
+    expect(r.stepUp).toBe(true);
+    expect(r.minAssurance).toBe(2);
+    expect(r.audit).toEqual([action]);
+  });
+
+  it.each([
+    ['GET', '/pipelines/admin/runner-signing-keys', 'orgs:read', false, []],
+    ['GET', '/pipelines/admin/runner-deliveries', 'orgs:read', false, []],
+    ['POST', '/pipelines/admin/orgs/:orgId/runner-signing-key/revoke', 'orgs:manage', true, ['pipeline.runner.key.system_revoke']],
+    ['PUT', '/pipelines/admin/runner-deliveries', 'orgs:manage', true, ['pipeline.runner.deliveries.pause', 'pipeline.runner.deliveries.resume']],
+  ])('%s %s: system org + %s + MFA-grade (step-up %s)', (method, path, perm, stepUp, audit) => {
+    const r = route(method, path);
+    expect(r.systemOrg).toBe(true);
+    expect(perms(r)).toEqual([perm]);
+    expect(r.minAssurance).toBe(2);
+    expect(r.stepUp).toBe(stepUp);
+    expect(r.audit).toEqual(audit);
+  });
+
+  it('POST /pipelines/internal/runner-signing-keys/reencrypt: platform only', () => {
+    const r = route('POST', '/pipelines/internal/runner-signing-keys/reencrypt');
+    expect(r.internalCallers).toEqual(['platform']);
+    expect(r.audit).toEqual(['pipeline.runner.key.reencrypt']);
   });
 
   it('no poll-mode route exists', () => {

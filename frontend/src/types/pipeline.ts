@@ -6,6 +6,7 @@
  *  and its execution counts. */
 
 import type { Criticality, EntityLink, Lifecycle, OwnerType, TemplateInput, Visibility } from '@pipeline-builder/api-core';
+import type { DoraLevel } from '@pipeline-builder/api-core/wire-vocabulary';
 
 /**
  * Builder props for pipeline configuration.
@@ -87,8 +88,8 @@ export interface Pipeline {
   deletedBy?: string;
 }
 
-/** DORA performance band (shared with the reporting domain type). */
-export type ScorecardDoraLevel = 'elite' | 'high' | 'medium' | 'low' | null;
+/** DORA performance band (api-core's `DORA_LEVELS`, the reporting domain's `DoraLevel`). */
+export type ScorecardDoraLevel = DoraLevel;
 
 /**
  * Per-pipeline maturity scorecard: compliance posture + DORA bands → a graded

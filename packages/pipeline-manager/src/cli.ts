@@ -29,6 +29,7 @@ import { publishPlugin } from './commands/publish-plugin.js';
 import { redriveEvents } from './commands/redrive-events.js';
 import { register } from './commands/register.js';
 import { report } from './commands/report.js';
+import { runnerSigningKey } from './commands/runner-signing-key.js';
 import { securityReport } from './commands/security-report.js';
 import { setupEvents } from './commands/setup-events.js';
 import { setupRunner } from './commands/setup-runner.js';
@@ -162,7 +163,8 @@ function displayStartupInfo(options: CliOptions): void {
       cwd: process.cwd(),
       env: {
         debug: process.env.DEBUG,
-        token: process.env[ENV_VARS.PLATFORM_TOKEN] ? 'set': 'not set',
+        // Keyed `credential`, not `token`: the log redactor masks token-named keys.
+        credential: process.env[ENV_VARS.PLATFORM_TOKEN] ? 'PLATFORM_TOKEN set' : 'PLATFORM_TOKEN not set',
         url: process.env[ENV_VARS.PLATFORM_BASE_URL] || 'default',
       },
     });
@@ -182,6 +184,7 @@ Command groups:
   plugin    Author, validate, and publish plugins (new, validate, test, publish, upload, get, list, deprecate, yank, verify)
   template  Instantiate golden-path pipeline templates and validate {{ ... }} syntax (instantiate, validate)
   infra     Set up and operate platform infrastructure (bootstrap, setup-events, redrive-events, setup-runner, store-token, provision)
+  runner    Your organization's pipeline runners (signing-key status, generate, rotate, finish)
   audit     Operator audits, cron-friendly (tokens, stacks)
   org       Organization data operations (export)
   security-report  Upload SARIF / trivy / grype reports produced inside a pipeline (upload)
@@ -276,6 +279,10 @@ function registerTaskNamespaces(): void {
   setupRunner(infra); // infra setup-runner — cross-account pipeline runner (signed pushes to its Function URL)
   storeToken(infra); // infra store-token — service-account key in Secrets Manager for CDK
   provision(infra); // infra provision — AI-assisted deploy/teardown of the platform
+
+  // runner — the org's pipeline runners (install one with infra setup-runner: one per AWS account per org)
+  const runner = program.command('runner').description('Your organization\'s pipeline runners (install one per AWS account with infra setup-runner)');
+  runnerSigningKey(runner); // runner signing-key — status / generate / rotate / finish of the org's runner signing key
 
   // audit — operator audits (cron-friendly: exit 1 on findings)
   const audit = program.command('audit').description('Operator audits (cron-friendly: exit 1 on findings)');

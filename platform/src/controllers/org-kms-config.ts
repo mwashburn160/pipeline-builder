@@ -15,6 +15,8 @@
  *
  * After PUT, the in-process provider's cache for the affected org is
  * evicted so the next write/read picks up the new key without a restart.
+ * PUT and DELETE then have the pipeline service re-wrap the org's runner
+ * signing keys (services/runner-key-reencrypt.ts).
  *
  * The endpoint never returns the wrapped master ciphertext in GET responses —
  * it's safe to log / commit (only the KMS CMK can unwrap it), but echoing
@@ -36,6 +38,7 @@ import { audit } from '../helpers/audit.js';
 import { requireSystemAdmin, withController } from '../helpers/controller-helper.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { Organization } from '../models/index.js';
+import { reencryptRunnerSigningKeys, type RunnerKeyReencryptResult } from '../services/runner-key-reencrypt.js';
 import { captureOrgSecrets, reencryptOrgSecrets } from '../services/secret-reencrypt.js';
 import { orgKmsConfigSchema, validateBody } from '../utils/validation.js';
 
@@ -57,6 +60,18 @@ function evictPerOrgCache(orgId: string): void {
     provider.evict(orgId);
     logger.info('Evicted per-org KMS cache after config change', { orgId });
   }
+}
+
+/** The org's current per-org config, or null when it has none (the shared provider). */
+function currentKmsConfig(cfg: { keyId?: string; ciphertextBase64?: string } | undefined): { keyId: string; ciphertextBase64: string } | null {
+  return cfg?.keyId && cfg?.ciphertextBase64 ? { keyId: cfg.keyId, ciphertextBase64: cfg.ciphertextBase64 } : null;
+}
+
+/** Audit / response fields for the pipeline service's runner-key re-encrypt. */
+function runnerKeyDetails(result: RunnerKeyReencryptResult): Record<string, unknown> {
+  return result.ok
+    ? { runnerKeysReencrypted: result.counts.reencrypted, runnerKeysScanned: result.counts.scanned }
+    : { runnerKeysReencryptError: result.error, ...(result.counts ? { runnerKeyFailures: result.counts.failures } : {}) };
 }
 
 /** GET /api/admin/orgs/:orgId/kms-config */
@@ -83,8 +98,14 @@ export const getOrgKmsConfig = withController('Get org KMS config', async (req, 
  *     becomes active on the next encrypt call.
  *  3. Re-encrypt the captured plaintexts under the NEW provider.
  *
+ *  4. Ask the pipeline service to re-wrap the org's runner signing keys
+ *     (Postgres), handing it the config they were written under.
+ *
  * Opt out with `?reencrypt=false` only when you know the org has no
- * stored secrets yet — otherwise existing secrets become unreadable.
+ * stored secrets yet — otherwise existing secrets (and runner signing keys)
+ * become unreadable. A runner-key failure is reported (500, audited), never
+ * swallowed: the config is saved by then, so the operator must rerun the
+ * pipeline re-encrypt for the org.
  */
 export const putOrgKmsConfig = withController('Put org KMS config', async (req, res) => {
   if (!requireSystemAdmin(req, res)) return;
@@ -116,6 +137,7 @@ export const putOrgKmsConfig = withController('Put org KMS config', async (req, 
     }
   }
 
+  const previousKmsConfig = currentKmsConfig(org.kmsConfig);
   org.kmsConfig = { keyId: parsed.keyId, ciphertextBase64: parsed.ciphertextBase64 };
   org.markModified('kmsConfig');
   await org.save();
@@ -140,14 +162,26 @@ export const putOrgKmsConfig = withController('Put org KMS config', async (req, 
     }
   }
 
+  const runnerKeys = reencrypt ? await reencryptRunnerSigningKeys({ orgId, previousKmsConfig }) : undefined;
+  if (runnerKeys && !runnerKeys.ok) {
+    logger.error('KMS rotation: runner signing key re-encryption failed after config change', { orgId, error: runnerKeys.error });
+  }
+
   audit(req, 'admin.org.kms-config.upsert', {
     targetType: 'org-kms-config',
     targetId: orgId,
     affectedOrgId: orgId,
-    details: { keyId: parsed.keyId, ...(reencryptCounts ?? {}) },
+    details: { keyId: parsed.keyId, ...(reencryptCounts ?? {}), ...(runnerKeys ? runnerKeyDetails(runnerKeys) : {}) },
   });
 
-  sendSuccess(res, 200, { configured: true, keyId: parsed.keyId, ...(reencryptCounts ?? {}) });
+  if (runnerKeys && !runnerKeys.ok) {
+    return sendError(
+      res, 500,
+      `KMS config saved and platform secrets re-encrypted, but ${runnerKeys.error}. That org's pipeline runners cannot sign until the pipeline re-encrypt is rerun for it.`,
+    );
+  }
+
+  sendSuccess(res, 200, { configured: true, keyId: parsed.keyId, ...(reencryptCounts ?? {}), ...(runnerKeys ? runnerKeyDetails(runnerKeys) : {}) });
 });
 
 /** DELETE /api/admin/orgs/:orgId/kms-config */
@@ -162,19 +196,34 @@ export const deleteOrgKmsConfig = withController('Delete org KMS config', async 
     return sendSuccess(res, 200, { configured: false, message: 'No KMS config to clear' });
   }
 
+  const previousKmsConfig = currentKmsConfig(org.kmsConfig);
   org.kmsConfig = undefined;
   org.markModified('kmsConfig');
   await org.save();
 
   evictPerOrgCache(orgId);
 
+  // The org's runner signing keys move from its CMK to the shared provider.
+  const runnerKeys = await reencryptRunnerSigningKeys({ orgId, previousKmsConfig });
+  if (!runnerKeys.ok) {
+    logger.error('KMS config cleared: runner signing key re-encryption failed', { orgId, error: runnerKeys.error });
+  }
+
   audit(req, 'admin.org.kms-config.delete', {
     targetType: 'org-kms-config',
     targetId: orgId,
     affectedOrgId: orgId,
+    details: runnerKeyDetails(runnerKeys),
   });
 
-  sendSuccess(res, 200, { configured: false });
+  if (!runnerKeys.ok) {
+    return sendError(
+      res, 500,
+      `KMS config cleared, but ${runnerKeys.error}. That org's pipeline runners cannot sign until the pipeline re-encrypt is rerun for it.`,
+    );
+  }
+
+  sendSuccess(res, 200, { configured: false, ...runnerKeyDetails(runnerKeys) });
 });
 
 /**

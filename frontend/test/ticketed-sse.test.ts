@@ -121,6 +121,55 @@ describe('useTicketedSSE', () => {
     expect(onGiveUp).toHaveBeenCalledTimes(1);
   });
 
+  it('a stream that opens then drops at once still backs off and exhausts maxRetries', async () => {
+    // A flapping endpoint (accepts, then drops immediately) must not reset the
+    // backoff on every open — that reconnected at the base delay forever and a
+    // bounded stream never gave up.
+    const onGiveUp = jest.fn<AnyFn>();
+    renderTicketed({ onGiveUp, maxRetries: 2 });
+    await flush();
+    for (let i = 0; i < 5; i++) {
+      act(() => latest().onopen?.({}));
+      act(() => latest().onerror?.({}));
+      await runBackoff();
+    }
+    expect(MockEventSource.instances).toHaveLength(3); // first + 2 retries
+    expect(onGiveUp).toHaveBeenCalledTimes(1);
+  });
+
+  it('grows the delay across open-then-drop cycles', async () => {
+    renderTicketed();
+    await flush();
+    act(() => latest().onopen?.({}));
+    act(() => latest().onerror?.({}));
+    await act(async () => { jest.advanceTimersByTime(2_000); });
+    await flush();
+    expect(MockEventSource.instances).toHaveLength(2);
+    act(() => latest().onopen?.({}));
+    act(() => latest().onerror?.({}));
+    // Second attempt waits 4 s, not the base 2 s again.
+    await act(async () => { jest.advanceTimersByTime(2_000); });
+    await flush();
+    expect(MockEventSource.instances).toHaveLength(2);
+    await act(async () => { jest.advanceTimersByTime(2_000); });
+    await flush();
+    expect(MockEventSource.instances).toHaveLength(3);
+  });
+
+  it('resets the retry budget once a connection has stayed up', async () => {
+    const onGiveUp = jest.fn<AnyFn>();
+    renderTicketed({ onGiveUp, maxRetries: 1 });
+    await flush();
+    act(() => latest().onerror?.({}));
+    await runBackoff();
+    act(() => latest().onopen?.({}));
+    await act(async () => { jest.advanceTimersByTime(60_000); });
+    act(() => latest().onerror?.({}));
+    await runBackoff();
+    expect(MockEventSource.instances).toHaveLength(3);
+    expect(onGiveUp).not.toHaveBeenCalled();
+  });
+
   it('a new subscription key restarts a stream that gave up', async () => {
     const getTicket = jest.fn<AnyFn>().mockRejectedValue(new Error('503'));
     const onGiveUp = jest.fn<AnyFn>();

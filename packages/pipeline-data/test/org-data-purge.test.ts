@@ -177,6 +177,30 @@ describe('purgeOrgData — a failing table', () => {
   });
 });
 
+describe('runner signing keys (HARD: purged outright, key material and all)', () => {
+  it('removes the purged org\'s key rows and key mode, and nobody else\'s', async () => {
+    const insertKey = (org: string, kid: string, state: string, enc: string | null) => owner((q) => q.query(
+      `INSERT INTO pipeline_runner_signing_keys (org_id, kid, public_jwk, private_key_enc, state, activates_at)
+       VALUES ($1, $2, '{}'::jsonb, $3, $4, now())`, [org, kid, enc, state]));
+    await insertKey(ORG, 'purge-k1', 'active', '{"alg":"aes-256-gcm-v1"}');
+    await insertKey(ORG, 'purge-k2', 'retired', null);
+    await insertKey(OTHER, 'purge-k3', 'active', '{"alg":"aes-256-gcm-v1"}');
+    await owner((q) => q.query("INSERT INTO pipeline_runner_key_settings (org_id, mode) VALUES ($1, 'own'), ($2, 'own')", [ORG, OTHER]));
+    try {
+      const result = await purgeOrgData('pipeline', ORG);
+      expect(result.failed).toEqual([]);
+      expect(result.tables.pipeline_runner_signing_keys).toEqual({ ok: true, rowCount: 2 });
+      expect(result.tables.pipeline_runner_key_settings).toEqual({ ok: true, rowCount: 1 });
+      for (const table of ['pipeline_runner_signing_keys', 'pipeline_runner_key_settings']) {
+        const left = await owner((q) => q.query<{ org_id: string }>(`SELECT DISTINCT org_id FROM ${table}`));
+        expect([table, left.rows.map((r) => r.org_id)]).toEqual([table, [OTHER]]);
+      }
+    } finally {
+      await owner((q) => q.exec('DELETE FROM pipeline_runner_signing_keys; DELETE FROM pipeline_runner_key_settings;'));
+    }
+  });
+});
+
 describe('a database created before a table shipped (init script = new installs only)', () => {
   const insertRunner = (org: string) => owner((q) => q.query(
     "INSERT INTO pipeline_runners (org_id, label, function_url) VALUES ($1, 'r', 'https://abc.lambda-url.us-east-1.on.aws/')", [org]));

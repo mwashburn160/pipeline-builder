@@ -13,6 +13,7 @@
  */
 
 import type { ToolchainResolvedVia } from '@pipeline-builder/api-core/plugin-catalog';
+import type { QueuedRunRequestDto } from '@pipeline-builder/api-core/pipeline-runners';
 
 import type { VulnGrade, VulnSeverity } from '@/lib/plugin-vulns';
 import type { PluginFinding } from './plugin-vulnerability-types';
@@ -209,7 +210,7 @@ export interface PipelinePluginWarning {
 
 /** Per-pipeline outcome of an upgrade apply. */
 export type PluginUpgradeOutcome =
-  | { pipelineId: string; status: 'upgraded'; applied: AppliedUpgrade[]; pluginWarnings?: PipelinePluginWarning[]; redeploy?: { executionId: string } | { error: string } }
+  | { pipelineId: string; status: 'upgraded'; applied: AppliedUpgrade[]; pluginWarnings?: PipelinePluginWarning[]; redeploy?: QueuedRunRequestDto | { error: string } }
   | { pipelineId: string; status: 'unchanged' }
   | { pipelineId: string; status: 'failed'; error: string };
 

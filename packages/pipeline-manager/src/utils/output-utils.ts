@@ -3,7 +3,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { errorMessage } from '@pipeline-builder/api-core';
+import { errorMessage, redactSensitive } from '@pipeline-builder/api-core';
 import pico from 'picocolors';
 import YAML from 'yaml';
 import {
@@ -65,7 +65,9 @@ function logOutput(level: LogLevel, message: string, data?: unknown): void {
   const write = writers[level] ?? console.log;
 
   write(`${color(prefix)} ${message}`);
-  if (data !== undefined) write(dim(formatDataForLog(data)));
+  // Diagnostic data is masked with the services' shared key rules: a caller
+  // passing a response body or headers must never print a token/password.
+  if (data !== undefined) write(dim(formatDataForLog(redactSensitive(data))));
 }
 
 function formatDataForLog(data: unknown): string {

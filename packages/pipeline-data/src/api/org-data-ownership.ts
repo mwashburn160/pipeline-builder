@@ -31,6 +31,12 @@ export type OrgDataOwner = 'platform' | 'ops-center' | 'pipeline' | 'plugin' | '
 export interface OrgScopedTable {
   readonly table: PgTable;
   readonly name: string;
+  /**
+   * SQL column names that must never leave the owning service — not in an API
+   * answer, a log, an audit entry, or the org-data EXPORT (which strips them
+   * from every row). Absent = none.
+   */
+  readonly secretColumns?: readonly string[];
 }
 
 /** The tables one owner purges: tombstoned (`soft`) or removed (`hard`). */
@@ -39,7 +45,8 @@ export interface OrgDataSlice {
   readonly hard: readonly OrgScopedTable[];
 }
 
-const t = (table: PgTable, name: string): OrgScopedTable => ({ table, name });
+const t = (table: PgTable, name: string, secretColumns?: readonly string[]): OrgScopedTable => (
+  secretColumns ? { table, name, secretColumns } : { table, name });
 
 /**
  * Every org-scoped table, by the service that owns (writes) it. A new table with
@@ -83,6 +90,10 @@ export const ORG_DATA_OWNERSHIP: Readonly<Record<OrgDataOwner, OrgDataSlice>> = 
       // run requests delivered to them.
       t(schema.pipelineRunner, 'pipeline_runners'),
       t(schema.pipelineRunRequest, 'pipeline_run_requests'),
+      // The org's run-request signing keys (HARD: purge removes the rows, key
+      // material and all — never tombstoned) and its key mode.
+      t(schema.pipelineRunnerSigningKey, 'pipeline_runner_signing_keys', ['private_key_enc']),
+      t(schema.pipelineRunnerKeySettings, 'pipeline_runner_key_settings'),
     ],
   },
   'plugin': {
@@ -170,4 +181,15 @@ export const ORG_SCOPED_TABLE_NAMES: ReadonlySet<string> = new Set(
 /** Every org-scoped table, across every owner (the read-only export walks these). */
 export function allOrgScopedTables(): OrgScopedTable[] {
   return Object.values(ORG_DATA_OWNERSHIP).flatMap((s) => [...s.soft, ...s.hard]);
+}
+
+/**
+ * One exported row without the table's {@link OrgScopedTable.secretColumns}.
+ * Rows read through drizzle carry camelCase keys, raw SQL rows snake_case, so
+ * both spellings of each column are dropped.
+ */
+export function redactSecretColumns<R extends Record<string, unknown>>(scoped: OrgScopedTable, row: R): Partial<R> {
+  if (!scoped.secretColumns?.length) return row;
+  const drop = new Set(scoped.secretColumns.flatMap((c) => [c, c.replace(/_([a-z0-9])/g, (_m, ch: string) => ch.toUpperCase())]));
+  return Object.fromEntries(Object.entries(row).filter(([k]) => !drop.has(k))) as Partial<R>;
 }

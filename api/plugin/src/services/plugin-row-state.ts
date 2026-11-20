@@ -11,13 +11,18 @@
  * scoped by the explicit org ids — the parent's rows sit outside the caller's RLS).
  */
 
+import type { PluginLookupNotFoundState } from '@pipeline-builder/api-core';
 import { anyText, executeRows, isVersionRange, scopeOrgIds, type ResolutionScope } from '@pipeline-builder/pipeline-data';
 import { sql } from 'drizzle-orm';
 
 import { elevated } from './ecosystem/store.js';
 
-/** The state a lookup 404 carries in `details.state`. */
-export type PluginRowState = 'live' | 'deleted' | 'inactive' | 'yanked' | 'missing';
+/**
+ * What the org's rows say: `live`, or one of api-core's lookup not-found states
+ * (`PLUGIN_LOOKUP_NOT_FOUND_STATES`, the vocabulary a lookup 404 carries in
+ * `details.state` and the CLI reads back).
+ */
+export type PluginRowState = 'live' | PluginLookupNotFoundState;
 
 /** The state of the org rows `filter` names (by id, or by name and an exact version). */
 export async function pluginRowState(scope: ResolutionScope, filter: { id?: unknown; name?: unknown; version?: unknown }): Promise<PluginRowState> {

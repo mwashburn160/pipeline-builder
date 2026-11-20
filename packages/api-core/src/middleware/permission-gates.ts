@@ -13,7 +13,6 @@ import { HttpStatus } from '../constants/http-status.js';
 import { auditAuthBlock, currentAuditContext, sanitizeCorrelationId, sanitizeUserAgent, type AuditAuthBlock } from '../services/audit-context.js';
 import { serviceIdentity } from '../services/service-keys.js';
 import { ErrorCode } from '../types/error-codes.js';
-import { OPERATOR_GRANTED_FEATURE_FLAGS, type FeatureFlag } from '../types/feature-flags.js';
 import { type Permission, hasPermission } from '../types/permissions.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
@@ -292,17 +291,6 @@ export function requireSystemAdmin(
 tagRouteGate(requireSystemAdmin, { kind: 'systemAdmin' });
 
 /**
- * The refusal for a caller missing `feature`. A plan feature is bought with a
- * higher plan; an operator-granted one is in NO plan, so "upgrade" would be a
- * dead end — the caller has to ask the platform operator instead.
- */
-function featureRefusal(feature: string): string {
-  return OPERATOR_GRANTED_FEATURE_FLAGS.includes(feature as FeatureFlag)
-    ? `This feature is not enabled for your organization; ask your platform operator to enable it (${feature})`
-    : `This feature requires a higher plan (${feature})`;
-}
-
-/**
  * Require a specific feature flag. Use after requireAuth.
  * Checks the `features` array in the JWT payload (set at token issuance).
  * Sysadmins (isSuperAdmin) bypass — they always have every feature.
@@ -322,7 +310,7 @@ export function requireFeature(feature: string) {
       // requirePermission / requireSystemAdmin so a probe for an
       // unentitled capability leaves a trail (state-changing methods only).
       recordAuthzDenial(req, `feature:${feature}`);
-      return sendError(res, HttpStatus.FORBIDDEN, featureRefusal(feature), ErrorCode.INSUFFICIENT_PERMISSIONS);
+      return sendError(res, HttpStatus.FORBIDDEN, `This feature requires a higher plan (${feature})`, ErrorCode.INSUFFICIENT_PERMISSIONS);
     }
 
     next();

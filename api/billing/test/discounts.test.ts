@@ -706,6 +706,21 @@ describe('preview', () => {
     expect(subDoc.creditBalanceCents).toBe(0); // not applied
     expect(mockApplyUsageCredit).not.toHaveBeenCalled();
   });
+
+  // The preview must project the credit the apply would GRANT. A bundle-scoped
+  // percent code is a percentage of the scoped add-on subtotal, not of the plan:
+  // previewing it against the plan showed a figure the redemption never banked.
+  it('projects a bundle-scoped percent coupon against the scoped subtotal, as apply grants it', async () => {
+    subDoc = freshSub({ addons: [{ bundleId: 'support_premium', quantity: 1 }] });
+    mockDiscountBaseCents.mockImplementation((d: { appliesToBundles?: readonly string[] }, planCents: number) => (d.appliesToBundles?.length ? 2000 : planCents));
+    await mockDiscountCreate({ _id: 'disc_pv_scoped', value: 50, unit: 'percent', kind: 'onetime', isActive: true, alias: 'HALFSUPPORT', appliesToBundles: ['support_premium'] });
+    await call(handler('post', '/subscriptions/:id/discounts/preview'), { user: { sub: 'u1', organizationId: 'org-cust' }, params: { id: 'sub-1' }, body: { code: 'HALFSUPPORT' } });
+    const [, status, body] = mockSendSuccess.mock.calls[0];
+    expect(status).toBe(200);
+    // 50% of the $20 scoped subtotal = $10 credit against the $49 plan → $39.
+    expect((body as any).priceBreakdown.totalCents).toBe(3900);
+    mockDiscountBaseCents.mockImplementation(defaultDiscountBase);
+  });
 });
 
 describe('DELETE /subscriptions/:id/discounts/:discountId (stop recurring)', () => {

@@ -22,7 +22,7 @@ jest.unstable_mockModule('axios', () => ({
   default: { post: mockPost },
 }));
 
-const { requestDeviceCode, pollForDeviceToken, DeviceAuthError } = await import('../src/utils/device-auth.js');
+const { browserOpener, requestDeviceCode, pollForDeviceToken, DeviceAuthError } = await import('../src/utils/device-auth.js');
 
 const transport = {
   url: 'https://platform.example.com',
@@ -161,5 +161,23 @@ describe('pollForDeviceToken', () => {
     mockPost.mockResolvedValue({ status: 200, data: { token_type: 'Bearer' } });
 
     await expect(pollForDeviceToken(transport, CODE)).rejects.toThrow(/returned no token/);
+  });
+});
+
+describe('browserOpener', () => {
+  const url = 'https://platform.example.com/auth/device?user_code=BCDF-GHJK&x=1%26calc';
+
+  it('Windows: never routes the URL through cmd.exe, where `&` would chain a command', () => {
+    const o = browserOpener(url, 'win32');
+    expect(o).not.toBeNull();
+    expect(o!.command.toLowerCase()).not.toMatch(/cmd/);
+    expect(o!.args[o!.args.length - 1]).toBe(url);
+    expect(o).toEqual({ command: 'rundll32', args: ['url.dll,FileProtocolHandler', url] });
+  });
+
+  it('macOS / Linux: the URL is the opener\'s only argument; other platforms have none', () => {
+    expect(browserOpener(url, 'darwin')).toEqual({ command: 'open', args: [url] });
+    expect(browserOpener(url, 'linux')).toEqual({ command: 'xdg-open', args: [url] });
+    expect(browserOpener(url, 'aix')).toBeNull();
   });
 });

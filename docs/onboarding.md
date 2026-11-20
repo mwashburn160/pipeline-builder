@@ -97,7 +97,7 @@ additional organization.
 | 4 | Create an access key | — you do this | `auth pat` |
 | 5 | Store the service-account keys *(AWS)* | ✅ `--with-events` | `infra store-token` (×4: platform, `registry:push`, `pipeline_registry:write`, `reporting:ingest`) |
 | 6 | Set up event reporting *(AWS)* | ✅ `--with-events` | `infra setup-events --scoped-ingest` |
-| 6b | Install a pipeline runner *(optional; pipelines in other AWS accounts)* | — run in that account | `infra setup-runner` |
+| 6b | Install a pipeline runner *(before your first Run; one per AWS account)* | — run in that account | `infra setup-runner` |
 | 7 | Create your first pipeline | — you do this | Dashboard / CLI / CDK |
 
 Steps 5–6 apply to the AWS targets (EC2/EKS), where pipelines run on CodePipeline
@@ -304,18 +304,24 @@ Full detail: [Deploy EventBridge Reporting Infrastructure](aws-deployment.md#3-d
 
 ---
 
-## Step 6b — Install a pipeline runner *(optional, AWS)*
+## Step 6b — Install a pipeline runner *(before your first Run)*
 
-Only needed for pipelines deployed into an AWS account **other than the
-platform's**. In the platform's own account, Re-run and Stop already work with
-the platform's credentials — a runner there adds nothing, which is why
-`provision` does not install one.
+**Install a runner before you run your first pipeline.** Runners are the only
+way the platform starts and stops pipelines: it never has pipelines in its own
+AWS account and holds no CodePipeline access, so Run on a pipeline whose
+account has no runner answers `NO_RUNNER` and links back here. `provision` does
+not install one, because the runner lives in the account your pipelines deploy
+to, with that account's credentials.
 
 A runner is a small Lambda in **your** account. The platform queues run
 requests and pushes them, signed, to the runner's Function URL; the runner finds
 the pipeline by its `pb.pipeline-id` tag and starts or stops it with its own
 role. The platform holds no AWS access to the account, no account number, and
-the runner holds no platform credential. Run this once per AWS account, with
+the runner holds no platform credential. **One runner per AWS account per
+organization** covers every region it lists; `setup-runner` refuses a second one
+of your org in an account and warns when another org's runner is already there
+(a shared AWS account is a shared trust boundary: give each org distinct
+`--pipeline-prefix` values). Run this once per AWS account, with
 credentials for that account (an org admin with `org_settings:write`; it asks
 for a step-up):
 
@@ -325,15 +331,19 @@ pipeline-manager auth login
 pipeline-manager infra setup-runner --region us-east-1 --regions us-east-1,eu-west-2 --label prod
 ```
 
-It deploys the runner stack, registers the runner with the platform, and runs a
-test. Manage runners under **Settings → Organization → Pipeline runners**;
+It registers the runner with the platform, deploys its stack and runs a test.
+Your organization's first runner also creates its **runner signing key**: every
+run request is signed with it, and only your org's runners trust it. View and
+rotate it on the **Signing key** card, or with
+`pipeline-manager runner signing-key status|rotate|finish`. A team uses its
+parent's shared runners and key with no setup. Manage runners under **Settings → Organization → Pipeline runners**;
 remove one with `pipeline-manager infra setup-runner --delete`. Prefer no
 inbound endpoint? Use `pipeline-manager pipeline run --id <pipelineId>` (and
 `pipeline stop`) with your own AWS credentials instead. Full detail:
 [Cross-account pipeline runner](aws-deployment.md#cross-account-pipeline-runner).
 
-> Cross-account runners are a per-org feature (`cross_account_runners`) the
-> platform operator grants, on a deployment that has the runner signing key.
+> Runners are available to every org; there is no feature to request and
+> nothing for the platform operator to configure.
 
 ---
 

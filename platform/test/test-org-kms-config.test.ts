@@ -80,6 +80,12 @@ jest.unstable_mockModule('../src/services/secret-reencrypt.js', () => ({
   reencryptOrgSecrets: jest.fn<AnyFn>(),
 }));
 
+// PUT/DELETE also hand off to the pipeline service's runner-key re-encrypt
+// (covered in org-kms-config-rotation.test.ts); irrelevant to the dry-run.
+jest.unstable_mockModule('../src/services/runner-key-reencrypt.js', () => ({
+  reencryptRunnerSigningKeys: jest.fn<AnyFn>(),
+}));
+
 // The controller validates via utils/validation.js. The
 // real module transitively loads config + the Mongoose user model; mock it
 // with a faithful stand-in (same schema shape + 400-on-fail behavior) so this

@@ -5,20 +5,33 @@
  * The run request lifecycle after it is queued: push delivery (one attempt per
  * dispatch job, retried on the documented schedule until the request expires),
  * terminal bookkeeping (status, metrics, audit, the registry link), runner
- * health (unreachable after 5 consecutive transport failures, paused delivery,
- * an org notice, a ping every 5 min, resume on success) and the periodic sweep
- * (expiry, health pings, the unhealthy gauge).
+ * health and the periodic sweep.
+ *
+ * Health: with one runner per AWS account per org and no failover, a broken
+ * runner stops every pipeline in that account, so detection is fast. The sweep
+ * sends a signed ping to EVERY active runner each
+ * RUNNER_HEALTH_PING_INTERVAL_SECONDS; RUNNER_UNHEALTHY_AFTER_PINGS failed pings
+ * in a row mark it unreachable, and a SIGNATURE_INVALID or RUNNER_REFUSED reply
+ * does at once (a key or configuration problem, not a blip). Delivery transport
+ * failures count too (UNREACHABLE_AFTER_FAILURES in a row). Unreachable pauses
+ * its deliveries and notices the owning org's admins and the admins of teams
+ * using it; a later pong recovers it, says so, and resumes the queued runs.
+ *
+ * The sweep (leader-locked by the scheduler) also expires requests, keeps
+ * retention, re-kicks queued requests, advances the signing-key lifecycle
+ * (promote, retire, transitions, age reminders) and publishes the unhealthy gauge.
  */
 
-import { createLogger, SYSTEM_ACTOR_ID } from '@pipeline-builder/api-core';
-import type { RunnerReplyErrorCode, TerminalRunRequestStatus } from '@pipeline-builder/api-core/pipeline-runners';
-import { deliverPush, type ReplyVerdict } from './delivery.js';
+import { createLogger, errorMessage, SYSTEM_ACTOR_ID } from '@pipeline-builder/api-core';
+import { RUNNER_API_ERROR_CODES, type RunnerReplyErrorCode, type TerminalRunRequestStatus } from '@pipeline-builder/api-core/pipeline-runners';
+import { deliverPush, verdictCode, type ReplyVerdict } from './delivery.js';
 import type { RunnerDeps } from './deps.js';
+import { advanceKeyTransitions, promoteDueKeys, retireDueKeys, sendKeyAgeReminders } from './keys.js';
 import type { RunRequestRow, RunnerRow } from './store.js';
 import {
-  backoffMs, MAX_IN_FLIGHT_PER_RUNNER, NO_MATCH, PENDING_RUNNER_TTL_MS, PENDING_STATUSES, TERMINAL_STATUSES, NOT_YET_VISIBLE_RETRY_MS,
+  backoffMs, NO_MATCH, PENDING_RUNNER_TTL_MS, PENDING_STATUSES, TERMINAL_STATUSES, NOT_YET_VISIBLE_RETRY_MS,
   NOT_YET_VISIBLE_WINDOW_MS, RUN_REQUEST_EXPIRED, runnerSettings, SYSTEM_PLUGIN_UPGRADE, SYSTEM_RUNNER_PING, UNREACHABLE_AFTER_FAILURES,
-  UNREACHABLE_PING_INTERVAL_MS, versionBelow,
+  versionBelow,
 } from './vocabulary.js';
 
 const logger = createLogger('runner-dispatch');
@@ -158,7 +171,12 @@ export async function recordRunnerSuccess(deps: RunnerDeps, runner: RunnerRow, i
   if (version.flagged) await notifyUpdateRequired(deps, runner, info.runnerVersion!);
   if (wasUnhealthy) {
     healthAudit(deps, runner, 'healthy');
-    await resumeRunner(deps, runner.id);
+    const resumed = await resumeRunner(deps, runner.id);
+    await notifyRunnerOrgs(deps, runner, {
+      subject: `Pipeline runner "${runner.label}" is reachable again`,
+      content: `The pipeline runner "${runner.label}" answered the platform again. Runs through it have resumed${resumed > 0 ? ` (${resumed} queued run${resumed === 1 ? '' : 's'} picked up)` : ''}.`,
+      priority: 'normal',
+    });
   }
 }
 
@@ -193,32 +211,49 @@ export function updateGraceExpired(runner: RunnerRow, now: number): boolean {
 }
 
 /**
- * A transport failure: count it; the 5th consecutive one marks the runner
- * unreachable — and an `immediate` one (NXDOMAIN, AWS's "URL gone" 403) at once.
+ * A transport failure: count it; the UNREACHABLE_AFTER_FAILURES-th consecutive
+ * one marks the runner unreachable — and an `immediate` one (NXDOMAIN, AWS's
+ * "URL gone" 403) at once.
  */
 export async function recordRunnerFailure(deps: RunnerDeps, runner: RunnerRow, immediate = false): Promise<RunnerRow | null> {
   const updated = await deps.store.recordRunnerFailure(runner.id);
   if (!updated) return null;
   if (updated.health === 'healthy' && (immediate || updated.consecutiveFailures >= UNREACHABLE_AFTER_FAILURES)) {
-    return markUnreachable(deps, updated);
+    return (await markUnreachable(deps, updated, `stopped answering deliveries (${updated.consecutiveFailures} failed in a row)`)) ?? { ...updated, health: 'unreachable' as const };
   }
   return updated;
 }
 
-async function markUnreachable(deps: RunnerDeps, runner: RunnerRow): Promise<RunnerRow> {
-  // Conditional (WHERE health = 'healthy'): of two failures crossing the
-  // threshold together only one takes the transition, so the org hears once.
+/**
+ * healthy → unreachable, and the notice. Conditional (WHERE health =
+ * 'healthy'): of two failures crossing the threshold together only one takes
+ * the transition, so the orgs hear once. Returns the row when THIS call made
+ * the transition, else null.
+ */
+export async function markUnreachable(deps: RunnerDeps, runner: RunnerRow, cause: string): Promise<RunnerRow | null> {
   const updated = await deps.store.markRunnerUnreachable(runner.id);
-  if (!updated) return { ...runner, health: 'unreachable' as const };
+  if (!updated) return null;
   healthAudit(deps, runner, 'unreachable');
-  // The org's inbox (the message service's system notification). Never names the URL.
-  await deps.notify({
-    recipientOrgId: runner.orgId,
+  const every = Math.round(runnerSettings().healthPingIntervalMs / 1000);
+  // Never names the URL.
+  await notifyRunnerOrgs(deps, runner, {
     subject: `Pipeline runner "${runner.label}" is unreachable`,
-    content: `The pipeline runner "${runner.label}" stopped answering deliveries (${runner.consecutiveFailures} failed in a row). Runs through it are paused; the platform pings it every 5 minutes and resumes delivery as soon as it answers. Check the runner Lambda in your AWS account, then use "Test" under Settings → Organization → Pipeline runners.`,
+    content: `The pipeline runner "${runner.label}" ${cause}. Runs through it are paused; the platform pings it every ${every} seconds and resumes delivery as soon as it answers. Check the runner Lambda in your AWS account, then use "Test" under Settings → Pipeline runners.`,
     priority: 'high',
-  }).catch(() => false);
+  });
   return updated;
+}
+
+/**
+ * An org notice about a runner, to the owning org's admins and — when it is
+ * shared with teams — to the admins of every team with a pipeline linked to it
+ * (the message service's system notification: inbox, email, webhooks).
+ */
+async function notifyRunnerOrgs(deps: RunnerDeps, runner: Pick<RunnerRow, 'id' | 'orgId' | 'shareWithTeams'>, notice: { subject: string; content: string; priority: 'high' | 'normal' }): Promise<void> {
+  const teams = runner.shareWithTeams ? await deps.store.linkedOrgIds(runner.id, runner.orgId).catch(() => [] as string[]) : [];
+  for (const recipientOrgId of [runner.orgId, ...teams]) {
+    await deps.notify({ recipientOrgId, ...notice }).catch(() => false);
+  }
 }
 
 function healthAudit(deps: RunnerDeps, runner: RunnerRow, health: string): void {
@@ -246,16 +281,12 @@ export async function resumeRunner(deps: RunnerDeps, runnerId: string): Promise<
  * finish it or say when to retry. Expired requests are never delivered.
  */
 export async function processDelivery(deps: RunnerDeps, requestId: string): Promise<DispatchResult> {
-  // Checked per job: a lost signing key stops delivery at once. The request
-  // stays queued; the sweep re-kicks it if runners come back, else it expires.
-  if (!deps.signer()) return { done: true };
+  // Checked per job: the platform pause toggle (or lost secret encryption)
+  // stops delivery at once. The request stays queued; the sweep re-kicks it
+  // once runners are available again, else it expires.
+  if (!(await deps.runnersAvailable()).available) return { done: true };
   const request = await deps.store.getRequest(requestId);
   if (!request || TERMINAL_STATUSES.includes(request.status)) return { done: true };
-  // The org lost the `cross_account_runners` feature since it asked: refused, never delivered.
-  if (!(await deps.orgEnabled(request.orgId))) {
-    await finishRequest(deps, request, 'failed', { errorCode: 'RUNNERS_NOT_ENABLED' });
-    return { done: true };
-  }
   const now = deps.now();
   if (request.expiresAt.getTime() <= now) {
     await finishRequest(deps, request, 'expired', { errorCode: RUN_REQUEST_EXPIRED });
@@ -271,7 +302,7 @@ export async function processDelivery(deps: RunnerDeps, requestId: string): Prom
   if (request.nextAttemptAt && request.nextAttemptAt.getTime() > now) return { done: false, retryInMs: request.nextAttemptAt.getTime() - now };
 
   // At most MAX_IN_FLIGHT_PER_RUNNER deliveries to one runner at a time.
-  if ((await deps.store.countDelivering(runner.id)) >= MAX_IN_FLIGHT_PER_RUNNER) return { done: false, retryInMs: BUSY_RETRY_MS };
+  if ((await deps.store.countDelivering(runner.id)) >= runnerSettings().maxInFlightPerRunner) return { done: false, retryInMs: BUSY_RETRY_MS };
   const token = await deps.lock.acquire(request.pipelineId, LOCK_TTL_MS);
   if (!token) return { done: false, retryInMs: BUSY_RETRY_MS };
   try {
@@ -302,14 +333,23 @@ export async function hintFor(deps: RunnerDeps, request: RunRequestRow): Promise
 
 // -- Sweep --------------------------------------------------------------------
 
-export interface SweepCounts { expired: number; pinged: number; recovered: number; rekicked: number; pendingDeleted: number; retained: number }
+export interface SweepCounts {
+  expired: number; pinged: number; recovered: number; markedUnhealthy: number; rekicked: number; pendingDeleted: number; retained: number;
+}
+
+/** The signing-key lifecycle steps, run by the leader each sweep (each is idempotent). */
+const KEY_SWEEPS = [
+  ['promoteDueKeys', promoteDueKeys],
+  ['retireDueKeys', retireDueKeys],
+  ['advanceKeyTransitions', advanceKeyTransitions],
+  ['sendKeyAgeReminders', sendKeyAgeReminders],
+] as const;
 
 /** The periodic sweep (leader-locked by the scheduler). */
 export async function runSweep(deps: RunnerDeps): Promise<SweepCounts> {
   const now = deps.now();
-  const counts: SweepCounts = { expired: 0, pinged: 0, recovered: 0, rekicked: 0, pendingDeleted: 0, retained: 0 };
-  // A database created before runners (postgres-init.sql runs on new installs
-  // only) has no runner tables: nothing to sweep, and no error every cycle.
+  const counts: SweepCounts = { expired: 0, pinged: 0, recovered: 0, markedUnhealthy: 0, rekicked: 0, pendingDeleted: 0, retained: 0 };
+  // A database without the runner tables: nothing to sweep, and no error every cycle.
   if (!(await deps.store.tablesPresent())) return counts;
   const settings = runnerSettings();
   const day = 24 * 60 * 60_000;
@@ -324,44 +364,120 @@ export async function runSweep(deps: RunnerDeps): Promise<SweepCounts> {
   counts.retained += await deps.store.deleteRequestsBefore(['started', 'stopped'], new Date(now - settings.retentionDays * day));
   counts.retained += await deps.store.deleteRequestsBefore(['failed', 'expired'], new Date(now - settings.failedRetentionDays * day));
 
-  // No signing key: nothing below delivers anything.
-  if (!deps.signer()) {
-    deps.metrics.gauge('pipeline_runners_unhealthy', {}, await deps.store.countUnhealthyRunners());
+  // 2. The signing-key lifecycle: promote due `next` keys, retire `retiring`
+  // ones past retire_after, advance mode/ancestry transitions, age reminders.
+  // Independent of the pause toggle (a rotation keeps its schedule); one step
+  // failing never stops the others or the rest of the sweep.
+  for (const [name, step] of KEY_SWEEPS) {
+    try {
+      await step(deps, new Date(now));
+    } catch (err) {
+      logger.warn('Runner signing-key sweep step failed', { step: name, error: errorMessage(err) });
+    }
+  }
+
+  // Paused (or no secret encryption): nothing below delivers anything.
+  if (!(await deps.runnersAvailable()).available) {
+    deps.metrics.gauge(UNHEALTHY_GAUGE, {}, await deps.store.countUnhealthyRunners());
     return counts;
   }
 
-  // Re-kick queued requests whose job may be gone (a lost job, the signing key
-  // restored). The queue de-duplicates by request id.
+  // 3. Re-kick queued requests whose job may be gone (a lost job, the queue or
+  // deliveries back). The queue de-duplicates by request id.
   for (const r of await deps.store.listQueued(200)) {
     if (r.action === 'probe') continue;
-    if (!(await deps.orgEnabled(r.orgId))) continue; // the job will fail it RUNNERS_NOT_ENABLED; leave it to expire
     if (r.nextAttemptAt && r.nextAttemptAt.getTime() > now) continue;
     await deps.queue.enqueue(r.id);
     counts.rekicked++;
   }
 
-  // 2. Unreachable runners: a signed ping every 5 minutes.
-  for (const runner of await deps.store.listActiveRunners()) {
-    if (runner.health !== 'unreachable') continue;
-    if (!(await deps.orgEnabled(runner.orgId))) continue; // health sweeps skip orgs without the feature
-    const last = runner.updatedAt?.getTime() ?? 0;
-    if (now - last < UNREACHABLE_PING_INTERVAL_MS) continue;
-    counts.pinged++;
-    if (await pingRunner(deps, runner, SYSTEM_RUNNER_PING)) counts.recovered++;
-    else await deps.store.updateRunner(runner.id, { updatedAt: new Date(now) });
-  }
+  // 4. Health: a signed ping to every active runner each interval.
+  await healthPings(deps, now, counts);
 
-  deps.metrics.gauge('pipeline_runners_unhealthy', {}, await deps.store.countUnhealthyRunners());
-  if (counts.expired + counts.recovered > 0) logger.info('Runner sweep', { ...counts });
+  deps.metrics.gauge(UNHEALTHY_GAUGE, {}, await deps.store.countUnhealthyRunners());
+  if (counts.expired + counts.recovered + counts.markedUnhealthy > 0) logger.info('Runner sweep', { ...counts });
   return counts;
 }
 
-/** A signed ping to a runner. Success marks it healthy (and resumes delivery). */
-export async function pingRunner(deps: RunnerDeps, runner: RunnerRow, requestedBy: string): Promise<{ outcome: string } | null> {
-  const verdict = await deliverPush(deps, runner, { runnerId: runner.id, requestId: deps.newId(), action: 'ping', requestedBy });
-  if (verdict.kind === 'success') {
-    await recordRunnerSuccess(deps, runner, verdict);
-    return { outcome: verdict.outcome };
+/** Per-deps health bookkeeping: when each runner was last pinged, and its failed pings in a row. */
+interface HealthState { lastPingAt: Map<string, number>; failedPings: Map<string, number> }
+const healthStates = new WeakMap<RunnerDeps, HealthState>();
+function healthState(deps: RunnerDeps): HealthState {
+  let state = healthStates.get(deps);
+  if (!state) healthStates.set(deps, (state = { lastPingAt: new Map(), failedPings: new Map() }));
+  return state;
+}
+
+/** A ping reply that means a key or configuration problem: unhealthy at once. */
+const IMMEDIATELY_UNHEALTHY = new Set<string>(['SIGNATURE_INVALID', 'RUNNER_REFUSED'] satisfies RunnerReplyErrorCode[]);
+/** The platform's own refusals (paused, no key, an unreadable key): not the runner's fault, never counted. */
+const PLATFORM_SIDE = new Set<string>(RUNNER_API_ERROR_CODES);
+
+type PingResult = 'ok' | 'recovered' | 'failed' | 'unhealthy' | 'skipped';
+
+/** Ping every active runner whose last ping is at least an interval old (bounded concurrency). */
+async function healthPings(deps: RunnerDeps, now: number, counts: SweepCounts): Promise<void> {
+  const { healthPingIntervalMs, unhealthyAfterPings, dispatchConcurrency } = runnerSettings();
+  const state = healthState(deps);
+  const active = await deps.store.listActiveRunners();
+  const live = new Set(active.map((r) => r.id));
+  for (const map of [state.lastPingAt, state.failedPings]) for (const id of map.keys()) if (!live.has(id)) map.delete(id);
+  const due = active.filter((r) => r.functionUrl && now - (state.lastPingAt.get(r.id) ?? Number.NEGATIVE_INFINITY) >= healthPingIntervalMs);
+  for (let i = 0; i < due.length; i += dispatchConcurrency) {
+    await Promise.all(due.slice(i, i + dispatchConcurrency).map(async (runner) => {
+      state.lastPingAt.set(runner.id, now);
+      counts.pinged++;
+      const result = await healthPing(deps, runner, unhealthyAfterPings, state);
+      if (result === 'recovered') counts.recovered++;
+      if (result === 'unhealthy') counts.markedUnhealthy++;
+    }));
   }
-  return null;
+}
+
+/** One health ping and what it does to the runner's health. */
+async function healthPing(deps: RunnerDeps, runner: RunnerRow, unhealthyAfterPings: number, state: HealthState): Promise<PingResult> {
+  let verdict: ReplyVerdict;
+  try {
+    verdict = await deliverPush(deps, runner, { runnerId: runner.id, requestId: deps.newId(), action: 'ping', requestedBy: SYSTEM_RUNNER_PING });
+  } catch (err) {
+    // The platform could not sign (the org's key is missing or unreadable): not the runner's fault.
+    logger.warn('Runner health ping not sent', { runnerId: runner.id, error: errorMessage(err) });
+    return 'skipped';
+  }
+  if (verdict.kind === 'success') {
+    state.failedPings.delete(runner.id);
+    const wasUnhealthy = runner.health !== 'healthy';
+    await recordRunnerSuccess(deps, runner, verdict);
+    return wasUnhealthy ? 'recovered' : 'ok';
+  }
+  const code = verdictCode(verdict) ?? '';
+  if (PLATFORM_SIDE.has(code)) return 'skipped';
+  if (verdict.kind === 'not_yet_visible' || (verdict.kind === 'retry' && !verdict.transport)) return 'ok'; // it answered
+  if (runner.health !== 'healthy') return 'failed'; // still down: keep pinging
+  if (verdict.kind === 'fail' && IMMEDIATELY_UNHEALTHY.has(code)) {
+    state.failedPings.delete(runner.id);
+    const marked = await markUnreachable(deps, runner, `refused the platform's signed health ping (${code}): its signing keys or configuration don't match the platform's`);
+    return marked ? 'unhealthy' : 'failed';
+  }
+  const failed = (state.failedPings.get(runner.id) ?? 0) + 1;
+  state.failedPings.set(runner.id, failed);
+  if (failed >= unhealthyAfterPings || (verdict.kind === 'retry' && verdict.immediate)) {
+    state.failedPings.delete(runner.id);
+    const marked = await markUnreachable(deps, runner, `failed ${failed} health ping${failed === 1 ? '' : 's'} in a row (${code})`);
+    return marked ? 'unhealthy' : 'failed';
+  }
+  return 'failed';
+}
+
+/**
+ * `pipeline_runners_unhealthy` — the fleet-wide count of unreachable runners,
+ * published by the replica that ran the leader-locked sweep. Only the CURRENT
+ * leader may export it: a replica that lost the lock would otherwise keep its
+ * last value forever, and `max()` in RunnerUnreachable would keep firing.
+ */
+export const UNHEALTHY_GAUGE = 'pipeline_runners_unhealthy';
+
+/** This replica's sweep ran without the lock: stop exporting the count it published as leader. */
+export function dropUnhealthyGauge(deps: RunnerDeps): void {
+  deps.metrics.resetGauge(UNHEALTHY_GAUGE);
 }

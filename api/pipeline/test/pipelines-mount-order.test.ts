@@ -175,13 +175,9 @@ jest.unstable_mockModule('../src/services/pipeline-registry-service.js', () => (
   PR_PIPELINE_NOT_OWNED: 'PR_PIPELINE_NOT_OWNED',
   PR_REGISTRY_OWNED_BY_OTHER_ORG: 'PR_REGISTRY_OWNED_BY_OTHER_ORG',
 }));
-jest.unstable_mockModule('../src/services/pipeline-execution-service.js', () => ({
-  pipelineExecutionService: { triggerExecution: jest.fn(async () => ({ executionId: 'exec-1' })), stopExecution: jest.fn() },
-  PipelineExecutionError: class PipelineExecutionError extends Error {},
-  PE_PIPELINE_NOT_REGISTERED: 'PE_PIPELINE_NOT_REGISTERED',
-  PE_AWS_PIPELINE_NOT_FOUND: 'PE_AWS_PIPELINE_NOT_FOUND',
-  PE_NOT_STOPPABLE: 'PE_NOT_STOPPABLE',
-  PE_AWS_ERROR: 'PE_AWS_ERROR',
+jest.unstable_mockModule('../src/runners/execution-routing.js', () => ({
+  routeExecution: jest.fn(async () => ({ requestId: '00000000-0000-4000-8000-000000000001', status: 'queued', runnerLabel: 'prod', runnerId: '00000000-0000-4000-8000-000000000002', reused: false })),
+  assertRunnersAvailable: jest.fn(async () => undefined),
 }));
 jest.unstable_mockModule('../src/services/ai-generation-service.js', () => ({
   generatePipelineConfig: jest.fn(),

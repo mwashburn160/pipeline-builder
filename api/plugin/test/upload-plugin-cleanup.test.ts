@@ -231,3 +231,33 @@ describe('POST /plugins — extract dir cleanup', () => {
     expect(fs.existsSync(dir)).toBe(false);
   });
 });
+
+// The multipart error handler runs instead of the handler when multer refuses
+// the body. An over-size ZIP is a 413 (as on the anonymous submission path),
+// not a generic 400 — and its partial temp file is still removed.
+describe('POST /plugins — multipart errors', () => {
+  const errorLayer = (routePath: string) => {
+    const l = (router.stack as any[]).find((x) => x.route?.path === routePath && x.route?.methods?.post);
+    return l.route.stack.find((s: any) => s.handle.length === 4).handle;
+  };
+
+  it.each(['/', '/inspect'])('answers an over-size upload to %s with 413 and removes the partial file', async (routePath) => {
+    const { req, tempPath } = uploadReq();
+    const res = mockRes();
+    const next = jest.fn();
+    const err = Object.assign(new Error('File too large'), { code: 'LIMIT_FILE_SIZE' });
+
+    errorLayer(routePath)(err, req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(413);
+    expect(next).not.toHaveBeenCalled();
+    expect(fs.existsSync(tempPath)).toBe(false);
+  });
+
+  it('answers any other multipart failure with 400', () => {
+    const { req } = uploadReq();
+    const res = mockRes();
+    errorLayer('/')(new Error('Unexpected end of form'), req, res, jest.fn());
+    expect(res.status).toHaveBeenCalledWith(400);
+  });
+});

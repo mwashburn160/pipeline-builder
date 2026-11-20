@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: dc831707dc210eb35f9b51de6188b564344ee6dd0831dbdbbf95baf3ebccad11
+// SOURCE-SHA256: 73528f76ebee4d9c995b89cb591e2ce63c27b41ec801a30dd0ae2f9c22dd1572
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -2031,7 +2031,7 @@ export const apiReferenceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "48 routes, from frontend/src/generated/route-table/pipeline.json."
+          "content": "61 routes, from frontend/src/generated/route-table/pipeline.json."
         },
         {
           "type": "table",
@@ -2212,6 +2212,48 @@ export const apiReferenceTopic: HelpTopic = {
               "—"
             ],
             [
+              "GET",
+              "/pipelines/:pipelineId/runner-link",
+              "pipelines:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/pipelines/:pipelineId/runner-link/refresh",
+              "pipelines:write; MFA session (aal2); step-up",
+              "apiCalls",
+              "pipeline.runner.link.refresh"
+            ],
+            [
+              "POST",
+              "/pipelines/admin/orgs/:orgId/runner-signing-key/revoke",
+              "system org; orgs:manage; MFA session (aal2); step-up",
+              "apiCalls",
+              "pipeline.runner.key.system_revoke"
+            ],
+            [
+              "GET",
+              "/pipelines/admin/runner-deliveries",
+              "system org; orgs:read; MFA session (aal2)",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "PUT",
+              "/pipelines/admin/runner-deliveries",
+              "system org; orgs:manage; MFA session (aal2); step-up",
+              "apiCalls",
+              "pipeline.runner.deliveries.pause, pipeline.runner.deliveries.resume"
+            ],
+            [
+              "GET",
+              "/pipelines/admin/runner-signing-keys",
+              "system org; orgs:read; MFA session (aal2)",
+              "apiCalls",
+              "—"
+            ],
+            [
               "POST",
               "/pipelines/analyze/from-url",
               "pipelines:write; feature ai_generation",
@@ -2325,7 +2367,7 @@ export const apiReferenceTopic: HelpTopic = {
             ],
             [
               "GET",
-              "/pipelines/runner/jwks.json",
+              "/pipelines/runner/runners/:runnerId/jwks.json",
               "no bearer token",
               "—",
               "—"
@@ -2333,37 +2375,86 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/pipelines/runners",
-              "org_settings:write; feature cross_account_runners",
+              "org_settings:write",
               "apiCalls",
               "—"
             ],
             [
               "POST",
               "/pipelines/runners",
-              "org_settings:write; MFA session (aal2); step-up; feature cross_account_runners",
+              "org_settings:write; MFA session (aal2); step-up",
               "apiCalls",
               "pipeline.runner.register"
             ],
             [
               "DELETE",
               "/pipelines/runners/:id",
-              "org_settings:write; MFA session (aal2); step-up; feature cross_account_runners",
+              "org_settings:write; MFA session (aal2); step-up",
               "apiCalls",
               "pipeline.runner.revoke"
             ],
             [
               "PATCH",
               "/pipelines/runners/:id",
-              "org_settings:write; MFA session (aal2); step-up; feature cross_account_runners",
+              "org_settings:write; MFA session (aal2); step-up",
               "apiCalls",
               "pipeline.runner.update"
             ],
             [
+              "GET",
+              "/pipelines/runners/:id/pipelines",
+              "org_settings:write",
+              "apiCalls",
+              "—"
+            ],
+            [
               "POST",
               "/pipelines/runners/:id/test",
-              "org_settings:write; MFA session (aal2); step-up; feature cross_account_runners",
+              "org_settings:write; MFA session (aal2); step-up",
               "apiCalls",
               "pipeline.runner.test"
+            ],
+            [
+              "POST",
+              "/pipelines/runners/signing-key",
+              "org_settings:write; MFA session (aal2); step-up",
+              "apiCalls",
+              "pipeline.runner.key.generate"
+            ],
+            [
+              "POST",
+              "/pipelines/runners/signing-key/finish",
+              "org_settings:write; MFA session (aal2); step-up",
+              "apiCalls",
+              "pipeline.runner.key.finish"
+            ],
+            [
+              "PUT",
+              "/pipelines/runners/signing-key/mode",
+              "org_settings:write; MFA session (aal2); step-up",
+              "apiCalls",
+              "pipeline.runner.key.mode"
+            ],
+            [
+              "POST",
+              "/pipelines/runners/signing-key/revoke",
+              "org_settings:write; MFA session (aal2); step-up",
+              "apiCalls",
+              "pipeline.runner.key.revoke"
+            ],
+            [
+              "DELETE",
+              "/pipelines/runners/signing-key/rotate",
+              "org_settings:write; MFA session (aal2); step-up",
+              "apiCalls",
+              "pipeline.runner.key.cancel"
+            ],
+            [
+              "POST",
+              "/pipelines/runners/signing-key/rotate",
+              "org_settings:write; MFA session (aal2); step-up",
+              "apiCalls",
+              "pipeline.runner.key.rotate"
             ],
             [
               "GET",

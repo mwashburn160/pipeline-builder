@@ -5,12 +5,16 @@
  * Package a local plugin directory as the zip the upload API takes (the
  * directory IS the zip root). A small, dependency-free ZIP writer: DEFLATE
  * entries, regular files only — symlinks and anything outside the directory
- * are refused, which the server would refuse anyway.
+ * are refused, which the server would refuse anyway. So are credential files
+ * (`.env`, SSH keys, `.aws/credentials`, … — api-core's `SECRET_FILE_KINDS`,
+ * the catalog the upload refuses by): refused here, before anything is
+ * uploaded, so the secret never leaves this machine.
  */
 
 import fs from 'fs';
 import path from 'path';
 import zlib from 'zlib';
+import { SECRET_FILE_KINDS, secretFileKind } from '@pipeline-builder/api-core';
 
 /** Never packaged: build outputs and VCS/editor state. */
 const EXCLUDED = new Set(['.git', '.DS_Store', 'node_modules', 'plugin.zip']);
@@ -36,8 +40,16 @@ export function collectPluginFiles(dir: string, opts: { includeImageTar: boolean
       if (rel === 'image.tar' && !opts.includeImageTar) continue;
       const st = fs.lstatSync(full);
       if (st.isSymbolicLink()) throw new Error(`Refusing to package a symlink: ${rel}`);
-      if (st.isDirectory()) walk(full);
-      else if (st.isFile()) entries.push({ name: rel, data: fs.readFileSync(full) });
+      if (st.isDirectory()) {
+        walk(full);
+      } else if (st.isFile()) {
+        const kind = secretFileKind(rel);
+        if (kind) {
+          throw new Error(`Refusing to package ${rel}: it looks like a ${SECRET_FILE_KINDS[kind].label}. `
+            + 'Remove it from the plugin directory (pass secrets through the plugin spec `secrets` instead)');
+        }
+        entries.push({ name: rel, data: fs.readFileSync(full) });
+      }
     }
   };
   walk(root);

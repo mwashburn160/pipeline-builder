@@ -199,8 +199,10 @@ export function EditUserModal({
             from reloading the page. */}
         <form onSubmit={(e) => e.preventDefault()}>
           <label className="label" htmlFor={`${uid}-new-password-leave-blank`}>New password (leave blank to keep current)</label>
-          <input id={`${uid}-new-password-leave-blank`} type="text" name="username" autoComplete="username" value={editingUser.email} readOnly hidden />
-          <Input type="password" value={newPassword} onChange={(e) => onNewPasswordChange(e.target.value)} placeholder="Minimum 8 characters" autoComplete="new-password" disabled={locked} />
+          {/* The label belongs to the password box; the hidden username hint
+              only exists for password managers and carries no id. */}
+          <input type="text" name="username" autoComplete="username" value={editingUser.email} readOnly hidden />
+          <Input id={`${uid}-new-password-leave-blank`} type="password" value={newPassword} onChange={(e) => onNewPasswordChange(e.target.value)} placeholder="Minimum 8 characters" autoComplete="new-password" disabled={locked} />
         </form>
 
         <SysadminGrantHistory userId={editingUser.id} isSuperAdmin={editingUser.isSuperAdmin === true} />

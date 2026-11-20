@@ -267,11 +267,27 @@ describe('extractDbError', () => {
     };
     const result = extractDbError(error);
     expect(result.dbCode).toBe('23505');
-    expect(result.dbDetail).toBe('Key (name)=(test) already exists.');
+    // The column survives; the row VALUE (real tenant data) does not.
+    expect(result.dbDetail).toBe('Key (name)=([REDACTED]) already exists.');
     expect(result.dbHint).toBe('Use upsert instead');
     expect(result.constraint).toBe('plugins_name_key');
     expect(result.table).toBe('plugins');
     expect(result.column).toBe('name');
+  });
+
+  it.each([
+    ['Key (email)=(alice@example.com) already exists.', 'Key (email)=([REDACTED]) already exists.'],
+    ['Key (org_id, name)=(org-1, my plugin) already exists.', 'Key (org_id, name)=([REDACTED]) already exists.'],
+    ['Key (org_id)=(abc) is not present in table "organizations".', 'Key (org_id)=([REDACTED]) is not present in table "organizations".'],
+    ['Failing row contains (1, alice@example.com, null).', 'Failing row contains [REDACTED].'],
+    ['Key (lower(email::text))=(Bob@x.io) already exists.', 'Key (lower(email::text))=([REDACTED]) already exists.'],
+  ])('redacts row values from a pg detail: %p', (detail, expected) => {
+    expect(extractDbError({ code: '23505', detail }).dbDetail).toBe(expected);
+  });
+
+  it('leaves a value-free pg detail as it is', () => {
+    expect(extractDbError({ code: '40P01', detail: 'Process 12 waits for ShareLock on transaction 9.' }).dbDetail)
+      .toBe('Process 12 waits for ShareLock on transaction 9.');
   });
 
   it('should skip missing fields', () => {

@@ -54,7 +54,7 @@ Two people configure this, and they configure different halves:
 5. **Verify with a real send**, not by reading config:
 
    ```bash
-   SMOKE_EMAIL_TO=you@example.com bash deploy/bin/post-provision-smoke.sh k8s --aws
+   SMOKE_EMAIL_TO=you@example.com bash deploy/bin/post-provision-smoke.sh k8s
    ```
 
 6. **Tell your org admins which channels work.** Nothing in the product will.
@@ -190,7 +190,7 @@ alerts, production access) is a checklist in
 platform pod:
 
 ```bash
-SMOKE_EMAIL_TO=you@example.com bash deploy/bin/post-provision-smoke.sh k8s --aws
+SMOKE_EMAIL_TO=you@example.com bash deploy/bin/post-provision-smoke.sh k8s
 ```
 
 It skips when `EMAIL_ENABLED` is not `true`, and skips when neither

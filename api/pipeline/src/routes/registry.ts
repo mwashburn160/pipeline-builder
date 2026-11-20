@@ -23,8 +23,9 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
-import { runnerDeps, runnersReady } from '../runners/deps.js';
-import { principalHasRunnerFeature } from '../runners/vocabulary.js';
+import { runnerDeps } from '../runners/deps.js';
+import { linkInBackground } from '../runners/routing.js';
+import { SYSTEM_RUNNER_LINK } from '../runners/vocabulary.js';
 import {
   pipelineRegistryService,
   PR_PIPELINE_NOT_OWNED,
@@ -68,14 +69,12 @@ const PipelineRegistrySchema = z.object({
 });
 
 /**
- * The Deployment card's `runner: { id, label } | null` on each row. For an org
- * without the `cross_account_runners` feature (or a deployment without a
- * runner signing key) it is `null` WITHOUT a query — a database created before
- * runners has neither the runner tables nor `pipeline_registry.runner_id`, and
- * such a database is answered `null` too (runners unavailable, never a 500).
+ * The Deployment card's `runner: { id, label } | null` on each row (the
+ * caller's own org only). A database without the runner tables answers `null`
+ * (runners unavailable, never a 500).
  */
-async function withRunners<T extends { pipelineId: string }>(rows: T[], orgId: string, orgHasFeature: boolean): Promise<Array<T & { runner: { id: string; label: string } | null }>> {
-  if (!orgHasFeature || rows.length === 0 || !(await runnersReady())) return rows.map((r) => ({ ...r, runner: null }));
+async function withRunners<T extends { pipelineId: string }>(rows: T[], orgId: string, ownOrg: boolean): Promise<Array<T & { runner: { id: string; label: string } | null }>> {
+  if (!ownOrg || rows.length === 0 || !(await runnerDeps().store.tablesPresent().catch(() => false))) return rows.map((r) => ({ ...r, runner: null }));
   const links = await runnerDeps().store.runnerLinks(rows.map((r) => r.pipelineId), orgId);
   return rows.map((r) => ({ ...r, runner: links.get(r.pipelineId) ?? null }));
 }
@@ -115,7 +114,7 @@ export function createRegistryRoutes(): Router {
     }
     const { rows, total } = await pipelineRegistryService.list(targetOrgId, limit, offset);
     ctx.log('COMPLETED', 'Listed pipeline registry', { count: rows.length, ...(targetOrgId !== orgId && { targetOrgId }) });
-    return sendPaginatedNested(res, 'registry', await withRunners(rows, targetOrgId, targetOrgId === orgId && principalHasRunnerFeature(req.user)), {
+    return sendPaginatedNested(res, 'registry', await withRunners(rows, targetOrgId, targetOrgId === orgId), {
       total, limit, offset,
     });
   }));
@@ -171,6 +170,17 @@ export function createRegistryRoutes(): Router {
           // opened / closed (only when a manifest was sent).
           ...(exposures ? { exposuresOpened: exposures.opened, exposuresClosed: exposures.closed } : {}),
         },
+      });
+
+      // Link at registration: probe the org's runners in the background and
+      // save the link, so the first Run goes straight to its runner. Never
+      // awaited, never fails the registration; its outcome is the row's
+      // runner-link status (and Run still falls back to discovery).
+      void linkInBackground(runnerDeps(), {
+        pipelineId: v.pipelineId,
+        orgId,
+        requestedBy: SYSTEM_RUNNER_LINK,
+        ...(req.user?.parentOrganizationId ? { parentOrgId: req.user.parentOrganizationId } : {}),
       });
 
       return sendSuccess(res, 200, { registry: result });

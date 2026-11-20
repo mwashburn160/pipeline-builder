@@ -21,6 +21,7 @@ import { useFetch } from '@/hooks/useFetch';
 import { useMutation } from '@/hooks/useMutation';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
+import { hasPermission } from '@/lib/auth-helpers';
 
 /**
  * Access-key management: the one place a person mints, reviews and revokes the
@@ -55,11 +56,14 @@ export function AccessKeysSection({ readOnly }: { readOnly: boolean }) {
   // A load failure must NOT render as "no keys yet" — on a security surface a
   // false-empty could imply the account has no live credentials when it may.
   // useFetch keeps prior `keys` on failure and surfaces `loadError`.
-  const { user, can } = useAuthGuard();
+  const { user } = useAuthGuard();
   // Service-account keys are only listed for someone who may manage them; for
-  // everyone else the page is exactly their own keys, as before.
+  // everyone else the page is exactly their own keys, as before. The listing is
+  // a READ, so it rides the raw permission (a read-only impersonation still
+  // holds it); `readOnly` disables the revoke. Gating on the mutation-aware
+  // `can()` silently dropped the org's machine keys from the list.
   const orgId = user?.organizationId;
-  const canManageServiceAccounts = can('service_accounts:manage');
+  const canManageServiceAccounts = hasPermission(user, 'service_accounts:manage');
   const loadKeys = useCallback(async (): Promise<KeyRow[]> => {
     const res = await api.listAccessKeys();
     if (!res.success || !res.data) throw new Error('Failed to load access keys');

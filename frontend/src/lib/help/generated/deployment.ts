@@ -1,6 +1,6 @@
 // GENERATED FROM docs/aws-deployment.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 706cc645ac8561ddaa8007e4734216c233e0d1a233a6c5a312032f87604a886c
+// SOURCE-SHA256: b688f0b565e11d61d9ad5a4ec00e5687015d38b49a02fca156a2506acb26cb61
 // SPDX-License-Identifier: Apache-2.0
 import { Server } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -139,7 +139,7 @@ export const deploymentTopic: HelpTopic = {
             "Email (SES) -- Transactional email (provisioned by default; --no-email to skip)",
             "Post-Deploy Steps -- Platform init, credentials, EventBridge reporting",
             "Drift Detection (audit stacks) -- Reconcile registry vs live CloudFormation",
-            "Cross-account pipeline runner -- Re-run / Stop for pipelines in other AWS accounts, with no platform access to them",
+            "Cross-account pipeline runner -- the only way pipelines run: one runner per AWS account per org, with no platform access to them",
             "Report API Endpoints -- Execution and plugin analytics",
             "Access Points -- Service URLs after deployment",
             "File Structure -- Deployment file layout",
@@ -2173,7 +2173,7 @@ export const deploymentTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Re-run and Stop call CodePipeline. For pipelines in the platform's own AWS account the pipeline service does that with its own credentials, as it always has. For pipelines deployed into any other account, you install a small runner in that account: a Lambda that starts and stops that account's pipelines with its own IAM role, on requests the platform signs and pushes to it."
+          "content": "Runners are the only way the platform starts and stops pipelines. The platform never has pipelines in its own AWS account and holds no CodePipeline permission on any deploy target: every Run, Stop and plugin-upgrade redeploy becomes a queued run request that the platform signs and pushes to the runner installed in the pipeline's account, a small Lambda that acts with its own IAM role. Until an org installs a runner, Run answers NO_RUNNER and the pipeline page links to Settings → Organization → Pipeline runners with the install command; onboarding puts Install a runner before Run your first pipeline."
         },
         {
           "type": "code",
@@ -2182,7 +2182,30 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Runners are available to an org once the platform operator has provisioned the runner signing key (deploy/bin/runner-signing-keys.sh) and granted the org the cross_account_runners feature. Until then, setup-runner says so and executions behave exactly as before. In an emergency the operator stops all runner delivery by removing the runner signing key and restarting pipeline (runners are then unavailable), or stops one org by revoking its cross_account_runners feature."
+          "content": "Runners are on for every org: there is no feature flag and nothing for the operator to provision. Each org signs with its own Ed25519 key, created on the platform when a top-level org registers its first runner (teams inherit their parent's key unless they switch to their own), and each runner verifies requests against its own key set at <platform>/api/pipelines/runner/runners/<runnerId>/jwks.json. Org admins rotate the key from the Signing key card or pipeline-manager runner signing-key. In an emergency an operator revokes one org's key from the system org, or turns on Pause all pipeline runs, which stops every run on the deployment (see secret rotation)."
+        },
+        {
+          "type": "text",
+          "content": "One runner per AWS account per organization"
+        },
+        {
+          "type": "list",
+          "items": [
+            "The rule. Each org has at most one runner in a given AWS account. One runner covers every region in its --regions, so an org never needs a second: update the existing one (same --label and --region). There are no runner groups and no failover.",
+            "How it is enforced. setup-runner runs with your AWS credentials, lists the runner stacks in the account and reads each one's RUNNER_ID. A runner of your own org there makes it refuse and point you at updating it. The platform never learns the account id.",
+            "Different orgs may share an account. Each installs its own runner (stacks are named pipeline-builder-runner-<runnerId>, so they never collide; the label is the pb.runner-label stack tag), and setup-runner warns that the account is shared. Runners are never shared across unrelated orgs, and each runner trusts only its owning org's keys.",
+            "A shared account is a shared trust boundary. Anyone with AWS access there can reach both orgs' pipelines directly, and each runner's IAM role can act on any pipeline matching its prefixes. Give each org distinct pipeline-name prefixes (--pipeline-prefix, the runner's ALLOWED_PIPELINE_PREFIXES). The pb.pipeline-id tag check still applies to every request, and discovery only probes the requesting org's runners, so one org never sees another's AMBIGUOUS_RUNNER.",
+            "Teams. A team uses its parent's runner when the parent shares it (shareWithTeams, on by default), signed with the parent's key. If the team installs its own runner in the same account, setup-runner warns and asks first (--yes in scripts), and from then on the team's own runner wins: discovery takes the nearest level with a match (own, then parent, …), and two matches at the same level give AMBIGUOUS_RUNNER.",
+            "Health. With no failover, a broken runner stops every pipeline in its account, so the platform sends a signed ping to every active runner each minute (RUNNER_HEALTH_PING_INTERVAL_SECONDS). Two failed pings in a row (RUNNER_UNHEALTHY_AFTER_PINGS), or one SIGNATURE_INVALID / RUNNER_REFUSED reply, mark it unhealthy: the owning org's admins (and admins of teams it is shared with) get a notice, the panel and each affected pipeline page show a banner, and RunnerUnreachable fires. Queued runs resume when it answers again."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Linking pipelines to runners"
+        },
+        {
+          "type": "text",
+          "content": "The runner for a pipeline is always found by its pb.pipeline-id tag, which only the runner can see, so nobody picks it by hand. When a pipeline is registered the platform probes the org's runners in the background and saves the link; the pipeline page shows it under Runs via (Linked, Not linked yet, Not found, or Two runners matched) with Find runner again to re-probe (step-up). An unlinked pipeline is discovered on its first Run, and a stale link is rediscovered once."
         },
         {
           "type": "text",
@@ -2228,7 +2251,7 @@ export const deploymentTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "It is a compact JWS (alg: EdDSA, typ: pb-run+jwt) whose signature verifies against the platform's public keys at <platform>/api/pipelines/runner/jwks.json (fetched from that URL only, redirects refused; cached 10 minutes; an unknown key id, or a refresh that failed while keys are cached, refetches at most once a minute). The issuer is pipeline-builder, the audience is this runner's id (the stack's RunnerId parameter is required: setup-runner registers the runner first and deploys with its id, and a function without one refuses everything), and it was issued within its 10-minute lifetime (2 minutes of clock skew allowed). Otherwise: 401 SIGNATURE_INVALID.",
+            "It is a compact JWS (alg: EdDSA, typ: pb-run+jwt) whose signature verifies against this runner's own key set at <platform>/api/pipelines/runner/runners/<RUNNER_ID>/jwks.json, which publishes only the runner owner's keys (fetched from that URL only, redirects refused; cached 10 minutes; an unknown key id, or a refresh that failed while keys are cached, refetches at most once a minute; a 404, for an unknown or revoked runner, means no keys and every request is refused). The issuer is pipeline-builder, the audience is this runner's id (the stack's RunnerId parameter is required: setup-runner registers the runner first and deploys with its id, and a function without one refuses everything), and it was issued within its 10-minute lifetime (2 minutes of clock skew allowed). Otherwise: 401 SIGNATURE_INVALID.",
             "Its request id was not seen in the last 15 minutes. A repeat gets the earlier result back, or 409 DUPLICATE while the first is still running. This cache lives in one warm Lambda container (there can be two, and containers are recycled), so it is best effort. What actually keeps an at-least-once delivery from acting twice is CodePipeline: the request id is the start's clientRequestToken (the same request starts one execution), and a stop of an execution already stopping or stopped answers stopped.",
             "The pipeline is found by its identity tag (next section), and it is inside the allowlist. Otherwise: 403 RUNNER_REFUSED."
           ]
@@ -2250,7 +2273,7 @@ export const deploymentTopic: HelpTopic = {
           "rows": [
             [
               "A stranger finds the runner's URL",
-              "Every unsigned or wrongly signed request gets 401 before any AWS call; reserved concurrency 2 caps the cost. --api-gateway --allow-ip also blocks them at the network."
+              "Every unsigned or wrongly signed request gets 401 before any AWS call; reserved concurrency 2 caps the cost. --api-gateway --allow-ip also blocks them at the network, and rate-limits each source IP with an AWS WAF rule (--waf-rate-limit)."
             ],
             [
               "A captured request is replayed",
@@ -2277,8 +2300,12 @@ export const deploymentTopic: HelpTopic = {
               "The runner acts only on the pipeline whose pb.pipeline-id tag matches; duplicates give 409 AMBIGUOUS_PIPELINE, a mismatched hint 409 PIPELINE_IDENTITY_MISMATCH."
             ],
             [
-              "The runner signing key leaks",
-              "Rotate with deploy/bin/runner-signing-keys.sh --rotate, which keeps the old key published so in-flight requests still verify, then --finish at least 10 minutes later to drop it; runners refetch the JWKS on an unknown key id. In an emergency remove the key (see secret rotation)."
+              "An org's runner signing key leaks",
+              "It signs for that org's runners only. The org's admins rotate it (the new key is published at once and signs 10 minutes later; the old one is retired an hour after that) or revoke it at once from the Signing key card; an operator can revoke any org's key from the system org. The private key never leaves the platform and is stored encrypted per org (see secret rotation)."
+            ],
+            [
+              "Org B's runner is sent a request signed by org A",
+              "The platform signs with the key of the org that owns the runner row, never one named in a request, and each runner's JWKS carries only its owner's keys, so the signature fails with 401."
             ],
             [
               "The JWKS endpoint is spoofed",
@@ -2333,7 +2360,7 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "pipeline-builder-runner-<label> (--label, default default; several runners can share an account):"
+          "content": "pipeline-builder-runner-<runnerId>, with its label (--label, default default) kept as the stack tag pb.runner-label. An account holds at most one runner per org; other orgs' runners may sit beside it:"
         },
         {
           "type": "table",
@@ -2383,16 +2410,29 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "text",
+          "content": "The API stage also gets an AWS WAF rate limit: a regional WAFv2 web ACL with one rate-based rule that blocks any source IP sending more than --waf-rate-limit requests (default 1000) in a 5-minute window, associated with the runner stage. It sits in front of the resource policy and the stage throttle, so a flood is dropped by WAF before it reaches API Gateway's own limits or the Lambda. The default leaves room for a busy org (the platform sends a few requests per run and a status read every 15 seconds per watched execution) while staying under the stage throttle of 1500 per 5 minutes; WAFv2 accepts 10 to 2,000,000,000. The rate limit is the stack parameter WafRateLimit, so re-running setup-runner with a new value changes it in place."
+        },
+        {
+          "type": "code",
+          "content": "pipeline-manager infra setup-runner --region us-east-1 --api-gateway --allow-ip 203.0.113.10/32 --waf-rate-limit 500\npipeline-manager infra setup-runner --region us-east-1 --api-gateway --allow-ip 203.0.113.10/32 --no-waf   # no web ACL",
+          "language": "bash"
+        },
+        {
+          "type": "text",
+          "content": "A web ACL is billed by AWS (per web ACL, per rule and per million requests); --no-waf leaves it out, and the resource policy, the stage throttle and the signature checks still apply. --waf-rate-limit and --no-waf apply only with --api-gateway: the Function URL entry point has no WAF (AWS WAF cannot be attached to a Lambda Function URL), and it is unchanged. The dry run shows the rate limit under waf. With the WAF on, the credentials that run setup-runner must also be allowed to manage AWS WAF web ACLs and their association with the API stage. The runner's own execution role is unchanged."
+        },
+        {
+          "type": "text",
           "content": "How install works"
         },
         {
           "type": "list",
           "items": [
-            "Check the platform: runners must be enabled for your org (otherwise \"Cross-account runners are not enabled for your organization — ask your platform operator.\") and the platform must have a signing key (otherwise \"this platform has no runner signing key configured\"). Nothing is created in AWS before this passes.",
+            "Check the platform (runners must be available: not paused by the operator) and the account: list its runner stacks, refuse a second runner of your org, warn about other orgs' runners and about a parent's shared runner. Nothing is created in AWS before this passes.",
             "Register a pending runner: POST /api/pipelines/runners { label, regions }, gated by step-up (--step-up auto|password|totp|browser, as store-token) and an MFA-grade session. The platform returns the runner's id.",
             "Deploy the stack once, with that id as RUNNER_ID, and upload the bundled handler. From its first invocation the runner accepts only requests addressed to itself.",
             "Read the endpoint from the stack outputs. It is never printed.",
-            "Send it: PATCH /api/pipelines/runners/:id { functionUrl } (step-up). The platform checks the host and sends a signed ping; a pong makes the runner active. If the ping fails (422 RUNNER_PING_FAILED), the stack stays deployed and the runner stays pending. Check the runner's CloudWatch logs and re-run setup-runner, which resumes with the same runner. The platform deletes runners still pending after 24 hours.",
+            "Send it: PATCH /api/pipelines/runners/:id { functionUrl } (step-up). Registering a top-level org's first runner created its signing key; an org with none stops here unless --generate-key was passed. setup-runner prints the runner's own JWKS URL. The platform checks the host and sends a signed ping; a pong makes the runner active. If the ping fails (422 RUNNER_PING_FAILED), the stack stays deployed and the runner stays pending. Check the runner's CloudWatch logs and re-run setup-runner, which resumes with the same runner. The platform deletes runners still pending after 24 hours.",
             "Check event reporting: without the pipeline-builder-events stack in the region, runs the runner starts show as started but report no progress, so setup-runner warns. --with-events runs infra setup-events --scoped-ingest afterwards (it needs the reporting:ingest key from infra store-token --scope reporting:ingest --schedule)."
           ]
         },
@@ -2402,11 +2442,11 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Without a runner: pipeline run / pipeline stop"
+          "content": "Without the platform: pipeline run / pipeline stop"
         },
         {
           "type": "text",
-          "content": "Teams that want nothing installed can start and stop pipelines from a terminal with their own AWS credentials:"
+          "content": "The dashboard can't run a pipeline without a runner, but anyone with AWS credentials for the account can start and stop it from a terminal:"
         },
         {
           "type": "code",
@@ -2429,6 +2469,111 @@ export const deploymentTopic: HelpTopic = {
         {
           "type": "text",
           "content": "This revokes the runner on the platform first (step-up): delivery stops, its pipeline links are cleared and pending requests expire. Then it deletes the stack. If the revoke fails for any reason other than \"already gone\", the stack is left in place, so a runner the platform still believes in never silently disappears. The runner revoked is the one the stack in this account and region names. With no stack there, only a still-pending runner of that label is revoked; an active one is refused (it is installed in another account or region, so re-run there or revoke it from the settings panel). Deleting the stack by hand (or disabling the Function URL) also cuts the platform off at once; the runner then shows as Unreachable and can be revoked from Settings → Organization → Pipeline runners."
+        },
+        {
+          "type": "text",
+          "content": "Runner metrics and alerts"
+        },
+        {
+          "type": "text",
+          "content": "The pipeline service exports these runner series, with no runner, org or URL in any label:"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Metric",
+            "Labels"
+          ],
+          "rows": [
+            [
+              "pipeline_runner_delivery_total",
+              "outcome (the runner's outcome, refused, retry or not_yet_visible) and code: a runner error code from the shared catalog (SIGNATURE_INVALID, RUNNER_REFUSED, …), a delivery failure class (timeout, http_5xx, dns_nxdomain, …), or none for a success"
+            ],
+            [
+              "pipeline_runner_requests_total",
+              "status: queued, then the terminal started, stopped, failed or expired"
+            ],
+            [
+              "pipeline_runners_unhealthy",
+              "(gauge) active runners marked unreachable, exported only by the pipeline replica that currently holds the sweep lock (a replica whose sweep is skipped drops its copy)"
+            ],
+            [
+              "pipeline_runner_signing_keys",
+              "(gauge) state: next, active, retiring, retired"
+            ],
+            [
+              "pipeline_runner_signing_key_age_days",
+              "(gauge) age of the oldest active key"
+            ],
+            [
+              "pipeline_runner_signing_keys_over_age",
+              "(gauge) active keys older than RUNNER_KEY_MAX_AGE_DAYS"
+            ],
+            [
+              "pipeline_runner_signing_keys_unreadable",
+              "(gauge) orgs whose effective key failed to decrypt at the last attempt"
+            ],
+            [
+              "pipeline_runner_signing_key_invalidations_total",
+              "source: pubsub or poll"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "The refusal codes the alerts watch, and status=\"expired\", are created at zero when dispatch starts, so the first one after a restart is seen. Every target ships five alerts on them:"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Alert",
+            "Fires when",
+            "Severity"
+          ],
+          "rows": [
+            [
+              "RunnerUnreachable",
+              "any runner is unhealthy (no hold: the gauge is already debounced by the pings)",
+              "warning"
+            ],
+            [
+              "RunnerSignatureInvalid",
+              "any SIGNATURE_INVALID in 10 minutes: an org's key state, the runner's JWKS reachability, or a runner's clock",
+              "critical"
+            ],
+            [
+              "RunnerSigningKeyUnreadable",
+              "any org's signing key can't be decrypted; that org's runs fail with RUNNER_KEY_UNREADABLE",
+              "critical"
+            ],
+            [
+              "RunnerRefusalSpike",
+              "more than 5 RUNNER_REFUSED, PIPELINE_IDENTITY_MISMATCH or AMBIGUOUS_PIPELINE refusals of one code in 15 minutes, held 5 minutes",
+              "warning"
+            ],
+            [
+              "RunnerRequestsExpiring",
+              "any run request expired undelivered in 30 minutes",
+              "warning"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Two-account smoke test"
+        },
+        {
+          "type": "text",
+          "content": "deploy/bin/runner-smoke.sh checks the whole path by hand, against a real platform and a real target account: the dry run, the install, the runner turning active, the org's active signing key, the runner's own JWKS publishing it (fetched with no token, and checked to carry no private key member), a Run through the API, and the run request reaching started with an execution id. It prints PASS or FAIL per step and exits non-zero at the first failure, running nothing after it."
+        },
+        {
+          "type": "code",
+          "content": "export PLATFORM_TOKEN=...          # an org admin's token; never pass it as a flag\nexport PLATFORM_PASSWORD=...       # for setup-runner's step-up (or --step-up totp|browser)\ndeploy/bin/runner-smoke.sh --platform-url https://platform.example --profile target-account \\\n  --region us-east-1 --pipeline-id <pipelineId> --stop --teardown",
+          "language": "bash"
+        },
+        {
+          "type": "text",
+          "content": "The pipeline must already be deployed in the target account. --stop also stops the execution the Re-run started and waits for stopped; --teardown finally runs setup-runner --delete (it does not run after a failure; the script prints the command instead). --label (default smoke), --regions, --pipeline-prefix and --step-up are passed to setup-runner; RUNNER_SMOKE_PM points it at a local build (node packages/pipeline-manager/dist/index.js). The token is read from PLATFORM_TOKEN (or PLATFORM_TOKEN_FILE) and reaches curl on stdin, never on a command line; the runner's endpoint is never printed, and every relayed line has the token and any Function URL or API Gateway host masked."
         }
       ]
     },
@@ -2672,7 +2817,7 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "After every provision the setup scripts run deploy/bin/post-provision-smoke.sh: a test alert through Alertmanager to Slack, a test email through platform, a CodePipeline credential dry-run from the pipeline pod, and a probe that a connection the NetworkPolicies deny is actually denied. Its warnings are non-fatal — read the summary line."
+          "content": "After every provision the setup scripts run deploy/bin/post-provision-smoke.sh: a test alert through Alertmanager to Slack, a test email through platform, the managed toolchain default, and a probe that a connection the NetworkPolicies deny is actually denied. There is no CodePipeline check: the platform holds no CodePipeline access (deploy/bin/runner-smoke.sh covers the runner path). Its warnings are non-fatal — read the summary line."
         }
       ]
     },

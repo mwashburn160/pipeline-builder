@@ -81,16 +81,6 @@ function grantsOf(entry: CreditLedgerEntry): number {
 }
 
 /**
- * Return a compacted copy of `ledger`: within each `discountId` family, keep the
- * most-recent `keepRecent` periodic rows (by `appliedAt`) and fold the rest —
- * together with any prior carry row for that family — into a single carry row
- * (`dedupeKey: 'compacted:<discountId>'`) whose `cents`/`grantCount` are the sums.
- * Non-periodic rows (one-time grants, existing carry rows for families under the
- * threshold) pass through untouched. Order-preserving for the untouched rows; the
- * carry row is appended at the family's first-seen position. Pure — no mutation of
- * the input.
- */
-/**
  * Compact a subscription's ledger in place, but ONLY on the in-memory path.
  *
  * This condition is the whole point, and it was written out at both call sites
@@ -117,6 +107,16 @@ export function compactInMemoryLedger(
   if (compacted.length !== subscription.creditLedger.length) subscription.creditLedger = compacted;
 }
 
+/**
+ * Return a compacted copy of `ledger`: within each `discountId` family, keep the
+ * most-recent `keepRecent` periodic rows (by `appliedAt`) and fold the rest —
+ * together with any prior carry row for that family — into a single carry row
+ * (`dedupeKey: 'compacted:<discountId>'`) whose `cents`/`grantCount` are the sums.
+ * Non-periodic rows (one-time grants, existing carry rows for families under the
+ * threshold) pass through untouched. Order-preserving for the untouched rows; the
+ * carry row is appended at the family's first-seen position. Pure — no mutation of
+ * the input.
+ */
 export function compactCreditLedger(
   ledger: readonly CreditLedgerEntry[],
   keepRecent: number = DEFAULT_KEEP_RECENT,

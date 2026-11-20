@@ -764,18 +764,13 @@ const CONTROLS: Control[] = [
     },
   },
   {
-    control: 'Pipeline runners: rename, share with teams, test, revoke (Settings → Organization)',
+    control: 'Pipeline runners and the signing key: rename, share with teams, test, revoke; generate, rotate, cancel, finish, revoke the key, switch key mode (Settings → Organization)',
     file: 'pages/dashboard/settings.tsx',
-    // settings.tsx mounts the panel only for org_settings:write holders in an org
-    // with `cross_account_runners`; the flag constant lives in pipeline-runners.ts.
-    gateFiles: ['src/components/settings/PipelineRunnersSettings.tsx', 'src/lib/pipeline-runners.ts'],
+    // settings.tsx mounts the panel for org_settings:write holders, with no
+    // feature gate: runners are the only execution path, for every org. The
+    // Signing key card's writes go through the panel's one step-up dialog.
+    gateFiles: ['src/components/settings/PipelineRunnersSettings.tsx', 'src/components/settings/RunnerSigningKeyCard.tsx'],
     permissions: ['org_settings:write'],
-    // HIDDEN, not locked, for an org without the feature — a deliberate product
-    // decision (the flag is operator-granted, in no plan and not for sale, so a
-    // lock would advertise something no customer can buy). The negative render
-    // below is on the permission; the hidden-without-feature rule is covered by
-    // test/settings-pipeline-runners-gating.test.tsx.
-    features: ['cross_account_runners'],
     stepUp: true,
     minAssurance: 2,
     routes: [
@@ -783,18 +778,47 @@ const CONTROLS: Control[] = [
       'pipeline PATCH /pipelines/runners/:id',
       'pipeline POST /pipelines/runners/:id/test',
       'pipeline DELETE /pipelines/runners/:id',
+      'pipeline GET /pipelines/runners/:id/pipelines',
+      'pipeline POST /pipelines/runners/signing-key',
+      'pipeline POST /pipelines/runners/signing-key/rotate',
+      'pipeline DELETE /pipelines/runners/signing-key/rotate',
+      'pipeline POST /pipelines/runners/signing-key/finish',
+      'pipeline POST /pipelines/runners/signing-key/revoke',
+      'pipeline PUT /pipelines/runners/signing-key/mode',
     ],
     behaviour: {
       mount: page('../pages/dashboard/settings'),
       router: { query: { tab: 'organization' }, pathname: '/dashboard/settings' },
       api: {
         getPipelineRunners: {
-          available: true, jwksUrl: 'https://pb.test/api/pipelines/runner/jwks.json', platformEgressIps: null,
-          own: [{ id: 'r1', orgId: 'org-1', label: 'prod', functionUrl: 'https://abc.lambda-url.us-east-1.on.aws/', shareWithTeams: true, version: '1.0.0', regions: ['us-east-1'], health: 'healthy', status: 'active', lastDeliveryAt: null, createdAt: '2026-11-19T00:00:00Z', updateRequired: false }],
+          available: true, unavailableReason: null, platformEgressIps: null,
+          own: [{ id: 'r1', orgId: 'org-1', label: 'prod', functionUrl: 'https://abc.lambda-url.us-east-1.on.aws/', shareWithTeams: true, version: '1.0.0', regions: ['us-east-1'], health: 'healthy', status: 'active', lastDeliveryAt: null, createdAt: '2026-11-19T00:00:00Z', updateRequired: false, jwksUrl: 'https://pb.test/api/pipelines/runner/runners/r1/jwks.json', pipelineCount: 0 }],
           inherited: [],
+          signingKey: null,
         },
       },
       find: button(/^rename$/i),
+    },
+  },
+  {
+    control: 'Find runner again (pipeline page, Deployment card)',
+    file: 'pages/dashboard/pipelines/[id].tsx',
+    gateFiles: ['src/components/pipeline/RunnerLinkStatus.tsx'],
+    // Shown only to a viewer who may write the pipeline (canWritePipeline →
+    // pipelines:write), behind its own step-up dialog.
+    permissions: ['pipelines:write'],
+    stepUp: true,
+    minAssurance: 2,
+    routes: ['pipeline POST /pipelines/:pipelineId/runner-link/refresh'],
+    behaviour: {
+      mount: page('../pages/dashboard/pipelines/[id]'),
+      router: { query: { id: 'p1' }, pathname: '/dashboard/pipelines/[id]' },
+      api: {
+        getPipelineById: { pipeline: { id: 'p1', pipelineName: 'p', organizationId: 'org-1', visibility: 'private', createdBy: 'u1' } },
+        listPipelineDeployments: { registry: [{ pipelineId: 'p1', region: 'us-east-1', stackName: 's', lastDeployed: '2026-11-19T00:00:00Z' }], pagination: { hasMore: false } },
+        getPipelineRunnerLink: { pipelineId: 'p1', status: 'unlinked', runner: null, checkedAt: null, detail: null, deliveriesPaused: false },
+      },
+      find: button(/^find runner again$/i),
     },
   },
   {
@@ -3168,6 +3192,11 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     why: '"Reset usage counters" on pages/dashboard/quotas.tsx → QuotasAdmin.tsx (step-up dialog as the confirm + api.resetOrgQuota with its token); systemAdmin + step-up.',
   },
   'platform POST /users': { category: 'sysadmin-console', why: '"Add user" on pages/dashboard/users.tsx (systemAdminOnly). The route table lists members:manage, but createUserByAdmin (platform/src/controllers/user-admin.ts) refuses anyone who is not a system admin — the same gate as the page. With isSuperAdmin the route also demands aal2 + a second-factor step-up (conditionalGates on the table), so the page confirms that create in a requireStrongFactor StepUpModal (pinned in CONDITIONAL_STEP_UP_CONTROLS).' },
+  'pipeline POST /pipelines/admin/orgs/:orgId/runner-signing-key/revoke': { category: 'sysadmin-console', why: '"Revoke key" per row on pages/dashboard/admin/runner-signing-keys.tsx (nav: systemOrgOnly + orgs:read), shown enabled only with `can(\'orgs:manage\')` — the route\'s requireSystemOrgPermission — and confirmed in a StepUpModal whose token it forwards.' },
+  'pipeline GET /pipelines/admin/runner-signing-keys': { category: 'sysadmin-console', why: 'The operator status table on pages/dashboard/admin/runner-signing-keys.tsx (nav: systemOrgOnly + orgs:read). The route also requires an MFA-grade session (aal2), which every system-org console session already holds. Read-only: key ids, states and dates, never key material.' },
+  'pipeline GET /pipelines/admin/runner-deliveries': { category: 'sysadmin-console', why: 'Reads the Pause all pipeline runs toggle state for pages/dashboard/admin/runner-signing-keys.tsx (nav: systemOrgOnly + orgs:read); the route also requires an MFA-grade session (aal2).' },
+  'pipeline PUT /pipelines/admin/runner-deliveries': { category: 'sysadmin-console', why: '"Pause all pipeline runs" / "Resume pipeline runs" on pages/dashboard/admin/runner-signing-keys.tsx, enabled only with `can(\'orgs:manage\')` (the route\'s requireSystemOrgPermission) and confirmed in a StepUpModal whose token it forwards.' },
+  'pipeline POST /pipelines/internal/runner-signing-keys/reencrypt': { category: 'machine-only', why: 'Service-principal route (callers: platform): re-wraps the runner signing-key rows after a SECRET_ENCRYPTION_KEY or per-org KMS rotation, called by platform\'s rotation flow after its own Mongo re-encrypt (and run in-process by the pipeline service\'s reencrypt-runner-keys script). No user token is admitted.' },
   'platform POST /admin/orgs/:orgId/kms-config/test': { category: 'sysadmin-console', why: '"Test" in src/components/admin/OrgKmsConfigModal.tsx, opened from the sysadmin org pages behind `can(\'org_kms:write\')` — the same gate the route carries.' },
   'platform PUT /organization/:id/seat-limit': { category: 'sysadmin-console', why: '"Set limit" in src/components/admin/org-detail/OrgSeatsCard.tsx on the systemAdminOnly org drill-down; the handler admits only a service principal or a system admin.' },
   ...group('platform', [
@@ -3306,7 +3335,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   'platform GET /organization/:id/support-usage': { category: 'no-ui', why: 'Pooled support-contact usage at the account root (`{ supportContacts, supportPremiumContacts }` each `{ limit, used }`) for BILLING: api/billing/src/helpers/downstream-client.ts `fetchSupportUsage` feeds the add-on over-cap guard and the entitlement-drift reconciler. Gate (in the controller, like seat-usage) is a service principal or canAdministerOrg; the dashboard shows contacts on the support settings, not this count.' },
   'platform POST /auth/device/code': { category: 'no-ui', why: 'Device-authorization grant START — issued to the CLI (packages/pipeline-manager/src/utils/device-auth.ts), not a browser. The dashboard only drives the human half (GET /auth/device/authorize, approve, deny).' },
   'platform POST /auth/device/token': { category: 'no-ui', why: 'Device-grant token POLL — the CLI polls it (packages/pipeline-manager/src/utils/device-auth.ts, `pollDeviceToken`); no frontend reference exists.' },
-  'pipeline POST /pipelines/runners': { category: 'no-ui', why: 'CLI only — `pipeline-manager infra setup-runner` (packages/pipeline-manager/src/commands/setup-runner.ts) registers a PENDING runner before deploying its stack in the customer account, then sends the Function URL with PATCH (which the Pipeline runners panel row maps). Same org_settings:write + feature(cross_account_runners) + aal2 + step-up as the panel\'s writes; there is no in-browser registration because the runner must be deployed with AWS credentials for that account.' },
+  'pipeline POST /pipelines/runners': { category: 'no-ui', why: 'CLI only — `pipeline-manager infra setup-runner` (packages/pipeline-manager/src/commands/setup-runner.ts) registers a PENDING runner before deploying its stack in the customer account, then sends the Function URL with PATCH (which the Pipeline runners panel row maps). Same org_settings:write + aal2 + step-up as the panel\'s writes (and, for a root org with no key yet, it creates the org\'s first signing key in the same flow); there is no in-browser registration because the runner must be deployed with AWS credentials for that account.' },
   'platform POST /organization/:id/service-accounts/provision-key': { category: 'no-ui', why: 'CLI only — `pipeline-manager infra store-token` (packages/pipeline-manager/src/utils/service-account.ts) provisions the org machine credential it parks in Secrets Manager: find-or-create the account, issue its key, retire the oldest at the active-key cap, behind ONE step-up. Same service_accounts:manage + aal2(except bootstrap-setup) + step-up as the create-account and issue-key routes the dashboard drives (ServiceAccountsSection / ServiceAccountDrawer), which stay its UI.' },
   'platform POST /auth/token/exchange': { category: 'no-ui', why: 'Service-account token exchange; a machine surface with no frontend reference (api.generateNewToken is a different route).' },
   'platform POST /auth/key/rotate': { category: 'no-ui', why: 'Unattended service-account key self-rotation — the audit-event description says explicitly that no person is present.' },
@@ -3354,9 +3383,9 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     category: 'machine-only',
     why: 'Service-principal route (callers: reporting): the ACCESS half of a report\'s posture panel — members, second-factor coverage, whether SSO is required, service accounts, live API keys, and permission changes in the window. Counts only, never a name or an id: a report that listed the accounts without a second factor would be a ready-made target list, and it reaches managers with no permission to see that in the product. No user token is admitted.',
   },
-  'platform GET /internal/features/:orgId': {
+  'platform GET /internal/kms-config/:orgId': {
     category: 'machine-only',
-    why: 'Service-principal route (callers: pipeline): an org\'s resolved ORG-LEVEL feature flags (tier defaults plus operator entitlements, pooled at the account root), read by the runner dispatcher on a feature-cache miss so it stops pinging runners of an org that lost cross_account_runners. No user token is admitted; the dashboard reads features through its own session.',
+    why: 'Service-principal route (callers: pipeline): an org\'s per-org KMS config (key id and wrapped data key, never a plaintext key), read and cached ~60s by the pipeline service so it can decrypt that org\'s runner signing keys when SECRET_ENCRYPTION_PER_ORG_KMS is on. No user token is admitted; operators edit the config through the sysadmin org pages (PUT /admin/orgs/:orgId/kms-config).',
   },
   'platform GET /internal/ai/access/:orgId': {
     category: 'machine-only',

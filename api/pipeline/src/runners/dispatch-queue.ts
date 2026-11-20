@@ -9,15 +9,18 @@
  * DelayedError pattern), so the request id stays its job id until it finishes.
  * Per-pipeline serialization is the dispatcher's lock, not the queue's.
  *
- * Plus the sweep (expiry, health pings, the unhealthy gauge), leader-locked so
- * one replica runs it per window. Started only when runners are available.
+ * Plus the sweep (expiry, health pings, the signing-key lifecycle, the unhealthy
+ * gauge), leader-locked so one replica runs it per window. Always started:
+ * runners are the only execution path, and availability (the pause toggle,
+ * secret encryption, the runner tables) is checked per job and per sweep.
  */
 
-import { createLogger, createRedisClient, createScheduler, errorMessage, leaderLockKey, resolveRedisConnection, type Scheduler } from '@pipeline-builder/api-core';
+import { createLogger, createRedisClient, createScheduler, errorMessage, leaderLockKey, resolveRedisConnection, type Scheduler, type SchedulerOptions } from '@pipeline-builder/api-core';
 import { DelayedError, Queue, Worker, type ConnectionOptions, type Job } from 'bullmq';
 import type { Redis } from 'ioredis';
-import { runnerDeps, runnersAvailable, setDispatchQueue, type DispatchQueue, type RunnerDeps } from './deps.js';
-import { processDelivery, runSweep } from './lifecycle.js';
+import { primeRunnerMetrics } from './delivery.js';
+import { runnerDeps, setDispatchQueue, type DispatchQueue, type RunnerDeps } from './deps.js';
+import { dropUnhealthyGauge, processDelivery, runSweep } from './lifecycle.js';
 import { runnerSettings } from './vocabulary.js';
 
 const logger = createLogger('runner-dispatch');
@@ -71,11 +74,27 @@ export function dispatchProcessor(deps: () => RunnerDeps = runnerDeps) {
   };
 }
 
+/**
+ * The sweep's scheduler: leader-locked, one replica per cycle. The leader
+ * publishes the unhealthy-runner gauge; a replica whose cycle is skipped
+ * (another holds the lock) drops its own copy, so only the current leader's
+ * count is exported.
+ */
+export function runnerSweepOptions(deps: () => RunnerDeps = runnerDeps): SchedulerOptions {
+  return {
+    name: 'runner-sweep',
+    intervalMs: SWEEP_INTERVAL_MS,
+    startupDelayMs: 5_000,
+    lock: { key: leaderLockKey('pipeline', 'runner-sweep'), ttlMs: 60_000 },
+    run: async () => { await runSweep(deps()); },
+    onSkipped: () => { dropUnhealthyGauge(deps()); },
+  };
+}
+
 export interface RunnerDispatch { stop(): Promise<void> }
 
-/** Start the queue, worker and sweep — a no-op handle when runners are unavailable. */
+/** Start the queue, worker and sweep. */
 export function startRunnerDispatch(): RunnerDispatch {
-  if (!runnersAvailable()) return { stop: async () => { /* nothing started */ } };
   const resolved = resolveRedisConnection();
   let worker: Worker<JobData> | null = null;
   let queue: Queue<JobData> | null = null;
@@ -91,13 +110,8 @@ export function startRunnerDispatch(): RunnerDispatch {
     setDispatchQueue(inProcessDispatchQueue());
     logger.warn('No Redis configured: runner dispatch runs in-process (single replica only)');
   }
-  const sweep: Scheduler = createScheduler({
-    name: 'runner-sweep',
-    intervalMs: SWEEP_INTERVAL_MS,
-    startupDelayMs: 5_000,
-    lock: { key: leaderLockKey('pipeline', 'runner-sweep'), ttlMs: 60_000 },
-    run: async () => { await runSweep(runnerDeps()); },
-  });
+  primeRunnerMetrics(runnerDeps());
+  const sweep: Scheduler = createScheduler(runnerSweepOptions());
   sweep.start();
   logger.info('Runner dispatch started', { queue: RUNNER_DISPATCH_QUEUE, redis: !!resolved });
   return {

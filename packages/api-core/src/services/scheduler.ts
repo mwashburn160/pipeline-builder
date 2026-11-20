@@ -43,6 +43,13 @@ export interface SchedulerOptions {
   /** When set, each cycle runs only on the pod that wins this lock — so with
    *  multiple replicas only one runs per window. */
   lock?: SchedulerLock;
+  /**
+   * Called on a pod whose locked cycle was SKIPPED because another pod holds
+   * the lock (or the lock store is unreachable). For state this pod published
+   * only while it was the leader — a gauge that would otherwise keep its last
+   * value forever after leadership moved. Errors are caught + logged.
+   */
+  onSkipped?: () => void | Promise<void>;
 }
 
 export interface Scheduler {
@@ -127,8 +134,14 @@ export function createScheduler(opts: SchedulerOptions): Scheduler {
         // withLeaderLock merges `signal` into the run's own, so `run` sees a single
         // signal for both "lock lost" and "shutting down".
         const ran = await withLeaderLock(redis, opts.lock.key, opts.lock.ttlMs, opts.run, { signal });
-        if (!ran) log.debug('Cycle skipped — another pod holds the lock');
-        else if (!signal.aborted) stampSuccess();
+        if (!ran) {
+          log.debug('Cycle skipped — another pod holds the lock');
+          if (opts.onSkipped && !signal.aborted) {
+            await opts.onSkipped();
+          }
+        } else if (!signal.aborted) {
+          stampSuccess();
+        }
       } else {
         // Unlocked: still give the job a signal, so `stop()` can cut a long cycle
         // short rather than waiting for it during shutdown.

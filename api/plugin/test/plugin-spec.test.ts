@@ -138,6 +138,34 @@ dockerfile: "/etc/passwd"
     await expect(parsePluginZip(zipPath)).rejects.toThrow('path traversal');
   });
 
+  // The CLI packs the plugin directory wholesale, so a developer's .env / SSH key
+  // there was uploaded, staged and sent to BuildKit as build context (and baked
+  // into the image by `COPY . .`). Refused at upload, naming the file.
+  it.each(['.env', 'src/.env.production', 'keys/id_ed25519', '.aws/credentials', 'home/.docker/config.json', '.netrc', '.git-credentials', '.pypirc'])(
+    'refuses a ZIP carrying the credential file %s',
+    async (secretPath) => {
+      const zipPath = buildZip({
+        'plugin-spec.yaml': 'name: leaky\nversion: "1.0.0"\ncommands:\n  - make\n',
+        'Dockerfile': 'FROM node:20',
+        [secretPath]: 'TOKEN=hunter2',
+      });
+      await expect(parsePluginZip(zipPath)).rejects.toThrow(`ZIP entry ${secretPath} looks like a`);
+    },
+  );
+
+  it('allows dotenv templates and public keys', async () => {
+    const zipPath = buildZip({
+      'plugin-spec.yaml': 'name: tidy\nversion: "1.0.0"\ncommands:\n  - make\n',
+      'Dockerfile': 'FROM node:20',
+      '.env.example': 'TOKEN=',
+      'config/.env.template': 'TOKEN=',
+      'keys/id_rsa.pub': 'ssh-rsa AAAA',
+      'docs/environment.md': '# env',
+    });
+    const result = await parsePluginZip(zipPath);
+    expect(fs.existsSync(path.join(result.extractDir, '.env.example'))).toBe(true);
+  });
+
   // Accepted, a build_image upload with no Dockerfile only failed later in the
   // build — on a missing file every retry would miss again. Refused at upload
   // with the missing path named instead.

@@ -43,6 +43,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
   ORG_DATA_OWNERSHIP: ownership.ORG_DATA_OWNERSHIP,
   ORG_SCOPED_TABLE_NAMES: ownership.ORG_SCOPED_TABLE_NAMES,
   allOrgScopedTables: ownership.allOrgScopedTables,
+  redactSecretColumns: ownership.redactSecretColumns,
   runWithTenantContext: <T>(_ctx: unknown, fn: () => Promise<T>): Promise<T> => fn(),
   // Shared row-level soft-delete window (SOFT_DELETE_RETENTION_DAYS, 30d) — the
   // FLOOR under the org's own purge deadline.
@@ -551,6 +552,31 @@ describe('exportOrg', () => {
 
     expect(select).toHaveBeenCalledWith('-token');
     expect(dump.mongo.invitations).toHaveLength(1);
+  });
+
+  it('never exports a runner signing key\'s private_key_enc (either spelling), keeping the rest of the row', async () => {
+    const keyRow = {
+      id: 'k1',
+      kid: 'kid-1',
+      state: 'active',
+      publicJwk: { kty: 'OKP' },
+      privateKeyEnc: '{"ct":"secret"}',
+      private_key_enc: '{"ct":"secret"}',
+    };
+    const keyTable = ownership.allOrgScopedTables().find((t) => t.name === 'pipeline_runner_signing_keys')!.table;
+    let current: unknown;
+    mockSelectChain.from.mockImplementation((table: unknown) => { current = table; return mockSelectChain; });
+    mockSelectChain.where.mockImplementation(async () => (current === keyTable ? [{ ...keyRow }] : [{ id: 'p1', name: 'other' }]));
+
+    const dump = await exportOrg('org-acme', '000000000000000000000001');
+
+    const keys = dump.postgres.pipeline_runner_signing_keys as Record<string, unknown>[];
+    expect(keys).toEqual([{ id: 'k1', kid: 'kid-1', state: 'active', publicJwk: { kty: 'OKP' } }]);
+    const json = JSON.stringify(dump);
+    expect(json).not.toContain('private_key_enc');
+    expect(json).not.toContain('privateKeyEnc');
+    // Tables without secret columns are untouched.
+    expect(dump.postgres.pipelines).toEqual([{ id: 'p1', name: 'other' }]);
   });
 
   it('caps the audit read so one tenant cannot exhaust the heap', async () => {

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import mongoose, { Schema, Document } from 'mongoose';
-import type { BillingInvoiceDocument } from './billing-invoice.js';
+import { BILLING_INVOICE_STATUSES, type BillingInvoiceStatus } from './billing-invoice.js';
 
 /**
  * A provider reversal (refund, dispute, void) that arrived before its invoice
@@ -21,7 +21,7 @@ import type { BillingInvoiceDocument } from './billing-invoice.js';
 export interface BillingPendingReversalDocument extends Document<string> {
   /** The provider invoice id (the ledger row's `externalInvoiceId`). */
   _id: string;
-  status: BillingInvoiceDocument['status'];
+  status: BillingInvoiceStatus;
   /** Net amount still collected; absent when the reversal leaves it unchanged. */
   amountPaidCents?: number;
   createdAt: Date;
@@ -32,7 +32,7 @@ export interface BillingPendingReversalDocument extends Document<string> {
 const schema = new Schema<BillingPendingReversalDocument>(
   {
     _id: { type: String },
-    status: { type: String, enum: ['paid', 'open', 'void', 'uncollectible', 'refunded', 'disputed'], required: true },
+    status: { type: String, enum: [...BILLING_INVOICE_STATUSES], required: true },
     amountPaidCents: { type: Number },
     // TTL: a reversal for an invoice that is never ingested (an out-of-band
     // charge with no subscription) has nothing to land on; let it age out.

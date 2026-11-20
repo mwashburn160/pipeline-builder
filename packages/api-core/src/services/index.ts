@@ -267,4 +267,3 @@ export {
   resetOrgAICache,
   type OrgAIAccess,
 } from './org-ai-client.js';
-export { fetchOrgFeatures } from './org-features-client.js';

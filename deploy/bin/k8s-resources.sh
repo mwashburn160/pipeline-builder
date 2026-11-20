@@ -278,23 +278,6 @@ pb_create_token_signing_secret() {
   pb_secret token-signing-key "${_args[@]}"
 }
 
-# The Ed25519 RUNNER-signing key, mounted (read-only) into PIPELINE ONLY — it
-# signs the run requests the pipeline service sends to customers' cross-account
-# pipeline runners (their public half is served at
-# GET /api/pipelines/runner/jwks.json), so no other Deployment references this
-# Secret. Args: <runner_signing_dir> (the `runner-signing/` directory
-# deploy/bin/runner-signing-keys.sh writes). The retiring key rides along only
-# while a rotation is mid-flight; the manifest mounts the whole Secret
-# `optional: true`, so an absent file is simply absent (and an absent Secret
-# just leaves runners unavailable — the service still starts).
-pb_create_runner_signing_secret() {
-  local _dir="${1:?pb_create_runner_signing_secret needs the runner-signing dir}"
-  [ -f "$_dir/runner-signing.key" ] || { echo "ERROR: no runner signing key at $_dir/runner-signing.key (run deploy/bin/runner-signing-keys.sh)" >&2; return 1; }
-  local _args=(--from-file=runner-signing.key="$_dir/runner-signing.key")
-  [ -f "$_dir/runner-signing-previous.key" ] && _args+=(--from-file=runner-signing-previous.key="$_dir/runner-signing-previous.key")
-  pb_secret runner-signing-key "${_args[@]}"
-}
-
 # The plugin-IMAGE signing keypair (cosign), as TWO Secrets because its halves
 # go to different pods. Args: <plugin_signing_dir> (the `plugin-signing/`
 # directory deploy/bin/plugin-signing-keys.sh writes).

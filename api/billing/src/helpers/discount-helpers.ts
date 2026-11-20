@@ -10,7 +10,7 @@ import { campaignWindowRefusal, orgRedeemedCampaign, releaseCampaignBudget, rese
 // Re-exported so routes/discounts.ts keeps importing it from here.
 export { loadManageableSubscription };
 import { activeComboCredits, comboLedgerId, discountBaseCents, getComboDiscounts, priceForInterval, volumeCredits, volumeLedgerId } from './combo-pricing.js';
-import { creditCents, discountFloorBreach, floorHeadroomCents, recurringDiscountStandingCents } from './credit-floor.js';
+import { creditCents, discountFloorBreach, floorHeadroomCents, recurringCreditCents, recurringDiscountStandingCents } from './credit-floor.js';
 import { compactInMemoryLedger, creditLedgerEntry } from './credit-ledger-compaction.js';
 import { decodeDiscountCode, type DiscountSpec, type DiscountKind } from './discount-code.js';
 import { standingRecurringPromotionCents } from './promotion-engine.js';
@@ -128,13 +128,24 @@ function computeDiscountBreakdown(planName: string, prices: { monthly: number; a
   return { interval, items, subtotalCents: base, totalCents: base - creditApplied, creditRemainingCents: balance - creditApplied };
 }
 
-/** Hypothetical breakdown if `discount` were redeemed now (adds its credit to the balance). */
-function projectDiscountBreakdown(planName: string, prices: { monthly: number; annual: number }, sub: BreakdownState, discount: Pick<DiscountDocument, 'kind' | 'unit' | 'value'>): DiscountBreakdown {
+/**
+ * The credit redeeming `discount` grants `subscription` now — one spelling for
+ * apply and preview, so a preview can never project a figure the redemption
+ * does not bank. A bundle-scoped code is a percentage of the scoped add-on
+ * subtotal (`discountBaseCents`), not of the plan.
+ */
+function redemptionCents(discount: Pick<DiscountDocument, 'unit' | 'value' | 'appliesToBundles'>, subscription: SubscriptionDocument, plan: { prices: { monthly: number; annual: number } }): number {
+  const intervalPrice = priceForInterval(plan.prices, subscription.interval);
+  return creditCents(
+    discount,
+    discountBaseCents(discount, intervalPrice, subscription.addons ?? [], getBundleCatalog(), subscription.interval),
+  );
+}
+
+/** Hypothetical breakdown if a credit of `cents` were redeemed now (adds it to the balance). */
+function projectDiscountBreakdown(planName: string, prices: { monthly: number; annual: number }, sub: BreakdownState, cents: number): DiscountBreakdown {
   const interval: BillingInterval = sub.interval === 'annual' ? 'annual' : 'monthly';
-  const projected: BreakdownState = {
-    interval,
-    creditBalanceCents: (sub.creditBalanceCents ?? 0) + creditCents(discount, prices[interval]),
-  };
+  const projected: BreakdownState = { interval, creditBalanceCents: (sub.creditBalanceCents ?? 0) + cents };
   return computeDiscountBreakdown(planName, prices, projected);
 }
 
@@ -221,7 +232,7 @@ export async function previewDiscountForOrg(orgId: string, discount: DiscountDoc
   return {
     ok: true,
     kind: discount.kind,
-    breakdown: projectDiscountBreakdown(loaded.plan.name, loaded.plan.prices, loaded.subscription, discount),
+    breakdown: projectDiscountBreakdown(loaded.plan.name, loaded.plan.prices, loaded.subscription, redemptionCents(discount, loaded.subscription, loaded.plan)),
   };
 }
 
@@ -266,10 +277,7 @@ export async function applyDiscountToOrg(
   // live composition rather than stored, so adding or dropping an add-on moves
   // the answer with no separate trigger.
   const intervalPrice = priceForInterval(plan.prices, subscription.interval);
-  const cents = creditCents(
-    discount,
-    discountBaseCents(discount, intervalPrice, subscription.addons ?? [], getBundleCatalog(), subscription.interval),
-  );
+  const cents = redemptionCents(discount, subscription, plan);
   // STANDING now means every source, not just the derived ones: the account's
   // own recurring discount and its eligible recurring promotions were both
   // invisible here, so a coupon was measured against an understated baseline.
@@ -669,12 +677,9 @@ export async function grantPeriodicCredits(subscription: SubscriptionDocument, p
           rd, intervalPrice,
           subscription.addons ?? [], getBundleCatalog(), subscription.interval,
         );
-        // A bundle-scoped DOLLAR credit is capped at this period's scoped subtotal
-        // (0 when no scoped bundle is held), as a scoped percent one already is
-        // by construction — otherwise removing the scoped bundle would leave the
-        // full amount re-granting every period against an add-on no longer held.
-        const scoped = !!rd.appliesToBundles?.length;
-        const wanted = rd.unit === 'dollar' && scoped ? Math.min(creditCents(rd, base), base) : creditCents(rd, base);
+        // A bundle-scoped DOLLAR credit is capped at this period's scoped
+        // subtotal (see `recurringCreditCents`, shared with the floor).
+        const wanted = recurringCreditCents(rd, base);
         // THE FLOOR APPLIES EVERY PERIOD, not only at redemption. The combo and
         // volume credits granted just below are derived from the CURRENT add-on
         // composition, and so is this discount's own base — so an account that

@@ -112,6 +112,31 @@ describe('plugin zip', () => {
     fs.symlinkSync('/etc/hosts', path.join(dir, 'hosts'));
     expect(() => collectPluginFiles(dir, { includeImageTar: false })).toThrow(/symlink/);
   });
+
+  // The upload would refuse these anyway; the packer refuses first, locally,
+  // naming the file, so a credential never leaves the developer's machine.
+  it.each([
+    ['.env', 'dotenv file'],
+    ['config/.env.production', 'dotenv file'],
+    ['keys/id_ed25519', 'SSH private key'],
+    ['.aws/credentials', 'AWS credentials file'],
+    ['.docker/config.json', 'Docker registry credentials'],
+    ['.netrc', 'netrc credentials file'],
+  ])('refuses to pack a credential file (%s)', (rel, label) => {
+    const dir = plugin();
+    fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+    fs.writeFileSync(path.join(dir, rel), 'SECRET=1');
+    expect(() => collectPluginFiles(dir, { includeImageTar: false }))
+      .toThrow(`Refusing to package ${rel}: it looks like a ${label}`);
+  });
+
+  it('packs dotenv templates and public keys', () => {
+    const dir = plugin();
+    fs.writeFileSync(path.join(dir, '.env.example'), 'SECRET=');
+    fs.writeFileSync(path.join(dir, 'id_ed25519.pub'), 'ssh-ed25519 AAAA');
+    const names = collectPluginFiles(dir, { includeImageTar: false }).map(e => e.name);
+    expect(names).toEqual(expect.arrayContaining(['.env.example', 'id_ed25519.pub']));
+  });
 });
 
 describe('scan preview', () => {

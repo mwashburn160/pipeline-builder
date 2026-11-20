@@ -463,11 +463,18 @@ CREATE TABLE IF NOT EXISTS pipeline_registry (    id UUID PRIMARY KEY DEFAULT ge
     organization VARCHAR(255),
     last_deployed TIMESTAMPTZ,
     stack_name VARCHAR(255),
-    -- The cross-account runner (pipeline_runners.id) that starts/stops this
-    -- pipeline. Set only after a VERIFIED run (or a single-match discovery
-    -- probe); cleared when the runner is revoked or reports the pipeline's
-    -- `pb.pipeline-id` tag missing/mismatched. NULL = the platform-account path.
+    -- The runner (pipeline_runners.id) that starts/stops this pipeline. Set by
+    -- a single match (discovery, rediscovery, the background probe at
+    -- registration, Find runner again) or a verified run; cleared when the
+    -- runner is revoked or reports the pipeline's `pb.pipeline-id` tag
+    -- missing/mismatched. NULL = not linked (Run goes to discovery).
     runner_id UUID,
+    -- The last probe's outcome, written by every probe. The detail holds runner
+    -- LABELS only ({ runnersChecked, matched, errorCode }), never an account id.
+    runner_link_status VARCHAR(16) NOT NULL DEFAULT 'unlinked'
+                        CHECK (runner_link_status IN ('linked', 'unlinked', 'not_found', 'ambiguous', 'checking')),
+    runner_link_checked_at TIMESTAMPTZ,
+    runner_link_detail JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -526,6 +533,89 @@ CREATE TABLE IF NOT EXISTS pipeline_run_requests (
     last_delivery_error VARCHAR(64),
     result_execution_id VARCHAR(100),
     error_code VARCHAR(64)
+);
+
+-- ============================================================================
+-- PIPELINE RUNNER SIGNING KEYS (one Ed25519 key set per owning org)
+-- ============================================================================
+-- Every runner-key change draws `runner_key_version` from this one sequence
+-- (key rows and key-settings rows alike). An org's key version is the MAX over
+-- the rows of its effective-key chain (itself + ancestors); it only ever rises
+-- (rows are never deleted outside an org purge), so each replica's 60 s poll
+-- catches any change a pub/sub message missed.
+CREATE SEQUENCE IF NOT EXISTS pipeline_runner_key_version_seq;
+
+-- `private_key_enc`: the PKCS#8 PEM as a JSON EncryptedBlob (encryptSecret,
+-- per-org HKDF or per-org KMS). NULL exactly when retired (CHECK). It never
+-- leaves the pipeline service: no route, log, audit entry or org export.
+-- States: next (published, signs from activates_at) -> active (signs) ->
+-- retiring (published until retire_after) -> retired (kept for audit, wiped).
+-- At most one next, one active and one retiring per org (partial unique indexes).
+CREATE TABLE IF NOT EXISTS pipeline_runner_signing_keys (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id VARCHAR(255) NOT NULL,
+    kid VARCHAR(64) NOT NULL,
+    public_jwk JSONB NOT NULL,
+    private_key_enc TEXT,
+    state VARCHAR(16) NOT NULL
+          CONSTRAINT pipeline_runner_signing_keys_state_check
+          CHECK (state IN ('next', 'active', 'retiring', 'retired')),
+    activates_at TIMESTAMPTZ NOT NULL,
+    retire_after TIMESTAMPTZ,
+    retired_at TIMESTAMPTZ,
+    retired_reason VARCHAR(16)
+          CONSTRAINT pipeline_runner_signing_keys_retired_reason_check
+          CHECK (retired_reason IS NULL OR retired_reason IN ('finished', 'revoked', 'cancelled', 'mode_switch')),
+    runner_key_version BIGINT NOT NULL DEFAULT nextval('pipeline_runner_key_version_seq'),
+    age_reminder_sent_at TIMESTAMPTZ,
+    age_followup_sent_at TIMESTAMPTZ,
+    created_by VARCHAR(255),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT pipeline_runner_signing_keys_wiped_check
+        CHECK ((state = 'retired') = (private_key_enc IS NULL)),
+    CONSTRAINT pipeline_runner_signing_keys_retire_after_check
+        CHECK (state <> 'retiring' OR retire_after IS NOT NULL)
+);
+
+-- An org's key mode. A missing row = `inherit` for a sub-organization, `own`
+-- for a root org. During a transition (to_own, to_inherit, ancestry) the
+-- previous effective key org's keys stay published for this org's runners
+-- until transition_until; signing moves to the new effective key org at
+-- switch_at. effective_key_org_id = the effective key org as last resolved
+-- (how the sweep notices an ancestry change).
+CREATE TABLE IF NOT EXISTS pipeline_runner_key_settings (
+    org_id VARCHAR(255) PRIMARY KEY,
+    mode VARCHAR(16) NOT NULL
+         CONSTRAINT pipeline_runner_key_settings_mode_check
+         CHECK (mode IN ('inherit', 'own')),
+    mode_changed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    effective_key_org_id VARCHAR(255),
+    transition_kind VARCHAR(16),
+    previous_key_org_id VARCHAR(255),
+    switch_at TIMESTAMPTZ,
+    transition_until TIMESTAMPTZ,
+    runner_key_version BIGINT NOT NULL DEFAULT nextval('pipeline_runner_key_version_seq'),
+    updated_by VARCHAR(255),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT pipeline_runner_key_settings_transition_check CHECK (
+        (transition_kind IS NULL AND previous_key_org_id IS NULL AND switch_at IS NULL AND transition_until IS NULL)
+        OR (transition_kind IN ('to_own', 'to_inherit', 'ancestry') AND switch_at IS NOT NULL AND transition_until IS NOT NULL)
+    )
+);
+
+-- The deployment-wide runner switches: at most one row (the PK can only hold
+-- TRUE); a missing row = not paused. `deliveries_paused` is the system-org
+-- "Pause all pipeline runs" toggle: nothing is signed or delivered and runs
+-- answer 409 RUNNERS_UNAVAILABLE while it is on. System-org only (RLS).
+CREATE TABLE IF NOT EXISTS pipeline_runner_platform_settings (
+    singleton BOOLEAN PRIMARY KEY DEFAULT TRUE
+              CONSTRAINT pipeline_runner_platform_settings_singleton_check CHECK (singleton),
+    deliveries_paused BOOLEAN NOT NULL DEFAULT false,
+    paused_at TIMESTAMPTZ,
+    paused_by VARCHAR(255),
+    pause_reason TEXT,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- ============================================================================
@@ -804,6 +894,24 @@ CREATE TRIGGER update_pipeline_runners_modtime
     FOR EACH ROW
     EXECUTE PROCEDURE update_modified_column();
 
+DROP TRIGGER IF EXISTS update_pipeline_runner_signing_keys_modtime ON pipeline_runner_signing_keys;
+CREATE TRIGGER update_pipeline_runner_signing_keys_modtime
+    BEFORE UPDATE ON pipeline_runner_signing_keys
+    FOR EACH ROW
+    EXECUTE PROCEDURE update_modified_column();
+
+DROP TRIGGER IF EXISTS update_pipeline_runner_key_settings_modtime ON pipeline_runner_key_settings;
+CREATE TRIGGER update_pipeline_runner_key_settings_modtime
+    BEFORE UPDATE ON pipeline_runner_key_settings
+    FOR EACH ROW
+    EXECUTE PROCEDURE update_modified_column();
+
+DROP TRIGGER IF EXISTS update_pipeline_runner_platform_settings_modtime ON pipeline_runner_platform_settings;
+CREATE TRIGGER update_pipeline_runner_platform_settings_modtime
+    BEFORE UPDATE ON pipeline_runner_platform_settings
+    FOR EACH ROW
+    EXECUTE PROCEDURE update_modified_column();
+
 -- ============================================================================
 -- Indexes for Performance
 -- ============================================================================
@@ -921,6 +1029,20 @@ CREATE INDEX IF NOT EXISTS pipeline_run_requests_pipeline_idx
 CREATE UNIQUE INDEX IF NOT EXISTS pipeline_run_requests_one_pending_start_uq
     ON pipeline_run_requests(pipeline_id)
     WHERE action = 'start' AND status IN ('queued', 'delivering');
+
+-- Runner signing keys: a kid names one key on the whole deployment; at most
+-- one next, one active and one retiring key per org (a concurrent second
+-- rotate loses with 23505 and answers 409).
+CREATE UNIQUE INDEX IF NOT EXISTS pipeline_runner_signing_keys_kid_uq
+    ON pipeline_runner_signing_keys(kid);
+CREATE INDEX IF NOT EXISTS pipeline_runner_signing_keys_org_state_idx
+    ON pipeline_runner_signing_keys(org_id, state);
+CREATE UNIQUE INDEX IF NOT EXISTS pipeline_runner_signing_keys_one_next_uq
+    ON pipeline_runner_signing_keys(org_id) WHERE state = 'next';
+CREATE UNIQUE INDEX IF NOT EXISTS pipeline_runner_signing_keys_one_active_uq
+    ON pipeline_runner_signing_keys(org_id) WHERE state = 'active';
+CREATE UNIQUE INDEX IF NOT EXISTS pipeline_runner_signing_keys_one_retiring_uq
+    ON pipeline_runner_signing_keys(org_id) WHERE state = 'retiring';
 
 -- Pipeline Events indexes
 -- No single-column org_id / pipeline_id index: each is the LEADING column of a
@@ -3412,16 +3534,17 @@ BEGIN
     END LOOP;
 END $$;
 
--- Cross-account runners + their run requests: OWN ORG ONLY, with NO system-org
--- read carve-out. A runner row carries its org's Function URL (a secret), so the
--- generic policy's "everyone reads the system org's rows" rule must not apply.
--- Inherited (team) runners are read by the pipeline service under sysadmin
--- scope with explicit ancestor org ids, never through this policy.
+-- Runners, their run requests, signing keys and key settings: OWN ORG ONLY,
+-- with NO system-org read carve-out. A runner row carries its org's Function URL
+-- and a key row its encrypted private key (secrets), so the generic policy's
+-- "everyone reads the system org's rows" rule must not apply. Inherited (team)
+-- runners and an ancestor's keys are read by the pipeline service under
+-- sysadmin scope with explicit ancestor org ids, never through this policy.
 DO $$
 DECLARE
     t TEXT;
 BEGIN
-    FOR t IN SELECT unnest(ARRAY['pipeline_runners', 'pipeline_run_requests'])
+    FOR t IN SELECT unnest(ARRAY['pipeline_runners', 'pipeline_run_requests', 'pipeline_runner_signing_keys', 'pipeline_runner_key_settings'])
     LOOP
         EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
         PERFORM pb_reset_policies(t);
@@ -3668,6 +3791,20 @@ BEGIN
     END LOOP;
 END $$;
 
+-- The runner platform switches (the pause toggle): system org only, reads AND
+-- writes. Every reader is the pipeline service under sysadmin scope.
+ALTER TABLE pipeline_runner_platform_settings ENABLE ROW LEVEL SECURITY;
+SELECT pb_reset_policies('pipeline_runner_platform_settings');
+CREATE POLICY rls_system_read ON pipeline_runner_platform_settings FOR SELECT
+    USING (current_is_sysadmin() OR current_org_id() = '000000000000000000000001');
+CREATE POLICY rls_system_insert ON pipeline_runner_platform_settings FOR INSERT
+    WITH CHECK (current_is_sysadmin() OR current_org_id() = '000000000000000000000001');
+CREATE POLICY rls_system_update ON pipeline_runner_platform_settings FOR UPDATE
+    USING (current_is_sysadmin() OR current_org_id() = '000000000000000000000001')
+    WITH CHECK (current_is_sysadmin() OR current_org_id() = '000000000000000000000001');
+CREATE POLICY rls_system_delete ON pipeline_runner_platform_settings FOR DELETE
+    USING (current_is_sysadmin() OR current_org_id() = '000000000000000000000001');
+
 -- An org's toolchain override: the org reads and writes ITS OWN row; the system
 -- org reads every org's (the console's overrides view, recovery). Unlike the
 -- generic loop there is NO "system row visible to everyone" carve-out — the
@@ -3743,6 +3880,9 @@ ALTER TABLE pipeline_registry FORCE ROW LEVEL SECURITY;
 -- runs under an explicit (sysadmin) tenant scope.
 ALTER TABLE pipeline_runners FORCE ROW LEVEL SECURITY;
 ALTER TABLE pipeline_run_requests FORCE ROW LEVEL SECURITY;
+ALTER TABLE pipeline_runner_signing_keys FORCE ROW LEVEL SECURITY;
+ALTER TABLE pipeline_runner_key_settings FORCE ROW LEVEL SECURITY;
+ALTER TABLE pipeline_runner_platform_settings FORCE ROW LEVEL SECURITY;
 -- Pipeline templates route through CrudService (withTenantTx) like pipelines;
 -- the entitlement watermark is written only by the billing sync under sysadmin.
 ALTER TABLE pipeline_templates FORCE ROW LEVEL SECURITY;
@@ -3857,10 +3997,11 @@ DROP FUNCTION pb_reset_policies(TEXT);
 
 \echo ''
 \echo '=== RLS POLICIES INSTALLED ==='
-\echo 'FORCE + org scope (SELECT carve-outs; own-org INSERT/UPDATE/DELETE) on every tenant table (55/55):'
+\echo 'FORCE + org scope (SELECT carve-outs; own-org INSERT/UPDATE/DELETE) on every tenant table (58/58):'
 \echo ' - dashboards, dashboard_panels, org_alert_destinations, org_alert_rules, alert_destination_status'
 \echo ' - messages (+ recipient read-state update), message_attachments, pipeline_registry'
-\echo ' - pipeline_runners, pipeline_run_requests (own org only, no system-org read)'
+\echo ' - pipeline_runners, pipeline_run_requests, pipeline_runner_signing_keys, pipeline_runner_key_settings (own org only, no system-org read)'
+\echo ' - pipeline_runner_platform_settings (system org only)'
 \echo ' - pipeline_templates, all compliance_* tables incl. compliance_entitlement_watermark'
 \echo ' - plugins, pipelines, pipeline_events, DORA tables (hot path)'
 \echo ' - pipeline_step_manifests, plugin_installs, plugin_install_policies, plugin_advisory_deliveries,'

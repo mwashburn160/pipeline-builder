@@ -79,9 +79,11 @@ describe('isFreshAccount (new owner/admin onboarding gate)', () => {
 });
 
 describe('buildSteps', () => {
-  it('returns three steps with stable ids', () => {
+  it('returns four steps with stable ids, Install a runner before the first run', () => {
     const steps = buildSteps(signals());
-    expect(steps.map((s) => s.id)).toEqual(['explore-plugins', 'create-pipeline', 'run-build']);
+    expect(steps.map((s) => s.id)).toEqual(['explore-plugins', 'create-pipeline', 'install-runner', 'run-build']);
+    expect(steps.find((s) => s.id === 'run-build')?.title).toBe('Run your first pipeline');
+    expect(steps.find((s) => s.id === 'install-runner')?.href).toBe('/dashboard/settings?tab=organization#pipeline-runners');
   });
 
   it('marks explore-plugins done when visited', () => {
@@ -96,12 +98,18 @@ describe('buildSteps', () => {
     expect(steps[1]?.done).toBe(true);
   });
 
-  it('marks run-build done when executionCount > 0', () => {
-    const steps = buildSteps(signals({ executionCount: 1 }));
-    expect(steps[2]?.done).toBe(true);
+  it('marks install-runner done once a runner is registered (or a run happened)', () => {
+    expect(buildSteps(signals({ runnerCount: 1 }))[2]?.done).toBe(true);
+    expect(buildSteps(signals({ runnerCount: 1 }))[3]?.done).toBe(false);
+    expect(buildSteps(signals({ executionCount: 1 }))[2]?.done).toBe(true);
   });
 
-  it('all three done when all signals are present', () => {
+  it('marks run-build done when executionCount > 0', () => {
+    const steps = buildSteps(signals({ executionCount: 1 }));
+    expect(steps[3]?.done).toBe(true);
+  });
+
+  it('all done when all signals are present', () => {
     const steps = buildSteps(signals({ visitedPlugins: true, pipelineCount: 1, executionCount: 1 }));
     expect(steps.every((s) => s.done)).toBe(true);
   });
@@ -119,10 +127,10 @@ describe('completedCount', () => {
     expect(completedCount(buildSteps(signals()))).toBe(0);
   });
 
-  it('returns 3 for full completion', () => {
+  it('returns 4 for full completion', () => {
     expect(completedCount(buildSteps(signals({
       visitedPlugins: true, pipelineCount: 5, executionCount: 99,
-    })))).toBe(3);
+    })))).toBe(4);
   });
 
   it('counts partial progress', () => {

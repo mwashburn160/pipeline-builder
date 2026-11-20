@@ -12,7 +12,10 @@ import { THEME_STORAGE_KEY } from '@/lib/constants';
 /** Read initial dark mode preference synchronously to prevent flash of wrong theme. */
 export function getInitialDark(): boolean {
   if (typeof window === 'undefined') return false;
-  const stored = localStorage.getItem(THEME_STORAGE_KEY);
+  let stored: string | null = null;
+  // Blocked site data makes the accessor itself throw; that must not take the
+  // first render down with it.
+  try { stored = localStorage.getItem(THEME_STORAGE_KEY); } catch { /* storage unavailable */ }
   if (stored === 'dark') return true;
   if (stored === 'light') return false;
   return window.matchMedia('(prefers-color-scheme: dark)').matches;

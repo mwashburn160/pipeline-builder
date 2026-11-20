@@ -12,7 +12,7 @@
  */
 
 import {
-  RUNNER_DELIVERY_FAILURE_CLASSES, RUNNER_FEATURE, TERMINAL_RUN_REQUEST_STATUSES as TERMINAL_RUN_REQUEST_STATUS_LIST,
+  RUNNER_DELIVERY_FAILURE_CLASSES, TERMINAL_RUN_REQUEST_STATUSES as TERMINAL_RUN_REQUEST_STATUS_LIST,
   type RunnerDeliveryFailureClass, type RunnerErrorCode, type RunnerHealth, type RunnerStatus, type RunRequestStatus,
 } from '@pipeline-builder/api-core/pipeline-runners';
 import type { BadgeColor } from '@/components/ui/Badge';
@@ -22,13 +22,12 @@ import { ApiError } from '@/lib/api/errors';
 export { isTerminalExecutionStatus } from '@pipeline-builder/api-core/pipeline-runners';
 
 /**
- * The per-org feature that turns runners on. Every runner surface (the settings
- * panel, the setup-guide step, the Deployment card's "Runs via") is HIDDEN —
- * not locked, no upsell — unless `useFeatures().isEnabled()` holds it: an
- * operator grants it; it is not a plan feature anyone can buy. It is
- * `cross_account_runners` — api-core's catalog constant, not a second copy.
+ * The one-runner-per-account rule, as every install surface states it. One
+ * runner covers every region it lists, so an org never needs a second in the
+ * same account; another org may install its own there.
  */
-export const CROSS_ACCOUNT_RUNNERS_FEATURE = RUNNER_FEATURE;
+export const ONE_RUNNER_PER_ACCOUNT_COPY =
+  'Install one runner per AWS account for this organization: one runner covers every region it allows. Another organization may install its own runner in the same account, but a shared AWS account is a shared trust boundary — anyone with AWS access there can reach both organizations\' pipelines.';
 
 /** Anchor of the Pipeline runners card on Settings → Organization. */
 export const PIPELINE_RUNNERS_ANCHOR = 'pipeline-runners';
@@ -94,8 +93,9 @@ type GenericCopyCode = 'DUPLICATE';
  */
 const COPY = {
   NO_RUNNER: {
-    title: 'This pipeline is not in the platform\'s AWS account, and your organization has no pipeline runner.',
-    body: 'To Re-run and Stop pipelines in your own AWS account, install a pipeline runner there.',
+    // The expected first-run state: every run goes through a runner.
+    title: 'This pipeline needs a runner.',
+    body: 'Install a runner in the pipeline\'s AWS account (one per account per organization), then run it again.',
     link: 'install',
   },
   RUNNER_UNREACHABLE: {
@@ -110,7 +110,7 @@ const COPY = {
   },
   AMBIGUOUS_RUNNER: {
     title: 'More than one pipeline runner found this pipeline.',
-    body: 'The platform will not guess which to use. Remove the stray deployment, or narrow a runner\'s regions or pipeline prefix.',
+    body: 'The platform will not guess which to use. Each organization should have one runner per AWS account: remove the extra runner, or narrow a runner\'s regions or pipeline prefix.',
     link: 'runners',
   },
   AMBIGUOUS_PIPELINE: {
@@ -135,7 +135,7 @@ const COPY = {
   },
   SIGNATURE_INVALID: {
     title: 'The pipeline runner rejected the platform\'s signature.',
-    body: 'Either the runner cannot fetch the platform\'s current public keys, or its clock is off. Platform operators have been alerted; test the runner once it is fixed.',
+    body: 'Either the runner cannot fetch its organization\'s current public keys (its JWKS URL), or its clock is off. Platform operators have been alerted; test the runner once it is fixed.',
     link: 'test',
   },
   RUNNER_PERMISSION_DENIED: {
@@ -147,11 +147,6 @@ const COPY = {
     title: 'The request was not delivered to the pipeline runner within 10 minutes, so it expired.',
     body: 'Nothing was started or stopped. The runner may be down or unreachable — test it, then try again.',
     link: 'runners',
-  },
-  RUNNERS_NOT_ENABLED: {
-    title: 'Cross-account runners are no longer enabled for your organization.',
-    body: 'This pipeline was set up to run through a pipeline runner, so it cannot be started or stopped from here. Ask your platform operator, or use pipeline-manager pipeline run with your own AWS credentials.',
-    link: null,
   },
   RUNNER_PENDING: {
     title: 'The pipeline runner\'s setup is not finished.',
@@ -214,8 +209,54 @@ const COPY = {
     link: 'runners',
   },
   RUNNERS_UNAVAILABLE: {
-    title: 'Pipeline runners are not enabled on this platform.',
-    body: 'Pipelines outside the platform\'s AWS account cannot be started or stopped from here. Use pipeline-manager pipeline run with your own AWS credentials instead.',
+    // The platform pause toggle is on, or secret encryption is not set up.
+    title: 'Pipeline runs are paused on this platform.',
+    body: 'Your platform operator has paused all runner traffic, or has not finished setting runners up. Nothing is started or stopped until they turn it back on. pipeline-manager pipeline run with your own AWS credentials still works.',
+    link: null,
+  },
+  RUNNER_KEY_UNREADABLE: {
+    title: 'Your signing key can\'t be read.',
+    body: 'Runs through your runners are paused until your platform operator fixes it.',
+    link: 'runners',
+  },
+  RUNNER_KEY_MISSING: {
+    title: 'Your organization has no runner signing key yet.',
+    body: 'A key is created when you register your first runner, or generate one in Settings → Pipeline runners.',
+    link: 'runners',
+  },
+  RUNNER_KEY_EXISTS: {
+    title: 'Your organization already has a signing key.',
+    body: 'Rotate it instead.',
+    link: 'runners',
+  },
+  RUNNER_KEY_TRANSITION_IN_PROGRESS: {
+    title: 'A key rotation or key-mode change is already in progress.',
+    body: 'Wait for it to finish (up to about 75 minutes), or finish it from the Signing key card.',
+    link: 'runners',
+  },
+  RUNNER_KEY_NO_ROTATION: {
+    title: 'There is no rotation to cancel or finish.',
+    body: 'Reload the Signing key card to see the current state.',
+    link: 'runners',
+  },
+  RUNNER_KEY_RETIRE_TOO_EARLY: {
+    title: 'The old key can\'t be removed yet.',
+    body: 'Runners may still be using it. Finish now is available once the time shown on the card has passed.',
+    link: 'runners',
+  },
+  RUNNER_KEY_INHERITED: {
+    title: 'This organization uses its parent\'s signing key.',
+    body: 'Switch to your own key (Use our own key) before changing it, or ask the parent organization\'s admins.',
+    link: 'runners',
+  },
+  RUNNER_KEY_MODE_ROOT_ORG: {
+    title: 'A top-level organization always uses its own key.',
+    body: 'Only sub-organizations can inherit a key.',
+    link: null,
+  },
+  RUNNER_KEY_CONFIRMATION_MISMATCH: {
+    title: 'The confirmation doesn\'t match.',
+    body: 'Type the last 6 characters of the active key id.',
     link: null,
   },
 } satisfies Record<Exclude<RunnerErrorCode, GenericCopyCode>, RunnerErrorCopy>;

@@ -18,15 +18,21 @@
  *   docker compose exec platform node scripts/reencrypt-secrets.js
  *   kubectl exec -n pipeline-builder deploy/platform -- node scripts/reencrypt-secrets.js
  *
+ * After the Mongo pass it asks the pipeline service to re-wrap the runner
+ * signing keys it holds in Postgres (`PIPELINE_INTERNAL.reencryptRunnerSigningKeys`).
+ * The pipeline containers must carry the same key pair.
+ *
  * Exits 0 only when every row was rewritten; exits 1 (printing each failure) if
- * any row could not be decrypted, since that row needs its secret re-entered and
- * the previous key must NOT be dropped yet.
+ * any row could not be decrypted, or the runner-key re-encrypt failed or left a
+ * key unreadable, since that row needs its secret re-entered and the previous
+ * key must NOT be dropped yet.
  */
 
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
 import { config } from '../config/index.js';
 import { bootstrapPerOrgKmsProvider } from '../services/per-org-kms-bootstrap.js';
+import { reencryptRunnerSigningKeys } from '../services/runner-key-reencrypt.js';
 import { reencryptAllStoredSecrets } from '../services/secret-reencrypt.js';
 
 const logger = createLogger('reencrypt-secrets');
@@ -57,7 +63,20 @@ async function main(): Promise<number> {
   for (const failure of summary.failures) {
     logger.error('Unreadable secret — re-enter this value before dropping the previous key', failure);
   }
-  return summary.failures.length === 0 ? 0 : 1;
+
+  const runnerKeys = await reencryptRunnerSigningKeys();
+  if (runnerKeys.ok) {
+    logger.info('Runner signing key re-encryption summary', { scanned: runnerKeys.counts.scanned, reencrypted: runnerKeys.counts.reencrypted });
+  } else {
+    logger.error('Runner signing key re-encryption failed — rerun before dropping the previous key', {
+      error: runnerKeys.error,
+      failures: runnerKeys.counts?.failures.length ?? null,
+    });
+    for (const failure of runnerKeys.counts?.failures ?? []) {
+      logger.error('Unreadable runner signing key', failure);
+    }
+  }
+  return summary.failures.length === 0 && runnerKeys.ok ? 0 : 1;
 }
 
 let exitCode = 1;

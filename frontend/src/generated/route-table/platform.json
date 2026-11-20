@@ -1913,7 +1913,7 @@
   },
   {
     "method": "GET",
-    "path": "/internal/features/:orgId",
+    "path": "/internal/kms-config/:orgId",
     "auth": true,
     "permissions": [],
     "systemAdmin": false,

@@ -10,8 +10,9 @@
  * service layer above is what decides which org ids a caller may name.
  */
 
+import type { RunnerLinkDetail, RunnerLinkStatus } from '@pipeline-builder/api-core/pipeline-runners';
 import { pipelineRegistryRunnerLink, runWithTenantContext, schema, tableExists, withTenantTx, type RunRequestStatus } from '@pipeline-builder/pipeline-data';
-import { and, asc, eq, inArray, lt, lte, sql } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, lt, lte, ne, sql } from 'drizzle-orm';
 
 export type RunnerRow = typeof schema.pipelineRunner.$inferSelect;
 export type RunnerInsert = typeof schema.pipelineRunner.$inferInsert;
@@ -26,6 +27,19 @@ export interface RegistryLink {
   pipelineName: string;
   region: string | null;
   runnerId: string | null;
+  /** The last probe's outcome (`runner_link_status`); `unlinked` before any. */
+  linkStatus?: RunnerLinkStatus;
+  linkCheckedAt?: Date | null;
+  linkDetail?: RunnerLinkDetail | null;
+}
+
+/** What one probe (discovery, rediscovery, the registration probe, Find runner again) records on the registry row. */
+export interface RunnerLinkWrite {
+  status: RunnerLinkStatus;
+  checkedAt: Date;
+  detail: RunnerLinkDetail | null;
+  /** Set only by a single match; omitted, the existing `runner_id` is kept. */
+  runnerId?: string;
 }
 
 export interface RunnerStore {
@@ -70,10 +84,21 @@ export interface RunnerStore {
   deleteRequestsBefore(statuses: readonly RunRequestStatus[], before: Date): Promise<number>;
 
   getRegistryLink(pipelineId: string, orgId: string): Promise<RegistryLink | null>;
-  /** Set (or clear with null) a pipeline's runner link; `onlyIfRunnerId` makes a clear conditional. */
+  /**
+   * Set (or clear with null) a pipeline's runner link; `onlyIfRunnerId` makes a
+   * clear conditional. Setting marks the link `linked`, clearing `unlinked`.
+   */
   setRegistryRunner(pipelineId: string, orgId: string, runnerId: string | null, onlyIfRunnerId?: string): Promise<boolean>;
-  /** Clear every pipeline link to a runner. */
+  /** Record a probe's state/outcome on the pipeline's registry row (no row: false). */
+  writeRunnerLink(pipelineId: string, orgId: string, write: RunnerLinkWrite): Promise<boolean>;
+  /** Clear every pipeline link to a runner (status `unlinked`). */
   clearRunnerLinks(runnerId: string): Promise<number>;
+  /** runnerId → how many registry rows link to it (any org). */
+  pipelineCounts(runnerIds: readonly string[]): Promise<Map<string, number>>;
+  /** The pipelines linked to a runner (any org), by name, paginated. */
+  listRunnerPipelines(runnerId: string, limit: number, offset: number): Promise<{ rows: Array<{ id: string; name: string }>; total: number }>;
+  /** The orgs OTHER than `ownerOrgId` with a pipeline linked to the runner (teams using a shared runner). */
+  linkedOrgIds(runnerId: string, ownerOrgId: string): Promise<string[]>;
   /** pipelineId → its linked runner `{ id, label }` (the Deployment card), for one org's pipelines. */
   runnerLinks(pipelineIds: readonly string[], orgId: string): Promise<Map<string, { id: string; label: string }>>;
 }
@@ -130,18 +155,55 @@ export function createDrizzleRunnerStore(): RunnerStore {
       .where(and(inArray(Q.status, [...statuses]), lt(Q.requestedAt, before))).returning({ id: Q.id })).length),
 
     getRegistryLink: (pipelineId, orgId) => elevated(async (tx) => {
-      const [row] = await tx.select({ pipelineName: G.pipelineName, region: G.region, runnerId: G.runnerId }).from(G)
-        .where(and(eq(G.pipelineId, pipelineId), eq(G.orgId, orgId)));
-      return row ? { pipelineName: row.pipelineName, region: row.region ?? null, runnerId: row.runnerId ?? null } : null;
+      const [row] = await tx.select({
+        pipelineName: G.pipelineName,
+        region: G.region,
+        runnerId: G.runnerId,
+        linkStatus: G.runnerLinkStatus,
+        linkCheckedAt: G.runnerLinkCheckedAt,
+        linkDetail: G.runnerLinkDetail,
+      }).from(G).where(and(eq(G.pipelineId, pipelineId), eq(G.orgId, orgId)));
+      return row ? {
+        pipelineName: row.pipelineName,
+        region: row.region ?? null,
+        runnerId: row.runnerId ?? null,
+        linkStatus: row.linkStatus,
+        linkCheckedAt: row.linkCheckedAt ?? null,
+        linkDetail: row.linkDetail ?? null,
+      } : null;
     }),
     setRegistryRunner: (pipelineId, orgId, runnerId, onlyIfRunnerId) => elevated(async (tx) => {
-      const rows = await tx.update(G).set({ runnerId })
+      const rows = await tx.update(G).set({ runnerId, runnerLinkStatus: runnerId ? 'linked' : 'unlinked' })
         .where(and(eq(G.pipelineId, pipelineId), eq(G.orgId, orgId), onlyIfRunnerId ? eq(G.runnerId, onlyIfRunnerId) : undefined))
         .returning({ id: G.id });
       return rows.length > 0;
     }),
-    clearRunnerLinks: (runnerId) => elevated(async (tx) => (await tx.update(G).set({ runnerId: null })
+    writeRunnerLink: (pipelineId, orgId, write) => elevated(async (tx) => {
+      const rows = await tx.update(G).set({
+        runnerLinkStatus: write.status,
+        runnerLinkCheckedAt: write.checkedAt,
+        runnerLinkDetail: write.detail,
+        ...(write.runnerId ? { runnerId: write.runnerId } : {}),
+      }).where(and(eq(G.pipelineId, pipelineId), eq(G.orgId, orgId))).returning({ id: G.id });
+      return rows.length > 0;
+    }),
+    clearRunnerLinks: (runnerId) => elevated(async (tx) => (await tx.update(G).set({ runnerId: null, runnerLinkStatus: 'unlinked' })
       .where(eq(G.runnerId, runnerId)).returning({ id: G.id })).length),
+    pipelineCounts: async (runnerIds) => {
+      const unique = [...new Set(runnerIds)];
+      if (unique.length === 0) return new Map();
+      const rows = await elevated((tx) => tx.select({ runnerId: G.runnerId, n: count() }).from(G)
+        .where(inArray(G.runnerId, unique)).groupBy(G.runnerId));
+      return new Map(rows.filter((r) => r.runnerId).map((r) => [r.runnerId!, Number(r.n)]));
+    },
+    listRunnerPipelines: (runnerId, limit, offset) => elevated(async (tx) => {
+      const rows = await tx.select({ id: G.pipelineId, name: G.pipelineName }).from(G)
+        .where(eq(G.runnerId, runnerId)).orderBy(asc(G.pipelineName), asc(G.pipelineId)).limit(limit).offset(offset);
+      const [total] = await tx.select({ n: count() }).from(G).where(eq(G.runnerId, runnerId));
+      return { rows, total: Number(total?.n ?? 0) };
+    }),
+    linkedOrgIds: (runnerId, ownerOrgId) => elevated(async (tx) => (await tx.selectDistinct({ orgId: G.orgId }).from(G)
+      .where(and(eq(G.runnerId, runnerId), ne(G.orgId, ownerOrgId)))).map((r) => r.orgId)),
     runnerLinks: async (pipelineIds, orgId) => {
       const unique = [...new Set(pipelineIds)];
       if (unique.length === 0) return new Map();

@@ -13,6 +13,7 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
+import { hasPermission } from '@/lib/auth-helpers';
 import { stashMarketplaceRef, readMarketplaceRef, clearMarketplaceRef } from '@/hooks/usePendingMarketplaceClaim';
 import { resolveRegistrationToken, type ResolveOutcome } from '@/lib/marketplace/resolve';
 
@@ -69,7 +70,11 @@ type Phase = 'resolving' | 'pending' | 'already' | 'error' | 'claiming';
 export default function MarketplaceRegisterPage({ outcome }: Props) {
   const router = useRouter();
   const toast = useToast();
-  const { user, isAuthenticated, isInitialized } = useAuth();
+  const { user, isAuthenticated, isInitialized, isReadOnly } = useAuth();
+  // `POST /billing/marketplace/claim` is `any(billing:manage)`, and a read-only
+  // session's writes are refused outright — either way a Link button could only
+  // come back 403, so it is not offered.
+  const canClaim = hasPermission(user, 'billing:manage') && !isReadOnly;
 
   // Seeded straight from the server's answer rather than fetched on mount. The
   // initialisers run identically on both sides of hydration, so there is no
@@ -155,6 +160,16 @@ export default function MarketplaceRegisterPage({ outcome }: Props) {
     }
     // pending / claiming
     const planLabel = planName ? <strong>{planName}</strong> : 'your plan';
+    if (isAuthenticated && user && !canClaim) {
+      return (
+        <p className="text-sm text-fg-muted">
+          Linking your AWS Marketplace {planLabel} subscription to{' '}
+          <strong>{user.organizationName || 'your organization'}</strong> needs permission to manage billing there.
+          Ask an organization owner or billing admin to sign in from this browser within 30 minutes to finish, or
+          switch to an organization where you manage billing.
+        </p>
+      );
+    }
     if (isAuthenticated && user) {
       return (
         <>

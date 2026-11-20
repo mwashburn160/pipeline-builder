@@ -237,9 +237,10 @@ export async function runPluginTest(options: TestPluginOptions, exec: Exec = spa
       workspace,
       failureBehavior: plan.failureBehavior,
       env: Object.keys(plan.env),
-      secrets: plan.secretNames,
+      // Not `secrets:` — the log redactor masks any secret-named key, and these are names.
+      passedThroughFromHost: plan.secretNames,
     });
-    if (plan.missingOptionalSecrets.length) printWarning('Optional secrets not set (the step runs without them)', { secrets: plan.missingOptionalSecrets });
+    if (plan.missingOptionalSecrets.length) printWarning('Optional secrets not set (the step runs without them)', { names: plan.missingOptionalSecrets });
 
     for (const [phase, script] of [['install', plan.installScript], ['build', plan.buildScript]] as const) {
       printSection(`Phase: ${phase}`);

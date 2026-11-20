@@ -44,9 +44,31 @@ import { getPublicReaderDb } from '../database/public-reader.js';
 // -----------------------------------------------------------------------------
 
 export type DirectoryIconKind = 'vendor' | 'uploaded' | 'monogram' | 'category';
-export type DirectorySort = 'relevance' | 'rating' | 'installs' | 'updated' | 'name' | 'health';
+/**
+ * The directory's sorts — ONE keyed catalog: each sort's ORDER BY. Every order
+ * ends on (name, publisher_handle) — unique together — so OFFSET paging is
+ * deterministic. `name` alone is unique only per publisher, and two publishers'
+ * same-named listings could repeat or vanish across pages.
+ */
+const DIRECTORY_SORT_ORDER = {
+  // Text relevance first, nudged by rating and adoption so equal matches favour
+  // proven plugins. Without a query there is no relevance: see `orderBy`.
+  relevance: sql`(rank * (1 + COALESCE(rating_bayes, 0) / 10) + ln(1 + install_count) / 20) DESC, name ASC, publisher_handle ASC`,
+  rating: sql`rating_bayes DESC NULLS LAST, rating_count DESC, name ASC, publisher_handle ASC`,
+  installs: sql`install_count DESC, name ASC, publisher_handle ASC`,
+  updated: sql`updated_at DESC, name ASC, publisher_handle ASC`,
+  name: sql`name ASC, publisher_handle ASC`,
+  health: sql`health_score DESC NULLS LAST, install_count DESC, name ASC, publisher_handle ASC`,
+} as const satisfies Record<string, SQL>;
 
-export const DIRECTORY_SORTS: readonly DirectorySort[] = ['relevance', 'rating', 'installs', 'updated', 'name', 'health'];
+export type DirectorySort = keyof typeof DIRECTORY_SORT_ORDER;
+
+export const DIRECTORY_SORTS: readonly DirectorySort[] = Object.keys(DIRECTORY_SORT_ORDER) as DirectorySort[];
+
+/** A known sort (own keys only, so `constructor` is not one). */
+export function isDirectorySort(value: unknown): value is DirectorySort {
+  return typeof value === 'string' && Object.hasOwn(DIRECTORY_SORT_ORDER, value);
+}
 
 /** Minimum `word_similarity(query, name)` for a fuzzy name match (typo tolerance). */
 export const FUZZY_NAME_THRESHOLD = 0.3;
@@ -438,26 +460,7 @@ function baseQuery(params: DirectorySearchParams, q: string): SQL {
 }
 
 function orderBy(sort: DirectorySort, hasQuery: boolean): SQL {
-  // Every order ends on (name, publisher_handle) — unique together — so OFFSET
-  // paging is deterministic. `name` alone is unique only per publisher, and
-  // two publishers' same-named listings could repeat or vanish across pages.
-  switch (sort === 'relevance' && !hasQuery ? 'updated' : sort) {
-    case 'relevance':
-      // Text relevance first, nudged by rating and adoption so equal matches
-      // favour proven plugins.
-      return sql`(rank * (1 + COALESCE(rating_bayes, 0) / 10) + ln(1 + install_count) / 20) DESC, name ASC, publisher_handle ASC`;
-    case 'rating':
-      return sql`rating_bayes DESC NULLS LAST, rating_count DESC, name ASC, publisher_handle ASC`;
-    case 'installs':
-      return sql`install_count DESC, name ASC, publisher_handle ASC`;
-    case 'name':
-      return sql`name ASC, publisher_handle ASC`;
-    case 'health':
-      return sql`health_score DESC NULLS LAST, install_count DESC, name ASC, publisher_handle ASC`;
-    case 'updated':
-    default:
-      return sql`updated_at DESC, name ASC, publisher_handle ASC`;
-  }
+  return DIRECTORY_SORT_ORDER[sort === 'relevance' && !hasQuery ? 'updated' : sort] ?? DIRECTORY_SORT_ORDER.updated;
 }
 
 /** Search the directory: one page of cards, facet counts, total and next cursor. */
@@ -466,7 +469,7 @@ export async function searchPublicListings(params: DirectorySearchParams): Promi
   const q = normalizeQuery(params.q);
   const limit = clampLimit(params.limit);
   const offset = decodeOffsetCursor(params.cursor);
-  const sort = params.sort && DIRECTORY_SORTS.includes(params.sort) ? params.sort : 'relevance';
+  const sort = isDirectorySort(params.sort) ? params.sort : 'relevance';
   const base = baseQuery(params, q);
 
   const [pageRes, facetRes] = await Promise.all([

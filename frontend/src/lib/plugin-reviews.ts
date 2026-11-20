@@ -36,22 +36,37 @@ export const HOLD_REASON_LABELS: Record<ReviewHoldReason, string> = {
   moderator: 'Held by a moderator',
 };
 
-export const REVIEW_STATUS_LABELS: Record<ReviewStatus, string> = {
-  published: 'Published',
-  held: 'Awaiting moderation',
-  removed: 'Removed',
-};
+/** Every review status: its words and badge colour, in one place. */
+export const REVIEW_STATUS = {
+  published: { label: 'Published', color: 'green' },
+  held: { label: 'Awaiting moderation', color: 'yellow' },
+  removed: { label: 'Removed', color: 'red' },
+} as const satisfies Record<ReviewStatus, { label: string; color: BadgeColor }>;
 
-export const REVIEW_STATUS_COLORS: Record<ReviewStatus, BadgeColor> = {
-  published: 'green',
-  held: 'yellow',
-  removed: 'red',
-};
+const reviewStatusEntries = Object.entries(REVIEW_STATUS) as Array<[ReviewStatus, (typeof REVIEW_STATUS)[ReviewStatus]]>;
+
+export const REVIEW_STATUS_LABELS = Object.fromEntries(
+  reviewStatusEntries.map(([status, meta]) => [status, meta.label]),
+) as Record<ReviewStatus, string>;
+
+export const REVIEW_STATUS_COLORS = Object.fromEntries(
+  reviewStatusEntries.map(([status, meta]) => [status, meta.color]),
+) as Record<ReviewStatus, BadgeColor>;
 
 /** "4 stars" / "1 star". */
 export function starsLabel(n: number): string {
   return `${n} star${n === 1 ? '' : 's'}`;
 }
+
+/** The review API's error codes, in words a reviewer can act on. */
+const REVIEW_ERROR_COPY = {
+  DUPLICATE_ENTRY: "You've already reviewed this plugin. Edit your review instead.",
+  REVIEW_SELF_PROMOTION: REVIEW_BLOCKED_COPY.own_publisher,
+  PLUGIN_REVIEWS_DISABLED: REVIEW_BLOCKED_COPY.reviews_disabled,
+  HUMAN_SESSION_REQUIRED: REVIEW_BLOCKED_COPY.machine_credential,
+  RATE_LIMIT_EXCEEDED: 'Too many reviews from your organization or network today. Try again later.',
+  CONFLICT: 'This review was removed by a moderator and can no longer be edited.',
+} as const satisfies Record<string, string>;
 
 /**
  * The review API's error codes in words a reviewer can act on; anything else
@@ -66,14 +81,8 @@ export function reviewErrorMessage(
   if (err instanceof ApiError) {
     const override = err.code ? overrides[err.code] : undefined;
     if (override) return override;
-    switch (err.code) {
-      case 'DUPLICATE_ENTRY': return "You've already reviewed this plugin. Edit your review instead.";
-      case 'REVIEW_SELF_PROMOTION': return REVIEW_BLOCKED_COPY.own_publisher;
-      case 'PLUGIN_REVIEWS_DISABLED': return REVIEW_BLOCKED_COPY.reviews_disabled;
-      case 'HUMAN_SESSION_REQUIRED': return REVIEW_BLOCKED_COPY.machine_credential;
-      case 'RATE_LIMIT_EXCEEDED': return 'Too many reviews from your organization or network today. Try again later.';
-      case 'CONFLICT': return 'This review was removed by a moderator and can no longer be edited.';
-      default: break;
+    if (err.code && Object.hasOwn(REVIEW_ERROR_COPY, err.code)) {
+      return REVIEW_ERROR_COPY[err.code as keyof typeof REVIEW_ERROR_COPY];
     }
   }
   return formatError(err, fallback);

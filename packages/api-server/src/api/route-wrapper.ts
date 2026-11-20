@@ -4,7 +4,6 @@
 import {
   AppError,
   ErrorCode,
-  errorMessage,
   extractDbError,
   sendError,
   sendBadRequest,
@@ -14,24 +13,12 @@ import {
 import type { Request, Response, RequestHandler } from 'express';
 import { getContext } from './get-context.js';
 import type { RequestContext } from './request-types.js';
+import { safeErrorForLog } from './safe-error.js';
 
 const logger = createLogger('route-wrapper');
 
 /** SQLSTATE 22P02 `invalid_text_representation` — a value that failed its column cast. */
 const INVALID_TEXT_REPRESENTATION = '22P02';
-
-/**
- * A log-safe rendering of an unknown error. drizzle-orm's `DrizzleQueryError`
- * embeds the failed SQL statement AND the bound parameter values (real data) in
- * its `.message` (`Failed query: <sql>\nparams: <values>`). Never put that in a
- * response or a log line — collapse it to the error name. Other errors are safe.
- */
-function safeErrorForLog(error: unknown): string {
-  if (error instanceof Error && error.message.startsWith('Failed query:')) {
-    return `${error.name || 'DrizzleQueryError'}: database query failed`;
-  }
-  return errorMessage(error);
-}
 
 /**
  * Context object passed to every route handler wrapped with `withRoute()`.

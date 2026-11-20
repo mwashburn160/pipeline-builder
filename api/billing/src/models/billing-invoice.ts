@@ -3,6 +3,14 @@
 
 import mongoose, { Schema, Document } from 'mongoose';
 
+/** Where an invoice row was mirrored from. */
+export const BILLING_INVOICE_SOURCES = ['stripe', 'marketplace'] as const;
+export type BillingInvoiceSource = (typeof BILLING_INVOICE_SOURCES)[number];
+
+/** An invoice row's settlement status (a reversal moves it to refunded / disputed / void). */
+export const BILLING_INVOICE_STATUSES = ['paid', 'open', 'void', 'uncollectible', 'refunded', 'disputed'] as const;
+export type BillingInvoiceStatus = (typeof BILLING_INVOICE_STATUSES)[number];
+
 // Types
 
 /**
@@ -18,7 +26,7 @@ import mongoose, { Schema, Document } from 'mongoose';
 export interface BillingInvoiceDocument extends Document {
   orgId: string;
   externalInvoiceId: string;
-  source: 'stripe' | 'marketplace';
+  source: BillingInvoiceSource;
   periodStart: Date;
   periodEnd: Date;
   /** GROSS — plan base + add-on bundles, pre-discount. */
@@ -35,7 +43,7 @@ export interface BillingInvoiceDocument extends Document {
   /** `refunded`/`disputed` are REVERSAL states set from charge webhooks
    *  (charge.refunded / charge.dispute.created); `void`/`uncollectible` come from
    *  the invoice lifecycle. */
-  status: 'paid' | 'open' | 'void' | 'uncollectible' | 'refunded' | 'disputed';
+  status: BillingInvoiceStatus;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -46,7 +54,7 @@ const billingInvoiceSchema = new Schema<BillingInvoiceDocument>(
   {
     orgId: { type: String, required: true, index: true },
     externalInvoiceId: { type: String, required: true },
-    source: { type: String, enum: ['stripe', 'marketplace'], required: true },
+    source: { type: String, enum: [...BILLING_INVOICE_SOURCES], required: true },
     periodStart: { type: Date, required: true },
     periodEnd: { type: Date, required: true },
     subtotalCents: { type: Number, default: 0 },
@@ -56,7 +64,7 @@ const billingInvoiceSchema = new Schema<BillingInvoiceDocument>(
     totalCents: { type: Number, default: 0 },
     amountPaidCents: { type: Number, default: 0 },
     currency: { type: String, default: 'usd' },
-    status: { type: String, enum: ['paid', 'open', 'void', 'uncollectible', 'refunded', 'disputed'], default: 'paid' },
+    status: { type: String, enum: [...BILLING_INVOICE_STATUSES], default: 'paid' },
   },
   {
     collection: 'billing_invoices',

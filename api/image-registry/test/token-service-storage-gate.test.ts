@@ -184,6 +184,17 @@ describe('storageGateReason', () => {
     expect(d({ overBudget: true, reason: 'gate_error' })).toMatch(/gate failed \(fail-closed\)/);
   });
 
+  it('does not claim push was stripped when QUOTA_STORAGE_FAIL_OPEN let it through', () => {
+    // Fail-open: the cap was unverifiable but `overBudget` is false, so the
+    // audit row's `pushStripped: false` and its explanation must agree.
+    for (const reason of ['quota_unreachable', 'usage_incomplete', 'gate_error'] as const) {
+      const text = d({ overBudget: false, reason, usageBytes: 10, limitBytes: 1000 });
+      expect(text).not.toMatch(/push stripped/);
+      expect(text).not.toMatch(/fail-closed/);
+      expect(text).toMatch(/^push allowed \(fail-open\): /);
+    }
+  });
+
   it('says so plainly when nothing is being enforced', () => {
     expect(d({ reason: 'unlimited', limitBytes: -1 })).toBe('storage is unlimited for this organization');
     expect(d({ reason: 'under_budget', usageBytes: 500, limitBytes: 1000 })).toBe('storage 500 B of 1000 B');

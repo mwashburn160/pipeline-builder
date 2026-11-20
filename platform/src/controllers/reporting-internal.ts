@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * `/internal/reporting/*` — the two identity facts the reporting service cannot
+ * `/internal/reporting/*` — the identity facts the reporting service cannot
  * know on its own. INTERNAL: the `reporting` service's signed token only.
  *
  * A stakeholder report is produced by a SCHEDULER, with no request and no caller.
@@ -29,8 +29,12 @@
  *    in-app notice goes to. The one list on this router, and deliberately the
  *    narrowest one that does the job — no names, no addresses, no roles.
  *
- * All are reads. None returns a name, an address, a role name, or any permission
- * outside the `reports:*` family.
+ *  - `GET /internal/reporting/access-posture/:orgId` — counts only (members,
+ *    second-factor coverage, SSO, service accounts, live keys, permission changes).
+ *
+ * All are reads. None returns an address, a role name, or any permission outside
+ * the `reports:*` family; the one name is recipient-check's display name for the
+ * address the caller already holds.
  */
 
 import {
@@ -47,6 +51,7 @@ import {
 import { withController } from '../helpers/controller-helper.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { orgFeatureOverrides, type StoredFeatureOverrides } from '../helpers/user-response.js';
+import type { AuditAction } from '../models/audit-event.js';
 import {
   AuditEvent,
   OrgIdpConfig,
@@ -162,7 +167,7 @@ const PERMISSION_CHANGE_ACTIONS = [
   'org.role.update',
   'org.role.delete',
   'sso.jit.role.change',
-] as const;
+] as const satisfies readonly AuditAction[];
 
 /**
  * GET /internal/reporting/access-posture/:orgId?from=…&to=…
@@ -177,8 +182,8 @@ const PERMISSION_CHANGE_ACTIONS = [
  * authenticator enrolment or a registered passkey — never a flag. A boolean that
  * says "MFA enabled" is a boolean that can disagree with the factors on the account.
  *
- * Unlike the other two endpoints on this router, this one takes the org in the PATH
- * and is called with reporting's system-org token: the caller is a scheduler with no
+ * Like report-authority and recipient-check (and unlike report-readers), this one is
+ * called with reporting's system-org token rather than one scoped to the path org: the caller is a scheduler with no
  * tenant, iterating over orgs it found in its own due scan. The gate is therefore the
  * service identity alone, which is why nothing here returns a row, a name or an id.
  */

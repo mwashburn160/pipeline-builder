@@ -6,7 +6,9 @@ import { createApp, runServer, attachRequestContext, postgresHealthCheck } from 
 import { createSoftDeletePurgeScheduler } from '@pipeline-builder/pipeline-data';
 
 import { mountRoutes } from './app-routes.js';
+import { startKeyInvalidation } from './runners/deps.js';
 import { startRunnerDispatch } from './runners/dispatch-queue.js';
+import { initRunnerKeyEncryption } from './runners/key-crypto.js';
 import { pipelineService } from './services/pipeline-service.js';
 import { pipelineTemplateService } from './services/pipeline-template-service.js';
 
@@ -45,9 +47,15 @@ const purgeScheduler = createSoftDeletePurgeScheduler({
   ],
 });
 
-// Cross-account runner dispatch (BullMQ `runner-dispatch` + the sweep). A
-// no-op unless a runner signing key is configured (each org also needs the
-// `cross_account_runners` feature).
+// Per-org runner signing keys: secret encryption (warmed base provider, plus
+// the per-org KMS provider over platform's config when
+// SECRET_ENCRYPTION_PER_ORG_KMS=true) must be up before anything signs; until
+// it is, runners answer RUNNERS_UNAVAILABLE. Then subscribe to the key-cache
+// invalidation channel (Redis pub/sub; the 60 s version poll is the backstop).
+await initRunnerKeyEncryption();
+startKeyInvalidation();
+
+// Runner dispatch (BullMQ `runner-dispatch` + the sweep).
 const runnerDispatch = startRunnerDispatch();
 
 void runServer(app, {

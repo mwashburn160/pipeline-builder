@@ -76,9 +76,9 @@ const SAMPLES: Record<keyof typeof PLATFORM_INTERNAL, ContractSample> = {
     params: { orgId: ORG, provider: 'anthropic' },
     response: { provider: 'anthropic', apiKey: 'sk-test' },
   },
-  orgFeatures: {
+  orgKmsConfig: {
     params: { orgId: ORG },
-    response: { features: ['cross_account_runners'] },
+    response: { kmsConfig: { keyId: 'alias/pb-org', ciphertextBase64: 'AQICAHg=' } },
   },
   orgAccountRoot: {
     params: { orgId: ORG },

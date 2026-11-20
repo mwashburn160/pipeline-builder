@@ -39,15 +39,15 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   pipelinesOnVersion: (...a: unknown[]) => mockPipelinesOnVersion(...a),
+  // The runner modules behind the windowed trigger map their tables at import.
+  schema: new Proxy({}, { get: () => ({}) }),
 }));
 jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
   pipelineService: { findById: (...a: unknown[]) => mockFindById(...a), update: (...a: unknown[]) => mockUpdate(...a) },
 }));
-jest.unstable_mockModule('../src/services/pipeline-execution-service.js', () => ({
-  pipelineExecutionService: { triggerExecution: (...a: unknown[]) => mockTrigger(...a) },
-  PE_PIPELINE_NOT_REGISTERED: 'PE_PIPELINE_NOT_REGISTERED',
-  PE_AWS_PIPELINE_NOT_FOUND: 'PE_AWS_PIPELINE_NOT_FOUND',
-  PE_AWS_ERROR: 'PE_AWS_ERROR',
+// Every redeploy is a runner start: the routing call is the seam.
+jest.unstable_mockModule('../src/runners/execution-routing.js', () => ({
+  routeExecution: (...a: unknown[]) => mockTrigger(...a),
 }));
 // The REAL windowed-trigger helper runs over this guard: the redeploy must take
 // the same duplicate window as POST /:id/executions.
@@ -68,6 +68,8 @@ jest.unstable_mockModule('../src/helpers/pipeline-update-compliance.js', () => (
 jest.unstable_mockModule('../src/helpers/plugin-contract-check.js', () => ({ recordPipelineResolution: (...a: unknown[]) => mockRecordResolution(...a) }));
 
 const { createPluginUpgradeRoutes } = await import('../src/routes/plugin-upgrade-routes.js');
+const { RunnerRouteError } = await import('../src/runners/routing.js');
+const queued = (n: number) => ({ requestId: `00000000-0000-4000-8000-00000000000${n}`, status: 'queued', runnerLabel: 'prod', runnerId: 'r-1', reused: false });
 
 const P1 = '11111111-1111-4111-8111-111111111111';
 const P2 = '22222222-2222-4222-8222-222222222222';
@@ -237,16 +239,22 @@ describe('POST /plugin-upgrades/apply', () => {
     ]);
   });
 
-  it('redeploys each upgraded pipeline when asked, reporting a trigger failure per pipeline', async () => {
-    mockTrigger.mockResolvedValueOnce({ executionId: 'ex-1' }).mockRejectedValueOnce(new Error('not registered'));
+  it('redeploys each upgraded pipeline when asked (a queued run request ONLY), reporting a trigger failure per pipeline', async () => {
+    mockTrigger.mockResolvedValueOnce(queued(1)).mockRejectedValueOnce(new RunnerRouteError('NO_RUNNER', 'needs a runner'));
     const r = res();
     await apply({ body: { pipelineIds: [P1, P2], redeploy: true }, user: {} }, r);
     const data = dataOf(r);
     expect(data.redeployRequired).toBe(false);
-    expect(data.results.map((x: any) => x.redeploy)).toEqual([{ executionId: 'ex-1' }, { error: 'not registered' }]);
+    // Exactly the QueuedRunRequestDto: no executionId, no runnerId, no reused flag.
+    expect(data.results.map((x: any) => x.redeploy)).toEqual([
+      { requestId: queued(1).requestId, status: 'queued', runnerLabel: 'prod' },
+      { error: 'needs a runner' },
+    ]);
+    // A system-initiated start (it queues past the pending cap).
+    expect(mockTrigger).toHaveBeenCalledWith(expect.objectContaining({ pipelineId: P1, orgId: 'acme', action: 'start', requestedBy: 'system:plugin-upgrade' }));
     const events = mockRecordAudit.mock.calls.map((c) => c[0] as { action: string; targetType?: string; targetId?: string; outcome?: string; details: { batchId?: string } });
     expect(events).toEqual(expect.arrayContaining([
-      expect.objectContaining({ action: 'pipeline.execution.start', targetType: 'pipeline_execution', targetId: 'ex-1', details: expect.objectContaining({ pipelineId: P1, reason: 'plugin-upgrade' }) }),
+      expect.objectContaining({ action: 'pipeline.execution.start', targetType: 'pipeline_execution', details: expect.objectContaining({ pipelineId: P1, reason: 'plugin-upgrade', requestId: queued(1).requestId, outcome: 'queued' }) }),
       expect.objectContaining({ action: 'pipeline.execution.start', outcome: 'failure', details: expect.objectContaining({ pipelineId: P2, reason: 'plugin-upgrade' }) }),
     ]));
     // Every event of one apply shares a single batchId.
@@ -254,7 +262,7 @@ describe('POST /plugin-upgrades/apply', () => {
   });
 
   it('a redeploy inside the duplicate window starts no second run, and says so', async () => {
-    mockTrigger.mockResolvedValue({ executionId: 'ex-1' });
+    mockTrigger.mockResolvedValue(queued(1));
     // P1's window is free; P2 was triggered moments ago (e.g. a manual run).
     mockClaim.mockImplementation(async (_org: string, id: string) => (id === P2 ? null : { token: `tok-${id}` }));
     const r = res();
@@ -262,9 +270,9 @@ describe('POST /plugin-upgrades/apply', () => {
     expect(mockClaim).toHaveBeenCalledWith('acme', P1);
     expect(mockClaim).toHaveBeenCalledWith('acme', P2);
     expect(mockTrigger).toHaveBeenCalledTimes(1);
-    expect(mockTrigger).toHaveBeenCalledWith(P1, 'acme');
+    expect(mockTrigger).toHaveBeenCalledWith(expect.objectContaining({ pipelineId: P1, orgId: 'acme' }));
     expect(dataOf(r).results.map((x: any) => x.redeploy)).toEqual([
-      { executionId: 'ex-1' },
+      { requestId: queued(1).requestId, status: 'queued', runnerLabel: 'prod' },
       { error: expect.stringMatching(/just triggered/) },
     ]);
     expect(mockRecordAudit).toHaveBeenCalledWith(expect.objectContaining({
@@ -274,10 +282,10 @@ describe('POST /plugin-upgrades/apply', () => {
     }));
   });
 
-  it('reopens the window only when the redeploy definitely never started', async () => {
+  it('reopens the window only when the redeploy definitely never queued (a runner refusal, not an unexpected error)', async () => {
     mockTrigger
-      .mockRejectedValueOnce(new Error('PE_PIPELINE_NOT_REGISTERED'))
-      .mockRejectedValueOnce(new Error('PE_AWS_ERROR'));
+      .mockRejectedValueOnce(new RunnerRouteError('NO_RUNNER', 'needs a runner'))
+      .mockRejectedValueOnce(new Error('db down'));
     await apply({ body: { pipelineIds: [P1, P2], redeploy: true }, user: {} }, res());
     expect(mockRelease).toHaveBeenCalledTimes(1);
     expect(mockRelease).toHaveBeenCalledWith('acme', P1, { token: 'tok-1' });

@@ -3884,3 +3884,150 @@ tests:
       - eval_time: 26h
         alertname: PluginRetentionStuck
         exp_alerts: []
+
+  # Pipeline runners.
+  # a) An unhealthy runner warns at once: the gauge is already debounced by the
+  #    ping sweep, and a broken runner stops every pipeline in its account.
+  - interval: 1m
+    input_series:
+      - series: 'pipeline_runners_unhealthy{service="pipeline",pod="pipeline-a"}'
+        values: '0x5 2x40'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: RunnerUnreachable
+        exp_alerts: []
+      - eval_time: 7m
+        alertname: RunnerUnreachable
+        exp_alerts:
+          - exp_labels: { severity: warning, component: pipeline, tenancy: platform }
+            exp_annotations:
+              summary: "2 pipeline runner(s) unhealthy"
+              description: "At least one active runner failed its signed health pings (2 in a row by default, or at once on a SIGNATURE_INVALID or RUNNER_REFUSED reply) or repeated deliveries (DNS gone, Function URL deleted, timeouts, 5xx). Every run and stop of the pipelines in that runner's AWS account is failing: runners are the only execution path and there is no failover. The owning org's admins (and admins of teams it is shared with) got an unhealthy notice and see a banner under Settings -> Organization -> Pipeline runners; queued runs resume on the first good pong. Usually the customer deleted or broke the stack: re-run setup-runner or revoke it. Check last_delivery_error on its recent run requests."
+
+  # b) Zero unhealthy runners, however long, stays quiet.
+  - interval: 1m
+    input_series:
+      - series: 'pipeline_runners_unhealthy{service="pipeline",pod="pipeline-a"}'
+        values: '0x60'
+    alert_rule_test:
+      - eval_time: 50m
+        alertname: RunnerUnreachable
+        exp_alerts: []
+
+  # c) ONE signature refusal pages at once (the series is primed at zero on boot).
+  - interval: 1m
+    input_series:
+      - series: 'pipeline_runner_delivery_total{outcome="refused",code="SIGNATURE_INVALID",service="pipeline",pod="pipeline-a"}'
+        values: '0x10 1x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: RunnerSignatureInvalid
+        exp_alerts:
+          - exp_labels: { severity: critical, component: pipeline, tenancy: platform }
+            exp_annotations:
+              summary: "A pipeline runner refused the platform's signature"
+              description: "A runner answered 401 SIGNATURE_INVALID in the last 10 minutes. Its org's signing key, the runner's own JWKS (GET /api/pipelines/runner/runners/<runnerId>/jwks.json, which must be reachable from the runner's account), an emergency revoke that in-flight requests had not yet retried past, or the runner's clock (2 minutes of skew allowed) is wrong. The runner was marked unhealthy at once. Find the org from the failed run requests, then check its Signing key card and docs/runbooks/secret-rotation.md (Runner signing keys)."
+
+  # d) Other refusals and successful deliveries never page as a signature problem,
+  #    and an old signature failure ages out of the 10m window.
+  - interval: 1m
+    input_series:
+      - series: 'pipeline_runner_delivery_total{outcome="refused",code="SIGNATURE_INVALID",service="pipeline",pod="pipeline-a"}'
+        values: '0x5 1x40'
+      - series: 'pipeline_runner_delivery_total{outcome="refused",code="RUNNER_REFUSED",service="pipeline",pod="pipeline-a"}'
+        values: '0+1x45'
+      - series: 'pipeline_runner_delivery_total{outcome="started",code="none",service="pipeline",pod="pipeline-a"}'
+        values: '0+5x45'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: RunnerSignatureInvalid
+        exp_alerts: []
+
+  # e) An org whose signing key cannot be decrypted pages at once, counted
+  #    across a leader handover (max, not sum, of the two replicas' copies).
+  - interval: 1m
+    input_series:
+      - series: 'pipeline_runner_signing_keys_unreadable{service="pipeline",pod="pipeline-a"}'
+        values: '0x5 1x20'
+      - series: 'pipeline_runner_signing_keys_unreadable{service="pipeline",pod="pipeline-b"}'
+        values: '_x8 1x20'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: RunnerSigningKeyUnreadable
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: RunnerSigningKeyUnreadable
+        exp_alerts:
+          - exp_labels: { severity: critical, component: pipeline, tenancy: platform }
+            exp_annotations:
+              summary: "1 org(s) have an unreadable runner signing key"
+              description: "The pipeline service could not decrypt the effective runner signing key of at least one org, so every run and stop through that org's runners is refused with RUNNER_KEY_UNREADABLE and its admins are told to contact you. Find the org in ops-center -> Runner signing keys (filter: unreadable). Then follow docs/runbooks/secret-rotation.md (Runner signing keys -> Unreadable key): restore the previous master as SECRET_ENCRYPTION_KEY_PREVIOUS (or the org's KMS grant) and run the re-encrypt job, or revoke the org's key from the system org so a fresh one is generated."
+
+  # f) Every key readable, however long, stays quiet — and so does a recovered
+  #    one (the re-encrypt job ran, the gauge went back to zero).
+  - interval: 1m
+    input_series:
+      - series: 'pipeline_runner_signing_keys_unreadable{service="pipeline",pod="pipeline-a"}'
+        values: '0x20 1x5 0x30'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: RunnerSigningKeyUnreadable
+        exp_alerts: []
+      - eval_time: 45m
+        alertname: RunnerSigningKeyUnreadable
+        exp_alerts: []
+
+  # g) A sustained run of allowlist refusals warns, labelled with the code.
+  - interval: 1m
+    input_series:
+      - series: 'pipeline_runner_delivery_total{outcome="refused",code="RUNNER_REFUSED",service="pipeline",pod="pipeline-a"}'
+        values: '0x5 0+1x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: RunnerRefusalSpike
+        exp_alerts:
+          - exp_labels: { severity: warning, component: pipeline, tenancy: platform, code: RUNNER_REFUSED }
+            exp_annotations:
+              summary: "Pipeline runners are refusing requests: RUNNER_REFUSED"
+              description: "More than 5 run requests in 15 minutes were refused with RUNNER_REFUSED. RUNNER_REFUSED: outside the runner's region/prefix allowlist. PIPELINE_IDENTITY_MISMATCH: the pipeline at the recorded name carries another platform id. AMBIGUOUS_PIPELINE: two pipelines in one account carry the same pb.pipeline-id. Look at the failed run requests' errorCode and the pipeline.execution.start audit events to find the org and pipeline."
+
+  # h) A handful of refusals, and refusals with codes the rule does not watch
+  #    (PIPELINE_NOT_FOUND clears a stale link and is retried), stay quiet.
+  - interval: 1m
+    input_series:
+      - series: 'pipeline_runner_delivery_total{outcome="refused",code="PIPELINE_IDENTITY_MISMATCH",service="pipeline",pod="pipeline-a"}'
+        values: '0x5 1 2 3x40'
+      - series: 'pipeline_runner_delivery_total{outcome="refused",code="PIPELINE_NOT_FOUND",service="pipeline",pod="pipeline-a"}'
+        values: '0+2x45'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: RunnerRefusalSpike
+        exp_alerts: []
+
+  # i) A run request expiring undelivered warns.
+  - interval: 1m
+    input_series:
+      - series: 'pipeline_runner_requests_total{status="expired",service="pipeline",pod="pipeline-a"}'
+        values: '0x10 1x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: RunnerRequestsExpiring
+        exp_alerts:
+          - exp_labels: { severity: warning, component: pipeline, tenancy: platform }
+            exp_annotations:
+              summary: "Pipeline run requests are expiring undelivered"
+              description: "Run requests expired in the last 30 minutes without reaching a runner. Users pressed Run or Stop and nothing happened. Check the runner-dispatch queue (Redis, the pipeline service logs for 'Runner dispatch'), the system-org Pause all pipeline runs toggle, and RunnerUnreachable for the runner it was meant for."
+
+  # j) Requests that START (or fail with a runner's answer) are not expiries.
+  - interval: 1m
+    input_series:
+      - series: 'pipeline_runner_requests_total{status="expired",service="pipeline",pod="pipeline-a"}'
+        values: '0x60'
+      - series: 'pipeline_runner_requests_total{status="started",service="pipeline",pod="pipeline-a"}'
+        values: '0+3x60'
+      - series: 'pipeline_runner_requests_total{status="failed",service="pipeline",pod="pipeline-a"}'
+        values: '0+1x60'
+    alert_rule_test:
+      - eval_time: 50m
+        alertname: RunnerRequestsExpiring
+        exp_alerts: []

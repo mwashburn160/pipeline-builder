@@ -3317,3 +3317,99 @@ groups:
         annotations:
           summary: "Support case inserts are failing after the message was accepted"
           description: "A support message committed but its case row did not. The tenant saw success and has no case number; the case will never appear in the queue. Likely the per-org number allocator or the support_case_org_number_uq backstop — check the message service logs for 'Support case insert failed'."
+
+      # ---- Pipeline runners ----
+      # Runners are the ONLY execution path: the pipeline service pushes signed
+      # start/stop requests to the runner each org installs in its own AWS
+      # account (docs/aws-deployment.md, "Cross-account pipeline runner"), each
+      # request signed with the runner owner's per-org key. Series, all from
+      # api/pipeline:
+      #   pipeline_runners_unhealthy           — runners marked unreachable (the sweep's count)
+      #   pipeline_runner_delivery_total       — {outcome, code}: code is a catalog runner
+      #                                          error code, a delivery failure class, or none
+      #   pipeline_runner_requests_total       — {status}: terminal run-request statuses
+      #   pipeline_runner_signing_keys_unreadable — orgs whose effective signing key failed
+      #                                          to decrypt at the last attempt
+      # The alerted refusal codes and status="expired" are created at zero when
+      # dispatch starts, so the FIRST one after a restart shows in increase().
+      #
+      # The gauges are exported only by the CURRENT sweep leader: a replica whose
+      # leader-locked sweep is skipped drops its copy, so a former leader never
+      # keeps a stale count. `max` (not `sum`) still covers a handover scrape in
+      # which two replicas briefly both report the same fleet-wide count.
+      #
+      # No hold on RunnerUnreachable: the gauge is already debounced (a runner is
+      # marked only after RUNNER_UNHEALTHY_AFTER_PINGS failed pings in a row, one
+      # every RUNNER_HEALTH_PING_INTERVAL_SECONDS), and with one runner per AWS
+      # account per org and no failover, every pipeline in that account is
+      # stopped until it recovers.
+      - alert: RunnerUnreachable
+        expr: max(pipeline_runners_unhealthy) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: pipeline
+          tenancy: platform
+        annotations:
+          summary: "{{ $value | humanize }} pipeline runner(s) unhealthy"
+          description: "At least one active runner failed its signed health pings (2 in a row by default, or at once on a SIGNATURE_INVALID or RUNNER_REFUSED reply) or repeated deliveries (DNS gone, Function URL deleted, timeouts, 5xx). Every run and stop of the pipelines in that runner's AWS account is failing: runners are the only execution path and there is no failover. The owning org's admins (and admins of teams it is shared with) got an unhealthy notice and see a banner under Settings -> Organization -> Pipeline runners; queued runs resume on the first good pong. Usually the customer deleted or broke the stack: re-run setup-runner or revoke it. Check last_delivery_error on its recent run requests."
+
+      # ONE bad signature is enough. Platform-signed requests only ever reach a
+      # runner signed with a key its org publishes, so a runner refusing the
+      # signature means that org's key state, its rotation or the runner's clock
+      # is wrong.
+      - alert: RunnerSignatureInvalid
+        expr: sum(increase(pipeline_runner_delivery_total{code="SIGNATURE_INVALID"}[10m])) > 0
+        for: 0m
+        labels:
+          severity: critical
+          component: pipeline
+          tenancy: platform
+        annotations:
+          summary: "A pipeline runner refused the platform's signature"
+          description: "A runner answered 401 SIGNATURE_INVALID in the last 10 minutes. Its org's signing key, the runner's own JWKS (GET /api/pipelines/runner/runners/<runnerId>/jwks.json, which must be reachable from the runner's account), an emergency revoke that in-flight requests had not yet retried past, or the runner's clock (2 minutes of skew allowed) is wrong. The runner was marked unhealthy at once. Find the org from the failed run requests, then check its Signing key card and docs/runbooks/secret-rotation.md (Runner signing keys)."
+
+      # An org whose runner signing key cannot be decrypted: SECRET_ENCRYPTION_KEY
+      # was changed without running the re-encrypt job, the org's KMS key was
+      # rotated, disabled or lost its kms:Decrypt grant, or the key row is
+      # corrupt. That org's runs, stops and key writes fail closed with
+      # RUNNER_KEY_UNREADABLE until an operator fixes it; other orgs are unaffected.
+      - alert: RunnerSigningKeyUnreadable
+        expr: max(pipeline_runner_signing_keys_unreadable) > 0
+        for: 0m
+        labels:
+          severity: critical
+          component: pipeline
+          tenancy: platform
+        annotations:
+          summary: "{{ $value | humanize }} org(s) have an unreadable runner signing key"
+          description: "The pipeline service could not decrypt the effective runner signing key of at least one org, so every run and stop through that org's runners is refused with RUNNER_KEY_UNREADABLE and its admins are told to contact you. Find the org in ops-center -> Runner signing keys (filter: unreadable). Then follow docs/runbooks/secret-rotation.md (Runner signing keys -> Unreadable key): restore the previous master as SECRET_ENCRYPTION_KEY_PREVIOUS (or the org's KMS grant) and run the re-encrypt job, or revoke the org's key from the system org so a fresh one is generated."
+
+      # Final refusals that mean the runner's allowlist or the pipeline's
+      # identity tag disagree with the platform. A few are a customer narrowing
+      # an allowlist; a sustained run is a deploy that dropped or duplicated
+      # the pb.pipeline-id tag, or someone probing with valid signatures.
+      - alert: RunnerRefusalSpike
+        expr: sum by (code) (increase(pipeline_runner_delivery_total{outcome="refused", code=~"RUNNER_REFUSED|PIPELINE_IDENTITY_MISMATCH|AMBIGUOUS_PIPELINE"}[15m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+          component: pipeline
+          tenancy: platform
+        annotations:
+          summary: "Pipeline runners are refusing requests: {{ $labels.code }}"
+          description: "More than 5 run requests in 15 minutes were refused with {{ $labels.code }}. RUNNER_REFUSED: outside the runner's region/prefix allowlist. PIPELINE_IDENTITY_MISMATCH: the pipeline at the recorded name carries another platform id. AMBIGUOUS_PIPELINE: two pipelines in one account carry the same pb.pipeline-id. Look at the failed run requests' errorCode and the pipeline.execution.start audit events to find the org and pipeline."
+
+      # A request that was never delivered inside its 10-minute lifetime. The
+      # dispatcher retries with backoff the whole time, so an expiry means the
+      # queue is not running or the runner never answered.
+      - alert: RunnerRequestsExpiring
+        expr: sum(increase(pipeline_runner_requests_total{status="expired"}[30m])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: pipeline
+          tenancy: platform
+        annotations:
+          summary: "Pipeline run requests are expiring undelivered"
+          description: "Run requests expired in the last 30 minutes without reaching a runner. Users pressed Run or Stop and nothing happened. Check the runner-dispatch queue (Redis, the pipeline service logs for 'Runner dispatch'), the system-org Pause all pipeline runs toggle, and RunnerUnreachable for the runner it was meant for."

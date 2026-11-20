@@ -9,7 +9,7 @@
  * `@pipeline-builder/pipeline-data` public surface is unchanged.
  */
 
-import type { WeekStart } from '@pipeline-builder/api-core';
+import type { DoraLevel, WeekStart } from '@pipeline-builder/api-core';
 
 /*
  * The raw-SQL report rows below are typed EXACTLY as the queries return them —
@@ -244,12 +244,8 @@ export interface ReportingRetentionCounts {
   incidents: number;
 }
 
-/**
- * DORA performance band. `null` = insufficient data to classify (no
- * deployments/failures/lead-time sample in the window), so the UI shows a
- * neutral state rather than mislabeling an empty window as "low".
- */
-export type DoraLevel = 'elite' | 'high' | 'medium' | 'low' | null;
+/** DORA performance band, or `null` when unrated — api-core's `DORA_LEVELS` vocabulary. */
+export type { DoraLevel } from '@pipeline-builder/api-core';
 
 /** Optional scoping for {@link ReportingService.getDoraMetrics}. */
 export interface DoraOptions {

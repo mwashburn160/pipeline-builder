@@ -78,6 +78,13 @@ describe('EditUserModal', () => {
     expect(p.onSubmit).toHaveBeenCalled();
   });
 
+  it('labels the new-password field itself, not the hidden username hint', () => {
+    renderModal();
+    const field = screen.getByLabelText(/New password/);
+    expect(field).toHaveAttribute('type', 'password');
+    expect(field).toHaveAttribute('placeholder', 'Minimum 8 characters');
+  });
+
   it('keeps the user\'s CURRENT org named even when it is past the picker\'s page', () => {
     renderModal();
     expect(screen.getByLabelText('Organization')).toHaveAttribute('data-value-name', 'Alpha');

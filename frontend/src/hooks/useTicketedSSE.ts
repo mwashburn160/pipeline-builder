@@ -21,6 +21,13 @@ import { useSSE } from './useSSE';
 import { MESSAGE_SSE_BASE_RETRY_DELAY_MS } from '@/lib/constants';
 
 const MAX_RECONNECT_DELAY_MS = 30_000;
+/**
+ * How long a connection must stay open before it counts as healthy and the
+ * backoff/retry budget resets. Resetting on `onopen` alone let an endpoint that
+ * accepts and immediately drops reconnect at the base delay forever (and a
+ * bounded stream never exhaust `maxRetries`).
+ */
+export const SSE_STABLE_CONNECTION_MS = 10_000;
 
 export interface TicketedSSEOptions {
   /** Re-mint/reconnect key (e.g. orgId, requestId). `null` ⇒ stay disconnected. */
@@ -37,8 +44,8 @@ export interface TicketedSSEOptions {
   onMessage: (data: unknown) => boolean | void;
   /**
    * Reconnect attempts (after a stream error or a failed ticket mint) allowed
-   * before giving up. The count resets on every successful connect and on a
-   * new `subscriptionKey`. Default: unlimited.
+   * before giving up. The count resets once a connection has stayed up
+   * for `SSE_STABLE_CONNECTION_MS`, and on a new `subscriptionKey`. Default: unlimited.
    */
   maxRetries?: number;
   /** Called once when `maxRetries` is exhausted and the hook stops reconnecting. */
@@ -68,7 +75,7 @@ export function useTicketedSSE(opts: TicketedSSEOptions): { connected: boolean; 
 
   // No in-band retries (a consumed single-use ticket just 401s) — mint a fresh
   // ticket per reconnect with exponential backoff (bumping ticketKey re-runs the
-  // mint effect). Reset on a successful connect.
+  // mint effect). Reset once a connection has stayed up (SSE_STABLE_CONNECTION_MS).
   const reconnectAttemptRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   /** Set when the consumer closed the stream or retries ran out. */
@@ -131,7 +138,11 @@ export function useTicketedSSE(opts: TicketedSSEOptions): { connected: boolean; 
     return close;
   }, []);
   const { connected, everConnected } = useSSE({ url, onMessage, onRetriesExhausted: scheduleReconnect });
-  useEffect(() => { if (connected) reconnectAttemptRef.current = 0; }, [connected]);
+  useEffect(() => {
+    if (!connected) return;
+    const stable = setTimeout(() => { reconnectAttemptRef.current = 0; }, SSE_STABLE_CONNECTION_MS);
+    return () => clearTimeout(stable);
+  }, [connected]);
 
   return { connected, everConnected };
 }

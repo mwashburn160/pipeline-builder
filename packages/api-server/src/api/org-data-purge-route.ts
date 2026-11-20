@@ -39,6 +39,7 @@ import {
 } from '@pipeline-builder/api-core';
 import { purgeOrgData, purgeRowCounts, type OrgDataOwner } from '@pipeline-builder/pipeline-data';
 import type { Request, Response } from 'express';
+import { safeErrorForLog } from './safe-error.js';
 
 const logger = createLogger('org-data-purge');
 
@@ -157,8 +158,9 @@ export async function handleOrgDataPurge(req: Request, res: Response, opts: OrgD
     }
     sendSuccess(res, 200, remaining ? { orgId, tables, remaining, ...skipped } : { orgId, tables, ...skipped });
   } catch (err) {
-    logger.warn('Org data purge failed', { owner, orgId, error: errorMessage(err) });
-    safeAudit({ ...audit, outcome: 'failure', details: { owner, error: errorMessage(err) } });
+    const error = safeErrorForLog(err);
+    logger.warn('Org data purge failed', { owner, orgId, error });
+    safeAudit({ ...audit, outcome: 'failure', details: { owner, error } });
     sendError(res, 500, opts.purge ? `Org ${owner} purge failed` : 'Org data purge failed', ErrorCode.INTERNAL_ERROR);
   }
 }

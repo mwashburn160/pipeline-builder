@@ -1,12 +1,13 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { DoraLevel } from '@pipeline-builder/api-core/wire-vocabulary';
 import type { ApiCore } from '../core';
 import { buildQuery, type ProposedByOptions } from '../util';
 import type { ApiResponse } from '@/types';
 
-/** DORA performance band for a metric (elite → low), or null when unrated. */
-export type DoraLevel = 'elite' | 'high' | 'medium' | 'low' | null;
+/** DORA performance band for a metric (elite → low), or null when unrated — api-core's `DORA_LEVELS`. */
+export type { DoraLevel } from '@pipeline-builder/api-core/wire-vocabulary';
 
 /**
  * DORA metrics for a single deployment environment. Deploy-basis only — computed

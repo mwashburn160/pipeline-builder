@@ -20,8 +20,6 @@ import { useUrlTab } from '@/hooks/useUrlTab';
 import Link from 'next/link';
 import { ArrowLeft, Ban, ExternalLink, GitBranch, LayoutTemplate, Pencil, Play, Rocket, Trash2 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
-import { useFeatures } from '@/hooks/useFeatures';
-import { CROSS_ACCOUNT_RUNNERS_FEATURE } from '@/lib/pipeline-runners';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useEntityFetch } from '@/hooks/useEntityFetch';
 import { useFetch } from '@/hooks/useFetch';
@@ -48,12 +46,15 @@ import type { ExecutionFailure } from '@/lib/api/domains/reporting';
 import { PipelineContextCard } from '@/components/pipeline/PipelineContextCard';
 import { runnerErrorBanner, runnerErrorMessage } from '@/components/pipeline/RunnerError';
 import { RunRequestStatus } from '@/components/pipeline/RunRequestStatus';
+import { RunnerLinkBanners, RunnerLinkRow, useRunnerLink } from '@/components/pipeline/RunnerLinkStatus';
+import { StepUpModal } from '@/components/admin/StepUpModal';
 import { useRunRequestTracker, type RunRequestOutcome } from '@/hooks/useRunRequestTracker';
 import { LifecycleBadge } from '@/components/ui/LifecycleBadge';
 import { canWritePipeline } from '@/lib/resource-helpers';
 import api from '@/lib/api';
 import { queries } from '@/lib/api-cache';
-import { isQueuedRunRequest, type PipelineDeployment, type PipelineRegistrationStatus } from '@/lib/api/domains/pipelines';
+import type { PipelineDeployment, PipelineRegistrationStatus } from '@/lib/api/domains/pipelines';
+import { runnerTestFailureCopy } from '@/lib/pipeline-runners';
 import type { Pipeline } from '@/types';
 import { formatError } from '@/lib/constants';
 import { formatDuration } from '@/lib/format';
@@ -133,10 +134,11 @@ export default function PipelineDetailPage() {
 function PipelineDetail({ id }: { id: string }) {
   const router = useRouter();
   const { accessDenied, isReady, user, isSuperAdmin, can } = useAuthGuard();
-  // Runner surfaces show only for orgs with the `cross_account_runners` feature. Re-run / Stop still
-  // follow a queued 202 whenever the server actually returns one.
-  const runnersEnabled = useFeatures().isEnabled(CROSS_ACCOUNT_RUNNERS_FEATURE);
   const toast = useToast();
+  // The pipeline's link to its runner (every run goes through one): the
+  // Deployment card's "Runs via", Find runner again, and the pause / unhealthy banners.
+  const runnerLink = useRunnerLink(id);
+  const [runnerStepUp, setRunnerStepUp] = useState<'find' | 'test' | null>(null);
 
   // Detail sections split into Overview (metadata) + Runs (recent runs +
   // executions) so it isn't one long scroll. Deep-linkable via `?tab=` (kept
@@ -244,11 +246,10 @@ function PipelineDetail({ id }: { id: string }) {
   // …) gets specific copy and the way to fix it, not the bare server sentence.
   const reportActionError = (e: unknown, message: string) => setActionError(runnerErrorMessage(e) ?? message);
 
-  // A pipeline in a customer AWS account goes through its pipeline runner: the
-  // write answers 202 `{ requestId, status: 'queued', runnerLabel }` and the
-  // page follows the request until it starts / stops / fails / expires. The
-  // polls stop when the page unmounts. Platform-account pipelines answer with
-  // the execution id at once, as before.
+  // Every run goes through the pipeline's runner: the write answers 202
+  // `{ requestId, status: 'queued', runnerLabel }` and the page follows the
+  // request until it starts / stops / fails / expires. The polls stop when the
+  // page unmounts.
   const onRunRequestSettled = useCallback((o: RunRequestOutcome) => {
     if (o.kind === 'failed') {
       setActionError(runnerErrorBanner(o.errorCode, { runnerLabel: o.request.runnerLabel }));
@@ -287,12 +288,7 @@ function PipelineDetail({ id }: { id: string }) {
     scopeKey: id,
     errorFallback: 'Failed to trigger execution',
     onSuccess: (data) => {
-      if (isQueuedRunRequest(data)) {
-        trackRunRequest(data, 'start');
-        return;
-      }
-      toast.success(`Started execution ${data?.executionId ?? ''}`.trim());
-      setTimeout(loadExecutions, REFETCH_DELAY_MS);
+      if (data) trackRunRequest(data, 'start');
     },
     onError: reportActionError,
   });
@@ -313,12 +309,7 @@ function PipelineDetail({ id }: { id: string }) {
     scopeKey: id,
     errorFallback: 'Failed to cancel execution',
     onSuccess: (data) => {
-      if (isQueuedRunRequest(data)) {
-        trackRunRequest(data, 'stop');
-        return;
-      }
-      toast.success('Execution canceled');
-      setTimeout(loadExecutions, REFETCH_DELAY_MS);
+      if (data) trackRunRequest(data, 'stop');
     },
     onError: reportActionError,
   });
@@ -503,6 +494,12 @@ function PipelineDetail({ id }: { id: string }) {
       )}
       <ErrorAlert message={actionError} onDismiss={() => setActionError(null)} />
 
+      <RunnerLinkBanners
+        link={runnerLink.link}
+        canTest={can('org_settings:write')}
+        onTest={() => setRunnerStepUp('test')}
+      />
+
       {/* A Re-run / Stop queued for a pipeline runner, until it settles. */}
       {runRequests.active.map((r) => <RunRequestStatus key={r.requestId} request={r} />)}
 
@@ -550,13 +547,10 @@ function PipelineDetail({ id }: { id: string }) {
                   <dt className="text-fg-muted">Region</dt>
                   <dd>{deployment.region || '—'}</dd>
                 </div>
-                {/* The pipeline runner Re-run / Stop go through, by LABEL — the
+                {/* The pipeline runner every run goes through, by LABEL — the
                     registry never carries the customer's account number. */}
-                {runnersEnabled && deployment.runner && (
-                  <div className="flex justify-between gap-2">
-                    <dt className="text-fg-muted">Runs via</dt>
-                    <dd data-testid="deployment-runner">{deployment.runner.label}</dd>
-                  </div>
+                {runnerLink.link && (
+                  <RunnerLinkRow link={runnerLink.link} canRefresh={canEdit} onFindAgain={() => setRunnerStepUp('find')} />
                 )}
                 <div className="flex justify-between gap-2">
                   <dt className="text-fg-muted">Stack</dt>
@@ -784,6 +778,48 @@ function PipelineDetail({ id }: { id: string }) {
             stages will be halted. This cannot be undone.
           </p>
         </Modal>
+      )}
+
+      {runnerStepUp === 'find' && (
+        <StepUpModal
+          title="Find this pipeline's runner again?"
+          action="Look for this pipeline's runner again"
+          details={(
+            <p>
+              The platform asks your organization&apos;s runners which one holds this pipeline (by its pb.pipeline-id tag).
+              A single match replaces the link; anything else keeps the current link and records what was found.
+            </p>
+          )}
+          onConfirmed={async (stepUpToken) => {
+            try {
+              await runnerLink.refresh(stepUpToken);
+            } catch (e) {
+              reportActionError(e, formatError(e, 'Could not look for the runner again'));
+            }
+          }}
+          onClose={() => setRunnerStepUp(null)}
+        />
+      )}
+
+      {runnerStepUp === 'test' && runnerLink.link?.runner && (
+        <StepUpModal
+          title={`Test ${runnerLink.link.runner.label}?`}
+          action={`Send a test request to the pipeline runner ${runnerLink.link.runner.label}`}
+          details={<p>The platform sends the runner a signed ping now. If it answers, paused deliveries resume.</p>}
+          onConfirmed={async (stepUpToken) => {
+            const runner = runnerLink.link?.runner;
+            if (!runner) return;
+            try {
+              const r = await api.testPipelineRunner(runner.id, stepUpToken);
+              if (r.data?.ok) toast.success(`${runner.label} answered`);
+              else setActionError(`Test failed: ${runnerTestFailureCopy(r.data?.errorCode)}`);
+              void runnerLink.refetch();
+            } catch (e) {
+              reportActionError(e, formatError(e, 'Could not test the runner'));
+            }
+          }}
+          onClose={() => setRunnerStepUp(null)}
+        />
       )}
 
       {showDelete && pipeline && (

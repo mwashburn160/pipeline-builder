@@ -391,6 +391,17 @@ export const NAV_SECTIONS: NavSection[] = [
       // "Settings", not "Platform Settings" — this item lives under the
       // `Platform` section, which already prefixes it.
       { title: 'Settings', href: '/dashboard/admin/settings', icon: SlidersHorizontal, requiredPermission: 'platform:read' },
+      // Every org's runner signing-key status (never key material) and the
+      // platform pause toggle for all runner traffic. System org only: the
+      // routes behind it are requireSystemOrgPermission('orgs:read').
+      {
+        title: 'Runner signing keys',
+        href: '/dashboard/admin/runner-signing-keys',
+        icon: KeyRound,
+        requiredPermission: 'orgs:read',
+        systemOrgOnly: true,
+        keywords: 'runner signing key rotation jwks pause runs deliveries kill switch over age unreadable',
+      },
       // Plugin-ecosystem governance console (moderation, publisher verification,
       // Ecosystem Manager roster). System org only, and only for Ecosystem
       // Managers and superadmins — HIDDEN (not locked) everywhere else; see

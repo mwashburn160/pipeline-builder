@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 import { createLogger } from '@pipeline-builder/api-core';
 import type { InvitationEmailData } from './email.js';
 import { config } from '../config/index.js';
-import type { OAuthProviderName } from '../types/oauth-provider.js';
+import { oauthProviderLabel, type OAuthProviderName } from '../types/oauth-provider.js';
 
 const logger = createLogger('email-templates');
 
@@ -109,22 +109,8 @@ function renderTextTemplate(name: string, vars: Record<string, string>): string 
 // OAuth Helpers
 // -----------------------------------------------------------------------------
 
-/** Human-readable, title-case labels for OAuth providers. */
-const providerLabels: Record<OAuthProviderName, string> = {
-  google: 'Google',
-  github: 'GitHub',
-  facebook: 'Facebook',
-  microsoft: 'Microsoft',
-  gitlab: 'GitLab',
-  linkedin: 'LinkedIn',
-};
-
-function labelFor(p: OAuthProviderName): string {
-  return providerLabels[p] ?? p;
-}
-
 function joinProviderLabels(providers: OAuthProviderName[]): string {
-  return providers.map(labelFor).join(', ');
+  return providers.map(oauthProviderLabel).join(', ');
 }
 
 function buildOAuthText(data: InvitationEmailData): string {
@@ -134,14 +120,14 @@ function buildOAuthText(data: InvitationEmailData): string {
     case 'oauth': {
       const providers = data.allowedOAuthProviders?.length
         ? joinProviderLabels(data.allowedOAuthProviders)
-        : labelFor('google');
+        : oauthProviderLabel('google');
       return `\nYou can accept this invitation using your ${providers} account.\n`;
     }
     case 'any':
     default: {
       const providers = data.allowedOAuthProviders?.length
         ? joinProviderLabels(data.allowedOAuthProviders)
-        : labelFor('google');
+        : oauthProviderLabel('google');
       return `\nYou can accept using email/password or sign in with ${providers}.\n`;
     }
   }
@@ -163,7 +149,7 @@ function buildOAuthHtml(data: InvitationEmailData): string {
         ? data.allowedOAuthProviders
         : ['google'];
       const providerBadges = providers
-        .map(p => `<span class="oauth-badge">${htmlEscape(labelFor(p))}</span>`)
+        .map(p => `<span class="oauth-badge">${htmlEscape(oauthProviderLabel(p))}</span>`)
         .join('');
       const introText = data.invitationType === 'oauth'
         ? 'Accept this invitation using:'

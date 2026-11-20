@@ -138,3 +138,22 @@ describe('reportError — print without exiting (the audits\' own exit-code cont
     expect(() => handleError(err, ERROR_CODES.GENERAL, { exit: false })).toThrow(err);
   });
 });
+
+describe('reportError — credential redaction in the printed API response', () => {
+  afterEach(() => { jest.restoreAllMocks(); });
+
+  it('masks credentials at any depth and in any key casing, keeping the rest', () => {
+    const errors: string[] = [];
+    jest.spyOn(console, 'error').mockImplementation((...a: unknown[]) => { errors.push(a.map(String).join(' ')); });
+    const data = {
+      message: 'refused',
+      data: { accessToken: 'tok-ACCESS-1234567890', refreshToken: 'tok-REFRESH-0987654321', items: [{ apiKey: 'tok-KEY-55555' }] },
+      Password: 'tok-PW-hunter2',
+    };
+    reportError(Object.assign(new Error('x'), { isAxiosError: true, response: { status: 400, data } }), ERROR_CODES.API_REQUEST);
+    const out = errors.join('\n');
+    expect(out).not.toMatch(/tok-/);
+    expect(out).toContain('refused');
+    expect(out).toContain('[REDACTED]');
+  });
+});

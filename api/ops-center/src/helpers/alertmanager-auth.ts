@@ -27,9 +27,29 @@ export interface AlertmanagerInstance {
   allowedOrgIds?: string[];
 }
 
+/**
+ * Every way the check refuses, keyed by the reason callers branch and log on.
+ * Unconfigured is 503, not 401: nothing is wrong with the CALLER, the relay
+ * simply is not set up, and a 401 would send an operator hunting for a bad
+ * token that does not exist.
+ */
+export const ALERTMANAGER_AUTH_FAILURES = {
+  'no-instances': { status: 503, message: 'Alert relay not configured' },
+  'no-instance-header': { status: 401, message: 'X-Alertmanager-Instance header required' },
+  'unknown-instance': { status: 401, message: 'Unauthorized' },
+  'bad-token': { status: 401, message: 'Unauthorized' },
+} as const satisfies Record<string, { status: 401 | 503; message: string }>;
+
+/** Why {@link authenticateAlertmanager} refused. */
+export type AlertmanagerAuthFailureReason = keyof typeof ALERTMANAGER_AUTH_FAILURES;
+
 export type AlertmanagerAuthResult =
   | { ok: true; instance: AlertmanagerInstance }
-  | { ok: false; status: 401 | 503; message: string; reason: string };
+  | { ok: false; status: 401 | 503; message: string; reason: AlertmanagerAuthFailureReason };
+
+function refuse(reason: AlertmanagerAuthFailureReason): AlertmanagerAuthResult {
+  return { ok: false, ...ALERTMANAGER_AUTH_FAILURES[reason], reason };
+}
 
 /**
  * Validate the caller as a configured Alertmanager instance.
@@ -42,25 +62,14 @@ export function authenticateAlertmanager(req: Request): AlertmanagerAuthResult {
   const provided = req.headers.authorization?.replace(/^Bearer\s+/, '') || '';
   const instanceHeader = (req.headers['x-alertmanager-instance'] || '').toString();
 
-  // Unconfigured is 503, not 401: nothing is wrong with the CALLER, the relay
-  // simply is not set up, and a 401 would send an operator hunting for a bad
-  // token that does not exist.
-  if (config.alertWebhook.instances.length === 0) {
-    return { ok: false, status: 503, message: 'Alert relay not configured', reason: 'no-instances' };
-  }
-  if (!instanceHeader) {
-    return { ok: false, status: 401, message: 'X-Alertmanager-Instance header required', reason: 'no-instance-header' };
-  }
+  if (config.alertWebhook.instances.length === 0) return refuse('no-instances');
+  if (!instanceHeader) return refuse('no-instance-header');
   const instance = config.alertWebhook.instances.find((i) => i.id === instanceHeader);
-  if (!instance) {
-    return { ok: false, status: 401, message: 'Unauthorized', reason: 'unknown-instance' };
-  }
+  if (!instance) return refuse('unknown-instance');
   // Both compared without short-circuiting, so response timing cannot reveal
   // WHICH token matched during a rotation.
   const matchesCurrent = safeEqual(provided, instance.token);
   const matchesPrevious = instance.previousToken ? safeEqual(provided, instance.previousToken) : false;
-  if (!matchesCurrent && !matchesPrevious) {
-    return { ok: false, status: 401, message: 'Unauthorized', reason: 'bad-token' };
-  }
+  if (!matchesCurrent && !matchesPrevious) return refuse('bad-token');
   return { ok: true, instance };
 }

@@ -12,7 +12,7 @@
  * easier to audit as one unit than interleaved with connection bookkeeping.
  */
 
-import { createLogger, createMemorySseTicketStore, envSseTicketCaps, normalizeOrgId, SSE_TICKET_TTL_MS, type SseTicketStore, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, createMemorySseTicketStore, ErrorCode, envSseTicketCaps, normalizeOrgId, SSE_TICKET_TTL_MS, type SseTicketStore, errorMessage } from '@pipeline-builder/api-core';
 import { incCounter } from '../api/metrics.js';
 
 const logger = createLogger('sse-tickets');
@@ -20,7 +20,22 @@ const logger = createLogger('sse-tickets');
 /** Result of {@link SseTicketBroker.createTicket}. */
 export type CreateTicketResult =
   | { ok: true; ticket: string }
-  | { ok: false; reason: 'org-limit' | 'capacity' | 'forbidden' };
+  | { ok: false; reason: SseTicketRefusal };
+
+/**
+ * Every reason {@link SseTicketBroker.createTicket} refuses a ticket, with the
+ * HTTP answer it gets. One row per reason, so a new reason cannot ship without
+ * a status. `forbidden` deliberately does not confirm the subject exists — a
+ * plain 403 leaks nothing about which requestIds are live.
+ */
+export const SSE_TICKET_REFUSALS = {
+  'forbidden': { status: 403, message: 'Not authorized for this log stream', code: ErrorCode.INSUFFICIENT_PERMISSIONS },
+  'org-limit': { status: 429, message: 'Too many log stream tickets issued', code: ErrorCode.QUOTA_EXCEEDED },
+  'capacity': { status: 503, message: 'Log streaming subsystem at capacity', code: ErrorCode.QUOTA_EXCEEDED },
+} as const satisfies Record<string, { status: number; message: string; code: ErrorCode }>;
+
+/** Why a ticket was refused (a key of {@link SSE_TICKET_REFUSALS}). */
+export type SseTicketRefusal = keyof typeof SSE_TICKET_REFUSALS;
 
 export interface SseTicketBrokerOptions {
   /** Ticket + stream-ownership backend. Defaults to an in-memory store (single

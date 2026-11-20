@@ -1353,8 +1353,7 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
       // `pg` removed: drizzle's schema/query-builder half only — pipeline-data owns the driver.
       'drizzle-orm@0.45.4',
       `@pipeline-builder/ai-core@${pkg.aiCore}`, 'zod@4.6.7',
-      `@aws-sdk/client-codepipeline@${awsSdkVersion}`,
-      // Cross-account runner dispatch: the `runner-dispatch` BullMQ queue on the
+      // Runner dispatch: the `runner-dispatch` BullMQ queue on the
       // service's Redis (same pins as the plugin build queue).
       'bullmq@6.7.5', 'ioredis@6.0.0',
     ],

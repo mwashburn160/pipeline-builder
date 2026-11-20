@@ -138,6 +138,31 @@ describe('createScheduler liveness gauges', () => {
     s.stop();
   });
 
+  it('onSkipped fires on a pod that loses the lock race, and never on the holder', async () => {
+    const contended = { set: jest.fn(async (..._a: unknown[]) => null), get: jest.fn(async () => null), del: jest.fn(async () => 1) };
+    const skipped = jest.fn<() => void>();
+    const s = createScheduler({ name: 'job', intervalMs: 1000, run: async () => {}, onSkipped: skipped, lock: { redis: () => contended, key: 'k', ttlMs: 500 } });
+    s.start();
+    await jest.advanceTimersByTimeAsync(0);
+    expect(skipped).toHaveBeenCalledTimes(1);
+    s.stop();
+    const held = { set: jest.fn(async (..._a: unknown[]) => 'OK'), get: jest.fn(async () => null), del: jest.fn(async () => 1) };
+    const notSkipped = jest.fn<() => void>();
+    const h = createScheduler({ name: 'job', intervalMs: 1000, run: async () => {}, onSkipped: notSkipped, lock: { redis: () => held, key: 'k', ttlMs: 500 } });
+    h.start();
+    await jest.advanceTimersByTimeAsync(0);
+    expect(notSkipped).not.toHaveBeenCalled();
+    h.stop();
+  });
+
+  it('a throwing onSkipped is isolated like a throwing cycle', async () => {
+    const contended = { set: jest.fn(async (..._a: unknown[]) => null), get: jest.fn(async () => null), del: jest.fn(async () => 1) };
+    const s = createScheduler({ name: 'job', intervalMs: 1000, run: async () => {}, onSkipped: () => { throw new Error('x'); }, lock: { redis: () => contended, key: 'k', ttlMs: 500 } });
+    s.start();
+    await expect(jest.advanceTimersByTimeAsync(0)).resolves.toBeUndefined();
+    s.stop();
+  });
+
   it('the lock holder stamps after its run returns', async () => {
     const held = { set: jest.fn(async (..._a: unknown[]) => 'OK'), get: jest.fn(async () => null), del: jest.fn(async () => 1) };
     const s = createScheduler({ name: 'job', intervalMs: 1000, run: async () => {}, lock: { redis: () => held, key: 'k', ttlMs: 500 } });

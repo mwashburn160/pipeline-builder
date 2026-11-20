@@ -259,3 +259,28 @@ describe('Manage team memberships (row action)', () => {
     expect(screen.queryByRole('button', { name: /manage team memberships/i })).not.toBeInTheDocument();
   });
 });
+
+describe('Pending two-factor resets panel', () => {
+  const PENDING = {
+    id: 'r1', orgId: 'org-1', targetUserId: 'u9', targetEmail: 'nine@acme.test', requestedBy: 'u8', requestedByEmail: 'eight@acme.test',
+    reason: 'Lost phone', status: 'pending', createdAt: '2026-01-01T00:00:00Z', expiresAt: '2026-01-02T00:00:00Z',
+  };
+  beforeEach(() => {
+    mockApi.listMfaResets = jest.fn<AnyFn>().mockResolvedValue({ success: true, data: { requests: [PENDING] } });
+  });
+
+  it('stays visible in a read-only session, with its decisions disabled — the list is a read', async () => {
+    // `can()` is false for every mutation under read-only impersonation; gating
+    // the panel on it hid the requests from the investigator AND left the
+    // panel's own `readOnly` prop unreachable.
+    mockAuthGuard({
+      isAdmin: true,
+      isReadOnly: true,
+      user: { id: 'me', organizationId: 'org-1', permissions: ADMIN_PERMS },
+      can: () => false,
+    });
+    render(<MembersPage />);
+    expect(await screen.findByText('nine@acme.test')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Approve' })).toHaveAttribute('aria-disabled', 'true');
+  });
+});

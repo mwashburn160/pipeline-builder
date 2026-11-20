@@ -30,7 +30,7 @@
  */
 
 import { isSystemOrgId, createLogger, errorMessage } from '@pipeline-builder/api-core';
-import { purgeOrgData, runWithTenantContext, softDeleteRetentionMs, withTenantTx } from '@pipeline-builder/pipeline-data';
+import { purgeOrgData, redactSecretColumns, runWithTenantContext, softDeleteRetentionMs, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { eq } from 'drizzle-orm';
 import type { ClientSession, Types } from 'mongoose';
 import { auditService } from './audit-service.js';
@@ -661,11 +661,14 @@ export async function exportOrg(
   };
 
   await runWithTenantContext({ orgId: actorOrgId, isSuperAdmin: true }, async () => {
-    for (const { table, name } of EXPORT_TABLES) {
+    for (const scoped of EXPORT_TABLES) {
+      const { table, name } = scoped;
       try {
         const rows = await withTenantTx((tx) => tx.select().from(table)
           .where(eq((table as unknown as { orgId: unknown }).orgId as never, orgId)));
-        result.postgres[name] = rows as unknown[];
+        // A table's secret columns (a runner signing key's `private_key_enc`)
+        // never leave in an export, encrypted or not.
+        result.postgres[name] = (rows as Record<string, unknown>[]).map((row) => redactSecretColumns(scoped, row));
       } catch (err) {
         result.postgres[name] = [];
         recordFailure('postgres', name, err);

@@ -96,3 +96,18 @@ describe('queries.sessions', () => {
     expect(listSessions).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('query keys', () => {
+  it('a search term containing "&" / "=" never shares a cache key with a different filter', () => {
+    // `{search: 'a&status=active'}` used to stringify to the same key as
+    // `{search: 'a', status: 'active'}`, so one read was served the other's rows.
+    const typed = queries.listPipelines({ search: 'a&status=active' }).key;
+    const filtered = queries.listPipelines({ search: 'a', status: 'active' }).key;
+    expect(typed).not.toBe(filtered);
+  });
+
+  it('keys stay under their invalidation prefix', () => {
+    expect(queries.listPipelines({ search: 'x y' }).key.startsWith('pipelines?')).toBe(true);
+    expect(queries.orgMembers('o1', { search: 'q' } as never).key.startsWith('org-members/o1?')).toBe(true);
+  });
+});

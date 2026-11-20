@@ -385,15 +385,6 @@ pb_own_private_keys "$CERT_DIR/plugin-signing/plugin-signing.key"
 pb_create_plugin_signing_secrets "$CERT_DIR/plugin-signing"
 echo "  plugin-image signing key done"
 
-# The Ed25519 RUNNER-signing key: signs the run requests the pipeline service
-# sends to customers' cross-account pipeline runners (public half served at
-# GET /api/pipelines/runner/jwks.json). Mounted by pipeline ONLY, through the
-# `runner-signing-key` Secret. Idempotent: never regenerates an existing key.
-bash "$BIN_DIR/runner-signing-keys.sh" "$CERT_DIR"
-pb_own_private_keys "$CERT_DIR/runner-signing/runner-signing.key" "$CERT_DIR/runner-signing/runner-signing-previous.key"
-pb_create_runner_signing_secret "$CERT_DIR/runner-signing"
-echo "  runner signing key done"
-
 # PER-SERVICE ES256 keys for INTERNAL service-to-service tokens: one
 # `service-key-<name>` Secret per service — mounted by that service ALONE, which
 # is what stops a compromised pod signing as another — plus the public
@@ -520,12 +511,12 @@ if [ "$(id -u)" = "0" ]; then
 fi
 
 # -- Post-provision smoke checks (non-fatal) ----------------------------------
-# Test alert -> Slack, test email, CodePipeline credential dry-run (instance
-# role) and a denied-connection probe.
+# Test alert -> Slack, test email, the toolchain default and a
+# denied-connection probe.
 _smoke_kubectl=kubectl
 [ "$(id -u)" = "0" ] && _smoke_kubectl="sudo -u minikube kubectl"
 PB_SMOKE_KUBECTL="$_smoke_kubectl" NAMESPACE="$NAMESPACE" \
-  bash "$SCRIPT_DIR/../../../bin/post-provision-smoke.sh" k8s --aws || true
+  bash "$SCRIPT_DIR/../../../bin/post-provision-smoke.sh" k8s || true
 
 # -- Summary ------------------------------------------------------------------
 

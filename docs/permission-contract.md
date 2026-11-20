@@ -388,6 +388,7 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | pipeline | GET | `/pipelines` | `any(pipelines:read)` |
 | pipeline | POST | `/pipelines` | `any(pipelines:write)` |
 | pipeline | POST | `/pipelines/internal/orgs/:orgId/purge` | `service-principal + internal(platform)` |
+| pipeline | POST | `/pipelines/internal/runner-signing-keys/reencrypt` | `service-principal + internal(platform)` |
 | pipeline | DELETE | `/pipelines/:id` | `any(pipelines:write)` |
 | pipeline | GET | `/pipelines/:id` | `any(pipelines:read)` |
 | pipeline | PUT | `/pipelines/:id` | `any(pipelines:write)` |
@@ -416,11 +417,24 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | pipeline | GET | `/pipelines/registry` | `dynamic(superadmin,tenant-member) + any(pipelines:read)` |
 | pipeline | POST | `/pipelines/registry` | `any(pipeline_registry:write)` |
 | pipeline | DELETE | `/pipelines/registry/:id` | `any(pipeline_registry:write)` |
-| pipeline | GET | `/pipelines/runners` | `any(org_settings:write) + feature(cross_account_runners)` |
-| pipeline | POST | `/pipelines/runners` | `any(org_settings:write) + feature(cross_account_runners) + aal2 + step-up(any)` |
-| pipeline | PATCH | `/pipelines/runners/:id` | `any(org_settings:write) + feature(cross_account_runners) + aal2 + step-up(any)` |
-| pipeline | DELETE | `/pipelines/runners/:id` | `any(org_settings:write) + feature(cross_account_runners) + aal2 + step-up(any)` |
-| pipeline | POST | `/pipelines/runners/:id/test` | `any(org_settings:write) + feature(cross_account_runners) + aal2 + step-up(any)` |
+| pipeline | GET | `/pipelines/runners` | `any(org_settings:write)` |
+| pipeline | POST | `/pipelines/runners` | `any(org_settings:write) + aal2 + step-up(any)` |
+| pipeline | PATCH | `/pipelines/runners/:id` | `any(org_settings:write) + aal2 + step-up(any)` |
+| pipeline | DELETE | `/pipelines/runners/:id` | `any(org_settings:write) + aal2 + step-up(any)` |
+| pipeline | POST | `/pipelines/runners/:id/test` | `any(org_settings:write) + aal2 + step-up(any)` |
+| pipeline | POST | `/pipelines/runners/signing-key` | `any(org_settings:write) + aal2 + step-up(any)` |
+| pipeline | POST | `/pipelines/runners/signing-key/rotate` | `any(org_settings:write) + aal2 + step-up(any)` |
+| pipeline | DELETE | `/pipelines/runners/signing-key/rotate` | `any(org_settings:write) + aal2 + step-up(any)` |
+| pipeline | POST | `/pipelines/runners/signing-key/finish` | `any(org_settings:write) + aal2 + step-up(any)` |
+| pipeline | POST | `/pipelines/runners/signing-key/revoke` | `any(org_settings:write) + aal2 + step-up(any)` |
+| pipeline | PUT | `/pipelines/runners/signing-key/mode` | `any(org_settings:write) + aal2 + step-up(any)` |
+| pipeline | GET | `/pipelines/runners/:id/pipelines` | `any(org_settings:write)` |
+| pipeline | GET | `/pipelines/:pipelineId/runner-link` | `any(pipelines:read)` |
+| pipeline | POST | `/pipelines/:pipelineId/runner-link/refresh` | `any(pipelines:write) + aal2 + step-up(any)` |
+| pipeline | GET | `/pipelines/admin/runner-signing-keys` | `system-org + any(orgs:read) + aal2` |
+| pipeline | POST | `/pipelines/admin/orgs/:orgId/runner-signing-key/revoke` | `system-org + any(orgs:manage) + aal2 + step-up(any)` |
+| pipeline | GET | `/pipelines/admin/runner-deliveries` | `system-org + any(orgs:read) + aal2` |
+| pipeline | PUT | `/pipelines/admin/runner-deliveries` | `system-org + any(orgs:manage) + aal2 + step-up(any)` |
 | pipeline | GET | `/pipelines/:pipelineId/run-requests/:requestId` | `any(pipelines:read)` |
 | pipeline | GET | `/pipelines/scorecard` | `any(pipelines:read) + feature(advanced_reporting)` |
 | pipeline | POST | `/pipelines/validate` | `any(pipelines:write)` |
@@ -460,7 +474,7 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | platform | GET | `/internal/ai/keys/:orgId/:provider` | `service-principal + internal(ask-agent,pipeline,plugin,reporting)` |
 | platform | GET | `/internal/ecosystem/approvers` | `service-principal + internal(plugin)` |
 | platform | GET | `/internal/ecosystem/publisher-eligibility/:orgId` | `service-principal + internal(plugin)` |
-| platform | GET | `/internal/features/:orgId` | `service-principal + internal(pipeline)` |
+| platform | GET | `/internal/kms-config/:orgId` | `service-principal + internal(pipeline)` |
 | platform | POST | `/internal/notify-email` | `service-principal + internal(billing,compliance,ops-center,plugin,quota,reporting)` |
 | platform | GET | `/internal/reporting/access-posture/:orgId` | `service-principal + internal(reporting)` |
 | platform | GET | `/internal/offers/seat-activity/:orgId` | `service-principal + internal(billing)` |

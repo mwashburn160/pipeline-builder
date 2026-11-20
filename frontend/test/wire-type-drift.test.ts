@@ -70,7 +70,6 @@ const REGISTERED: ReadonlyArray<readonly [string, string, string]> = [
   ['CannedResponse', 'frontend/src/types/message.ts', 'packages/pipeline-data/src/api/support-cases.ts'],
   ['DashboardWithPanels', 'frontend/src/types/observability.ts', 'api/ops-center/src/services/dashboard-service.ts'],
   ['DataQualityNote', 'frontend/src/lib/api/domains/stakeholder-reports.ts', 'packages/pipeline-data/src/api/reporting/stakeholder/compose.ts'],
-  ['DoraLevel', 'frontend/src/lib/api/domains/reporting.ts', 'packages/pipeline-data/src/api/reporting/types.ts'],
   // Now that the client carries every field the server scores (deployment
   // frequency and MTTR levels, the lead-time / MTTR tails), keep them in step.
   ['DoraMetrics', 'frontend/src/lib/api/domains/reporting.ts', 'packages/pipeline-data/src/api/reporting/types.ts'],

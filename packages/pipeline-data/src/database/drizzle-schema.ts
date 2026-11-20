@@ -68,7 +68,7 @@ import { message } from './schema/message.js';
 import { pipelineTemplate } from './schema/pipeline-template.js';
 import { pipeline, pipelineRegistry, pipelineEvent, deploymentOutcome, ingestHealth, incident, doraSettings } from './schema/pipeline.js';
 import { plugin, pluginKeptSetupImage } from './schema/plugin.js';
-import { pipelineRunRequest, pipelineRunner } from './schema/runner.js';
+import { pipelineRunRequest, pipelineRunner, pipelineRunnerKeySettings, pipelineRunnerPlatformSettings, pipelineRunnerSigningKey } from './schema/runner.js';
 import { doraDeployment, executionDailyRollup, pipelinePluginResolution, pipelineSecurityReport, pipelineStepLookup, pluginVulnExposure } from './schema/reporting-analytics.js';
 import { reportDefinition, reportRun, reportShareLink, reportRecipient } from './schema/reporting-stakeholder.js';
 import { supportCase, supportCaseCounter, supportContact, supportCaseNote, supportCannedResponse } from './schema/support.js';
@@ -100,6 +100,10 @@ export const schema = {
   // Cross-account pipeline runners + their signed run requests (pipeline service)
   pipelineRunner,
   pipelineRunRequest,
+  // Per-org run-request signing keys, each org's key mode, and the platform pause toggle
+  pipelineRunnerSigningKey,
+  pipelineRunnerKeySettings,
+  pipelineRunnerPlatformSettings,
   pipelineEvent,
   // DORA post-deploy outcome markers + per-org ingestion health
   deploymentOutcome,

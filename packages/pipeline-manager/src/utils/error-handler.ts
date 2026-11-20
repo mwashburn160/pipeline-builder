@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { redactSensitive } from '@pipeline-builder/api-core';
 import { isQuotaExceededBody } from '@pipeline-builder/pipeline-core';
 import pico from 'picocolors';
 import { generateExecutionId } from '../config/cli.constants.js';
@@ -310,15 +311,15 @@ function getErrorSuggestion(err: unknown, code: ErrorCode): string | null {
   return null;
 }
 
+/**
+ * Render an API response body for the error report with every credential-shaped
+ * key masked — at ANY depth and in any casing (api-core's shared
+ * {@link redactSensitive} / SENSITIVE_KEY_PATTERN, the same rules the services'
+ * logger applies). A shallow exact-key list missed `data.accessToken`.
+ */
 function sanitizeErrorData(data: unknown): string {
   if (typeof data === 'string') return data;
-  if (typeof data === 'object' && data !== null) {
-    const sanitized = { ...data } as Record<string, unknown>;
-    ['token', 'password', 'secret', 'apiKey', 'authorization', 'jwt', 'credential', 'bearer'].forEach(field => {
-      if (field in sanitized) sanitized[field] = '[REDACTED]';
-    });
-    return JSON.stringify(sanitized, null, 2);
-  }
+  if (typeof data === 'object' && data !== null) return JSON.stringify(redactSensitive(data), null, 2);
   return String(data);
 }
 

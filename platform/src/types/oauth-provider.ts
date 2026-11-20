@@ -10,8 +10,24 @@
  * it's specific to the IdP-config flow (any OIDC-compliant issuer); the
  * named providers below have wired-up OAuth handlers in `controllers/oauth.ts`.
  */
-export const OAUTH_PROVIDER_NAMES = ['google', 'github', 'facebook', 'microsoft', 'gitlab', 'linkedin'] as const;
-export type OAuthProviderName = (typeof OAUTH_PROVIDER_NAMES)[number];
+export const OAUTH_PROVIDERS = {
+  google: { label: 'Google' },
+  github: { label: 'GitHub' },
+  facebook: { label: 'Facebook' },
+  microsoft: { label: 'Microsoft' },
+  gitlab: { label: 'GitLab' },
+  linkedin: { label: 'LinkedIn' },
+} as const satisfies Record<string, { label: string }>;
+
+export type OAuthProviderName = keyof typeof OAUTH_PROVIDERS;
+
+/** The provider ids, in catalog order — a non-empty tuple, as `z.enum` and Mongoose `enum` want it. */
+export const OAUTH_PROVIDER_NAMES = Object.keys(OAUTH_PROVIDERS) as [OAuthProviderName, ...OAuthProviderName[]];
+
+/** Human-readable, title-case label for a provider (emails, notices). */
+export function oauthProviderLabel(name: OAuthProviderName): string {
+  return OAUTH_PROVIDERS[name]?.label ?? name;
+}
 
 /**
  * Whether `value` names one of the wired providers, narrowing it as it goes.
@@ -25,5 +41,5 @@ export type OAuthProviderName = (typeof OAUTH_PROVIDER_NAMES)[number];
  * is not a provider is handled rather than assumed away.
  */
 export function isOAuthProviderName(value: string): value is OAuthProviderName {
-  return (OAUTH_PROVIDER_NAMES as readonly string[]).includes(value);
+  return Object.hasOwn(OAUTH_PROVIDERS, value);
 }

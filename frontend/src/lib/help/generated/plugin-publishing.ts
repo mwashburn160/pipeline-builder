@@ -1,6 +1,6 @@
 // GENERATED FROM docs/plugin-publishing.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: e2cf2f05cb9191f77ece1fabb5261aa692ea761ff77627bab203da16482d04dc
+// SOURCE-SHA256: 15f6e8fd00bf19cceba023ef31bf5bb5a6c139afcb4c600a590758c7b3711338
 // SPDX-License-Identifier: Apache-2.0
 import { Store } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -492,8 +492,12 @@ export const pluginPublishingTopic: HelpTopic = {
             "Pre-flight. It runs the server's own checks (the spec and config schemas and the {{ ... }} contract, shared from api-core) and the catalog's Dockerfile rules: a non-root final USER, every download through fetch-verified, no pipe-to-shell installers. Any problem stops it before anything is uploaded.",
             "Scan preview. It builds the image, makes an SBOM with syft and scans it with grype, as the platform will after the build. A critical vulnerability stops the publish. If syft or grype isn't installed, it says the preview did not run rather than passing silently. --skip-scan skips it on purpose, and --image scans an image you built.",
             "Accept or edit. It shows each catalog field with its detected value and source (below) and asks you to accept, edit or clear it. --yes accepts everything detected. --metadata <file.yaml> supplies your edits without prompting, and every other detected value is accepted. The file uses the same keys and validator as the upload form, so contract keys such as commands are refused.",
-            "Upload. It checks your publisher profile, root organization and terms, then uploads the package with visibility=public, publishRequest=true and your edits as metadata. The request is submitted once the build completes."
+            "Upload. It packs the plugin directory as the zip (leaving out .git, node_modules and .DS_Store), checks your publisher profile, root organization and terms, then uploads the package with visibility=public, publishRequest=true and your edits as metadata. The request is submitted once the build completes."
           ]
+        },
+        {
+          "type": "text",
+          "content": "Packing refuses a credential file and names it, so nothing is uploaded: Refusing to package .env: it looks like a dotenv file. The refused files are dotenv files (.env, .env.production, …), SSH private keys (id_rsa, id_ed25519, …), .aws/credentials, .docker/config.json, .netrc / _netrc, .git-credentials and .pypirc, at any depth. Templates such as .env.example, .env.sample or .env.template, and public keys (id_ed25519.pub), are packed as usual. Remove the file from the plugin directory and pass secrets through the spec's secrets instead. The upload API refuses the same files in a zip built any other way."
         },
         {
           "type": "text",

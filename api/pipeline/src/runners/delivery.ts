@@ -11,9 +11,9 @@
  */
 
 import { errorMessage } from '@pipeline-builder/api-core';
-import { EXPECTED_OUTCOMES } from '@pipeline-builder/api-core/pipeline-runners';
+import { EXPECTED_OUTCOMES, RUNNER_DELIVERY_FAILURE_CLASSES, RUNNER_ERROR_CODES } from '@pipeline-builder/api-core/pipeline-runners';
 import type { RunnerDeps } from './deps.js';
-import type { RunRequestClaimsInput } from './signing.js';
+import type { RunRequestClaimsInput, RunRequestSigner } from './signing.js';
 import type { RunnerRow } from './store.js';
 import { DELIVERY_TIMEOUT_MS, RUNNER_OUTCOMES, RUNNER_REPLY_ERRORS, type FailureClass, type RunnerOutcome, type RunnerReplyError } from './vocabulary.js';
 
@@ -95,9 +95,17 @@ export function failureClassOf(err: unknown): { code: FailureClass; immediate: b
  * verdict too. Nothing about the URL reaches a log or the verdict.
  */
 export async function deliverPush(deps: RunnerDeps, runner: RunnerRow, claims: RunRequestClaimsInput): Promise<ReplyVerdict> {
-  const signer = deps.signer();
-  if (!signer) return { kind: 'fail', code: 'RUNNERS_UNAVAILABLE' };
+  // The system-org pause: nothing is signed or delivered while it is on.
+  if (await deps.deliveriesPaused()) return { kind: 'fail', code: 'RUNNERS_UNAVAILABLE' };
   if (!runner.functionUrl) return { kind: 'fail', code: 'RUNNER_ERROR' };
+  // The OWNING org's effective key, from the runner row — never from the request.
+  let signer: RunRequestSigner;
+  try {
+    signer = await deps.signerFor(runner.orgId);
+  } catch (err) {
+    const code = (err as { code?: unknown } | null)?.code;
+    return { kind: 'fail', code: code === 'RUNNER_KEY_MISSING' || code === 'RUNNER_KEY_UNREADABLE' ? code : 'RUNNERS_UNAVAILABLE' };
+  }
   const jws = signer.sign(claims);
   let verdict: ReplyVerdict;
   try {
@@ -120,7 +128,48 @@ export async function deliverPush(deps: RunnerDeps, runner: RunnerRow, claims: R
     verdict = { kind: 'retry', code: cls.code, transport: true, ...(cls.immediate ? { immediate: true } : {}) };
   }
   const expected = EXPECTED_OUTCOMES[claims.action] ?? [];
-  if (verdict.kind === 'success' && !expected.includes(verdict.outcome)) return { kind: 'fail', code: 'RUNNER_ERROR' };
-  deps.metrics.inc('pipeline_runner_delivery_total', { outcome: verdict.kind === 'success' ? verdict.outcome : verdict.kind === 'fail' ? 'refused' : verdict.kind });
+  if (verdict.kind === 'success' && !expected.includes(verdict.outcome)) verdict = { kind: 'fail', code: 'RUNNER_ERROR' };
+  deps.metrics.inc(DELIVERY_METRIC, { outcome: deliveryOutcomeLabel(verdict), code: deliveryCodeLabel(verdict) });
   return verdict;
+}
+
+// -- Metrics ---------------------------------------------------------------------
+
+/** `pipeline_runner_delivery_total{outcome, code}` — one per answered (or failed) delivery attempt. */
+export const DELIVERY_METRIC = 'pipeline_runner_delivery_total';
+
+/**
+ * Every value the `code` label can take: the catalog's runner error codes, the
+ * delivery failure classes, and `none` (a success). Bounded on purpose — a
+ * runner id, an org id or a URL never becomes a label value.
+ */
+export const DELIVERY_METRIC_CODES: ReadonlySet<string> = new Set<string>([...RUNNER_ERROR_CODES, ...RUNNER_DELIVERY_FAILURE_CLASSES, 'none']);
+
+/** The `outcome` label: the runner's outcome on success, else the verdict kind (`refused` for a final refusal). */
+function deliveryOutcomeLabel(v: ReplyVerdict): string {
+  return v.kind === 'success' ? v.outcome : v.kind === 'fail' ? 'refused' : v.kind;
+}
+
+/** The code a non-success verdict carries (`NOT_YET_VISIBLE` has none of its own); undefined for a success. */
+export function verdictCode(v: ReplyVerdict): string | undefined {
+  return v.kind === 'success' ? undefined : v.kind === 'not_yet_visible' ? 'NOT_YET_VISIBLE' : v.code;
+}
+
+/** The `code` label of a verdict — always a member of {@link DELIVERY_METRIC_CODES}. */
+export function deliveryCodeLabel(v: ReplyVerdict): string {
+  const code = verdictCode(v) ?? 'none';
+  return DELIVERY_METRIC_CODES.has(code) ? code : 'none';
+}
+
+/** The refusal codes the alert rules watch (RunnerSignatureInvalid, RunnerRefusalSpike). */
+const ALERTED_REFUSALS = ['SIGNATURE_INVALID', 'RUNNER_REFUSED', 'PIPELINE_IDENTITY_MISMATCH', 'AMBIGUOUS_PIPELINE'] as const;
+
+/**
+ * Create the alerted series at zero. A counter series that first appears at 1
+ * has no earlier sample, so `increase()` reads it as 0 — without this the
+ * FIRST signature failure after a restart would never fire its alert.
+ */
+export function primeRunnerMetrics(deps: RunnerDeps): void {
+  for (const code of ALERTED_REFUSALS) deps.metrics.inc(DELIVERY_METRIC, { outcome: 'refused', code }, 0);
+  deps.metrics.inc('pipeline_runner_requests_total', { status: 'expired' }, 0);
 }

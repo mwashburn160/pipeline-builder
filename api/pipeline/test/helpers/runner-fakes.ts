@@ -9,8 +9,10 @@
 
 import { generateKeyPairSync } from 'node:crypto';
 import { jest } from '@jest/globals';
+import type { RunnersUnavailableReason } from '@pipeline-builder/api-core/pipeline-runners';
+import { fakeKeyStore, fakeSecrets } from './key-fakes.js';
 import type { RunnerDeps, SafeFetchFn } from '../../src/runners/deps.js';
-import { createRunRequestSigner } from '../../src/runners/signing.js';
+import { createOrgSignerCache, createRunRequestSigner, type RunRequestSigner } from '../../src/runners/signing.js';
 import type { RegistryLink, RunRequestRow, RunnerRow, RunnerStore } from '../../src/runners/store.js';
 
 export const ORG = '0123456789abcdef01234567';
@@ -132,17 +134,46 @@ export function fakeStore(): FakeStore {
       return n;
     },
     async getRegistryLink(pipelineId, orgId) {
-      const l = registry.get(pipelineId); return l && l.orgId === orgId ? { pipelineName: l.pipelineName, region: l.region, runnerId: l.runnerId } : null;
+      const l = registry.get(pipelineId);
+      if (!l || l.orgId !== orgId) return null;
+      return {
+        pipelineName: l.pipelineName,
+        region: l.region,
+        runnerId: l.runnerId,
+        linkStatus: l.linkStatus ?? 'unlinked',
+        linkCheckedAt: l.linkCheckedAt ?? null,
+        linkDetail: l.linkDetail ?? null,
+      };
     },
     async setRegistryRunner(pipelineId, orgId, runnerId, onlyIf) {
       const l = registry.get(pipelineId); if (!l || l.orgId !== orgId) return false;
       if (onlyIf && l.runnerId !== onlyIf) return false;
-      registry.set(pipelineId, { ...l, runnerId }); return true;
+      registry.set(pipelineId, { ...l, runnerId, linkStatus: runnerId ? 'linked' : 'unlinked' }); return true;
+    },
+    async writeRunnerLink(pipelineId, orgId, write) {
+      const l = registry.get(pipelineId); if (!l || l.orgId !== orgId) return false;
+      registry.set(pipelineId, {
+        ...l, linkStatus: write.status, linkCheckedAt: write.checkedAt, linkDetail: write.detail, ...(write.runnerId ? { runnerId: write.runnerId } : {}),
+      });
+      return true;
     },
     async clearRunnerLinks(runnerId) {
       let n = 0;
-      for (const [k, l] of registry) if (l.runnerId === runnerId) { registry.set(k, { ...l, runnerId: null }); n++; }
+      for (const [k, l] of registry) if (l.runnerId === runnerId) { registry.set(k, { ...l, runnerId: null, linkStatus: 'unlinked' }); n++; }
       return n;
+    },
+    async pipelineCounts(runnerIds) {
+      const out = new Map<string, number>();
+      for (const l of registry.values()) if (l.runnerId && runnerIds.includes(l.runnerId)) out.set(l.runnerId, (out.get(l.runnerId) ?? 0) + 1);
+      return out;
+    },
+    async listRunnerPipelines(runnerId, limit, offset) {
+      const all = [...registry.entries()].filter(([, l]) => l.runnerId === runnerId)
+        .map(([id, l]) => ({ id, name: l.pipelineName })).sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+      return { rows: all.slice(offset, offset + limit), total: all.length };
+    },
+    async linkedOrgIds(runnerId, ownerOrgId) {
+      return [...new Set([...registry.values()].filter((l) => l.runnerId === runnerId && l.orgId !== ownerOrgId).map((l) => l.orgId))];
     },
     async runnerLinks(pipelineIds, orgId) {
       const out = new Map<string, { id: string; label: string }>();
@@ -180,9 +211,18 @@ export interface TestDeps extends RunnerDeps {
   notified: unknown[];
   audits: Array<Record<string, unknown>>;
   counters: Array<[string, Record<string, string>]>;
+  /** Every `inc` with its value (1 unless given). */
+  counterAdds: Array<[string, Record<string, string>, number]>;
   gauges: Array<[string, number]>;
+  /** The gauges this replica currently EXPORTS (a reset removes the series). */
+  gaugeValues: Map<string, number>;
   ancestors: string[];
-  orgFeature: Map<string, boolean>;
+  /** What `runnersAvailable()` answers (mutable: flip `available` to pause). */
+  availability: { available: boolean; reason?: RunnersUnavailableReason };
+  /** The signer `signerFor()` returns for every org (one test key). */
+  testSigner: RunRequestSigner;
+  /** The org ids `signerFor()` was asked for, in order. */
+  signerOrgs: string[];
 }
 
 /** A full deps bundle over fakes. `fetch` answers 200 pong unless scripted. */
@@ -196,16 +236,26 @@ export function testDeps(over: Partial<RunnerDeps> = {}): TestDeps {
   const notified: unknown[] = [];
   const audits: TestDeps['audits'] = [];
   const counters: TestDeps['counters'] = [];
+  const counterAdds: TestDeps['counterAdds'] = [];
   const gauges: TestDeps['gauges'] = [];
+  const gaugeValues = new Map<string, number>();
   const ancestors: string[] = [];
   const locks = new Set<string>();
-  const orgFeature = new Map<string, boolean>();
+  const availability: TestDeps['availability'] = { available: true };
+  const signerOrgs: string[] = [];
   const hits = new Map<string, number>();
   const deps: TestDeps = {
-    orgEnabled: async (orgId) => orgFeature.get(orgId) ?? true,
-    noteOrgFeature: async (orgId, has) => { orgFeature.set(orgId, has); },
-    orgFeature,
-    signer: () => signer,
+    signerFor: async (orgId: string) => { signerOrgs.push(orgId); return signer; },
+    signerOrgs,
+    testSigner: signer,
+    runnersAvailable: async () => ({ ...availability }),
+    deliveriesPaused: async () => !availability.available && availability.reason === 'paused',
+    availability,
+    // The per-org key parts (the real signer cache over them: key-fakes.ts `keyedDeps`).
+    keyStore: fakeKeyStore({ runners: () => [...deps.store.runners.values()], now }),
+    secrets: fakeSecrets(),
+    keyCaches: { signers: createOrgSignerCache({ resolve: async () => ({ signer, versionOrgIds: [], version: 0 }), version: async () => 0 }), jwks: new Map(), pause: null, unreadable: new Set() },
+    publishKeyInvalidation: () => undefined,
     store: fakeStore(),
     fetch: fetchMock,
     fetchMock,
@@ -219,14 +269,16 @@ export function testDeps(over: Partial<RunnerDeps> = {}): TestDeps {
       release: async (p) => { locks.delete(p); },
     },
     limiter: { hit: async (key, max) => { const n = (hits.get(key) ?? 0) + 1; hits.set(key, n); return n <= max; } },
-    hierarchy: { ancestors: async () => [...ancestors], names: async (ids) => Object.fromEntries(ids.map((i) => [i, `Org ${i.slice(-2)}`])) },
+    hierarchy: { ancestors: async () => [...ancestors], descendants: async () => [], names: async (ids) => Object.fromEntries(ids.map((i) => [i, `Org ${i.slice(-2)}`])) },
     ancestors,
     notify: async (n) => { notified.push(n); return true; },
     notified,
     audit: (e) => { audits.push(e as unknown as Record<string, unknown>); },
     audits,
-    metrics: { inc: (n, l) => { counters.push([n, l]); }, gauge: (n, _l, v) => { gauges.push([n, v]); } },
+    metrics: { inc: (n, l, v = 1) => { counters.push([n, l]); counterAdds.push([n, l, v]); }, gauge: (n, _l, v) => { gauges.push([n, v]); gaugeValues.set(n, v); }, resetGauge: (n) => { gaugeValues.delete(n); } },
+    gaugeValues,
     counters,
+    counterAdds,
     gauges,
     newId: uuid,
     ...over,

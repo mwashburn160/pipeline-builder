@@ -496,6 +496,27 @@ describe('PipelineBuilder', () => {
 
       template.resourceCountIs('AWS::CodeStarNotifications::NotificationRule', 1);
     });
+
+    it('maps event names case-insensitively, skips unknown ones, and defaults to FAILED + SUCCEEDED', () => {
+      const eventTypes = (events?: string) => {
+        const { template } = build(baseProps({
+          global: {
+            [MetadataKeys.NOTIFICATION_TOPIC_ARN]: 'arn:aws:sns:us-east-1:123456789012:pipe-topic',
+            ...(events !== undefined ? { [MetadataKeys.NOTIFICATION_EVENTS]: events } : {}),
+          },
+        }));
+        const rule = Object.values(template.findResources('AWS::CodeStarNotifications::NotificationRule'))[0] as any;
+        return [...rule.Properties.EventTypeIds].sort();
+      };
+      expect(eventTypes('started, Canceled,bogus,constructor')).toEqual([
+        'codepipeline-pipeline-pipeline-execution-canceled',
+        'codepipeline-pipeline-pipeline-execution-started',
+      ]);
+      expect(eventTypes()).toEqual([
+        'codepipeline-pipeline-pipeline-execution-failed',
+        'codepipeline-pipeline-pipeline-execution-succeeded',
+      ]);
+    });
   });
 
   describe('toolchain release (resolvedBootstrap)', () => {

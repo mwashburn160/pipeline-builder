@@ -438,3 +438,18 @@ export type AiQuotaSettlement = (typeof AI_QUOTA_SETTLEMENTS)[number];
 /** How loud a plugin-version vulnerability warning is, quietest first (see `services/version-vuln-policy.ts`). */
 export const VULN_SEVERITIES = ['info', 'warning', 'error', 'critical'] as const;
 export type VulnSeverity = (typeof VULN_SEVERITIES)[number];
+
+// -----------------------------------------------------------------------------
+// DORA performance bands
+// -----------------------------------------------------------------------------
+
+/** DORA performance bands, best first (the reporting service's DORA metrics and the pipeline scorecard). */
+export const DORA_LEVELS = ['elite', 'high', 'medium', 'low'] as const;
+/** A rated DORA band. */
+export type DoraBand = (typeof DORA_LEVELS)[number];
+/**
+ * A metric's DORA band. `null` = insufficient data to classify (no
+ * deployments/failures/lead-time sample in the window), so the UI shows a
+ * neutral state rather than mislabeling an empty window as "low".
+ */
+export type DoraLevel = DoraBand | null;

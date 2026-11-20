@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, isSystemAdmin, isSystemOrgId, recordAuthzDenial, sendError } from '@pipeline-builder/api-core';
+import { createLogger, ErrorCode, errorMessage, extractDbError, isSystemAdmin, isSystemOrgId, recordAuthzDenial, sendError } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
 
 const logger = createLogger('ops-center');
@@ -188,12 +188,34 @@ export function handleControllerError(
     return sendError(res, mapped.status, mapped.message, mapped.code);
   }
 
-  // 3. Check ServiceError (from plugin/pipeline service clients)
+  // 2. Check ServiceError (from plugin/pipeline service clients)
   if (errObj && typeof errObj.statusCode === 'number' && typeof errObj.name === 'string' && errObj.name.includes('ServiceError')) {
     return sendError(res, errObj.statusCode, errObj.message as string, errObj.code as string);
   }
 
-  // 4. Fallback
-  logger.error(fallbackMessage, err);
+  // 4. Database failures. Same two rules as api-server's `withRoute`:
+  // 22P02 (a caller-supplied value Postgres could not cast — a malformed uuid
+  // path param) is the client's input, so 400; and the error object is never
+  // logged as-is, because a DrizzleQueryError's message carries the SQL and
+  // its bound parameter values. Only the sanitized SQLSTATE metadata is.
+  const db = extractDbError(err);
+  if (db.dbCode === INVALID_TEXT_REPRESENTATION) {
+    logger.warn(fallbackMessage, { reason: 'malformed value for a typed column', db });
+    return sendError(res, 400, 'Invalid identifier or value format', ErrorCode.VALIDATION_ERROR);
+  }
+
+  // 5. Fallback
+  logger.error(fallbackMessage, { error: safeErrorForLog(err), ...(Object.keys(db).length ? { db } : {}) });
   sendError(res, 500, fallbackMessage);
+}
+
+/** SQLSTATE 22P02 `invalid_text_representation` — a value that failed its column cast. */
+const INVALID_TEXT_REPRESENTATION = '22P02';
+
+/** A log-safe rendering of a thrown value: a drizzle query failure collapses to its name. */
+function safeErrorForLog(err: unknown): string {
+  if (err instanceof Error && err.message.startsWith('Failed query:')) {
+    return `${err.name || 'DrizzleQueryError'}: database query failed`;
+  }
+  return errorMessage(err);
 }

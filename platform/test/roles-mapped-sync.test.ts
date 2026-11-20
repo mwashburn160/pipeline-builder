@@ -16,6 +16,8 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const assignmentFind = jest.fn<(...a: unknown[]) => unknown>();
 const assignmentUpdateOne = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const assignmentDeleteMany = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const membershipExists = jest.fn<(...a: unknown[]) => unknown>();
+const roleFindOne = jest.fn<(...a: unknown[]) => unknown>();
 
 /** Chainable Mongoose query stub. */
 function query(result: unknown) {
@@ -48,14 +50,14 @@ jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
-  Role: { find: jest.fn(), findOne: jest.fn(), create: jest.fn(), exists: jest.fn() },
+  Role: { find: jest.fn(), findOne: (...a: unknown[]) => roleFindOne(...a), create: jest.fn(), exists: jest.fn() },
   RoleAssignment: {
     find: (...a: unknown[]) => assignmentFind(...a),
     updateOne: (...a: unknown[]) => assignmentUpdateOne(...a),
     deleteMany: (...a: unknown[]) => assignmentDeleteMany(...a),
   },
   User: { updateOne: jest.fn(), updateMany: jest.fn(), findById: jest.fn(), findOne: jest.fn() },
-  UserOrganization: { findOne: jest.fn() },
+  UserOrganization: { findOne: jest.fn(), exists: (...a: unknown[]) => membershipExists(...a) },
 }));
 
 const { syncMappedRoles } = await import('../src/services/mapped-roles.js');
@@ -67,6 +69,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   assignmentUpdateOne.mockResolvedValue({});
   assignmentDeleteMany.mockResolvedValue({});
+  membershipExists.mockReturnValue(query(null));
+  roleFindOne.mockReturnValue(query({ _id: 'builtin-admin' }));
 });
 
 describe('syncMappedRoles', () => {
@@ -136,5 +140,32 @@ describe('syncMappedRoles', () => {
     assignmentFind.mockReturnValue(query([]));
     await syncMappedRoles(ORG, 'u1', [], SESSION);
     expect(assignmentFind).toHaveBeenCalledWith({ userId: 'u1', organizationId: ORG });
+  });
+
+  // An owner whose built-in Admin assignment is directory-owned (they held Admin
+  // through an IdP mapping, then were handed ownership — the transfer's upsert
+  // keeps the existing `jit` row) must not lose it when the mapping stops
+  // naming it: the owner would keep the 'owner' label with zero admin
+  // permissions, and the org would have nobody able to run it.
+  it('NEVER strips the built-in Admin Role from the org OWNER, even when JIT-owned', async () => {
+    assignmentFind.mockReturnValue(query([
+      { roleId: 'builtin-admin', source: 'jit' },
+      { roleId: 'other-jit', source: 'jit' },
+    ]));
+    membershipExists.mockReturnValue(query({ _id: 'm1' }));
+    const out = await syncMappedRoles(ORG, 'u1', [], SESSION);
+
+    expect(out).toEqual({ added: [], removed: ['other-jit'] });
+    expect(assignmentDeleteMany).toHaveBeenCalledWith(
+      { userId: 'u1', organizationId: ORG, roleId: { $in: ['other-jit'] }, source: 'jit' },
+      { session: SESSION },
+    );
+    expect(membershipExists).toHaveBeenCalledWith({ userId: 'u1', organizationId: ORG, role: 'owner' });
+  });
+
+  it('still strips a JIT-owned built-in Admin Role from a non-owner', async () => {
+    assignmentFind.mockReturnValue(query([{ roleId: 'builtin-admin', source: 'jit' }]));
+    const out = await syncMappedRoles(ORG, 'u1', [], SESSION);
+    expect(out.removed).toEqual(['builtin-admin']);
   });
 });

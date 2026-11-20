@@ -16,6 +16,8 @@ describe('partitionForRegion', () => {
     ['us-iso-east-1', 'aws-iso'],
     ['us-isob-east-1', 'aws-iso-b'],
     [undefined, 'aws'],
+    ['', 'aws'],
+    ['mars-central-1', 'aws'],
   ])('%p -> %p', (region, partition) => {
     expect(partitionForRegion(region)).toBe(partition);
   });
@@ -28,6 +30,8 @@ describe('dnsSuffixForPartition', () => {
     ['aws-cn', 'amazonaws.com.cn'],
     ['aws-iso', 'c2s.ic.gov'],
     ['aws-iso-b', 'sc2s.sgov.gov'],
+    ['aws-unknown', 'amazonaws.com'],
+    ['toString', 'amazonaws.com'],
   ])('%p -> %p', (partition, suffix) => {
     expect(dnsSuffixForPartition(partition)).toBe(suffix);
   });

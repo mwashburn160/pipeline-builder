@@ -25,6 +25,7 @@ const toastError = jest.fn<AnyFn>();
 // Whether the signed-in person may manage service accounts — the panel only
 // lists the org's machine keys for someone who can act on them.
 let canManageServiceAccounts = false;
+let readOnlySession = false;
 
 jest.mock('@/lib/api', () => ({
   __esModule: true,
@@ -38,8 +39,14 @@ jest.mock('@/lib/api', () => ({
   },
 }));
 jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule(() => ({
-    user: { organizationId: 'org-1', permissions: ['pipelines:read', 'pipelines:write', 'plugins:read'] },
-    can: (p: string) => (p === 'service_accounts:manage' ? canManageServiceAccounts : true),
+    user: {
+      organizationId: 'org-1',
+      permissions: ['pipelines:read', 'pipelines:write', 'plugins:read', ...(canManageServiceAccounts ? ['service_accounts:manage'] : [])],
+    },
+    isReadOnly: readOnlySession,
+    // Like the real hook: `can()` is false for every mutation permission in a
+    // read-only session, while the user still HOLDS it.
+    can: (p: string) => (p === 'service_accounts:manage' ? canManageServiceAccounts && !readOnlySession : true),
   })));
 jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => ({ success: jest.fn<AnyFn>(), error: toastError, warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() })));
 // The step-up modal is exercised in its own suite; here it only needs to hand a
@@ -82,6 +89,7 @@ function key(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   jest.clearAllMocks();
   canManageServiceAccounts = false;
+  readOnlySession = false;
   listAccessKeys.mockResolvedValue({ success: true, data: { keys: [key()] } });
   listServiceAccounts.mockResolvedValue({ success: true, data: { serviceAccounts: [], billing: null } });
 });
@@ -278,6 +286,13 @@ describe('AccessKeysSection', () => {
     // Org property → the org's route, not the personal one.
     await waitFor(() => expect(revokeServiceAccountKey).toHaveBeenCalledWith('org-1', 'sa-1', 'sk1'));
     expect(revokeAccessKey).not.toHaveBeenCalled();
+  });
+
+  it('still lists the service-account keys in a read-only session — the list is a read', async () => {
+    canManageServiceAccounts = true;
+    readOnlySession = true;
+    render(<AccessKeysSection readOnly />);
+    await waitFor(() => expect(listServiceAccounts).toHaveBeenCalledWith('org-1'));
   });
 
   it('does not ask for service-account keys when the caller cannot manage them', async () => {

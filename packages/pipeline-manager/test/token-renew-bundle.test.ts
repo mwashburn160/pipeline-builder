@@ -50,6 +50,7 @@ describe('runner-handler Lambda bundle', () => {
     // The catalog's values are in the one file the stack uploads.
     expect(out).toContain('pb-run+jwt');
     expect(out).toContain('RUNNER_PERMISSION_DENIED');
-    expect(out).toContain('/api/pipelines/runner/jwks.json');
+    expect(out).toContain('/api/pipelines/runner/runners/');
+    expect(out).not.toContain('/api/pipelines/runner/jwks.json');
   });
 });

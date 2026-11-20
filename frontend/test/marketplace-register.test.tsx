@@ -150,7 +150,7 @@ describe('MarketplaceRegisterPage', () => {
   const pending = { state: 'pending' as const, registrationRef: 'ref-1', planName: 'Pro' };
 
   it('a signed-in buyer links the subscription to their org', async () => {
-    auth = { user: { id: 'u1', organizationName: 'Acme' }, isAuthenticated: true, isInitialized: true };
+    auth = { user: { id: 'u1', organizationName: 'Acme', permissions: ['billing:manage'] }, isAuthenticated: true, isInitialized: true };
     apiFn('claimMarketplaceRegistration').mockResolvedValue({ success: true });
     const router = mockRouter();
     render(<MarketplaceRegisterPage outcome={pending} />);
@@ -164,13 +164,29 @@ describe('MarketplaceRegisterPage', () => {
   });
 
   it('a refused claim returns to the link step with the reason', async () => {
-    auth = { user: { id: 'u1' }, isAuthenticated: true, isInitialized: true };
+    auth = { user: { id: 'u1', permissions: ['billing:manage'] }, isAuthenticated: true, isInitialized: true };
     apiFn('claimMarketplaceRegistration').mockResolvedValue({ success: false, message: 'Your org already has a subscription' });
     render(<MarketplaceRegisterPage outcome={{ ...pending, planName: null }} />);
     expect(screen.getByText(/your plan/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Link to my organization' }));
     expect(await screen.findByText(/Your org already has a subscription/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Link to my organization' })).toBeEnabled();
+  });
+
+  // `POST /billing/marketplace/claim` is `any(billing:manage)`: a member without
+  // it (or a read-only impersonation session) used to get a Link button that
+  // could only come back 403. They are told who can finish instead, and the
+  // stashed ref is kept for that person.
+  it.each([
+    ['a member without billing:manage', { id: 'u2', organizationName: 'Acme', permissions: ['pipelines:read'] }, false],
+    ['a read-only session', { id: 'u3', organizationName: 'Acme', permissions: ['billing:manage'] }, true],
+  ])('%s is not offered a claim the API refuses', (_label, user, isReadOnly) => {
+    auth = { user, isAuthenticated: true, isInitialized: true, isReadOnly };
+    render(<MarketplaceRegisterPage outcome={pending} />);
+    expect(screen.queryByRole('button', { name: 'Link to Acme' })).toBeNull();
+    expect(screen.getByText(/permission to manage billing/)).toBeInTheDocument();
+    expect(apiFn('claimMarketplaceRegistration')).not.toHaveBeenCalled();
+    expect(readMarketplaceRef()?.registrationRef).toBe('ref-1');
   });
 
   it('a new buyer is sent to sign up or sign in with the ref stashed', () => {
@@ -185,7 +201,7 @@ describe('MarketplaceRegisterPage', () => {
 
   it('back from the auth hop with no token, the stashed ref is picked up', async () => {
     stashMarketplaceRef('ref-stashed', 'Team');
-    auth = { user: { id: 'u1', organizationName: 'Acme' }, isAuthenticated: true, isInitialized: true };
+    auth = { user: { id: 'u1', organizationName: 'Acme', permissions: ['billing:manage'] }, isAuthenticated: true, isInitialized: true };
     render(<MarketplaceRegisterPage outcome={null} />);
     expect(await screen.findByText('Team')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Link to Acme' })).toBeInTheDocument();

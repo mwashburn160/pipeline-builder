@@ -28,7 +28,7 @@ function setup(opts: { config?: Partial<RunnerConfig>; tagging?: Responder; cp?:
   const aws: SentCommand[] = [];
   const logs: Array<{ level: string; msg: string; data?: Record<string, unknown> }> = [];
   const f = fakeFetch({
-    '/api/pipelines/runner/jwks.json': () => ({ status: 200, body: { keys: [key.jwk] } }),
+    '/api/pipelines/runner/runners/runner-1/jwks.json': () => ({ status: 200, body: { keys: [key.jwk] } }),
     ...(opts.routes ?? {}),
   });
   const config: RunnerConfig = {
@@ -290,8 +290,44 @@ describe('response vocabulary', () => {
   });
 
   it('unreachable JWKS is a 500 (the platform retries), not a 401', async () => {
-    const t = setup({ routes: { '/api/pipelines/runner/jwks.json': () => ({ status: 503, body: {} }) } });
+    const t = setup({ routes: { '/api/pipelines/runner/runners/runner-1/jwks.json': () => ({ status: 503, body: {} }) } });
     expect(await t.send()).toEqual({ status: 500, body: { errorCode: 'RUNNER_ERROR' } });
+  });
+
+  it('verifies against its OWN key set: PLATFORM_BASE_URL + /api/pipelines/runner/runners/<RUNNER_ID>/jwks.json', async () => {
+    const t = setup({ tagging: tagged({ 'us-east-1': [arn('us-east-1', 'acme-app')] }) });
+    expect((await t.send()).status).toBe(200);
+    expect(t.f.calls.map((c) => c.url)).toEqual(['https://platform.example/api/pipelines/runner/runners/runner-1/jwks.json']);
+    expect(t.f.calls[0]!.init).toMatchObject({ method: 'GET', redirect: 'error' });
+  });
+
+  it('a 404 on its key set (unknown or revoked runner) fails closed: 401 SIGNATURE_INVALID, no AWS call', async () => {
+    const t = setup({ routes: { '/api/pipelines/runner/runners/runner-1/jwks.json': () => ({ status: 404, body: {} }) }, tagging: tagged({ 'us-east-1': [arn('us-east-1', 'acme-app')] }) });
+    expect(await t.send()).toEqual({ status: 401, body: { errorCode: 'SIGNATURE_INVALID', runnerVersion: '9.9.9' } });
+    expect(t.aws).toEqual([]);
+  });
+
+  it('a key rotated in mid-cache is picked up on its first use (unknown kid refetch), at most once a minute', async () => {
+    const rotated = makeKey('k2');
+    const keys = [key.jwk];
+    const t = setup({ routes: { '/api/pipelines/runner/runners/runner-1/jwks.json': () => ({ status: 200, body: { keys } }) }, tagging: tagged({ 'us-east-1': [arn('us-east-1', 'acme-app')] }) });
+    expect((await t.send({ action: 'probe' })).body).toMatchObject({ outcome: 'match' });
+    t.c.advance(2 * 60_000);
+    keys.push(rotated.jwk);
+    const fresh = (jti: string) => claims({ action: 'probe', jti, iat: Math.floor(t.c.now() / 1000), exp: Math.floor(t.c.now() / 1000) + 300 });
+    const r = await t.runner.process(signJws(rotated, fresh('r2')), { account: t.account });
+    expect(r.body).toMatchObject({ outcome: 'match' });
+    expect(t.f.calls).toHaveLength(2);
+    // Another unknown kid inside the minute: refused without a third fetch.
+    const bogus = await t.runner.process(signJws(makeKey('k9'), fresh('r3')), { account: t.account });
+    expect(bogus).toEqual({ status: 401, body: { errorCode: 'SIGNATURE_INVALID', runnerVersion: '9.9.9' } });
+    expect(t.f.calls).toHaveLength(2);
+  });
+
+  it('with no RUNNER_ID nothing is fetched and every request is refused', async () => {
+    const t = setup({ config: { runnerId: undefined } });
+    expect(await t.send()).toEqual({ status: 401, body: { errorCode: 'SIGNATURE_INVALID', runnerVersion: '9.9.9' } });
+    expect(t.f.calls).toEqual([]);
   });
 
   it('never logs the account id or an ARN', async () => {

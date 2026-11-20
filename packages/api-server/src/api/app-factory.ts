@@ -20,6 +20,7 @@ import { readinessGuard, withReadinessState } from './readiness.js';
 import { currentTraceId } from './tracing.js';
 import { SSEManager, SSE_REQUEST_ID_RE } from '../http/sse-connection-manager.js';
 import { createEnvRedisSSERelay } from '../http/sse-relay.js';
+import { SSE_TICKET_REFUSALS } from '../http/sse-ticket-broker.js';
 
 // Wire api-core's counter shim to the real prom-client registry. This is
 // a no-op until incCounter is called for the first time (lazy registration
@@ -400,15 +401,8 @@ function wireSse(app: Express, sseManager: SSEManager): void {
     }
     const result = await sseManager.createTicket(orgId, requestId);
     if (!result.ok) {
-      if (result.reason === 'forbidden') {
-        // The subject is owned by another org — do not confirm it exists; a plain
-        // 403 is enough and leaks nothing about which requestIds are live.
-        sendError(res, 403, 'Not authorized for this log stream', ErrorCode.INSUFFICIENT_PERMISSIONS);
-      } else if (result.reason === 'org-limit') {
-        sendError(res, 429, 'Too many log stream tickets issued', ErrorCode.QUOTA_EXCEEDED);
-      } else {
-        sendError(res, 503, 'Log streaming subsystem at capacity', ErrorCode.QUOTA_EXCEEDED);
-      }
+      const refusal = SSE_TICKET_REFUSALS[result.reason];
+      sendError(res, refusal.status, refusal.message, refusal.code);
       return;
     }
     sendSuccess(res, 200, { ticket: result.ticket });

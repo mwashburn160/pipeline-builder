@@ -256,8 +256,11 @@ export function PluginUpgradePanel({ pipelineId, canWrite, onApplied }: {
                 {outcome.pluginWarnings && outcome.pluginWarnings.length > 0 && (
                   <VulnWarningList warnings={outcome.pluginWarnings} showStep label="Plugin warnings after the upgrade" />
                 )}
-                {outcome.redeploy && 'executionId' in outcome.redeploy && (
-                  <p className="text-sm text-fg-muted">Redeploy started (execution <span className="font-mono">{outcome.redeploy.executionId}</span>).</p>
+                {outcome.redeploy && 'requestId' in outcome.redeploy && (
+                  <p className="text-sm text-fg-muted" data-testid="upgrade-redeploy-queued">
+                    Redeploy queued for runner <strong>{outcome.redeploy.runnerLabel}</strong> — follow it on the{' '}
+                    <Link href={`/dashboard/pipelines/${pipelineId}?tab=runs`} className="action-link">Runs tab</Link>.
+                  </p>
                 )}
                 {outcome.redeploy && 'error' in outcome.redeploy && (
                   <Callout variant="warning">The upgrade was saved, but the redeploy could not start: {outcome.redeploy.error}</Callout>

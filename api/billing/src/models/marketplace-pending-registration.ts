@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { BILLING_INTERVALS, type BillingInterval } from '@pipeline-builder/api-core';
 import mongoose, { Schema, Document } from 'mongoose';
-import type { BillingInterval } from './subscription.js';
 
 /**
  * A resolved-but-unclaimed AWS Marketplace registration.
@@ -45,7 +45,7 @@ const schema = new Schema<MarketplacePendingRegistrationDocument>(
     awsProductCode: { type: String, required: true },
     planId: { type: String, required: true },
     dimension: { type: String },
-    interval: { type: String, enum: ['monthly', 'annual'], required: true },
+    interval: { type: String, enum: [...BILLING_INTERVALS], required: true },
     entitlementExpiresAt: { type: Date },
     // TTL: Mongo purges the doc once `expiresAt` passes (abandoned registration).
     expiresAt: { type: Date, required: true, index: { expires: 0 } },

@@ -175,14 +175,28 @@ const redactFormat = winston.format((info) => {
  * exactly as `redactFormat` does.
  */
 const maskFormat = winston.format((info) => {
-  if (typeof info.message === 'string') info.message = maskLine(info.message);
   for (const key of Object.keys(info)) {
-    if (key === 'message') continue;
-    const value = info[key];
-    if (typeof value === 'string') info[key] = maskLine(value);
+    info[key] = maskDeep(info[key]);
   }
   return info;
 })();
+
+/**
+ * `maskLine` every string leaf. Nested metadata (`{ request: { url } }`, an
+ * array of attempts) reaches the JSON line exactly like a top-level field, so
+ * masking only top-level strings let a nested `?token=` or JWT through. By the
+ * time this runs `redactFormat` has already replaced every object with a plain
+ * copy, so rewriting in place never touches a caller's object. Depth-capped like
+ * `redactDeep` (which already truncated anything deeper).
+ */
+function maskDeep(value: unknown, depth = 0): unknown {
+  if (typeof value === 'string') return maskLine(value);
+  if (value == null || typeof value !== 'object' || depth > 6) return value;
+  if (Array.isArray(value)) return value.map((v) => maskDeep(v, depth + 1));
+  const obj = value as Record<string, unknown>;
+  for (const k of Object.keys(obj)) obj[k] = maskDeep(obj[k], depth + 1);
+  return obj;
+}
 
 /**
  * Create a logger instance for a service.

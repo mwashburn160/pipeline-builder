@@ -274,7 +274,7 @@ describe('PluginUpgradePanel', () => {
         pipelineId: 'p1', status: 'upgraded',
         applied: [{ stepKey: 'build/scan', plugin: 'acme/trivy', publisher: 'acme', fromVersion: '1.4.0', fromDeclared: '^1', toDeclared: '^1.5.2' }],
         pluginWarnings: [{ stepKey: 'build/scan', plugin: 'acme/trivy', code: 'SCAN_STALE', severity: 'warning', message: 'stale' }],
-        redeploy: { executionId: 'exec-9' },
+        redeploy: { requestId: 'rq-9', status: 'queued', runnerLabel: 'Production' },
       }],
       releases: [{ plugin: 'acme/trivy', publisher: 'acme', version: '1.4.0', references: { declared: 0, deployed: 0 }, removable: true }],
       redeployRequired: false,
@@ -292,7 +292,9 @@ describe('PluginUpgradePanel', () => {
     await waitFor(() => expect(api.applyPluginUpgrades).toHaveBeenCalledWith({ pipelineIds: ['p1'], widen: false, steps: ['build/scan'], redeploy: true }));
     const result = await screen.findByTestId('upgrade-result');
     expect(result).toHaveTextContent('^1.5.2');
-    expect(result).toHaveTextContent('exec-9');
+    // The redeploy is a queued run request (the one response shape): it names the runner and links to the Runs tab.
+    expect(within(result).getByTestId('upgrade-redeploy-queued')).toHaveTextContent('Redeploy queued for runner Production');
+    expect(within(result).getByRole('link', { name: 'Runs tab' })).toHaveAttribute('href', '/dashboard/pipelines/p1?tab=runs');
     expect(within(result).getByText('Removable')).toBeInTheDocument();
     expect(onApplied).toHaveBeenCalled();
   });

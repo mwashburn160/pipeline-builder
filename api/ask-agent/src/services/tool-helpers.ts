@@ -32,17 +32,25 @@ export function unwrap<T>(res: unknown): T | undefined {
  */
 export const AI_QUOTA_EXHAUSTED = 'The organization has no AI generation quota left for this period.';
 
+/**
+ * The specific refusals a peer can name (its 429 `code`), each with the wording
+ * the model relays. Any other code — `QUOTA_EXCEEDED`, an unknown one, none —
+ * is the period cap ({@link AI_QUOTA_EXHAUSTED}).
+ */
+export const QUOTA_REFUSAL_MESSAGES = {
+  AI_MEMBER_SHARE_EXCEEDED: 'You have used your share of the organization\'s AI generation quota for this period.',
+  AI_TOKEN_BUDGET_EXCEEDED: 'The organization\'s AI token budget for this period is used up.',
+  RATE_LIMIT_EXCEEDED: 'The generator is rate-limited right now. Try again in a minute.',
+} as const satisfies Record<string, string>;
+
+/** A refusal code {@link QUOTA_REFUSAL_MESSAGES} names. */
+export type QuotaRefusalCode = keyof typeof QUOTA_REFUSAL_MESSAGES;
+
 export function quotaRefusalMessage(code: string | undefined): string {
-  switch (code) {
-    case 'AI_MEMBER_SHARE_EXCEEDED':
-      return 'You have used your share of the organization\'s AI generation quota for this period.';
-    case 'AI_TOKEN_BUDGET_EXCEEDED':
-      return 'The organization\'s AI token budget for this period is used up.';
-    case 'RATE_LIMIT_EXCEEDED':
-      return 'The generator is rate-limited right now. Try again in a minute.';
-    default:
-      return AI_QUOTA_EXHAUSTED;
-  }
+  // Own keys only, so a code like `constructor` can never read the prototype.
+  return code !== undefined && Object.hasOwn(QUOTA_REFUSAL_MESSAGES, code)
+    ? QUOTA_REFUSAL_MESSAGES[code as QuotaRefusalCode]
+    : AI_QUOTA_EXHAUSTED;
 }
 
 /** A plain object, or `{}` — never an array. */

@@ -16,20 +16,24 @@
  * bodies, stored rows). Renaming one is a protocol change, not a refactor.
  */
 
-import type { FeatureFlag } from './feature-flags.js';
-
 // -----------------------------------------------------------------------------
-// Feature, tag, endpoints
+// Tag, endpoints
 // -----------------------------------------------------------------------------
-
-/** The per-org, operator-granted feature flag that turns runners on. */
-export const RUNNER_FEATURE = 'cross_account_runners' satisfies FeatureFlag;
 
 /** The tag every platform-deployed pipeline carries — the runner's proof of identity. */
 export const PIPELINE_ID_TAG = 'pb.pipeline-id';
 
-/** Where the platform publishes the run-request signing keys (appended to PLATFORM_BASE_URL). */
-export const RUNNER_JWKS_PATH = '/api/pipelines/runner/jwks.json';
+/**
+ * Where one runner fetches the public keys its run requests are signed with
+ * (appended to PLATFORM_BASE_URL): the next, active and retiring keys of the
+ * runner's owning org's EFFECTIVE key org. Keyed by the runner's own id, so
+ * the runner needs no new setting and no org id ever appears in a URL. An
+ * unknown, pending-and-unknown or revoked runner gets 404 (the runner fails
+ * closed); a pending runner IS served, so its activation ping verifies.
+ */
+export function runnerJwksPath(runnerId: string): string {
+  return `/api/pipelines/runner/runners/${encodeURIComponent(runnerId)}/jwks.json`;
+}
 
 // -----------------------------------------------------------------------------
 // Runner rows
@@ -115,7 +119,24 @@ export const RUNNER_ERRORS = {
   TOO_MANY_PENDING: { httpStatus: 429, retryable: false, category: 'platform' },
   RUNNER_UPDATE_REQUIRED: { httpStatus: 409, retryable: false, category: 'platform' },
   RUNNER_PENDING: { httpStatus: 409, retryable: false, category: 'platform' },
-  RUNNERS_NOT_ENABLED: { httpStatus: 409, retryable: false, category: 'platform' },
+  /** The org's effective signing key exists but cannot be decrypted (wrong master, rotated KMS key). That org only. */
+  RUNNER_KEY_UNREADABLE: { httpStatus: 409, retryable: false, category: 'platform' },
+  /** The org has no effective signing key (no shared key to fall back to). */
+  RUNNER_KEY_MISSING: { httpStatus: 409, retryable: false, category: 'platform' },
+  /** Generate: the org already has a key. */
+  RUNNER_KEY_EXISTS: { httpStatus: 409, retryable: false, category: 'platform' },
+  /** Rotate / mode switch / revoke while a rotation (a next or retiring key) or a mode switch is in progress. */
+  RUNNER_KEY_TRANSITION_IN_PROGRESS: { httpStatus: 409, retryable: false, category: 'platform' },
+  /** Cancel with no next key, or finish with no retiring key. */
+  RUNNER_KEY_NO_ROTATION: { httpStatus: 409, retryable: false, category: 'platform' },
+  /** Finish before the retiring key's retire_after. */
+  RUNNER_KEY_RETIRE_TOO_EARLY: { httpStatus: 409, retryable: false, category: 'platform' },
+  /** A key write (generate / rotate / finish / cancel / revoke) on an org in inherit mode. */
+  RUNNER_KEY_INHERITED: { httpStatus: 409, retryable: false, category: 'platform' },
+  /** A key-mode change on a root org (root orgs are always `own`). */
+  RUNNER_KEY_MODE_ROOT_ORG: { httpStatus: 409, retryable: false, category: 'platform' },
+  /** Revoke: the typed confirmation is not the last {@link RUNNER_KEY_REVOKE_CONFIRM_CHARS} characters of the active kid. */
+  RUNNER_KEY_CONFIRMATION_MISMATCH: { httpStatus: 400, retryable: false, category: 'platform' },
   // -- A runner's answers --
   SIGNATURE_INVALID: { httpStatus: 401, retryable: false, category: 'runner' },
   RUNNER_REFUSED: { httpStatus: 403, retryable: false, category: 'runner' },
@@ -223,4 +244,356 @@ export interface RunClaims {
   /** stop and status only. */
   executionId?: string;
   requestedBy: string;
+}
+
+// -----------------------------------------------------------------------------
+// Per-org signing keys
+// -----------------------------------------------------------------------------
+
+/**
+ * A signing key's lifecycle (`pipeline_runner_signing_keys.state`):
+ *  - `next`     — published in the JWKS, not signing yet (signs from `activates_at`);
+ *  - `active`   — signs every run request of the org (at most one per org);
+ *  - `retiring` — published only, until `retire_after`;
+ *  - `retired`  — gone from the JWKS; the row is kept for audit with its private key wiped.
+ * At most one `next`, one `active` and one `retiring` per org (partial unique indexes).
+ */
+export const RUNNER_KEY_STATES = ['next', 'active', 'retiring', 'retired'] as const;
+export type RunnerKeyState = (typeof RUNNER_KEY_STATES)[number];
+
+/** The states a JWKS publishes (everything but `retired`). */
+export const PUBLISHED_RUNNER_KEY_STATES = ['next', 'active', 'retiring'] as const satisfies readonly RunnerKeyState[];
+export type PublishedRunnerKeyState = (typeof PUBLISHED_RUNNER_KEY_STATES)[number];
+
+/** Why a key became `retired` (`pipeline_runner_signing_keys.retired_reason`). */
+export const RUNNER_KEY_RETIRED_REASONS = ['finished', 'revoked', 'cancelled', 'mode_switch'] as const;
+export type RunnerKeyRetiredReason = (typeof RUNNER_KEY_RETIRED_REASONS)[number];
+
+/**
+ * An org's key mode (`pipeline_runner_key_settings.mode`). `own`: the org signs
+ * with its own keys. `inherit`: with its nearest `own` ancestor's. A missing
+ * settings row means `inherit` for a sub-organization and `own` for a root org;
+ * a root org is always `own`.
+ */
+export const RUNNER_KEY_MODES = ['inherit', 'own'] as const;
+export type RunnerKeyMode = (typeof RUNNER_KEY_MODES)[number];
+
+/** Where an org's own keys are in a rotation: none, a `next` key waiting to sign, or a `retiring` key still published. */
+export const RUNNER_KEY_ROTATION_STATES = ['none', 'pending', 'overlap'] as const;
+export type RunnerKeyRotationState = (typeof RUNNER_KEY_ROTATION_STATES)[number];
+
+/** What a key-mode transition is (`pipeline_runner_key_settings.transition_kind`). */
+export const RUNNER_KEY_TRANSITION_KINDS = ['to_own', 'to_inherit', 'ancestry'] as const;
+export type RunnerKeyTransitionKind = (typeof RUNNER_KEY_TRANSITION_KINDS)[number];
+
+/** A rotated-in `next` key starts signing this long after it is created (covers the runner's 10-minute JWKS cache and the route's 60 s cache). */
+export const RUNNER_KEY_ACTIVATION_DELAY_MS = 10 * 60_000;
+/** A key stays published (`retiring`) this long after it stops signing. */
+export const RUNNER_KEY_RETIRE_WINDOW_MS = 60 * 60_000;
+/** Each replica's decrypted-key cache re-checks the org's key version this often (the pub/sub backstop). */
+export const RUNNER_KEY_CACHE_MS = 60_000;
+/** The per-runner JWKS response is cached this long (`Cache-Control: public, max-age=60`, and server-side). */
+export const RUNNER_JWKS_CACHE_SECONDS = 60;
+/** Per-runner-id limit on the public JWKS route. */
+export const RUNNER_JWKS_REQUESTS_PER_MINUTE = 10;
+/** The per-IP backstop on the public JWKS route (generous: Lambdas share AWS egress addresses). */
+export const RUNNER_JWKS_IP_REQUESTS_PER_MINUTE = 600;
+/** Key writes (generate, rotate, cancel, finish, revoke, mode) per org per hour. */
+export const RUNNER_KEY_WRITES_PER_HOUR = 5;
+/** Revoke's typed confirmation: the last this-many characters of the active key id. */
+export const RUNNER_KEY_REVOKE_CONFIRM_CHARS = 6;
+/** The second age reminder is sent this many days after the first (which is sent at RUNNER_KEY_MAX_AGE_DAYS). */
+export const RUNNER_KEY_AGE_FOLLOWUP_DAYS = 30;
+
+/** The typed confirmation revoke requires for `kid`. */
+export function runnerKeyRevokeConfirmation(kid: string): string {
+  return kid.slice(-RUNNER_KEY_REVOKE_CONFIRM_CHARS);
+}
+
+/** Whole days from `since` to `now` (never negative). */
+export function runnerKeyAgeDays(since: Date | string, now: Date | number = Date.now()): number {
+  const from = typeof since === 'string' ? Date.parse(since) : since.getTime();
+  const to = typeof now === 'number' ? now : now.getTime();
+  return Number.isFinite(from) ? Math.max(0, Math.floor((to - from) / 86_400_000)) : 0;
+}
+
+// -----------------------------------------------------------------------------
+// Runner link (pipeline_registry.runner_link_status)
+// -----------------------------------------------------------------------------
+
+/**
+ * How a pipeline is linked to a runner:
+ *  - `linked`    — `runner_id` is set (exactly one match, or a verified run);
+ *  - `unlinked`  — never probed (a new registry row);
+ *  - `not_found` — the last probe matched no runner (or the org has none);
+ *  - `ambiguous` — the last probe matched two runners at the same level;
+ *  - `checking`  — a probe is running.
+ * A refresh that does not end in a single match keeps the old `runner_id` and
+ * records its result in the detail; the status then names that result.
+ */
+export const RUNNER_LINK_STATUSES = ['linked', 'unlinked', 'not_found', 'ambiguous', 'checking'] as const;
+export type RunnerLinkStatus = (typeof RUNNER_LINK_STATUSES)[number];
+
+/** `pipeline_registry.runner_link_detail` — runner LABELS only, never an account id or a URL. */
+export interface RunnerLinkDetail {
+  /** Labels of the runners the last probe asked. */
+  runnersChecked: string[];
+  /** Labels of the runners that matched (two or more = ambiguous). */
+  matched: string[];
+  /** The code that ended the last probe without a single match (NO_RUNNER, AMBIGUOUS_RUNNER, PIPELINE_NOT_FOUND_IN_RUNNERS, …), else null. */
+  errorCode: RunnerErrorCode | null;
+}
+
+/** Link-refresh requests per org per minute. */
+export const RUNNER_LINK_REFRESHES_PER_MINUTE = 5;
+
+// -----------------------------------------------------------------------------
+// Health and tunable limits
+// -----------------------------------------------------------------------------
+
+/** Consecutive failed deliveries that mark a runner unreachable. */
+export const UNREACHABLE_AFTER_FAILURES = 3;
+
+/**
+ * Each tunable runner limit's env name and default, as the env string a deploy
+ * target declares (the deploy-contracts suite can read this literal). The
+ * pipeline service parses them; each must be a whole number >= its minimum in
+ * {@link RUNNER_TUNABLE_MINIMUMS}, else the default applies.
+ *  - RUN_REQUESTS_PER_MINUTE — user start/stop requests per pipeline per minute;
+ *  - MAX_PENDING_PER_ORG — pending (queued|delivering) user-initiated requests per org (429 TOO_MANY_PENDING above it; system-initiated runs queue past it);
+ *  - MAX_IN_FLIGHT_PER_RUNNER — deliveries in flight to one runner;
+ *  - RUNNER_HEALTH_PING_INTERVAL_SECONDS — every active runner is pinged this often;
+ *  - RUNNER_UNHEALTHY_AFTER_PINGS — consecutive failed pings that mark it unreachable (a SIGNATURE_INVALID or RUNNER_REFUSED reply does at once);
+ *  - RUNNER_KEY_MAX_AGE_DAYS — an active key this old earns an age reminder (and the badge).
+ */
+export const RUNNER_TUNABLE_DEFAULTS = {
+  RUN_REQUESTS_PER_MINUTE: '6',
+  MAX_PENDING_PER_ORG: '500',
+  MAX_IN_FLIGHT_PER_RUNNER: '8',
+  RUNNER_HEALTH_PING_INTERVAL_SECONDS: '60',
+  RUNNER_UNHEALTHY_AFTER_PINGS: '2',
+  RUNNER_KEY_MAX_AGE_DAYS: '365',
+} as const;
+export type RunnerTunableEnv = keyof typeof RUNNER_TUNABLE_DEFAULTS;
+
+/** The smallest value each tunable accepts. */
+export const RUNNER_TUNABLE_MINIMUMS: Readonly<Record<RunnerTunableEnv, number>> = {
+  RUN_REQUESTS_PER_MINUTE: 1,
+  MAX_PENDING_PER_ORG: 1,
+  MAX_IN_FLIGHT_PER_RUNNER: 1,
+  RUNNER_HEALTH_PING_INTERVAL_SECONDS: 10,
+  RUNNER_UNHEALTHY_AFTER_PINGS: 1,
+  RUNNER_KEY_MAX_AGE_DAYS: 1,
+};
+
+/** Read one tunable from `env` (default when unset, unparseable or below its minimum). */
+export function runnerTunable(name: RunnerTunableEnv, env: Readonly<Record<string, string | undefined>>): number {
+  const raw = env[name];
+  const n = Number((raw ?? '').trim());
+  return raw !== undefined && raw.trim() !== '' && Number.isFinite(n) && n >= RUNNER_TUNABLE_MINIMUMS[name]
+    ? Math.floor(n)
+    : Number(RUNNER_TUNABLE_DEFAULTS[name]);
+}
+
+// -----------------------------------------------------------------------------
+// Cache invalidation (Redis pub/sub)
+// -----------------------------------------------------------------------------
+
+/** The Redis pub/sub channel every pipeline replica subscribes to for key and pause changes. */
+export const RUNNER_KEY_INVALIDATION_CHANNEL = 'runner-keys:invalidate';
+
+/**
+ * One invalidation message (JSON on {@link RUNNER_KEY_INVALIDATION_CHANNEL}),
+ * published after the change COMMITS. Never carries key material.
+ *  - `keys`  — drop the signer and JWKS cache entries of every org in `orgIds`
+ *              (the changed org plus every descendant whose effective key org it is);
+ *  - `pause` — the platform pause toggle changed; re-read it.
+ */
+export type RunnerKeyInvalidation =
+  | { v: 1; kind: 'keys'; origin: string; orgIds: string[] }
+  | { v: 1; kind: 'pause'; origin: string; paused: boolean };
+
+/** Parse one channel message; null for anything malformed (ignored by subscribers). */
+export function parseRunnerKeyInvalidation(raw: string): RunnerKeyInvalidation | null {
+  let m: unknown;
+  try { m = JSON.parse(raw); } catch { return null; }
+  if (!m || typeof m !== 'object') return null;
+  const o = m as Record<string, unknown>;
+  if (o.v !== 1 || typeof o.origin !== 'string') return null;
+  if (o.kind === 'keys' && Array.isArray(o.orgIds) && o.orgIds.every((x) => typeof x === 'string')) {
+    return { v: 1, kind: 'keys', origin: o.origin, orgIds: o.orgIds as string[] };
+  }
+  if (o.kind === 'pause' && typeof o.paused === 'boolean') return { v: 1, kind: 'pause', origin: o.origin, paused: o.paused };
+  return null;
+}
+
+// -----------------------------------------------------------------------------
+// Metrics
+// -----------------------------------------------------------------------------
+
+/** Metric names the key store, the sweep and the alert rules share. */
+export const RUNNER_KEY_METRICS = {
+  /** Gauge `{state}`: key rows per state across the deployment (retired included). */
+  keys: 'pipeline_runner_signing_keys',
+  /** Gauge: age in days of the OLDEST active key (no org label). */
+  ageDays: 'pipeline_runner_signing_key_age_days',
+  /** Gauge: active keys older than RUNNER_KEY_MAX_AGE_DAYS. */
+  overAge: 'pipeline_runner_signing_keys_over_age',
+  /** Gauge: orgs whose effective key could not be decrypted at the last attempt (the operator alert). */
+  unreadable: 'pipeline_runner_signing_keys_unreadable',
+  /** Counter `{source}`: cache entries dropped, source `pubsub` | `poll`. */
+  invalidations: 'pipeline_runner_signing_key_invalidations_total',
+} as const;
+
+// -----------------------------------------------------------------------------
+// DTOs (HTTP bodies; dates are ISO strings)
+// -----------------------------------------------------------------------------
+
+/** One of an org's published keys. Never key material: id, state and dates only. */
+export interface RunnerSigningKeySummary {
+  /** RFC 7638 thumbprint (the JWK `kid`). */
+  kid: string;
+  state: PublishedRunnerKeyState;
+  createdAt: string;
+  /** User id of whoever created it (the registering user for an auto-created first key); null when unknown. */
+  createdBy: string | null;
+  /** `next`: when it starts signing. `active` / `retiring`: when it started signing. */
+  activatesAt: string;
+  /** `retiring` only: when it leaves the JWKS (and Finish now is allowed). */
+  retireAfter: string | null;
+  /** Whole days since `activatesAt` (0 for `next`). */
+  ageDays: number;
+}
+
+/** `signingKey` on `GET /pipelines/runners`. */
+export interface RunnerSigningKeyDto {
+  mode: RunnerKeyMode;
+  /** True for a root org (always `own`; no mode switch). */
+  isRootOrg: boolean;
+  /** This org's OWN keys (all null in inherit mode outside a transition). */
+  active: RunnerSigningKeySummary | null;
+  next: RunnerSigningKeySummary | null;
+  retiring: RunnerSigningKeySummary | null;
+  rotation: RunnerKeyRotationState;
+  /** In inherit mode: the effective key org (nearest `own` ancestor). Null in own mode. */
+  inheritedFrom: { orgId: string; orgName: string; activeKid: string | null; rotation: RunnerKeyRotationState } | null;
+  /** Descendant teams whose effective key org is this org (a parent's card: "Used by 3 teams"). */
+  inheritingTeams: number;
+  /** Their names, for the rotate / revoke / mode dialogs. */
+  inheritingTeamNames: string[];
+  /** Runners (own + those teams') that verify with this org's keys. */
+  inheritingRunners: number;
+  /** A mode switch or ancestry change in progress, else null. */
+  transition: { kind: RunnerKeyTransitionKind; switchAt: string; until: string } | null;
+  /** The effective key cannot be decrypted: no actions, the operator must fix it. */
+  unreadable: boolean;
+  /** RUNNER_KEY_MAX_AGE_DAYS as configured (the badge threshold). */
+  maxAgeDays: number;
+}
+
+/** Why runners are unavailable on this deployment (`available: false`). */
+export const RUNNERS_UNAVAILABLE_REASONS = ['paused', 'encryption_not_configured', 'tables_missing'] as const;
+export type RunnersUnavailableReason = (typeof RUNNERS_UNAVAILABLE_REASONS)[number];
+
+/** One runner on `GET /pipelines/runners`. Never an AWS account id. */
+export interface PipelineRunnerDto {
+  id: string;
+  orgId: string;
+  label: string;
+  /** Only for the OWNING org's admins (null everywhere else). A secret. */
+  functionUrl: string | null;
+  shareWithTeams: boolean;
+  version: string | null;
+  regions: string[];
+  health: RunnerHealth;
+  status: RunnerStatus;
+  lastDeliveryAt: string | null;
+  createdAt: string;
+  updateRequired: boolean;
+  /** Absolute: PLATFORM_BASE_URL + {@link runnerJwksPath}(id). */
+  jwksUrl: string;
+  /** Pipelines linked to this runner (`pipeline_registry.runner_id`). */
+  pipelineCount: number;
+}
+
+/** A parent org's runner shared with this team (signed with the parent's effective key). */
+export interface InheritedPipelineRunnerDto extends PipelineRunnerDto {
+  fromOrgId: string;
+  fromOrgName: string;
+}
+
+/** `GET /pipelines/runners`. */
+export interface PipelineRunnersListDto {
+  available: boolean;
+  unavailableReason: RunnersUnavailableReason | null;
+  platformEgressIps: string[] | null;
+  own: PipelineRunnerDto[];
+  inherited: InheritedPipelineRunnerDto[];
+  /** Null while runners are unavailable. */
+  signingKey: RunnerSigningKeyDto | null;
+}
+
+/** `GET /pipelines/:pipelineId/runner-link` (and the 202 of `POST …/runner-link/refresh`, with `status: 'checking'`). */
+export interface RunnerLinkDto {
+  pipelineId: string;
+  status: RunnerLinkStatus;
+  /** The linked runner, when `runner_id` is set (it may be kept through a failed refresh). */
+  runner: { id: string; label: string; health: RunnerHealth; lastDeliveryAt: string | null; ownerOrgName: string | null } | null;
+  checkedAt: string | null;
+  detail: RunnerLinkDetail | null;
+  /** The platform pause toggle is on (the pipeline page's banner). */
+  deliveriesPaused: boolean;
+}
+
+/** One row of `GET /pipelines/admin/runner-signing-keys` (operators). Never key material. */
+export interface RunnerKeyStatusRow {
+  orgId: string;
+  orgName: string | null;
+  mode: RunnerKeyMode;
+  inheritedFrom: { orgId: string; orgName: string | null } | null;
+  /** The org's own active key (null in inherit mode or before the first key). */
+  activeKid: string | null;
+  keyAgeDays: number | null;
+  rotation: RunnerKeyRotationState;
+  /** A mode switch or ancestry change is in progress. */
+  inTransition: boolean;
+  overAge: boolean;
+  unreadable: boolean;
+  /** The org's own non-revoked runners. */
+  runnerCount: number;
+}
+
+/** `GET|PUT /pipelines/admin/runner-deliveries` — the platform pause toggle. */
+export interface RunnerDeliveriesDto {
+  paused: boolean;
+  pausedAt: string | null;
+  pausedBy: string | null;
+  reason: string | null;
+}
+
+/**
+ * THE answer of Run (`POST /pipelines/:id/executions`, 202), Stop
+ * (`POST /pipelines/:id/executions/:executionId/stop`, 202) and plugin-upgrade's
+ * redeploy (`redeploy` of each upgraded pipeline). Poll
+ * `GET /pipelines/:id/run-requests/:requestId` for progress.
+ */
+export interface QueuedRunRequestDto {
+  requestId: string;
+  status: PendingRunRequestStatus;
+  runnerLabel: string;
+}
+
+/** One key the per-runner JWKS publishes. */
+export interface RunnerPublicJwk {
+  kty: 'OKP';
+  crv: 'Ed25519';
+  x: string;
+  kid: string;
+  use: 'sig';
+  alg: 'EdDSA';
+}
+
+/** `GET /pipelines/runner/runners/:runnerId/jwks.json`. */
+export interface RunnerJwksDto {
+  keys: RunnerPublicJwk[];
 }

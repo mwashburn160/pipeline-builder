@@ -5,11 +5,14 @@
 # Post-provision smoke checks — the paths that fail SILENTLY after a deploy that
 # otherwise looks green. Every target's setup runs this as its final phase.
 #
-#   post-provision-smoke.sh <k8s|docker> [--aws]
+#   post-provision-smoke.sh <k8s|docker>
 #
 #   k8s     exec into the target's Deployments (NAMESPACE, default pipeline-builder)
 #   docker  exec into the compose containers
-#   --aws   also dry-run the pipeline service's CodePipeline credentials (eks/ec2)
+#
+# There is no CodePipeline check: the platform holds no CodePipeline access.
+# Pipelines run in customers' accounts, only through their pipeline runners
+# (deploy/bin/runner-smoke.sh exercises that path end to end).
 #
 # Checks (each prints PASS / WARN / SKIP with the reason; NONE is fatal — the
 # deploy has already happened, and a half-failed smoke run must not abort the
@@ -20,14 +23,10 @@
 #      NetworkPolicy — not a curl from this host, which proves none of those.
 #   2. email — sends one message through platform's own email service (its own
 #      EMAIL_* config and egress) to SMOKE_EMAIL_TO (default ALERT_EMAIL).
-#   3. CodePipeline (--aws) — GetPipelineState on a pipeline name that cannot
-#      exist, from inside the pipeline pod. PipelineNotFoundException PROVES the
-#      pod reached the API with working credentials and the codepipeline grant;
-#      AccessDenied / a credential error / a timeout is the real failure.
-#   4. denied connection (k8s) — a throwaway pod OUTSIDE the mesh, whose egress
+#   3. denied connection (k8s) — a throwaway pod OUTSIDE the mesh, whose egress
 #      no policy opens, tries 1.1.1.1:443. It must be BLOCKED; OPEN means the
 #      CNI is not enforcing NetworkPolicy at all (see eks cluster/nodeclass.yaml).
-#   5. toolchain — inside the plugin pod, resolves the managed toolchain release
+#   4. toolchain — inside the plugin pod, resolves the managed toolchain release
 #      for a synthetic smoke org (no org default, no canary, a root) with the
 #      platform's own resolver. It must answer resolvedVia=default with BOTH
 #      halves (pipeline-bootstrap + cdk-synth) of one release, each with a signed
@@ -37,12 +36,12 @@
 # Env: NAMESPACE, PB_SMOKE_KUBECTL (default `kubectl`; ec2 passes
 # `sudo -u minikube kubectl`), SMOKE_EMAIL_TO | ALERT_EMAIL, SLACK_CRITICAL_WEBHOOK_URL /
 # SLACK_WARNING_WEBHOOK_URL (only to decide whether Slack is configured),
-# SMOKE_SKIP=alert,email,codepipeline,netpol,toolchain (comma list) to skip checks,
+# SMOKE_SKIP=alert,email,netpol,toolchain (comma list) to skip checks,
 # SMOKE_TOOLCHAIN_ORG (default pb-smoke-toolchain) — the synthetic org resolved for.
 
 set -uo pipefail
 
-MODE="${1:?usage: post-provision-smoke.sh <k8s|docker> [--aws]}"
+MODE="${1:?usage: post-provision-smoke.sh <k8s|docker>}"
 # Validate the mode UP FRONT. Without this a typo ("kubernetes", "compose") ran
 # every check against a mode `_exec`/`_ready` don't know, so each one warned or
 # skipped and the run still reported a clean-looking summary.
@@ -50,16 +49,9 @@ case "$MODE" in
   k8s|docker) ;;
   *) echo "ERROR: unknown mode '$MODE' (expected k8s|docker)" >&2; exit 2 ;;
 esac
-# Only `--aws` may follow the mode. A silently-ignored second argument here is
-# how a typo'd `--awd` turns the CodePipeline credential check off without
-# saying so, and the run still reports a clean summary.
-AWS_CHECKS=false
-case "${2:-}" in
-  '')     ;;
-  --aws)  AWS_CHECKS=true ;;
-  *)      echo "ERROR: unknown argument '$2' (expected --aws)" >&2; exit 2 ;;
-esac
-[ "$#" -le 2 ] || { echo "ERROR: unexpected argument '$3'" >&2; exit 2; }
+# Nothing may follow the mode. A silently-ignored argument reads as an option
+# that took effect, and the run still reports a clean summary.
+[ "$#" -le 1 ] || { echo "ERROR: unexpected argument '$2'" >&2; exit 2; }
 NS="${NAMESPACE:-pipeline-builder}"
 SKIP=",${SMOKE_SKIP:-},"
 # Pinned like every other busybox in the manifests.
@@ -161,23 +153,7 @@ process.exit(ok ? 0 : 1);"
   fi
 }
 
-# ---- 3. CodePipeline credentials -------------------------------------------
-pb_smoke_codepipeline() {
-  local js out
-  _ready pipeline || return 0
-  js="const { CodePipelineClient, GetPipelineStateCommand } = await import('@aws-sdk/client-codepipeline');
-try {
-  await new CodePipelineClient({}).send(new GetPipelineStateCommand({ name: 'pb-smoke-test-does-not-exist' }));
-  console.log('UNEXPECTED_FOUND');
-} catch (e) { console.log(e.name || String(e)); }"
-  out=$(_exec pipeline node --input-type=module -e "$js" 2>&1 | tail -1)
-  case "$out" in
-    PipelineNotFoundException) pass "codepipeline — pipeline pod reached CodePipeline with working credentials" ;;
-    *) warn "codepipeline — GetPipelineState dry-run returned '$out' (expected PipelineNotFoundException): check the pipeline SA's Pod Identity / instance role and allow-pipeline-external-egress" ;;
-  esac
-}
-
-# ---- 4. denied connection ---------------------------------------------------
+# ---- 3. denied connection ---------------------------------------------------
 # A pod OUTSIDE the mesh (dataplane-mode none), labelled so that no egress
 # policy but DNS + in-namespace applies. Its connection to the public internet
 # must be dropped. DNS must still work, or "blocked" proves nothing.
@@ -207,7 +183,7 @@ pb_probe_denied_connection() {
   esac
 }
 
-# ---- 5. toolchain release ---------------------------------------------------
+# ---- 4. toolchain release ---------------------------------------------------
 # The platform's own resolver, in the plugin pod (its DB credentials, elevated
 # reads), for a synthetic ROOT org: getParent answers "no parent", so the org
 # can't inherit anything and the answer must come from the platform default.
@@ -246,9 +222,6 @@ echo ""
 echo "=== Post-provision smoke checks ($MODE) ==="
 case "$SKIP" in *,alert,*) skip "alert delivery (SMOKE_SKIP)" ;; *) pb_smoke_alert ;; esac
 case "$SKIP" in *,email,*) skip "email (SMOKE_SKIP)" ;; *) pb_smoke_email ;; esac
-if [ "$AWS_CHECKS" = true ]; then
-  case "$SKIP" in *,codepipeline,*) skip "codepipeline (SMOKE_SKIP)" ;; *) pb_smoke_codepipeline ;; esac
-fi
 case "$SKIP" in *,toolchain,*) skip "toolchain (SMOKE_SKIP)" ;; *) pb_smoke_toolchain ;; esac
 if [ "$MODE" = k8s ]; then
   case "$SKIP" in *,netpol,*) skip "network policy (SMOKE_SKIP)" ;; *) pb_probe_denied_connection ;; esac

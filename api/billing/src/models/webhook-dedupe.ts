@@ -29,8 +29,12 @@ import { WEBHOOK_DONE_TTL_SECONDS } from '../config/webhook-retention.js';
  * observed retry window. Both stages are keyed by the unique (source, eventId).
  */
 
-export type WebhookSource = 'sns' | 'stripe';
-export type WebhookStatus = 'in_progress' | 'done';
+/** Providers whose webhook deliveries are deduped here. */
+export const WEBHOOK_SOURCES = ['sns', 'stripe'] as const;
+export type WebhookSource = (typeof WEBHOOK_SOURCES)[number];
+/** The two phases of a delivery's idempotency row. */
+export const WEBHOOK_STATUSES = ['in_progress', 'done'] as const;
+export type WebhookStatus = (typeof WEBHOOK_STATUSES)[number];
 
 export interface WebhookDedupeDocument extends Document {
   source: WebhookSource;
@@ -58,9 +62,9 @@ const IN_PROGRESS_TTL_SECONDS = envInt('BILLING_WEBHOOK_INPROGRESS_TTL_SECONDS',
 
 const webhookDedupeSchema = new Schema<WebhookDedupeDocument>(
   {
-    source: { type: String, enum: ['sns', 'stripe'], required: true },
+    source: { type: String, enum: [...WEBHOOK_SOURCES], required: true },
     eventId: { type: String, required: true },
-    status: { type: String, enum: ['in_progress', 'done'], required: true, default: 'in_progress' },
+    status: { type: String, enum: [...WEBHOOK_STATUSES], required: true, default: 'in_progress' },
     claimToken: { type: String },
     // TTL anchor (see the {expireAt} index below). Set on claim (short lease) and
     // reset on the done-marker (30d) so a single index expires both phases.

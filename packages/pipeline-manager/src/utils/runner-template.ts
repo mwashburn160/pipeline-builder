@@ -8,7 +8,8 @@
  * product CloudFormation cannot express. {@link buildRunnerTemplate} fills the
  * `PipelineActions` statement with exactly one ARN per (region, prefix), so the
  * role can act on nothing else, and keys the API Gateway deployment to the IP
- * allowlist; {@link runnerStackParameters} is the matching parameter set. Pure
+ * allowlist (the API's WAFv2 rate limit is plain parameters, EnableWaf and
+ * WafRateLimit); {@link runnerStackParameters} is the matching parameter set. Pure
  * functions: the CLI writes the result to a temp file.
  */
 
@@ -34,30 +35,55 @@ export interface RunnerTemplateOptions {
   apiGateway?: boolean;
   /** With apiGateway: the source CIDRs its resource policy admits. */
   allowIps?: string[];
+  /** With apiGateway: attach the WAFv2 rate limit (default true; `false` = --no-waf). */
+  waf?: boolean;
+  /** With apiGateway + waf: requests per 5 minutes per source IP (omitted = {@link DEFAULT_WAF_RATE_LIMIT}, always passed explicitly). */
+  wafRateLimit?: number;
 }
+
+/**
+ * The WAF rate-based rule's default: requests one source IP may send in any
+ * 5-minute window (keep in sync with runner-stack.json's WafRateLimit). The
+ * platform sends a runner a few requests per run plus a status read every 15 s
+ * per watched execution, so 1000 (~3.3 rps sustained) leaves room for a busy org
+ * while sitting under the stage throttle (5 rps = 1500 per 5 minutes).
+ */
+export const DEFAULT_WAF_RATE_LIMIT = 1000;
+/** WAFv2's bounds for a rate-based rule's limit. */
+export const WAF_RATE_LIMIT_MIN = 10;
+export const WAF_RATE_LIMIT_MAX = 2_000_000_000;
 
 export interface RunnerStackParamsInput extends RunnerTemplateOptions {
   /** The registered runner's id — always set: a runner is registered before its stack is deployed. */
   runnerId: string;
   platformBaseUrl: string;
-  label: string;
   allowIps?: string[];
   version: string;
 }
 
-/** CloudFormation stack name for a runner label. */
-export function runnerStackName(label: string): string {
-  return `pipeline-builder-runner-${label}`;
+/** Every runner stack's name starts with this (setup-runner lists the account's stacks by it). */
+export const RUNNER_STACK_PREFIX = 'pipeline-builder-runner-';
+
+/** The stack tag that carries the runner's label (display only: the stack is named by the runner id). */
+export const RUNNER_LABEL_TAG = 'pb.runner-label';
+
+/**
+ * CloudFormation stack name for a runner: `pipeline-builder-runner-<runnerId>`.
+ * Named by the runner id, not its label, so two organizations' runners in one
+ * AWS account never collide; the label rides along as {@link RUNNER_LABEL_TAG}.
+ */
+export function runnerStackName(runnerId: string): string {
+  return `${RUNNER_STACK_PREFIX}${runnerId}`;
 }
 
-/** Name suffix on the role/function/API (`pipeline-builder-runner-<label>`). */
-export function runnerNameSuffix(label: string): string {
-  return `-${label}`;
+/** Name suffix on the role/function/API/log group (`pipeline-builder-runner-<runnerId>`). */
+export function runnerNameSuffix(runnerId: string): string {
+  return `-${runnerId}`;
 }
 
-/** The CFN-managed function name for a label (keep in sync with runner-stack.json). */
-export function runnerFunctionName(label: string): string {
-  return `pipeline-builder-runner${runnerNameSuffix(label)}`;
+/** The CFN-managed function name for a runner (keep in sync with runner-stack.json). */
+export function runnerFunctionName(runnerId: string): string {
+  return `pipeline-builder-runner${runnerNameSuffix(runnerId)}`;
 }
 
 /** One `Fn::Sub` ARN per (region, prefix). A `*` prefix grants the region's every pipeline. */
@@ -117,9 +143,17 @@ export function runnerStackParameters(p: RunnerStackParamsInput): string[] {
     AllowedRegions: p.regions.join(','),
     AllowedPipelinePrefixes: p.prefixes.includes('*') ? '*' : p.prefixes.join(','),
     PipelinePrefix: p.prefixes.includes('*') ? '' : p.prefixes[0]!,
-    NameSuffix: runnerNameSuffix(p.label),
+    NameSuffix: runnerNameSuffix(p.runnerId),
     PipelineManagerVersion: p.version,
   };
   if (p.apiGateway && p.allowIps && p.allowIps.length > 0) params.AllowedIps = p.allowIps.join(',');
+  if (p.apiGateway) {
+    const waf = p.waf !== false;
+    params.EnableWaf = waf ? 'true' : 'false';
+    // Always explicit: `aws cloudformation deploy` keeps an existing stack's value
+    // for an omitted parameter, so "omitted" would mean "whatever was set last",
+    // not the template default.
+    if (waf) params.WafRateLimit = String(p.wafRateLimit ?? DEFAULT_WAF_RATE_LIMIT);
+  }
   return Object.entries(params).map(([k, v]) => `${k}=${v}`);
 }

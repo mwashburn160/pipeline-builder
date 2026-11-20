@@ -40,7 +40,7 @@ import { STANDARD_TIERS } from '@pipeline-builder/api-core';
 import type { BillingInterval, PlanTier, PlanTierLimits } from '@pipeline-builder/api-core';
 
 import { pruneTierIncludedFeatureAddons } from './addon-prune.js';
-import { priceForInterval, volumeDiscountPct } from './combo-pricing.js';
+import { priceForInterval, volumeCredits } from './combo-pricing.js';
 import type { BundleConfig, BillingPlanConfig } from '../config/billing-types.js';
 import { effectiveEntitlements } from '../config/entitlements.js';
 
@@ -126,9 +126,13 @@ export function addonCostCents(
   const bundle = bundles.find((b) => b.id === holding.bundleId);
   if (!bundle || holding.quantity <= 0) return 0;
   const qty = bundle.stackable ? holding.quantity : 1;
-  const unit = priceForInterval(bundle.prices, interval);
-  const gross = unit * qty;
-  return Math.round((gross * (100 - volumeDiscountPct(bundle, qty))) / 100);
+  // The invoiced NET: list minus the credit `volumeCredits` actually grants
+  // (its net snapped up to a whole dollar, .49 or .99) — never the raw
+  // percentage re-derived here, which drifted from the charge by cents.
+  const gross = priceForInterval(bundle.prices, interval) * qty;
+  const credit = volumeCredits([{ bundleId: bundle.id, quantity: qty }], bundles, interval, [])
+    .reduce((n, c) => n + c.creditCents, 0);
+  return gross - credit;
 }
 
 /** Total per-interval spend: plan price plus every held pack. */

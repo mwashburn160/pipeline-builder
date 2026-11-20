@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 6f693f5782d7cfbbfbde9d288771f2ef4ef68d8dc15a948d2039df2155b1d023
+// SOURCE-SHA256: 10455b6736295133dbf4b10c026e6fb0cc98a99f53477ec40135a8106f8eb93b
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -3600,17 +3600,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "PIPELINE_EXEC_IDEMPOTENCY_WINDOW_SECONDS",
               "10",
-              "Window for the execution-trigger idempotency guard, per (org, pipeline), shared by every start path — a second POST /pipelines/:id/executions or plugin-upgrade apply with redeploy within it starts no second CodePipeline run (a 409 / that pipeline's redeploy.error)"
-            ],
-            [
-              "RUNNER_SIGNING_KEY_FILE",
-              "/etc/pipeline-builder/runner-signing/runner-signing.key",
-              "The Ed25519 private key (PKCS#8 PEM) the pipeline service signs runner run requests with, from deploy/bin/runner-signing-keys.sh; mounted from the runner-signing-key Kubernetes Secret (pipeline only). Its public half is served at GET /api/pipelines/runner/jwks.json. No key ⇒ runners are unavailable; removing it and restarting pipeline is also the emergency stop for all runner delivery (there is no separate kill switch — see secret rotation). Whether an org may use runners at all is the operator-granted per-org feature flag cross_account_runners. RUNNER_SIGNING_KEY (inline PEM) is accepted instead."
-            ],
-            [
-              "RUNNER_SIGNING_KEY_PREVIOUS_FILE",
-              "/etc/pipeline-builder/runner-signing/runner-signing-previous.key",
-              "Rotation: the RETIRING runner-signing key, present only between runner-signing-keys.sh --rotate and --finish. Published in the JWKS, never used to sign; an absent file means no overlap. RUNNER_SIGNING_KEY_PREVIOUS (inline PEM) is accepted instead."
+              "Window for the execution-trigger idempotency guard, per (org, pipeline), shared by every start path — a second POST /pipelines/:id/executions or plugin-upgrade apply with redeploy within it queues no second run request (a 409 / that pipeline's redeploy.error)"
             ],
             [
               "RUNNER_DISPATCH_CONCURRENCY",
@@ -3619,8 +3609,8 @@ export const envVariablesTopic: HelpTopic = {
             ],
             [
               "MIN_RUNNER_VERSION",
-              "—",
-              "Oldest runner version the dispatcher accepts. Empty (the default) sets no minimum. A runner reporting an older version keeps working for RUNNER_UPGRADE_GRACE_DAYS, then is refused."
+              "7.0.0",
+              "Oldest runner version the dispatcher accepts: 7.0.0 is the first runner that verifies against its own per-runner JWKS. Empty sets no minimum. A runner reporting an older version keeps working for RUNNER_UPGRADE_GRACE_DAYS, then is refused."
             ],
             [
               "RUNNER_UPGRADE_GRACE_DAYS",
@@ -3643,51 +3633,44 @@ export const envVariablesTopic: HelpTopic = {
               "Days a failed or expired run request is kept before the retention sweep deletes it."
             ],
             [
-              "BILLING_WEBHOOK_INPROGRESS_TTL_SECONDS",
-              "300",
-              "Webhook in-progress lock TTL — a crash mid-processing releases the claim after this so the provider's retry re-runs the event's side-effects (not dropped as a duplicate)"
+              "RUN_REQUESTS_PER_MINUTE",
+              "6",
+              "User-initiated start/stop requests per pipeline per minute (minimum 1). Above it the caller gets 429."
             ],
             [
-              "COMPLIANCE_VALIDATE_TIMEOUT_MS",
-              "4000",
-              "Per-attempt timeout for the fail-closed compliance validate call (now retried, so a transient blip doesn't reject a legit upload/create)"
+              "MAX_PENDING_PER_ORG",
+              "500",
+              "Pending (queued or delivering) user-initiated run requests per org (minimum 1). Above it a user gets 429 TOO_MANY_PENDING; system-initiated runs, such as the plugin-upgrade redeploy fan-out, still queue past it."
             ],
             [
-              "HTTP_CLIENT_MAX_SOCKETS",
-              "64",
-              "Max sockets per internal HTTP keep-alive agent (was unbounded)"
+              "MAX_IN_FLIGHT_PER_RUNNER",
+              "8",
+              "Deliveries in flight to one runner at a time (minimum 1)."
             ],
             [
-              "HTTP_CLIENT_MAX_RESPONSE_BYTES",
-              "10485760",
-              "Cap on an internal HTTP response body (10 MiB); a larger body aborts the call instead of being buffered"
+              "RUNNER_HEALTH_PING_INTERVAL_SECONDS",
+              "60",
+              "How often the sweep sends a signed ping to every active runner (minimum 10)."
             ],
             [
-              "IDEMPOTENCY_TTL_MS",
-              "300000",
-              "How long a completed Idempotency-Key response is replayed"
+              "RUNNER_UNHEALTHY_AFTER_PINGS",
+              "2",
+              "Consecutive failed pings that mark a runner unhealthy (minimum 1). A SIGNATURE_INVALID or RUNNER_REFUSED reply marks it at once. Going unhealthy sends an org notice, shows banners and raises pipeline_runners_unhealthy (alert RunnerUnreachable)."
             ],
             [
-              "IDEMPOTENCY_MAX_STORE_SIZE",
-              "10000",
-              "Max keys in the per-process (no-Redis) idempotency store"
-            ],
-            [
-              "IDEMPOTENCY_CLEANUP_INTERVAL_MS",
-              "60000",
-              "Sweep interval for expired keys in the per-process idempotency store"
-            ],
-            [
-              "IDEMPOTENCY_PENDING_TTL_MS",
-              "120000",
-              "How long an in-flight Idempotency-Key reservation holds the key if the process dies mid-request (retries get 409 until then). Must exceed the slowest handler; a client disconnect no longer releases the key — the handler's own result settles it"
-            ],
-            [
-              "REGISTRY_GC_LOCK_TTL_MS",
-              "120000 (api-core's default leader-lock TTL)",
-              "Image-registry GC leader-lock TTL (ms); only one replica runs the destructive GC sweep at a time. This is the CRASH-RECOVERY window only — the holder heartbeats the lock for as long as a sweep runs, so it need not outlast one; keep it well under the sweep interval"
+              "RUNNER_KEY_MAX_AGE_DAYS",
+              "365",
+              "Age at which an org's active runner signing key earns an org notice and a \"consider rotating\" badge on the Signing key card; a second notice follows 30 days later (minimum 1). Rotation stays manual. Counted in pipeline_runner_signing_keys_over_age."
             ]
           ]
+        },
+        {
+          "type": "text",
+          "content": "All six fall back to the default shown when unset, blank, non-numeric or below their minimum."
+        },
+        {
+          "type": "text",
+          "content": "Runner signing keys need no deploy setting. Each org's Ed25519 key is generated by the pipeline service (on the org's first runner registration, or from Settings → Organization → Pipeline runners), stored in Postgres encrypted under SECRET_ENCRYPTION_KEY — or the org's own KMS key with SECRET_ENCRYPTION_PER_ORG_KMS=true, resolved through platform's GET /internal/kms-config/:orgId — and never leaves the service. Each runner reads its public keys from GET /api/pipelines/runner/runners/<runnerId>/jwks.json. The pipeline service therefore needs SECRET_ENCRYPTION_KEY (and any KMS secret-encryption settings) exactly as platform does; every target hands them to it. Runners are on for every org and are the only execution path. See secret rotation. | BILLING_WEBHOOK_INPROGRESS_TTL_SECONDS | 300 | Webhook in-progress lock TTL — a crash mid-processing releases the claim after this so the provider's retry re-runs the event's side-effects (not dropped as a duplicate) | | COMPLIANCE_VALIDATE_TIMEOUT_MS | 4000 | Per-attempt timeout for the fail-closed compliance validate call (now retried, so a transient blip doesn't reject a legit upload/create) | | HTTP_CLIENT_MAX_SOCKETS | 64 | Max sockets per internal HTTP keep-alive agent (was unbounded) | | HTTP_CLIENT_MAX_RESPONSE_BYTES | 10485760 | Cap on an internal HTTP response body (10 MiB); a larger body aborts the call instead of being buffered | | IDEMPOTENCY_TTL_MS | 300000 | How long a completed Idempotency-Key response is replayed | | IDEMPOTENCY_MAX_STORE_SIZE | 10000 | Max keys in the per-process (no-Redis) idempotency store | | IDEMPOTENCY_CLEANUP_INTERVAL_MS | 60000 | Sweep interval for expired keys in the per-process idempotency store | | IDEMPOTENCY_PENDING_TTL_MS | 120000 | How long an in-flight Idempotency-Key reservation holds the key if the process dies mid-request (retries get 409 until then). Must exceed the slowest handler; a client disconnect no longer releases the key — the handler's own result settles it | | REGISTRY_GC_LOCK_TTL_MS | 120000 (api-core's default leader-lock TTL) | Image-registry GC leader-lock TTL (ms); only one replica runs the destructive GC sweep at a time. This is the CRASH-RECOVERY window only — the holder heartbeats the lock for as long as a sweep runs, so it need not outlast one; keep it well under the sweep interval |"
         }
       ]
     },

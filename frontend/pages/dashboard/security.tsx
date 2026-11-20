@@ -58,6 +58,7 @@ import { TokenPermissionPicker, permissionsForRequest } from '@/components/setti
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { useToast } from '@/components/ui/Toast';
 import api from '@/lib/api';
+import { hasPermission } from '@/lib/auth-helpers';
 import { formatError } from '@/lib/constants';
 import { formatDateTime } from '@/lib/format';
 import type { TokenHistoryEntry } from '@/lib/api/domains/auth';
@@ -80,12 +81,16 @@ function Anchor({ id, children }: { id: string; children: React.ReactNode }) {
 }
 
 export default function SecurityPage() {
-  const { user, isReady, isReadOnly, can, refreshUser, logout } = useAuthGuard();
+  const { user, isReady, isReadOnly, refreshUser, logout } = useAuthGuard();
   const [activeTab, changeTab] = useUrlTab<SecurityTab>(
     'tab', SECURITY_TAB_IDS, 'factors', { hashTabs: SECURITY_HASH_TABS },
   );
 
-  const canManageServiceAccounts = can('service_accounts:manage');
+  // READ visibility: the raw permission, which a read-only impersonation still
+  // holds (the list is a GET). `ServiceAccountsSection` takes `readOnly` and
+  // disables its writes; gating on `can()` swapped the whole tab for "managed
+  // by an administrator" during an investigation.
+  const canManageServiceAccounts = hasPermission(user, 'service_accounts:manage');
   // An enrolment-only session (a fresh install's admin, no factor yet) can reach
   // ONLY factor enrolment: platform answers everything else — sessions, the
   // password policy, the org's IdP, access keys — with 403

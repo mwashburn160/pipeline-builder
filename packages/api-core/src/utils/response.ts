@@ -5,6 +5,7 @@ import type { Response } from 'express';
 import { createLogger } from './logger.js';
 import { emitCounter } from './metric-emitter.js';
 import { parsePage } from './params.js';
+import { REDACTED } from './sensitive-patterns.js';
 import { isValidQuotaType, QUOTA_TYPE_LABELS, QUOTA_UPGRADE_PATH, type QuotaInfo } from '../types/common.js';
 import { ErrorCode } from '../types/error-codes.js';
 import { MAX_PAGE_LIMIT } from '../validation/common-schemas.js';
@@ -303,7 +304,26 @@ const SQLSTATE_PATTERN = /^[0-9A-Z]{5}$/;
 const NODE_ERRNO_PATTERN = /^E/;
 
 /**
+ * Strip ROW VALUES out of a Postgres `detail`, keeping its shape. A unique or
+ * foreign-key violation's detail is `Key (email)=(alice@example.com) already
+ * exists.`, and a not-null/check violation's is `Failing row contains (…)` —
+ * real tenant data (emails, names, ids) that every caller of
+ * {@link extractDbError} then wrote into a log line or an audit record. The
+ * column list stays: it is what makes the detail useful. The value match is
+ * greedy to the last `)`, so a value that itself contains parentheses is still
+ * covered.
+ */
+function redactDbDetail(detail: string): string {
+  return detail
+    .replace(/\)=\(.*\)/s, `)=(${REDACTED})`)
+    .replace(/Failing row contains \(.*\)/s, `Failing row contains ${REDACTED}`);
+}
+
+/**
  * Extract database error details for logging/response.
+ *
+ * `dbDetail` is redacted of row values (see {@link redactDbDetail}), so the
+ * result is safe to log or audit.
  *
  * Extracts PostgreSQL error codes, details, hints, and constraint names
  * from database errors for better error messages.
@@ -344,7 +364,7 @@ export function extractDbError(error: unknown): Record<string, unknown> {
     && !NODE_ERRNO_PATTERN.test(source.code)) {
     details.dbCode = source.code;
   }
-  if (source.detail) details.dbDetail = source.detail;
+  if (source.detail) details.dbDetail = typeof source.detail === 'string' ? redactDbDetail(source.detail) : source.detail;
   if (source.hint) details.dbHint = source.hint;
   if (source.constraint) details.constraint = source.constraint;
   if (source.table) details.table = source.table;

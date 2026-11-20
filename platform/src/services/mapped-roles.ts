@@ -24,7 +24,7 @@ import {
 import type { OrgId, RoleAssignmentActor, UserId } from './role-authority.js';
 import { RL_ROLE_NOT_FOUND } from './roles-errors.js';
 import { toOrgId } from '../helpers/org-id.js';
-import { Role, RoleAssignment } from '../models/index.js';
+import { Role, RoleAssignment, UserOrganization } from '../models/index.js';
 
 /** A Role as the mapping surfaces report it. */
 export interface MappableRole {
@@ -123,9 +123,21 @@ export async function syncMappedRoles(
 
   // Removals: JIT-owned rows the mapping no longer names. Manual rows and the
   // built-in Member floor (granted by ensureBaselineRole, hence manual) stay.
-  const stale = held
+  let stale = held
     .filter((a) => (a as { source?: string }).source === 'jit' && !wanted.has(String(a.roleId)))
     .map((a) => a.roleId);
+  // The org OWNER keeps the built-in Admin Role for as long as they own the org
+  // (the same invariant `removeUserFromRole` enforces for a human). Their row can
+  // be directory-owned — they held Admin through a mapping, then were handed
+  // ownership, and the transfer's upsert kept the `jit` row — and stripping it
+  // would leave the owner label with zero admin permissions: nobody could run
+  // the org, transfer it, or undo the change.
+  if (stale.length > 0
+    && await UserOrganization.exists({ userId, organizationId: oid, role: 'owner' }).session(session)) {
+    const adminRole = await Role.findOne({ organizationId: oid, grantsRole: 'admin', system: true })
+      .session(session).select('_id').lean();
+    if (adminRole) stale = stale.filter((id) => String(id) !== String(adminRole._id));
+  }
   if (stale.length > 0) {
     await RoleAssignment.deleteMany({ userId, organizationId: oid, roleId: { $in: stale }, source: 'jit' }, { session });
   }

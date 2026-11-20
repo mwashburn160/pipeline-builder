@@ -60,6 +60,17 @@ describe('public plugin page install action', () => {
     expect(api.getListingInstallState).toHaveBeenCalledWith('pipeline-builder', 'trivy', expect.anything());
   });
 
+  // The install-state read answers `canInstall` from the caller's permissions
+  // alone; a read-only impersonation session has every write refused, so the
+  // page must not offer the install controls on top of it.
+  it('a read-only session sees the state but no install controls', async () => {
+    authState = { user: { id: 'u1', username: 'dana', email: 'd@x' }, isAuthenticated: true, isInitialized: true, isReadOnly: true };
+    api.getListingInstallState.mockReturnValue(ok({ entry: officialEntry('trivy'), versions: [], canInstall: true, canManage: false }));
+    render(<PluginPage siteUrl="https://pb.example" listing={detail()} tab="overview" />);
+    expect(await screen.findByText(/Installed automatically \(Official\)/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Pin or change policy' })).toBeNull();
+  });
+
   it('signed in but the state is unreadable: falls back to the catalog link', async () => {
     authState = { user: { id: 'u1', username: 'dana', email: 'd@x' }, isAuthenticated: true, isInitialized: true };
     api.getListingInstallState.mockRejectedValue(new Error('down'));

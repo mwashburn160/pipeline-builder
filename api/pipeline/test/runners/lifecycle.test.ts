@@ -4,11 +4,12 @@
 /**
  * Dispatch (one delivery per job, the retry schedule, NOT_YET_VISIBLE, expiry,
  * per-pipeline serialization), terminal bookkeeping (audit, metrics, link
- * set/clear), runner health (5 failures → unreachable + notice + pause; ping
- * every 5 min; success resumes) and the sweep.
+ * set/clear), runner health (3 delivery failures, 2 failed health pings or one
+ * SIGNATURE_INVALID / RUNNER_REFUSED → unreachable + notices + pause; a pong
+ * recovers it, says so and resumes) and the sweep.
  */
 
-import { describe, expect, it } from '@jest/globals';
+import { afterEach, describe, expect, it } from '@jest/globals';
 import { processDelivery, runSweep } from '../../src/runners/lifecycle.js';
 import { backoffMs } from '../../src/runners/vocabulary.js';
 import { claimsOf, ORG, PIPE, reply, runnerRow, testDeps, URL_A, type TestDeps } from '../helpers/runner-fakes.js';
@@ -31,6 +32,7 @@ async function setup(action: 'start' | 'stop' = 'start', over: Partial<ReturnTyp
   return { deps, runner, req };
 }
 
+const TEAM = '0123456789abcdef0123456a';
 const lastJws = (deps: TestDeps) => String(deps.fetchMock.mock.calls.at(-1)![1].body);
 
 describe('backoffMs', () => {
@@ -75,6 +77,8 @@ describe('processDelivery', () => {
     deps.fetchMock.mockResolvedValue(reply(429, {}));
     expect(await processDelivery(deps, req.id)).toEqual({ done: false, retryInMs: 2000 });
     deps.clock.t += 2000;
+    // (Health is not what this test is about: keep the runner under UNREACHABLE_AFTER_FAILURES.)
+    deps.store.runners.set(req.runnerId!, { ...deps.store.runners.get(req.runnerId!)!, consecutiveFailures: 0 });
     deps.fetchMock.mockRejectedValue(new Error('timeout'));
     expect(await processDelivery(deps, req.id)).toEqual({ done: false, retryInMs: 4000 });
     // Not yet due: the job waits out the remainder without delivering.
@@ -154,18 +158,21 @@ describe('processDelivery', () => {
   });
 });
 
+const ENV = { ...process.env };
+afterEach(() => { process.env = { ...ENV }; });
+
 describe('runner health', () => {
-  it('5 consecutive transport failures → unreachable, the org is notified, delivery pauses', async () => {
+  it('3 consecutive transport failures (UNREACHABLE_AFTER_FAILURES) → unreachable, the org is notified, delivery pauses', async () => {
     const { deps, runner, req } = await setup();
     deps.fetchMock.mockRejectedValue(new Error('connect ECONNREFUSED'));
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 2; i++) {
       const r = await processDelivery(deps, req.id);
       expect(r.done).toBe(false);
       deps.clock.t += 30_000;
     }
-    expect(deps.store.runners.get(runner.id)).toMatchObject({ health: 'healthy', consecutiveFailures: 4 });
+    expect(deps.store.runners.get(runner.id)).toMatchObject({ health: 'healthy', consecutiveFailures: 2 });
     expect(await processDelivery(deps, req.id)).toEqual({ done: true }); // paused, not rescheduled
-    expect(deps.store.runners.get(runner.id)).toMatchObject({ health: 'unreachable', consecutiveFailures: 5 });
+    expect(deps.store.runners.get(runner.id)).toMatchObject({ health: 'unreachable', consecutiveFailures: 3 });
     expect(deps.notified).toEqual([expect.objectContaining({ recipientOrgId: ORG, subject: expect.stringContaining('unreachable'), priority: 'high' })]);
     expect(JSON.stringify(deps.notified)).not.toContain(URL_A);
     expect(deps.audits).toContainEqual(expect.objectContaining({ action: 'pipeline.runner.health', actorId: 'system', details: { from: 'healthy', to: 'unreachable' } }));
@@ -177,24 +184,82 @@ describe('runner health', () => {
     expect(deps.store.requests.get(req.id)!.status).toBe('queued');
   });
 
-  it('the sweep pings an unreachable runner every 5 min; a pong recovers it and re-enqueues its paused requests', async () => {
-    const { deps, runner, req } = await setup('start', { health: 'unreachable', consecutiveFailures: 5 });
-    deps.store.runners.set(runner.id, { ...deps.store.runners.get(runner.id)!, updatedAt: new Date(deps.clock.t) });
-    expect((await runSweep(deps)).pinged).toBe(0); // pinged too recently
-    // (The request's own clock stays inside its 10 minutes: the pings are
-    // driven by backdating the runner's last ping.)
-    const backdate = () => deps.store.runners.set(runner.id, { ...deps.store.runners.get(runner.id)!, updatedAt: new Date(deps.clock.t - 5 * 60_000) });
-    backdate();
+  it('the sweep sends a signed ping to EVERY active runner once per RUNNER_HEALTH_PING_INTERVAL_SECONDS', async () => {
+    const { deps, runner } = await setup();
+    const other = runnerRow({ label: 'other' });
+    deps.store.runners.set(other.id, other);
+    deps.store.runners.set('pending', runnerRow({ id: 'pending', status: 'pending', functionUrl: null }));
+    expect((await runSweep(deps)).pinged).toBe(2);
+    const pings = deps.fetchMock.mock.calls.map(([, o]) => claimsOf(String(o.body)));
+    expect(pings.map((c) => c.aud).sort()).toEqual([runner.id, other.id].sort());
+    expect(pings[0]).toMatchObject({ action: 'ping', requestedBy: 'system:runner-ping' });
+    expect(pings[0]).not.toHaveProperty('pipelineId');
+    deps.clock.t += 30_000;
+    expect((await runSweep(deps)).pinged).toBe(0); // inside the 60 s interval
+    deps.clock.t += 30_000;
+    expect((await runSweep(deps)).pinged).toBe(2);
+    process.env.RUNNER_HEALTH_PING_INTERVAL_SECONDS = '120';
+    deps.clock.t += 60_000;
+    expect((await runSweep(deps)).pinged).toBe(0);
+  });
+
+  it('2 failed pings in a row (RUNNER_UNHEALTHY_AFTER_PINGS) mark a runner unhealthy and send the notice to its org and the teams using it', async () => {
+    const { deps, runner } = await setup();
+    // A team pipeline linked to this (shared) runner: that team's admins hear too.
+    deps.store.registry.set('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', { orgId: TEAM, pipelineName: 't', region: null, runnerId: runner.id });
+    deps.fetchMock.mockRejectedValue(new Error('timeout'));
+    expect(await runSweep(deps)).toMatchObject({ pinged: 1, markedUnhealthy: 0 });
+    expect(deps.store.runners.get(runner.id)!.health).toBe('healthy');
+    deps.clock.t += 60_000;
+    expect(await runSweep(deps)).toMatchObject({ pinged: 1, markedUnhealthy: 1 });
+    expect(deps.store.runners.get(runner.id)!.health).toBe('unreachable');
+    expect(deps.notified.map((n) => (n as { recipientOrgId: string }).recipientOrgId)).toEqual([ORG, TEAM]);
+    expect(deps.notified[0]).toMatchObject({ subject: expect.stringContaining('unreachable'), content: expect.stringContaining('failed 2 health pings'), priority: 'high' });
+    expect(deps.gauges.at(-1)).toEqual(['pipeline_runners_unhealthy', 1]);
+  });
+
+  it('a success between failed pings resets the count; RUNNER_UNHEALTHY_AFTER_PINGS is configurable', async () => {
+    process.env.RUNNER_UNHEALTHY_AFTER_PINGS = '3';
+    const { deps, runner } = await setup();
+    const sweepWith = async (ok: boolean) => {
+      if (ok) deps.fetchMock.mockResolvedValueOnce(reply(200, { outcome: 'pong' })); else deps.fetchMock.mockRejectedValueOnce(new Error('timeout'));
+      await runSweep(deps);
+      deps.clock.t += 60_000;
+    };
+    await sweepWith(false); await sweepWith(false); await sweepWith(true); await sweepWith(false); await sweepWith(false);
+    expect(deps.store.runners.get(runner.id)!.health).toBe('healthy');
+    await sweepWith(false);
+    expect(deps.store.runners.get(runner.id)!.health).toBe('unreachable');
+  });
+
+  it.each(['SIGNATURE_INVALID', 'RUNNER_REFUSED'])('a %s ping reply marks the runner unhealthy at once (a key or configuration problem)', async (code) => {
+    const { deps, runner } = await setup();
+    deps.fetchMock.mockResolvedValue(reply(code === 'SIGNATURE_INVALID' ? 401 : 403, { errorCode: code }));
+    expect(await runSweep(deps)).toMatchObject({ pinged: 1, markedUnhealthy: 1 });
+    expect(deps.store.runners.get(runner.id)!.health).toBe('unreachable');
+    expect(deps.notified).toEqual([expect.objectContaining({ recipientOrgId: ORG, content: expect.stringContaining(code) })]);
+  });
+
+  it('a ping the platform could not sign (the org\'s key is missing) never counts against the runner', async () => {
+    const { deps, runner } = await setup();
+    deps.signerFor = async () => { throw Object.assign(new Error('no key'), { code: 'RUNNER_KEY_MISSING' }); };
+    for (let i = 0; i < 3; i++) { await runSweep(deps); deps.clock.t += 60_000; }
+    expect(deps.store.runners.get(runner.id)!.health).toBe('healthy');
+    expect(deps.notified).toEqual([]);
+  });
+
+  it('recovery: a pong recovers an unreachable runner, sends the recovery notice and resumes its queued runs', async () => {
+    const { deps, runner, req } = await setup('start', { health: 'unreachable', consecutiveFailures: 3 });
     deps.fetchMock.mockRejectedValueOnce(new Error('timeout'));
     expect(await runSweep(deps)).toMatchObject({ pinged: 1, recovered: 0 });
-    expect(deps.store.runners.get(runner.id)!.updatedAt!.getTime()).toBe(deps.clock.t);
-    backdate();
+    expect(deps.notified).toEqual([]); // still down: no second notice
+    deps.clock.t += 60_000;
     deps.fetchMock.mockResolvedValue(reply(200, { outcome: 'pong' }));
     expect(await runSweep(deps)).toMatchObject({ pinged: 1, recovered: 1 });
     expect(claimsOf(lastJws(deps))).toMatchObject({ action: 'ping', requestedBy: 'system:runner-ping', aud: runner.id });
-    expect(claimsOf(lastJws(deps))).not.toHaveProperty('pipelineId');
     expect(deps.store.runners.get(runner.id)).toMatchObject({ health: 'healthy', consecutiveFailures: 0 });
     expect(deps.enqueued.map((e) => e.requestId)).toContain(req.id);
+    expect(deps.notified).toEqual([expect.objectContaining({ recipientOrgId: ORG, subject: expect.stringContaining('reachable again'), priority: 'normal' })]);
     expect(deps.gauges.at(-1)).toEqual(['pipeline_runners_unhealthy', 0]);
   });
 

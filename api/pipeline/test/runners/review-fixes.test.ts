@@ -103,7 +103,7 @@ describe('the sweep on a database created before runners', () => {
     const deps = testDeps();
     const missing = () => Promise.reject(new Error('relation "pipeline_run_requests" does not exist'));
     Object.assign(deps.store, { tablesPresent: async () => false, listExpired: missing, deletePendingRunnersBefore: missing });
-    await expect(runSweep(deps)).resolves.toEqual({ expired: 0, pinged: 0, recovered: 0, rekicked: 0, pendingDeleted: 0, retained: 0 });
+    await expect(runSweep(deps)).resolves.toEqual({ expired: 0, pinged: 0, recovered: 0, markedUnhealthy: 0, rekicked: 0, pendingDeleted: 0, retained: 0 });
   });
 });
 

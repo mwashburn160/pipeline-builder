@@ -209,13 +209,24 @@ spec:
         - operation:
             paths: ["/internal/ai/*"]
 ---
-# GET /internal/features/:orgId — an org's org-level feature flags (tier +
-# account entitlements). Only pipeline: its cross-account runner dispatcher
-# re-checks the operator-granted `cross_account_runners` outside any request.
+# GET /internal/kms-config/:orgId — an org's per-org KMS secret-encryption
+# config (key id + the wrapped master as ciphertext; never a plaintext key).
+# Only pipeline: with SECRET_ENCRYPTION_PER_ORG_KMS=true it resolves each org's
+# master to decrypt that org's runner signing key, caching the answer per org
+# for 60 s.
+#
+# The reverse leg, POST /pipelines/internal/runner-signing-keys/reencrypt
+# (platform's rotation flow -> pipeline, re-wrapping the runner signing keys
+# after a SECRET_ENCRYPTION_KEY or per-org KMS rotation), has no rule here
+# because the pipeline Service is not waypoint-attached: an L7 path rule on it
+# would be enforced by nobody (ztunnel is L4-only). It is carried, like
+# pipeline's other internal route (/pipelines/internal/orgs/:orgId/purge), by
+# the app-side gate (`requireInternalService({ callers: ['platform'] })`) and
+# the workload layer (`pipeline-allow` in istio.yaml admits sa/platform).
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
-  name: platform-internal-features
+  name: platform-internal-kms-config
   namespace: pipeline-builder
 spec:
   targetRefs:
@@ -230,7 +241,7 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/pipeline
       to:
         - operation:
-            paths: ["/internal/features/*"]
+            paths: ["/internal/kms-config/*"]
 ---
 # GET /internal/support/entitlement/:orgId — may this org open a support case,
 # and at what level? The message service owns the support thread, so it owns the

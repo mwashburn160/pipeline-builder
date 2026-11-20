@@ -14,7 +14,7 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { describe, it, expect } from '@jest/globals';
 
-const { buildRunnerTemplate, pipelineActionResources, runnerStackParameters, RUNNER_PIPELINE_ACTIONS, runnerStackName, runnerFunctionName } =
+const { buildRunnerTemplate, DEFAULT_WAF_RATE_LIMIT, pipelineActionResources, runnerStackParameters, RUNNER_PIPELINE_ACTIONS, runnerStackName, runnerFunctionName } =
   await import('../src/utils/runner-template.js');
 
 type Json = any;
@@ -85,6 +85,7 @@ describe('runner-stack.json', () => {
     expect(tpl.Conditions).toEqual({
       UseFunctionUrl: { 'Fn::Equals': [{ Ref: 'EntryPoint' }, 'function-url'] },
       UseApiGateway: { 'Fn::Equals': [{ Ref: 'EntryPoint' }, 'api-gateway'] },
+      UseWaf: { 'Fn::And': [{ Condition: 'UseApiGateway' }, { 'Fn::Equals': [{ Ref: 'EnableWaf' }, 'true'] }] },
     });
     // Every Function URL resource is gated on the Function URL entry point.
     for (const k of ['FunctionUrl', 'FunctionUrlPermission', 'FunctionUrlInvokePermission']) expect(tpl.Resources[k].Condition).toBe('UseFunctionUrl');
@@ -160,7 +161,68 @@ describe('buildRunnerTemplate IAM', () => {
   });
 });
 
+describe('API Gateway WAF rate limit', () => {
+  it('a REGIONAL WebACL with one IP rate-based rule, associated with the runner stage, only on the API Gateway entry point', () => {
+    const tpl = base();
+    expect(tpl.Conditions.UseWaf).toEqual({ 'Fn::And': [{ Condition: 'UseApiGateway' }, { 'Fn::Equals': [{ Ref: 'EnableWaf' }, 'true'] }] });
+    const acl = tpl.Resources.RunnerWebAcl;
+    expect(acl).toMatchObject({ Type: 'AWS::WAFv2::WebACL', Condition: 'UseWaf', Properties: { Scope: 'REGIONAL', DefaultAction: { Allow: {} } } });
+    expect(acl.Properties.Rules).toHaveLength(1);
+    expect(acl.Properties.Rules[0]).toMatchObject({
+      Action: { Block: {} },
+      Statement: { RateBasedStatement: { Limit: { Ref: 'WafRateLimit' }, AggregateKeyType: 'IP' } },
+      VisibilityConfig: { CloudWatchMetricsEnabled: true, SampledRequestsEnabled: true },
+    });
+    const assoc = tpl.Resources.RunnerWebAclAssociation;
+    expect(assoc).toMatchObject({ Type: 'AWS::WAFv2::WebACLAssociation', Condition: 'UseWaf' });
+    expect(assoc.Properties.WebACLArn).toEqual({ 'Fn::GetAtt': ['RunnerWebAcl', 'Arn'] });
+    expect(assoc.Properties.ResourceArn).toEqual({ 'Fn::Sub': 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/restapis/${RunnerApi}/stages/${RunnerApiStage}' });
+  });
+
+  it('the rate limit is a parameter with a default inside the WAFv2 bounds, and WAF is on by default', () => {
+    const p = base().Parameters;
+    expect(p.WafRateLimit).toMatchObject({ Type: 'Number', Default: 1000, MinValue: 10, MaxValue: 2000000000 });
+    expect(p.EnableWaf).toMatchObject({ Type: 'String', Default: 'true', AllowedValues: ['true', 'false'] });
+    expect(DEFAULT_WAF_RATE_LIMIT).toBe(p.WafRateLimit.Default);
+  });
+
+  it('the Function URL entry point is unchanged: no WAF resource can exist without the API', () => {
+    const tpl = base();
+    const waf = Object.entries<Json>(tpl.Resources).filter(([, r]) => String(r.Type).startsWith('AWS::WAFv2::'));
+    expect(waf.map(([k]) => k).sort()).toEqual(['RunnerWebAcl', 'RunnerWebAclAssociation']);
+    for (const [, r] of waf) expect(r.Condition).toBe('UseWaf');
+    expect(tpl.Resources.FunctionUrl.Properties).toEqual({ AuthType: 'NONE', TargetFunctionArn: { 'Fn::GetAtt': ['RunnerFunction', 'Arn'] } });
+  });
+
+  it('buildRunnerTemplate keeps the WAF (and the association still points at the stage once the deployment is re-keyed)', () => {
+    const tpl = buildRunnerTemplate({ regions: ['us-east-1'], prefixes: ['a-'], apiGateway: true, allowIps: ['203.0.113.1/32'] });
+    expect(tpl.Resources.RunnerWebAcl).toBeDefined();
+    expect(tpl.Resources.RunnerWebAclAssociation.Properties.ResourceArn['Fn::Sub']).toContain('${RunnerApiStage}');
+  });
+});
+
 describe('runnerStackParameters', () => {
+  it('API Gateway: WAF on with the given rate limit, or off with waf: false', () => {
+    const common = { regions: ['us-east-1'], prefixes: ['a-'], apiGateway: true, allowIps: ['1.2.3.4/32'], runnerId: 'r', platformBaseUrl: 'https://p', version: 'v' };
+    const on = runnerStackParameters({ ...common, wafRateLimit: 500 });
+    expect(on).toContain('EnableWaf=true');
+    expect(on).toContain('WafRateLimit=500');
+    // `aws cloudformation deploy` keeps an EXISTING stack's value for an omitted
+    // parameter, so the default must be sent explicitly or a stack once deployed
+    // with --waf-rate-limit 50 would silently keep 50 after a plain re-run.
+    const dflt = runnerStackParameters(common);
+    expect(dflt).toContain('EnableWaf=true');
+    expect(dflt).toContain(`WafRateLimit=${DEFAULT_WAF_RATE_LIMIT}`);
+    const off = runnerStackParameters({ ...common, waf: false, wafRateLimit: 500 });
+    expect(off).toContain('EnableWaf=false');
+    expect(off.some((x) => x.startsWith('WafRateLimit='))).toBe(false);
+  });
+
+  it('Function URL: no WAF parameter at all', () => {
+    const p = runnerStackParameters({ regions: ['us-east-1'], prefixes: ['a-'], runnerId: 'r', platformBaseUrl: 'https://p', version: 'v', wafRateLimit: 500 });
+    expect(p.some((x) => /^(EnableWaf|WafRateLimit)=/.test(x))).toBe(false);
+  });
+
   it('API Gateway entry point', () => {
     expect(runnerStackParameters({
       regions: ['us-east-1', 'eu-west-2'],
@@ -169,17 +231,16 @@ describe('runnerStackParameters', () => {
       allowIps: ['203.0.113.0/24', '198.51.100.7/32'],
       runnerId: 'r-1',
       platformBaseUrl: 'https://p.example',
-      label: 'ops',
       version: '1.2.3',
     })).toEqual([
       'RunnerId=r-1', 'PlatformBaseUrl=https://p.example', 'EntryPoint=api-gateway', 'AllowedRegions=us-east-1,eu-west-2',
-      'AllowedPipelinePrefixes=acme-', 'PipelinePrefix=acme-', 'NameSuffix=-ops', 'PipelineManagerVersion=1.2.3',
-      'AllowedIps=203.0.113.0/24,198.51.100.7/32',
+      'AllowedPipelinePrefixes=acme-', 'PipelinePrefix=acme-', 'NameSuffix=-r-1', 'PipelineManagerVersion=1.2.3',
+      'AllowedIps=203.0.113.0/24,198.51.100.7/32', 'EnableWaf=true', 'WafRateLimit=1000',
     ]);
   });
 
   it('Function URL, all pipelines', () => {
-    const p = runnerStackParameters({ regions: ['us-east-1'], prefixes: ['*'], runnerId: 'r-2', platformBaseUrl: 'https://p', label: 'default', version: 'v' });
+    const p = runnerStackParameters({ regions: ['us-east-1'], prefixes: ['*'], runnerId: 'r-2', platformBaseUrl: 'https://p', version: 'v' });
     expect(p).toContain('RunnerId=r-2');
     expect(p).toContain('EntryPoint=function-url');
     expect(p).toContain('AllowedPipelinePrefixes=*');
@@ -189,13 +250,18 @@ describe('runnerStackParameters', () => {
   it('every parameter it passes exists in the template', () => {
     const declared = Object.keys(base().Parameters);
     const passed = runnerStackParameters({
-      regions: ['us-east-1'], prefixes: ['a-'], apiGateway: true, allowIps: ['1.2.3.4/32'], runnerId: 'r', platformBaseUrl: 'https://p', label: 'l', version: 'v',
+      regions: ['us-east-1'], prefixes: ['a-'], apiGateway: true, allowIps: ['1.2.3.4/32'], runnerId: 'r', platformBaseUrl: 'https://p', version: 'v', wafRateLimit: 200,
     }).map((kv) => kv.split('=')[0]);
     for (const k of passed) expect(declared).toContain(k);
   });
 
-  it('names', () => {
-    expect(runnerStackName('ops')).toBe('pipeline-builder-runner-ops');
-    expect(runnerFunctionName('ops')).toBe('pipeline-builder-runner-ops');
+  it('names: stack, function and NameSuffix carry the runner id (never the label), within the AWS name limits', () => {
+    const id = '3f2b8c1e-9d4a-4e6f-8a7b-1c2d3e4f5a6b';
+    expect(runnerStackName(id)).toBe(`pipeline-builder-runner-${id}`);
+    expect(runnerFunctionName(id)).toBe(`pipeline-builder-runner-${id}`);
+    // Lambda function and IAM role names are at most 64 characters.
+    expect(runnerFunctionName(id).length).toBeLessThanOrEqual(64);
+    expect(runnerStackParameters({ regions: ['us-east-1'], prefixes: ['a-'], runnerId: id, platformBaseUrl: 'https://p', version: 'v' }))
+      .toContain(`NameSuffix=-${id}`);
   });
 });

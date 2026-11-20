@@ -117,6 +117,16 @@ describe('testRunner', () => {
   });
 });
 
+describe('testRunner — a runner that is gone', () => {
+  it('an "immediate" transport failure (NXDOMAIN, AWS\'s URL-gone 403) marks it unreachable at once, as delivery does', async () => {
+    const deps = testDeps();
+    const r = runnerRow(); deps.store.runners.set(r.id, r);
+    deps.fetchMock.mockResolvedValueOnce(reply(403, { Message: 'Forbidden' }));
+    expect(await testRunner(deps, ORG, 'u', r.id)).toEqual({ ok: false, errorCode: 'aws_403_url_gone' });
+    expect(deps.store.runners.get(r.id)).toMatchObject({ health: 'unreachable', consecutiveFailures: 1 });
+  });
+});
+
 describe('revokeRunner', () => {
   it('revokes, clears every pipeline link and expires pending requests (idempotent)', async () => {
     const deps = testDeps();
@@ -125,7 +135,7 @@ describe('revokeRunner', () => {
     const q = await deps.store.insertRequest({ orgId: ORG, pipelineId: PIPE, action: 'start', requestedBy: 'u', expiresAt: new Date(deps.clock.t + 1e5), runnerId: r.id });
     const out = await revokeRunner(deps, ORG, r.id);
     expect(out).toMatchObject({ linksCleared: 1, requestsExpired: 1, runner: { status: 'revoked' } });
-    expect(deps.store.registry.get(PIPE)!.runnerId).toBeNull();
+    expect(deps.store.registry.get(PIPE)).toMatchObject({ runnerId: null, linkStatus: 'unlinked' });
     expect(deps.store.requests.get(q.id)).toMatchObject({ status: 'expired', errorCode: 'RUNNER_REVOKED' });
     expect(await revokeRunner(deps, ORG, r.id)).toMatchObject({ linksCleared: 0, requestsExpired: 0 });
   });
@@ -141,7 +151,24 @@ describe('listRunners / runnerDto', () => {
     const { own: o, inherited } = await listRunners(deps, ORG);
     expect(o).toEqual([expect.objectContaining({ id: own.id, functionUrl: URL_A })]);
     expect(inherited).toEqual([expect.objectContaining({ id: inh.id, functionUrl: null, fromOrgId: PARENT, fromOrgName: expect.any(String) })]);
-    expect(Object.keys(runnerDto(own, ORG)).sort()).toEqual(['createdAt', 'functionUrl', 'health', 'id', 'label', 'lastDeliveryAt', 'orgId', 'regions', 'shareWithTeams', 'status', 'updateRequired', 'version'].sort());
+    expect(Object.keys(runnerDto(own, ORG)).sort()).toEqual(['createdAt', 'functionUrl', 'health', 'id', 'jwksUrl', 'label', 'lastDeliveryAt', 'orgId', 'pipelineCount', 'regions', 'shareWithTeams', 'status', 'updateRequired', 'version'].sort());
+  });
+
+  it('each runner carries its pipelineCount (the pipelines linked to it) and its own JWKS URL', async () => {
+    const saved = process.env.PLATFORM_BASE_URL;
+    process.env.PLATFORM_BASE_URL = 'https://platform.example.com/';
+    try {
+      const deps = testDeps();
+      const own = runnerRow({ label: 'own' }); deps.store.runners.set(own.id, own);
+      const idle = runnerRow({ label: 'idle' }); deps.store.runners.set(idle.id, idle);
+      deps.store.registry.set(PIPE, { orgId: ORG, pipelineName: 'a', region: null, runnerId: own.id });
+      deps.store.registry.set('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', { orgId: ORG, pipelineName: 'b', region: null, runnerId: own.id });
+      const { own: list } = await listRunners(deps, ORG);
+      expect(list.map((r) => [r.label, r.pipelineCount])).toEqual([['own', 2], ['idle', 0]]);
+      expect(list[0]!.jwksUrl).toBe(`https://platform.example.com/api/pipelines/runner/runners/${own.id}/jwks.json`);
+    } finally {
+      if (saved === undefined) delete process.env.PLATFORM_BASE_URL; else process.env.PLATFORM_BASE_URL = saved;
+    }
   });
 
   it('no ancestors → no names lookup', async () => {

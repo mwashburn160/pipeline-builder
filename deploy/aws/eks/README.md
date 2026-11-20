@@ -70,7 +70,8 @@ manifests (copied + storage-tuned), and `init-platform.sh` for admin + base-imag
 
 **Net-new (this folder):** the Auto Mode cluster + its NodeClass/NodePools, EBS/EFS storage
 classes + the `hostPath → PVC` conversion (multi-node can't use hostPath), the ALB Ingress +
-ACM + Route 53, and EKS Pod Identity for the SES / CodePipeline / KMS-signing grants.
+ACM + Route 53, and EKS Pod Identity for the SES / KMS-signing / secret-encryption grants. The platform holds
+no CodePipeline access: pipelines run in customers' accounts, only through their pipeline runners.
 
 ## Re-running part of a deploy
 
@@ -103,7 +104,7 @@ re-applying config.
 
 ```bash
 deploy/bin/init-platform.sh eks               # admin user, plugins, templates
-deploy/bin/post-provision-smoke.sh k8s --aws
+deploy/bin/post-provision-smoke.sh k8s
 ```
 
 ## Upgrading the pipeline toolchain
@@ -120,7 +121,7 @@ It builds, uploads and never promotes: the release is `available` in the
 Toolchain console (`/dashboard/toolchain`, system org, `toolchain:operate`)
 until an operator canaries it and sets it as the platform default. No
 `setup.sh`/`startup.sh` phase, restart or env var is involved — pipelines pick
-the default up on their next run. `deploy/bin/post-provision-smoke.sh k8s --aws`
+the default up on their next run. `deploy/bin/post-provision-smoke.sh k8s`
 checks that a default is set and both halves resolve.
 
 ## What `setup.sh` does
@@ -152,11 +153,12 @@ Numbered as the script's own phase labels, so a phase added there is visible her
    - `<cluster>-eks-ses` → **`platform`**: `ses:SendEmail` + `ses:SendRawEmail` on
      `identity/*` and the configuration set, scoped by a `ses:FromAddress` condition
      (email only — full parity with ec2).
-   - `<cluster>-eks-pipeline-exec` → **`pipeline`** (**always**):
-     `codepipeline:Start/StopPipelineExecution` + `Get*`, backing the pipeline service's
-     run/re-run/cancel endpoints (`api/pipeline` → `pipeline-execution-service`, which
-     resolves the CodePipeline name from the registry). Scoped to `codepipeline:*:<account>:*`
-     — pipeline names vary per org/project, so an account+service bound is the tightest possible.
+   - `<cluster>-eks-secret-encryption-{platform,plugin,pipeline}` (under
+     `SECRET_ENCRYPTION_KMS_KEY_ID`): `kms:Decrypt` on the secret-encryption master only.
+     `pipeline` needs it because every org's runner signing key is stored encrypted under it.
+   - `<cluster>-eks-secret-encryption-per-org` → **`platform`** and
+     `-per-org-pipeline` → **`pipeline`** (under `SECRET_ENCRYPTION_PER_ORG_KMS=true`):
+     `kms:Decrypt` on CMKs tagged `pipeline-builder:secret-encryption=true`.
    - `<cluster>-eks-token-signing` → **`platform`** (under `TOKEN_SIGNING_MODE=kms`, the AWS
      default): `kms:Sign` + `kms:GetPublicKey` on the user-token signing key only.
    - `<cluster>-eks-plugin-signing` → **`image-registry`** (under `PLUGIN_SIGNING_MODE=kms`):
@@ -164,7 +166,7 @@ Numbered as the script's own phase labels, so a phase added there is visible her
      whose pod shares a network namespace with tenant builds.
 
    Each policy is created once and reused; a re-run back-fills it onto the existing role
-   (attach is idempotent). `shutdown.sh` deletes all four, since they belong to no stack.
+   (attach is idempotent). `shutdown.sh` deletes every one, since they belong to no stack.
 6. **KEDA** — installs the operator (the plugin `ScaledObject` autoscaler).
 6a. **metrics-server** — Auto Mode does not bundle it; without it every cpu/memory HPA and
    the plugin `ScaledObject`'s cpu/mem triggers report `<unknown>` and never scale.
@@ -181,8 +183,8 @@ Numbered as the script's own phase labels, so a phase added there is visible her
    deploy modes without waiting on ALB/DNS. Pass `--no-auto-init` to skip and run it yourself.
    Needs Docker + yq on the machine running `setup.sh` (the plugin image builds), and the
    builds dominate the runtime.
-10. **Smoke checks** (never fatal) — a test alert through Alertmanager, a test email, a
-   CodePipeline credential dry-run from the `pipeline` pod, and a probe that a connection
+10. **Smoke checks** (never fatal) — a test alert through Alertmanager, a test email, the
+   toolchain default, and a probe that a connection
    the NetworkPolicies deny really is denied.
 
 NetworkPolicy is standard k8s (`networkpolicy.yaml`), enforced by the VPC CNI;
@@ -205,12 +207,10 @@ real account on first deploy. Specifically:
       See [docs/service-mesh.md](../../../docs/service-mesh.md).
 - [ ] First-deploy run of the SES phase (DKIM verification is async; the sandbox still
       applies — request production access + verify a real recipient to smoke-test).
-- [ ] Pod Identity CodePipeline grant: confirm the **`pipeline`** SA's role carries
-      `${CLUSTER_NAME}-eks-pipeline-exec` after `setup.sh`, then hit the pipeline detail
-      page's **Run pipeline** / **Cancel** actions against a deployed pipeline and confirm the
-      `StartPipelineExecution`/`StopPipelineExecution` calls succeed (no `AccessDenied` /
-      `PipelineNotFoundException` — the latter would mean a registry `pipelineName` ≠ the live
-      CodePipeline name).
+- [ ] Pipeline runners: install a runner in a second account
+      (`deploy/bin/runner-smoke.sh`, see [docs/aws-deployment.md](../../../docs/aws-deployment.md)),
+      then confirm **Run pipeline** / **Stop** on the pipeline detail page queue a run request
+      that the runner starts and stops.
 
 The Kubernetes version defaults to **1.36** for fresh installs (`setup.sh`/`cluster.yaml`).
 Override with `--eks-version <X>` / `$EKS_VERSION`, or pass `--eks-version latest` to resolve

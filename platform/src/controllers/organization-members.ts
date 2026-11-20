@@ -283,6 +283,11 @@ export const deactivateMember = withController('Deactivate member', async (req, 
   const userId = req.params.userId as string;
   const admin = getAdminContext(req);
   if (!(await requireOrgScope(req, res, id))) return;
+  // An inactive member cannot reactivate themselves, so deactivating your own
+  // membership is a lock-out with no way back from inside the org.
+  if (userId === req.user!.sub) {
+    return sendError(res, 400, 'Cannot deactivate yourself');
+  }
 
   const { revokedInvitations } = await orgMembersService.deactivateMember(id, userId, roleAssignmentActor(req));
   logger.info(`[DEACTIVATE MEMBER] User ${userId} deactivated in Org ${id} by ${admin.adminType} ${req.user!.sub}`);

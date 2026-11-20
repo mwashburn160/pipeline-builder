@@ -1,7 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
+import Link from 'next/link';
 import { Server } from 'lucide-react';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { HelpCodeBlock } from '@/components/help/HelpCodeBlock';
@@ -20,6 +21,9 @@ import { SectionCard } from '@/components/ui/SectionCard';
 import { ToggleRow } from '@/components/ui/SettingRow';
 import { useToast } from '@/components/ui/Toast';
 import { useFetch } from '@/hooks/useFetch';
+import {
+  RevokeConfirmField, RunnerSigningKeyCard, isKeyWrite, keyWriteSpec, revokeConfirmProblem, type KeyWrite,
+} from '@/components/settings/RunnerSigningKeyCard';
 import { useMutation } from '@/hooks/useMutation';
 import api from '@/lib/api';
 import type {
@@ -31,10 +35,13 @@ import type {
 import { ApiError, MfaRequiredError } from '@/lib/api/errors';
 import { formatError } from '@/lib/constants';
 import {
+  ONE_RUNNER_PER_ACCOUNT_COPY,
   PIPELINE_RUNNERS_ANCHOR,
   RUNNER_UPDATE_COPY,
   asCidr,
+  isRunnerError,
   runnerBadge,
+  runnerErrorCopy,
   runnerTestFailureCopy,
   setupRunnerCommand,
 } from '@/lib/pipeline-runners';
@@ -42,15 +49,104 @@ import { DEFAULT_SETUP_REGION, isAwsRegion } from '@/lib/setup-guide';
 
 /** A step-up-gated write, held until the person confirms it's them. The
  *  step-up dialog IS the confirmation (one dialog per action). */
-type PendingWrite =
+type RunnerWrite =
   | { kind: 'update'; runner: PipelineRunner; body: PipelineRunnerUpdate }
   | { kind: 'test'; runner: PipelineRunner }
   | { kind: 'revoke'; runner: PipelineRunner };
+/** A runner write, or one to the org's signing key (the Signing key card). */
+type PendingWrite = RunnerWrite | KeyWrite;
 
 /** Turning sharing ON lets every team under this org run pipelines through the
  *  runner — the one write that WIDENS reach, so it needs an explicit tick. */
 function pendingWidens(p: PendingWrite): boolean {
   return p.kind === 'update' && p.body.shareWithTeams === true && !p.runner.shareWithTeams;
+}
+
+type WriteKind = RunnerWrite['kind'];
+type WriteOf<K extends WriteKind> = Extract<RunnerWrite, { kind: K }>;
+
+/** Everything one kind of pending write needs: the call, and the step-up
+ *  dialog's title, action line and consequence. */
+interface WriteSpec<K extends WriteKind> {
+  send: (p: WriteOf<K>, stepUpToken: string) => Promise<{ success: boolean; message?: string; data?: unknown }>;
+  title: (p: WriteOf<K>) => string;
+  action: (p: WriteOf<K>) => string;
+  details: (p: WriteOf<K>) => ReactNode;
+}
+
+/** The runner-write catalog, keyed by `kind` — one entry per write (the key
+ *  writes are the Signing key card's `KEY_WRITES`). */
+const PENDING_WRITES: { [K in WriteKind]: WriteSpec<K> } = {
+  update: {
+    send: (p, stepUpToken) => api.updatePipelineRunner(p.runner.id, p.body, stepUpToken),
+    title: (p) => {
+      if (p.body.label !== undefined) return `Rename ${p.runner.label}?`;
+      return p.body.shareWithTeams ? `Share ${p.runner.label} with teams?` : `Stop sharing ${p.runner.label} with teams?`;
+    },
+    action: (p) => `Update the pipeline runner ${p.runner.label}`,
+    details: (p) => {
+      if (p.body.label !== undefined) return <p>The runner will be called <strong>{p.body.label}</strong> everywhere it is shown, including its pipelines&apos; Deployment cards.</p>;
+      return p.body.shareWithTeams
+        ? <p>Teams will see this runner and use it for their pipelines in its AWS account.</p>
+        : <p>Teams will no longer Re-run or Stop their pipelines through this runner; their links to it are cleared.</p>;
+    },
+  },
+  test: {
+    send: (p, stepUpToken) => api.testPipelineRunner(p.runner.id, stepUpToken),
+    title: (p) => `Test ${p.runner.label}?`,
+    action: (p) => `Send a test request to the pipeline runner ${p.runner.label}`,
+    details: () => <p>The platform sends the runner a signed ping now. If it answers, paused deliveries resume.</p>,
+  },
+  revoke: {
+    send: (p, stepUpToken) => api.revokePipelineRunner(p.runner.id, stepUpToken),
+    title: (p) => `Revoke ${p.runner.label}?`,
+    action: (p) => `Revoke the pipeline runner ${p.runner.label}`,
+    details: (p) => (
+      <p>
+        Re-run and Stop will no longer reach pipelines through this runner{p.runner.shareWithTeams ? ', for this organization or its teams' : ''}.
+        {p.runner.pipelineCount > 0 && <> <strong data-testid="runner-revoke-affected">{pipelinesCount(p.runner.pipelineCount)} linked to it will need another runner.</strong></>}
+        {' '}Pending requests expire. This cannot be undone. The runner stack stays in
+        your AWS account — remove it with <code>pipeline-manager infra setup-runner --delete</code>.
+      </p>
+    ),
+  },
+};
+
+/** What the panel's one step-up dialog shows and sends for `p`. (The casts are
+ *  TypeScript's correlated-union limit: indexing by `p.kind` loses the link
+ *  between the key and `p`.) */
+interface DialogSpec {
+  send: (stepUpToken: string) => Promise<{ success: boolean; message?: string; data?: unknown }>;
+  title: string;
+  action: string;
+  details: ReactNode;
+}
+function writeSpec(p: PendingWrite, parentOrgName?: string): DialogSpec {
+  if (isKeyWrite(p)) {
+    const spec = keyWriteSpec(p);
+    return { send: (t) => spec.send(p, t), title: spec.title(p), action: spec.action, details: spec.details(p, parentOrgName) };
+  }
+  const spec = PENDING_WRITES[p.kind] as unknown as WriteSpec<WriteKind>;
+  return { send: (t) => spec.send(p, t), title: spec.title(p), action: spec.action(p), details: spec.details(p) };
+}
+
+/** "1 pipeline" / "12 pipelines". */
+function pipelinesCount(n: number): string {
+  return `${n} ${n === 1 ? 'pipeline' : 'pipelines'}`;
+}
+
+/** What a key write refused by the per-org limit (5 an hour) says. */
+export const KEY_WRITE_RATE_LIMIT_COPY = 'Signing key changes are limited to 5 an hour for each organization. Try again later.';
+
+/** The error line for a refused write: a runner code's copy, the key-write limit, or the server's sentence. */
+function writeErrorMessage(e: unknown, keyWrite: boolean): string {
+  if (e instanceof MfaRequiredError) return ''; // The shell already shows the "two-factor authentication required" dialog.
+  if (keyWrite && e instanceof ApiError && e.statusCode === 429) return KEY_WRITE_RATE_LIMIT_COPY;
+  if (isRunnerError(e)) {
+    const c = runnerErrorCopy(e.code);
+    return `${c.title} ${c.body}`;
+  }
+  return formatError(e, keyWrite ? 'Could not change the signing key' : 'Could not save the pipeline runner');
 }
 
 function RunnerHealthBadge({ runner }: { runner: Pick<PipelineRunner, 'health' | 'status' | 'updateRequired'> }) {
@@ -85,9 +181,9 @@ function RunnerMeta({ runner }: { runner: PipelineRunner }) {
   );
 }
 
-/** How to install a runner: the CLI command, and the public keys the runner
- *  verifies the platform's requests with. */
-function InstallInstructions({ jwksUrl, egressIps }: { jwksUrl: string; egressIps: string[] | null }) {
+/** How to install a runner: the one-runner-per-account rule and the CLI
+ *  command. (Each runner's own JWKS URL is on its card once it is registered.) */
+function InstallInstructions({ egressIps }: { egressIps: string[] | null }) {
   const ips = (egressIps ?? []).filter((ip) => typeof ip === 'string' && ip.trim());
   const [region, setRegion] = useState(DEFAULT_SETUP_REGION);
   const [label, setLabel] = useState('');
@@ -99,8 +195,10 @@ function InstallInstructions({ jwksUrl, egressIps }: { jwksUrl: string; egressIp
     <div className="space-y-3 rounded-md bg-surface-muted p-3 text-xs" data-testid="runner-install">
       <p className="text-fg-muted">
         With AWS credentials for the account your pipelines deploy to, this deploys the runner stack there and
-        registers it with this organization (you confirm it&apos;s you in your browser).
+        registers it with this organization (you confirm it&apos;s you in your browser). Every pipeline run goes
+        through a runner, so a pipeline cannot run until its account has one.
       </p>
+      <p className="font-medium" data-testid="runner-install-one-per-account">{ONE_RUNNER_PER_ACCOUNT_COPY}</p>
       <div className="flex flex-wrap gap-2">
         <FormField
           label="AWS region"
@@ -124,10 +222,75 @@ function InstallInstructions({ jwksUrl, egressIps }: { jwksUrl: string; egressIp
           <HelpCodeBlock content={setupRunnerCommand({ region: commandRegion, label, allowIps: ips })} language="bash" />
         </div>
       )}
-      <div>
-        <div className="text-fg-muted">The runner verifies every request against the platform&apos;s public keys:</div>
-        <CopyableId value={jwksUrl} size="sm" label="Copy the JWKS URL" />
-      </div>
+      <p className="text-fg-muted">
+        The runner verifies every request against this organization&apos;s public signing keys, at a URL built from its own
+        runner id — nothing else is configured in your AWS account.
+      </p>
+    </div>
+  );
+}
+
+/** "Used by 12 pipelines", and (opened) the list of them, read a page at a time. */
+function RunnerPipelines({ runner }: { runner: PipelineRunner }) {
+  const [open, setOpen] = useState(false);
+  const list = useFetch(
+    async (signal) => (await api.getRunnerPipelines(runner.id, { limit: 50 }, { signal })).data ?? null,
+    [runner.id],
+    { enabled: open },
+  );
+  if (runner.pipelineCount <= 0) {
+    return <p className="text-xs text-fg-muted mt-1" data-testid={`runner-pipelines-${runner.id}`}>No pipelines linked yet</p>;
+  }
+  return (
+    <div className="text-xs mt-1" data-testid={`runner-pipelines-${runner.id}`}>
+      <button type="button" className="action-link" aria-expanded={open} onClick={() => setOpen(!open)}>
+        Used by {pipelinesCount(runner.pipelineCount)}
+      </button>
+      {open && (
+        <div className="mt-1" data-testid={`runner-pipelines-list-${runner.id}`}>
+          {list.error && <RetryError message={formatError(list.error, 'Could not load the pipelines')} onRetry={list.refetch} />}
+          {list.data && (
+            <ul className="list-disc pl-5 space-y-0.5">
+              {list.data.pipelines.map((pl) => (
+                <li key={pl.id}><Link href={`/dashboard/pipelines/${encodeURIComponent(pl.id)}`} className="action-link">{pl.name || pl.id}</Link></li>
+              ))}
+              {list.data.pagination.hasMore && <li className="text-fg-muted">and {list.data.pagination.total - list.data.pipelines.length} more</li>}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The runner's own JWKS URL: the public keys it verifies requests with. */
+function RunnerJwks({ runner }: { runner: PipelineRunner }) {
+  if (!runner.jwksUrl) return null;
+  return (
+    <div className="text-xs mt-1" data-testid={`runner-jwks-${runner.id}`}>
+      <span className="text-fg-muted">JWKS URL: </span>
+      <CopyableId value={runner.jwksUrl} size="sm" label={`Copy the JWKS URL of ${runner.label}`} />
+    </div>
+  );
+}
+
+/** An active runner that stopped answering: when it last did, and what it affects. */
+function UnhealthyBanner({ runner, readOnly, locked, onTest }: { runner: PipelineRunner; readOnly: boolean; locked: boolean; onTest?: () => void }) {
+  if (runner.status !== 'active' || runner.health !== 'unreachable') return null;
+  return (
+    <div className="mt-2" data-testid={`runner-unhealthy-${runner.id}`}>
+      <Callout variant="danger" title={`${runner.label} is not answering`}>
+        <p>
+          Last successful contact: {runner.lastDeliveryAt ? <RelativeTime value={runner.lastDeliveryAt} /> : 'never'}.
+          {runner.pipelineCount > 0 ? ` ${pipelinesCount(runner.pipelineCount)} cannot run until it answers again.` : ''}
+          {' '}Check the runner stack in your AWS account, then test it.
+        </p>
+        {onTest && (
+          <Button type="button" size="xs" variant="secondary" className="mt-2" readOnly={readOnly} disabled={locked} onClick={onTest}>
+            Test
+          </Button>
+        )}
+      </Callout>
     </div>
   );
 }
@@ -162,6 +325,8 @@ function OwnRunnerCard({ runner, readOnly, locked, saving, testResult: result, r
           </div>
           <RunnerMeta runner={runner} />
           <UpdateRequired runner={runner} />
+          <RunnerPipelines runner={runner} />
+          <RunnerJwks runner={runner} />
           {runner.functionUrl && (
             <div className="text-xs mt-1" data-testid={`runner-url-${runner.id}`}>
               <span className="text-fg-muted">Function URL (keep private): </span>
@@ -188,6 +353,8 @@ function OwnRunnerCard({ runner, readOnly, locked, saving, testResult: result, r
           </div>
         )}
       </div>
+
+      <UnhealthyBanner runner={runner} readOnly={readOnly} locked={locked} onTest={() => onWrite({ kind: 'test', runner })} />
 
       {manageable && (
         <ToggleRow
@@ -231,24 +398,34 @@ function OwnRunnerCard({ runner, readOnly, locked, saving, testResult: result, r
 }
 
 /**
- * Settings → Organization → Pipeline runners.
+ * Settings → Organization → Pipeline runners. Always shown to org admins:
+ * runners are the only way a pipeline is started or stopped.
  *
  * A runner is a Lambda in a customer AWS account that starts and stops that
- * account's pipelines with its own role, on signed requests from the platform —
- * the platform holds no AWS access and no account number. It is installed and
- * registered with the CLI (`pipeline-manager infra setup-runner`); this panel
- * lists them and renames, shares, tests and revokes them.
+ * account's pipelines with its own role, on requests signed with this
+ * organization's own key — the platform holds no AWS access and no account
+ * number. It is installed and registered with the CLI
+ * (`pipeline-manager infra setup-runner`); this panel lists them and renames,
+ * shares, tests and revokes them, and (the Signing key card) generates,
+ * rotates and revokes the key they verify requests with.
  *
  * Every write is step-up gated and MFA-grade server-side: each opens ONE
  * `StepUpModal` that states the consequence (it is also the confirmation —
- * revoking included), and a single-factor session's 401 `MFA_REQUIRED` is left
- * to the shell's enrol / sign-in-again dialog. Turning team sharing ON widens
- * who may use the runner, so that dialog also asks for an explicit tick.
+ * revoking included; revoking the KEY also needs its id's last characters
+ * typed), and a single-factor session's 401 `MFA_REQUIRED` is left to the
+ * shell's enrol / sign-in-again dialog. Turning team sharing ON widens who may
+ * use the runner, so that dialog also asks for an explicit tick.
  *
  * Runners a parent shares with this team are listed read-only, "Managed by"
- * their owner. Renders nothing when the deployment has runners off.
+ * their owner, and are signed with the owner's key. Renders nothing only while
+ * runners are unavailable (paused, or secret encryption not set up).
  */
-export function PipelineRunnersSettings({ orgId, readOnly = false }: { orgId: string; readOnly?: boolean }) {
+export function PipelineRunnersSettings({ orgId, readOnly = false, parentOrgName }: {
+  orgId: string;
+  readOnly?: boolean;
+  /** The parent's name, for a team's "Inherit from …" (own mode). */
+  parentOrgName?: string;
+}) {
   const toast = useToast();
   const read = useFetch(
     async (signal): Promise<PipelineRunnersDto | null> => (await api.getPipelineRunners({ signal })).data ?? null,
@@ -261,23 +438,24 @@ export function PipelineRunnersSettings({ orgId, readOnly = false }: { orgId: st
   const [renaming, setRenaming] = useState<{ id: string; label: string } | null>(null);
   const [results, setResults] = useState<Record<string, PipelineRunnerTestResult>>({});
   const [installOpen, setInstallOpen] = useState<boolean | null>(null);
+  // Whether the write in flight is a key write (its error copy differs).
+  const keyWriteInFlight = useRef(false);
 
   const write = useMutation({
     fn: async (p: PendingWrite, stepUpToken: string) => {
-      const res = await (async () => {
-        switch (p.kind) {
-          case 'update': return api.updatePipelineRunner(p.runner.id, p.body, stepUpToken);
-          case 'test': return api.testPipelineRunner(p.runner.id, stepUpToken);
-          case 'revoke': return api.revokePipelineRunner(p.runner.id, stepUpToken);
-        }
-      })();
-      if (!res.success) throw new Error(res.message || 'The runner change was refused');
+      keyWriteInFlight.current = isKeyWrite(p);
+      const res = await writeSpec(p, parentOrgName).send(stepUpToken);
+      if (!res.success) throw new Error(res.message || (isKeyWrite(p) ? 'The signing key change was refused' : 'The runner change was refused'));
       return res.data as PipelineRunnerTestResult | { runner?: PipelineRunner } | undefined;
     },
     scopeKey: orgId,
-    // The shell already shows the "two-factor authentication required" dialog.
-    formatError: (e) => (e instanceof MfaRequiredError ? '' : formatError(e, 'Could not save the pipeline runner')),
+    formatError: (e) => writeErrorMessage(e, keyWriteInFlight.current),
     onSuccess: (data, p) => {
+      if (isKeyWrite(p)) {
+        toast.success(keyWriteSpec(p).toast(p, parentOrgName));
+        void read.refetch();
+        return;
+      }
       switch (p.kind) {
         case 'update':
           toast.success(p.body.label !== undefined
@@ -303,7 +481,7 @@ export function PipelineRunnersSettings({ orgId, readOnly = false }: { orgId: st
   });
 
   if (read.error && !dto) {
-    // Runners switched off on this deployment: there is no setting to offer.
+    // Runners unavailable on this deployment right now: there is nothing to offer.
     if (read.error instanceof ApiError && read.error.code === 'RUNNERS_UNAVAILABLE') return null;
     return (
       <SectionCard icon={Server} title="Pipeline runners">
@@ -317,13 +495,15 @@ export function PipelineRunnersSettings({ orgId, readOnly = false }: { orgId: st
   const showInstall = installOpen ?? dto.own.length === 0;
   const widening = !!pending && pendingWidens(pending);
   const openPending = (p: PendingWrite) => { setWidenAck(false); setPending(p); };
+  const unhealthy = [...dto.own, ...dto.inherited].filter((r) => r.status === 'active' && r.health === 'unreachable');
+  const spec = pending ? writeSpec(pending, parentOrgName) : null;
 
   return (
     <div id={PIPELINE_RUNNERS_ANCHOR} tabIndex={-1} className="scroll-mt-6 outline-none">
       <SectionCard
         icon={Server}
         title="Pipeline runners"
-        description="Re-run and Stop pipelines deployed to your own AWS accounts. A runner is a small Lambda in that account that starts and stops its pipelines with its own role, on requests the platform signs — the platform holds no AWS access and no account number."
+        description="Every pipeline run goes through a runner: a small Lambda in the pipeline's AWS account that starts and stops its pipelines with its own role, on requests signed with this organization's own key. The platform holds no AWS access and no account number."
         actions={(
           <Button type="button" size="sm" variant="secondary" aria-expanded={showInstall} onClick={() => setInstallOpen(!showInstall)}>
             {showInstall ? 'Hide install instructions' : 'Install a runner'}
@@ -333,10 +513,37 @@ export function PipelineRunnersSettings({ orgId, readOnly = false }: { orgId: st
         {write.error && <div className="mb-3"><ErrorAlert message={write.error} onDismiss={write.reset} /></div>}
 
         <div className="space-y-4">
-          {showInstall && <InstallInstructions jwksUrl={dto.jwksUrl} egressIps={dto.platformEgressIps ?? null} />}
+          {unhealthy.length > 0 && (
+            <Callout variant="danger" title={unhealthy.length === 1 ? 'A runner is not answering' : `${unhealthy.length} runners are not answering`}>
+              <p data-testid="runners-unhealthy-banner">
+                {unhealthy.map((r) => r.label).join(', ')}: pipelines that run through {unhealthy.length === 1 ? 'it' : 'them'} cannot be
+                started or stopped until {unhealthy.length === 1 ? 'it answers' : 'they answer'} again. Test {unhealthy.length === 1 ? 'it' : 'each'} below once fixed.
+              </p>
+            </Callout>
+          )}
+
+          {dto.signingKey && (
+            <RunnerSigningKeyCard
+              signingKey={dto.signingKey}
+              readOnly={readOnly}
+              locked={locked}
+              hasRunners={dto.own.length > 0}
+              parentOrgName={parentOrgName}
+              onWrite={openPending}
+              onRefetch={read.refetch}
+            />
+          )}
+
+          {showInstall && <InstallInstructions egressIps={dto.platformEgressIps ?? null} />}
 
           {dto.own.length === 0 && (
-            <EmptyState compact title="No pipeline runners" description="Pipelines in the platform's own AWS account need none." />
+            <EmptyState
+              compact
+              title="No pipeline runners"
+              description={dto.inherited.length > 0
+                ? 'This team runs its pipelines through the runners shared with it below, or install its own.'
+                : 'Pipelines cannot run until a runner is installed in their AWS account.'}
+            />
           )}
 
           {dto.own.map((runner) => (
@@ -363,8 +570,13 @@ export function PipelineRunnersSettings({ orgId, readOnly = false }: { orgId: st
                     <RunnerHealthBadge runner={runner} />
                   </div>
                   <p className="text-xs text-fg-muted mt-0.5">Managed by {runner.fromOrgName}</p>
+                  <p className="text-xs text-fg-muted" data-testid={`runner-inherited-key-${runner.id}`}>
+                    Uses {runner.fromOrgName}&apos;s signing key, whatever this team&apos;s key setting.
+                  </p>
                   <RunnerMeta runner={runner} />
                   <UpdateRequired runner={runner} />
+                  <RunnerJwks runner={runner} />
+                  <UnhealthyBanner runner={runner} readOnly={readOnly} locked={locked} />
                 </div>
               ))}
             </div>
@@ -372,14 +584,17 @@ export function PipelineRunnersSettings({ orgId, readOnly = false }: { orgId: st
         </div>
       </SectionCard>
 
-      {pending && (
+      {pending && spec && (
         <StepUpModal
-          title={stepUpTitle(pending)}
-          action={stepUpAction(pending)}
+          title={spec.title}
+          action={spec.action}
           details={(
             <div className="space-y-3">
-              {stepUpDetails(pending)}
-              {widening && (
+              {spec.details}
+              {pending.kind === 'key-revoke' && (
+                <RevokeConfirmField write={pending} onChange={(confirm) => setPending({ ...pending, confirm })} />
+              )}
+              {widening && pending.kind === 'update' && (
                 <>
                   <Callout variant="warning" title="This widens who may use this runner">
                     <p><strong>Every team</strong> under this organization will be able to Re-run and Stop its pipelines in this AWS account through {pending.runner.label}.</p>
@@ -392,49 +607,11 @@ export function PipelineRunnersSettings({ orgId, readOnly = false }: { orgId: st
               )}
             </div>
           )}
-          confirmDisabledReason={widening && !widenAck ? 'Acknowledge the warning first.' : null}
+          confirmDisabledReason={widening && !widenAck ? 'Acknowledge the warning first.' : (isKeyWrite(pending) ? revokeConfirmProblem(pending) : null)}
           onConfirmed={async (stepUpToken) => { await write.run(pending, stepUpToken); }}
           onClose={() => setPending(null)}
         />
       )}
     </div>
   );
-}
-
-function stepUpTitle(p: PendingWrite): string {
-  switch (p.kind) {
-    case 'update':
-      if (p.body.label !== undefined) return `Rename ${p.runner.label}?`;
-      return p.body.shareWithTeams ? `Share ${p.runner.label} with teams?` : `Stop sharing ${p.runner.label} with teams?`;
-    case 'test': return `Test ${p.runner.label}?`;
-    case 'revoke': return `Revoke ${p.runner.label}?`;
-  }
-}
-
-function stepUpAction(p: PendingWrite): string {
-  switch (p.kind) {
-    case 'update': return `Update the pipeline runner ${p.runner.label}`;
-    case 'test': return `Send a test request to the pipeline runner ${p.runner.label}`;
-    case 'revoke': return `Revoke the pipeline runner ${p.runner.label}`;
-  }
-}
-
-function stepUpDetails(p: PendingWrite): ReactNode {
-  switch (p.kind) {
-    case 'update':
-      if (p.body.label !== undefined) return <p>The runner will be called <strong>{p.body.label}</strong> everywhere it is shown, including its pipelines&apos; Deployment cards.</p>;
-      return p.body.shareWithTeams
-        ? <p>Teams will see this runner and use it for their pipelines in its AWS account.</p>
-        : <p>Teams will no longer Re-run or Stop their pipelines through this runner; their links to it are cleared.</p>;
-    case 'test':
-      return <p>The platform sends the runner a signed ping now. If it answers, paused deliveries resume.</p>;
-    case 'revoke':
-      return (
-        <p>
-          Re-run and Stop will no longer reach pipelines through this runner{p.runner.shareWithTeams ? ', for this organization or its teams' : ''}.
-          Pending requests expire. This cannot be undone. The runner stack stays in
-          your AWS account — remove it with <code>pipeline-manager infra setup-runner --delete</code>.
-        </p>
-      );
-  }
 }

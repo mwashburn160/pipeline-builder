@@ -8,17 +8,21 @@
  */
 
 import { describe, it, expect } from '@jest/globals';
+import { runnerJwksPath } from '@pipeline-builder/api-core/pipeline-runners';
 import { claims, clock, fakeFetch, makeKey, NOW_MS, NOW_S, signJws } from './helpers/runner-fixtures.js';
 
 const { JwksCache, ReplayCache, SignatureError, JwksUnavailableError, verifyRunRequest } = await import('../src/lambda/runner-jws.js');
 
 const key = makeKey('k1');
 const other = makeKey('k2');
+/** The runner's own key set (its owning org's keys only). */
+const JWKS_PATH = runnerJwksPath('runner-1');
+const JWKS_URL = `https://platform.example${JWKS_PATH}`;
 
 function setup(keys = [key.jwk]) {
   const c = clock();
-  const f = fakeFetch({ '/api/pipelines/runner/jwks.json': () => ({ status: 200, body: { keys } }) });
-  const jwks = new JwksCache('https://platform.example/api/pipelines/runner/jwks.json', f.fn, c.now);
+  const f = fakeFetch({ [JWKS_PATH]: () => ({ status: 200, body: { keys } }) });
+  const jwks = new JwksCache(JWKS_URL, f.fn, c.now);
   const verify = (jws: string, ...rid: [string | undefined] | []) => verifyRunRequest(jws, { jwks, runnerId: rid.length ? rid[0] : 'runner-1', now: c.now });
   return { c, f, jwks, verify };
 }
@@ -155,7 +159,7 @@ describe('JwksCache', () => {
   it('is unavailable (not a signature failure) when the key set cannot be fetched and none is cached', async () => {
     const c = clock();
     const f = fakeFetch({ 'jwks.json': () => ({ status: 503, body: {} }) });
-    const jwks = new JwksCache('https://p/api/pipelines/runner/jwks.json', f.fn, c.now);
+    const jwks = new JwksCache(`https://p${JWKS_PATH}`, f.fn, c.now);
     await expect(jwks.get('k1')).rejects.toBeInstanceOf(JwksUnavailableError);
   });
 
@@ -163,7 +167,8 @@ describe('JwksCache', () => {
     const { f, jwks } = setup();
     await jwks.get('k1');
     expect(f.calls).toHaveLength(1);
-    expect(f.calls[0]!.url).toBe('https://platform.example/api/pipelines/runner/jwks.json');
+    expect(f.calls[0]!.url).toBe(JWKS_URL);
+    expect(JWKS_URL).toBe('https://platform.example/api/pipelines/runner/runners/runner-1/jwks.json');
     expect(f.calls[0]!.init).toMatchObject({ method: 'GET', redirect: 'error' });
   });
 
@@ -171,7 +176,7 @@ describe('JwksCache', () => {
     const c = clock();
     let up = true;
     const f = fakeFetch({ 'jwks.json': () => (up ? { status: 200, body: { keys: [key.jwk] } } : { status: 500, body: {} }) });
-    const jwks = new JwksCache('https://p/api/pipelines/runner/jwks.json', f.fn, c.now);
+    const jwks = new JwksCache(`https://p${JWKS_PATH}`, f.fn, c.now);
     await jwks.get('k1');
     up = false;
     c.advance(11 * 60_000);
@@ -186,17 +191,52 @@ describe('JwksCache', () => {
   it('with nothing cached, every request retries the fetch (a 500, never a 401 from a throttled empty cache)', async () => {
     const c = clock();
     const f = fakeFetch({ 'jwks.json': () => ({ status: 503, body: {} }) });
-    const jwks = new JwksCache('https://p/api/pipelines/runner/jwks.json', f.fn, c.now);
+    const jwks = new JwksCache(`https://p${JWKS_PATH}`, f.fn, c.now);
     await expect(jwks.get('k1')).rejects.toBeInstanceOf(JwksUnavailableError);
     c.advance(1_000);
     await expect(jwks.get('k1')).rejects.toBeInstanceOf(JwksUnavailableError);
+  });
+
+  it('a 404 (unknown or revoked runner, or an owner with no keys) means NO keys: it fails closed, never a 500', async () => {
+    const c = clock();
+    const f = fakeFetch({ 'jwks.json': () => ({ status: 404, body: { error: 'not found' } }) });
+    const jwks = new JwksCache(`https://p${JWKS_PATH}`, f.fn, c.now);
+    const verify = (jws: string) => verifyRunRequest(jws, { jwks, runnerId: 'runner-1', now: c.now });
+    await rejects(verify(signJws(key, claims())), /unknown kid/);
+    // Not retried on every request: an unknown kid refetches at most once a minute.
+    await rejects(verify(signJws(key, claims({ jti: 'r2' }))), /unknown kid/);
+    expect(f.calls).toHaveLength(1);
+  });
+
+  it('a 404 drops keys already cached: a revoked runner stops accepting its old key', async () => {
+    const c = clock();
+    let revoked = false;
+    const f = fakeFetch({ 'jwks.json': () => (revoked ? { status: 404, body: {} } : { status: 200, body: { keys: [key.jwk] } }) });
+    const jwks = new JwksCache(`https://p${JWKS_PATH}`, f.fn, c.now);
+    expect(await jwks.get('k1')).toBeDefined();
+    revoked = true;
+    c.advance(10 * 60_000);
+    expect(await jwks.get('k1')).toBeUndefined();
+    expect(f.calls).toHaveLength(2);
+  });
+
+  it('a key rotated in mid-cache (unknown kid) is fetched at once; a second unknown kid within the minute is not', async () => {
+    const keys = [key.jwk];
+    const { c, f, verify } = setup(keys);
+    await verify(signJws(key, claims()));
+    c.advance(2 * 60_000);
+    keys.push(other.jwk);
+    await expect(verify(signJws(other, claims({ jti: 'r2', iat: NOW_S + 120, exp: NOW_S + 700 })))).resolves.toBeDefined();
+    expect(f.calls).toHaveLength(2);
+    await rejects(verify(signJws(makeKey('k3'), claims({ jti: 'r3', iat: NOW_S + 120, exp: NOW_S + 700 }))), /unknown kid/);
+    expect(f.calls).toHaveLength(2);
   });
 
   it('keeps serving cached keys when a refresh fails', async () => {
     const c = clock();
     let up = true;
     const f = fakeFetch({ 'jwks.json': () => (up ? { status: 200, body: { keys: [key.jwk] } } : { status: 500, body: {} }) });
-    const jwks = new JwksCache('https://p/api/pipelines/runner/jwks.json', f.fn, c.now);
+    const jwks = new JwksCache(`https://p${JWKS_PATH}`, f.fn, c.now);
     await jwks.get('k1');
     up = false;
     c.advance(11 * 60_000);

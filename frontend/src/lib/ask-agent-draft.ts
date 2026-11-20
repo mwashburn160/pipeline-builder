@@ -5,20 +5,27 @@ import api from '@/lib/api';
 import type { StreamEvent } from '@/lib/api/core';
 import { splitAskAgentModel } from '@/lib/ai-constants';
 
-/** What the create dialogs ask the agent to draft. */
-export type AgentDraftKind = 'pipeline' | 'pipeline-from-repo' | 'plugin';
+/**
+ * What the create dialogs ask the agent to draft: the instruction wrapped
+ * around the user's input (it names the tool to use) and the proposal kind
+ * that answers it.
+ */
+const AGENT_DRAFT = {
+  pipeline: {
+    expects: 'pipeline',
+    query: (input: string) => `Draft a pipeline using propose_pipeline for this request:\n\n${input}`,
+  },
+  'pipeline-from-repo': {
+    expects: 'pipeline',
+    query: (input: string) => `Draft a pipeline for the Git repository ${input} using propose_pipeline_from_repo.`,
+  },
+  plugin: {
+    expects: 'plugin',
+    query: (input: string) => `Draft a plugin using propose_plugin for this request:\n\n${input}`,
+  },
+} as const satisfies Record<string, { expects: 'pipeline' | 'plugin'; query: (input: string) => string }>;
 
-/** The instruction wrapped around the user's input — it names the tool to use. */
-function draftQuery(kind: AgentDraftKind, input: string): string {
-  switch (kind) {
-    case 'pipeline-from-repo':
-      return `Draft a pipeline for the Git repository ${input} using propose_pipeline_from_repo.`;
-    case 'plugin':
-      return `Draft a plugin using propose_plugin for this request:\n\n${input}`;
-    default:
-      return `Draft a pipeline using propose_pipeline for this request:\n\n${input}`;
-  }
-}
+export type AgentDraftKind = keyof typeof AGENT_DRAFT;
 
 /**
  * Generate a draft through the Ask agent, adapted to the event stream the AI
@@ -39,10 +46,10 @@ export async function* streamAgentDraft(
   opts: { repoToken?: string } = {},
 ): AsyncGenerator<StreamEvent> {
   const { provider, model } = splitAskAgentModel(agentModelId);
-  const expected = kind === 'plugin' ? 'plugin' : 'pipeline';
+  const { expects: expected, query } = AGENT_DRAFT[kind];
   let said = '';
 
-  for await (const event of api.askAgentStream(draftQuery(kind, input), {
+  for await (const event of api.askAgentStream(query(input), {
     ...(provider ? { provider } : {}),
     ...(model ? { model } : {}),
     ...(opts.repoToken ? { repoToken: opts.repoToken } : {}),

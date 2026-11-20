@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useEffect, useRef } from 'react';
+import type { Permission } from '@pipeline-builder/api-core/permissions';
 import { useToast } from '@/components/ui/Toast';
 import api, { ApiError } from '@/lib/api';
 import { formatError } from '@/lib/constants';
@@ -69,13 +70,21 @@ export function clearMarketplaceRef(): void {
  * provide none. A parameter keeps the hook mountable wherever the caller already
  * knows the answer.
  *
+ * Only a viewer who CAN claim tries: `can` is the layout's `useAuthGuard().can`,
+ * which reports `billing:manage` (the claim route's gate) and is false for every
+ * mutation during a read-only impersonation session. Anyone else would get a
+ * 403, which reads as a definitive refusal below and would consume the stash —
+ * so the purchase would never be linked, even once an org admin signed in on
+ * this browser. Without the permission the ref is left alone for someone who
+ * holds it (or for this viewer once they do: an org switch re-runs the check).
+ *
  * Retry semantics: a `ran` ref prevents re-firing within a single mount (no
  * loop). The stash is cleared only on a DEFINITIVE outcome — success, or a
  * server rejection (4xx/409/410, e.g. already-linked). A TRANSIENT failure
  * (network / thrown error) leaves the stash intact so a later dashboard visit
  * retries instead of silently dropping the linkage.
  */
-export function usePendingMarketplaceClaim(signedIn: boolean): void {
+export function usePendingMarketplaceClaim(signedIn: boolean, can: (permission: Permission) => boolean): void {
   const toast = useToast();
   const ran = useRef(false);
 
@@ -83,6 +92,7 @@ export function usePendingMarketplaceClaim(signedIn: boolean): void {
     if (ran.current || !signedIn) return;
     const stashed = readMarketplaceRef();
     if (!stashed) return;
+    if (!can('billing:manage')) return; // keep the ref for a viewer who can claim it
 
     ran.current = true; // loop guard for this mount
 
@@ -107,5 +117,5 @@ export function usePendingMarketplaceClaim(signedIn: boolean): void {
         if (status !== undefined && status >= 400 && status < 500 && status !== 429) clearMarketplaceRef();
         toast.error(formatError(e));
       });
-  }, [signedIn, toast]);
+  }, [signedIn, can, toast]);
 }

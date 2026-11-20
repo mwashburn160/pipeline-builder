@@ -19,7 +19,7 @@ import {
 
 describe('ALL_FEATURE_FLAGS', () => {
   it('should contain all 13 feature flags', () => {
-    expect(ALL_FEATURE_FLAGS).toHaveLength(14);
+    expect(ALL_FEATURE_FLAGS).toHaveLength(13);
     // `priority_support` was RETIRED: it marketed "faster response times" while
     // no support product existed to be faster. Replaced by one flag per
     // response-time rung, each sold per contact and included in no tier.
@@ -39,7 +39,6 @@ describe('ALL_FEATURE_FLAGS', () => {
     // `reports:read`; this gates saving, scheduling and publishing.
     expect(ALL_FEATURE_FLAGS).toContain('stakeholder_reports');
     expect(ALL_FEATURE_FLAGS).toContain('verified_publisher');
-    expect(ALL_FEATURE_FLAGS).toContain('cross_account_runners');
   });
 });
 
@@ -92,8 +91,8 @@ describe('TIER_FEATURES', () => {
     expect(TIER_FEATURES.developer).not.toContain('team_usage_analytics');
   });
 
-  it('enterprise tier has every feature except the add-on-only support levels and the operator-granted flags', () => {
-    const expected = ALL_FEATURE_FLAGS.filter((f) => !SUPPORT_FEATURE_FLAGS.includes(f) && f !== 'cross_account_runners');
+  it('enterprise tier has every feature except the add-on-only support levels', () => {
+    const expected = ALL_FEATURE_FLAGS.filter((f) => !SUPPORT_FEATURE_FLAGS.includes(f));
     expect(TIER_FEATURES.enterprise).toEqual(expect.arrayContaining([...expected]));
     expect(TIER_FEATURES.enterprise).toHaveLength(expected.length);
   });
@@ -159,10 +158,9 @@ describe('resolveUserFeatures', () => {
     // `ALL_FEATURE_FLAGS`, not spreading it. A future flag added to the spread
     // would silently grant enterprise the support product it is meant to buy.
     const features = resolveUserFeatures('enterprise');
-    expect(features).toEqual(ALL_FEATURE_FLAGS.filter((f) => !SUPPORT_FEATURE_FLAGS.includes(f) && f !== 'cross_account_runners'));
+    expect(features).toEqual(ALL_FEATURE_FLAGS.filter((f) => !SUPPORT_FEATURE_FLAGS.includes(f)));
     for (const f of SUPPORT_FEATURE_FLAGS) expect(features).not.toContain(f);
-    expect(features).not.toContain('cross_account_runners');
-    expect(features).toHaveLength(ALL_FEATURE_FLAGS.length - SUPPORT_FEATURE_FLAGS.length - 1);
+    expect(features).toHaveLength(ALL_FEATURE_FLAGS.length - SUPPORT_FEATURE_FLAGS.length);
   });
 
   it('system org always gets all features regardless of tier', () => {
@@ -247,12 +245,12 @@ describe('compliance content sets', () => {
   });
 });
 
-describe('cross_account_runners (operator-granted)', () => {
-  it('is included in NO tier, not even unlimited', async () => {
-    const { TIER_FEATURES, OPERATOR_GRANTED_FEATURE_FLAGS } = await import('../src/types/feature-flags.js');
-    for (const [tier, flags] of Object.entries(TIER_FEATURES)) {
-      expect([tier, flags.includes('cross_account_runners')]).toEqual([tier, false]);
-    }
-    expect(OPERATOR_GRANTED_FEATURE_FLAGS).toEqual(['cross_account_runners']);
+describe('pipeline runners are not a feature flag', () => {
+  it('cross_account_runners is gone from the catalog, and nothing is operator-granted', async () => {
+    const { OPERATOR_GRANTED_FEATURE_FLAGS, FEATURE_METADATA, isValidFeatureFlag } = await import('../src/types/feature-flags.js');
+    expect(ALL_FEATURE_FLAGS as readonly string[]).not.toContain('cross_account_runners');
+    expect(isValidFeatureFlag('cross_account_runners')).toBe(false);
+    expect(Object.keys(FEATURE_METADATA)).not.toContain('cross_account_runners');
+    expect(OPERATOR_GRANTED_FEATURE_FLAGS).toEqual([]);
   });
 });

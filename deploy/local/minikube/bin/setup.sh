@@ -428,10 +428,6 @@ pb_create_token_signing_secret "$CERT_DIR/token-signing/token-signing.key" "$CER
 # regenerates the key (that orphans every signature).
 bash "$BIN_DIR/plugin-signing-keys.sh" "$CERT_DIR"
 pb_create_plugin_signing_secrets "$CERT_DIR/plugin-signing"
-# Ed25519 RUNNER-signing key (cross-account pipeline runners) → the
-# `runner-signing-key` Secret, mounted by pipeline ONLY. Idempotent.
-bash "$BIN_DIR/runner-signing-keys.sh" "$CERT_DIR"
-pb_create_runner_signing_secret "$CERT_DIR/runner-signing"
 
 # PER-SERVICE ES256 keys for internal service-to-service tokens — one Secret per
 # service plus the public bundle (see pb_create_service_key_secrets). Idempotent:
