@@ -50,7 +50,7 @@ spec:
       labels:
         app: ops-center
         app.kubernetes.io/component: backend
-        version: "0.2.8"
+        version: "0.2.9"
         track: stable
       annotations:
         prometheus.io/scrape: "true"
@@ -107,7 +107,7 @@ spec:
           # on the release that first publishes ops-center;
           # test/deploy-contracts/test/version-label-contract.test.ts allows the
           # tag-only form for this image ONLY while it is listed as unpublished.
-          image: ghcr.io/mwashburn160/ops-center:0.2.8@sha256:8076472a8743317e6356d2dc9703b1c21dbbdb38a8ef1d474ba18388b5d53e4d
+          image: ghcr.io/mwashburn160/ops-center:0.2.9@sha256:6a5420ac80a2af96d297be424c080ec316b0bc8f33ae026ffce7dbebca172a9b
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
