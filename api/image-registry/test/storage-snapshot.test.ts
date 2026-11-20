@@ -34,8 +34,9 @@ jest.unstable_mockModule('../src/services/public-publications.js', () => ({ read
 
 const observe = jest.fn();
 const incCounter = jest.fn();
+const setGauge = jest.fn();
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
-  observe, incCounter, setGauge: jest.fn(),
+  observe, incCounter, setGauge,
 }));
 const createEnvRedisClient = jest.fn<AnyFn>(() => null);
 const createEnvRedisLock = jest.fn<AnyFn>(() => null);
@@ -56,6 +57,9 @@ const {
   stopStorageSnapshotScheduler,
   SNAPSHOT_PHASE_HISTOGRAM,
   SNAPSHOT_READS_COUNTER,
+  SNAPSHOT_LAST_SUCCESS_GAUGE,
+  SNAPSHOT_INTERVAL_GAUGE,
+  runStorageSnapshotCycle,
 } = await import('../src/services/storage-snapshot.js');
 const { invalidateOrgStorageCache } = await import('../src/services/storage-usage.js');
 
@@ -341,5 +345,155 @@ describe('scheduler', () => {
     expect(opts.lock).toBeUndefined();
     await opts.run({ signal: new AbortController().signal });
     expect((await readOrgStorageUsage('acme')).bytes).toBe(1030);
+  });
+});
+
+describe('recent-run skip — N pods, one walk per interval', () => {
+  let now: number;
+  beforeEach(() => {
+    now = 1_800_000_000_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+  });
+  const cycle = () => runStorageSnapshotCycle({ intervalMs: INTERVAL });
+  const gaugeValue = (name: string) => setGauge.mock.calls.filter((c) => c[0] === name).map((c) => c[2]).pop();
+
+  it('a second cycle (another pod, same store) inside 0.9 × interval skips the walk', async () => {
+    expect(await cycle()).toBe('ran');
+    const meta = JSON.parse(store.data.get('image-registry:storage-snapshot:meta')!);
+    now = meta.runId + 0.9 * INTERVAL - 1;
+    setGauge.mockClear();
+    expect(await cycle()).toBe('skipped_recent');
+    // One full registry walk for both cycles.
+    expect(listRepositoriesUnderPrefix).toHaveBeenCalledTimes(1);
+    expect(incCounter).toHaveBeenCalledWith(SNAPSHOT_READS_COUNTER, { outcome: 'skipped_recent' });
+    // The skipping pod republishes the fleet's figures from the stored marker.
+    expect(gaugeValue(SNAPSHOT_LAST_SUCCESS_GAUGE)).toBe(meta.completedAt / 1000);
+    expect(gaugeValue(SNAPSHOT_INTERVAL_GAUGE)).toBe(INTERVAL / 1000);
+  });
+
+  it('at 0.9 × interval after the last run started, a new walk runs', async () => {
+    await cycle();
+    const meta = JSON.parse(store.data.get('image-registry:storage-snapshot:meta')!);
+    now = meta.runId + 0.9 * INTERVAL;
+    expect(await cycle()).toBe('ran');
+    expect(listRepositoriesUnderPrefix).toHaveBeenCalledTimes(2);
+    expect(incCounter).not.toHaveBeenCalledWith(SNAPSHOT_READS_COUNTER, { outcome: 'skipped_recent' });
+  });
+
+  it('with no completed run stored, a cycle always walks', async () => {
+    expect(await cycle()).toBe('ran');
+    expect(listRepositoriesUnderPrefix).toHaveBeenCalledTimes(1);
+  });
+
+  it('an aborted cycle reports it and marks nothing', async () => {
+    const ac = new AbortController();
+    ac.abort('lock-lost');
+    expect(await runStorageSnapshotCycle({ intervalMs: INTERVAL, signal: ac.signal })).toBe('aborted');
+    expect(store.data.has('image-registry:storage-snapshot:meta')).toBe(false);
+  });
+});
+
+describe('snapshot liveness gauges', () => {
+  const gaugeValue = (name: string) => setGauge.mock.calls.filter((c) => c[0] === name).map((c) => c[2]).pop();
+  afterEach(() => stopStorageSnapshotScheduler());
+
+  it('a completed run publishes the last-success time and the interval', async () => {
+    const meta = (await run())!;
+    expect(gaugeValue(SNAPSHOT_LAST_SUCCESS_GAUGE)).toBe(meta.completedAt / 1000);
+    expect(gaugeValue(SNAPSHOT_INTERVAL_GAUGE)).toBe(INTERVAL / 1000);
+  });
+
+  it('an aborted run publishes no success', async () => {
+    const ac = new AbortController();
+    ac.abort('lock-lost');
+    await runStorageSnapshot({ intervalMs: INTERVAL, signal: ac.signal });
+    expect(gaugeValue(SNAPSHOT_LAST_SUCCESS_GAUGE)).toBeUndefined();
+  });
+
+  it('a non-leader pod (lock held elsewhere) republishes the FLEET last success from the store', async () => {
+    const meta = (await run())!;
+    setGauge.mockClear();
+    createEnvRedisLock.mockReturnValueOnce({});
+    startStorageSnapshotScheduler();
+    const opts = createScheduler.mock.calls[0]![0] as { onSkipped?: () => Promise<void> };
+    await opts.onSkipped!();
+    expect(gaugeValue(SNAPSHOT_LAST_SUCCESS_GAUGE)).toBe(meta.completedAt / 1000);
+    expect(gaugeValue(SNAPSHOT_INTERVAL_GAUGE)).toBe(INTERVAL / 1000);
+  });
+
+  it('republishing never throws: no marker publishes nothing, an unreachable store is logged', async () => {
+    startStorageSnapshotScheduler();
+    const opts = createScheduler.mock.calls[0]![0] as { onSkipped?: () => Promise<void> };
+    await opts.onSkipped!();
+    expect(gaugeValue(SNAPSHOT_LAST_SUCCESS_GAUGE)).toBeUndefined();
+    store.get = async () => { throw new Error('redis down'); };
+    await expect(opts.onSkipped!()).resolves.toBeUndefined();
+  });
+
+  it('the scheduler cycle applies the recent-run skip', async () => {
+    startStorageSnapshotScheduler();
+    const opts = createScheduler.mock.calls[0]![0] as { run: (r: { signal: AbortSignal }) => Promise<void> };
+    await opts.run({ signal: new AbortController().signal });
+    await opts.run({ signal: new AbortController().signal });
+    expect(listRepositoriesUnderPrefix).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('per-org scans run concurrently (REGISTRY_STORAGE_SCAN_CONCURRENCY)', () => {
+  const ENV = 'REGISTRY_STORAGE_SCAN_CONCURRENCY';
+  afterEach(() => { delete process.env[ENV]; });
+
+  /** 12 orgs × 2 repos, each call slow enough to overlap. */
+  function manyOrgs() {
+    const orgs = Array.from({ length: 12 }, (_, i) => `o${i}`);
+    catalog = orgs.flatMap((o) => [`org-${o}/a`, `org-${o}/b`]);
+    readPublicationOwners.mockResolvedValue({ owners: new Map(), complete: true });
+    let inFlight = 0;
+    const state = { peak: 0 };
+    const slow = async <T>(fn: () => T): Promise<T> => {
+      inFlight++;
+      state.peak = Math.max(state.peak, inFlight);
+      try {
+        await new Promise((r) => setTimeout(r, 2));
+        return fn();
+      } finally {
+        inFlight--;
+      }
+    };
+    listTags.mockImplementation(() => slow(() => ({ tags: ['v1', 'v2'] })));
+    getManifest.mockImplementation((repo, tag) => slow(() => ({
+      body: { config: { digest: `sha256:cfg-${repo}-${tag}` }, layers: [{ digest: `sha256:base-${repo.split('/')[0]}` }] },
+      digest: 'sha256:m',
+      mediaType: MANIFEST,
+    })));
+    headBlob.mockImplementation((_repo, digest) => slow(() => ({ contentLength: digest.length })));
+    return { orgs, state };
+  }
+
+  it('measures several orgs at once, all registry calls under ONE shared cap, with the serial totals', async () => {
+    const { orgs, state } = manyOrgs();
+    process.env[ENV] = '1';
+    await run();
+    const serial = await Promise.all(orgs.map((o) => readOrgStorageUsage(o)));
+    expect(state.peak).toBe(1);
+
+    state.peak = 0;
+    process.env[ENV] = '6';
+    await run();
+    const parallel = await Promise.all(orgs.map((o) => readOrgStorageUsage(o)));
+    // The cap holds across orgs (not 6 per org), and is reached.
+    expect(state.peak).toBe(6);
+    const strip = (u: { bytes: number; blobs: number; repos: number; incomplete: boolean }) =>
+      ({ bytes: u.bytes, blobs: u.blobs, repos: u.repos, incomplete: u.incomplete });
+    expect(parallel.map(strip)).toEqual(serial.map(strip));
+    expect(serial.every((u) => !u.incomplete && u.bytes > 0)).toBe(true);
+  });
+
+  it('still writes the run marker LAST', async () => {
+    manyOrgs();
+    process.env[ENV] = '6';
+    await run();
+    expect(store.writes[store.writes.length - 1]).toBe('image-registry:storage-snapshot:meta');
+    expect(store.writes).toHaveLength(13);
   });
 });

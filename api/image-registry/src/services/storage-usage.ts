@@ -3,6 +3,7 @@
 
 import { envInt, createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { setGauge } from '@pipeline-builder/api-server';
+import { mapWithConcurrency, type Limiter } from './concurrency.js';
 import { inPublicNamespace, inQuarantineNamespace, PUBLIC_PREFIX } from './namespaces.js';
 import { publicRepositoriesOwnedBy } from './public-publications.js';
 import {
@@ -362,8 +363,23 @@ async function orgScanRepositories(orgId: string): Promise<{ repos: string[]; re
 const ORG_BREAKDOWN_KEY = 'org-breakdown:';
 
 /**
- * Wall time a scan spent in each kind of registry call, in ms. Accumulated
- * across calls, so one accumulator can total a whole multi-org snapshot run.
+ * Registry calls a scan keeps in flight at once, per phase
+ * (`REGISTRY_STORAGE_SCAN_CONCURRENCY`, default 8, clamped 1–64). One call at a
+ * time made a whole-registry walk take as long as the sum of every call's
+ * latency; unbounded would flood the registry. Read per scan so a test (or a
+ * restart with a new value) picks it up.
+ */
+export function storageScanConcurrency(): number {
+  return envInt('REGISTRY_STORAGE_SCAN_CONCURRENCY', 8, { min: 1, max: 64 });
+}
+
+/**
+ * Time a scan spent in each kind of registry call, in ms: the sum of every
+ * call's own duration, accumulated across calls so one accumulator can total a
+ * whole multi-org snapshot run. With concurrent calls (see
+ * {@link storageScanConcurrency}) this is call time, not wall time — it can
+ * exceed the run's elapsed time, and its proportions still say which kind of
+ * call the registry is slow at.
  */
 export interface ScanTimings {
   tagsMs: number;
@@ -380,21 +396,88 @@ export function newScanTimings(): ScanTimings {
  * Sum unique blob bytes across `repos`. The shared core of every rollup;
  * `incomplete` when anything couldn't be measured (see {@link StorageUsage}).
  * Pass `timings` to accumulate where the time went (the storage snapshot does).
+ *
+ * Three phases — tag lists, then manifests, then blob HEADs — each with at
+ * most {@link storageScanConcurrency} calls in flight. `limiter`, when given,
+ * additionally caps every registry call against a budget shared with other
+ * scans (the snapshot scans several orgs at once). Results are assembled in
+ * input order afterwards, so the answer — including the breakdown's order —
+ * is the same as a serial scan's whichever call finishes first.
  */
 export async function scanRepositories(
   reposBeingScanned: string[],
-  opts: { detail?: boolean; timings?: ScanTimings } = {},
+  opts: { detail?: boolean; timings?: ScanTimings; limiter?: Limiter } = {},
 ): Promise<{ bytes: number; blobs: number; incomplete: boolean; perBlob?: Map<string, BlobFacts> }> {
-  const timings = opts.timings;
+  const { timings, limiter } = opts;
+  const concurrency = storageScanConcurrency();
   const timed = async <T>(phase: keyof ScanTimings, fn: () => Promise<T>): Promise<T> => {
-    if (!timings) return fn();
-    const t0 = Date.now();
-    try {
-      return await fn();
-    } finally {
-      timings[phase] += Date.now() - t0;
-    }
+    const measured = async (): Promise<T> => {
+      if (!timings) return fn();
+      const t0 = Date.now();
+      try {
+        return await fn();
+      } finally {
+        timings[phase] += Date.now() - t0;
+      }
+    };
+    return limiter ? limiter(measured) : measured();
   };
+
+  // Any non-404 failure below means a repo/manifest/blob couldn't be read, so
+  // the byte total under-counts — track that so the push-gate can fail closed.
+  let incomplete = false;
+
+  // Phase 1: each repo's tags.
+  const tagLists = await mapWithConcurrency(reposBeingScanned, concurrency, async (repo) => {
+    try {
+      return (await timed('tagsMs', () => listTags(repo))).tags;
+    } catch (err) {
+      if (!isNotFound(err)) incomplete = true;
+      logger.warn('Tag list failed during storage rollup', {
+        repo, error: errorMessage(err),
+      });
+      return [] as string[];
+    }
+  });
+
+  // Phase 2: each tag's manifest → the blob digests it references (null when
+  // it could not be read).
+  const jobs = reposBeingScanned.flatMap((repo, i) => tagLists[i]!.map((tag) => ({ repo, tag })));
+  const jobDigests = await mapWithConcurrency(jobs, concurrency, async ({ repo, tag }): Promise<Set<string> | null> => {
+    try {
+      const { body } = await timed('manifestsMs', () => getManifest(repo, tag));
+      const digests = new Set<string>();
+      collectBlobDigests(body, digests);
+      // Multi-arch index: fetch each child and collect its config+layer
+      // blobs — otherwise a multi-arch image's actual layer bytes go
+      // UNCOUNTED and the storage push-gate (isStorageOverBudget) is
+      // bypassable. A failed child fetch marks the rollup incomplete
+      // (fail-closed) but doesn't abort the remaining children. Children are
+      // fetched in order within the job, so the digest order is the serial one.
+      for (const childDigest of indexChildDigests(body)) {
+        try {
+          const { body: childBody } = await timed('manifestsMs', () => getManifest(repo, childDigest));
+          collectBlobDigests(childBody, digests);
+        } catch (childErr) {
+          if (!isNotFound(childErr)) {
+            incomplete = true;
+            logger.warn('Child manifest fetch failed during storage rollup', {
+              repo, tag, childDigest, error: errorMessage(childErr),
+            });
+          }
+        }
+      }
+      return digests;
+    } catch (err) {
+      if (!isNotFound(err)) {
+        incomplete = true;
+        logger.warn('Manifest fetch failed during storage rollup', {
+          repo, tag, error: errorMessage(err),
+        });
+      }
+      return null;
+    }
+  });
 
   // Map each unique blob digest → EVERY repo known to reference it. Docker
   // Distribution scopes blob access per-repo (`/v2/<repo>/blobs/<digest>`), so a
@@ -403,87 +486,31 @@ export async function scanRepositories(
   // systematically undercounting multi-repo orgs. We keep ALL referencing repos
   // (not just the first) so a blob HEAD that 404s on one repo can be re-resolved
   // against another referencing repo before the byte is written off.
-  // Any non-404 failure below means a repo/manifest/blob couldn't be read, so
-  // the byte total under-counts — track that so the push-gate can fail closed.
-  let incomplete = false;
-  const blobRepos = new Map<string, string[]>();
-  const addBlobRepo = (digest: string, repo: string): void => {
-    const repos = blobRepos.get(digest);
-    if (repos) {
-      if (!repos.includes(repo)) repos.push(repo);
-    } else {
-      blobRepos.set(digest, [repo]);
-    }
-  };
+  //
   // Per-TAG references, for the marginal-size breakdown only. The rollup needs
   // blob → repos (to resolve a HEAD); a breakdown needs blob → tags, because
   // "bytes freed if this version goes" is the sum of the blobs referenced by
   // that tag AND BY NOTHING ELSE. Collected in the same walk so a breakdown
-  // costs one scan rather than two.
+  // costs one scan rather than two. Built here, in input order.
+  const blobRepos = new Map<string, string[]>();
   const blobTags = opts.detail ? new Map<string, string[]>() : null;
-  const addBlobTag = (digest: string, ref: string): void => {
-    if (!blobTags) return;
-    const refs = blobTags.get(digest);
-    if (refs) {
-      if (!refs.includes(ref)) refs.push(ref);
-    } else {
-      blobTags.set(digest, [ref]);
-    }
+  const push = (m: Map<string, string[]>, k: string, v: string): void => {
+    const list = m.get(k);
+    if (!list) m.set(k, [v]);
+    else if (!list.includes(v)) list.push(v);
   };
-  for (const repo of reposBeingScanned) {
-    try {
-      const { tags } = await timed('tagsMs', () => listTags(repo));
-      for (const tag of tags) {
-        try {
-          const { body } = await timed('manifestsMs', () => getManifest(repo, tag));
-          const digests = new Set<string>();
-          collectBlobDigests(body, digests);
-          // Multi-arch index: fetch each child and collect its config+layer
-          // blobs — otherwise a multi-arch image's actual layer bytes go
-          // UNCOUNTED and the storage push-gate (isStorageOverBudget) is
-          // bypassable. A failed child fetch marks the rollup incomplete
-          // (fail-closed) but doesn't abort the remaining children.
-          for (const childDigest of indexChildDigests(body)) {
-            try {
-              const { body: childBody } = await timed('manifestsMs', () => getManifest(repo, childDigest));
-              collectBlobDigests(childBody, digests);
-            } catch (childErr) {
-              if (!isNotFound(childErr)) {
-                incomplete = true;
-                logger.warn('Child manifest fetch failed during storage rollup', {
-                  repo, tag, childDigest, error: errorMessage(childErr),
-                });
-              }
-            }
-          }
-          for (const d of digests) {
-            addBlobRepo(d, repo);
-            addBlobTag(d, tagRef(repo, tag));
-          }
-        } catch (err) {
-          if (!isNotFound(err)) {
-            incomplete = true;
-            logger.warn('Manifest fetch failed during storage rollup', {
-              repo, tag, error: errorMessage(err),
-            });
-          }
-        }
-      }
-    } catch (err) {
-      if (!isNotFound(err)) incomplete = true;
-      logger.warn('Tag list failed during storage rollup', {
-        repo, error: errorMessage(err),
-      });
+  jobs.forEach(({ repo, tag }, i) => {
+    for (const d of jobDigests[i] ?? []) {
+      push(blobRepos, d, repo);
+      if (blobTags) push(blobTags, d, tagRef(repo, tag));
     }
-  }
+  });
 
-  // Sum bytes via HEAD per unique blob, against a repo that references it. The
+  // Phase 3: HEAD each unique blob, against a repo that references it. The
   // HEAD is cheap (no body transfer), but with hundreds of unique layers per org
-  // this can take a few seconds; the cache amortizes that across subsequent calls.
-  let totalBytes = 0;
-  const perBlob = blobTags ? new Map<string, BlobFacts>() : null;
-  for (const [digest, repos] of blobRepos) {
-    let counted = false;
+  // this adds up; the cache amortizes that across subsequent calls.
+  const blobEntries = [...blobRepos.entries()];
+  const sizes = await mapWithConcurrency(blobEntries, concurrency, async ([digest, repos]): Promise<number | null> => {
     for (const repo of repos) {
       try {
         const head = await timed('blobHeadsMs', () => headBlob(repo, digest));
@@ -493,18 +520,12 @@ export async function scanRepositories(
         // push gate — whose whole job is to refuse when it cannot prove the org
         // is under budget — waved the push through. Treat it like any other
         // repo that could not answer: try the next one, and if none can, fall
-        // through to the `!counted` branch and mark the rollup incomplete.
+        // through to the unmeasured branch and mark the rollup incomplete.
         if (typeof head.contentLength !== 'number') {
           logger.warn('Blob HEAD returned no Content-Length during storage rollup', { digest, repo });
           continue;
         }
-        totalBytes += head.contentLength;
-        // Only a MEASURED blob enters the breakdown. An unmeasurable one is
-        // already marked incomplete below, and attributing 0 bytes to it would
-        // under-promise a prune rather than say the figure is partial.
-        if (perBlob) perBlob.set(digest, { size: head.contentLength, refs: blobTags!.get(digest) ?? [] });
-        counted = true;
-        break; // measured once against a repo that has it
+        return head.contentLength; // measured once against a repo that has it
       } catch (err) {
         if (isNotFound(err)) {
           // This repo doesn't have the blob — try the next referencing repo
@@ -513,7 +534,6 @@ export async function scanRepositories(
         }
         // A non-404 error means the registry couldn't answer; we can't prove the
         // byte total is complete → fail closed.
-        incomplete = true;
         logger.warn('Blob HEAD failed during storage rollup', {
           digest, repo, error: errorMessage(err),
         });
@@ -523,13 +543,26 @@ export async function scanRepositories(
     // Every referencing repo 404'd (blob genuinely unresolvable) or a non-404
     // error stopped us: the total now under-counts, so mark the rollup
     // incomplete and let the fail-closed push-gate treat it as inconclusive.
-    if (!counted) {
+    logger.warn('Blob unmeasurable during storage rollup (all referencing repos 404 or errored)', {
+      digest, repos,
+    });
+    return null;
+  });
+
+  let totalBytes = 0;
+  const perBlob = blobTags ? new Map<string, BlobFacts>() : null;
+  blobEntries.forEach(([digest], i) => {
+    const size = sizes[i];
+    if (size === null || size === undefined) {
       incomplete = true;
-      logger.warn('Blob unmeasurable during storage rollup (all referencing repos 404 or errored)', {
-        digest, repos,
-      });
+      return;
     }
-  }
+    totalBytes += size;
+    // Only a MEASURED blob enters the breakdown. An unmeasurable one is
+    // already marked incomplete, and attributing 0 bytes to it would
+    // under-promise a prune rather than say the figure is partial.
+    if (perBlob) perBlob.set(digest, { size, refs: blobTags!.get(digest) ?? [] });
+  });
 
   return { bytes: totalBytes, blobs: blobRepos.size, incomplete, ...(perBlob ? { perBlob } : {}) };
 }

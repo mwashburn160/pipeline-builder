@@ -1908,6 +1908,32 @@ groups:
           summary: "Registry GC step '{{ $labels.stage }}' failed"
           description: "image-registry's GC failed at stage {{ $labels.stage }} {{ $value | humanize }} time(s) in the last 6h. Nothing was deleted that should have stayed (every step fails safe), but the affected manifests stay on disk until a sweep succeeds. Check the image-registry logs for 'GC:' / 'Quarantine GC:' warnings; catalog/tag_list/reverify usually mean the registry itself is unhealthy, references means the plugin service is."
 
+      # The background storage snapshot (api/image-registry/src/services/
+      # storage-snapshot.ts) measures every org's registry storage in one
+      # leader-locked walk per interval; the /token push gate and the quota
+      # dashboard read only that snapshot. Once the last COMPLETED run is older
+      # than 2 x interval + its duration, every reading is unknown and the gate
+      # refuses every push by an org with a storage cap (fail closed). This
+      # fires at 1.5 intervals (+5m) — before that, unlike SchedulerJobStale
+      # (2 intervals + 15m), which fires after the gate has started refusing.
+      # Every replica republishes the stored run marker (the leader as it
+      # writes, the others each cycle), so max() reads the fleet's true last
+      # success and a former leader's stale value is superseded. A snapshot that
+      # has NEVER completed publishes no timestamp; SchedulerJobStale covers it
+      # (key image-registry:storage-snapshot:leader).
+      - alert: RegistryStorageSnapshotStale
+        expr: |
+          time() - max(registry_storage_snapshot_last_success_timestamp_seconds)
+            > 1.5 * max(registry_storage_snapshot_interval_seconds)
+        for: 5m
+        labels:
+          severity: critical
+          component: registry
+          tenancy: platform
+        annotations:
+          summary: "Registry storage snapshot is stale; capped orgs' pushes will be refused soon"
+          description: "The last completed registry storage snapshot finished {{ $value | humanizeDuration }} ago, more than 1.5 times its interval. At 2 intervals plus the run's own duration the snapshot reads as unknown: the push gate refuses every push by an org with a storage cap (unless QUOTA_STORAGE_FAIL_OPEN=true) and the quota dashboard shows storage as unmeasured. Orgs with unlimited storage are unaffected. Check image-registry's 'Scheduler cycle failed' / 'Storage snapshot' logs (the 'Storage snapshot complete' line's phaseMs names the slow phase; see registry_storage_snapshot_phase_seconds) and LeaderLockUnavailable / SchedulerJobStale for the storage-snapshot lock. Runbook: docs/deploy-operations.md, Registry storage snapshot."
+
       # ---- Quota ----
       # `quota_fail_open_total` is incremented by api-core's quota client
       # every time the quota service is unreachable or returns non-ok and

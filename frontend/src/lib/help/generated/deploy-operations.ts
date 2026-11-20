@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 289f70d193078533e6023add9d3727ca9c2a85573d11028305b4cbd234056b15
+// SOURCE-SHA256: c22ae10463f9e3ec9de3652c0c4b6c8b3decbb135adbb259c21f1eb1901d1be9
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -667,6 +667,49 @@ export const deployOperationsTopic: HelpTopic = {
         {
           "type": "text",
           "content": "Signals. CronJobRunFailed / CronJobNotScheduled cover the k8s job where kube-state-metrics runs (eks, ec2); on minikube and docker a failed run shows only in the job's log, as for the backup. The app-level sweeps feed RegistryGcFailing (registry_gc_failed_total{stage}) and SchedulerJobStale. Disk: the registry is stateless — its bytes are in RustFS — so the fill signal is the RustFS volume's: PersistentVolumeFillingUp / CriticallyFull / FillingUpFast on the four pb-ebs data-rustfs-* claims on eks (EBS, not EFS), and NodeDiskFillingUp / NodeDiskCriticallyFull on the hostPath data disk on ec2 and minikube."
+        },
+        {
+          "type": "text",
+          "content": "Registry storage snapshot"
+        },
+        {
+          "type": "text",
+          "content": "An org's registry storage is measured, not metered: its own org-<id>/* repositories plus every public/* repository billed to it, blobs de-duplicated. Measuring it means walking catalog → tags → manifests → blob HEADs, which cannot finish inside a request deadline — so the /token push gate and the quota service's storage read (GET /internal/storage-usage/:orgId, behind the quota dashboard) never scan. They read a snapshot."
+        },
+        {
+          "type": "text",
+          "content": "Mechanism. api/image-registry/src/services/storage-snapshot.ts, on every image-registry replica under the leader lock image-registry:storage-snapshot:leader: one catalog walk per run, the publication records read from that same listing, every org measured with the same scan as the on-demand rollup, each org's record written to Redis (image-registry:storage-snapshot:org:<id>), then the run marker (image-registry:storage-snapshot:meta) last, so a run that dies part-way never looks current. Every REGISTRY_STORAGE_SNAPSHOT_INTERVAL_MS (10 min). The lock only stops two runs overlapping and is released after each, so a cycle that finds a run (by any replica) started within 90% of the interval skips — one walk per interval fleet-wide, however many replicas. Orgs are scanned several at a time with at most REGISTRY_STORAGE_SCAN_CONCURRENCY (8) registry calls in flight for the whole run (tag lists, manifests and blob HEADs alike); the on-demand rollups and breakdowns use the same per-phase bound. A delete or prune re-measures that org's known repositories straight away; a new push is counted at the next run. Without Redis each pod keeps its own snapshot in memory and runs unlocked."
+        },
+        {
+          "type": "text",
+          "content": "When it reads as unknown. No marker yet (a fresh install, ~30 s + one run), or a last completed run older than 2 × interval + that run's duration: every org reads as unknown, the gate refuses every push by an org with a storage cap (QUOTA_STORAGE_FAIL_OPEN=true admits them) and the route answers 503 so the dashboard shows storage as unmeasured. An org whose own scan was incomplete reads as unknown on its own. Orgs with unlimited storage are never measured or refused. A failed run (catalog unlistable, lock lost) writes no marker, so the previous run stays in charge until it ages out."
+        },
+        {
+          "type": "text",
+          "content": "Signals. Gauges registry_storage_snapshot_last_success_timestamp_seconds and registry_storage_snapshot_interval_seconds, republished by every replica from the stored marker (the leader as it writes, the others each cycle), so a non-leader reports the fleet's last success. Histogram registry_storage_snapshot_phase_seconds{phase} (catalog, publication_records, tags, manifests, blob_heads, total; the three call phases are summed call time, so with concurrency they can exceed total). Counter registry_storage_snapshot_reads_total{outcome}: fresh, stale, missing per read, and skipped_recent per cycle that found a recent run. One Storage snapshot complete log line per run with phaseMs and the slowest orgs."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Alert",
+            "Fires when",
+            "Severity"
+          ],
+          "rows": [
+            [
+              "RegistryStorageSnapshotStale",
+              "the last completed run is more than 1.5 × its interval old, for 5 min (20 min at the default) — before the gate's cut-off at 2 intervals + run time",
+              "critical"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "On all four targets. A snapshot that has never completed publishes no timestamp; SchedulerJobStale (key=\"image-registry:storage-snapshot:leader\") covers that, and fires later (2 intervals + 15 min), after the gate has started refusing."
+        },
+        {
+          "type": "text",
+          "content": "What to do. image-registry's Scheduler cycle failed log (logger storage-snapshot) names the error — a catalog failure means the registry itself is unhealthy. If runs succeed but slowly, the Storage snapshot complete line's phaseMs and registry_storage_snapshot_phase_seconds say which phase: raise REGISTRY_STORAGE_SCAN_CONCURRENCY if the registry has headroom, or REGISTRY_STORAGE_SNAPSHOT_INTERVAL_MS if a run legitimately needs longer. LeaderLockUnavailable means no replica can take the lock (Redis). If capped orgs must keep pushing while it is fixed, QUOTA_STORAGE_FAIL_OPEN=true on image-registry admits their pushes unmetered."
         },
         {
           "type": "text",
@@ -1433,7 +1476,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "At 233 rules one root cause is a pager flood, and a flood is functionally the same as no alert. The inhibition tree in alertmanager.yml suppresses the consequences of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service being down."
+          "content": "At 234 rules one root cause is a pager flood, and a flood is functionally the same as no alert. The inhibition tree in alertmanager.yml suppresses the consequences of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service being down."
         },
         {
           "type": "text",

@@ -61,9 +61,10 @@ This service loads its own config (`src/config`) rather than the shared server c
 | `REGISTRY_COPY_PARALLEL_BLOBS` | Parallel blob copies | `8` |
 | `REGISTRY_BLOB_STREAM_TIMEOUT_MS` | Blob stream timeout (ms) | `30000` |
 | `REGISTRY_STORAGE_CACHE_TTL_MS` | Namespace rollup / breakdown cache TTL (ms) | `60000` |
-| `REGISTRY_STORAGE_SNAPSHOT_INTERVAL_MS` | Per-org storage snapshot cadence (ms); stale after 2× + run time | `600000` |
+| `REGISTRY_STORAGE_SNAPSHOT_INTERVAL_MS` | Per-org storage snapshot cadence (ms); stale after 2× + run time; a cycle within 90% of the last run's start skips | `600000` |
 | `REGISTRY_STORAGE_SNAPSHOT_STARTUP_DELAY_MS` | Delay before the first snapshot run (ms) | `30000` |
 | `REGISTRY_STORAGE_SNAPSHOT_LOCK_TTL_MS` | Snapshot leader-lock TTL (ms) | `120000` |
+| `REGISTRY_STORAGE_SCAN_CONCURRENCY` | Registry calls a storage scan keeps in flight (1–64; the snapshot shares one cap across orgs) | `8` |
 | `REGISTRY_GC_ENABLED` | Enable the in-process GC scheduler | `false` |
 | `REGISTRY_GC_INTERVAL_HOURS` | GC run interval (h) | `24` |
 | `REGISTRY_GC_MAX_AGE_DAYS` | Prune manifests older than this (days) | `30` |

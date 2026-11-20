@@ -4031,3 +4031,63 @@ tests:
       - eval_time: 50m
         alertname: RunnerRequestsExpiring
         exp_alerts: []
+
+  # RegistryStorageSnapshotStale — the background storage snapshot (10m
+  # interval) whose last completed run stopped at t=0. Age crosses
+  # 1.5 * 600 = 900s at 15m and must hold 5m: quiet at 18m, firing by 25m —
+  # before the push gate's own cut-off (2 intervals + the run's duration).
+  # Both replicas report the same stored timestamp (every pod republishes it).
+  - interval: 1m
+    input_series:
+      - series: 'registry_storage_snapshot_interval_seconds{service="image-registry",pod="image-registry-a"}'
+        values: '600+0x30'
+      - series: 'registry_storage_snapshot_interval_seconds{service="image-registry",pod="image-registry-b"}'
+        values: '600+0x30'
+      - series: 'registry_storage_snapshot_last_success_timestamp_seconds{service="image-registry",pod="image-registry-a"}'
+        values: '0+0x30'
+      - series: 'registry_storage_snapshot_last_success_timestamp_seconds{service="image-registry",pod="image-registry-b"}'
+        values: '0+0x30'
+    alert_rule_test:
+      - eval_time: 18m
+        alertname: RegistryStorageSnapshotStale
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: RegistryStorageSnapshotStale
+        exp_alerts:
+          - exp_labels: { severity: critical, component: registry, tenancy: platform }
+            exp_annotations:
+              summary: "Registry storage snapshot is stale; capped orgs' pushes will be refused soon"
+              description: "The last completed registry storage snapshot finished 25m 0s ago, more than 1.5 times its interval. At 2 intervals plus the run's own duration the snapshot reads as unknown: the push gate refuses every push by an org with a storage cap (unless QUOTA_STORAGE_FAIL_OPEN=true) and the quota dashboard shows storage as unmeasured. Orgs with unlimited storage are unaffected. Check image-registry's 'Scheduler cycle failed' / 'Storage snapshot' logs (the 'Storage snapshot complete' line's phaseMs names the slow phase; see registry_storage_snapshot_phase_seconds) and LeaderLockUnavailable / SchedulerJobStale for the storage-snapshot lock. Runbook: docs/deploy-operations.md, Registry storage snapshot."
+
+  # A snapshot completing every 10m stays quiet.
+  - interval: 1m
+    input_series:
+      - series: 'registry_storage_snapshot_interval_seconds{service="image-registry",pod="image-registry-a"}'
+        values: '600+0x90'
+      - series: 'registry_storage_snapshot_last_success_timestamp_seconds{service="image-registry",pod="image-registry-a"}'
+        values: '0x9 600x9 1200x9 1800x9 2400x9 3000x9 3600x9 4200x9 4800x9'
+    alert_rule_test:
+      - eval_time: 85m
+        alertname: RegistryStorageSnapshotStale
+        exp_alerts: []
+
+  # Leadership moved: a FORMER leader still exports the timestamp of the last
+  # run it saw (t=0), while the new leader's runs keep completing. max() reads
+  # the newest, so the stale series alone never pages.
+  - interval: 1m
+    input_series:
+      - series: 'registry_storage_snapshot_interval_seconds{service="image-registry",pod="image-registry-old"}'
+        values: '600+0x90'
+      - series: 'registry_storage_snapshot_interval_seconds{service="image-registry",pod="image-registry-new"}'
+        values: '600+0x90'
+      - series: 'registry_storage_snapshot_last_success_timestamp_seconds{service="image-registry",pod="image-registry-old"}'
+        values: '0+0x90'
+      - series: 'registry_storage_snapshot_last_success_timestamp_seconds{service="image-registry",pod="image-registry-new"}'
+        values: '0x9 600x9 1200x9 1800x9 2400x9 3000x9 3600x9 4200x9 4800x9'
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: RegistryStorageSnapshotStale
+        exp_alerts: []
+      - eval_time: 85m
+        alertname: RegistryStorageSnapshotStale
+        exp_alerts: []

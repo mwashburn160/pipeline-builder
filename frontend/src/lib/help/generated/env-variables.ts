@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: b9409305e967b096f8b689828f015929cecbaf845507ec88ddb335d4060ce414
+// SOURCE-SHA256: e25063f66ef999449c85c49629332daa1a6b21fdcc467020cadd23e4d17002e8
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1541,7 +1541,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "REGISTRY_STORAGE_SNAPSHOT_INTERVAL_MS",
               "600000",
-              "Per-org storage snapshot cadence (ms, min 60000). Always on: one replica (leader lock) walks the catalog once and measures every org; the push gate and the quota service read the stored totals instead of scanning. A snapshot older than 2 × this + the last run's duration reads as unknown (the gate refuses, fail-closed). A delete or prune re-measures that org immediately; a new push is counted at the next run"
+              "Per-org storage snapshot cadence (ms, min 60000). Always on: one replica (leader lock) walks the catalog once and measures every org; the push gate and the quota service read the stored totals instead of scanning. A snapshot older than 2 × this + the last run's duration reads as unknown (the gate refuses, fail-closed). A delete or prune re-measures that org immediately; a new push is counted at the next run. A cycle that finds a run (on any replica) started within 90% of this skips, so the fleet walks the registry once per interval. RegistryStorageSnapshotStale fires at 1.5 × this (+5 min), before the gate's cut-off"
             ],
             [
               "REGISTRY_STORAGE_SNAPSHOT_STARTUP_DELAY_MS",
@@ -1552,6 +1552,11 @@ export const envVariablesTopic: HelpTopic = {
               "REGISTRY_STORAGE_SNAPSHOT_LOCK_TTL_MS",
               "120000",
               "Snapshot leader-lock TTL (ms): the crash-recovery window — the lock is heartbeated while a run is in progress"
+            ],
+            [
+              "REGISTRY_STORAGE_SCAN_CONCURRENCY",
+              "8 (clamped 1–64)",
+              "Registry calls a storage scan keeps in flight (tag lists, manifest fetches, blob HEADs). Bounds each phase of the on-demand rollups and breakdowns, and the WHOLE storage snapshot run (several orgs are scanned at once under one shared cap). Raise it when snapshot runs are slow and the registry has headroom; results do not depend on it"
             ],
             [
               "REGISTRY_PUBLICATION_CACHE_TTL_MS",

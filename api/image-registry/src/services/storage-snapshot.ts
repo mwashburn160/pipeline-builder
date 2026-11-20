@@ -24,6 +24,13 @@
  *     makes its partial results look current.
  *   - An org whose own scan was incomplete is stored as incomplete.
  *
+ * One walk per interval fleet-wide: the lock stops overlapping runs, and a
+ * cycle that finds a run started within {@link RECENT_RUN_FRACTION} of the
+ * interval skips ({@link runStorageSnapshotCycle}). Orgs are scanned several at
+ * a time with at most `REGISTRY_STORAGE_SCAN_CONCURRENCY` registry calls in
+ * flight for the whole run, so run time (and with it the freshness window)
+ * does not grow with the sum of every call's latency.
+ *
  * Freshness: a new push is counted at the next run (the interval). A delete or
  * prune re-measures that org's known repositories straight away
  * ({@link refreshOrgSnapshot}), so freed bytes show without waiting.
@@ -40,10 +47,17 @@ import {
   leaderLockKey,
   type Scheduler,
 } from '@pipeline-builder/api-core';
-import { incCounter, observe } from '@pipeline-builder/api-server';
+import { incCounter, observe, setGauge } from '@pipeline-builder/api-server';
+import { createLimiter, mapWithConcurrency } from './concurrency.js';
 import { readPublicationOwners } from './public-publications.js';
 import { listRepositoriesUnderPrefix } from './registry-client.js';
-import { newScanTimings, onOrgStorageInvalidated, scanRepositories, type StorageUsage } from './storage-usage.js';
+import {
+  newScanTimings,
+  onOrgStorageInvalidated,
+  scanRepositories,
+  storageScanConcurrency,
+  type StorageUsage,
+} from './storage-usage.js';
 
 const logger = createLogger('storage-snapshot');
 
@@ -57,8 +71,29 @@ const LOCK_KEY = leaderLockKey('image-registry', 'storage-snapshot');
 
 /** Histogram: seconds a snapshot run spent per phase (`phase=total` is the whole run). */
 export const SNAPSHOT_PHASE_HISTOGRAM = 'registry_storage_snapshot_phase_seconds';
-/** Counter: snapshot reads by outcome (`fresh`, `stale`, `missing`). */
+/**
+ * Counter: snapshot reads by outcome (`fresh`, `stale`, `missing`), plus the
+ * scheduled cycles that found a recent run and skipped (`skipped_recent`).
+ */
 export const SNAPSHOT_READS_COUNTER = 'registry_storage_snapshot_reads_total';
+/**
+ * Gauge: epoch seconds the last COMPLETED run (on any pod) finished. Every pod
+ * republishes it from the stored marker — the leader as it writes, the others
+ * each cycle — so `max()` over the fleet reads the true age wherever it is
+ * scraped. Alerted by `RegistryStorageSnapshotStale`.
+ */
+export const SNAPSHOT_LAST_SUCCESS_GAUGE = 'registry_storage_snapshot_last_success_timestamp_seconds';
+/** Gauge: the interval (seconds) the last completed run was scheduled at; the stale alert's yardstick. */
+export const SNAPSHOT_INTERVAL_GAUGE = 'registry_storage_snapshot_interval_seconds';
+
+/**
+ * A scheduled cycle skips when the stored marker shows a run started within
+ * this fraction of the interval. The lock only stops two runs OVERLAPPING; it
+ * is released after each run, so without this every pod's timer could start
+ * another full walk inside the same interval. Under 1 so ordinary timer jitter
+ * never skips a run that is due.
+ */
+export const RECENT_RUN_FRACTION = 0.9;
 
 /** The marker of the last COMPLETED run. */
 export interface SnapshotMeta {
@@ -131,6 +166,26 @@ function parse<T>(raw: string | null): T | null {
     return JSON.parse(raw) as T;
   } catch {
     return null;
+  }
+}
+
+/** Publish the fleet's liveness gauges from a run marker. */
+function publishSnapshotGauges(meta: SnapshotMeta): void {
+  setGauge(SNAPSHOT_LAST_SUCCESS_GAUGE, {}, meta.completedAt / 1000);
+  setGauge(SNAPSHOT_INTERVAL_GAUGE, {}, meta.intervalMs / 1000);
+}
+
+/**
+ * Republish the stored marker's gauges on a pod that did not run this cycle,
+ * so dashboards and the stale alert read the fleet's last success from any
+ * replica. No marker yet → nothing to publish. Never throws.
+ */
+export async function republishSnapshotGauges(): Promise<void> {
+  try {
+    const meta = parse<SnapshotMeta>(await getStore().get(META_KEY));
+    if (meta) publishSnapshotGauges(meta);
+  } catch (err) {
+    logger.warn('Storage snapshot marker unreadable — gauges not republished', { error: errorMessage(err) });
   }
 }
 
@@ -235,13 +290,16 @@ export async function runStorageSnapshot(opts: { intervalMs: number; signal?: Ab
   const s = getStore();
   const perOrgMs: Array<{ orgId: string; ms: number; repos: number }> = [];
   let incompleteOrgs = 0;
-  for (const [orgId, repos] of orgRepos) {
-    if (signal?.aborted) {
-      logger.info('Storage snapshot run aborted — not marking it current', { reason: String(signal.reason ?? '') });
-      return null;
-    }
+  // Several orgs at once, and ONE cap on registry calls for the whole run: each
+  // org's scan is itself concurrent, so without the shared limiter the run
+  // would keep orgs × per-scan calls in flight.
+  const concurrency = storageScanConcurrency();
+  const limiter = createLimiter(concurrency);
+  await mapWithConcurrency([...orgRepos], concurrency, async ([orgId, repos]) => {
+    if (signal?.aborted) return;
     const orgStart = Date.now();
-    const scan = await scanRepositories(repos, { timings });
+    const scan = await scanRepositories(repos, { timings, limiter });
+    if (signal?.aborted) return;
     const incomplete = scan.incomplete || !recordsComplete;
     if (incomplete) incompleteOrgs++;
     const record: OrgRecord = {
@@ -249,12 +307,16 @@ export async function runStorageSnapshot(opts: { intervalMs: number; signal?: Ab
     };
     await s.set(orgKey(orgId), JSON.stringify(record), RECORD_TTL_SECONDS);
     perOrgMs.push({ orgId, ms: Date.now() - orgStart, repos: repos.length });
+  });
+  if (signal?.aborted) {
+    logger.info('Storage snapshot run aborted — not marking it current', { reason: String(signal.reason ?? '') });
+    return null;
   }
-  if (signal?.aborted) return null;
 
   const completedAt = Date.now();
   const meta: SnapshotMeta = { runId, completedAt, durationMs: completedAt - runId, intervalMs, orgs: orgRepos.size };
   await s.set(META_KEY, JSON.stringify(meta), RECORD_TTL_SECONDS);
+  publishSnapshotGauges(meta);
 
   const phases: Record<string, number> = {
     catalog: catalogMs,
@@ -274,6 +336,31 @@ export async function runStorageSnapshot(opts: { intervalMs: number; signal?: Ab
     slowestOrgs: perOrgMs.sort((a, b) => b.ms - a.ms).slice(0, 5),
   });
   return meta;
+}
+
+/** What one scheduled cycle did. */
+export type SnapshotCycleOutcome = 'ran' | 'skipped_recent' | 'aborted';
+
+/**
+ * One scheduled cycle: skip when the stored marker shows a run (by any pod)
+ * started within {@link RECENT_RUN_FRACTION} of `intervalMs` — republishing
+ * its gauges so this pod's dashboards stay populated — else run a full
+ * snapshot. Throws whatever {@link runStorageSnapshot} throws.
+ */
+export async function runStorageSnapshotCycle(opts: { intervalMs: number; signal?: AbortSignal }): Promise<SnapshotCycleOutcome> {
+  const meta = parse<SnapshotMeta>(await getStore().get(META_KEY));
+  // `runId` is the run's start, so this also covers a run that completed
+  // recently; judging by completion instead would push every run out by the
+  // previous run's duration.
+  if (meta && Date.now() - meta.runId < RECENT_RUN_FRACTION * opts.intervalMs) {
+    incCounter(SNAPSHOT_READS_COUNTER, { outcome: 'skipped_recent' });
+    publishSnapshotGauges(meta);
+    logger.debug('Storage snapshot cycle skipped — a run started recently', {
+      runId: new Date(meta.runId).toISOString(), intervalMs: opts.intervalMs,
+    });
+    return 'skipped_recent';
+  }
+  return (await runStorageSnapshot(opts)) ? 'ran' : 'aborted';
 }
 
 /** In-flight targeted refreshes, one per org; `again` coalesces a burst into one re-run. */
@@ -370,7 +457,9 @@ export function startStorageSnapshotScheduler(): void {
     intervalMs: cfg.intervalMs,
     startupDelayMs: cfg.startupDelayMs,
     // Not caught: a throw keeps the scheduler from stamping a success.
-    run: async ({ signal }) => { await runStorageSnapshot({ intervalMs: cfg.intervalMs, signal }); },
+    run: async ({ signal }) => { await runStorageSnapshotCycle({ intervalMs: cfg.intervalMs, signal }); },
+    // Another pod holds the lock: still report the fleet's last success.
+    onSkipped: () => republishSnapshotGauges(),
     ...(lockClient ? { lock: { redis: () => lockClient, key: LOCK_KEY, ttlMs: cfg.lockTtlMs } } : {}),
   });
   scheduler.start();
