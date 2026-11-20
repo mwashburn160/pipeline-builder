@@ -107,7 +107,9 @@ export function complianceApi(core: ApiCore) {
     },
 
     /** Validate pipeline attributes against compliance rules (dry-run) */
-    dryRunPipelineCompliance: async (attributes: BuilderProps | Record<string, unknown>, opts?: { signal?: AbortSignal }) => {
+    dryRunPipelineCompliance: async (props: BuilderProps, opts?: { signal?: AbortSignal }) => {
+      const { project, organization, pipelineName } = props;
+      const attributes = { project, organization, pipelineName, props };
       return core.request<ApiResponse<ComplianceCheckResult>>('/api/compliance/validate/pipeline/dry-run', {
         method: 'POST',
         body: JSON.stringify({ attributes }),
