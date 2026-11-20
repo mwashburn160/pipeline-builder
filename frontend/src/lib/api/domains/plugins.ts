@@ -22,7 +22,7 @@ import type {
 } from '@/types/plugin-security-notifications';
 import type {
   LibraryUpgradeLevel, PluginBatchActionResult, PluginDeleteAllResult, PluginDeletePreview, PluginRemediationDto,
-  PluginRemediationList, PluginRemediationListQuery, PluginRemediationSettingsView, PluginRemediationSettingsWrite,
+  PluginRemediationList, PluginRemediationListQuery, PluginRemediationSettings, PluginRemediationSettingsView, PluginRemediationSettingsWrite,
 } from '@/types/plugin-remediation';
 
 /**
@@ -623,7 +623,8 @@ export function pluginsApi(core: ApiCore) {
 
     /** Save them (`org_settings:write`); editable even while the operator knob is off. */
     updatePluginRemediationSettings: async (body: PluginRemediationSettingsWrite, opts?: ProposedByOptions) => {
-      return core.request<ApiResponse<PluginRemediationSettingsView>>('/api/plugins/remediation-settings', {
+      // The PUT answers only the saved settings, not the whole view.
+      return core.request<ApiResponse<{ settings: PluginRemediationSettings }>>('/api/plugins/remediation-settings', {
         method: 'PUT',
         body: JSON.stringify(body),
         headers: core.proposedByHeader(opts),
@@ -632,7 +633,7 @@ export function pluginsApi(core: ApiCore) {
 
     /** One plugin's own library upgrade level (`null` = Follow organization). `plugins:write`. */
     setPluginRemediationLevel: async (name: string, level: LibraryUpgradeLevel | null) => {
-      return core.request<ApiResponse<PluginRemediationSettingsView>>(`/api/plugins/by-name/${encodeURIComponent(name)}/remediation-level`, {
+      return core.request<ApiResponse<{ name: string; level: LibraryUpgradeLevel | null }>>(`/api/plugins/by-name/${encodeURIComponent(name)}/remediation-level`, {
         method: 'PUT',
         body: JSON.stringify({ level }),
       });

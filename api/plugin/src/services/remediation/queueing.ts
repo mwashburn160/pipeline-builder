@@ -57,7 +57,7 @@ import { removeQueuedRemediationJobs } from './cancel.js';
 import { auditRemediation, countStage, sendOwnerRequest } from './lifecycle.js';
 import { startTenantRollout } from './rollout.js';
 import {
-  elevatedTx, insertRemediation, liveRemediations, newestCleanOwnerVersion, readSettings, remediationExistsFor,
+  elevatedTx, insertRemediation, isRolloutStage, liveRemediations, newestCleanOwnerVersion, readSettings, remediationExistsFor,
   remediationsCreatedSince, updateRemediation,
 } from './store.js';
 import { remediationConfig } from '../../config.js';
@@ -337,7 +337,7 @@ async function sweepLive(result: QueuePassResult, deps: Pick<QueueDeps, 'discard
         continue;
       }
       // A rollout already under way moves to the owner's version instead (supersedes the open proposals).
-      if (ownerRow && (row.stage === 'published' || row.stage === 'rolling_out' || row.stage === 'needs_review')) {
+      if (ownerRow && isRolloutStage(row.stage)) {
         await startTenantRollout(row, { toVersion: owner, toPluginId: ownerRow.id });
       }
       continue;

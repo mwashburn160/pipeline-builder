@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { Wrench } from 'lucide-react';
 import { pipelineElectionAllowed, PIPELINE_REMEDIATION_ELECTIONS } from '@pipeline-builder/api-core/plugin-scan';
 import { SectionCard } from '@/components/ui/SectionCard';
-import { Badge, type BadgeColor } from '@/components/ui/Badge';
+import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Callout } from '@/components/ui/Callout';
 import { LoadingSpinner } from '@/components/ui/Loading';
@@ -18,19 +18,15 @@ import { useMutation } from '@/hooks/useMutation';
 import api from '@/lib/api';
 import { ApiError } from '@/lib/api/errors';
 import { formatError } from '@/lib/constants';
-import { PIPELINE_ELECTION_LABELS, PIPELINE_UPGRADE_STATE_LABELS } from '@/lib/plugin-remediation';
+import { PIPELINE_ELECTION_LABELS, pipelineUpgradeState } from '@/lib/plugin-remediation';
 import type {
   PipelineRemediationElection, PipelineRemediationUpgrades, PipelineRemediationUpgradeView,
 } from '@/types/plugin-remediation';
 
 const LOCK = 'Requires pipelines:write';
 
-const STATE_COLORS: Record<string, BadgeColor> = {
-  proposed: 'yellow', change_requested: 'yellow', queued: 'blue', moved: 'green', failed: 'red',
-  rolled_back: 'red', rollback_blocked: 'red', skipped_opt_out: 'gray', skipped_runner: 'gray', dismissed: 'gray', superseded: 'gray',
-};
-
-const ORG_MODE_WORDS: Record<string, string> = { off: 'Off', propose: 'Propose', apply: 'Apply' };
+/** An org or effective mode (off / propose / apply) in words; the election labels carry the same words. */
+const modeWords = (mode: string): string => (PIPELINE_ELECTION_LABELS as Record<string, string>)[mode] ?? mode;
 
 /** "fixes 3 Critical CVEs" from what the rollout sent, else plain words. */
 export function proposalFixText(u: PipelineRemediationUpgradeView): string {
@@ -50,7 +46,7 @@ function UpgradeLine({ u }: { u: PipelineRemediationUpgradeView }) {
     <span className="flex flex-wrap items-center gap-2">
       <span className="font-mono text-sm text-fg">{u.pluginPublisher ? `${u.pluginPublisher}/` : ''}{u.pluginName}</span>
       <span className="font-mono text-xs text-fg-muted">{u.fromVersion} → {u.toVersion}</span>
-      <Badge color={STATE_COLORS[u.state] ?? 'gray'}>{PIPELINE_UPGRADE_STATE_LABELS[u.state] ?? u.state}</Badge>
+      <Badge color={pipelineUpgradeState(u.state).color}>{pipelineUpgradeState(u.state).label}</Badge>
     </span>
   );
 }
@@ -128,10 +124,11 @@ export function RemediationUpgradesPanel({ pipelineId, canWrite, kevSteps = [], 
   };
 
   const upgrades = data?.upgrades ?? [];
-  const proposals = upgrades.filter((u) => u.state === 'proposed');
-  const changeRequests = upgrades.filter((u) => u.state === 'change_requested');
-  const waves = upgrades.filter((u) => u.state === 'queued' || u.state === 'moved' || u.state === 'skipped_runner');
-  const history = upgrades.filter((u) => u.state === 'rolled_back' || u.state === 'rollback_blocked' || u.state === 'failed');
+  const inSection = (section: string) => upgrades.filter((u) => pipelineUpgradeState(u.state).section === section);
+  const proposals = inSection('proposal');
+  const changeRequests = inSection('change_request');
+  const waves = inSection('wave');
+  const history = inSection('history');
   const skippedRunner = upgrades.filter((u) => u.state === 'skipped_runner').length;
 
   const optedOut = data?.effective.mode === 'off' && data.effective.source === 'pipeline';
@@ -174,7 +171,7 @@ export function RemediationUpgradesPanel({ pipelineId, canWrite, kevSteps = [], 
                 {PIPELINE_REMEDIATION_ELECTIONS.map((v) => (
                   <option key={v} value={v} disabled={v === 'apply' && !applyAllowed && data.election !== 'apply'}>
                     {v === 'inherit'
-                      ? `${PIPELINE_ELECTION_LABELS.inherit} (${ORG_MODE_WORDS[data.orgDefault] ?? data.orgDefault})`
+                      ? `${PIPELINE_ELECTION_LABELS.inherit} (${modeWords(data.orgDefault)})`
                       : v === 'apply' && !applyAllowed ? `${PIPELINE_ELECTION_LABELS.apply} (not allowed by your organization)` : PIPELINE_ELECTION_LABELS[v]}
                   </option>
                 ))}
@@ -190,9 +187,9 @@ export function RemediationUpgradesPanel({ pipelineId, canWrite, kevSteps = [], 
               </Button>
             </div>
             <p className="text-xs text-fg-muted" data-testid="remediation-org-default">
-              Organization default: {ORG_MODE_WORDS[data.orgDefault] ?? data.orgDefault}
+              Organization default: {modeWords(data.orgDefault)}
               {data.effective.source === 'team' ? ' (set by this team)' : data.effective.source === 'root' ? ' (set by the organization)' : ''}.
-              {' '}This pipeline: {ORG_MODE_WORDS[data.effective.mode] ?? data.effective.mode}.
+              {' '}This pipeline: {modeWords(data.effective.mode)}.
               {!applyAllowed && ' Your organization does not let pipelines choose Apply.'}
             </p>
             {data.effective.applyRefused && (

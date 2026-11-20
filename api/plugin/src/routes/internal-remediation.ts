@@ -34,7 +34,7 @@ import type { PluginRemediation } from '@pipeline-builder/pipeline-data';
 import { Router, type RequestHandler } from 'express';
 
 import { countStage } from '../services/remediation/lifecycle.js';
-import { getRemediation, updateRemediation } from '../services/remediation/store.js';
+import { isRolloutStage, lockedUpdateRemediation } from '../services/remediation/store.js';
 import { sendRemediationNotice } from '../services/remediation-notices.js';
 
 const C = PLUGIN_INTERNAL.reportRemediationRollout;
@@ -54,27 +54,29 @@ export interface RolloutReport {
 
 /** Apply one report to its remediation (exported for tests). Null = unknown remediation. */
 export async function applyRolloutReport(remediationId: string, report: RolloutReport): Promise<PluginRemediation | null> {
-  const row = await getRemediation(remediationId);
-  if (!row) return null;
-  const prev = (row.rollout ?? null) as StoredRollout | null;
-  const seen = new Set(prev?.eventKeys ?? []);
-  const fresh = report.events.filter((e) => !seen.has(`${e.pipelineId}|${e.kind}|${e.at}`));
-  for (const e of fresh) seen.add(`${e.pipelineId}|${e.kind}|${e.at}`);
-  const rolledBack = new Set(prev?.rolledBackPipelineIds ?? []);
-  for (const e of fresh) if (e.kind === 'rolled_back') rolledBack.add(e.pipelineId);
+  // Under the row lock: a redelivered report racing the original sees the event keys it stored.
+  const applied = await lockedUpdateRemediation(remediationId, (row) => {
+    const prev = (row.rollout ?? null) as StoredRollout | null;
+    const seen = new Set(prev?.eventKeys ?? []);
+    const fresh = report.events.filter((e) => !seen.has(`${e.pipelineId}|${e.kind}|${e.at}`));
+    for (const e of fresh) seen.add(`${e.pipelineId}|${e.kind}|${e.at}`);
+    const rolledBack = new Set(prev?.rolledBackPipelineIds ?? []);
+    for (const e of fresh) if (e.kind === 'rolled_back') rolledBack.add(e.pipelineId);
 
-  const rollout: StoredRollout = { ...report.summary, eventKeys: [...seen].slice(-MAX_EVENT_KEYS), rolledBackPipelineIds: [...rolledBack].slice(0, 1_000) };
-  const status = report.summary.status;
-  const live = row.stage === 'published' || row.stage === 'rolling_out' || row.stage === 'needs_review';
-  let stage = row.stage;
-  if (live && status === 'done') stage = 'done';
-  else if (live && status === 'paused') stage = 'needs_review';
-  else if (row.stage === 'published' && (status === 'pending' || status === 'canary' || status === 'batches')) stage = 'rolling_out';
-
-  const updated = (await updateRemediation(row.id, {
-    rollout: rollout as RemediationRolloutSummary,
-    ...(stage !== row.stage ? { stage, ...(stage === 'done' ? { finishedAt: new Date() } : {}) } : {}),
-  })) ?? row;
+    const rollout: StoredRollout = { ...report.summary, eventKeys: [...seen].slice(-MAX_EVENT_KEYS), rolledBackPipelineIds: [...rolledBack].slice(0, 1_000) };
+    const status = report.summary.status;
+    const live = isRolloutStage(row.stage);
+    let stage = row.stage;
+    if (live && status === 'done') stage = 'done';
+    else if (live && status === 'paused') stage = 'needs_review';
+    else if (row.stage === 'published' && (status === 'pending' || status === 'canary' || status === 'batches')) stage = 'rolling_out';
+    return {
+      patch: { rollout: rollout as RemediationRolloutSummary, ...(stage !== row.stage ? { stage, ...(stage === 'done' ? { finishedAt: new Date() } : {}) } : {}) },
+      result: { fresh, stage },
+    };
+  });
+  if (!applied) return null;
+  const { before: row, row: updated, result: { fresh, stage } } = applied;
   if (stage !== row.stage) countStage(stage, stage === 'done' ? updated.outcome : null);
 
   const base = { orgId: row.orgId, remediationId: row.id, pluginName: row.pluginName, fromVersion: row.fromVersion, toVersion: row.toVersion };

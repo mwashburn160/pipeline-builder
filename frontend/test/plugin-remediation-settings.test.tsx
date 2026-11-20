@@ -59,6 +59,20 @@ describe('PluginRemediationSettings', () => {
     expect(toast.success).toHaveBeenCalled();
   });
 
+  it('keeps the view after a save that answers only { settings } (the server PUT shape)', async () => {
+    getSettings.mockResolvedValue({ success: true, data: view({ isTeam: true, settings: { ...SETTINGS, rollout: 'inherit' }, root: { rollout: 'apply', allowPipelineApply: false } }) });
+    updateSettings.mockImplementation(async () => ({ success: true, data: { settings: { ...SETTINGS, mode: 'apply', rollout: 'inherit' } } }));
+    renderCard();
+    await screen.findByTestId('plugin-remediation-settings');
+    fireEvent.change(screen.getByLabelText('Fix building'), { target: { value: 'apply' } });
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(toast.success).toHaveBeenCalled());
+    expect(screen.getByTestId('remediation-severities').textContent).toBe('Critical and High');
+    expect(screen.getByTestId('root-allow-apply').textContent).toMatch(/no \(set by the root organization\)/);
+    expect((screen.getByLabelText('Fix building') as HTMLSelectElement).value).toBe('apply');
+    expect(saveButton()).toBeDisabled();
+  });
+
   it('sends null to clear a per-type override and a level to add one', async () => {
     renderCard();
     await screen.findByTestId('plugin-remediation-settings');

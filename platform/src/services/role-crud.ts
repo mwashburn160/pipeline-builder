@@ -41,6 +41,7 @@ import {
 import { recomputeUserOrgRole } from './roles-service.js';
 import type { RoleWithMembers } from './roles-service.js';
 import { toOrgId } from '../helpers/org-id.js';
+import { isSameId } from '../helpers/same-id.js';
 import { publishUserRevocation, publishUsersRevocation } from '../helpers/session-revocation.js';
 import { Role, RoleAssignment, User, UserOrganization } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
@@ -614,7 +615,7 @@ export async function removeUserFromRole(
     // no-op remove of a non-member must not trip the guards.
     if (role.grantsRole !== 'member' && await RoleAssignment.exists({ userId, roleId }).session(session)) {
       // Self-removal from a Role granting your own admin/superadmin.
-      if (opts.actorUserId && String(opts.actorUserId) === String(userId)) {
+      if (isSameId(opts.actorUserId, userId)) {
         throw new Error(RL_CANNOT_REMOVE_SELF);
       }
       // The owner keeps the built-in Admin Role for as long as they own the org.

@@ -17,7 +17,7 @@ import { Router } from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import { MAX_REPORT_LIMIT, MAX_REPORT_RANGE_MS, parseReportBucket, scrubField, rollupIds } from '../helpers/report-helpers.js';
 import { resolveReportScope } from '../helpers/report-scope.js';
-import { orgRetentionWindowFromSettings, floorFrom, retentionOrgIdFor, resolveOrgRetentionWindow } from '../helpers/retention-cap.js';
+import { cutRange, orgRetentionWindowFromSettings, retentionOrgIdFor } from '../helpers/retention-cap.js';
 
 /**
  * `?compare=previous` on the dashboard headline routes (/dora, /success-rate):
@@ -103,18 +103,19 @@ export function createExecutionReportRoutes(): Router {
     if ('error' in bucket) return sendBadRequest(res, bucket.error, ErrorCode.VALIDATION_ERROR);
     const scope = await resolveReportScope(req, orgId, 'event');
     if ('error' in scope) return sendBadRequest(res, scope.error, ErrorCode.VALIDATION_ERROR);
-    const { range, orgIds } = scope;
+    const { range, orgIds, minFromMs } = scope;
     const compare = parseCompare(req.query);
     if (typeof compare === 'object') return sendBadRequest(res, compare.error, ErrorCode.VALIDATION_ERROR);
-    const timeline = reportingService.getSuccessRate(orgId, interval, range.from, range.to, orgIds, bucket);
-    if (!compare) return sendSuccess(res, 200, { timeline: await timeline });
+    if (!compare) {
+      return sendSuccess(res, 200, { timeline: await reportingService.getSuccessRate(orgId, interval, range.from, range.to, orgIds, bucket) });
+    }
     // `?compare=previous`: the same figures for the equal-length window just
     // before (advanced_reporting — enforced by compareGate on this route), or
-    // `previous: null` when that window starts before the event retention horizon.
-    const win = await resolveOrgRetentionWindow(orgId, 'event', retentionOrgIdFor(req, orgId));
-    const prev = comparableWindow(range, win.minFromMs);
+    // `previous: null` when that window starts before the event retention horizon
+    // (the same floor the range was cut against).
+    const prev = comparableWindow(range, minFromMs);
     const [current, previous] = await Promise.all([
-      timeline,
+      reportingService.getSuccessRate(orgId, interval, range.from, range.to, orgIds, bucket),
       prev ? reportingService.getSuccessRate(orgId, interval, prev.from, prev.to, orgIds, bucket) : Promise.resolve(null),
     ]);
     sendSuccess(res, 200, { timeline: current, previous: prev && previous ? { window: prev, timeline: previous } : null });
@@ -169,11 +170,10 @@ export function createExecutionReportRoutes(): Router {
       rollupIds(req, orgId),
     ]);
     const win = orgRetentionWindowFromSettings(settings, 'dora');
-    const parsed = parseDateRange(req.query, { maxRangeMs: win.maxRangeMs });
-    if ('error' in parsed) return sendBadRequest(res, parsed.error, ErrorCode.VALIDATION_ERROR);
-    // Floor `from` at the retention horizon so the returned dora.window reflects
-    // the clamp (frontend truncation banner); unlimited (`minFromMs=0`) = no floor.
-    const range = floorFrom(parsed, win.minFromMs);
+    // `from` is floored at the retention horizon so the returned dora.window
+    // reflects the clamp (frontend truncation banner); unlimited = no floor.
+    const range = cutRange(req.query, win);
+    if ('error' in range) return sendBadRequest(res, range.error, ErrorCode.VALIDATION_ERROR);
     const { incidentWindowHours } = settings;
     const compare = parseCompare(req.query);
     if (typeof compare === 'object') return sendBadRequest(res, compare.error, ErrorCode.VALIDATION_ERROR);
@@ -207,9 +207,8 @@ export function createExecutionReportRoutes(): Router {
       rollupIds(req, orgId),
     ]);
     const win = orgRetentionWindowFromSettings(settings, 'dora');
-    const parsed = parseDateRange(req.query, { maxRangeMs: win.maxRangeMs });
-    if ('error' in parsed) return sendBadRequest(res, parsed.error, ErrorCode.VALIDATION_ERROR);
-    const range = floorFrom(parsed, win.minFromMs);
+    const range = cutRange(req.query, win);
+    if ('error' in range) return sendBadRequest(res, range.error, ErrorCode.VALIDATION_ERROR);
     sendSuccess(res, 200, {
       trend: await reportingService.getDoraTrend(orgId, interval, range.from, range.to, orgIds, {
         ...doraOptions(req),

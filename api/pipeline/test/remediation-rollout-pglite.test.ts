@@ -256,6 +256,17 @@ describe('start: who is proposed, queued or skipped', () => {
     expect(moveCalls).toEqual([]);
   });
 
+  it('a team never moves the install it inherits from its root: it gets a proposal', async () => {
+    await settings(ROOT, { rollout: 'apply' });
+    const teamPipe = await pipelineOn(TEAM, { root: ROOT });
+    plans.set(teamPipe, { kind: 'install_pin', steps: [], install: { id: 'root-inst', orgId: ROOT, gated: false } });
+    const rem = randomUUID();
+    await engine.start(rem, startBody());
+    expect((await stateOf(rem))[teamPipe]).toBe('proposed');
+    await engine.tick();
+    expect(moveCalls).toEqual([]);
+  });
+
   it('is idempotent per remediation, and a new toVersion re-targets the open rows', async () => {
     const p = await pipelineOn(ROOT);
     const rem = randomUUID();
@@ -499,6 +510,44 @@ describe('the rollback target (real SQL)', () => {
       [ROOT, p, PLUGIN, FROM, ['CVE-2026-9999|openssl|3.0.0']],
     ));
     expect(await checkRollbackTarget(row(p), null)).toEqual({ ok: true });
+  });
+});
+
+describe('superseded rows', () => {
+  it('a pipeline deleted mid-rollout is superseded without reporting the rollout cancelled', async () => {
+    await settings(ROOT, { rollout: 'apply' });
+    const ids: string[] = [];
+    for (let i = 0; i < 6; i += 1) ids.push(await pipelineOn(ROOT));
+    const rem = randomUUID();
+    await engine.start(rem, startBody());
+    await engine.tick();
+    const queued = (await loadRows(rem)).find((r) => r.state === 'queued')!;
+    await owner((q) => q.query('UPDATE pipelines SET deleted_at = now() WHERE id = $1', [queued.pipelineId]));
+    await finishRuns(rem);
+    advance(60_000);
+    await engine.tick();
+    const rows = await loadRows(rem);
+    expect(rows.find((r) => r.id === queued.id)).toMatchObject({ state: 'superseded', error: 'pipeline_deleted' });
+    expect(summarize(rows, TO, await runStates(rem), clock).status).toBe('done');
+  });
+});
+
+describe('applyProposal', () => {
+  it('never moves a listing install for a caller who may not change installs', async () => {
+    const p = await pipelineOn(ROOT);
+    const install = { id: 'inst-1', orgId: ROOT, gated: false };
+    plans.set(p, { kind: 'step_pin', steps: [{ stepKey: 'Build/trivy' } as never], install });
+    const seen: Array<unknown> = [];
+    const spy = createRolloutEngine({ ...deps, move: async (input) => { seen.push(input.plan.install); return deps.move(input); } });
+    const rem = randomUUID();
+    await spy.start(rem, startBody());
+    const [row] = await loadRows(rem);
+    const pipeline = (await engineModule.loadPipeline(p))!;
+    expect((await spy.applyProposal(row!, pipeline, { userId: 'u1', requestedBy: 'u1' }, null)).ok).toBe(true);
+    expect(seen).toEqual([null]);
+    await owner((q) => q.query('UPDATE pipeline_remediation_upgrades SET state = \'proposed\' WHERE id = $1', [row!.id]));
+    await spy.applyProposal(row!, pipeline, { userId: 'u1', requestedBy: 'u1' }, null, { moveInstall: true });
+    expect(seen).toEqual([null, install]);
   });
 });
 

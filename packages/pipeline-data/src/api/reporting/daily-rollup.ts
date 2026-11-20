@@ -26,7 +26,7 @@
 
 import { createLogger, errorMessage, envInt, startOf } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
-import { nonOutcomeStatusList, notOvertaken } from './sql-helpers.js';
+import { failedStatusList, nonOutcomeStatusList, notOvertaken, succeededStatusList } from './sql-helpers.js';
 import { affectedRowCount } from '../../database/pg-result.js';
 import { runWithTenantContext, withTenantTx } from '../../database/tenancy.js';
 
@@ -116,8 +116,8 @@ export async function rebuildDay(day: Date): Promise<number> {
       SELECT
         org_id, pipeline_id, stage_name,
         COUNT(*)::int AS runs,
-        COUNT(*) FILTER (WHERE status IN ('SUCCEEDED', 'SUCCESS'))::int AS succeeded,
-        COUNT(*) FILTER (WHERE status IN ('FAILED', 'FAILURE', 'ERROR', 'TIMED_OUT'))::int AS failed,
+        COUNT(*) FILTER (WHERE status IN (${succeededStatusList}))::int AS succeeded,
+        COUNT(*) FILTER (WHERE status IN (${failedStatusList}))::int AS failed,
         -- NULL durations are ignored by PERCENTILE_CONT, which is what we want: an
         -- event with no duration has no timing to contribute, and treating it as
         -- zero would drag every percentile down.

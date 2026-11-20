@@ -544,6 +544,16 @@ describe('exportOrg', () => {
     expect(select).toHaveBeenCalledWith('-keyHash');
   });
 
+  it('never exports an IdP config\'s client secret (encrypted or not), keeping the rest of the row', async () => {
+    const select = jest.fn((..._args: unknown[]) => findChain([{ entityId: 'idp' }]));
+    mongoFinds.orgIdpConfig.mockReturnValue({ select } as never);
+
+    const dump = await exportOrg('org-acme', '000000000000000000000001');
+
+    expect(select).toHaveBeenCalledWith('-clientSecretEncrypted');
+    expect(dump.mongo.idpConfigs).toHaveLength(1);
+  });
+
   it('never exports an invitation token hash (the plaintext token is never stored)', async () => {
     const select = jest.fn((..._args: unknown[]) => findChain([{ email: 'a@acme.test' }]));
     mockInvitationFind.mockReturnValue({ select } as never);

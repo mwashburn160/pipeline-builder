@@ -111,6 +111,26 @@ export const NON_OUTCOME_EVENT_STATUSES = ['STARTED', 'RESUMED', 'IN_PROGRESS', 
 export const nonOutcomeStatusList = sql.join(NON_OUTCOME_EVENT_STATUSES.map((s) => sql`${s}`), sql`, `);
 
 /**
+ * Statuses an event row uses for "this finished, and it worked" (CodePipeline's
+ * SUCCEEDED, and SUCCESS from producers that spell it that way).
+ */
+export const SUCCEEDED_EVENT_STATUSES = ['SUCCEEDED', 'SUCCESS'] as const;
+
+/**
+ * Statuses an event row uses for "this run FAILED": what the daily rollup
+ * counts as a failed run and what the failure classifier labels. A cancelled or
+ * stopped run is not a failure here (nothing broke); see deploy-rollup for the
+ * deploy-outcome rule, which deliberately counts those as failed deploys.
+ */
+export const FAILED_EVENT_STATUSES = ['FAILED', 'FAILURE', 'ERROR', 'TIMED_OUT'] as const;
+
+/** {@link SUCCEEDED_EVENT_STATUSES} as a SQL list, for `status IN (…)`. */
+export const succeededStatusList = sql.join(SUCCEEDED_EVENT_STATUSES.map((s) => sql`${s}`), sql`, `);
+
+/** {@link FAILED_EVENT_STATUSES} as a SQL list, for `status IN (…)`. */
+export const failedStatusList = sql.join(FAILED_EVENT_STATUSES.map((s) => sql`${s}`), sql`, `);
+
+/**
  * True for an event row that NO LATER terminal event of the same execution has
  * overtaken. Assumes the outer event alias is `e`.
  *

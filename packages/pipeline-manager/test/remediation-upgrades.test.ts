@@ -216,6 +216,14 @@ describe('pipeline deploy', () => {
     expect(mockRunDeploy).not.toHaveBeenCalled();
   });
 
+  it('refuses the flag with --show-resolved (a print-and-exit run never writes the pipeline)', async () => {
+    const err = await run(deploy, ['deploy', '--id', 'pipe-1', '--show-resolved', '--remediation-upgrades', 'off']);
+    expect(err).toBeInstanceOf(ExitError);
+    expect(requests).toEqual([]);
+    expect(mockFetchPipelineProps).not.toHaveBeenCalled();
+    expect(text()).toMatch(/--remediation-upgrades.*--show-resolved/);
+  });
+
   it('refuses the flag with --local-spec (no platform to store it)', async () => {
     const spec = file('local.json', { id: 'pipe-local', props: definition });
     const err = await run(deploy, ['deploy', '--local-spec', spec, '--toolchain-file', 'tc.json', '--remediation-upgrades', 'off']);

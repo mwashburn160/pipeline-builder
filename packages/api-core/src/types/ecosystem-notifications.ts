@@ -53,14 +53,14 @@ export interface EcosystemEventSpec {
   channels: readonly EcosystemNotificationChannel[];
   /**
    * Email opt-out key, or `null` when the email is TRANSACTIONAL / security
-   * (N1, N3–N5, N7–N10, N18–N23, N25, N28–N34, N36–N40 can't be turned off).
+   * (N1, N3–N5, N7–N10, N18–N23, N25, N28–N34, N36–N41 can't be turned off).
    */
   preference: EcosystemEmailPreference | null;
   /** When the email is batched rather than immediate, its cadence. */
   digest?: EcosystemDigestCadence;
   /** Allowed to address a raw email: the anonymous SUBMITTER (the
    *  transactional submission notices) and an org's VERIFIED external
-   *  security address (the plugin security notices N30–N33). */
+   *  security address (the plugin security notices N30–N33, N36–N39, N41). */
   allowsAddress?: boolean;
 }
 
@@ -141,6 +141,12 @@ export type EcosystemNotificationEventId = keyof typeof EVENTS;
 
 /** The notification event table, as data. */
 export const ECOSYSTEM_NOTIFICATION_EVENTS: Readonly<Record<EcosystemNotificationEventId, EcosystemEventSpec>> = EVENTS;
+
+/** `N1..N<last>` for the relay's 400, derived from the table so it never goes stale. */
+const EVENT_RANGE_LABEL = (() => {
+  const ids = Object.keys(EVENTS);
+  return `${ids[0]}..${ids[ids.length - 1]}`;
+})();
 
 /** Whether `value` is a notification event number. */
 export function isEcosystemNotificationEvent(value: unknown): value is EcosystemNotificationEventId {
@@ -268,7 +274,7 @@ function parseRecipient(raw: unknown, spec: EcosystemEventSpec): EcosystemRecipi
 export function parseEcosystemNotifyRequest(body: unknown): EcosystemNotifyRequest | string {
   if (!body || typeof body !== 'object') return 'body must be an object';
   const b = body as Record<string, unknown>;
-  if (!isEcosystemNotificationEvent(b.event)) return 'event must be one of N1..N41';
+  if (!isEcosystemNotificationEvent(b.event)) return `event must be one of ${EVENT_RANGE_LABEL}`;
   const spec = ECOSYSTEM_NOTIFICATION_EVENTS[b.event];
   if (!nonEmptyString(b.subject, ECOSYSTEM_NOTIFY_SUBJECT_MAX)) return `subject is required (max ${ECOSYSTEM_NOTIFY_SUBJECT_MAX})`;
   if (!nonEmptyString(b.text, ECOSYSTEM_NOTIFY_TEXT_MAX)) return `text is required (max ${ECOSYSTEM_NOTIFY_TEXT_MAX})`;

@@ -206,6 +206,13 @@ describe('org purge', () => {
     expect(names('pipeline')).toContain('pipeline_remediation_upgrades');
   });
 
+  it('keeps object keys out of the org export: plugins.source_key and the remediation patch/export keys are secret', () => {
+    const secret = (o: keyof typeof ORG_DATA_OWNERSHIP, name: string) =>
+      [...ORG_DATA_OWNERSHIP[o].soft, ...ORG_DATA_OWNERSHIP[o].hard].find((t) => t.name === name)!.secretColumns ?? [];
+    expect(secret('plugin', 'plugins')).toEqual(expect.arrayContaining(['source_key']));
+    expect(secret('plugin', 'plugin_remediations')).toEqual(expect.arrayContaining(['findings_hash', 'patch_key', 'export_key']));
+  });
+
   it('removes the purged org\'s remediation rows, settings and orphans, and nobody else\'s', async () => {
     const PURGED = `purged-${randomUUID().slice(0, 8)}`;
     const KEPT = `kept-${randomUUID().slice(0, 8)}`;

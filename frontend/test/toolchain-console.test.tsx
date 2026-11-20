@@ -238,9 +238,29 @@ describe('Toolchain console: access', () => {
 
 describe('Toolchain console: Toolchain fixes', () => {
   it('shows the Toolchain fixes card on the Releases tab to a system-org plugins:write holder', async () => {
-    asOperator({ can: (p: string) => p === 'toolchain:operate' || p === 'plugins:write' });
+    asOperator({
+      user: { id: 'op-1', organizationId: SYSTEM_ORG, permissions: ['toolchain:operate', 'plugins:write'] },
+      can: (p: string) => p === 'toolchain:operate' || p === 'plugins:write',
+    });
     await renderConsole();
     expect(await screen.findByTestId('toolchain-fixes')).toHaveTextContent('Toolchain fixes');
+    expect(fns.listToolchainFixes).toHaveBeenCalled();
+  });
+
+  it('a read-only session with plugins:write still reads the fixes, with Approve and Reject locked', async () => {
+    fns.listToolchainFixes.mockImplementation(() => ok({ fixes: [{
+      id: 'fx-1', fromRelease: '1.4.1', toRelease: '1.4.2', stage: 'awaiting_approval', createdAt: '2026-11-19T00:00:00Z', decidedBy: null, error: null,
+      cleared: [], toolchain: null, digests: null, baseImage: null, sourceDigest: null, hasExport: false, publishing: null,
+    }], enabled: true, mode: 'propose' }));
+    // The real can() folds the read-only session: every mutation permission answers false.
+    asOperator({
+      isReadOnly: true,
+      user: { id: 'op-1', organizationId: SYSTEM_ORG, permissions: ['toolchain:operate', 'plugins:write'] },
+      can: (p: string) => p === 'toolchain:operate',
+    });
+    await renderConsole();
+    expect(await screen.findByRole('button', { name: 'Approve 1.4.2' })).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByRole('button', { name: 'Reject 1.4.2' })).toHaveAttribute('aria-disabled', 'true');
     expect(fns.listToolchainFixes).toHaveBeenCalled();
   });
 

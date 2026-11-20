@@ -40,6 +40,7 @@ import { ToolchainHistoryPanel } from '@/components/toolchain/ToolchainHistoryPa
 import { ToolchainReleasesPanel } from '@/components/toolchain/ToolchainReleasesPanel';
 import { isSystemOrgActive } from '@/lib/ecosystem-access';
 import api from '@/lib/api';
+import { hasPermission } from '@/lib/auth-helpers';
 import { formatError } from '@/lib/constants';
 
 const TABS = [
@@ -73,8 +74,10 @@ export default function ToolchainConsolePage() {
 
   // The read gate admitted the viewer; a write also needs a writable session.
   const canWrite = can('toolchain:operate') && !isReadOnly;
-  // The Toolchain fixes card's routes are system org + plugins:write.
-  const canReviewFixes = can('plugins:write');
+  // The Toolchain fixes card's routes are system org + plugins:write. The read is a GET, which a read-only
+  // session may still make, so the read gate is the raw permission (can() reports false for every mutation
+  // permission in a read-only session); approve / reject also need a writable session.
+  const canReviewFixes = hasPermission(user, 'plugins:write');
   const view = releases.data;
   // The per-release panels default to the canary, else the newest release.
   const selected = picked ?? view?.releases.find((r) => r.status === 'canary')?.releaseVersion ?? view?.releases[0]?.releaseVersion ?? null;

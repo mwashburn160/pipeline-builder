@@ -379,6 +379,7 @@ services:
       # was ended; without it impersonation tokens are rejected.
       <<: [*common-env, *server-env, *redis-env, *ai-env, *tunables-env]
       SERVICE_NAME: ask-agent
+      ASK_DRAFT_OUTCOME_RATE_LIMIT_PER_MIN: ${ASK_DRAFT_OUTCOME_RATE_LIMIT_PER_MIN:-}
     volumes:
       - *service-key-bundle
       - *dev-ca

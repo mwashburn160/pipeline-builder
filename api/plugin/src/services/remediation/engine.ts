@@ -33,6 +33,7 @@ import path from 'path';
 
 import {
   chooseFixVersion,
+  comparePackageVersions,
   effectiveLibraryUpgradeLevel,
   errorMessage,
   GRYPE_PACKAGE_TYPE_CATALOG,
@@ -145,6 +146,16 @@ interface Stage1Result { ref: ImageRef; version: string; gated: GatedScan; verif
 
 const RANK: Record<LibraryUpgradeLevel, number> = { patch: 0, minor: 1, major: 2 };
 const keyOf = (f: Pick<PluginScanFinding, 'purl' | 'packageType' | 'packageName' | 'packageVersion'>): string => f.purl || `${f.packageType}:${f.packageName}@${f.packageVersion}`;
+
+/**
+ * Whether a package's chosen fix is a real upgrade: a fixed version strictly
+ * above the installed one (by the package type's own ordering). A multi-branch
+ * advisory can list only fixes on older release lines; pinning one of those is
+ * a downgrade, never a patch.
+ */
+export function isUpgradeFix(c: Pick<PackageFixChoice, 'fixVersion' | 'installedVersion' | 'packageType'>): c is typeof c & { fixVersion: string } {
+  return !!c.fixVersion && comparePackageVersions(c.fixVersion, c.installedVersion, c.packageType) > 0;
+}
 
 /** The plugin contract a version's stored record carries. */
 export function contractOfRecord(r: PluginRecordData): PluginContractShape {
@@ -321,7 +332,8 @@ export async function runRemediationEngine(input: EngineInput, ports: Remediatio
     const dockerfileRel = source?.dockerfile ?? 'Dockerfile';
     for (const c of choices) {
       const findings = targets.filter((f) => keyOf(f) === c.purl);
-      if (!c.fixVersion) { for (const f of findings) out.remaining.push(remainingOf(f, 'no_fix')); continue; }
+      // Never a downgrade (or same-version) pin: a fix not strictly above what is installed is no fix.
+      if (!isUpgradeFix(c)) { for (const f of findings) out.remaining.push(remainingOf(f, 'no_fix')); continue; }
       const level = effectiveLibraryUpgradeLevel(input.settings, c.packageType, plugin.name);
       const requirement = libraryUpgradeRequirement(c.installedVersion, c.fixVersion, c.packageType);
       if (requirement === 'owner') { for (const f of findings) out.remaining.push(remainingOf(f, 'go_module_major', { requiredLevel: 'owner' })); continue; }

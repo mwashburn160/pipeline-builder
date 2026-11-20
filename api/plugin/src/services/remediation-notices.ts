@@ -48,6 +48,7 @@ import {
   type RemediationClearedFinding,
   type RemediationProposeReason,
   type RemediationRemainingFinding,
+  type RemediationRolloutPauseReason,
   type RemediationRolloutSummary,
 } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
@@ -64,6 +65,7 @@ import {
   pipelineOwnerRecipients,
   prefsStore,
   recipientsFor,
+  releaseNotices,
   sendWebhook,
   type SecurityPrefs,
   type SecurityWebhookPayload,
@@ -189,6 +191,13 @@ const PROPOSE_REASON_TEXT: Record<RemediationProposeReason, string> = {
   ask_agent_patch: 'the patch was drafted by the Ask agent',
 };
 
+/** Why a rollout paused, as the N37 notice says it. */
+const PAUSE_REASON_TEXT: Record<RemediationRolloutPauseReason, string> = {
+  canary_failed: 'a canary pipeline failed on a step using the new version',
+  rollbacks: 'two pipelines were rolled back',
+  rollback_target_deleted: 'a pipeline could not be rolled back because its previous version was deleted',
+};
+
 async function relay(event: 'N36' | 'N37' | 'N38' | 'N39' | 'N40', recipients: EcosystemRecipientSpec[], content: { subject: string; text: string }, opts: EnqueueOptions): Promise<boolean> {
   if (recipients.length === 0) return false;
   for (let i = 0; i < recipients.length; i += RECIPIENT_CHUNK) {
@@ -197,9 +206,14 @@ async function relay(event: 'N36' | 'N37' | 'N38' | 'N39' | 'N40', recipients: E
   return true;
 }
 
-/** Whether `member` under `key` is new (and claims it). */
-async function firstTime(key: string, member: string): Promise<boolean> {
-  return (await claimNewNotices(key, [member], REMEDIATION_NOTICE_DEDUPE_TTL_MS)).length > 0;
+/** The dedupe claims one send made, given back when the send fails ({@link sendRemediationNotice}). */
+type Claims = Array<{ key: string; member: string }>;
+
+/** Whether `member` under `key` is new (and claims it, recording the claim in `claims`). */
+async function firstTime(claims: Claims, key: string, member: string): Promise<boolean> {
+  const fresh = (await claimNewNotices(key, [member], REMEDIATION_NOTICE_DEDUPE_TTL_MS)).length > 0;
+  if (fresh) claims.push({ key, member });
+  return fresh;
 }
 
 function webhookBase(n: RemediationNoticeBase, prefs: SecurityPrefs, content: { subject: string; text: string }): Omit<SecurityWebhookPayload, 'event' | 'type'> {
@@ -240,10 +254,7 @@ export function renderRollout(n: RolloutNotice): { subject: string; text: string
   const s = n.summary;
   const ref = `${n.pluginName} ${s.toVersion}`;
   const paused = s.status === 'paused';
-  const why = s.pausedReason === 'canary_failed' ? 'a canary pipeline failed on a step using the new version'
-    : s.pausedReason === 'rollbacks' ? 'two pipelines were rolled back'
-      : s.pausedReason === 'rollback_target_deleted' ? 'a pipeline could not be rolled back because its previous version was deleted'
-        : null;
+  const why = s.pausedReason ? PAUSE_REASON_TEXT[s.pausedReason] ?? null : null;
   const subject = paused ? `Rollout paused: ${ref}` : `Rollout finished: ${ref}`;
   const c = s.counts;
   const text = (paused
@@ -308,9 +319,9 @@ export function renderPublisherFixRequest(ref: string, n: PublisherFixRequestNot
 // Senders
 // -----------------------------------------------------------------------------
 
-async function sendFixPublished(n: FixPublishedNotice): Promise<void> {
+async function sendFixPublished(n: FixPublishedNotice, claims: Claims): Promise<void> {
   const stage = n.awaitingApproval ? 'awaiting_approval' : 'published';
-  if (!(await firstTime(`plugin-security:n36:${n.remediationId}`, `${stage}|${n.toVersion ?? ''}`))) return deduped('N36');
+  if (!(await firstTime(claims, `plugin-security:n36:${n.remediationId}`, `${stage}|${n.toVersion ?? ''}`))) return deduped('N36');
   const prefs = await prefsStore.get(n.orgId);
   const content = renderFixPublished(n);
   await relay('N36', await recipientsFor(prefs, n.uploaderId), content, digestOptions(prefs, 'N36'));
@@ -331,9 +342,9 @@ async function sendFixPublished(n: FixPublishedNotice): Promise<void> {
   incCounter('plugin_security_notifications_total', { event: 'N36' });
 }
 
-async function sendRollout(n: RolloutNotice): Promise<void> {
+async function sendRollout(n: RolloutNotice, claims: Claims): Promise<void> {
   if (n.summary.status !== 'done' && n.summary.status !== 'paused') return;
-  if (!(await firstTime(`plugin-security:n37:${n.remediationId}`, `${n.summary.status}|${n.summary.updatedAt}`))) return deduped('N37');
+  if (!(await firstTime(claims, `plugin-security:n37:${n.remediationId}`, `${n.summary.status}|${n.summary.updatedAt}`))) return deduped('N37');
   const others = [...new Set((n.affectedOrgIds ?? []).map((o) => o.toLowerCase()))];
   const prefsByOrg = await prefsStore.many([n.orgId, ...others]);
   const prefs = prefsByOrg.get(n.orgId) ?? defaultPrefs(n.orgId);
@@ -354,8 +365,8 @@ async function sendRollout(n: RolloutNotice): Promise<void> {
   incCounter('plugin_security_notifications_total', { event: 'N37' });
 }
 
-async function sendRollback(n: RollbackNotice): Promise<void> {
-  if (!(await firstTime(`plugin-security:n38:${n.remediationId}`, `${n.pipelineId}|${n.kind}|${n.at}`))) return deduped('N38');
+async function sendRollback(n: RollbackNotice, claims: Claims): Promise<void> {
+  if (!(await firstTime(claims, `plugin-security:n38:${n.remediationId}`, `${n.pipelineId}|${n.kind}|${n.at}`))) return deduped('N38');
   const prefs = await prefsStore.get(n.pipelineOrgId);
   if (!prefs.notifyPipelineOwners) return;
   const content = renderRollback(n);
@@ -370,9 +381,9 @@ async function sendRollback(n: RollbackNotice): Promise<void> {
   incCounter('plugin_security_notifications_total', { event: 'N38' });
 }
 
-async function sendOwnerRequest(n: OwnerRequestNotice): Promise<void> {
+async function sendOwnerRequest(n: OwnerRequestNotice, claims: Claims): Promise<void> {
   if (n.remaining.length === 0) return;
-  if (!(await firstTime(`plugin-security:n39:${n.remediationId}`, sha(remediationFindingsKey(n.remaining))))) return deduped('N39');
+  if (!(await firstTime(claims, `plugin-security:n39:${n.remediationId}`, sha(remediationFindingsKey(n.remaining))))) return deduped('N39');
   const prefs = await prefsStore.get(n.orgId);
   const content = renderOwnerRequest(n);
   await relay('N39', await recipientsFor(prefs, n.uploaderId), content, digestOptions(prefs, 'N39'));
@@ -392,7 +403,7 @@ async function sendOwnerRequest(n: OwnerRequestNotice): Promise<void> {
   incCounter('plugin_security_notifications_total', { event: 'N39' });
 }
 
-async function sendPublisherFixRequestNotice(n: PublisherFixRequestNotice): Promise<void> {
+async function sendPublisherFixRequestNotice(n: PublisherFixRequestNotice, claims: Claims): Promise<void> {
   if (n.remaining.length === 0) return;
   const listing = await listings.byId(n.listingId);
   const publisher = listing ? await publishers.byId(listing.publisherId) : null;
@@ -403,7 +414,7 @@ async function sendPublisherFixRequestNotice(n: PublisherFixRequestNotice): Prom
   // Official fixes go through remediation, never a fix request; an owner-less
   // (community) publisher has nobody to ask.
   if (publisher.handle === OFFICIAL_PUBLISHER_HANDLE || !publisher.ownerOrgId) return;
-  if (!(await firstTime(`plugin-security:n40:${n.listingId}:${n.version}`, sha(remediationFindingsKey(n.remaining))))) return deduped('N40');
+  if (!(await firstTime(claims, `plugin-security:n40:${n.listingId}:${n.version}`, sha(remediationFindingsKey(n.remaining))))) return deduped('N40');
   const content = renderPublisherFixRequest(`${publisher.handle}/${listing.name}`, n);
   await relay('N40', [{ kind: 'org_permission', orgId: publisher.ownerOrgId, permission: 'publishers:manage' }], content.publisher, { immediate: true });
   await notifyInstallers('N40', publisher, listing, content.installers, { version: n.version, immediate: true });
@@ -421,15 +432,19 @@ function deduped(event: string): void {
  */
 export async function sendRemediationNotice(n: RemediationNotice): Promise<void> {
   if (!remediationNoticesEnabled()) return;
+  const claims: Claims = [];
   try {
     switch (n.code) {
-      case 'N36': return await sendFixPublished(n);
-      case 'N37': return await sendRollout(n);
-      case 'N38': return await sendRollback(n);
-      case 'N39': return await sendOwnerRequest(n);
-      case 'N40': return await sendPublisherFixRequestNotice(n);
+      case 'N36': return await sendFixPublished(n, claims);
+      case 'N37': return await sendRollout(n, claims);
+      case 'N38': return await sendRollback(n, claims);
+      case 'N39': return await sendOwnerRequest(n, claims);
+      case 'N40': return await sendPublisherFixRequestNotice(n, claims);
     }
   } catch (err) {
+    // Not sent: give the dedupe claim back, so the retried job (or the next
+    // report) sends it instead of reading it as a duplicate for 90 days.
+    for (const c of claims) await releaseNotices(c.key, [c.member]);
     incCounter('plugin_security_notification_failed_total', { event: n.code });
     logger.warn('Remediation notice not sent', {
       event: n.code,

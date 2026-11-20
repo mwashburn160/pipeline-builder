@@ -8,6 +8,7 @@ import { Types } from 'mongoose';
 import { audit } from '../helpers/audit.js';
 import { canManageOrgScope, forbid, isOrgAdmin, requireMemberManagementScope, withController } from '../helpers/controller-helper.js';
 import { toOrgId } from '../helpers/org-id.js';
+import { isSameId } from '../helpers/same-id.js';
 import { formatUserResponse, orgFeatureOverrides, type OrgMembership, type OrgSummary, type StoredFeatureOverrides } from '../helpers/user-response.js';
 import { Organization } from '../models/index.js';
 import { userAdminService } from '../services/index.js';
@@ -340,7 +341,7 @@ export const deleteUserById = withController('Delete user', async (req, res) => 
   }
 
   const { id } = req.params;
-  if (id === req.user!.sub) {
+  if (isSameId(id, req.user!.sub)) {
     return sendError(res, 400, 'Cannot delete your own account through this endpoint');
   }
 
@@ -388,7 +389,7 @@ export const bulkDeleteUsers = withController('Bulk delete users', async (req, r
   const results: Array<{ id: string; ok: boolean; error?: string; affectedOrgId?: string }> = [];
 
   for (const id of ids) {
-    if (id === req.user!.sub) {
+    if (isSameId(id, req.user!.sub)) {
       results.push({ id, ok: false, error: 'Cannot delete your own account' });
       continue;
     }

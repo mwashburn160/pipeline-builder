@@ -53,6 +53,9 @@ const dedupe = {
     fresh.forEach((m) => set.add(m));
     return fresh;
   }),
+  release: jest.fn(async (key: string, members: readonly string[]) => {
+    members.forEach((m) => seen.get(key)?.delete(m));
+  }),
 };
 
 const pipelinePost = jest.fn(async (path: string, body: any) => ({
@@ -471,5 +474,17 @@ describe('remediation notices N36–N39', () => {
     delete process.env.PLUGIN_REMEDIATION_ENABLED;
     h.notify.mockRejectedValueOnce(new Error('relay down') as never);
     await expect(notices.sendRemediationNotice({ ...base, code: 'N39', remaining: [remaining('CVE-1')] })).resolves.toBeUndefined();
+  });
+
+  it('gives the dedupe claim back when the send fails, so the retry still notifies', async () => {
+    h.notify.mockRejectedValueOnce(new Error('relay down') as never);
+    await notices.sendRemediationNotice({ ...base, code: 'N39', remaining: [remaining('CVE-1')] });
+    expect(h.notify).toHaveBeenCalledTimes(1);
+    // The retried job: sent this time (not read as a duplicate) …
+    await notices.sendRemediationNotice({ ...base, code: 'N39', remaining: [remaining('CVE-1')] });
+    expect(h.notify).toHaveBeenCalledTimes(2);
+    // … and only once.
+    await notices.sendRemediationNotice({ ...base, code: 'N39', remaining: [remaining('CVE-1')] });
+    expect(h.notify).toHaveBeenCalledTimes(2);
   });
 });

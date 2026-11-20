@@ -11,7 +11,7 @@
  *   GET  /plugins/remediations/:id                 plugins:read   one (own org; 404 otherwise)
  *   GET  /plugins/remediations/:id/patch           plugins:read   the remediation.diff (text/x-diff attachment; never the ZIP)
  *   GET  /plugins/remediations/:id/export          system org + plugins:write   an Official fix's deploy/plugins/** export
- *   POST /plugins/remediations/:id/approve         plugins:write + step-up   awaiting_approval → re-run, verify and publish
+ *   POST /plugins/remediations/:id/approve         plugins:write + step-up   awaiting_approval → re-run, verify and publish (503 while the operator knob is off)
  *   POST /plugins/remediations/:id/reject          plugins:write + step-up   awaiting_approval → failed / rejected
  *   POST /plugins/remediations/:id/retry           plugins:write  failed | needs_owner | needs_review → a new attempt (counts toward the daily cap)
  *   GET  /plugins/remediation-settings             plugins:read   the org's pluginRemediation settings
@@ -19,7 +19,6 @@
  *   PUT  /plugins/by-name/:name/remediation-level  plugins:write  a plugin's own library upgrade level (null = Follow organization)
  */
 
-import { GetObjectCommand } from '@aws-sdk/client-s3';
 import {
   attachmentDisposition,
   audited,
@@ -41,7 +40,6 @@ import {
   type Permission,
   type PluginRemediationStage,
 } from '@pipeline-builder/api-core';
-import { s3Client } from '@pipeline-builder/api-core/s3';
 import type { PluginRemediation } from '@pipeline-builder/pipeline-data';
 import { Router, type RequestHandler, type Response } from 'express';
 
@@ -49,7 +47,7 @@ import { bodyFrom, ecosystemRoute, param } from './ecosystem-route.js';
 import { remediationConfig } from '../config.js';
 import { enqueueApprovedRun, enqueueRemediationJob } from '../queue/plugin-remediation.js';
 import { EcosystemError, type Caller } from '../services/ecosystem/context.js';
-import { pluginSourcesBucket } from '../services/plugin-sources.js';
+import { readRemediationArtifact, type ArtifactReader } from '../services/remediation/artifacts.js';
 import { toRemediationDto } from '../services/remediation/dto.js';
 import { auditRemediation, countStage } from '../services/remediation/lifecycle.js';
 import { queuePriority } from '../services/remediation/queueing.js';
@@ -57,17 +55,17 @@ import {
   getOrgRemediation, insertRemediation, listRemediations, readSettingsRow, remediationsCreatedSince, updateRemediation, writeSettings,
 } from '../services/remediation/store.js';
 
-/** Reads a stored remediation artifact (swappable in tests). */
-export type ArtifactReader = (key: string) => Promise<string | null>;
-const liveReader: ArtifactReader = async (key) => {
-  const out = await s3Client().send(new GetObjectCommand({ Bucket: pluginSourcesBucket(), Key: key }));
-  return out.Body ? out.Body.transformToString('utf-8') : null;
-};
-let readArtifact: ArtifactReader = liveReader;
-export function setRemediationArtifactReaderForTests(r?: ArtifactReader): void { readArtifact = r ?? liveReader; }
+export type { ArtifactReader };
+/** The stored-artifact reader (swappable in tests). */
+let readArtifact: ArtifactReader = readRemediationArtifact;
+export function setRemediationArtifactReaderForTests(r?: ArtifactReader): void { readArtifact = r ?? readRemediationArtifact; }
+
+/** The stages POST …/retry starts a new attempt from. */
+const RETRYABLE_STAGES = ['failed', 'needs_owner', 'needs_review'] as const satisfies readonly PluginRemediationStage[];
 
 const PLUGIN_NAME = /^[a-z0-9][a-z0-9._-]{0,254}$/;
 
+const disabled = (): EcosystemError => new EcosystemError(ErrorCode.SERVICE_UNAVAILABLE, 'Plugin remediation is turned off by the operator');
 const notFound = (): EcosystemError => new EcosystemError(ErrorCode.NOT_FOUND, 'Remediation not found');
 const stageConflict = (stage: string): EcosystemError => new EcosystemError(ErrorCode.REMEDIATION_STAGE_CONFLICT, `Not possible while the remediation is ${stage}`, { stage });
 /** A toolchain release candidate is decided only by the system org's toolchain-fixes routes (it is never re-run and published from here). */
@@ -132,7 +130,9 @@ export function createRemediationRoutes(): Router {
     const row = await ownRemediation(caller, param(req, 'id'));
     if (row.kind === 'toolchain') throw toolchainCandidate();
     if (row.stage !== 'awaiting_approval' || row.decidedAt) throw stageConflict(row.decidedAt ? 'approved and publishing' : row.stage);
-    const decided = await updateRemediation(row.id, { decidedBy: caller.userId, decidedAt: new Date(), decisionReason: reason ?? null }, ['awaiting_approval']);
+    // The approved run is the job's: with the operator knob off it would never run.
+    if (!remediationConfig().enabled) throw disabled();
+    const decided = await updateRemediation(row.id, { decidedBy: caller.userId, decidedAt: new Date(), decisionReason: reason ?? null }, ['awaiting_approval'], { undecided: true });
     if (!decided) throw stageConflict('changing');
     auditRemediation('plugin.remediation.approved', decided, { ...(reason ? { reason } : {}) }, caller.userId);
     // The approved fix is rebuilt, re-verified and published by the job.
@@ -156,9 +156,9 @@ export function createRemediationRoutes(): Router {
 
   router.post('/remediations/:id/retry', write, audited('plugin.remediation.retried', 'plugin.remediation.started') as RequestHandler, ecosystemRoute(async ({ req, res, caller }) => {
     const row = await ownRemediation(caller, param(req, 'id'));
-    if (row.stage !== 'failed' && row.stage !== 'needs_owner' && row.stage !== 'needs_review') throw stageConflict(row.stage);
+    if (!(RETRYABLE_STAGES as readonly string[]).includes(row.stage)) throw stageConflict(row.stage);
     const cfg = remediationConfig();
-    if (!cfg.enabled) throw new EcosystemError(ErrorCode.SERVICE_UNAVAILABLE, 'Plugin remediation is turned off by the operator');
+    if (!cfg.enabled) throw disabled();
     const used = await remediationsCreatedSince(caller.orgId);
     if (used >= cfg.maxPerOrgPerDay) {
       throw new EcosystemError(ErrorCode.QUOTA_EXCEEDED, `This organization has used its ${cfg.maxPerOrgPerDay} remediations for today`, { used, limit: cfg.maxPerOrgPerDay });

@@ -38,6 +38,7 @@ jest.mock('@/lib/api', () => ({ __esModule: true, default: new Proxy({}, { get: 
 import { RemediationCard, PluginRemediationSection } from '../src/components/plugin/RemediationCard';
 import { PluginFindingsPanel } from '../src/components/plugin/PluginFindingsPanel';
 import { REMEDIATION } from './helpers/remediationFixtures';
+import { ApiError } from '../src/lib/api/errors';
 
 const ok = (data: unknown) => Promise.resolve({ success: true, statusCode: 200, data });
 
@@ -73,6 +74,13 @@ describe('RemediationCard', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Reject/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Confirm password' }));
     await waitFor(() => expect(api.rejectPluginRemediation).toHaveBeenCalledWith('rem-1', {}, 'step-up-token'));
+  });
+
+  it('offers no second decision once a fix is approved and still publishing (the server answers 409)', () => {
+    render(<RemediationCard remediation={{ ...REMEDIATION, decidedAt: '2026-11-19T02:00:00Z', decidedBy: 'u-1' }} canWrite />);
+    expect(screen.queryByRole('button', { name: /Approve and publish/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Reject/ })).toBeNull();
+    expect(screen.getByTestId('remediation-fix-version').textContent).toContain('approved, publishing');
   });
 
   it('hides Approve and Reject without plugins:write', () => {
@@ -116,6 +124,20 @@ describe('RemediationCard', () => {
     expect(screen.queryByRole('button', { name: /Approve and publish/ })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /Retry remediation/ }));
     await waitFor(() => expect(api.retryPluginRemediation).toHaveBeenCalledWith('rem-1'));
+  });
+
+  it.each([
+    ['approve', /Approve and publish/, 'approvePluginRemediation', REMEDIATION],
+    ['reject', /^Reject/, 'rejectPluginRemediation', REMEDIATION],
+    ['retry', /Retry remediation/, 'retryPluginRemediation', { ...REMEDIATION, stage: 'failed' as const }],
+  ])('a 503 on %s (operator turned remediation off) shows the operator-off notice, not a generic error', async (_k, button, fn, rem) => {
+    (api as Record<string, jest.Mock<AnyFn>>)[fn].mockRejectedValue(new ApiError('Plugin remediation is turned off by the operator', 503, 'SERVICE_UNAVAILABLE'));
+    render(<RemediationCard remediation={rem} canWrite />);
+    fireEvent.click(screen.getByRole('button', { name: button }));
+    const confirm = screen.queryByRole('button', { name: 'Confirm password' });
+    if (confirm) fireEvent.click(confirm);
+    expect(await screen.findByText('Remediation is turned off by the operator')).toBeTruthy();
+    expect(toast.error).not.toHaveBeenCalled();
   });
 
   it('offers the Official export only in the system org', () => {

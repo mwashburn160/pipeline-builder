@@ -21,6 +21,9 @@ export interface DeletedPluginBatch {
   deletedAt: string | null;
 }
 
+const DELETED_PAGE_SIZE = 100;
+const DELETED_MAX_PAGES = 50;
+
 /** Group soft-deleted rows by (name, deleteBatchId); versions deleted on their own carry no batch and are left out. */
 export function groupDeletedBatches(rows: ReadonlyArray<Pick<Plugin, 'name' | 'version' | 'deleteBatchId' | 'deletedAt'>>): DeletedPluginBatch[] {
   const byKey = new Map<string, DeletedPluginBatch>();
@@ -44,8 +47,16 @@ export function groupDeletedBatches(rows: ReadonlyArray<Pick<Plugin, 'name' | 'v
 export function DeletedPluginBatches({ onChanged }: { onChanged?: () => void }) {
   const toast = useToast();
   const { data, refetch } = useFetch<DeletedPluginBatch[]>(async () => {
-    const res = await api.listDeletedPlugins();
-    return groupDeletedBatches(res.data?.plugins ?? []);
+    // The list route pages (10 by default), and a batch can span pages: read them all, so a batch shows every
+    // version it will restore or purge. Bounded so a huge bin cannot loop forever.
+    const rows: Plugin[] = [];
+    for (let page = 0; page < DELETED_MAX_PAGES; page++) {
+      const res = await api.listDeletedPlugins({ limit: String(DELETED_PAGE_SIZE), offset: String(page * DELETED_PAGE_SIZE) });
+      const got = res.data?.plugins ?? [];
+      rows.push(...got);
+      if (got.length < DELETED_PAGE_SIZE) break;
+    }
+    return groupDeletedBatches(rows);
   }, []);
   const batches = useMemo(() => data ?? [], [data]);
   const [pending, setPending] = useState<{ kind: 'restore' | 'purge'; batch: DeletedPluginBatch } | null>(null);

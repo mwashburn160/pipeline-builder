@@ -131,6 +131,12 @@ describe('?compare=previous', () => {
       expect(sendSuccess).toHaveBeenCalledWith(expect.anything(), 200, { timeline: expect.any(Array), previous: null });
     });
 
+    it('reads the retention settings once, so no current-window query is left in flight by a second read', async () => {
+      await call('/success-rate', { query: { from: FROM, to: TO, compare: 'previous' }, user: ENTITLED });
+      expect(mockGetReportingSettings).toHaveBeenCalledTimes(1);
+      expect(mockGetSuccessRate).toHaveBeenCalledTimes(2);
+    });
+
     it('400s an unknown compare value', async () => {
       await call('/success-rate', { query: { compare: 'last-year' }, user: ENTITLED });
       expect(sendBadRequest).toHaveBeenCalledWith(expect.anything(), expect.stringContaining('compare'), expect.anything());

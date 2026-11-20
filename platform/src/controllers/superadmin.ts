@@ -30,6 +30,7 @@
 import { sendError, sendSuccess, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import { requireSystemAdmin, withController } from '../helpers/controller-helper.js';
+import { isSameId } from '../helpers/same-id.js';
 import { User } from '../models/index.js';
 import { grantPlatformAdmin, revokePlatformAdmin } from '../services/platform-admin-roles.js';
 
@@ -102,7 +103,7 @@ export const removeUserGrant = withController('Remove user grant', async (req, r
     // Self-revoke guard. Without this, a sysadmin who fat-fingers their
     // own user id could leave the org with no administrative access
     // until the next deploy.
-    if (req.user?.sub === userId) {
+    if (isSameId(req.user?.sub, userId)) {
       return sendError(
         res, 400,
         'Sysadmins cannot revoke their own platform-admin grant. Ask another sysadmin to revoke you.',

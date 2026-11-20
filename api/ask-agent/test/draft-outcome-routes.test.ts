@@ -36,12 +36,18 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 const mockIncCounter = jest.fn<AnyFn>();
+/** Options each `rateLimitByOrg` limiter was built with. */
+const limiterOptions: Array<Record<string, unknown>> = [];
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (fn: Function) => async (req: any, res: any) => {
     const ctx = req.context;
     await fn({ req, res, ctx, orgId: ctx.identity.orgId?.toLowerCase() || '', userId: ctx.identity.userId || '' });
   },
   incCounter: (...a: unknown[]) => mockIncCounter(...a),
+  rateLimitByOrg: (opts: Record<string, unknown>) => {
+    limiterOptions.push(opts);
+    return (_req: unknown, _res: unknown, next: () => void) => next();
+  },
   observe: jest.fn(),
 }));
 
@@ -80,6 +86,13 @@ beforeEach(() => {
 });
 
 describe('POST /ask-agent/draft-outcome', () => {
+  it('caps outcomes per USER, ahead of the handler, so one member cannot flood the acceptance rate', () => {
+    expect(limiterOptions).toContainEqual(expect.objectContaining({ name: 'ask-draft-outcome', keyBy: 'user', windowMs: 60_000 }));
+    const layer = (router as any).stack.find((l: any) => l.route?.path === '/draft-outcome');
+    // requireAskAccess, requireFeature, the limiter, then the handler.
+    expect(layer.route.stack).toHaveLength(4);
+  });
+
   it('forwards org, feature and outcome ONLY, on ask-agent\'s own identity — never the user\'s token or id', async () => {
     const res = mockRes();
     await handler()(mockReq({ feature: 'pipeline-generate', outcome: 'edited_accepted' }), res);

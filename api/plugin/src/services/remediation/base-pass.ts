@@ -25,6 +25,7 @@ import path from 'path';
 import { chooseFixVersion, createLogger, errorMessage, SYSTEM_ORG_ID, type PluginBaseImage, type PluginScanFinding } from '@pipeline-builder/api-core';
 
 import { keepLease, release, tryAcquire, type SemaphoreRedis } from './concurrency.js';
+import { isUpgradeFix } from './engine.js';
 import { overlayDockerfile } from './overlay.js';
 import { overlayCommand } from './patchers/index.js';
 import type { RemediationPorts } from './ports.js';
@@ -103,7 +104,7 @@ async function rebuildBase(base: PluginBaseImage, findings: readonly PluginScanF
   const [name, tag] = base.image.split(':') as [string, string];
   const fromRef = `${ports.imageReference({ orgId: SYSTEM_ORG_ID, name, digest: current }).replace(/\/system\//, '/library/')}`;
   const commands = chooseFixVersion(findings)
-    .filter((c) => c.fixVersion && (c.packageType === 'deb' || c.packageType === 'apk' || c.packageType === 'rpm'))
+    .filter((c) => isUpgradeFix(c) && (c.packageType === 'deb' || c.packageType === 'apk' || c.packageType === 'rpm'))
     .map((c) => overlayCommand({ ...c, fixVersion: c.fixVersion! }, c.locations))
     .filter((x): x is string => x !== null);
   const df = overlayDockerfile({ baseRef: fromRef, user: '', commands });

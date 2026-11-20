@@ -98,10 +98,16 @@ type JobResult = 'skipped' | 'delayed' | PluginRemediation['stage'];
 /** The worker entry point for a `plugin-remediation` job. */
 export async function processRemediationJob(job: Job<PluginRemediationJobData>, token: string | undefined, deps: RemediationJobDeps = {}): Promise<JobResult> {
   const cfg = remediationConfig();
-  if (!cfg.enabled) return 'skipped';
   const row = await getRemediation(job.data.remediationId);
   if (!row || !(ACTIVE_BUILD_REMEDIATION_STAGES as readonly string[]).includes(row.stage)) return 'skipped';
   if (row.stage === 'awaiting_approval' && !row.decidedAt) return 'skipped';
+  if (!cfg.enabled) {
+    // A toolchain candidate's approved publish is resumed by its own sweep, never ended here.
+    if (row.kind === 'toolchain' && row.stage === 'awaiting_approval') return 'skipped';
+    // Ended, not left `queued`: a stranded active row would block every later remediation of
+    // this version (the active-version unique index) and cannot be retried. Retry re-runs it.
+    return fail(row, 'REMEDIATION_DISABLED', 'cancelled');
+  }
 
   const redis = deps.redis ?? (getHealthRedisConnection() as unknown as SemaphoreRedis);
   if (!await tryAcquire(redis, 'tenant', row.id, cfg.concurrency)) {

@@ -59,9 +59,12 @@ jest.unstable_mockModule('../src/services/plugin-sources.js', () => sources);
 const rollout = { startTenantRollout: jest.fn<AnyFn>(async () => true), cancelRollout: jest.fn<AnyFn>(async () => true), setRolloutClientForTests: jest.fn() };
 jest.unstable_mockModule('../src/services/remediation/rollout.js', () => rollout);
 const persisted: any[] = [];
+/** Runs inside persistVersion before the row is stored (a concurrent delete, in a test). */
+let duringPersist: (() => Promise<unknown>) | null = null;
 jest.unstable_mockModule('../src/services/version-persist.js', () => ({
   persistVersion: jest.fn(async (input: any) => {
     persisted.push(input);
+    if (duringPersist) { const f = duringPersist; duringPersist = null; await f(); }
     const { rows } = await raw.query<{ id: string; version: string; name: string }>(
       `INSERT INTO plugins (org_id, name, version, created_by, updated_by, plugin_type, image_digest, is_active)
        VALUES ($1, $2, $3, $4, $4, 'CodeBuildStep', $5, true) RETURNING id, version, name`,
@@ -79,7 +82,7 @@ jest.unstable_mockModule('../src/queue/connections.js', () => ({
 
 const { setPluginServiceConfigForTests } = await import('../src/config.js');
 const { deactivateIfUnreferenced, queuePassRemediations, queuePriority } = await import('../src/services/remediation/queueing.js');
-const { runRemediation } = await import('../src/queue/plugin-remediation.js');
+const { processRemediationJob, runRemediation } = await import('../src/queue/plugin-remediation.js');
 const { cancelRemediationsFor } = await import('../src/services/remediation/cancel.js');
 const { applyRolloutReport } = await import('../src/routes/internal-remediation.js');
 const { createRemediationRoutes, setRemediationArtifactReaderForTests } = await import('../src/routes/remediations.js');
@@ -340,6 +343,32 @@ describe('the remediation job', () => {
     expect((await rowsOf(row.pluginId))[0].outcome).toBe('superseded');
   });
 
+  it('a cancel that lands while the fix version is stored is not overwritten as published, and nothing rolls out', async () => {
+    await settings(ORG, 'apply');
+    const row = await queued(ORG, 'lint', '1.0.0');
+    duringPersist = () => raw.query("UPDATE plugin_remediations SET stage = 'failed', outcome = 'cancelled', error = 'VERSION_DELETED' WHERE id = $1", [row.id]);
+    await runRemediation(row, { ports: ports() });
+    expect((await rowsOf(row.pluginId))[0]).toMatchObject({ stage: 'failed', outcome: 'cancelled', error: 'VERSION_DELETED' });
+    expect(rollout.startTenantRollout).not.toHaveBeenCalled();
+  });
+
+  it('with the operator knob off, a queued job ends its row (cancelled, retryable) instead of stranding it queued', async () => {
+    const row = await queued(ORG, 'lint', '1.0.0');
+    setPluginServiceConfigForTests({ enabled: false });
+    const job: any = { data: { remediationId: row.id }, attemptsMade: 0, opts: { attempts: 2 } };
+    expect(await processRemediationJob(job, undefined, { ports: ports() })).toBe('failed');
+    expect((await rowsOf(row.pluginId))[0]).toMatchObject({ stage: 'failed', outcome: 'cancelled', error: 'REMEDIATION_DISABLED' });
+    // An undecided proposal is left alone: it waits for a person, not for the job.
+    const other = await plugin(ORG, 'fmt', '1.0.0');
+    setPluginServiceConfigForTests({ enabled: true, severities: ['critical', 'high'], maxPerOrgPerDay: 20, concurrency: 2 });
+    await queuePassRemediations([cand(other, 'fmt', '1.0.0', [finding()])], { enqueue });
+    const [waiting] = await rowsOf(other);
+    await raw.query("UPDATE plugin_remediations SET stage = 'awaiting_approval' WHERE id = $1", [waiting.id]);
+    setPluginServiceConfigForTests({ enabled: false });
+    expect(await processRemediationJob({ ...job, data: { remediationId: waiting.id } }, undefined, { ports: ports() })).toBe('skipped');
+    expect((await rowsOf(other))[0].stage).toBe('awaiting_approval');
+  });
+
   it('spends no build credits and holds no plugins-quota slot', () => {
     expect(buildSpendsCredits({ orgId: ORG, kind: 'plugin-remediation' })).toBe(false);
     expect(buildSpendsCredits({ orgId: ORG })).toBe(true);
@@ -398,6 +427,17 @@ describe('the rollout report', () => {
     expect((paused!.rollout as any).rolledBackPipelineIds).toEqual([ev.pipelineId]);
     expect(await applyRolloutReport('00000000-0000-4000-8000-000000000999', { summary: S('done'), events: [] })).toBeNull();
   });
+
+  it('two concurrent deliveries of the same report notify the rollback once', async () => {
+    const row = await queued(ORG, 'lint', '1.0.0');
+    await raw.query("UPDATE plugin_remediations SET stage = 'rolling_out', to_version = '1.0.1'");
+    await Promise.all([
+      applyRolloutReport(row.id, { summary: S('batches'), events: [ev] }),
+      applyRolloutReport(row.id, { summary: S('batches'), events: [ev] }),
+    ]);
+    expect(notices.filter((n) => n.code === 'N38')).toHaveLength(1);
+  });
+
 });
 
 type Layer = { route?: { path: string; methods: Record<string, boolean>; stack: Array<{ handle: (...a: any[]) => any }> } };
@@ -434,6 +474,26 @@ describe('routes', () => {
     expect(ok.statusCode).toBe(202);
     expect(enqueued[0]![2]).toMatchObject({ jobId: `remediation-${row.id}-approved` });
     expect((await call('post', '/remediations/:id/reject', { params: { id: row.id } })).statusCode).toBe(409);
+  });
+
+  it('approve: two concurrent approvals decide (and queue) it once', async () => {
+    const row = await queued(ORG, 'lint', '1.0.0');
+    await raw.query("UPDATE plugin_remediations SET stage = 'awaiting_approval'");
+    const results = await Promise.all([
+      call('post', '/remediations/:id/approve', { params: { id: row.id }, body: { reason: 'a' } }),
+      call('post', '/remediations/:id/approve', { params: { id: row.id }, body: { reason: 'b' } }),
+    ]);
+    expect(results.map((r) => r.statusCode).sort()).toEqual([202, 409]);
+    expect(enqueued).toHaveLength(1);
+  });
+
+  it('approve: refused while the operator knob is off (503), the row stays undecided', async () => {
+    const row = await queued(ORG, 'lint', '1.0.0');
+    await raw.query("UPDATE plugin_remediations SET stage = 'awaiting_approval'");
+    setPluginServiceConfigForTests({ enabled: false });
+    expect((await call('post', '/remediations/:id/approve', { params: { id: row.id } })).statusCode).toBe(503);
+    expect((await getRemediation(row.id))!.decidedAt).toBeNull();
+    expect(enqueued).toHaveLength(0);
   });
 
   it('retry makes a new attempt and holds the daily cap', async () => {

@@ -85,7 +85,7 @@ export async function discardPurgedImage(row: PurgedVersion, userId?: string): P
     incCounter('plugin_purge_image_discards_total', { outcome: 'discarded' });
     return 'discarded';
   } catch (err) {
-    await recordSourceOrphan({ orgId: row.orgId, kind: 'image', bucket: repository, target: row.imageDigest, pluginId: row.id, pluginVersion: row.version, error: err });
+    await recordSourceOrphan({ orgId: row.orgId, kind: 'image', bucket: repository, target: row.imageDigest, pluginId: row.id, pluginVersion: row.version, userId, error: err });
     return 'failed';
   }
 }
@@ -116,7 +116,15 @@ export async function retryPurgeOrphans(limit = 100): Promise<{ tried: number; c
       const name = o.bucket.split('/').slice(1).join('/');
       const shared = await digestStillStored({ id: o.pluginId ?? '00000000-0000-0000-0000-000000000000', orgId: o.orgId, name, version: o.pluginVersion ?? '', imageDigest: o.target });
       if (shared) return;
-      await discardPluginImage({ repository: `${registry.host}:${registry.port}/${o.bucket}`, digest: o.target, registry, orgId: o.orgId, context: { reason: 'purged' } });
+      // The same repository and audit context as the first attempt
+      // (discardPurgedImage): `bucket` is the namespace-relative repository.
+      await discardPluginImage({
+        repository: `${registry.host}:${registry.port}/${o.bucket}`,
+        digest: o.target,
+        registry,
+        orgId: o.orgId,
+        context: { ...(o.pluginVersion ? { pluginVersion: o.pluginVersion } : {}), reason: 'purged', ...(o.userId ? { userId: o.userId } : {}) },
+      });
     },
   });
 }

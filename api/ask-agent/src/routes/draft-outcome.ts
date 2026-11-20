@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, errorMessage, getServiceAuthHeader, InternalHttpClient, requireFeature, sendBadRequest, sendSuccess, validateBody } from '@pipeline-builder/api-core';
-import { incCounter, withRoute } from '@pipeline-builder/api-server';
+import { createLogger, envInt, errorMessage, getServiceAuthHeader, InternalHttpClient, requireFeature, sendBadRequest, sendSuccess, validateBody } from '@pipeline-builder/api-core';
+import { incCounter, rateLimitByOrg, withRoute } from '@pipeline-builder/api-server';
 import { Config } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 
@@ -57,11 +57,23 @@ async function forwardDraftOutcome(orgId: string, feature: string, outcome: stri
  * outcome only follows a generation those gates admitted). NOT audited, on
  * purpose: an audit row carries its actor, and this signal must never be
  * attributable to a person — it is counted per org and feature, nothing else.
+ *
+ * Capped per USER (`ASK_DRAFT_OUTCOME_RATE_LIMIT_PER_MIN`, default 20) on top
+ * of the mount's per-org Ask limit: an outcome is not tied to a real draft, so
+ * without it one member could swing the org's acceptance rate with a loop. The
+ * limiter's key never leaves this service; the forwarded count stays anonymous.
  */
 export function createDraftOutcomeRoutes(): Router {
   const router: Router = Router();
+  const perUser = rateLimitByOrg({
+    name: 'ask-draft-outcome',
+    keyBy: 'user',
+    max: envInt('ASK_DRAFT_OUTCOME_RATE_LIMIT_PER_MIN', 20, { min: 1 }),
+    windowMs: 60_000,
+    message: 'Too many draft outcomes',
+  });
 
-  router.post('/draft-outcome', requireAskAccess, requireFeature('ai_generation'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.post('/draft-outcome', requireAskAccess, requireFeature('ai_generation'), perUser, withRoute(async ({ req, res, ctx, orgId }) => {
     const parsed = validateBody(req, AskDraftOutcomeSchema);
     if (!parsed.ok) return sendBadRequest(res, parsed.error);
     const { feature, outcome } = parsed.value;

@@ -40,6 +40,7 @@ import { notifyOrgOfBreakglass, notifyRequesterOfDecision, notifyTeamOfAncestorI
 import { resolveEffectiveImpersonationPolicy } from '../helpers/impersonation-policy.js';
 import { expandOrgScope } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
+import { isSameId } from '../helpers/same-id.js';
 import { publishImpersonationSessionRevocation } from '../helpers/session-revocation.js';
 import { ImpersonationRequest, User, UserOrganization, type ImpersonationApproverMode } from '../models/index.js';
 import { incCounter } from '../observability/metrics.js';
@@ -80,7 +81,7 @@ export const impersonateUser = withController('Impersonate user', async (req, re
 
   const impersonatorId = req.user!.sub;
   const targetUserId = String(req.params.userId);
-  if (targetUserId === impersonatorId) {
+  if (isSameId(targetUserId, impersonatorId)) {
     return sendError(res, 400, 'Cannot impersonate yourself');
   }
 
@@ -604,7 +605,7 @@ export const breakglassImpersonation = withController('Break-glass impersonation
 
   const requesterId = req.user.sub;
   const targetUserId = String(req.params.userId);
-  if (targetUserId === requesterId) return sendError(res, 400, 'Cannot impersonate yourself');
+  if (isSameId(targetUserId, requesterId)) return sendError(res, 400, 'Cannot impersonate yourself');
 
   const justification = typeof req.body?.justification === 'string' ? req.body.justification.trim() : '';
   if (justification.length < BREAKGLASS_JUSTIFICATION_MIN) {

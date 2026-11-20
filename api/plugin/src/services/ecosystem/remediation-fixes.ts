@@ -35,7 +35,6 @@ import { GetObjectCommand } from '@aws-sdk/client-s3';
 import {
   callInternal,
   createLogger,
-  envStr,
   errorMessage,
   getServiceAuthHeader,
   InternalHttpClient,
@@ -59,6 +58,7 @@ import { eq } from 'drizzle-orm';
 import { type Caller } from './context.js';
 import { submitRemediationFix } from './requests.js';
 import { elevated, listings, plugins, publishers, requests } from './store.js';
+import { remediationConfig } from '../../config.js';
 import { remediationNoticesEnabled, sendRemediationNotice } from '../remediation-notices.js';
 
 const logger = createLogger('ecosystem-remediation-fixes');
@@ -316,7 +316,7 @@ export type PatchReader = (key: string) => Promise<string | null>;
 
 const livePatchReader: PatchReader = async (key) => {
   const out = await s3Client().send(new GetObjectCommand({
-    Bucket: envStr('PLUGIN_SOURCES_BUCKET', 'plugin-sources'),
+    Bucket: remediationConfig().sourcesBucket,
     Key: key,
     Range: `bytes=0-${SUGGESTED_PATCH_MAX_BYTES - 1}`,
   }));

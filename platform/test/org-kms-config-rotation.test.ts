@@ -70,9 +70,9 @@ const put = async (query: Record<string, string> = {}) => {
   await (putOrgKmsConfig as any)({ params: { orgId: ORG }, query, body: NEW, user: SYSADMIN, headers: {} }, res);
   return res;
 };
-const del = async () => {
+const del = async (query: Record<string, string> = {}) => {
   const res = mockRes();
-  await (deleteOrgKmsConfig as any)({ params: { orgId: ORG }, query: {}, user: SYSADMIN, headers: {} }, res);
+  await (deleteOrgKmsConfig as any)({ params: { orgId: ORG }, query, user: SYSADMIN, headers: {} }, res);
   return res;
 };
 
@@ -194,5 +194,47 @@ describe('DELETE kms-config: runner signing keys', () => {
     const res = await del();
     expect(res.statusCode).toBe(200);
     expect(mockRunnerReencrypt).not.toHaveBeenCalled();
+  });
+
+  it('re-encrypts the platform secrets: captured under the CMK BEFORE the clear, re-wrapped AFTER it', async () => {
+    const org = orgDoc({ ...OLD });
+    mockOrgFindById.mockReturnValue(org);
+    mockReencryptOrg.mockResolvedValue({ aiKeysReencrypted: 2, idpSecretReencrypted: true });
+    const res = await del();
+    expect(res.statusCode).toBe(200);
+    expect(mockCapture).toHaveBeenCalledWith(ORG);
+    expect(mockCapture.mock.invocationCallOrder[0]).toBeLessThan(org.save.mock.invocationCallOrder[0]);
+    expect(org.save.mock.invocationCallOrder[0]).toBeLessThan(mockReencryptOrg.mock.invocationCallOrder[0]);
+    expect(res.body.data).toMatchObject({ configured: false, aiKeysReencrypted: 2, idpSecretReencrypted: true });
+  });
+
+  it('a failed capture refuses the clear (409) and leaves the config in place', async () => {
+    const org = orgDoc({ ...OLD });
+    mockOrgFindById.mockReturnValue(org);
+    mockCapture.mockRejectedValue(new Error('bad row'));
+    const res = await del();
+    expect(res.statusCode).toBe(409);
+    expect(res.body.message).toMatch(/\?reencrypt=false/);
+    expect(org.save).not.toHaveBeenCalled();
+    expect(mockRunnerReencrypt).not.toHaveBeenCalled();
+  });
+
+  it('?reencrypt=false skips only the platform secrets; the runner keys are still re-wrapped', async () => {
+    mockOrgFindById.mockReturnValue(orgDoc({ ...OLD }));
+    const res = await del({ reencrypt: 'false' });
+    expect(res.statusCode).toBe(200);
+    expect(mockCapture).not.toHaveBeenCalled();
+    expect(mockReencryptOrg).not.toHaveBeenCalled();
+    expect(mockRunnerReencrypt).toHaveBeenCalledWith({ orgId: ORG, previousKmsConfig: OLD });
+  });
+
+  it('a platform-secret re-encrypt failure after the clear is a 500, audited as a failure', async () => {
+    mockOrgFindById.mockReturnValue(orgDoc({ ...OLD }));
+    mockReencryptOrg.mockRejectedValue(new Error('kms throttled'));
+    const res = await del();
+    expect(res.statusCode).toBe(500);
+    expect(res.body.message).toMatch(/kms throttled/);
+    expect(mockRunnerReencrypt).toHaveBeenCalled();
+    expect(mockAudit.mock.calls[0][2]).toMatchObject({ outcome: 'failure', details: { secretsReencryptError: expect.stringMatching(/kms throttled/) } });
   });
 });

@@ -16,6 +16,22 @@ export const AI_DRAFT_OUTCOMES = ['accepted', 'edited_accepted', 'discarded'] as
 export type AiDraftOutcome = (typeof AI_DRAFT_OUTCOMES)[number];
 
 /**
+ * The report field each stored outcome is tallied into (wire names are
+ * camelCase, stored outcomes snake_case). Keyed by every outcome, so a new one
+ * cannot ship without a place in the report.
+ */
+export const AI_DRAFT_OUTCOME_TALLY_FIELDS = {
+  accepted: 'accepted',
+  edited_accepted: 'editedAccepted',
+  discarded: 'discarded',
+} as const satisfies Record<AiDraftOutcome, string>;
+export type AiDraftTallyField = (typeof AI_DRAFT_OUTCOME_TALLY_FIELDS)[AiDraftOutcome];
+
+/** Time-bucket sizes the AI usage report offers. */
+export const AI_USAGE_INTERVALS = ['day', 'week'] as const;
+export type AiUsageInterval = (typeof AI_USAGE_INTERVALS)[number];
+
+/**
  * The AI features that produce a draft a user accepts or discards — the subset
  * of the ledger's `feature` values (api-server `AiFeature`) a draft outcome may
  * name. `ask` answers questions and `report-summary` writes into a report:

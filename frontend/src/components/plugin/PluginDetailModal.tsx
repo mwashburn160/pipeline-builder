@@ -76,8 +76,9 @@ export function PluginDetailModal({ plugin, showRegistryLink, onClose, publicUrl
   shadows?: { kind?: 'listing' | 'parent-org'; publisherHandle: string; name: string } | null;
   /** Show the version's remediation card: `canWrite` (`plugins:write`) unlocks Approve / Reject / Retry. */
   remediation?: { canWrite: boolean; isSystemOrg?: boolean; onOpenPlugin?: (pluginId: string) => void };
-  /** Show the Storage section (source and image bytes per version of this name). */
-  showStorage?: boolean;
+  /** Show the Storage section (source and image bytes per version of this name);
+   *  `canWrite` (`plugins:write` in a writable session) unlocks its Keep / Never tidy. */
+  showStorage?: { canWrite: boolean };
   /** "Delete plugin (all versions)…" — pass only when the viewer holds `plugins:write`. */
   onDeleteAll?: () => void;
 }) {
@@ -178,7 +179,7 @@ export function PluginDetailModal({ plugin, showRegistryLink, onClose, publicUrl
             )}
           </div>
         )}
-        {showStorage && <PluginStorageSection name={plugin.name} />}
+        {showStorage && <PluginStorageSection name={plugin.name} canWrite={showStorage.canWrite} />}
         {onDeleteAll && (
           <div className="border-t border-default pt-3">
             <Button variant="danger-outline" size="sm" onClick={onDeleteAll}>Delete plugin (all versions)…</Button>

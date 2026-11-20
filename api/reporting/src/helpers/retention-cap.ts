@@ -139,7 +139,14 @@ export async function parseOrgReportRange(
   /** The account root whose retention applies — see {@link retentionOrgIdFor}. */
   retentionOrgId: string,
 ): Promise<{ from: string; to: string } | { error: string }> {
-  const win = await resolveOrgRetentionWindow(orgId, kind, retentionOrgId);
+  return cutRange(query, await resolveOrgRetentionWindow(orgId, kind, retentionOrgId));
+}
+
+/** Parse `?from&to` against an already-resolved window: width-capped, then floored. */
+export function cutRange(
+  query: Record<string, unknown>,
+  win: RetentionWindow,
+): { from: string; to: string } | { error: string } {
   const range = parseDateRange(query, { maxRangeMs: win.maxRangeMs });
   if ('error' in range) return range;
   return floorFrom(range, win.minFromMs);

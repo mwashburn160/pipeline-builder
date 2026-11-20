@@ -413,7 +413,8 @@ suite('invitation accept (real Mongo replica set)', () => {
   // ---------------------------------------------------------------------------
 
   const sha256 = async (s: string) => (await import('crypto')).createHash('sha256').update(s).digest('hex');
-  const rawRow = (id: unknown) => mongoose.connection.collection('invitations').findOne({ _id: id });
+  const rawCollection = () => mongoose.connection.collection('invitations');
+  const rawRow = (id: unknown) => rawCollection().findOne({ _id: id });
 
   it('create stores the SHA-256 of the emailed token, never the token itself', async () => {
     const { emailService } = await import('../src/utils/email.js');
@@ -445,6 +446,31 @@ suite('invitation accept (real Mongo replica set)', () => {
     const found = await invitationService.getByToken(token);
     expect(found.status).toBe('expired');
     expect((await rawRow(invitation._id)).status).toBe('expired');
+  });
+
+  it('a preview racing a resend does not expire the re-armed invitation', async () => {
+    const { invitation, token } = await send();
+    await m.Invitation.updateOne({ _id: invitation._id }, { $set: { expiresAt: new Date(Date.now() - 1000) } });
+    const rearmedUntil = new Date(Date.now() + 86_400_000);
+    // The preview reads the lapsed row; a resend re-arms it before the preview
+    // records the expiry.
+    const original = m.Invitation.findOne.bind(m.Invitation);
+    const spy = jest.spyOn(m.Invitation, 'findOne').mockImplementationOnce(((filter: unknown) => {
+      const query = original(filter);
+      const exec = query.exec.bind(query);
+      query.exec = async () => {
+        const doc = await exec();
+        await rawCollection().updateOne({ _id: invitation._id }, { $set: { expiresAt: rearmedUntil, tokenHash: 'rearmed' } });
+        return doc;
+      };
+      return query;
+    }) as never);
+    try {
+      await invitationService.getByToken(token);
+    } finally {
+      spy.mockRestore();
+    }
+    expect((await rawRow(invitation._id)).status).toBe('pending');
   });
 
   it('resend rotates the token: the new emailed token is accepted, the old link is dead', async () => {

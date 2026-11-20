@@ -706,7 +706,7 @@ export default function PluginsPage() {
           showRegistryLink={isSuperAdmin}
           onClose={() => setViewPlugin(null)}
           remediation={{ canWrite, isSystemOrg: isSystemOrgActive(user), onOpenPlugin: openPluginById }}
-          showStorage
+          showStorage={{ canWrite }}
           onDeleteAll={canWrite ? () => setDeleteAllName(viewPlugin.name) : undefined}
           publishHref={can('plugins:publish') && viewPlugin.visibility === 'public' && viewPlugin.orgId === user?.organizationId
             ? `/dashboard/publisher?tab=publish&pluginId=${encodeURIComponent(viewPlugin.id)}`

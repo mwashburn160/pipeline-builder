@@ -26,6 +26,7 @@
 
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
+import { SUCCEEDED_EVENT_STATUSES } from './sql-helpers.js';
 import { schema } from '../../database/drizzle-schema.js';
 import type { LeadTimeGap } from '../../database/schema/reporting-analytics.js';
 import { withTenantTx } from '../../database/tenancy.js';
@@ -52,9 +53,13 @@ export interface DeployCandidate {
 }
 
 /** Statuses an event uses for "this finished, and it worked". */
-const SUCCEEDED = new Set(['SUCCEEDED', 'SUCCESS']);
-/** …and for "this finished, and it did not". */
-const FAILED = new Set(['FAILED', 'FAILURE', 'CANCELED', 'CANCELLED', 'STOPPED', 'TIMED_OUT']);
+const SUCCEEDED: ReadonlySet<string> = new Set(SUCCEEDED_EVENT_STATUSES);
+/**
+ * …and for "this deploy finished, and did not ship". Deliberately NOT
+ * `FAILED_EVENT_STATUSES`: a cancelled or stopped deploy stage is a deploy that
+ * did not land (DORA change-failure input), and ERROR is no stage state.
+ */
+const DEPLOY_FAILED_STATUSES: ReadonlySet<string> = new Set(['FAILED', 'FAILURE', 'CANCELED', 'CANCELLED', 'STOPPED', 'TIMED_OUT']);
 
 /**
  * Is this row a deploy?
@@ -68,7 +73,7 @@ export function isDeployEvent(row: DeployCandidate): boolean {
   return row.eventType === 'STAGE'
     && !!row.environment
     && !!row.executionId
-    && (SUCCEEDED.has(row.status) || FAILED.has(row.status));
+    && (SUCCEEDED.has(row.status) || DEPLOY_FAILED_STATUSES.has(row.status));
 }
 
 /**

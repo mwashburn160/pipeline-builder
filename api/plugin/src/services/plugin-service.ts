@@ -27,11 +27,23 @@ import { autoRemovalProtectedSql, autoRemovalReasonSql, recordAutoRemovalSkip, t
 import { DEFAULT_PLUGIN_VERSION, shouldBecomeDefault } from '../helpers/default-version.js';
 import { assertManagedUploadAllowed, assertNotManaged, isYankedVersion } from '../helpers/managed-toolchain.js';
 import { pipelinePluginRefs } from '../helpers/pipeline-plugin-refs.js';
+import { PLUGIN_SERVER_ONLY_FIELDS } from '../helpers/plugin-helpers.js';
 
 const logger = createLogger('plugin-service');
 
 /** Set while the AUTOMATIC soft-delete sweep runs: its purges honour the auto-removal protection. */
 const autoSweep = new AsyncLocalStorage<true>();
+
+/** The user whose explicit purge is running — carried into the teardown's image-discard audit (none for the sweep). */
+const purgeActor = new AsyncLocalStorage<string>();
+
+/**
+ * Run an owner's purge as `userId`, so the image each purged version discards
+ * (and a retry of a failed discard) is audited with who removed it.
+ */
+export function withPurgeActor<T>(userId: string | undefined, fn: () => Promise<T>): Promise<T> {
+  return userId ? purgeActor.run(userId, fn) : fn();
+}
 
 /** Server-side cache for plugin reads. */
 const pluginCache = createCacheService('plugin:', CoreConstants.CACHE_TTL_ENTITY_SECONDS);
@@ -261,7 +273,10 @@ export class PluginService extends CrudService<
     // maps hold secret VALUES that must never land in Redis / travel to the
     // compliance service. See toComplianceAttributes — keys are preserved for
     // rule evaluation, values are redacted.
-    const attributes = toComplianceAttributes(entity) as Record<string, unknown>;
+    // A kept source's object key and checksum never leave this service either
+    // (helpers/plugin-helpers.ts PLUGIN_SERVER_ONLY_FIELDS).
+    const attributes = { ...(toComplianceAttributes(entity) as Record<string, unknown>) };
+    for (const field of PLUGIN_SERVER_ONLY_FIELDS) delete attributes[field];
     entityEvents.emit({ eventType, target: 'plugin', entityId: id, orgId: entity.orgId, userId, timestamp: new Date(), attributes });
   }
 
@@ -855,7 +870,7 @@ export class PluginService extends CrudService<
     for (const id of ids) this.purging.delete(id);
     if (rows.length === 0) return;
     const { teardownPurgedVersions } = await import('./version-purge.js');
-    await teardownPurgedVersions(rows);
+    await teardownPurgedVersions(rows, { userId: purgeActor.getStore() });
   }
 
   /** A manual purge of a referenced tombstone is refused 409 (not a silent 404). */

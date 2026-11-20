@@ -29,13 +29,16 @@ import type { PipelineStage } from 'mongoose';
 import { config } from '../config.js';
 import {
   AI_CALLER_TYPE_LABELS,
+  AI_DRAFT_OUTCOME_TALLY_FIELDS,
   AI_CALLER_TYPES,
   AI_REPORT_FEATURES,
   reportFeatureOf,
   type AiCallerType,
   type AiDraftFeature,
   type AiDraftOutcome,
+  type AiDraftTallyField,
   type AiReportFeature,
+  type AiUsageInterval,
 } from './ai-draft-catalog.js';
 import { bucketHour, csvCell } from './usage-ledger.js';
 import { toOrgId } from '../helpers/org-id.js';
@@ -44,10 +47,6 @@ import { Organization } from '../models/organization.js';
 import { UsageBucket } from '../models/usage-bucket.js';
 
 export * from './ai-draft-catalog.js';
-
-/** Time-bucket sizes the report offers. */
-export const AI_USAGE_INTERVALS = ['day', 'week'] as const;
-export type AiUsageInterval = (typeof AI_USAGE_INTERVALS)[number];
 
 /** Most teams one rollup lists (largest first). */
 const MAX_TEAMS = 500;
@@ -226,7 +225,7 @@ const addFigures = (a: AiUsageFigures, b: AiUsageFigures): AiUsageFigures => ({
 });
 const ZERO: AiUsageFigures = { calls: 0, units: 0, tokensIn: 0, tokensOut: 0 };
 
-interface Tally { accepted: number; editedAccepted: number; discarded: number }
+type Tally = Record<AiDraftTallyField, number>;
 const ZERO_TALLY: Tally = { accepted: 0, editedAccepted: 0, discarded: 0 };
 
 /** (accepted + edited-then-accepted) / all outcomes, or null with none. */
@@ -239,11 +238,11 @@ function withAcceptance(t: Tally) {
   return { ...t, outcomes: t.accepted + t.editedAccepted + t.discarded, acceptanceRate: acceptanceRate(t) };
 }
 
+/** Add `n` of a stored outcome to a tally; an outcome outside the catalog is ignored. */
 function addOutcome(t: Tally, outcome: unknown, n: number): Tally {
-  if (outcome === 'accepted') return { ...t, accepted: t.accepted + n };
-  if (outcome === 'edited_accepted') return { ...t, editedAccepted: t.editedAccepted + n };
-  if (outcome === 'discarded') return { ...t, discarded: t.discarded + n };
-  return t;
+  if (typeof outcome !== 'string' || !Object.hasOwn(AI_DRAFT_OUTCOME_TALLY_FIELDS, outcome)) return t;
+  const field = AI_DRAFT_OUTCOME_TALLY_FIELDS[outcome as AiDraftOutcome];
+  return { ...t, [field]: t[field] + n };
 }
 
 /** Build the report for one scope and range. */

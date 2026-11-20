@@ -3,7 +3,7 @@
 
 import { AI_KEY_SOURCES, PRINCIPAL_TYPES, VALID_QUOTA_TYPES, VALID_TIERS, type PrincipalType } from '@pipeline-builder/api-core';
 import { z } from 'zod';
-import { AI_DRAFT_FEATURES, AI_DRAFT_OUTCOMES } from '../services/ai-draft-catalog.js';
+import { AI_DRAFT_FEATURES, AI_DRAFT_OUTCOMES, AI_USAGE_INTERVALS } from '../services/ai-draft-catalog.js';
 
 const quotaLimit = z.number().int().min(-1);
 
@@ -178,7 +178,7 @@ export const UsageQuerySchema = z.object({
 export const AiUsageQuerySchema = z.object({
   from: z.string().datetime({ offset: true }).optional(),
   to: z.string().datetime({ offset: true }).optional(),
-  interval: z.enum(['day', 'week']).default('day'),
+  interval: z.enum(AI_USAGE_INTERVALS).default('day'),
   includeDescendants: z.enum(['true', 'false']).optional(),
   tz: z.string().optional(),
   timezone: z.string().optional(),

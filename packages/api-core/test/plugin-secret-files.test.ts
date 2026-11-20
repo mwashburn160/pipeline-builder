@@ -83,6 +83,10 @@ describe('secretFileKind: content-based kinds', () => {
     expect(secretFileKind('.npmrc', '//registry.npmjs.org/:_authToken=npm_abc123\n')).toBe('npmrc_token');
     expect(secretFileKind('.npmrc', 'registry=https://r\n_auth=dXNlcjpwYXNz\n')).toBe('npmrc_token');
     expect(secretFileKind('.npmrc', 'registry=https://registry.npmjs.org/\nsave-exact=true\n')).toBeNull();
+    // Basic auth: npm reads `_password` (base64) beside `username`, per registry or global.
+    expect(secretFileKind('.npmrc', '//npm.acme.dev/:username=ci\n//npm.acme.dev/:_password=c2VjcmV0\n')).toBe('npmrc_token');
+    expect(secretFileKind('.npmrc', '_password=c2VjcmV0\n')).toBe('npmrc_token');
+    expect(secretFileKind('.npmrc', '//npm.acme.dev/:_password=${NPM_PASSWORD}\n')).toBeNull();
     // An env-var reference is how CI injects the token: no value is in the file.
     expect(secretFileKind('.npmrc', '//registry.npmjs.org/:_authToken=${NPM_TOKEN}\n')).toBeNull();
   });
@@ -91,6 +95,8 @@ describe('secretFileKind: content-based kinds', () => {
     expect(secretFileKind('.yarnrc.yml', 'npmAuthToken: npm_abc123\n')).toBe('yarnrc_token');
     expect(secretFileKind('.yarnrc.yml', 'npmScopes:\n  acme:\n    npmAuthToken: "npm_abc"\n')).toBe('yarnrc_token');
     expect(secretFileKind('.yarnrc.yml', 'nodeLinker: node-modules\n')).toBeNull();
+    // npmAuthIdent is `user:password` (or its base64).
+    expect(secretFileKind('.yarnrc.yml', 'npmAuthIdent: "ci:s3cret"\n')).toBe('yarnrc_token');
     expect(secretFileKind('.yarnrc.yml', 'npmAuthToken: "${NPM_TOKEN}"\n')).toBeNull();
   });
 

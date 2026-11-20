@@ -36,16 +36,16 @@
 import { randomUUID } from 'node:crypto';
 
 import {
-  actorId, AppError, ErrorCode, getStatusForErrorCode, isManagedToolchainPlugin, PLUGIN_DELETE_INFLIGHT_WAIT_MS, recordAudit, SYSTEM_ACTOR_ID,
+  actorId, AppError, ErrorCode, getStatusForErrorCode, isManagedToolchainPlugin, PLUGIN_DELETE_INFLIGHT_WAIT_MS, recordAudit, SYSTEM_ACTOR_ID, TERMINAL_REMEDIATION_STAGES,
   type PluginBatchActionResult, type PluginDeleteAllResult, type PluginDeletePreview, type PluginDeleteSkip,
   type PluginDeleteSkipReason, type QuotaService, type VisibilityWriteVerdict,
 } from '@pipeline-builder/api-core';
 import { withQuotaReservation } from '@pipeline-builder/api-server';
 import { distinctPipelines, runWithTenantContext, schema, withTenantTx, type Plugin } from '@pipeline-builder/pipeline-data';
-import { and, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, notInArray, sql } from 'drizzle-orm';
 
 import { listingsWithPublishers, versions as ecosystemVersions } from './ecosystem/store.js';
-import { pluginService } from './plugin-service.js';
+import { pluginService, withPurgeActor } from './plugin-service.js';
 import { cancelRemediationsFor } from './remediation/cancel.js';
 import { notifyWithdrawal } from './version-withdrawal.js';
 import { withPluginNameLock } from '../helpers/plugin-name-lock.js';
@@ -124,7 +124,7 @@ async function liveRemediationCount(pluginIds: readonly string[]): Promise<numbe
   if (pluginIds.length === 0) return 0;
   const r = schema.pluginRemediation;
   const [row] = await withTenantTx((tx) => tx.select({ n: sql<number>`count(*)::int` }).from(r)
-    .where(and(inArray(r.pluginId, [...pluginIds]), sql`${r.stage} NOT IN ('done', 'needs_owner', 'failed')`)));
+    .where(and(inArray(r.pluginId, [...pluginIds]), notInArray(r.stage, [...TERMINAL_REMEDIATION_STAGES]))));
   return Number(row?.n ?? 0);
 }
 
@@ -353,7 +353,7 @@ export async function purgeByName(name: string, batchId: string, caller: NameAct
       }
       let purged: string | null;
       try {
-        purged = await pluginService.purgeById(row.id, orgId);
+        purged = await withPurgeActor(caller.userId, () => pluginService.purgeById(row.id, orgId));
       } catch (err) {
         if (err instanceof AppError && err.code === ErrorCode.PLUGIN_VERSION_IN_USE) {
           skipped.push({ id: row.id, version: row.version, reason: 'in_use' });

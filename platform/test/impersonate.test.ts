@@ -210,6 +210,15 @@ describe('impersonateUser', () => {
     expect(mockCreateRequest).not.toHaveBeenCalled();
   });
 
+  it('refuses impersonating yourself under a re-cased id', async () => {
+    const res = mockRes();
+    await (impersonateUser as unknown as (req: any, res: any) => Promise<void>)(
+      { user: { sub: 'aaaaaaaaaaaaaaaaaaaaaaaa' }, params: { userId: 'AAAAAAAAAAAAAAAAAAAAAAAA' } }, res,
+    );
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockUserFindById).not.toHaveBeenCalled();
+  });
+
   it('passes ancestor authority through and informs the team', async () => {
     mockResolveAuthority.mockResolvedValue({ kind: 'ancestor', viaOrgId: 'org-parent' });
     mockUserFindById.mockReturnValue({
@@ -679,6 +688,15 @@ describe('breakglassImpersonation', () => {
     mockIsSystemAdmin.mockReturnValue(false);
     const res = await call({ sub: 'org-admin' }, { justification });
     expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockCreateBreakglass).not.toHaveBeenCalled();
+  });
+
+  it('refuses break-glass into your own account under a re-cased id', async () => {
+    const res = mockRes();
+    await (breakglassImpersonation as unknown as (req: any, res: any) => Promise<void>)(
+      { user: { sub: 'aaaaaaaaaaaaaaaaaaaaaaaa' }, params: { userId: 'AAAAAAAAAAAAAAAAAAAAAAAA' }, body: { justification } }, res,
+    );
+    expect(res.status).toHaveBeenCalledWith(400);
     expect(mockCreateBreakglass).not.toHaveBeenCalled();
   });
 

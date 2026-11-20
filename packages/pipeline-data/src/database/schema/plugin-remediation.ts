@@ -137,6 +137,8 @@ export const pluginSourceOrphan = pgTable('plugin_source_orphans', {
   target: text('target').notNull(),
   pluginId: uuid('plugin_id'),
   pluginVersion: varchar('plugin_version', { length: 50 }),
+  /** Who removed the version (an owner's purge), carried into a retried image discard's audit. NULL = the sweep. */
+  userId: varchar('user_id', { length: 255 }),
   /** A short error code / S3 error name (never credentials or object contents). */
   lastError: varchar('last_error', { length: 255 }).notNull(),
   attempts: integer('attempts').default(1).notNull(),

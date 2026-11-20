@@ -59,11 +59,18 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 
 const mockFindDeletedById = jest.fn<AnyFn>();
 const mockPurgeById = jest.fn<AnyFn>();
+/** The user each purge ran as (the teardown audits its image discard with it). */
+const purgeActors: Array<string | undefined> = [];
+let currentActor: string | undefined;
 
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
   pluginService: {
     findDeletedById: mockFindDeletedById,
-    purgeById: mockPurgeById,
+    purgeById: async (...args: unknown[]) => { purgeActors.push(currentActor); return mockPurgeById(...args); },
+  },
+  withPurgeActor: async (userId: string | undefined, fn: () => Promise<unknown>) => {
+    currentActor = userId;
+    try { return await fn(); } finally { currentActor = undefined; }
   },
 }));
 
@@ -113,7 +120,7 @@ const existingPlugin = {
 describe('POST /plugins/:id/purge (purge)', () => {
   const handler = getHandler('post', '/:id/purge');
 
-  beforeEach(() => { jest.clearAllMocks(); });
+  beforeEach(() => { jest.clearAllMocks(); purgeActors.length = 0; });
 
   it('hard-deletes the tombstone and returns 200', async () => {
     mockFindDeletedById.mockResolvedValue(existingPlugin);
@@ -125,6 +132,8 @@ describe('POST /plugins/:id/purge (purge)', () => {
 
     expect(mockFindDeletedById).toHaveBeenCalledWith('plugin-uuid-1', 'org-1');
     expect(mockPurgeById).toHaveBeenCalledWith('plugin-uuid-1', 'org-1');
+    // Run as the caller, so the purged image's discard is audited with who removed it.
+    expect(purgeActors).toEqual(['user-1']);
     expect(sendSuccess).toHaveBeenCalledWith(res, 200, {}, 'Plugin permanently deleted.');
     expect(res.status).toHaveBeenCalledWith(200);
   });

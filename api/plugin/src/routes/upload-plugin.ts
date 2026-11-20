@@ -343,8 +343,9 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
             // -- No image to build (metadata_only): deploy directly ----------------
             if (!getBuildStrategy(plugin.buildType).producesImage) {
               const result = await pluginService.deployVersion(toPluginInsert(pluginRecord), userId || SYSTEM_ACTOR_ID, access);
-              // Builds nothing, keeps no source; a re-upload over a version that
-              // had one drops it (services/plugin-sources.ts).
+              // Builds nothing, keeps no source: the row is recorded source-less
+              // (a ZIP an earlier upload of this version kept stays in its
+              // prefix until the version is purged; services/plugin-sources.ts).
               await keepVersionSource({ orgId, pluginId: result.id, version: result.version, stagingKey: null });
 
               ctx.log('INFO', 'Metadata-only plugin deployed', {

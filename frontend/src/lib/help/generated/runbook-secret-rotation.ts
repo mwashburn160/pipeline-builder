@@ -1,6 +1,6 @@
 // GENERATED FROM docs/runbooks/secret-rotation.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 7d69302ef5efddc08f6e2a48d55157f64a3c3bd04b0057dfea94cfe0f17cd22f
+// SOURCE-SHA256: b85649f573c45173cee9c9e1cf40c96bf53597ad0ff88f2d5da3a842da36f19c
 // SPDX-License-Identifier: Apache-2.0
 import { KeyRound } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -741,7 +741,7 @@ export const runbookSecretRotationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Per-org KMS. Orgs with SECRET_ENCRYPTION_PER_ORG_KMS config are wrapped under their own CMK, not this master, and their blobs carry a kid; the shared previous key is never applied to them. Rotating an org's CMK is a separate flow (PUT /api/admin/orgs/:orgId/kms-config, which re-encrypts that org inline, including its runner signing keys through the pipeline re-encrypt job; a runner-key failure answers 500). If a stored platform secret can't be decrypted under the current provider the PUT refuses with 409 and changes nothing. Repair that row, or retry with ?reencrypt=false: that skips only the platform (MongoDB) secret re-encrypt, so the org's existing AI provider keys and SSO client secret become unreadable and must be re-entered. The runner signing key re-wrap still runs (it does not depend on the platform pass), and a failure there still answers 500."
+          "content": "Per-org KMS. Orgs with SECRET_ENCRYPTION_PER_ORG_KMS config are wrapped under their own CMK, not this master, and their blobs carry a kid; the shared previous key is never applied to them. Rotating an org's CMK is a separate flow (PUT /api/admin/orgs/:orgId/kms-config, which re-encrypts that org inline, including its runner signing keys through the pipeline re-encrypt job; a runner-key failure answers 500). Clearing it is the same migration: DELETE /api/admin/orgs/:orgId/kms-config falls the org back to the shared master, and since the org's platform secrets were wrapped under a key derived from its CMK — which the shared provider cannot open — the DELETE re-encrypts them under the shared provider exactly as a PUT does, runner signing keys included. Both mutations behave identically on failure. If a stored platform secret can't be decrypted under the current provider the PUT/DELETE refuses with 409 and changes nothing. Repair that row, or retry with ?reencrypt=false: that skips only the platform (MongoDB) secret re-encrypt, so the org's existing AI provider keys and SSO client secret become unreadable and must be re-entered. The runner signing key re-wrap still runs (it does not depend on the platform pass), and a failure there still answers 500. A failure mid-flight — the config already saved, the re-encrypt partly done — answers 500 and is audited as a failure: the change is NOT rolled back, so re-enter the affected secrets through their admin endpoints (and rerun the runner-key re-encrypt if the message names it)."
         },
         {
           "type": "text",

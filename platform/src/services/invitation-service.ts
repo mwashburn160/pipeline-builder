@@ -763,8 +763,14 @@ class InvitationService {
     if (!invitation) return null;
 
     if (invitation.status === 'pending' && invitation.isExpired()) {
+      // Conditional on the row still being the lapsed one this read saw, as in
+      // `validateToken`: a resend that re-armed it meanwhile (new expiry, new
+      // token) must not be clobbered to `expired` by a preview of the old link.
+      await Invitation.updateOne(
+        { _id: invitation._id, status: 'pending', expiresAt: { $lte: new Date() } },
+        { $set: { status: 'expired' } },
+      );
       invitation.status = 'expired';
-      await invitation.save();
     }
 
     return invitation;

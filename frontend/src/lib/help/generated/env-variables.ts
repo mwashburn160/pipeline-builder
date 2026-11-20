@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 6ea1415d96dd82744aa2d0688c37bbac7073b4abf4279edce6ebb48557d3b410
+// SOURCE-SHA256: 8b9fe6046fd00f57e52a4bbf1958d10dd4937926b0927862812e8d2601f9f69d
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -2399,6 +2399,11 @@ export const envVariablesTopic: HelpTopic = {
               "ASK_RATE_LIMIT_PER_MIN",
               "30",
               "Per-org ceiling on the Ask agent's routes. These run an LLM per request, so the cap is about model spend and latency, not abuse"
+            ],
+            [
+              "ASK_DRAFT_OUTCOME_RATE_LIMIT_PER_MIN",
+              "20",
+              "Per-USER ceiling (min 1) on POST /ask-agent/draft-outcome, applied on top of the per-org ASK_RATE_LIMIT_PER_MIN. An outcome report is not tied to a real draft, so without a per-user cap one member could swing the org's acceptance rate with a loop. The limiter key stays inside the Ask service; the forwarded count is anonymous."
             ],
             [
               "ASK_HTTP_MAX_RESPONSE_BYTES",

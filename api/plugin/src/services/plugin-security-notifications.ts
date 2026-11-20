@@ -660,6 +660,8 @@ export async function notifyVersionBlocked(n: BlockedVersionNotice): Promise<voi
 export interface NoticeDedupeStore {
   /** The members of `members` not seen before under `key` (and remembers them). Throws when the store is down. */
   claimNew(key: string, members: readonly string[], ttlMs: number): Promise<string[]>;
+  /** Forget `members` under `key` (a claimed notice that was not sent after all). */
+  release?(key: string, members: readonly string[]): Promise<void>;
 }
 
 const redisDedupe: NoticeDedupeStore = {
@@ -672,6 +674,11 @@ const redisDedupe: NoticeDedupeStore = {
     }
     if (members.length > 0) await redis.pexpire(key, ttlMs);
     return fresh;
+  },
+  async release(key, members) {
+    if (members.length === 0) return;
+    const { getHealthRedisConnection } = await import('../queue/connections.js');
+    await getHealthRedisConnection().srem(key, ...members);
   },
 };
 
@@ -688,6 +695,20 @@ export async function claimNewNotices(key: string, members: readonly string[], t
   } catch (err) {
     logger.warn('Notice dedupe store unavailable; notifying anyway', { key, error: errorMessage(err) });
     return [...members];
+  }
+}
+
+/**
+ * Give back claims made by {@link claimNewNotices} for a notice that was then
+ * NOT sent (its send threw), so the next attempt sends it instead of reading
+ * as a duplicate. Best-effort: a store outage is logged (the claim then
+ * expires on its TTL).
+ */
+export async function releaseNotices(key: string, members: readonly string[]): Promise<void> {
+  try {
+    await dedupe.release?.(key, members);
+  } catch (err) {
+    logger.warn('Notice dedupe claim not released; the notice is suppressed until it expires', { key, error: errorMessage(err) });
   }
 }
 

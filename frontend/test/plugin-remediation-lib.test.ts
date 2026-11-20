@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from '@jest/globals';
-import { PLUGIN_REMEDIATION_STAGES } from '@pipeline-builder/api-core/plugin-scan';
+import { PIPELINE_REMEDIATION_UPGRADE_STATES, PLUGIN_REMEDIATION_STAGES } from '@pipeline-builder/api-core/plugin-scan';
 import {
-  REMEDIATION_STAGE_COLORS, REMEDIATION_STAGE_FILTERS, findingRemediationMarker, lowestFixVersion, packageTypeLabel,
+  PIPELINE_UPGRADE_STATE_CATALOG, PIPELINE_UPGRADE_STATE_LABELS, REMEDIATION_STAGE_COLORS, REMEDIATION_STAGE_FILTERS, pipelineUpgradeState, findingRemediationMarker, lowestFixVersion, packageTypeLabel,
   remainingReasonLabel, remediationHref, shortLayer,
 } from '../src/lib/plugin-remediation';
 
@@ -42,5 +42,13 @@ describe('plugin remediation copy', () => {
     expect(packageTypeLabel('conan')).toBe('conan');
     expect(shortLayer('sha256:0123456789abcdef0123')).toBe('sha256:0123456789ab');
     expect(remediationHref('r 1')).toBe('/dashboard/plugins?tab=remediations&remediation=r%201');
+  });
+
+  it('catalogs every pipeline upgrade state once, and shows an unknown one as sent, in no section', () => {
+    expect(Object.keys(PIPELINE_UPGRADE_STATE_CATALOG).sort()).toEqual([...PIPELINE_REMEDIATION_UPGRADE_STATES].sort());
+    expect(PIPELINE_UPGRADE_STATE_LABELS.skipped_runner).toBe('Skipped (runner unhealthy)');
+    expect(pipelineUpgradeState('skipped_runner')).toEqual({ label: 'Skipped (runner unhealthy)', color: 'gray', section: 'wave' });
+    expect(pipelineUpgradeState('rollback_blocked').section).toBe('history');
+    expect(pipelineUpgradeState('brand_new')).toEqual({ label: 'brand_new', color: 'gray', section: 'closed' });
   });
 });

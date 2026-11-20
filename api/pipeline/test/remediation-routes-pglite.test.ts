@@ -218,7 +218,7 @@ describe('the pipeline page', () => {
     const ok = await call(page, 'post', '/:id/remediation-upgrades/:upgradeId/apply', { params: { id: p.id, upgradeId: proposed }, orgId: ORG });
     expect(ok.statusCode).toBe(200);
     expect(engine.applyProposal).toHaveBeenCalledWith(
-      expect.objectContaining({ id: proposed, state: 'proposed' }), expect.objectContaining({ id: p.id }), { userId: 'user-1', requestedBy: 'user-1' }, null,
+      expect.objectContaining({ id: proposed, state: 'proposed' }), expect.objectContaining({ id: p.id }), { userId: 'user-1', requestedBy: 'user-1' }, null, { moveInstall: false },
     );
 
     const queued = await seedUpgrade(p, randomUUID(), 'queued');

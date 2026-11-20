@@ -213,6 +213,18 @@ describe('bulkDeleteUsers', () => {
     expect(mockDeleteUserById).toHaveBeenCalledWith('someone-else');
   });
 
+  it('refuses a self-delete whose id is re-cased (ObjectId hex is case-insensitive)', async () => {
+    mockDeleteUserById.mockResolvedValue(undefined);
+    const res = mockRes();
+    await (bulkDeleteUsers as unknown as (req: any, res: any) => Promise<void>)(
+      { user: { ...SYSADMIN, sub: 'aaaaaaaaaaaaaaaaaaaaaaaa' }, body: { ids: ['AAAAAAAAAAAAAAAAAAAAAAAA'] } },
+      res,
+    );
+    const payload = (res.json as jest.Mock<AnyFn>).mock.calls[0][0].data;
+    expect(payload.results[0]).toMatchObject({ ok: false, error: 'Cannot delete your own account' });
+    expect(mockDeleteUserById).not.toHaveBeenCalled();
+  });
+
   it('audits each successful delete with bulk=true marker', async () => {
     mockLookupPrimaryOrgId.mockResolvedValue('org-9');
     mockDeleteUserById.mockResolvedValue(undefined);
@@ -271,6 +283,15 @@ describe('deleteUserById — deleting an account is platform-admin only', () => 
       { user: ORG_ADMIN, params: { id: 'member' } }, res,
     );
     expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockDeleteUserById).not.toHaveBeenCalled();
+  });
+
+  it('refuses a platform admin deleting their own account under a re-cased id', async () => {
+    const res = mockRes();
+    await (deleteUserById as unknown as (req: any, res: any) => Promise<void>)(
+      { user: { ...SYSADMIN, sub: 'aaaaaaaaaaaaaaaaaaaaaaaa' }, params: { id: 'AAAAAAAAAAAAAAAAAAAAAAAA' } }, res,
+    );
+    expect(res.status).toHaveBeenCalledWith(400);
     expect(mockDeleteUserById).not.toHaveBeenCalled();
   });
 

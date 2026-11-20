@@ -5,6 +5,7 @@ import { createLogger, ErrorCode, paginationMeta, sendError, sendSuccess, isServ
 import { isOrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import { audit } from '../helpers/audit.js';
 import { canAccessOrg, ensureAuthenticated, forbid, getAdminContext, requireOrgScope, withController, roleAssignmentActor } from '../helpers/controller-helper.js';
+import { isSameId } from '../helpers/same-id.js';
 import { orgMembersService } from '../services/index.js';
 import { OM_ORG_NOT_FOUND, OM_USER_NOT_FOUND, OM_ALREADY_MEMBER, OM_NOT_A_MEMBER, OM_CANNOT_REMOVE_OWNER, OM_OWNER_MEMBERSHIP_NOT_FOUND, OM_NEW_OWNER_MUST_BE_MEMBER, OM_ALREADY_OWNER, OM_MEMBERSHIP_NOT_FOUND, OM_ALREADY_INACTIVE, OM_ALREADY_ACTIVE, OM_TARGETS_OUT_OF_SCOPE, OM_SEAT_LIMIT, OM_CONSENT_REQUIRED } from '../services/org-members-errors.js';
 import { pauseFormerMemberReports } from '../services/report-ownership.js';
@@ -217,13 +218,6 @@ function auditInviterExitRevocations(
   }
 }
 
-/** Whether a path user id names the caller. ObjectId hex is case-insensitive
- *  (Mongo casts `AAAA…` and `aaaa…` to the same id), so the self-guards compare
- *  case-folded — an exact compare let a re-cased id slip past them. */
-function isSelf(callerId: string, pathUserId: string): boolean {
-  return callerId.toLowerCase() === pathUserId.toLowerCase();
-}
-
 /** DELETE /organization/:id/members/:userId */
 export const removeMemberFromOrganization = withController('Remove member', async (req, res) => {
   if (!ensureAuthenticated(req, res)) return;
@@ -234,7 +228,7 @@ export const removeMemberFromOrganization = withController('Remove member', asyn
   if (!(await requireOrgScope(req, res, id))) return;
   // Refused for every caller (superadmin included), the same rule as
   // deactivate: removing your own membership is a lock-out from inside the org.
-  if (isSelf(req.user!.sub, userId)) {
+  if (isSameId(req.user!.sub, userId)) {
     return sendError(res, 400, 'Cannot remove yourself from the organization');
   }
 
@@ -294,7 +288,7 @@ export const deactivateMember = withController('Deactivate member', async (req, 
   if (!(await requireOrgScope(req, res, id))) return;
   // An inactive member cannot reactivate themselves, so deactivating your own
   // membership is a lock-out with no way back from inside the org.
-  if (isSelf(req.user!.sub, userId)) {
+  if (isSameId(req.user!.sub, userId)) {
     return sendError(res, 400, 'Cannot deactivate yourself');
   }
 

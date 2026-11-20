@@ -321,7 +321,11 @@ describe('Restore plugin / Purge plugin — the batch only', () => {
     s3.undeletable.clear();
     const { retryPurgeOrphans } = await import('../src/services/version-purge.js');
     expect(await retryPurgeOrphans()).toEqual({ tried: 2, cleared: 2, failed: 0 });
-    expect(mockDiscard).toHaveBeenLastCalledWith(expect.objectContaining({ repository: `registry:5000/org-${ORG}/lint`, digest: digestOf('1.0.0') }));
+    // The retry discards what the first attempt did, with the same audit
+    // context: which version went, and whose purge it was.
+    const [first, retry] = mockDiscard.mock.calls.map((c) => c[0] as Record<string, unknown>);
+    expect(first).toMatchObject({ context: { pluginVersion: '1.0.0', reason: 'purged', userId: 'u-1' } });
+    expect(retry).toEqual(first);
     expect(s3.keys(SOURCES)).toEqual([]);
   });
 

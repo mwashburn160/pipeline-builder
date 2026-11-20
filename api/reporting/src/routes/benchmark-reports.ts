@@ -30,12 +30,12 @@
  * the windows (and therefore the numbers) are the dashboard's.
  */
 
-import { ErrorCode, fetchOrgNames, parseDateRange, parseReportInterval, requireFeature, requirePermission, sendBadRequest, sendError, sendSuccess, SYSTEM_ORG_ID, createLogger } from '@pipeline-builder/api-core';
+import { ErrorCode, fetchOrgNames, parseReportInterval, requireFeature, requirePermission, sendBadRequest, sendError, sendSuccess, SYSTEM_ORG_ID, createLogger } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { computeTeamBenchmark, reportingService } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import { parseReportBucket, REPORTING_HTTP_TIMEOUT_MS, resolveOrgSubtree } from '../helpers/report-helpers.js';
-import { floorFrom, orgRetentionWindowFromSettings, retentionOrgIdFor } from '../helpers/retention-cap.js';
+import { cutRange, orgRetentionWindowFromSettings, retentionOrgIdFor } from '../helpers/retention-cap.js';
 
 const logger = createLogger('reporting-benchmark');
 
@@ -62,10 +62,10 @@ export function createBenchmarkReportRoutes(): Router {
     const settings = await reportingService.getReportingSettings(orgId, retentionOrgIdFor(req, orgId));
     const doraWin = orgRetentionWindowFromSettings(settings, 'dora');
     const eventWin = orgRetentionWindowFromSettings(settings, 'event');
-    const doraParsed = parseDateRange(req.query, { maxRangeMs: doraWin.maxRangeMs });
-    if ('error' in doraParsed) return sendBadRequest(res, doraParsed.error, ErrorCode.VALIDATION_ERROR);
-    const eventParsed = parseDateRange(req.query, { maxRangeMs: eventWin.maxRangeMs });
-    if ('error' in eventParsed) return sendBadRequest(res, eventParsed.error, ErrorCode.VALIDATION_ERROR);
+    const doraRange = cutRange(req.query, doraWin);
+    if ('error' in doraRange) return sendBadRequest(res, doraRange.error, ErrorCode.VALIDATION_ERROR);
+    const eventRange = cutRange(req.query, eventWin);
+    if ('error' in eventRange) return sendBadRequest(res, eventRange.error, ErrorCode.VALIDATION_ERROR);
 
     let subtree: string[] | undefined;
     try {
@@ -82,8 +82,8 @@ export function createBenchmarkReportRoutes(): Router {
       parentOrgId: orgId,
       orgIds: subtree,
       names: await namesFor(subtree),
-      doraRange: floorFrom(doraParsed, doraWin.minFromMs),
-      eventRange: floorFrom(eventParsed, eventWin.minFromMs),
+      doraRange,
+      eventRange,
       interval,
       ...bucket,
     });

@@ -85,19 +85,37 @@ export const REMEDIATION_ROLLOUT_STATUS_LABELS: Record<RemediationRolloutStatus,
   cancelled: 'Cancelled',
 };
 
-export const PIPELINE_UPGRADE_STATE_LABELS: Record<PipelineRemediationUpgradeState, string> = {
-  proposed: 'Proposed',
-  change_requested: 'Change requested',
-  queued: 'Waiting for its wave',
-  moved: 'Moved',
-  failed: 'Move failed',
-  rolled_back: 'Rolled back',
-  rollback_blocked: 'Rollback blocked',
-  skipped_opt_out: 'Skipped (opted out)',
-  skipped_runner: 'Skipped (runner unhealthy)',
-  dismissed: 'Dismissed',
-  superseded: 'Superseded',
-};
+/**
+ * Where a pipeline remediation-upgrade row shows on the pipeline's panel: an
+ * open proposal, a change request, a wave of an apply rollout, the rollback
+ * history, or nowhere of its own (closed rows).
+ */
+export type PipelineUpgradeSection = 'proposal' | 'change_request' | 'wave' | 'history' | 'closed';
+
+/** Each pipeline remediation-upgrade state: its badge words and colour, and its panel section. */
+export const PIPELINE_UPGRADE_STATE_CATALOG = {
+  proposed: { label: 'Proposed', color: 'yellow', section: 'proposal' },
+  change_requested: { label: 'Change requested', color: 'yellow', section: 'change_request' },
+  queued: { label: 'Waiting for its wave', color: 'blue', section: 'wave' },
+  moved: { label: 'Moved', color: 'green', section: 'wave' },
+  failed: { label: 'Move failed', color: 'red', section: 'history' },
+  rolled_back: { label: 'Rolled back', color: 'red', section: 'history' },
+  rollback_blocked: { label: 'Rollback blocked', color: 'red', section: 'history' },
+  skipped_opt_out: { label: 'Skipped (opted out)', color: 'gray', section: 'closed' },
+  skipped_runner: { label: 'Skipped (runner unhealthy)', color: 'gray', section: 'wave' },
+  dismissed: { label: 'Dismissed', color: 'gray', section: 'closed' },
+  superseded: { label: 'Superseded', color: 'gray', section: 'closed' },
+} as const satisfies Record<PipelineRemediationUpgradeState, { label: string; color: BadgeColor; section: PipelineUpgradeSection }>;
+
+export const PIPELINE_UPGRADE_STATE_LABELS: Record<PipelineRemediationUpgradeState, string> = Object.fromEntries(
+  Object.entries(PIPELINE_UPGRADE_STATE_CATALOG).map(([k, v]) => [k, v.label]),
+) as Record<PipelineRemediationUpgradeState, string>;
+
+/** A state's catalog entry, tolerant of a state the server sends that this build does not know. */
+export function pipelineUpgradeState(state: string): { label: string; color: BadgeColor; section: PipelineUpgradeSection } {
+  return (PIPELINE_UPGRADE_STATE_CATALOG as Record<string, { label: string; color: BadgeColor; section: PipelineUpgradeSection }>)[state]
+    ?? { label: state, color: 'gray', section: 'closed' };
+}
 
 export const REMEDIATION_MODE_LABELS: Record<PluginRemediationMode, string> = {
   off: 'Off: do not build fixes',

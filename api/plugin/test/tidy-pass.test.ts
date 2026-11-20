@@ -246,6 +246,32 @@ describe('on mode: deactivate at N, retire at N+30, purge deadline N+60', () => 
     expect(counted('plugin_tidy_versions_total', { outcome: 'retired' })).toBe(2);
   });
 
+  it('does not retire a version a use reactivated after the pass read it', async () => {
+    const id = ids['1.0.0']!;
+    await run(0);
+    await run(7);
+    expect((await rowOf(id)).is_active).toBe(false);
+    // A lookup lands while the day-37 pass is planning (after it read the rows).
+    const blockers = jest.spyOn(pluginService, 'deleteBlockers');
+    let used = false;
+    blockers.mockImplementation((async (row: { id: string }) => {
+      if (!used && row.id === id) {
+        used = true;
+        resetUseThrottleForTests();
+        await recordPluginUse({ id, tidyDeactivatedAt: at(7), tidyWarnedAt: at(0) } as any, at(37));
+      }
+      return { frozen: false, inUse: 0, listed: false };
+    }) as never);
+    try {
+      const retire = await run(37);
+      expect(entryOf(orgReport(retire), id)).toMatchObject({ action: 'refused' });
+    } finally {
+      blockers.mockRestore();
+    }
+    expect(deleteVersion.mock.calls.map((c: unknown[]) => (c[0] as { id: string }).id)).not.toContain(id);
+    expect(await rowOf(id)).toMatchObject({ is_active: true, deleted_at: null });
+  });
+
   it('never deactivates sooner than 7 days after the warning, even for a long-stale version', async () => {
     await run(0);
     await run(3);

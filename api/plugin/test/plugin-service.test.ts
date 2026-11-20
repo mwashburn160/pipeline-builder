@@ -606,6 +606,21 @@ describe('PluginService', () => {
   } as any;
 
   describe('compliance event emission — secret redaction', () => {
+    it('never carries a kept source\'s object key or checksum', async () => {
+      const captured: any[] = [];
+      const subscriber = { onEntityEvent: async (e: any) => { captured.push(e); } };
+      entityEvents.subscribe(subscriber);
+      try {
+        await (service as any).onAfterCreate({ ...secretPlugin, sourceKey: 'org-1/plugin-1/1.2.3/abc.zip', sourceSha256: 'f'.repeat(64), sourceSizeBytes: 10, sourceKind: 'zip' }, 'user-1');
+      } finally {
+        entityEvents.unsubscribe(subscriber);
+      }
+      const attributes = captured[0].attributes;
+      expect(attributes).not.toHaveProperty('sourceKey');
+      expect(attributes).not.toHaveProperty('sourceSha256');
+      expect(attributes.sourceKind).toBe('zip');
+    });
+
     it('emits env/buildArgs KEYS but never their secret VALUES', async () => {
       const captured: any[] = [];
       const subscriber = { onEntityEvent: async (e: any) => { captured.push(e); } };

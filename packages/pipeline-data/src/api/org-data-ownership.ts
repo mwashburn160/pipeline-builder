@@ -100,7 +100,9 @@ export const ORG_DATA_OWNERSHIP: Readonly<Record<OrgDataOwner, OrgDataSlice>> = 
   },
   'plugin': {
     soft: [
-      t(schema.plugin, 'plugins'),
+      // source_key: the kept build context's object key. Server-side only (the
+      // DTOs strip it; the source is fetched by the service, never by URL).
+      t(schema.plugin, 'plugins', ['source_key']),
     ],
     hard: [
       // The org-scoped half of the ecosystem. The instance-wide directory
@@ -126,8 +128,10 @@ export const ORG_DATA_OWNERSHIP: Readonly<Record<OrgDataOwner, OrgDataSlice>> = 
       // orphan rows never strands an object.
       // findings_hash is an idempotency key, not a credential, but it is
       // `_hash`-shaped and never needed outside the plugin service (the DTO
-      // omits it), so it stays out of the export like the real ones.
-      t(schema.pluginRemediation, 'plugin_remediations', ['findings_hash']),
+      // omits it), so it stays out of the export like the real ones. The patch
+      // and export object keys are server-side too (the DTO says only
+      // hasPatch / hasExport; the routes stream the diff themselves).
+      t(schema.pluginRemediation, 'plugin_remediations', ['findings_hash', 'patch_key', 'export_key']),
       t(schema.pluginRemediationSetting, 'plugin_remediation_settings'),
       t(schema.pluginSourceOrphan, 'plugin_source_orphans'),
       t(schema.pluginRetentionSetting, 'plugin_retention_settings'),

@@ -167,6 +167,17 @@ describe('removeUserGrant (DELETE /api/admin/users/:id/grants)', () => {
     expect(mockRevokePlatformAdmin).not.toHaveBeenCalled();
   });
 
+  it('refuses a self-revoke whose path id is re-cased (ObjectId hex is case-insensitive)', async () => {
+    const res = mockRes();
+    await (removeUserGrant as unknown as (req: any, res: any) => Promise<void>)(
+      { user: { ...SYSADMIN, sub: 'aaaaaaaaaaaaaaaaaaaaaaaa' }, params: { id: 'AAAAAAAAAAAAAAAAAAAAAAAA' }, body: { grant: 'platform-admin' } },
+      res,
+    );
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockRevokePlatformAdmin).not.toHaveBeenCalled();
+  });
+
   it('refuses an org owner (revoking a platform grant is sysadmin-only)', async () => {
     const res = mockRes();
     await (removeUserGrant as unknown as (req: any, res: any) => Promise<void>)(

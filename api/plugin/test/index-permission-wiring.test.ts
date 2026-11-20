@@ -130,7 +130,7 @@ jest.unstable_mockModule('../src/routes/public-directory.js', () => ({ createPub
 jest.unstable_mockModule('../src/routes/public-submissions.js', () => ({ createPublicSubmissionRoutes: () => ROUTERS.publicSubmissions }));
 // Purge-scheduler deps the index now imports — mock so the real pipeline-data
 // barrel / pluginService aren't pulled into this wiring test.
-jest.unstable_mockModule('../src/services/plugin-service.js', () => ({ pluginService: {} }));
+jest.unstable_mockModule('../src/services/plugin-service.js', () => ({ pluginService: {}, withPurgeActor: (_userId: unknown, fn: () => unknown) => fn() }));
 const actualData = jest.requireActual('@pipeline-builder/pipeline-data') as Record<string, unknown>;
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', { ...actualData, createSoftDeletePurgeScheduler: () => null }));
 jest.unstable_mockModule('../src/routes/publisher.js', () => ({ createPublisherRoutes: () => ROUTERS.publisher }));

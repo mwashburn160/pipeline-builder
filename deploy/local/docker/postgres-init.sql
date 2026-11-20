@@ -3225,6 +3225,9 @@ CREATE TABLE IF NOT EXISTS plugin_source_orphans (
     target TEXT NOT NULL,
     plugin_id UUID,
     plugin_version VARCHAR(50),
+    -- Who removed the version (an owner's purge), so a retried image discard
+    -- audits the same originating user as the first attempt. NULL = the sweep.
+    user_id VARCHAR(255),
     -- A short error code / S3 error name (never credentials or contents).
     last_error VARCHAR(255) NOT NULL,
     attempts INTEGER NOT NULL DEFAULT 1,

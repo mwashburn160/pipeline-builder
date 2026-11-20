@@ -45,8 +45,14 @@ const STORAGE_FIELDS = 'id,orgId,name,version,sourceKind,sourceSizeBytes';
  * purging them would free (the source plus the version's own image layers — a
  * layer another version shares is not freed). The image figures come from the
  * registry's reclaim plan; when it cannot be read the source figures still show.
+ * The tidy controls' Keep and Never tidy follow `canWrite` as well as the
+ * server's `canKeep` (which cannot see a read-only impersonation session).
  */
-export function PluginStorageSection({ name }: { name: string }) {
+export function PluginStorageSection({ name, canWrite }: {
+  name: string;
+  /** `plugins:write` in a writable session (the page's `can('plugins:write')`): Keep and Never tidy. */
+  canWrite: boolean;
+}) {
   const { data: versions, loading } = useFetch<VersionFacts[]>(async () => {
     const res = await api.listPlugins({ name, fields: STORAGE_FIELDS, limit: '100' });
     return (res.data?.plugins ?? []) as VersionFacts[];
@@ -109,7 +115,7 @@ export function PluginStorageSection({ name }: { name: string }) {
           </p>
         </>
       )}
-      {tidy.data?.report && <PluginTidyControls name={name} view={tidy.data} onChanged={() => { void tidy.refetch(); }} />}
+      {tidy.data?.report && <PluginTidyControls name={name} view={tidy.data} readOnly={!canWrite} onChanged={() => { void tidy.refetch(); }} />}
     </div>
   );
 }

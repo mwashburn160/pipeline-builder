@@ -261,3 +261,39 @@ describe('the shared-base pass', () => {
     expect(zset.size).toBe(0);
   });
 });
+
+describe('never a downgrade pin', () => {
+  it('a fixed version not above the installed one is never patched: the finding goes to the owner (no_fix)', async () => {
+    const f = CANARY_FIXTURES.find((x) => x.type === 'npm')!;
+    // A multi-branch advisory whose only listed fix is on an older release line.
+    const finding = fixtureFinding(f, { fixedIn: ['4.17.19'] });
+    const world = fakeWorld([{ f, finding }], canaryContext(f));
+    const out = await runRemediationEngine(input([finding]), world.ports);
+    expect(out.candidate).toBeNull();
+    expect(out.cleared).toEqual([]);
+    expect(out.remaining).toEqual([expect.objectContaining({ id: f.advisory, reason: 'no_fix' })]);
+    // The only build is Stage 1's rebuild; nothing pins lodash to 4.17.19.
+    expect(world.builds.every((b) => ![...b.dir.values()].some((c) => c.includes('4.17.19')))).toBe(true);
+  });
+});
+
+describe('never a downgrade pin in a shared base', () => {
+  it('a base whose only fixes are not above the installed version is not rebuilt', async () => {
+    const { ensureSharedBaseRebuilt } = await import('../src/services/remediation/base-pass.js');
+    const store = new Map<string, string>();
+    const redis = {
+      get: async (k: string) => store.get(k) ?? null,
+      set: async (k: string, v: string, ...a: Array<string | number>) => { if (a.includes('NX') && store.has(k)) return null; store.set(k, v); return 'OK'; },
+      del: async (k: string) => { store.delete(k); },
+      eval: async () => 1,
+      zrem: async () => 1,
+      zadd: async () => 1,
+    };
+    const deb = CANARY_FIXTURES.find((f) => f.type === 'deb')!;
+    const finding = fixtureFinding(deb, { fixedIn: ['7.88.1-10+deb12u4'] });
+    const world = fakeWorld([{ f: deb, finding }], {}, { resolve: `sha256:${'e'.repeat(64)}` });
+    const base = { key: 'plugin', image: 'plugin-base:26.10', dir: '_plugin-base', provides: '', smokeTest: 'bash --version' };
+    expect(await ensureSharedBaseRebuilt(base, [finding], world.ports, { redis, sleep: async () => undefined })).toBeNull();
+    expect(world.builds).toHaveLength(0);
+  });
+});

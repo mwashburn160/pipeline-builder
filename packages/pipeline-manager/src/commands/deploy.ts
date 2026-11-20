@@ -69,6 +69,10 @@ export function deploy(program: Command): void {
         if (options.localSpec && options.remediationUpgrades !== undefined) {
           throw new Error('--remediation-upgrades applies to --id only (a --local-spec deploy never contacts the platform, where the election is stored)');
         }
+        // --show-resolved prints and exits; it must never write the pipeline.
+        if ((options as { showResolved?: boolean }).showResolved && options.remediationUpgrades !== undefined) {
+          throw new Error('--remediation-upgrades cannot be combined with --show-resolved (which only prints the resolved config and never changes the pipeline)');
+        }
         // Validated client-side before any request.
         const remediationUpgrades = resolveRemediationUpgrades(options.remediationUpgrades, undefined);
 

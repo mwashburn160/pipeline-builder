@@ -79,6 +79,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 
 const express = (await import('express')).default;
 const { createInternalRoutes } = await import('../src/routes/internal.js');
+const { onOrgStorageInvalidated } = await import('../src/services/storage-usage.js');
+/** Orgs whose stored bytes a route said changed (the storage snapshot re-measures them). */
+const orgStorageInvalidated = jest.fn<(orgId: string) => void>();
+onOrgStorageInvalidated((orgId) => orgStorageInvalidated(orgId));
 
 const ORG = '6650f0c3a1b2c3d4e5f60718';
 const DIGEST = `sha256:${'a'.repeat(64)}`;
@@ -333,6 +337,18 @@ describe('POST /internal/plugin-images/discard', () => {
     await discard({ repository: `org-${ORG}/foo`, digest: DIGEST, context: { pluginVersion: '1.0.0', reason: 'purged', userId: 'u-1' } });
     const e = recordAuditMock.mock.calls.at(-1)![0] as Record<string, any>;
     expect(e.details).toMatchObject({ scope: 'purged', reason: 'purged', pluginVersion: '1.0.0', refusalCode: null });
+  });
+
+  it('re-measures the owner org\'s storage after a discard that deleted something (a purge frees bytes)', async () => {
+    await discard({ repository: `org-${ORG}/foo`, digest: DIGEST, context: { reason: 'purged' } });
+    expect(orgStorageInvalidated).toHaveBeenCalledWith(ORG);
+  });
+
+  it('leaves storage alone when the discard found nothing to delete', async () => {
+    getManifest.mockRejectedValue(notFound());
+    deleteManifest.mockRejectedValue(notFound());
+    await discard({ repository: `org-${ORG}/foo`, digest: DIGEST, context: { reason: 'purged' } });
+    expect(orgStorageInvalidated).not.toHaveBeenCalled();
   });
 
   it('ignores a context that is not an object', async () => {

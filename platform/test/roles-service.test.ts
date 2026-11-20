@@ -728,6 +728,15 @@ describe('removeUserFromRole', () => {
     expect(mockGmExists).not.toHaveBeenCalled(); // member-only → guards skipped
   });
 
+  it('blocks removing yourself from a privilege-granting Role under a re-cased id', async () => {
+    mockGroupFindOne.mockReturnValue({ select: () => Promise.resolve({ _id: 'gA', grantsRole: 'admin', name: 'Admin' }) });
+    mockGmExists.mockReturnValue(anyOrderQuery({ _id: 'm1' }));
+
+    await expect(removeUserFromRole('org-1', 'gA', 'AAAAAAAAAAAAAAAAAAAAAAAA', { actorUserId: 'aaaaaaaaaaaaaaaaaaaaaaaa' }))
+      .rejects.toThrow(RL_CANNOT_REMOVE_SELF);
+    expect(mockGmDeleteOne).not.toHaveBeenCalled();
+  });
+
   it('blocks removing yourself from a privilege-granting Role', async () => {
     mockGroupFindOne.mockReturnValue({ select: () => Promise.resolve({ _id: 'gA', grantsRole: 'admin', name: 'Admin' }) });
     mockGmExists.mockReturnValue(anyOrderQuery({ _id: 'm1' })); // the actor IS a member

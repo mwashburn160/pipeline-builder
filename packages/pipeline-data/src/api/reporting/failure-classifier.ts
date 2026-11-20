@@ -26,6 +26,7 @@
  * customer's build is the last thing that should reach a model.
  */
 
+import { FAILED_EVENT_STATUSES } from './sql-helpers.js';
 import type { FailureCategory } from '../../database/schema/reporting-analytics.js';
 
 /** One classification rule: the category, and how to recognise it. */
@@ -189,6 +190,9 @@ const FAILURE_CODE_CATEGORIES: Readonly<Record<string, FailureCategory>> = {
   TEMPLATE_CONTRACT_VIOLATION: 'configuration',
 };
 
+/** {@link FAILED_EVENT_STATUSES}, matched case-insensitively (producers vary in case). */
+const FAILED_STATUSES: ReadonlySet<string> = new Set(FAILED_EVENT_STATUSES);
+
 export function classifyFailure(input: {
   status: string;
   errorMessage?: string | null;
@@ -197,7 +201,7 @@ export function classifyFailure(input: {
   /** The structured synth refusal code (`detail.pbFailure.code`), when the build printed one. */
   failureCode?: string | null;
 }): FailureCategory | null {
-  const failed = /^(FAILED|FAILURE|ERROR|TIMED_OUT)$/i.test(input.status);
+  const failed = FAILED_STATUSES.has(input.status.toUpperCase());
   if (!failed) return null;
 
   // A code the synth printed names the failure exactly; the text rules only guess.

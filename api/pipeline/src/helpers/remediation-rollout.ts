@@ -84,13 +84,16 @@ import {
   type RemediationRolloutWave,
   type Scheduler,
 } from '@pipeline-builder/api-core';
+import { PENDING_RUN_REQUEST_STATUSES } from '@pipeline-builder/api-core/pipeline-runners';
 import { collectPluginSteps, pluginLookupFilter, type PluginStepRef } from '@pipeline-builder/pipeline-core';
 import {
   acceptanceKey,
   activeAcceptances,
   drizzleListingSource,
+  failedStatusList,
   orgListingStates,
   runWithTenantContext,
+  terminalStatusList,
   withTenantTx,
   type PluginFilter,
 } from '@pipeline-builder/pipeline-data';
@@ -209,6 +212,13 @@ export type StateCounts = Record<PipelineRemediationUpgradeState, number>;
 
 // -- SQL helpers -------------------------------------------------------------------
 
+/** Rows a rollout has not decided yet: a repeat start re-targets them, a cancel supersedes them. */
+const OPEN_STATES = ['proposed', 'queued', 'change_requested', 'skipped_runner'] as const satisfies readonly PipelineRemediationUpgradeState[];
+/** Rows a wave may move. */
+const MOVABLE_STATES = ['queued', 'skipped_runner'] as const satisfies readonly PipelineRemediationUpgradeState[];
+
+const stateList = (states: readonly PipelineRemediationUpgradeState[]): SQL => sql.join(states.map((s) => sql`${s}`), sql`, `);
+
 type Tx = Parameters<Parameters<typeof withTenantTx>[0]>[0];
 
 function rowsOf<T>(result: unknown): T[] {
@@ -288,7 +298,7 @@ export async function patchRow(id: string, patch: RowPatch, fromStates?: readonl
   if (patch.toVersion !== undefined) sets.push(sql`to_version = ${patch.toVersion}`);
   sets.push(sql`updated_at = now()`);
   const guard = fromStates && fromStates.length > 0
-    ? sql` AND state IN (${sql.join(fromStates.map((s) => sql`${s}`), sql`, `)})`
+    ? sql` AND state IN (${stateList(fromStates)})`
     : sql``;
   const res = await asSystem((tx) => tx.execute(sql`
     UPDATE pipeline_remediation_upgrades SET ${sql.join(sets, sql`, `)} WHERE id = ${id}::uuid${guard} RETURNING id`));
@@ -373,7 +383,7 @@ export async function runStates(remediationId: string): Promise<Map<string, RunS
       EXISTS (
         SELECT 1 FROM pipeline_events e
         WHERE e.pipeline_id = u.pipeline_id AND e.event_type = 'PIPELINE'
-          AND e.status IN ('SUCCEEDED', 'FAILED', 'CANCELED', 'STOPPED', 'SUPERSEDED', 'ABANDONED')
+          AND e.status IN (${terminalStatusList})
           AND e.created_at >= u.moved_at
           AND (rr.result_execution_id IS NULL OR e.execution_id IS NULL OR e.execution_id = rr.result_execution_id)
       ) AS finished
@@ -383,7 +393,7 @@ export async function runStates(remediationId: string): Promise<Map<string, RunS
   const out = new Map<string, RunState>();
   for (const r of rowsOf<{ id: string; run_status: string | null; finished: boolean }>(res)) {
     if (r.run_status === null) out.set(r.id, 'finished');
-    else if (r.run_status === 'queued' || r.run_status === 'delivering') out.set(r.id, 'pending');
+    else if ((PENDING_RUN_REQUEST_STATUSES as readonly string[]).includes(r.run_status)) out.set(r.id, 'pending');
     else if (r.run_status !== 'started') out.set(r.id, 'finished');
     else out.set(r.id, r.finished ? 'finished' : 'running');
   }
@@ -405,7 +415,7 @@ export async function failedOnNewVersion(row: UpgradeRow): Promise<boolean> {
     SELECT EXISTS (
       SELECT 1 FROM pipeline_events e
       WHERE e.pipeline_id = ${row.pipelineId}::uuid
-        AND e.status IN ('FAILED', 'FAILURE', 'ERROR', 'TIMED_OUT')
+        AND e.status IN (${failedStatusList})
         AND COALESCE(e.completed_at, e.created_at) >= ${from}::timestamptz
         AND COALESCE(e.completed_at, e.created_at) <= ${until}::timestamptz
         AND (
@@ -445,6 +455,9 @@ export function countStates(rows: readonly UpgradeRow[]): StateCounts {
   return counts;
 }
 
+/** The `error` a cancel stamps on the rows it supersedes (other supersedes — a deleted pipeline, a stale plan — keep their own). */
+export const CANCELLED_ERROR = 'cancelled';
+
 /** Why the rollout is paused, or null. */
 export function pauseReason(rows: readonly UpgradeRow[]): RemediationRolloutPauseReason | null {
   if (rows.some((r) => r.state === 'rollback_blocked' && r.error === 'previous_version_deleted')) return 'rollback_target_deleted';
@@ -480,7 +493,7 @@ export function summarize(rows: readonly UpgradeRow[], toVersion: string, runs: 
   const wave = currentWave(rows);
   const queued = counts.queued;
   let status: RemediationRolloutStatus;
-  if (counts.superseded > 0 && queued === 0) status = 'cancelled';
+  if (queued === 0 && rows.some((r) => r.state === 'superseded' && r.error === CANCELLED_ERROR)) status = 'cancelled';
   else if (paused) status = 'paused';
   else if (queued === 0 && (wave < 0 || waveSettled(rows, wave, runs, now))) status = 'done';
   else if (wave < 0) status = 'pending';
@@ -548,7 +561,10 @@ interface Placement {
   requestChange: PinnedInstall | null;
 }
 
-function place(mode: PluginRemediationRollout, plan: MovePlan, isTeam: boolean): Placement {
+/** An install the pipeline's org inherits (a team's install is its ROOT's row): only the root's own rollout moves it. */
+const inheritedInstall = (install: PinnedInstall | null, orgId: string): boolean => !!install && install.orgId.toLowerCase() !== orgId.toLowerCase();
+
+function place(mode: PluginRemediationRollout, plan: MovePlan, isTeam: boolean, orgId: string): Placement {
   if (mode === 'off') return { state: 'skipped_opt_out', mode, error: null, requestChange: null };
   if (plan.kind === 'not_admitted') return { state: 'failed', mode, error: 'not_admitted', requestChange: null };
   if (plan.kind === 'stale') return { state: 'superseded', mode, error: 'not_using_version', requestChange: null };
@@ -557,8 +573,9 @@ function place(mode: PluginRemediationRollout, plan: MovePlan, isTeam: boolean):
     return { state: 'change_requested', mode, error: null, requestChange: plan.install };
   }
   if (mode === 'propose') return { state: 'proposed', mode, error: null, requestChange: null };
-  // Teams only get proposals for pins in their own pipelines.
-  if (isTeam && plan.kind === 'step_pin') return { state: 'proposed', mode: 'propose', error: null, requestChange: null };
+  // Teams only get proposals for pins in their own pipelines, and never move an
+  // install they inherit (applied from the page once the root's install moved).
+  if (isTeam && (plan.kind === 'step_pin' || inheritedInstall(plan.install, orgId))) return { state: 'proposed', mode: 'propose', error: null, requestChange: null };
   return { state: 'queued', mode, error: null, requestChange: null };
 }
 
@@ -605,7 +622,7 @@ export function createRolloutEngine(deps: RolloutDeps) {
       const resolved = effectiveRollout(pipeline.remediationUpgrades, settings);
       // An opted-out pipeline is never planned: it is skipped whatever it would take.
       const plan = resolved.mode === 'off' ? NO_PLAN : await deps.plan(pipeline, rootOrgId, ref);
-      const placement = place(resolved.mode, plan, !!rootOrgId);
+      const placement = place(resolved.mode, plan, !!rootOrgId, orgId);
       if (placement.requestChange && !requested.has(placement.requestChange.id)) {
         requested.add(placement.requestChange.id);
         await deps.requestInstallChange(placement.requestChange, ref);
@@ -616,7 +633,7 @@ export function createRolloutEngine(deps: RolloutDeps) {
     if (existing.length > 0) {
       // A repeat start. A different toVersion (the owner's own clean version)
       // re-targets every OPEN row at it; moved / rolled-back rows stay as they are.
-      const open: PipelineRemediationUpgradeState[] = ['proposed', 'queued', 'change_requested', 'skipped_runner'];
+      const open: readonly PipelineRemediationUpgradeState[] = OPEN_STATES;
       for (const row of existing.filter((r) => r.toVersion !== input.toVersion && open.includes(r.state))) {
         const rootOrgId = await rootOrgOf(row.pipelineId, row.orgId);
         const placement = await placeFor(row.orgId, row.pipelineId, rootOrgId);
@@ -646,8 +663,8 @@ export function createRolloutEngine(deps: RolloutDeps) {
     const rows = await loadRows(remediationId);
     if (rows.length === 0) return false;
     await asSystem((tx) => tx.execute(sql`
-      UPDATE pipeline_remediation_upgrades SET state = 'superseded', updated_at = now()
-      WHERE remediation_id = ${remediationId}::uuid AND state IN ('queued', 'proposed', 'change_requested', 'skipped_runner')`));
+      UPDATE pipeline_remediation_upgrades SET state = 'superseded', error = ${CANCELLED_ERROR}, updated_at = now()
+      WHERE remediation_id = ${remediationId}::uuid AND state IN (${stateList(OPEN_STATES)})`));
     return true;
   }
 
@@ -656,7 +673,7 @@ export function createRolloutEngine(deps: RolloutDeps) {
    * the row's new state.
    */
   async function moveOne(row: UpgradeRow, wave: number): Promise<PipelineRemediationUpgradeState> {
-    const from: PipelineRemediationUpgradeState[] = ['queued', 'skipped_runner'];
+    const from = MOVABLE_STATES;
     const pipeline = await loadPipeline(row.pipelineId);
     if (!pipeline) {
       await patchRow(row.id, { state: 'superseded', error: 'pipeline_deleted' }, from);
@@ -666,7 +683,7 @@ export function createRolloutEngine(deps: RolloutDeps) {
     const resolved = effectiveRollout(pipeline.remediationUpgrades, await deps.settings(row.orgId, rootOrgId));
     const ref = REF_OF(row);
     const plan = resolved.mode === 'off' ? NO_PLAN : await deps.plan(pipeline, rootOrgId, ref);
-    const placement = place(resolved.mode, plan, !!rootOrgId);
+    const placement = place(resolved.mode, plan, !!rootOrgId, row.orgId);
     if (placement.state !== 'queued') {
       if (placement.requestChange) await deps.requestInstallChange(placement.requestChange, ref);
       await patchRow(row.id, { state: placement.state, mode: placement.mode, error: placement.error }, from);
@@ -766,7 +783,7 @@ export function createRolloutEngine(deps: RolloutDeps) {
             if (await moveOne(row, index) === 'moved') movedAny = true;
           } catch (err) {
             logger.warn('Remediation move failed', { remediationId, pipelineId: row.pipelineId, error: errorMessage(err) });
-            await patchRow(row.id, { state: 'failed', wave: index, error: 'internal_error' }, ['queued', 'skipped_runner']);
+            await patchRow(row.id, { state: 'failed', wave: index, error: 'internal_error' }, MOVABLE_STATES);
           }
         }
         // A wave that moved nothing (all skipped / re-resolved) never blocks the next pass.
@@ -791,11 +808,17 @@ export function createRolloutEngine(deps: RolloutDeps) {
 
   /**
    * Apply one PROPOSED row from the pipeline page (actor = the user, under
-   * their tenant scope): the same plan and write path as a rollout move.
+   * their tenant scope): the same plan and write path as a rollout move. A
+   * listing install the plan would move along is moved only with `moveInstall`
+   * (the caller may change installs, plugins:install) and only when it is the
+   * pipeline org's own; otherwise just the step pins move.
    */
-  async function applyProposal(row: UpgradeRow, pipeline: RolloutPipeline, actor: ApplyActor, rootOrgId: string | null): Promise<MoveResult> {
+  async function applyProposal(row: UpgradeRow, pipeline: RolloutPipeline, actor: ApplyActor, rootOrgId: string | null, opts: { moveInstall?: boolean } = {}): Promise<MoveResult> {
     const ref = REF_OF(row);
-    const plan = await deps.plan(pipeline, rootOrgId, ref);
+    const planned = await deps.plan(pipeline, rootOrgId, ref);
+    const plan = planned.install && (!opts.moveInstall || inheritedInstall(planned.install, pipeline.orgId)) && planned.kind !== 'install_pin'
+      ? { ...planned, install: null }
+      : planned;
     if (plan.kind === 'not_admitted' || plan.kind === 'stale') return { ok: false, error: plan.kind };
     if (plan.kind === 'install_pin') return { ok: false, error: 'install_change_needed' };
     const result = await deps.move({ row, pipeline, rootOrgId, ref, plan, actor });
@@ -867,7 +890,10 @@ export async function planMove(pipeline: Pick<RolloutPipeline, 'orgId' | 'props'
   // A range / unversioned step on `fromVersion` is held there by a pinned
   // install (a listing) — the install moves — or by a range that excludes the
   // fix. A rollback with no install to move back pins such steps instead.
-  const install = rangeSteps.length > 0 ? await pinnedInstall(pipeline.orgId, rootOrgId, ref) : null;
+  const found = rangeSteps.length > 0 ? await pinnedInstall(pipeline.orgId, rootOrgId, ref) : null;
+  // A rollback never moves an install the pipeline's org inherits (the root's
+  // row, shared by its other pipelines and teams): its own steps are pinned.
+  const install = opts.pinRanges && inheritedInstall(found, pipeline.orgId) ? null : found;
   const steps = install || !opts.pinRanges ? exactSteps : [...exactSteps, ...rangeSteps];
   const kind: MovePlan['kind'] = steps.length > 0 ? 'step_pin'
     : install ? 'install_pin'
@@ -944,6 +970,7 @@ async function moveReal(input: Parameters<RolloutDeps['move']>[0]): Promise<Move
     // An approval-gated install is never moved forward (it got a change
     // request); on a rollback, an install the rollout moved goes back with it.
     if (plan.install && (input.rollback || !plan.install.gated)) {
+      if (inheritedInstall(plan.install, orgId)) return { ok: false, error: 'install_inherited' };
       if (!await moveInstallPin(plan.install, ref, actor)) return { ok: false, error: 'install_changed' };
     }
     if (plan.kind === 'step_pin') {

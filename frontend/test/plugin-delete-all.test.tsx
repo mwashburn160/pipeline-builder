@@ -141,6 +141,18 @@ describe('deleted view batches', () => {
     await waitFor(() => expect(purgePluginByName).toHaveBeenCalledWith('tf-plan', 'b1', 'stepup-token'));
   });
 
+  it('reads every deleted row, not only the server\'s default first page of 10', async () => {
+    const rows = Array.from({ length: 12 }, (_, i) => ({ id: `r${i}`, name: 'big', version: `1.0.${i}`, deleteBatchId: 'b9', deletedAt: '2026-11-19T10:00:00Z' }));
+    // The server's paging: limit defaults to 10, offset to 0.
+    listDeletedPlugins.mockImplementation(async (params?: Record<string, string>) => {
+      const limit = Number(params?.limit ?? 10);
+      const offset = Number(params?.offset ?? 0);
+      return { success: true, data: { plugins: rows.slice(offset, offset + limit) } };
+    });
+    render(<DeletedPluginBatches />);
+    expect(await screen.findByText(/12 versions/)).toBeTruthy();
+  });
+
   it('renders nothing when no batch exists', async () => {
     listDeletedPlugins.mockResolvedValue({ success: true, data: { plugins: [ROWS[2]] } });
     const { container } = render(<DeletedPluginBatches />);

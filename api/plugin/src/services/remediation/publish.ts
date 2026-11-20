@@ -15,6 +15,7 @@ import { createHash } from 'crypto';
 
 import {
   ACTIVE_BUILD_REMEDIATION_STAGES,
+  createLogger,
   isSystemOrgId,
   pluginSourceKey,
   SYSTEM_PLUGIN_REMEDIATION,
@@ -31,6 +32,8 @@ import { openOfficialListingFix, storeOfficialExport } from '../ecosystem/remedi
 import { putRemediationArtifact, recordVersionSource } from '../plugin-sources.js';
 import { sendRemediationNotice } from '../remediation-notices.js';
 import { persistVersion } from '../version-persist.js';
+
+const logger = createLogger('plugin-remediation-publish');
 
 /** The smokeTest command a stored `smoke_test` carries ('' for none). */
 export function smokeCommand(s: PluginSmokeTest | null | undefined): string {
@@ -140,13 +143,19 @@ export async function publishCandidate(input: {
     await recordVersionSource(stored.id, { key, sha256, sizeBytes: candidate.patched.zip.length });
   } catch { /* the version is stored source-less (overlay-only next time); plugin-sources counts it */ }
 
-  const published = (await updateRemediation(row.id, {
+  const published = await updateRemediation(row.id, {
     stage: 'published',
     toVersion: stored.version,
     toPluginId: stored.id,
     publishedAt: new Date(),
     outcome: (row.remaining ?? []).length > 0 ? 'partial' : 'cleared',
-  }))!;
+  }, ACTIVE_BUILD_REMEDIATION_STAGES);
+  if (!published) {
+    // Cancelled (a delete) or superseded while the version was being stored: the cancel stands —
+    // no rollout, no notice. The stored version keeps its image (it is a real version now).
+    logger.warn('Remediation ended while its fix version was stored; not published', { remediationId: row.id, toPluginId: stored.id });
+    return (await getRemediation(row.id)) ?? fresh;
+  }
   countStage('published', published.outcome);
   countCleared(published);
   auditRemediation('plugin.remediation.published', published, {

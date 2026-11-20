@@ -100,7 +100,10 @@ const COLLECTION_DEFS = [
   },
   {
     name: 'idpConfigs',
-    read: (orgId) => OrgIdpConfig.find({ organizationId: toOrgId(orgId) }).lean(),
+    // Never the OIDC client secret: like a runner key's `private_key_enc`, a
+    // secret never leaves in an artifact, encrypted or not — the export reaches
+    // `org_settings:write` holders, and the CRUD surface never returns it either.
+    read: (orgId) => OrgIdpConfig.find({ organizationId: toOrgId(orgId) }).select('-clientSecretEncrypted').lean(),
     remove: async (orgId) => (await OrgIdpConfig.deleteMany({ organizationId: toOrgId(orgId) })).deletedCount ?? 0,
   },
   {

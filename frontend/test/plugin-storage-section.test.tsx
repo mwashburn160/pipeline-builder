@@ -10,16 +10,19 @@
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
 import { render, screen } from '@testing-library/react';
+jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => ({ success: jest.fn(), error: jest.fn(), warning: jest.fn(), info: jest.fn() })));
 import { PluginStorageSection, versionStorageRows } from '../src/components/plugin/PluginStorageSection';
 
 const listPlugins = jest.fn<AnyFn>();
 const getStorageReclaim = jest.fn<AnyFn>();
+const getPluginTidyPreview = jest.fn<AnyFn>();
 
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
     listPlugins: (...a: unknown[]) => listPlugins(...a),
     getStorageReclaim: (...a: unknown[]) => getStorageReclaim(...a),
+    getPluginTidyPreview: (...a: unknown[]) => getPluginTidyPreview(...a),
   },
 }));
 
@@ -38,6 +41,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   listPlugins.mockResolvedValue({ success: true, data: { plugins: VERSIONS } });
   getStorageReclaim.mockResolvedValue({ success: true, data: PLAN });
+  getPluginTidyPreview.mockResolvedValue({ success: true, data: null });
 });
 
 describe('PluginStorageSection', () => {
@@ -49,7 +53,7 @@ describe('PluginStorageSection', () => {
   });
 
   it('shows bytes, the source-less state and what a purge frees', async () => {
-    render(<PluginStorageSection name="tf-plan" />);
+    render(<PluginStorageSection name="tf-plan" canWrite />);
     expect(await screen.findByText('Prebuilt image, no kept source')).toBeInTheDocument();
     expect(screen.getByText('1.0 KB')).toBeInTheDocument();
     expect(await screen.findByText('2.0 KB')).toBeInTheDocument();
@@ -59,8 +63,23 @@ describe('PluginStorageSection', () => {
 
   it('still shows source bytes when the registry cannot be read, and says the figure is partial', async () => {
     getStorageReclaim.mockRejectedValue(new Error('503'));
-    render(<PluginStorageSection name="tf-plan" />);
+    render(<PluginStorageSection name="tf-plan" canWrite />);
     expect(await screen.findByText('1.0 KB')).toBeInTheDocument();
     expect(screen.getByTestId('plugin-storage-freed')).toHaveTextContent(/could not all be measured/);
+  });
+
+  it('offers Keep and Never tidy only to a caller who may write (a read-only session may not)', async () => {
+    getPluginTidyPreview.mockResolvedValue({ success: true, data: {
+      settings: { autoTidy: 'on', staleAfterDays: 90, neverTidy: [], lastDigestAt: null },
+      report: { mode: 'on', versions: [{ pluginId: 'v1', name: 'tf-plan', version: '1.0.0', state: 'warned', lastUsedAt: null, staleAt: '2026-11-21T00:00:00.000Z', deactivateAt: '2026-11-28T00:00:00.000Z', bytes: 10 }] },
+      canEdit: true, canKeep: true,
+    } });
+    const { unmount } = render(<PluginStorageSection name="tf-plan" canWrite={false} />);
+    expect(await screen.findByTestId('plugin-tidy')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Keep 1.0.0/ })).toBeNull();
+    expect(screen.getByRole('switch')).toBeDisabled();
+    unmount();
+    render(<PluginStorageSection name="tf-plan" canWrite />);
+    expect(await screen.findByRole('button', { name: /Keep 1.0.0/ })).toBeInTheDocument();
   });
 });

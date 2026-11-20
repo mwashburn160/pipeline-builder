@@ -20,7 +20,10 @@
  */
 
 import type { PluginScanFinding, PluginScanFindingLocation } from './plugin-scan.js';
-import { parseSemver } from '../utils/semver.js';
+import { compareSemverParts, parseSemver } from '../utils/semver.js';
+
+/** Membership in one of this module's `as const` vocabularies. */
+const isOneOf = <T extends string>(list: readonly T[], v: unknown): v is T => typeof v === 'string' && (list as readonly string[]).includes(v);
 
 // =============================================================================
 // Package types (grype `artifact.type`)
@@ -186,7 +189,7 @@ export const GRYPE_PACKAGE_TYPE_CATALOG: Readonly<Record<GrypePackageType, Grype
 };
 
 export function isGrypePackageType(value: unknown): value is GrypePackageType {
-  return typeof value === 'string' && (GRYPE_PACKAGE_TYPES as readonly string[]).includes(value);
+  return isOneOf(GRYPE_PACKAGE_TYPES, value);
 }
 
 /** grype's raw `artifact.type` as a {@link GrypePackageType} (anything uncatalogued is `other`). */
@@ -230,7 +233,7 @@ export const PLUGIN_REMEDIATION_STAGE_LABELS: Readonly<Record<PluginRemediationS
 };
 
 export function isPluginRemediationStage(value: unknown): value is PluginRemediationStage {
-  return typeof value === 'string' && (PLUGIN_REMEDIATION_STAGES as readonly string[]).includes(value);
+  return isOneOf(PLUGIN_REMEDIATION_STAGES, value);
 }
 
 /** Why a remediation ended where it did (the `outcome` column and the metric label). */
@@ -361,7 +364,7 @@ export const DEFAULT_LIBRARY_UPGRADE_LEVEL: LibraryUpgradeLevel = 'minor';
 const LEVEL_RANK: Record<LibraryUpgradeLevel, number> = { patch: 0, minor: 1, major: 2 };
 
 export function isLibraryUpgradeLevel(value: unknown): value is LibraryUpgradeLevel {
-  return typeof value === 'string' && (LIBRARY_UPGRADE_LEVELS as readonly string[]).includes(value);
+  return isOneOf(LIBRARY_UPGRADE_LEVELS, value);
 }
 
 /** The strictest of the given levels (absent ones ignored); `fallback` when none is given. */
@@ -462,11 +465,7 @@ export function comparePackageVersions(a: string, b: string, packageType: GrypeP
   const sb = stripPrefix(b);
   const pa = parseSemver(sa);
   const pb = parseSemver(sb);
-  if (pa && pb) {
-    for (const k of ['major', 'minor', 'patch'] as const) if (pa[k] !== pb[k]) return pa[k] - pb[k];
-    if (pa.prerelease.length === 0 || pb.prerelease.length === 0) return pb.prerelease.length - pa.prerelease.length;
-    return verrevcmp(pa.prerelease.join('.'), pb.prerelease.join('.'));
-  }
+  if (pa && pb) return compareSemverParts(pa, pb);
   return verrevcmp(sa, sb);
 }
 
@@ -539,7 +538,8 @@ const groupKey = (f: Pick<PluginScanFinding, 'purl' | 'packageType' | 'packageNa
 
 /**
  * Group findings by package (purl) and pick, per package, the highest of the
- * lowest fixed versions across its CVEs — one upgrade that clears all of them.
+ * lowest fixed versions (above the installed one, when any is) across its
+ * CVEs — one upgrade that clears all of them.
  * Waived / VEX-covered findings must be filtered out by the caller. Sorted by purl.
  */
 export function chooseFixVersion(findings: readonly PluginScanFinding[]): PackageFixChoice[] {
@@ -561,7 +561,11 @@ export function chooseFixVersion(findings: readonly PluginScanFinding[]): Packag
       const fixes = f.fixedIn.filter((v) => typeof v === 'string' && v.trim() !== '');
       if (fixes.length === 0) { noFixIds.push(f.id); continue; }
       findingIds.push(f.id);
-      const lowest = fixes.reduce((a, b) => (cmp(b, a) < 0 ? b : a));
+      // A multi-branch advisory lists one fix per release line (1.2.0, 2.1.0);
+      // only the ones above the installed version are upgrades.
+      const above = fixes.filter((v) => cmp(v, f.packageVersion) > 0);
+      const pool = above.length > 0 ? above : fixes;
+      const lowest = pool.reduce((a, b) => (cmp(b, a) < 0 ? b : a));
       if (fixVersion === null || cmp(lowest, fixVersion) > 0) fixVersion = lowest;
     }
     const seen = new Set<string>();
@@ -650,7 +654,6 @@ export const DEFAULT_ROOT_REMEDIATION_ROLLOUT: PluginRemediationRollout = 'propo
 export const DEFAULT_TEAM_REMEDIATION_ROLLOUT: TeamRemediationRollout = 'inherit';
 export const DEFAULT_PIPELINE_REMEDIATION_ELECTION: PipelineRemediationElection = 'inherit';
 
-const isOneOf = <T extends string>(list: readonly T[], v: unknown): v is T => typeof v === 'string' && (list as readonly string[]).includes(v);
 export const isPluginRemediationMode = (v: unknown): v is PluginRemediationMode => isOneOf(PLUGIN_REMEDIATION_MODES, v);
 export const isTeamRemediationRollout = (v: unknown): v is TeamRemediationRollout => isOneOf(TEAM_REMEDIATION_ROLLOUTS, v);
 export const isPipelineRemediationElection = (v: unknown): v is PipelineRemediationElection => isOneOf(PIPELINE_REMEDIATION_ELECTIONS, v);
@@ -922,7 +925,7 @@ export function parseRemediationSeverities(
 ): RemediationSeverity[] {
   if (raw === undefined || raw === null || raw.trim() === '') return [...DEFAULT_REMEDIATION_SEVERITIES];
   const parts = raw.split(',').map((p) => p.trim().toLowerCase()).filter((p) => p !== '');
-  const valid = parts.every((p) => (REMEDIATION_SEVERITIES as readonly string[]).includes(p));
+  const valid = parts.every((p) => isOneOf(REMEDIATION_SEVERITIES, p));
   if (!valid || parts.length === 0) {
     warn(`PLUGIN_REMEDIATION_SEVERITIES=${JSON.stringify(raw)} is not a comma list of critical, high; using critical,high`);
     return [...DEFAULT_REMEDIATION_SEVERITIES];

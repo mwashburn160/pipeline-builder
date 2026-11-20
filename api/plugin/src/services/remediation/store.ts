@@ -29,6 +29,15 @@ import {
 } from '@pipeline-builder/pipeline-data';
 import { and, desc, eq, gt, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 
+/**
+ * After publish and still live: the pipeline service is (or was) rolling the fix out, so a
+ * report moves it and a cancel must stop the rollout. (LIVE minus ACTIVE_BUILD.)
+ */
+export const ROLLOUT_REMEDIATION_STAGES = LIVE_REMEDIATION_STAGES.filter(
+  (s) => !(ACTIVE_BUILD_REMEDIATION_STAGES as readonly string[]).includes(s),
+) as ReadonlyArray<Exclude<(typeof LIVE_REMEDIATION_STAGES)[number], (typeof ACTIVE_BUILD_REMEDIATION_STAGES)[number]>>;
+export const isRolloutStage = (stage: PluginRemediationStage): boolean => (ROLLOUT_REMEDIATION_STAGES as readonly string[]).includes(stage);
+
 const R = () => schema.pluginRemediation;
 const S = () => schema.pluginRemediationSetting;
 const P = () => schema.plugin;
@@ -82,11 +91,38 @@ export async function updateRemediation(
   id: string,
   patch: Partial<PluginRemediationInsert>,
   from?: readonly PluginRemediationStage[],
+  opts: { undecided?: boolean } = {},
 ): Promise<PluginRemediation | null> {
   const rows = await elevatedTx((tx) => tx.update(R()).set({ ...patch, updatedAt: new Date() })
-    .where(and(eq(R().id, id), ...(from ? [inArray(R().stage, [...from])] : [])))
+    .where(and(
+      eq(R().id, id),
+      ...(from ? [inArray(R().stage, [...from])] : []),
+      // `undecided`: only while nobody has approved it yet (two approvals never both win).
+      ...(opts.undecided ? [isNull(R().decidedAt)] : []),
+    ))
     .returning()) as PluginRemediation[];
   return rows[0] ?? null;
+}
+
+/**
+ * Read-modify-write one remediation under a row lock: `decide` sees the
+ * current row and answers the patch to apply (null = none) plus a result. Two
+ * concurrent callers (a redelivered report) serialize instead of both acting
+ * on the same stale row. Null when the remediation does not exist.
+ */
+export async function lockedUpdateRemediation<T>(
+  id: string,
+  decide: (row: PluginRemediation) => { patch: Partial<PluginRemediationInsert> | null; result: T },
+): Promise<{ before: PluginRemediation; row: PluginRemediation; result: T } | null> {
+  if (!UUID.test(id)) return null;
+  return elevatedTx(async (tx) => {
+    const [before] = await tx.select().from(R()).where(eq(R().id, id)).limit(1).for('update') as PluginRemediation[];
+    if (!before) return null;
+    const { patch, result } = decide(before);
+    if (!patch) return { before, row: before, result };
+    const [row] = await tx.update(R()).set({ ...patch, updatedAt: new Date() }).where(eq(R().id, id)).returning() as PluginRemediation[];
+    return { before, row: row ?? before, result };
+  });
 }
 
 /** Every remediation still LIVE (the nightly supersede / deactivate sweep). */

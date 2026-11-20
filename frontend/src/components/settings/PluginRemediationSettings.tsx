@@ -96,7 +96,12 @@ export function PluginRemediationSettings({ orgId, canEdit, readOnly }: {
     scopeKey: orgId,
     errorFallback: 'Could not save the security fix settings',
     onSuccess: (res) => {
-      if (res.data?.settings) apply(res.data);
+      // The PUT answers only `{ settings }`: keep the rest of the view (team, root, knob, severities).
+      const saved = res.data?.settings;
+      if (saved) {
+        setView((v) => (v ? { ...v, settings: saved } : v));
+        setDraft(draftOf(saved));
+      }
       toast.success('Security fix settings saved');
     },
   });

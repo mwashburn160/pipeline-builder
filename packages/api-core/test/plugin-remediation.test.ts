@@ -172,6 +172,13 @@ describe('chooseFixVersion', () => {
     ]);
     expect(out[0]!.fixVersion).toBe('1.1.1n-0+deb11u10');
   });
+  it('ignores fixed versions at or below the installed one (multi-branch advisories)', () => {
+    const npm = { packageType: 'npm' as const, packageName: 'lib', purl: 'pkg:npm/lib@2.0.0', packageVersion: '2.0.0' };
+    const out = chooseFixVersion([f({ ...npm, id: 'GHSA-1', fixedIn: ['1.2.0', '2.1.0'] })]);
+    expect(out[0]!.fixVersion).toBe('2.1.0');
+    // Only older-branch fixes listed: kept as reported (the caller's verification decides).
+    expect(chooseFixVersion([f({ ...npm, id: 'GHSA-2', fixedIn: ['1.2.0'] })])[0]!.fixVersion).toBe('1.2.0');
+  });
   it('answers null when no finding of a package has a fix', () => {
     expect(chooseFixVersion([f({ fixedIn: [] })])[0]!.fixVersion).toBeNull();
   });

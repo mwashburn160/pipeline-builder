@@ -127,12 +127,14 @@ export const SECRET_FILE_KINDS = {
   npmrc_token: {
     label: 'npm auth token (.npmrc)',
     matches: (_entry, base) => base === '.npmrc',
-    content: (text) => anyLine(text, /^\s*(?:\/\/\S*:)?_auth(?:token)?\s*=(.*)$/i),
+    // `_authToken`, `_auth` (base64 user:pass) and `_password` (base64, beside `username`).
+    content: (text) => anyLine(text, /^\s*(?:\/\/\S*:)?_(?:auth(?:token)?|password)\s*=(.*)$/i),
   },
   yarnrc_token: {
     label: 'npm auth token (.yarnrc.yml)',
     matches: (_entry, base) => base === '.yarnrc.yml' || base === '.yarnrc.yaml',
-    content: (text) => anyLine(text, /^\s*npmAuthToken\s*:(.*)$/),
+    // npmAuthToken, or npmAuthIdent (`user:password` or its base64).
+    content: (text) => anyLine(text, /^\s*npmAuth(?:Token|Ident)\s*:(.*)$/),
   },
 } as const satisfies Record<string, SecretFileKind>;
 

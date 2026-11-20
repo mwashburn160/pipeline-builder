@@ -27,6 +27,7 @@ import {
   sendEntityNotFound,
   sendError,
   sendSuccess,
+  userHasPermission,
   type PipelineRemediationElection,
 } from '@pipeline-builder/api-core';
 import { createAuthenticatedWithOrgRoute, withRoute } from '@pipeline-builder/api-server';
@@ -161,7 +162,7 @@ export function createRemediationUpgradeRoutes(engine: () => RolloutEngine = rol
         props: pipeline.props,
         pipelineName: pipeline.pipelineName,
         remediationUpgrades: (pipeline.remediationUpgrades ?? 'inherit') as PipelineRemediationElection,
-      }, { userId, requestedBy: userId }, parentOrgId);
+      }, { userId, requestedBy: userId }, parentOrgId, { moveInstall: userHasPermission(req, 'plugins:install') });
       if (!result.ok) {
         ctx.log('WARN', 'Remediation proposal not applied', { id: pipeline.id, upgradeId: row.id, error: result.error });
         return sendError(res, 409, `The upgrade could not be applied: ${result.error}`, ErrorCode.CONFLICT);

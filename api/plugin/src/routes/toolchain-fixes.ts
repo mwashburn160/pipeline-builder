@@ -22,7 +22,6 @@
  * toolchain), the platform default through the console's promotion.
  */
 
-import { GetObjectCommand } from '@aws-sdk/client-s3';
 import {
   attachmentDisposition,
   audited,
@@ -33,14 +32,13 @@ import {
   requireSystemOrg,
   sendSuccess,
 } from '@pipeline-builder/api-core';
-import { s3Client } from '@pipeline-builder/api-core/s3';
 import type { PluginRemediation } from '@pipeline-builder/pipeline-data';
 import { Router, type RequestHandler } from 'express';
 
 import { bodyFrom, ecosystemRoute, param } from './ecosystem-route.js';
 import { remediationConfig } from '../config.js';
 import { EcosystemError } from '../services/ecosystem/context.js';
-import { pluginSourcesBucket } from '../services/plugin-sources.js';
+import { readRemediationArtifact } from '../services/remediation/artifacts.js';
 import type { ToolchainInputsStore } from '../services/remediation/toolchain-inputs.js';
 import {
   approveToolchainFix, getToolchainFix, listToolchainFixes, rejectToolchainFix, toToolchainFixDto, type ToolchainPorts,
@@ -54,10 +52,6 @@ export interface ToolchainFixRouteOptions {
   readArtifact?: (key: string) => Promise<string | null>;
 }
 
-const liveReader = async (key: string): Promise<string | null> => {
-  const out = await s3Client().send(new GetObjectCommand({ Bucket: pluginSourcesBucket(), Key: key }));
-  return out.Body ? out.Body.transformToString('utf-8') : null;
-};
 const livePorts = async (): Promise<ToolchainPorts> => (await import('../services/remediation/tooling.js')).liveToolchainPorts();
 
 const notFound = (): EcosystemError => new EcosystemError(ErrorCode.NOT_FOUND, 'Toolchain fix not found');
@@ -67,7 +61,7 @@ export function createToolchainFixRoutes(opts: ToolchainFixRouteOptions = {}): R
   const gate = [requireSystemOrg as RequestHandler, requirePermission('plugins:write') as RequestHandler];
   const stepUp = requireStepUp as RequestHandler;
   const ports = opts.ports ?? livePorts;
-  const readArtifact = opts.readArtifact ?? liveReader;
+  const readArtifact = opts.readArtifact ?? readRemediationArtifact;
   const deps = async () => ({ ports: await ports(), ...(opts.inputs ? { inputs: opts.inputs } : {}) });
 
   const fixOf = async (id: string): Promise<PluginRemediation> => {

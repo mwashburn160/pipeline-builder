@@ -14,6 +14,7 @@ import { useToast } from '@/components/ui/Toast';
 import { useFetch } from '@/hooks/useFetch';
 import { useMutation } from '@/hooks/useMutation';
 import api from '@/lib/api';
+import { ApiError } from '@/lib/api/errors';
 import { formatError } from '@/lib/constants';
 import { triggerBlobDownload } from '@/lib/download';
 import {
@@ -54,6 +55,9 @@ export function PatchDiffView({ patch }: { patch: string }) {
 
 type PendingAction = 'approve' | 'reject' | null;
 
+/** The decision and retry routes answer 503 while the operator has remediation turned off (PLUGIN_REMEDIATION_ENABLED=false). */
+export const isRemediationOperatorOff = (err: unknown): boolean => err instanceof ApiError && err.statusCode === 503;
+
 /**
  * One remediation: its stage, the fix version once published, the findings it
  * cleared and the ones it left (each with why), the patch diff, and — in
@@ -74,6 +78,8 @@ export function RemediationCard({ remediation, canWrite, isSystemOrg = false, on
   const toast = useToast();
   const [pending, setPending] = useState<PendingAction>(null);
   const [showPatch, setShowPatch] = useState(false);
+  // Set when a decision or retry answered 503: the card then says so with the shared notice instead of an error toast.
+  const [operatorOff, setOperatorOff] = useState(false);
   const patchQ = useFetch(async () => api.getPluginRemediationPatch(r.id), [r.id], { enabled: showPatch && r.hasPatch });
 
   const decide = async (action: 'approve' | 'reject', token: string) => {
@@ -85,7 +91,8 @@ export function RemediationCard({ remediation, canWrite, isSystemOrg = false, on
       setPending(null);
       onChanged?.(res.data ?? null);
     } catch (err) {
-      toast.error(formatError(err, action === 'approve' ? 'Could not approve the fix' : 'Could not reject the fix'));
+      if (isRemediationOperatorOff(err)) setOperatorOff(true);
+      else toast.error(formatError(err, action === 'approve' ? 'Could not approve the fix' : 'Could not reject the fix'));
       setPending(null);
     }
   };
@@ -94,8 +101,12 @@ export function RemediationCard({ remediation, canWrite, isSystemOrg = false, on
     fn: async () => (await api.retryPluginRemediation(r.id)).data ?? null,
     scopeKey: r.id,
     errorFallback: 'Could not retry the remediation',
-    toast: { success: 'A new remediation attempt was queued', error: true },
+    toast: { success: 'A new remediation attempt was queued' },
     onSuccess: (dto) => onChanged?.(dto),
+    onError: (err, message) => {
+      if (isRemediationOperatorOff(err)) setOperatorOff(true);
+      else toast.error(message);
+    },
   });
   const retry = () => { void retryM.run(); };
 
@@ -110,6 +121,9 @@ export function RemediationCard({ remediation, canWrite, isSystemOrg = false, on
   });
   const downloadExport = () => { void exportM.run(); };
 
+  // The approve route records the decision and leaves the stage at awaiting_approval while the job rebuilds and
+  // publishes; a second Approve or Reject would only answer 409.
+  const awaitingDecision = r.stage === 'awaiting_approval' && !r.decidedAt;
   const counts = r.rollout?.counts;
   const wavePipelines = [...new Set((r.rollout?.waves ?? []).flatMap((w) => w.pipelineIds))];
   return (
@@ -130,13 +144,13 @@ export function RemediationCard({ remediation, canWrite, isSystemOrg = false, on
           ) : (
             <Link href={`/dashboard/plugins?q=${encodeURIComponent(r.pluginName)}`} className="action-link font-mono">{r.toVersion}</Link>
           )}
-          {r.stage === 'awaiting_approval' ? ' (built, waiting for approval)' : r.publishedAt ? ' published' : ''}
+          {awaitingDecision ? ' (built, waiting for approval)' : r.stage === 'awaiting_approval' ? ' (approved, publishing)' : r.publishedAt ? ' published' : ''}
           {r.publishedAt && <> <RelativeTime value={r.publishedAt} /></>}
           {r.fixMethods.length > 0 && <span className="text-fg-muted"> · {r.fixMethods.map((m) => REMEDIATION_FIX_METHOD_LABELS[m] ?? m).join(', ')}</span>}
         </p>
       )}
 
-      {r.stage === 'awaiting_approval' && r.proposeReasons.length > 0 && (
+      {awaitingDecision && r.proposeReasons.length > 0 && (
         <ul className="list-disc pl-4 text-fg-muted" aria-label="Why this fix waits for approval">
           {r.proposeReasons.map((p) => <li key={p}>{REMEDIATION_PROPOSE_REASON_LABELS[p] ?? p}</li>)}
         </ul>
@@ -206,6 +220,8 @@ export function RemediationCard({ remediation, canWrite, isSystemOrg = false, on
         </p>
       )}
 
+      {operatorOff && <RemediationOffNotice />}
+
       {r.error && <p className="text-danger-strong" data-testid="remediation-error">Error: <span className="font-mono">{r.error}</span></p>}
 
       <div className="flex flex-wrap gap-2">
@@ -219,7 +235,7 @@ export function RemediationCard({ remediation, canWrite, isSystemOrg = false, on
             <Download className="mr-1 h-3.5 w-3.5" aria-hidden />Download patch for deploy/plugins
           </Button>
         )}
-        {canWrite && r.stage === 'awaiting_approval' && (
+        {canWrite && awaitingDecision && (
           <>
             <Button variant="success" size="xs" onClick={() => setPending('approve')}>
               <Check className="mr-1 h-3.5 w-3.5" aria-hidden />Approve and publish

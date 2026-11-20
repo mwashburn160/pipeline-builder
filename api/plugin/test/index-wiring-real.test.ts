@@ -209,7 +209,7 @@ const pluginService = {
   setQuotaSnapshot: jest.fn(async () => undefined),
   promoteNextDefault: jest.fn(async () => null),
 };
-jest.unstable_mockModule('../src/services/plugin-service.js', () => ({ pluginService }));
+jest.unstable_mockModule('../src/services/plugin-service.js', () => ({ pluginService, withPurgeActor: (_userId: unknown, fn: () => unknown) => fn() }));
 jest.unstable_mockModule('../src/services/plugin-artifact-storage.js', () => ({
   putPluginArtifact: jest.fn(async () => undefined),
   putPluginArtifactFile: jest.fn(async () => undefined),

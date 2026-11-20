@@ -132,7 +132,6 @@ export interface TidyPassResult {
 
 const iso = (d: Date | null | undefined): string | undefined => (d ? d.toISOString() : undefined);
 const DATE = (d: Date | undefined): string => (d ? d.toISOString().slice(0, 10) : 'unknown');
-const TIDY_BOUND: ReadonlySet<TidyState> = new Set(['warn', 'warn_queued', 'warned', 'deactivate', 'deactivated', 'retire']);
 
 /** The orgs with live plugin versions (never the system org). */
 async function tidyOrgIds(): Promise<string[]> {
@@ -156,9 +155,23 @@ function emptyTotals(measured: boolean): TidyTotals {
   return { warn: 0, warnQueued: 0, warned: 0, deactivate: 0, deactivated: 0, retire: 0, skipped: 0, reactivate: 0, bytesFreed: measured ? 0 : null };
 }
 
-const TOTAL_KEY: Partial<Record<TidyState, keyof Omit<TidyTotals, 'bytesFreed'>>> = {
-  warn: 'warn', warn_queued: 'warnQueued', warned: 'warned', deactivate: 'deactivate', deactivated: 'deactivated', retire: 'retire', skipped: 'skipped', reactivate: 'reactivate',
-};
+/**
+ * How each state reads in a report: the total it counts toward (none for
+ * `fresh` / `clear`), and whether it is on the way out (its bytes count toward
+ * `bytesFreed`). One entry per {@link TidyState}.
+ */
+const TIDY_STATE_REPORT = {
+  fresh: { total: null, frees: false },
+  warn: { total: 'warn', frees: true },
+  warn_queued: { total: 'warnQueued', frees: true },
+  warned: { total: 'warned', frees: true },
+  deactivate: { total: 'deactivate', frees: true },
+  deactivated: { total: 'deactivated', frees: true },
+  retire: { total: 'retire', frees: true },
+  skipped: { total: 'skipped', frees: false },
+  reactivate: { total: 'reactivate', frees: false },
+  clear: { total: null, frees: false },
+} as const satisfies Record<TidyState, { total: keyof Omit<TidyTotals, 'bytesFreed'> | null; frees: boolean }>;
 
 interface Planned { facts: TidyVersionFacts; decision: TidyDecision; entry: TidyVersionEntry }
 
@@ -203,9 +216,9 @@ async function planOrg(orgId: string, settings: TidySettings, now: Date, bytes: 
 function buildReport(orgId: string, settings: TidySettings, now: Date, dryRun: boolean, planned: readonly Planned[], nextDigestAt: Date, measured: boolean): TidyOrgReport {
   const totals = emptyTotals(measured);
   for (const { entry } of planned) {
-    const key = TOTAL_KEY[entry.state];
-    if (key) totals[key]++;
-    if (TIDY_BOUND.has(entry.state) && totals.bytesFreed !== null) totals.bytesFreed += entry.bytes ?? 0;
+    const { total, frees } = TIDY_STATE_REPORT[entry.state];
+    if (total) totals[total]++;
+    if (frees && totals.bytesFreed !== null) totals.bytesFreed += entry.bytes ?? 0;
   }
   return {
     orgId,
@@ -338,7 +351,10 @@ async function actOnOrg(orgId: string, settings: TidySettings, now: Date, planne
   const batchId = randomUUID();
   let retired = 0;
   for (const p of retire) {
-    const row = p.facts.row;
+    // Re-read: a use (or a Keep) since the plan reactivated it — never retire
+    // a version on what it was when the pass started.
+    const [row] = await elevated((tx) => tx.select().from(P).where(and(eq(P.id, p.facts.row.id), isNull(P.deletedAt)))) as Plugin[];
+    if (!row || row.isActive || !row.tidyDeactivatedAt) { set(p, 'refused', 'changed since it was read'); continue; }
     const others = await elevated((tx) => executeRows<{ n: number | string }>(tx, sql`
       SELECT count(*)::int AS n FROM plugins WHERE org_id = ${row.orgId} AND name = ${row.name} AND id <> ${row.id}::uuid AND deleted_at IS NULL`));
     const protection = autoRemovalProtection({ isActive: row.isActive, deletedAt: row.deletedAt, otherLiveVersions: Number(others[0]?.n ?? 0) });

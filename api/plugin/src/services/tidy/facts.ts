@@ -25,7 +25,7 @@
  * Every unanswerable check keeps the version.
  */
 
-import { compareSemverLenient, isManagedToolchainPlugin, parseSemver, versionScanFacts } from '@pipeline-builder/api-core';
+import { compareSemverLenient, isManagedToolchainPlugin, parseSemver, TERMINAL_REMEDIATION_STAGES, versionScanFacts } from '@pipeline-builder/api-core';
 import { executeRows, schema, versionReferencedPredicate, type Plugin } from '@pipeline-builder/pipeline-data';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 
@@ -75,7 +75,7 @@ async function flagsOf(ids: readonly string[], now: Date): Promise<Map<string, F
            EXISTS (SELECT 1 FROM plugin_listing_versions lv
                     WHERE lv.source_plugin_id = p.id AND lv.image_digest IS NOT NULL AND ${listingRef}) AS listing_referenced,
            (EXISTS (SELECT 1 FROM plugin_remediations rm
-                     WHERE (rm.plugin_id = p.id OR rm.to_plugin_id = p.id) AND rm.stage NOT IN ('done', 'needs_owner', 'failed'))
+                     WHERE (rm.plugin_id = p.id OR rm.to_plugin_id = p.id) AND rm.stage NOT IN (${sql.join(TERMINAL_REMEDIATION_STAGES.map((s) => sql`${s}`), sql`, `)}))
             OR EXISTS (SELECT 1 FROM pipeline_remediation_upgrades u
                         WHERE u.plugin_name = p.name AND u.plugin_publisher IS NULL
                           AND (u.from_version = p.version OR u.to_version = p.version)

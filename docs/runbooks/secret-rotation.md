@@ -429,13 +429,22 @@ under their own CMK, not this master, and their blobs carry a `kid`; the shared
 previous key is never applied to them. Rotating an org's CMK is a separate flow
 (`PUT /api/admin/orgs/:orgId/kms-config`, which re-encrypts that org inline,
 including its runner signing keys through the pipeline re-encrypt job; a
-runner-key failure answers 500). If a stored platform secret can't be decrypted
-under the current provider the `PUT` refuses with 409 and changes nothing.
-Repair that row, or retry with `?reencrypt=false`: that skips **only** the
-platform (MongoDB) secret re-encrypt, so the org's existing AI provider keys and
-SSO client secret become unreadable and must be re-entered. The runner signing
-key re-wrap still runs (it does not depend on the platform pass), and a failure
-there still answers 500.
+runner-key failure answers 500). **Clearing it is the same migration:**
+`DELETE /api/admin/orgs/:orgId/kms-config` falls the org back to the shared
+master, and since the org's platform secrets were wrapped under a key derived
+from its CMK — which the shared provider cannot open — the `DELETE` re-encrypts
+them under the shared provider exactly as a `PUT` does, runner signing keys
+included. Both mutations behave identically on failure. If a stored platform
+secret can't be decrypted under the current provider the `PUT`/`DELETE` refuses
+with 409 and changes nothing. Repair that row, or retry with
+`?reencrypt=false`: that skips **only** the platform (MongoDB) secret
+re-encrypt, so the org's existing AI provider keys and SSO client secret become
+unreadable and must be re-entered. The runner signing key re-wrap still runs (it
+does not depend on the platform pass), and a failure there still answers 500. A
+failure **mid-flight** — the config already saved, the re-encrypt partly done —
+answers 500 and is audited as a failure: the change is NOT rolled back, so
+re-enter the affected secrets through their admin endpoints (and rerun the
+runner-key re-encrypt if the message names it).
 
 **Proof** — `packages/api-core/test/secret-rotation.test.ts` (overlap → rewrite
 → old blob rejected), `platform/test/secret-reencrypt.test.ts` (the fleet-wide

@@ -191,8 +191,8 @@ export async function keepListingSource(input: {
 }
 
 /**
- * Write a version's source pointer. Returns the key the row held before, so a
- * re-upload of the same version can drop the source it replaced.
+ * Write a version's source pointer. Returns the key the row held before (a
+ * re-upload's replaced ZIP stays in the version's prefix until its purge).
  */
 export async function recordVersionSource(pluginId: string, kept: KeptSource | null): Promise<string | null> {
   const p = schema.plugin;
@@ -368,6 +368,8 @@ export interface SourceOrphanInput {
   target: string;
   pluginId?: string | null;
   pluginVersion?: string | null;
+  /** The originating user (an owner's purge) — replayed into a retried image discard's audit context. */
+  userId?: string | null;
   error: unknown;
 }
 
@@ -390,6 +392,7 @@ export async function recordSourceOrphan(o: SourceOrphanInput): Promise<void> {
       target: o.target,
       pluginId: o.pluginId ?? null,
       pluginVersion: o.pluginVersion ?? null,
+      userId: o.userId ?? null,
       lastError,
     }).onConflictDoUpdate({
       target: [t.orgId, t.kind, t.bucket, t.target],
@@ -417,16 +420,6 @@ export async function deletePluginSourcePrefix(input: { orgId: string; pluginId?
     await deletePrefix(bucket, input.prefix);
   } catch (err) {
     await recordSourceOrphan({ orgId: input.orgId, kind: 'prefix', bucket, target: input.prefix, pluginId: input.pluginId, pluginVersion: input.version, error: err });
-  }
-}
-
-/** Delete one kept object (a replaced source). Never throws: a failure is an `object` orphan. */
-export async function deletePluginSourceObject(input: { orgId: string; pluginId?: string | null; version?: string | null; key: string }): Promise<void> {
-  const bucket = pluginSourcesBucket();
-  try {
-    await s3Client().send(new DeleteObjectCommand({ Bucket: bucket, Key: input.key }));
-  } catch (err) {
-    await recordSourceOrphan({ orgId: input.orgId, kind: 'object', bucket, target: input.key, pluginId: input.pluginId, pluginVersion: input.version, error: err });
   }
 }
 
@@ -490,7 +483,7 @@ export async function retryPluginSourceOrphans(opts: { limit?: number; retryImag
       cleared++;
     } catch (err) {
       failed++;
-      await recordSourceOrphan({ orgId: row.orgId, kind: row.kind, bucket: row.bucket, target: row.target, pluginId: row.pluginId, pluginVersion: row.pluginVersion, error: err });
+      await recordSourceOrphan({ orgId: row.orgId, kind: row.kind, bucket: row.bucket, target: row.target, pluginId: row.pluginId, pluginVersion: row.pluginVersion, userId: row.userId, error: err });
     }
   }
   if (tried > 0) logger.info('Retried failed source and image deletes', { tried, cleared, failed });

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: ac92128ebd46e5f17669f8825f95cb31a1d96ed3d976cfec78f5617038755b36
+// SOURCE-SHA256: 01078565fdc2110f97d3fd94aee12c92119db3032e5210f25d0409ceb502307f
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1008,6 +1008,15 @@ export const apiReferenceTopic: HelpTopic = {
               "`{ kind: 'answer' \\",
               "'help-search-miss', rating?: 'up' \\",
               "'down' (required for an answer), sources?: string[] (doc ids, ≤ 20) } → { recorded: true }. Carries no free text by construction. An answer rating is audited ask.feedback`"
+            ],
+            [
+              "POST",
+              "/ask-agent/draft-outcome",
+              "`{ feature: 'agent' \\",
+              "'pipeline-generate' \\",
+              "'plugin-generate', outcome: 'accepted' \\",
+              "'edited_accepted' \\",
+              "'discarded' } → { recorded } — counts what happened to a reviewable draft, per org and feature only. Not audited (it must never be attributable to a person). Also capped per user (ASK_DRAFT_OUTCOME_RATE_LIMIT_PER_MIN`, default 20 a minute) on top of the per-org limit"
             ]
           ]
         },
@@ -1571,6 +1580,25 @@ export const apiReferenceTopic: HelpTopic = {
               "/organization/:id/impersonation-policy",
               "Read / change whether platform operators may view as this org's members (open, consent, denied) and allowSelfApproval. Returns the EFFECTIVE policy (strictest across the org and its ancestors) with the org's own setting; when a parent's stricter policy applies, inheritedFrom + inheritedFromName name it. The write is step-up gated",
               "org_impersonation:write"
+            ],
+            [
+              "GET",
+              "/admin/orgs/:orgId/kms-config",
+              "Whether the org has its own per-org KMS config (configured, keyId); the wrapped master is never returned",
+              "org_kms:write + system admin"
+            ],
+            [
+              "PUT \\",
+              "DELETE",
+              "/admin/orgs/:orgId/kms-config",
+              "Set ({ keyId, ciphertextBase64 }) / clear the org's per-org KMS config — DELETE falls the org back to the shared master. Both re-encrypt the org's platform secrets under the incoming provider and re-wrap its runner signing keys → { configured, keyId?, …counts } (DELETE on an org with no config answers 200 { configured: false } and changes nothing). ?reencrypt=false skips only the platform-secret re-encrypt (those secrets become unreadable; the runner keys are still re-wrapped). 409 when a stored secret cannot be decrypted under the current provider — nothing is changed; 500 when the config was saved but the re-encrypt (or the runner-key re-wrap) failed mid-flight — audited as a failure. MFA session (aal2) + step-up by passkey or authenticator code",
+              "org_kms:write + system admin"
+            ],
+            [
+              "POST",
+              "/admin/orgs/:orgId/kms-config/test",
+              "Dry-run a proposed config (the CMK exists, the platform can decrypt it, the wrapped master is well-formed). Saves nothing",
+              "org_kms:write + system admin"
             ]
           ]
         },

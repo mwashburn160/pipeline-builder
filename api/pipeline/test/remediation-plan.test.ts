@@ -107,6 +107,20 @@ describe('planMove', () => {
     expect(plan.steps[0]!.apply.version).toBe('1.4.2');
   });
 
+  it('a team\'s rollback never moves its root\'s inherited install: its own range steps are pinned back', async () => {
+    resolvesTo({ '': '1.4.3' }, 'acme');
+    mockListingStates.mockResolvedValueOnce([{
+      publisher: { handle: 'acme', tier: 'verified' },
+      mode: { kind: 'explicit', inherited: true, install: { id: 'root-inst', orgId: 'rootrootrootrootrootroot', versionPolicy: 'pinned', pinnedVersion: '1.4.3' } },
+      policy: { requireApprovalTiers: [] },
+    }]);
+    const back = { ...ref('acme'), fromVersion: '1.4.3', toVersion: '1.4.2' };
+    const plan = await planMove({ orgId: ORG, props: props(step('trivy', undefined, { publisher: 'acme' })) }, 'rootrootrootrootrootroot', back, { pinRanges: true });
+    expect(plan.kind).toBe('step_pin');
+    expect(plan.install).toBeNull();
+    expect(plan.steps[0]!.apply.version).toBe('1.4.2');
+  });
+
   it('a pipeline no longer on either version is stale', async () => {
     resolvesTo({ '2.0.0': '2.0.0' });
     expect((await planMove({ orgId: ORG, props: props(step('trivy', '2.0.0')) }, null, ref())).kind).toBe('stale');

@@ -413,6 +413,9 @@ export function createInternalRoutes(): Router {
       const deleted = await deleteSignedManifest(repository, digest);
       ctx.log('COMPLETED', 'Discarded plugin image', { repository, digest, deleted, scope: discardScope(why) });
       if (deleted > 0) {
+        // The org's figure is measured, not metered: re-measure it now so a
+        // purge (or a refused build's bytes) frees space before the next run.
+        invalidateOrgStorageCache(ownerOrgId);
         recordAudit({
           action: 'registry.image.delete',
           // The user whose build was refused (the plugin worker acts for them).

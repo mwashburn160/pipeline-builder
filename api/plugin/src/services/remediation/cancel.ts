@@ -18,7 +18,7 @@ import { createLogger, errorMessage, LIVE_REMEDIATION_STAGES, pluginRemediationJ
 
 import { countStage } from './lifecycle.js';
 import { cancelRollout } from './rollout.js';
-import { liveRemediationsTouching, updateRemediation } from './store.js';
+import { isRolloutStage, liveRemediationsTouching, updateRemediation } from './store.js';
 import { getAllTierQueues } from '../../queue/connections.js';
 
 const logger = createLogger('plugin-remediation-cancel');
@@ -47,7 +47,7 @@ export async function cancelRemediationsFor(input: { orgId: string; pluginIds: s
     n++;
     countStage('failed', 'cancelled');
     await removeQueuedRemediationJobs(row.id);
-    if (row.stage === 'published' || row.stage === 'rolling_out' || row.stage === 'needs_review') await cancelRollout(row, input.reason);
+    if (isRolloutStage(row.stage)) await cancelRollout(row, input.reason);
   }
   return n;
 }

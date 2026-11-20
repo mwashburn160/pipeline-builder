@@ -237,6 +237,16 @@ export {
 export {
   classifyFailure,
 } from './api/reporting/failure-classifier.js';
+// The event-status catalogs the reporting SQL counts by (and their SQL lists),
+// for services that query pipeline_events themselves.
+export {
+  TERMINAL_EVENT_STATUSES,
+  terminalStatusList,
+  SUCCEEDED_EVENT_STATUSES,
+  succeededStatusList,
+  FAILED_EVENT_STATUSES,
+  failedStatusList,
+} from './api/reporting/sql-helpers.js';
 export {
   type AnalyticsScope,
   type PipelineBreakdownRow,
