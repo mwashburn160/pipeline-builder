@@ -39,7 +39,7 @@ spec:
       labels:
         app: billing
         app.kubernetes.io/component: backend
-        version: "6.2.1"
+        version: "6.2.2"
         track: stable
       annotations:
         prometheus.io/scrape: "true"
@@ -83,7 +83,7 @@ spec:
               echo "Dependencies ready"
       containers:
         - name: billing
-          image: ghcr.io/mwashburn160/billing:6.2.1@sha256:acd0df01ab9aebcd8afdd8a71a65a124a2a72643b0c21df0d58d64ac818bc7d4
+          image: ghcr.io/mwashburn160/billing:6.2.2@sha256:28c04c1012e22ec192da20a1e4d97236b79f6b18d208c6a2045fb367d48296f8
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
