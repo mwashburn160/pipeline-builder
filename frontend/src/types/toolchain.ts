@@ -16,6 +16,9 @@ import type { ToolchainReleaseStatus, ToolchainResolvedVia } from '@pipeline-bui
 
 export type { ToolchainReleaseStatus, ToolchainResolvedVia };
 
+/** Nightly toolchain fixes (propose-only release candidates): api-core's wire shapes, re-exported. */
+export type { ToolchainFixDto, ToolchainFixList, RemediationToolchainMode } from '@pipeline-builder/api-core/plugin-scan';
+
 /** Where a release sits relative to the caller's effective default. */
 export type ToolchainReleaseRelation = 'newer' | 'older' | 'current';
 

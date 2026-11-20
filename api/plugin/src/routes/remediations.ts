@@ -70,6 +70,8 @@ const PLUGIN_NAME = /^[a-z0-9][a-z0-9._-]{0,254}$/;
 
 const notFound = (): EcosystemError => new EcosystemError(ErrorCode.NOT_FOUND, 'Remediation not found');
 const stageConflict = (stage: string): EcosystemError => new EcosystemError(ErrorCode.REMEDIATION_STAGE_CONFLICT, `Not possible while the remediation is ${stage}`, { stage });
+/** A toolchain release candidate is decided only by the system org's toolchain-fixes routes (it is never re-run and published from here). */
+const toolchainCandidate = (): EcosystemError => new EcosystemError(ErrorCode.REMEDIATION_STAGE_CONFLICT, 'A toolchain release candidate is approved or rejected under /plugins/toolchain-fixes', { stage: 'toolchain_candidate' });
 
 async function ownRemediation(caller: Caller, id: string): Promise<PluginRemediation> {
   const row = await getOrgRemediation(caller.orgId, id);
@@ -128,6 +130,7 @@ export function createRemediationRoutes(): Router {
   router.post('/remediations/:id/approve', write, requireStepUp as RequestHandler, audited('plugin.remediation.approved') as RequestHandler, ecosystemRoute(async ({ req, res, caller }) => {
     const { reason } = bodyFrom(req, PluginRemediationDecisionSchema);
     const row = await ownRemediation(caller, param(req, 'id'));
+    if (row.kind === 'toolchain') throw toolchainCandidate();
     if (row.stage !== 'awaiting_approval' || row.decidedAt) throw stageConflict(row.decidedAt ? 'approved and publishing' : row.stage);
     const decided = await updateRemediation(row.id, { decidedBy: caller.userId, decidedAt: new Date(), decisionReason: reason ?? null }, ['awaiting_approval']);
     if (!decided) throw stageConflict('changing');
@@ -140,6 +143,7 @@ export function createRemediationRoutes(): Router {
   router.post('/remediations/:id/reject', write, requireStepUp as RequestHandler, audited('plugin.remediation.rejected') as RequestHandler, ecosystemRoute(async ({ req, res, caller }) => {
     const { reason } = bodyFrom(req, PluginRemediationDecisionSchema);
     const row = await ownRemediation(caller, param(req, 'id'));
+    if (row.kind === 'toolchain') throw toolchainCandidate();
     if (row.stage !== 'awaiting_approval' || row.decidedAt) throw stageConflict(row.stage);
     const done = await updateRemediation(row.id, {
       stage: 'failed', outcome: 'rejected', decidedBy: caller.userId, decidedAt: new Date(), decisionReason: reason ?? null, finishedAt: new Date(),
@@ -170,6 +174,8 @@ export function createRemediationRoutes(): Router {
       targeted: row.targeted,
       attempt: row.attempt + 1,
       retryOf: row.id,
+      // A toolchain release candidate retries as one (propose-only, never published by the job).
+      kind: row.kind,
       createdBy: caller.userId,
     });
     if (!next) throw stageConflict('already being remediated');

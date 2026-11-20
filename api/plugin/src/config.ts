@@ -19,6 +19,10 @@
  *    shared-base pass running at once (fleet-wide, Redis semaphores).
  *  - maxPerOrgPerDay: remediations queued per org in any 24 h.
  *  - sourcesBucket: the RustFS bucket holding kept sources and remediation artifacts.
+ *  - toolchains: PLUGIN_REMEDIATION_TOOLCHAINS, propose (default) | off. A flagged
+ *    managed toolchain release gets a verified release candidate a system-org
+ *    admin approves (propose), or only the owner request (off). Never published
+ *    automatically; an invalid value warns once and falls back to propose.
  */
 
 import {
@@ -27,7 +31,9 @@ import {
   envStr,
   parseRemediationEnabled,
   parseRemediationSeverities,
+  parseRemediationToolchains,
   type PluginRemediationConfig,
+  type RemediationToolchainMode,
 } from '@pipeline-builder/api-core';
 
 const logger = createLogger('plugin-config');
@@ -37,6 +43,7 @@ export interface PluginRemediationServiceConfig extends PluginRemediationConfig 
   baseConcurrency: number;
   maxPerOrgPerDay: number;
   sourcesBucket: string;
+  toolchains: RemediationToolchainMode;
 }
 
 export interface PluginServiceConfig {
@@ -53,6 +60,7 @@ export function loadPluginServiceConfig(warn: (message: string) => void = (m) =>
       baseConcurrency: envInt('PLUGIN_REMEDIATION_BASE_CONCURRENCY', 4, { min: 1 }),
       maxPerOrgPerDay: envInt('PLUGIN_REMEDIATION_MAX_PER_ORG_PER_DAY', 20, { min: 0 }),
       sourcesBucket: envStr('PLUGIN_SOURCES_BUCKET', 'plugin-sources'),
+      toolchains: parseRemediationToolchains(envStr('PLUGIN_REMEDIATION_TOOLCHAINS', 'propose'), warn),
     },
   };
 }

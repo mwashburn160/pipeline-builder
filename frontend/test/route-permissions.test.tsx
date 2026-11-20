@@ -2958,6 +2958,21 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     coveredBy: 'Run / cancel a pipeline execution',
     why: 'Dismiss on a remediation upgrade proposal banner in the Plugin security tab (src/components/pipeline/security/RemediationUpgradesPanel.tsx, api.dismissPipelineRemediationUpgrade): disabled with a reason unless canWritePipeline (pipelines:write + ownership), the same gate and page as Run pipeline. UI state only, not audited.',
   },
+  'plugin PUT /plugins/tidy/settings': {
+    category: 'same-control',
+    coveredBy: 'Edit plugin security fix (remediation) settings (Settings → Organization → Plugin security)',
+    why: '"Save tidying settings" in the Automatic tidying section of Settings → Organization → Plugin security (src/components/settings/PluginTidySettings.tsx, api.updatePluginTidySettings), mounted beside the security fix settings and shown only with canEdit (org_settings:write) — the same gate and page as the security fix save. Audited plugin.tidy.settings.update.',
+  },
+  'plugin POST /plugins/tidy/versions/:id/keep': {
+    category: 'same-control',
+    coveredBy: 'Upload / edit / delete a plugin',
+    why: '"Keep <version>" beside each Stale badge in the plugin page Storage section (src/components/plugin/PluginTidyControls.tsx, api.keepPluginVersion) and "Keep this version" on the digest link banner (TidyKeepBanner, pages/dashboard/plugins.tsx). Shown only with plugins:write (the preview\'s canKeep; the banner\'s can(\'plugins:write\')), the gate that already edits and deletes versions. Audited plugin.tidy.kept.',
+  },
+  'plugin PUT /plugins/by-name/:name/never-tidy': {
+    category: 'same-control',
+    coveredBy: 'Upload / edit / delete a plugin',
+    why: 'The "Never tidy" switch in the plugin page Storage section (src/components/plugin/PluginTidyControls.tsx, api.setPluginNeverTidy), shown only with plugins:write (the preview\'s canKeep) — the gate of the edit row. Audited plugin.tidy.kept.',
+  },
   'plugin PUT /plugins/by-name/:name/remediation-level': {
     category: 'same-control',
     coveredBy: 'Upload / edit / delete a plugin',
@@ -3506,6 +3521,9 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     'POST /plugins/toolchain/releases/:v/deprecate', 'POST /plugins/toolchain/releases/:v/yank', 'DELETE /plugins/toolchain/releases/:v',
     'POST /plugins/toolchain/affected/notify',
   ], { category: 'sysadmin-console', why: "Toolchain console writes (pages/dashboard/toolchain.tsx, gated on toolchain:operate): edit notes, canary orgs, set as default (with the blast-radius confirm), deprecate, yank, delete, notify affected owners — each control on can('toolchain:operate'), and every route is toolchain:operate + system-org + aal2 + step-up, audited toolchain.*. A tenant Admin or a toolchain:manage holder never reaches the page or the routes." }),
+  ...group('plugin', [
+    'POST /plugins/toolchain-fixes/:id/approve', 'POST /plugins/toolchain-fixes/:id/reject',
+  ], { category: 'sysadmin-console', why: "The Toolchain console's \"Toolchain fixes\" card (src/components/toolchain/ToolchainFixesCard.tsx on pages/dashboard/toolchain.tsx's Releases tab): Approve / Reject a nightly toolchain release candidate, each through the card's own StepUpModal. The page is system-org-only (toolchain:operate nav entry); the card reads and decides only for can('plugins:write') — the routes' gate, requireSystemOrg + plugins:write + step-up, audited toolchain.fix.approved / toolchain.fix.rejected. A tenant never reaches the page or the routes." }),
 
   // ── Driven by a control whose gate a mapped row already proves ───────────
   ...group('compliance', [

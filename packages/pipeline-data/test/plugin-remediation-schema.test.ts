@@ -72,6 +72,15 @@ describe('plugin_remediations — idempotency and vocabulary', () => {
     expect(row).toMatchObject({ attempt: 1, propose_reasons: [], fix_methods: [], targeted: [], cleared: [], remaining: [] });
   });
 
+  it('defaults kind to plugin, accepts a toolchain release candidate and refuses any other kind', async () => {
+    const pid = await insertPlugin(ORG_A);
+    const r = await insertRemediation(ORG_A, pid, 'done');
+    const row = (await owner((q) => q.query<Record<string, unknown>>('SELECT kind, toolchain_candidate FROM plugin_remediations WHERE id = $1', [r.rows[0]!.id]))).rows[0]!;
+    expect(row).toEqual({ kind: 'plugin', toolchain_candidate: null });
+    await owner((q) => q.query("UPDATE plugin_remediations SET kind = 'toolchain', toolchain_candidate = $2 WHERE id = $1", [r.rows[0]!.id, JSON.stringify({ toRelease: '1.0.1' })]));
+    await expect(owner((q) => q.query("UPDATE plugin_remediations SET kind = 'release' WHERE id = $1", [r.rows[0]!.id]))).rejects.toThrow(/check/i);
+  });
+
   it('cascades from a purged version, and only nulls the link from a purged fix version', async () => {
     const from = await insertPlugin(ORG_A);
     const fix = await insertPlugin(ORG_A, '1.0.1');

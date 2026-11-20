@@ -6,7 +6,7 @@ import type { QuotaService, Visibility } from '@pipeline-builder/api-core';
 import { createAuthenticatedWithOrgRoute, withQuotaReservation, withRoute } from '@pipeline-builder/api-server';
 import { describeDeployAttribution, previewStructure } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
-import { createOnePipeline, pluginWarningsField, preparePipelineCreate, validatePipelineWrite } from '../helpers/pipeline-write.js';
+import { createElectionRefusal, createOnePipeline, pluginWarningsField, preparePipelineCreate, validatePipelineWrite } from '../helpers/pipeline-write.js';
 
 const logger = createLogger('create-pipeline');
 
@@ -38,7 +38,7 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
     requirePermission('pipelines:write'),
     // `inserted === false` means `?upsert=true` overwrote an existing pipeline,
     // which is audited as an update rather than a create.
-    audited('pipeline.create', 'pipeline.update'),
+    audited('pipeline.create', 'pipeline.update', 'pipeline.remediation-upgrades.update'),
     proposable,
     withRoute(async ({ req, res, ctx, orgId, userId }) => {
       const validation = validateBody(req, PipelineCreateSchema);
@@ -56,6 +56,11 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
 
       const prepared = preparePipelineCreate(req, body);
       if ('error' in prepared) return sendBadRequest(res, prepared.error, ErrorCode.VALIDATION_ERROR);
+
+      // The definition's plugin security fixes election: `apply` only when the
+      // org allows pipelines to choose it (403), before any quota is reserved.
+      const electionRejection = await createElectionRefusal(body, prepared, orgId, req.user?.parentOrganizationId);
+      if (electionRejection) return sendError(res, electionRejection.status, electionRejection.message, electionRejection.code);
 
       // The reservation's minted service token also authenticates the downstream
       // compliance call: the caller's bearer may carry only end-user scopes that

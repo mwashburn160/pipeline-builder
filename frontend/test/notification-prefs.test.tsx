@@ -203,15 +203,15 @@ describe('Notifications page', () => {
     expect(toggle).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('names the security fix notices N36 to N40, each linking where its follow-up happens', async () => {
+  it('names the security fix notices N36 to N41, each linking where its follow-up happens', async () => {
     render(<NotificationsPage />);
     const list = await screen.findByRole('list', { name: 'Security fix notices' });
     const rows = within(list).getAllByRole('listitem');
-    expect(rows.map((r) => r.textContent?.slice(0, 3))).toEqual(['N36', 'N37', 'N38', 'N39', 'N40']);
+    expect(rows.map((r) => r.textContent?.slice(0, 3))).toEqual(['N36', 'N37', 'N38', 'N39', 'N40', 'N41']);
     const hrefs = rows.map((r) => within(r).getByRole('link').getAttribute('href'));
     expect(hrefs).toEqual([
       '/dashboard/plugins?tab=remediations', '/dashboard/plugins?tab=remediations', '/dashboard/pipelines',
-      '/dashboard/plugins?tab=remediations', '/dashboard/publisher',
+      '/dashboard/plugins?tab=remediations', '/dashboard/publisher', '/dashboard/plugins',
     ]);
   });
 

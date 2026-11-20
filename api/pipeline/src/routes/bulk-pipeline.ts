@@ -27,7 +27,7 @@ import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { z } from 'zod';
 import { checkPipelineUpdateCompliance, isComplianceRelevantUpdate } from '../helpers/pipeline-update-compliance.js';
-import { auditedChanges, buildPipelineUpdateData, complianceBlockedDetails, createOnePipeline, pluginWarningsField, preparePipelineCreate, validatePipelineWrite } from '../helpers/pipeline-write.js';
+import { auditedChanges, buildPipelineUpdateData, complianceBlockedDetails, createElectionRefusal, createOnePipeline, pluginWarningsField, preparePipelineCreate, validatePipelineWrite } from '../helpers/pipeline-write.js';
 import { recordPipelineResolution } from '../helpers/plugin-contract-check.js';
 import type { PluginWarning } from '../helpers/plugin-save-check.js';
 import { electionRefusal } from '../helpers/remediation-settings.js';
@@ -70,7 +70,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
   ];
 
   /** POST /pipelines/bulk/create — Create multiple pipelines in one request */
-  router.post('/bulk/create', ...bulkGuards, audited('pipeline.create', 'pipeline.update'), proposable, withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/bulk/create', ...bulkGuards, audited('pipeline.create', 'pipeline.update', 'pipeline.remediation-upgrades.update'), proposable, withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const bulk = validateBulkArray<unknown>(req.body?.pipelines, 'pipelines', CoreConstants.MAX_BULK_ITEMS);
     if ('error' in bulk) return sendBadRequest(res, bulk.error, ErrorCode.VALIDATION_ERROR);
     const pipelines = bulk.value;
@@ -117,6 +117,14 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
       if ('error' in prepared) {
         results.failed++;
         results.errors.push({ index: i, error: prepared.error });
+        continue;
+      }
+
+      // The item's plugin security fixes election — single-create's rule.
+      const electionRejection = await createElectionRefusal(body, prepared, orgId, req.user?.parentOrganizationId);
+      if (electionRejection) {
+        results.failed++;
+        results.errors.push({ index: i, error: electionRejection.message });
         continue;
       }
 

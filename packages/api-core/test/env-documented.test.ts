@@ -175,6 +175,10 @@ const SET_BY_RUNTIME = new Set([
   // Set by the container runtime (the pod name in Kubernetes); read only to
   // label which replica holds a lease (billing's entitlement-sync.ts).
   'HOSTNAME',
+  // Set by the AWS CDK CLI for the app it synthesizes: read only by the fixture
+  // app the nightly toolchain fix runs with `cdk synth` INSIDE a candidate image
+  // (api/plugin services/remediation/toolchain-smoke.ts), never by a service.
+  'CDK_OUTDIR',
 ]);
 
 /** Every name exempt from the documentation requirement, with its reason above. */

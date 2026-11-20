@@ -3,8 +3,8 @@
 
 import * as fs from 'fs';
 
-import { SYSTEM_ACTOR_ID, ErrorCode, audited, createLogger, envInt, isSystemAdmin, requireAuth, userHasPermission, errorMessage, getServiceAuthHeader, requirePermission, resolveVisibility, sendBadRequest, sendError, sendQuotaReserveDenied, sendQuotaExceeded, sendSuccess, validateBody, PluginUploadBodySchema, actorId, detectCatalogMetadata, parseCatalogEditsPart, resolveCatalogMetadata, recordAudit, PluginToolchainSchema, toolchainMetadata } from '@pipeline-builder/api-core';
-import type { QuotaService } from '@pipeline-builder/api-core';
+import { SYSTEM_ACTOR_ID, ErrorCode, audited, createLogger, envInt, isSystemAdmin, requireAuth, userHasPermission, errorMessage, getServiceAuthHeader, requirePermission, resolveVisibility, sendBadRequest, sendError, sendQuotaReserveDenied, sendQuotaExceeded, sendSuccess, validateBody, PluginUploadBodySchema, actorId, detectCatalogMetadata, parseCatalogEditsPart, resolveCatalogMetadata, recordAudit, PluginToolchainSchema, toolchainMetadata, isManagedToolchainPlugin, isSystemOrgId } from '@pipeline-builder/api-core';
+import type { ManagedToolchainPlugin, QuotaService } from '@pipeline-builder/api-core';
 import { requireOrgId, withRoute, withTenantContext, rateLimitByOrg, withQuotaReservation, type QuotaSlot, type SSEManager } from '@pipeline-builder/api-server';
 import type { PluginSpec } from '@pipeline-builder/pipeline-core';
 import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
@@ -29,6 +29,7 @@ import { submitAfterBuild } from '../services/ecosystem/requests.js';
 import { deletePluginArtifact, pluginArtifactKey, putPluginArtifactFile } from '../services/plugin-artifact-storage.js';
 import { pluginService } from '../services/plugin-service.js';
 import { keepVersionSource } from '../services/plugin-sources.js';
+import { keepToolchainInputs } from '../services/remediation/toolchain-inputs.js';
 
 const logger = createLogger('upload-plugin');
 
@@ -392,6 +393,13 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
               ctx.log('ERROR', 'Failed to stage build context in object storage', { error: errorMessage(s3Err) });
               slot.refund();
               return sendError(res, 503, 'Object storage unavailable — please retry', ErrorCode.SERVICE_UNAVAILABLE);
+            }
+
+            // A managed toolchain half (always prebuilt, so it keeps no source ZIP)
+            // keeps its build inputs for the nightly toolchain fix. Best-effort:
+            // never fails the upload (counted and alerted when it cannot).
+            if (isSystemOrgId(orgId) && isManagedToolchainPlugin(s.name)) {
+              await keepToolchainInputs(version, s.name.trim().toLowerCase() as ManagedToolchainPlugin, plugin.extractDir);
             }
 
             // -- Queue build job (returns immediately) ----------------------------

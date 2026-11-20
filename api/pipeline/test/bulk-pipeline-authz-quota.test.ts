@@ -44,7 +44,14 @@ jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
     findByIds: mockFindByIds,
     bulkDelete: mockBulkDelete,
     createAsDefaultReportInserted: (...a: unknown[]) => mockCreateAsDefault(...a),
+    findOneBySlot: async () => null,
   },
+}));
+
+// The plugin security fixes election check (real SQL in create-remediation-election-pglite.test.ts).
+const mockElectionRefusal = jest.fn<(...a: any[]) => Promise<string | null>>();
+jest.unstable_mockModule('../src/helpers/remediation-settings.js', () => ({
+  electionRefusal: (...a: unknown[]) => mockElectionRefusal(...a),
 }));
 
 jest.unstable_mockModule('../src/helpers/pipeline-template-validator.js', () => ({
@@ -115,6 +122,7 @@ beforeEach(() => {
   mockValidatePipeline.mockResolvedValue({ blocked: false, violations: [] });
   mockReserveQuota.mockResolvedValue({ exceeded: false, quota: { used: 1, limit: 10, resetAt: '2026-12-01T00:00:00Z' } });
   mockCreateAsDefault.mockImplementation(async (row: any) => ({ pipeline: { id: 'new', ...row }, inserted: true }));
+  mockElectionRefusal.mockResolvedValue(null);
 });
 
 describe('bulk delete/update — per-row visibility (real ladder)', () => {
@@ -257,5 +265,24 @@ describe('bulk create — quota', () => {
     expect(payload(r).failed).toBe(1);
     expect(mockDecrementQuota).toHaveBeenCalledTimes(1);
     expect(mockCreateAsDefault).not.toHaveBeenCalled();
+  });
+});
+
+describe('bulk create — the plugin security fixes election', () => {
+  it('fails an item electing apply the org forbids, before its quota slot, and saves the rest', async () => {
+    mockElectionRefusal.mockImplementation(async (election: string) => (election === 'apply' ? 'Your organization does not allow pipelines to choose Apply' : null));
+    const r = mkRes();
+    const pipelines = [
+      { project: 'p1', organization: 'o', props: {}, remediationUpgrades: 'apply' },
+      { project: 'p2', organization: 'o', props: {}, remediationUpgrades: 'off' },
+    ];
+    await getHandler('post', '/bulk/create')(req({ pipelines }), r);
+    expect(r.status).toHaveBeenCalledWith(207);
+    const data = r.json.mock.calls[0][0].data;
+    expect(data).toEqual(expect.objectContaining({ created: 1, failed: 1 }));
+    expect(data.errors).toEqual([{ index: 0, error: expect.stringMatching(/does not allow pipelines to choose Apply/) }]);
+    expect(mockReserveQuota).toHaveBeenCalledTimes(1);
+    expect(mockCreateAsDefault).toHaveBeenCalledTimes(1);
+    expect(mockCreateAsDefault.mock.calls[0]![0]).toMatchObject({ project: 'p2', remediationUpgrades: 'off' });
   });
 });

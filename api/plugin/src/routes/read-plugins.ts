@@ -28,6 +28,7 @@ import { resolveListedLookup, shadowedListing, verifyListedImage } from '../serv
 import { pluginRowState, type PluginRowState } from '../services/plugin-row-state.js';
 import { notifyPipelineVulnerable } from '../services/plugin-security-notifications.js';
 import { pluginService } from '../services/plugin-service.js';
+import { recordPluginUse } from '../services/tidy/usage.js';
 
 /**
  * A warning attached to a lookup answer (lifecycle, listings, advisories, and
@@ -36,7 +37,7 @@ import { pluginService } from '../services/plugin-service.js';
  * state never refuses a lookup — it only makes the answer louder.
  */
 export type LookupWarning =
-  | { code: 'PLUGIN_DEPRECATED' | 'PLUGIN_YANKED' | 'PLUGIN_SHADOWS_LISTING' | 'PLUGIN_SECRETS_WITHHELD' | 'LISTING_UNMAINTAINED' | 'PLUGIN_ADVISORY'; severity: VulnSeverity; message: string }
+  | { code: 'PLUGIN_DEPRECATED' | 'PLUGIN_YANKED' | 'PLUGIN_SHADOWS_LISTING' | 'PLUGIN_SECRETS_WITHHELD' | 'LISTING_UNMAINTAINED' | 'PLUGIN_ADVISORY' | 'PLUGIN_TIDY_DEACTIVATED'; severity: VulnSeverity; message: string }
   /** A managed toolchain release's standing (yanked / deprecated / inactive / never promoted). */
   | { code: `TOOLCHAIN_${string}`; severity: VulnSeverity; message: string }
   | VulnUpgradeAvailableWarning
@@ -50,6 +51,7 @@ const WARNING_SEVERITY: Record<string, VulnSeverity> = {
   PLUGIN_ADVISORY: 'error',
   PLUGIN_SHADOWS_LISTING: 'info',
   PLUGIN_SECRETS_WITHHELD: 'info',
+  PLUGIN_TIDY_DEACTIVATED: 'warning',
 };
 
 /** A resolution warning with its severity (the resolver's own carry none, or the flag's). */
@@ -141,6 +143,17 @@ export function parseReleasePin(raw: unknown): string | undefined | { error: str
 /** Whether a lookup filter pins ONE version exactly (by id or an exact version). */
 export function isPinnedFilter(filter: PluginFilter): boolean {
   return filter.id !== undefined || (filter.version !== undefined && !isVersionRange(filter.version));
+}
+
+/** The warning an exact pin to a version automatic tidying deactivated resolves with. */
+export function tidyDeactivatedWarning(plugin: { name: string; version: string; tidyDeactivatedAt?: Date | string | null }): LookupWarning {
+  const since = plugin.tidyDeactivatedAt ? ` on ${new Date(plugin.tidyDeactivatedAt).toISOString().slice(0, 10)}` : '';
+  return {
+    code: 'PLUGIN_TIDY_DEACTIVATED',
+    severity: 'warning',
+    message: `Plugin ${plugin.name}@${plugin.version} was deactivated by automatic tidying${since} because nothing used it. `
+      + 'It resolves only because it is pinned exactly, and this use restarts its clock; move to a supported version, or ask its owner to Keep it.',
+  };
 }
 
 /**
@@ -446,7 +459,18 @@ export function createReadPluginRoutes(): Router {
     }
 
     if (!publisher) {
-      const result = await pluginService.findFirst(resolutionFilter(rowFilter), orgId, parentOrgId);
+      let result = await pluginService.findFirst(resolutionFilter(rowFilter), orgId, parentOrgId);
+      // An EXACT pin still resolves a version automatic tidying deactivated
+      // (services/tidy/), with a warning, so no pipeline breaks. A version its
+      // owner deactivated stays out, as before.
+      let tidyDeactivated = false;
+      if (!result && isPinnedFilter(rowFilter) && rowFilter.isActive === undefined) {
+        const inactive = await pluginService.findFirst({ ...resolutionFilter(rowFilter), isActive: false } as PluginFilter, orgId, parentOrgId);
+        if (inactive?.tidyDeactivatedAt) {
+          result = inactive;
+          tidyDeactivated = true;
+        }
+      }
       if (result) {
         // For a FLAGGED answer, the version to move to: the newest unflagged live one.
         const newest = result.scanFlaggedAt && result.name
@@ -470,6 +494,7 @@ export function createReadPluginRoutes(): Router {
         // Deprecated / yanked-but-pinned versions still resolve, with a warning the
         // caller surfaces (synth prints it).
         const warnings: LookupWarning[] = [...lookupWarnings(result), ...assessment.warnings];
+        if (tidyDeactivated) warnings.unshift(tidyDeactivatedWarning(result));
         if (suggestedVersion && isPinnedFilter(rowFilter)) {
           warnings.push(vulnUpgradeAvailableWarning(result.name, result.version, suggestedVersion));
         }
@@ -484,6 +509,8 @@ export function createReadPluginRoutes(): Router {
             });
           }
         }
+        // Resolving a version is a use: it restarts its tidy clock (and reactivates it).
+        if (opts.resolved) void recordPluginUse(result);
         return done({ ...shaped, imageRepository }, warnings, suggestedVersion);
       }
     }

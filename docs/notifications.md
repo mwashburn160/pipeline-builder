@@ -385,6 +385,13 @@ publisher (`publishers:manage`), with the findings and a suggested patch, and th
 note to its installers (`plugin_installs:manage`) that it was sent. It never
 takes a raw address. See [Automatic remediation](plugin-publishing.md#automatic-remediation).
 
+**N41 — unused plugin versions went stale** (automatic tidying). One digest per
+organization, at most once a week, to the same recipients and verified external
+address, listing only versions that went stale since the last one, each with its
+dates and a **Keep** link. An organization with nothing newly stale gets nothing.
+Transactional; it is sent in both `notify` and `on` mode. See
+[Automatic tidying](plugin-publishing.md#automatic-tidying).
+
 Settings, stored one row per org in `plugin_security_notification_prefs`
 (absent = the defaults below):
 
@@ -404,7 +411,7 @@ its owner opens `/notifications/confirm` and presses the button — an explicit
 click, so a mail scanner following the link cannot burn the token. Until then the
 badge reads *Pending confirmation* (or *Confirmation link expired*), and **Resend
 confirmation** issues a fresh link. The catalog permits a raw `address` recipient
-on N30, N31 and the remediation notices N36–N39 only; the relay rejects it on
+on N30, N31, the remediation notices N36–N39 and the tidying digest N41 only; the relay rejects it on
 every other event.
 
 The webhook is sent by the **plugin** service itself, not through the platform
@@ -477,13 +484,13 @@ Three things live there:
 ### The ecosystem notice catalog
 
 `packages/api-core/src/types/ecosystem-notifications.ts` is the single table both
-the sender (plugin) and the relay (platform) read. Each of N1–N40 declares its
+the sender (plugin) and the relay (platform) read. Each of N1–N41 declares its
 channels (`in_app` | `email`), its opt-out key or `null` for transactional, an
 optional digest cadence, and whether a raw email address may be addressed.
 
 **Transactional and cannot be turned off:** N1, N3, N4, N5, N7, N8, N9, N10, N18,
 N19, N20, N21, N22, N23, N25, N28, N29, N30, N31, N32, N33, N34, N36, N37,
-N38, N39, N40.
+N38, N39, N40, N41.
 
 **N35 — superseded plugin versions are being retired.** When the platform's
 version retention pass deprecates old versions of an Official plugin (the

@@ -45,6 +45,7 @@ import { RemediationsPanel } from '@/components/plugin/RemediationsPanel';
 import { PluginInUseModal, pluginInUseRefusal, type PluginInUseRefusal } from '@/components/plugin/PluginInUseModal';
 import { DeletePluginDialog } from '@/components/plugin/DeletePluginDialog';
 import { DeletedPluginBatches } from '@/components/plugin/DeletedPluginBatches';
+import { TidyKeepBanner } from '@/components/plugin/PluginTidyControls';
 import { invalidate, queryTags } from '@/lib/api-cache';
 import { isSystemOrgActive } from '@/lib/ecosystem-access';
 
@@ -452,6 +453,11 @@ export default function PluginsPage() {
     >
       <div className="page-section">
         <RoleBanner isSuperAdmin={isSuperAdmin} resourceName="plugins" size="sm" />
+        <TidyKeepBanner
+          pluginId={typeof router.query.tidyKeep === 'string' ? router.query.tidyKeep : undefined}
+          canWrite={canWrite}
+          onDone={() => { const { tidyKeep: _k, ...query } = router.query; void router.replace({ pathname: router.pathname, query }, undefined, { shallow: true }); }}
+        />
 
         <TabBar
           className="mb-4"

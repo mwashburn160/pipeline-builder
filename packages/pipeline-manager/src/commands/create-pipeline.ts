@@ -16,6 +16,7 @@ import { ensureOutputDirectory, printError, printInfo, printKeyValue, printSecti
 import { fetchPipelineProps } from '../utils/pipeline-config.js';
 import { resolveRegistrationClient } from '../utils/registration-client.js';
 import { extractSingleResponse } from '../utils/response-utils.js';
+import { liftRemediationUpgrades, REMEDIATION_UPGRADES_OPTION_HELP, resolveRemediationUpgrades } from '../utils/remediation-upgrades.js';
 import { relaxTlsForCli } from '../utils/tls.js';
 
 const { bold, cyan, dim, green } = pico;
@@ -37,6 +38,8 @@ interface CreatePipelineOptions {
   verifySsl?: boolean;
   dryRun?: boolean;
   storeTokens?: boolean;
+  /** `--remediation-upgrades`: wins over the definition's `remediationUpgrades`. */
+  remediationUpgrades?: string;
 }
 
 /** Validate the props file (exists, size cap) and parse it as a JSON object. */
@@ -108,7 +111,12 @@ function readPropsFile(file: string): Record<string, unknown> {
  * Build the create request. Project & organization prefer the CLI flags and
  * fall back to values embedded in the props file (builderProps).
  */
-function buildCreatePayload(options: CreatePipelineOptions, props: Record<string, unknown>): CreatePipelineRequest {
+function buildCreatePayload(options: CreatePipelineOptions, definition: Record<string, unknown>): CreatePipelineRequest {
+  // The plugin security fixes election is a platform setting, not a synth prop:
+  // lifted out of the definition (validated), the flag winning over the file.
+  const lifted = liftRemediationUpgrades(definition);
+  const props = lifted.props;
+  const remediationUpgrades = resolveRemediationUpgrades(options.remediationUpgrades, lifted.remediationUpgrades);
   const resolvedProject = options.project ?? (props.project as string | undefined);
   const resolvedOrganization = options.organization ?? (props.organization as string | undefined);
 
@@ -139,6 +147,8 @@ function buildCreatePayload(options: CreatePipelineOptions, props: Record<string
   };
   if (options.visibility) payload.visibility = options.visibility;
   if (options.active !== undefined) payload.isActive = options.active;
+  // Omitted when neither sets it: an --upsert then keeps the stored election.
+  if (remediationUpgrades !== undefined) payload.remediationUpgrades = remediationUpgrades;
   return payload;
 }
 
@@ -470,6 +480,7 @@ export function createPipeline(program: Command): void {
         .option('--active', 'Set pipeline as active', true)
         .option('--no-active', 'Create the pipeline as inactive')
         .option('--upsert', 'Overwrite an existing pipeline for the same project/organization (otherwise a taken slot is a 409)', false)
+        .option('--remediation-upgrades <election>', REMEDIATION_UPGRADES_OPTION_HELP)
         // --deploy: after creating the record, run the same CDK deploy + ARN
         // registration as `pipeline deploy --id` (shared runDeploy). The flags
         // below apply only with --deploy.
@@ -495,6 +506,7 @@ export function createPipeline(program: Command): void {
           'Visibility': options.visibility,
           'Active': options.active ? 'Yes' : 'No',
           'Overwrite Existing': options.upsert ? 'Yes (--upsert)' : 'No',
+          'Plugin Security Fixes': options.remediationUpgrades ?? '(from props file, else unchanged)',
           'Deploy After Create': options.deploy ? `Yes (profile: ${options.profile || 'default'})` : 'No',
           'Properties File': options.file,
           'SSL Verification': options.verifySsl === false ? 'Disabled' : 'Enabled',

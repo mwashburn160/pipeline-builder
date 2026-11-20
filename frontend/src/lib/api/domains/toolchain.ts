@@ -7,6 +7,7 @@ import type {
   ToolchainAdoptionView, ToolchainAffectedView, ToolchainCanaryView, ToolchainCleanupCandidate,
   ToolchainDefaultHistoryEntry, ToolchainDefaultPreview, ToolchainEligibleView, ToolchainGateThresholds, ToolchainOrgDefault,
   ToolchainOrgDefaultHistoryEntry, ToolchainOrgDefaultView, ToolchainReleasesView, ToolchainRolloutUpdate, ToolchainSetDefaultBody, ToolchainWarning,
+  ToolchainFixDto, ToolchainFixList,
 } from '@/types/toolchain';
 
 /** `?n=&m=&t=`: the canary-gate thresholds the console is evaluating with (omitted = the server's defaults). */
@@ -126,6 +127,35 @@ export function toolchainApi(core: ApiCore) {
         method: 'DELETE',
         headers: core.stepUpHeader(stepUpToken),
       }),
+
+    // -- System org: nightly toolchain fixes (system org + `plugins:write`;
+    // approve / reject also need a step-up token and are audited).
+
+    /** The toolchain release candidates, newest first, and the operator knobs. */
+    listToolchainFixes: async (opts?: { signal?: AbortSignal }) =>
+      core.request<ApiResponse<ToolchainFixList>>('/api/plugins/toolchain-fixes', { signal: opts?.signal }),
+
+    /** Publish a candidate as the new toolchain release (both halves). Orgs move only through their own default. */
+    approveToolchainFix: async (id: string, body: { reason?: string } = {}, stepUpToken?: string) =>
+      core.request<ApiResponse<ToolchainFixDto>>(`/api/plugins/toolchain-fixes/${encodeURIComponent(id)}/approve`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+        replayOnStepUp: false,
+        headers: core.stepUpHeader(stepUpToken),
+      }),
+
+    /** Reject a candidate: nothing is published, its images are discarded. */
+    rejectToolchainFix: async (id: string, body: { reason?: string } = {}, stepUpToken?: string) =>
+      core.request<ApiResponse<ToolchainFixDto>>(`/api/plugins/toolchain-fixes/${encodeURIComponent(id)}/reject`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+        replayOnStepUp: false,
+        headers: core.stepUpHeader(stepUpToken),
+      }),
+
+    /** The deploy/toolchain/** spec patch for the release workflow (text/x-diff). */
+    downloadToolchainFixExport: async (id: string): Promise<{ blob: Blob; filename: string }> =>
+      core.requestBlob(`/api/plugins/toolchain-fixes/${encodeURIComponent(id)}/export`, 'toolchain-spec.diff', { errorMessage: 'Spec patch download failed' }),
 
     /** The platform default's history, newest first. */
     getToolchainDefaultHistory: async (opts?: { signal?: AbortSignal }) =>

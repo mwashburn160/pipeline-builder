@@ -686,22 +686,24 @@ describe('PluginService', () => {
       return { tx, ops };
     };
     const extra = (tx: unknown) => (service as any).restoreExtraSet('P-1', tx) as Promise<Record<string, unknown>>;
+    // Every restore also restarts the version's automatic-tidying clock.
+    const TIDY = { tidyKeptAt: expect.any(Date), tidyWarnedAt: null, tidyDeactivateAfter: null, tidyDeactivatedAt: null };
 
     it('demotes a restored former default when another live default exists, under the (org, name) lock', async () => {
       const { tx, ops } = txWith({ orgId: 'org-1', name: 'my-plugin', isDefault: true }, [{ id: 'p-2', version: '1.0.1' }]);
-      await expect(extra(tx)).resolves.toEqual({ isDefault: false });
+      await expect(extra(tx)).resolves.toEqual({ ...TIDY, isDefault: false });
       expect(ops).toEqual(['select-tombstone', 'lock', 'select-defaults']);
     });
 
     it('keeps the default flag when no other live default exists', async () => {
       const { tx } = txWith({ orgId: 'org-1', name: 'my-plugin', isDefault: true }, []);
-      await expect(extra(tx)).resolves.toEqual({});
+      await expect(extra(tx)).resolves.toEqual(TIDY);
     });
 
     it('writes nothing extra (and takes no lock) for a non-default or unknown tombstone', async () => {
       for (const tombstone of [{ orgId: 'org-1', name: 'my-plugin', isDefault: false }, null]) {
         const { tx, ops } = txWith(tombstone, [{ id: 'p-2' }]);
-        await expect(extra(tx)).resolves.toEqual({});
+        await expect(extra(tx)).resolves.toEqual(TIDY);
         expect(ops).not.toContain('lock');
       }
     });

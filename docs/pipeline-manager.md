@@ -326,7 +326,7 @@ Run `pipeline-manager <command> --help` for the full flag reference on any comma
 | --- | --- |
 | `infra bootstrap` | Deploy the AWS CDK toolkit stack in the target account/region (`--account`, `--region`, `--qualifier`, `--trust` for cross-account deploys, `--cloudformation-execution-policies`) — needed once per account/region before the first `pipeline deploy` there. It scaffolds nothing: a pipeline definition comes from `template instantiate` + `pipeline create` |
 | `pipeline synth` | Run CDK synth to emit the CloudFormation template for the pipeline |
-| `pipeline deploy` | Deploy the synthesized pipeline stack to AWS (also registers the pipeline with the platform by its `pipelineId`). `--local-spec <pipeline.json>` deploys a local spec without contacting the platform; it **requires `--toolchain-file <path>`** (see below) and refuses with `BOOTSTRAP_IMAGE_UNRESOLVED` without one |
+| `pipeline deploy` | Deploy the synthesized pipeline stack to AWS (also registers the pipeline with the platform by its `pipelineId`). `--local-spec <pipeline.json>` deploys a local spec without contacting the platform; it **requires `--toolchain-file <path>`** (see below) and refuses with `BOOTSTRAP_IMAGE_UNRESOLVED` without one. With `--id`, `--remediation-upgrades <inherit\|off\|propose\|apply>` sets the pipeline's plugin security fixes election on the platform before deploying (a `PUT`, so the credential needs `pipelines:write`; refused with `--local-spec`) |
 | `toolchain export` | Write the pipeline toolchain release as JSON: the release your organization resolves to now (its own default, a canary, or the platform default), or `--release <V>`. It holds both halves' (`pipeline-bootstrap`, `cdk-synth`) image repositories and signed digests, the release version and its tool versions, and the platform it came from. `--output <file>` (default stdout). Read-only. The input to `pipeline deploy --local-spec --toolchain-file` |
 | `pipeline register` | Re-register a deployed pipeline and drain pending intents queued by prior failed deploys (recovery path; exits non-zero if any registration still fails) |
 | `pipeline deregister` | Remove one `pipeline_registry` row by its registry id (`--id`, `--yes` required). The fix `audit stacks` prints for a missing-stack finding (a row whose stack was deleted out of band) |
@@ -339,7 +339,7 @@ Run `pipeline-manager <command> --help` for the full flag reference on any comma
 
 | Command | Purpose |
 | --- | --- |
-| `pipeline create` | Register a new pipeline definition with the platform |
+| `pipeline create` | Register a new pipeline definition with the platform (`--upsert` overwrites the pipeline already in that project/organization; `--deploy` deploys it right after). `--remediation-upgrades <inherit\|off\|propose\|apply>` sets its plugin security fixes election — see [Plugin security fixes from the definition](#plugin-security-fixes-from-the-definition) |
 | `pipeline list` / `pipeline get` | Inspect pipelines registered to your organization |
 | `plugin list` / `plugin get` | Browse the plugin catalog and fetch a single plugin spec |
 | `plugin new` | Scaffold a plugin `FROM` a `plugin-<eco>-base` image (`--base`, list them with `--list-bases`): a `Dockerfile` that follows the catalog rules, a `plugin-spec.yaml` with catalog metadata (summary, description, version `0.1.0`, category, license, `smokeTest`, optional curated `--icon`, a changelog entry), `README.md` and `LICENSE`. It passes `plugin validate` and `test-plugins.sh` as generated. See [Authoring a plugin](#author-test-and-publish-a-plugin) |
@@ -499,6 +499,53 @@ pipeline-manager pipeline create -f props.json
 pipeline-manager pipeline synth --id <pipelineId>
 pipeline-manager pipeline deploy --id <pipelineId>
 pipeline-manager status
+```
+
+### Plugin security fixes from the definition
+
+A pipeline's *plugin security fixes* election (whether the nightly plugin CVE
+remediation may move it onto fixed plugin versions — see
+[Installing plugins](plugin-installing.md#remediation-upgrades))
+can live in the pipeline definition, next to `project` and `organization`:
+
+```json
+{
+  "project": "web",
+  "organization": "acme",
+  "remediationUpgrades": "off",
+  "synth": { "plugin": { "name": "cdk-synth" } }
+}
+```
+
+| Value | Meaning |
+| --- | --- |
+| `inherit` | Follow the organization's (or team's) setting — the default for a new pipeline |
+| `off` | Opt this pipeline out: it is never proposed or moved |
+| `propose` | Open a proposal on the pipeline page; nothing moves until someone applies it |
+| `apply` | Move the pipeline automatically — only when the organization's default is `apply` or its root org allows pipelines to choose it |
+
+- **It is a platform setting, not a synth prop.** The CLI lifts it out of the
+  file before sending the props, so the synthesized template is identical with
+  or without it. (A direct API call sends it at the top level of the create
+  body; inside `props` it is refused.)
+- **`--remediation-upgrades` wins over the file** on `pipeline create`; both are
+  checked against the four values above before anything is sent.
+- **Set → applied on every create/deploy.** `pipeline create --upsert` (and
+  `pipeline deploy --id … --remediation-upgrades`, which sets it before
+  deploying) writes it each time, with the dashboard's rules. A change is
+  audited as `pipeline.remediation-upgrades.update` with before / after;
+  re-sending the stored value records nothing.
+- **Absent → kept.** A definition (and command line) without it leaves the
+  stored value alone — an election made in the dashboard survives every
+  redeploy and is never reset to `inherit`.
+- **`apply` the organization forbids** is refused with
+  `403 PIPELINE_REMEDIATION_APPLY_NOT_ALLOWED`; the CLI exits non-zero
+  (exit code 5) and suggests `--remediation-upgrades inherit, off or propose`.
+  Nothing is created or deployed.
+
+```bash
+pipeline-manager pipeline create -f props.json --upsert --remediation-upgrades off
+pipeline-manager pipeline deploy --id <pipelineId> --remediation-upgrades propose
 ```
 
 ### Start from a golden-path template

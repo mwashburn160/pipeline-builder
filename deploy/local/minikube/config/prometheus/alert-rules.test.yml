@@ -3857,6 +3857,29 @@ tests:
         alertname: PluginRetentionFailing
         exp_alerts: []
 
+  # Automatic plugin version tidying: a failed stage inside the 6h window fires,
+  # labelled with the stage, once it has held for 15m; a flat counter stays quiet.
+  - interval: 1m
+    input_series:
+      - series: 'plugin_tidy_failed_total{stage="notify",service="plugin",pod="plugin-a"}'
+        values: '0x10 1x60'
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: PluginTidyFailing
+        exp_alerts:
+          - exp_labels: { severity: warning, component: plugin, tenancy: platform, stage: "notify" }
+            exp_annotations:
+              summary: "Automatic plugin version tidying failed at stage 'notify'"
+              description: "The automatic tidying job failed at stage notify 1 time(s) in the last 6h. Nothing that should have stayed was deactivated or deleted (each stage re-checks the protections first), but unused versions keep their storage, or owners miss their digest, until a pass succeeds. Check the plugin service logs (service plugin-tidy); an org's own view is GET /api/plugins/tidy/preview. A use_stamp failure means lookups could not record use, so versions in use may look stale: fix it before the next digest."
+  - interval: 1m
+    input_series:
+      - series: 'plugin_tidy_failed_total{stage="retire",service="plugin",pod="plugin-a"}'
+        values: '2x70'
+    alert_rule_test:
+      - eval_time: 60m
+        alertname: PluginTidyFailing
+        exp_alerts: []
+
   # c) a stuck retired row warns only after a full day: the purge guard is
   #    right to refuse it, so a row a pipeline adopts briefly must not page.
   - interval: 5m
@@ -4179,6 +4202,27 @@ tests:
               description: "Their sources are gone from the plugin-sources bucket, so they can now only be fixed with an overlay layer (no library source patches, nothing for compiled Go/Rust/.NET/Java). Restore plugin-sources from the object-store mirror (restore.sh --object-store) if it was left out; a version marked source-less stays that way until its owner uploads a new version."
       - eval_time: 5m
         alertname: PluginSourcesMissing
+        exp_alerts: []
+
+  # ToolchainFixFailing: an approved toolchain release candidate did not fully publish.
+  - interval: 1m
+    input_series:
+      - series: 'toolchain_fix_failures_total{stage="publish",service="plugin",pod="plugin-aaa"}'
+        values: '0x10 1x30'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: ToolchainFixFailing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: plugin
+              tenancy: platform
+              stage: publish
+            exp_annotations:
+              summary: "Toolchain fixes: publish failed"
+              description: "1 toolchain-fix publish failures in 6h. publish: an approved candidate stopped part-way; it keeps its progress and resumes under the same version — use Resume publish on the Toolchain console's Toolchain fixes card (the plugin service also resumes it within ~2 minutes) and check the plugin log for the error. keep_inputs: check the plugin service's RustFS key still writes plugin-sources (<systemOrgId>/toolchain-inputs/), then re-upload the release with load-plugins.sh so its Dockerfiles are kept."
+      - eval_time: 5m
+        alertname: ToolchainFixFailing
         exp_alerts: []
 
   # PluginSourceChecksumMismatch: a kept source no longer matches its SHA-256 (tampering).

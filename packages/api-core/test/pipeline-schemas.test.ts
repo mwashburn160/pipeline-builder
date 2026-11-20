@@ -3,7 +3,7 @@
 
 import { describe, it, expect } from '@jest/globals';
 
-import { PipelineCreateSchema } from '../src/validation/pipeline-schemas.js';
+import { PipelineCreateSchema, PipelineUpdateSchema } from '../src/validation/pipeline-schemas.js';
 
 const basePipeline = (step: Record<string, unknown>) => ({
   project: 'demo',
@@ -200,6 +200,39 @@ describe('create-time lifecycle flags', () => {
     const result = PipelineCreateSchema.safeParse(body({ isDefault: false }));
     expect(result.success).toBe(true);
     if (result.success) expect('isDefault' in result.data).toBe(false);
+  });
+});
+
+describe('create-time plugin security fixes election (remediationUpgrades)', () => {
+  const props = { project: 'demo', organization: 'acme', synth: { plugin: { name: 'cdk-synth' } } };
+  const body = (over: Record<string, unknown>) => ({ project: 'demo', organization: 'acme', props, ...over });
+
+  it.each(['inherit', 'off', 'propose', 'apply'])('keeps a valid election (%s) at the top level', (election) => {
+    const result = PipelineCreateSchema.safeParse(body({ remediationUpgrades: election }));
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.remediationUpgrades).toBe(election);
+  });
+
+  it('leaves it undefined when not sent, so an upsert keeps the stored election', () => {
+    const result = PipelineCreateSchema.safeParse(body({}));
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.remediationUpgrades).toBeUndefined();
+  });
+
+  it('refuses a value outside the catalog', () => {
+    const result = PipelineCreateSchema.safeParse(body({ remediationUpgrades: 'auto' }));
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.issues[0]!.path).toEqual(['remediationUpgrades']);
+  });
+
+  it('refuses it inside props: it is a platform setting, never a synth prop', () => {
+    const result = PipelineCreateSchema.safeParse(body({ props: { ...props, remediationUpgrades: 'off' } }));
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0]!.path).toEqual(['props', 'remediationUpgrades']);
+      expect(result.error.issues[0]!.message).toMatch(/top level/);
+    }
+    expect(PipelineUpdateSchema.safeParse({ props: { ...props, remediationUpgrades: 'off' } }).success).toBe(false);
   });
 });
 

@@ -325,7 +325,7 @@ export class PipelineService extends CrudService<
    * lifecycle state are returned — never its `props`.
    */
   async findOneBySlot(project: string, organization: string, orgId: string): Promise<
-    { id: string; pipelineName: string | null; visibility: string | null; deletedAt: Date | null } | null
+    { id: string; pipelineName: string | null; visibility: string | null; deletedAt: Date | null; remediationUpgrades: Pipeline['remediationUpgrades'] | null } | null
   > {
     return withTenantTx(async (tx) => {
       const [row] = await tx
@@ -334,6 +334,7 @@ export class PipelineService extends CrudService<
           pipelineName: schema.pipeline.pipelineName,
           visibility: schema.pipeline.visibility,
           deletedAt: schema.pipeline.deletedAt,
+          remediationUpgrades: schema.pipeline.remediationUpgrades,
         })
         .from(schema.pipeline)
         .where(
@@ -405,7 +406,7 @@ export class PipelineService extends CrudService<
     organization: string,
     access: WriteAccess,
     opts: { upsert?: boolean } = {},
-  ): Promise<{ pipeline: Pipeline; inserted: boolean }> {
+  ): Promise<{ pipeline: Pipeline; inserted: boolean; previousRemediationUpgrades?: Pipeline['remediationUpgrades'] | null }> {
     // orgId is structurally optional on PipelineInsert but is required here —
     // the lock, the conflict lookup and the clear-other-defaults UPDATE all
     // predicate on it. Refuse early instead of treating undefined as a wildcard.
@@ -425,6 +426,7 @@ export class PipelineService extends CrudService<
           visibility: schema.pipeline.visibility,
           createdBy: schema.pipeline.createdBy,
           deletedAt: schema.pipeline.deletedAt,
+          remediationUpgrades: schema.pipeline.remediationUpgrades,
         })
         .from(schema.pipeline)
         .where(
@@ -496,7 +498,9 @@ export class PipelineService extends CrudService<
         .returning(returningCols as any);
 
       const { inserted: insertedFlag, ...rest } = upserted as Record<string, unknown> & { inserted: number };
-      return { pipeline: rest as unknown as Pipeline, inserted: insertedFlag === 1 };
+      // The election the overwritten row held (read under the lock), so the
+      // caller audits pipeline.remediation-upgrades.update only on a real change.
+      return { pipeline: rest as unknown as Pipeline, inserted: insertedFlag === 1, previousRemediationUpgrades: existing?.remediationUpgrades ?? null };
     });
 
     // After the commit, as CrudService runs its lifecycle hooks: invalidating

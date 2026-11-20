@@ -217,6 +217,10 @@ Org-local settings for the plugin security notices: **N30** (a build blocked by 
 | `POST` | `/plugins/kept-setup-images/:id/promote` | System org (`plugins:moderate`, aal2): re-verify the image (signature, signed SBOM), refuse a stale vulnerability DB (503), re-run the floor with the CURRENT waivers / VEX / KEV rules and the post-build compliance rules, and store the version as a passing build would → 201 `{ plugin: { id, name, version, imageDigest }, messages }`. Still refused → 409 with the gate's code and `details.findings` (the image stays kept); version already exists → 409 `CONFLICT`; unknown id → 404. Audited `plugin.setup_image.promoted` / `plugin.setup_image.promote_refused` |
 | `GET` | `/plugins/retention/plan` | System org (`plugins:moderate`, aal2): the superseded-version retention DRY RUN — refreshes the declared resolutions of pipelines naming each candidate plugin, then answers `{ generatedAt, enabled, dryRun: true, keep, noticeDays, batch, maxFraction, plugins: [{ name, listed, marginalBytes, refusedReason?, versions: [{ version, digest, state, rule, deferred?, deprecatedAt?, yankAfter?, notifyOrgIds?, marginalBytes }] }], collected: [], totals: { retirable, deprecate, notice, yank, reverse, refused, refusedPlugins, deferred, marginalBytes, awaitingCollection, stuck }, storage: { measured, incomplete } }`. `state` is `keep` / `deprecate` / `notice` / `yank` / `reverse` / `refused`; `rule` says why. Per plugin per pass at most `floor(PLUGIN_RETENTION_MAX_FRACTION × live versions)` (at least one) are newly deprecated, oldest first; the rest keep `state: deprecate` with `deferred: true` and wait for a later pass. `refused` (with `refusedReason: resolution_refresh_incomplete`) means the plugin's declared-resolution refresh did not finish, so nothing was decided for it. Bytes are `null` when image-registry could not measure. Changes no version |
 | `POST` | `/plugins/retention/run` | System org (`plugins:moderate`, aal2, step-up): run one retention pass now, whatever `PLUGIN_RETENTION_ENABLED` says — deprecate, yank + soft-delete after the notice period, reverse, and hand purged rows' `system/<name>` images to image-registry — and answer the same report with `dryRun: false`, each acted-on version's `action` (`deprecated` / `yanked` / `reversed` / `deferred` / `skipped` / `failed`, with `error`), and `collected: [{ name, version, digest, outcome, rule?, error? }]`. Audited `plugin.version.retire` per stage |
+| `GET` | `/plugins/tidy/preview` | Automatic plugin version tidying, the caller's org (`plugins:read`): `{ settings: { autoTidy, staleAfterDays, neverTidy, lastDigestAt }, report: { orgId, generatedAt, dryRun: true, operatorEnabled, mode, staleAfterDays, neverTidy, lastDigestAt, nextDigestAt, versions: [{ pluginId, name, version, state, reason?, lastUsedAt, staleAt, warnedAt?, deactivateAt?, retireAt?, nextDigestAt?, bytes }], totals: { warn, warnQueued, warned, deactivate, deactivated, retire, skipped, reactivate, bytesFreed }, storage: { measured } }, canEdit, canKeep }`. `state` is `warn` / `warn_queued` / `warned` / `deactivate` / `deactivated` / `retire` / `skipped` / `reactivate` / `clear`; a `skipped` version's `reason` is `managed` / `never_tidy` / `only_version` / `inactive_by_owner` / `default` / `latest` / `frozen` / `remediation_pending` / `install_pin` / `listed_in_use` / `kev_accepted` / `in_use`. Versions not near stale are left out. Changes nothing |
+| `PUT` | `/plugins/tidy/settings` | `org_settings:write`: `{ autoTidy?: 'off' \| 'notify' \| 'on', staleAfterDays?: 30–3650 }` → `{ settings }`. Audited `plugin.tidy.settings.update` |
+| `POST` | `/plugins/tidy/versions/:id/keep` | `plugins:write`: Keep one of the org's versions — restarts its clock and reactivates it when tidying had deactivated it → `{ plugin }`; `404` for another org's or a deleted version. Audited `plugin.tidy.kept` |
+| `PUT` | `/plugins/by-name/:name/never-tidy` | `plugins:write`: `{ neverTidy: boolean }` → `{ name, neverTidy, settings }`; turning it on reactivates the name's tidy-deactivated versions. Audited `plugin.tidy.kept` |
 | `GET` | `/plugins/security-notifications` | `{ preferences: { recipientMode: 'writers'\|'users', targetUsers, notifyRescan, digestMode: 'immediate'\|'daily'\|'weekly', webhookUrl, hasWebhookSecret, externalEmail: { masked, verified, pendingExpiresAt } \| null, updatedBy, updatedAt, canEdit } }` — defaults when the org never saved; the secret and the address are never returned (`plugins:read`) |
 | `PUT` | `/plugins/security-notifications` | Partial `{ recipientMode?, targetUsers?, notifyRescan?, digestMode?, webhookUrl? (https, SSRF-checked; '' / null clears it and its secret), webhookSecret? ('' / null clears; omit keeps), externalEmail? ('' / null clears), resendConfirmation? }`. `writers` = the uploader + members holding `plugins:write`; `users` needs ≥ 1 of `targetUsers` (max 100; only active members receive). A new or changed `externalEmail` starts unverified and gets a single-use 24-hour link at `/notifications/confirm?token=…`; it receives nothing until confirmed. Answers `{ preferences }`; 400 `VALIDATION_ERROR` otherwise. Audited `plugin.security_notifications.update` (`org_settings:write`) |
 | `POST` | `/plugins/security-notifications/test` | One test notice on every configured channel → `{ result: { relay: 'sent'\|'queued'\|'retry_queued'\|'failed', webhook: { ok, code?, error? } \| null, externalEmail: 'sent'\|'pending'\|'none' } }`; audited `plugin.security_notifications.test`; 5 a minute per org (`org_settings:write`) |
@@ -548,7 +552,7 @@ Every route of the Pipeline, Plugin and Ask Agent services, generated from the r
 | `POST` | `/pipeline-templates/:id/restore` | `templates:write`; step-up | `apiCalls` | `pipeline_template.restore` |
 | `GET` | `/pipeline-templates/deleted` | `templates:read` | `apiCalls` | — |
 | `GET` | `/pipelines` | `pipelines:read` | `apiCalls` | — |
-| `POST` | `/pipelines` | `pipelines:write` | `apiCalls` | `pipeline.create`, `pipeline.update` |
+| `POST` | `/pipelines` | `pipelines:write` | `apiCalls` | `pipeline.create`, `pipeline.update`, `pipeline.remediation-upgrades.update` |
 | `DELETE` | `/pipelines/:id` | `pipelines:write` | `apiCalls` | `pipeline.delete` |
 | `GET` | `/pipelines/:id` | `pipelines:read` | `apiCalls` | — |
 | `PUT` | `/pipelines/:id` | `pipelines:write` | `apiCalls` | `pipeline.update`, `pipeline.remediation-upgrades.update` |
@@ -573,7 +577,7 @@ Every route of the Pipeline, Plugin and Ask Agent services, generated from the r
 | `PUT` | `/pipelines/admin/runner-deliveries` | system org; `orgs:manage`; MFA session (aal2); step-up | `apiCalls` | `pipeline.runner.deliveries.pause`, `pipeline.runner.deliveries.resume` |
 | `GET` | `/pipelines/admin/runner-signing-keys` | system org; `orgs:read`; MFA session (aal2) | `apiCalls` | — |
 | `POST` | `/pipelines/analyze/from-url` | `pipelines:write`; feature `ai_generation` | `apiCalls` | — |
-| `POST` | `/pipelines/bulk/create` | `pipelines:write`; feature `bulk_operations` | `apiCalls` | `pipeline.create`, `pipeline.update` |
+| `POST` | `/pipelines/bulk/create` | `pipelines:write`; feature `bulk_operations` | `apiCalls` | `pipeline.create`, `pipeline.update`, `pipeline.remediation-upgrades.update` |
 | `POST` | `/pipelines/bulk/delete` | `pipelines:write`; feature `bulk_operations` | `apiCalls` | `pipeline.delete` |
 | `PUT` | `/pipelines/bulk/update` | `pipelines:write`; feature `bulk_operations` | `apiCalls` | `pipeline.update`, `pipeline.remediation-upgrades.update` |
 | `GET` | `/pipelines/deleted` | `pipelines:read` | `apiCalls` | — |
@@ -607,7 +611,7 @@ Every route of the Pipeline, Plugin and Ask Agent services, generated from the r
 
 ### Plugin Service — every route
 
-169 routes, from `frontend/src/generated/route-table/plugin.json`.
+177 routes, from `frontend/src/generated/route-table/plugin.json`.
 
 | Method | Endpoint | Requires | Meters | Audit action |
 |--------|----------|----------|--------|--------------|
@@ -629,6 +633,7 @@ Every route of the Pipeline, Plugin and Ask Agent services, generated from the r
 | `PUT` | `/plugins/bulk/update` | `plugins:write`; feature `bulk_operations` | `apiCalls` | `plugin.bulk.update` |
 | `DELETE` | `/plugins/by-name/:name` | `plugins:write`; step-up | `apiCalls` | `plugin.delete-all` |
 | `GET` | `/plugins/by-name/:name/delete-preview` | `plugins:write` | `apiCalls` | — |
+| `PUT` | `/plugins/by-name/:name/never-tidy` | `plugins:write` | `apiCalls` | `plugin.tidy.kept` |
 | `POST` | `/plugins/by-name/:name/purge` | `plugins:write`; step-up | `apiCalls` | `plugin.purge-all` |
 | `PUT` | `/plugins/by-name/:name/remediation-level` | `plugins:write` | `apiCalls` | `plugin.remediation_level.update` |
 | `POST` | `/plugins/by-name/:name/restore` | `plugins:write`; step-up | `apiCalls` | `plugin.restore-all` |
@@ -746,6 +751,13 @@ Every route of the Pipeline, Plugin and Ask Agent services, generated from the r
 | `GET` | `/plugins/shadowing` | `plugins:read` | `apiCalls` | — |
 | `GET` | `/plugins/storage` | `plugins:read` | `apiCalls` | — |
 | `POST` | `/plugins/storage/prune` | `plugins:write` | `apiCalls` | `plugin.version.prune` |
+| `GET` | `/plugins/tidy/preview` | `plugins:read` | `apiCalls` | — |
+| `PUT` | `/plugins/tidy/settings` | `org_settings:write` | `apiCalls` | `plugin.tidy.settings.update` |
+| `POST` | `/plugins/tidy/versions/:id/keep` | `plugins:write` | `apiCalls` | `plugin.tidy.kept` |
+| `GET` | `/plugins/toolchain-fixes` | system org; `plugins:write` | `apiCalls` | — |
+| `POST` | `/plugins/toolchain-fixes/:id/approve` | system org; `plugins:write`; step-up | `apiCalls` | `toolchain.fix.approved` |
+| `GET` | `/plugins/toolchain-fixes/:id/export` | system org; `plugins:write` | `apiCalls` | — |
+| `POST` | `/plugins/toolchain-fixes/:id/reject` | system org; `plugins:write`; step-up | `apiCalls` | `toolchain.fix.rejected` |
 | `GET` | `/plugins/toolchain/affected` | system org; `toolchain:operate`; MFA session (aal2) | `apiCalls` | — |
 | `POST` | `/plugins/toolchain/affected/notify` | system org; `toolchain:operate`; MFA session (aal2); step-up | `apiCalls` | `toolchain.recovery.notify` |
 | `GET` | `/plugins/toolchain/cleanup` | system org; `toolchain:operate`; MFA session (aal2) | `apiCalls` | — |

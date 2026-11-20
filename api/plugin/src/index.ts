@@ -18,8 +18,10 @@ import { ensureOfficialPublisher } from './services/ecosystem/publishers.js';
 import { createEcosystemStatsScheduler } from './services/ecosystem/stats.js';
 import { createEcosystemNotificationScheduler } from './services/ecosystem-notifications.js';
 import { pluginService } from './services/plugin-service.js';
+import { createToolchainResumeScheduler } from './services/remediation/toolchain-resume.js';
 import { retentionConfig } from './services/retention/config.js';
 import { createRetentionScheduler } from './services/retention/retire.js';
+import { createTidyScheduler } from './services/tidy/pass.js';
 
 const logger = createLogger('plugin');
 
@@ -115,6 +117,17 @@ const ecosystemStatsScheduler = createEcosystemStatsScheduler(getHealthRedisConn
 // is an operator decision taken after reading GET /plugins/retention/plan).
 const retentionScheduler = retentionConfig().enabled ? createRetentionScheduler(getHealthRedisConnection) : null;
 
+// Automatic plugin version tidying: daily, leader-locked on the shared Redis.
+// Per org (pluginRetention.autoTidy, default notify = warn only); the job does
+// no work when PLUGIN_AUTO_TIDY_ENABLED=false (the operator switch).
+const tidyScheduler = createTidyScheduler(getHealthRedisConnection, quotaService);
+
+// Nightly toolchain fixes: an approved release candidate whose publish crashed
+// part-way resumes within ~2 minutes (TOOLCHAIN_FIX_RESUME_INTERVAL_MS),
+// leader-locked on the shared Redis; null while PLUGIN_REMEDIATION_ENABLED is
+// false or PLUGIN_REMEDIATION_TOOLCHAINS is off. The nightly pass is the backstop.
+const toolchainResumeScheduler = createToolchainResumeScheduler({ redis: getHealthRedisConnection });
+
 void runServer(app, {
   name: 'Plugin Service',
   sseManager,
@@ -137,7 +150,8 @@ void runServer(app, {
     reportVulnWaivers();
   },
   onShutdown: async () => {
-    await shutdownQueue(); await shutdownSubmissionQueue(); purgeScheduler?.stop(); rescanScheduler?.stop(); ecosystemNotificationScheduler.stop(); ecosystemMaintenanceScheduler.stop(); ecosystemExecutionScheduler.stop(); ecosystemMetricsScheduler.stop(); ecosystemStatsScheduler.stop(); retentionScheduler?.stop();
+    await shutdownQueue(); await shutdownSubmissionQueue(); purgeScheduler?.stop(); rescanScheduler?.stop(); ecosystemNotificationScheduler.stop(); ecosystemMaintenanceScheduler.stop(); ecosystemExecutionScheduler.stop(); ecosystemMetricsScheduler.stop(); ecosystemStatsScheduler.stop(); retentionScheduler?.stop(); toolchainResumeScheduler?.stop();
+    tidyScheduler.stop();
   },
 });
 purgeScheduler?.start();
@@ -148,3 +162,5 @@ ecosystemExecutionScheduler.start();
 ecosystemMetricsScheduler.start();
 ecosystemStatsScheduler.start();
 retentionScheduler?.start();
+toolchainResumeScheduler?.start();
+tidyScheduler.start();

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/pipeline-manager.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: a1b6c03d566090496afcc89ecbea9a08c143e9af5d479544037ee10a4b24f7c3
+// SOURCE-SHA256: 743309dd1cf9af2c5bc11bf27f62cdacc14e452de05f3a564aa2102d83efc46e
 // SPDX-License-Identifier: Apache-2.0
 import { Terminal } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -490,7 +490,10 @@ export const cliReferenceTopic: HelpTopic = {
             ],
             [
               "pipeline deploy",
-              "Deploy the synthesized pipeline stack to AWS (also registers the pipeline with the platform by its pipelineId). --local-spec <pipeline.json> deploys a local spec without contacting the platform; it requires --toolchain-file <path> (see below) and refuses with BOOTSTRAP_IMAGE_UNRESOLVED without one"
+              "Deploy the synthesized pipeline stack to AWS (also registers the pipeline with the platform by its pipelineId). --local-spec <pipeline.json> deploys a local spec without contacting the platform; it requires --toolchain-file <path> (see below) and refuses with BOOTSTRAP_IMAGE_UNRESOLVED without one. With --id, `--remediation-upgrades <inherit\\",
+              "off\\",
+              "propose\\",
+              "apply> sets the pipeline's plugin security fixes election on the platform before deploying (a PUT, so the credential needs pipelines:write; refused with --local-spec`)"
             ],
             [
               "toolchain export",
@@ -535,7 +538,10 @@ export const cliReferenceTopic: HelpTopic = {
           "rows": [
             [
               "pipeline create",
-              "Register a new pipeline definition with the platform"
+              "Register a new pipeline definition with the platform (--upsert overwrites the pipeline already in that project/organization; --deploy deploys it right after). `--remediation-upgrades <inherit\\",
+              "off\\",
+              "propose\\",
+              "apply>` sets its plugin security fixes election — see Plugin security fixes from the definition"
             ],
             [
               "pipeline list / pipeline get",
@@ -947,6 +953,99 @@ export const cliReferenceTopic: HelpTopic = {
         {
           "type": "code",
           "content": "pipeline-manager auth login --url https://platform.example.com\npipeline-manager infra bootstrap --account 123456789012 --region us-east-1   # once per account/region\npipeline-manager pipeline create -f props.json\npipeline-manager pipeline synth --id <pipelineId>\npipeline-manager pipeline deploy --id <pipelineId>\npipeline-manager status",
+          "language": "bash"
+        },
+        {
+          "type": "text",
+          "content": "Plugin security fixes from the definition"
+        },
+        {
+          "type": "text",
+          "content": "A pipeline's plugin security fixes election (whether the nightly plugin CVE remediation may move it onto fixed plugin versions — see Installing plugins) can live in the pipeline definition, next to project and organization:"
+        },
+        {
+          "type": "code",
+          "content": "{\n  \"project\": \"web\",\n  \"organization\": \"acme\",\n  \"remediationUpgrades\": \"off\",\n  \"synth\": { \"plugin\": { \"name\": \"cdk-synth\" } }\n}",
+          "language": "json"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Value",
+            "Meaning"
+          ],
+          "rows": [
+            [
+              "inherit",
+              "Follow the organization's (or team's) setting — the default for a new pipeline"
+            ],
+            [
+              "off",
+              "Opt this pipeline out: it is never proposed or moved"
+            ],
+            [
+              "propose",
+              "Open a proposal on the pipeline page; nothing moves until someone applies it"
+            ],
+            [
+              "apply",
+              "Move the pipeline automatically — only when the organization's default is apply or its root org allows pipelines to choose it"
+            ]
+          ]
+        },
+        {
+          "type": "list",
+          "items": [
+            "It is a platform setting, not a synth prop. The CLI lifts it out of the"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "file before sending the props, so the synthesized template is identical with or without it. (A direct API call sends it at the top level of the create body; inside props it is refused.)"
+        },
+        {
+          "type": "list",
+          "items": [
+            "--remediation-upgrades wins over the file on pipeline create; both are"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "checked against the four values above before anything is sent."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Set → applied on every create/deploy. pipeline create --upsert (and"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "pipeline deploy --id … --remediation-upgrades, which sets it before deploying) writes it each time, with the dashboard's rules. A change is audited as pipeline.remediation-upgrades.update with before / after; re-sending the stored value records nothing."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Absent → kept. A definition (and command line) without it leaves the"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "stored value alone — an election made in the dashboard survives every redeploy and is never reset to inherit."
+        },
+        {
+          "type": "list",
+          "items": [
+            "apply the organization forbids is refused with"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "403 PIPELINE_REMEDIATION_APPLY_NOT_ALLOWED; the CLI exits non-zero (exit code 5) and suggests --remediation-upgrades inherit, off or propose. Nothing is created or deployed."
+        },
+        {
+          "type": "code",
+          "content": "pipeline-manager pipeline create -f props.json --upsert --remediation-upgrades off\npipeline-manager pipeline deploy --id <pipelineId> --remediation-upgrades propose",
           "language": "bash"
         },
         {

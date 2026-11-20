@@ -129,6 +129,11 @@ const EVENTS = {
   N38: { description: 'A pipeline was rolled back from a remediation fix version', channels: ['in_app', 'email'], preference: null, allowsAddress: true },
   N39: { description: 'Remediation request: findings the platform could not fix, for the plugin owner', channels: ['in_app', 'email'], preference: null, allowsAddress: true },
   N40: { description: 'Fix request sent to a listing\'s publisher (and its installers told)', channels: ['in_app', 'email'], preference: null },
+  // Automatic plugin version tidying: ONE digest per org at most weekly,
+  // listing only versions newly gone stale (their dates and a Keep link each),
+  // to the org's plugin security recipients (verified external address
+  // included). Nothing is sent to an org with nothing newly stale.
+  N41: { description: 'Unused plugin versions went stale (automatic tidying warning, with a Keep link per version)', channels: ['in_app', 'email'], preference: null, allowsAddress: true },
 } satisfies Record<string, EcosystemEventSpec>;
 
 /** A notification event number. */
@@ -263,7 +268,7 @@ function parseRecipient(raw: unknown, spec: EcosystemEventSpec): EcosystemRecipi
 export function parseEcosystemNotifyRequest(body: unknown): EcosystemNotifyRequest | string {
   if (!body || typeof body !== 'object') return 'body must be an object';
   const b = body as Record<string, unknown>;
-  if (!isEcosystemNotificationEvent(b.event)) return 'event must be one of N1..N40';
+  if (!isEcosystemNotificationEvent(b.event)) return 'event must be one of N1..N41';
   const spec = ECOSYSTEM_NOTIFICATION_EVENTS[b.event];
   if (!nonEmptyString(b.subject, ECOSYSTEM_NOTIFY_SUBJECT_MAX)) return `subject is required (max ${ECOSYSTEM_NOTIFY_SUBJECT_MAX})`;
   if (!nonEmptyString(b.text, ECOSYSTEM_NOTIFY_TEXT_MAX)) return `text is required (max ${ECOSYSTEM_NOTIFY_TEXT_MAX})`;

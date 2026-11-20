@@ -128,6 +128,26 @@ describe('deprecated and vulnerable', () => {
     expect(sent[0]!.text).toMatch(/2 fixable Critical findings and 1 on the CISA known-exploited list/);
   });
 
+  it('fixed: org defaults on the vulnerable release, and writers of pipelines pinned to it, are told the fixed release by name', async () => {
+    await promoted('1.0.0');
+    await orgDefault(A, '1.0.0');
+    await orgDefault(B, '1.0.1');
+    await pinned(B, 'web', '1.0.0');
+    const r = await hygiene.notifyToolchainHygiene({ kind: 'fixed', releaseVersion: '1.0.0', fixedRelease: '1.0.2', cleared: ['CVE-2026-1', 'CVE-2026-2'] });
+    expect(r).toEqual({ orgDefaultOrgs: 1, pinnedOrgs: 1 });
+    const toA = sent.find((n) => n.recipients[0]!.orgId === A)!;
+    expect(toA.subject).toBe('A security fix of your toolchain default 1.0.0 is available: 1.0.2');
+    expect(toA.text).toContain('CVE-2026-1, CVE-2026-2');
+    expect(toA.text).toContain('Settings → Organization → Pipeline toolchain');
+    expect(toA.text).toMatch(/nothing moves until you change it/i);
+    const toB = sent.find((n) => n.recipients[0]!.orgId === B)!;
+    expect(toB.recipients).toEqual([{ kind: 'org_permission', orgId: B, permission: 'pipelines:write' }]);
+    expect(toB.text).toContain('pipeline web');
+    expect(toB.text).toContain('toolchain.release');
+    expect(toB.text).toContain('1.0.2');
+    expect(mockIncCounter).toHaveBeenCalledWith('toolchain_hygiene_notices_total', { kind: 'fixed' }, 2);
+  });
+
   it('more than 50 orgs on one release are split across relay requests', async () => {
     await promoted('1.0.0');
     for (let i = 0; i < 51; i += 1) await orgDefault(`dddddddddddddddddddd${String(i).padStart(4, '0')}`, '1.0.0');
@@ -188,6 +208,7 @@ describe('never throws', () => {
       { kind: 'deprecated', releaseVersion: '1.0.0' },
       { kind: 'vulnerable', releaseVersion: '1.0.0', plugin: 'cdk-synth', criticalFixable: 1, kev: 0 },
       { kind: 'behind', platformDefault: '1.5.0', previousDefault: '1.4.0' },
+      { kind: 'fixed', releaseVersion: '1.0.0', fixedRelease: '1.0.1', cleared: [] },
     ] as const) {
       const n = hygiene.renderOrgDefaultNotice(event, { releaseVersion: '1.0.0', platformDefault: null, behind: 4 });
       expect(n.subject).toContain('1.0.0');

@@ -33,15 +33,15 @@ const { createEcosystemNotifyClient, NOTIFY_EMAIL_PATH } = await import('../src/
 const base = { event: 'N23', subject: 'S', text: 'T', recipients: [{ kind: 'superadmins' }] };
 
 describe('ECOSYSTEM_NOTIFICATION_EVENTS', () => {
-  it('covers N1..N40 exactly', () => {
-    expect(Object.keys(ECOSYSTEM_NOTIFICATION_EVENTS)).toEqual(Array.from({ length: 40 }, (_, i) => `N${i + 1}`));
-    expect(isEcosystemNotificationEvent('N40')).toBe(true);
-    expect(isEcosystemNotificationEvent('N41')).toBe(false);
+  it('covers N1..N41 exactly', () => {
+    expect(Object.keys(ECOSYSTEM_NOTIFICATION_EVENTS)).toEqual(Array.from({ length: 41 }, (_, i) => `N${i + 1}`));
+    expect(isEcosystemNotificationEvent('N41')).toBe(true);
+    expect(isEcosystemNotificationEvent('N42')).toBe(false);
     expect(isEcosystemNotificationEvent('toString')).toBe(false);
   });
 
   it('makes the notification transactional and security notices non-optional', () => {
-    for (const n of ['N1', 'N3', 'N4', 'N5', 'N7', 'N8', 'N9', 'N10', 'N18', 'N19', 'N20', 'N21', 'N22', 'N23', 'N25', 'N28', 'N29', 'N30', 'N31', 'N32', 'N33', 'N34', 'N36', 'N37', 'N38', 'N39', 'N40'] as const) {
+    for (const n of ['N1', 'N3', 'N4', 'N5', 'N7', 'N8', 'N9', 'N10', 'N18', 'N19', 'N20', 'N21', 'N22', 'N23', 'N25', 'N28', 'N29', 'N30', 'N31', 'N32', 'N33', 'N34', 'N36', 'N37', 'N38', 'N39', 'N40', 'N41'] as const) {
       expect([n, ECOSYSTEM_NOTIFICATION_EVENTS[n].preference]).toEqual([n, null]);
     }
   });
@@ -129,6 +129,8 @@ describe('parseEcosystemNotifyRequest', () => {
     expect(parseEcosystemNotifyRequest({ ...base, event: 'N20', recipients: [{ kind: 'address', email: 'sec@example.com' }] })).toMatch(/only allowed/);
     // The publisher fix request (N40) goes to publisher managers, never a raw address.
     expect(parseEcosystemNotifyRequest({ ...base, event: 'N40', recipients: [{ kind: 'address', email: 'sec@example.com' }] })).toMatch(/only allowed/);
+    // The automatic tidying digest (N41) follows the org's plugin security recipients, external address included.
+    expect(parseEcosystemNotifyRequest({ ...base, event: 'N41', recipients: [{ kind: 'address', email: 'sec@example.com' }] })).toMatchObject({ event: 'N41' });
   });
 
   it('accepts toolchain:manage holders (the toolchain hygiene notice N34), never a raw address there', () => {

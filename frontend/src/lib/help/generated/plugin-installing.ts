@@ -1,6 +1,6 @@
 // GENERATED FROM docs/plugin-installing.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: afa6a62fbc6f9b11061943096a72a634cc36718bcba865f608530f754ef90fc7
+// SOURCE-SHA256: 268403b87c8b541fc3ae0622a7ab336b0019207a50836444aea185f813152c0c
 // SPDX-License-Identifier: Apache-2.0
 import { PackagePlus } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -447,7 +447,7 @@ export const pluginInstallingTopic: HelpTopic = {
             ],
             [
               "Pipeline",
-              "Plugin security fixes on the pipeline (remediationUpgrades on PUT /api/pipelines/:id, pipelines:write)",
+              "Plugin security fixes on the pipeline (remediationUpgrades on PUT /api/pipelines/:id or on create, pipelines:write), or remediationUpgrades in the pipeline definition",
               "inherit (default), off, propose, apply"
             ]
           ]
@@ -460,6 +460,36 @@ export const pluginInstallingTopic: HelpTopic = {
             "Opting out hides nothing. An opted-out pipeline still gets its warnings, exposures and notices for the flagged version, and its page shows the fix it isn't using. A KEV-listed finding adds a banner naming the opt-out.",
             "A rollout in progress re-reads each pipeline's setting just before moving it, so a change made mid-rollout is honoured. Changes are audited as pipeline.remediation-upgrades.update with before and after."
           ]
+        },
+        {
+          "type": "text",
+          "content": "Opting out from the pipeline definition. A pipeline managed as code can carry its election next to project and organization in the definition file, and the CLI can override it per run:"
+        },
+        {
+          "type": "code",
+          "content": "{ \"project\": \"web\", \"organization\": \"acme\", \"remediationUpgrades\": \"off\", \"synth\": { \"plugin\": { \"name\": \"cdk-synth\" } } }",
+          "language": "json"
+        },
+        {
+          "type": "code",
+          "content": "pipeline-manager pipeline create -f props.json --upsert                       # applies \"off\" from the file\npipeline-manager pipeline create -f props.json --upsert --remediation-upgrades propose   # the flag wins\npipeline-manager pipeline deploy --id <pipelineId> --remediation-upgrades off   # set, then deploy",
+          "language": "bash"
+        },
+        {
+          "type": "text",
+          "content": "Precedence, per pipeline:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "--remediation-upgrades on the command, when given.",
+            "remediationUpgrades in the definition, when present. Either one is written on every create and deploy, with the same rules as the dashboard: opting out is always allowed, apply is refused with 403 PIPELINE_REMEDIATION_APPLY_NOT_ALLOWED when the organization forbids it (the CLI exits non-zero and nothing is created or deployed), and a change is audited as pipeline.remediation-upgrades.update — re-sending the stored value records nothing.",
+            "Neither → the stored value stands. A deploy whose definition omits it never resets the pipeline to inherit, so a choice made in the dashboard survives redeploys. A new pipeline starts at inherit."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "The election is a platform setting: it is lifted out of the definition before synth and never changes the synthesized template. Inside the props of an API request it is refused — send it at the top level. The election is per pipeline; there is no per-step opt-out."
         },
         {
           "type": "text",

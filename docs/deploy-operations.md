@@ -414,6 +414,10 @@ In `alert-rules.yml` on **all four targets**, from the plugin service's `/metric
 
 `plugin_retention_retired_total{stage}` counts what was retired and `plugin_retention_retirable` how many versions are retirable now. Neither is alerted on.
 
+### Automatic tidying (tenant orgs)
+
+Tenant organizations' unused plugin versions are tidied by a separate daily job (leader-locked, `plugin-auto-tidy`), under each org's own setting (`notify` by default: a weekly N41 digest only; `on`: deactivate, then soft-delete 30 days later). See [Automatic tidying](plugin-publishing.md#automatic-tidying). `PLUGIN_AUTO_TIDY_ENABLED=false` stops it for every org. Signals: `plugin_tidy_versions_total{outcome}` (warned, deactivated, retired, reactivated, kept), `plugin_tidy_skipped_total{reason}`, and `plugin_tidy_failed_total{stage}`, which alerts as `PluginTidyFailing`. A `use_stamp` failure matters most: lookups could not record use, so versions in use can look stale; the in-use check still protects every version a pipeline references.
+
 ## Service mesh (Istio ambient)
 
 All targets run an Istio ambient mesh with STRICT mTLS and identity authz.
@@ -619,8 +623,12 @@ In `alert-rules.yml` on **all four targets**, read from the plugin service's `/m
 | `PluginSourcesMissing` | a version's kept source was missing when read (after a restore) and the version became source-less | warning |
 | `PluginSourceChecksumMismatch` | a kept source in `plugin-sources` no longer hashes to its recorded SHA-256 (`plugin_source_checksum_mismatch_total`); treated as tampering, the remediation failed closed with `SOURCE_CHECKSUM_MISMATCH` | critical |
 | `PluginRemediationCanaryStale` | the system org's per-package-type fixture plugins have not all come out fixed for 48 h | warning |
+| `ToolchainFixFailing` | nightly toolchain fixes (`toolchain_fix_failures_total{stage}`): `publish` — an approved release candidate's publish stopped part-way (it keeps its progress; **Resume publish**, or the resume scheduler within ~2 minutes, finishes it under the same version); `keep_inputs` — a managed toolchain upload or an approved fix could not keep its build inputs in `plugin-sources` (`<systemOrgId>/toolchain-inputs/`), so that release can only get an owner request | warning |
 
 Turning remediation off (`PLUGIN_REMEDIATION_ENABLED=false`) silences the error and canary rules (nothing runs); the delete and missing-source rules keep working, because source retention and purge do not depend on it.
+
+**Nightly toolchain fixes.** With `PLUGIN_REMEDIATION_TOOLCHAINS=propose` (the default) a flagged managed toolchain release gets a verified release candidate in the Toolchain console's **Toolchain fixes** card instead of only an owner request ([Remediation → toolchains](plugin-publishing.md#remediation--toolchains)). Nothing is published until a system-org `plugins:write` holder approves it with a step-up; then the new release is listed in the console like any uploaded one and N34 tells the orgs on the vulnerable release. Releases fixed this way keep their build inputs in `plugin-sources` under `<systemOrgId>/toolchain-inputs/<release>/`; a release uploaded before the plugin service kept them can only get an owner request until the next release is loaded with `load-plugins.sh` (which now puts each managed half's Dockerfile in its ZIP). After approving, **Export spec patch** and apply it to `deploy/toolchain/` in the release workflow so the repository's `version`, `sourceDigest`, `toolchain` and `BOOTSTRAP_IMAGE` default match what was published; never rebuild that version on the platform that approved it (its tag is already published, and `build-plugin-images.sh` refuses different bits under it). Counters: `toolchain_fix_candidates_total{outcome}` (proposed, refused, approved, rejected — dashboard material) and `toolchain_fix_failures_total{stage}` (alerted, `ToolchainFixFailing`).
+An approved publish that fails part-way keeps its progress and resumes, under the same version, on the next **Resume publish**, or automatically within ~2 minutes once a crashed publish's five-minute lease has passed (a leader-locked scheduler, `TOOLCHAIN_FIX_RESUME_INTERVAL_MS`, counting `toolchain_fix_resume_runs_total{outcome}`; the nightly pass is a backstop); nothing is stored twice.
 
 ### Storage alerts
 
@@ -749,7 +757,7 @@ accepts writes at all, because RustFS exposes no Prometheus endpoint of its own.
 
 #### Inhibition: suppressing consequences, and what cannot be suppressed
 
-At 239 rules one root cause is a pager flood, and a flood is functionally the same
+At 241 rules one root cause is a pager flood, and a flood is functionally the same
 as no alert. The inhibition tree in `alertmanager.yml` suppresses the consequences
 of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service
 being down.

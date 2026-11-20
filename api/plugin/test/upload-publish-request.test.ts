@@ -97,6 +97,8 @@ jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
   pluginService: { assertDeployable: jest.fn(async () => undefined), deployVersion: mockDeployVersion },
 }));
 jest.unstable_mockModule('../src/services/ecosystem/requests.js', () => ({ submitAfterBuild: mockSubmitAfterBuild }));
+const mockKeepToolchainInputs = jest.fn(async (_v: string, _h: string, _d: string) => true);
+jest.unstable_mockModule('../src/services/remediation/toolchain-inputs.js', () => ({ keepToolchainInputs: mockKeepToolchainInputs }));
 
 ({ withQuotaReservation: realWithQuotaReservation } = await import('@pipeline-builder/api-server/lib/api/quota-reservation.js'));
 const { createUploadPluginRoutes } = await import('../src/routes/upload-plugin.js');
@@ -209,6 +211,20 @@ describe('POST /plugins with a managed toolchain name', () => {
     const { done } = call({ visibility: 'public' }, publisher);
     await expect(done).rejects.toMatchObject({ statusCode: 400, code: 'PLUGIN_MANAGED_PRERELEASE' });
     expect(mockDeployVersion).not.toHaveBeenCalled();
+  });
+
+  it('a managed half built from its image keeps its build inputs for the nightly toolchain fix; an ordinary plugin keeps none', async () => {
+    mockOrgId.value = SYSTEM_ORG_ID;
+    producesImage.value = true;
+    spec.value = { name: 'pipeline-bootstrap', version: '1.1.0', pluginType: 'BuildImage' };
+    const { res, done } = call({ visibility: 'public' }, publisher);
+    await done;
+    expect(res.status).toHaveBeenCalledWith(202);
+    expect(mockKeepToolchainInputs).toHaveBeenCalledWith('1.1.0', 'pipeline-bootstrap', expect.stringContaining(uploadDir));
+    mockKeepToolchainInputs.mockClear();
+    spec.value = { name: 'lint', version: '1.0.0', commands: ['lint'], description: 'Lints.' };
+    await call({ visibility: 'public' }, publisher).done;
+    expect(mockKeepToolchainInputs).not.toHaveBeenCalled();
   });
 
   it('accepts a plain release from the system org without a publish request', async () => {

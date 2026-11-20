@@ -966,6 +966,8 @@ export const PLUGIN_REMEDIATION_ENV = {
   concurrency: { name: 'PLUGIN_REMEDIATION_CONCURRENCY', default: 2 },
   baseConcurrency: { name: 'PLUGIN_REMEDIATION_BASE_CONCURRENCY', default: 4 },
   maxPerOrgPerDay: { name: 'PLUGIN_REMEDIATION_MAX_PER_ORG_PER_DAY', default: 20 },
+  /** propose | off: a flagged managed toolchain release gets a verified release candidate (never published automatically), or the owner request. */
+  toolchains: { name: 'PLUGIN_REMEDIATION_TOOLCHAINS', default: 'propose' },
   sourcesBucket: { name: 'PLUGIN_SOURCES_BUCKET', default: 'plugin-sources' },
 } as const;
 

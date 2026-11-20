@@ -6,6 +6,10 @@
  * build image and the `cdk-synth` step, one release), their canary, adoption,
  * stranded pipelines, the platform-default history and cleanup.
  *
+ * The Releases tab also carries the "Toolchain fixes" card (nightly toolchain
+ * fixes: propose-only release candidates), whose own gate is the system org
+ * plus `plugins:write` — like the Official patch export.
+ *
  * Read gate: `toolchain:operate`, declared once on the nav entry (page-access
  * derives it). The permission is system-org-only, so no tenant Role can carry
  * it; a superadmin holds it implicitly but, switched into a tenant org, is
@@ -31,6 +35,7 @@ import { ToolchainAdoptionPanel } from '@/components/toolchain/ToolchainAdoption
 import { ToolchainAffectedPanel } from '@/components/toolchain/ToolchainAffectedPanel';
 import { ToolchainCanaryPanel } from '@/components/toolchain/ToolchainCanaryPanel';
 import { ToolchainCleanupPanel } from '@/components/toolchain/ToolchainCleanupPanel';
+import { ToolchainFixesCard } from '@/components/toolchain/ToolchainFixesCard';
 import { ToolchainHistoryPanel } from '@/components/toolchain/ToolchainHistoryPanel';
 import { ToolchainReleasesPanel } from '@/components/toolchain/ToolchainReleasesPanel';
 import { isSystemOrgActive } from '@/lib/ecosystem-access';
@@ -68,6 +73,8 @@ export default function ToolchainConsolePage() {
 
   // The read gate admitted the viewer; a write also needs a writable session.
   const canWrite = can('toolchain:operate') && !isReadOnly;
+  // The Toolchain fixes card's routes are system org + plugins:write.
+  const canReviewFixes = can('plugins:write');
   const view = releases.data;
   // The per-release panels default to the canary, else the newest release.
   const selected = picked ?? view?.releases.find((r) => r.status === 'canary')?.releaseVersion ?? view?.releases[0]?.releaseVersion ?? null;
@@ -100,6 +107,9 @@ export default function ToolchainConsolePage() {
           <div {...tabPanelProps(TAB_PREFIX, tab)} className="space-y-4">
             {PER_RELEASE.includes(tab) && view.releases.length > 0 && selected && (
               <ReleaseSelect releases={view.releases} value={selected} onChange={setPicked} />
+            )}
+            {tab === 'releases' && (
+              <ToolchainFixesCard allowed={canReviewFixes} canWrite={canReviewFixes && !isReadOnly} onPublished={releases.refetch} />
             )}
             {tab === 'releases' && (
               <ToolchainReleasesPanel view={view} canWrite={canWrite} onChanged={releases.refetch} onOpenCanary={openCanary} />

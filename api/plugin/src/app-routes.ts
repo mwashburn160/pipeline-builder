@@ -29,7 +29,9 @@ import { createRetentionRoutes } from './routes/retention.js';
 import { createReviewRoutes } from './routes/reviews.js';
 import { createPublicSecurityNotificationRoutes, createSecurityNotificationRoutes } from './routes/security-notifications.js';
 import { createStorageRoutes } from './routes/storage.js';
+import { createTidyRoutes } from './routes/tidy.js';
 import { createToolchainConsoleRoutes } from './routes/toolchain-console.js';
+import { createToolchainFixRoutes } from './routes/toolchain-fixes.js';
 import { TOOLCHAIN_MOUNT, createToolchainRoutes } from './routes/toolchain.js';
 import { createUpdatePluginRoutes } from './routes/update-plugin.js';
 import { createUploadPluginRoutes } from './routes/upload-plugin.js';
@@ -139,6 +141,9 @@ export function mountRoutes(app: Express, { quotaService, sseManager }: PluginRo
   // Nightly CVE remediations + their settings + a plugin's own upgrade level — each
   // route owns its gate (approve / reject layer their own step-up); before the read routes for `/:id`.
   app.use('/plugins', createRemediationRoutes());
+  // Nightly toolchain fixes (propose-only release candidates) — system org +
+  // plugins:write on each route, step-up on approve / reject; before the read routes for `/:id`.
+  app.use('/plugins', createToolchainFixRoutes());
   // Kept setup images — gate-refused images from the setup catalog load, listed
   // and promoted by the system org (system org + plugins:moderate + aal2 on each
   // route); before the read routes for `/:id`.
@@ -147,6 +152,10 @@ export function mountRoutes(app: Express, { quotaService, sseManager }: PluginRo
   // run (system org + plugins:moderate + aal2 on each route, step-up on the
   // run); before the read routes for `/:id`.
   app.use('/plugins', createRetentionRoutes());
+  // Automatic plugin version tidying — the org's dry run, its settings, Keep and
+  // never-tidy (plugins:read / org_settings:write / plugins:write per route);
+  // before the read routes for `/:id`.
+  app.use('/plugins', createTidyRoutes());
   // A pipeline's plugin security — per-step resolution / lookup / scan state,
   // exposures + their triage, and the runtime check (each route owns its gate:
   // pipelines:read / pipelines:write / plugins:read); before the read routes

@@ -153,6 +153,7 @@ jest.unstable_mockModule('../src/routes/public-directory.js', () => ({ createPub
 jest.unstable_mockModule('../src/routes/public-submissions.js', () => ({ createPublicSubmissionRoutes: () => Router() }));
 jest.unstable_mockModule('../src/routes/kept-setup-images.js', () => ({ createKeptSetupImageRoutes: () => Router() }));
 jest.unstable_mockModule('../src/routes/remediations.js', () => ({ createRemediationRoutes: () => Router() }));
+jest.unstable_mockModule('../src/routes/toolchain-fixes.js', () => ({ createToolchainFixRoutes: () => Router() }));
 jest.unstable_mockModule('../src/routes/plugin-by-name.js', () => ({ createPluginByNameRoutes: () => Router() }));
 jest.unstable_mockModule('../src/routes/internal-remediation.js', () => ({ createInternalRemediationRoutes: () => Router() }));
 // Purge-scheduler deps the index now imports — mock so the real pipeline-data
@@ -190,6 +191,7 @@ jest.unstable_mockModule('../src/services/ecosystem/metrics.js', () => ({
 // REAL generate router at the actual '/plugins' generate mount.
 jest.unstable_mockModule('../src/routes/retention.js', () => ({ createRetentionRoutes: () => Router() }));
 // The superseded-version retention pass — index.ts builds its scheduler when enabled; not under test here.
+jest.unstable_mockModule('../src/services/remediation/toolchain-resume.js', () => ({ createToolchainResumeScheduler: () => null }));
 jest.unstable_mockModule('../src/services/retention/retire.js', () => ({
   runRetentionPass: jest.fn(),
   createRetentionScheduler: () => ({ start: () => undefined, stop: () => undefined }),

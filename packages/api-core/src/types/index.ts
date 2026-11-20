@@ -280,6 +280,8 @@ export {
 } from './plugin-scan.js';
 // Nightly plugin CVE remediation vocabulary (also re-exported by ./plugin-scan.js for the browser subpath).
 export * from './plugin-remediation.js';
+// Nightly toolchain fixes, propose-only (also re-exported by ./plugin-scan.js).
+export * from './toolchain-remediation.js';
 export {
   type CommonFilter,
   type ImageSource,

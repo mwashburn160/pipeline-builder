@@ -96,6 +96,13 @@ const REGISTERED: ReadonlyArray<readonly [string, string, string]> = [
   ['RetentionAction', 'frontend/src/types/plugin-retention.ts', 'api/plugin/src/services/retention/plan.ts'],
   ['RetentionState', 'frontend/src/types/plugin-retention.ts', 'api/plugin/src/services/retention/select.ts'],
   ['RetentionVersionEntry', 'frontend/src/types/plugin-retention.ts', 'api/plugin/src/services/retention/plan.ts'],
+  // Automatic plugin version tidying: the preview's report and the org's settings (api/plugin, not importable).
+  ['TidyAction', 'frontend/src/types/plugin-tidy.ts', 'api/plugin/src/services/tidy/pass.ts'],
+  ['TidyOrgReport', 'frontend/src/types/plugin-tidy.ts', 'api/plugin/src/services/tidy/pass.ts'],
+  ['TidySettings', 'frontend/src/types/plugin-tidy.ts', 'api/plugin/src/services/tidy/settings.ts'],
+  ['TidyState', 'frontend/src/types/plugin-tidy.ts', 'api/plugin/src/services/tidy/decide.ts'],
+  ['TidyTotals', 'frontend/src/types/plugin-tidy.ts', 'api/plugin/src/services/tidy/pass.ts'],
+  ['TidyVersionEntry', 'frontend/src/types/plugin-tidy.ts', 'api/plugin/src/services/tidy/pass.ts'],
   ['SeatUsage', 'frontend/src/types/billing.ts', 'api/billing/src/helpers/usage-helpers.ts'],
   // An artifact security report's counts (api/pipeline, not importable).
   ['SeverityCounts', 'frontend/src/lib/api/pipeline-security-types.ts', 'api/pipeline/src/helpers/security-report.ts'],

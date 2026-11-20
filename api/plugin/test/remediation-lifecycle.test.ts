@@ -82,7 +82,7 @@ const { deactivateIfUnreferenced, queuePassRemediations, queuePriority } = await
 const { runRemediation } = await import('../src/queue/plugin-remediation.js');
 const { cancelRemediationsFor } = await import('../src/services/remediation/cancel.js');
 const { applyRolloutReport } = await import('../src/routes/internal-remediation.js');
-const { createRemediationRoutes } = await import('../src/routes/remediations.js');
+const { createRemediationRoutes, setRemediationArtifactReaderForTests } = await import('../src/routes/remediations.js');
 const { getRemediation } = await import('../src/services/remediation/store.js');
 const { canaryPluginName } = await import('../src/services/remediation/canary.js');
 const { buildSpendsCredits } = await import('../src/queue/build-credits.js');
@@ -189,7 +189,8 @@ describe('queueing after a completed pass', () => {
     expect(await rowsOf(a)).toHaveLength(0);
   });
 
-  it('sends versions the platform may not change straight to an owner request', async () => {
+  it('sends versions the platform may not change straight to an owner request (toolchain fixes off)', async () => {
+    setPluginServiceConfigForTests({ enabled: true, severities: ['critical', 'high'], maxPerOrgPerDay: 20, concurrency: 2, toolchains: 'off' });
     const id = await plugin(SYSTEM, 'pipeline-bootstrap', '4.4.20');
     await queuePassRemediations([cand(id, 'pipeline-bootstrap', '4.4.20', [finding()], SYSTEM)], { enqueue });
     const [row] = await rowsOf(id);
@@ -444,6 +445,83 @@ describe('routes', () => {
     setPluginServiceConfigForTests({ enabled: true, severities: ['critical', 'high'], maxPerOrgPerDay: 2 });
     await raw.query("UPDATE plugin_remediations SET stage = 'failed', outcome = 'error'");
     expect((await call('post', '/remediations/:id/retry', { params: { id: row.id } })).statusCode).toBe(429);
+  });
+
+  it('list: filters by stage and plugin; an invalid query is a 400', async () => {
+    const a = await queued(ORG, 'lint', '1.0.0');
+    await queued(ORG, 'fmt', '1.0.0');
+    await raw.query("UPDATE plugin_remediations SET stage = 'needs_owner' WHERE id = $1", [a.id]);
+    const byStage = await call('get', '/remediations', { query: { stage: 'needs_owner, failed' } });
+    expect(byStage.body.data.remediations.map((r: any) => r.id)).toEqual([a.id]);
+    const byName = await call('get', '/remediations', { query: { pluginName: 'fmt' } });
+    expect(byName.body.data.remediations.map((r: any) => r.pluginName)).toEqual(['fmt']);
+    expect((await call('get', '/remediations', { query: { limit: 'lots' } })).statusCode).toBe(400);
+    expect((await call('get', '/remediations', { query: { stage: 'bogus' } })).statusCode).toBe(400);
+    expect((await call('get', '/remediations/:id', { params: { id: a.id } })).body.data).toMatchObject({ id: a.id, stage: 'needs_owner' });
+  });
+
+  it('patch and export: served as a text/x-diff attachment when stored, 404 otherwise; never another org\'s', async () => {
+    const row = await queued(ORG, 'lint', '1.0.0');
+    const stored = new Map([['k/patch', '--- a/x\n+++ b/x\n'], ['k/export', '--- a/deploy/plugins/lint/x\n']]);
+    setRemediationArtifactReaderForTests(async (k) => stored.get(k) ?? null);
+    try {
+      expect((await call('get', '/remediations/:id/patch', { params: { id: row.id } })).statusCode).toBe(404);
+      expect((await call('get', '/remediations/:id/export', { params: { id: row.id } })).statusCode).toBe(404);
+      await raw.query("UPDATE plugin_remediations SET patch_key = 'k/patch', export_key = 'k/export' WHERE id = $1", [row.id]);
+      const patch = await call('get', '/remediations/:id/patch', { params: { id: row.id } });
+      expect(patch.statusCode).toBe(200);
+      expect(patch.headers['Content-Type']).toBe('text/x-diff; charset=utf-8');
+      expect(patch.headers['Content-Disposition']).toContain('lint-1.0.0-remediation.diff');
+      expect(patch.body).toContain('+++ b/x');
+      const exp = await call('get', '/remediations/:id/export', { params: { id: row.id } });
+      expect(exp.body).toContain('deploy/plugins/lint');
+      expect(exp.headers['Content-Disposition']).toContain('lint-1.0.0-export.diff');
+      expect((await call('get', '/remediations/:id/patch', { params: { id: row.id } }, OTHER)).statusCode).toBe(404);
+      // A stored key whose object is gone is a 404 too, not an empty download.
+      await raw.query("UPDATE plugin_remediations SET patch_key = 'k/gone' WHERE id = $1", [row.id]);
+      expect((await call('get', '/remediations/:id/patch', { params: { id: row.id } })).statusCode).toBe(404);
+    } finally {
+      setRemediationArtifactReaderForTests();
+    }
+  });
+
+  it('reject: awaiting_approval → failed / rejected with the decider and reason; an approved one is not rejectable', async () => {
+    const row = await queued(ORG, 'lint', '1.0.0');
+    await raw.query("UPDATE plugin_remediations SET stage = 'awaiting_approval'");
+    const res = await call('post', '/remediations/:id/reject', { params: { id: row.id }, body: { reason: 'not this one' } });
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data).toMatchObject({ stage: 'failed', outcome: 'rejected', decidedBy: 'u-1' });
+    expect(counters).toContainEqual(['plugin_remediations_total', { stage: 'failed', outcome: 'rejected' }]);
+    expect(audits.mock.calls.map((c) => (c[0] as any).action)).toContain('plugin.remediation.rejected');
+    const other = await queued(ORG, 'fmt', '1.0.0');
+    await raw.query("UPDATE plugin_remediations SET stage = 'awaiting_approval', decided_at = now() WHERE id = $1", [other.id]);
+    expect((await call('post', '/remediations/:id/reject', { params: { id: other.id } })).statusCode).toBe(409);
+    expect((await call('post', '/remediations/:id/approve', { params: { id: other.id } })).body).toMatchObject({ code: 'REMEDIATION_STAGE_CONFLICT', details: { stage: 'approved and publishing' } });
+  });
+
+  it('retry: only from failed / needs_owner / needs_review; refused while the operator knob is off; a paused rollout\'s row closes', async () => {
+    const row = await queued(ORG, 'lint', '1.0.0');
+    expect((await call('post', '/remediations/:id/retry', { params: { id: row.id } })).statusCode).toBe(409);
+    await raw.query("UPDATE plugin_remediations SET stage = 'needs_review'");
+    setPluginServiceConfigForTests({ enabled: false });
+    expect((await call('post', '/remediations/:id/retry', { params: { id: row.id } })).statusCode).toBe(503);
+    setPluginServiceConfigForTests({ enabled: true, severities: ['critical', 'high'], maxPerOrgPerDay: 20 });
+    const res = await call('post', '/remediations/:id/retry', { params: { id: row.id } });
+    expect(res.statusCode).toBe(202);
+    expect((await getRemediation(row.id))!).toMatchObject({ stage: 'done', outcome: 'superseded' });
+  });
+
+  it('settings: a team inherits the root\'s rollout and cannot set allowPipelineApply; per-type levels clear with null', async () => {
+    const TEAM = 'ccccccccccccccccccccccc1';
+    const asTeam = { user: { sub: 'u-1', organizationId: TEAM, parentOrganizationId: ORG, principalType: 'user', permissions: ['plugins:read', 'org_settings:write'], features: [] } };
+    await call('put', '/remediation-settings', { body: { rollout: 'apply', allowPipelineApply: false } });
+    const got = await call('get', '/remediation-settings', asTeam, TEAM);
+    expect(got.body.data).toMatchObject({ isTeam: true, root: { rollout: 'apply', allowPipelineApply: false }, settings: { rollout: 'inherit' }, canEdit: true });
+    expect((await call('put', '/remediation-settings', { ...asTeam, body: { allowPipelineApply: true } }, TEAM)).statusCode).toBe(400);
+    await call('put', '/remediation-settings', { body: { libraryUpgradeLevelByType: { npm: 'patch', deb: 'major' } } });
+    const cleared = await call('put', '/remediation-settings', { body: { libraryUpgradeLevelByType: { npm: null } } });
+    expect(cleared.body.data.settings.libraryUpgradeLevelByType).toEqual({ deb: 'major' });
+    expect((await call('put', '/by-name/:name/remediation-level', { params: { name: 'Not A Name!' }, body: { level: 'patch' } })).statusCode).toBe(400);
   });
 
   it('settings: a root cannot inherit; a per-plugin level is set and cleared', async () => {

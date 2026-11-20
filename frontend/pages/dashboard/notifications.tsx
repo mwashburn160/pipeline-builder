@@ -44,6 +44,7 @@ export const REMEDIATION_NOTICES: { code: string; label: string; href: string; w
   { code: 'N38', label: 'A pipeline was moved back after a failed run', href: '/dashboard/pipelines', where: 'Pipelines' },
   { code: 'N39', label: 'Findings remediation could not fix were sent to the plugin owner', href: '/dashboard/plugins?tab=remediations', where: 'Remediations' },
   { code: 'N40', label: 'A fix request was sent to a listed plugin\'s publisher (installers are told)', href: '/dashboard/publisher', where: 'Publisher' },
+  { code: 'N41', label: 'Unused plugin versions will be deactivated by automatic tidying (Keep to stop it)', href: '/dashboard/plugins', where: 'Plugins' },
 ];
 
 const ECOSYSTEM_PREFS: { key: EcosystemPrefKey; label: string; hint: string; systemOrgOnly?: boolean }[] = [

@@ -31,6 +31,7 @@ import type { z } from 'zod';
 import { validatePipelineTemplates } from './pipeline-template-validator.js';
 import { formatContractViolations, recordPipelineResolution } from './plugin-contract-check.js';
 import { checkPipelinePlugins, type PluginWarning } from './plugin-save-check.js';
+import { electionRefusal } from './remediation-settings.js';
 import { checkToolchainPin } from './toolchain-pin-check.js';
 import { pipelineService, type Pipeline, type PipelineInsert } from '../services/pipeline-service.js';
 
@@ -143,6 +144,30 @@ export function preparePipelineCreate(req: Request, body: PipelineCreateBody): P
   };
 }
 
+/**
+ * The plugin security fixes election on a CREATE (a definition's
+ * `remediationUpgrades`, single or bulk): the update route's
+ * rule against the slot's stored value — a NEW pipeline starts at `inherit`, an
+ * `?upsert=true` overwrite at whatever the live row holds. Only a CHANGE is
+ * checked (re-sending the stored `apply` after the org stopped allowing it is
+ * not refused, as PUT does not); opting out is always allowed. Absent → null
+ * without any read: the upsert keeps the stored value. Runs before any quota
+ * is reserved.
+ */
+export async function createElectionRefusal(
+  body: Pick<PipelineCreateBody, 'remediationUpgrades'>,
+  prepared: Pick<PreparedPipelineCreate, 'project' | 'organization'>,
+  orgId: string,
+  parentOrgId: string | null | undefined,
+): Promise<PipelineWriteRejection | null> {
+  if (body.remediationUpgrades === undefined) return null;
+  const existing = await pipelineService.findOneBySlot(prepared.project, prepared.organization, orgId);
+  const before = existing && !existing.deletedAt ? (existing.remediationUpgrades ?? 'inherit') : 'inherit';
+  if (body.remediationUpgrades === before) return null;
+  const refusal = await electionRefusal(body.remediationUpgrades, orgId, parentOrgId);
+  return refusal ? { status: 403, code: ErrorCode.PIPELINE_REMEDIATION_APPLY_NOT_ALLOWED, message: refusal } : null;
+}
+
 /** Cap on the rule ids one blocked-write audit event carries. */
 const MAX_AUDITED_RULE_IDS = 50;
 
@@ -223,7 +248,7 @@ export async function createOnePipeline(
   }
 
   const actor = actorId({ userId });
-  const { pipeline, inserted } = await pipelineService.createAsDefaultReportInserted(
+  const { pipeline, inserted, previousRemediationUpgrades } = await pipelineService.createAsDefaultReportInserted(
     {
       orgId,
       project,
@@ -243,6 +268,10 @@ export async function createOnePipeline(
       ...(body.criticality !== undefined ? { criticality: body.criticality } : {}),
       ...(body.labels !== undefined ? { labels: body.labels } : {}),
       ...(body.links !== undefined ? { links: body.links } : {}),
+      // The plugin security fixes election, only when the definition carries it
+      // (checked by createElectionRefusal): absent, an upsert's conflict set has
+      // no such key and the stored value (e.g. set in the dashboard) is kept.
+      ...(body.remediationUpgrades !== undefined ? { remediationUpgrades: body.remediationUpgrades } : {}),
     },
     actor,
     project,
@@ -280,6 +309,23 @@ export async function createOnePipeline(
       ...ctx.auditDetails,
     }),
   });
+
+  // The election, audited as PUT does it — before / after, only on a change. A
+  // new row started at the column default (`inherit`).
+  if (body.remediationUpgrades !== undefined) {
+    const before = inserted ? 'inherit' : (previousRemediationUpgrades ?? 'inherit');
+    const after = pipeline.remediationUpgrades ?? body.remediationUpgrades;
+    if (before !== after) {
+      recordAudit({
+        action: 'pipeline.remediation-upgrades.update',
+        actorId: actor,
+        orgId,
+        targetType: 'pipeline',
+        targetId: pipeline.id,
+        details: { pipelineName: pipeline.pipelineName, before, after, ...ctx.auditDetails },
+      });
+    }
+  }
 
   return { status: 'saved', pipeline, inserted };
 }

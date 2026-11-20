@@ -60,3 +60,19 @@ describe('resolved plugin records: kept build sources', () => {
     expect(resolved.commands).toEqual(['go build']);
   });
 });
+
+describe('resolved plugin records: automatic tidying bookkeeping', () => {
+  it('never carries the tidy clock or the hourly last-used stamp into a resolved record (CDK props would diff every synth)', () => {
+    const resolved = toResolvedPlugin({
+      ...full,
+      lastUsedAt: new Date(),
+      tidyKeptAt: null,
+      tidyWarnedAt: new Date(),
+      tidyDeactivateAfter: new Date(),
+      tidyDeactivatedAt: null,
+    }) as Record<string, unknown>;
+    for (const field of ['lastUsedAt', 'tidyKeptAt', 'tidyWarnedAt', 'tidyDeactivateAfter', 'tidyDeactivatedAt']) {
+      expect(Object.hasOwn(resolved, field)).toBe(false);
+    }
+  });
+});

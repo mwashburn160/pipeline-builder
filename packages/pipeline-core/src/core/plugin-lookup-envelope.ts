@@ -28,6 +28,9 @@ export const RESOLVED_PLUGIN_OMITTED_FIELDS = [
   // bookkeeping for CVE remediation and deletion that no pipeline build reads,
   // and a source object key has no business travelling into CDK props.
   'sourceKey', 'sourceSha256', 'sourceSizeBytes', 'sourceKind', 'sourceKeptAt', 'deleteBatchId',
+  // Automatic tidying's bookkeeping: `lastUsedAt` moves hourly, and a field
+  // that moves on its own must never reach CDK props (every synth would diff).
+  'lastUsedAt', 'tidyKeptAt', 'tidyWarnedAt', 'tidyDeactivateAfter', 'tidyDeactivatedAt',
 ] as const satisfies readonly (keyof Plugin)[];
 
 type ResolvedPluginOmittedField = typeof RESOLVED_PLUGIN_OMITTED_FIELDS[number];

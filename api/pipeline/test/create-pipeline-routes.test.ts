@@ -39,13 +39,22 @@ jest.unstable_mockModule('../src/helpers/plugin-contract-check.js', () => ({
   recordPipelineResolution: (...args: unknown[]) => mockRecordPipelineResolution(...args),
 }));
 
+// The slot read behind the plugin security fixes election check (null = a free slot).
+const mockFindOneBySlot = jest.fn<AnyFn>().mockResolvedValue(null);
 jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
   pipelineService: {
     createAsDefaultReportInserted: async (...args: unknown[]) => ({
       pipeline: await mockCreateAsDefault(...args),
       inserted: insertedResult,
     }),
+    findOneBySlot: (...a: unknown[]) => mockFindOneBySlot(...a),
   },
+}));
+
+// The election check (its SQL is covered in create-remediation-election-pglite.test.ts).
+const mockElectionRefusal = jest.fn<AnyFn>().mockResolvedValue(null);
+jest.unstable_mockModule('../src/helpers/remediation-settings.js', () => ({
+  electionRefusal: (...a: unknown[]) => mockElectionRefusal(...a),
 }));
 
 const mockEmitPipelineAudit = jest.fn<AnyFn>();
@@ -585,5 +594,53 @@ describe('POST /pipelines (create)', () => {
     const payload = res.json.mock.calls[0][0];
     expect(payload.message).toMatch(expected);
     if (visibility === 'org') expect(payload.message).not.toMatch(/Private/);
+  });
+});
+
+describe('POST /pipelines — the plugin security fixes election (remediationUpgrades)', () => {
+  const handler = getHandler('post', '/');
+  const props = { synth: { plugin: { name: 'cdk-synth' } } };
+
+  beforeEach(() => { jest.clearAllMocks(); insertedResult = true; mockFindOneBySlot.mockResolvedValue(null); mockElectionRefusal.mockResolvedValue(null); });
+
+  it('refuses apply with 403 PIPELINE_REMEDIATION_APPLY_NOT_ALLOWED when the org forbids it — before any quota or write', async () => {
+    mockElectionRefusal.mockResolvedValueOnce('Your organization does not allow pipelines to choose Apply for plugin security fixes (its default is propose).');
+    const res = mockRes();
+    await handler(mockReq({ body: { project: 'my-project', organization: 'my-org', props, remediationUpgrades: 'apply' }, user: { parentOrganizationId: 'root-1' } }), res);
+
+    expect(mockElectionRefusal).toHaveBeenCalledWith('apply', 'org-1', 'root-1');
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      code: 'PIPELINE_REMEDIATION_APPLY_NOT_ALLOWED',
+      message: expect.stringMatching(/does not allow pipelines to choose Apply/),
+    }));
+    expect(mockReserveQuota).not.toHaveBeenCalled();
+    expect(mockCreateAsDefault).not.toHaveBeenCalled();
+  });
+
+  it('checks against the stored election on an upsert: re-sending the same value is not a change, so it is not re-checked', async () => {
+    mockFindOneBySlot.mockResolvedValueOnce({ id: 'p-1', pipelineName: 'x', visibility: 'org', deletedAt: null, remediationUpgrades: 'apply' });
+    mockCreateAsDefault.mockResolvedValue({ id: 'p-1', project: 'my_project', organization: 'my_org', visibility: 'org', remediationUpgrades: 'apply' });
+    insertedResult = false;
+    const res = mockRes();
+    await handler(mockReq({ query: { upsert: 'true' }, body: { project: 'my-project', organization: 'my-org', props, remediationUpgrades: 'apply' } }), res);
+
+    expect(mockFindOneBySlot).toHaveBeenCalledWith('my_project', 'my_org', 'org-1');
+    expect(mockElectionRefusal).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('passes the election to the write only when it is sent', async () => {
+    mockCreateAsDefault.mockResolvedValue({ id: 'p-2', project: 'my_project', organization: 'my_org', visibility: 'org', remediationUpgrades: 'off' });
+    await handler(mockReq({ body: { project: 'my-project', organization: 'my-org', props, remediationUpgrades: 'off' } }), mockRes());
+    expect(mockCreateAsDefault.mock.calls[0]![0]).toMatchObject({ remediationUpgrades: 'off' });
+
+    mockCreateAsDefault.mockClear();
+    mockFindOneBySlot.mockClear();
+    mockCreateAsDefault.mockResolvedValue({ id: 'p-2', project: 'my_project', organization: 'my_org', visibility: 'org' });
+    await handler(mockReq({ body: { project: 'my-project', organization: 'my-org', props } }), mockRes());
+    expect('remediationUpgrades' in (mockCreateAsDefault.mock.calls[0]![0] as object)).toBe(false);
+    // No election sent → no slot read and no settings read.
+    expect(mockFindOneBySlot).not.toHaveBeenCalled();
   });
 });

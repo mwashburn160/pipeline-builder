@@ -398,7 +398,8 @@
     "scopes": [],
     "audit": [
       "pipeline.create",
-      "pipeline.update"
+      "pipeline.update",
+      "pipeline.remediation-upgrades.update"
     ],
     "quota": {
       "metered": [
@@ -1266,7 +1267,8 @@
     "scopes": [],
     "audit": [
       "pipeline.create",
-      "pipeline.update"
+      "pipeline.update",
+      "pipeline.remediation-upgrades.update"
     ],
     "quota": {
       "metered": [

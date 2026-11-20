@@ -649,6 +649,22 @@ groups:
           summary: "{{ $value | humanize }} plugin versions lost their kept build source"
           description: "Their sources are gone from the plugin-sources bucket, so they can now only be fixed with an overlay layer (no library source patches, nothing for compiled Go/Rust/.NET/Java). Restore plugin-sources from the object-store mirror (restore.sh --object-store) if it was left out; a version marked source-less stays that way until its owner uploads a new version."
 
+      - alert: ToolchainFixFailing
+        # Nightly toolchain fixes (propose-only release candidates). stage=publish:
+        # an APPROVED candidate's publish stopped part-way — it is resumable (same
+        # version, nothing stored twice) and a half release is never a default
+        # meanwhile. stage=keep_inputs: a managed
+        # toolchain upload (or an approved fix) could not keep its build inputs in
+        # plugin-sources, so that release can only ever get an owner request.
+        expr: sum by (stage) (increase(toolchain_fix_failures_total[6h])) > 0
+        labels:
+          severity: warning
+          component: plugin
+          tenancy: platform
+        annotations:
+          summary: "Toolchain fixes: {{ $labels.stage }} failed"
+          description: "{{ $value | humanize }} toolchain-fix {{ $labels.stage }} failures in 6h. publish: an approved candidate stopped part-way; it keeps its progress and resumes under the same version — use Resume publish on the Toolchain console's Toolchain fixes card (the plugin service also resumes it within ~2 minutes) and check the plugin log for the error. keep_inputs: check the plugin service's RustFS key still writes plugin-sources (<systemOrgId>/toolchain-inputs/), then re-upload the release with load-plugins.sh so its Dockerfiles are kept."
+
       - alert: PluginSourceChecksumMismatch
         # A kept build source in plugin-sources no longer hashes to the SHA-256
         # recorded when it was kept. Nothing in the platform rewrites a kept
@@ -745,6 +761,26 @@ groups:
         annotations:
           summary: "{{ $value }} retired plugin version(s) are still referenced and cannot be purged"
           description: "These versions were yanked and soft-deleted by retention, but a pipeline references one, so the purge keeps refusing it and its storage is never freed. Find the pipelines on the version and move them to a supported one, or restore the version (restore the row, then unyank it) if it is still needed. See 'Plugin version retention' in docs/deploy-operations.md."
+
+      - alert: PluginTidyFailing
+        # The daily automatic plugin version tidying job (tenant orgs) failed at
+        # one stage: select (an org could not be planned), notify (the weekly
+        # digest was not queued, so nothing was warned), deactivate, retire,
+        # reactivate, or use_stamp (a lookup could not stamp a version as used).
+        # Every stage re-reads the protections first and fails safe: a version
+        # that should stay is never deactivated or deleted, the affected ones
+        # simply wait for the next pass. A pass that throws outright also stops
+        # stamping its scheduler success (SchedulerJobStale); this catches the
+        # partial ones.
+        expr: sum by (stage) (increase(plugin_tidy_failed_total[6h])) > 0
+        for: 15m
+        labels:
+          severity: warning
+          component: plugin
+          tenancy: platform
+        annotations:
+          summary: "Automatic plugin version tidying failed at stage '{{ $labels.stage }}'"
+          description: "The automatic tidying job failed at stage {{ $labels.stage }} {{ $value | humanize }} time(s) in the last 6h. Nothing that should have stayed was deactivated or deleted (each stage re-checks the protections first), but unused versions keep their storage, or owners miss their digest, until a pass succeeds. Check the plugin service logs (service plugin-tidy); an org's own view is GET /api/plugins/tidy/preview. A use_stamp failure means lookups could not record use, so versions in use may look stale: fix it before the next digest."
 
       - alert: PluginQueueProcessingSlow
         expr: |

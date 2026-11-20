@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 97893ed52bdb24989490284baf7ac90e139e6292539637a40f0e5989b317b092
+// SOURCE-SHA256: 6ea1415d96dd82744aa2d0688c37bbac7073b4abf4279edce6ebb48557d3b410
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1892,6 +1892,11 @@ export const envVariablesTopic: HelpTopic = {
               "Safety limit: at most this fraction of one plugin's live versions (at least one) is newly deprecated per pass, oldest first; the rest are deferred to the next pass. A selection bug can therefore only deprecate part of a plugin, which is reversible, and nothing is yanked before the notice period. Plugin service"
             ],
             [
+              "PLUGIN_AUTO_TIDY_ENABLED",
+              "true",
+              "Run the daily automatic plugin version tidying job over tenant orgs (leader-locked, one pod per day). Each org picks its own mode under Settings → Organization → Plugin security (pluginRetention.autoTidy: off, notify — the default, a weekly digest only — or on: deactivate a stale unused version 7 days after its warning, soft-delete it 30 days later). Only the literal false stops the job for every org; any other value leaves it on. The per-org preview (GET /plugins/tidy/preview) answers either way. See Plugin publishing. Plugin service"
+            ],
+            [
               "PLUGIN_REMEDIATION_ENABLED",
               "true",
               "The operator switch for nightly CVE remediation (Plugin Publishing). Only the literal false (trimmed, any case) turns it off; any other value, a typo included, leaves it on. Off: nothing is queued, built, published or rolled out and no remediation notice is sent; GET /plugins/remediations and /plugins/remediation-settings answer enabled: false and the dashboard says the operator turned it off. Org remediation settings stay editable, and source retention and Delete plugin are unaffected. Plugin and pipeline services (pipeline's Stage 3 rollout worker does nothing while it is off)"
@@ -1915,6 +1920,16 @@ export const envVariablesTopic: HelpTopic = {
               "PLUGIN_REMEDIATION_MAX_PER_ORG_PER_DAY",
               "20",
               "Remediations started per org per rolling 24 hours, retries included (a retry over it answers 429 QUOTA_EXCEEDED). Shown on the Quotas page as used today. Plugin service"
+            ],
+            [
+              "PLUGIN_REMEDIATION_TOOLCHAINS",
+              "propose",
+              "Nightly toolchain fixes. propose: a managed toolchain release (pipeline-bootstrap + cdk-synth) flagged by the rescan gets ONE release candidate — the bootstrap rebuilt through the remediation engine (library upgrades capped at patch), cdk-synth built FROM it, verified (targeted findings gone, no new Critical/High, pipeline-manager / aws-cdk / cdk-assets / node unchanged, cdk synth of a fixture app passing) — which waits in the Toolchain console's Toolchain fixes card for a system-org plugins:write approval with step-up. It is never published automatically, whatever the org's remediation mode; orgs move only through their own toolchain default. off: the release gets the owner request (N39) only, as before. Any other value (apply included) falls back to propose with one warning in the plugin log. Needs PLUGIN_REMEDIATION_ENABLED. Plugin service"
+            ],
+            [
+              "TOOLCHAIN_FIX_RESUME_INTERVAL_MS",
+              "120000",
+              "How often (ms, at least 30000) the plugin service resumes an approved toolchain fix whose publish crashed part-way and whose 5-minute lease has passed — the same idempotent publish as Resume publish, under the same release version. Leader-locked (one replica per tick); not started while PLUGIN_REMEDIATION_ENABLED=false or PLUGIN_REMEDIATION_TOOLCHAINS=off. The nightly remediation pass also resumes them as a backstop. Counts toolchain_fix_resume_runs_total{outcome} (resumed, idle, skipped, error). Plugin service"
             ],
             [
               "PLUGIN_SOURCES_BUCKET",

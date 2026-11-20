@@ -4,6 +4,8 @@
 import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
 import { formatBytes } from '@/lib/format';
+import { PluginTidyControls } from '@/components/plugin/PluginTidyControls';
+import type { TidyPreviewView } from '@/types/plugin-tidy';
 import type { Plugin } from '@/types';
 import type { StorageReclaimPlan } from '@/types/storage-reclaim';
 
@@ -58,6 +60,16 @@ export function PluginStorageSection({ name }: { name: string }) {
     }
   }, []);
 
+  // Automatic tidying: the org's dry run, for this plugin's stale versions.
+  const tidy = useFetch<TidyPreviewView | null>(async () => {
+    try {
+      const res = await api.getPluginTidyPreview();
+      return res.data ?? null;
+    } catch {
+      return null;
+    }
+  }, []);
+
   const rows = versionStorageRows(name, versions ?? [], plan ?? null);
   const freed = rows.reduce((n, r) => n + (r.sourceBytes ?? 0) + (r.imageBytes ?? 0), 0);
 
@@ -97,6 +109,7 @@ export function PluginStorageSection({ name }: { name: string }) {
           </p>
         </>
       )}
+      {tidy.data?.report && <PluginTidyControls name={name} view={tidy.data} onChanged={() => { void tidy.refetch(); }} />}
     </div>
   );
 }

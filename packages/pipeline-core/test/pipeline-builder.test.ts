@@ -108,6 +108,20 @@ function build(props: BuilderProps): { template: Template; builder: any } {
 }
 
 describe('PipelineBuilder', () => {
+  describe('platform-only settings', () => {
+    // The plugin security fixes election (`remediationUpgrades`) is a pipelines
+    // column, not a synth prop: the CLI lifts it out of a definition and the API
+    // refuses it inside props. Should it reach synth anyway (a hand-written
+    // local spec), it must not change one byte of the template.
+    it('synthesizes the same template with or without remediationUpgrades', () => {
+      const without = build(baseProps()).template.toJSON();
+      for (const election of ['inherit', 'off', 'propose', 'apply']) {
+        const withIt = build(baseProps({ remediationUpgrades: election } as unknown as Partial<BuilderProps>)).template.toJSON();
+        expect(withIt).toEqual(without);
+      }
+    });
+  });
+
   describe('core pipeline', () => {
     it('creates one V2 CodePipeline with the derived name and a GitHub source', () => {
       const { template, builder } = build(baseProps());

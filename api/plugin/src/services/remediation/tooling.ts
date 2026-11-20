@@ -26,6 +26,7 @@ import { draftAskAgentPatch } from './ask-agent-patch.js';
 import { ensureSharedBaseRebuilt } from './base-pass.js';
 import type { ToolRun } from './patchers/index.js';
 import type { GatedScan, ImageRef, RemediationPorts } from './ports.js';
+import type { ToolchainPorts } from './toolchain.js';
 import type { ImageConfigFacts, PluginContractShape } from './verify.js';
 import { baseImageLocations } from '../../helpers/base-image.js';
 import { run } from '../../helpers/build-process.js';
@@ -83,7 +84,7 @@ async function firstOk<T>(refs: string[], fn: (ref: string) => Promise<T>): Prom
   throw last ?? new Error('no location');
 }
 
-async function imageConfigOf(ref: string, orgId: string): Promise<{ config?: { User?: string; Entrypoint?: string[] | null; Cmd?: string[] | null; WorkingDir?: string }; rootfs?: { diff_ids?: string[] } }> {
+async function imageConfigOf(ref: string, orgId: string): Promise<{ config?: { User?: string; Entrypoint?: string[] | null; Cmd?: string[] | null; WorkingDir?: string; Labels?: Record<string, string> | null }; rootfs?: { diff_ids?: string[] } }> {
   return JSON.parse(await crane(['config', '--platform', PUBLISH_PLATFORM, ref], orgId)) as never;
 }
 
@@ -223,5 +224,16 @@ export function liveRemediationPorts(): RemediationPorts {
     imageReference: (ref) => `${repoOf(ref)}@${ref.digest}`,
     askAgent: (input) => draftAskAgentPatch(input),
     ensureSharedBase: (base, findings) => ensureSharedBaseRebuilt(base, findings, liveRemediationPorts()),
+  };
+}
+
+/** The live toolchain-fix ports: the engine's, plus an image's config labels (the toolchain LABELs). */
+export function liveToolchainPorts(): ToolchainPorts {
+  return {
+    ...liveRemediationPorts(),
+    async imageLabels(ref) {
+      const labels = (await imageConfigOf(`${repoOf(ref)}@${ref.digest}`, ref.orgId)).config?.Labels ?? {};
+      return Object.fromEntries(Object.entries(labels).filter((e): e is [string, string] => typeof e[1] === 'string'));
+    },
   };
 }

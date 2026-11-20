@@ -404,3 +404,21 @@ describe('Go builder image digest', () => {
     expectAllEqual(FILES.map((f) => [f, grab(f, /^ARG GO_IMAGE=(golang:[^\s]+@sha256:[0-9a-f]{64})\s*$/m)] as [string, string | undefined]));
   });
 });
+
+// The nightly toolchain fix (api/plugin services/remediation/toolchain.ts)
+// rebuilds a flagged release from its Dockerfiles and recomputes the spec's
+// sourceDigest, but both halves are uploaded PREBUILT and keep no source ZIP.
+// So a managed half's upload ZIP must carry its Dockerfile; the plugin service
+// keeps it (with plugin-spec.yaml) as the release's build inputs.
+describe('a managed toolchain half uploads its build inputs', () => {
+  const worker = read('deploy/bin/load-plugin-worker.sh');
+  it('the prebuilt ZIP of a MANAGED_TOOLCHAIN_PLUGINS half adds its Dockerfile', () => {
+    const prebuilt = worker.slice(worker.indexOf('  prebuilt)'), worker.indexOf('  build_image)'));
+    expect(prebuilt).toMatch(/MANAGED_TOOLCHAIN_PLUGINS/);
+    expect(prebuilt).toMatch(/zip_files="\$zip_files Dockerfile"/);
+  });
+  it('a changed Dockerfile rebuilds that ZIP', () => {
+    const rebuild = worker.slice(worker.indexOf('# ---- Decide whether to rebuild plugin.zip ----'));
+    expect(rebuild.slice(rebuild.indexOf('  prebuilt)'), rebuild.indexOf('  build_image)'))).toMatch(/\$dockerfile" -nt "\$zip_file"/);
+  });
+});

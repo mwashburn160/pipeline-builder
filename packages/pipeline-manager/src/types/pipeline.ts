@@ -1,6 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { PipelineRemediationElection } from '@pipeline-builder/api-core';
+
 /**
  * Arbitrary key-value pipeline configuration properties
  * passed through to the CDK builder.
@@ -129,6 +131,13 @@ export interface CreatePipelineRequest {
    * @default true
    */
   isActive?: boolean;
+
+  /**
+   * Plugin security fixes election (nightly plugin CVE remediation): a platform
+   * setting, sent at the top level and never inside `props`. Omitted → a new
+   * pipeline follows the organization and an upsert keeps the stored value.
+   */
+  remediationUpgrades?: PipelineRemediationElection;
 }
 
 /**

@@ -87,11 +87,15 @@ The Toolchain console rows (`/plugins/toolchain/releases*`, `/history`, `/affect
 
 The superseded-version retention rows (`/plugins/retention/plan`, `/plugins/retention/run`) are `system-org + any(plugins:moderate) + aal2`, and the run adds `step-up(any)`. The run deprecates, yanks and soft-deletes Official catalogue versions for every org, so it belongs to the role that already moderates the catalogue (Ecosystem Manager carries `plugins:moderate`). Dropping `system-org` or the step-up on the run, or loosening `plugins:moderate` to `plugins:write`, is a weakening. The plan is a read and never steps up.
 
+The automatic tidying rows (`/plugins/tidy/preview`, `/plugins/tidy/settings`, `/plugins/tidy/versions/:id/keep`, `/plugins/by-name/:name/never-tidy`) act on the caller's OWN org only. The preview is a read (`plugins:read`). The settings decide whether a daily job deactivates and soft-deletes the org's unused versions, so they need `org_settings:write`, like the other plugin security settings; loosening that to `plugins:write` is a weakening. Keep and never-tidy only ever STOP tidying from touching a version (`plugins:write`, the permission that already deletes versions), so they need no step-up.
+
 ### Plugin security notification routes
 
 The `/plugins/pipelines/:pipelineId/*` rows act only on a pipeline of the caller's own org (any other answers 404). The triage `POST` records a pipeline's risk decision — a time-boxed acceptance (reason + expiry, KEV only with an explicit `kev: true`), a false positive, a reopen — which downgrades that pipeline's vulnerability warnings and notices for the accepted findings; loosening it below `pipelines:write` would let a read-only member silence a pipeline's security signal, which is a weakening. Vulnerability state never blocks a pipeline, so no row here gates one. `GET /internal/plugins/image-references` feeds the image registry's age GC the digests it must never delete; widening its caller list would leak which images an org's pipelines run. `GET /internal/plugins/image-pipeline-references` answers the registry's manual purge with the pipelines (any org's) still referencing each image, so the purge can refuse; it names pipelines across orgs, so widening its caller list is a cross-tenant leak.
 
 **Plugin remediation and by-name deletion.** Approving or rejecting a remediation (`plugin POST /plugins/remediations/:id/approve|reject`) publishes, or refuses, a platform-built version of the org's plugin, so both need `plugins:write` plus a step-up, the same as a purge. The by-name routes (`DELETE /plugins/by-name/:name`, `POST …/restore`, `POST …/purge`) act on every version of a name at once and carry their own step-up; they are also rate-limited per org (10 an hour), which the route table does not render. The delete preview is on `plugins:write`, not `plugins:read`, because it is the first step of a destructive action and lists the pipelines holding each skipped version. The Official patch export (`plugin GET /plugins/remediations/:id/export`) is `system-org + any(plugins:write)`: it is the deploy/plugins/** diff for the repository's maintainers, so no tenant reaches it, whatever permission it carries. The remediation settings write is `org_settings:write`, like the plugin security notification settings beside it. The three internal routes carry a rollout between the two services only: plugin starts and cancels it (`pipeline POST /pipelines/internal/plugin-remediations/:remediationId/rollout|cancel`, `internal(plugin)`), and pipeline reports progress back (`plugin POST /internal/plugins/remediations/:remediationId/rollout`, `internal(pipeline)`); widening either caller list would let another service move pipelines onto a version or mark a rollout done.
+
+**Toolchain fixes.** The nightly toolchain fixes' routes (`plugin GET /plugins/toolchain-fixes`, `POST …/:id/approve|reject`, `GET …/:id/export`) are `system-org + any(plugins:write)`, the Official patch export's gate, and approve / reject add `step-up(any)`. Approving publishes a new managed toolchain release (both halves, as system-org versions) that every org can then choose, so dropping `system-org` would let a tenant `plugins:write` holder publish the platform's toolchain; dropping `step-up` from approve would let a stolen session do it. Neither decision moves an org: org defaults stay `toolchain:manage` + step-up, the platform default `toolchain:operate` + step-up. The list and the export (the deploy/toolchain/** spec patch) are reads and never step up.
 
 The rows under `/plugins/security-notifications*` decide where the org's blocked-build (N30) and rescan (N31) notices go — including an outbound webhook and an external address. Loosening the `PUT` or the `test` send below `org_settings:write` would let any member redirect security notices or aim the webhook, which is a weakening.
 
@@ -633,6 +637,10 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | plugin | GET | `/plugins/remediation-settings` | `any(plugins:read)` |
 | plugin | PUT | `/plugins/remediation-settings` | `any(org_settings:write)` |
 | plugin | PUT | `/plugins/by-name/:name/remediation-level` | `any(plugins:write)` |
+| plugin | GET | `/plugins/toolchain-fixes` | `system-org + any(plugins:write)` |
+| plugin | POST | `/plugins/toolchain-fixes/:id/approve` | `system-org + any(plugins:write) + step-up(any)` |
+| plugin | POST | `/plugins/toolchain-fixes/:id/reject` | `system-org + any(plugins:write) + step-up(any)` |
+| plugin | GET | `/plugins/toolchain-fixes/:id/export` | `system-org + any(plugins:write)` |
 | plugin | GET | `/plugins/by-name/:name/delete-preview` | `any(plugins:write)` |
 | plugin | DELETE | `/plugins/by-name/:name` | `any(plugins:write) + step-up(any)` |
 | plugin | POST | `/plugins/by-name/:name/restore` | `any(plugins:write) + step-up(any)` |
@@ -640,6 +648,10 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | plugin | GET | `/plugins` | `any(plugins:read)` |
 | plugin | GET | `/plugins/storage` | `any(plugins:read)` |
 | plugin | POST | `/plugins/storage/prune` | `any(plugins:write)` |
+| plugin | GET | `/plugins/tidy/preview` | `any(plugins:read)` |
+| plugin | PUT | `/plugins/tidy/settings` | `any(org_settings:write)` |
+| plugin | POST | `/plugins/tidy/versions/:id/keep` | `any(plugins:write)` |
+| plugin | PUT | `/plugins/by-name/:name/never-tidy` | `any(plugins:write)` |
 | plugin | POST | `/plugins` | `any(plugins:write)` |
 | plugin | DELETE | `/plugins/:id` | `any(plugins:write)` |
 | plugin | GET | `/plugins/:id` | `any(plugins:read)` |

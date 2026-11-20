@@ -24,6 +24,7 @@ import { envBool, envInt, envStr } from '../utils/env.js';
 // The remediation vocabulary rides this module's browser subpath
 // (`@pipeline-builder/api-core/plugin-scan`) so no new entry point is needed.
 export * from './plugin-remediation.js';
+export * from './toolchain-remediation.js';
 
 /** Where grype found a package: the file path in the image and the layer it came from. */
 export interface PluginScanFindingLocation {

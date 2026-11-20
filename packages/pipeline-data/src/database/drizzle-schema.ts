@@ -69,7 +69,7 @@ import { message } from './schema/message.js';
 import { pipelineTemplate } from './schema/pipeline-template.js';
 import { pipeline, pipelineRegistry, pipelineEvent, deploymentOutcome, ingestHealth, incident, doraSettings } from './schema/pipeline.js';
 import { pipelineRemediationUpgrade, pluginRemediation, pluginRemediationSetting, pluginSourceOrphan } from './schema/plugin-remediation.js';
-import { plugin, pluginKeptSetupImage } from './schema/plugin.js';
+import { plugin, pluginKeptSetupImage, pluginRetentionSetting } from './schema/plugin.js';
 import { doraDeployment, executionDailyRollup, pipelinePluginResolution, pipelineSecurityReport, pipelineStepLookup, pluginVulnExposure } from './schema/reporting-analytics.js';
 import { reportDefinition, reportRun, reportShareLink, reportRecipient } from './schema/reporting-stakeholder.js';
 import { pipelineRunRequest, pipelineRunner, pipelineRunnerKeySettings, pipelineRunnerPlatformSettings, pipelineRunnerSigningKey } from './schema/runner.js';
@@ -185,6 +185,8 @@ export const schema = {
   pluginSourceOrphan,
   pluginRemediationSetting,
   pipelineRemediationUpgrade,
+  // Automatic plugin version tidying settings (own-org RLS; see schema/plugin.ts)
+  pluginRetentionSetting,
   // (The public_listings / public_listed_versions views are exported from
   // ./schema/ecosystem but are not tables, so they are not listed here.)
 } as const;

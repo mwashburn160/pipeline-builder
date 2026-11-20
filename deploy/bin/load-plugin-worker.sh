@@ -83,6 +83,13 @@ case "$build_type" in
   prebuilt)
     if [ -f "$image_tar" ]; then
       zip_files="$zip_files image.tar"
+      # A managed toolchain half also carries its Dockerfile: the plugin service
+      # keeps it (with plugin-spec.yaml) as the release's build inputs, which
+      # the nightly toolchain fix rebuilds from and hashes into the spec's
+      # sourceDigest. The image is still the prebuilt one; nothing builds it.
+      case " $MANAGED_TOOLCHAIN_PLUGINS " in
+        *" $plugin_name "*) [ -f "$dockerfile" ] && zip_files="$zip_files Dockerfile" ;;
+      esac
     elif [ "${SKIP_MISSING_IMAGE_TAR:-}" = "true" ]; then
       # Set by init-platform.sh --continue-on-build-failure: plugins whose
       # build failed upstream get skipped here so the rest of the bootstrap
@@ -113,7 +120,9 @@ needs_rebuild=false
 [ -f "$plugin_dir/README.md" ] && [ "$plugin_dir/README.md" -nt "$zip_file" ] 2>/dev/null && needs_rebuild=true
 case "$build_type" in
   prebuilt)
-    [ -f "$image_tar" ] && [ "$image_tar" -nt "$zip_file" ] 2>/dev/null && needs_rebuild=true ;;
+    [ -f "$image_tar" ] && [ "$image_tar" -nt "$zip_file" ] 2>/dev/null && needs_rebuild=true
+    # A managed half's zip carries its Dockerfile too (above).
+    [ -f "$dockerfile" ] && [ "$dockerfile" -nt "$zip_file" ] 2>/dev/null && needs_rebuild=true ;;
   build_image)
     [ -f "$dockerfile" ] && [ "$dockerfile" -nt "$zip_file" ] 2>/dev/null && needs_rebuild=true ;;
   metadata_only)

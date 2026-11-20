@@ -24,7 +24,10 @@
  *     propose          → awaiting_approval (N36 awaiting; N39 for the rest)
  *     apply            → published → rolling_out (N36; N39 for the rest)
  * An APPROVED remediation (awaiting_approval + decided) re-runs the engine and
- * publishes its verified result. A canary fixture runs as a dry run (never
+ * publishes its verified result. A `kind = 'toolchain'` row (a managed
+ * toolchain release) runs services/remediation/toolchain.ts instead: it only
+ * ever records a release candidate — the job never publishes one; a system-org
+ * admin approves it through routes/toolchain-fixes.ts. A canary fixture runs as a dry run (never
  * published). Errors: a fail-closed engine error (SOURCE_CHECKSUM_MISMATCH)
  * fails it at once; anything else is retried by BullMQ and fails it
  * (`error`, a short code) on the last attempt.
@@ -65,6 +68,8 @@ import { countStage, sendOwnerRequest } from '../services/remediation/lifecycle.
 import type { RemediationPorts } from '../services/remediation/ports.js';
 import { publishCandidate, recordFromRow, RemediationPublishAbort, smokeCommand } from '../services/remediation/publish.js';
 import { getRemediation, newestCleanOwnerVersion, pluginRow, readSettings, takenVersions, updateRemediation } from '../services/remediation/store.js';
+import type { ToolchainInputsStore } from '../services/remediation/toolchain-inputs.js';
+import type { ToolchainPorts } from '../services/remediation/toolchain.js';
 import { sendRemediationNotice } from '../services/remediation-notices.js';
 
 const logger = createLogger('plugin-remediation');
@@ -77,6 +82,9 @@ export interface RemediationJobDeps {
   redis?: SemaphoreRedis;
   /** Run `fn` holding the org's build slot (production: slot-manager + replica gate); false = no slot now. */
   withOrgSlot?: <T>(fn: () => Promise<T>) => Promise<{ ran: true; value: T } | { ran: false }>;
+  /** A toolchain row's ports (the engine's plus image labels) and kept build inputs. */
+  toolchainPorts?: ToolchainPorts;
+  toolchainInputs?: ToolchainInputsStore;
 }
 
 let livePorts: RemediationPorts | null = null;
@@ -120,8 +128,26 @@ async function fail(row: PluginRemediation, code: string, outcome: 'error' | 'ca
   return 'failed';
 }
 
+/** A toolchain release candidate run: never publishes (approval is a route). */
+async function runToolchain(row: PluginRemediation, deps: RemediationJobDeps, opts: { lastAttempt: boolean }): Promise<JobResult> {
+  if (row.stage === 'awaiting_approval') return 'skipped';
+  const { runToolchainRemediation } = await import('../services/remediation/toolchain.js');
+  const ports = deps.toolchainPorts ?? (await import('../services/remediation/tooling.js')).liveToolchainPorts();
+  const workRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-toolchain-fix-'));
+  try {
+    return await runToolchainRemediation(row, { ports, workRoot, ...(deps.toolchainInputs ? { inputs: deps.toolchainInputs } : {}) });
+  } catch (err) {
+    logger.warn('Toolchain remediation run failed', { remediationId: row.id, error: errorMessage(err) });
+    if (opts.lastAttempt) return await fail(row, (err as { code?: string }).code ?? 'JOB_ERROR');
+    throw err;
+  } finally {
+    fs.rmSync(workRoot, { recursive: true, force: true });
+  }
+}
+
 /** One remediation run (exported for tests). */
 export async function runRemediation(row: PluginRemediation, deps: RemediationJobDeps, opts: { lastAttempt: boolean } = { lastAttempt: true }): Promise<JobResult> {
+  if (row.kind === 'toolchain') return runToolchain(row, deps, opts);
   const approved = row.stage === 'awaiting_approval' && !!row.decidedAt;
   const from = await pluginRow(row.pluginId);
   if (!from || from.deletedAt) return fail(row, 'VERSION_DELETED', 'cancelled');

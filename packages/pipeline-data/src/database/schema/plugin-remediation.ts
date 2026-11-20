@@ -16,6 +16,7 @@
 import type {
   LibraryUpgradeLevel,
   PipelineRemediationUpgradeState,
+  PluginRemediationKind,
   PluginRemediationMode,
   PluginRemediationOutcome,
   PluginRemediationStage,
@@ -28,6 +29,7 @@ import type {
   RemediationRolloutSummary,
   RemediationVersionBump,
   TeamRemediationRollout,
+  ToolchainFixCandidate,
   GrypePackageType,
 } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
@@ -74,6 +76,10 @@ export const pluginRemediation = pgTable('plugin_remediations', {
   patchKey: text('patch_key'),
   /** Official only: plugin-sources key of the deploy/plugins/** export (`remediationExportKey`). */
   exportKey: text('export_key'),
+  /** `plugin` (a version's fix) | `toolchain` (a managed toolchain release candidate, propose-only). */
+  kind: varchar('kind', { length: 10 }).$type<PluginRemediationKind>().default('plugin').notNull(),
+  /** kind = toolchain: the verified candidate pair and its spec change. */
+  toolchainCandidate: jsonb('toolchain_candidate').$type<ToolchainFixCandidate>(),
   rollout: jsonb('rollout').$type<RemediationRolloutSummary>(),
   /** Official fixes: the listing new-version publish request opened for it. */
   publishRequestId: uuid('publish_request_id'),
@@ -106,6 +112,7 @@ export const pluginRemediation = pgTable('plugin_remediations', {
   levelCheck: check('plugin_remediation_upgrade_level_check', sql`${table.upgradeLevel} IS NULL OR ${table.upgradeLevel} IN ('patch', 'minor', 'major')`),
   publishModeCheck: check('plugin_remediation_publish_mode_check', sql`${table.publishMode} IS NULL OR ${table.publishMode} IN ('propose', 'apply')`),
   attemptCheck: check('plugin_remediation_attempt_check', sql`${table.attempt} >= 1`),
+  kindCheck: check('plugin_remediation_kind_check', sql`${table.kind} IN ('plugin', 'toolchain')`),
 }));
 
 /**

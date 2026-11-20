@@ -3,6 +3,7 @@
 
 import type { ApiCore } from '../core';
 import type { StoragePruneResult, StorageReclaimPlan } from '@/types/storage-reclaim';
+import type { TidyPreviewView, TidySettings, TidySettingsWrite } from '@/types/plugin-tidy';
 import { buildQuery, type ProposedByOptions } from '../util';
 import { ApiError } from '../errors';
 import type {
@@ -697,6 +698,36 @@ export function pluginsApi(core: ApiCore) {
       return core.request<ApiResponse<StoragePruneResult>>('/api/plugins/storage/prune', {
         method: 'POST',
         body: JSON.stringify({ repo, tag }),
+      });
+    },
+
+    // ============================================
+    // Automatic plugin version tidying (api/plugin routes/tidy.ts)
+    // ============================================
+
+    /** The org's tidy settings and today's dry run (what would be warned / deactivated / deleted, and why the rest is skipped). `plugins:read`. */
+    getPluginTidyPreview: async (opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<TidyPreviewView>>('/api/plugins/tidy/preview', { signal: opts?.signal });
+    },
+
+    /** Save the mode and the days (`org_settings:write`). */
+    updatePluginTidySettings: async (body: TidySettingsWrite) => {
+      return core.request<ApiResponse<{ settings: TidySettings }>>('/api/plugins/tidy/settings', {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      });
+    },
+
+    /** Keep one version: restart its tidy clock (a deactivated one is active again). `plugins:write`. */
+    keepPluginVersion: async (id: string) => {
+      return core.request<ApiResponse<{ plugin: Plugin }>>(`/api/plugins/tidy/versions/${encodeURIComponent(id)}/keep`, { method: 'POST' });
+    },
+
+    /** Set (or clear) a plugin's "never tidy". `plugins:write`. */
+    setPluginNeverTidy: async (name: string, neverTidy: boolean) => {
+      return core.request<ApiResponse<{ name: string; neverTidy: boolean; settings: TidySettings }>>(`/api/plugins/by-name/${encodeURIComponent(name)}/never-tidy`, {
+        method: 'PUT',
+        body: JSON.stringify({ neverTidy }),
       });
     },
   };

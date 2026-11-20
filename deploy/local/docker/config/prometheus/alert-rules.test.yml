@@ -106,6 +106,27 @@ tests:
         alertname: PluginSourcesMissing
         exp_alerts: []
 
+  # ToolchainFixFailing: an approved toolchain release candidate did not fully publish.
+  - interval: 1m
+    input_series:
+      - series: 'toolchain_fix_failures_total{stage="publish",service="plugin",pod="plugin-aaa"}'
+        values: '0x10 1x30'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: ToolchainFixFailing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: plugin
+              tenancy: platform
+              stage: publish
+            exp_annotations:
+              summary: "Toolchain fixes: publish failed"
+              description: "1 toolchain-fix publish failures in 6h. publish: an approved candidate stopped part-way; it keeps its progress and resumes under the same version — use Resume publish on the Toolchain console's Toolchain fixes card (the plugin service also resumes it within ~2 minutes) and check the plugin log for the error. keep_inputs: check the plugin service's RustFS key still writes plugin-sources (<systemOrgId>/toolchain-inputs/), then re-upload the release with load-plugins.sh so its Dockerfiles are kept."
+      - eval_time: 5m
+        alertname: ToolchainFixFailing
+        exp_alerts: []
+
   # PluginSourceChecksumMismatch: a kept source no longer matches its SHA-256 (tampering).
   - interval: 1m
     input_series:

@@ -298,6 +298,17 @@ CREATE TABLE IF NOT EXISTS plugins (    -- Identity & Audit Fields
     -- Set on every version a by-name delete (DELETE /plugins/by-name/:name)
     -- soft-deleted; by-name restore and purge act on that batch only.
     delete_batch_id UUID,
+    -- Automatic tidying (docs/plugin-publishing.md "Automatic tidying"):
+    -- last_used_at = when POST /plugins/lookup last resolved the version, at
+    -- most hourly; tidy_kept_at = the owner's Keep or a restore restarted the
+    -- clock; tidy_warned_at / tidy_deactivate_after = the digest warning and the
+    -- deactivation date it announced; tidy_deactivated_at = tidying set
+    -- is_active = false, and an exact pin still resolves it with a warning.
+    last_used_at TIMESTAMPTZ,
+    tidy_kept_at TIMESTAMPTZ,
+    tidy_warned_at TIMESTAMPTZ,
+    tidy_deactivate_after TIMESTAMPTZ,
+    tidy_deactivated_at TIMESTAMPTZ,
     -- 'zip' carries key + checksum + size; 'none' carries none of them.
     CONSTRAINT plugin_source_coherence_check
         CHECK ((source_kind = 'zip' AND source_key IS NOT NULL AND source_sha256 IS NOT NULL AND source_size_bytes IS NOT NULL)
@@ -894,9 +905,14 @@ CREATE INDEX IF NOT EXISTS alert_destination_status_org_idx
 -- ============================================================================
 
 DROP TRIGGER IF EXISTS update_plugins_modtime ON plugins;
+-- A write that changes ONLY last_used_at (automatic tidying's hourly use stamp)
+-- is bookkeeping: it leaves updated_at alone, so an editor's optimistic
+-- concurrency token stays valid. Every other write bumps it as before.
 CREATE TRIGGER update_plugins_modtime 
     BEFORE UPDATE ON plugins 
     FOR EACH ROW 
+    WHEN (NEW.last_used_at IS NOT DISTINCT FROM OLD.last_used_at
+          OR (to_jsonb(NEW) - ARRAY['last_used_at', 'updated_at']) IS DISTINCT FROM (to_jsonb(OLD) - ARRAY['last_used_at', 'updated_at']))
     EXECUTE PROCEDURE update_modified_column();
 
 DROP TRIGGER IF EXISTS update_pipelines_modtime ON pipelines;
@@ -3151,9 +3167,17 @@ CREATE TABLE IF NOT EXISTS plugin_remediations (
     targeted JSONB NOT NULL DEFAULT '[]',
     cleared JSONB NOT NULL DEFAULT '[]',
     remaining JSONB NOT NULL DEFAULT '[]',
-    -- plugin-sources keys: the patch diff, and (Official) the deploy/plugins export.
+    -- plugin-sources keys: the patch diff, and (Official) the deploy/plugins export
+    -- (a toolchain candidate: the deploy/toolchain/** spec patch).
     patch_key TEXT,
     export_key TEXT,
+    -- plugin: a version's fix. toolchain: a managed toolchain RELEASE candidate
+    -- (pipeline-bootstrap + cdk-synth), propose-only: never published without a
+    -- system-org approval.
+    kind VARCHAR(10) NOT NULL DEFAULT 'plugin' CONSTRAINT plugin_remediation_kind_check
+                        CHECK (kind IN ('plugin', 'toolchain')),
+    -- kind = toolchain: the verified candidate pair, its digests and spec change.
+    toolchain_candidate JSONB,
     -- Stage 3 summary (waves, pipelines moved, rollbacks), from the pipeline service.
     rollout JSONB,
     publish_request_id UUID,
@@ -3277,6 +3301,28 @@ BEGIN
                        'FOR EACH ROW EXECUTE PROCEDURE update_modified_column()', t, t);
     END LOOP;
 END $$;
+
+-- Automatic plugin version tidying, per org (docs/plugin-publishing.md
+-- "Automatic tidying"; one row per org, absent = defaults). auto_tidy: off |
+-- notify (warn only, the default) | on (warn, then deactivate, then retire).
+-- stale_after_days: a version unused this long is stale (min 30). never_tidy:
+-- plugin names tidying never touches. last_digest_at: the org's last tidy
+-- digest (at most one a week).
+CREATE TABLE IF NOT EXISTS plugin_retention_settings (
+    org_id VARCHAR(255) PRIMARY KEY,
+    auto_tidy VARCHAR(10) NOT NULL DEFAULT 'notify' CONSTRAINT plugin_retention_settings_auto_tidy_check
+                        CHECK (auto_tidy IN ('off', 'notify', 'on')),
+    stale_after_days INTEGER NOT NULL DEFAULT 90 CONSTRAINT plugin_retention_settings_stale_check
+                        CHECK (stale_after_days >= 30),
+    never_tidy JSONB NOT NULL DEFAULT '[]',
+    last_digest_at TIMESTAMPTZ,
+    updated_by TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+DROP TRIGGER IF EXISTS update_plugin_retention_settings_modtime ON plugin_retention_settings;
+CREATE TRIGGER update_plugin_retention_settings_modtime BEFORE UPDATE ON plugin_retention_settings
+    FOR EACH ROW EXECUTE PROCEDURE update_modified_column();
 
 -- ============================================================================
 -- Managed toolchain releases (docs/pipeline-manager.md, "The toolchain release")
@@ -3804,6 +3850,15 @@ BEGIN
     END LOOP;
 END $$;
 
+-- Automatic plugin version tidying settings: OWN ORG ONLY, like the
+-- remediation settings (the daily tidy job reads every org's under sysadmin scope).
+ALTER TABLE plugin_retention_settings ENABLE ROW LEVEL SECURITY;
+SELECT pb_reset_policies('plugin_retention_settings');
+CREATE POLICY rls_own_org_read ON plugin_retention_settings FOR SELECT USING (current_is_sysadmin() OR org_id = current_org_id());
+CREATE POLICY rls_own_org_insert ON plugin_retention_settings FOR INSERT WITH CHECK (current_is_sysadmin() OR org_id = current_org_id());
+CREATE POLICY rls_own_org_update ON plugin_retention_settings FOR UPDATE USING (current_is_sysadmin() OR org_id = current_org_id()) WITH CHECK (current_is_sysadmin() OR org_id = current_org_id());
+CREATE POLICY rls_own_org_delete ON plugin_retention_settings FOR DELETE USING (current_is_sysadmin() OR org_id = current_org_id());
+
 -- `pipeline_templates` rides the three-rung visibility ladder: another org's
 -- template is only ever visible at the `public` rung, so the system-org read
 -- carve-out is limited to the system org's PUBLIC templates (the golden-path
@@ -4198,6 +4253,8 @@ ALTER TABLE plugin_remediations FORCE ROW LEVEL SECURITY;
 ALTER TABLE plugin_source_orphans FORCE ROW LEVEL SECURITY;
 ALTER TABLE plugin_remediation_settings FORCE ROW LEVEL SECURITY;
 ALTER TABLE pipeline_remediation_upgrades FORCE ROW LEVEL SECURITY;
+-- Automatic plugin version tidying settings (own-org policies above).
+ALTER TABLE plugin_retention_settings FORCE ROW LEVEL SECURITY;
 
 -- Managed toolchain tables (dedicated policies above). Written only by the
 -- toolchain console / org-default routes under withTenantTx and read by the
@@ -4252,7 +4309,7 @@ DROP FUNCTION pb_reset_policies(TEXT);
 
 \echo ''
 \echo '=== RLS POLICIES INSTALLED ==='
-\echo 'FORCE + org scope (SELECT carve-outs; own-org INSERT/UPDATE/DELETE) on every tenant table (62/62):'
+\echo 'FORCE + org scope (SELECT carve-outs; own-org INSERT/UPDATE/DELETE) on every tenant table (63/63):'
 \echo ' - dashboards, dashboard_panels, org_alert_destinations, org_alert_rules, alert_destination_status'
 \echo ' - messages (+ recipient read-state update), message_attachments, pipeline_registry'
 \echo ' - pipeline_runners, pipeline_run_requests, pipeline_runner_signing_keys, pipeline_runner_key_settings (own org only, no system-org read)'
@@ -4262,6 +4319,7 @@ DROP FUNCTION pb_reset_policies(TEXT);
 \echo ' - pipeline_step_manifests, plugin_installs, plugin_install_policies, plugin_advisory_deliveries,'
 \echo '   plugin_security_notification_prefs, plugin_kept_setup_images'
 \echo ' - plugin_remediations, plugin_source_orphans, plugin_remediation_settings, pipeline_remediation_upgrades (own org only)'
+\echo ' - plugin_retention_settings (own org only)'
 \echo ' - toolchain_release, toolchain_platform_default, toolchain_default_history, toolchain_rollout (system org only),'
 \echo '   org_toolchain_default, org_toolchain_default_history (own org; system org reads all)'
 \echo 'App-role-only policy (no FORCE) on the 18 ecosystem-global tables'

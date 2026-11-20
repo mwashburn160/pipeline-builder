@@ -157,6 +157,17 @@ export interface PluginRecord {
   sourceKeptAt: Date | null;
   /** The by-name delete batch that soft-deleted this version (null otherwise). */
   deleteBatchId: string | null;
+  /**
+   * Automatic tidying (docs/plugin-publishing.md "Automatic tidying"): when
+   * `/plugins/lookup` last resolved this version (at most hourly), the owner's
+   * last Keep / restore, the digest warning and the deactivation date it
+   * announced, and when tidying deactivated it.
+   */
+  lastUsedAt: Date | null;
+  tidyKeptAt: Date | null;
+  tidyWarnedAt: Date | null;
+  tidyDeactivateAfter: Date | null;
+  tidyDeactivatedAt: Date | null;
 }
 
 /**

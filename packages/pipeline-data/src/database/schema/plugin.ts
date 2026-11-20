@@ -280,6 +280,21 @@ export const plugin = pgTable('plugins', {
   // Set on every version a by-name delete (DELETE /plugins/by-name/:name)
   // soft-deleted; by-name restore and purge act on that batch only.
   deleteBatchId: uuid('delete_batch_id'),
+
+  // Automatic tidying (api/plugin services/tidy/, docs/plugin-publishing.md
+  // "Automatic tidying"). `lastUsedAt`: when POST /plugins/lookup (synth, the
+  // pipeline save-time check) last resolved this version — written at most once
+  // an hour per version. `tidyKeptAt`: the owner's Keep (or a restore) restarted
+  // the clock. The version is stale `staleAfterDays` after the latest of
+  // created / last used / kept. `tidyWarnedAt` + `tidyDeactivateAfter`: the
+  // owner's digest listed it, and the date tidying deactivates it (never sooner
+  // than 7 days after the warning). `tidyDeactivatedAt`: tidying set
+  // `is_active = false` (an exact pin still resolves it, with a warning).
+  lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+  tidyKeptAt: timestamp('tidy_kept_at', { withTimezone: true }),
+  tidyWarnedAt: timestamp('tidy_warned_at', { withTimezone: true }),
+  tidyDeactivateAfter: timestamp('tidy_deactivate_after', { withTimezone: true }),
+  tidyDeactivatedAt: timestamp('tidy_deactivated_at', { withTimezone: true }),
 }, (table) => ({
   deleteBatchIdx: index('plugin_delete_batch_idx').on(table.orgId, table.deleteBatchId).where(sql`delete_batch_id IS NOT NULL`),
   // Partial index over just the tombstones — drives the retention purge sweep.
@@ -364,6 +379,33 @@ export const pluginKeptSetupImage = pgTable('plugin_kept_setup_images', {
   imageDigestCheck: check('plugin_kept_setup_image_digest_check', sql`${table.imageDigest} ~ '^sha256:[0-9a-f]{64}$'`),
   imageSourceCheck: check('plugin_kept_setup_image_source_check', sql`${table.imageSource} IN ('built', 'uploaded')`),
 }));
+
+/** An org's automatic tidying mode (`pluginRetention.autoTidy`). */
+export type PluginAutoTidyMode = 'off' | 'notify' | 'on';
+
+/**
+ * An org's automatic plugin version tidying settings (`pluginRetention`; one
+ * row per org, absent = defaults: notify, 90 days). `neverTidy` lists plugin
+ * names tidying never touches; `lastDigestAt` is the org's last tidy digest
+ * (at most one a week). Own-org RLS.
+ *
+ * @table plugin_retention_settings
+ */
+export const pluginRetentionSetting = pgTable('plugin_retention_settings', {
+  orgId: varchar('org_id', { length: 255 }).primaryKey(),
+  autoTidy: varchar('auto_tidy', { length: 10 }).$type<PluginAutoTidyMode>().default('notify').notNull(),
+  staleAfterDays: integer('stale_after_days').default(90).notNull(),
+  neverTidy: jsonb('never_tidy').$type<string[]>().default([]).notNull(),
+  lastDigestAt: timestamp('last_digest_at', { withTimezone: true }),
+  updatedBy: text('updated_by'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  autoTidyCheck: check('plugin_retention_settings_auto_tidy_check', sql`${table.autoTidy} IN ('off', 'notify', 'on')`),
+  staleCheck: check('plugin_retention_settings_stale_check', sql`${table.staleAfterDays} >= 30`),
+}));
+
+export type PluginRetentionSetting = typeof pluginRetentionSetting.$inferSelect;
 
 export type PluginKeptSetupImage = typeof pluginKeptSetupImage.$inferSelect;
 export type PluginKeptSetupImageInsert = typeof pluginKeptSetupImage.$inferInsert;

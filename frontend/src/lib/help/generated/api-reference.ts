@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: d427a7aa2e7fe554ce5b59cdc3c138423627e629a127fda50ef76a4928776760
+// SOURCE-SHA256: ac92128ebd46e5f17669f8825f95cb31a1d96ed3d976cfec78f5617038755b36
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -664,6 +664,28 @@ export const apiReferenceTopic: HelpTopic = {
               "POST",
               "/plugins/retention/run",
               "System org (plugins:moderate, aal2, step-up): run one retention pass now, whatever PLUGIN_RETENTION_ENABLED says — deprecate, yank + soft-delete after the notice period, reverse, and hand purged rows' system/<name> images to image-registry — and answer the same report with dryRun: false, each acted-on version's action (deprecated / yanked / reversed / deferred / skipped / failed, with error), and collected: [{ name, version, digest, outcome, rule?, error? }]. Audited plugin.version.retire per stage"
+            ],
+            [
+              "GET",
+              "/plugins/tidy/preview",
+              "Automatic plugin version tidying, the caller's org (plugins:read): { settings: { autoTidy, staleAfterDays, neverTidy, lastDigestAt }, report: { orgId, generatedAt, dryRun: true, operatorEnabled, mode, staleAfterDays, neverTidy, lastDigestAt, nextDigestAt, versions: [{ pluginId, name, version, state, reason?, lastUsedAt, staleAt, warnedAt?, deactivateAt?, retireAt?, nextDigestAt?, bytes }], totals: { warn, warnQueued, warned, deactivate, deactivated, retire, skipped, reactivate, bytesFreed }, storage: { measured } }, canEdit, canKeep }. state is warn / warn_queued / warned / deactivate / deactivated / retire / skipped / reactivate / clear; a skipped version's reason is managed / never_tidy / only_version / inactive_by_owner / default / latest / frozen / remediation_pending / install_pin / listed_in_use / kev_accepted / in_use. Versions not near stale are left out. Changes nothing"
+            ],
+            [
+              "PUT",
+              "/plugins/tidy/settings",
+              "org_settings:write: `{ autoTidy?: 'off' \\",
+              "'notify' \\",
+              "'on', staleAfterDays?: 30–3650 } → { settings }. Audited plugin.tidy.settings.update`"
+            ],
+            [
+              "POST",
+              "/plugins/tidy/versions/:id/keep",
+              "plugins:write: Keep one of the org's versions — restarts its clock and reactivates it when tidying had deactivated it → { plugin }; 404 for another org's or a deleted version. Audited plugin.tidy.kept"
+            ],
+            [
+              "PUT",
+              "/plugins/by-name/:name/never-tidy",
+              "plugins:write: { neverTidy: boolean } → { name, neverTidy, settings }; turning it on reactivates the name's tidy-deactivated versions. Audited plugin.tidy.kept"
             ],
             [
               "GET",
@@ -2118,7 +2140,7 @@ export const apiReferenceTopic: HelpTopic = {
               "/pipelines",
               "pipelines:write",
               "apiCalls",
-              "pipeline.create, pipeline.update"
+              "pipeline.create, pipeline.update, pipeline.remediation-upgrades.update"
             ],
             [
               "DELETE",
@@ -2293,7 +2315,7 @@ export const apiReferenceTopic: HelpTopic = {
               "/pipelines/bulk/create",
               "pipelines:write; feature bulk_operations",
               "apiCalls",
-              "pipeline.create, pipeline.update"
+              "pipeline.create, pipeline.update, pipeline.remediation-upgrades.update"
             ],
             [
               "POST",
@@ -2513,7 +2535,7 @@ export const apiReferenceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "169 routes, from frontend/src/generated/route-table/plugin.json."
+          "content": "177 routes, from frontend/src/generated/route-table/plugin.json."
         },
         {
           "type": "table",
@@ -2650,6 +2672,13 @@ export const apiReferenceTopic: HelpTopic = {
               "plugins:write",
               "apiCalls",
               "—"
+            ],
+            [
+              "PUT",
+              "/plugins/by-name/:name/never-tidy",
+              "plugins:write",
+              "apiCalls",
+              "plugin.tidy.kept"
             ],
             [
               "POST",
@@ -3469,6 +3498,55 @@ export const apiReferenceTopic: HelpTopic = {
               "plugins:write",
               "apiCalls",
               "plugin.version.prune"
+            ],
+            [
+              "GET",
+              "/plugins/tidy/preview",
+              "plugins:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "PUT",
+              "/plugins/tidy/settings",
+              "org_settings:write",
+              "apiCalls",
+              "plugin.tidy.settings.update"
+            ],
+            [
+              "POST",
+              "/plugins/tidy/versions/:id/keep",
+              "plugins:write",
+              "apiCalls",
+              "plugin.tidy.kept"
+            ],
+            [
+              "GET",
+              "/plugins/toolchain-fixes",
+              "system org; plugins:write",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/plugins/toolchain-fixes/:id/approve",
+              "system org; plugins:write; step-up",
+              "apiCalls",
+              "toolchain.fix.approved"
+            ],
+            [
+              "GET",
+              "/plugins/toolchain-fixes/:id/export",
+              "system org; plugins:write",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/plugins/toolchain-fixes/:id/reject",
+              "system org; plugins:write; step-up",
+              "apiCalls",
+              "toolchain.fix.rejected"
             ],
             [
               "GET",

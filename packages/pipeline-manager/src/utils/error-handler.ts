@@ -4,6 +4,7 @@
 import { redactSensitive } from '@pipeline-builder/api-core';
 import { isQuotaExceededBody } from '@pipeline-builder/pipeline-core';
 import pico from 'picocolors';
+import { isRemediationApplyRefused, REMEDIATION_APPLY_REFUSED_HINT } from './remediation-upgrades.js';
 import { generateExecutionId } from '../config/cli.constants.js';
 import {
   ERROR_CODES,
@@ -298,6 +299,8 @@ function getErrorSuggestion(err: unknown, code: ErrorCode): string | null {
   }
   if (isAxiosError(err)) {
     const status = err.response?.status;
+    // Not a credential problem: the org does not let pipelines elect `apply`.
+    if (status === 403 && isRemediationApplyRefused(err.response?.data)) return REMEDIATION_APPLY_REFUSED_HINT;
     if (status === 401 || status === 403) return 'Check your authentication token and permissions';
     // A quota refusal won't clear by waiting a moment: the message already names
     // the reset date and the upgrade link (api-client). Only a plain 429 is a

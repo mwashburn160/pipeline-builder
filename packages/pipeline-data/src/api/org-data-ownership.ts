@@ -130,6 +130,7 @@ export const ORG_DATA_OWNERSHIP: Readonly<Record<OrgDataOwner, OrgDataSlice>> = 
       t(schema.pluginRemediation, 'plugin_remediations', ['findings_hash']),
       t(schema.pluginRemediationSetting, 'plugin_remediation_settings'),
       t(schema.pluginSourceOrphan, 'plugin_source_orphans'),
+      t(schema.pluginRetentionSetting, 'plugin_retention_settings'),
     ],
   },
   'compliance': {

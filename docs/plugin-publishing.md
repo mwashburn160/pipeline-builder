@@ -244,8 +244,22 @@ A **prebuilt-image upload has no source**, so it can only be fixed with an overl
 | The Official catalog (system org) | Yes, under the system org's setting. The fix reaches tenants as a new listing version through an auto-approved publish request (the **Remediation fixes** rule), and the patch is exported for `deploy/plugins/**` so maintainers can merge it (`GET /api/plugins/remediations/:id/export`, system org) | |
 | A listed third-party plugin | No | A fix request goes to the publisher (N40) with the findings and a suggested patch; installers are told it was sent |
 | An install of a listing | No — the listing is the publisher's | Installers move once the publisher ships a fixed version |
+| A managed toolchain release (`pipeline-bootstrap` + `cdk-synth`) | A verified **release candidate** only, never published without a system-org approval — see [Remediation → toolchains](#remediation--toolchains) | `PLUGIN_REMEDIATION_TOOLCHAINS=off`: the owner request (N39) |
 
 A fixed version of your own plugin that you also list reaches listing installers only through a normal new-version publish request.
+
+#### Remediation → toolchains
+
+A managed toolchain release is two system-org images under one version — `pipeline-bootstrap` (the CodeBuild image carrying pipeline-manager, the AWS CDK, cdk-assets and Node) and `cdk-synth`, built FROM it — and every org's synth runs on it. So the nightly fix of a toolchain is **propose-only**, verified more strictly than a plugin fix, and never moves anyone.
+
+1. **Queued.** When the rescan flags a release with targeted findings (the same `PLUGIN_REMEDIATION_SEVERITIES` and KEV rules) and `PLUGIN_REMEDIATION_TOOLCHAINS` is `propose` (the default), **one** remediation is queued for the release — both halves' findings, on its `pipeline-bootstrap` row — instead of the owner request. With `off` the release gets the owner request (reason `no_patcher`, `MANAGED_TOOLCHAIN`) as before. The system org's own `mode: off` and the daily cap still apply.
+2. **Candidate build.** The release's kept build inputs (each half's `Dockerfile` and `plugin-spec.yaml`, kept by the plugin service when the release is uploaded — `load-plugins.sh` puts the Dockerfile in a managed half's ZIP) are rebuilt with the engine's **Rebuild** and **Libraries** stages: the bootstrap first, its digest-pinned `ARG NODE_IMAGE` re-resolved within its tag (never a new Node version), then `cdk-synth` FROM the candidate bootstrap by digest (`BOOTSTRAP_IMAGE`). Library upgrades are capped at **patch** whatever the organization's upgrade levels say. A half with nothing targeted keeps its image; `cdk-synth` is always rebuilt when the bootstrap is. A release uploaded before inputs were kept goes to the owner (`TOOLCHAIN_INPUTS_MISSING`).
+3. **Verification.** Both candidates must pass the build gate with **every** targeted finding gone (no partial fix) and no new Critical or High; the exact tool versions — `pipeline-manager`, `aws-cdk`, `cdk-assets`, `node` — must equal the release's, read from the images' `org.pipeline-builder.toolchain.*` labels and from the patched bootstrap Dockerfile's `ARG`s; each half's `plugin-spec.yaml` must be unchanged; the fix must be reproducible from the spec patch (a rebuild or a source patch, never an overlay layer or an ask-agent draft); and a real **`cdk synth`** of a fixture app must succeed inside both images (`--network=none`). Any failure discards the candidates and sends the owner request, naming the check (`TOOL_VERSION_CHANGED`, `SYNTH_SMOKE_FAILED`, …).
+4. **Release candidate.** A verified pair is recorded on the remediation (`awaiting_approval`): both digests, the next free patch release, and the spec change `deploy/bin/sync-image-tags.sh --toolchain-only` would make — the base digest, the bumped `version` in both specs, the recomputed `sourceDigest`, the `toolchain` block and cdk-synth's `BOOTSTRAP_IMAGE` default — stored as a patch rooted at `deploy/toolchain/`. **It is never published automatically**, whatever the system org's `mode` (even `apply`).
+5. **Decision.** The **Toolchain fixes** card in the Toolchain console (**Platform → Toolchain**, Releases tab) lists each candidate with the findings it clears and its version diff. **Approve** and **Reject** need the system org, `plugins:write` and a step-up (`POST /api/plugins/toolchain-fixes/:id/approve|reject`, audited `toolchain.fix.*`). Approval re-scans both digests through the build gate, then publishes the release through the normal toolchain release path — both halves stored as system-org versions, so it is listed in the console and offered as an organization default — and sends N34 to the organizations whose default is (or whose pipelines pin) the vulnerable release, naming the fix. **Nobody is moved**: each organization switches through its own toolchain default, and promoting it to the platform default stays the console's separate, guarded step. Reject discards the candidate images. A newer release uploaded the normal way supersedes a waiting candidate.
+6. **Export.** **Export spec patch** (`GET /api/plugins/toolchain-fixes/:id/export`) downloads the patch for the release workflow: apply it to `deploy/toolchain/`, review, and commit, so the repository's next sync starts from the released version. The platform that approved it already holds that version; do not rebuild it there (`build-plugin-images.sh` refuses to re-push a published version with different bits).
+
+**An interrupted publish resumes; it never publishes twice.** Approval is recorded first — who and when, and each step's progress (bootstrap stored, cdk-synth stored, build inputs kept, notice sent) — and each step checks whether it already happened: a half already stored under the release number with the candidate's digest is reused, never stored again or renumbered. If the publish stops part-way, the card shows **Resume publish** (the same `POST …/approve`, step-up, audited `toolchain.fix.approved` with `resumed: true`), and a publish that crashed without releasing its five-minute lease is resumed automatically within ~2 minutes of the lease passing (`TOOLCHAIN_FIX_RESUME_INTERVAL_MS`; the nightly pass is a backstop). Two approvals at once can't both run: the second gets `409 REMEDIATION_STAGE_CONFLICT` (`PUBLISH_IN_PROGRESS`). Once publishing has started the candidate can no longer be rejected (`PUBLISH_STARTED`); a build-gate refusal before anything was stored returns it to undecided.
 
 #### Limits and operator controls
 
@@ -253,6 +267,7 @@ A fixed version of your own plugin that you also list reaches listing installers
 - At most `PLUGIN_REMEDIATION_MAX_PER_ORG_PER_DAY` (default 20) remediations start per organization per day, retries included (`429 QUOTA_EXCEEDED` on a retry over it). The quotas page shows today's count.
 - `PLUGIN_REMEDIATION_ENABLED` (default `true`) is the operator's switch. Only the literal `false` turns it off; then nothing is queued, built, published or rolled out and no remediation notice is sent, and the dashboard says remediation is **turned off by the operator**. Organization settings stay editable, and kept sources and plugin deletion are unaffected.
 - `PLUGIN_REMEDIATION_SEVERITIES` (default `critical,high`) is the comma-separated list of severities targeted. An empty or invalid value falls back to the default with a warning in the log. KEV findings are always targeted.
+- `PLUGIN_REMEDIATION_TOOLCHAINS` (default `propose`) chooses between a toolchain release candidate and the owner request for a flagged managed toolchain release; `off` keeps the owner request. There is no `apply`: an invalid value falls back to `propose` with a warning.
 
 See [Environment Variables](environment-variables.md) for every remediation setting. Every stage is audited (`plugin.remediation.*`).
 
@@ -540,6 +555,43 @@ Each skip is counted on `plugin_auto_removal_skipped_total{reason}` (`active` or
 Deleting a fix version leaves the version it fixed untouched (it stays flagged), and the reverse. Remediation never targets a soft-deleted version; a restored version is picked up again by the next rescan, with its kept source.
 
 Each action is audited: `plugin.delete-all`, `plugin.restore-all` and `plugin.purge-all` carry the batch id and what was done and skipped, and every per-version `plugin.delete`, `plugin.restore` and `plugin.purge` carries the same batch id.
+
+### Automatic tidying
+
+Old versions nobody uses still take storage and clutter the version list. **Automatic tidying** finds them, tells you, and (if you turn it on) removes them in slow, reversible steps. Set it under **Settings → Organization → Plugin security → Automatic tidying** (`org_settings:write`):
+
+| Setting | Values | Default |
+|---------|--------|---------|
+| Mode (`pluginRetention.autoTidy`) | `off`, `notify` (warn only, nothing changes), `on` (warn, then deactivate, then delete) | `notify` |
+| Stale after (`pluginRetention.staleAfterDays`) | days without use, 30 or more | 90 |
+
+**When a version is stale.** A version's clock starts at the latest of: when it was created, when it was last **used**, and when someone last pressed **Keep** (or restored it). It is stale `staleAfterDays` after that. "Used" means a `POST /plugins/lookup` resolved it, which is what every synth and every pipeline save does; the stamp is written at most once an hour per version. Registry pulls are not counted: the registry serves images by digest with no per-pull record here, and a deployed pipeline's version is protected anyway (see below).
+
+**Which versions it never touches.** A version is left alone, and the preview says why, when it is:
+
+- the plugin's **latest** (newest) or newest stable version, or its **default**;
+- **in use** by any pipeline: a declared resolution, a deployed step manifest, an open exposure, or a pipeline config naming it — the same check a delete makes;
+- **frozen** by a publish request;
+- a **managed toolchain** version (`pipeline-bootstrap`, `cdk-synth`);
+- the plugin's **only** version;
+- referenced by an **install pin** (an install of your listing pins, resolved or is moving to it), or by a **pending remediation** rollout or proposal;
+- **listed**, while its listed copy is still used (an unused listed version is tidied, and its listed copy keeps serving installers);
+- carrying a **CISA KEV** finding covered by an active **risk acceptance** (kept as a rollback target);
+- deactivated by you (tidying leaves your own choice alone);
+- in a plugin set to **Never tidy** (on the plugin's page).
+
+**The steps**, counted from the day the version goes stale (day N):
+
+1. **Day N−7: a warning.** One digest per organization, at most once a week, to your [plugin security recipients](#scan-gates) (N41). It lists only versions not in an earlier digest, each with its dates and a **Keep** link. An organization with nothing newly stale gets nothing. In `notify` mode this is all that happens.
+2. **Day N: deactivated** (`on` only). Never sooner than 7 days after its warning. Nothing is deleted. Ranges, `latest` and the default skip it, but a pipeline that pins the exact version still resolves it, with a `PLUGIN_TIDY_DEACTIVATED` warning, so no pipeline breaks — and that use restarts its clock and reactivates it.
+3. **Day N+30: deleted** (`on` only), if it is still unused and inactive. A normal soft delete: every version one pass deletes shares a **batch id**, so **Restore plugin** brings them back.
+4. **Day N+60: purged** by the usual purge sweep, 30 days after the delete.
+
+**Anything that restarts the clock:** Keep, a restore, or a new use. Each clears the warning and reactivates a deactivated version. A version that becomes protected (for example, a pipeline starts using it) is reactivated on the next pass.
+
+**Preview.** `GET /api/plugins/tidy/preview` (`plugins:read`) is the dry run of today's pass: every version it would warn, deactivate or delete, each protected version with the reason it is skipped, and the bytes tidying would free (kept sources, plus image bytes when the registry can measure them). The settings page and the **Storage** section show the same figures. Keep a version with `POST /api/plugins/tidy/versions/:id/keep` and set a plugin's never-tidy with `PUT /api/plugins/by-name/:name/never-tidy` (both `plugins:write`).
+
+The job runs once a day on one replica. The operator can stop it for every organization with `PLUGIN_AUTO_TIDY_ENABLED=false` ([Environment Variables](environment-variables.md)); the preview still answers. The system organization's own catalogue is not tidied here; it has the superseded-version retention pass. Each step is audited: `plugin.tidy.warned`, `plugin.tidy.deactivated`, `plugin.tidy.retired` (with the batch id) and `plugin.tidy.kept`, and settings changes as `plugin.tidy.settings.update`.
 
 ## Errors you may see
 

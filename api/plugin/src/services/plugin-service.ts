@@ -296,14 +296,16 @@ export class PluginService extends CrudService<
    * back from the promoted version is a separate, explicit set-default.
    */
   protected override async restoreExtraSet(id: string, tx: TenantTx): Promise<Record<string, unknown>> {
+    // A restore restarts the version's automatic-tidying clock (services/tidy/).
+    const tidy = { tidyKeptAt: new Date(), tidyWarnedAt: null, tidyDeactivateAfter: null, tidyDeactivatedAt: null };
     const [tombstone] = await tx
       .select({ orgId: schema.plugin.orgId, name: schema.plugin.name, isDefault: schema.plugin.isDefault })
       .from(schema.plugin)
       .where(eq(schema.plugin.id, String(id).toLowerCase()));
-    if (!tombstone?.isDefault) return {};
+    if (!tombstone?.isDefault) return tidy;
     await lockPluginName(tx, tombstone.orgId, tombstone.name);
     const live = await this.selectLiveDefaults(tx, tombstone.orgId, tombstone.name, id);
-    return live.length > 0 ? { isDefault: false } : {};
+    return live.length > 0 ? { ...tidy, isDefault: false } : tidy;
   }
 
   /**

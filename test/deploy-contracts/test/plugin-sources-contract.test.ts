@@ -255,6 +255,7 @@ describe('remediation operator knobs', () => {
       PLUGIN_REMEDIATION_CONCURRENCY: '2',
       PLUGIN_REMEDIATION_BASE_CONCURRENCY: '4',
       PLUGIN_REMEDIATION_MAX_PER_ORG_PER_DAY: '20',
+      PLUGIN_REMEDIATION_TOOLCHAINS: 'propose',
       PLUGIN_SOURCES_BUCKET: 'plugin-sources',
     });
   });
@@ -315,6 +316,7 @@ describe('remediation operator knobs', () => {
     // The two behaviours an operator most needs to get right.
     expect(doc).toMatch(/PLUGIN_REMEDIATION_ENABLED[^\n]*Only the literal `false`/);
     expect(doc).toMatch(/PLUGIN_REMEDIATION_SEVERITIES[^\n]*KEV-listed findings are always targeted/);
+    expect(doc).toMatch(/PLUGIN_REMEDIATION_TOOLCHAINS[^\n]*never published automatically/);
   });
 });
 

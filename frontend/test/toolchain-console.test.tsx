@@ -94,6 +94,7 @@ const fns = {
   getToolchainAffected: jest.fn<AnyFn>(),
   notifyToolchainAffected: jest.fn<AnyFn>(),
   getToolchainCleanup: jest.fn<AnyFn>(),
+  listToolchainFixes: jest.fn<AnyFn>(),
   deprecatePlugin: jest.fn<AnyFn>(),
   yankPlugin: jest.fn<AnyFn>(),
 };
@@ -185,6 +186,7 @@ beforeEach(() => {
     ],
   }));
   fns.getToolchainCleanup.mockImplementation(() => ok({ candidates: [{ releaseVersion: '1.2.0', createdAt: '2026-08-01T00:00:00Z' }] }));
+  fns.listToolchainFixes.mockImplementation(() => ok({ fixes: [], enabled: true, mode: 'propose' }));
   fns.yankToolchainRelease.mockImplementation(() => ok({ restoredDefault: '1.4.1' }));
   fns.deleteToolchainRelease.mockImplementation(() => ok({}));
   fns.deprecateToolchainRelease.mockImplementation(() => ok({}));
@@ -231,6 +233,21 @@ describe('Toolchain console: access', () => {
     await renderConsole();
     expect(screen.getByRole('button', { name: 'Set as default 1.4.1' })).toHaveAttribute('aria-disabled', 'true');
     expect(screen.getByRole('button', { name: 'Yank 1.4.1' })).toHaveAttribute('aria-disabled', 'true');
+  });
+});
+
+describe('Toolchain console: Toolchain fixes', () => {
+  it('shows the Toolchain fixes card on the Releases tab to a system-org plugins:write holder', async () => {
+    asOperator({ can: (p: string) => p === 'toolchain:operate' || p === 'plugins:write' });
+    await renderConsole();
+    expect(await screen.findByTestId('toolchain-fixes')).toHaveTextContent('Toolchain fixes');
+    expect(fns.listToolchainFixes).toHaveBeenCalled();
+  });
+
+  it('without plugins:write the card reads nothing', async () => {
+    await renderConsole();
+    expect(screen.getByTestId('toolchain-fixes')).toHaveTextContent('plugins:write');
+    expect(fns.listToolchainFixes).not.toHaveBeenCalled();
   });
 });
 

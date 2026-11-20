@@ -12,8 +12,11 @@
  *  - who may be changed (ecosystem `remediationOwnership`): an org's own plugin
  *    and the system org's (Official) are remediated under their org's
  *    pluginRemediation.mode (off → nothing); a third-party LISTED version gets a
- *    publisher fix request (N40) instead; a version the platform may not
- *    change (a managed toolchain release) goes straight to an owner request;
+ *    publisher fix request (N40) instead; a managed toolchain release is ONE
+ *    `kind = 'toolchain'` remediation per release (both halves' findings, on
+ *    its pipeline-bootstrap row) under PLUGIN_REMEDIATION_TOOLCHAINS=propose —
+ *    a propose-only release candidate (toolchain.ts) — and goes straight to an
+ *    owner request under `off`;
  *  - idempotency: one row per (version, findings hash) EVER — a failed set is
  *    not retried until its findings or their fixed versions change (the hash
  *    includes fixedIn); the live/active unique indexes refuse a second one;
@@ -32,11 +35,13 @@ import {
   isManagedToolchainPlugin,
   isRemediationTarget,
   isSystemOrgId,
+  MANAGED_TOOLCHAIN,
   pluginRemediationJobId,
   PLUGIN_REMEDIATION_JOB_NAME,
   remediationFindingsHash,
   remediationQueuePriority,
   scanFindingKey,
+  SYSTEM_ORG_ID,
   SYSTEM_PLUGIN_REMEDIATION,
   type PluginRemediationJobData,
   type PluginScanFinding,
@@ -44,7 +49,7 @@ import {
   type RemediationPriorityInput,
   type RemediationRemainingFinding,
 } from '@pipeline-builder/api-core';
-import { pipelinesOnVersion, schema, type PluginRemediation } from '@pipeline-builder/pipeline-data';
+import { pipelinesOnVersion, schema, type Plugin, type PluginRemediation } from '@pipeline-builder/pipeline-data';
 import { and, eq, isNull, ne } from 'drizzle-orm';
 
 import { isCanaryPlugin } from './canary.js';
@@ -118,7 +123,24 @@ export interface QueueDeps {
   /** Add the job to the org's tier queue. */
   enqueue(orgId: string, data: PluginRemediationJobData, opts: { jobId: string; priority: number }): Promise<void>;
   now?: () => Date;
+  /** Discard a superseded toolchain candidate's images (default: the live registry ports). */
+  discardToolchainCandidate?: (row: PluginRemediation) => Promise<void>;
+  /** Resume approved toolchain candidates whose publish was interrupted (default: the live ports). */
+  resumeToolchainFixes?: () => Promise<number>;
 }
+
+async function liveResumeToolchainFixes(): Promise<number> {
+  const [{ resumeStuckToolchainFixes }, { liveToolchainPorts }] = await Promise.all([import('./toolchain.js'), import('./tooling.js')]);
+  return resumeStuckToolchainFixes({ ports: liveToolchainPorts() });
+}
+
+async function liveDiscardToolchainCandidate(row: PluginRemediation): Promise<void> {
+  const [{ discardToolchainCandidate }, { liveRemediationPorts }] = await Promise.all([import('./toolchain.js'), import('./tooling.js')]);
+  await discardToolchainCandidate(row, liveRemediationPorts());
+}
+
+/** The targeted findings of one toolchain release, collected across both halves during a pass. */
+interface ToolchainPending { bootstrapId: string | null; targeted: Map<string, PluginScanFinding>; imageDigest: string | null }
 
 export interface QueuePassResult {
   queued: number;
@@ -135,11 +157,14 @@ export async function queuePassRemediations(candidates: readonly RemediationCand
   if (!cfg.enabled) return result;
   const now = deps.now?.() ?? new Date();
 
-  await sweepLive(result).catch((err) => logger.warn('Remediation sweep failed', { error: errorMessage(err) }));
+  await sweepLive(result, deps).catch((err) => logger.warn('Remediation sweep failed', { error: errorMessage(err) }));
+  // An approved toolchain candidate whose publish crashed part-way resumes here (idempotent, same version).
+  await (deps.resumeToolchainFixes ?? liveResumeToolchainFixes)().catch((err) => logger.warn('Toolchain fix resume sweep failed', { error: errorMessage(err) }));
 
   const modes = new Map<string, Awaited<ReturnType<typeof readSettings>>['mode']>();
   const used = new Map<string, number>();
   const queued: Array<{ row: PluginRemediation; priority: RemediationPriorityInput }> = [];
+  const toolchains = new Map<string, ToolchainPending>();
 
   for (const c of candidates) {
     try {
@@ -156,6 +181,15 @@ export async function queuePassRemediations(candidates: readonly RemediationCand
       const org = c.orgId.toLowerCase();
       if (!modes.has(org)) modes.set(org, (await readSettings(org)).mode);
       if (modes.get(org) === 'off') continue;
+
+      // A managed toolchain release under propose: one remediation per release, after the loop.
+      if (cfg.toolchains === 'propose' && isSystemOrgId(org) && isManagedToolchainPlugin(c.name)) {
+        const t = toolchains.get(c.version) ?? { bootstrapId: null, targeted: new Map(), imageDigest: null };
+        if (c.name.toLowerCase() === MANAGED_TOOLCHAIN.bootstrap) { t.bootstrapId = c.id; t.imageDigest = c.imageDigest; }
+        for (const f of targeted) if (!t.targeted.has(`${f.id}|${f.purl}`)) t.targeted.set(`${f.id}|${f.purl}`, f);
+        toolchains.set(c.version, t);
+        continue;
+      }
 
       const canary = isCanaryPlugin(org, c.name);
       const hash = remediationFindingsHash(targeted);
@@ -203,6 +237,15 @@ export async function queuePassRemediations(candidates: readonly RemediationCand
     }
   }
 
+  for (const [release, t] of toolchains) {
+    try {
+      const row = await queueToolchainRelease(release, t, used, now, result);
+      if (row) queued.push(row);
+    } catch (err) {
+      logger.warn('Toolchain remediation not queued', { release, error: errorMessage(err) });
+    }
+  }
+
   queued.sort((a, b) => (isSystemOrgId(a.row.orgId) === isSystemOrgId(b.row.orgId) ? compareRemediationPriority(a.priority, b.priority) : isSystemOrgId(a.row.orgId) ? -1 : 1));
   for (const { row, priority } of queued) {
     try {
@@ -219,9 +262,66 @@ export async function queuePassRemediations(candidates: readonly RemediationCand
   return result;
 }
 
+/**
+ * One toolchain release's remediation: on its pipeline-bootstrap row (found
+ * when only cdk-synth was flagged tonight), both halves' targeted findings,
+ * idempotent per findings set like any remediation, under the system org's
+ * daily cap.
+ */
+async function queueToolchainRelease(
+  release: string,
+  t: ToolchainPending,
+  used: Map<string, number>,
+  now: Date,
+  result: QueuePassResult,
+): Promise<{ row: PluginRemediation; priority: RemediationPriorityInput } | null> {
+  const org = SYSTEM_ORG_ID.toLowerCase();
+  let bootstrapId = t.bootstrapId;
+  let imageDigest = t.imageDigest;
+  if (!bootstrapId) {
+    const p = schema.plugin;
+    const [bs] = await elevatedTx((tx) => tx.select({ id: p.id, imageDigest: p.imageDigest }).from(p).where(and(
+      eq(p.orgId, SYSTEM_ORG_ID), eq(p.name, MANAGED_TOOLCHAIN.bootstrap), eq(p.version, release), isNull(p.deletedAt),
+    )).limit(1)) as Array<Pick<Plugin, 'id' | 'imageDigest'>>;
+    if (!bs) return null;
+    bootstrapId = bs.id;
+    imageDigest = bs.imageDigest ?? null;
+  }
+  const targeted = [...t.targeted.values()];
+  const hash = remediationFindingsHash(targeted);
+  if (await remediationExistsFor(bootstrapId, hash)) return null;
+  if (!used.has(org)) used.set(org, await remediationsCreatedSince(org, now));
+  if (used.get(org)! >= remediationConfig().maxPerOrgPerDay) { result.capped++; return null; }
+  const row = await insertRemediation({
+    orgId: org,
+    pluginId: bootstrapId,
+    pluginName: MANAGED_TOOLCHAIN.bootstrap,
+    fromVersion: release,
+    findingsHash: hash,
+    targeted,
+    kind: 'toolchain',
+    createdBy: SYSTEM_PLUGIN_REMEDIATION,
+  });
+  if (!row) return null; // a candidate for this release is already building or awaiting a decision
+  used.set(org, used.get(org)! + 1);
+  auditRemediation('plugin.remediation.started', row, { kind: 'toolchain', findings: targeted.map((f) => f.id).slice(0, 200), targeted: targeted.length });
+  countStage('queued', null);
+  const pipelines = await pipelinesOnVersion({ pluginName: MANAGED_TOOLCHAIN.bootstrap, pluginVersion: release, imageDigest }).catch(() => []);
+  return {
+    row,
+    priority: {
+      kev: targeted.some((f) => f.kev === true),
+      maxEpss: targeted.reduce((m, f) => Math.max(m, typeof f.epss === 'number' ? f.epss : 0), 0),
+      pipelineCount: pipelines.length,
+    },
+  };
+}
+
 /** The owner's newer clean version supersedes; a fixed version no pipeline uses any more is deactivated. */
-async function sweepLive(result: QueuePassResult): Promise<void> {
+async function sweepLive(result: QueuePassResult, deps: Pick<QueueDeps, 'discardToolchainCandidate'> = {}): Promise<void> {
   for (const row of await liveRemediations()) {
+    // An approved toolchain candidate is publishing (or resumes): a newer release never cancels it half-way.
+    if (row.kind === 'toolchain' && row.toolchainCandidate?.publish) continue;
     const owner = await newestCleanOwnerVersion(row.orgId, row.pluginName, row.fromVersion, row.toVersion ? [row.toVersion] : []);
     if (owner) {
       const p = schema.plugin;
@@ -231,6 +331,11 @@ async function sweepLive(result: QueuePassResult): Promise<void> {
       result.superseded++;
       countStage('done', 'superseded');
       await removeQueuedRemediationJobs(row.id);
+      // A toolchain candidate superseded by a newer release: its images go; it never rolls out.
+      if (row.kind === 'toolchain') {
+        await (deps.discardToolchainCandidate ?? liveDiscardToolchainCandidate)(row).catch((err) => logger.warn('Superseded toolchain candidate not discarded', { remediationId: row.id, error: errorMessage(err) }));
+        continue;
+      }
       // A rollout already under way moves to the owner's version instead (supersedes the open proposals).
       if (ownerRow && (row.stage === 'published' || row.stage === 'rolling_out' || row.stage === 'needs_review')) {
         await startTenantRollout(row, { toVersion: owner, toPluginId: ownerRow.id });

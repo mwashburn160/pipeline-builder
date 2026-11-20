@@ -61,9 +61,9 @@ const REVIEWED: ReviewedSite[] = [
   {
     file: 'api/plugin/src/routes/read-plugins.ts',
     call: 'pluginService.findFirst',
-    count: 2,
+    count: 3,
     how: 'guard',
-    reason: 'respondWithSinglePlugin answers a managed name from resolveManagedToolchain and returns before the row branch',
+    reason: 'respondWithSinglePlugin answers a managed name from resolveManagedToolchain and returns before the row branch (the third site is the exact-pin fallback to a tidy-deactivated row, in the same row branch)',
   },
   {
     file: 'api/plugin/src/services/ecosystem/lookup.ts',

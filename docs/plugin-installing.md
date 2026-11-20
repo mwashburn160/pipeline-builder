@@ -193,12 +193,32 @@ When the platform publishes a fixed version of a flagged plugin (see [Automatic 
 |-------|---------|--------|
 | Root organization | `rollout` under **Settings → Organization → Plugin security** | `off`, `propose` (default), `apply` |
 | Team | the same setting on the team | `inherit` (default), `off`, `propose`, `apply` |
-| Pipeline | **Plugin security fixes** on the pipeline (`remediationUpgrades` on `PUT /api/pipelines/:id`, `pipelines:write`) | `inherit` (default), `off`, `propose`, `apply` |
+| Pipeline | **Plugin security fixes** on the pipeline (`remediationUpgrades` on `PUT /api/pipelines/:id` or on create, `pipelines:write`), or `remediationUpgrades` in the pipeline definition | `inherit` (default), `off`, `propose`, `apply` |
 
 - **Opting out is always allowed.** A pipeline set to `off` is skipped in every wave and never moved automatically.
 - **Opting in to `apply` can be limited.** The root organization's `allowPipelineApply` (default on) decides whether a pipeline may choose `apply` when its organization's default is `propose` or `off`. When it is off, choosing `apply` is refused with `403 PIPELINE_REMEDIATION_APPLY_NOT_ALLOWED`, and the pipeline settings show Apply greyed out.
 - **Opting out hides nothing.** An opted-out pipeline still gets its warnings, exposures and notices for the flagged version, and its page shows the fix it isn't using. A KEV-listed finding adds a banner naming the opt-out.
 - A rollout in progress re-reads each pipeline's setting just before moving it, so a change made mid-rollout is honoured. Changes are audited as `pipeline.remediation-upgrades.update` with before and after.
+
+**Opting out from the pipeline definition.** A pipeline managed as code can carry its election next to `project` and `organization` in the definition file, and the CLI can override it per run:
+
+```json
+{ "project": "web", "organization": "acme", "remediationUpgrades": "off", "synth": { "plugin": { "name": "cdk-synth" } } }
+```
+
+```bash
+pipeline-manager pipeline create -f props.json --upsert                       # applies "off" from the file
+pipeline-manager pipeline create -f props.json --upsert --remediation-upgrades propose   # the flag wins
+pipeline-manager pipeline deploy --id <pipelineId> --remediation-upgrades off   # set, then deploy
+```
+
+Precedence, per pipeline:
+
+1. **`--remediation-upgrades`** on the command, when given.
+2. **`remediationUpgrades` in the definition**, when present. Either one is written on every create and deploy, with the same rules as the dashboard: opting out is always allowed, `apply` is refused with `403 PIPELINE_REMEDIATION_APPLY_NOT_ALLOWED` when the organization forbids it (the CLI exits non-zero and nothing is created or deployed), and a change is audited as `pipeline.remediation-upgrades.update` — re-sending the stored value records nothing.
+3. **Neither → the stored value stands.** A deploy whose definition omits it never resets the pipeline to `inherit`, so a choice made in the dashboard survives redeploys. A new pipeline starts at `inherit`.
+
+The election is a platform setting: it is lifted out of the definition before synth and never changes the synthesized template. Inside the `props` of an API request it is refused — send it at the top level. The election is per pipeline; there is no per-step opt-out.
 
 The pipeline list filters opted-out pipelines (`GET /api/pipelines?remediationUpgrades=off`). The pipeline's security tab shows its election, open proposals, wave status and rollback history (`GET /api/pipelines/:id/remediation-upgrades`); **Apply** and **Dismiss** act on one proposal.
 

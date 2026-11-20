@@ -15,6 +15,7 @@ import { RetryError } from '@/components/ui/RetryError';
 import { Select } from '@/components/ui/Select';
 import { ToggleRow } from '@/components/ui/SettingRow';
 import { PluginRemediationSettings } from '@/components/settings/PluginRemediationSettings';
+import { PluginTidySettings } from '@/components/settings/PluginTidySettings';
 import { useToast } from '@/components/ui/Toast';
 import { useFetch } from '@/hooks/useFetch';
 import { useMutation } from '@/hooks/useMutation';
@@ -232,6 +233,9 @@ export function PluginSecurityNotificationSettings({ orgId, canEdit, readOnly }:
     >
       <div className="mb-5 border-b border-default pb-5">
         <PluginRemediationSettings orgId={orgId} canEdit={canEdit} readOnly={readOnly} />
+      </div>
+      <div className="mb-5 border-b border-default pb-5">
+        <PluginTidySettings orgId={orgId} canEdit={canEdit} readOnly={readOnly} />
       </div>
       <h3 className="mb-3 text-sm font-semibold text-fg">Notifications</h3>
       {error && <div className="mb-3"><Callout variant="danger">{error}</Callout></div>}

@@ -125,6 +125,10 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
   withTenantTx: jest.fn((fn: any) => fn({ execute: jest.fn<AnyFn>().mockResolvedValue({ rows: [] }) })),
 }));;
 
+// Automatic tidying's use stamp (services/tidy/usage.ts; tidy-pass.test.ts runs it on Postgres).
+const mockRecordPluginUse = jest.fn<AnyFn>(async () => undefined);
+jest.unstable_mockModule('../src/services/tidy/usage.js', () => ({ recordPluginUse: mockRecordPluginUse }));
+
 const { createReadPluginRoutes } = await import('../src/routes/read-plugins.js');
 const { setVulnPolicyComplianceClientForTests } = await import('@pipeline-builder/api-core');
 
@@ -710,5 +714,42 @@ describe('POST /plugins/lookup — scan freshness, org policy and compliance', (
     mockDryRun.mockRejectedValueOnce(new Error('ECONNREFUSED'));
     await lookup();
     expect(lastBody().warnings).toEqual([expect.objectContaining({ code: 'COMPLIANCE_UNAVAILABLE', severity: 'info' })]);
+  });
+});
+
+describe('POST /plugins/lookup — automatic tidying', () => {
+  const row = { id: 'p1', orgId: 'org-1', name: 'trivy', version: '1.0.0', buildType: 'metadata_only', pluginType: 'CodeBuildStep', keywords: [], installCommands: [], commands: [] };
+  beforeEach(() => { jest.clearAllMocks(); mockFind.mockReset(); });
+
+  it('stamps the resolved org version as used (the tidy clock restarts)', async () => {
+    mockFind.mockResolvedValueOnce(row);
+    await getLookupHandler()({ body: { filter: { name: 'trivy' } } }, makeRes().res);
+    expect(mockRecordPluginUse).toHaveBeenCalledWith(expect.objectContaining({ id: 'p1' }));
+  });
+
+  it('an EXACT pin still resolves a version tidying deactivated, with a warning — no pipeline breaks', async () => {
+    const deactivated = { ...row, isActive: false, tidyDeactivatedAt: new Date('2026-11-01T00:00:00Z') };
+    mockFind.mockResolvedValueOnce(null).mockResolvedValueOnce(deactivated);
+    const { res } = makeRes();
+    await getLookupHandler()({ body: { filter: { name: 'trivy', version: '1.0.0' } } }, res);
+    expect(mockFind).toHaveBeenNthCalledWith(2, expect.objectContaining({ name: 'trivy', version: '1.0.0', isActive: false }), 'org-1', undefined);
+    const body = mockSendSuccess.mock.calls.at(-1)?.[2] as { plugin: { id: string }; warnings: Array<{ code: string; severity: string; message: string }> };
+    expect(body.plugin.id).toBe('p1');
+    expect(body.warnings).toEqual([expect.objectContaining({ code: 'PLUGIN_TIDY_DEACTIVATED', severity: 'warning', message: expect.stringContaining('trivy@1.0.0') })]);
+    // Resolving it is a use: the stamp reactivates it.
+    expect(mockRecordPluginUse).toHaveBeenCalledWith(expect.objectContaining({ id: 'p1' }));
+  });
+
+  it('never falls back for a range, nor to a version its OWNER deactivated', async () => {
+    mockFind.mockResolvedValue(null);
+    await getLookupHandler()({ body: { filter: { name: 'trivy', version: '^1.0.0' } } }, makeRes().res);
+    expect(mockFind).not.toHaveBeenCalledWith(expect.objectContaining({ isActive: false }), expect.anything(), undefined);
+    mockFind.mockReset();
+    mockFind.mockResolvedValueOnce(null).mockResolvedValueOnce({ ...row, isActive: false, tidyDeactivatedAt: null });
+    const { status } = makeRes();
+    const r2 = makeRes();
+    await getLookupHandler()({ body: { filter: { name: 'trivy', version: '1.0.0' } } }, r2.res);
+    expect(r2.status).toHaveBeenCalledWith(404);
+    expect(status).not.toHaveBeenCalled();
   });
 });

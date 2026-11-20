@@ -14,6 +14,7 @@ import { printInfo, printKeyValue, printSuccess, printWarning } from '../utils/o
 import { fetchPipelineProps, printResolvedOrExit } from '../utils/pipeline-config.js';
 import { printLookupWarningSummary } from '../utils/plugin-resolver.js';
 import { resolveRegistrationClient } from '../utils/registration-client.js';
+import { liftRemediationUpgrades, REMEDIATION_UPGRADES_OPTION_HELP, resolveRemediationUpgrades } from '../utils/remediation-upgrades.js';
 import { setPipelineId } from '../utils/request-context.js';
 import { relaxTlsForCli } from '../utils/tls.js';
 import { applyToolchainFile, toolchainFileRequired } from '../utils/toolchain.js';
@@ -38,7 +39,8 @@ export function deploy(program: Command): void {
         .description('Deploy pipeline by ID using AWS CDK, or --local-spec to deploy a local pipeline.json without the platform')
         .option('-i, --id <id>', 'Pipeline ID (fetches config from the platform)')
         .option('--local-spec <path>', 'Path to a local pipeline.json — deploys without contacting the platform (no auth, no compliance, no plugin lookup). Requires --toolchain-file')
-        .option('--toolchain-file <path>', 'With --local-spec: the toolchain release to build on, as written by `pipeline-manager toolchain export`'))
+        .option('--toolchain-file <path>', 'With --local-spec: the toolchain release to build on, as written by `pipeline-manager toolchain export`')
+        .option('--remediation-upgrades <election>', `With --id: set it on the pipeline before deploying. ${REMEDIATION_UPGRADES_OPTION_HELP}`))
         .option('--require-approval <approval>', 'Deploy approval level: never|any-change|broadening. Defaults to `broadening`: a deploy that widens IAM stops for confirmation. Pass `never` for unattended runs.', 'broadening')
         .option('--output <dir>', 'CDK output directory', 'cdk.out')
         .option('--store-tokens', 'Authenticate using token from AWS Secrets Manager (requires PLATFORM_SECRET_NAME env var)', false),
@@ -63,6 +65,12 @@ export function deploy(program: Command): void {
         // Without the platform, the toolchain release can only come from a file
         // (there is never a fallback image). Refuse before reading anything else.
         if (options.localSpec && !options.toolchainFile) throw toolchainFileRequired();
+        // The election is stored on the platform; a local spec has nowhere to keep it.
+        if (options.localSpec && options.remediationUpgrades !== undefined) {
+          throw new Error('--remediation-upgrades applies to --id only (a --local-spec deploy never contacts the platform, where the election is stored)');
+        }
+        // Validated client-side before any request.
+        const remediationUpgrades = resolveRemediationUpgrades(options.remediationUpgrades, undefined);
 
         auditLog('deploy', { executionId, pipelineId: options.id, profile: options.profile });
         // Attributes this deploy's platform calls to the pipeline (usage ledger).
@@ -123,6 +131,9 @@ export function deploy(program: Command): void {
             Project: pipeline.project,
             Organization: pipeline.organization,
           });
+          // A definition's `remediationUpgrades` is a platform setting, never a
+          // synth prop: lifted out so the template is the same with or without it.
+          pipeline.props = liftRemediationUpgrades(pipeline.props as Record<string, unknown>).props;
           propsWithIds = {
             ...pipeline.props,
             ...(pipeline.orgId && { orgId: pipeline.orgId }),
@@ -138,6 +149,15 @@ export function deploy(program: Command): void {
           // verbatim with `synth` so the two never drift.
           platformClient = await createAuthenticatedClientAsync(options);
           platformConfig = platformClient.getConfig() as PlatformDeployConfig;
+
+          // --remediation-upgrades: the deploy applies the election first (PUT,
+          // the dashboard's own rules: `apply` 403s when the org forbids it, and
+          // that stops the deploy). Omitted → the stored value stands.
+          if (remediationUpgrades !== undefined) {
+            printInfo('Setting plugin security fixes election', { id: options.id, remediationUpgrades });
+            await platformClient.put(`${platformConfig.api.pipelineUrl}/${encodeURIComponent(options.id)}`, { remediationUpgrades });
+            printSuccess(`Plugin security fixes: ${remediationUpgrades}`);
+          }
 
           printInfo('Fetching pipeline configuration', { id: options.id });
           const fetched = await fetchPipelineProps(platformClient, options.id);

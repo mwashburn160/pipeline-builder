@@ -178,6 +178,12 @@ export interface Plugin {
   sourceKeptAt?: string | null;
   /** Set on every version one "Delete plugin" soft-deleted; Restore / Purge plugin act on this batch only. */
   deleteBatchId?: string | null;
+  /** Automatic tidying: last resolved by a lookup (hourly), the owner's last Keep, the digest warning, the announced deactivation date, and when tidying deactivated it. */
+  lastUsedAt?: string | null;
+  tidyKeptAt?: string | null;
+  tidyWarnedAt?: string | null;
+  tidyDeactivateAfter?: string | null;
+  tidyDeactivatedAt?: string | null;
 
   // Access and visibility
   visibility: Visibility;

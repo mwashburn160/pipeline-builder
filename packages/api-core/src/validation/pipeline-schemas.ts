@@ -303,6 +303,17 @@ const BuilderPropsSchema = z.object({
   /** Toolchain release pin (see {@link PipelineToolchainPinSchema}). */
   toolchain: PipelineToolchainPinSchema.optional(),
 }).passthrough().superRefine((props, ctx) => {
+  // The plugin security fixes election is a PLATFORM setting (a pipelines
+  // column), not a synth prop: inside `props` it would ride into the CDK app and
+  // set nothing. The CLI lifts it out of a definition file; a direct caller is
+  // told where it goes rather than having it silently ignored.
+  if (Object.prototype.hasOwnProperty.call(props, 'remediationUpgrades')) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['remediationUpgrades'],
+      message: '`remediationUpgrades` is a platform setting, not a pipeline prop: send it at the top level of the request, next to `props`.',
+    });
+  }
   for (const key of Object.keys((props as { tags?: Record<string, string> }).tags ?? {})) {
     if (!isReservedTagKey(key)) continue;
     ctx.addIssue({
@@ -338,6 +349,16 @@ export const PipelineCreateSchema = z.object({
    * a slot IS that slot's default — a `false` could not be honoured.
    */
   isActive: BooleanQuerySchema.optional(),
+  /**
+   * The plugin security fixes election (pipelines.remediation_upgrades), so a
+   * definition can carry it. Absent → a new pipeline gets the column default
+   * (`inherit`) and an `?upsert=true` overwrite KEEPS the stored value (e.g. one
+   * set in the dashboard). Present → applied with the update route's rules:
+   * `apply` refused with 403 PIPELINE_REMEDIATION_APPLY_NOT_ALLOWED when the
+   * root org disallows it, audited pipeline.remediation-upgrades.update only
+   * when the value changes. Never part of `props`: it does not reach synth.
+   */
+  remediationUpgrades: z.enum(PIPELINE_REMEDIATION_ELECTIONS).optional(),
   props: BuilderPropsSchema,
 });
 

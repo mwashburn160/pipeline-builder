@@ -20,6 +20,7 @@ Changes that move a number you already watch. Each entry says what changed, why,
 - **Unknown lead time is explained**: the DORA lead-time card says why it could not be measured and how to fix it.
 - **Flagged plugins are fixed automatically**: after the nightly rescan, the platform rebuilds or library-patches a flagged plugin version, proposes or publishes the fix as the next version, and moves pipelines onto it in waves with automatic rollback.
 - **Delete a whole plugin**: Delete plugin removes every version of a name at once, with a preview, and restores or purges it as one batch.
+- **Unused plugin versions are tidied**: a weekly digest lists plugin versions nobody has used for 90 days, each with a Keep link. Turn on automatic tidying to deactivate and later delete them; nothing changes until you do.
 
 ## Before you deploy this release
 
@@ -32,6 +33,27 @@ Check these before you roll the release out, and watch the last one straight aft
    - AI draft outcomes (accepted or discarded) and AI call counts;
    - runner `accepted_at`, the time a runner accepted a start or stop request. The Delivery report's runner latency is exact for requests with it and estimated for older ones, and it says which.
 3. **After deploying, watch for the first successful storage snapshot.** The registry's push gate reads per-org storage from a background snapshot. Until the first run completes, storage reads as unknown, and an org with a storage cap **cannot push images** (the gate fails closed). Confirm that `registry_storage_snapshot_last_success_timestamp_seconds` appears and advances, and that `RegistryStorageSnapshotStale` does not fire. See [Deploy Operations](deploy-operations.md) for the snapshot's signals.
+
+## November 2026: automatic plugin version tidying
+
+Unused plugin versions used to stay forever, costing storage and cluttering the version list. Now the platform finds them.
+
+### What changed
+
+- **A weekly digest of stale versions.** A version is stale once nothing has used it for 90 days (a synth or a pipeline save resolving it counts as use; change the number of days, minimum 30). Seven days before, your plugin security recipients get one digest (N41) listing the newly stale versions, each with a **Keep** link. Organizations start in `notify` mode: the digest is all that happens.
+- **Turn it on to clean up.** In `on` mode a stale version is deactivated on its date (an exact pin still resolves it, with a warning), deleted 30 days later if still unused (restorable as one batch), and purged 30 days after that. See [Automatic tidying](plugin-publishing.md#automatic-tidying).
+- **Never anything in use.** The latest and default versions, anything a pipeline, install or remediation references, frozen, managed and only versions, and KEV-flagged versions under an active risk acceptance are never touched.
+
+### What you will see
+
+- **Automatic tidying** under Settings → Organization → Plugin security: the mode, the number of days, and a preview of what the next pass would do.
+- A **Stale** badge with the deactivation date and a **Keep** button on plugin versions, a **Never tidy** switch per plugin, and the bytes tidying will free in the **Storage** section.
+- Lookups of a version tidying deactivated answer with a `PLUGIN_TIDY_DEACTIVATED` warning.
+- New notice N41 and audit actions `plugin.tidy.warned`, `plugin.tidy.deactivated`, `plugin.tidy.retired`, `plugin.tidy.kept` and `plugin.tidy.settings.update`.
+
+### For operators
+
+`PLUGIN_AUTO_TIDY_ENABLED` (default `true`; only the literal `false` turns it off) stops the daily job for every organization. Failures are counted on `plugin_tidy_failed_total{stage}` and alert as `PluginTidyFailing`. The new `plugins` columns and the `plugin_retention_settings` table are created by postgres-init on a new install. See [Environment Variables](environment-variables.md).
 
 ## November 2026: nightly plugin CVE remediation
 

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/notifications.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: fb358dbf74935bb8f6e844b171fecbe6b39f7b968f326200c6feeba1b5d9239f
+// SOURCE-SHA256: 329496fd02e2839bdcf2b0842f2d8c58577dd3b4c4211757f3f851109ff4e4d8
 // SPDX-License-Identifier: Apache-2.0
 import { Bell } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -675,6 +675,10 @@ export const notificationsTopic: HelpTopic = {
         },
         {
           "type": "text",
+          "content": "N41 — unused plugin versions went stale (automatic tidying). One digest per organization, at most once a week, to the same recipients and verified external address, listing only versions that went stale since the last one, each with its dates and a Keep link. An organization with nothing newly stale gets nothing. Transactional; it is sent in both notify and on mode. See Automatic tidying."
+        },
+        {
+          "type": "text",
           "content": "Settings, stored one row per org in plugin_security_notification_prefs (absent = the defaults below):"
         },
         {
@@ -732,7 +736,7 @@ export const notificationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The external address is verify-on-add. Saving a new address emails a single-use link, valid 24 hours, to that address. It receives nothing until its owner opens /notifications/confirm and presses the button — an explicit click, so a mail scanner following the link cannot burn the token. Until then the badge reads Pending confirmation (or Confirmation link expired), and Resend confirmation issues a fresh link. The catalog permits a raw address recipient on N30, N31 and the remediation notices N36–N39 only; the relay rejects it on every other event."
+          "content": "The external address is verify-on-add. Saving a new address emails a single-use link, valid 24 hours, to that address. It receives nothing until its owner opens /notifications/confirm and presses the button — an explicit click, so a mail scanner following the link cannot burn the token. Until then the badge reads Pending confirmation (or Confirmation link expired), and Resend confirmation issues a fresh link. The catalog permits a raw address recipient on N30, N31, the remediation notices N36–N39 and the tidying digest N41 only; the relay rejects it on every other event."
         },
         {
           "type": "text",
@@ -889,11 +893,11 @@ export const notificationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "packages/api-core/src/types/ecosystem-notifications.ts is the single table both the sender (plugin) and the relay (platform) read. Each of N1–N40 declares its channels (in_app | email), its opt-out key or null for transactional, an optional digest cadence, and whether a raw email address may be addressed."
+          "content": "packages/api-core/src/types/ecosystem-notifications.ts is the single table both the sender (plugin) and the relay (platform) read. Each of N1–N41 declares its channels (in_app | email), its opt-out key or null for transactional, an optional digest cadence, and whether a raw email address may be addressed."
         },
         {
           "type": "text",
-          "content": "Transactional and cannot be turned off: N1, N3, N4, N5, N7, N8, N9, N10, N18, N19, N20, N21, N22, N23, N25, N28, N29, N30, N31, N32, N33, N34, N36, N37, N38, N39, N40."
+          "content": "Transactional and cannot be turned off: N1, N3, N4, N5, N7, N8, N9, N10, N18, N19, N20, N21, N22, N23, N25, N28, N29, N30, N31, N32, N33, N34, N36, N37, N38, N39, N40, N41."
         },
         {
           "type": "text",

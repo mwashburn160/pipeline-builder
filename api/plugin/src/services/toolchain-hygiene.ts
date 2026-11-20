@@ -12,6 +12,10 @@
  *  - **deprecated** — orgs whose default is the release;
  *  - **vulnerable** — the release picked up a KEV-listed or fixable Critical
  *    finding at a rescan: orgs whose default is the release;
+ *  - **fixed** — an approved nightly toolchain fix published a patched release
+ *    of a vulnerable one: orgs whose default is the vulnerable release, and the
+ *    writers of pipelines pinned to it, are told the fixed release by name.
+ *    Nothing moves: they switch through their own default (or pin);
  *  - **behind** — a platform-default change left an org's default MORE than
  *    {@link TOOLCHAIN_BEHIND_THRESHOLD} promoted releases behind. Sent once, on
  *    the change that crosses the threshold, not on every later promotion.
@@ -48,6 +52,8 @@ export type ToolchainHygieneEvent =
   | { kind: 'yanked'; releaseVersion: string; reason?: string | null }
   | { kind: 'deprecated'; releaseVersion: string; message?: string | null }
   | { kind: 'vulnerable'; releaseVersion: string; plugin: string; criticalFixable: number; kev: number }
+  /** An approved nightly toolchain fix published `fixedRelease`, a security fix of `releaseVersion`. */
+  | { kind: 'fixed'; releaseVersion: string; fixedRelease: string; cleared: readonly string[] }
   | { kind: 'behind'; platformDefault: string; previousDefault: string | null };
 
 /** How many orgs were told, by audience. */
@@ -146,6 +152,16 @@ export function renderOrgDefaultNotice(event: ToolchainHygieneEvent, ctx: { rele
           FIX_DEFAULT(ctx.platformDefault),
         ].join('\n\n'),
       };
+    case 'fixed':
+      return {
+        subject: `A security fix of your toolchain default ${v} is available: ${event.fixedRelease}`,
+        text: [
+          `Toolchain release ${event.fixedRelease} is a security fix of ${v}, your organization's pipeline toolchain default`
+            + `${event.cleared.length ? `: it clears ${event.cleared.slice(0, 25).join(', ')}${event.cleared.length > 25 ? ` and ${event.cleared.length - 25} more` : ''}` : ''}. Its pipeline-manager, AWS CDK, cdk-assets and Node versions are unchanged.`,
+          'Nothing moves until you change it: your unpinned pipelines keep building on the current default.',
+          `Choose ${event.fixedRelease} as your organization default under Settings → Organization → Pipeline toolchain.`,
+        ].join('\n\n'),
+      };
     case 'behind':
       return {
         subject: `Your organization's toolchain default ${v} is ${ctx.behind} releases behind`,
@@ -156,6 +172,20 @@ export function renderOrgDefaultNotice(event: ToolchainHygieneEvent, ctx: { rele
         ].join('\n\n'),
       };
   }
+}
+
+/** The notice an org's pipeline writers get about pipelines PINNED to a release that has a security fix: only that org's pipelines. */
+export function renderPinnedFixedNotice(releaseVersion: string, fixedRelease: string, pipelines: readonly PinnedPipeline[]): { subject: string; text: string } {
+  const named = pipelines.slice(0, MAX_NAMED).map((p) => `  • pipeline ${p.name ?? p.id}`);
+  const more = pipelines.length > MAX_NAMED ? [`  … and ${pipelines.length - MAX_NAMED} more`] : [];
+  return {
+    subject: `Toolchain release ${releaseVersion}, pinned by your pipelines, has a security fix: ${fixedRelease}`,
+    text: [
+      `Toolchain release ${fixedRelease} is a security fix of ${releaseVersion}, which pipelines in your organization pin with toolchain.release. Its tool versions are unchanged.`,
+      `Your pipelines on ${releaseVersion}:\n${[...named, ...more].join('\n')}`,
+      `Change each pipeline's toolchain.release to ${fixedRelease}, or remove it to follow your organization's default.`,
+    ].join('\n\n'),
+  };
 }
 
 /** The notice an org's pipeline writers get about pipelines PINNED to a yanked release: only that org's pipelines. */
@@ -200,17 +230,20 @@ export async function notifyToolchainHygiene(event: ToolchainHygieneEvent): Prom
     } else {
       const { orgIds, pinned, platformDefault } = await elevatedRead(async (tx) => ({
         orgIds: await orgDefaultsOn(tx, event.releaseVersion),
-        pinned: event.kind === 'yanked' ? await pipelinesPinnedTo(tx, event.releaseVersion) : [],
+        pinned: event.kind === 'yanked' || event.kind === 'fixed' ? await pipelinesPinnedTo(tx, event.releaseVersion) : [],
         platformDefault: await platformDefaultOf(tx),
       }));
       // Every org default on one release gets the same text, so they share notices.
       if (orgIds.length > 0) await sendToManagers(orgIds, renderOrgDefaultNotice(event, { releaseVersion: event.releaseVersion, platformDefault }));
       result.orgDefaultOrgs = orgIds.length;
-      if (event.kind === 'yanked') {
+      if (event.kind === 'yanked' || event.kind === 'fixed') {
         const byOrg = new Map<string, PinnedPipeline[]>();
         for (const p of pinned) byOrg.set(p.orgId, [...(byOrg.get(p.orgId) ?? []), p]);
         for (const [orgId, ps] of byOrg) {
-          await enqueueEcosystemNotification('N34', [pipelineWriters(orgId)], renderPinnedNotice(event.releaseVersion, event.reason, ps), { immediate: true });
+          const content = event.kind === 'yanked'
+            ? renderPinnedNotice(event.releaseVersion, event.reason, ps)
+            : renderPinnedFixedNotice(event.releaseVersion, event.fixedRelease, ps);
+          await enqueueEcosystemNotification('N34', [pipelineWriters(orgId)], content, { immediate: true });
         }
         result.pinnedOrgs = byOrg.size;
       }

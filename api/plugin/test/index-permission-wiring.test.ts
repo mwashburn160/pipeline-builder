@@ -51,6 +51,7 @@ const ROUTERS = {
   orgToolchainDefault: { __router: 'orgToolchainDefault' },
   toolchainConsole: { __router: 'toolchainConsole' },
   remediations: { __router: 'remediations' },
+  toolchainFixes: { __router: 'toolchainFixes' },
   pluginByName: { __router: 'pluginByName' },
   internalRemediation: { __router: 'internalRemediation' },
 } as const;
@@ -139,6 +140,7 @@ jest.unstable_mockModule('../src/routes/toolchain-console.js', () => ({ createTo
 jest.unstable_mockModule('../src/routes/ecosystem-console.js', () => ({ createEcosystemConsoleRoutes: () => ROUTERS.ecosystemConsole }));
 jest.unstable_mockModule('../src/routes/reviews.js', () => ({ createReviewRoutes: () => ROUTERS.reviews }));
 jest.unstable_mockModule('../src/routes/remediations.js', () => ({ createRemediationRoutes: () => ROUTERS.remediations }));
+jest.unstable_mockModule('../src/routes/toolchain-fixes.js', () => ({ createToolchainFixRoutes: () => ROUTERS.toolchainFixes }));
 jest.unstable_mockModule('../src/routes/plugin-by-name.js', () => ({ createPluginByNameRoutes: () => ROUTERS.pluginByName }));
 jest.unstable_mockModule('../src/routes/internal-remediation.js', () => ({ createInternalRemediationRoutes: () => ROUTERS.internalRemediation }));
 jest.unstable_mockModule('../src/routes/security-notifications.js', () => ({
@@ -174,6 +176,9 @@ jest.unstable_mockModule('../src/services/ecosystem/stats.js', () => ({
 
 jest.unstable_mockModule('../src/routes/retention.js', () => ({ createRetentionRoutes: () => (_req: unknown, _res: unknown, next: () => void) => next() }));
 // The superseded-version retention pass — index.ts builds its scheduler when enabled; not under test here.
+// The stuck toolchain-publish resume scheduler — index.ts builds + starts it at boot.
+const toolchainResume = { started: 0, start() { this.started += 1; }, stop() { /* shutdown only */ } };
+jest.unstable_mockModule('../src/services/remediation/toolchain-resume.js', () => ({ createToolchainResumeScheduler: () => toolchainResume }));
 jest.unstable_mockModule('../src/services/retention/retire.js', () => ({
   runRetentionPass: jest.fn(),
   createRetentionScheduler: () => ({ start: () => undefined, stop: () => undefined }),
@@ -297,6 +302,18 @@ describe('src/index.ts — plugin ecosystem', () => {
     expect(useCalls.indexOf(mount)).toBeLessThan(useCalls.indexOf(mountFor(ROUTERS.read)));
     expect(useCalls.indexOf(mount)).toBeLessThan(useCalls.findIndex((c) => c.includes(STEP_UP)));
     expect(gatesBefore(ROUTERS.toolchainConsole)).toEqual([]);
+  });
+
+  it('mounts the toolchain-fixes routes on /plugins after the auth chain, before the read routes, with no mount-level gate (each route owns system org + plugins:write, decisions add step-up)', () => {
+    const mount = mountFor(ROUTERS.toolchainFixes);
+    expect(mount).toEqual(['/plugins', ROUTERS.toolchainFixes]);
+    expect(useCalls.indexOf(mount)).toBeGreaterThan(useCalls.findIndex((c) => c.includes(AUTH_CHAIN)));
+    expect(useCalls.indexOf(mount)).toBeLessThan(useCalls.indexOf(mountFor(ROUTERS.read)));
+    expect(gatesBefore(ROUTERS.toolchainFixes)).toEqual([]);
+  });
+
+  it('starts the stuck toolchain-publish resume scheduler at boot', () => {
+    expect(toolchainResume.started).toBe(1);
   });
 
   it('puts no mount-level gate on the ecosystem routers (every route owns its own)', () => {

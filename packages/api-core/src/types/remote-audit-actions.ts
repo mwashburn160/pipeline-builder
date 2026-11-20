@@ -568,6 +568,16 @@ export const REMOTE_AUDIT_ACTIONS = [
   // The superseded-version retention pass retiring a system plugin version,
   // one row per stage (`details.stage`: deprecate / yank / collect / reverse).
   'plugin.version.retire',
+  // Automatic plugin version tidying (api/plugin services/tidy/): the daily
+  // job's warning (digest N41), deactivation and retirement of an unused org
+  // version (system actor), a Keep — of one version, a plugin's never-tidy, or
+  // a reactivation because a protection now holds it (`details.scope` /
+  // `trigger`) — and the org's pluginRetention settings.
+  'plugin.tidy.warned',
+  'plugin.tidy.deactivated',
+  'plugin.tidy.retired',
+  'plugin.tidy.kept',
+  'plugin.tidy.settings.update',
   // Pipeline toolchain releases.
   'toolchain.default.set',
   'toolchain.default.initial',
@@ -578,6 +588,12 @@ export const REMOTE_AUDIT_ACTIONS = [
   'toolchain.release.yank',
   'toolchain.release.delete',
   'toolchain.recovery.notify',
+  // Nightly toolchain fixes (propose-only): a verified release candidate was
+  // recorded, and a system-org plugins:write holder approved (published) or
+  // rejected it with a step-up.
+  'toolchain.fix.proposed',
+  'toolchain.fix.approved',
+  'toolchain.fix.rejected',
   'toolchain.org_default.set',
   'toolchain.org_default.clear',
   'plugin.version.deprecate',

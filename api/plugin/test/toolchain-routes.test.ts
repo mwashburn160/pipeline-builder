@@ -183,10 +183,13 @@ describe('the deploy-bootstrap token everywhere else', () => {
     // The org-default and Toolchain console routes share the prefix; the bootstrap token is refused there like everywhere else.
     expect(others.filter((e) => e.path.startsWith('/plugins/toolchain')).map((e) => `${e.method} ${e.path}`).sort()).toEqual([
       'DELETE /plugins/toolchain/org-default', 'DELETE /plugins/toolchain/releases/:v',
+      // The nightly toolchain fixes' decisions (system org + plugins:write) share the prefix too.
+      'GET /plugins/toolchain-fixes', 'GET /plugins/toolchain-fixes/:id/export',
       'GET /plugins/toolchain/affected', 'GET /plugins/toolchain/cleanup', 'GET /plugins/toolchain/eligible', 'GET /plugins/toolchain/history',
       'GET /plugins/toolchain/org-default', 'GET /plugins/toolchain/org-default/history',
       'GET /plugins/toolchain/releases', 'GET /plugins/toolchain/releases/:v/adoption', 'GET /plugins/toolchain/releases/:v/canary',
       'GET /plugins/toolchain/releases/:v/default-preview', 'PATCH /plugins/toolchain/releases/:v',
+      'POST /plugins/toolchain-fixes/:id/approve', 'POST /plugins/toolchain-fixes/:id/reject',
       'POST /plugins/toolchain/affected/notify', 'POST /plugins/toolchain/releases/:v/default',
       'POST /plugins/toolchain/releases/:v/deprecate', 'POST /plugins/toolchain/releases/:v/yank',
       'PUT /plugins/toolchain/org-default', 'PUT /plugins/toolchain/releases/:v/rollout',
