@@ -9,10 +9,11 @@ import type { RequestHandler } from 'express';
 import { resolveRootOrgId } from '../helpers/org-hierarchy.js';
 import { authorizeOrg, requireInternalCaller } from '../middleware/authorize-org.js';
 import { checkAiControls } from '../services/ai-controls.js';
+import { recordDraftOutcome } from '../services/ai-usage-report.js';
 import { QuotaService, quotaService as defaultQuotaService, OrgNotFoundError } from '../services/quota-service.js';
 import { notifyThresholds } from '../services/threshold-notifier.js';
 import { recordUsage, recordUsageEvent, type UsageEventInput } from '../services/usage-ledger.js';
-import { UpdateQuotaSchema, IncrementQuotaSchema, DecrementQuotaSchema, ReportUsageSchema, ResetQuotaSchema } from '../validation/schemas.js';
+import { UpdateQuotaSchema, IncrementQuotaSchema, DecrementQuotaSchema, DraftOutcomeSchema, ReportUsageSchema, ResetQuotaSchema } from '../validation/schemas.js';
 
 export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService): Router {
   const router: Router = Router();
@@ -176,6 +177,20 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
         recordUsageEvent({ orgId: targetOrgId, rootOrgId, quotaType: 'aiCalls', amount: 0, outcome: 'counted', attribution, tokensIn, tokensOut, report: true });
         ctx.log('COMPLETED', 'Recorded AI usage report', { orgId: targetOrgId, tokensIn, tokensOut, feature: attribution?.feature });
         return sendSuccess(res, 200, { recorded: true }, 'Usage reported');
+      }
+
+      // AI DRAFT OUTCOME (ask-agent `POST /ask-agent/draft-outcome`): what a
+      // user did with one AI-generated draft. No counter moves; one
+      // (org, feature, outcome) is counted for the AI usage report's acceptance
+      // rate. Only those three facts are read from the body — never a user id.
+      if ((req.body as { draftOutcome?: unknown } | undefined)?.draftOutcome !== undefined) {
+        const outcome = validateBody(req, DraftOutcomeSchema);
+        if (!outcome.ok) return sendBadRequest(res, outcome.error, ErrorCode.VALIDATION_ERROR);
+        const { feature, outcome: what } = outcome.value.draftOutcome;
+        const rootOrgId = await resolveRootOrgId(targetOrgId);
+        await recordDraftOutcome({ orgId: targetOrgId, rootOrgId, feature, outcome: what });
+        ctx.log('COMPLETED', 'Recorded AI draft outcome', { orgId: targetOrgId, feature, outcome: what });
+        return sendSuccess(res, 200, { recorded: true }, 'Draft outcome recorded');
       }
 
       const validation = validateBody(req, IncrementQuotaSchema);

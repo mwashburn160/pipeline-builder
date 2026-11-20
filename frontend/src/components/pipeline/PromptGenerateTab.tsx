@@ -17,6 +17,7 @@ import { isAskAgentProvider } from '@/lib/ai-constants';
 import { streamAgentDraft } from '@/lib/ask-agent-draft';
 import { AI_MAX_PROMPT_LENGTH, formatJSON } from '@/lib/constants';
 import { useUnmountedRef } from '@/hooks/useUnmountedRef';
+import { useAiDraftOutcome } from '@/hooks/useAiDraftOutcome';
 import { GeneratedConfigReview, GenerationProgress, stageProgress, useGeneratedProps } from '@/components/pipeline/GeneratedConfigReview';
 
 /**
@@ -32,6 +33,8 @@ export interface PromptGenerateTabRef {
   getDescription: () => string;
   /** Returns the AI-generated keywords as a comma-separated string. */
   getKeywords: () => string;
+  /** The pipeline was created from this tab's draft (reports accepted / edited-then-accepted). */
+  markAccepted: () => void;
 }
 
 /** Props for the PromptGenerateTab component. */
@@ -68,6 +71,8 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
     const { onPluginChange, withOverrides } = useGeneratedProps({
       generatedProps, setGeneratedProps, setPreviewJson, projectOverride, organizationOverride,
     });
+    // What became of each generated draft (the AI usage report's acceptance rate).
+    const draftOutcome = useAiDraftOutcome();
 
     useImperativeHandle(ref, () => ({
       getProps: async (): Promise<BuilderProps | null> => {
@@ -77,6 +82,7 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
       },
       getDescription: () => generatedDescription,
       getKeywords: () => generatedKeywords,
+      markAccepted: () => draftOutcome.accepted(withOverrides()),
     }));
 
     // Set on unmount (e.g. the create modal closes mid-generation) so the async
@@ -120,6 +126,7 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
           setProjectOverride(data.props.project || '');
           setOrganizationOverride(data.props.organization || '');
           setServedBy({ servedBy: data.servedBy, usage: data.usage });
+          draftOutcome.offered(isAskAgentProvider(ai.selectedProvider) ? 'agent' : 'pipeline-generate', data.props);
         },
       });
     };

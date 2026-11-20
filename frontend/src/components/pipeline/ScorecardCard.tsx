@@ -7,8 +7,74 @@ import { FeatureLock } from '@/components/ui/FeatureLock';
 import { useFeatureGate } from '@/hooks/useFeatureGate';
 import { useFetch } from '@/hooks/useFetch';
 import { doraLevelBadge, GRADE_STYLES } from '@/components/reports/DoraParts';
+import { useReportBucketing } from '@/components/reports/useReportData';
 import api from '@/lib/api';
-import type { PipelineScorecard, ScorecardDoraLevel } from '@/types';
+import type { PipelineScorecard, PipelineScorecardHistory, ScorecardDoraLevel, ScorecardHistoryPoint } from '@/types';
+
+/** Windows a grade-history strip asks for (the server cap). */
+export const GRADE_HISTORY_PERIODS = 12;
+
+/** One strip cell's accessible name: "2026-W47 (so far): grade A, score 82". */
+function cellLabel(p: { label: string; partial: boolean; score: number | null; grade: string; unavailable?: boolean }): string {
+  const when = p.partial ? `${p.label} (so far)` : p.label;
+  if (p.unavailable) return `${when}: could not be computed`;
+  if (p.score === null) return `${when}: not enough data`;
+  return `${when}: grade ${p.grade}, score ${p.score}`;
+}
+
+/**
+ * A row of small grade cells, oldest → newest, one per history window, coloured
+ * with the same GRADE_STYLES as the badge. `compact` drops the letters (a
+ * leaderboard row); the full strip prints them. A window that failed to compute
+ * is a hollow gap, never an F; the current (partial) window is dashed.
+ */
+export function GradeHistoryStrip({ points, label, compact = false }: {
+  points: ReadonlyArray<Pick<ScorecardHistoryPoint, 'label' | 'partial' | 'score' | 'grade' | 'unavailable'>>;
+  /** The list's accessible name, e.g. "Grade history, last 12 weeks". */
+  label: string;
+  compact?: boolean;
+}) {
+  if (points.length === 0) return null;
+  return (
+    <ul aria-label={label} className="flex items-end gap-0.5">
+      {points.map((p) => {
+        const name = cellLabel(p);
+        const tone = p.unavailable ? 'border border-dashed border-default bg-transparent' : GRADE_STYLES[p.grade] ?? GRADE_STYLES['N/A'];
+        return (
+          <li
+            key={p.label}
+            aria-label={name}
+            title={name}
+            className={`inline-flex items-center justify-center rounded-sm font-semibold leading-none ${compact ? 'w-2 h-4' : 'w-5 h-5 text-2xs'} ${tone} ${p.partial ? 'opacity-70 outline outline-1 outline-dashed outline-current' : ''}`}
+          >
+            {!compact && !p.unavailable && p.score !== null ? p.grade : null}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** The card's history strip: its own read, silent on failure (the card still stands). */
+function CardGradeHistory({ pipelineId }: { pipelineId: string }) {
+  const bucketing = useReportBucketing();
+  const { ready, tz, weekStart } = bucketing;
+  const read = useFetch<PipelineScorecardHistory | null>(async (signal) => {
+    const res = await api.getPipelineScorecardHistory(pipelineId, {
+      interval: 'week', periods: GRADE_HISTORY_PERIODS, tz, ...(weekStart && { weekStart }),
+    }, { signal });
+    if (!res.success || !res.data) throw new Error(res.message || 'Failed to load the grade history');
+    return res.data.history;
+  }, [pipelineId, ready, tz, weekStart], { enabled: ready });
+  const points = read.data?.points ?? [];
+  if (read.error || points.length === 0) return null;
+  return (
+    <div className="pt-2 border-t border-default">
+      <div className="text-xs text-fg-subtle mb-1">Grade, last {points.length} week{points.length === 1 ? '' : 's'}</div>
+      <GradeHistoryStrip points={points} label={`Grade history, last ${points.length} weeks`} />
+    </div>
+  );
+}
 
 /** The security dimension's row: open plugin exposures + artifact report findings. */
 function SecurityRow({ security }: { security: PipelineScorecard['security'] | undefined }) {
@@ -125,6 +191,7 @@ export function ScorecardCard({ pipelineId }: { pipelineId: string }) {
               </div>
             </div>
           </div>
+          <CardGradeHistory pipelineId={pipelineId} />
           <div className="pt-2 border-t border-default space-y-1.5">
             <div className="flex items-center justify-between text-sm">
               <span className="text-fg-muted">Compliance</span>
@@ -141,6 +208,7 @@ export function ScorecardCard({ pipelineId }: { pipelineId: string }) {
           <p className="text-2xs text-fg-subtle">
             DORA basis: deploy-stage. Lead time is measured (commit → deploy); shown for the production environment. A band needs at least five deploys or measurements — below that it says “Not enough data” and is left out of the score.
             Security counts open plugin exposures and the latest artifact scans; it is unscored until either exists.
+            Each history cell re-scores that week with the same formula (today&apos;s compliance and security, that week&apos;s deploys).
           </p>
         </div>
       )}

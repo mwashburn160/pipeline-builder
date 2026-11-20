@@ -268,6 +268,19 @@ export {
   type InsightSection,
   type InsightsResult,
 } from './api/reporting/insights.js';
+// Team benchmarking: one row per team (and the parent), each built from the
+// team's OWN dashboard reads, plus the closed previous window `?compare=previous` reads.
+export {
+  computeTeamBenchmark,
+  previousDashboardWindow,
+  successTotals,
+  type TeamBenchmark,
+  type TeamBenchmarkInput,
+  type TeamBenchmarkRow,
+  type TeamBenchmarkSource,
+  type BenchmarkCell,
+  type BenchmarkSuccess,
+} from './api/reporting/team-benchmark.js';
 export {
   replacePipelineResolution,
   refreshLatestForPlugin,
@@ -315,6 +328,42 @@ export {
   type ComplianceTrendPoint,
   type TopViolatedRule,
 } from './api/reporting/compliance-trend.js';
+// Flow reports: approval wait (advanced), queue / provisioning time (free) and
+// its trend (advanced), pipeline start → first stage.
+export {
+  getApprovalWaits,
+  getQueueWaits,
+  getQueueWaitTrend,
+  type FlowScope,
+  type FlowBucket,
+  type WaitStats,
+  type ApprovalWaitReport,
+  type ApprovalTrendPoint,
+  type ApprovalStage,
+  type QueueWaitReport,
+  type QueueByComputeType,
+  type QueueAction,
+  type QueueTrendPoint,
+} from './api/reporting/flow.js';
+// The Delivery reports: run latency / runner reliability (free) and the
+// deployment calendar / change volume (advanced).
+export {
+  getRunnerReliability,
+  getDeploymentCalendar,
+  RUNNER_REFUSAL_CODES,
+  type DeliveryScope,
+  type DeliveryBucket,
+  type RunRequestOutcome,
+  type RunOutcomeCounts,
+  type RunRequestTrendPoint,
+  type RunnerFailureCode,
+  type RunnerReliabilityRow,
+  type RunnerReliabilityReport,
+  type CalendarDay,
+  type ProductionDeploy,
+  type ProductionDeployOutcome,
+  type DeploymentCalendarReport,
+} from './api/reporting/delivery.js';
 
 // Toolchain run data: the
 // release stamp on synth / self-mutation rows, the canary gate and the Affected view.

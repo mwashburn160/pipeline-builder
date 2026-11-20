@@ -33,7 +33,47 @@ interface BatchGetBuildsOutput {
   builds?: Array<{
     logs?: { groupName?: string; streamName?: string };
     environment?: { computeType?: string };
+    phases?: Array<{ phaseType?: string; startTime?: unknown; endTime?: unknown; durationInSeconds?: number }>;
   }>;
+}
+
+/**
+ * How long a build WAITED before it ran: CodeBuild's QUEUED phase (waiting for
+ * capacity) and PROVISIONING phase (the build environment being set up), in ms.
+ * A phase AWS did not report is absent, never zero — zero would read as
+ * "no wait", which is the most flattering guess.
+ */
+export interface BuildPhases {
+  queuedMs?: number;
+  provisioningMs?: number;
+}
+
+/** What a terminal CodeBuild action's one `BatchGetBuilds` read yields. */
+export interface BuildFacts {
+  computeType: string | null;
+  phases: BuildPhases | null;
+}
+
+/** One phase's length: exact start/end when AWS gave both, else its whole-second duration. */
+function phaseMs(p: { startTime?: unknown; endTime?: unknown; durationInSeconds?: number }): number | undefined {
+  const toMs = (v: unknown) => (v instanceof Date || typeof v === 'string' || typeof v === 'number' ? new Date(v).getTime() : NaN);
+  const exact = toMs(p.endTime) - toMs(p.startTime);
+  if (Number.isFinite(exact) && exact >= 0) return Math.round(exact);
+  const d = p.durationInSeconds;
+  return typeof d === 'number' && Number.isFinite(d) && d >= 0 ? Math.round(d * 1000) : undefined;
+}
+
+/** The QUEUED / PROVISIONING durations off a build record, or null when neither is there. */
+export function buildPhasesOf(phases: Array<{ phaseType?: string; startTime?: unknown; endTime?: unknown; durationInSeconds?: number }> | undefined): BuildPhases | null {
+  if (!Array.isArray(phases)) return null;
+  const out: BuildPhases = {};
+  for (const p of phases) {
+    const ms = phaseMs(p);
+    if (ms === undefined) continue;
+    if (p.phaseType === 'QUEUED') out.queuedMs = ms;
+    else if (p.phaseType === 'PROVISIONING') out.provisioningMs = ms;
+  }
+  return out.queuedMs === undefined && out.provisioningMs === undefined ? null : out;
 }
 interface LogsModule {
   CloudWatchLogsClient: new (config: { region: string }) => SdkClient;
@@ -92,7 +132,8 @@ export function codeBuildIdOf(detail: Record<string, unknown>): string | null {
 
 /**
  * The compute size a finished CodeBuild action ran on, AS AWS SPELLS IT
- * (`BUILD_GENERAL1_MEDIUM`), or null.
+ * (`BUILD_GENERAL1_MEDIUM`), or null — plus its queue / provisioning wait
+ * ({@link BuildPhases}), or null.
  *
  * Returned raw and narrowed server-side rather than here, for one hard reason:
  * this Lambda ships as a SINGLE bundled file, and the vocabulary lives in the
@@ -118,18 +159,25 @@ export function codeBuildIdOf(detail: Record<string, unknown>): string | null {
  * sharing a cache between them would mean holding build records for the whole
  * batch to save one call on the minority path.
  */
-export async function readBuildCompute(region: string, buildId: string): Promise<string | null> {
+export async function readBuildCompute(region: string, buildId: string): Promise<BuildFacts> {
   try {
     const cb = await client('codebuild', region);
     const out = await cb.client.send(
       new (cb.mod as CodeBuildModule).BatchGetBuildsCommand({ ids: [buildId] }),
     ) as BatchGetBuildsOutput;
-    return out.builds?.[0]?.environment?.computeType ?? null;
+    const build = out.builds?.[0];
+    // The queue / provisioning wait rides the SAME read: the record already
+    // carries its phases, so the Flow report costs no extra AWS call. CodeBuild
+    // "Build State Change" events carry the phases too, but they name a build
+    // PROJECT, not a pipeline (a project can be shared), so they are dropped
+    // before this point — the pipeline's own action event is the one that can
+    // be attributed to a (pipeline, stage, action).
+    return { computeType: build?.environment?.computeType ?? null, phases: buildPhasesOf(build?.phases) };
   } catch (err) {
     log.warn('Could not read the build\'s compute size (forwarding without it)', {
       buildId, error: String(err),
     });
-    return null;
+    return { computeType: null, phases: null };
   }
 }
 

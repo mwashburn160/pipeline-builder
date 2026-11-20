@@ -89,7 +89,10 @@ export function recordUsage(inputs: UsageEventInput[]): void {
           keySource: a.keySource ?? null,
         },
         update: {
-          $inc: { amount: i.amount, tokensIn: i.tokensIn ?? 0, tokensOut: i.tokensOut ?? 0 },
+          // `calls`: one usage REPORT is one AI call that reached the provider —
+          // the AI usage report's call count (units undercount: BYOK and
+          // weight-0 calls spend none). Absent on older buckets (reads as 0).
+          $inc: { amount: i.amount, tokensIn: i.tokensIn ?? 0, tokensOut: i.tokensOut ?? 0, ...(i.report ? { calls: 1 } : {}) },
           $set: { rootOrgId: i.rootOrgId },
         },
         upsert: true,
@@ -345,7 +348,7 @@ export async function aiCallsByPrincipalSince(rootOrgId: string, principalId: st
  * (`=`, `+`, `-`, `@`, tab, CR) is prefixed with `'`. Route patterns and ids
  * never start that way legitimately, so the guard costs nothing.
  */
-function csvCell(value: unknown): string {
+export function csvCell(value: unknown): string {
   let text = String(value ?? '');
   if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
   return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;

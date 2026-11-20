@@ -12,12 +12,46 @@ import {
   requireSystemOrgPermission,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import { reportingService } from '@pipeline-builder/pipeline-data';
+import { previousDashboardWindow, reportingService } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
-import type { Request } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import { MAX_REPORT_LIMIT, MAX_REPORT_RANGE_MS, parseReportBucket, scrubField, rollupIds } from '../helpers/report-helpers.js';
 import { resolveReportScope } from '../helpers/report-scope.js';
-import { orgRetentionWindowFromSettings, floorFrom, retentionOrgIdFor } from '../helpers/retention-cap.js';
+import { orgRetentionWindowFromSettings, floorFrom, retentionOrgIdFor, resolveOrgRetentionWindow } from '../helpers/retention-cap.js';
+
+/**
+ * `?compare=previous` on the dashboard headline routes (/dora, /success-rate):
+ * `false` when absent, `true` for `previous`, `{ error }` for anything else.
+ * (A stakeholder report compares against the previous CALENDAR period instead —
+ * see docs/dora-metrics.md.)
+ */
+function parseCompare(query: Record<string, unknown>): boolean | { error: string } {
+  const v = query.compare;
+  if (v === undefined || v === '') return false;
+  return v === 'previous' ? true : { error: '"compare" must be "previous"' };
+}
+
+/**
+ * The comparison is an `advanced_reporting` read even on a free route: a request
+ * that asks for it without the entitlement is refused by the same gate /dora
+ * uses; without `?compare` the route stays free (`reports:read` only).
+ */
+const requireAdvanced = requireFeature('advanced_reporting');
+function compareGate(req: Request, res: Response, next: NextFunction): void {
+  if (req.query.compare === undefined || req.query.compare === '') return next();
+  requireAdvanced(req, res, next);
+}
+
+/**
+ * The previous window for a comparison, or null when it would start before the
+ * retention horizon (that data is purged — a partial window would compare a
+ * fraction of a period against a whole one). `minFromMs <= 0` = unlimited.
+ */
+function comparableWindow(range: { from: string; to: string }, minFromMs: number): { from: string; to: string } | null {
+  const prev = previousDashboardWindow(range.from, range.to);
+  if (!prev) return null;
+  return minFromMs > 0 && Date.parse(prev.from) < minFromMs ? null : prev;
+}
 
 export function createExecutionReportRoutes(): Router {
   const router = Router();
@@ -62,7 +96,7 @@ export function createExecutionReportRoutes(): Router {
 
   // `?tz=` (IANA name) and `?weekStart=` (monday|sunday) bucket the series the
   // way the stakeholder report does (see parseReportBucket); invalid → 400.
-  router.get('/success-rate', withRoute(async ({ req, res, orgId }) => {
+  router.get('/success-rate', compareGate, withRoute(async ({ req, res, orgId }) => {
     const interval = parseReportInterval(req.query);
     if (typeof interval === 'object') return sendBadRequest(res, interval.error, ErrorCode.VALIDATION_ERROR);
     const bucket = parseReportBucket(req.query);
@@ -70,7 +104,20 @@ export function createExecutionReportRoutes(): Router {
     const scope = await resolveReportScope(req, orgId, 'event');
     if ('error' in scope) return sendBadRequest(res, scope.error, ErrorCode.VALIDATION_ERROR);
     const { range, orgIds } = scope;
-    sendSuccess(res, 200, { timeline: await reportingService.getSuccessRate(orgId, interval, range.from, range.to, orgIds, bucket) });
+    const compare = parseCompare(req.query);
+    if (typeof compare === 'object') return sendBadRequest(res, compare.error, ErrorCode.VALIDATION_ERROR);
+    const timeline = reportingService.getSuccessRate(orgId, interval, range.from, range.to, orgIds, bucket);
+    if (!compare) return sendSuccess(res, 200, { timeline: await timeline });
+    // `?compare=previous`: the same figures for the equal-length window just
+    // before (advanced_reporting — enforced by compareGate on this route), or
+    // `previous: null` when that window starts before the event retention horizon.
+    const win = await resolveOrgRetentionWindow(orgId, 'event', retentionOrgIdFor(req, orgId));
+    const prev = comparableWindow(range, win.minFromMs);
+    const [current, previous] = await Promise.all([
+      timeline,
+      prev ? reportingService.getSuccessRate(orgId, interval, prev.from, prev.to, orgIds, bucket) : Promise.resolve(null),
+    ]);
+    sendSuccess(res, 200, { timeline: current, previous: prev && previous ? { window: prev, timeline: previous } : null });
   }));
 
   router.get('/duration', withRoute(async ({ req, res, orgId }) => {
@@ -107,7 +154,7 @@ export function createExecutionReportRoutes(): Router {
   // honored only for `reports:rollup` holders (rollupIds), which bounds the
   // aggregate to the org→team subtree. ADDITIONALLY gated by the
   // `advanced_reporting` feature — DORA is a paid entitlement: INCLUDED on the
-  // Enterprise tier, and a purchasable add-on bundle for every other tier
+  // Business and Enterprise tiers, and a purchasable add-on bundle for the others
   // (developer/pro/team). So this route requires BOTH `reports:read` (mount) AND
   // the feature; the other reports stay available on every tier. Optional scoping:
   //   ?pipelineId=<id>     — per-pipeline DORA
@@ -128,12 +175,20 @@ export function createExecutionReportRoutes(): Router {
     // the clamp (frontend truncation banner); unlimited (`minFromMs=0`) = no floor.
     const range = floorFrom(parsed, win.minFromMs);
     const { incidentWindowHours } = settings;
-    sendSuccess(res, 200, {
-      dora: await reportingService.getDoraMetrics(orgId, range.from, range.to, orgIds, {
-        ...doraOptions(req),
-        incidentWindowHours: incidentWindowHours ?? undefined,
-      }),
-    });
+    const compare = parseCompare(req.query);
+    if (typeof compare === 'object') return sendBadRequest(res, compare.error, ErrorCode.VALIDATION_ERROR);
+    const opts = { ...doraOptions(req), incidentWindowHours: incidentWindowHours ?? undefined };
+    if (!compare) {
+      return sendSuccess(res, 200, { dora: await reportingService.getDoraMetrics(orgId, range.from, range.to, orgIds, opts) });
+    }
+    // `?compare=previous`: the same DORA figures for the equal-length window just
+    // before, or `previous: null` when it starts before the DORA retention horizon.
+    const prev = comparableWindow(range, win.minFromMs);
+    const [dora, previous] = await Promise.all([
+      reportingService.getDoraMetrics(orgId, range.from, range.to, orgIds, opts),
+      prev ? reportingService.getDoraMetrics(orgId, prev.from, prev.to, orgIds, opts) : Promise.resolve(null),
+    ]);
+    sendSuccess(res, 200, { dora, previous });
   }));
 
   // DORA trend — deployment frequency + change-failure rate bucketed by

@@ -222,6 +222,37 @@ describe('POST /reports/events', () => {
     expect(events[1]).not.toHaveProperty('detail');
   });
 
+  it('stores a build\'s queue / provisioning wait as detail.buildPhases (the Flow report reads it)', async () => {
+    const action = { ...validEvent, eventType: 'ACTION', stageName: 'Build', actionName: 'Build' };
+    await getHandler()(ingestReq({
+      body: {
+        events: [
+          { ...action, detail: { stage: 'Build' }, computeType: 'BUILD_GENERAL1_SMALL', buildPhases: { queuedMs: 42_500, provisioningMs: 17_000 } },
+          { ...action, buildPhases: { queuedMs: 1000 } },
+          action,
+        ],
+      },
+    }), res());
+    const [events] = mockIngestEvents.mock.calls[0] as [Array<Record<string, unknown>>];
+    expect(events[0]).toEqual(expect.objectContaining({
+      detail: { stage: 'Build', computeType: 'BUILD_GENERAL1_SMALL', buildPhases: { queuedMs: 42_500, provisioningMs: 17_000 } },
+    }));
+    expect(events[0]).not.toHaveProperty('buildPhases');
+    expect(events[1]).toEqual(expect.objectContaining({ detail: { buildPhases: { queuedMs: 1000 } } }));
+    expect(events[2]).not.toHaveProperty('detail');
+  });
+
+  it.each([
+    [{ queuedMs: -1 }],
+    [{ queuedMs: 1.5 }],
+    [{ provisioningMs: 'slow' }],
+    [{ queuedMs: 10, extra: 1 }],
+  ])('400s a malformed buildPhases %j without ingesting', async (buildPhases) => {
+    await getHandler()(ingestReq({ body: { events: [{ ...validEvent, eventType: 'ACTION', buildPhases }] } }), res());
+    expect(mockSendBadRequest).toHaveBeenCalledWith(expect.anything(), expect.any(String), 'VALIDATION_ERROR');
+    expect(mockIngestEvents).not.toHaveBeenCalled();
+  });
+
   // CodePipeline sends RESUMED when a failed stage is retried. Refusing it 400'd
   // the forwarder's whole batch, so the run's neighbouring events never landed.
   it.each(['PIPELINE', 'STAGE'])('accepts a RESUMED %s event (a retried stage)', async (eventType) => {

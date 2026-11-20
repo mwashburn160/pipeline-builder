@@ -17,6 +17,7 @@ import { QuotaCard } from './QuotaCard';
 import { CurrentTierPanel } from './CurrentTierPanel';
 import { QuotaNoticeSettingsCard } from './QuotaNoticeSettingsCard';
 import { QuotaUsageBreakdown } from './QuotaUsageBreakdown';
+import { AiUsagePanel } from './AiUsagePanel';
 import { AT_RISK_THRESHOLDS, QUOTA_KEYS, TIER_PRESETS, POOLING_TITLE, poolingExplanation } from './constants';
 import { BuildCapacityCard } from './BuildCapacityCard';
 import { CrossoverCard } from './CrossoverCard';
@@ -214,6 +215,9 @@ export function QuotasReadOnly({
         ) : null}
         {!loading && orgData && !orgData.isDefault && (
           <QuotaUsageBreakdown orgId={orgData.orgId} isTeam={activeOrgIsTeam} periodDays={orgData.periodDays} />
+        )}
+        {!loading && orgData && !orgData.isDefault && (
+          <AiUsagePanel orgId={orgData.orgId} isTeam={activeOrgIsTeam} />
         )}
         {!loading && orgData && !orgData.isDefault && canManageNotices && !activeOrgIsTeam && (
           <QuotaNoticeSettingsCard orgId={orgData.orgId} />

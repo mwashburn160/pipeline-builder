@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useEffectEvent } from 'react';
 import { Plus, ChevronLeft, ChevronRight, ShieldCheck } from 'lucide-react';
 import { useFeatureGate } from '@/hooks/useFeatureGate';
 import { FeatureLock } from '@/components/ui/FeatureLock';
@@ -90,6 +90,16 @@ export default function CreatePipelineModal({
       setComplianceResult(null);
     }
   }, [isOpen, resetWizard]);
+
+  // A create that succeeded from an AI tab ACCEPTED that tab's draft (the AI
+  // usage report's acceptance rate). Read on the success transition only.
+  const draftCreated = useEffectEvent(() => {
+    if (activeTab === 'ai') aiRef.current?.markAccepted();
+    else if (activeTab === 'prompt') promptRef.current?.markAccepted();
+  });
+  useEffect(() => {
+    if (createSuccess) draftCreated();
+  }, [createSuccess]);
 
   if (!isOpen) return null;
 

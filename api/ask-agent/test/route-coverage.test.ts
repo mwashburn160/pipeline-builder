@@ -33,6 +33,12 @@ const snapshotFile = resolve(here, '../../../frontend/src/generated/route-table/
 /** Routes that legitimately can't satisfy a rule, each with its reason. */
 const EXCEPTIONS: RouteCoverageException[] = [
   ...INFRA_ROUTE_EXCEPTIONS,
+  {
+    method: 'POST',
+    path: '/ask-agent/draft-outcome',
+    waive: 'audit',
+    reason: 'An AI-draft outcome counter (accepted / edited / discarded) for the AI usage report. It must never be attributable to a person, and every audit row carries its actor — so it is counted per org and feature in the quota service\'s draft-outcome buckets instead. It changes no tenant state.',
+  },
 ];
 
 /**

@@ -58,6 +58,12 @@ export interface UsageBucketDocument {
    */
   tokensIn: number;
   tokensOut: number;
+  /**
+   * AI calls: how many after-the-call usage reports landed in this bucket — one
+   * per call that reached the provider, charged or not (BYOK, weight 0). The AI
+   * usage report's call count; absent on buckets written before it existed.
+   */
+  calls?: number;
 }
 
 const usageBucketSchema = new Schema<UsageBucketDocument>({
@@ -77,6 +83,7 @@ const usageBucketSchema = new Schema<UsageBucketDocument>({
   amount: { type: Number, required: true, default: 0 },
   tokensIn: { type: Number, default: 0 },
   tokensOut: { type: Number, default: 0 },
+  calls: { type: Number },
 }, { collection: 'quota_usage_buckets', versionKey: false });
 
 // The bucket key. Led by (orgId, hour), so it doubles as the TEAM read scope's

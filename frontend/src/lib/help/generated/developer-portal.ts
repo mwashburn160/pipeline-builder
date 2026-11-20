@@ -1,6 +1,6 @@
 // GENERATED FROM docs/developer-portal.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: d0ab97ca88acbe4e7fe692d3070e214d40e04690b05ddc55ba2ed0a0fd3a00dd
+// SOURCE-SHA256: 729483f2583de735348a4b90df0f17293bc056065c181b7cf978a10167ea4d59
 // SPDX-License-Identifier: Apache-2.0
 import { LayoutDashboard } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -96,7 +96,7 @@ export const developerPortalTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Enable Advanced Reporting to expose scorecards. They are gated by the advanced_reporting feature — Enterprise, or the Advanced Reporting add-on — the same feature that gates DORA. With it off, the card is hidden.",
+            "Enable Advanced Reporting to expose scorecards. They are gated by the advanced_reporting feature — included in Business and Enterprise, or the Advanced Reporting add-on — the same feature that gates DORA. With it off, the card is hidden.",
             "Deploy the forwarder with --with-dora if you want measured lead time. Without it, lead time reports unknown and the DORA half of the score is computed from the remaining bands. See DORA Metrics.",
             "Decide template visibility. New templates default to visibility: private. org shares one org-wide; public puts it in the shared golden-path catalog and requires templates:publish.",
             "Grant the template permissions you intend: templates:write to author, templates:publish to publish org-wide golden paths.",

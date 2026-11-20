@@ -9,6 +9,9 @@ import {
   gradeForScore,
   buildScorecard,
   securityScore,
+  scorecardWindows,
+  averageScore,
+  SCORECARD_HISTORY_MAX_PERIODS,
 } from '../src/helpers/scorecard.js';
 
 type Level = 'elite' | 'high' | 'medium' | 'low' | 'insufficient' | null;
@@ -163,5 +166,46 @@ describe('security dimension', () => {
     });
     expect(sc.security).toEqual({ score: 85, exposures: { count: 1, critical: 1, high: 0, kev: 0 }, artifact: null });
     expect(sc.score).toBe(Math.round((80 * 0.4 + 85 * 0.2) / 0.6));
+  });
+});
+
+describe('scorecardWindows (grade-history windows)', () => {
+  const now = new Date('2026-11-20T15:00:00Z'); // a Friday
+
+  it('returns N ISO weeks oldest-first, the last one partial (ending now)', () => {
+    const w = scorecardWindows(now, 'week', 3, { tz: 'UTC', weekStart: 'monday' });
+    expect(w.map((x) => x.label)).toEqual(['2026-W45', '2026-W46', '2026-W47']);
+    expect(w[0]).toMatchObject({ from: '2026-11-02T00:00:00.000Z', to: '2026-11-09T00:00:00.000Z', partial: false, truncated: false });
+    expect(w[2]).toMatchObject({ from: '2026-11-16T00:00:00.000Z', to: now.toISOString(), partial: true });
+  });
+
+  it('aligns week and month boundaries to the viewer timezone and week start', () => {
+    const w = scorecardWindows(now, 'week', 1, { tz: 'America/Chicago', weekStart: 'sunday' });
+    // Sunday 2026-11-15 00:00 in Chicago (CST, UTC-6).
+    expect(w[0].from).toBe('2026-11-15T06:00:00.000Z');
+    const m = scorecardWindows(now, 'month', 2, { tz: 'America/Chicago', weekStart: 'monday' });
+    expect(m.map((x) => x.label)).toEqual(['2026-10', '2026-11']);
+    // Oct 1 00:00 CDT (UTC-5) → Nov 1 00:00 CDT.
+    expect(m[0]).toMatchObject({ from: '2026-10-01T05:00:00.000Z', to: '2026-11-01T05:00:00.000Z' });
+  });
+
+  it('caps the number of windows', () => {
+    expect(scorecardWindows(now, 'week', 99, { tz: 'UTC', weekStart: 'monday' })).toHaveLength(SCORECARD_HISTORY_MAX_PERIODS);
+  });
+
+  it('floors at the DORA retention horizon: drops windows wholly before it, truncates the one it cuts', () => {
+    const minFromMs = Date.parse('2026-11-05T00:00:00Z');
+    const w = scorecardWindows(now, 'week', 4, { tz: 'UTC', weekStart: 'monday', minFromMs });
+    expect(w.map((x) => x.label)).toEqual(['2026-W45', '2026-W46', '2026-W47']);
+    expect(w[0]).toMatchObject({ from: '2026-11-05T00:00:00.000Z', truncated: true });
+    expect(w[1].truncated).toBe(false);
+  });
+});
+
+describe('averageScore', () => {
+  it('rounds the mean of the scored entries and ignores the unscored', () => {
+    expect(averageScore([80, null, 71])).toBe(76);
+    expect(averageScore([null])).toBeNull();
+    expect(averageScore([])).toBeNull();
   });
 });

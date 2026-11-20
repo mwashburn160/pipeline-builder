@@ -28,6 +28,7 @@ import { AI_MAX_PROMPT_LENGTH, formatError, formatJSON } from '@/lib/constants';
 import type { PluginGenerationDone, SimilarPlugin, Visibility } from '@/types';
 import { useUnmountedRef } from '@/hooks/useUnmountedRef';
 import { useAutoCloseTimer } from '@/hooks/useAutoCloseTimer';
+import { useAiDraftOutcome } from '@/hooks/useAiDraftOutcome';
 
 /** Props for the AIPluginBuilderTab component. */
 interface AIPluginBuilderTabProps {
@@ -141,6 +142,8 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
   const quotaBlocked = aiQuotaBlocked(quota?.summary, keySource);
   const unmountedRef = useUnmountedRef();
   const autoClose = useAutoCloseTimer();
+  // What became of each generated draft (the AI usage report's acceptance rate).
+  const draftOutcome = useAiDraftOutcome();
 
   // Auto-complete on successful build. Fires on the status transition only;
   // the config name and the parent's callbacks are read as they are now.
@@ -185,6 +188,7 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
         setDockerfileViolations(data.dockerfileViolations ?? []);
         setServed({ servedBy: data.servedBy, usage: data.usage });
         setStreamPreview(null);
+        draftOutcome.offered(isAskAgentProvider(ai.selectedProvider) ? 'agent' : 'plugin-generate', { config: data.config, dockerfile: data.dockerfile });
       },
       onSettled: () => setStreamPreview(null),
     });
@@ -207,6 +211,10 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
         buildSize,
       });
 
+      // The deploy was accepted (queued or done): the draft was used as generated.
+      if ((response.statusCode === 202 && response.data?.requestId) || response.success) {
+        draftOutcome.accepted({ config: generatedConfig, dockerfile: generatedDockerfile });
+      }
       if (response.statusCode === 202 && response.data?.requestId) {
         // Build queued — start listening for SSE events
         setRequestId(response.data.requestId);

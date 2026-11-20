@@ -101,6 +101,7 @@ export function DoraTab({ filters, enabled, canMark, markReadOnly = false, onSta
     <>
       <DoraReport
         loading={loading}
+        includeDescendants={filters.includeDescendants}
         dora={data.dora}
         doraTrend={data.doraTrend}
         pipelineOptions={data.pipelineOptions}

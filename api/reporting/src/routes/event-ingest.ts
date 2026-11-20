@@ -80,6 +80,16 @@ const baseIngestFields = {
   // family must land as an unrecognised size the coverage metric reports —
   // not as a rejected batch that drops every event beside it.
   computeType: z.string().min(1).max(64).optional(),
+  // How long a terminal CodeBuild action's build WAITED before it ran: the
+  // QUEUED and PROVISIONING phase lengths in ms, read by the forwarder off the
+  // same BatchGetBuilds record as `computeType`. Stored as `detail.buildPhases`
+  // (see foldBuildPhases) and read by the Flow report's queue-time panel. A phase
+  // AWS did not report is absent, never zero. Strict: an unknown key is a
+  // producer bug, refused rather than silently stored.
+  buildPhases: z.object({
+    queuedMs: z.number().int().min(0).optional(),
+    provisioningMs: z.number().int().min(0).optional(),
+  }).strict().optional(),
   failure: z.object({
     code: z.string().min(1).max(64),
     message: z.string().max(2048),
@@ -142,6 +152,12 @@ function foldFailure<E extends { failure?: unknown; detail?: Record<string, unkn
 function foldCompute<E extends { computeType?: unknown; detail?: Record<string, unknown> }>(event: E): Omit<E, 'computeType'> {
   const { computeType, ...rest } = event;
   return computeType === undefined ? rest : { ...rest, detail: { ...(rest.detail ?? {}), computeType } };
+}
+
+/** Same fold for `buildPhases` (the queue / provisioning wait), after validation like {@link foldCompute}. */
+function foldBuildPhases<E extends { buildPhases?: unknown; detail?: Record<string, unknown> }>(event: E): Omit<E, 'buildPhases'> {
+  const { buildPhases, ...rest } = event;
+  return buildPhases === undefined ? rest : { ...rest, detail: { ...(rest.detail ?? {}), buildPhases } };
 }
 
 /**
@@ -277,7 +293,7 @@ export function createEventIngestRoutes(sseManager: SSEManager): Router {
       foreignPipelineIds, insertedPipelineIds, insertedExecutionIds,
     } = await runWithTenantContext(
       { isSuperAdmin: true },
-      () => reportingService.ingestEvents(events.map(foldFailure).map(foldCompute), onMetric, caller),
+      () => reportingService.ingestEvents(events.map(foldFailure).map(foldCompute).map(foldBuildPhases), onMetric, caller),
     );
 
     // A non-zero count is either a misrouted producer or an injection attempt;

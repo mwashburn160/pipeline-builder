@@ -15,6 +15,9 @@ import { messagesApi } from './api/domains/messages';
 import { reportingApi } from './api/domains/reporting';
 import { reportingSecurityApi } from './api/domains/reporting-security';
 import { reportingInsightsApi } from './api/domains/reporting-insights';
+import { reportingFlowApi } from './api/domains/reporting-flow';
+import { reportingBenchmarkApi } from './api/domains/reporting-benchmark';
+import { reportingDeliveryApi } from './api/domains/reporting-delivery';
 import { stakeholderReportsApi } from './api/domains/stakeholder-reports';
 import { complianceApi } from './api/domains/compliance';
 import { askApi } from './api/domains/ask';
@@ -41,6 +44,9 @@ export const api = Object.assign(
   reportingApi(core),
   reportingSecurityApi(core),
   reportingInsightsApi(core),
+  reportingFlowApi(core),
+  reportingBenchmarkApi(core),
+  reportingDeliveryApi(core),
   stakeholderReportsApi(core),
   complianceApi(core),
   askApi(core),
@@ -63,6 +69,9 @@ export const api = Object.assign(
   & ReturnType<typeof reportingApi>
   & ReturnType<typeof reportingSecurityApi>
   & ReturnType<typeof reportingInsightsApi>
+  & ReturnType<typeof reportingFlowApi>
+  & ReturnType<typeof reportingBenchmarkApi>
+  & ReturnType<typeof reportingDeliveryApi>
   & ReturnType<typeof stakeholderReportsApi>
   & ReturnType<typeof complianceApi>
   & ReturnType<typeof askApi>

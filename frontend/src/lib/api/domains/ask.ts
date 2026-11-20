@@ -3,6 +3,7 @@
 
 import type { ApiCore } from '../core';
 import type { ApiResponse } from '@/types';
+import type { AiDraftFeature, AiDraftOutcome } from '@/types/ai-usage';
 import { boundAskHistory } from '@/lib/ask-history';
 
 /** A documentation source the "Ask" answer was grounded in. */
@@ -83,6 +84,16 @@ export function askApi(core: ApiCore) {
       | { kind: 'answer'; rating: 'up' | 'down'; sources?: string[] }
       | { kind: 'help-search-miss' }) => {
       return core.request<ApiResponse<{ recorded: boolean }>>('/api/ask-agent/feedback', { method: 'POST', body: JSON.stringify(body) });
+    },
+
+    /**
+     * Record what the user did with one AI-generated draft (accepted, edited
+     * then accepted, or discarded) for the AI usage report's acceptance rate.
+     * Carries the feature and the outcome only — no draft, no prompt. Fire-and-
+     * forget like the feedback above: the caller never blocks on it.
+     */
+    recordAiDraftOutcome: async (feature: AiDraftFeature, outcome: AiDraftOutcome) => {
+      return core.request<ApiResponse<{ recorded: boolean }>>('/api/ask-agent/draft-outcome', { method: 'POST', body: JSON.stringify({ feature, outcome }) });
     },
 
     /** List the AI providers (and their models) configured on the ask-agent service. */

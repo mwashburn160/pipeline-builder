@@ -2201,6 +2201,86 @@ const CONTROLS: Control[] = [
     },
   },
   {
+    control: 'Teams tab (team benchmarking — one row per team)',
+    file: 'pages/dashboard/reports.tsx',
+    gateFiles: ['src/components/reports/tabs/TeamsTab.tsx'],
+    // Looking DOWN into the teams is the rollup capability; the tab checks it
+    // itself (the page passes `can('reports:rollup')`) and fetches nothing without it.
+    permissions: ['reports:rollup'],
+    pagePermissions: ['reports:read'],
+    page: '/dashboard/reports',
+    features: ['advanced_reporting'],
+    routes: ['reporting GET /reports/benchmark/teams'],
+    behaviour: {
+      // Mounted through the page: `enabled` and `canRollup` are computed there.
+      mount: page('../pages/dashboard/reports'),
+      router: { query: { tab: 'teams' }, pathname: '/dashboard/reports' },
+      api: { getTeamBenchmark: raw({ hasTeams: true, window: { dora: { from: '2026-10-01', to: '2026-11-01' }, events: { from: '2026-10-01', to: '2026-11-01' }, tz: 'UTC', weekStart: 'monday' }, rows: [] }) },
+      gatedOn: 'feature',
+      // The entitled table's methodology line; the locked teaser does not carry it.
+      find: byText(/each row is that team/i),
+    },
+  },
+  {
+    control: 'Teams tab without the rollup permission (team benchmarking)',
+    file: 'pages/dashboard/reports.tsx',
+    gateFiles: ['src/components/reports/tabs/TeamsTab.tsx'],
+    permissions: ['reports:rollup'],
+    pagePermissions: ['reports:read'],
+    page: '/dashboard/reports',
+    features: ['advanced_reporting'],
+    routes: ['reporting GET /reports/benchmark/teams'],
+    behaviour: {
+      mount: page('../pages/dashboard/reports'),
+      router: { query: { tab: 'teams' }, pathname: '/dashboard/reports' },
+      api: { getTeamBenchmark: raw({ hasTeams: true, window: { dora: { from: '2026-10-01', to: '2026-11-01' }, events: { from: '2026-10-01', to: '2026-11-01' }, tz: 'UTC', weekStart: 'monday' }, rows: [] }) },
+      gatedOn: 'reports:rollup',
+      find: byText(/each row is that team/i),
+    },
+  },
+  {
+    control: 'Delivery tab deployment calendar (deployments per day, commits per deploy, production deploys)',
+    file: 'pages/dashboard/reports.tsx',
+    gateFiles: ['src/components/reports/tabs/DeliveryTab.tsx'],
+    permissions: [],
+    pagePermissions: ['reports:read'],
+    page: '/dashboard/reports',
+    features: ['advanced_reporting'],
+    // The runner reliability read on the same tab (GET /reports/delivery/runners)
+    // is free and rides the "Report reads" page gate; only the calendar is entitled.
+    routes: ['reporting GET /reports/delivery/calendar'],
+    behaviour: {
+      // Mounted through the page: `advancedEnabled` is computed there from the entitlement.
+      mount: page('../pages/dashboard/reports'),
+      router: { query: { tab: 'delivery' }, pathname: '/dashboard/reports' },
+      api: { getRunnerReliability: raw(null), getDeploymentCalendar: raw(null) },
+      gatedOn: 'feature',
+      // The entitled calendar's empty state; the locked teaser does not carry it.
+      find: byText(/no deployment data yet/i),
+    },
+  },
+  {
+    control: 'Flow tab approval wait and queue-time trend',
+    file: 'pages/dashboard/reports.tsx',
+    gateFiles: ['src/components/reports/tabs/FlowTab.tsx'],
+    permissions: [],
+    pagePermissions: ['reports:read'],
+    page: '/dashboard/reports',
+    features: ['advanced_reporting'],
+    // The current queue-time figures on the same tab (GET /reports/flow/queue)
+    // are free and ride the "Report reads" page gate; only these two are entitled.
+    routes: ['reporting GET /reports/flow/approvals', 'reporting GET /reports/flow/queue/trend'],
+    behaviour: {
+      // Mounted through the page: `advancedEnabled` is computed there from the entitlement.
+      mount: page('../pages/dashboard/reports'),
+      router: { query: { tab: 'flow' }, pathname: '/dashboard/reports' },
+      api: { getQueueWaits: raw(null), getQueueWaitTrend: raw([]), getApprovalWaits: raw(null) },
+      gatedOn: 'feature',
+      // The entitled approvals panel's empty state; the locked teaser does not carry it.
+      find: byText(/no manual approvals finished in this range/i),
+    },
+  },
+  {
     control: 'Mark a deployment outcome (DORA change-failure rate)',
     file: 'src/components/reports/tabs/DoraTab.tsx',
     gateFiles: ['pages/dashboard/reports.tsx'],
@@ -2230,12 +2310,17 @@ const CONTROLS: Control[] = [
     pagePermissions: ['pipelines:read'],
     page: '/dashboard/pipelines/[id]',
     features: ['advanced_reporting'],
-    routes: ['pipeline GET /pipelines/:id/scorecard'],
+    // The card and its grade-history strip stay on `pipelines:read` (the page's
+    // gate): a pipelines:read-only role sees this page today.
+    routes: ['pipeline GET /pipelines/:id/scorecard', 'pipeline GET /pipelines/:id/scorecard/history'],
     behaviour: {
       renders: 'the card in isolation — it is one section of the pipeline detail page.',
       mount: comp('../src/components/pipeline/ScorecardCard', 'ScorecardCard', { pipelineId: 'p1' }),
       gatedOn: 'feature',
-      api: { getPipelineScorecard: { scorecard: { grade: 'B', compliance: { score: 80, passed: 4, total: 5 }, dora: {}, signals: [] } } },
+      api: {
+        getPipelineScorecard: { scorecard: { grade: 'B', compliance: { score: 80, passed: 4, total: 5 }, dora: {}, signals: [] } },
+        getPipelineScorecardHistory: { history: { pipelineId: 'p1', interval: 'week', tz: 'UTC', weekStart: 'monday', points: [], computedAt: '2026-11-20T00:00:00Z' } },
+      },
       // The heading renders either way — the entitled body is what must go.
       find: byText(/^compliance$/i),
     },
@@ -2244,17 +2329,22 @@ const CONTROLS: Control[] = [
     control: 'Org-wide maturity scorecard (Reports → Scorecard tab)',
     file: 'pages/dashboard/reports.tsx',
     gateFiles: ['src/components/reports/tabs/ScorecardTab.tsx'],
-    // The Reports page gates on `reports:read`, but this roll-up is served by the
-    // PIPELINE service on `pipelines:read` — so the tab checks that itself.
-    permissions: ['pipelines:read'],
+    // The roll-up and its grade history are reporting data on `reports:read`,
+    // which the Reports page itself gates on; the tab checks the same permission
+    // inline and locks in place without it.
+    permissions: ['reports:read'],
+    pagePermissions: ['reports:read'],
+    page: '/dashboard/reports',
     features: ['advanced_reporting'],
-    routes: ['pipeline GET /pipelines/scorecard'],
+    routes: ['pipeline GET /pipelines/scorecard', 'pipeline GET /pipelines/scorecard/history'],
     behaviour: {
       mount: page('../pages/dashboard/reports'),
       find: button(/^scorecard$/i),
-      // Locked in place, not hidden: a bookmarked `?tab=scorecard` must land on
-      // the reason, not on a blank tab.
-      absence: 'disabled',
+      // The tab's gate is now the page's own (`reports:read`), so without it the
+      // whole Reports page is refused and the tab is absent. The tab's own
+      // locked-in-place state (a deep link landing on the reason) is pinned in
+      // reports-scorecard-lock.test.tsx.
+      absence: 'removed',
     },
   },
   {
@@ -3389,6 +3479,14 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
       + 'searches it exists to count. Nothing is bypassed — a rating can only follow a turn '
       + 'that was itself gated, and requireAskAccess still applies.',
     coveredBy: 'Ask assistant (AI Q&A launcher)',
+  },
+  'ask-agent POST /ask-agent/draft-outcome': {
+    category: 'same-control',
+    coveredBy: 'Generate a pipeline with AI (Git URL / prompt tabs)',
+    why: 'Fire-and-forget outcome of an AI draft (accepted / edited / discarded) for the AI usage report, sent by '
+      + 'src/hooks/useAiDraftOutcome.ts from the AI generation tabs: PromptGenerateTab and GitUrlTab (create pipeline) '
+      + 'and AIPluginBuilderTab (the plugin AI Builder). It only follows a generation those tabs ran, behind the same '
+      + 'ai_generation entitlement and requireAskAccess read gate; it carries feature + outcome only and changes no tenant state.',
   },
   'ask-agent POST /ask-agent/stream': { category: 'no-ui', why: 'Tool-less streaming answer for API / CLI callers; the dashboard Ask panel only drives /ask-agent/agent/stream.' },
 

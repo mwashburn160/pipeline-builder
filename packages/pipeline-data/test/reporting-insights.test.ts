@@ -101,7 +101,9 @@ describe('the Insights tab and a stakeholder report over the same window', () =>
       timezone: TZ,
       weekStart: 'monday',
       orgId: ORG,
-      features: [],
+      // The Insights route requires advanced_reporting, and so does the
+      // promotion section: compare the two with the entitlement held.
+      features: ['advanced_reporting'],
     }));
     const insights = await asOrg(() => computeInsights(reportingService as unknown as SectionDataSource, {
       orgId: ORG,

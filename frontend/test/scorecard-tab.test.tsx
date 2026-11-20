@@ -8,15 +8,18 @@
 
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { ScorecardTab } from '../src/components/reports/tabs/ScorecardTab';
-import type { ScorecardRollup } from '../src/types';
+import type { OrgScorecardHistory, ScorecardRollup } from '../src/types';
 
 const getOrgScorecardRollup = jest.fn<AnyFn>();
+const getOrgScorecardHistory = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
     getOrgScorecardRollup: (...a: unknown[]) => getOrgScorecardRollup(...a),
+    getOrgScorecardHistory: (...a: unknown[]) => getOrgScorecardHistory(...a),
+    getReportPolicy: async () => ({ success: true, data: { policy: { defaultTimezone: 'UTC' } } }),
   },
 }));
 
@@ -49,8 +52,25 @@ const rollup: ScorecardRollup = {
   pagination: { offset: 0, limit: 50, total: 2, hasMore: false, nextOffset: null },
 };
 
+const win = (label: string, averageScore: number | null, grade: string, partial = false) => ({
+  label, from: '2026-11-01T00:00:00Z', to: '2026-11-08T00:00:00Z', partial, truncated: false, averageScore, grade, scored: 2,
+});
+const pt = (label: string, score: number | null, grade: string) => ({
+  label, from: '2026-11-01T00:00:00Z', to: '2026-11-08T00:00:00Z', partial: false, truncated: false, score, grade,
+});
+const orgHistory = {
+  orgId: 'org-1', interval: 'week', tz: 'UTC', weekStart: 'monday', computedAt: '2026-11-20T00:00:00Z',
+  pagination: { offset: 0, limit: 50, total: 2, hasMore: false, nextOffset: null },
+  windows: [win('2026-W46', 64, 'C'), win('2026-W47', 71, 'C', true)],
+  pipelines: [
+    { pipelineId: 'p1', name: 'Alpha', points: [pt('2026-W46', 79, 'B'), pt('2026-W47', 88, 'A')] },
+    { pipelineId: 'p2', name: 'Bravo', points: [pt('2026-W46', 49, 'D'), pt('2026-W47', 54, 'D')] },
+  ],
+} as unknown as OrgScorecardHistory;
+
 beforeEach(() => {
   getOrgScorecardRollup.mockReset().mockResolvedValue({ success: true, data: { rollup } });
+  getOrgScorecardHistory.mockReset().mockResolvedValue({ success: true, data: { history: orgHistory } });
 });
 
 describe('ScorecardTab', () => {
@@ -139,5 +159,30 @@ describe('ScorecardTab', () => {
     getOrgScorecardRollup.mockResolvedValue({ success: true, data: { rollup: { ...rollup, pipelineCount: 0, leaderboard: [] } } });
     render(<ScorecardTab enabled onStatus={jest.fn<AnyFn>()} />);
     await waitFor(() => expect(screen.getByText('No pipelines to score yet')).toBeInTheDocument());
+  });
+
+  it('draws the org grade history and a strip per leaderboard row, from ONE history read for this page', async () => {
+    render(<ScorecardTab enabled onStatus={jest.fn<AnyFn>()} />);
+    const org = await screen.findByRole('list', { name: /org grade history/i });
+    expect(within(org).getAllByRole('listitem').map((c) => c.getAttribute('aria-label')))
+      .toEqual(['2026-W46: grade C, score 64', '2026-W47 (so far): grade C, score 71']);
+    const alpha = screen.getByRole('list', { name: /grade history for Alpha/i });
+    expect(within(alpha).getAllByRole('listitem')[1]).toHaveAccessibleName('2026-W47: grade A, score 88');
+    expect(screen.getByRole('list', { name: /grade history for Bravo/i })).toBeInTheDocument();
+    expect(getOrgScorecardHistory).toHaveBeenCalledTimes(1);
+    expect(getOrgScorecardHistory).toHaveBeenCalledWith({ offset: 0, interval: 'week', periods: 12, tz: 'UTC' });
+  });
+
+  it('a failed history read still renders the leaderboard, without strips', async () => {
+    getOrgScorecardHistory.mockResolvedValue({ success: false });
+    render(<ScorecardTab enabled onStatus={jest.fn<AnyFn>()} />);
+    await waitFor(() => expect(screen.getByText('Alpha')).toBeInTheDocument());
+    await waitFor(() => expect(getOrgScorecardHistory).toHaveBeenCalled());
+    expect(screen.queryByRole('list', { name: /grade history/i })).toBeNull();
+  });
+
+  it('does not read history without the entitlement', () => {
+    render(<ScorecardTab enabled={false} onStatus={jest.fn<AnyFn>()} />);
+    expect(getOrgScorecardHistory).not.toHaveBeenCalled();
   });
 });

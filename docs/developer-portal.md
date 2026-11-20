@@ -44,7 +44,7 @@ Written for developers and platform teams using the dashboard. Template *syntax*
 
 ## Configuration
 
-1. **Enable Advanced Reporting** to expose scorecards. They are gated by the `advanced_reporting` feature — Enterprise, or the Advanced Reporting add-on — the same feature that gates DORA. With it off, the card is hidden.
+1. **Enable Advanced Reporting** to expose scorecards. They are gated by the `advanced_reporting` feature — included in Business and Enterprise, or the Advanced Reporting add-on — the same feature that gates DORA. With it off, the card is hidden.
 2. **Deploy the forwarder with `--with-dora`** if you want measured lead time. Without it, lead time reports `unknown` and the DORA half of the score is computed from the remaining bands. See [DORA Metrics](dora-metrics.md#how-each-metric-is-defined).
 3. **Decide template visibility.** New templates default to `visibility: private`. `org` shares one org-wide; `public` puts it in the shared golden-path catalog and requires `templates:publish`.
 4. **Grant the template permissions** you intend: `templates:write` to author, `templates:publish` to publish org-wide golden paths.

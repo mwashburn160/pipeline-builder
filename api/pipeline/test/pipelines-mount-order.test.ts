@@ -267,14 +267,27 @@ const WRITER = { 'x-org-id': 'acme', 'x-test-caps': 'pipelines:write' };
 // Reads carry their own `pipelines:read` gate (route-permission coverage), so a
 // read request needs it even when the point of the test is mount ORDER.
 const READER = { 'x-org-id': 'acme', 'x-test-caps': 'pipelines:read' };
+const REPORTER = { 'x-org-id': 'acme', 'x-test-caps': 'reports:read' };
 const ID = '10000000-0000-4000-8000-000000000001';
 
 describe('A — scorecard routes are not shadowed by GET /:id', () => {
   it('GET /pipelines/scorecard serves the org roll-up (not a "Pipeline not found" 404)', async () => {
-    const res = await request('GET', '/pipelines/scorecard', { ...READER, 'x-test-features': 'advanced_reporting' });
+    // The org roll-up is reporting data: `reports:read`, not `pipelines:read`.
+    const res = await request('GET', '/pipelines/scorecard', { ...REPORTER, 'x-test-features': 'advanced_reporting' });
     expect(res.status).toBe(200);
     expect(res.body.data.rollup).toEqual(expect.objectContaining({ orgId: 'acme', pipelineCount: 0 }));
     expect(passes).toEqual({ auth: 1, apiCallsQuota: 1, stepUp: 0 });
+  });
+
+  it('GET /pipelines/scorecard/history serves the org grade history (not a pipeline lookup)', async () => {
+    const res = await request('GET', '/pipelines/scorecard/history', { ...REPORTER, 'x-test-features': 'advanced_reporting' });
+    expect(res.status).toBe(200);
+    expect(res.body.data.history).toEqual(expect.objectContaining({ orgId: 'acme', pipelines: [] }));
+  });
+
+  it('the org roll-up 403s a pipelines:read-only caller', async () => {
+    const res = await request('GET', '/pipelines/scorecard', { ...READER, 'x-test-features': 'advanced_reporting' });
+    expect(res.status).toBe(403);
   });
 
   it('GET /pipelines/:id/scorecard is a read: no pipelines:write needed', async () => {

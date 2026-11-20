@@ -55,3 +55,15 @@ export const AskFeedbackSchema = z.object({
   message: 'rating is required when kind is "answer"',
   path: ['rating'],
 });
+
+/**
+ * POST /ask-agent/draft-outcome — what the user did with one AI-generated draft.
+ * Two closed catalogs and nothing else (unknown keys are stripped, so a prompt or
+ * draft sent by mistake never leaves this service). Mirrors the quota service's
+ * `AI_DRAFT_FEATURES` / `AI_DRAFT_OUTCOMES` (api/quota/src/services/ai-draft-catalog.ts),
+ * which validates the forwarded body again.
+ */
+export const AskDraftOutcomeSchema = z.object({
+  feature: z.enum(['agent', 'pipeline-generate', 'plugin-generate']),
+  outcome: z.enum(['accepted', 'edited_accepted', 'discarded']),
+});

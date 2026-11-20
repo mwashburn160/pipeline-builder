@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-bundles.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: bfc4aff1012d44ce777769ce36ee9d24dead368c74dacce98472faa7c450f68d
+// SOURCE-SHA256: 9c5f0cbd2b0130fa070b228797832dc03430d6854dc97d53350cf697384d8694
 // SPDX-License-Identifier: Apache-2.0
 import { Package } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -531,7 +531,7 @@ export const billingBundlesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Advanced Reporting and Team Usage Analytics are the \"buy a capability without changing tier\" path. Each is standard from Enterprise up, and the bundle lets a lower tier add it à la carte — so the add-on is offered only to the tiers that don't already include it: Advanced Reporting to Developer/Pro/Team, Team Usage Analytics to Team, since Developer and Pro can't nest teams and so have nothing to break down."
+          "content": "Advanced Reporting and Team Usage Analytics are the \"buy a capability without changing tier\" path. Advanced Reporting is standard from Business up and Team Usage Analytics from Enterprise up, and the bundle lets a lower tier add either à la carte — so the add-on is offered only to the tiers that don't already include it: Advanced Reporting to Developer/Pro/Team, Team Usage Analytics to Team, since Developer and Pro can't nest teams and so have nothing to break down."
         },
         {
           "type": "text",
@@ -671,6 +671,7 @@ export const billingBundlesTopic: HelpTopic = {
           "type": "list",
           "items": [
             "Usage ledger. Every increment, refusal, overshoot and refund is recorded with who made it (user or service account, and the key), the route pattern and the pipeline, summed into hourly buckets; refusals, overshoots and refunds also keep a per-event row with the request id. GET /quotas/:orgId/usage?type=&from=&to=&groupBy=principal|route|pipeline|day[&format=csv] (quotas:read) groups it — a root sees the whole account, a team only its own — and the Quotas page shows it as What used this with a CSV export. Kept QUOTA_USAGE_EVENT_RETENTION_DAYS (90) days.",
+            "AI assistant usage. Beside it, the Quotas page shows AI calls by day or week, caller type, feature and (for a reports:rollup holder) team, plus how often AI drafts were accepted, edited then accepted, or discarded: GET /quotas/:orgId/ai-usage (quotas:read, free, CSV). Team and caller-type level only, never per person. See Quotas → AI assistant usage report.",
             "Threshold notices. Crossing 80% and 100% of a quota drops one notice per quota per period into the root org's inbox, emails the root's admins/owners and billing contacts, and posts a quota.threshold event to the account's webhook when one is set. Billing contacts (billing:manage) opt out or set the webhook on the root's Quotas page (PUT /quotas/:orgId/notice-settings).",
             "Refusals say what to do. A 429 QUOTA_EXCEEDED names the quota, the usage, the reset date and the upgrade page — details: { quotaType, limit, used, resetAt, upgradeUrl } — and the dashboard shows it as a notice on every page.",
             "Which calls count. Every service meters and checks apiCalls on its authenticated user surface; machine ingest is metered but never refused, and a short list of console-polling reads is free — see API Quotas.",

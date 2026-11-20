@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { DoraBand } from '@pipeline-builder/api-core';
+import { civilIn, instantOfCivil, shiftUnit, startOfUnit, unitLabel, type DoraBand, type WeekStart } from '@pipeline-builder/api-core';
 import type { DoraLevel, DoraMetrics } from '@pipeline-builder/pipeline-data';
 
 /**
@@ -242,4 +242,70 @@ export function buildScorecard(
     security: { score: sScore, exposures: security.exposures, artifact: security.artifact },
     computedAt,
   };
+}
+
+/**
+ * Mean of the scored entries, rounded (null when none scored). The org roll-up's
+ * `averageScore` and the org grade history both use it, so a history window and
+ * the roll-up for that window cannot disagree.
+ */
+export function averageScore(scores: ReadonlyArray<number | null>): number | null {
+  const scored = scores.filter((s): s is number => s !== null);
+  if (scored.length === 0) return null;
+  return Math.round(scored.reduce((a, b) => a + b, 0) / scored.length);
+}
+
+/** Grade-history window granularity. */
+export const SCORECARD_HISTORY_INTERVALS = ['week', 'month'] as const;
+export type ScorecardHistoryInterval = (typeof SCORECARD_HISTORY_INTERVALS)[number];
+
+/** Most windows a grade history computes (each is a DORA scan per pipeline). */
+export const SCORECARD_HISTORY_MAX_PERIODS = 12;
+
+/** One grade-history window: `[from, to)` as ISO instants. */
+export interface ScorecardWindow {
+  /** `2026-W47` / `2026-11` (api-core `unitLabel`; Sunday weeks carry their Monday's ISO number). */
+  label: string;
+  from: string;
+  to: string;
+  /** The current window, cut off at `now`. */
+  partial: boolean;
+  /** `from` was raised to the DORA retention horizon (the window's start is purged). */
+  truncated: boolean;
+}
+
+/**
+ * The last `periods` calendar weeks or months ending with the one containing
+ * `now`, oldest first, read in `tz` (weeks start on `weekStart`). The current
+ * window ends at `now` (`partial`). With a retention horizon `minFromMs`, a window
+ * wholly before it is dropped and the one it cuts starts at it (`truncated`), the
+ * same floor the range-taking scorecard applies — so each window scores exactly
+ * what `GET …/scorecard?from=<from>&to=<to>` does.
+ */
+export function scorecardWindows(
+  now: Date,
+  interval: ScorecardHistoryInterval,
+  periods: number,
+  opts: { tz: string; weekStart: WeekStart; minFromMs?: number },
+): ScorecardWindow[] {
+  const n = Math.max(1, Math.min(SCORECARD_HISTORY_MAX_PERIODS, Math.floor(periods)));
+  const nowMs = now.getTime();
+  const floor = opts.minFromMs && opts.minFromMs > 0 ? opts.minFromMs : 0;
+  const current = startOfUnit(civilIn(now, opts.tz), interval, opts.weekStart);
+  const out: ScorecardWindow[] = [];
+  for (let k = n - 1; k >= 0; k--) {
+    const start = shiftUnit(current, interval, -k);
+    const startMs = instantOfCivil(start, opts.tz).getTime();
+    const endMs = Math.min(instantOfCivil(shiftUnit(start, interval, 1), opts.tz).getTime(), nowMs);
+    if (endMs <= floor) continue;
+    const fromMs = Math.max(startMs, floor);
+    out.push({
+      label: unitLabel(start, interval, opts.weekStart),
+      from: new Date(fromMs).toISOString(),
+      to: new Date(endMs).toISOString(),
+      partial: k === 0,
+      truncated: fromMs > startMs,
+    });
+  }
+  return out;
 }

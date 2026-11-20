@@ -302,6 +302,9 @@ registerReportSection({
 registerReportSection({
   id: 'environments',
   title: 'Deploy environments',
+  // Same gate as the dashboard's `/execution/environments` route: a report must
+  // not hand an org the data the dashboard withholds.
+  requiresFeature: 'advanced_reporting',
   comparable: false,
   run: (s, c) => s.getReportEnvironments(c.orgId, c.from, c.to, c.orgIds),
 });
@@ -357,6 +360,9 @@ registerReportSection({
 registerReportSection({
   id: 'promotion',
   title: 'What reached production, and what did not',
+  // The promotion view is served by the insights route, which is gated on
+  // `advanced_reporting`; the section follows it (as the DORA sections do).
+  requiresFeature: 'advanced_reporting',
   comparable: false,
   run: (s, c) => s.getPromotionView(scopeOf(c)),
 });

@@ -22,6 +22,12 @@ jest.unstable_mockModule('../src/services/usage-ledger.js', () => ({
   usageToCsv: (groupBy: string, groups: Array<{ key: string }>) => `${groupBy}\n${groups.map((g) => g.key).join('\n')}`,
 }));
 
+const queryAiUsageReport = jest.fn<AnyFn>();
+jest.unstable_mockModule('../src/services/ai-usage-report.js', () => ({
+  queryAiUsageReport,
+  aiUsageReportToCsv: (r: { scope: string }) => `section\n${r.scope}`,
+}));
+
 const findOwnByOrgId = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/services/quota-service.js', () => ({
   quotaService: { findOwnByOrgId },
@@ -165,6 +171,83 @@ describe('GET /quotas/:orgId/usage', () => {
     await run('get', '/:orgId/usage', { user: member('org-1'), params: { orgId: 'org-2' }, query: {} }, res);
     expect(res.status).toHaveBeenCalledWith(403);
     expect(queryUsage).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /quotas/:orgId/ai-usage — the AI assistant usage report', () => {
+  beforeEach(() => {
+    queryAiUsageReport.mockImplementation(async (q: { rollup: boolean }) => ({ scope: q.rollup ? 'rollup' : 'org', totals: {} }));
+  });
+
+  it('defaults to the last 30 days, daily, UTC/Monday, own org only', async () => {
+    const res = makeRes();
+    await run('get', '/:orgId/ai-usage', { user: member('org-1'), params: { orgId: 'org-1' }, query: {} }, res);
+    expect(res.status).toHaveBeenCalledWith(200);
+    const q = queryAiUsageReport.mock.calls[0][0] as { orgId: string; rollup: boolean; from: Date; to: Date; interval: string; tz: string; weekStart: string };
+    expect(q).toMatchObject({ orgId: 'org-1', rollup: false, interval: 'day', tz: 'UTC', weekStart: 'monday' });
+    expect(q.to.getTime() - q.from.getTime()).toBe(30 * 86_400_000);
+    expect(res.json.mock.calls[0][0].data).toEqual({ report: { scope: 'org', totals: {} } });
+  });
+
+  it('honours tz / weekStart / interval and the range', async () => {
+    const res = makeRes();
+    await run('get', '/:orgId/ai-usage', {
+      user: member('org-1'),
+      params: { orgId: 'org-1' },
+      query: { tz: 'America/Chicago', weekStart: 'sunday', interval: 'week', from: '2026-09-01T00:00:00Z', to: '2026-10-01T00:00:00Z' },
+    }, res);
+    expect(queryAiUsageReport).toHaveBeenCalledWith({
+      orgId: 'org-1',
+      rollup: false,
+      interval: 'week',
+      tz: 'America/Chicago',
+      weekStart: 'sunday',
+      from: new Date('2026-09-01T00:00:00Z'),
+      to: new Date('2026-10-01T00:00:00Z'),
+    });
+  });
+
+  it('rolls up over the teams ONLY for a reports:rollup holder who asks; anyone else gets their own org', async () => {
+    const res1 = makeRes();
+    await run('get', '/:orgId/ai-usage', { user: member('org-1', ['quotas:read', 'reports:rollup']), params: { orgId: 'org-1' }, query: { includeDescendants: 'true' } }, res1);
+    expect(queryAiUsageReport.mock.calls[0][0]).toMatchObject({ rollup: true });
+
+    const res2 = makeRes();
+    await run('get', '/:orgId/ai-usage', { user: member('org-1'), params: { orgId: 'org-1' }, query: { includeDescendants: 'true' } }, res2);
+    expect(queryAiUsageReport.mock.calls[1][0]).toMatchObject({ rollup: false });
+  });
+
+  it('downloads the same report as CSV', async () => {
+    const res = makeRes();
+    await run('get', '/:orgId/ai-usage', { user: member('org-1'), params: { orgId: 'org-1' }, query: { format: 'csv', to: '2026-10-08T00:00:00Z' } }, res);
+    expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'text/csv; charset=utf-8');
+    expect(res.setHeader).toHaveBeenCalledWith('Content-Disposition', 'attachment; filename="ai-usage-org-1-2026-09-08.csv"');
+    expect(res.send).toHaveBeenCalledWith('section\norg');
+  });
+
+  it('rejects a bad tz / weekStart / interval and an inverted or oversized range', async () => {
+    for (const query of [
+      { tz: 'Mars/Olympus' },
+      { weekStart: 'friday' },
+      { interval: 'hour' },
+      { from: '2026-10-08T00:00:00Z', to: '2026-10-01T00:00:00Z' },
+      { from: '2024-01-01T00:00:00Z', to: '2026-10-01T00:00:00Z' },
+    ]) {
+      const res = makeRes();
+      await run('get', '/:orgId/ai-usage', { user: member('org-1'), params: { orgId: 'org-1' }, query }, res);
+      expect(res.status).toHaveBeenCalledWith(400);
+    }
+    expect(queryAiUsageReport).not.toHaveBeenCalled();
+  });
+
+  it('is gated on quotas:read (the "What used this" permission) and the tenancy guard', async () => {
+    const denied = makeRes();
+    await run('get', '/:orgId/ai-usage', { user: member('org-1', []), params: { orgId: 'org-1' }, query: {} }, denied);
+    expect(denied.status).toHaveBeenCalledWith(403);
+    const foreign = makeRes();
+    await run('get', '/:orgId/ai-usage', { user: member('org-1'), params: { orgId: 'org-2' }, query: {} }, foreign);
+    expect(foreign.status).toHaveBeenCalledWith(403);
+    expect(queryAiUsageReport).not.toHaveBeenCalled();
   });
 });
 

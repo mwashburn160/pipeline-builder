@@ -1,4 +1,4 @@
-import { useImperativeHandle, forwardRef, useId } from 'react';
+import { useImperativeHandle, forwardRef, useId, useEffect, useEffectEvent } from 'react';
 import { GitBranch, Loader } from 'lucide-react';
 import type { BuilderProps } from '@/types';
 import { LoadingSpinner } from '@/components/ui/Loading';
@@ -15,6 +15,8 @@ import { AIQuotaHint } from '@/components/ui/AIQuotaHint';
 import { useAIQuota } from '@/hooks/useAIQuota';
 import { aiKeySource, aiQuotaBlocked } from '@/lib/ai-quota';
 import { GeneratedConfigReview, GenerationProgress, stageProgress, useGeneratedProps } from '@/components/pipeline/GeneratedConfigReview';
+import { useAiDraftOutcome } from '@/hooks/useAiDraftOutcome';
+import { isAskAgentProvider } from '@/lib/ai-constants';
 
 /** Methods exposed to the parent modal via ref. */
 export interface GitUrlTabRef {
@@ -24,6 +26,8 @@ export interface GitUrlTabRef {
   getDescription: () => string;
   /** Returns the AI-generated keywords as a comma-separated string. */
   getKeywords: () => string;
+  /** The pipeline was created from this tab's draft (reports accepted / edited-then-accepted). */
+  markAccepted: () => void;
 }
 
 /** Props for the GitUrlTab component. */
@@ -63,6 +67,18 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
       generatedProps, setGeneratedProps, setPreviewJson, projectOverride, organizationOverride,
     });
 
+    // What became of each generated draft (the AI usage report's acceptance
+    // rate). A draft is OFFERED when a generation settles with one — edits made
+    // after that (plugin swaps, overrides) are what `edited_accepted` compares.
+    const draftOutcome = useAiDraftOutcome();
+    const generationSettled = useEffectEvent(() => {
+      const draft = withOverrides();
+      if (draft) draftOutcome.offered(isAskAgentProvider(ai.selectedProvider) ? 'agent' : 'pipeline-generate', draft);
+    });
+    useEffect(() => {
+      if (!generating) generationSettled();
+    }, [generating]);
+
     useImperativeHandle(ref, () => ({
       getProps: async (): Promise<BuilderProps | null> => {
         const props = withOverrides();
@@ -71,6 +87,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
       },
       getDescription: () => generatedDescription,
       getKeywords: () => generatedKeywords,
+      markAccepted: () => draftOutcome.accepted(withOverrides()),
     }));
 
     if (ai.loading) {

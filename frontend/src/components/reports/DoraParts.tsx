@@ -22,8 +22,11 @@ import { Card } from '@/components/ui/Card';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { FEATURE_METADATA } from '@/lib/feature-flags';
-import type { DoraLevel, DoraTrendPoint } from '@/lib/api/domains/reporting';
+import type { DoraEnvMetrics, DoraLevel, DoraMetrics, DoraTrendPoint } from '@/lib/api/domains/reporting';
 import { StatCard } from '@/components/ui/StatCard';
+import api from '@/lib/api';
+import { useFetch } from '@/hooks/useFetch';
+import { useFeatures } from '@/hooks/useFeatures';
 // Small shared report pieces stay in ReportHelpers — see the module note.
 import { SectionHeading, fmtDate } from './ReportHelpers';
 import { CFR_ELEVATED_PCT, SPARKLINE_MIN_BAR_PCT, SPARKLINE_ZERO_BAR_PCT } from './constants';
@@ -101,6 +104,8 @@ interface DoraCardProps {
   label: ReactNode;
   value: string;
   sub: ReactNode;
+  /** Optional period-over-period chip ({@link DeltaChip}), shown under `sub`. */
+  delta?: ReactNode;
   level?: DoraLevel;
   /** The sample behind the band, shown when it is too small to rate. */
   n?: number;
@@ -110,7 +115,7 @@ interface DoraCardProps {
 
 /** A single DORA metric card with an optional performance-level badge + tooltip. */
 /** Shared level-badge pill for a DORA metric. Returns null for an unrated level. */
-function DoraLevelBadge({ level, n }: { level: DoraLevel; n?: number }) {
+export function DoraLevelBadge({ level, n }: { level: DoraLevel; n?: number }) {
   const badge = doraLevelBadge(level, n);
   if (!badge) return null;
   return (
@@ -120,7 +125,7 @@ function DoraLevelBadge({ level, n }: { level: DoraLevel; n?: number }) {
   );
 }
 
-export function DoraCard({ label, value, sub, level = null, n, tooltip }: DoraCardProps) {
+export function DoraCard({ label, value, sub, delta, level = null, n, tooltip }: DoraCardProps) {
   // When a tooltip is present the card becomes a focusable group so keyboard
   // and screen-reader users reach the caveat: `tabIndex` lets the shared
   // Tooltip's onFocus fire and `role="group"` marks the region. The caveat text
@@ -133,7 +138,7 @@ export function DoraCard({ label, value, sub, level = null, n, tooltip }: DoraCa
       variant="detailed"
       label={label}
       value={value}
-      sub={sub}
+      sub={delta ? <>{sub}<span className="block mt-1">{delta}</span></> : sub}
       badge={<DoraLevelBadge level={level} n={n} />}
       className={tooltip ? 'focus:outline-none focus:ring-2 focus:ring-brand/50 rounded-lg' : ''}
       wrapperProps={tooltip ? { tabIndex: 0, role: 'group' } : undefined}
@@ -370,4 +375,120 @@ export function DoraScopeControls({
       </datalist>
     </div>
   );
+}
+
+// ─── Period-over-period comparison (advanced_reporting) ─────────────────────
+
+/** Which way is better for a metric: more deploys / a higher success rate, or a lower failure rate / lead time / time to restore. */
+export type MetricDirection = 'higher' | 'lower';
+
+/** A computed change between two windows. */
+export interface MetricDelta {
+  /** current − previous, rounded to the display precision. */
+  delta: number;
+  direction: 'up' | 'down' | 'flat';
+  /** good / bad per the metric's direction; a flat change is neutral. */
+  tone: 'good' | 'bad' | 'neutral';
+}
+
+/**
+ * The change from `previous` to `current`, or null when either side has no
+ * value (an unknown lead time, a window with no runs) — a delta against
+ * "unknown" is not a number anyone should act on. Rounded to `precision`
+ * decimals first, so a change too small to display reads as flat, not as a
+ * coloured "+0.0".
+ */
+export function metricDelta(
+  current: number | null | undefined,
+  previous: number | null | undefined,
+  better: MetricDirection,
+  precision = 1,
+): MetricDelta | null {
+  if (current == null || previous == null || !Number.isFinite(current) || !Number.isFinite(previous)) return null;
+  const f = 10 ** precision;
+  const delta = Math.round((current - previous) * f) / f;
+  if (delta === 0) return { delta: 0, direction: 'flat', tone: 'neutral' };
+  const direction = delta > 0 ? 'up' : 'down';
+  const improved = better === 'higher' ? delta > 0 : delta < 0;
+  return { delta, direction, tone: improved ? 'good' : 'bad' };
+}
+
+const DELTA_TONE_CLASS: Record<MetricDelta['tone'], string> = {
+  good: 'bg-success-bg text-success',
+  bad: 'bg-danger-bg text-danger',
+  neutral: 'bg-surface-muted text-fg-muted',
+};
+
+/**
+ * A small "▲ 3 vs previous period" chip. `text` is the formatted magnitude
+ * (the caller owns the unit); the arrow and the good/bad colour come from
+ * `delta`, and the accessible name says both in words (colour is never the
+ * only signal).
+ */
+export function DeltaChip({ delta, text, previousText }: { delta: MetricDelta; text: string; previousText?: string }) {
+  const arrow = delta.direction === 'up' ? '▲' : delta.direction === 'down' ? '▼' : '■';
+  const words = delta.direction === 'flat'
+    ? 'No change vs the previous period'
+    : `${delta.direction === 'up' ? 'Up' : 'Down'} ${text} vs the previous period (${delta.tone === 'good' ? 'better' : 'worse'})`;
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-2xs font-medium tabular-nums ${DELTA_TONE_CLASS[delta.tone]}`}
+      aria-label={words}
+      title={previousText ? `${words} — previous: ${previousText}` : words}
+      data-testid="delta-chip"
+      data-tone={delta.tone}
+    >
+      <span aria-hidden="true">{arrow}</span>
+      <span aria-hidden="true">{delta.direction === 'flat' ? 'no change' : `${text} vs prev.`}</span>
+    </span>
+  );
+}
+
+/** The headline environment the DORA cards show (the one `headline` names, else the first). */
+export function headlineEnvOf(dora: DoraMetrics): DoraEnvMetrics | null {
+  return dora.environments.find((e) => e.environment === dora.headline) ?? dora.environments[0] ?? null;
+}
+
+/** The figures a comparison must agree on before its `previous` is shown beside `dora`. */
+function doraSignature(dora: DoraMetrics): string {
+  const env = headlineEnvOf(dora);
+  return JSON.stringify([
+    dora.window, dora.filters, env?.environment ?? null,
+    env?.deploymentFrequency.deployments ?? null, env?.changeFailureRate.attempts ?? null,
+    env?.changeFailureRate.rate ?? null, env?.leadTime.medianSeconds ?? null,
+    dora.meanTimeToRestore.medianSeconds, dora.meanTimeToRestore.n,
+  ]);
+}
+
+/**
+ * The previous equal-length window's DORA figures for the cards, or null.
+ *
+ * Only when `advanced_reporting` is entitled (no fetch otherwise). The
+ * comparison read echoes the CURRENT window too, and its previous figures are
+ * used only when that echo matches the `dora` on screen — a scope the read
+ * could not see (a rollup the caller did not pass, a refetch in flight) hides
+ * the chips rather than comparing two different things.
+ */
+export function useDoraComparison(dora: DoraMetrics | null, includeDescendants = false): DoraMetrics | null {
+  const entitled = useFeatures().isEnabled('advanced_reporting');
+  const signature = dora ? doraSignature(dora) : '';
+  const from = dora?.window.from ?? '';
+  const to = dora?.window.to ?? '';
+  const pipelineId = dora?.filters.pipelineId ?? '';
+  const environment = dora?.filters.environment ?? '';
+  const active = entitled && !!dora && !!from && !!to;
+  const { data } = useFetch(
+    (signal) => (active
+      // Best-effort: a failed (or, in a partial API stub, absent) read shows no chips.
+      ? (api.getDoraComparison?.({
+        from, to,
+        ...(pipelineId ? { pipelineId } : {}),
+        ...(environment ? { environment } : {}),
+        ...(includeDescendants ? { includeDescendants: true } : {}),
+      }, { signal }) ?? Promise.resolve(null)).catch(() => null)
+      : Promise.resolve(null)),
+    [active, from, to, pipelineId, environment, includeDescendants, signature],
+  );
+  if (!active || !data || !data.previous || !dora) return null;
+  return doraSignature(data.dora) === signature ? data.previous : null;
 }

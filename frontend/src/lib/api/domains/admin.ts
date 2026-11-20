@@ -3,6 +3,7 @@
 
 import type { ApiCore } from '../core';
 import { buildQuery } from '../util';
+import type { AiUsageReport, AiUsageReportParams } from '@/types/ai-usage';
 import type { ApiResponse, OrgQuotaResponse, OrgIdpConfigDto, OrgIdpConfigCreate, IdpSaveWarning, User, PlanTier, QuotaType, QuotaUsageParams, QuotaUsageBreakdown, QuotaNoticeSettings } from '@/types';
 import type { AuditLogEvent, AuditChainVerification } from '@/types/audit';
 import type { ConsoleClass } from '@/lib/admin-console';
@@ -439,6 +440,24 @@ export function adminApi(core: ApiCore) {
         `/api/quota/${encodeURIComponent(orgId)}/usage${buildQuery({ ...params, format: 'csv' })}`,
         'quota-usage.csv',
         { errorMessage: 'Usage export failed' },
+      );
+    },
+
+    /**
+     * The AI assistant usage report: AI calls by bucket, caller type, feature
+     * and (rollup, `reports:rollup`) team, plus draft acceptance. `quotas:read`.
+     */
+    getAiUsageReport: async (orgId: string, params: AiUsageReportParams = {}, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ report: AiUsageReport }>>(
+        `/api/quota/${encodeURIComponent(orgId)}/ai-usage${buildQuery({ ...params })}`, { signal: opts?.signal });
+    },
+
+    /** The same report as a CSV file (through the authenticated core). */
+    downloadAiUsageCsv: async (orgId: string, params: AiUsageReportParams = {}): Promise<{ blob: Blob; filename: string }> => {
+      return core.requestBlob(
+        `/api/quota/${encodeURIComponent(orgId)}/ai-usage${buildQuery({ ...params, format: 'csv' })}`,
+        'ai-usage.csv',
+        { errorMessage: 'AI usage export failed' },
       );
     },
 

@@ -7,6 +7,8 @@ import {
   audited,
   ErrorCode,
   getParam,
+  parseReportTimezone,
+  parseWeekStart,
   recordAudit,
   requireAuth,
   requireInternalService,
@@ -26,11 +28,15 @@ import { periodDaysFor } from '../helpers/quota-helpers.js';
 import { authorizeOrg } from '../middleware/authorize-org.js';
 import { QUOTA_NOTICE_THRESHOLDS, QuotaNoticeSettings, type QuotaNoticeSettingsDocument } from '../models/quota-notice.js';
 import { invalidateAiControls } from '../services/ai-controls.js';
+import { aiUsageReportToCsv, queryAiUsageReport } from '../services/ai-usage-report.js';
 import { type QuotaService, quotaService as defaultQuotaService } from '../services/quota-service.js';
 import { queryUsage, usageToCsv } from '../services/usage-ledger.js';
-import { NoticeSettingsSchema, USAGE_MAX_RANGE_DAYS, UsageQuerySchema } from '../validation/schemas.js';
+import { AiUsageQuerySchema, NoticeSettingsSchema, USAGE_MAX_RANGE_DAYS, UsageQuerySchema } from '../validation/schemas.js';
 
 const DAY_MS = 86_400_000;
+
+/** Default window of the AI usage report. */
+const AI_USAGE_DEFAULT_DAYS = 30;
 
 /**
  * The account's quota settings as both notice-settings routes answer them. One
@@ -133,6 +139,52 @@ export function createUsageRoutes(svc: QuotaService = defaultQuotaService): Rout
         retentionDays: config.quota.usageEventRetentionDays,
         groups,
       });
+    }),
+  );
+
+  // GET /quotas/:orgId/ai-usage — the AI ASSISTANT USAGE REPORT.
+  //
+  // AI calls / units / tokens per time bucket, caller TYPE, feature and (for a
+  // rollup) team, plus the acceptance rate of AI-generated drafts per bucket
+  // and feature (services/ai-usage-report.ts). Free: the same `quotas:read`
+  // that guards "What used this". Never per person — no response carries a user
+  // id, name or email. `?includeDescendants=true` rolls up over the account's
+  // teams for a `reports:rollup` holder only (the reporting rule, `rollupIds`);
+  // anyone else silently gets their own org. `tz` / `weekStart` bucket in the
+  // viewer's calendar, validated by the same api-core parsers the dashboards use.
+  router.get(
+    '/:orgId/ai-usage',
+    requireAuth as RequestHandler,
+    authorizeOrg() as RequestHandler,
+    requirePermission('quotas:read') as RequestHandler,
+    withRoute(async ({ req, res, ctx }) => {
+      const orgId = getParam(req.params, 'orgId')!;
+      const parsed = validateQuery(req, AiUsageQuerySchema);
+      if (!parsed.ok) return sendBadRequest(res, parsed.error, ErrorCode.VALIDATION_ERROR);
+      const q = parsed.value;
+      const tz = parseReportTimezone(q);
+      if (typeof tz !== 'string') return sendBadRequest(res, tz.error, ErrorCode.VALIDATION_ERROR);
+      const weekStart = parseWeekStart(q);
+      if (typeof weekStart !== 'string') return sendBadRequest(res, weekStart.error, ErrorCode.VALIDATION_ERROR);
+
+      const to = q.to ? new Date(q.to) : new Date();
+      const from = q.from ? new Date(q.from) : new Date(to.getTime() - AI_USAGE_DEFAULT_DAYS * DAY_MS);
+      if (from >= to) return sendBadRequest(res, '`from` must be before `to`.', ErrorCode.VALIDATION_ERROR);
+      if (to.getTime() - from.getTime() > USAGE_MAX_RANGE_DAYS * DAY_MS) {
+        return sendBadRequest(res, `The range may span at most ${USAGE_MAX_RANGE_DAYS} days.`, ErrorCode.VALIDATION_ERROR);
+      }
+      const rollup = q.includeDescendants === 'true' && userHasPermission(req, 'reports:rollup');
+
+      const report = await queryAiUsageReport({ orgId, rollup, from, to, interval: q.interval, tz, weekStart });
+      ctx.log('COMPLETED', 'Read AI usage report', { orgId, rollup, interval: q.interval });
+
+      if (q.format === 'csv') {
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="ai-usage-${orgId.replace(/[^A-Za-z0-9_-]/g, '')}-${from.toISOString().slice(0, 10)}.csv"`);
+        res.status(200).send(aiUsageReportToCsv(report));
+        return undefined;
+      }
+      return sendSuccess(res, 200, { report });
     }),
   );
 

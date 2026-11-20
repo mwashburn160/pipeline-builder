@@ -7,9 +7,10 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useFetch } from '@/hooks/useFetch';
 import { doraLevelBadge, GRADE_STYLES } from '@/components/reports/DoraParts';
-import type { TabDataStatus } from '../useReportData';
+import { useReportBucketing, type TabDataStatus } from '../useReportData';
+import { GRADE_HISTORY_PERIODS, GradeHistoryStrip } from '@/components/pipeline/ScorecardCard';
 import api from '@/lib/api';
-import type { ScorecardRollup, ScorecardLeaderboardEntry, ScorecardRollupQuery } from '@/types';
+import type { OrgScorecardHistory, ScorecardRollup, ScorecardLeaderboardEntry, ScorecardRollupQuery } from '@/types';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { FilterInput } from '@/components/ui/FilterInput';
@@ -32,7 +33,9 @@ function Band({ level, n }: { level: ScorecardLeaderboardEntry['dora']['deployme
  * Org-wide maturity roll-up: a "software health" leaderboard ranking every
  * pipeline in the org by its blended compliance + DORA grade, plus aggregate
  * stats. Entitlement-gated on `advanced_reporting` (same as DORA / per-pipeline
- * scorecard). Server-computed over a fixed trailing-30-day window; bounded.
+ * scorecard). Server-computed over the trailing 30 days; bounded. A second,
+ * independent read draws the weekly grade history (org average + one strip per
+ * row) in the org's report timezone; if it fails the leaderboard still stands.
  */
 export function ScorecardTab({ enabled, onStatus }: ScorecardTabProps) {
   // The roll-up grades ONE page of the org's own pipelines (server cap 50), so
@@ -54,6 +57,23 @@ export function ScorecardTab({ enabled, onStatus }: ScorecardTabProps) {
     [enabled, offset, filter.project, filter.pipelineName],
     { enabled, keepPreviousData: true },
   );
+  // The grade history for THIS page: one read carries every row's points, so the
+  // table needs no per-pipeline call. Not part of the tab's status — a failed
+  // history must not put an error banner over a working leaderboard.
+  const { ready: bucketReady, tz, weekStart } = useReportBucketing();
+  const history = useFetch<OrgScorecardHistory | null>(
+    async () => {
+      const res = await api.getOrgScorecardHistory({
+        ...query, interval: 'week', periods: GRADE_HISTORY_PERIODS, tz, ...(weekStart && { weekStart }),
+      });
+      if (res.success && res.data) return res.data.history;
+      throw new Error('Failed to load the grade history');
+    },
+    [enabled, bucketReady, offset, filter.project, filter.pipelineName, tz, weekStart],
+    { enabled: enabled && bucketReady, clearDataOnError: true },
+  );
+  const orgHistory = history.error ? null : history.data;
+  const rowHistory = new Map((orgHistory?.pipelines ?? []).map((p) => [p.pipelineId, p.points]));
   const filtered = !!(filter.project || filter.pipelineName);
   const applyFilter = (e: FormEvent) => {
     e.preventDefault();
@@ -147,6 +167,15 @@ export function ScorecardTab({ enabled, onStatus }: ScorecardTabProps) {
               </div>
             </div>
           </div>
+          {orgHistory && orgHistory.windows.length > 0 && (
+            <div>
+              <div className="text-xs text-fg-subtle mb-1">Org average, last {orgHistory.windows.length} weeks</div>
+              <GradeHistoryStrip
+                label={`Org grade history, last ${orgHistory.windows.length} weeks`}
+                points={orgHistory.windows.map((w) => ({ label: w.label, partial: w.partial, score: w.averageScore, grade: w.grade }))}
+              />
+            </div>
+          )}
           <div className="flex items-center gap-2">
             {grades.map((g) => (
               <span key={g} className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold ${GRADE_STYLES[g]}`}>
@@ -166,6 +195,7 @@ export function ScorecardTab({ enabled, onStatus }: ScorecardTabProps) {
               <th scope="col" className="py-2 pr-3 font-medium">Pipeline</th>
               <th scope="col" className="py-2 pr-3 font-medium">Grade</th>
               <th scope="col" className="py-2 pr-3 font-medium text-right">Score</th>
+              <th scope="col" className="py-2 pr-3 font-medium">Trend</th>
               <th scope="col" className="py-2 pr-3 font-medium text-right">Compliance</th>
               <th scope="col" className="py-2 pr-3 font-medium text-right">Delivery</th>
               <th scope="col" className="py-2 pr-3 font-medium text-right">Security</th>
@@ -184,6 +214,9 @@ export function ScorecardTab({ enabled, onStatus }: ScorecardTabProps) {
                   <span className={`inline-flex items-center justify-center w-7 h-7 rounded-md text-xs font-bold ${GRADE_STYLES[entry.grade]}`}>{entry.grade}</span>
                 </td>
                 <td className="py-2 pr-3 text-right tabular-nums text-fg">{entry.score ?? '—'}</td>
+                <td className="py-2 pr-3">
+                  <GradeHistoryStrip compact points={rowHistory.get(entry.pipelineId) ?? []} label={`Grade history for ${entry.name ?? entry.pipelineId}`} />
+                </td>
                 <td className="py-2 pr-3 text-right tabular-nums text-fg-muted">{entry.compliance.score ?? '—'}</td>
                 <td className="py-2 pr-3 text-right tabular-nums text-fg-muted">{entry.dora.score ?? '—'}</td>
                 <td className="py-2 pr-3 text-right tabular-nums text-fg-muted" title={entry.security ? `${entry.security.exposures.count} open plugin exposures${entry.security.artifact ? `, ${entry.security.artifact.reports} artifact reports` : ''}` : undefined}>
@@ -214,6 +247,7 @@ export function ScorecardTab({ enabled, onStatus }: ScorecardTabProps) {
       )}
       <p className="text-2xs text-fg-subtle">
         Scores blend compliance posture (rule dry-run), DORA delivery bands over the trailing 30 days and security (open plugin exposures + artifact scan findings; 40/40/20 when all three have data).
+        The trend re-scores each week with the same formula: that week&apos;s deploys, with today&apos;s compliance and security.
       </p>
     </div>
   );

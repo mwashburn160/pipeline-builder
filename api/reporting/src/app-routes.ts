@@ -5,9 +5,12 @@ import { requireAuth, requirePermission, requireFeature, type QuotaService, type
 import { apiCallsQuota, createAuthenticatedWithOrgRoute, meterQuotaOnSuccess, registerSseTicketChannel, type SSEManager } from '@pipeline-builder/api-server';
 import type { Express, RequestHandler } from 'express';
 
+import { createBenchmarkReportRoutes } from './routes/benchmark-reports.js';
+import { createDeliveryReportRoutes } from './routes/delivery-reports.js';
 import { createDeploymentOutcomeRoutes } from './routes/deployment-outcomes.js';
 import { createEventIngestRoutes } from './routes/event-ingest.js';
 import { createExecutionReportRoutes } from './routes/execution-reports.js';
+import { createFlowReportRoutes } from './routes/flow-reports.js';
 import { createIncidentRoutes } from './routes/incidents.js';
 import { createIngestHealthRoutes } from './routes/ingest-health.js';
 import { createInsightsReportRoutes } from './routes/insights-reports.js';
@@ -57,6 +60,9 @@ export function mountRoutes(app: Express, { quotaService, sseManager, executionT
   app.use('/reports/plugins', ...apiCallsQuota(quotaService));
   app.use('/reports/security', ...apiCallsQuota(quotaService));
   app.use('/reports/insights', ...apiCallsQuota(quotaService));
+  app.use('/reports/flow', ...apiCallsQuota(quotaService));
+  app.use('/reports/benchmark', ...apiCallsQuota(quotaService));
+  app.use('/reports/delivery', ...apiCallsQuota(quotaService));
   // MACHINE ingest prefixes (`reporting:ingest` token scope — the event-forwarder
   // Lambda, the customer's incident tool): METER ONLY, never checked. Dropping CI
   // telemetry or a DORA incident because a quota ran out is worse than overshoot —
@@ -214,4 +220,16 @@ export function mountRoutes(app: Express, { quotaService, sseManager, executionT
   // trend). `reports:read` here; the router adds `advanced_reporting` per route,
   // the same pairing as /reports/execution/dora.
   app.use('/reports/security', ...createAuthenticatedWithOrgRoute(), requirePermission('reports:read'), createSecurityReportRoutes());
+  // Flow (approval wait, queue / provisioning time). `reports:read` here; the
+  // router adds `advanced_reporting` to /approvals and /queue/trend, while the
+  // current queue figures (/queue) stay free.
+  app.use('/reports/flow', ...createAuthenticatedWithOrgRoute(), requirePermission('reports:read'), createFlowReportRoutes());
+  // Team benchmarking (the Teams tab): one row per team + the org itself.
+  // `reports:read` here; the router adds `reports:rollup` (looking down into the
+  // teams) and `advanced_reporting` per route.
+  app.use('/reports/benchmark', ...createAuthenticatedWithOrgRoute(), requirePermission('reports:read'), createBenchmarkReportRoutes());
+  // The Delivery tab: run latency / runner reliability (`reports:read`, free) and
+  // the deployment calendar (the router adds `advanced_reporting` on that route,
+  // the same pairing as /reports/execution/dora).
+  app.use('/reports/delivery', ...createAuthenticatedWithOrgRoute(), requirePermission('reports:read'), createDeliveryReportRoutes());
 }

@@ -85,7 +85,9 @@ describe('recordUsageEvent', () => {
     });
     const [ops] = bulkWrite.mock.calls[0] as [Array<{ updateOne: Record<string, any> }>];
     expect(ops[0]!.updateOne.filter).toMatchObject({ feature: 'agent-tool:propose_template', model: 'claude-opus-4-1', keySource: 'org', outcome: 'counted' });
-    expect(ops[0]!.updateOne.update.$inc).toEqual({ amount: 0, tokensIn: 120, tokensOut: 40 });
+    // `calls: 1`: one usage report = one call that reached the provider — the
+    // AI usage report's call count (units alone undercount BYOK / weight-0 calls).
+    expect(ops[0]!.updateOne.update.$inc).toEqual({ amount: 0, tokensIn: 120, tokensOut: 40, calls: 1 });
     expect(emitCounter).not.toHaveBeenCalledWith('quota_increments_total', expect.anything(), expect.anything());
     expect(insertMany).not.toHaveBeenCalled();
   });

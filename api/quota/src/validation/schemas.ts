@@ -3,6 +3,7 @@
 
 import { AI_KEY_SOURCES, PRINCIPAL_TYPES, VALID_QUOTA_TYPES, VALID_TIERS, type PrincipalType } from '@pipeline-builder/api-core';
 import { z } from 'zod';
+import { AI_DRAFT_FEATURES, AI_DRAFT_OUTCOMES } from '../services/ai-draft-catalog.js';
 
 const quotaLimit = z.number().int().min(-1);
 
@@ -119,6 +120,21 @@ export const ReportUsageSchema = z.object({
 });
 
 /**
+ * POST /quotas/:orgId/increment with `draftOutcome` — what a user did with one
+ * AI-generated draft (sent by the Ask agent's `POST /ask-agent/draft-outcome`).
+ * Moves NO counter; counts one (org, feature, outcome) into the draft-outcome
+ * buckets. Both fields are closed catalogs and nothing else is accepted: the
+ * store holds no person and no content (models/ai-draft-outcome.ts).
+ */
+export const DraftOutcomeSchema = z.object({
+  quotaType: z.literal('aiCalls'),
+  draftOutcome: z.object({
+    feature: z.enum(AI_DRAFT_FEATURES),
+    outcome: z.enum(AI_DRAFT_OUTCOMES),
+  }).strict(),
+});
+
+/**
  * POST /quotas/:orgId/decrement  roll back a previously reserved increment.
  * The reservation shape; same per-call ceiling so a buggy rollback can't drive
  * the counter wildly negative (the service also floors at 0).
@@ -150,6 +166,23 @@ export const UsageQuerySchema = z.object({
   from: z.string().datetime({ offset: true }).optional(),
   to: z.string().datetime({ offset: true }).optional(),
   groupBy: z.enum(USAGE_GROUP_BY).default('principal'),
+  format: z.enum(['json', 'csv']).default('json'),
+});
+
+/**
+ * GET /quotas/:orgId/ai-usage  query string. `from`/`to` default to the last
+ * 30 days; `tz` / `weekStart` are parsed by api-core's report parsers in the
+ * route (the same ones the reporting dashboards use); `includeDescendants` is
+ * honoured only for a `reports:rollup` holder.
+ */
+export const AiUsageQuerySchema = z.object({
+  from: z.string().datetime({ offset: true }).optional(),
+  to: z.string().datetime({ offset: true }).optional(),
+  interval: z.enum(['day', 'week']).default('day'),
+  includeDescendants: z.enum(['true', 'false']).optional(),
+  tz: z.string().optional(),
+  timezone: z.string().optional(),
+  weekStart: z.string().optional(),
   format: z.enum(['json', 'csv']).default('json'),
 });
 

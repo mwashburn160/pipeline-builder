@@ -177,9 +177,10 @@ export const TIER_FEATURES: Record<PlanTier, readonly FeatureFlag[]> = {
   developer: ['ai_generation'],
   pro: ['ai_generation', 'bulk_operations'],
   // Team adds sso (SSO/IdP is INCLUDED in Team, not an add-on). advanced_reporting
-  // (DORA) is NOT a Team tier feature — it's INCLUDED only in Enterprise and sold
-  // as an add-on bundle to every other tier (see billing-config
-  // `advanced_reporting`). Enterprise unlocks all.
+  // (DORA) is NOT a Team tier feature — it's INCLUDED from Business up (Business,
+  // Enterprise) and sold as an add-on bundle to Developer/Pro/Team (see
+  // billing-config `advanced_reporting`). stakeholder_reports is INCLUDED only in
+  // Enterprise (an add-on on Pro/Team/Business). Enterprise unlocks all.
   // `verified_publisher` (eligibility to apply for Verified) starts at Team.
   team: ['ai_generation', 'bulk_operations', 'sso', 'verified_publisher'],
   // Business is Team plus advanced_reporting (DORA): the analytics surface is

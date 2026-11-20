@@ -116,6 +116,43 @@
   },
   {
     "method": "POST",
+    "path": "/ask-agent/draft-outcome",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "pipelines:read",
+          "plugins:read",
+          "templates:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "conditionalGates": [],
+    "features": [
+      "ai_generation"
+    ],
+    "scopes": [],
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
+    "method": "POST",
     "path": "/ask-agent/feedback",
     "auth": true,
     "permissions": [

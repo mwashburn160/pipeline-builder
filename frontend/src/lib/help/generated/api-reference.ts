@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: cccce3010dac096cffd0bedc36a13bec23ecc614950ff4f2d573ad88c34333e4
+// SOURCE-SHA256: 9a32713b3c832857128a88b651c68ff8859a186216b3eb4428287e394a16ab8a
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -2031,7 +2031,7 @@ export const apiReferenceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "61 routes, from frontend/src/generated/route-table/pipeline.json."
+          "content": "63 routes, from frontend/src/generated/route-table/pipeline.json."
         },
         {
           "type": "table",
@@ -2165,6 +2165,13 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/pipelines/:id/scorecard",
+              "pipelines:read; feature advanced_reporting",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "GET",
+              "/pipelines/:id/scorecard/history",
               "pipelines:read; feature advanced_reporting",
               "apiCalls",
               "—"
@@ -2459,7 +2466,14 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/pipelines/scorecard",
-              "pipelines:read; feature advanced_reporting",
+              "reports:read; feature advanced_reporting",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "GET",
+              "/pipelines/scorecard/history",
+              "reports:read; feature advanced_reporting",
               "apiCalls",
               "—"
             ],
@@ -3583,7 +3597,7 @@ export const apiReferenceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "6 routes, from frontend/src/generated/route-table/ask-agent.json."
+          "content": "7 routes, from frontend/src/generated/route-table/ask-agent.json."
         },
         {
           "type": "table",
@@ -3612,6 +3626,13 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/ask-agent/availability",
+              "pipelines:read or plugins:read or templates:read; feature ai_generation",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/ask-agent/draft-outcome",
               "pipelines:read or plugins:read or templates:read; feature ai_generation",
               "apiCalls",
               "—"

@@ -176,6 +176,9 @@ jest.unstable_mockModule('../src/services/threshold-notifier.js', () => ({ notif
 // covered in ai-controls.test.ts; here only the route's handling of a refusal.
 const mockCheckAiControls = jest.fn<AnyFn>(async () => null);
 jest.unstable_mockModule('../src/services/ai-controls.js', () => ({ checkAiControls: mockCheckAiControls }));
+// The AI draft-outcome counter (its own write is covered in ai-usage-report.test.ts).
+const mockRecordDraftOutcome = jest.fn<AnyFn>(async () => undefined);
+jest.unstable_mockModule('../src/services/ai-usage-report.js', () => ({ recordDraftOutcome: mockRecordDraftOutcome }));
 
 const { createUpdateQuotaRoutes, splitMeteredGroups } = await import('../src/routes/update-quota.js');
 const updateQuotaRouter = createUpdateQuotaRoutes();
@@ -652,6 +655,30 @@ describe('POST /quotas/:orgId/increment', () => {
       orgId: 'org-123', rootOrgId: 'org-123', quotaType: 'aiCalls', amount: 0, outcome: 'counted', attribution, tokensIn: 50, tokensOut: 7, report: true,
     });
     expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, { recorded: true }, 'Usage reported');
+  });
+
+  it('an AI DRAFT OUTCOME counts one (org, feature, outcome) and moves no counter — no user id is read or stored', async () => {
+    const req = mockReq({
+      params: { orgId: 'team-a' },
+      body: { quotaType: 'aiCalls', draftOutcome: { feature: 'pipeline-generate', outcome: 'edited_accepted' } },
+      user: { organizationId: 'team-a', sub: 'u-should-not-be-stored' },
+    });
+    const res = mockRes();
+    await handler(req, res);
+    expect(mockFindOneAndUpdate).not.toHaveBeenCalled();
+    expect(mockRecordUsageEvent).not.toHaveBeenCalled();
+    expect(mockRecordDraftOutcome).toHaveBeenCalledWith({ orgId: 'team-a', rootOrgId: 'team-a', feature: 'pipeline-generate', outcome: 'edited_accepted' });
+    expect(JSON.stringify(mockRecordDraftOutcome.mock.calls)).not.toContain('u-should-not-be-stored');
+    expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, { recorded: true }, 'Draft outcome recorded');
+  });
+
+  it('a draft outcome outside the bounded catalogs is a 400', async () => {
+    for (const draftOutcome of [{ feature: 'pipeline-generate', outcome: 'loved_it' }, { feature: 'ask', outcome: 'accepted' }, { feature: 'pipeline-generate' }]) {
+      const res = mockRes();
+      await handler(mockReq({ params: { orgId: 'org-123' }, body: { quotaType: 'aiCalls', draftOutcome }, user: { organizationId: 'org-123' } }), res);
+      expect(mockSendError).toHaveBeenCalledWith(res, 400, expect.any(String), 'VALIDATION_ERROR');
+    }
+    expect(mockRecordDraftOutcome).not.toHaveBeenCalled();
   });
 
   it('a report for any type but aiCalls is a 400', async () => {

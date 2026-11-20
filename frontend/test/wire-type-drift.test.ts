@@ -52,6 +52,10 @@ const REGISTERED: ReadonlyArray<readonly [string, string, string]> = [
   ['BlockedInfo', 'frontend/src/types/plugin-installs.ts', 'api/plugin/src/services/ecosystem/installs-views.ts'],
   ['BuildHealth', 'frontend/src/lib/api/domains/reporting.ts', 'packages/pipeline-data/src/api/reporting/types.ts'],
   ['BuildHealthStage', 'frontend/src/lib/api/domains/reporting.ts', 'packages/pipeline-data/src/api/reporting/types.ts'],
+  // Team benchmarking's row shapes (pipeline-data, not importable).
+  ['BenchmarkCell', 'frontend/src/lib/api/domains/reporting-benchmark.ts', 'packages/pipeline-data/src/api/reporting/team-benchmark.ts'],
+  ['BenchmarkSuccess', 'frontend/src/lib/api/domains/reporting-benchmark.ts', 'packages/pipeline-data/src/api/reporting/team-benchmark.ts'],
+  ['TeamBenchmarkRow', 'frontend/src/lib/api/domains/reporting-benchmark.ts', 'packages/pipeline-data/src/api/reporting/team-benchmark.ts'],
   // The crossover verdict. Registered rather
   // than shared because it is served by api/billing, which the client cannot
   // import — and the figures in it reach a customer, so the two shapes drifting
@@ -118,6 +122,31 @@ const REGISTERED: ReadonlyArray<readonly [string, string, string]> = [
   ['TopViolatedRule', 'frontend/src/lib/api/domains/reporting-security.ts', 'packages/pipeline-data/src/api/reporting/compliance-trend.ts'],
   ['VulnTrendPoint', 'frontend/src/lib/api/domains/reporting-security.ts', 'packages/pipeline-data/src/api/reporting/security.ts'],
   ['VulnerabilityExposureReport', 'frontend/src/lib/api/domains/reporting-security.ts', 'packages/pipeline-data/src/api/reporting/security.ts'],
+  ['ApprovalStage', 'frontend/src/lib/api/domains/reporting-flow.ts', 'packages/pipeline-data/src/api/reporting/flow.ts'],
+  ['ApprovalTrendPoint', 'frontend/src/lib/api/domains/reporting-flow.ts', 'packages/pipeline-data/src/api/reporting/flow.ts'],
+  ['ApprovalWaitReport', 'frontend/src/lib/api/domains/reporting-flow.ts', 'packages/pipeline-data/src/api/reporting/flow.ts'],
+  ['QueueAction', 'frontend/src/lib/api/domains/reporting-flow.ts', 'packages/pipeline-data/src/api/reporting/flow.ts'],
+  ['QueueByComputeType', 'frontend/src/lib/api/domains/reporting-flow.ts', 'packages/pipeline-data/src/api/reporting/flow.ts'],
+  ['QueueTrendPoint', 'frontend/src/lib/api/domains/reporting-flow.ts', 'packages/pipeline-data/src/api/reporting/flow.ts'],
+  ['QueueWaitReport', 'frontend/src/lib/api/domains/reporting-flow.ts', 'packages/pipeline-data/src/api/reporting/flow.ts'],
+  ['WaitStats', 'frontend/src/lib/api/domains/reporting-flow.ts', 'packages/pipeline-data/src/api/reporting/flow.ts'],
+  // The AI assistant usage report (api/quota, not importable).
+  ['AiCallerTypeRow', 'frontend/src/types/ai-usage.ts', 'api/quota/src/services/ai-usage-report.ts'],
+  ['AiFeatureRow', 'frontend/src/types/ai-usage.ts', 'api/quota/src/services/ai-usage-report.ts'],
+  ['AiTeamRow', 'frontend/src/types/ai-usage.ts', 'api/quota/src/services/ai-usage-report.ts'],
+  ['AiUsageBucketRow', 'frontend/src/types/ai-usage.ts', 'api/quota/src/services/ai-usage-report.ts'],
+  ['AiUsageReport', 'frontend/src/types/ai-usage.ts', 'api/quota/src/services/ai-usage-report.ts'],
+  ['AiUsageTotals', 'frontend/src/types/ai-usage.ts', 'api/quota/src/services/ai-usage-report.ts'],
+  // The Delivery tab's reports (pipeline-data, not importable).
+  ['RunOutcomeCounts', 'frontend/src/lib/api/domains/reporting-delivery.ts', 'packages/pipeline-data/src/api/reporting/delivery.ts'],
+  ['RunRequestTrendPoint', 'frontend/src/lib/api/domains/reporting-delivery.ts', 'packages/pipeline-data/src/api/reporting/delivery.ts'],
+  ['RunnerFailureCode', 'frontend/src/lib/api/domains/reporting-delivery.ts', 'packages/pipeline-data/src/api/reporting/delivery.ts'],
+  ['RunnerReliabilityRow', 'frontend/src/lib/api/domains/reporting-delivery.ts', 'packages/pipeline-data/src/api/reporting/delivery.ts'],
+  ['RunnerReliabilityReport', 'frontend/src/lib/api/domains/reporting-delivery.ts', 'packages/pipeline-data/src/api/reporting/delivery.ts'],
+  ['CalendarDay', 'frontend/src/lib/api/domains/reporting-delivery.ts', 'packages/pipeline-data/src/api/reporting/delivery.ts'],
+  ['ProductionDeployOutcome', 'frontend/src/lib/api/domains/reporting-delivery.ts', 'packages/pipeline-data/src/api/reporting/delivery.ts'],
+  ['ProductionDeploy', 'frontend/src/lib/api/domains/reporting-delivery.ts', 'packages/pipeline-data/src/api/reporting/delivery.ts'],
+  ['DeploymentCalendarReport', 'frontend/src/lib/api/domains/reporting-delivery.ts', 'packages/pipeline-data/src/api/reporting/delivery.ts'],
 ];
 
 function sources(): string[] {

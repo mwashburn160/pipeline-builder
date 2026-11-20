@@ -61,6 +61,10 @@ type ExemptReason = 'retried' | 'self-healing' | 'caller-error' | 'owner-notifie
 interface Exemption { reason: ExemptReason; why: string }
 
 const EXEMPT: Record<string, Exemption> = {
+  ai_draft_outcome_forward_failures_total: {
+    reason: 'non-blocking',
+    why: 'Forwarding an AI draft accept/discard outcome to quota for the AI usage report (api/ask-agent/src/routes/draft-outcome.ts). The user\'s draft was already applied or discarded; the route always answers and never fails their flow, so a lost forward only under-counts the acceptance rate. Paging on it would wake someone for an analytics gap.',
+  },
   event_bus_handler_failed_total: {
     reason: 'retried',
     why: 'A CONSUMER throwing. The message is left pending (no XACK) and XAUTOCLAIM redelivers it after minIdle, so a transient failure is normal traffic. The terminal case is `event_bus_dead_lettered_total`, which has EventBusDeadLettered. Alerting here would page on every redelivery.',

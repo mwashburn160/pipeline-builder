@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The Scorecard roll-up is served on `pipelines:read`, not the page's
- * `reports:read`. Without it the tab is LOCKED, not hidden — a bookmarked
- * `?tab=scorecard` used to render nothing under a refresh control that spun
- * for ever, because no tab mounted to report its status.
+ * The org Scorecard roll-up is served on `reports:read` (the page's own read
+ * gate). It used to be served on `pipelines:read`, and the tab locked without
+ * it; a custom role with `reports:read` but no pipeline read must now open it.
+ * The tab still locks, in place and with the reason, for a viewer without
+ * `reports:read` (a bookmarked `?tab=scorecard` must never render a blank tab
+ * under a refresh control that spins for ever).
  */
 
 import { describe, it, expect, jest } from '@jest/globals';
@@ -29,14 +31,22 @@ jest.mock('@/lib/api', () => ({
 
 import ReportsPage from '../pages/dashboard/reports';
 
-describe('Reports — Scorecard without pipelines:read', () => {
-  it('a deep link lands on the reason, with the tab locked', async () => {
+describe('Reports — Scorecard gate', () => {
+  it('opens for a reports:read holder without pipelines:read (the roll-up is served on reports:read)', async () => {
     mockAuthGuard({ can: (p: string) => p !== 'pipelines:read' });
     render(<ReportsPage />);
-    expect(await screen.findByText('The Scorecard needs pipeline read access')).toBeInTheDocument();
+    expect(await screen.findByText('scorecard-body')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^scorecard$/i })).toBeEnabled();
+    expect(screen.queryByText('The Scorecard needs report read access')).not.toBeInTheDocument();
+  });
+
+  it('a deep link without reports:read lands on the reason, with the tab locked', async () => {
+    mockAuthGuard({ can: (p: string) => p !== 'reports:read' });
+    render(<ReportsPage />);
+    expect(await screen.findByText('The Scorecard needs report read access')).toBeInTheDocument();
     const tab = screen.getByRole('button', { name: /^scorecard$/i });
     expect(tab).toBeDisabled();
-    expect(tab).toHaveAttribute('title', 'Requires the pipelines:read permission');
+    expect(tab).toHaveAttribute('title', 'Requires the reports:read permission');
     expect(screen.queryByText('scorecard-body')).not.toBeInTheDocument();
   });
 });

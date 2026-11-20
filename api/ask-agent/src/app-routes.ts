@@ -8,6 +8,7 @@ import type { Express } from 'express';
 
 import { createAgentRoutes } from './routes/agent.js';
 import { createAskRoutes } from './routes/ask.js';
+import { createDraftOutcomeRoutes } from './routes/draft-outcome.js';
 
 /** Dependencies the route factories need. */
 export interface AskRouteDeps {
@@ -43,5 +44,6 @@ export function mountRoutes(app: Express, { quotaService }: AskRouteDeps): void 
     }),
     createAskRoutes(quotaService),
     createAgentRoutes(quotaService),
+    createDraftOutcomeRoutes(),
   );
 }

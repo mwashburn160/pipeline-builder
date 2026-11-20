@@ -12,7 +12,20 @@ import { ApiError } from '../errors';
 import type {
   PipelinePluginWarning, PipelineSecurityReports, PluginUpgradeApplyResult, PluginUpgradePreview,
 } from '../pipeline-security-types';
-import type { ApiResponse, CreatePipelineData, BuilderProps, OwnerType, Pipeline, PipelineScorecard, ScorecardRollup, ScorecardRollupQuery, Visibility } from '@/types';
+import type {
+  ApiResponse, CreatePipelineData, BuilderProps, OrgScorecardHistory, OwnerType, Pipeline, PipelineScorecard, PipelineScorecardHistory,
+  ScorecardHistoryQuery, ScorecardRollup, ScorecardRollupQuery, Visibility,
+} from '@/types';
+
+/** The grade-history query string (interval/periods/tz/weekStart). */
+function scorecardHistoryParams(query: ScorecardHistoryQuery): URLSearchParams {
+  const params = new URLSearchParams();
+  if (query.interval) params.set('interval', query.interval);
+  if (query.periods !== undefined) params.set('periods', String(query.periods));
+  if (query.tz) params.set('tz', query.tz);
+  if (query.weekStart) params.set('weekStart', query.weekStart);
+  return params;
+}
 
 /** A single pipeline spec accepted by the bulk-create endpoint. Mirrors the
  *  single-create body (PipelineCreateSchema on the server). */
@@ -235,6 +248,31 @@ export function pipelinesApi(core: ApiCore) {
       if (query.pipelineName) params.set('pipelineName', query.pipelineName);
       const qs = params.toString();
       return core.request<ApiResponse<{ rollup: ScorecardRollup }>>(`/api/pipelines/scorecard${qs ? `?${qs}` : ''}`);
+    },
+
+    /**
+     * Per-pipeline grade history: score + grade for each of the last `periods`
+     * weekly/monthly windows (server cap 12). `pipelines:read` + `advanced_reporting`.
+     */
+    getPipelineScorecardHistory: async (id: string, query: ScorecardHistoryQuery = {}, opts?: { signal?: AbortSignal }) => {
+      const qs = scorecardHistoryParams(query).toString();
+      return core.request<ApiResponse<{ history: PipelineScorecardHistory }>>(
+        `/api/pipelines/${encodeURIComponent(id)}/scorecard/history${qs ? `?${qs}` : ''}`, { signal: opts?.signal });
+    },
+
+    /**
+     * Org grade history for ONE roll-up page (same paging/filter as
+     * getOrgScorecardRollup): each window's org average + every row's points.
+     * `reports:read` + `advanced_reporting`.
+     */
+    getOrgScorecardHistory: async (query: ScorecardRollupQuery & ScorecardHistoryQuery = {}) => {
+      const params = scorecardHistoryParams(query);
+      if (query.offset) params.set('offset', String(query.offset));
+      if (query.limit !== undefined) params.set('limit', String(query.limit));
+      if (query.project) params.set('project', query.project);
+      if (query.pipelineName) params.set('pipelineName', query.pipelineName);
+      const qs = params.toString();
+      return core.request<ApiResponse<{ history: OrgScorecardHistory }>>(`/api/pipelines/scorecard/history${qs ? `?${qs}` : ''}`);
     },
 
     /**

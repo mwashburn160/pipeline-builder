@@ -534,7 +534,7 @@ Every route of the Pipeline, Plugin and Ask Agent services, generated from the r
 
 ### Pipeline Service — every route
 
-61 routes, from `frontend/src/generated/route-table/pipeline.json`.
+63 routes, from `frontend/src/generated/route-table/pipeline.json`.
 
 | Method | Endpoint | Requires | Meters | Audit action |
 |--------|----------|----------|--------|--------------|
@@ -556,6 +556,7 @@ Every route of the Pipeline, Plugin and Ask Agent services, generated from the r
 | `POST` | `/pipelines/:id/purge` | `pipelines:write`; step-up | `apiCalls` | `pipeline.purge` |
 | `POST` | `/pipelines/:id/restore` | `pipelines:write`; step-up | `apiCalls` | `pipeline.restore` |
 | `GET` | `/pipelines/:id/scorecard` | `pipelines:read`; feature `advanced_reporting` | `apiCalls` | — |
+| `GET` | `/pipelines/:id/scorecard/history` | `pipelines:read`; feature `advanced_reporting` | `apiCalls` | — |
 | `DELETE` | `/pipelines/:id/security-reports` | `pipelines:write` | `apiCalls` | `pipeline.security_report.delete` |
 | `GET` | `/pipelines/:id/security-reports` | `pipelines:read` | `apiCalls` | — |
 | `POST` | `/pipelines/:id/security-reports` | `pipelines:write`; scope `reporting:ingest` | `apiCalls` | `pipeline.security_report.upload` |
@@ -597,7 +598,8 @@ Every route of the Pipeline, Plugin and Ask Agent services, generated from the r
 | `POST` | `/pipelines/runners/signing-key/revoke` | `org_settings:write`; MFA session (aal2); step-up | `apiCalls` | `pipeline.runner.key.revoke` |
 | `DELETE` | `/pipelines/runners/signing-key/rotate` | `org_settings:write`; MFA session (aal2); step-up | `apiCalls` | `pipeline.runner.key.cancel` |
 | `POST` | `/pipelines/runners/signing-key/rotate` | `org_settings:write`; MFA session (aal2); step-up | `apiCalls` | `pipeline.runner.key.rotate` |
-| `GET` | `/pipelines/scorecard` | `pipelines:read`; feature `advanced_reporting` | `apiCalls` | — |
+| `GET` | `/pipelines/scorecard` | `reports:read`; feature `advanced_reporting` | `apiCalls` | — |
+| `GET` | `/pipelines/scorecard/history` | `reports:read`; feature `advanced_reporting` | `apiCalls` | — |
 | `POST` | `/pipelines/validate` | `pipelines:write` | `apiCalls` | — |
 
 ### Plugin Service — every route
@@ -764,13 +766,14 @@ Every route of the Pipeline, Plugin and Ask Agent services, generated from the r
 
 ### Ask Agent Service — every route
 
-6 routes, from `frontend/src/generated/route-table/ask-agent.json`.
+7 routes, from `frontend/src/generated/route-table/ask-agent.json`.
 
 | Method | Endpoint | Requires | Meters | Audit action |
 |--------|----------|----------|--------|--------------|
 | `POST` | `/ask-agent` | `pipelines:read` or `plugins:read` or `templates:read`; feature `ai_generation` | `apiCalls` | `ask.query` |
 | `POST` | `/ask-agent/agent/stream` | `pipelines:read` or `plugins:read` or `templates:read`; feature `ai_generation` | `apiCalls` | `ask.agent.turn` |
 | `GET` | `/ask-agent/availability` | `pipelines:read` or `plugins:read` or `templates:read`; feature `ai_generation` | `apiCalls` | — |
+| `POST` | `/ask-agent/draft-outcome` | `pipelines:read` or `plugins:read` or `templates:read`; feature `ai_generation` | `apiCalls` | — |
 | `POST` | `/ask-agent/feedback` | `pipelines:read` or `plugins:read` or `templates:read` | `apiCalls` | `ask.feedback` |
 | `GET` | `/ask-agent/providers` | `pipelines:read` or `plugins:read` or `templates:read`; feature `ai_generation` | `apiCalls` | — |
 | `POST` | `/ask-agent/stream` | `pipelines:read` or `plugins:read` or `templates:read`; feature `ai_generation` | `apiCalls` | `ask.query` |

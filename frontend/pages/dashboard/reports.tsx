@@ -3,7 +3,7 @@ import { localDay, localDaysBack } from '@/lib/local-day';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { m } from 'framer-motion';
-import { GitBranch, Puzzle, Gauge, Trophy, FileText, Lightbulb, ShieldAlert } from 'lucide-react';
+import { GitBranch, Puzzle, Gauge, Trophy, FileText, Lightbulb, ShieldAlert, Truck, Users, Hourglass } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useUrlTab } from '@/hooks/useUrlTab';
@@ -32,6 +32,9 @@ const ScorecardTab = dynamic(() => import('@/components/reports/tabs/ScorecardTa
 const StakeholderTab = dynamic(() => import('@/components/reports/tabs/StakeholderTab').then((mod) => mod.StakeholderTab), { loading: tabLoading });
 const InsightsTab = dynamic(() => import('@/components/reports/tabs/InsightsTab').then((mod) => mod.InsightsTab), { loading: tabLoading });
 const SecurityTab = dynamic(() => import('@/components/reports/tabs/SecurityTab').then((mod) => mod.SecurityTab), { loading: tabLoading });
+const DeliveryTab = dynamic(() => import('@/components/reports/tabs/DeliveryTab').then((mod) => mod.DeliveryTab), { loading: tabLoading });
+const TeamsTab = dynamic(() => import('@/components/reports/tabs/TeamsTab').then((mod) => mod.TeamsTab), { loading: tabLoading });
+const FlowTab = dynamic(() => import('@/components/reports/tabs/FlowTab').then((mod) => mod.FlowTab), { loading: tabLoading });
 
 /**
  * Billing add-on that widens each window: the Retention Pack (every tier)
@@ -44,7 +47,10 @@ const EXTEND_DORA_RETENTION_HREF = '/dashboard/billing?highlight=dora_history_pa
 const MAX_REPORT_RANGE_DAYS = 730;
 
 // ─── Tab Config ─────────────────────────────────────────
-type TopTab = 'pipelines' | 'plugins' | 'dora' | 'scorecard' | 'stakeholder' | 'insights' | 'security';
+type TopTab = 'pipelines' | 'plugins' | 'dora' | 'scorecard' | 'stakeholder' | 'insights' | 'security'
+  | 'delivery'
+  | 'teams'
+  | 'flow';
 
 const TOP_TABS: { id: TopTab; label: string; icon: typeof GitBranch }[] = [
   { id: 'pipelines', label: 'Pipelines', icon: GitBranch },
@@ -54,6 +60,9 @@ const TOP_TABS: { id: TopTab; label: string; icon: typeof GitBranch }[] = [
   { id: 'stakeholder', label: 'Stakeholder reports', icon: FileText },
   { id: 'insights', label: 'Insights', icon: Lightbulb },
   { id: 'security', label: 'Security', icon: ShieldAlert },
+  { id: 'delivery', label: 'Delivery', icon: Truck },
+  { id: 'teams', label: 'Teams', icon: Users },
+  { id: 'flow', label: 'Flow', icon: Hourglass },
 ];
 const TOP_TAB_IDS: readonly TopTab[] = TOP_TABS.map((t) => t.id);
 
@@ -142,13 +151,14 @@ export default function ReportsPage() {
   // the toggle only appears when the org actually parents teams.
   const [includeDescendants, setIncludeDescendants] = useState(false);
   const canRollup = can('reports:rollup');
-  // The Scorecard roll-up reads GET /pipelines[/:id]/scorecard, which the pipeline
-  // service gates on `pipelines:read` — a custom role with `reports:read` but no
-  // pipeline read gets the tab LOCKED in place (it says which permission it
-  // needs) rather than a tab that can only 403, or none at all — a hidden tab
-  // left a bookmarked `?tab=scorecard` blank with a spinner that never stopped.
-  const canReadPipelines = can('pipelines:read');
-  const scorecardLocked = topTab === 'scorecard' && !canReadPipelines;
+  // The org Scorecard roll-up reads GET /pipelines/scorecard[/history], which the
+  // pipeline service gates on `reports:read` (the per-pipeline card on the
+  // pipeline page stays on `pipelines:read`). A viewer without it gets the tab
+  // LOCKED in place, saying which permission it needs, rather than a tab that can
+  // only 403 or none at all: a hidden tab left a bookmarked `?tab=scorecard`
+  // blank with a spinner that never stopped.
+  const canReadScorecard = can('reports:read');
+  const scorecardLocked = topTab === 'scorecard' && !canReadScorecard;
 
   // Per-tab effective date-range caps (event vs DORA retention), read once from
   // the reports:read-only retention endpoint (so a Retention Pack shows without
@@ -288,13 +298,13 @@ export default function ReportsPage() {
           {TOP_TABS.map((tab) => {
             const Icon = tab.icon;
             const active = topTab === tab.id;
-            const locked = tab.id === 'scorecard' && !canReadPipelines;
+            const locked = tab.id === 'scorecard' && !canReadScorecard;
             return (
               <button
                 key={tab.id}
                 onClick={() => changeTopTab(tab.id)}
                 disabled={locked}
-                title={locked ? 'Requires the pipelines:read permission' : undefined}
+                title={locked ? 'Requires the reports:read permission' : undefined}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                   active
                     ? 'bg-info-bg text-info ring-1 ring-info-border'
@@ -338,19 +348,19 @@ export default function ReportsPage() {
         {topTab === 'plugins' && <PluginsTab filters={filters} onStatus={onStatus} />}
         {/* The entitled tabs wait for the entitlement verdict, so an entitled org
             never sees a flash of the upsell. */}
-        {(topTab === 'dora' || (topTab === 'scorecard' && canReadPipelines)) && !doraGate.isLoaded && <TwoColumnSkeleton />}
+        {(topTab === 'dora' || (topTab === 'scorecard' && canReadScorecard)) && !doraGate.isLoaded && <TwoColumnSkeleton />}
         {topTab === 'dora' && doraGate.isLoaded && (
           // Marking an outcome is a write gated on `pipelines:write`. Checked with
           // `hasPermission` (not `can()`, which folds in read-only impersonation) so
           // a read-only session still SEES the controls, disabled with the reason.
           <DoraTab filters={filters} enabled={doraEnabled} canMark={hasPermission(user, 'pipelines:write')} markReadOnly={isReadOnly} onStatus={onStatus} />
         )}
-        {topTab === 'scorecard' && canReadPipelines && doraGate.isLoaded && (
+        {topTab === 'scorecard' && canReadScorecard && doraGate.isLoaded && (
           <ScorecardTab enabled={doraEnabled} onStatus={onStatus} />
         )}
         {scorecardLocked && (
-          <Callout variant="info" title="The Scorecard needs pipeline read access">
-            It rolls up each pipeline&apos;s scorecard, which requires the pipelines:read permission.
+          <Callout variant="info" title="The Scorecard needs report read access">
+            It rolls up every pipeline&apos;s scorecard, which requires the reports:read permission.
             Ask an organization admin to add it to one of your Roles.
           </Callout>
         )}
@@ -362,9 +372,29 @@ export default function ReportsPage() {
         )}
         {/* Security: vulnerability exposure / time to fix and the compliance trend —
             advanced_reporting, waiting on the verdict like the DORA tab. */}
+        {/* Flow: queue / provisioning time (free) plus its trend and approval wait
+            (advanced_reporting — locked, and never requested, without it). Waits on
+            the verdict so an entitled org never sees a flash of the lock. */}
+        {topTab === 'flow' && !doraGate.isLoaded && <TwoColumnSkeleton />}
+        {topTab === 'flow' && doraGate.isLoaded && (
+          <FlowTab filters={filters} advancedEnabled={doraEnabled} onStatus={onStatus} />
+        )}
         {topTab === 'security' && !doraGate.isLoaded && <TwoColumnSkeleton />}
         {topTab === 'security' && doraGate.isLoaded && (
           <SecurityTab filters={filters} enabled={doraEnabled} onStatus={onStatus} />
+        )}
+        {/* Delivery: runner reliability (free) and the deployment calendar
+            (advanced_reporting — locked, and never requested, without it). Waits
+            on the verdict so an entitled org never sees a flash of the lock. */}
+        {topTab === 'delivery' && !doraGate.isLoaded && <TwoColumnSkeleton />}
+        {topTab === 'delivery' && doraGate.isLoaded && (
+          <DeliveryTab filters={filters} advancedEnabled={doraEnabled} onStatus={onStatus} />
+        )}
+        {/* Teams: one row per team + this org (advanced_reporting + reports:rollup),
+            waiting on the verdict like the DORA tab. */}
+        {topTab === 'teams' && !doraGate.isLoaded && <TwoColumnSkeleton />}
+        {topTab === 'teams' && doraGate.isLoaded && (
+          <TeamsTab filters={filters} enabled={doraEnabled} canRollup={canRollup} onStatus={onStatus} />
         )}
         {topTab === 'stakeholder' && !stakeholderGate.isLoaded && <TwoColumnSkeleton />}
         {topTab === 'stakeholder' && stakeholderGate.isLoaded && (

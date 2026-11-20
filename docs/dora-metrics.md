@@ -30,7 +30,7 @@ The four DevOps Research and Assessment delivery-performance indicators, compute
 
 This page is for platform teams and engineering leaders tracking delivery health. It covers how each metric is defined, the [performance-level](#performance-levels) bands, the [deploy tag standard](#declaring-deployments) that produces them, and the [endpoints](#endpoints).
 
-DORA is an **advanced analytics** feature, gated behind the `advanced_reporting` entitlement — included on Enterprise, or the [Advanced Reporting add-on](billing-bundles.md) on other tiers — and the `reports:read` permission.
+DORA is an **advanced analytics** feature, gated behind the `advanced_reporting` entitlement — included on Business and Enterprise, or the [Advanced Reporting add-on](billing-bundles.md) on Developer, Pro and Team — and the `reports:read` permission. (Stakeholder Reports, `stakeholder_reports`, is a separate entitlement included only on Enterprise.)
 
 > **These metrics are DEPLOY-BASIS ONLY.** There is no run-based mode. This is a deliberate, **no-backward-compatibility** change: the old run-based frequency, the median-run-duration lead-time proxy, and the inferred CFR/time-to-restore are **removed**.
 >
@@ -203,6 +203,7 @@ Requires the `reports:read` permission **and** the `advanced_reporting` feature.
 | `includeDescendants` | `true`, `false` | `false` | Roll the aggregate over the org → team subtree. **Requires `reports:rollup`**; ignored otherwise. |
 | `pipelineId` | pipeline id | — | Restrict to a single pipeline (per-pipeline DORA). |
 | `environment` | environment name | — | Restrict to a single deploy environment. |
+| `compare` | `previous` | — | Also return the same figures for the equal-length window just before the range — see [Period-over-period comparison](#period-over-period-comparison). |
 
 The window is capped at the org's effective **DORA retention** (`min(730, doraRetentionDays)`, absolute ceiling **730 days**) — a wider range returns **HTTP 400**. See [Retention](#retention).
 
@@ -294,6 +295,22 @@ Requires only `reports:read` — this is **standard reporting, available on ever
 
 Returns `data.buildHealth` = `{ stages: [{ stage, runs, successes, failures, successRate, p50Ms, p90Ms, p99Ms }], totals: { runs, failures, failureRate } }`, with totals summed across stages. Rendered on the Reports page as a **Build Health** sub-panel next to the DORA panel, keyed by the scoped pipeline.
 
+### Maturity scorecard: range and grade history
+
+The per-pipeline maturity scorecard and the org-wide leaderboard are served by the pipeline service. They score the same DORA bands as `/dora`, blended with the compliance dry-run and the security signal. See [Developer Portal](developer-portal.md#maturity-scorecards) for the scoring.
+
+```
+GET /api/pipelines/:id/scorecard?from=<iso>&to=<iso>&tz=<iana>
+GET /api/pipelines/scorecard?from=<iso>&to=<iso>&tz=<iana>&offset=&limit=&project=&pipelineName=
+GET /api/pipelines/:id/scorecard/history?interval=week|month&periods=<1..12>&tz=<iana>&weekStart=monday|sunday
+GET /api/pipelines/scorecard/history?interval=…&periods=…&tz=…&weekStart=…&offset=&limit=&project=&pipelineName=
+```
+
+- **Range.** `from` / `to` are optional. With neither, the window is the trailing 30 days and the response is unchanged. An explicit window is capped at the org's DORA retention width and `from` is floored at the retention horizon, the same rule `/dora` applies, using the account root's retention. An invalid `tz` or an inverted or over-wide range returns 400. The scorecard is one aggregate over the window, so `tz` only changes the grade history's window boundaries.
+- **Grade history.** Returns the score and grade for each of the last `periods` (default and maximum 12) calendar weeks or months, oldest first. Windows are bounded in `tz`, and weeks start on `weekStart`. The current window is cut off at now (`partial: true`). A window the retention horizon cuts starts at the horizon (`truncated: true`), and a window wholly before it is left out. Nothing is stored: each window is scored on the fly with the scorecard's own function, so a point equals `GET …/scorecard?from=<point.from>&to=<point.to>`. Compliance and security are current-state signals, read once and applied to every window, so the history moves with delivery (DORA) only. Weekly windows often have fewer than 5 deploys, and their DORA bands are then unscored ("Not enough data"), the same as on the card. A window whose DORA scan fails is `unavailable` (a gap, never an F).
+- **Org history.** Covers the same page of pipelines as the leaderboard. It returns each window's org `averageScore` and `grade`, which equal the leaderboard's `averageScore` for that window, plus every row's points, so the leaderboard draws its per-row strips from one read. It costs up to `limit × periods` per-pipeline DORA scans, runs `ORG_SCORECARD_CONCURRENCY` at a time, and is reused for 5 minutes per viewer and query, like the roll-up.
+- **Gates.** All four need `advanced_reporting`. The per-pipeline card and its history are on `pipelines:read`, because roles that hold `pipelines:read` without `reports:read` see the pipeline page today. The org leaderboard and its history are reporting data and use `reports:read`. See [Permission Contract](permission-contract.md#maturity-scorecard-routes).
+
 ## Retention
 
 Reporting rows do not live forever. A leader-locked background sweep in the reporting service hard-deletes expired rows by `created_at` on a **split** schedule, so high-volume standard events expire faster than the low-volume DORA source. Both windows are **per-org overridable**; unset falls back to a global env default.
@@ -354,6 +371,108 @@ Effective retention = tier baseline + Σ(add-on pack grant), so the **[Standard 
 | `coverage` | `registered`, `deploying`, `withoutDeploys` |
 | `*.level` | [Performance band](#performance-levels): `elite` / `high` / `medium` / `low`, `insufficient` (0 < `n` < 5), or `null` (no sample) |
 | `*.n` | The sample the band rests on (see [Minimum sample](#minimum-sample)) |
+
+## Delivery
+
+**Reports → Delivery** answers two questions the DORA tab does not: are our cross-account runners actually taking runs, and what did we ship, day by day.
+
+### Run latency and runner reliability
+
+Free on every tier (`reports:read`). Read from the run requests the platform sends to your [pipeline runners](aws-deployment.md#cross-account-pipeline-runner):
+
+- **What counts.** Start and stop requests in the range, by request time. Discovery probes are not runs and are left out.
+- **Outcomes.** *Started* (the runner accepted it), *failed*, *expired* (not delivered before the request lapsed), *refused* (the runner answered 401/403: bad signature, refused, permission denied) and *pending* (still queued or delivering). The failure rate is failed + expired + refused over everything that finished; pending requests are in neither side.
+- **Time to start.** Median and p90 from the request to the start of the execution the runner reported. The request has no "answered at" time of its own, and CodePipeline stamps the execution start while the runner's start call is in flight, so this is the time to acceptance plus at most that one call. Starts whose execution has not reached reporting are not in the sample; `n` says how many are.
+- **Failure codes.** The top codes from the runner error catalog. A stored code outside the catalog is counted as `OTHER`.
+- **Runners.** Every runner the range's requests went through, and your own runners even when idle, with requests, failure rate, expired count, current health and last delivery. A parent organization's runner shows its label and health only while it is still shared with teams; after that it is listed as "Unshared runner". No function URL, signing key or requester is ever returned.
+
+Bucketed by the report interval in the org's reporting timezone and week start, like the other dashboard series. Bounded by event retention. **Include child teams** rolls the teams in for `reports:rollup` holders; a team's own runner then counts as the organization's.
+
+### Deployment calendar and change volume
+
+Advanced Reporting (`advanced_reporting`); without it the panel is locked and no request is made. Read from the recorded deployments (one per execution and environment, kept for DORA retention):
+
+- **Calendar.** Deployments per day per environment, with days counted in the org's reporting timezone. An outlined day had a deploy that failed.
+- **Commits per deploy.** Median and p90 over deploys with a known commit count (the same count lead time uses).
+- **Production deploys.** Every production deploy in the range (the latest 200 are listed; the count is exact) with pipeline, time, commit count and outcome: *Succeeded*, *Failed* (the deploy itself failed) or *Failed after deploy* (marked failed afterwards with a [post-deploy outcome](#post-deploy-outcomes)). Incident-correlated failures count in the DORA tab's change-failure rate, not here.
+
+Each table has a CSV export.
+
+### Delivery endpoints
+
+```
+GET /api/reports/delivery/runners?from=&to=&interval=week&tz=&weekStart=&includeDescendants=
+GET /api/reports/delivery/calendar?from=&to=&tz=&includeDescendants=
+```
+
+`runners` needs `reports:read`; `calendar` needs `reports:read` and `advanced_reporting`. Both answer `400` for a bad interval, timezone or week start, or a range past retention (event retention for `runners`, DORA retention for `calendar`). Date-only bounds are local midnights in `tz`.
+
+## Flow
+
+**Reports → Flow** shows where pipeline time goes waiting rather than working. Both panels read the raw pipeline events (a median or p90 cannot be rebuilt from daily totals), so they are bounded by event retention. Data is collected for runs after the release that added it: earlier runs are not in the sample, and an empty panel says so.
+
+### Queue and wait time
+
+Free on every tier (`reports:read`):
+
+- **Queue time.** How long a CodeBuild action waited for capacity (CodeBuild's `QUEUED` phase).
+- **Provisioning time.** How long its build environment took to set up (the `PROVISIONING` phase).
+- **Start to first stage.** From a pipeline execution's start to its first stage's start, from the existing pipeline and stage events. A retried stage's restart is not a first start, and an execution without a stage event is left out.
+
+Median, p90 and `n` for each, plus a table by compute type and the actions with the longest total wait (p90 of queue + provisioning). The events Lambda reads both phases from the same `BatchGetBuilds` call it already makes for the compute size when a CodeBuild action finishes, so collecting them costs no extra AWS call. A phase CodeBuild did not report is left out, never counted as zero. CodeBuild's own build-state events name a build project, not a pipeline, so they are not used. A build counts in the period it finished in.
+
+**Advanced Reporting** adds the per-period trend of the same figures. Without it the trend is locked and not requested.
+
+### Approval wait time
+
+Advanced Reporting (`advanced_reporting`). Without it the panel is locked and no request is made.
+
+- **What counts.** Manual approval actions (CodePipeline's `Approval` action category, kept in the stored event) that finished in the range, counted in the period they finished in.
+- **Wait.** The approval action's start to its decision. When AWS sent no start time, the action's own start event is used. Median and p90 are taken over decided approvals only.
+- **Rejected or expired.** AWS reports a rejection and an expired approval the same way (failed), so they are one count. An approval left without a decision (its execution was stopped, superseded or abandoned) is counted, but has no wait.
+- **Slowest approval stages.** Per pipeline and stage, ranked by p90 wait, with the longest single wait.
+
+Each table has a CSV export. Every figure is org-scoped, includes child teams for `reports:rollup` holders when **Include child teams** is on, and uses the org's reporting timezone and week start. Nothing is reported per person.
+
+### Flow endpoints
+
+```
+GET /api/reports/flow/queue?from=&to=&tz=&includeDescendants=
+GET /api/reports/flow/queue/trend?from=&to=&interval=week&tz=&weekStart=&includeDescendants=
+GET /api/reports/flow/approvals?from=&to=&interval=week&tz=&weekStart=&includeDescendants=
+```
+
+`queue` needs `reports:read`; `queue/trend` and `approvals` also need `advanced_reporting`. All answer `400` for a bad interval, timezone or week start, or a range past event retention. Date-only bounds are local midnights in `tz`.
+
+## Period-over-period comparison
+
+The DORA cards and the Pipelines overview's success rate show a chip with the change against the **equal-length window immediately before** the range: ▲/▼, the magnitude, and green when the change is an improvement, red when it is not. Deployments and success rate are better higher; change failure rate, lead time and time to restore are better lower. A change smaller than the displayed precision reads as "no change". A side with no value (an unknown lead time, no deploy attempts, no runs) shows no chip.
+
+```
+GET /api/reports/execution/dora?from=&to=&compare=previous
+GET /api/reports/execution/success-rate?from=&to=&interval=&tz=&weekStart=&compare=previous
+```
+
+`compare=previous` returns the usual body plus `previous`: for `/dora`, a second `DoraMetrics` for the previous window; for `/success-rate`, `{ window, timeline }`. Both reads are inclusive at both ends, so the previous window ends one millisecond before `from` and a run on the boundary counts once. The same scoping (`pipelineId`, `environment`, `includeDescendants`), incident window and bucketing apply to both windows. `previous` is `null` when the previous window would start before the retention horizon (DORA retention for `/dora`, event retention for `/success-rate`): that data is purged, and a partial window is not a fair comparison. Any other `compare` value is **HTTP 400**.
+
+The comparison is **Advanced Reporting**. `/success-rate` itself stays free; asking it for `compare=previous` without `advanced_reporting` is refused with **403** (the check runs in the route, so the generated route table still shows `/success-rate` as `reports:read`). The dashboard never asks without the entitlement, and shows no chips.
+
+**Stakeholder reports compare differently.** A saved report compares each period against the **previous calendar period** (last month against the month before, last week against the week before, in the report's timezone and week start), not against an equal-length rolling window, so a report's trend column and a dashboard chip over a similar range can differ.
+
+## Team benchmarking
+
+**Reports → Teams** puts every team in the organization's org → team hierarchy side by side, plus the organization itself: deployment frequency (per day), change failure rate, lead time and median time to restore, each with its [band](#performance-levels) and the [minimum-sample](#minimum-sample) rule (`Not enough data (n = X)` below 5), then success rate and run count. The table sorts by any column (the organization's own row stays first; blanks sort last) and exports to CSV. An organization with no teams gets an empty state.
+
+- **A team's row is that team's own dashboard.** Each row is computed with the same reads the team's DORA and Pipelines tabs make, for the team's org alone, in the team's own tenant scope, with its own incident correlation window. The organization's row is its **own** figures, not the rollup (what its dashboard shows with **Include child teams** off).
+- **Windows.** The DORA cells use the range capped and floored to DORA retention, the success rate the range capped and floored to event retention, the same as `/execution/dora` and `/execution/success-rate`. Success rate is succeeded ÷ (succeeded + failed + canceled) over the success-rate report's buckets, bucketed in the org's reporting timezone and week start.
+- **Team level only.** There is no per-person view, and the table never ranks individuals.
+- A team whose figures could not be read shows an error in its own row; the rest of the table still loads.
+
+```
+GET /api/reports/benchmark/teams?from=&to=&interval=week&tz=&weekStart=
+```
+
+Needs `reports:read`, **`reports:rollup`** (looking down into the teams, the same capability a rollup read needs) and **`advanced_reporting`**. Without the entitlement the tab shows the upsell; without `reports:rollup` it explains the permission. Neither makes a request. The subtree is resolved strictly: if the platform cannot answer, the route returns **503** rather than a one-row table. `400` for a bad interval, timezone or week start, or a range past retention. The body is `data.benchmark`: `{ hasTeams, window: { dora, events, tz, weekStart }, rows }`, each row `{ orgId, name, role: 'parent' | 'team', state: 'ok' | 'failed', environment, deploymentFrequency, changeFailureRate, leadTime, timeToRestore, successRate }`, the DORA cells as `{ value, level, n }`.
 
 ## Related
 

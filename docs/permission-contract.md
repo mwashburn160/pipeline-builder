@@ -131,6 +131,10 @@ Contacting support is self-service — every member who can open the Messages pa
 
 **Support-contact designation is `org_settings:write`, read included** (`platform GET|POST|PATCH|DELETE /organization/:id/support-contacts`). It is an organization setting — which of the org's members speak for it to the support desk — rather than `billing:manage` (payment and plans) or `members:manage` (nothing here changes membership or a role). The READ carries the same capability because it discloses the account's **pooled** allowance and usage, a commercial fact spanning sibling teams the caller may not administer; the own-org list that ordinary members genuinely need is served separately by the message service on `messages:read`.
 
+### Maturity scorecard routes
+
+The scorecard is split across two permissions on purpose. The **per-pipeline** card (`pipeline GET /pipelines/:id/scorecard`, and its grade history `/pipelines/:id/scorecard/history`) stays on `pipelines:read`: it is a section of the pipeline detail page, and roles that hold `pipelines:read` without `reports:read` (the Release Manager template, the pipeline-automation bundle) see that page today. Moving the card to `reports:read` would take it away from them. The **org-wide** leaderboard (`/pipelines/scorecard`) and its grade history (`/pipelines/scorecard/history`) grade every pipeline in the org, which makes them reporting data. They use `reports:read`, the same pairing as `reporting GET /reports/execution/dora`. All four also need `advanced_reporting`.
+
 ### Rules checked inside a handler
 
 Some requirements depend on the body in a way the route gate cannot express, and are checked in the handler. They do not appear in the route table or in the rows below, so they are listed here:
@@ -173,6 +177,7 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | ask-agent | POST | `/ask-agent` | `any(pipelines:read|plugins:read|templates:read) + feature(ai_generation)` |
 | ask-agent | POST | `/ask-agent/agent/stream` | `any(pipelines:read|plugins:read|templates:read) + feature(ai_generation)` |
 | ask-agent | GET | `/ask-agent/availability` | `any(pipelines:read|plugins:read|templates:read) + feature(ai_generation)` |
+| ask-agent | POST | `/ask-agent/draft-outcome` | `any(pipelines:read|plugins:read|templates:read) + feature(ai_generation)` |
 | ask-agent | POST | `/ask-agent/feedback` | `any(pipelines:read|plugins:read|templates:read)` |
 | ask-agent | GET | `/ask-agent/providers` | `any(pipelines:read|plugins:read|templates:read) + feature(ai_generation)` |
 | ask-agent | POST | `/ask-agent/stream` | `any(pipelines:read|plugins:read|templates:read) + feature(ai_generation)` |
@@ -400,6 +405,7 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | pipeline | POST | `/pipelines/:id/purge` | `any(pipelines:write) + step-up(any)` |
 | pipeline | POST | `/pipelines/:id/restore` | `any(pipelines:write) + step-up(any)` |
 | pipeline | GET | `/pipelines/:id/scorecard` | `any(pipelines:read) + feature(advanced_reporting)` |
+| pipeline | GET | `/pipelines/:id/scorecard/history` | `any(pipelines:read) + feature(advanced_reporting)` |
 | pipeline | POST | `/pipelines/:pipelineId/executions` | `any(pipelines:write)` |
 | pipeline | POST | `/pipelines/:pipelineId/executions/:executionId/stop` | `any(pipelines:write)` |
 | pipeline | POST | `/pipelines/analyze/from-url` | `any(pipelines:write) + feature(ai_generation)` |
@@ -436,7 +442,8 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | pipeline | GET | `/pipelines/admin/runner-deliveries` | `system-org + any(orgs:read) + aal2` |
 | pipeline | PUT | `/pipelines/admin/runner-deliveries` | `system-org + any(orgs:manage) + aal2 + step-up(any)` |
 | pipeline | GET | `/pipelines/:pipelineId/run-requests/:requestId` | `any(pipelines:read)` |
-| pipeline | GET | `/pipelines/scorecard` | `any(pipelines:read) + feature(advanced_reporting)` |
+| pipeline | GET | `/pipelines/scorecard` | `any(reports:read) + feature(advanced_reporting)` |
+| pipeline | GET | `/pipelines/scorecard/history` | `any(reports:read) + feature(advanced_reporting)` |
 | pipeline | POST | `/pipelines/validate` | `any(pipelines:write)` |
 | platform | GET | `/admin/impersonate/requests` | `dynamic(subject,superadmin,tenant-admin,tenant-member:impersonation:approve)` |
 | platform | POST | `/admin/impersonate/requests/:id/decide` | `dynamic(subject,superadmin,tenant-admin:impersonation:approve)` |
@@ -764,6 +771,7 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | quota | POST | `/quotas/internal/orgs/:orgId/purge` | `service-principal + internal(platform)` |
 | quota | POST | `/quotas/:orgId/reset` | `system-org + any(quotas:manage) + aal2 + step-up(any)` |
 | quota | GET | `/quotas/:orgId/usage` | `any(quotas:read)` |
+| quota | GET | `/quotas/:orgId/ai-usage` | `any(quotas:read)` |
 | quota | GET | `/quotas/all` | `system-org + any(orgs:read) + aal2` |
 | quota | PUT | `/quotas/entitlement-sync/:orgId` | `service-principal + internal(billing)` |
 | quota | GET | `/quotas/at-risk` | `system-org + any(orgs:read) + aal2` |
@@ -782,6 +790,9 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | reporting | GET | `/reports/execution/list` | `any(reports:read)` |
 | reporting | GET | `/reports/execution/stage-bottlenecks` | `any(reports:read)` |
 | reporting | GET | `/reports/execution/stage-failures` | `any(reports:read)` |
+| reporting | GET | `/reports/flow/approvals` | `any(reports:read) + feature(advanced_reporting)` |
+| reporting | GET | `/reports/flow/queue` | `any(reports:read)` |
+| reporting | GET | `/reports/flow/queue/trend` | `any(reports:read) + feature(advanced_reporting)` |
 | reporting | POST | `/reports/execution/stream/ticket` | `any(reports:read)` |
 | reporting | GET | `/reports/execution/success-rate` | `any(reports:read)` |
 | reporting | GET | `/reports/incidents` | `any(reports:read) + feature(advanced_reporting)` |
@@ -801,6 +812,9 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | reporting | GET | `/reports/retention` | `any(reports:read)` |
 | reporting | GET | `/reports/security/compliance-trend` | `any(reports:read) + feature(advanced_reporting)` |
 | reporting | GET | `/reports/security/vulnerabilities` | `any(reports:read) + feature(advanced_reporting)` |
+| reporting | GET | `/reports/benchmark/teams` | `any(reports:read) + any(reports:rollup) + feature(advanced_reporting)` |
+| reporting | GET | `/reports/delivery/calendar` | `any(reports:read) + feature(advanced_reporting)` |
+| reporting | GET | `/reports/delivery/runners` | `any(reports:read)` |
 | reporting | PUT | `/reports/internal/retention-sync/:orgId` | `service-principal + internal(billing)` |
 | reporting | PUT | `/reports/internal/stakeholder-sync/:orgId` | `service-principal + internal(billing)` |
 | reporting | GET | `/reports/internal/retention-sync/:orgId` | `service-principal + internal(billing)` |

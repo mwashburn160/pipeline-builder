@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { SQSRecord } from 'aws-lambda';
-import { codeBuildIdOf, readBuildCompute, readSynthFailure } from './failure-reason.js';
+import { codeBuildIdOf, readBuildCompute, readSynthFailure, type BuildPhases } from './failure-reason.js';
 import { classifySource, resolveCommitInfo } from './scm.js';
 import { MAX_ATTR, resolvePipeline } from './tags.js';
 import { log, partitionForRegion } from './util.js';
@@ -54,6 +54,13 @@ export interface ParsedEvent {
    * unrelated payload getting large.
    */
   computeType?: string;
+  /**
+   * How long a terminal CodeBuild action's build waited before it ran: the
+   * QUEUED and PROVISIONING phase lengths (ms), from the same `BatchGetBuilds`
+   * read as {@link computeType}. Undefined when neither phase was reported.
+   * Its own field, not a `detail` key, for the reason `computeType` is.
+   */
+  buildPhases?: BuildPhases;
   /** Deploy environment — set only when the event's stage is listed in the
    *  pipeline's `pb.deploys` tag. Undefined otherwise (⇒ not a deploy). */
   environment?: string;
@@ -250,9 +257,12 @@ export async function parseRecord(record: SQSRecord): Promise<ParsedEvent | null
   // with, so reading it there would spend an AWS call to learn nothing.
   // Best-effort — null forwards without the field.
   let computeType: string | undefined;
+  let buildPhases: BuildPhases | undefined;
   if (eventType === 'ACTION' && TERMINAL_STATES.has(state)) {
     const cbId = codeBuildIdOf(detail);
-    computeType = (cbId ? await readBuildCompute(event.region, cbId) : null) ?? undefined;
+    const facts = cbId ? await readBuildCompute(event.region, cbId) : null;
+    computeType = facts?.computeType ?? undefined;
+    buildPhases = facts?.phases ?? undefined;
   }
 
   // A failed CodeBuild action may have printed a structured reason (the synth's
@@ -329,6 +339,7 @@ export async function parseRecord(record: SQSRecord): Promise<ParsedEvent | null
     ...(commitCount && { commitCount }),
     ...(environment && { environment }),
     ...(computeType && { computeType }),
+    ...(buildPhases && { buildPhases }),
     ...(sourceEventId && { sourceEventId }),
     ...(sourceMessageId && { sourceMessageId }),
     detail,

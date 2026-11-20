@@ -194,6 +194,60 @@ export interface ScorecardRollupQuery {
 }
 
 /**
+ * Query for the grade-history endpoints: the last `periods` (1..12) weekly or
+ * monthly windows, bounded in `tz` with weeks starting on `weekStart`.
+ */
+export interface ScorecardHistoryQuery {
+  interval?: 'week' | 'month';
+  periods?: number;
+  tz?: string;
+  weekStart?: 'monday' | 'sunday';
+}
+
+/** One grade-history window (`[from, to)`), as the server computed it. */
+export interface ScorecardHistoryWindow {
+  /** `2026-W47` or `2026-11`. */
+  label: string;
+  from: string;
+  to: string;
+  /** The current window, cut off at the time of computing. */
+  partial: boolean;
+  /** Its start was raised to the DORA retention horizon. */
+  truncated: boolean;
+}
+
+/** One pipeline's score + grade over one window (the scorecard's own scoring). */
+export interface ScorecardHistoryPoint extends ScorecardHistoryWindow {
+  score: number | null;
+  grade: PipelineScorecard['grade'];
+  /** The window's compute FAILED — a gap, not an F. */
+  unavailable?: boolean;
+}
+
+/** GET /pipelines/:id/scorecard/history. */
+export interface PipelineScorecardHistory {
+  pipelineId: string;
+  interval: 'week' | 'month';
+  tz: string;
+  weekStart: 'monday' | 'sunday';
+  /** Oldest first. */
+  points: ScorecardHistoryPoint[];
+  computedAt: string;
+}
+
+/** GET /pipelines/scorecard/history: the roll-up page's history + each window's org average. */
+export interface OrgScorecardHistory {
+  orgId: string;
+  interval: 'week' | 'month';
+  tz: string;
+  weekStart: 'monday' | 'sunday';
+  windows: Array<ScorecardHistoryWindow & { averageScore: number | null; grade: PipelineScorecard['grade']; scored: number }>;
+  pipelines: Array<{ pipelineId: string; name?: string; points: ScorecardHistoryPoint[] }>;
+  pagination: ScorecardRollupPagination;
+  computedAt: string;
+}
+
+/**
  * Template visibility ladder. Unlike the pipeline/plugin catalogs' two-value
  * `visibility`, templates have a personal rung so an author can iterate on a
  * draft before sharing it:

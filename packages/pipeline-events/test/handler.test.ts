@@ -474,6 +474,87 @@ describe('pipeline-events handler', () => {
     }
   });
 
+  describe('queue and provisioning time (Flow report)', () => {
+    const terminalBuildAction = (state = 'SUCCEEDED') => ({
+      ...MOCK_CODEPIPELINE_EVENT,
+      'detail-type': 'CodePipeline Action Execution State Change',
+      'detail': {
+        ...MOCK_CODEPIPELINE_EVENT.detail,
+        state,
+        'stage': 'Build',
+        'action': 'Build',
+        'type': { provider: 'CodeBuild', category: 'Build' },
+        'execution-result': { 'external-execution-id': 'build-project:0b7e3c2a-1111-2222-3333-444455556666' },
+      },
+    });
+
+    it('forwards the QUEUED / PROVISIONING durations from the SAME BatchGetBuilds read as the compute size', async () => {
+      const { _setFailureReasonLoaderForTests } = await import('../src/failure-reason.js');
+      const cbSend = jest.fn(async () => ({
+        builds: [{
+          environment: { computeType: 'BUILD_GENERAL1_MEDIUM' },
+          phases: [
+            { phaseType: 'SUBMITTED', durationInSeconds: 0 },
+            // Exact start/end wins over the whole-second duration.
+            { phaseType: 'QUEUED', startTime: new Date('2026-03-15T10:00:01.000Z'), endTime: new Date('2026-03-15T10:00:43.500Z'), durationInSeconds: 42 },
+            { phaseType: 'PROVISIONING', durationInSeconds: 17 },
+            { phaseType: 'BUILD', durationInSeconds: 120 },
+          ],
+        }],
+      }));
+      _setFailureReasonLoaderForTests((async () => (
+        { CodeBuildClient: class { send = cbSend; }, BatchGetBuildsCommand: class { constructor(public input: unknown) {} } }
+      )) as never);
+      try {
+        await handler(createSQSEvent([terminalBuildAction()]));
+        const event = lastEventsBody().events[0];
+        expect(event.computeType).toBe('BUILD_GENERAL1_MEDIUM');
+        expect(event.buildPhases).toEqual({ queuedMs: 42_500, provisioningMs: 17_000 });
+        // One AWS call serves both.
+        expect(cbSend).toHaveBeenCalledTimes(1);
+      } finally {
+        _setFailureReasonLoaderForTests(undefined);
+      }
+    });
+
+    it('omits a phase AWS did not report (never guessed as zero), and the field when neither was', async () => {
+      const { _setFailureReasonLoaderForTests } = await import('../src/failure-reason.js');
+      const cbSend = jest.fn<(...a: unknown[]) => Promise<unknown>>()
+        .mockResolvedValueOnce({ builds: [{ environment: { computeType: 'BUILD_GENERAL1_SMALL' }, phases: [{ phaseType: 'QUEUED', durationInSeconds: 3 }] }] })
+        .mockResolvedValueOnce({ builds: [{ environment: { computeType: 'BUILD_GENERAL1_SMALL' }, phases: [{ phaseType: 'BUILD', durationInSeconds: 3 }] }] });
+      _setFailureReasonLoaderForTests((async () => (
+        { CodeBuildClient: class { send = cbSend; }, BatchGetBuildsCommand: class { constructor(public input: unknown) {} } }
+      )) as never);
+      try {
+        const latest = () => JSON.parse((mockFetch.mock.calls.filter(isIngestCall).at(-1) as any[])[1].body);
+        await handler(createSQSEvent([terminalBuildAction()]));
+        expect(latest().events[0].buildPhases).toEqual({ queuedMs: 3000 });
+        await handler(createSQSEvent([terminalBuildAction('CANCELED')]));
+        expect(latest().events[0].computeType).toBe('BUILD_GENERAL1_SMALL');
+        expect(latest().events[0].buildPhases).toBeUndefined();
+      } finally {
+        _setFailureReasonLoaderForTests(undefined);
+      }
+    });
+
+    it('forwards an approval action with its type.category intact in detail (the approval-wait report keys on it)', async () => {
+      await handler(createSQSEvent([{
+        ...MOCK_CODEPIPELINE_EVENT,
+        'detail-type': 'CodePipeline Action Execution State Change',
+        'detail': {
+          ...MOCK_CODEPIPELINE_EVENT.detail,
+          state: 'SUCCEEDED',
+          stage: 'Release',
+          action: 'ManualApproval',
+          type: { owner: 'AWS', provider: 'Manual', category: 'Approval', version: '1' },
+        },
+      }]));
+      const event = lastEventsBody().events[0];
+      expect(event.detail.type).toEqual({ owner: 'AWS', provider: 'Manual', category: 'Approval', version: '1' });
+      expect(event.buildPhases).toBeUndefined();
+    });
+  });
+
   it('forwards a failed CodeBuild action unchanged when its log cannot be read', async () => {
     const { _setFailureReasonLoaderForTests } = await import('../src/failure-reason.js');
     _setFailureReasonLoaderForTests((async () => { throw new Error('AccessDenied'); }) as never);

@@ -4,9 +4,12 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import type { ExecutionCountRow } from '@/types';
-import type { DoraMetrics, DoraTrendPoint, DeploymentRow , LeadTimeGap } from '@/lib/api/domains/reporting';
+import type { DoraEnvMetrics, DoraMetrics, DoraTrendPoint, DeploymentRow , LeadTimeGap } from '@/lib/api/domains/reporting';
 import { fmtDate, ReportEmpty, SectionHeading, StatCardSkeleton, SectionCardSkeleton } from './ReportHelpers';
-import { fmtWindow, DoraCard, DoraCountingNote, DoraTrendSparkline, DoraScopeControls, type DoraScope } from './DoraParts';
+import {
+  fmtWindow, DoraCard, DoraCountingNote, DoraTrendSparkline, DoraScopeControls, DeltaChip,
+  metricDelta, useDoraComparison, type DoraScope,
+} from './DoraParts';
 import { LEAD_TIME_GAP_COPY, leadTimeGapTooltip } from './report-copy';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -43,6 +46,9 @@ interface DoraReportProps {
   /** The requested `from` bound (`YYYY-MM-DD`, or ''), to detect a retention
    *  truncation when the backend floors `dora.window.from` later than requested. */
   requestedFrom?: string;
+  /** The page's "Include child teams" scope, so the period-over-period comparison
+   *  reads the same org set as `dora` (advanced_reporting; see useDoraComparison). */
+  includeDescendants?: boolean;
 }
 
 /**
@@ -93,8 +99,11 @@ function windowDays(window: { from: string; to: string }): number {
 export function DoraReport({
   loading, dora, doraTrend, pipelineOptions, executions, environmentOptions,
   deployments, deployPipelineSelected, markEnvironment, canMark, markReadOnly = false, onMarkOutcome, doraScope,
-  requestedFrom,
+  requestedFrom, includeDescendants = false,
 }: DoraReportProps) {
+  // The previous equal-length window, for the delta chips (null when not
+  // entitled, not comparable, or still loading — the cards then show none).
+  const previous = useDoraComparison(dora, includeDescendants);
   // Picker options: registry pipelines PLUS any pipeline that only appears in
   // execution history (e.g. since-deleted), deduped by id. Registry first so a
   // never-run pipeline is still selectable; execution-derived fills gaps.
@@ -132,6 +141,7 @@ export function DoraReport({
         // falling back to the first (sorted headline-first) when absent.
         const headlineEnv =
           dora.environments.find((e) => e.environment === dora.headline) ?? dora.environments[0] ?? null;
+        const deltas = headlineEnv && previous ? doraDeltas(headlineEnv, dora, previous) : null;
         return (
         <>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 -mt-1 mb-3 text-xs text-fg-subtle">
@@ -161,6 +171,7 @@ export function DoraReport({
                 sub={<>{headlineEnv.deploymentFrequency.deployments === 1 ? 'deploy' : 'deploys'} &middot; {headlineEnv.deploymentFrequency.perDay.toFixed(2)}/day</>}
                 level={headlineEnv.deploymentFrequency.level}
                 n={headlineEnv.deploymentFrequency.n}
+                delta={deltas?.deploymentFrequency}
                 tooltip={`Successful ${headlineEnv.environment} deploy-stage executions in the window. Per-environment breakdown below.`}
               />
               <DoraCard
@@ -173,6 +184,7 @@ export function DoraReport({
                 }
                 level={headlineEnv.leadTime.level}
                 n={headlineEnv.leadTime.n}
+                delta={deltas?.leadTime}
                 tooltip={
                   (headlineEnv.leadTime.medianSeconds == null ? leadTimeGapTooltip(headlineEnv.leadTime.unknownReasons) : null)
                   ?? 'Measured commit→deploy time (from resolved commit timestamps). "unknown" when commit times couldn’t be resolved for the in-window deploys.'
@@ -201,6 +213,7 @@ export function DoraReport({
                 }
                 level={headlineEnv.changeFailureRate.level}
                 n={headlineEnv.changeFailureRate.n}
+                delta={deltas?.changeFailureRate}
                 tooltip="(deploy-time failures + post-deploy failures) ÷ deploy attempts. Post-deploy failures are sourced automatically from the incident webhook (PagerDuty/Datadog/Alertmanager) or manually from the mark-failed control below (deduped by deploy)."
               />
               <DoraCard
@@ -209,6 +222,7 @@ export function DoraReport({
                 sub={`${dora.meanTimeToRestore.restored}/${dora.meanTimeToRestore.incidents} incidents restored`}
                 level={dora.meanTimeToRestore.level}
                 n={dora.meanTimeToRestore.n}
+                delta={deltas?.timeToRestore}
                 tooltip={`Median (not mean) time from a ${headlineEnv.environment} failure — an incident opening, or a deploy marked failed — to its restoration. "—" means no recovery was measured in this window.`}
               />
             </div>
@@ -267,6 +281,50 @@ export function DoraReport({
       )}
     </div>
   );
+}
+
+// ─── Period-over-period chips ───────────────────────────
+
+/** A signed duration, e.g. "+2h 5m" / "−40s". */
+function signedDuration(seconds: number): string {
+  return `${seconds > 0 ? '+' : '−'}${formatDurationSeconds(Math.abs(seconds))}`;
+}
+
+/**
+ * The four card chips against the previous window, for the SAME environment the
+ * cards show (an environment absent from the previous window had no deploys
+ * there: zero deployments, and no rate or lead time to compare). Deployment
+ * frequency compares deploy counts — the windows are the same length.
+ */
+export function doraDeltas(env: DoraEnvMetrics, dora: DoraMetrics, previous: DoraMetrics) {
+  const prev = previous.environments.find((e) => e.environment === env.environment) ?? null;
+  const chip = (d: ReturnType<typeof metricDelta>, text: (v: number) => string, previousText: string) =>
+    (d ? <DeltaChip delta={d} text={text(d.delta)} previousText={previousText} /> : undefined);
+  const prevDeploys = prev?.deploymentFrequency.deployments ?? 0;
+  const prevLead = prev?.leadTime.medianSeconds ?? null;
+  const prevRestore = previous.meanTimeToRestore.medianSeconds;
+  return {
+    deploymentFrequency: chip(
+      metricDelta(env.deploymentFrequency.deployments, prevDeploys, 'higher', 0),
+      (v) => `${v > 0 ? '+' : '−'}${Math.abs(v)}`,
+      `${prevDeploys} deploys`,
+    ),
+    changeFailureRate: chip(
+      metricDelta(env.changeFailureRate.attempts > 0 ? env.changeFailureRate.rate : null, prev && prev.changeFailureRate.attempts > 0 ? prev.changeFailureRate.rate : null, 'lower'),
+      (v) => `${v > 0 ? '+' : '−'}${Math.abs(v)} pts`,
+      prev ? `${prev.changeFailureRate.rate}%` : 'no deploys',
+    ),
+    leadTime: chip(
+      metricDelta(env.leadTime.medianSeconds, prevLead, 'lower', 0),
+      signedDuration,
+      prevLead == null ? 'unknown' : formatDurationSeconds(prevLead),
+    ),
+    timeToRestore: chip(
+      metricDelta(dora.meanTimeToRestore.medianSeconds, prevRestore, 'lower', 0),
+      signedDuration,
+      prevRestore == null ? 'none measured' : formatDurationSeconds(prevRestore),
+    ),
+  };
 }
 
 // ─── Deploy list (mark failed / restored) ───────────────

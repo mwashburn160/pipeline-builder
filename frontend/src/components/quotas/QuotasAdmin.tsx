@@ -20,6 +20,7 @@ import { getTierMeta } from '@/lib/tiers';
 import { isAITrialTier } from '@/lib/ai-quota';
 import { QuotaCard } from './QuotaCard';
 import { QuotaUsageBreakdown } from './QuotaUsageBreakdown';
+import { AiUsagePanel } from './AiUsagePanel';
 import { OrgListItem } from './OrgListItem';
 import { CurrentTierPanel } from './CurrentTierPanel';
 import {
@@ -425,6 +426,9 @@ export function QuotasAdmin({
               ) : null}
               {!loading && orgData && !orgData.isDefault && (
                 <QuotaUsageBreakdown orgId={orgData.orgId} isTeam={!!orgData.pool && !orgData.pool.isRoot} periodDays={orgData.periodDays} />
+              )}
+              {!loading && orgData && !orgData.isDefault && (
+                <AiUsagePanel orgId={orgData.orgId} isTeam={!!orgData.pool && !orgData.pool.isRoot} />
               )}
             </div>
 

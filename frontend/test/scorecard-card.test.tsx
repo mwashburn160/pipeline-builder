@@ -9,10 +9,10 @@
 
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { ScorecardCard } from '../src/components/pipeline/ScorecardCard';
 import { GRADE_STYLES } from '../src/components/reports/DoraParts';
-import type { PipelineScorecard } from '../src/types';
+import type { PipelineScorecard, PipelineScorecardHistory } from '../src/types';
 
 // Toggle the advanced_reporting entitlement per-test.
 let mockEnabled = true;
@@ -29,10 +29,13 @@ jest.mock('@/hooks/useFeatures', () => ({
 }));
 
 const getPipelineScorecard = jest.fn<AnyFn>();
+const getPipelineScorecardHistory = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
     getPipelineScorecard: (...a: unknown[]) => getPipelineScorecard(...a),
+    getPipelineScorecardHistory: (...a: unknown[]) => getPipelineScorecardHistory(...a),
+    getReportPolicy: async () => ({ success: true, data: { policy: { defaultTimezone: 'America/Chicago', defaultWeekStart: 'sunday' } } }),
   },
 }));
 
@@ -58,10 +61,23 @@ const baseScorecard: PipelineScorecard = {
   computedAt: '2026-08-20T00:00:00.000Z',
 };
 
+const point = (label: string, score: number | null, grade: PipelineScorecard['grade'], extra: Record<string, unknown> = {}) => ({
+  label, from: '2026-11-01T00:00:00Z', to: '2026-11-08T00:00:00Z', partial: false, truncated: false, score, grade, ...extra,
+});
+const baseHistory: PipelineScorecardHistory = {
+  pipelineId: 'p1', interval: 'week', tz: 'America/Chicago', weekStart: 'sunday', computedAt: '2026-11-20T00:00:00Z',
+  points: [
+    point('2026-W45', 58, 'D'),
+    point('2026-W46', null, 'N/A', { unavailable: true }),
+    point('2026-W47', 82, 'A', { partial: true }),
+  ],
+};
+
 beforeEach(() => {
   mockEnabled = true;
   mockSuperAdmin = false;
   getPipelineScorecard.mockReset().mockResolvedValue({ success: true, data: { scorecard: baseScorecard } });
+  getPipelineScorecardHistory.mockReset().mockResolvedValue({ success: true, data: { history: baseHistory } });
 });
 
 describe('ScorecardCard', () => {
@@ -179,5 +195,36 @@ describe('ScorecardCard', () => {
     expect(row).toHaveTextContent('0 crit · 2 high in 1 artifact report');
     expect(row).toHaveTextContent('1 KEV');
     expect(screen.getByText(/security 60/)).toBeInTheDocument();
+  });
+});
+
+describe('ScorecardCard grade history', () => {
+  it('fetches the weekly history in the org report timezone and renders one cell per window', async () => {
+    render(<ScorecardCard pipelineId="p1" />);
+    const strip = await screen.findByRole('list', { name: /grade history/i });
+    expect(getPipelineScorecardHistory).toHaveBeenCalledWith('p1',
+      { interval: 'week', periods: 12, tz: 'America/Chicago', weekStart: 'sunday' }, expect.objectContaining({ signal: expect.anything() }));
+    const cells = within(strip).getAllByRole('listitem');
+    expect(cells).toHaveLength(3);
+    expect(cells[0]).toHaveAccessibleName('2026-W45: grade D, score 58');
+    expect(cells[0]).toHaveClass(...GRADE_STYLES.D.split(' '));
+    // A failed window is a gap, never an F; the current one says it is partial.
+    expect(cells[1]).toHaveAccessibleName('2026-W46: could not be computed');
+    expect(cells[2]).toHaveAccessibleName('2026-W47 (so far): grade A, score 82');
+  });
+
+  it('a failed history read leaves the card intact and draws no strip', async () => {
+    getPipelineScorecardHistory.mockResolvedValue({ success: false });
+    render(<ScorecardCard pipelineId="p1" />);
+    await screen.findByText('A');
+    await waitFor(() => expect(getPipelineScorecardHistory).toHaveBeenCalled());
+    expect(screen.queryByRole('list', { name: /grade history/i })).not.toBeInTheDocument();
+  });
+
+  it('never asks for history without the entitlement', async () => {
+    mockEnabled = false;
+    render(<ScorecardCard pipelineId="p1" />);
+    await screen.findByTestId('feature-lock-advanced_reporting');
+    expect(getPipelineScorecardHistory).not.toHaveBeenCalled();
   });
 });

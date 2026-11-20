@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { TabBar } from '@/components/ui/TabBar';
 import { PipelineOverview } from '../PipelineOverview';
 import { PipelinePerformance } from '../PipelinePerformance';
@@ -10,9 +10,13 @@ import { ErrorPatterns } from '../ErrorPatterns';
 import { FlakyStages } from '../FlakyStages';
 import { useFeatures } from '@/hooks/useFeatures';
 import {
-  usePipelinesData, type PipelineSubTab, type SharedFilters, type TabDataStatus,
+  usePipelinesData, useReportBucketing, type PipelineSubTab, type SharedFilters, type TabDataStatus,
 } from '../useReportData';
 import { useUrlTab } from '@/hooks/useUrlTab';
+import { useFetch } from '@/hooks/useFetch';
+import api from '@/lib/api';
+import type { SuccessRatePoint } from '@/lib/api/domains/reporting-benchmark';
+import { DeltaChip, metricDelta } from '../DoraParts';
 
 const PIPELINE_TABS: { id: PipelineSubTab; label: string }[] = [
   { id: 'overview', label: 'Overview' },
@@ -48,6 +52,7 @@ export function PipelinesTab({ filters, onStatus }: PipelinesTabProps) {
     <>
       <TabBar items={PIPELINE_TABS} activeId={subTab} onSelect={(id) => setSubTab(id as PipelineSubTab)} />
 
+      {subTab === 'overview' && advancedReporting && <SuccessRateComparison filters={filters} />}
       {subTab === 'overview' && (
         <PipelineOverview loading={loading} executions={data.executions} timeline={data.timeline} />
       )}
@@ -69,5 +74,52 @@ export function PipelinesTab({ filters, onStatus }: PipelinesTabProps) {
         </>
       )}
     </>
+  );
+}
+
+/** Succeeded ÷ all terminal runs across a timeline, one decimal; null with no runs. */
+export function timelineSuccessPct(timeline: readonly SuccessRatePoint[]): number | null {
+  let ok = 0;
+  let runs = 0;
+  for (const t of timeline) {
+    ok += t.succeeded;
+    runs += t.succeeded + t.failed + t.canceled;
+  }
+  return runs > 0 ? Math.round((ok / runs) * 1000) / 10 : null;
+}
+
+/**
+ * The success rate against the equal-length window just before the range
+ * (`/execution/success-rate?compare=previous`, advanced_reporting — the caller
+ * mounts this only when entitled). Both figures come from the same report, so
+ * the chip compares like with like; nothing renders when either window has no
+ * runs or the previous window is past the retention horizon.
+ */
+export function SuccessRateComparison({ filters }: { filters: SharedFilters }) {
+  const { ready, tz, weekStart } = useReportBucketing();
+  const params = useMemo(() => ({
+    interval: filters.interval,
+    ...(filters.dateFrom ? { from: filters.dateFrom } : {}),
+    ...(filters.dateTo ? { to: filters.dateTo } : {}),
+    ...(filters.includeDescendants ? { includeDescendants: true } : {}),
+    tz,
+    ...(weekStart ? { weekStart } : {}),
+  }), [filters.interval, filters.dateFrom, filters.dateTo, filters.includeDescendants, tz, weekStart]);
+  const key = JSON.stringify(params);
+  const { data } = useFetch(
+    // Best-effort: a failed (or, in a partial API stub, absent) read shows no chip.
+    (signal) => (ready ? (api.getSuccessRateComparison?.(params, { signal }) ?? Promise.resolve(null)).catch(() => null) : Promise.resolve(null)),
+    [ready, key],
+  );
+  if (!data?.previous) return null;
+  const current = timelineSuccessPct(data.timeline);
+  const previous = timelineSuccessPct(data.previous.timeline);
+  const delta = metricDelta(current, previous, 'higher');
+  if (!delta || current == null || previous == null) return null;
+  return (
+    <p className="flex flex-wrap items-center gap-2 text-xs text-fg-muted">
+      <span>Success rate <span className="font-medium text-fg tabular-nums">{current}%</span> over this range</span>
+      <DeltaChip delta={delta} text={`${delta.delta > 0 ? '+' : '−'}${Math.abs(delta.delta)} pts`} previousText={`${previous}%`} />
+    </p>
   );
 }
