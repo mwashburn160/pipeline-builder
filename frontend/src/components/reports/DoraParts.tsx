@@ -15,6 +15,7 @@
  */
 
 import type { ReactNode } from 'react';
+import Link from 'next/link';
 import { LinkButton } from '@/components/ui/LinkButton';
 import { Lock } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
@@ -26,6 +27,22 @@ import { StatCard } from '@/components/ui/StatCard';
 // Small shared report pieces stay in ReportHelpers — see the module note.
 import { SectionHeading, fmtDate } from './ReportHelpers';
 import { CFR_ELEVATED_PCT, SPARKLINE_MIN_BAR_PCT, SPARKLINE_ZERO_BAR_PCT } from './constants';
+import { DORA_HELP_HREF } from './report-copy';
+
+/**
+ * The one-line "How these are counted" note under the DORA cards, linking to the
+ * DORA Metrics help topic — where the counting rules (terminal outcomes, failures
+ * anchored to their deploy, MTTR from the failure, the 5-sample minimum, the org
+ * timezone) are written down. Uses the help center's `#topic-<id>` deep link.
+ */
+export function DoraCountingNote() {
+  return (
+    <p className="mt-2 text-xs text-fg-subtle">
+      <Link href={DORA_HELP_HREF} className="action-link">How these are counted</Link>
+      {' '}&mdash; failures count against the deploy they followed, time to restore is a median from the failure, and a band needs at least 5 observations.
+    </p>
+  );
+}
 
 /** Format a DORA reporting window as e.g. "Jun 27 – Jul 27, 2026". Invalid dates → "". */
 /**

@@ -3,7 +3,7 @@ import { localDay, localDaysBack } from '@/lib/local-day';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { m } from 'framer-motion';
-import { GitBranch, Puzzle, Gauge, Trophy, FileText } from 'lucide-react';
+import { GitBranch, Puzzle, Gauge, Trophy, FileText, Lightbulb, ShieldAlert } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useUrlTab } from '@/hooks/useUrlTab';
@@ -30,6 +30,8 @@ const PluginsTab = dynamic(() => import('@/components/reports/tabs/PluginsTab').
 const DoraTab = dynamic(() => import('@/components/reports/tabs/DoraTab').then((mod) => mod.DoraTab), { loading: tabLoading });
 const ScorecardTab = dynamic(() => import('@/components/reports/tabs/ScorecardTab').then((mod) => mod.ScorecardTab), { loading: tabLoading });
 const StakeholderTab = dynamic(() => import('@/components/reports/tabs/StakeholderTab').then((mod) => mod.StakeholderTab), { loading: tabLoading });
+const InsightsTab = dynamic(() => import('@/components/reports/tabs/InsightsTab').then((mod) => mod.InsightsTab), { loading: tabLoading });
+const SecurityTab = dynamic(() => import('@/components/reports/tabs/SecurityTab').then((mod) => mod.SecurityTab), { loading: tabLoading });
 
 /**
  * Billing add-on that widens each window: the Retention Pack (every tier)
@@ -42,7 +44,7 @@ const EXTEND_DORA_RETENTION_HREF = '/dashboard/billing?highlight=dora_history_pa
 const MAX_REPORT_RANGE_DAYS = 730;
 
 // ─── Tab Config ─────────────────────────────────────────
-type TopTab = 'pipelines' | 'plugins' | 'dora' | 'scorecard' | 'stakeholder';
+type TopTab = 'pipelines' | 'plugins' | 'dora' | 'scorecard' | 'stakeholder' | 'insights' | 'security';
 
 const TOP_TABS: { id: TopTab; label: string; icon: typeof GitBranch }[] = [
   { id: 'pipelines', label: 'Pipelines', icon: GitBranch },
@@ -50,6 +52,8 @@ const TOP_TABS: { id: TopTab; label: string; icon: typeof GitBranch }[] = [
   { id: 'dora', label: 'DORA', icon: Gauge },
   { id: 'scorecard', label: 'Scorecard', icon: Trophy },
   { id: 'stakeholder', label: 'Stakeholder reports', icon: FileText },
+  { id: 'insights', label: 'Insights', icon: Lightbulb },
+  { id: 'security', label: 'Security', icon: ShieldAlert },
 ];
 const TOP_TAB_IDS: readonly TopTab[] = TOP_TABS.map((t) => t.id);
 
@@ -349,6 +353,18 @@ export default function ReportsPage() {
             It rolls up each pipeline&apos;s scorecard, which requires the pipelines:read permission.
             Ask an organization admin to add it to one of your Roles.
           </Callout>
+        )}
+        {/* Insights: the stakeholder report's analytics sections on demand —
+            advanced_reporting, waiting on the verdict like the DORA tab. */}
+        {topTab === 'insights' && !doraGate.isLoaded && <TwoColumnSkeleton />}
+        {topTab === 'insights' && doraGate.isLoaded && (
+          <InsightsTab filters={filters} enabled={doraEnabled} onStatus={onStatus} />
+        )}
+        {/* Security: vulnerability exposure / time to fix and the compliance trend —
+            advanced_reporting, waiting on the verdict like the DORA tab. */}
+        {topTab === 'security' && !doraGate.isLoaded && <TwoColumnSkeleton />}
+        {topTab === 'security' && doraGate.isLoaded && (
+          <SecurityTab filters={filters} enabled={doraEnabled} onStatus={onStatus} />
         )}
         {topTab === 'stakeholder' && !stakeholderGate.isLoaded && <TwoColumnSkeleton />}
         {topTab === 'stakeholder' && stakeholderGate.isLoaded && (

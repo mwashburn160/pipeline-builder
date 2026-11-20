@@ -219,3 +219,33 @@ describe('DoraReport — deploy list (mark failed/restored)', () => {
     expect(onMarkOutcome).not.toHaveBeenCalled();
   });
 });
+
+describe('DoraReport — unknown lead time explained, and how it is counted', () => {
+  const unknownLead: DoraMetrics = {
+    ...doraWithData,
+    environments: [{
+      ...doraWithData.environments[0]!,
+      leadTime: { deployments: 0, medianSeconds: null, p90Seconds: null, p95Seconds: null, level: null, n: 0, unknownReasons: { no_token: 3, rate_limited: 1 } },
+    }],
+  };
+
+  it('names the commonest reason under "unknown" and gives every reason\'s fix in the tooltip', async () => {
+    render(<DoraReport {...baseProps} dora={unknownLead} />);
+    expect(screen.getByText('unknown')).toBeInTheDocument();
+    expect(screen.getByText('Why: No SCM token (+1 more)')).toBeInTheDocument();
+    const card = screen.getByText('Lead time').closest('[role="group"]') as HTMLElement;
+    fireEvent.focus(card);
+    await waitFor(() => expect(screen.getByRole('tooltip')).toHaveTextContent(/No SCM token \(3 deploys\): Store a github-token secret/));
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/SCM rate-limited \(1 deploy\)/);
+  });
+
+  it('keeps the generic copy when no reason was recorded (older backend)', () => {
+    render(<DoraReport {...baseProps} dora={{ ...unknownLead, environments: [{ ...unknownLead.environments[0]!, leadTime: { ...unknownLead.environments[0]!.leadTime, unknownReasons: undefined } }] }} />);
+    expect(screen.getByText('No resolved commit times')).toBeInTheDocument();
+  });
+
+  it('links "How these are counted" under the cards to the DORA help topic', () => {
+    render(<DoraReport {...baseProps} dora={doraWithData} />);
+    expect(screen.getByRole('link', { name: 'How these are counted' })).toHaveAttribute('href', '/dashboard/help#topic-dora-metrics');
+  });
+});

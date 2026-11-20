@@ -25,6 +25,7 @@ import type { ExecutionCountRow } from '@/types';
 import type { DoraMetrics, DoraTrendPoint, DeploymentRow, BuildHealth, IngestHealthResponse, ReportRetention } from '@/lib/api/domains/reporting';
 import type {
   TimelineEntry, DurationStat, StageBottleneck, StageFailure, ActionFailure, ErrorEntry,
+  ErrorCategoryRow, FlakyStageRow, FlakyTrendPoint,
   PluginSummary, PluginDistribution, BuildSuccessEntry, BuildDurationStat, BuildFailure, PluginRuntimeRow, PluginVersion,
 } from './types';
 
@@ -217,9 +218,20 @@ export interface PipelinesData extends TabDataStatus {
   stageFailures: StageFailure[];
   actionFailures: ActionFailure[];
   errors: ErrorEntry[];
+  /** The org's own error patterns by failure category (every `reports:read` holder). */
+  errorCategories: ErrorCategoryRow[];
+  /** Stages that failed then passed on retry, per (pipeline, stage). */
+  flakyStages: FlakyStageRow[];
+  /** The flake rate per bucket — only read when `advancedReporting` is entitled. */
+  flakyTrend: FlakyTrendPoint[];
 }
 
-export function usePipelinesData(subTab: PipelineSubTab, filters: SharedFilters): PipelinesData {
+export interface PipelinesDataOptions {
+  /** `advanced_reporting` is entitled: the flake-rate trend is read (no pointless 403 otherwise). */
+  advancedReporting?: boolean;
+}
+
+export function usePipelinesData(subTab: PipelineSubTab, filters: SharedFilters, options: PipelinesDataOptions = {}): PipelinesData {
   const range = rangeParamsOf(filters);
   const key = JSON.stringify(range);
   const { interval } = filters;
@@ -243,7 +255,18 @@ export function usePipelinesData(subTab: PipelineSubTab, filters: SharedFilters)
   const errors = useSlice(failures && !!filters.systemAdmin, key, async (signal) =>
     (await api.getExecutionErrors({ limit: 10, ...range }, { signal })).data?.errors ?? []);
 
-  const status = useTabStatus([exec, timeline, durations, bottlenecks, stageFailures, actionFailures, errors]);
+  const errorCategories = useSlice(failures, key, async (signal) =>
+    (await api.getExecutionErrorPatterns({ limit: 10, ...range }, { signal })).data?.categories ?? []);
+  const flakyStages = useSlice(failures, key, async (signal) =>
+    (await api.getFlakyStages({ limit: 25, ...range }, { signal })).data?.stages ?? []);
+  // Bucketed like the other trends: wait for the org's reporting timezone.
+  const flakyTrend = useSlice(failures && !!options.advancedReporting && bucketReady, `${key}|${interval}|${JSON.stringify(bucket)}`, (signal) =>
+    api.getFlakyStageTrend({ interval, ...range, ...bucket }, { signal }));
+
+  const status = useTabStatus([
+    exec, timeline, durations, bottlenecks, stageFailures, actionFailures, errors,
+    errorCategories, flakyStages, quiet(flakyTrend),
+  ]);
 
   return {
     executions: exec.data?.data?.pipelines ?? [],
@@ -253,6 +276,9 @@ export function usePipelinesData(subTab: PipelineSubTab, filters: SharedFilters)
     stageFailures: stageFailures.data ?? [],
     actionFailures: actionFailures.data ?? [],
     errors: errors.data ?? [],
+    errorCategories: errorCategories.data ?? [],
+    flakyStages: flakyStages.data ?? [],
+    flakyTrend: flakyTrend.error ? [] : flakyTrend.data ?? [],
     ...status,
   };
 }

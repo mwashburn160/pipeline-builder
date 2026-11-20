@@ -1,6 +1,6 @@
 // GENERATED FROM docs/dora-metrics.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: c353f60458a56cf4cd1e0d38bb2ab1dc2c69012ea52aeb4cb1dddb33ab758391
+// SOURCE-SHA256: c9c731d11b81537a4a725834f8ee94f85cf2c6f5987b4913b35ad244ead8964d
 // SPDX-License-Identifier: Apache-2.0
 import { Gauge } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -237,6 +237,48 @@ export const doraMetricsTopic: HelpTopic = {
         },
         {
           "type": "text",
+          "content": "Why lead time is unknown"
+        },
+        {
+          "type": "text",
+          "content": "When the forwarder cannot resolve a deploy's commit range it records why, on the deploy (dora_deployments.lead_time_gap), and the DORA response counts those reasons per environment in leadTime.unknownReasons. The dashboard names the commonest one under an unknown lead time and lists every reason, with its fix, in the card's tooltip:"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Reason",
+            "Means",
+            "Fix"
+          ],
+          "rows": [
+            [
+              "no_token",
+              "No SCM token for the source",
+              "Store a github-token secret in the AWS account the events forwarder runs in"
+            ],
+            [
+              "rate_limited",
+              "The provider rate-limited the commit-range walk",
+              "Recovers on its own; a token with a higher rate limit stops it recurring"
+            ],
+            [
+              "unsupported_source",
+              "The source type has no commit-range API",
+              "Lead time cannot be measured for it; use a GitHub source"
+            ],
+            [
+              "no_commit_data",
+              "No commit data was reported at all",
+              "Turn on commit resolution: pipeline-manager infra setup-events --scoped-ingest --with-dora"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Only reasons that occurred are present; {} means every in-window deploy was measured (or none carried a reason). A reason a newer forwarder sends that this version does not know is counted as no_commit_data."
+        },
+        {
+          "type": "text",
           "content": "Median time to restore"
         },
         {
@@ -275,6 +317,14 @@ export const doraMetricsTopic: HelpTopic = {
         {
           "type": "text",
           "content": "A high withoutDeploys means DORA is blind to most of the fleet — either pipelines not yet re-synthed with deploy tags, or pipelines that don't deploy."
+        },
+        {
+          "type": "text",
+          "content": "How the stakeholder report computes them"
+        },
+        {
+          "type": "text",
+          "content": "A stakeholder report's DORA sections run the same queries as /dora and /dora/trend with the org's incident correlation window (Settings → Incident Reporting), read once per report run — so a report's change failure rate and time to restore match the dashboard for the same period, including for an org with a custom window. The window the report used is stored in its frozen snapshot (incidentWindowHours) and stated in its methodology footer, so a report re-opened after an admin changes the setting still says which window its numbers came from — and its numbers do not change."
         }
       ]
     },
@@ -371,6 +421,25 @@ export const doraMetricsTopic: HelpTopic = {
         {
           "type": "text",
           "content": "An insufficient band shows \"Not enough data (n = X)\" on the DORA cards, the per-pipeline view and the scorecard, and as a note on the stakeholder report's DORA section. The maturity scorecard treats it as unscored, exactly like null — never as low. The figure itself (rate, median) is still reported."
+        }
+      ]
+    },
+    {
+      "id": "pipeline-failure-insights",
+      "title": "Pipeline failure insights",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "The Pipelines → Failures tab sits beside DORA and reads the same events. Its numbers are standard reporting (reports:read, every tier) unless noted."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Stage and action failures are per pipeline. Rows are grouped by (pipeline, stage) and (pipeline, stage, action), so two pipelines that both call a stage Build are two rows, each with its own rate. Each row links to that pipeline's Runs tab. The stakeholder stage_failures / action_failures sections read the same rows, so the numbers match.",
+            "Error patterns — GET /api/reports/execution/error-patterns: the org's own failures grouped by the failure category the classifier assigned at ingest (other when it matched nothing), with the most frequent error texts in each (credential-scrubbed). Org-scoped and rollup-aware; it counts exactly the failures the operator-only /errors report counts, but never another org's. Every reports:read holder sees the panel.",
+            "Flaky stages — GET /api/reports/execution/flaky-stages: stages that failed and then passed on retry in the same execution, ranked per (pipeline, stage) with the flake rate (flaky_runs ÷ runs) and the actions whose failure the retry overtook. A flake never shows in the failure rates — the run's final outcome was a success — which is why it has its own list. Read from raw events, so it follows event retention (the daily rollup keeps only each run's final outcome).",
+            "Flake rate over time — GET /api/reports/execution/flaky-stages/trend (advanced_reporting): the flake rate per interval bucket, honouring ?tz= / ?weekStart= like the other trends, optionally narrowed with ?pipelineId=&stageName=."
+          ]
         }
       ]
     },
@@ -683,7 +752,7 @@ export const doraMetricsTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "{\n  \"data\": {\n    \"dora\": {\n      \"window\": { \"from\": \"2026-06-27T00:00:00.000Z\", \"to\": \"2026-07-27T00:00:00.000Z\" },\n      \"filters\": { \"pipelineId\": null, \"environment\": null },\n      \"headline\": \"production\",\n      \"environments\": [\n        {\n          \"environment\": \"production\",\n          \"deploymentFrequency\": { \"deployments\": 128, \"perDay\": 4.27, \"level\": \"elite\", \"n\": 128 },\n          \"changeFailureRate\": { \"rate\": 7.9, \"deployTimeFailures\": 8, \"postDeployFailures\": 3, \"attempts\": 139, \"level\": \"high\", \"n\": 139 },\n          \"leadTime\": { \"deployments\": 120, \"medianSeconds\": 5400, \"level\": \"high\", \"n\": 120 }\n        }\n      ],\n      \"meanTimeToRestore\": { \"incidents\": 4, \"restored\": 3, \"medianSeconds\": 1840, \"level\": \"insufficient\", \"n\": 3 },\n      \"coverage\": { \"registered\": 20, \"deploying\": 12, \"withoutDeploys\": 8 }\n    }\n  }\n}",
+          "content": "{\n  \"data\": {\n    \"dora\": {\n      \"window\": { \"from\": \"2026-06-27T00:00:00.000Z\", \"to\": \"2026-07-27T00:00:00.000Z\" },\n      \"filters\": { \"pipelineId\": null, \"environment\": null },\n      \"headline\": \"production\",\n      \"environments\": [\n        {\n          \"environment\": \"production\",\n          \"deploymentFrequency\": { \"deployments\": 128, \"perDay\": 4.27, \"level\": \"elite\", \"n\": 128 },\n          \"changeFailureRate\": { \"rate\": 7.9, \"deployTimeFailures\": 8, \"postDeployFailures\": 3, \"attempts\": 139, \"level\": \"high\", \"n\": 139 },\n          \"leadTime\": { \"deployments\": 120, \"medianSeconds\": 5400, \"level\": \"high\", \"n\": 120, \"unknownReasons\": { \"no_token\": 8 } }\n        }\n      ],\n      \"meanTimeToRestore\": { \"incidents\": 4, \"restored\": 3, \"medianSeconds\": 1840, \"level\": \"insufficient\", \"n\": 3 },\n      \"coverage\": { \"registered\": 20, \"deploying\": 12, \"withoutDeploys\": 8 }\n    }\n  }\n}",
           "language": "json"
         },
         {
@@ -719,7 +788,7 @@ export const doraMetricsTopic: HelpTopic = {
             ],
             [
               "environments[].leadTime",
-              "deployments (median sample), medianSeconds (null = unknown), level, n"
+              "deployments (median sample), medianSeconds (null = unknown), level, n, and unknownReasons — deploys whose lead time could not be measured, per reason"
             ],
             [
               "meanTimeToRestore",

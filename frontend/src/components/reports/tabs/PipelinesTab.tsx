@@ -6,6 +6,9 @@ import { TabBar } from '@/components/ui/TabBar';
 import { PipelineOverview } from '../PipelineOverview';
 import { PipelinePerformance } from '../PipelinePerformance';
 import { PipelineFailures } from '../PipelineFailures';
+import { ErrorPatterns } from '../ErrorPatterns';
+import { FlakyStages } from '../FlakyStages';
+import { useFeatures } from '@/hooks/useFeatures';
 import {
   usePipelinesData, type PipelineSubTab, type SharedFilters, type TabDataStatus,
 } from '../useReportData';
@@ -33,7 +36,10 @@ export function PipelinesTab({ filters, onStatus }: PipelinesTabProps) {
   // Sub-tab in the URL too, so `?tab=pipelines&sub=performance` reopens the
   // exact view (the top-level tab was already linkable; this half wasn't).
   const [subTab, setSubTab] = useUrlTab<PipelineSubTab>('sub', PIPELINE_TABS.map((t) => t.id), 'overview');
-  const data = usePipelinesData(subTab, filters);
+  // The flake-rate trend is the Advanced Reporting half of the flaky-stage panel;
+  // without the entitlement it is never requested (no pointless 403).
+  const advancedReporting = useFeatures().isEnabled('advanced_reporting');
+  const data = usePipelinesData(subTab, filters, { advancedReporting });
   const { loading, error, refetch } = data;
 
   useEffect(() => { onStatus({ loading, error, refetch }); }, [loading, error, refetch, onStatus]);
@@ -49,7 +55,18 @@ export function PipelinesTab({ filters, onStatus }: PipelinesTabProps) {
         <PipelinePerformance loading={loading} executions={data.executions} durations={data.durations} bottlenecks={data.bottlenecks} />
       )}
       {subTab === 'failures' && (
-        <PipelineFailures loading={loading} stageFailures={data.stageFailures} actionFailures={data.actionFailures} errors={data.errors} showErrors={!!filters.systemAdmin} />
+        <>
+          <PipelineFailures loading={loading} stageFailures={data.stageFailures} actionFailures={data.actionFailures} errors={data.errors} showErrors={!!filters.systemAdmin} />
+          {/* The org's own error patterns and flaky stages: every reports:read
+              holder (the cross-org "all organizations" card above is the
+              operator's read). Shown once the first read settles. */}
+          {!(loading && data.errorCategories.length === 0 && data.flakyStages.length === 0) && (
+            <>
+              <ErrorPatterns categories={data.errorCategories} />
+              <FlakyStages stages={data.flakyStages} trend={data.flakyTrend} trendEnabled={advancedReporting} />
+            </>
+          )}
+        </>
       )}
     </>
   );

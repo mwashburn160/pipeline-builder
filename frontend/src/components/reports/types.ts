@@ -6,10 +6,13 @@
 /** One success-rate/timeline bucket. Also used for the Success Rate Trend (same shape). */
 export interface TimelineEntry { period: string; succeeded: number; failed: number; canceled: number; success_pct: number }
 export interface DurationStat { id: string; project: string; pipeline_name: string | null; avg_ms: number; min_ms: number; max_ms: number; p95_ms: number; executions: number }
-export interface StageFailure { stage_name: string; failures: number; total: number; failure_pct: number }
+/** One (pipeline, stage) failure row — grouped per pipeline, so same-named stages in two pipelines are two rows. */
+export interface StageFailure { pipeline_id: string; pipeline_name: string | null; stage_name: string; failures: number; total: number; failure_pct: number }
 export interface StageBottleneck { id: string; pipeline_name: string | null; stage_name: string; avg_ms: number; max_ms: number }
 export interface ErrorEntry { error_pattern: string; occurrences: number; affected_pipelines: number; last_seen: string }
-export interface ActionFailure { action_name: string; failures: number; total: number; failure_pct: number }
+/** One (pipeline, stage, action) failure row. */
+export interface ActionFailure { pipeline_id: string; pipeline_name: string | null; stage_name: string | null; action_name: string; failures: number; total: number; failure_pct: number }
+export type { ErrorCategoryRow, FlakyStageRow, FlakyTrendPoint } from '@/lib/api/domains/reporting';
 
 // ─── Plugin ─────────────────────────────────────────────
 /** One count per `visibility` rung (`public` / `org` / `private`) — together they sum to `total`. */

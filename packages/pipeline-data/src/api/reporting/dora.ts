@@ -22,9 +22,10 @@ import { orgScope, runReport } from './query-scope.js';
 import { assertReportInterval, bucketKey, notOvertaken, periodBucket, terminalStatusRollup } from './sql-helpers.js';
 import type {
   DoraOptions, DoraMetrics, DoraEnvMetrics, DoraTrendPoint, BuildHealth, BuildHealthStage,
-  DeployRow, OutcomeRow, MttrPairRow, IncidentRow, CoverageRow,
+  DeployRow, OutcomeRow, MttrPairRow, IncidentRow, CoverageRow, LeadGapRow,
 } from './types.js';
 import { schema } from '../../database/drizzle-schema.js';
+import { LEAD_TIME_GAPS, type LeadTimeGap } from '../../database/schema/reporting-analytics.js';
 import { withTenantTx } from '../../database/tenancy.js';
 import { drizzleRows } from '../crud-service.js';
 
@@ -154,18 +155,33 @@ export async function getDoraMetrics(
              ${pipelineClause} ${envClause}
              AND e.completed_at >= ${from}::timestamptz AND e.completed_at <= ${to}::timestamptz) AS deploying`;
 
+  // (5) Why lead time is unknown: the reason ingest stored on each successful
+  // in-window deploy it could not measure (`dora_deployments.lead_time_gap` —
+  // no SCM token, rate-limited, a source with no range API, or no commit data
+  // reported). Counted per environment so the card can say which fix applies.
+  const leadGapPipelineClause = pipelineId ? sql`AND d.pipeline_id = ${pipelineId}` : sql``;
+  const leadGapEnvClause = environment ? sql`AND d.environment = ${environment}` : sql``;
+  const leadGapSql = sql`
+      SELECT d.environment AS environment, d.lead_time_gap AS reason, COUNT(*)::int AS n
+      FROM ${schema.doraDeployment} d
+      WHERE d.org_id ${pred} AND d.succeeded = true AND d.lead_time_gap IS NOT NULL
+        ${leadGapPipelineClause} ${leadGapEnvClause}
+        AND d.deployed_at >= ${from}::timestamptz AND d.deployed_at <= ${to}::timestamptz
+      GROUP BY d.environment, d.lead_time_gap`;
+
   const exec = () => withTenantTx(async (tx) => {
     // Scan order is load-bearing for the generated-SQL tests: 0=deploy,
-    // 1=outcomes, 2=mttr, 3=coverage, 4=incidents (appended last so the
-    // earlier indices stay stable).
+    // 1=outcomes, 2=mttr, 3=coverage, 4=incidents, 5=lead-time gaps (each
+    // appended last so the earlier indices stay stable).
     const deployRows = drizzleRows<DeployRow>((await tx.execute(deploySql)).rows);
     const outcomeRows = drizzleRows<OutcomeRow>((await tx.execute(outcomeSql)).rows);
     const mttrRows = drizzleRows<MttrPairRow>((await tx.execute(mttrSql)).rows);
     const coverageRow = drizzleRows<CoverageRow>((await tx.execute(coverageSql)).rows)[0];
     const incidentRows = drizzleRows<IncidentRow>((await tx.execute(incidentSql)).rows);
+    const leadGapRows = drizzleRows<LeadGapRow>((await tx.execute(leadGapSql)).rows);
     return shapeDora(deployRows, outcomeRows, mttrRows, coverageRow, incidentRows, from, to, {
       pipelineId, environment,
-    }, effectiveWindowHours);
+    }, effectiveWindowHours, leadGapRows);
   });
   // Cache key MUST include the effective incident window: the scorecard reads
   // /dora with the org's default window while an explicit /dora call may pass an
@@ -476,6 +492,7 @@ function buildEnvMetrics(
   postDeployByEnv: Map<string, number>,
   days: number,
   requestedEnv: string | undefined,
+  leadGapsByEnv: Map<string, Partial<Record<LeadTimeGap, number>>> = new Map(),
 ): DoraEnvMetrics[] {
   return [...envs.entries()]
     // The deploy and incident scans admit PRODUCTION alongside a requested
@@ -515,6 +532,7 @@ function buildEnvMetrics(
           // Scored off the MEDIAN only — the tails are reported, not banded.
           level: doraLevelForLeadTime(ltMedian, a.leadGaps.length),
           n: a.leadGaps.length,
+          unknownReasons: leadGapsByEnv.get(environment) ?? {},
         },
       };
     })
@@ -594,6 +612,26 @@ function computeMttr(
   };
 }
 
+/**
+ * The lead-time gap counts keyed by environment. A reason outside the stored
+ * vocabulary (a row written by a newer forwarder) folds into `no_commit_data`,
+ * the honest default, rather than reaching the UI as an unknown key.
+ */
+function leadGapsByEnvironment(rows: LeadGapRow[]): Map<string, Partial<Record<LeadTimeGap, number>>> {
+  const known = new Set<string>(LEAD_TIME_GAPS);
+  const byEnv = new Map<string, Partial<Record<LeadTimeGap, number>>>();
+  for (const row of rows) {
+    if (!row.environment) continue;
+    const n = Number(row.n) || 0;
+    if (n <= 0) continue;
+    const reason = (known.has(row.reason) ? row.reason : 'no_commit_data') as LeadTimeGap;
+    const counts = byEnv.get(row.environment) ?? {};
+    counts[reason] = (counts[reason] ?? 0) + n;
+    byEnv.set(row.environment, counts);
+  }
+  return byEnv;
+}
+
 /** Window length in days, floored at 1 (a sub-day window reads its count as the rate). */
 function windowDays(from: string, to: string): number {
   const spanDays = (Date.parse(to) - Date.parse(from)) / 86400000;
@@ -622,6 +660,7 @@ function shapeDora(
   to: string,
   filters: { pipelineId?: string; environment?: string },
   windowHours: number = DORA_INCIDENT_WINDOW_HOURS,
+  leadGapRows: LeadGapRow[] = [],
 ): DoraMetrics {
   const days = windowDays(from, to);
   const toMs = windowEndMs(to);
@@ -637,7 +676,7 @@ function shapeDora(
     window: { from, to },
     filters: { pipelineId: filters.pipelineId ?? null, environment: filters.environment ?? null },
     headline: HEADLINE_ENV,
-    environments: buildEnvMetrics(envs, postDeployByEnv, days, filters.environment),
+    environments: buildEnvMetrics(envs, postDeployByEnv, days, filters.environment, leadGapsByEnvironment(leadGapRows)),
     meanTimeToRestore: computeMttr(correlated, mttrRows),
     coverage: {
       registered,

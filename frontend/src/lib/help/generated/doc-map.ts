@@ -46,6 +46,7 @@ export const HELP_TOPIC_BY_DOC: Record<string, HelpTopicRef> = {
   'docs/notifications.md': { id: 'notifications', title: "Notifications" },
   'docs/dora-metrics.md': { id: 'dora-metrics', title: "DORA Metrics" },
   'docs/stakeholder-reports.md': { id: 'stakeholder-reports', title: "Stakeholder Reports" },
+  'docs/release-notes.md': { id: 'release-notes', title: "Release Notes" },
   'docs/incidents-webhook.md': { id: 'incidents-webhook', title: "Incident Webhook" },
   'docs/oncall-paging.md': { id: 'oncall-paging', title: "On-call Paging" },
   'docs/support.md': { id: 'support', title: "Support" },

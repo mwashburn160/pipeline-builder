@@ -192,6 +192,56 @@ export function createExecutionReportRoutes(): Router {
     });
   }));
 
+  // The org's own error patterns, grouped by failure category (the ingest-time
+  // classifier's `failure_category`) with the top error texts in each. The
+  // TENANT read of the same failures `/errors` reads across every org: gated only
+  // by the mount's `reports:read` (every tier), org-scoped + rollup-aware like the
+  // sibling reports, bounded by the org's event retention — and there is no
+  // cross-org path in it. Error text is scrubbed of credential-shaped substrings
+  // on the way out, as `/errors` is.
+  router.get('/error-patterns', withRoute(async ({ req, res, orgId }) => {
+    const scope = await resolveReportScope(req, orgId, 'event');
+    if ('error' in scope) return sendBadRequest(res, scope.error, ErrorCode.VALIDATION_ERROR);
+    const { range, orgIds } = scope;
+    const limit = parseQueryIntClamped(req.query.limit, 20, MAX_REPORT_LIMIT);
+    const categories = await reportingService.getErrorCategories(orgId, range.from, range.to, limit, orgIds);
+    sendSuccess(res, 200, {
+      categories: categories.map((c) => ({ ...c, patterns: scrubField(c.patterns, 'error_pattern') })),
+    });
+  }));
+
+  // Flaky stages — a stage that FAILED and then PASSED on retry in the same
+  // execution, ranked per (pipeline, stage) with its flake rate. The ranked list
+  // ships on every tier (`reports:read` at the mount); the trend below is the
+  // `advanced_reporting` half. Org-scoped + rollup-aware like the siblings.
+  router.get('/flaky-stages', withRoute(async ({ req, res, orgId }) => {
+    const scope = await resolveReportScope(req, orgId, 'event');
+    if ('error' in scope) return sendBadRequest(res, scope.error, ErrorCode.VALIDATION_ERROR);
+    const { range, orgIds } = scope;
+    const limit = parseQueryIntClamped(req.query.limit, 50, MAX_REPORT_LIMIT);
+    sendSuccess(res, 200, { stages: await reportingService.getFlakyStages(orgId, range.from, range.to, orgIds, limit) });
+  }));
+
+  // The flake rate per time bucket — every stage, or one (pipeline, stage) via
+  // `?pipelineId=&stageName=` — with the same `?tz=` / `?weekStart=` bucketing as
+  // /success-rate. ADDITIONALLY gated by `advanced_reporting`, like /dora/trend.
+  router.get('/flaky-stages/trend', requireFeature('advanced_reporting'), withRoute(async ({ req, res, orgId }) => {
+    const interval = parseReportInterval(req.query);
+    if (typeof interval === 'object') return sendBadRequest(res, interval.error, ErrorCode.VALIDATION_ERROR);
+    const bucket = parseReportBucket(req.query);
+    if ('error' in bucket) return sendBadRequest(res, bucket.error, ErrorCode.VALIDATION_ERROR);
+    const scope = await resolveReportScope(req, orgId, 'event');
+    if ('error' in scope) return sendBadRequest(res, scope.error, ErrorCode.VALIDATION_ERROR);
+    const { range, orgIds } = scope;
+    sendSuccess(res, 200, {
+      trend: await reportingService.getFlakyStageTrend(orgId, interval, range.from, range.to, orgIds, {
+        ...bucket,
+        pipelineId: capParam(req.query.pipelineId),
+        stageName: capParam(req.query.stageName),
+      }),
+    });
+  }));
+
   // Free-form error TEXT across EVERY org — the platform operator's read, which
   // is why it is gated on `orgs:read` (system-org-only, so ungrantable inside a
   // tenant) rather than `reports:read` or the superadmin flag. Cross-org by

@@ -4,9 +4,10 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import type { ExecutionCountRow } from '@/types';
-import type { DoraMetrics, DoraTrendPoint, DeploymentRow } from '@/lib/api/domains/reporting';
+import type { DoraMetrics, DoraTrendPoint, DeploymentRow , LeadTimeGap } from '@/lib/api/domains/reporting';
 import { fmtDate, ReportEmpty, SectionHeading, StatCardSkeleton, SectionCardSkeleton } from './ReportHelpers';
-import { fmtWindow, DoraCard, DoraTrendSparkline, DoraScopeControls, type DoraScope } from './DoraParts';
+import { fmtWindow, DoraCard, DoraCountingNote, DoraTrendSparkline, DoraScopeControls, type DoraScope } from './DoraParts';
+import { LEAD_TIME_GAP_COPY, leadTimeGapTooltip } from './report-copy';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { formatDurationSeconds } from '@/lib/format';
@@ -56,6 +57,20 @@ function isTruncated(requestedFrom: string | undefined, windowFrom: string): boo
   if (Number.isNaN(req.getTime()) || Number.isNaN(eff.getTime())) return false;
   // Compare at day granularity (a few hours of clock skew isn't a truncation).
   return eff.getTime() - req.getTime() > 86_400_000;
+}
+
+/**
+ * The short "why unknown" line under an unknown lead time: the most common
+ * stored reason (the tooltip lists them all with their fixes). Null when the
+ * backend recorded none.
+ */
+function unknownLeadSummary(reasons: Partial<Record<LeadTimeGap, number>> | undefined): string | null {
+  const top = (Object.entries(reasons ?? {}) as Array<[LeadTimeGap, number]>)
+    .filter(([k, n]) => n > 0 && k in LEAD_TIME_GAP_COPY)
+    .sort((a, b) => b[1] - a[1])[0];
+  if (!top) return null;
+  const others = Object.values(reasons ?? {}).filter((n) => (n ?? 0) > 0).length - 1;
+  return `Why: ${LEAD_TIME_GAP_COPY[top[0]].label}${others > 0 ? ` (+${others} more)` : ''}`;
 }
 
 /** Whole days spanned by the effective window (for the "last N days" banner). */
@@ -153,12 +168,15 @@ export function DoraReport({
                 value={headlineEnv.leadTime.medianSeconds == null ? 'unknown' : formatDurationSeconds(headlineEnv.leadTime.medianSeconds)}
                 sub={
                   headlineEnv.leadTime.medianSeconds == null
-                    ? <>No resolved commit times</>
+                    ? <>{unknownLeadSummary(headlineEnv.leadTime.unknownReasons) ?? 'No resolved commit times'}</>
                     : <>median commit&rarr;deploy &middot; {headlineEnv.leadTime.deployments} deploys</>
                 }
                 level={headlineEnv.leadTime.level}
                 n={headlineEnv.leadTime.n}
-                tooltip={'Measured commit→deploy time (from resolved commit timestamps). "unknown" when commit times couldn’t be resolved for the in-window deploys.'}
+                tooltip={
+                  (headlineEnv.leadTime.medianSeconds == null ? leadTimeGapTooltip(headlineEnv.leadTime.unknownReasons) : null)
+                  ?? 'Measured commit→deploy time (from resolved commit timestamps). "unknown" when commit times couldn’t be resolved for the in-window deploys.'
+                }
               />
               <DoraCard
                 label="Change failure rate"
@@ -197,6 +215,7 @@ export function DoraReport({
           ) : (
             <ReportEmpty text="No deploy-attributed environments in this window." />
           )}
+          {headlineEnv && <DoraCountingNote />}
 
           {/* Per-environment breakdown: deploy frequency + CFR per environment.
               Each pill is a button that pivots the headline to that environment

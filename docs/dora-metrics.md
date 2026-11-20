@@ -113,6 +113,19 @@ A post-deploy failure is **anchored to its deploy**: it counts in the window its
 
 `medianSeconds` is **`null`, meaning unknown**, when no successful deploy in the environment carried a commit time. The median-run-duration proxy is **removed**.
 
+#### Why lead time is unknown
+
+When the forwarder cannot resolve a deploy's commit range it records **why**, on the deploy (`dora_deployments.lead_time_gap`), and the DORA response counts those reasons per environment in `leadTime.unknownReasons`. The dashboard names the commonest one under an `unknown` lead time and lists every reason, with its fix, in the card's tooltip:
+
+| Reason | Means | Fix |
+|---|---|---|
+| `no_token` | No SCM token for the source | Store a `github-token` secret in the AWS account the events forwarder runs in |
+| `rate_limited` | The provider rate-limited the commit-range walk | Recovers on its own; a token with a higher rate limit stops it recurring |
+| `unsupported_source` | The source type has no commit-range API | Lead time cannot be measured for it; use a GitHub source |
+| `no_commit_data` | No commit data was reported at all | Turn on commit resolution: `pipeline-manager infra setup-events --scoped-ingest --with-dora` |
+
+Only reasons that occurred are present; `{}` means every in-window deploy was measured (or none carried a reason). A reason a newer forwarder sends that this version does not know is counted as `no_commit_data`.
+
 ### Median time to restore
 
 The **median** recovery time — reported in the `meanTimeToRestore` field, a historical name kept so API consumers do not break. It is a median, not a mean, and every label presents it as one.
@@ -133,6 +146,10 @@ The **median** recovery time — reported in the `meanTimeToRestore` field, a hi
 A reconciliation: `registered` pipelines from the registry versus `deploying`, meaning pipelines with at least one deploy-stage execution in-window. `withoutDeploys = registered − deploying`.
 
 A high `withoutDeploys` means DORA is blind to most of the fleet — either pipelines not yet re-synthed with deploy tags, or pipelines that don't deploy.
+
+### How the stakeholder report computes them
+
+A [stakeholder report](stakeholder-reports.md)'s DORA sections run the same queries as `/dora` and `/dora/trend` **with the org's incident correlation window** (Settings → Incident Reporting), read once per report run — so a report's change failure rate and time to restore match the dashboard for the same period, including for an org with a custom window. The window the report used is stored in its frozen snapshot (`incidentWindowHours`) and stated in its methodology footer, so a report re-opened after an admin changes the setting still says which window its numbers came from — and its numbers do not change.
 
 ## Performance levels
 
@@ -159,6 +176,15 @@ A band needs at least **`MIN_DORA_SAMPLE` = 5** observations (exported from `@pi
 | Median time to restore | measured recovery times | `insufficient` |
 
 An `insufficient` band shows **"Not enough data (n = X)"** on the DORA cards, the per-pipeline view and the scorecard, and as a note on the stakeholder report's DORA section. The maturity scorecard treats it as **unscored**, exactly like `null` — never as low. The figure itself (rate, median) is still reported.
+
+## Pipeline failure insights
+
+The **Pipelines → Failures** tab sits beside DORA and reads the same events. Its numbers are standard reporting (`reports:read`, every tier) unless noted.
+
+- **Stage and action failures are per pipeline.** Rows are grouped by (pipeline, stage) and (pipeline, stage, action), so two pipelines that both call a stage `Build` are two rows, each with its own rate. Each row links to that pipeline's **Runs** tab. The stakeholder `stage_failures` / `action_failures` sections read the same rows, so the numbers match.
+- **Error patterns** — `GET /api/reports/execution/error-patterns`: the org's own failures grouped by the failure category the classifier assigned at ingest (`other` when it matched nothing), with the most frequent error texts in each (credential-scrubbed). Org-scoped and rollup-aware; it counts exactly the failures the operator-only `/errors` report counts, but never another org's. Every `reports:read` holder sees the panel.
+- **Flaky stages** — `GET /api/reports/execution/flaky-stages`: stages that **failed and then passed on retry in the same execution**, ranked per (pipeline, stage) with the flake rate (`flaky_runs ÷ runs`) and the actions whose failure the retry overtook. A flake never shows in the failure rates — the run's final outcome was a success — which is why it has its own list. Read from raw events, so it follows event retention (the daily rollup keeps only each run's final outcome).
+- **Flake rate over time** — `GET /api/reports/execution/flaky-stages/trend` (**`advanced_reporting`**): the flake rate per `interval` bucket, honouring `?tz=` / `?weekStart=` like the other trends, optionally narrowed with `?pipelineId=&stageName=`.
 
 ## Endpoints
 
@@ -305,7 +331,7 @@ Effective retention = tier baseline + Σ(add-on pack grant), so the **[Standard 
           "environment": "production",
           "deploymentFrequency": { "deployments": 128, "perDay": 4.27, "level": "elite", "n": 128 },
           "changeFailureRate": { "rate": 7.9, "deployTimeFailures": 8, "postDeployFailures": 3, "attempts": 139, "level": "high", "n": 139 },
-          "leadTime": { "deployments": 120, "medianSeconds": 5400, "level": "high", "n": 120 }
+          "leadTime": { "deployments": 120, "medianSeconds": 5400, "level": "high", "n": 120, "unknownReasons": { "no_token": 8 } }
         }
       ],
       "meanTimeToRestore": { "incidents": 4, "restored": 3, "medianSeconds": 1840, "level": "insufficient", "n": 3 },
@@ -323,7 +349,7 @@ Effective retention = tier baseline + Σ(add-on pack grant), so the **[Standard 
 | `environments[]` | Per-environment cards (headline first, then A→Z) |
 | `environments[].deploymentFrequency` | `deployments` (successful deploys), `perDay`, `level`, `n` |
 | `environments[].changeFailureRate` | Two-class: `rate`, `deployTimeFailures`, `postDeployFailures`, `attempts`, `level`, `n` |
-| `environments[].leadTime` | `deployments` (median sample), `medianSeconds` (`null` = unknown), `level`, `n` |
+| `environments[].leadTime` | `deployments` (median sample), `medianSeconds` (`null` = unknown), `level`, `n`, and `unknownReasons` — deploys whose lead time could not be measured, per [reason](#why-lead-time-is-unknown) |
 | `meanTimeToRestore` | The **median** time to restore (historical field name). Production-only: `incidents`, `restored`, `medianSeconds` (`null` when none), `level`, `n` |
 | `coverage` | `registered`, `deploying`, `withoutDeploys` |
 | `*.level` | [Performance band](#performance-levels): `elite` / `high` / `medium` / `low`, `insufficient` (0 < `n` < 5), or `null` (no sample) |

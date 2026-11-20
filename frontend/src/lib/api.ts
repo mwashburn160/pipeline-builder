@@ -13,6 +13,8 @@ import { registryApi } from './api/domains/registry';
 import { observabilityApi } from './api/domains/observability';
 import { messagesApi } from './api/domains/messages';
 import { reportingApi } from './api/domains/reporting';
+import { reportingSecurityApi } from './api/domains/reporting-security';
+import { reportingInsightsApi } from './api/domains/reporting-insights';
 import { stakeholderReportsApi } from './api/domains/stakeholder-reports';
 import { complianceApi } from './api/domains/compliance';
 import { askApi } from './api/domains/ask';
@@ -37,6 +39,8 @@ export const api = Object.assign(
   observabilityApi(core),
   messagesApi(core),
   reportingApi(core),
+  reportingSecurityApi(core),
+  reportingInsightsApi(core),
   stakeholderReportsApi(core),
   complianceApi(core),
   askApi(core),
@@ -57,6 +61,8 @@ export const api = Object.assign(
   & ReturnType<typeof observabilityApi>
   & ReturnType<typeof messagesApi>
   & ReturnType<typeof reportingApi>
+  & ReturnType<typeof reportingSecurityApi>
+  & ReturnType<typeof reportingInsightsApi>
   & ReturnType<typeof stakeholderReportsApi>
   & ReturnType<typeof complianceApi>
   & ReturnType<typeof askApi>

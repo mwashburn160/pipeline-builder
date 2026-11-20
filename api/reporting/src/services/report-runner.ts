@@ -71,10 +71,14 @@ export interface ComposeRunOptions {
  * — it is the package those services import, not a peer of theirs.
  */
 export function reportDataSource(orgId: string): SectionDataSource {
-  return {
-    ...reportingService,
-    getCompliancePosture: (scope) => readPosture(orgId, scope.from, scope.to),
-  } as SectionDataSource;
+  // NOT `{ ...reportingService }`: the service is a class instance, and a spread
+  // copies only own fields, never the prototype's query methods, so every
+  // section but posture would find its data method undefined. Inherit from the
+  // instance instead: the methods resolve through the prototype chain and `this`
+  // still reaches the instance's fields.
+  return Object.assign(Object.create(reportingService) as typeof reportingService, {
+    getCompliancePosture: (scope: { from: string; to: string }) => readPosture(orgId, scope.from, scope.to),
+  }) as SectionDataSource;
 }
 
 /**

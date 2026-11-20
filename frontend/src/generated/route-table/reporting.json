@@ -451,6 +451,39 @@
   },
   {
     "method": "GET",
+    "path": "/reports/execution/error-patterns",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "reports:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
+    "method": "GET",
     "path": "/reports/execution/errors",
     "auth": true,
     "permissions": [
@@ -489,6 +522,74 @@
       ]
     },
     "systemOrg": true
+  },
+  {
+    "method": "GET",
+    "path": "/reports/execution/flaky-stages",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "reports:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/reports/execution/flaky-stages/trend",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "reports:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "conditionalGates": [],
+    "features": [
+      "advanced_reporting"
+    ],
+    "scopes": [],
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -861,6 +962,41 @@
         "apiCalls"
       ],
       "checked": []
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/reports/insights",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "reports:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "conditionalGates": [],
+    "features": [
+      "advanced_reporting"
+    ],
+    "scopes": [],
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
     }
   },
   {
@@ -1261,6 +1397,76 @@
     "minAssurance": 0,
     "conditionalGates": [],
     "features": [],
+    "scopes": [],
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/reports/security/compliance-trend",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "reports:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "conditionalGates": [],
+    "features": [
+      "advanced_reporting"
+    ],
+    "scopes": [],
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/reports/security/vulnerabilities",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "reports:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "conditionalGates": [],
+    "features": [
+      "advanced_reporting"
+    ],
     "scopes": [],
     "audit": [],
     "quota": {

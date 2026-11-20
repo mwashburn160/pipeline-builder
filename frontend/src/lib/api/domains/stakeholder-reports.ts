@@ -129,6 +129,8 @@ export interface ReportSnapshot {
   previousPeriod: { start: string; end: string };
   timezone: string;
   weekStart: WeekStart;
+  /** The incident→deploy correlation window (hours) the DORA sections used: the org's setting when the report was composed. Absent on older snapshots. */
+  incidentWindowHours?: number;
   sections: ComposedSection[];
   notes: DataQualityNote[];
   /** How every number was produced. Shown in the footer, not hidden. */

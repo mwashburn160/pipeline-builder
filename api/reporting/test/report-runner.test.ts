@@ -42,8 +42,15 @@ const store = {
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
+class FakeReportingService {
+  marker = 'the-real-source';
+  async getSuccessRate(): Promise<string> { return this.marker; }
+}
+
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
-  reportingService: { marker: 'the-real-source' },
+  // A CLASS INSTANCE, as in production: its query methods live on the
+  // prototype, which an object spread does not copy.
+  reportingService: new FakeReportingService(),
   stakeholderReportStore: store,
   composeSnapshot: (...a: unknown[]) => mockCompose(...a),
   resolvePeriod: (...a: unknown[]) => mockResolvePeriod(...a),
@@ -229,6 +236,12 @@ describe('reportDataSource', () => {
     const source = reportDataSource('acme') as unknown as Record<string, unknown>;
     expect(source.marker).toBe('the-real-source');
     expect(typeof source.getCompliancePosture).toBe('function');
+  });
+
+  it('keeps the service\'s prototype methods, bound to the service (sections call them)', async () => {
+    const source = reportDataSource('acme') as unknown as { getSuccessRate?: () => Promise<string> };
+    expect(typeof source.getSuccessRate).toBe('function');
+    await expect(source.getSuccessRate!()).resolves.toBe('the-real-source');
   });
 
   it('scopes the posture read to the definition\'s org and the section\'s window', async () => {

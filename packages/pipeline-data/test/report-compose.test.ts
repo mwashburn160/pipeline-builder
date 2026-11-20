@@ -431,3 +431,57 @@ describe('composeSnapshot', () => {
     expect(snap.sections.every((s) => s.state === 'ok')).toBe(true);
   });
 });
+
+describe('composeSnapshot — the org incident window on the DORA sections', () => {
+  /** A stub source that also answers the org's reporting settings. */
+  function withSettings(settings: (orgId?: string) => Promise<{ incidentWindowHours: number | null }>) {
+    const source = stubSource({ getDoraTrend: [] });
+    const getReportingSettings = jest.fn(settings);
+    return { source: Object.assign(source, { getReportingSettings }), getReportingSettings };
+  }
+
+  it('threads the org window into BOTH DORA reads, reading the settings once', async () => {
+    const { source, getReportingSettings } = withSettings(async () => ({ incidentWindowHours: 6 }));
+    const snap = await composeSnapshot(['dora', 'dora_trend'], opts({ source, features: ['advanced_reporting'] }));
+    expect(getReportingSettings).toHaveBeenCalledTimes(1);
+    expect(getReportingSettings).toHaveBeenCalledWith('org-1');
+    // Current AND previous period of the comparable `dora` section, and the trend.
+    for (const call of (source.getDoraMetrics as jest.Mock).mock.calls) {
+      expect(call[4]).toEqual(expect.objectContaining({ incidentWindowHours: 6 }));
+    }
+    expect((source.getDoraMetrics as jest.Mock).mock.calls.length).toBe(2);
+    expect((source.getDoraTrend as jest.Mock).mock.calls[0]![5]).toEqual(
+      expect.objectContaining({ incidentWindowHours: 6, tz: 'UTC', weekStart: 'monday' }),
+    );
+    expect(snap.incidentWindowHours).toBe(6);
+    expect(snap.methodology).toContain('within 6 hours');
+  });
+
+  it('an unset window records the platform default the numbers used', async () => {
+    const { source } = withSettings(async () => ({ incidentWindowHours: null }));
+    const snap = await composeSnapshot(['dora'], opts({ source, features: ['advanced_reporting'] }));
+    expect((source.getDoraMetrics as jest.Mock).mock.calls[0]![4]).toEqual({ incidentWindowHours: undefined });
+    expect(snap.incidentWindowHours).toBe(24);
+  });
+
+  it('a failed settings read fails the DORA sections, never runs them on another window', async () => {
+    const { source } = withSettings(async () => { throw new Error('db down'); });
+    const snap = await composeSnapshot(['dora', 'success_rate'], opts({ source, features: ['advanced_reporting'] }));
+    expect(snap.sections.map((s) => [s.id, s.state])).toEqual([['dora', 'failed'], ['success_rate', 'ok']]);
+    expect(source.getDoraMetrics as jest.Mock).not.toHaveBeenCalled();
+    expect(snap.incidentWindowHours).toBeUndefined();
+  });
+
+  it('a report with no DORA section reads no settings and records no window', async () => {
+    const { source, getReportingSettings } = withSettings(async () => ({ incidentWindowHours: 6 }));
+    const snap = await composeSnapshot(['success_rate'], opts({ source }));
+    expect(getReportingSettings).not.toHaveBeenCalled();
+    expect('incidentWindowHours' in snap).toBe(false);
+  });
+
+  it('a locked DORA section reads no settings either', async () => {
+    const { source, getReportingSettings } = withSettings(async () => ({ incidentWindowHours: 6 }));
+    await composeSnapshot(['dora'], opts({ source, features: [] }));
+    expect(getReportingSettings).not.toHaveBeenCalled();
+  });
+});

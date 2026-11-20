@@ -123,6 +123,7 @@ Nothing here is configured — this page is a lookup surface. The maintenance ru
 ## F
 
 - **Failure behavior (fail / warn / ignore)** — [Developer Guide: Failure Behavior Options](developer-guide.md#failure-behavior-options)
+- **Flaky stages (failed, then passed on retry)** — [DORA Metrics: Pipeline failure insights](dora-metrics.md#pipeline-failure-insights)
 - **Feature tiers (developer/pro/team/business/enterprise)** — [Docs: Feature Tiers](README.md#feature-tiers), [Organization Benefits](organization-benefits.md)
 - **Filters (template `| default`, `| number`, `| bool`, `| json`)** — [Templates: Filters](templates.md#filters)
 
@@ -159,6 +160,7 @@ Nothing here is configured — this page is a lookup surface. The maintenance ru
 - **Language plugins / version managers** — [Language Plugins](plugins/language.md)
 - **Lead notes on a report (the summary a manager reads first)** — [Stakeholder Reports: Why it is not just "the dashboard, emailed"](stakeholder-reports.md#why-it-is-not-just-the-dashboard-emailed)
 - **Lead time (DORA)** — [DORA Metrics: How each metric is defined](dora-metrics.md#how-each-metric-is-defined)
+- **Lead time unknown (why, and the fix)** — [DORA Metrics: Why lead time is unknown](dora-metrics.md#why-lead-time-is-unknown)
 - **LEAN mode (trim footprint — minikube & ec2)** — [Service Mesh: LEAN mode](service-mesh.md#lean-mode-trimming-the-footprint)
 
 ## M
@@ -283,6 +285,7 @@ Nothing here is configured — this page is a lookup surface. The maintenance ru
 | [runbooks/postgres-scaling](runbooks/postgres-scaling.md) | The three resource rungs, KEDA read replicas, lag as a shed-reads signal, the replication slot that threatens writes |
 | [dora-metrics](dora-metrics.md) | Deploy freq, lead time, MTTR, change-fail rate, build health |
 | [stakeholder-reports](stakeholder-reports.md) | Scheduled manager-facing reports: frozen snapshots, review/publish, recipients, share links |
+| [release-notes](release-notes.md) | What changed in the reports and why your numbers moved |
 | [incidents-webhook](incidents-webhook.md) | Incident webhook → automated post-deploy CFR + real MTTR |
 | [environment-variables](environment-variables.md) | Every env var by subsystem |
 | [error-handling](error-handling.md) | Typed `AppError` convention |

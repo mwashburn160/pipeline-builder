@@ -112,6 +112,12 @@ const REGISTERED: ReadonlyArray<readonly [string, string, string]> = [
   ['VerifiedCheck', 'frontend/src/types/ecosystem.ts', 'api/plugin/src/services/ecosystem/verified-eligibility.ts'],
   ['VerifiedCheckId', 'frontend/src/types/ecosystem.ts', 'api/plugin/src/services/ecosystem/verified-eligibility.ts'],
   ['VerifiedEligibility', 'frontend/src/types/ecosystem.ts', 'api/plugin/src/services/ecosystem/verified-eligibility.ts'],
+  ['ComplianceTrendPoint', 'frontend/src/lib/api/domains/reporting-security.ts', 'packages/pipeline-data/src/api/reporting/compliance-trend.ts'],
+  ['ComplianceTrendReport', 'frontend/src/lib/api/domains/reporting-security.ts', 'packages/pipeline-data/src/api/reporting/compliance-trend.ts'],
+  ['ExpiringAcceptance', 'frontend/src/lib/api/domains/reporting-security.ts', 'packages/pipeline-data/src/api/reporting/security.ts'],
+  ['TopViolatedRule', 'frontend/src/lib/api/domains/reporting-security.ts', 'packages/pipeline-data/src/api/reporting/compliance-trend.ts'],
+  ['VulnTrendPoint', 'frontend/src/lib/api/domains/reporting-security.ts', 'packages/pipeline-data/src/api/reporting/security.ts'],
+  ['VulnerabilityExposureReport', 'frontend/src/lib/api/domains/reporting-security.ts', 'packages/pipeline-data/src/api/reporting/security.ts'],
 ];
 
 function sources(): string[] {

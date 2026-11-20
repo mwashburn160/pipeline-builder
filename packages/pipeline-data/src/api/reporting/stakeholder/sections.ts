@@ -86,6 +86,15 @@ export interface SectionDataSource {
   getCompliancePosture?(scope: AnalyticsScope): Promise<unknown>;
   /** The evaluated needs-attention findings for the period. */
   getNeedsAttention?(scope: AnalyticsScope, previous?: { from: string; to: string }): Promise<unknown>;
+  /** The org's reporting settings; the composer reads the incident window from it for the DORA sections. */
+  getReportingSettings?(orgId: string): Promise<{ incidentWindowHours: number | null }>;
+  /**
+   * The advanced security reads (../security.ts, ../compliance-trend.ts). Optional:
+   * when a source does not supply them the section calls the module directly, which
+   * is the SAME function the dashboard route calls — so the numbers match.
+   */
+  getVulnerabilityExposure?(scope: AnalyticsScope, bucket: { interval: string; tz?: string; weekStart?: WeekStart }): Promise<unknown>;
+  getComplianceTrend?(scope: AnalyticsScope, bucket: { interval: string; tz?: string; weekStart?: WeekStart }): Promise<unknown>;
 }
 
 /** One registered section. */
@@ -102,6 +111,11 @@ export interface SectionSpec {
    */
   comparable: boolean;
   run(source: SectionDataSource, ctx: SectionContext): Promise<unknown>;
+  /**
+   * The section's own headline, for a section whose result the composer's generic
+   * headline rules do not understand. Null = no single number.
+   */
+  headline?(value: unknown): { label: string; value: number; unit?: string } | null;
 }
 
 /**
@@ -391,4 +405,44 @@ registerReportSection({
   run: (s, c) => (s.getCompliancePosture
     ? s.getCompliancePosture(scopeOf(c))
     : Promise.resolve({ unavailable: 'compliance posture is not available in this context' })),
+});
+
+// ── Advanced security (paid) ────────────────────────────────────────────────
+// `advanced_reporting`, like the DORA sections: locked without it, and the rest
+// of the report still delivers. Selectable in a definition's section list; the
+// templates are a fixed code list and are left as they are. Each section calls the
+// exact function its dashboard panel's route calls, bucketed by the report's own
+// timezone and week start, so the report and the dashboard agree.
+
+/** The bucketing every advanced-security section reads with. */
+function securityBucketOf(c: SectionContext): { interval: string; tz: string; weekStart: WeekStart } {
+  return { interval: 'week', tz: c.tz, weekStart: c.weekStart };
+}
+
+registerReportSection({
+  id: 'vulnerability_exposure',
+  title: 'Vulnerability exposure and time to fix',
+  requiresFeature: 'advanced_reporting',
+  comparable: false,
+  run: async (s, c) => (s.getVulnerabilityExposure
+    ? s.getVulnerabilityExposure(scopeOf(c), securityBucketOf(c))
+    : (await import('../security.js')).getVulnerabilityExposure(scopeOf(c), securityBucketOf(c))),
+  headline: (v) => {
+    const critical = (v as { open?: { critical?: unknown } } | null)?.open?.critical;
+    return typeof critical === 'number' ? { label: 'Open critical findings', value: critical } : null;
+  },
+});
+
+registerReportSection({
+  id: 'compliance_trend',
+  title: 'Compliance trend',
+  requiresFeature: 'advanced_reporting',
+  comparable: false,
+  run: async (s, c) => (s.getComplianceTrend
+    ? s.getComplianceTrend(scopeOf(c), securityBucketOf(c))
+    : (await import('../compliance-trend.js')).getComplianceTrend(scopeOf(c), securityBucketOf(c))),
+  headline: (v) => {
+    const block = (v as { totals?: { block?: unknown } } | null)?.totals?.block;
+    return typeof block === 'number' ? { label: 'Blocked checks', value: block } : null;
+  },
 });

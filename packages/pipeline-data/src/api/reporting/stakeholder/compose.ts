@@ -20,6 +20,7 @@
 
 import { MIN_DORA_SAMPLE, type WeekStart } from '@pipeline-builder/api-core';
 import type { ResolvedPeriod } from './period.js';
+import { resolveIncidentWindowHours } from '../dora-scoring.js';
 import { getReportSection, type SectionContext, type SectionDataSource, type SectionSpec } from './sections.js';
 
 /** Below this many observations a rate is noise, and says so. */
@@ -62,6 +63,15 @@ export interface ReportSnapshot {
   previousPeriod: { start: string; end: string };
   timezone: string;
   weekStart: WeekStart;
+  /**
+   * The incident→deploy correlation window (hours) the DORA sections were
+   * computed with — the org's `incidentWindowHours` setting, or the platform
+   * default, AT COMPOSE TIME. Stored so a report re-opened after an admin changes
+   * the setting still says which window its change failure rate and time to
+   * restore came from. Absent when the report has no DORA section (and on
+   * snapshots composed before it was recorded).
+   */
+  incidentWindowHours?: number;
   sections: ComposedSection[];
   notes: DataQualityNote[];
   /**
@@ -108,6 +118,41 @@ export const REPORT_FEATURE_SUBSTITUTES: Readonly<Record<string, readonly string
 function satisfies(features: readonly string[], required: string): boolean {
   if (features.includes(required)) return true;
   return (REPORT_FEATURE_SUBSTITUTES[required] ?? []).some((alt) => features.includes(alt));
+}
+
+/**
+ * The section source with the org's incident window threaded into every DORA
+ * read — exactly what the dashboard's /dora and /dora/trend routes do, so the
+ * report's change failure rate and time to restore match the dashboard's for an
+ * org with a custom window. Without it the sections ran on the platform default
+ * while the dashboard ran on the org's setting, and the two disagreed.
+ *
+ * A Proxy rather than a copy: the real source is a class instance whose methods
+ * live on its prototype (a spread would drop them), and every other method must
+ * still run against the original object.
+ */
+function withIncidentWindow(source: SectionDataSource, windowOverride: () => Promise<number | undefined>): SectionDataSource {
+  return new Proxy(source, {
+    get(target, prop) {
+      const value: unknown = Reflect.get(target, prop, target);
+      if (typeof value !== 'function') return value;
+      const fn = value as (...args: unknown[]) => Promise<unknown>;
+      if (prop === 'getDoraMetrics') {
+        return async (orgId: string, from: string, to: string, orgIds?: string[], opts?: Record<string, unknown>) =>
+          fn.call(target, orgId, from, to, orgIds, { ...(opts ?? {}), incidentWindowHours: await windowOverride() });
+      }
+      if (prop === 'getDoraTrend') {
+        return async (orgId: string, interval: string, from: string, to: string, orgIds?: string[], opts?: Record<string, unknown>) =>
+          fn.call(target, orgId, interval, from, to, orgIds, { ...(opts ?? {}), incidentWindowHours: await windowOverride() });
+      }
+      return fn.bind(target);
+    },
+  });
+}
+
+/** "1 hour" / "24 hours" / "0.5 hours". */
+function hoursLabel(h: number): string {
+  return `${h} hour${h === 1 ? '' : 's'}`;
 }
 
 /** Pull a comparable number out of a section result, or null when there isn't one. */
@@ -283,9 +328,28 @@ function attentionNotes(value: unknown): DataQualityNote[] {
  * an exception is not.
  */
 export async function composeSnapshot(sectionIdList: readonly string[], opts: ComposeOptions): Promise<ReportSnapshot> {
-  const { source, period, timezone, weekStart, orgId, orgIds, features } = opts;
+  const { period, timezone, weekStart, orgId, orgIds, features } = opts;
   const notes: DataQualityNote[] = [];
   const sections: ComposedSection[] = [];
+
+  // The org's incident window, read ONCE per compose and only when a DORA read
+  // actually happens. A source without the settings read (a stub) composes with
+  // the platform default. A settings read that FAILS fails the DORA sections
+  // rather than silently running them on a different window than the dashboard.
+  let windowRead: Promise<number | undefined> | undefined;
+  let windowUsed: number | undefined;
+  const windowOverride = (): Promise<number | undefined> => {
+    windowRead ??= (async () => {
+      const raw = opts.source as unknown as Record<string, unknown>;
+      const override = 'getReportingSettings' in raw && opts.source.getReportingSettings
+        ? (await opts.source.getReportingSettings(orgId)).incidentWindowHours ?? undefined
+        : undefined;
+      windowUsed = resolveIncidentWindowHours(override);
+      return override;
+    })();
+    return windowRead;
+  };
+  const source = withIncidentWindow(opts.source, windowOverride);
 
   const ctxFor = (from: Date, to: Date): SectionContext => ({
     orgId,
@@ -333,6 +397,9 @@ export async function composeSnapshot(sectionIdList: readonly string[], opts: Co
 
       const head = headlineOf(id, current);
       if (head) composed.headline = head;
+      // A section that names its own headline (the advanced security sections).
+      const ownHead = spec.headline?.(current);
+      if (ownHead) composed.headline = ownHead;
 
       if (spec.comparable) {
         // The comparison is best-effort: a failed previous period must not cost the
@@ -374,12 +441,17 @@ export async function composeSnapshot(sectionIdList: readonly string[], opts: Co
     previousPeriod: { start: period.prevStart.toISOString(), end: period.prevEnd.toISOString() },
     timezone,
     weekStart,
+    ...(windowUsed !== undefined ? { incidentWindowHours: windowUsed } : {}),
     sections,
     notes,
     methodology:
       `Computed from pipeline events between ${period.start.toISOString()} and ${period.end.toISOString()}, `
       + `bucketed in ${timezone} with weeks starting ${weekStart}. Comparison period: `
       + `${period.prevStart.toISOString()} to ${period.prevEnd.toISOString()}. `
+      + (windowUsed !== undefined
+        ? `Incidents count against the deploy they followed within ${hoursLabel(windowUsed)} `
+          + '(the organization\'s incident window when this report was composed). '
+        : '')
       + 'These are the same queries the dashboard runs over the same window, so the two agree.',
     generatedAt: (opts.now ?? new Date()).toISOString(),
   };

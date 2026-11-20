@@ -14,6 +14,14 @@ import type { ApiResponse } from '@/types';
 export type { DoraLevel } from '@pipeline-builder/api-core/wire-vocabulary';
 
 /**
+ * Why a deploy's lead time could not be measured, as ingest stored it
+ * (`dora_deployments.lead_time_gap`): no SCM token for the source, the provider
+ * rate-limited the commit-range walk, a source type with no range API, or no
+ * commit data reported at all. Mirrors pipeline-data's `LEAD_TIME_GAPS`.
+ */
+export type LeadTimeGap = 'no_token' | 'rate_limited' | 'unsupported_source' | 'no_commit_data';
+
+/**
  * DORA metrics for a single deployment environment. Deploy-basis only — computed
  * over deploy-stage executions attributed to this environment.
  */
@@ -35,6 +43,12 @@ export interface DoraEnvMetrics {
     level: DoraLevel;
     /** Measured commit→deploy gaps — the median's sample. */
     n: number;
+    /**
+     * Successful in-window deploys whose lead time could NOT be measured, counted
+     * per stored reason. Only reasons that occurred are present. Optional so an
+     * older backend (no field) reads as "no reasons known".
+     */
+    unknownReasons?: Partial<Record<LeadTimeGap, number>>;
   };
   /**
    * Change-failure rate = (deploy-time failures + post-deploy failures) / attempts.
@@ -256,6 +270,38 @@ export interface ExecutionFailure {
   plugins?: unknown[];
 }
 
+/** One failure category of the org's error-pattern report. */
+export interface ErrorCategoryRow {
+  /** A failure category id (`unit_test`, `dependency`, …; `other` when unclassified). */
+  category: string;
+  occurrences: number;
+  affected_pipelines: number;
+  last_seen: string;
+  /** The most frequent error texts in the category (credential-scrubbed). */
+  patterns: Array<{ error_pattern: string; occurrences: number }>;
+}
+
+/** One flaky (pipeline, stage): failed, then passed on retry, in the same execution. */
+export interface FlakyStageRow {
+  pipeline_id: string;
+  pipeline_name: string | null;
+  stage_name: string;
+  flaky_runs: number;
+  runs: number;
+  /** flaky_runs / runs, percent. */
+  flake_pct: number;
+  flaky_actions: string[];
+  last_flaked: string | null;
+}
+
+/** One bucket of the flake-rate trend. */
+export interface FlakyTrendPoint {
+  period: string;
+  flaky_runs: number;
+  runs: number;
+  flake_pct: number;
+}
+
 export function reportingApi(core: ApiCore) {
   return {
     // ============================================
@@ -296,7 +342,7 @@ export function reportingApi(core: ApiCore) {
 
     /** Stage failure heatmap. */
     getStageFailures: async (params?: { from?: string; to?: string; includeDescendants?: boolean }, opts?: { signal?: AbortSignal }) => {
-      return core.request<ApiResponse<{ stages: Array<{ stage_name: string; failures: number; total: number; failure_pct: number }> }>>(`/api/reports/execution/stage-failures${buildQuery(params)}`, { signal: opts?.signal });
+      return core.request<ApiResponse<{ stages: Array<{ pipeline_id: string; pipeline_name: string | null; stage_name: string; failures: number; total: number; failure_pct: number }> }>>(`/api/reports/execution/stage-failures${buildQuery(params)}`, { signal: opts?.signal });
     },
 
     /** Stage bottlenecks — slowest stages. */
@@ -306,7 +352,27 @@ export function reportingApi(core: ApiCore) {
 
     /** Action failure rate. */
     getActionFailures: async (params?: { from?: string; to?: string; includeDescendants?: boolean }, opts?: { signal?: AbortSignal }) => {
-      return core.request<ApiResponse<{ actions: Array<{ action_name: string; failures: number; total: number; failure_pct: number }> }>>(`/api/reports/execution/action-failures${buildQuery(params)}`, { signal: opts?.signal });
+      return core.request<ApiResponse<{ actions: Array<{ pipeline_id: string; pipeline_name: string | null; stage_name: string | null; action_name: string; failures: number; total: number; failure_pct: number }> }>>(`/api/reports/execution/action-failures${buildQuery(params)}`, { signal: opts?.signal });
+    },
+
+    /**
+     * The org's own error patterns, grouped by failure category with the top
+     * error texts in each. `reports:read` (every tier), org-scoped and
+     * rollup-aware — the tenant counterpart of the operator-only `getExecutionErrors`.
+     */
+    getExecutionErrorPatterns: async (params?: { from?: string; to?: string; limit?: number; includeDescendants?: boolean }, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ categories: ErrorCategoryRow[] }>>(`/api/reports/execution/error-patterns${buildQuery(params)}`, { signal: opts?.signal });
+    },
+
+    /** Stages that failed then passed on retry in the same execution, per (pipeline, stage). `reports:read`. */
+    getFlakyStages: async (params?: { from?: string; to?: string; limit?: number; includeDescendants?: boolean }, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ stages: FlakyStageRow[] }>>(`/api/reports/execution/flaky-stages${buildQuery(params)}`, { signal: opts?.signal });
+    },
+
+    /** The flake rate per time bucket (all stages, or one pipeline/stage). `advanced_reporting`-gated on the backend. */
+    getFlakyStageTrend: async (params?: { interval?: string; from?: string; to?: string; includeDescendants?: boolean; pipelineId?: string; stageName?: string } & ReportBucketParams, opts?: { signal?: AbortSignal }) => {
+      const res = await core.request<ApiResponse<{ trend: FlakyTrendPoint[] }>>(`/api/reports/execution/flaky-stages/trend${buildQuery(params)}`, { signal: opts?.signal });
+      return res.data?.trend ?? [];
     },
 
     /** Error categorization. System-admin only on the backend. */

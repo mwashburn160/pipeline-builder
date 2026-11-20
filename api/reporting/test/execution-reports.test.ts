@@ -19,6 +19,9 @@ const mockGetStageBottlenecks = jest.fn<AnyFn>();
 const mockGetActionFailures = jest.fn<AnyFn>();
 const mockGetReportEnvironments = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockGetPlatformErrors = jest.fn<AnyFn>();
+const mockGetErrorCategories = jest.fn<AnyFn>();
+const mockGetFlakyStages = jest.fn<AnyFn>();
+const mockGetFlakyStageTrend = jest.fn<AnyFn>();
 const mockGetDoraMetrics = jest.fn<AnyFn>();
 const mockGetDoraTrend = jest.fn<AnyFn>();
 const mockGetBuildHealth = jest.fn<AnyFn>();
@@ -103,6 +106,9 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
     getActionFailures: mockGetActionFailures,
     getReportEnvironments: mockGetReportEnvironments,
     getPlatformErrors: mockGetPlatformErrors,
+    getErrorCategories: mockGetErrorCategories,
+    getFlakyStages: mockGetFlakyStages,
+    getFlakyStageTrend: mockGetFlakyStageTrend,
     getDoraMetrics: mockGetDoraMetrics,
     getDoraTrend: mockGetDoraTrend,
     getBuildHealth: mockGetBuildHealth,
@@ -503,6 +509,80 @@ describe('Execution Report Routes', () => {
 
       expect(mockResolveOrgRollup).not.toHaveBeenCalled();
       expect(mockGetPlatformErrors).toHaveBeenCalledWith(expect.any(String), expect.any(String), 10);
+    });
+  });
+  describe('GET /error-patterns (the tenant error report)', () => {
+    const gatesOf = (path: string) => (router.stack.find((l: any) => l.route?.path === path)?.route?.stack ?? [])
+      .slice(0, -1).map((s: any) => getRouteGates(s.handle) ?? [])
+      .flat();
+
+    it('carries no system-org / orgs:read gate — reports:read at the mount is the gate', () => {
+      expect(gatesOf('/error-patterns')).toEqual([]);
+      const stack = router.stack.find((l: any) => l.route?.path === '/error-patterns')?.route?.stack;
+      expect(stack).toHaveLength(1);
+    });
+
+    it('reads the CALLER\'s org (never the cross-org operator read) and scrubs the pattern text', async () => {
+      mockGetErrorCategories.mockResolvedValue([{
+        category: 'unit_test',
+        occurrences: 2,
+        affected_pipelines: 1,
+        last_seen: '2026-01-02',
+        patterns: [{ error_pattern: 'login failed password=hunter2', occurrences: 2 }],
+      }]);
+      const handler = getHandler('/error-patterns');
+      await handler({ query: { limit: '5', from: '2026-01-01', to: '2026-01-31' } }, {});
+
+      expect(mockGetPlatformErrors).not.toHaveBeenCalled();
+      expect(mockGetErrorCategories).toHaveBeenCalledWith('acme', '2026-01-01', '2026-01-31', 5, undefined);
+      const body = (sendSuccess as any).mock.calls[0][2];
+      expect(body.categories[0].patterns[0].error_pattern).not.toContain('hunter2');
+      expect(body.categories[0]).toMatchObject({ category: 'unit_test', occurrences: 2 });
+    });
+
+    it('is rollup-aware for reports:rollup holders only', async () => {
+      mockGetErrorCategories.mockResolvedValue([]);
+      mockResolveOrgRollup.mockResolvedValue(['acme', 'team-1']);
+      const handler = getHandler('/error-patterns');
+      await handler({ query: { includeDescendants: 'true' }, user: { permissions: ['reports:read'] } }, {});
+      expect(mockGetErrorCategories).toHaveBeenLastCalledWith('acme', expect.any(String), expect.any(String), 20, undefined);
+      await handler({ query: { includeDescendants: 'true' }, user: { permissions: ['reports:read', 'reports:rollup'] } }, {});
+      expect(mockGetErrorCategories).toHaveBeenLastCalledWith('acme', expect.any(String), expect.any(String), 20, ['acme', 'team-1']);
+    });
+  });
+
+  describe('GET /flaky-stages and /flaky-stages/trend', () => {
+    const featureOf = (path: string) => (router.stack.find((l: any) => l.route?.path === path)?.route?.stack ?? [])
+      .map((s: any) => s.handle.__feature).filter(Boolean);
+
+    it('the ranked list is free (no feature gate); the trend needs advanced_reporting', () => {
+      expect(featureOf('/flaky-stages')).toEqual([]);
+      expect(featureOf('/flaky-stages/trend')).toEqual(['advanced_reporting']);
+      expect(featureOf('/dora/trend')).toEqual(['advanced_reporting']);
+    });
+
+    it('lists the org\'s flaky stages', async () => {
+      mockGetFlakyStages.mockResolvedValue([{ pipeline_id: 'p1', stage_name: 'Build', flaky_runs: 2, runs: 4, flake_pct: 50 }]);
+      const handler = getHandler('/flaky-stages');
+      await handler({ query: { from: '2026-01-01', to: '2026-01-31' } }, {});
+      expect(mockGetFlakyStages).toHaveBeenCalledWith('acme', '2026-01-01', '2026-01-31', undefined, 50);
+      expect((sendSuccess as any).mock.calls[0][2]).toEqual({ stages: [expect.objectContaining({ flake_pct: 50 })] });
+    });
+
+    it('the trend honours interval, tz/weekStart and the (pipeline, stage) drill-down', async () => {
+      mockGetFlakyStageTrend.mockResolvedValue([]);
+      const handler = getHandler('/flaky-stages/trend');
+      await handler({ query: { interval: 'day', tz: 'America/Chicago', weekStart: 'sunday', pipelineId: 'p1', stageName: 'Build' } }, {});
+      expect(mockGetFlakyStageTrend).toHaveBeenCalledWith('acme', 'day', expect.any(String), expect.any(String), undefined,
+        { tz: 'America/Chicago', weekStart: 'sunday', pipelineId: 'p1', stageName: 'Build' });
+    });
+
+    it('the trend 400s on an invalid interval or timezone and does not query', async () => {
+      const handler = getHandler('/flaky-stages/trend');
+      await handler({ query: { interval: 'year' } }, {});
+      await handler({ query: { tz: 'Mars/Olympus_Mons' } }, {});
+      expect(sendBadRequest).toHaveBeenCalledTimes(2);
+      expect(mockGetFlakyStageTrend).not.toHaveBeenCalled();
     });
   });
 });

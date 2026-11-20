@@ -117,6 +117,45 @@ Every snapshot carries the caveats, in the report itself rather than in a runboo
 
 A footer states how every number was produced, including the window and the comparison period. Managers compare reports to dashboards; saying plainly that both run the same queries is what makes a difference investigable rather than a reason to distrust both.
 
+### The Insights tab
+
+The report's analytics sections are also on the dashboard, on demand: **Reports → Insights** (`GET /api/reports/insights`) shows **Needs attention**, **What is breaking** (failure analysis), **What reached production, and what did not** (promotion), **Where the build time went** (resource consumption), **Plugins behind their latest version** and **Adoption and coverage** for any date range — one card per analysis, each with its own CSV export. Plugin vulnerabilities and compliance posture live on the Security tab instead.
+
+- **Same numbers as a report.** The tab runs the *registered report section itself*, not a copy of its query, so over the same window and timezone the tab and a report show identical figures. The range's `YYYY-MM-DD` bounds are read as local midnights in the org's default report timezone (`tz` / `weekStart`, as the other dashboards send them), which is where a report period starts; `to` is exclusive.
+- **Trend columns** (failure-category change, the slower-p95 rule) compare with the equal-length window immediately before the range. A report compares with its previous calendar period, so a month-long range next to a 31-day previous month can differ in the trend column only — never in the current-period figures.
+- **Fast over long ranges.** Every section reads the daily rollups (`execution_daily_rollups`, `dora_deployments`, `pipeline_plugin_resolution`), not raw events.
+- **Gates.** `reports:read` plus the `advanced_reporting` feature, the same pairing as the DORA routes; an org without it sees the locked upsell and no request is made. `?includeDescendants=true` widens to the team subtree only for a `reports:rollup` holder. The range is capped and floored to the account's standard-event retention. `?sections=` narrows to a comma-separated subset. A section that fails is marked `failed` in its own card; the others still render.
+
+### The Security tab and its two report sections
+
+Two advanced reports are both a dashboard panel (**Reports → Security**) and a stakeholder report section. Each panel and its section call the *same* function (`getVulnerabilityExposure`, `getComplianceTrend` in `packages/pipeline-data/src/api/reporting/`), so for the same range and timezone they return identical figures (pinned by `packages/pipeline-data/test/security-reports.test.ts`).
+
+| Section id | Title | Dashboard route |
+|---|---|---|
+| `vulnerability_exposure` | Vulnerability exposure and time to fix | `GET /api/reports/security/vulnerabilities` |
+| `compliance_trend` | Compliance trend | `GET /api/reports/security/compliance-trend` |
+
+**Vulnerability exposure and time to fix** reads two tables:
+
+- `plugin_vuln_exposure` gives the open findings by severity, the known-exploited (KEV) count, median and p90 time to fix (`flagged_at` → `fixed_at`), new vs fixed per bucket, and accepted-risk items whose acceptance lapses within 30 days. A pipeline's `declared` and `deployed` rows for one version count as **one** exposure. That exposure is **fixed** only when every one of its rows closed and at least one closed as `fixed`: a config moved to a patched version while the old image still runs is not fixed, and a deleted pipeline (`removed`) was not remediated. These rows track Critical and High only, so their Medium/Low are always 0. Their KEV count covers only the itemized top findings, so it is a lower bound.
+- `pipeline_security_reports` holds each pipeline's own **latest** scanner report per tool and stage, across all four severities with an exact KEV count. It keeps no history, so it is shown as "latest", is never bucketed, and only counts pipelines that have not been deleted.
+
+**Compliance trend** reads three tables:
+
+- `compliance_scans`: pass / warn / block counts per bucket from completed scans (rule dry runs excluded), bucketed by completion time.
+- `compliance_exemptions`: exemptions created per bucket (any status), and exemptions active in each bucket (approved, or since expired, and in force at some point during it). Because approval time is not stored, an exemption counts from its creation.
+- `compliance_audit_log`: the top 10 rules by violations over the range, with the number of distinct pipelines or plugins affected. This log is pruned on the compliance service's retention (180 days by default), so a wider range sees only what remains.
+
+The compliance service owns these tables. They live in the same database, under the same application role and per-org RLS, and reporting only reads them.
+
+**How both reports behave:**
+
+- **As of the end of the range.** Open, KEV, expiring and active-exemption figures are taken at `min(to, now)`. Triage decisions (false positive, accepted) have no history, so they are applied as they stand today.
+- **Bucketing.** Buckets follow `interval` / `tz` / `weekStart`, and every bucket in the range appears, including empty ones as zeros. A report section buckets weekly in the report's own timezone and week start. The dashboard reads `YYYY-MM-DD` bounds as local midnights in `tz`, so its window lines up with a report period.
+- **Gates.** `reports:read` plus `advanced_reporting`, the same pairing as the DORA routes. Without the feature, the tab shows the locked upsell and makes no request, and the sections render **locked** in a report. Both are org-scoped. `?includeDescendants=true` widens to the team subtree only for a `reports:rollup` holder, and the range is capped to the account's standard-event retention. There are no daily rollups for these tables; the queries are aggregates over per-org indexed rows.
+- **No per-person data.** No triager, scan requester, approver or entity name is returned.
+- **Selecting them.** The templates are a fixed code list and are unchanged. Add either section by id to a definition's `sections`. Each section's report headline is "Open critical findings" or "Blocked checks". The tab offers a CSV for each table.
+
 ## Runs and versions
 
 One run per period. Regenerating produces **version N+1** and points the old row at it — the previous version stays exactly as its recipients read it. Late events (the ingest redriving its dead-letter queue hours later) make a corrected report normal, so this is the supported way to fix one. Publishing is conditional on the run still being unpublished, so two clicks send one report.

@@ -32,6 +32,9 @@ const scoped = {
   getStageFailures: jest.fn<AnyFn>(),
   getActionFailures: jest.fn<AnyFn>(),
   getExecutionErrors: jest.fn<AnyFn>(),
+  getExecutionErrorPatterns: jest.fn<AnyFn>(),
+  getFlakyStages: jest.fn<AnyFn>(),
+  getFlakyStageTrend: jest.fn<AnyFn>(),
   getBuildSuccessRate: jest.fn<AnyFn>(),
   getBuildDuration: jest.fn<AnyFn>(),
   getBuildFailures: jest.fn<AnyFn>(),
@@ -48,6 +51,9 @@ jest.mock('@/lib/api', () => ({
     getStageFailures: (...a: unknown[]) => scoped.getStageFailures(...a),
     getActionFailures: (...a: unknown[]) => scoped.getActionFailures(...a),
     getExecutionErrors: (...a: unknown[]) => scoped.getExecutionErrors(...a),
+    getExecutionErrorPatterns: (...a: unknown[]) => scoped.getExecutionErrorPatterns(...a),
+    getFlakyStages: (...a: unknown[]) => scoped.getFlakyStages(...a),
+    getFlakyStageTrend: (...a: unknown[]) => scoped.getFlakyStageTrend(...a),
     getPluginSummary: (...a: unknown[]) => getPluginSummary(...a),
     getPluginDistribution: (...a: unknown[]) => getPluginDistribution(...a),
     getBuildSuccessRate: (...a: unknown[]) => scoped.getBuildSuccessRate(...a),
@@ -60,6 +66,13 @@ jest.mock('@/lib/api', () => ({
     getReportEnvironments: (...a: unknown[]) => scoped.getReportEnvironments(...a),
     getReportPolicy: (...a: unknown[]) => getReportPolicy(...a),
   },
+}));
+
+// Advanced Reporting entitlement, toggled per test (default: not entitled).
+let entitled = false;
+jest.mock('@/hooks/useFeatures', () => ({
+  __esModule: true,
+  useFeatures: () => ({ isEnabled: (f: string) => entitled && f === 'advanced_reporting' }),
 }));
 
 const filters: SharedFilters = { dateFrom: '', dateTo: '', interval: 'week', includeDescendants: false };
@@ -76,6 +89,10 @@ beforeEach(() => {
   scoped.getStageFailures.mockReset().mockResolvedValue({ data: { stages: [] } });
   scoped.getActionFailures.mockReset().mockResolvedValue({ data: { actions: [] } });
   scoped.getExecutionErrors.mockReset().mockResolvedValue({ data: { errors: [] } });
+  scoped.getExecutionErrorPatterns.mockReset().mockResolvedValue({ data: { categories: [] } });
+  scoped.getFlakyStages.mockReset().mockResolvedValue({ data: { stages: [] } });
+  scoped.getFlakyStageTrend.mockReset().mockResolvedValue([]);
+  entitled = false;
   scoped.getBuildSuccessRate.mockReset().mockResolvedValue({ data: { timeline: [] } });
   scoped.getBuildDuration.mockReset().mockResolvedValue({ data: { plugins: [] } });
   scoped.getBuildFailures.mockReset().mockResolvedValue({ data: { failures: [] } });
@@ -102,6 +119,7 @@ describe('one scope for every panel (includeDescendants)', () => {
     for (const fn of [
       getExecutionCount, getSuccessRate, getPipelineDuration, getStageBottlenecks,
       scoped.getStageFailures, scoped.getActionFailures, scoped.getExecutionErrors,
+      scoped.getExecutionErrorPatterns, scoped.getFlakyStages,
     ]) {
       expect(paramsOf(fn)).toEqual(expect.arrayContaining([expect.objectContaining({ includeDescendants: true })]));
     }
@@ -133,6 +151,34 @@ describe('sysadmin-only reports', () => {
     await waitFor(() => expect(scoped.getStageFailures).toHaveBeenCalled());
     expect(scoped.getExecutionErrors).not.toHaveBeenCalled();
     expect(screen.queryByText('Top errors')).not.toBeInTheDocument();
+  });
+});
+
+describe('org error patterns and flaky stages (every reports:read holder)', () => {
+  it('a non-sysadmin gets the org error patterns and the flaky list — but no trend without Advanced Reporting', async () => {
+    scoped.getExecutionErrorPatterns.mockResolvedValue({ data: { categories: [
+      { category: 'dependency', occurrences: 2, affected_pipelines: 1, last_seen: '2026-11-17T10:00:00Z', patterns: [{ error_pattern: 'npm ERR! 404', occurrences: 2 }] },
+    ] } });
+    scoped.getFlakyStages.mockResolvedValue({ data: { stages: [
+      { pipeline_id: 'p1', pipeline_name: 'api', stage_name: 'Build', flaky_runs: 1, runs: 3, flake_pct: 33.3, flaky_actions: [], last_flaked: null },
+    ] } });
+    render(<PipelinesTab filters={filters} onStatus={jest.fn<AnyFn>()} />);
+    fireEvent.click(screen.getByRole('tab', { name: 'Failures' }));
+    expect(await screen.findByText('Dependency resolution')).toBeInTheDocument();
+    expect(await screen.findByText('Flaky stages')).toBeInTheDocument();
+    expect(screen.getByText(/1\/3 runs/)).toBeInTheDocument();
+    expect(scoped.getExecutionErrors).not.toHaveBeenCalled();
+    expect(scoped.getFlakyStageTrend).not.toHaveBeenCalled();
+    expect(screen.getByText(/part of Advanced Reporting/i)).toBeInTheDocument();
+  });
+
+  it('with Advanced Reporting the flake trend is read, bucketed in the org timezone', async () => {
+    entitled = true;
+    getReportPolicy.mockResolvedValue({ data: { policy: { defaultTimezone: 'America/Chicago', defaultWeekStart: 'sunday' } } });
+    render(<PipelinesTab filters={filters} onStatus={jest.fn<AnyFn>()} />);
+    fireEvent.click(screen.getByRole('tab', { name: 'Failures' }));
+    await waitFor(() => expect(scoped.getFlakyStageTrend).toHaveBeenCalled());
+    expect(paramsOf(scoped.getFlakyStageTrend)[0]).toEqual(expect.objectContaining({ interval: 'week', tz: 'America/Chicago', weekStart: 'sunday' }));
   });
 });
 

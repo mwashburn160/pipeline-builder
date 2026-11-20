@@ -346,6 +346,24 @@ describe('public report routes', () => {
         getAdoption: { activePipelines: 1, totalPipelines: 1 },
         getCompliancePosture: { compliance: null, access: null, unavailable: [] },
         getNeedsAttention: { items: [{ pipelineId: 'p-atlas', pipelineName: 'atlas-migration', severity: 'high', findings: [{ rule: 'consecutive_failures', evidence: '3 consecutive failures', severity: 'high' }] }] },
+        getVulnerabilityExposure: {
+          window: { from: '2026-09-01', to: '2026-09-30' },
+          asOf: '2026-09-30T00:00:00.000Z',
+          open: { exposures: 1, pipelines: 1, critical: 1, high: 0, medium: 0, low: 0, kev: 0 },
+          scanners: { reports: 0, pipelines: 0, critical: 0, high: 0, medium: 0, low: 0, kev: 0 },
+          timeToFix: { n: 0, medianSeconds: null, p90Seconds: null },
+          trend: [{ period: '2026-W37', new: 1, fixed: 0 }],
+          totals: { new: 1, fixed: 0 },
+          expiringAcceptances: { count: 0, items: [] },
+        },
+        getComplianceTrend: {
+          window: { from: '2026-09-01', to: '2026-09-30' },
+          asOf: '2026-09-30T00:00:00.000Z',
+          trend: [{ period: '2026-W37', scans: 1, pass: 1, warn: 0, block: 0, exemptionsCreated: 0, exemptionsActive: 0 }],
+          totals: { scans: 1, pass: 1, warn: 0, block: 0, exemptionsCreated: 0 },
+          activeExemptions: 0,
+          topRules: [],
+        },
       };
       const source = new Proxy({}, {
         get: (_t, method: string) => (method in fixtures

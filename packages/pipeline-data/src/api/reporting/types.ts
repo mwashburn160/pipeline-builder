@@ -10,6 +10,7 @@
  */
 
 import type { DoraLevel, WeekStart } from '@pipeline-builder/api-core';
+import type { LeadTimeGap } from '../../database/schema/reporting-analytics.js';
 
 /*
  * The raw-SQL report rows below are typed EXACTLY as the queries return them —
@@ -65,7 +66,14 @@ export interface PipelineExecution {
   failure: unknown | null;
 }
 
+/**
+ * One (pipeline, stage) failure row. Grouped per PIPELINE, not per stage name:
+ * two pipelines that both call a stage "Build" are two rows, so one pipeline's
+ * broken build no longer inflates (or hides inside) another's.
+ */
 export interface StageFailure {
+  pipeline_id: string;
+  pipeline_name: string | null;
   stage_name: string;
   failures: number;
   total: number;
@@ -80,7 +88,11 @@ export interface StageBottleneck {
   max_ms: number;
 }
 
+/** One (pipeline, stage, action) failure row — per pipeline, like {@link StageFailure}. */
 export interface ActionFailure {
+  pipeline_id: string;
+  pipeline_name: string | null;
+  stage_name: string | null;
   action_name: string;
   failures: number;
   total: number;
@@ -92,6 +104,50 @@ export interface ErrorEntry {
   occurrences: number;
   affected_pipelines: number;
   last_seen: string;
+}
+
+/**
+ * One failure category of the org's error-pattern report: how many failures the
+ * ingest-time classifier put in it, across how many pipelines, and the most
+ * frequent error texts inside it (scrubbed at ingest, truncated like
+ * {@link ErrorEntry}).
+ */
+export interface ErrorCategoryEntry {
+  /** A `FAILURE_CATEGORIES` value; `other` when the classifier matched nothing. */
+  category: string;
+  occurrences: number;
+  affected_pipelines: number;
+  last_seen: string;
+  /** The top error texts in the category, most frequent first. */
+  patterns: Array<{ error_pattern: string; occurrences: number }>;
+}
+
+/**
+ * One flaky (pipeline, stage): executions in which the stage FAILED and then
+ * PASSED on retry within the same execution, out of the executions that ran it
+ * to an outcome.
+ */
+export interface FlakyStage {
+  pipeline_id: string;
+  pipeline_name: string | null;
+  stage_name: string;
+  /** Executions where the stage failed, was retried, and passed. */
+  flaky_runs: number;
+  /** Executions in which the stage reached an outcome (the rate's denominator). */
+  runs: number;
+  /** flaky_runs / runs as a percentage (0–100), one decimal. */
+  flake_pct: number;
+  /** The actions whose failure the retry overtook, A→Z. */
+  flaky_actions: string[];
+  last_flaked: string | null;
+}
+
+/** One time bucket of the flaky-stage trend (all stages of the scope together). */
+export interface FlakyStageTrendPoint {
+  period: string;
+  flaky_runs: number;
+  runs: number;
+  flake_pct: number;
 }
 
 export interface PluginSummary {
@@ -445,6 +501,13 @@ export interface DoraEnvMetrics {
     level: DoraLevel;
     /** Lead times measured (the median's sample; equals `deployments`). */
     n: number;
+    /**
+     * Why lead time could not be measured, counted per stored reason
+     * (`dora_deployments.lead_time_gap`) over this environment's successful
+     * in-window deploys that carried none. Only the reasons that occurred are
+     * present; `{}` when every deploy was measured.
+     */
+    unknownReasons: Partial<Record<LeadTimeGap, number>>;
   };
 }
 
@@ -788,6 +851,13 @@ export interface IncidentRow {
    * these count toward MTTR. Absent in a unit fixture ⇒ true.
    */
   opened_in_window?: boolean | string | null;
+}
+
+/** One (environment, lead-time gap reason) count from `dora_deployments`. */
+export interface LeadGapRow {
+  environment: string;
+  reason: string;
+  n: number | string;
 }
 
 /** Coverage counts: registered pipelines vs those that actually deployed. */

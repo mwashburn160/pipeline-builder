@@ -775,7 +775,10 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | reporting | GET | `/reports/execution/dora/trend` | `any(reports:read) + feature(advanced_reporting)` |
 | reporting | GET | `/reports/execution/duration` | `any(reports:read)` |
 | reporting | GET | `/reports/execution/environments` | `any(reports:read) + feature(advanced_reporting)` |
+| reporting | GET | `/reports/execution/error-patterns` | `any(reports:read)` |
 | reporting | GET | `/reports/execution/errors` | `system-org + any(reports:read) + any(orgs:read) + aal2` |
+| reporting | GET | `/reports/execution/flaky-stages` | `any(reports:read)` |
+| reporting | GET | `/reports/execution/flaky-stages/trend` | `any(reports:read) + feature(advanced_reporting)` |
 | reporting | GET | `/reports/execution/list` | `any(reports:read)` |
 | reporting | GET | `/reports/execution/stage-bottlenecks` | `any(reports:read)` |
 | reporting | GET | `/reports/execution/stage-failures` | `any(reports:read)` |
@@ -786,6 +789,7 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | reporting | POST | `/reports/internal/orgs/:orgId/purge` | `service-principal + internal(platform)` |
 | ops-center | POST | `/ops/internal/orgs/:orgId/purge` | `service-principal + internal(platform)` |
 | reporting | GET | `/reports/ingest-health` | `any(reports:read)` |
+| reporting | GET | `/reports/insights` | `any(reports:read) + feature(advanced_reporting)` |
 | reporting | GET | `/reports/plugins/build-duration` | `any(reports:read)` |
 | reporting | GET | `/reports/plugins/build-failures` | `system-org + any(reports:read) + any(orgs:read) + aal2` |
 | reporting | GET | `/reports/plugins/build-success-rate` | `any(reports:read)` |
@@ -795,6 +799,8 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | reporting | GET | `/reports/plugins/summary` | `any(reports:read)` |
 | reporting | GET | `/reports/plugins/versions` | `any(reports:read)` |
 | reporting | GET | `/reports/retention` | `any(reports:read)` |
+| reporting | GET | `/reports/security/compliance-trend` | `any(reports:read) + feature(advanced_reporting)` |
+| reporting | GET | `/reports/security/vulnerabilities` | `any(reports:read) + feature(advanced_reporting)` |
 | reporting | PUT | `/reports/internal/retention-sync/:orgId` | `service-principal + internal(billing)` |
 | reporting | PUT | `/reports/internal/stakeholder-sync/:orgId` | `service-principal + internal(billing)` |
 | reporting | GET | `/reports/internal/retention-sync/:orgId` | `service-principal + internal(billing)` |

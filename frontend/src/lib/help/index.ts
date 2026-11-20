@@ -46,6 +46,7 @@ export function loadHelpGroups(): Promise<HelpTopicGroup[]> {
       billingProviders, billingBundles, billingDiscounts, quotas,
       apiReference, envVariables, errorHandling,
       support, rbFailover, rbScaling, rbSecrets, rbAccessKeys, rbModeration,
+      releaseNotes,
     ] = await Promise.all([
       import('./getting-started'),
       import('./pipelines'),
@@ -91,6 +92,7 @@ export function loadHelpGroups(): Promise<HelpTopicGroup[]> {
       import('./generated/runbook-secret-rotation'),
       import('./generated/runbook-access-keys'),
       import('./generated/runbook-ecosystem-moderation'),
+      import('./generated/release-notes'),
     ]);
 
     return [
@@ -132,6 +134,7 @@ export function loadHelpGroups(): Promise<HelpTopicGroup[]> {
           notifications.notificationsTopic,
           doraMetrics.doraMetricsTopic,
           stakeholderReports.stakeholderReportsTopic,
+          releaseNotes.releaseNotesTopic,
           incidentsWebhook.incidentsWebhookTopic,
           oncallPaging.oncallPagingTopic,
         ],

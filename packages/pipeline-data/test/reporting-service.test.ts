@@ -793,7 +793,8 @@ describe('ReportingService', () => {
         .mockResolvedValueOnce({ rows: outcomes })
         .mockResolvedValueOnce({ rows: mttr })
         .mockResolvedValueOnce({ rows: coverage })
-        .mockResolvedValueOnce({ rows: incidents });
+        .mockResolvedValueOnce({ rows: incidents })
+        .mockResolvedValueOnce({ rows: [] }); // 5=lead-time gap reasons
     }
 
     it('computes DF, two-class CFR, measured lead time, per-env — plus MTTR and coverage', async () => {
@@ -823,7 +824,7 @@ describe('ReportingService', () => {
 
       const result = await service.getDoraMetrics('acme', FROM, TO);
 
-      expect(mockExecute).toHaveBeenCalledTimes(5);
+      expect(mockExecute).toHaveBeenCalledTimes(6); // + the lead-time gap scan
       expect(result.headline).toBe('production');
       expect(result.filters).toEqual({ pipelineId: null, environment: null });
       // Headline (production) is first.
@@ -840,7 +841,7 @@ describe('ReportingService', () => {
       // Measured lead time: median(600s, 3600s) = 2100s (elite). Sample = 2.
       // p90/p95 interpolate the same 2-sample set [600, 3600] the median came from:
       // 600 + (3600-600)*0.90 and *0.95. Reported, never scored — the level is median-only.
-      expect(prod.leadTime).toEqual({ deployments: 2, medianSeconds: 2100, p90Seconds: 3300, p95Seconds: 3450, level: 'insufficient', n: 2 });
+      expect(prod.leadTime).toEqual({ deployments: 2, medianSeconds: 2100, p90Seconds: 3300, p95Seconds: 3450, level: 'insufficient', n: 2, unknownReasons: {} });
 
       const stg = result.environments[1];
       expect(stg.deploymentFrequency).toEqual({ deployments: 1, perDay: 0.1, level: 'insufficient', n: 1 });
@@ -848,7 +849,7 @@ describe('ReportingService', () => {
         rate: 100, deployTimeFailures: 0, postDeployFailures: 1, attempts: 1, level: 'insufficient', n: 1,
       });
       // No commit timestamps in staging → lead time unknown.
-      expect(stg.leadTime).toEqual({ deployments: 0, medianSeconds: null, p90Seconds: null, p95Seconds: null, level: null, n: 0 });
+      expect(stg.leadTime).toEqual({ deployments: 0, medianSeconds: null, p90Seconds: null, p95Seconds: null, level: null, n: 0, unknownReasons: {} });
 
       // MTTR (production-only): 1 incident, 1 restored, median gap 3600s — one
       // measurement, so `insufficient` rather than high.
@@ -913,7 +914,7 @@ describe('ReportingService', () => {
 
       const result = await service.getDoraMetrics('acme', FROM, TO);
 
-      expect(result.environments[0].leadTime).toEqual({ deployments: 1, medianSeconds: 0, p90Seconds: 0, p95Seconds: 0, level: 'insufficient', n: 1 });
+      expect(result.environments[0].leadTime).toEqual({ deployments: 1, medianSeconds: 0, p90Seconds: 0, p95Seconds: 0, level: 'insufficient', n: 1, unknownReasons: {} });
     });
 
     it('runs a rollup (multi-org) read when given an org subtree', async () => {
@@ -953,7 +954,8 @@ describe('ReportingService', () => {
         .mockResolvedValueOnce({ rows: outcomes })
         .mockResolvedValueOnce({ rows: mttr })
         .mockResolvedValueOnce({ rows: coverage })
-        .mockResolvedValueOnce({ rows: incidents });
+        .mockResolvedValueOnce({ rows: incidents })
+        .mockResolvedValueOnce({ rows: [] }); // 5=lead-time gap reasons
     }
 
     // One successful production deploy the incidents can attribute to.
@@ -1048,8 +1050,8 @@ describe('ReportingService', () => {
     it('adds a 6th (incidents) scan and reads it last', async () => {
       wireScans([], [], [], [{ registered: 0, deploying: 0 }], []);
       await service.getDoraMetrics('acme', FROM, TO);
-      // 0=deploy,1=outcomes,2=mttr,3=coverage,4=incidents
-      expect(mockExecute).toHaveBeenCalledTimes(5);
+      // 0=deploy,1=outcomes,2=mttr,3=coverage,4=incidents,5=lead-time gaps
+      expect(mockExecute).toHaveBeenCalledTimes(6);
     });
 
     it('incident scan queries the incidents table over the opened_at window', async () => {
@@ -1098,7 +1100,8 @@ describe('ReportingService', () => {
         .mockResolvedValueOnce({ rows: outcomes })
         .mockResolvedValueOnce({ rows: mttr })
         .mockResolvedValueOnce({ rows: coverage })
-        .mockResolvedValueOnce({ rows: incidents });
+        .mockResolvedValueOnce({ rows: incidents })
+        .mockResolvedValueOnce({ rows: [] }); // 5=lead-time gap reasons
     }
 
     // the deploy scan groups per (environment, execution), so two deploy
@@ -1141,6 +1144,29 @@ describe('ReportingService', () => {
       expect(sql).not.toContain("c.event_type = 'STAGE'");
     });
 
+    it('counts the stored lead-time gap reasons per environment, folding an unknown reason into no_commit_data', async () => {
+      mockExecute
+        .mockResolvedValueOnce({ rows: [{ environment: 'production', execution_id: 'exec-1', status: 'SUCCEEDED', completed_at: '2026-07-02T01:00:00Z', commit_ts: null, in_window: true }] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ registered: 1, deploying: 1 }] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({
+          rows: [
+            { environment: 'production', reason: 'no_token', n: '2' },
+            { environment: 'production', reason: 'from_the_future', n: 1 },
+            { environment: 'production', reason: 'no_commit_data', n: 1 },
+            { environment: 'staging', reason: 'rate_limited', n: 4 }, // no staging env row → ignored
+          ],
+        });
+      const result = await service.getDoraMetrics('acme', FROM, TO);
+      expect(result.environments).toHaveLength(1);
+      expect(result.environments[0].leadTime.unknownReasons).toEqual({ no_token: 2, no_commit_data: 2 });
+      const { sql } = dialect.sqlToQuery(mockExecute.mock.calls[5]?.[0] as SQL);
+      expect(sql).toMatch(/FROM "dora_deployments" d/);
+      expect(sql).toMatch(/d\.succeeded = true AND d\.lead_time_gap IS NOT NULL/);
+    });
+
     it('lead time derives from the joined commit_ts on the per-execution row', async () => {
       wireScans(
         // commit_ts came from the PIPELINE event (joined in SQL); completed 1h later.
@@ -1148,7 +1174,7 @@ describe('ReportingService', () => {
         [], [], [{ registered: 1, deploying: 1 }],
       );
       const result = await service.getDoraMetrics('acme', FROM, TO);
-      expect(result.environments[0].leadTime).toEqual({ deployments: 1, medianSeconds: 3600, p90Seconds: 3600, p95Seconds: 3600, level: 'insufficient', n: 1 });
+      expect(result.environments[0].leadTime).toEqual({ deployments: 1, medianSeconds: 3600, p90Seconds: 3600, p95Seconds: 3600, level: 'insufficient', n: 1, unknownReasons: {} });
     });
 
     // Correlation look-back — the deploy scan reaches back `from − windowHours`, and

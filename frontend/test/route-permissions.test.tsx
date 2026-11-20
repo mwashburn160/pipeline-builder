@@ -454,6 +454,7 @@ const API_DEFAULTS: Record<string, unknown> = {
     window: { from: '2026-09-01', to: '2026-09-30' },
   }),
   getDoraTrend: raw([]),
+  getFlakyStageTrend: raw([]),
   getBuildHealth: raw(null),
   getReportEnvironments: { environments: [] },
   listPipelineExecutions: { executions: [] },
@@ -2136,6 +2137,67 @@ const CONTROLS: Control[] = [
       // The non-entitled teaser renders a blurred, aria-hidden copy of the
       // metric tiles, so match on body copy the teaser does not carry.
       find: byText(/deployment-scoped/i),
+    },
+  },
+  {
+    control: 'Flaky-stage trend (flake rate over time)',
+    file: 'pages/dashboard/reports.tsx',
+    gateFiles: ['src/components/reports/tabs/PipelinesTab.tsx'],
+    permissions: [],
+    pagePermissions: ['reports:read'],
+    page: '/dashboard/reports',
+    features: ['advanced_reporting'],
+    // The ranked flaky-stage list (GET /reports/execution/flaky-stages) is free
+    // and rides the "Report reads" page gate; only the trend is entitled.
+    routes: ['reporting GET /reports/execution/flaky-stages/trend'],
+    behaviour: {
+      mount: page('../pages/dashboard/reports'),
+      router: { query: { tab: 'pipelines', sub: 'failures' }, pathname: '/dashboard/reports' },
+      gatedOn: 'feature',
+      // Without the entitlement the panel shows an add-on note in its place, so
+      // match on copy only the entitled chart's empty state carries.
+      find: byText(/no stage runs in this window/i),
+    },
+  },
+  {
+    control: 'Insights tab (the report analytics sections on demand)',
+    file: 'pages/dashboard/reports.tsx',
+    gateFiles: ['src/components/reports/tabs/InsightsTab.tsx'],
+    permissions: [],
+    pagePermissions: ['reports:read'],
+    page: '/dashboard/reports',
+    features: ['advanced_reporting'],
+    routes: ['reporting GET /reports/insights'],
+    behaviour: {
+      // Mounted through the page: `enabled` is computed there from the entitlement.
+      mount: page('../pages/dashboard/reports'),
+      router: { query: { tab: 'insights' }, pathname: '/dashboard/reports' },
+      api: { getInsights: raw({ window: {}, sections: [] }) },
+      gatedOn: 'feature',
+      // The entitled tab's methodology line; the locked teaser does not carry it.
+      find: byText(/computed from the daily rollups/i),
+    },
+  },
+  {
+    control: 'Security tab (vulnerability exposure / time to fix, compliance trend)',
+    file: 'pages/dashboard/reports.tsx',
+    gateFiles: ['src/components/reports/tabs/SecurityTab.tsx'],
+    permissions: [],
+    pagePermissions: ['reports:read'],
+    page: '/dashboard/reports',
+    features: ['advanced_reporting'],
+    routes: [
+      'reporting GET /reports/security/vulnerabilities',
+      'reporting GET /reports/security/compliance-trend',
+    ],
+    behaviour: {
+      // Mounted through the page: `enabled` is computed there from the entitlement.
+      mount: page('../pages/dashboard/reports'),
+      router: { query: { tab: 'security' }, pathname: '/dashboard/reports' },
+      api: { getVulnerabilityExposure: raw(null), getComplianceTrend: raw(null) },
+      gatedOn: 'feature',
+      // The entitled tab's empty state; the locked teaser does not carry it.
+      find: byText(/no vulnerability data yet/i),
     },
   },
   {

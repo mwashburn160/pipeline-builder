@@ -141,6 +141,7 @@ Run, secure, and observe the platform.
 | [Environment Variables](environment-variables.md) | Every configuration variable, by subsystem |
 | [DORA Metrics](dora-metrics.md) | Deploy frequency, change-failure rate, MTTR, measured lead time, build health (Enterprise / Advanced Reporting) |
 | [Stakeholder Reports](stakeholder-reports.md) | Scheduled manager-facing reports — frozen period snapshots, review and publish, recipients, share links (Pro+ add-on) |
+| [Release Notes](release-notes.md) | Changes that move a number you already watch — the November 2026 reporting-accuracy changes and what you will see |
 | [Incident Webhook](incidents-webhook.md) | Point PagerDuty/Datadog/Alertmanager at the platform (native Alertmanager adapter, self-serve token, per-org window, admin UI) for automated post-deploy CFR + real MTTR |
 | [Notifications](notifications.md) | Email, Slack, webhooks and the in-app inbox — the operator switches (`EMAIL_ENABLED`, SES, `SLACK_*`, the alert relay) and the per-org settings that ride on them |
 

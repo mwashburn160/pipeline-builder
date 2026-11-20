@@ -10,6 +10,7 @@ import { createEventIngestRoutes } from './routes/event-ingest.js';
 import { createExecutionReportRoutes } from './routes/execution-reports.js';
 import { createIncidentRoutes } from './routes/incidents.js';
 import { createIngestHealthRoutes } from './routes/ingest-health.js';
+import { createInsightsReportRoutes } from './routes/insights-reports.js';
 import { createInternalOrgPurgeRoutes } from './routes/internal-org-purge.js';
 import { createPluginReportRoutes } from './routes/plugin-reports.js';
 import { createPublicReportRoutes } from './routes/public-reports.js';
@@ -17,6 +18,7 @@ import { createReportPreviewRoutes } from './routes/report-preview.js';
 import { createReportSettingsRoutes } from './routes/report-settings.js';
 import { createRetentionSyncRoutes } from './routes/retention-sync.js';
 import { createRetentionRoutes } from './routes/retention.js';
+import { createSecurityReportRoutes } from './routes/security-reports.js';
 import { createStakeholderInternalRoutes } from './routes/stakeholder-internal.js';
 import { createStakeholderReportRoutes } from './routes/stakeholder-reports.js';
 import { createStakeholderSyncRoutes } from './routes/stakeholder-sync.js';
@@ -53,6 +55,8 @@ export function mountRoutes(app: Express, { quotaService, sseManager, executionT
   app.use('/reports/stakeholder-preview', ...apiCallsQuota(quotaService));
   app.use('/reports/execution', ...apiCallsQuota(quotaService));
   app.use('/reports/plugins', ...apiCallsQuota(quotaService));
+  app.use('/reports/security', ...apiCallsQuota(quotaService));
+  app.use('/reports/insights', ...apiCallsQuota(quotaService));
   // MACHINE ingest prefixes (`reporting:ingest` token scope — the event-forwarder
   // Lambda, the customer's incident tool): METER ONLY, never checked. Dropping CI
   // telemetry or a DORA incident because a quota ran out is worse than overshoot —
@@ -202,4 +206,12 @@ export function mountRoutes(app: Express, { quotaService, sseManager, executionT
   // so a plain user-facing gate — not requirePermissionOrService — is correct.
   app.use('/reports/execution', ...createAuthenticatedWithOrgRoute(), requirePermission('reports:read'), createExecutionReportRoutes());
   app.use('/reports/plugins', ...createAuthenticatedWithOrgRoute(), requirePermission('reports:read'), createPluginReportRoutes());
+  // The Insights tab: the stakeholder report's analytics sections on demand.
+  // `reports:read` here; the router adds `advanced_reporting` per route, the same
+  // pairing as /reports/execution/dora.
+  app.use('/reports/insights', ...createAuthenticatedWithOrgRoute(), requirePermission('reports:read'), createInsightsReportRoutes());
+  // Advanced security reports (vulnerability exposure / time to fix, compliance
+  // trend). `reports:read` here; the router adds `advanced_reporting` per route,
+  // the same pairing as /reports/execution/dora.
+  app.use('/reports/security', ...createAuthenticatedWithOrgRoute(), requirePermission('reports:read'), createSecurityReportRoutes());
 }

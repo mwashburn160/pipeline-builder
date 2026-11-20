@@ -33,6 +33,7 @@ import {
   getBuildHealth as buildHealth,
 } from './reporting/dora.js';
 // Aliased: the module functions and the delegating methods below share names.
+import { getFlakyStages as flakyStages, getFlakyStageTrend as flakyStageTrend } from './reporting/flaky-stages.js';
 import { ingestEvents as ingest } from './reporting/ingest.js';
 import { getLastDeployedCommit as lastDeployedCommit } from './reporting/last-deploy.js';
 import type { LastDeployedCommit } from './reporting/last-deploy.js';
@@ -48,7 +49,7 @@ import { REPORTING_EVENT_RETENTION_DAYS, REPORTING_DORA_RETENTION_DAYS } from '.
 import { assertReportInterval, bucketKey, nonOutcomeStatusList, notOvertaken, periodBucket, scrubOptional, optionalStartedAtRange, startedAtWindow, terminalStatusList } from './reporting/sql-helpers.js';
 import type {
   ExecutionCount, TimeSeriesEntry, DurationStats, PipelineExecution, StageFailure, StageBottleneck,
-  ActionFailure, ErrorEntry, PluginSummary, TypeComputeDistribution, VersionCount,
+  ActionFailure, ErrorEntry, ErrorCategoryEntry, FlakyStage, FlakyStageTrendPoint, PluginSummary, TypeComputeDistribution, VersionCount,
   BuildTimeSeriesEntry, BuildDuration, BuildFailure,
   PluginRuntimeAggregate, PluginRuntimeFilter, PluginRuntimeStats,
   ReportingRetentionOptions, ReportingRetentionCounts,
@@ -70,6 +71,7 @@ export type {
   PluginRuntimeAggregate, PluginRuntimeFilter, PluginRuntimeStats,
   ReportingRetentionCounts, ReportingRetentionOptions, ReportingRetentionSettings,
   ReportingSettingsPatch,
+  ErrorCategoryEntry, FlakyStage, FlakyStageTrendPoint,
 } from './reporting/types.js';
 
 
@@ -83,15 +85,72 @@ const logger = createLogger('reporting-service');
 function errorsQuery(orgClause: SQL, from: string, to: string, limit: number): SQL {
   return sql`
         SELECT
-          SUBSTRING(e.error_message FROM 1 FOR 200) AS error_pattern,
+          ${errorPatternExpr} AS error_pattern,
           COUNT(*)::int AS occurrences,
           COUNT(DISTINCT e.pipeline_id)::int AS affected_pipelines,
           MAX(e.started_at)::text AS last_seen
         FROM ${schema.pipelineEvent} e
         JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
-        WHERE ${orgClause} AND e.status = 'FAILED' AND e.error_message IS NOT NULL
-          AND ${startedAtWindow(from, to)}
+        WHERE ${failedWithErrorText(orgClause, from, to)}
         GROUP BY error_pattern ORDER BY occurrences DESC
+        LIMIT ${limit}
+      `;
+}
+
+/** The truncated error text both error reports group on. Assumes alias `e`. */
+const errorPatternExpr = sql`SUBSTRING(e.error_message FROM 1 FOR 200)`;
+
+/**
+ * WHICH rows the error reports count — one definition, so the per-pattern and the
+ * per-category views always add up to the same total: a FAILED event that carried
+ * error text, inside the window, under `orgClause`.
+ */
+function failedWithErrorText(orgClause: SQL, from: string, to: string): SQL {
+  return sql`${orgClause} AND e.status = 'FAILED' AND e.error_message IS NOT NULL
+          AND ${startedAtWindow(from, to)}`;
+}
+
+/** How many of a category's most frequent error texts the category row carries. */
+const PATTERNS_PER_CATEGORY = 3;
+
+/**
+ * The org-facing error report: the same failures as {@link errorsQuery}, grouped
+ * by the category the ingest-time classifier gave them (`failure_category`;
+ * `other` when it matched nothing or the row predates classification), each with
+ * its top few error texts. Tenant-only — there is deliberately no cross-org
+ * variant of this query.
+ */
+function errorCategoriesQuery(orgClause: SQL, from: string, to: string, limit: number): SQL {
+  return sql`
+        WITH f AS (
+          SELECT COALESCE(e.failure_category, 'other') AS category,
+                 ${errorPatternExpr} AS error_pattern,
+                 e.pipeline_id AS pipeline_id,
+                 e.started_at AS started_at
+          FROM ${schema.pipelineEvent} e
+          JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
+          WHERE ${failedWithErrorText(orgClause, from, to)}
+        ),
+        cats AS (
+          SELECT category, COUNT(*)::int AS occurrences,
+                 COUNT(DISTINCT pipeline_id)::int AS affected_pipelines,
+                 MAX(started_at)::text AS last_seen
+          FROM f GROUP BY category
+        ),
+        pats AS (
+          SELECT category, error_pattern, COUNT(*)::int AS occurrences,
+                 ROW_NUMBER() OVER (PARTITION BY category ORDER BY COUNT(*) DESC, error_pattern) AS rn
+          FROM f GROUP BY category, error_pattern
+        )
+        SELECT c.category, c.occurrences, c.affected_pipelines, c.last_seen,
+               COALESCE(
+                 json_agg(json_build_object('error_pattern', pa.error_pattern, 'occurrences', pa.occurrences) ORDER BY pa.rn)
+                   FILTER (WHERE pa.rn IS NOT NULL),
+                 '[]'::json) AS patterns
+        FROM cats c
+        LEFT JOIN pats pa ON pa.category = c.category AND pa.rn <= ${PATTERNS_PER_CATEGORY}
+        GROUP BY c.category, c.occurrences, c.affected_pipelines, c.last_seen
+        ORDER BY c.occurrences DESC, c.category
         LIMIT ${limit}
       `;
 }
@@ -290,8 +349,14 @@ export class ReportingService {
 
   /** Stage failure heatmap — which stages fail most. */
   async getStageFailures(orgId: string, from: string, to: string, orgIds?: string[]): Promise<StageFailure[]> {
-    return report<StageFailure>(`stage-failures:${from}:${to}`, orgId, orgIds, (pred) => sql`
+    // Keyed per PIPELINE: two pipelines that both name a stage "Build" are two
+    // rows. Grouping on the name alone merged them, so one pipeline's broken
+    // build read as a shared one and the row could not say where to look. The
+    // cache key is versioned with the row shape.
+    return report<StageFailure>(`stage-failures-v2:${from}:${to}`, orgId, orgIds, (pred) => sql`
         SELECT
+          p.id::text AS pipeline_id,
+          p.pipeline_name,
           e.stage_name,
           COUNT(*) FILTER (WHERE e.status = 'FAILED')::int AS failures,
           COUNT(*)::int AS total,
@@ -311,7 +376,8 @@ export class ReportingService {
           -- counts a run's final outcome (notOvertaken).
           AND e.status NOT IN (${nonOutcomeStatusList})
           AND ${startedAtWindow(from, to)}
-        GROUP BY e.stage_name ORDER BY failures DESC
+        GROUP BY p.id, p.pipeline_name, e.stage_name
+        ORDER BY failures DESC, failure_pct DESC, p.pipeline_name, e.stage_name
       `);
   }
 
@@ -351,8 +417,12 @@ export class ReportingService {
 
   /** Action failure rate — which plugin steps fail most. */
   async getActionFailures(orgId: string, from: string, to: string, orgIds?: string[]): Promise<ActionFailure[]> {
-    return report<ActionFailure>(`action-failures:${from}:${to}`, orgId, orgIds, (pred) => sql`
+    // Per (pipeline, stage, action), like getStageFailures — see there.
+    return report<ActionFailure>(`action-failures-v2:${from}:${to}`, orgId, orgIds, (pred) => sql`
         SELECT
+          p.id::text AS pipeline_id,
+          p.pipeline_name,
+          e.stage_name,
           e.action_name,
           COUNT(*) FILTER (WHERE e.status = 'FAILED')::int AS failures,
           COUNT(*)::int AS total,
@@ -365,7 +435,8 @@ export class ReportingService {
           -- every STARTED / IN_PROGRESS row was an "attempt" too.
           AND e.status NOT IN (${nonOutcomeStatusList})
           AND ${startedAtWindow(from, to)}
-        GROUP BY e.action_name ORDER BY failures DESC
+        GROUP BY p.id, p.pipeline_name, e.stage_name, e.action_name
+        ORDER BY failures DESC, failure_pct DESC, p.pipeline_name, e.stage_name, e.action_name
       `);
   }
 
@@ -378,6 +449,35 @@ export class ReportingService {
   async getErrors(orgId: string, from: string, to: string, limit: number = 20, orgIds?: string[]): Promise<ErrorEntry[]> {
     return report<ErrorEntry>(`errors:${from}:${to}:${limit}`, orgId, orgIds, (pred) =>
       errorsQuery(sql`p.org_id ${pred}`, from, to, limit));
+  }
+
+  /**
+   * The org's failures grouped by failure CATEGORY (the ingest-time classifier's
+   * `failure_category`), each with its most frequent error texts — the
+   * tenant-facing error report. Counts exactly the rows {@link getErrors} counts
+   * (one category per failure), org-scoped and rollup-aware like the sibling
+   * execution reports. There is no cross-org variant: the operator's view is
+   * {@link getPlatformErrors}.
+   */
+  async getErrorCategories(orgId: string, from: string, to: string, limit: number = 20, orgIds?: string[]): Promise<ErrorCategoryEntry[]> {
+    return report<ErrorCategoryEntry>(`error-categories:${from}:${to}:${limit}`, orgId, orgIds, (pred) =>
+      errorCategoriesQuery(sql`p.org_id ${pred}`, from, to, limit));
+  }
+
+  /**
+   * Stages that FAILED and then PASSED on retry inside the same execution, per
+   * (pipeline, stage), with the flake rate. See ./reporting/flaky-stages.ts.
+   */
+  getFlakyStages(orgId: string, from: string, to: string, orgIds?: string[], limit: number = 50): Promise<FlakyStage[]> {
+    return flakyStages(orgId, from, to, orgIds, limit);
+  }
+
+  /** {@link getFlakyStages} bucketed over time (all flaky stages of the scope, or one). */
+  getFlakyStageTrend(
+    orgId: string, interval: string, from: string, to: string, orgIds?: string[],
+    opts: BucketOptions & { pipelineId?: string; stageName?: string } = {},
+  ): Promise<FlakyStageTrendPoint[]> {
+    return flakyStageTrend(orgId, interval, from, to, orgIds, opts);
   }
 
   /**

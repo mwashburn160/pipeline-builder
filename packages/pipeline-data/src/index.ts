@@ -255,6 +255,19 @@ export {
   type AttentionInput,
   type AttentionRuleId,
 } from './api/reporting/needs-attention.js';
+// The Insights tab: the report's analytics sections, run on demand through the
+// SAME registered section functions, so the tab and a report agree.
+export {
+  computeInsights,
+  insightBound,
+  previousWindowOf,
+  isInsightSectionId,
+  INSIGHT_SECTION_IDS,
+  type InsightSectionId,
+  type InsightsWindow,
+  type InsightSection,
+  type InsightsResult,
+} from './api/reporting/insights.js';
 export {
   replacePipelineResolution,
   refreshLatestForPlugin,
@@ -283,6 +296,25 @@ export {
   type ScanState,
   type VersionGap,
 } from './api/reporting/plugin-exposure.js';
+
+// Advanced security reports: vulnerability exposure / time to fix, and the
+// compliance trend. One function each, shared by the dashboard route and the
+// stakeholder section.
+export {
+  getVulnerabilityExposure,
+  securityBound,
+  type SecurityScope,
+  type SecurityBucket,
+  type VulnerabilityExposureReport,
+  type VulnTrendPoint,
+  type ExpiringAcceptance,
+} from './api/reporting/security.js';
+export {
+  getComplianceTrend,
+  type ComplianceTrendReport,
+  type ComplianceTrendPoint,
+  type TopViolatedRule,
+} from './api/reporting/compliance-trend.js';
 
 // Toolchain run data: the
 // release stamp on synth / self-mutation rows, the canary gate and the Affected view.

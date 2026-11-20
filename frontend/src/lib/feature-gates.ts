@@ -102,6 +102,8 @@ export const FEATURE_GATES: Record<FeatureFlag, FeatureGateSpec> = {
     controls: [
       'src/components/reports/tabs/DoraTab.tsx',
       'src/components/reports/tabs/ScorecardTab.tsx',
+      'src/components/reports/tabs/InsightsTab.tsx',
+      'src/components/reports/tabs/SecurityTab.tsx',
       'src/components/pipeline/ScorecardCard.tsx',
       'pages/dashboard/settings/incident-reporting.tsx',
     ],
