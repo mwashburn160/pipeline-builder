@@ -3272,9 +3272,10 @@ CREATE TABLE IF NOT EXISTS pipeline_remediation_upgrades (
     to_version VARCHAR(50) NOT NULL,
     mode VARCHAR(10) NOT NULL CONSTRAINT pipeline_remediation_upgrade_mode_check
                         CHECK (mode IN ('off', 'propose', 'apply')),
-    state VARCHAR(20) NOT NULL CONSTRAINT pipeline_remediation_upgrade_state_check
+    state VARCHAR(30) NOT NULL CONSTRAINT pipeline_remediation_upgrade_state_check
                         CHECK (state IN ('proposed', 'change_requested', 'queued', 'moved', 'failed', 'rolled_back',
-                                         'rollback_blocked', 'skipped_opt_out', 'skipped_runner', 'dismissed', 'superseded')),
+                                         'rollback_blocked', 'skipped_opt_out', 'skipped_runner', 'dismissed', 'superseded',
+                                         'waiting_change_request', 'moved_pending_redeploy')),
     -- 0 = canary; NULL until it is put in a wave.
     wave INTEGER,
     moved_at TIMESTAMPTZ,

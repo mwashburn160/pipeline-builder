@@ -31,6 +31,15 @@ export const RESOLVED_PLUGIN_OMITTED_FIELDS = [
   // Automatic tidying's bookkeeping: `lastUsedAt` moves hourly, and a field
   // that moves on its own must never reach CDK props (every synth would diff).
   'lastUsedAt', 'tidyKeptAt', 'tidyWarnedAt', 'tidyDeactivateAfter', 'tidyDeactivatedAt',
+  // Fields that change with no owner edit — the nightly rescan's counts, stamp
+  // and flag, activation (tidying, remediation deactivate a version) and the
+  // last-write stamp / actor (any system write) — so a resolved record, and
+  // the CDK props built from it, stay identical across them. No synth path
+  // reads them (pipeline-core, pipeline-manager); the lookup's warnings still
+  // carry the vulnerability state, computed before these are dropped.
+  'scannedAt', 'scanFlaggedAt', 'scanFlag',
+  'vulnCritical', 'vulnHigh', 'vulnMedium', 'vulnLow', 'vulnCriticalFixable', 'vulnHighFixable',
+  'isActive', 'updatedAt', 'updatedBy',
 ] as const satisfies readonly (keyof Plugin)[];
 
 type ResolvedPluginOmittedField = typeof RESOLVED_PLUGIN_OMITTED_FIELDS[number];

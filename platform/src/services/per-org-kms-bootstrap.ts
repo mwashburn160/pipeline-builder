@@ -34,6 +34,7 @@ import {
   EnvKeyProvider,
   PerOrgKmsKeyProvider,
   createLogger,
+  getCacheInvalidationBus,
   initSecretEncryption,
   setKeyProvider,
   type PerOrgKmsResolver,
@@ -90,7 +91,9 @@ export async function bootstrapPerOrgKmsProvider(): Promise<{ mode: 'env' | 'kms
   // `SECRET_ENCRYPTION_KEY` is genuinely required here, since per-org KMS
   // explicitly promises those orgs fall through to the shared master.
   const fallback = kmsBase ?? new EnvKeyProvider();
-  setKeyProvider(new PerOrgKmsKeyProvider({ resolver: perOrgKmsResolver, fallback }));
+  // On the shared invalidation bus: `changeKmsConfig` evicts on the replica that
+  // served it, and the broadcast evicts every other platform (and pipeline) replica.
+  setKeyProvider(new PerOrgKmsKeyProvider({ resolver: perOrgKmsResolver, fallback, invalidationBus: getCacheInvalidationBus() }));
   logger.info('Per-org KMS provider installed (SECRET_ENCRYPTION_PER_ORG_KMS=true)', { fallbackMode: mode });
   return { mode, perOrg: true };
 }

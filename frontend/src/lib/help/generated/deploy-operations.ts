@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 0b02a9d63fd78bbd0f96fa84cc37fc9fc121d6dad1ded6095a99d9045bffcd88
+// SOURCE-SHA256: 8874e3406037a4f2d2a4dee861c5fe45b0eaca29455e1e7453a9c4b5ea706bae
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1388,7 +1388,7 @@ export const deployOperationsTopic: HelpTopic = {
             ],
             [
               "ToolchainFixFailing",
-              "nightly toolchain fixes (toolchain_fix_failures_total{stage}): publish — an approved release candidate's publish stopped part-way (it keeps its progress; Resume publish, or the resume scheduler within ~2 minutes, finishes it under the same version); keep_inputs — a managed toolchain upload or an approved fix could not keep its build inputs in plugin-sources (<systemOrgId>/toolchain-inputs/), so that release can only get an owner request",
+              "nightly toolchain fixes (toolchain_fix_failures_total{stage}): publish — an approved release candidate's publish stopped part-way (it keeps its progress; Resume publish, or the resume scheduler within ~2 minutes, finishes it under the same version); keep_inputs — a managed toolchain upload or an approved fix could not keep its build inputs in plugin-sources (<systemOrgId>/toolchain-inputs/), so that release can only get an owner request; gate_refused — an approved candidate's publish was refused by the build gate on re-scan three times, so it moved to needs review",
               "warning"
             ]
           ]

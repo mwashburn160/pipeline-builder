@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 01078565fdc2110f97d3fd94aee12c92119db3032e5210f25d0409ceb502307f
+// SOURCE-SHA256: 83a204c7723ff0ffcfc358718468a8f0692ba46e72832f624056114c6f7f08a5
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -3411,7 +3411,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "POST",
               "/plugins/remediations/:id/retry",
-              "plugins:write",
+              "plugins:write; step-up",
               "apiCalls",
               "plugin.remediation.retried, plugin.remediation.started"
             ],

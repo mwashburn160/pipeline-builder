@@ -227,6 +227,39 @@ describe('the pipeline page', () => {
     expect(engine.applyProposal).toHaveBeenCalledTimes(1);
   });
 
+  it('apply is refused 503 PLUGIN_REMEDIATION_DISABLED when the operator turned remediation off', async () => {
+    const p = await seedPipeline(ORG);
+    mockFindById.mockResolvedValue(p);
+    const id = await seedUpgrade(p, randomUUID());
+    process.env.PLUGIN_REMEDIATION_ENABLED = 'false';
+    try {
+      const res = await call(page, 'post', '/:id/remediation-upgrades/:upgradeId/apply', { params: { id: p.id, upgradeId: id }, orgId: ORG });
+      expect(res.statusCode).toBe(503);
+      expect(res.body.code).toBe('PLUGIN_REMEDIATION_DISABLED');
+    } finally {
+      delete process.env.PLUGIN_REMEDIATION_ENABLED;
+    }
+    expect(engine.applyProposal).not.toHaveBeenCalled();
+  });
+
+  it('apply is refused 409 PIPELINE_REMEDIATION_OFF when the effective rollout is off (pipeline or org)', async () => {
+    const off = await seedPipeline(ORG, 'off');
+    mockFindById.mockResolvedValue(off);
+    const id = await seedUpgrade(off, randomUUID());
+    const res = await call(page, 'post', '/:id/remediation-upgrades/:upgradeId/apply', { params: { id: off.id, upgradeId: id }, orgId: ORG });
+    expect(res.statusCode).toBe(409);
+    expect(res.body.code).toBe('PIPELINE_REMEDIATION_OFF');
+
+    await owner((q) => q.query('INSERT INTO plugin_remediation_settings (org_id, rollout) VALUES ($1, \'off\')', [ORG]));
+    const inherit = await seedPipeline(ORG);
+    mockFindById.mockResolvedValue(inherit);
+    const id2 = await seedUpgrade(inherit, randomUUID());
+    const res2 = await call(page, 'post', '/:id/remediation-upgrades/:upgradeId/apply', { params: { id: inherit.id, upgradeId: id2 }, orgId: ORG });
+    expect(res2.statusCode).toBe(409);
+    expect(res2.body.code).toBe('PIPELINE_REMEDIATION_OFF');
+    expect(engine.applyProposal).not.toHaveBeenCalled();
+  });
+
   it('apply answers 409 with the reason when the move is refused (validation, compliance)', async () => {
     const p = await seedPipeline(ORG);
     mockFindById.mockResolvedValue(p);

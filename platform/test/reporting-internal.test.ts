@@ -466,9 +466,10 @@ describe('GET /internal/reporting/report-readers/:orgId', () => {
 });
 
 describe('GET /internal/reporting/org-entitlement/:orgId', () => {
-  const call = (orgId: string = ORG) => {
+  const svc = (orgId = ORG) => ({ principalType: 'service', sub: 'service:reporting', organizationId: orgId });
+  const call = (orgId: string = ORG, user: unknown = svc(orgId.toLowerCase())) => {
     const res = mockRes();
-    return (getReportOrgEntitlement as any)({ params: { orgId }, query: {}, headers: {} }, res).then(() => res);
+    return (getReportOrgEntitlement as any)({ params: { orgId }, query: {}, user, headers: {} }, res).then(() => res);
   };
   /** userId -> what membershipForOrg resolves (undefined = no live membership). */
   const members = new Map<string, { role: string; featureEntitlements: string[] } | undefined>();
@@ -520,6 +521,14 @@ describe('GET /internal/reporting/org-entitlement/:orgId', () => {
     members.set('u-deleted', { role: 'admin', featureEntitlements: ['stakeholder_reports'] });
     mockUserFind.mockImplementation(() => []);
     expect(data(await call())).toEqual({ entitled: false });
+  });
+
+  it('refuses a token scoped to another org, the system org, or a user token (403), before any read', async () => {
+    members.set('u-admin', { role: 'admin', featureEntitlements: ['stakeholder_reports'] });
+    expect((await call(ORG, svc('cccccccccccccccccccccccc'))).status).toHaveBeenCalledWith(403);
+    expect((await call(ORG, svc('system'))).status).toHaveBeenCalledWith(403);
+    expect((await call(ORG, { principalType: 'user', organizationId: ORG })).status).toHaveBeenCalledWith(403);
+    expect(mockMemberFind).not.toHaveBeenCalled();
   });
 
   it('refuses a malformed org id before any read', async () => {

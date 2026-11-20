@@ -799,6 +799,8 @@ const CONTROLS: Control[] = [
     file: 'pages/dashboard/plugins.tsx',
     gateFiles: ['src/components/plugin/RemediationsPanel.tsx', 'src/components/plugin/RemediationCard.tsx'],
     permissions: ['plugins:write'],
+    // The retry route steps up too; the card sends it through its StepUpModal.
+    stepUp: true,
     routes: ['plugin POST /plugins/remediations/:id/retry'],
     behaviour: {
       mount: page('../pages/dashboard/plugins'),

@@ -374,7 +374,11 @@ describe('stakeholder report routes', () => {
      */
     it('refuses a rollup scope without reports:rollup', async () => {
       await call('/definitions', 'post', { body: { ...body, scope: { kind: 'rollup' } }, user: { permissions: ['reports:write'] } });
-      expect(mockSendBadRequest.mock.calls[0][1]).toContain('Roll up team reports');
+      // A permission refusal answers 403 like every other one, not a 400.
+      expect(lastRes.status).toHaveBeenCalledWith(403);
+      expect(mockSendBadRequest).not.toHaveBeenCalled();
+      expect(lastRes.json.mock.calls[0][0]).toEqual(expect.objectContaining({ code: 'INSUFFICIENT_PERMISSIONS' }));
+      expect(JSON.stringify(lastRes.json.mock.calls[0][0])).toContain('Roll up team reports');
       expect(store.createDefinition).not.toHaveBeenCalled();
     });
 
@@ -509,7 +513,9 @@ describe('stakeholder report routes', () => {
         user: { permissions: ['reports:write'] },
       });
       expect(store.updateDefinition).not.toHaveBeenCalled();
-      expect(mockSendBadRequest.mock.calls[0][1]).toContain('Roll up team reports');
+      expect(lastRes.status).toHaveBeenCalledWith(403);
+      expect(mockSendBadRequest).not.toHaveBeenCalled();
+      expect(JSON.stringify(lastRes.json.mock.calls[0][0])).toContain('Roll up team reports');
     });
 
     it('refuses an update naming a recipient that is not a row in this org', async () => {
@@ -720,7 +726,9 @@ describe('stakeholder report routes', () => {
       });
       expect(mockComposeSnapshot).not.toHaveBeenCalled();
       expect(store.createRun).not.toHaveBeenCalled();
-      expect(mockSendBadRequest.mock.calls[0][1]).toContain('Roll up team reports');
+      expect(lastRes.status).toHaveBeenCalledWith(403);
+      expect(mockSendBadRequest).not.toHaveBeenCalled();
+      expect(JSON.stringify(lastRes.json.mock.calls[0][0])).toContain('Roll up team reports');
     });
 
     it('measures the period against the org’s retention horizon', async () => {

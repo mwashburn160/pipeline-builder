@@ -49,6 +49,8 @@ describe('plugin remediation copy', () => {
     expect(PIPELINE_UPGRADE_STATE_LABELS.skipped_runner).toBe('Skipped (runner unhealthy)');
     expect(pipelineUpgradeState('skipped_runner')).toEqual({ label: 'Skipped (runner unhealthy)', color: 'gray', section: 'wave' });
     expect(pipelineUpgradeState('rollback_blocked').section).toBe('history');
+    expect(pipelineUpgradeState('waiting_change_request')).toEqual({ label: 'Waiting for a change request', color: 'yellow', section: 'wave' });
+    expect(pipelineUpgradeState('moved_pending_redeploy')).toEqual({ label: 'Moved, redeploy pending', color: 'yellow', section: 'wave' });
     expect(pipelineUpgradeState('brand_new')).toEqual({ label: 'brand_new', color: 'gray', section: 'closed' });
   });
 });

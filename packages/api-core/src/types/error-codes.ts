@@ -233,10 +233,19 @@ export enum ErrorCode {
   /** approve / reject / retry on a remediation not in a stage that allows it
    *  (`details.stage`). */
   REMEDIATION_STAGE_CONFLICT = 'REMEDIATION_STAGE_CONFLICT',
+  /** approve / retry of a plugin remediation while the org's
+   *  pluginRemediation.mode is `off` (nothing would run for it). */
+  PLUGIN_REMEDIATION_MODE_OFF = 'PLUGIN_REMEDIATION_MODE_OFF',
   /** A pipeline elected `apply` for plugin security fixes while its root org
    *  disallows pipeline apply (pluginRemediation.allowPipelineApply = false)
    *  and the org default is not `apply`. */
   PIPELINE_REMEDIATION_APPLY_NOT_ALLOWED = 'PIPELINE_REMEDIATION_APPLY_NOT_ALLOWED',
+  /** A remediation proposal was applied while plugin security fixes are off
+   *  for the pipeline (its effective rollout — pipeline, team, root — is `off`). */
+  PIPELINE_REMEDIATION_OFF = 'PIPELINE_REMEDIATION_OFF',
+  /** Plugin security fixes are turned off on this deployment by its operator
+   *  (`PLUGIN_REMEDIATION_ENABLED=false`). */
+  PLUGIN_REMEDIATION_DISABLED = 'PLUGIN_REMEDIATION_DISABLED',
   /** A by-name delete / restore / purge holds the name's lock: uploads and
    *  builds of the name are refused until it finishes. */
   PLUGIN_NAME_LOCKED = 'PLUGIN_NAME_LOCKED',
@@ -367,7 +376,10 @@ export const ErrorCodeStatus: Record<ErrorCode, number> = {
   [ErrorCode.NAME_TAKEN]: 409,
   [ErrorCode.PLUGIN_DELETED]: 410,
   [ErrorCode.REMEDIATION_STAGE_CONFLICT]: 409,
+  [ErrorCode.PLUGIN_REMEDIATION_MODE_OFF]: 409,
   [ErrorCode.PIPELINE_REMEDIATION_APPLY_NOT_ALLOWED]: 403,
+  [ErrorCode.PIPELINE_REMEDIATION_OFF]: 409,
+  [ErrorCode.PLUGIN_REMEDIATION_DISABLED]: 503,
   [ErrorCode.PLUGIN_NAME_LOCKED]: 409,
   [ErrorCode.IMAGE_SCAN_UNAVAILABLE]: 422,
   [ErrorCode.PLUGIN_VULN_GATE]: 422,

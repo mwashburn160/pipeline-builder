@@ -51,6 +51,8 @@ const SAMPLES: Record<keyof typeof PIPELINE_INTERNAL, ContractSample> = {
         skipped_runner: 0,
         dismissed: 0,
         superseded: 0,
+        waiting_change_request: 0,
+        moved_pending_redeploy: 0,
       },
     },
   },

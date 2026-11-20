@@ -153,6 +153,35 @@ describe('remediation proposals, waves and rollbacks', () => {
   });
 });
 
+describe('operator off, effective off, and the states that keep a rollout open', () => {
+  it('shows the operator-off notice and locks Apply when remediation is turned off on the platform', async () => {
+    api.getPipelineRemediationUpgrades.mockImplementation(() => ok(answer({ enabled: false })));
+    render(<RemediationUpgradesPanel pipelineId="p1" canWrite />);
+    expect(await screen.findByTestId('remediation-operator-off')).toHaveTextContent('turned off by the operator');
+    expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
+  });
+
+  it('shows the server\'s message when the apply is refused because fixes are off for the pipeline', async () => {
+    api.applyPipelineRemediationUpgrade.mockImplementation(() => Promise.reject(new ApiError('Plugin security fixes are off for this pipeline (set by the organization).', 409, 'PIPELINE_REMEDIATION_OFF')));
+    render(<RemediationUpgradesPanel pipelineId="p1" canWrite />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Apply' }));
+    expect(await screen.findByText(/fixes are off for this pipeline/)).toBeInTheDocument();
+  });
+
+  it('explains a move waiting on another change request and a redeploy being retried', async () => {
+    api.getPipelineRemediationUpgrades.mockImplementation(() => ok(answer({ effective: { mode: 'apply', source: 'root', orgDefault: 'apply', applyRefused: false }, orgDefault: 'apply' }, [
+      { ...ROW, id: 'wc', state: 'waiting_change_request' },
+      { ...ROW, id: 'pr', state: 'moved_pending_redeploy', wave: 0, movedAt: '2026-11-19T01:00:00Z' },
+    ])));
+    render(<RemediationUpgradesPanel pipelineId="p1" canWrite />);
+    const waves = await screen.findByTestId('remediation-waves');
+    expect(waves).toHaveTextContent('Waiting for a change request');
+    expect(waves).toHaveTextContent('another change request is pending');
+    expect(waves).toHaveTextContent('Moved, redeploy pending');
+    expect(waves).toHaveTextContent('redeploy is retried');
+  });
+});
+
 describe('KEV opt-out banner', () => {
   const optedOut = { election: 'off', effective: { mode: 'off', source: 'pipeline', orgDefault: 'propose', applyRefused: false } };
 

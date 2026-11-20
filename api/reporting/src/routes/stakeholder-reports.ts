@@ -268,7 +268,7 @@ export function createStakeholderReportRoutes(): Router {
       return sendBadRequest(res, `Unknown report template "${body.template}"`, ErrorCode.VALIDATION_ERROR);
     }
     const rollupRefused = await refuseUnauthorizedRollup(req, body.scope.kind);
-    if (rollupRefused) return sendBadRequest(res, rollupRefused, ErrorCode.INSUFFICIENT_PERMISSIONS);
+    if (rollupRefused) return sendError(res, 403, rollupRefused, ErrorCode.INSUFFICIENT_PERMISSIONS);
     const autoSendRefused = refuseUnauthorizedAutoSend(req, body.autoSend === true);
     if (autoSendRefused) return sendError(res, 403, autoSendRefused, ErrorCode.INSUFFICIENT_PERMISSIONS);
     const badRecipients = await unknownRecipients(orgId, body.recipients ?? []);
@@ -338,7 +338,7 @@ export function createStakeholderReportRoutes(): Router {
     if (body.autoSend !== undefined) patch.autoSend = body.autoSend;
     if (body.scope !== undefined) {
       const rollupRefused = await refuseUnauthorizedRollup(req, body.scope.kind);
-      if (rollupRefused) return sendBadRequest(res, rollupRefused, ErrorCode.INSUFFICIENT_PERMISSIONS);
+      if (rollupRefused) return sendError(res, 403, rollupRefused, ErrorCode.INSUFFICIENT_PERMISSIONS);
       patch.scope = body.scope;
     }
     if (body.recipients !== undefined) {
@@ -504,7 +504,7 @@ export function createStakeholderReportRoutes(): Router {
       // narrowed report is the WRONG answer — it would still be labelled as
       // covering the teams — so the run is refused with the reason instead.
       const rollupRefused = await refuseUnauthorizedRollup(req, definition.scope.kind);
-      if (rollupRefused) return sendBadRequest(res, rollupRefused, ErrorCode.INSUFFICIENT_PERMISSIONS);
+      if (rollupRefused) return sendError(res, 403, rollupRefused, ErrorCode.INSUFFICIENT_PERMISSIONS);
 
       // The SAME executor the scheduler uses. Period resolution, the retention
       // refusal, run creation, compose, freeze and supersede all live in

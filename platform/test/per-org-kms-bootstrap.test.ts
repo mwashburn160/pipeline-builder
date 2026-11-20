@@ -27,7 +27,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   }),
   setKeyProvider: (provider: unknown) => mockSetKeyProvider(provider),
   initSecretEncryption: () => mockInitSecretEncryption(),
+  getCacheInvalidationBus: () => mockBus,
 }));
+/** The shared cache-invalidation bus the provider must subscribe to. */
+const mockBus = { __type: 'bus' };
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
   // Linking stubs: user-profile/auth SUTs import these from the models barrel.
@@ -93,6 +96,13 @@ describe('bootstrapPerOrgKmsProvider', () => {
     const ctorArg = mockPerOrgCtor.mock.calls[0][0] as { resolver: unknown; fallback: unknown };
     expect(typeof ctorArg.resolver).toBe('function');
     expect(ctorArg.fallback).toMatchObject({ __type: 'EnvKeyProvider' });
+  });
+
+  it('puts the provider on the shared invalidation bus, so a KMS config change on any replica evicts here', async () => {
+    process.env.SECRET_ENCRYPTION_PER_ORG_KMS = 'true';
+    await bootstrapPerOrgKmsProvider();
+    const ctorArg = mockPerOrgCtor.mock.calls[0][0] as { invalidationBus: unknown };
+    expect(ctorArg.invalidationBus).toBe(mockBus);
   });
 
   it('passes a KMS base DOWN as the fallback instead of building an env provider', async () => {

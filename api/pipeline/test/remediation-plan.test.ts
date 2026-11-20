@@ -25,7 +25,8 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
   orgListingStates: (...a: unknown[]) => mockListingStates(...a),
   drizzleListingSource: () => ({}),
   runWithTenantContext: (_c: unknown, fn: () => unknown) => fn(),
-  withTenantTx: (fn: (tx: unknown) => unknown) => fn({}),
+  // The install's pending-change read answers no rows (no change pending).
+  withTenantTx: (fn: (tx: unknown) => unknown) => fn({ execute: async () => [] }),
   schema: new Proxy({}, { get: () => ({}) }),
 }));
 

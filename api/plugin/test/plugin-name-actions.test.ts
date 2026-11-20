@@ -353,14 +353,30 @@ describe('the soft-delete purge sweep (automatic) vs an owner\'s purge (explicit
     expect(mockDiscard).toHaveBeenCalledWith(expect.objectContaining({ digest: digestOf('1.0.0') }));
   });
 
-  it('never purges a name\'s ONLY remaining version (skipped and counted), nor its kept source', async () => {
+  it('purges a plugin whose EVERY version was soft-deleted (Delete plugin) once its window passed: rows, kept sources and images', async () => {
+    const a = await seed('1.0.0');
+    const b = await seed('1.1.0', { isDefault: true });
+    const res = await asOrg(ORG, () => actions.deleteByName('lint', caller(), { force: false, quotaService }));
+    expect(res.deleted.map((d) => d.version).sort()).toEqual(['1.0.0', '1.1.0']);
+    // Inside the window nothing is purged.
+    expect(await sweep()).toBe(0);
+    expect(await rowsOf()).toHaveLength(2);
+    await expire(a);
+    await expire(b);
+    expect(await sweep()).toBe(2);
+    expect(await rowsOf()).toEqual([]);
+    expect(s3.keys(SOURCES)).toEqual([]);
+    expect(mockDiscard).toHaveBeenCalledTimes(2);
+    expect(mockIncCounter).not.toHaveBeenCalledWith('plugin_auto_removal_skipped_total', expect.anything(), expect.anything());
+  });
+
+  it('a soft-deleted single-version plugin is purged after its window too, with its kept source', async () => {
     const only = await seed('1.0.0');
     await expire(only);
-    expect(await sweep()).toBe(0);
-    expect((await rowsOf()).map((r) => r.id)).toEqual([only]);
-    expect(s3.keys(SOURCES).filter((k) => k.includes(only))).toHaveLength(2);
-    expect(mockDiscard).not.toHaveBeenCalled();
-    expect(mockIncCounter).toHaveBeenCalledWith('plugin_auto_removal_skipped_total', { reason: 'only_version' }, 1);
+    expect(await sweep()).toBe(1);
+    expect(await rowsOf()).toEqual([]);
+    expect(s3.keys(SOURCES).filter((k) => k.includes(only))).toHaveLength(0);
+    expect(mockDiscard).toHaveBeenCalledTimes(1);
   });
 
   it('an owner\'s explicit purge of the only version still works, and removes its source and image', async () => {

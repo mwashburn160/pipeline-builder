@@ -54,6 +54,15 @@ export interface PluginScanFinding {
   /** Versions that fix it; empty = no fix available (not fixable). */
   fixedIn: string[];
   /**
+   * Set when grype reported the finding without the package details remediation
+   * needs (no purl, or no locations from the report or the SBOM — a CPE-only
+   * match, for one). The finding is still counted and gated; `purl` is then the
+   * fallback key `<packageType>:<name>@<version>` when grype gave none, and
+   * `locations` is empty. Remediation leaves it for the owner with reason
+   * `no_package_details`. Absent = complete.
+   */
+  unremediable?: 'no_package_details';
+  /**
    * CISA lists it as KNOWN EXPLOITED (grype's `knownExploited`). Absent =
    * not listed. A KEV Critical is gated even when unfixable, and only an
    * ADVISORY-ID waiver can exempt it — see {@link applyVulnWaivers}.

@@ -117,7 +117,11 @@ export const httpReportIdentity: ReportIdentity = {
 
   async orgEntitlement(orgId) {
     try {
-      const res = await callInternal(client(), ORG_ENTITLEMENT, { params: { orgId }, options: { headers: headers() } });
+      // SCOPED to the org asked about, like `readers`: platform refuses any other token.
+      const res = await callInternal(client(), ORG_ENTITLEMENT, {
+        params: { orgId },
+        options: { headers: { Authorization: getServiceAuthHeader({ serviceName: 'reporting', orgId, role: 'member' }) } },
+      });
       if (!res.ok) return null;
       return res.data.entitled;
     } catch (err) {

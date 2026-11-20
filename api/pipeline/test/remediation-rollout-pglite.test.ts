@@ -38,6 +38,7 @@ type RolloutDeps = import('../src/helpers/remediation-rollout.js').RolloutDeps;
 const { readOrgRolloutSettings, electionRefusal } = await import('../src/helpers/remediation-settings.js');
 const { pipelineService } = await import('../src/services/pipeline-service.js');
 const { runWithTenantContext } = await import('@pipeline-builder/pipeline-data');
+const { setRunnerDepsForTesting } = await import('../src/runners/deps.js');
 
 process.env.JWT_SECRET ||= 'remediation-rollout-test-secret';
 
@@ -60,6 +61,13 @@ const moveCalls: Array<{ pipelineId: string; rollback: boolean; actor: string }>
 const moveFailures = new Set<string>();
 const reports: Array<{ remediationId: string; body: any }> = [];
 const changeRequests: string[] = [];
+/** What each retried redeploy answers, in order (default: started). */
+const redeployOutcomes: Array<'ok' | 'fail'> = [];
+const redeployCalls: string[] = [];
+/** Per pipeline: the move answers ok with no run (its redeploy did not start). */
+const redeployFailsOnMove = new Set<string>();
+/** Per pipeline: the move refuses because its install has another change pending. */
+const installPendingOnMove = new Set<string>();
 let rollbackTarget: Awaited<ReturnType<RolloutDeps['rollbackTarget']>> = { ok: true };
 
 const STEP_PIN: MovePlan = { kind: 'step_pin', steps: [{ stepKey: 'Build/trivy' } as never], install: null };
@@ -71,6 +79,8 @@ const deps: RolloutDeps = {
   move: async ({ row, rollback, actor }) => {
     moveCalls.push({ pipelineId: row.pipelineId, rollback: !!rollback, actor: actor.userId });
     if (moveFailures.has(row.pipelineId)) return { ok: false, error: 'Compliance blocked: rule r1' };
+    if (installPendingOnMove.has(row.pipelineId)) return { ok: false, error: 'install_change_pending' };
+    if (redeployFailsOnMove.has(row.pipelineId)) return { ok: true, runRequestId: null, note: 'redeploy_failed' };
     const runId = randomUUID();
     await owner((q) => q.query(
       `INSERT INTO pipeline_run_requests (id, org_id, pipeline_id, action, requested_by, expires_at, status, result_execution_id)
@@ -80,6 +90,17 @@ const deps: RolloutDeps = {
     return { ok: true, runRequestId: runId };
   },
   requestInstallChange: async (install) => { changeRequests.push(install.id); },
+  redeploy: async ({ row }) => {
+    redeployCalls.push(row.pipelineId);
+    if ((redeployOutcomes.shift() ?? 'ok') === 'fail') return { ok: true, runRequestId: null, note: 'redeploy_failed' };
+    const runId = randomUUID();
+    await owner((q) => q.query(
+      `INSERT INTO pipeline_run_requests (id, org_id, pipeline_id, action, requested_by, expires_at, status, result_execution_id)
+       VALUES ($1, $2, $3, 'start', 'system:plugin-remediation', now() + interval '1 day', 'started', $4)`,
+      [runId, row.orgId, row.pipelineId, `exec-redeploy-${row.pipelineId}`],
+    ));
+    return { ok: true, runRequestId: runId };
+  },
   rollbackTarget: async () => rollbackTarget,
   report: async (remediationId, body) => { reports.push({ remediationId, body }); return 'ok'; },
 };
@@ -141,13 +162,18 @@ async function finishRuns(remediationId: string, status = 'SUCCEEDED') {
   });
 }
 
-/** A failed ACTION on `stage/action` of `pipelineId`, after the move. */
-async function failAction(pipelineId: string, orgId: string, stage = 'Build', action = 'trivy') {
-  await owner((q) => q.query(
-    `INSERT INTO pipeline_events (pipeline_id, org_id, event_source, event_type, status, stage_name, action_name, created_at)
-     VALUES ($1, $2, 'codepipeline', 'ACTION', 'FAILED', $3, $4, $5)`,
-    [pipelineId, orgId, stage, action, new Date(clock.getTime() + 2000).toISOString()],
-  ));
+/** A failed ACTION on `stage/action` of `pipelineId`, after the move — of the moved run (its result execution) unless `executionId` says otherwise. */
+async function failAction(pipelineId: string, orgId: string, stage = 'Build', action = 'trivy', executionId?: string | null) {
+  await owner(async (q) => {
+    const exec = executionId !== undefined ? executionId : (await q.query<{ e: string | null }>(
+      `SELECT rr.result_execution_id AS e FROM pipeline_remediation_upgrades u JOIN pipeline_run_requests rr ON rr.id = u.run_request_id
+       WHERE u.pipeline_id = $1 ORDER BY u.updated_at DESC LIMIT 1`, [pipelineId])).rows[0]?.e ?? null;
+    await q.query(
+      `INSERT INTO pipeline_events (pipeline_id, org_id, event_source, event_type, status, stage_name, action_name, execution_id, created_at)
+       VALUES ($1, $2, 'codepipeline', 'ACTION', 'FAILED', $3, $4, $5, $6)`,
+      [pipelineId, orgId, stage, action, exec, new Date(clock.getTime() + 2000).toISOString()],
+    );
+  });
 }
 
 async function manifest(pipelineId: string, orgId: string, stage: string, action: string, plugin: string, version: string) {
@@ -170,12 +196,17 @@ beforeEach(async () => {
     DELETE FROM pipeline_remediation_upgrades; DELETE FROM pipeline_events; DELETE FROM pipeline_run_requests;
     DELETE FROM pipeline_step_manifests; DELETE FROM pipeline_plugin_resolution; DELETE FROM pipeline_registry;
     DELETE FROM pipeline_runners; DELETE FROM plugin_remediation_settings; DELETE FROM plugin_vuln_exposure; DELETE FROM pipelines;
-    DELETE FROM plugins WHERE name = 'trivy';`));
+    DELETE FROM plugins WHERE name = 'trivy'; DELETE FROM plugin_installs; DELETE FROM plugin_listings; DELETE FROM publishers WHERE handle = 'acme';`));
   plans.clear();
   moveCalls.length = 0;
   moveFailures.clear();
   reports.length = 0;
   changeRequests.length = 0;
+  redeployOutcomes.length = 0;
+  redeployCalls.length = 0;
+  redeployFailsOnMove.clear();
+  installPendingOnMove.clear();
+  setRunnerDepsForTesting(null);
   rollbackTarget = { ok: true };
   clock = new Date('2026-11-20T12:00:00Z');
   jest.clearAllMocks();
@@ -575,5 +606,199 @@ describe('the opted-out list filter (real SQL)', () => {
     const page = await runWithTenantContext({ orgId: ROOT, isSuperAdmin: false }, () =>
       pipelineService.findPaginated({ remediationUpgrades: 'off' } as never, ROOT, { limit: 25, offset: 0 }));
     expect(page.data.map((p: { id: string }) => p.id)).toEqual([off]);
+  });
+});
+
+describe('an install with another change request pending', () => {
+  const PENDING_INSTALL = { id: 'inst-p', orgId: ROOT, gated: false, pendingChange: true };
+
+  it('holds only that pipeline (waiting_change_request); the rest of the rollout moves, and it is not done', async () => {
+    await settings(ROOT, { rollout: 'apply' });
+    const held = await pipelineOn(ROOT);
+    const other = await pipelineOn(ROOT);
+    plans.set(held, { kind: 'install_pin', steps: [], install: PENDING_INSTALL });
+    const rem = randomUUID();
+    await engine.start(rem, startBody());
+    expect((await stateOf(rem))[held]).toBe('waiting_change_request');
+    await engine.tick();
+    expect(moveCalls.map((m) => m.pipelineId)).toEqual([other]);
+    expect(await stateOf(rem)).toEqual({ [held]: 'waiting_change_request', [other]: 'moved' });
+    await finishRuns(rem);
+    advance(60_000);
+    await engine.tick();
+    expect(reports.at(-1)!.body.summary.status).not.toBe('done');
+    expect(reports.at(-1)!.body.summary.counts).toMatchObject({ waitingChangeRequest: 1, moved: 1 });
+  });
+
+  it('a move refused because the install got a change request meanwhile waits instead of failing', async () => {
+    await settings(ROOT, { rollout: 'apply' });
+    const p = await pipelineOn(ROOT);
+    installPendingOnMove.add(p);
+    const rem = randomUUID();
+    await engine.start(rem, startBody());
+    await engine.tick();
+    expect((await loadRows(rem))[0]).toMatchObject({ state: 'waiting_change_request' });
+  });
+
+  it('approved: the worker resumes it and moves it as planned', async () => {
+    await settings(ROOT, { rollout: 'apply' });
+    const p = await pipelineOn(ROOT);
+    plans.set(p, { kind: 'install_pin', steps: [], install: PENDING_INSTALL });
+    const rem = randomUUID();
+    await engine.start(rem, startBody());
+    await engine.tick();
+    expect(moveCalls).toEqual([]);
+    // The approver moved the install to the fix: what is left is a redeploy.
+    plans.set(p, { kind: 'redeploy', steps: [], install: null });
+    advance(60_000);
+    await engine.tick();
+    expect(moveCalls.map((m) => m.pipelineId)).toEqual([p]);
+    expect((await stateOf(rem))[p]).toBe('moved');
+  });
+
+  it('rejected: the worker ends it as skipped with the reason', async () => {
+    await settings(ROOT, { rollout: 'apply' });
+    const p = await pipelineOn(ROOT);
+    plans.set(p, { kind: 'install_pin', steps: [], install: PENDING_INSTALL });
+    const rem = randomUUID();
+    await engine.start(rem, startBody());
+    await engine.tick();
+    // Decided without moving the install: still pinned to the flagged version.
+    plans.set(p, { kind: 'install_pin', steps: [], install: { ...PENDING_INSTALL, pendingChange: false } });
+    advance(60_000);
+    await engine.tick();
+    expect(moveCalls).toEqual([]);
+    expect((await loadRows(rem))[0]).toMatchObject({ state: 'dismissed', error: 'change_request_rejected' });
+    expect(reports.at(-1)!.body.summary.status).toBe('done');
+  });
+});
+
+describe('install change helpers (real SQL)', () => {
+  async function install(pinned: string, pending: object | null = null): Promise<string> {
+    return owner(async (q) => {
+      const pub = await q.query<{ id: string }>('INSERT INTO publishers (handle, display_name) VALUES (\'acme\', \'Acme\') ON CONFLICT (handle) DO UPDATE SET display_name = EXCLUDED.display_name RETURNING id');
+      const listing = await q.query<{ id: string }>('INSERT INTO plugin_listings (publisher_id, name) VALUES ($1, $2) RETURNING id', [pub.rows[0]!.id, `l-${randomUUID().slice(0, 8)}`]);
+      const inst = await q.query<{ id: string }>(
+        `INSERT INTO plugin_installs (org_id, listing_id, version_policy, pinned_version, installed_by, pending_change)
+         VALUES ($1, $2, 'pinned', $3, 'u1', $4::jsonb) RETURNING id`,
+        [ROOT, listing.rows[0]!.id, pinned, pending ? JSON.stringify(pending) : null],
+      );
+      return inst.rows[0]!.id;
+    });
+  }
+  const pendingOf = async (id: string) => (await owner((q) => q.query<{ p: unknown }>('SELECT pending_change AS p FROM plugin_installs WHERE id = $1', [id]))).rows[0]!.p;
+  const ref = { remediationId: randomUUID(), plugin: 'scan', publisher: 'acme', fromVersion: FROM, toVersion: TO };
+
+  it('opens a change request only while the install is still pinned to the flagged version', async () => {
+    const moved = await install('1.5.0');
+    await engineModule.requestInstallChange({ id: moved, orgId: ROOT, gated: true }, ref);
+    expect(await pendingOf(moved)).toBeNull();
+    const still = await install(FROM);
+    await engineModule.requestInstallChange({ id: still, orgId: ROOT, gated: true }, ref);
+    expect(await pendingOf(still)).toMatchObject({ version: TO, versionPolicy: 'pinned' });
+  });
+
+  it('moving an install with a change pending answers pending, not changed', async () => {
+    const id = await install(FROM, { version: '1.6.0', versionPolicy: 'pinned', requestedBy: 'u2', requestedAt: clock.toISOString() });
+    expect(await engineModule.moveInstallPin({ id, orgId: ROOT, gated: false }, ref, { userId: 'u1', requestedBy: 'u1' })).toBe('pending');
+    expect(await engineModule.installHasPendingChange(id)).toBe(true);
+    const other = await install('1.5.0');
+    expect(await engineModule.moveInstallPin({ id: other, orgId: ROOT, gated: false }, ref, { userId: 'u1', requestedBy: 'u1' })).toBe('changed');
+    const free = await install(FROM);
+    expect(await engineModule.moveInstallPin({ id: free, orgId: ROOT, gated: false }, ref, { userId: 'u1', requestedBy: 'u1' })).toBe('moved');
+  });
+});
+
+describe('a move whose redeploy did not start', () => {
+  it('is moved_pending_redeploy, counted, keeps the rollout open, and is retried until the redeploy starts', async () => {
+    await settings(ROOT, { rollout: 'apply' });
+    const p = await pipelineOn(ROOT);
+    redeployFailsOnMove.add(p);
+    const rem = randomUUID();
+    await engine.start(rem, startBody());
+    clock = new Date(Date.now());
+    await engine.tick();
+    expect((await loadRows(rem))[0]).toMatchObject({ state: 'moved_pending_redeploy', wave: 0 });
+    expect(reports.at(-1)!.body.summary).toMatchObject({ status: 'canary', counts: { movedPendingRedeploy: 1, moved: 0 } });
+
+    // Not retried before the retry interval.
+    clock = new Date(Date.now() + 60_000);
+    await engine.tick();
+    expect(redeployCalls).toEqual([]);
+
+    clock = new Date(Date.now() + engineModule.REDEPLOY_RETRY_MS + 60_000);
+    await engine.tick();
+    expect(redeployCalls).toEqual([p]);
+    const [row] = await loadRows(rem);
+    expect(row).toMatchObject({ state: 'moved', error: null });
+    expect(row!.runRequestId).not.toBeNull();
+  });
+
+  it('ends as failed once the retries run out', async () => {
+    await settings(ROOT, { rollout: 'apply' });
+    const p = await pipelineOn(ROOT);
+    redeployFailsOnMove.add(p);
+    const rem = randomUUID();
+    await engine.start(rem, startBody());
+    await engine.tick();
+    for (let i = 0; i < engineModule.REDEPLOY_MAX_ATTEMPTS + 2; i += 1) {
+      redeployOutcomes.push('fail');
+      // Each retry is due: `updated_at` is the trigger's wall-clock stamp, so step past the interval from it.
+      clock = new Date(Date.now() + engineModule.REDEPLOY_RETRY_MS + 60_000);
+      await engine.tick();
+    }
+    expect(redeployCalls).toHaveLength(engineModule.REDEPLOY_MAX_ATTEMPTS - 1);
+    expect((await loadRows(rem))[0]).toMatchObject({ state: 'failed', error: 'redeploy_retries_exhausted' });
+    expect(reports.at(-1)!.body.summary.status).toBe('done');
+  });
+});
+
+describe('runner health', () => {
+  it('a skipped_runner row past the retry age ends as failed (runner_unhealthy_expired)', async () => {
+    await settings(ROOT, { rollout: 'apply' });
+    const p = await pipelineOn(ROOT);
+    const rem = randomUUID();
+    await engine.start(rem, startBody());
+    await owner((q) => q.query(
+      `UPDATE pipeline_remediation_upgrades SET state = 'skipped_runner', wave = 0, error = 'runner_unhealthy',
+         created_at = now() - interval '8 days', updated_at = now() - interval '2 hours'`));
+    clock = new Date(Date.now());
+    await engine.tick();
+    expect(moveCalls).toEqual([]);
+    expect((await loadRows(rem))[0]).toMatchObject({ pipelineId: p, state: 'failed', error: 'runner_unhealthy_expired' });
+  });
+
+  it('an unlinked pipeline whose org\'s eligible runners are all unhealthy is skipped', async () => {
+    setRunnerDepsForTesting({ hierarchy: { ancestors: async () => [], descendants: async () => [], names: async () => ({}) } });
+    await settings(ROOT, { rollout: 'apply' });
+    const p = await pipelineOn(ROOT);
+    await owner((q) => q.query('INSERT INTO pipeline_runners (id, org_id, label, status, health) VALUES ($1, $2, \'prod\', \'active\', \'unreachable\')', [randomUUID(), ROOT]));
+    const rem = randomUUID();
+    await engine.start(rem, startBody());
+    await engine.tick();
+    expect(moveCalls).toEqual([]);
+    expect((await stateOf(rem))[p]).toBe('skipped_runner');
+
+    // One healthy eligible runner is enough.
+    await owner((q) => q.query('INSERT INTO pipeline_runners (id, org_id, label, status, health) VALUES ($1, $2, \'dr\', \'active\', \'healthy\')', [randomUUID(), ROOT]));
+    expect(await engineModule.runnerHealthy(p, ROOT, null)).toBe(true);
+  });
+});
+
+describe('a no-mapping rollback', () => {
+  it('only fires on a failure of the moved run (its result execution) when the move started one', async () => {
+    await settings(ROOT, { rollout: 'apply' });
+    const p = await pipelineOn(ROOT);
+    const rem = randomUUID();
+    await engine.start(rem, startBody());
+    await engine.tick();
+    await failAction(p, ROOT, 'Deploy', 'cfn', 'exec-someone-elses-run');
+    advance(60_000);
+    await engine.tick();
+    expect((await stateOf(rem))[p]).toBe('moved');
+    await failAction(p, ROOT, 'Deploy', 'cfn');
+    advance(60_000);
+    await engine.tick();
+    expect((await stateOf(rem))[p]).toBe('rolled_back');
   });
 });

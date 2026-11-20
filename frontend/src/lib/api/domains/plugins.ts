@@ -609,10 +609,12 @@ export function pluginsApi(core: ApiCore) {
     },
 
     /** Start a new attempt of a failed / needs-owner / needs-review remediation (counts toward the daily cap; 429 over it). `plugins:write`. */
-    retryPluginRemediation: async (id: string) => {
+    retryPluginRemediation: async (id: string, stepUpToken?: string) => {
       return core.request<ApiResponse<PluginRemediationDto>>(`/api/plugins/remediations/${encodeURIComponent(id)}/retry`, {
         method: 'POST',
         body: JSON.stringify({}),
+        replayOnStepUp: false,
+        headers: core.stepUpHeader(stepUpToken),
       });
     },
 

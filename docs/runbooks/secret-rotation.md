@@ -446,9 +446,24 @@ answers 500 and is audited as a failure: the change is NOT rolled back, so
 re-enter the affected secrets through their admin endpoints (and rerun the
 runner-key re-encrypt if the message names it).
 
+**Every replica picks the change up without a restart.** Each platform and
+pipeline process caches the org's unwrapped master. A `PUT`/`DELETE` evicts it
+on the platform replica that served the request and broadcasts the eviction
+over Redis pub/sub (the cache-invalidation channel, namespace `per-org-kms:`),
+so every other platform and pipeline replica drops it too and re-reads the
+org's config on the next secret read. A Redis reconnect clears the whole cache,
+because broadcasts may have been missed. As a backstop, with Redis down or not
+configured, a cached per-org key is trusted for at most **5 minutes**, after
+which the next read re-resolves the config. If that refresh fails (the config
+source is unreachable), the cached key keeps serving and the refresh is retried
+30 seconds later; an explicit eviction is never served stale. So without Redis,
+allow up to 5 minutes after a change before trusting reads on other replicas,
+or restart platform and pipeline.
+
 **Proof** — `packages/api-core/test/secret-rotation.test.ts` (overlap → rewrite
 → old blob rejected), `platform/test/secret-reencrypt.test.ts` (the fleet-wide
-tool, including the unreadable-row path).
+tool, including the unreadable-row path), `packages/api-core/test/secret-encryption.test.ts`
+(cross-replica eviction and the TTL backstop).
 
 ---
 

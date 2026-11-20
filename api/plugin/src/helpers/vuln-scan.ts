@@ -426,9 +426,9 @@ function grypeLocations(raw: unknown): PluginScanFindingLocation[] | null {
   return locs.length > 0 ? locs : null;
 }
 
-/** A Critical/High finding grype reported without the package details remediation needs. */
+/** A Critical/High finding grype reported without a package type: the scan did not complete. */
 export class GrypeFindingIncompleteError extends Error {
-  constructor(readonly advisoryId: string, readonly missing: 'type' | 'purl' | 'locations') {
+  constructor(readonly advisoryId: string, readonly missing: 'type') {
     super(`grype finding ${advisoryId} has no package ${missing}; the scan is incomplete`);
     this.name = 'GrypeFindingIncompleteError';
   }
@@ -436,25 +436,38 @@ export class GrypeFindingIncompleteError extends Error {
 
 /**
  * The package details of a Critical/High match: type, purl and locations.
- * Throws {@link GrypeFindingIncompleteError} when any is missing — a finding
- * nothing can patch or trace to a layer is a scan that did not complete.
+ *
+ * A missing TYPE throws {@link GrypeFindingIncompleteError} (grype always
+ * reports one, so its absence is a broken report). A missing purl or missing
+ * locations — a CPE-only match, or a package syft recorded no evidence for —
+ * does NOT fail the scan: the finding is still counted and gated, recorded
+ * under the fallback key `<packageType>:<name>@<version>` (when there is no
+ * purl) with empty locations, and marked `unremediable: 'no_package_details'`
+ * so remediation leaves it for the owner instead of guessing a patch.
  */
 function packageDetails(
   match: GrypeMatch,
   id: string,
   sbomFacts: Map<string, SbomPackageFacts>,
-): Pick<VulnFinding, 'packageType' | 'purl' | 'locations'> {
+): Pick<VulnFinding, 'packageType' | 'purl' | 'locations' | 'unremediable'> {
   const a = match.artifact ?? {};
   if (typeof a.type !== 'string' || !a.type.trim()) throw new GrypeFindingIncompleteError(id, 'type');
-  if (typeof a.purl !== 'string' || !a.purl.trim()) throw new GrypeFindingIncompleteError(id, 'purl');
   const facts = typeof a.id === 'string'
     ? sbomFacts.get(a.id.startsWith('SPDXRef-') ? a.id : `SPDXRef-${a.id}`)
     : undefined;
   let packageType = toGrypePackageType(a.type);
   if (packageType === 'other' && facts?.type) packageType = facts.type;
   const locations = grypeLocations(a.locations) ?? (facts && facts.locations.length > 0 ? facts.locations.map((l) => ({ ...l })) : null);
-  if (!locations) throw new GrypeFindingIncompleteError(id, 'locations');
-  return { packageType, purl: a.purl.trim(), locations };
+  const purl = typeof a.purl === 'string' ? a.purl.trim() : '';
+  if (purl && locations) return { packageType, purl, locations };
+  const name = typeof a.name === 'string' ? a.name : '';
+  const version = typeof a.version === 'string' ? a.version : '';
+  return {
+    packageType,
+    purl: purl || `${packageType}:${name}@${version}`,
+    locations: locations ?? [],
+    unremediable: 'no_package_details',
+  };
 }
 
 /**
@@ -505,9 +518,10 @@ function fixedVersions(match: GrypeMatch): string[] {
  *
  * Every Critical/High finding carries its package's type, purl and locations
  * (see {@link sbomPackageFacts} for how they survive an SPDX input). `sbom` is
- * the document grype scanned; a finding whose details can be read from neither
- * the report nor the SBOM throws {@link GrypeFindingIncompleteError}, so the
- * scan fails like any other scan failure.
+ * the document grype scanned; a finding whose purl or locations can be read
+ * from neither the report nor the SBOM is kept under a fallback key and marked
+ * not remediable (see `packageDetails`) — the scan still succeeds. Only a
+ * finding with no package type throws {@link GrypeFindingIncompleteError}.
  */
 export function parseGrypeReport(
   stdout: string,

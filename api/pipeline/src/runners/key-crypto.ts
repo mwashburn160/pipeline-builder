@@ -22,6 +22,7 @@ import {
   encryptSecret,
   EnvKeyProvider,
   errorMessage,
+  getCacheInvalidationBus,
   getDefaultKeyProvider,
   getServiceAuthHeader,
   initSecretEncryption,
@@ -188,7 +189,15 @@ export async function initRunnerKeyEncryption(env: NodeJS.ProcessEnv = process.e
     state.base = base;
     if (env.SECRET_ENCRYPTION_PER_ORG_KMS === 'true') {
       const cached = cachedKmsResolver(fetch);
-      const perOrg = new PerOrgKmsKeyProvider({ resolver: cached.resolver, fallback: base });
+      // On the shared bus, so platform's eviction after a KMS config change reaches
+      // every pipeline replica; `onEvict` drops the resolver's own 60 s cache too,
+      // or the re-resolve would re-install the old config.
+      const perOrg = new PerOrgKmsKeyProvider({
+        resolver: cached.resolver,
+        fallback: base,
+        invalidationBus: getCacheInvalidationBus(),
+        onEvict: cached.evict,
+      });
       setKeyProvider(perOrg);
       state.perOrg = { provider: perOrg, evict: cached.evict };
     }

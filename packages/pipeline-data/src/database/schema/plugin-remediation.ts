@@ -194,7 +194,7 @@ export const pipelineRemediationUpgrade = pgTable('pipeline_remediation_upgrades
   toVersion: varchar('to_version', { length: 50 }).notNull(),
   /** The effective mode at the last resolution (resolveRemediationRollout). */
   mode: varchar('mode', { length: 10 }).$type<'off' | 'propose' | 'apply'>().notNull(),
-  state: varchar('state', { length: 20 }).$type<PipelineRemediationUpgradeState>().notNull(),
+  state: varchar('state', { length: 30 }).$type<PipelineRemediationUpgradeState>().notNull(),
   /** 0 = canary; null until it is put in a wave. */
   wave: integer('wave'),
   movedAt: timestamp('moved_at', { withTimezone: true }),
@@ -211,7 +211,7 @@ export const pipelineRemediationUpgrade = pgTable('pipeline_remediation_upgrades
   pipelineIdx: index('pipeline_remediation_upgrade_pipeline_idx').on(table.pipelineId, sql`${table.createdAt} DESC`),
   stateIdx: index('pipeline_remediation_upgrade_state_idx').on(table.remediationId, table.state),
   modeCheck: check('pipeline_remediation_upgrade_mode_check', sql`${table.mode} IN ('off', 'propose', 'apply')`),
-  stateCheck: check('pipeline_remediation_upgrade_state_check', sql`${table.state} IN ('proposed', 'change_requested', 'queued', 'moved', 'failed', 'rolled_back', 'rollback_blocked', 'skipped_opt_out', 'skipped_runner', 'dismissed', 'superseded')`),
+  stateCheck: check('pipeline_remediation_upgrade_state_check', sql`${table.state} IN ('proposed', 'change_requested', 'queued', 'moved', 'failed', 'rolled_back', 'rollback_blocked', 'skipped_opt_out', 'skipped_runner', 'dismissed', 'superseded', 'waiting_change_request', 'moved_pending_redeploy')`),
 }));
 
 export type PluginRemediation = typeof pluginRemediation.$inferSelect;

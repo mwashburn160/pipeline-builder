@@ -110,6 +110,8 @@ export interface PipelineRemediationUpgradeView {
 
 /** `GET /pipelines/:id/remediation-upgrades`. */
 export interface PipelineRemediationUpgrades {
+  /** False when the operator turned remediation off (PLUGIN_REMEDIATION_ENABLED=false): nothing moves, Apply is refused 503. */
+  enabled?: boolean;
   election: PipelineRemediationElection;
   effective: ResolvedRemediationRollout;
   orgDefault: PluginRemediationRollout;

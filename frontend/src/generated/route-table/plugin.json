@@ -4316,7 +4316,7 @@
     "servicePrincipal": false,
     "dynamicAuthz": [],
     "internalCallers": [],
-    "stepUp": false,
+    "stepUp": true,
     "stepUpMethods": [],
     "minAssurance": 0,
     "conditionalGates": [],

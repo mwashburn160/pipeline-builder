@@ -82,6 +82,40 @@ export async function remediationsCreatedSince(orgId: string, now: Date = new Da
   return Number(rows[0]?.n ?? 0);
 }
 
+/** The result of {@link insertRemediationUnderCap}. */
+export type CappedInsert =
+  | { status: 'inserted'; row: PluginRemediation }
+  | { status: 'capped'; used: number }
+  | { status: 'conflict' };
+
+/**
+ * Insert a remediation only while `orgId` is under its daily cap: the count of
+ * the last 24 h and the insert run in ONE transaction under a per-org
+ * transaction-scoped advisory lock, so concurrent retries (or a retry racing
+ * the nightly pass) are serialized and can never exceed `cap` together.
+ * `beforeInsert` runs inside the same transaction once the cap holds (retry
+ * closes the needs_review row it replaces there). `conflict` = an idempotency
+ * index refused the row (already live / building for that version).
+ */
+export async function insertRemediationUnderCap(
+  row: PluginRemediationInsert,
+  cap: number,
+  opts: { now?: Date; beforeInsert?: (tx: any) => Promise<void> } = {}, // eslint-disable-line @typescript-eslint/no-explicit-any
+): Promise<CappedInsert> {
+  const org = row.orgId.toLowerCase();
+  const since = new Date((opts.now ?? new Date()).getTime() - 24 * 3_600_000);
+  return elevatedTx(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`plugin-remediation-cap:${org}`}))`);
+    const counted = await tx.select({ n: sql<number>`count(*)::int` }).from(R())
+      .where(and(eq(R().orgId, org), gt(R().createdAt, since))) as Array<{ n: number }>;
+    const used = Number(counted[0]?.n ?? 0);
+    if (used >= cap) return { status: 'capped', used } as const;
+    if (opts.beforeInsert) await opts.beforeInsert(tx);
+    const rows = await tx.insert(R()).values({ ...row, orgId: org }).onConflictDoNothing().returning() as PluginRemediation[];
+    return rows[0] ? { status: 'inserted', row: rows[0] } as const : { status: 'conflict' } as const;
+  });
+}
+
 /**
  * Update a remediation, optionally only when it is still in one of `from`
  * stages (a guarded transition). Returns the new row, or null when the guard

@@ -7,6 +7,7 @@ import { Check, Download, FileDiff, RotateCcw, Wrench, X } from 'lucide-react';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { Callout } from '@/components/ui/Callout';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { RetryError } from '@/components/ui/RetryError';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -53,10 +54,13 @@ export function PatchDiffView({ patch }: { patch: string }) {
   );
 }
 
-type PendingAction = 'approve' | 'reject' | null;
+type PendingAction = 'approve' | 'reject' | 'retry' | null;
 
 /** The decision and retry routes answer 503 while the operator has remediation turned off (PLUGIN_REMEDIATION_ENABLED=false). */
 export const isRemediationOperatorOff = (err: unknown): boolean => err instanceof ApiError && err.statusCode === 503;
+
+/** Approve and retry answer 409 PLUGIN_REMEDIATION_MODE_OFF while the organization's own remediation mode is off. */
+export const isRemediationModeOff = (err: unknown): boolean => err instanceof ApiError && err.code === 'PLUGIN_REMEDIATION_MODE_OFF';
 
 /**
  * One remediation: its stage, the fix version once published, the findings it
@@ -80,6 +84,8 @@ export function RemediationCard({ remediation, canWrite, isSystemOrg = false, on
   const [showPatch, setShowPatch] = useState(false);
   // Set when a decision or retry answered 503: the card then says so with the shared notice instead of an error toast.
   const [operatorOff, setOperatorOff] = useState(false);
+  // Set when approve or retry answered PLUGIN_REMEDIATION_MODE_OFF: the org's own mode is off.
+  const [modeOff, setModeOff] = useState(false);
   const patchQ = useFetch(async () => api.getPluginRemediationPatch(r.id), [r.id], { enabled: showPatch && r.hasPatch });
 
   const decide = async (action: 'approve' | 'reject', token: string) => {
@@ -92,23 +98,24 @@ export function RemediationCard({ remediation, canWrite, isSystemOrg = false, on
       onChanged?.(res.data ?? null);
     } catch (err) {
       if (isRemediationOperatorOff(err)) setOperatorOff(true);
+      else if (isRemediationModeOff(err)) setModeOff(true);
       else toast.error(formatError(err, action === 'approve' ? 'Could not approve the fix' : 'Could not reject the fix'));
       setPending(null);
     }
   };
 
   const retryM = useMutation({
-    fn: async () => (await api.retryPluginRemediation(r.id)).data ?? null,
+    fn: async (token: string) => (await api.retryPluginRemediation(r.id, token)).data ?? null,
     scopeKey: r.id,
     errorFallback: 'Could not retry the remediation',
     toast: { success: 'A new remediation attempt was queued' },
     onSuccess: (dto) => onChanged?.(dto),
     onError: (err, message) => {
       if (isRemediationOperatorOff(err)) setOperatorOff(true);
+      else if (isRemediationModeOff(err)) setModeOff(true);
       else toast.error(message);
     },
   });
-  const retry = () => { void retryM.run(); };
 
   const exportM = useMutation({
     fn: async () => {
@@ -197,6 +204,8 @@ export function RemediationCard({ remediation, canWrite, isSystemOrg = false, on
           {counts.failed > 0 && ` · ${counts.failed} failed`}
           {counts.skippedOptOut > 0 && ` · ${counts.skippedOptOut} opted out`}
           {counts.skippedRunner > 0 && ` · ${counts.skippedRunner} skipped (runner unhealthy)`}
+          {(counts.waitingChangeRequest ?? 0) > 0 && ` · ${counts.waitingChangeRequest} waiting on another change request`}
+          {(counts.movedPendingRedeploy ?? 0) > 0 && ` · ${counts.movedPendingRedeploy} moved, redeploy pending`}
         </p>
       )}
 
@@ -221,6 +230,11 @@ export function RemediationCard({ remediation, canWrite, isSystemOrg = false, on
       )}
 
       {operatorOff && <RemediationOffNotice />}
+      {modeOff && !operatorOff && (
+        <Callout variant="neutral" title="Remediation is turned off for this organization">
+          Turn plugin security fixes back on in the organization&apos;s settings to approve or retry a fix.
+        </Callout>
+      )}
 
       {r.error && <p className="text-danger-strong" data-testid="remediation-error">Error: <span className="font-mono">{r.error}</span></p>}
 
@@ -246,7 +260,7 @@ export function RemediationCard({ remediation, canWrite, isSystemOrg = false, on
           </>
         )}
         {canWrite && RETRYABLE.has(r.stage) && (
-          <Button variant="outline" size="xs" onClick={retry} loading={retryM.pending}>
+          <Button variant="outline" size="xs" onClick={() => setPending('retry')} loading={retryM.pending}>
             <RotateCcw className="mr-1 h-3.5 w-3.5" aria-hidden />Retry remediation
           </Button>
         )}
@@ -260,11 +274,15 @@ export function RemediationCard({ remediation, canWrite, isSystemOrg = false, on
 
       {pending && (
         <StepUpModal
-          title={pending === 'approve' ? 'Approve and publish this fix?' : 'Reject this fix?'}
+          title={pending === 'approve' ? 'Approve and publish this fix?' : pending === 'reject' ? 'Reject this fix?' : 'Retry this remediation?'}
           action={pending === 'approve'
             ? `Publish ${r.pluginName} ${r.toVersion ?? ''} as the fix for ${r.fromVersion}`
-            : `Reject the fix for ${r.pluginName} ${r.fromVersion}; the version stays flagged`}
-          onConfirmed={(token) => decide(pending, token)}
+            : pending === 'reject'
+              ? `Reject the fix for ${r.pluginName} ${r.fromVersion}; the version stays flagged`
+              : `Start a new remediation attempt for ${r.pluginName} ${r.fromVersion} (counts toward today's limit)`}
+          onConfirmed={(token) => {
+            if (pending === 'retry') { setPending(null); void retryM.run(token); } else {void decide(pending, token);}
+          }}
           onClose={() => setPending(null)}
         />
       )}

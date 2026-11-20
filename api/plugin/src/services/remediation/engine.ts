@@ -230,9 +230,13 @@ export async function runRemediationEngine(input: EngineInput, ports: Remediatio
   const scratch = (label: string) => path.join(work, `${label}-${seq++}`);
 
   try {
+    // Findings the scan recorded without package details (no purl / locations:
+    // a CPE-only match) are never patched — there is nothing to aim a patch at.
     // Findings with no fixed version (a KEV-listed one is targeted for exactly this) go to the owner.
-    let targets = input.targeted.filter((f) => f.fixedIn.length > 0);
-    for (const f of input.targeted) if (f.fixedIn.length === 0) out.remaining.push(remainingOf(f, 'no_fix'));
+    const detailed = input.targeted.filter((f) => f.unremediable !== 'no_package_details');
+    for (const f of input.targeted) if (f.unremediable === 'no_package_details') out.remaining.push(remainingOf(f, 'no_package_details'));
+    let targets = detailed.filter((f) => f.fixedIn.length > 0);
+    for (const f of detailed) if (f.fixedIn.length === 0) out.remaining.push(remainingOf(f, 'no_fix'));
 
     // -- the kept source --------------------------------------------------------------
     let source: OpenedSource | null = null;

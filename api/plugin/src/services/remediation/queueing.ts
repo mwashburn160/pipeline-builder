@@ -57,8 +57,8 @@ import { removeQueuedRemediationJobs } from './cancel.js';
 import { auditRemediation, countStage, sendOwnerRequest } from './lifecycle.js';
 import { startTenantRollout } from './rollout.js';
 import {
-  elevatedTx, insertRemediation, isRolloutStage, liveRemediations, newestCleanOwnerVersion, readSettings, remediationExistsFor,
-  remediationsCreatedSince, updateRemediation,
+  elevatedTx, insertRemediationUnderCap, isRolloutStage, liveRemediations, newestCleanOwnerVersion, readSettings, remediationExistsFor,
+  updateRemediation,
 } from './store.js';
 import { remediationConfig } from '../../config.js';
 import { autoRemovalProtection, recordAutoRemovalSkip } from '../../helpers/auto-removal.js';
@@ -127,6 +127,69 @@ export interface QueueDeps {
   discardToolchainCandidate?: (row: PluginRemediation) => Promise<void>;
   /** Resume approved toolchain candidates whose publish was interrupted (default: the live ports). */
   resumeToolchainFixes?: () => Promise<number>;
+  /** Whether a remediation still has a waiting / active / delayed job in any tier queue (default: the live queues). */
+  hasLiveJob?: (row: PluginRemediation) => Promise<boolean>;
+}
+
+/** A queued / building / approved row untouched this long with no live job is STRANDED (a lost enqueue, a crashed worker). */
+export const STRANDED_REMEDIATION_AFTER_MS = 3 * 3_600_000;
+/** How many times the sweep re-enqueues one stranded remediation before failing it `STRANDED`. */
+export const MAX_STRANDED_REQUEUES = 3;
+const STRANDED_MARK = 'STRANDED_REQUEUE:';
+const LIVE_JOB_STATES = new Set(['waiting', 'active', 'delayed', 'prioritized', 'waiting-children']);
+
+/** The job a stranded row needs: its build, or (approved, not yet published) its approved run. */
+function strandedJob(row: PluginRemediation): { jobId: string; priority: number } | null {
+  if (row.stage === 'queued' || row.stage === 'rebuild' || row.stage === 'libraries') {
+    const kev = (row.targeted ?? []).some((f) => f.kev === true);
+    return { jobId: pluginRemediationJobId(row.id), priority: queuePriority(row.orgId, { kev, maxEpss: 0, pipelineCount: 0 }) };
+  }
+  // A toolchain candidate's approved publish has its own lease and resume scheduler.
+  if (row.stage === 'awaiting_approval' && row.decidedAt && row.kind !== 'toolchain') return { jobId: `${pluginRemediationJobId(row.id)}-approved`, priority: 1 };
+  return null;
+}
+
+async function liveHasJob(row: PluginRemediation): Promise<boolean> {
+  const { getAllTierQueues } = await import('../../queue/connections.js');
+  const ids = [pluginRemediationJobId(row.id), `${pluginRemediationJobId(row.id)}-approved`];
+  for (const { queue } of getAllTierQueues()) {
+    for (const id of ids) {
+      const job = await queue.getJob(id);
+      if (job && LIVE_JOB_STATES.has(await job.getState())) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * A row in queued / rebuild / libraries, or approved and awaiting its run, that
+ * has not moved for {@link STRANDED_REMEDIATION_AFTER_MS} and has no live job
+ * would block that version forever (the active-version unique index). It is
+ * re-enqueued (any dead job of that id removed first), at most
+ * {@link MAX_STRANDED_REQUEUES} times — counted in its `error` as
+ * `STRANDED_REQUEUE:<n>` — then failed with `STRANDED` (retryable).
+ */
+async function recoverStranded(row: PluginRemediation, result: QueuePassResult, deps: Pick<QueueDeps, 'enqueue' | 'hasLiveJob'>, now: Date): Promise<void> {
+  const job = strandedJob(row);
+  if (!job || row.updatedAt.getTime() > now.getTime() - STRANDED_REMEDIATION_AFTER_MS) return;
+  if (await (deps.hasLiveJob ?? liveHasJob)(row)) return;
+  const n = row.error?.startsWith(STRANDED_MARK) ? Number(row.error.slice(STRANDED_MARK.length)) || 0 : 0;
+  if (n >= MAX_STRANDED_REQUEUES) {
+    const failed = await updateRemediation(row.id, { stage: 'failed', outcome: 'error', error: 'STRANDED', finishedAt: new Date() }, [row.stage]);
+    if (!failed) return;
+    countStage('failed', 'error');
+    result.stranded++;
+    logger.warn('Stranded remediation failed after its re-enqueues', { remediationId: row.id, stage: row.stage, requeues: n });
+    return;
+  }
+  const marked = await updateRemediation(row.id, { error: `${STRANDED_MARK}${n + 1}` }, [row.stage]);
+  if (!marked) return;
+  await removeQueuedRemediationJobs(row.id);
+  await deps.enqueue(row.orgId, {
+    kind: 'plugin-remediation', remediationId: row.id, orgId: row.orgId, pluginId: row.pluginId, pluginName: row.pluginName, fromVersion: row.fromVersion,
+  }, job);
+  result.requeued++;
+  logger.warn('Stranded remediation re-enqueued', { remediationId: row.id, stage: row.stage, requeue: n + 1 });
 }
 
 async function liveResumeToolchainFixes(): Promise<number> {
@@ -149,20 +212,24 @@ export interface QueuePassResult {
   capped: number;
   superseded: number;
   deactivated: number;
+  /** Stranded rows re-enqueued this pass. */
+  requeued: number;
+  /** Stranded rows failed (`STRANDED`) after their re-enqueues. */
+  stranded: number;
 }
 
 export async function queuePassRemediations(candidates: readonly RemediationCandidate[], deps: QueueDeps): Promise<QueuePassResult> {
-  const result: QueuePassResult = { queued: 0, ownerRequests: 0, publisherRequests: 0, capped: 0, superseded: 0, deactivated: 0 };
+  const result: QueuePassResult = { queued: 0, ownerRequests: 0, publisherRequests: 0, capped: 0, superseded: 0, deactivated: 0, requeued: 0, stranded: 0 };
   const cfg = remediationConfig();
   if (!cfg.enabled) return result;
   const now = deps.now?.() ?? new Date();
 
-  await sweepLive(result, deps).catch((err) => logger.warn('Remediation sweep failed', { error: errorMessage(err) }));
+  await sweepLive(result, deps, now).catch((err) => logger.warn('Remediation sweep failed', { error: errorMessage(err) }));
   // An approved toolchain candidate whose publish crashed part-way resumes here (idempotent, same version).
   await (deps.resumeToolchainFixes ?? liveResumeToolchainFixes)().catch((err) => logger.warn('Toolchain fix resume sweep failed', { error: errorMessage(err) }));
 
   const modes = new Map<string, Awaited<ReturnType<typeof readSettings>>['mode']>();
-  const used = new Map<string, number>();
+  const cappedOrgs = new Set<string>();
   const queued: Array<{ row: PluginRemediation; priority: RemediationPriorityInput }> = [];
   const toolchains = new Map<string, ToolchainPending>();
 
@@ -194,11 +261,11 @@ export async function queuePassRemediations(candidates: readonly RemediationCand
       const canary = isCanaryPlugin(org, c.name);
       const hash = remediationFindingsHash(targeted);
       if (!canary && await remediationExistsFor(c.id, hash)) continue;
-      if (!used.has(org)) used.set(org, await remediationsCreatedSince(org, now));
-      if (used.get(org)! >= cfg.maxPerOrgPerDay) { result.capped++; continue; }
+      if (cappedOrgs.has(org)) { result.capped++; continue; }
 
       const mayChange = !isManagedToolchainPlugin(c.name);
-      const row = await insertRemediation({
+      // Count and insert under the org's cap lock (the same one retry takes).
+      const inserted = await insertRemediationUnderCap({
         orgId: org,
         pluginId: c.id,
         pluginName: c.name,
@@ -212,9 +279,10 @@ export async function queuePassRemediations(candidates: readonly RemediationCand
           finishedAt: now,
           remaining: targeted.map((f) => toRemaining(f, 'no_patcher', 'MANAGED_TOOLCHAIN')),
         }),
-      });
-      if (!row) continue; // already live / building for this version
-      used.set(org, used.get(org)! + 1);
+      }, cfg.maxPerOrgPerDay, { now });
+      if (inserted.status === 'capped') { cappedOrgs.add(org); result.capped++; continue; }
+      if (inserted.status !== 'inserted') continue; // already live / building for this version
+      const row = inserted.row;
       auditRemediation('plugin.remediation.started', row, { findings: targeted.map((f) => f.id).slice(0, 200), targeted: targeted.length, ...(canary ? { canary: true } : {}) });
       if (!mayChange) {
         countStage('needs_owner', 'owner_request');
@@ -239,7 +307,7 @@ export async function queuePassRemediations(candidates: readonly RemediationCand
 
   for (const [release, t] of toolchains) {
     try {
-      const row = await queueToolchainRelease(release, t, used, now, result);
+      const row = await queueToolchainRelease(release, t, cappedOrgs, now, result);
       if (row) queued.push(row);
     } catch (err) {
       logger.warn('Toolchain remediation not queued', { release, error: errorMessage(err) });
@@ -271,7 +339,7 @@ export async function queuePassRemediations(candidates: readonly RemediationCand
 async function queueToolchainRelease(
   release: string,
   t: ToolchainPending,
-  used: Map<string, number>,
+  cappedOrgs: Set<string>,
   now: Date,
   result: QueuePassResult,
 ): Promise<{ row: PluginRemediation; priority: RemediationPriorityInput } | null> {
@@ -290,9 +358,8 @@ async function queueToolchainRelease(
   const targeted = [...t.targeted.values()];
   const hash = remediationFindingsHash(targeted);
   if (await remediationExistsFor(bootstrapId, hash)) return null;
-  if (!used.has(org)) used.set(org, await remediationsCreatedSince(org, now));
-  if (used.get(org)! >= remediationConfig().maxPerOrgPerDay) { result.capped++; return null; }
-  const row = await insertRemediation({
+  if (cappedOrgs.has(org)) { result.capped++; return null; }
+  const inserted = await insertRemediationUnderCap({
     orgId: org,
     pluginId: bootstrapId,
     pluginName: MANAGED_TOOLCHAIN.bootstrap,
@@ -301,9 +368,10 @@ async function queueToolchainRelease(
     targeted,
     kind: 'toolchain',
     createdBy: SYSTEM_PLUGIN_REMEDIATION,
-  });
-  if (!row) return null; // a candidate for this release is already building or awaiting a decision
-  used.set(org, used.get(org)! + 1);
+  }, remediationConfig().maxPerOrgPerDay, { now });
+  if (inserted.status === 'capped') { cappedOrgs.add(org); result.capped++; return null; }
+  if (inserted.status !== 'inserted') return null; // a candidate for this release is already building or awaiting a decision
+  const row = inserted.row;
   auditRemediation('plugin.remediation.started', row, { kind: 'toolchain', findings: targeted.map((f) => f.id).slice(0, 200), targeted: targeted.length });
   countStage('queued', null);
   const pipelines = await pipelinesOnVersion({ pluginName: MANAGED_TOOLCHAIN.bootstrap, pluginVersion: release, imageDigest }).catch(() => []);
@@ -318,7 +386,7 @@ async function queueToolchainRelease(
 }
 
 /** The owner's newer clean version supersedes; a fixed version no pipeline uses any more is deactivated. */
-async function sweepLive(result: QueuePassResult, deps: Pick<QueueDeps, 'discardToolchainCandidate'> = {}): Promise<void> {
+async function sweepLive(result: QueuePassResult, deps: Pick<QueueDeps, 'discardToolchainCandidate' | 'enqueue' | 'hasLiveJob'>, now: Date): Promise<void> {
   for (const row of await liveRemediations()) {
     // An approved toolchain candidate is publishing (or resumes): a newer release never cancels it half-way.
     if (row.kind === 'toolchain' && row.toolchainCandidate?.publish) continue;
@@ -344,7 +412,9 @@ async function sweepLive(result: QueuePassResult, deps: Pick<QueueDeps, 'discard
     }
     if (row.toPluginId && (row.stage === 'rolling_out' || row.stage === 'published')) {
       if (await deactivateIfUnreferenced(row)) result.deactivated++;
+      continue;
     }
+    await recoverStranded(row, result, deps, now).catch((err) => logger.warn('Stranded remediation not recovered', { remediationId: row.id, error: errorMessage(err) }));
   }
 }
 

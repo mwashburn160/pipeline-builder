@@ -9,7 +9,9 @@
  * - GET  /:id/remediation-upgrades                       — pipelines:read
  * - POST /:id/remediation-upgrades/:upgradeId/apply      — pipelines:write; a `proposed`
  *   row through the plugin-upgrades apply path (actor = the user), audited
- *   `pipeline.plugin.upgraded`
+ *   `pipeline.plugin.upgraded`; 503 PLUGIN_REMEDIATION_DISABLED when the
+ *   operator turned remediation off (PLUGIN_REMEDIATION_ENABLED=false), 409
+ *   PIPELINE_REMEDIATION_OFF when the pipeline's effective rollout is off
  * - POST /:id/remediation-upgrades/:upgradeId/dismiss    — pipelines:write; `proposed` →
  *   `dismissed` (UI state, not audited)
  *
@@ -155,7 +157,17 @@ export function createRemediationUpgradeRoutes(engine: () => RolloutEngine = rol
       if (row.state !== 'proposed') {
         return sendError(res, 409, `This upgrade is ${row.state.replace(/_/g, ' ')}, not proposed.`, ErrorCode.REMEDIATION_STAGE_CONFLICT, { stage: row.state });
       }
+      // The operator knob off: nothing moves, from the page either.
+      if (!remediationEnabled()) {
+        return sendError(res, 503, 'Plugin security fixes are turned off on this platform by its operator.', ErrorCode.PLUGIN_REMEDIATION_DISABLED);
+      }
       const parentOrgId = req.user?.parentOrganizationId ?? null;
+      // The pipeline's effective rollout (pipeline → team → root) off: the proposal can't be applied.
+      const effective = effectiveRollout((pipeline.remediationUpgrades ?? 'inherit') as PipelineRemediationElection, await readOrgRolloutSettings(orgId, parentOrgId));
+      if (effective.mode === 'off') {
+        return sendError(res, 409, `Plugin security fixes are off for this pipeline (set by the ${effective.source === 'pipeline' ? 'pipeline' : effective.source === 'team' ? 'team' : 'organization'}). Choose Propose or Apply to apply fixes.`,
+          ErrorCode.PIPELINE_REMEDIATION_OFF, { source: effective.source });
+      }
       const result = await engine().applyProposal(row, {
         id: pipeline.id,
         orgId: pipeline.orgId,

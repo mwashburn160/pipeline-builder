@@ -3,8 +3,14 @@
 
 /**
  * What NO automatic process may remove: a plugin version that is ACTIVE, or a
- * plugin's ONLY remaining version (counting the non-deleted versions of that
- * name in that org) — nor either one's kept source in plugin-sources.
+ * plugin's ONLY remaining LIVE version (a non-deleted version with no other
+ * non-deleted version of that name in that org) — nor either one's kept source
+ * in plugin-sources.
+ *
+ * The only-version half protects LIVE versions only. A tombstone is never
+ * protected by it: a plugin whose every version an owner soft-deleted (Delete
+ * plugin, or each version on its own) is purged by the sweep once its
+ * soft-delete window passes — row, image and kept source — like any other.
  *
  * "Automatic" is every clean-up nobody asked for by name: the soft-delete purge
  * sweep, the retry of failed source / image deletes, and the superseded-version
@@ -41,11 +47,13 @@ export interface AutoRemovalFacts {
 /**
  * Why `v` is protected from automatic removal, or null when it is not:
  * - `active`: a live (non-deleted) version that is active;
- * - `only_version`: no OTHER non-deleted version of the name remains — removing
- *   it (or, for a tombstone, purging it) would leave the org with none.
+ * - `only_version`: a live version with no OTHER non-deleted version of the
+ *   name — removing it would leave the org with none. Never a tombstone: the
+ *   owner already deleted it, and the sweep purges it after its window.
  */
 export function autoRemovalProtection(v: AutoRemovalFacts): AutoRemovalProtection | null {
-  if (v.isActive && v.deletedAt === null) return 'active';
+  if (v.deletedAt !== null) return null;
+  if (v.isActive) return 'active';
   if (v.otherLiveVersions <= 0) return 'only_version';
   return null;
 }
@@ -70,19 +78,19 @@ export function recordAutoRemovalSkip(reason: AutoRemovalProtection, context: { 
  */
 export function autoRemovalProtectedSql(row: SQL): SQL {
   return sql`(
-    (${row}.is_active AND ${row}.deleted_at IS NULL)
-    OR NOT EXISTS (
+    ${row}.deleted_at IS NULL AND (${row}.is_active OR NOT EXISTS (
       SELECT 1 FROM plugins sib
        WHERE sib.org_id = ${row}.org_id AND sib.name = ${row}.name
          AND sib.id <> ${row}.id AND sib.deleted_at IS NULL
-    )
+    ))
   )`;
 }
 
 /** The protection reason as SQL (NULL when unprotected), for reports. */
 export function autoRemovalReasonSql(row: SQL): SQL {
   return sql`CASE
-    WHEN ${row}.is_active AND ${row}.deleted_at IS NULL THEN 'active'
+    WHEN ${row}.deleted_at IS NOT NULL THEN NULL
+    WHEN ${row}.is_active THEN 'active'
     WHEN NOT EXISTS (
       SELECT 1 FROM plugins sib
        WHERE sib.org_id = ${row}.org_id AND sib.name = ${row}.name

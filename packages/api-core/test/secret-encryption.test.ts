@@ -420,6 +420,140 @@ describe('PerOrgKmsKeyProvider', () => {
     }
   });
 
+  /**
+   * A per-org master cached on one replica must not outlive a KMS config change
+   * made on another. The change broadcasts an eviction over the cache-invalidation
+   * bus (Redis pub/sub), and every cached key also carries a bounded TTL as the
+   * backstop for a missed or undeliverable broadcast.
+   */
+  describe('cross-replica eviction and the TTL backstop', () => {
+    type Msg = { origin: string; prefix: string; op: 'del' | 'pattern' | 'clear'; key?: string };
+    /** An in-memory bus: every publish reaches every subscriber, the publisher included (as Redis does). */
+    const memoryBus = () => {
+      const handlers: Array<{ onMessage: (m: Msg) => void; onResync: () => void }> = [];
+      return {
+        publish: jest.fn((m: Msg) => { for (const h of handlers) h.onMessage(m); }),
+        subscribe: (onMessage: (m: Msg) => void, onResync: () => void) => { handlers.push({ onMessage, onResync }); },
+        resync: () => { for (const h of handlers) h.onResync(); },
+      };
+    };
+    const cfg = (keyId = 'alias/org-acme') => ({ keyId, ciphertextBase64: Buffer.from('opaque').toString('base64') });
+
+    it('an eviction on one instance evicts the org on every other instance sharing the bus', async () => {
+      const { PerOrgKmsKeyProvider: P, EnvKeyProvider: E } = await import('../src/utils/secret-encryption.js');
+      mockSend.mockImplementation(async () => ({ Plaintext: randomBytes(32) }));
+      const bus = memoryBus();
+      const fallback = new E(randomBytes(32).toString('hex'));
+      let current = cfg('alias/old');
+      const onEvictB = jest.fn();
+      const a = new P({ resolver: async () => current, fallback, invalidationBus: bus });
+      const b = new P({ resolver: async () => current, fallback, invalidationBus: bus, onEvict: onEvictB });
+      await a.ensureWarmed('org-acme');
+      await b.ensureWarmed('org-acme');
+      expect(b.kidFor('org-acme')).toBe('alias/old');
+
+      current = cfg('alias/new');
+      a.evict('ORG-ACME');
+      expect(bus.publish).toHaveBeenCalledWith(expect.objectContaining({ op: 'del', key: 'org-acme' }));
+      // B dropped its cached key (and its own config cache, via the hook)...
+      expect(b.kidFor('org-acme')).toBeUndefined();
+      expect(onEvictB).toHaveBeenCalledWith('org-acme');
+      // ...so its next touch reads the NEW config.
+      await b.ensureWarmed('org-acme');
+      expect(b.kidFor('org-acme')).toBe('alias/new');
+    });
+
+    it('ignores another cache namespace on the shared bus, and clears everything on a resync', async () => {
+      const { PerOrgKmsKeyProvider: P, EnvKeyProvider: E } = await import('../src/utils/secret-encryption.js');
+      mockSend.mockImplementation(async () => ({ Plaintext: randomBytes(32) }));
+      const bus = memoryBus();
+      const b = new P({ resolver: async () => cfg(), fallback: new E(randomBytes(32).toString('hex')), invalidationBus: bus });
+      await b.ensureWarmed('org-acme');
+      bus.publish({ origin: 'other', prefix: 'plugin:', op: 'del', key: 'org-acme' });
+      expect(b.kidFor('org-acme')).toBe('alias/org-acme');
+      // A (re)subscribe means broadcasts may have been missed.
+      bus.resync();
+      expect(b.kidFor('org-acme')).toBeUndefined();
+    });
+
+    it('an eviction that lands while a resolve is in flight does not let the stale answer be cached', async () => {
+      const { PerOrgKmsKeyProvider: P, EnvKeyProvider: E } = await import('../src/utils/secret-encryption.js');
+      mockSend.mockImplementation(async () => ({ Plaintext: randomBytes(32) }));
+      let release!: () => void;
+      let calls = 0;
+      const provider = new P({
+        resolver: async () => {
+          calls++;
+          if (calls === 1) { await new Promise<void>((r) => { release = r; }); return cfg('alias/old'); }
+          return cfg('alias/new');
+        },
+        fallback: new E(randomBytes(32).toString('hex')),
+        invalidationBus: null,
+      });
+      const warming = provider.ensureWarmed('org-acme');
+      await new Promise((r) => setImmediate(r));
+      provider.evict('org-acme');
+      release();
+      await warming;
+      expect(provider.kidFor('org-acme')).toBe('alias/new');
+    });
+
+    it('a cached key expires after its TTL (5 minutes by default) and the next touch re-resolves', async () => {
+      const { PerOrgKmsKeyProvider: P, EnvKeyProvider: E, PER_ORG_KMS_CACHE_TTL_MS } = await import('../src/utils/secret-encryption.js');
+      expect(PER_ORG_KMS_CACHE_TTL_MS).toBe(5 * 60_000);
+      mockSend.mockImplementation(async () => ({ Plaintext: randomBytes(32) }));
+      let t = 1_000_000;
+      let current = cfg('alias/old');
+      const resolver = jest.fn(async () => current);
+      const onEvict = jest.fn();
+      const provider = new P({ resolver, fallback: new E(randomBytes(32).toString('hex')), invalidationBus: null, now: () => t, onEvict });
+      await provider.ensureWarmed('org-acme');
+      current = cfg('alias/new');
+
+      t += PER_ORG_KMS_CACHE_TTL_MS - 1;
+      await provider.ensureWarmed('org-acme');
+      expect(resolver).toHaveBeenCalledTimes(1);
+      expect(provider.kidFor('org-acme')).toBe('alias/old');
+
+      t += 2;
+      await provider.ensureWarmed('org-acme');
+      expect(resolver).toHaveBeenCalledTimes(2);
+      expect(provider.kidFor('org-acme')).toBe('alias/new');
+      // The service's own config cache is dropped on expiry too.
+      expect(onEvict).toHaveBeenCalledWith('org-acme');
+    });
+
+    it('a "no per-org config" answer expires too, so a config added elsewhere is picked up', async () => {
+      const { PerOrgKmsKeyProvider: P, EnvKeyProvider: E, PER_ORG_KMS_CACHE_TTL_MS } = await import('../src/utils/secret-encryption.js');
+      mockSend.mockImplementation(async () => ({ Plaintext: randomBytes(32) }));
+      let t = 0;
+      let current: ReturnType<typeof cfg> | null = null;
+      const provider = new P({ resolver: async () => current, fallback: new E(randomBytes(32).toString('hex')), invalidationBus: null, now: () => t });
+      await provider.ensureWarmed('org-acme');
+      expect(provider.kidFor('org-acme')).toBeUndefined();
+      current = cfg();
+      t += PER_ORG_KMS_CACHE_TTL_MS + 1;
+      await provider.ensureWarmed('org-acme');
+      expect(provider.kidFor('org-acme')).toBe('alias/org-acme');
+    });
+
+    it('a failed TTL refresh keeps serving the cached key rather than failing every secret read', async () => {
+      const { PerOrgKmsKeyProvider: P, EnvKeyProvider: E, PER_ORG_KMS_CACHE_TTL_MS } = await import('../src/utils/secret-encryption.js');
+      mockSend.mockImplementation(async () => ({ Plaintext: randomBytes(32) }));
+      let t = 0;
+      let down = false;
+      const resolver = jest.fn(async () => { if (down) throw new Error('platform down'); return cfg(); });
+      const provider = new P({ resolver, fallback: new E(randomBytes(32).toString('hex')), invalidationBus: null, now: () => t });
+      const before = await provider.deriveKeyAsync('org-acme');
+      down = true;
+      t += PER_ORG_KMS_CACHE_TTL_MS + 1;
+      expect((await provider.deriveKeyAsync('org-acme')).equals(before)).toBe(true);
+      // ...but an explicit eviction is never papered over.
+      provider.evict('org-acme');
+      await expect(provider.ensureWarmed('org-acme')).rejects.toThrow('platform down');
+    });
+  });
+
   describe('cold (unresolved) orgs — data-loss guard', () => {
     /** A provider whose org HAS per-org config, but which nothing has warmed. */
     const coldProvider = async () => {

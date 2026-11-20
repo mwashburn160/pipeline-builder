@@ -23,6 +23,12 @@
  *     mode, gets an install CHANGE REQUEST instead, never a move. A team's
  *     inherited install is the root's row: the root org's rollout moves it.
  *   - Team pipelines only get PROPOSALS for pins in their own config.
+ *   - An apply-mode install move whose install has ANOTHER change request
+ *     pending waits (`waiting_change_request`) — only that pipeline; the rest
+ *     of the rollout proceeds. Once the request is decided the worker resumes
+ *     it: approved → moved / redeployed as planned; rejected (still pinned to
+ *     the flagged version) → `dismissed`, error `change_request_rejected`. A
+ *     change request is only opened while the install still pins `fromVersion`.
  *
  * Effective mode (resolveRemediationRollout: pipeline, then team, then root) is
  * resolved when the rows are created AND again just before each move.
@@ -35,12 +41,19 @@
  * once the previous batch's runs have started (system starts queue past the
  * org's pending cap; this pacing is what keeps a batch within the org's run
  * limits). A pipeline whose runner is unhealthy is `skipped_runner` and retried
- * in a later wave (at most hourly).
+ * in a later wave (at most hourly) — its linked runner, or (unlinked) every
+ * runner routing could pick for it (`eligibleRunners`); after
+ * {@link RUNNER_RETRY_MAX_AGE_MS} it ends `failed` (`runner_unhealthy_expired`).
+ * A move whose redeploy did not start (duplicate window, runner refusal) is
+ * `moved_pending_redeploy`: its wave is not settled and the rollout not done
+ * until a retried redeploy starts (every {@link REDEPLOY_RETRY_MS}, up to
+ * {@link REDEPLOY_MAX_ATTEMPTS} attempts, then `failed`, `redeploy_retries_exhausted`).
  *
  * Rollback: a failed run on a step using the new version within 24 h of the
  * move — failed actions mapped to steps / plugins through the pipeline's stored
  * step-to-plugin mapping (`pipeline_step_manifests`); with no mapping, any
- * failed run in the window — moves the pipeline back, only to a LIVE previous
+ * failed event of the moved run (the run request's result execution; any
+ * failed event when the move started no run) — moves the pipeline back, only to a LIVE previous
  * version (deleted → `rollback_blocked`, the rollout pauses) and never to one
  * with a KEV-listed Critical finding unless the pipeline's risk acceptance
  * covers it (→ `rollback_blocked`). Two rollbacks pause the rollout.
@@ -102,6 +115,8 @@ import { recordPipelineResolution, resolveContractPlugin } from './plugin-contra
 import { applyUpgradeToPipeline, redeployPipeline, type ApplyActor } from './plugin-upgrade-apply.js';
 import { applyPluginUpgrades, type StepUpgrade } from './plugin-upgrades.js';
 import { effectiveRollout, readOrgRolloutSettings, remediationEnabled, settingsReader, type OrgRolloutSettings } from './remediation-settings.js';
+import { runnerDeps, type RunnerDeps } from '../runners/deps.js';
+import { eligibleRunners } from '../runners/routing.js';
 import type { Pipeline } from '../services/pipeline-service.js';
 
 const logger = createLogger('remediation-rollout');
@@ -112,6 +127,16 @@ export const RUNNER_RETRY_MS = 3_600_000;
 export const RUNNER_RETRY_MAX_AGE_MS = 7 * 86_400_000;
 /** The worker's tick. */
 export const ROLLOUT_TICK_MS = 60_000;
+/** Retry a move's redeploy that did not start at most this often (past the start path's duplicate window). */
+export const REDEPLOY_RETRY_MS = 10 * 60_000;
+/** Redeploy attempts of one move (the move's own included) before it ends `failed`. */
+export const REDEPLOY_MAX_ATTEMPTS = 6;
+/** The `error` of a moved_pending_redeploy row: `redeploy_failed:<attempts so far>`. */
+const REDEPLOY_FAILED = 'redeploy_failed';
+const redeployAttempts = (error: string | null): number => {
+  const m = /^redeploy_failed(?::(\d+))?$/.exec(error ?? '');
+  return m ? Number(m[1] ?? 1) : 1;
+};
 
 /** The system principal every rollout move, redeploy and audit runs as. */
 export const REMEDIATION_ACTOR: ApplyActor = { userId: SYSTEM_PLUGIN_REMEDIATION, requestedBy: SYSTEM_PLUGIN_REMEDIATION };
@@ -132,6 +157,8 @@ export interface PinnedInstall {
   orgId: string;
   /** Approval-gated: the publisher's tier needs approval under the org's consumption policy. */
   gated: boolean;
+  /** The install has a change request pending (anyone's): an apply-mode move of it waits. */
+  pendingChange?: boolean;
 }
 
 /** What moving one pipeline takes. */
@@ -180,6 +207,8 @@ export interface RolloutDeps {
   plan(pipeline: RolloutPipeline, rootOrgId: string | null, ref: RemediationRef, opts?: { pinRanges?: boolean }): Promise<MovePlan>;
   move(input: { row: UpgradeRow; pipeline: RolloutPipeline; rootOrgId: string | null; ref: RemediationRef; plan: MovePlan; actor: ApplyActor; rollback?: boolean }): Promise<MoveResult>;
   requestInstallChange(install: PinnedInstall, ref: RemediationRef): Promise<void>;
+  /** Re-start the redeploy of a move whose redeploy did not start (ok with `note: 'redeploy_failed'` when it still did not). */
+  redeploy(input: { row: UpgradeRow; pipeline: RolloutPipeline; rootOrgId: string | null }): Promise<MoveResult>;
   rollbackTarget(row: UpgradeRow, rootOrgId: string | null): Promise<RollbackTargetCheck>;
   report(remediationId: string, body: { summary: RemediationRolloutSummary; events: RolloutEvent[] }): Promise<'ok' | 'unknown' | 'failed'>;
 }
@@ -213,9 +242,11 @@ export type StateCounts = Record<PipelineRemediationUpgradeState, number>;
 // -- SQL helpers -------------------------------------------------------------------
 
 /** Rows a rollout has not decided yet: a repeat start re-targets them, a cancel supersedes them. */
-const OPEN_STATES = ['proposed', 'queued', 'change_requested', 'skipped_runner'] as const satisfies readonly PipelineRemediationUpgradeState[];
+const OPEN_STATES = ['proposed', 'queued', 'change_requested', 'skipped_runner', 'waiting_change_request'] as const satisfies readonly PipelineRemediationUpgradeState[];
 /** Rows a wave may move. */
 const MOVABLE_STATES = ['queued', 'skipped_runner'] as const satisfies readonly PipelineRemediationUpgradeState[];
+/** The `error` that marks a move refused because its install has another change pending. */
+export const INSTALL_CHANGE_PENDING = 'install_change_pending';
 
 const stateList = (states: readonly PipelineRemediationUpgradeState[]): SQL => sql.join(states.map((s) => sql`${s}`), sql`, `);
 
@@ -352,14 +383,22 @@ export async function loadPipeline(pipelineId: string): Promise<RolloutPipeline 
   };
 }
 
-/** False when the pipeline's linked runner(s) are all known unhealthy (revoked, pending or unreachable). */
-export async function runnerHealthy(pipelineId: string): Promise<boolean> {
+/**
+ * False when the pipeline's runner is known unhealthy: its linked runner(s)
+ * all revoked, pending or unreachable; unlinked, every runner routing could
+ * discover it through (`eligibleRunners`: the org's own, then its ancestors'
+ * shared ones) unhealthy. No runner at all is not "unhealthy" (routing answers
+ * NO_RUNNER; the redeploy retry records it).
+ */
+export async function runnerHealthy(pipelineId: string, orgId: string, rootOrgId: string | null, deps: () => RunnerDeps = runnerDeps): Promise<boolean> {
   const res = await asSystem((tx) => tx.execute(sql`
     SELECT r.status, r.health FROM pipeline_registry g JOIN pipeline_runners r ON r.id = g.runner_id
     WHERE g.pipeline_id = ${pipelineId}::uuid`));
   const runners = rowsOf<{ status: string; health: string }>(res);
-  if (runners.length === 0) return true;
-  return runners.some((r) => r.status === 'active' && r.health === 'healthy');
+  if (runners.length > 0) return runners.some((r) => r.status === 'active' && r.health === 'healthy');
+  const eligible = await eligibleRunners(deps(), orgId, rootOrgId ?? undefined);
+  if (eligible.length === 0) return true;
+  return eligible.some((e) => e.runner.status === 'active' && e.runner.health === 'healthy');
 }
 
 /** Of `pipelineIds`, the ones with a successful run in the last {@link REMEDIATION_CANARY_RECENT_DAYS} days. */
@@ -379,7 +418,7 @@ export type RunState = 'pending' | 'running' | 'finished';
 /** The run state of every MOVED row of a remediation (see {@link RunState}). */
 export async function runStates(remediationId: string): Promise<Map<string, RunState>> {
   const res = await asSystem((tx) => tx.execute(sql`
-    SELECT u.id::text AS id, rr.status AS run_status,
+    SELECT u.id::text AS id, u.state, rr.status AS run_status,
       EXISTS (
         SELECT 1 FROM pipeline_events e
         WHERE e.pipeline_id = u.pipeline_id AND e.event_type = 'PIPELINE'
@@ -389,10 +428,14 @@ export async function runStates(remediationId: string): Promise<Map<string, RunS
       ) AS finished
     FROM pipeline_remediation_upgrades u
     LEFT JOIN pipeline_run_requests rr ON rr.id = u.run_request_id
-    WHERE u.remediation_id = ${remediationId}::uuid AND u.state = 'moved'`));
+    WHERE u.remediation_id = ${remediationId}::uuid AND u.state IN ('moved', 'moved_pending_redeploy')`));
   const out = new Map<string, RunState>();
+  const all = rowsOf<{ id: string; state: string }>(res);
+  // A redeploy still being retried has not started: pending.
+  const pendingRedeploy = new Set(all.filter((r) => r.state === 'moved_pending_redeploy').map((r) => r.id));
   for (const r of rowsOf<{ id: string; run_status: string | null; finished: boolean }>(res)) {
-    if (r.run_status === null) out.set(r.id, 'finished');
+    if (pendingRedeploy.has(r.id)) out.set(r.id, 'pending');
+    else if (r.run_status === null) out.set(r.id, 'finished');
     else if ((PENDING_RUN_REQUEST_STATUSES as readonly string[]).includes(r.run_status)) out.set(r.id, 'pending');
     else if (r.run_status !== 'started') out.set(r.id, 'finished');
     else out.set(r.id, r.finished ? 'finished' : 'running');
@@ -404,7 +447,9 @@ export async function runStates(remediationId: string): Promise<Map<string, RunS
  * Whether a moved pipeline failed on a step using the new version within the
  * rollback window: a failed action whose (stage, action) the pipeline's stored
  * step-to-plugin mapping maps to the plugin at `toVersion`; with no mapping
- * at all, any failed event of the pipeline.
+ * at all, any failed event of the MOVED RUN (`execution_id` = the run
+ * request's `result_execution_id`) — any failed event of the pipeline only
+ * when the move started no run.
  */
 export async function failedOnNewVersion(row: UpgradeRow): Promise<boolean> {
   if (!row.movedAt) return false;
@@ -419,7 +464,13 @@ export async function failedOnNewVersion(row: UpgradeRow): Promise<boolean> {
         AND COALESCE(e.completed_at, e.created_at) >= ${from}::timestamptz
         AND COALESCE(e.completed_at, e.created_at) <= ${until}::timestamptz
         AND (
-          NOT EXISTS (SELECT 1 FROM pipeline_step_manifests m0 WHERE m0.pipeline_id = ${row.pipelineId}::uuid)
+          (
+            NOT EXISTS (SELECT 1 FROM pipeline_step_manifests m0 WHERE m0.pipeline_id = ${row.pipelineId}::uuid)
+            AND (
+              NOT EXISTS (SELECT 1 FROM pipeline_run_requests rr0 WHERE rr0.id = ${row.runRequestId}::uuid)
+              OR e.execution_id = (SELECT rr.result_execution_id FROM pipeline_run_requests rr WHERE rr.id = ${row.runRequestId}::uuid)
+            )
+          )
           OR EXISTS (
             SELECT 1 FROM pipeline_step_manifests m
             WHERE m.pipeline_id = e.pipeline_id AND m.stage_name = e.stage_name AND m.action_name = e.action_name
@@ -430,14 +481,16 @@ export async function failedOnNewVersion(row: UpgradeRow): Promise<boolean> {
   return rowsOf<{ failed: boolean }>(res)[0]?.failed === true;
 }
 
-/** The remediations with something left to do: queued moves, runner retries, or moves still in their rollback window. */
+/**
+ * The remediations with something left to do: queued moves, runner retries
+ * (an expired one is failed by the tick), moves waiting on a change request or
+ * a redeploy, or moves still in their rollback window.
+ */
 export async function activeRemediationIds(now: Date): Promise<string[]> {
   const windowStart = new Date(now.getTime() - REMEDIATION_ROLLBACK_WINDOW_MS).toISOString();
-  const retryStart = new Date(now.getTime() - RUNNER_RETRY_MAX_AGE_MS).toISOString();
   const res = await asSystem((tx) => tx.execute(sql`
     SELECT DISTINCT remediation_id::text AS id FROM pipeline_remediation_upgrades
-    WHERE state = 'queued'
-       OR (state = 'skipped_runner' AND created_at > ${retryStart}::timestamptz)
+    WHERE state IN ('queued', 'skipped_runner', 'waiting_change_request', 'moved_pending_redeploy')
        OR (state = 'moved' AND moved_at > ${windowStart}::timestamptz)`));
   return rowsOf<{ id: string }>(res).map((r) => r.id);
 }
@@ -466,7 +519,7 @@ export function pauseReason(rows: readonly UpgradeRow[]): RemediationRolloutPaus
   return null;
 }
 
-const WAVE_STATES: ReadonlySet<PipelineRemediationUpgradeState> = new Set(['moved', 'failed', 'rolled_back', 'rollback_blocked']);
+const WAVE_STATES: ReadonlySet<PipelineRemediationUpgradeState> = new Set(['moved', 'moved_pending_redeploy', 'failed', 'rolled_back', 'rollback_blocked']);
 
 /** The highest wave anything moved in (−1 when none yet). */
 function currentWave(rows: readonly UpgradeRow[]): number {
@@ -478,6 +531,8 @@ function currentWave(rows: readonly UpgradeRow[]): number {
  * runs finished (or the window ran out); a batch once its runs have started.
  */
 function waveSettled(rows: readonly UpgradeRow[], index: number, runs: ReadonlyMap<string, RunState>, now: Date): boolean {
+  // A move whose redeploy is still being retried never settles its wave (the retry cap ends it).
+  if (rows.some((r) => r.wave === index && r.state === 'moved_pending_redeploy')) return false;
   const wave = rows.filter((r) => r.wave === index && r.state === 'moved');
   if (index === 0) {
     return wave.every((r) => runs.get(r.id) === 'finished'
@@ -492,10 +547,12 @@ export function summarize(rows: readonly UpgradeRow[], toVersion: string, runs: 
   const paused = pauseReason(rows);
   const wave = currentWave(rows);
   const queued = counts.queued;
+  // Not finished: waiting on another change request, or on a redeploy retry.
+  const unfinished = queued + counts.waiting_change_request + counts.moved_pending_redeploy;
   let status: RemediationRolloutStatus;
   if (queued === 0 && rows.some((r) => r.state === 'superseded' && r.error === CANCELLED_ERROR)) status = 'cancelled';
   else if (paused) status = 'paused';
-  else if (queued === 0 && (wave < 0 || waveSettled(rows, wave, runs, now))) status = 'done';
+  else if (unfinished === 0 && (wave < 0 || waveSettled(rows, wave, runs, now))) status = 'done';
   else if (wave < 0) status = 'pending';
   else if (wave === 0) status = 'canary';
   else status = 'batches';
@@ -529,6 +586,8 @@ export function summarize(rows: readonly UpgradeRow[], toVersion: string, runs: 
       rolledBack: counts.rolled_back,
       skippedOptOut: counts.skipped_opt_out,
       skippedRunner: counts.skipped_runner,
+      waitingChangeRequest: counts.waiting_change_request,
+      movedPendingRedeploy: counts.moved_pending_redeploy,
     },
     ...(paused && status === 'paused' ? { pausedReason: paused } : {}),
     updatedAt: now.toISOString(),
@@ -576,8 +635,14 @@ function place(mode: PluginRemediationRollout, plan: MovePlan, isTeam: boolean, 
   // Teams only get proposals for pins in their own pipelines, and never move an
   // install they inherit (applied from the page once the root's install moved).
   if (isTeam && (plan.kind === 'step_pin' || inheritedInstall(plan.install, orgId))) return { state: 'proposed', mode: 'propose', error: null, requestChange: null };
+  // The install it would move has another change pending: only this pipeline waits.
+  if (plan.install?.pendingChange) return { state: 'waiting_change_request', mode, error: INSTALL_CHANGE_PENDING, requestChange: null };
   return { state: 'queued', mode, error: null, requestChange: null };
 }
+
+/** A successful move's state: `moved`, or `moved_pending_redeploy` when its redeploy did not start. */
+const movedState = (result: MoveResult & { ok: true }): 'moved' | 'moved_pending_redeploy' =>
+  (result.runRequestId === null && result.note === REDEPLOY_FAILED ? 'moved_pending_redeploy' : 'moved');
 
 /** The plan of a pipeline that is never planned (opted out). */
 const NO_PLAN: MovePlan = { kind: 'redeploy', steps: [], install: null };
@@ -689,19 +754,73 @@ export function createRolloutEngine(deps: RolloutDeps) {
       await patchRow(row.id, { state: placement.state, mode: placement.mode, error: placement.error }, from);
       return placement.state;
     }
-    if (!await runnerHealthy(row.pipelineId)) {
+    if (!await runnerHealthy(row.pipelineId, row.orgId, rootOrgId)) {
       await patchRow(row.id, { state: 'skipped_runner', wave, error: 'runner_unhealthy' }, from);
       return 'skipped_runner';
     }
     const result = await deps.move({ row, pipeline, rootOrgId, ref, plan, actor: REMEDIATION_ACTOR });
     if (!result.ok) {
+      // Another change request landed on the install since the plan: wait for it, don't fail.
+      if (result.error === INSTALL_CHANGE_PENDING) {
+        await patchRow(row.id, { state: 'waiting_change_request', mode: 'apply', error: INSTALL_CHANGE_PENDING }, from);
+        return 'waiting_change_request';
+      }
       await patchRow(row.id, { state: 'failed', mode: 'apply', wave, error: result.error }, from);
       return 'failed';
     }
+    const state = movedState(result);
     await patchRow(row.id, {
-      state: 'moved', mode: 'apply', wave, movedAt: deps.now(), runRequestId: result.runRequestId, error: result.note ?? null,
+      state, mode: 'apply', wave, movedAt: deps.now(), runRequestId: result.runRequestId, error: state === 'moved' ? (result.note ?? null) : `${REDEPLOY_FAILED}:1`,
     }, from);
-    return 'moved';
+    return state;
+  }
+
+  /**
+   * Retry the redeploy of a moved_pending_redeploy row (due every
+   * {@link REDEPLOY_RETRY_MS}); after {@link REDEPLOY_MAX_ATTEMPTS} it ends `failed`.
+   */
+  async function retryRedeploy(row: UpgradeRow): Promise<PipelineRemediationUpgradeState> {
+    const from = ['moved_pending_redeploy'] as const;
+    const pipeline = await loadPipeline(row.pipelineId);
+    if (!pipeline) {
+      await patchRow(row.id, { state: 'superseded', error: 'pipeline_deleted' }, from);
+      return 'superseded';
+    }
+    const attempts = redeployAttempts(row.error) + 1;
+    const result = await deps.redeploy({ row, pipeline, rootOrgId: await rootOrgOf(row.pipelineId, row.orgId) });
+    if (result.ok && movedState(result) === 'moved') {
+      await patchRow(row.id, { state: 'moved', runRequestId: result.runRequestId, error: null }, from);
+      return 'moved';
+    }
+    if (attempts >= REDEPLOY_MAX_ATTEMPTS) {
+      await patchRow(row.id, { state: 'failed', error: 'redeploy_retries_exhausted' }, from);
+      return 'failed';
+    }
+    await patchRow(row.id, { error: `${REDEPLOY_FAILED}:${attempts}` }, from);
+    return 'moved_pending_redeploy';
+  }
+
+  /**
+   * A waiting_change_request row whose install's change request was decided:
+   * approved (the plan no longer moves that install) → queued, moved by the
+   * next wave as planned; rejected (still pinned to the flagged version) →
+   * `dismissed`, `change_request_rejected`. Still pending → unchanged.
+   */
+  async function resumeWaiting(row: UpgradeRow): Promise<PipelineRemediationUpgradeState> {
+    const from = ['waiting_change_request'] as const;
+    const pipeline = await loadPipeline(row.pipelineId);
+    if (!pipeline) {
+      await patchRow(row.id, { state: 'superseded', error: 'pipeline_deleted' }, from);
+      return 'superseded';
+    }
+    const plan = await deps.plan(pipeline, await rootOrgOf(row.pipelineId, row.orgId), REF_OF(row));
+    if (plan.install?.pendingChange) return 'waiting_change_request';
+    if (plan.kind === 'install_pin') {
+      await patchRow(row.id, { state: 'dismissed', error: 'change_request_rejected' }, from);
+      return 'dismissed';
+    }
+    await patchRow(row.id, { state: 'queued', error: null }, from);
+    return 'queued';
   }
 
   /** Roll one moved row back (see the module doc for when it is refused). */
@@ -756,6 +875,30 @@ export function createRolloutEngine(deps: RolloutDeps) {
       }
     }
     if (rolledBack) rows = await loadRows(remediationId);
+
+    // Runner retries that ran out, redeploy retries that are due, and change requests that were decided.
+    let changed = false;
+    const expiredBefore = now.getTime() - RUNNER_RETRY_MAX_AGE_MS;
+    for (const row of rows.filter((r) => r.state === 'skipped_runner' && r.createdAt.getTime() <= expiredBefore)) {
+      changed = await patchRow(row.id, { state: 'failed', error: 'runner_unhealthy_expired' }, ['skipped_runner']) || changed;
+    }
+    const redeployBefore = now.getTime() - REDEPLOY_RETRY_MS;
+    for (const row of rows.filter((r) => r.state === 'moved_pending_redeploy' && r.updatedAt.getTime() <= redeployBefore)) {
+      try {
+        await retryRedeploy(row);
+        changed = true;
+      } catch (err) {
+        logger.warn('Remediation redeploy retry failed', { remediationId, pipelineId: row.pipelineId, error: errorMessage(err) });
+      }
+    }
+    for (const row of rows.filter((r) => r.state === 'waiting_change_request')) {
+      try {
+        if (await resumeWaiting(row) !== 'waiting_change_request') changed = true;
+      } catch (err) {
+        logger.warn('Remediation change-request resume failed', { remediationId, pipelineId: row.pipelineId, error: errorMessage(err) });
+      }
+    }
+    if (changed) rows = await loadRows(remediationId);
 
     const toVersion = rows.find((r) => r.state === 'queued')?.toVersion ?? rows[rows.length - 1]!.toVersion;
     const runs = await runStates(remediationId);
@@ -823,12 +966,15 @@ export function createRolloutEngine(deps: RolloutDeps) {
     if (plan.kind === 'install_pin') return { ok: false, error: 'install_change_needed' };
     const result = await deps.move({ row, pipeline, rootOrgId, ref, plan, actor });
     if (result.ok) {
-      await patchRow(row.id, { state: 'moved', mode: 'propose', movedAt: deps.now(), runRequestId: result.runRequestId, error: result.note ?? null }, ['proposed']);
+      const state = movedState(result);
+      await patchRow(row.id, {
+        state, mode: 'propose', movedAt: deps.now(), runRequestId: result.runRequestId, error: state === 'moved' ? (result.note ?? null) : `${REDEPLOY_FAILED}:1`,
+      }, ['proposed']);
     }
     return result;
   }
 
-  return { start, cancel, tick, tickOne, applyProposal, moveOne, rollbackOne };
+  return { start, cancel, tick, tickOne, applyProposal, moveOne, rollbackOne, retryRedeploy, resumeWaiting };
 }
 
 export type RolloutEngine = ReturnType<typeof createRolloutEngine>;
@@ -848,7 +994,18 @@ async function pinnedInstall(orgId: string, rootOrgId: string | null, ref: Remed
   if (!state || 'code' in state.mode || state.mode.kind !== 'explicit') return null;
   const install = state.mode.install;
   if (install.versionPolicy !== 'pinned' || install.pinnedVersion !== ref.fromVersion) return null;
-  return { id: install.id, orgId: install.orgId, gated: state.policy.requireApprovalTiers.includes(state.publisher.tier) };
+  return {
+    id: install.id,
+    orgId: install.orgId,
+    gated: state.policy.requireApprovalTiers.includes(state.publisher.tier),
+    ...(await installHasPendingChange(install.id) ? { pendingChange: true } : {}),
+  };
+}
+
+/** Whether install `id` has a change request pending (anyone's). */
+export async function installHasPendingChange(id: string): Promise<boolean> {
+  const res = await asSystem((tx) => tx.execute(sql`SELECT pending_change IS NOT NULL AS pending FROM plugin_installs WHERE id = ${id}::uuid`));
+  return rowsOf<{ pending: boolean }>(res)[0]?.pending === true;
 }
 
 /**
@@ -902,8 +1059,12 @@ export async function planMove(pipeline: Pick<RolloutPipeline, 'orgId' | 'props'
   return { kind, steps, install };
 }
 
-/** Move a pinned install's pin `from` → `to` (guarded on the pin; a no-op when it already reads `to`). */
-async function moveInstallPin(install: PinnedInstall, ref: RemediationRef, actor: ApplyActor): Promise<boolean> {
+/**
+ * Move a pinned install's pin `from` → `to` (guarded on the pin; a no-op when
+ * it already reads `to`): `moved`, `pending` (another change request holds the
+ * install) or `changed` (it no longer pins `from`).
+ */
+export async function moveInstallPin(install: PinnedInstall, ref: RemediationRef, actor: ApplyActor): Promise<'moved' | 'pending' | 'changed'> {
   const res = await asSystem((tx) => tx.execute(sql`
     UPDATE plugin_installs SET pinned_version = ${ref.toVersion}, resolved_version = NULL, updated_at = now()
     WHERE id = ${install.id}::uuid AND version_policy = 'pinned' AND pinned_version = ${ref.fromVersion}
@@ -923,18 +1084,25 @@ async function moveInstallPin(install: PinnedInstall, ref: RemediationRef, actor
         remediationId: ref.remediationId,
       },
     });
-    return true;
+    return 'moved';
   }
-  const now = await asSystem((tx) => tx.execute(sql`SELECT pinned_version FROM plugin_installs WHERE id = ${install.id}::uuid`));
-  return rowsOf<{ pinned_version: string | null }>(now)[0]?.pinned_version === ref.toVersion;
+  const now = await asSystem((tx) => tx.execute(sql`SELECT pinned_version, pending_change IS NOT NULL AS pending FROM plugin_installs WHERE id = ${install.id}::uuid`));
+  const current = rowsOf<{ pinned_version: string | null; pending: boolean }>(now)[0];
+  if (current?.pinned_version === ref.toVersion) return 'moved';
+  return current?.pending ? 'pending' : 'changed';
 }
 
-/** Open an install change request (the install's ONE pending change) to move its pin to the fix. */
-async function requestInstallChangeReal(install: PinnedInstall, ref: RemediationRef): Promise<void> {
+/**
+ * Open an install change request (the install's ONE pending change) to move
+ * its pin to the fix — only while the install is still pinned to the flagged
+ * version (moved meanwhile → nothing is requested).
+ */
+export async function requestInstallChange(install: PinnedInstall, ref: RemediationRef): Promise<void> {
   const change = { version: ref.toVersion, versionPolicy: 'pinned', requestedBy: SYSTEM_PLUGIN_REMEDIATION, requestedAt: new Date().toISOString(), note: `Security fix (remediation ${ref.remediationId})` };
   const res = await asSystem((tx) => tx.execute(sql`
     UPDATE plugin_installs SET pending_change = ${JSON.stringify(change)}::jsonb, updated_at = now()
     WHERE id = ${install.id}::uuid AND status = 'active' AND pending_change IS NULL
+      AND version_policy = 'pinned' AND pinned_version = ${ref.fromVersion}
     RETURNING id`));
   if (rowsOf(res).length === 0) return;
   recordAudit({
@@ -971,7 +1139,9 @@ async function moveReal(input: Parameters<RolloutDeps['move']>[0]): Promise<Move
     // request); on a rollback, an install the rollout moved goes back with it.
     if (plan.install && (input.rollback || !plan.install.gated)) {
       if (inheritedInstall(plan.install, orgId)) return { ok: false, error: 'install_inherited' };
-      if (!await moveInstallPin(plan.install, ref, actor)) return { ok: false, error: 'install_changed' };
+      const moved = await moveInstallPin(plan.install, ref, actor);
+      if (moved === 'pending') return { ok: false, error: INSTALL_CHANGE_PENDING };
+      if (moved === 'changed') return { ok: false, error: 'install_changed' };
     }
     if (plan.kind === 'step_pin') {
       const outcome = await applyUpgradeToPipeline({
@@ -993,12 +1163,30 @@ async function moveReal(input: Parameters<RolloutDeps['move']>[0]): Promise<Move
       const redeploy = outcome.redeploy;
       return redeploy && 'requestId' in redeploy
         ? { ok: true, runRequestId: redeploy.requestId }
-        : { ok: true, runRequestId: null, note: 'redeploy_failed' };
+        : { ok: true, runRequestId: null, note: REDEPLOY_FAILED };
     }
     // An admitted version (or a moved install): what the config resolves to now, then a redeploy.
     await recordPipelineResolution(pipeline.id, orgId, parentOrgId, pipeline.props);
     const redeploy = await redeployPipeline({ pipelineId: pipeline.id, orgId, ...(parentOrgId ? { parentOrgId } : {}), actor, batchId, reason: 'plugin-remediation', details: auditDetails });
-    return 'requestId' in redeploy ? { ok: true, runRequestId: redeploy.requestId } : { ok: true, runRequestId: null, note: 'redeploy_failed' };
+    return 'requestId' in redeploy ? { ok: true, runRequestId: redeploy.requestId } : { ok: true, runRequestId: null, note: REDEPLOY_FAILED };
+  });
+}
+
+/** The real redeploy retry: the start path alone (the config already moved), as the system principal. */
+async function redeployReal(input: Parameters<RolloutDeps['redeploy']>[0]): Promise<MoveResult> {
+  const { row, pipeline, rootOrgId } = input;
+  const parentOrgId = rootOrgId ?? undefined;
+  return runWithTenantContext({ orgId: pipeline.orgId, isSuperAdmin: true, ...(parentOrgId ? { parentOrgId } : {}) }, async () => {
+    const redeploy = await redeployPipeline({
+      pipelineId: pipeline.id,
+      orgId: pipeline.orgId,
+      ...(parentOrgId ? { parentOrgId } : {}),
+      actor: REMEDIATION_ACTOR,
+      batchId: row.remediationId,
+      reason: 'plugin-remediation',
+      details: { remediationId: row.remediationId, retry: true },
+    });
+    return 'requestId' in redeploy ? { ok: true, runRequestId: redeploy.requestId } : { ok: true, runRequestId: null, note: REDEPLOY_FAILED };
   });
 }
 
@@ -1068,7 +1256,8 @@ export function realRolloutDeps(): RolloutDeps {
     settings: (orgId, rootOrgId) => readOrgRolloutSettings(orgId, rootOrgId),
     plan: planMove,
     move: moveReal,
-    requestInstallChange: requestInstallChangeReal,
+    requestInstallChange,
+    redeploy: redeployReal,
     rollbackTarget: checkRollbackTarget,
     report: reportReal,
   };

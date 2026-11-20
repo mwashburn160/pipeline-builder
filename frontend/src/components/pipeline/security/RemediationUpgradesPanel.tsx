@@ -130,6 +130,9 @@ export function RemediationUpgradesPanel({ pipelineId, canWrite, kevSteps = [], 
   const waves = inSection('wave');
   const history = inSection('history');
   const skippedRunner = upgrades.filter((u) => u.state === 'skipped_runner').length;
+  /** The operator turned remediation off on this platform (PLUGIN_REMEDIATION_ENABLED=false): nothing moves, Apply included. */
+  const operatorOff = data?.enabled === false;
+  const applyLock = operatorOff ? 'Plugin security fixes are turned off by the operator' : LOCK;
 
   const optedOut = data?.effective.mode === 'off' && data.effective.source === 'pipeline';
   const kevUnused = upgrades.filter((u) => u.state === 'skipped_opt_out' || (u.kev === true && optedOut));
@@ -145,6 +148,14 @@ export function RemediationUpgradesPanel({ pipelineId, canWrite, kevSteps = [], 
       {read.error && <RetryError message={formatError(read.error, 'Failed to load plugin security fixes')} onRetry={read.refetch} />}
       {data && (
         <div className="space-y-4" data-testid="remediation-upgrades">
+          {operatorOff && (
+            <Callout variant="warning" title="Plugin security fixes are turned off">
+              <span data-testid="remediation-operator-off">
+                Plugin security fixes are turned off by the operator of this platform. Nothing is proposed, applied or rolled back until they turn it back on.
+              </span>
+            </Callout>
+          )}
+
           {showKevBanner && (
             <Callout variant="danger" title="Known exploited vulnerability, and this pipeline opted out of fixes">
               <span data-testid="kev-opt-out-banner">
@@ -209,7 +220,7 @@ export function RemediationUpgradesPanel({ pipelineId, canWrite, kevSteps = [], 
                   {u.kev ? ' Includes a known exploited vulnerability.' : ''}
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  <Button className="text-xs" disabled={!canWrite || busy !== null} title={canWrite ? undefined : LOCK} onClick={() => { void act(u, 'apply'); }}>
+                  <Button className="text-xs" disabled={!canWrite || operatorOff || busy !== null} title={canWrite && !operatorOff ? undefined : applyLock} onClick={() => { void act(u, 'apply'); }}>
                     Apply
                   </Button>
                   <Button variant="secondary" className="text-xs" disabled={!canWrite || busy !== null} title={canWrite ? undefined : LOCK} onClick={() => { void act(u, 'dismiss'); }}>
@@ -237,6 +248,12 @@ export function RemediationUpgradesPanel({ pipelineId, canWrite, kevSteps = [], 
                     <UpgradeLine u={u} />
                     {u.wave != null && <span>{u.wave === 0 ? 'Canary wave' : `Batch ${u.wave}`}</span>}
                     {u.movedAt && <span>moved <RelativeTime value={u.movedAt} /></span>}
+                    {u.state === 'waiting_change_request' && (
+                      <span className="block w-full">Held: another change request is pending on the install this moves. It continues once an approver decides that request.</span>
+                    )}
+                    {u.state === 'moved_pending_redeploy' && (
+                      <span className="block w-full">The config moved, but its redeploy did not start; the redeploy is retried automatically.</span>
+                    )}
                   </li>
                 ))}
               </ul>

@@ -52,6 +52,7 @@ import {
   remediationExportKey,
   SYSTEM_ORG_ID,
   SYSTEM_PLUGIN_REMEDIATION,
+  TOOLCHAIN_FIX_MAX_GATE_REFUSALS,
   TOOLCHAIN_FIX_METRICS,
   TOOLCHAIN_FIX_PUBLISH_LEASE_MS,
   toolchainFromMetadata,
@@ -82,6 +83,7 @@ import { liveToolchainInputs, type ToolchainInputFiles, type ToolchainInputsStor
 import { TOOLCHAIN_SYNTH_SMOKE_COMMAND } from './toolchain-smoke.js';
 import { refreshNodeImage, toolchainFromDockerfile, toolchainInputsOf, toolchainSpecChange, type ToolchainDir } from './toolchain-spec.js';
 import { verifyToolchainCandidate, type ToolchainHalfEvidence } from './toolchain-verify.js';
+import { remediationConfig } from '../../config.js';
 import type { PluginRecordData } from '../../helpers/plugin-helpers.js';
 import { EcosystemError } from '../ecosystem/context.js';
 import { putRemediationArtifact } from '../plugin-sources.js';
@@ -555,6 +557,8 @@ async function storedHalf(name: string, version: string): Promise<Pick<Plugin, '
  * that never released it) resumes the remaining steps, with the same number.
  */
 export async function approveToolchainFix(row: PluginRemediation, actor: string, reason: string | null, deps: DecisionDeps): Promise<PluginRemediation> {
+  // The operator knob off stops every remediation write, an approval's publish (and its resume) included.
+  if (!remediationConfig().enabled) throw new EcosystemError(ErrorCode.SERVICE_UNAVAILABLE, 'Plugin remediation is turned off by the operator');
   const c = assertDecidable(row);
   const now = new Date();
   const resuming = !!c.publish;
@@ -567,13 +571,35 @@ export async function approveToolchainFix(row: PluginRemediation, actor: string,
   const claimed = await claimPublish(row, state, resuming ? null : { by: actor, reason }, now);
   if (!claimed) throw stageConflict('being published', { reason: 'PUBLISH_IN_PROGRESS' });
 
-  const save = async (): Promise<void> => {
-    state.leaseUntil = leaseFrom(new Date());
-    await updateRemediation(row.id, { toolchainCandidate: { ...c, publish: state } }, ['awaiting_approval']);
+  // Every write of the publish state is conditional on STILL holding the lease
+  // this attempt claimed (the leaseUntil it last wrote): an attempt whose lease
+  // passed and was taken over by a resume (or another approver) can neither
+  // renew, release nor overwrite the new holder's lease and progress.
+  const R = schema.pluginRemediation;
+  const writeHeld = async (held: string, set: Partial<typeof R.$inferInsert>): Promise<boolean> => {
+    const rows = await elevatedTx((tx) => tx.update(R).set({ ...set, updatedAt: new Date() }).where(and(
+      eq(R.id, row.id),
+      eq(R.stage, 'awaiting_approval'),
+      sql`${R.toolchainCandidate}->'publish'->>'leaseUntil' = ${held}`,
+    )).returning({ id: R.id })) as Array<{ id: string }>;
+    return rows.length > 0;
   };
+  const leaseLost = (): EcosystemError => stageConflict('being published', { reason: 'LEASE_LOST' });
+  let gateRefusals = c.gateRefusals ?? 0;
+  /** Record progress and renew the lease; refuses (LEASE_LOST) once another attempt holds it. */
+  const save = async (): Promise<void> => {
+    const held = state.leaseUntil;
+    state.leaseUntil = leaseFrom(new Date());
+    if (!await writeHeld(held, { toolchainCandidate: { ...c, gateRefusals, publish: state } })) {
+      state.leaseUntil = held;
+      throw leaseLost();
+    }
+  };
+  /** Give the lease up (keeping the progress) — only while this attempt still holds it. */
   const releaseLease = async (): Promise<void> => {
+    const held = state.leaseUntil;
     state.leaseUntil = EXPIRED;
-    await updateRemediation(row.id, { toolchainCandidate: { ...c, publish: state } }, ['awaiting_approval']).catch(() => null);
+    await writeHeld(held, { toolchainCandidate: { ...c, gateRefusals, publish: state } }).catch(() => false);
   };
   const auditFields = { ...(resuming ? { resumed: true, approvedBy: state.approvedBy } : {}), ...(reason ? { reason } : {}) };
 
@@ -597,16 +623,35 @@ export async function approveToolchainFix(row: PluginRemediation, actor: string,
     }
     const gated = await deps.ports.scan({ orgId: SYSTEM_ORG_ID, name: half.name, digest: half.digest }, record);
     if (gated.scan.refusal) {
-      // Nothing stored yet: back to undecided (reject is possible again). Otherwise keep the progress.
-      if (!state.steps.bootstrap && !state.steps.cdkSynth) {
-        await updateRemediation(row.id, { toolchainCandidate: { ...c, publish: undefined }, decidedBy: null, decidedAt: null, decisionReason: null }, ['awaiting_approval']);
+      gateRefusals++;
+      const exhausted = gateRefusals >= TOOLCHAIN_FIX_MAX_GATE_REFUSALS;
+      const held = state.leaseUntil;
+      let wrote: boolean;
+      if (exhausted) {
+        // Refused again and again: a person must look (needs_review), and the failure is alerted (ToolchainFixFailing).
+        state.leaseUntil = EXPIRED;
+        wrote = await writeHeld(held, { stage: 'needs_review', error: 'GATE_REFUSED', toolchainCandidate: { ...c, gateRefusals, publish: state } });
+        if (wrote) {
+          incCounter(TOOLCHAIN_FIX_METRICS.failures, { stage: 'gate_refused' });
+          countStage('needs_review', null);
+          logger.error('Toolchain fix publish refused by the build gate too many times; moved to needs_review', { remediationId: row.id, refusals: gateRefusals, refusal: gated.scan.refusal });
+        }
+      } else if (!state.steps.bootstrap && !state.steps.cdkSynth) {
+        // Nothing stored yet: back to undecided (reject is possible again). Otherwise keep the progress.
+        wrote = await writeHeld(held, { toolchainCandidate: { ...c, gateRefusals, publish: undefined }, decidedBy: null, decidedAt: null, decisionReason: null });
       } else {
         await releaseLease();
+        wrote = true;
       }
-      auditToolchainFix('toolchain.fix.approved', row, { refusal: gated.scan.refusal, half: half.name, ...auditFields }, actor, 'failure');
-      throw stageConflict('refused by the build gate', { reason: 'GATE_REFUSED', half: half.name, refusal: gated.scan.refusal });
+      if (!wrote) throw leaseLost();
+      auditToolchainFix('toolchain.fix.approved', row, { refusal: gated.scan.refusal, half: half.name, refusals: gateRefusals, ...(exhausted ? { movedTo: 'needs_review' } : {}), ...auditFields }, actor, 'failure');
+      throw stageConflict('refused by the build gate', {
+        reason: 'GATE_REFUSED', half: half.name, refusal: gated.scan.refusal, refusals: gateRefusals, ...(exhausted ? { stage: 'needs_review' } : {}),
+      });
     }
     plan.push({ half, key, record, gated });
+    // A re-scan can be slow: renew the lease so a resume never takes over mid-publish.
+    await save();
   }
 
   try {
@@ -639,6 +684,8 @@ export async function approveToolchainFix(row: PluginRemediation, actor: string,
       await save();
     }
   } catch (err) {
+    // A lost lease is not a failure: the attempt holding it now carries on.
+    if ((err as { details?: { reason?: string } }).details?.reason === 'LEASE_LOST') throw err;
     incCounter(TOOLCHAIN_FIX_METRICS.failures, { stage: state.steps.bootstrap && state.steps.cdkSynth && !state.steps.inputs ? 'keep_inputs' : 'publish' });
     logger.error('Toolchain fix publish failed; it resumes on the next approve or the nightly sweep', { remediationId: row.id, steps: state.steps, error: errorMessage(err) });
     await releaseLease();
@@ -674,6 +721,7 @@ export async function approveToolchainFix(row: PluginRemediation, actor: string,
  * remediation system on behalf of the original approver. Never throws.
  */
 export async function resumeStuckToolchainFixes(deps: DecisionDeps, now: Date = new Date()): Promise<number> {
+  if (!remediationConfig().enabled) return 0;
   const R = schema.pluginRemediation;
   const stuck = await elevatedTx((tx) => tx.select().from(R).where(and(
     eq(R.kind, 'toolchain'),

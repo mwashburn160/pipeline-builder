@@ -151,6 +151,16 @@ describe('upgrade levels', () => {
     expect(out.remaining).toEqual([expect.objectContaining({ reason: 'go_module_major', requiredLevel: 'owner' })]);
   });
 
+  it('a finding the scan recorded without package details goes to the owner as no_package_details, never patched', async () => {
+    const f = CANARY_FIXTURES[0]!;
+    const finding = fixtureFinding(f, { purl: `${f.type}:${f.packageName}@x`, locations: [], unremediable: 'no_package_details' });
+    const world = fakeWorld([{ f, finding }], canaryContext(f));
+    const out = await runRemediationEngine(input([finding]), world.ports);
+    expect(out.remaining).toEqual([expect.objectContaining({ id: f.advisory, reason: 'no_package_details' })]);
+    expect(out.cleared).toEqual([]);
+    expect(out.candidate).toBeNull();
+  });
+
   it('a KEV finding with no fix goes to the owner as no_fix', async () => {
     const f = CANARY_FIXTURES[0]!;
     const finding = fixtureFinding(f, { fixedIn: [], kev: true });

@@ -11,9 +11,9 @@
  *   GET  /plugins/remediations/:id                 plugins:read   one (own org; 404 otherwise)
  *   GET  /plugins/remediations/:id/patch           plugins:read   the remediation.diff (text/x-diff attachment; never the ZIP)
  *   GET  /plugins/remediations/:id/export          system org + plugins:write   an Official fix's deploy/plugins/** export
- *   POST /plugins/remediations/:id/approve         plugins:write + step-up   awaiting_approval → re-run, verify and publish (503 while the operator knob is off)
+ *   POST /plugins/remediations/:id/approve         plugins:write + step-up   awaiting_approval → re-run, verify and publish (503 while the operator knob is off; 409 PLUGIN_REMEDIATION_MODE_OFF while the org's mode is off)
  *   POST /plugins/remediations/:id/reject          plugins:write + step-up   awaiting_approval → failed / rejected
- *   POST /plugins/remediations/:id/retry           plugins:write  failed | needs_owner | needs_review → a new attempt (counts toward the daily cap)
+ *   POST /plugins/remediations/:id/retry           plugins:write + step-up   failed | needs_owner | needs_review → a new attempt (counts toward the daily cap, held under a per-org lock; 503 / 409 like approve)
  *   GET  /plugins/remediation-settings             plugins:read   the org's pluginRemediation settings
  *   PUT  /plugins/remediation-settings             org_settings:write
  *   PUT  /plugins/by-name/:name/remediation-level  plugins:write  a plugin's own library upgrade level (null = Follow organization)
@@ -40,7 +40,8 @@ import {
   type Permission,
   type PluginRemediationStage,
 } from '@pipeline-builder/api-core';
-import type { PluginRemediation } from '@pipeline-builder/pipeline-data';
+import { schema, type PluginRemediation } from '@pipeline-builder/pipeline-data';
+import { and, eq } from 'drizzle-orm';
 import { Router, type RequestHandler, type Response } from 'express';
 
 import { bodyFrom, ecosystemRoute, param } from './ecosystem-route.js';
@@ -52,7 +53,7 @@ import { toRemediationDto } from '../services/remediation/dto.js';
 import { auditRemediation, countStage } from '../services/remediation/lifecycle.js';
 import { queuePriority } from '../services/remediation/queueing.js';
 import {
-  getOrgRemediation, insertRemediation, listRemediations, readSettingsRow, remediationsCreatedSince, updateRemediation, writeSettings,
+  getOrgRemediation, insertRemediationUnderCap, listRemediations, readSettings, readSettingsRow, remediationsCreatedSince, updateRemediation, writeSettings,
 } from '../services/remediation/store.js';
 
 export type { ArtifactReader };
@@ -66,6 +67,13 @@ const RETRYABLE_STAGES = ['failed', 'needs_owner', 'needs_review'] as const sati
 const PLUGIN_NAME = /^[a-z0-9][a-z0-9._-]{0,254}$/;
 
 const disabled = (): EcosystemError => new EcosystemError(ErrorCode.SERVICE_UNAVAILABLE, 'Plugin remediation is turned off by the operator');
+/** The org's pluginRemediation.mode is off: nothing would run for it, so approving or retrying is refused. */
+async function assertOrgModeOn(caller: Caller): Promise<void> {
+  const { mode } = await readSettings(caller.orgId, !!caller.parentOrgId);
+  if (mode === 'off') {
+    throw new EcosystemError(ErrorCode.PLUGIN_REMEDIATION_MODE_OFF, 'Plugin remediation is turned off for this organization (Settings → Plugin security fixes); turn it on to approve or retry', { mode });
+  }
+}
 const notFound = (): EcosystemError => new EcosystemError(ErrorCode.NOT_FOUND, 'Remediation not found');
 const stageConflict = (stage: string): EcosystemError => new EcosystemError(ErrorCode.REMEDIATION_STAGE_CONFLICT, `Not possible while the remediation is ${stage}`, { stage });
 /** A toolchain release candidate is decided only by the system org's toolchain-fixes routes (it is never re-run and published from here). */
@@ -132,6 +140,7 @@ export function createRemediationRoutes(): Router {
     if (row.stage !== 'awaiting_approval' || row.decidedAt) throw stageConflict(row.decidedAt ? 'approved and publishing' : row.stage);
     // The approved run is the job's: with the operator knob off it would never run.
     if (!remediationConfig().enabled) throw disabled();
+    await assertOrgModeOn(caller);
     const decided = await updateRemediation(row.id, { decidedBy: caller.userId, decidedAt: new Date(), decisionReason: reason ?? null }, ['awaiting_approval'], { undecided: true });
     if (!decided) throw stageConflict('changing');
     auditRemediation('plugin.remediation.approved', decided, { ...(reason ? { reason } : {}) }, caller.userId);
@@ -154,18 +163,14 @@ export function createRemediationRoutes(): Router {
     sendSuccess(res, 200, toRemediationDto(done));
   }));
 
-  router.post('/remediations/:id/retry', write, audited('plugin.remediation.retried', 'plugin.remediation.started') as RequestHandler, ecosystemRoute(async ({ req, res, caller }) => {
+  router.post('/remediations/:id/retry', write, requireStepUp as RequestHandler, audited('plugin.remediation.retried', 'plugin.remediation.started') as RequestHandler, ecosystemRoute(async ({ req, res, caller }) => {
     const row = await ownRemediation(caller, param(req, 'id'));
     if (!(RETRYABLE_STAGES as readonly string[]).includes(row.stage)) throw stageConflict(row.stage);
     const cfg = remediationConfig();
     if (!cfg.enabled) throw disabled();
-    const used = await remediationsCreatedSince(caller.orgId);
-    if (used >= cfg.maxPerOrgPerDay) {
-      throw new EcosystemError(ErrorCode.QUOTA_EXCEEDED, `This organization has used its ${cfg.maxPerOrgPerDay} remediations for today`, { used, limit: cfg.maxPerOrgPerDay });
-    }
-    // A paused rollout keeps its version; its row closes so the new attempt can be live.
-    if (row.stage === 'needs_review') await updateRemediation(row.id, { stage: 'done', outcome: 'superseded', finishedAt: new Date() }, ['needs_review']);
-    const next = await insertRemediation({
+    await assertOrgModeOn(caller);
+    // Count and insert under one per-org lock: concurrent retries never exceed the cap together.
+    const inserted = await insertRemediationUnderCap({
       orgId: row.orgId,
       pluginId: row.pluginId,
       pluginName: row.pluginName,
@@ -177,7 +182,16 @@ export function createRemediationRoutes(): Router {
       // A toolchain release candidate retries as one (propose-only, never published by the job).
       kind: row.kind,
       createdBy: caller.userId,
+    }, cfg.maxPerOrgPerDay, {
+      // A paused rollout keeps its version; its row closes (in the same transaction) so the new attempt can be live.
+      beforeInsert: row.stage === 'needs_review'
+        ? async (tx) => { await tx.update(schema.pluginRemediation).set({ stage: 'done', outcome: 'superseded', finishedAt: new Date(), updatedAt: new Date() }).where(and(eq(schema.pluginRemediation.id, row.id), eq(schema.pluginRemediation.stage, 'needs_review'))); }
+        : undefined,
     });
+    if (inserted.status === 'capped') {
+      throw new EcosystemError(ErrorCode.QUOTA_EXCEEDED, `This organization has used its ${cfg.maxPerOrgPerDay} remediations for today`, { used: inserted.used, limit: cfg.maxPerOrgPerDay });
+    }
+    const next = inserted.status === 'inserted' ? inserted.row : null;
     if (!next) throw stageConflict('already being remediated');
     countStage('queued', null);
     auditRemediation('plugin.remediation.retried', next, { retryOf: row.id }, caller.userId);

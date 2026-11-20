@@ -183,7 +183,8 @@ When the platform publishes a fixed version of a flagged plugin (see [Automatic 
 
 - A step or install on a `patch`, `minor` or `latest` policy already admits the fix and picks it up at its next synth. The rollout triggers that synth (a redeploy), so the fix doesn't wait for the next code change.
 - A pinned step or pinned install is moved through the same path as **Upgrade plugins**, which re-runs template validation, the contract check and compliance on each pipeline. Each move is audited as `pipeline.plugin.upgraded` with the actor `system:plugin-remediation`.
-- An install whose change needs approval (`plugin_installs:manage`) gets a **change request** instead, never an automatic move.
+- An install whose change needs approval (`plugin_installs:manage`) gets a **change request** instead, never an automatic move. A change request is opened only while the install is still pinned to the flagged version.
+- An install that already has a change request pending (anyone's) holds only the pipelines that would move **that** install: they show **Waiting for a change request** (`waiting_change_request`) and the rest of the rollout carries on. Once an approver decides the request, the rollout resumes them: approved, they are moved or redeployed as planned; rejected (the install still pins the flagged version), they end as dismissed with the reason `change_request_rejected`.
 - For an Official plugin, the fix arrives as a new listing version and the rollout runs against listing installs in every organization.
 - A team can't change an install it inherits from its root organization, so the root's rollout moves inherited installs. Teams get proposals only for pins in their own pipelines.
 
@@ -220,16 +221,18 @@ Precedence, per pipeline:
 
 The election is a platform setting: it is lifted out of the definition before synth and never changes the synthesized template. Inside the `props` of an API request it is refused — send it at the top level. The election is per pipeline; there is no per-step opt-out.
 
-The pipeline list filters opted-out pipelines (`GET /api/pipelines?remediationUpgrades=off`). The pipeline's security tab shows its election, open proposals, wave status and rollback history (`GET /api/pipelines/:id/remediation-upgrades`); **Apply** and **Dismiss** act on one proposal.
+The pipeline list filters opted-out pipelines (`GET /api/pipelines?remediationUpgrades=off`). The pipeline's security tab shows its election, open proposals, wave status and rollback history (`GET /api/pipelines/:id/remediation-upgrades`); **Apply** and **Dismiss** act on one proposal. **Apply** is refused with `503 PLUGIN_REMEDIATION_DISABLED` while the operator has turned remediation off (`PLUGIN_REMEDIATION_ENABLED=false`; the panel then says so and Apply is greyed out), and with `409 PIPELINE_REMEDIATION_OFF` when the pipeline's effective setting (pipeline, then team, then root) is `off`.
 
 **Waves, in apply mode.**
 
 1. **Canary**: up to 5 pipelines, preferring ones that ran successfully in the last 7 days. The rollout waits for each canary run; if one fails on a step using the new version, the rollout stops.
 2. **Batches** of 50, within your organization's run limits, each waiting for the previous batch's runs to start.
 
-Every redeploy goes through your organization's runner. A pipeline whose runner is unhealthy is skipped, retried in a later wave, and counted separately.
+Every redeploy goes through your organization's runner. A pipeline whose runner is unhealthy is skipped, retried in a later wave (at most hourly), and counted separately. "Its runner" is the runner the pipeline is linked to or, when it isn't linked yet, every runner it could be routed to (your organization's own, then the ones your parent organizations share). After 7 days of unhealthy-runner skips the pipeline ends as **Move failed** (`runner_unhealthy_expired`).
 
-**Rollback.** A run that fails on a step using the new version within **24 hours** of the move puts that pipeline back on its previous version and notifies its owners (N38). The failed step is mapped to its plugin through the pipeline's stored step-to-plugin mapping; a pipeline with no mapping is rolled back on any failed run in the window.
+A move whose redeploy did not start (a run was already starting in the duplicate window, or the runner refused it) shows **Moved, redeploy pending** (`moved_pending_redeploy`). Its wave doesn't count as finished, and the rollout isn't reported done, until a retried redeploy starts. The redeploy is retried every 10 minutes, up to 6 attempts in all, then the pipeline ends as **Move failed** (`redeploy_retries_exhausted`). Its config stays on the fix; run it to deploy. The rollout summary counts these (`movedPendingRedeploy`) and the waiting ones (`waitingChangeRequest`).
+
+**Rollback.** A run that fails on a step using the new version within **24 hours** of the move puts that pipeline back on its previous version and notifies its owners (N38). The failed step is mapped to its plugin through the pipeline's stored step-to-plugin mapping; a pipeline with no mapping is rolled back on a failure of the run the move started (its execution), or on any failed run in the window when the move started none.
 
 - **Two rollbacks** in one rollout pause it, and the remediation is marked **needs review**. The version stays published, so owners can still choose it.
 - Rollback only goes to a **live** version. If the previous version has been deleted since, that pipeline's rollout pauses and its owners are told, with the live versions they can choose.
@@ -504,4 +507,6 @@ AI generation offers your installed listings and the implicit Official ones. It 
 | `HUMAN_SESSION_REQUIRED` | 403 | Reviews, votes, reports and replies need a person signed in, not an access key or service account. |
 | `RATE_LIMIT_EXCEEDED` | 429 | Too many reviews. `details.reason: org_daily_limit` means your organization posted 20 today. |
 | `DUPLICATE_ENTRY` | 409 | You already reviewed this plugin (edit it instead), or already reported this review. |
+| `PIPELINE_REMEDIATION_OFF` | 409 | A remediation proposal can't be applied: plugin security fixes are `off` for the pipeline (set on the pipeline, its team or the root organization). `details.source` says which. |
+| `PLUGIN_REMEDIATION_DISABLED` | 503 | Plugin security fixes are turned off on this platform by its operator (`PLUGIN_REMEDIATION_ENABLED=false`). |
 | `PIPELINE_REMEDIATION_APPLY_NOT_ALLOWED` | 403 | Your root organization does not let a pipeline choose `apply` for remediation upgrades while the organization default is `propose` or `off`. Choose `inherit`, `off` or `propose`. |

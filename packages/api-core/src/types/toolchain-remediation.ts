@@ -170,7 +170,12 @@ export interface ToolchainFixCandidate {
   verifiedAt: string;
   /** Set when approved: the publish's progress (resumable). */
   publish?: ToolchainFixPublishState;
+  /** How many approve / resume attempts the build gate's re-scan refused; at {@link TOOLCHAIN_FIX_MAX_GATE_REFUSALS} the candidate moves to `needs_review`. */
+  gateRefusals?: number;
 }
+
+/** Gate refusals of one candidate's publish before it is moved to `needs_review` (counted on `toolchain_fix_failures_total{stage="gate_refused"}`). */
+export const TOOLCHAIN_FIX_MAX_GATE_REFUSALS = 3;
 
 // -- wire shapes ---------------------------------------------------------------
 
@@ -214,7 +219,8 @@ export interface ToolchainFixList {
 export const TOOLCHAIN_FIX_METRICS = {
   /** {outcome}: proposed | refused | approved | rejected. */
   candidates: 'toolchain_fix_candidates_total',
-  /** {stage}: keep_inputs (a release's build inputs could not be kept) | publish (an approved pair did not fully publish). Alerted. */
+  /** {stage}: keep_inputs (a release's build inputs could not be kept) | publish (an approved pair did not fully publish)
+   *  | gate_refused (the build gate refused its publish TOOLCHAIN_FIX_MAX_GATE_REFUSALS times; moved to needs_review). Alerted. */
   failures: 'toolchain_fix_failures_total',
   /** {outcome}: resumed | idle | skipped (knobs off) | error — one per tick of the stuck-publish resume scheduler. */
   resumeRuns: 'toolchain_fix_resume_runs_total',

@@ -174,6 +174,29 @@ describe('Toolchain fixes card', () => {
     expect(await screen.findByTestId('toolchain-fixes-off')).toHaveTextContent('PLUGIN_REMEDIATION_ENABLED=false');
   });
 
+  it('remediation off: Approve and Resume publish are locked (the route answers 503); Reject stays', async () => {
+    fns.listToolchainFixes.mockImplementation(() => list([fix()], { enabled: false }));
+    await card();
+    expect(screen.getByRole('button', { name: 'Approve 1.1.32' })).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByRole('button', { name: 'Reject 1.1.32' })).not.toHaveAttribute('aria-disabled', 'true');
+  });
+
+  it('a 503 on approve (the operator turned remediation off meanwhile) shows the off notice', async () => {
+    const { ApiError } = await import('../src/lib/api/errors');
+    fns.approveToolchainFix.mockImplementation(() => Promise.reject(new ApiError('Plugin remediation is turned off by the operator', 503, 'SERVICE_UNAVAILABLE')));
+    await card();
+    fireEvent.click(screen.getByRole('button', { name: 'Approve 1.1.32' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'step-up' })).getByRole('button', { name: 'Confirm identity' }));
+    expect(await screen.findByText('Remediation is turned off by the operator')).toBeInTheDocument();
+  });
+
+  it('a candidate moved to needs review after repeated gate refusals says why', async () => {
+    fns.listToolchainFixes.mockImplementation(() => list([fix({ stage: 'needs_review', error: 'GATE_REFUSED' })]));
+    const item = await card();
+    expect(item).toHaveTextContent(/failed the build gate/i);
+    expect(screen.queryByRole('button', { name: 'Approve 1.1.32' })).not.toBeInTheDocument();
+  });
+
   it('without plugins:write it reads nothing and says what is needed', () => {
     render(<ToolchainFixesCard allowed={false} canWrite={false} onPublished={jest.fn<() => void>()} />);
     expect(screen.getByTestId('toolchain-fixes')).toHaveTextContent('plugins:write');

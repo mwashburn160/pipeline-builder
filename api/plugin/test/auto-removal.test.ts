@@ -23,7 +23,10 @@ describe('autoRemovalProtection', () => {
   it.each([
     [{ isActive: true, deletedAt: null, otherLiveVersions: 3 }, 'active'],
     [{ isActive: false, deletedAt: null, otherLiveVersions: 0 }, 'only_version'],
-    [{ isActive: true, deletedAt: new Date(), otherLiveVersions: 0 }, 'only_version'],
+    // Only-version protects LIVE versions only: a tombstone with no live sibling
+    // (the whole plugin soft-deleted) is purged after its window.
+    [{ isActive: true, deletedAt: new Date(), otherLiveVersions: 0 }, null],
+    [{ isActive: false, deletedAt: new Date(), otherLiveVersions: 0 }, null],
     [{ isActive: true, deletedAt: new Date(), otherLiveVersions: 1 }, null],
     [{ isActive: false, deletedAt: null, otherLiveVersions: 1 }, null],
   ] as const)('%j → %s', (facts, want) => {
@@ -64,7 +67,7 @@ describe('the SQL twin', () => {
     ]);
   });
 
-  it('the last non-deleted version, and a tombstone with no live sibling, are only_version', async () => {
+  it('the last non-deleted version is only_version; a tombstone with no live sibling is not protected', async () => {
     await seed('1.0.0', { active: false });
     await seed('0.9.0', { deleted: true });
     expect(await reasons()).toEqual([
@@ -72,6 +75,9 @@ describe('the SQL twin', () => {
       { version: '1.0.0', reason: 'only_version', protected: true },
     ]);
     await tdb.asOwner((q) => q.query("UPDATE plugins SET deleted_at = now() WHERE version = '1.0.0'"));
-    expect((await reasons()).map((r) => r.reason)).toEqual(['only_version', 'only_version']);
+    expect(await reasons()).toEqual([
+      { version: '0.9.0', reason: null, protected: false },
+      { version: '1.0.0', reason: null, protected: false },
+    ]);
   });
 });

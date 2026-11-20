@@ -289,6 +289,8 @@ export const REMEDIATION_REMAINING_REASONS = [
   'waived',
   /** The remediation was cancelled before the finding was handled. */
   'cancelled',
+  /** grype reported it without a purl or locations (a CPE-only match): nothing to patch or trace to a layer. */
+  'no_package_details',
 ] as const;
 export type RemediationRemainingReason = typeof REMEDIATION_REMAINING_REASONS[number];
 
@@ -307,6 +309,7 @@ export const REMEDIATION_REMAINING_REASON_LABELS: Readonly<Record<RemediationRem
   third_party_listing: 'Third-party listing (fix requested from the publisher)',
   waived: 'Covered by a waiver or VEX',
   cancelled: 'Cancelled',
+  no_package_details: 'Scanner gave no package details',
 };
 
 /** Why a fix is held for approval even under `mode = apply`. */
@@ -820,6 +823,10 @@ export const PIPELINE_REMEDIATION_UPGRADE_STATES = [
   'dismissed',
   /** A newer fix (or the owner's own version) replaced this one. */
   'superseded',
+  /** apply: the install it moves has another change request pending; resumed once that request is decided. */
+  'waiting_change_request',
+  /** Moved, but its redeploy did not start (duplicate window, runner refusal): the worker retries it. */
+  'moved_pending_redeploy',
 ] as const;
 export type PipelineRemediationUpgradeState = typeof PIPELINE_REMEDIATION_UPGRADE_STATES[number];
 
@@ -846,6 +853,10 @@ export interface RemediationRolloutSummary {
     rolledBack: number;
     skippedOptOut: number;
     skippedRunner: number;
+    /** Waiting for another change request on their install to be decided. */
+    waitingChangeRequest?: number;
+    /** Moved, redeploy still being retried. */
+    movedPendingRedeploy?: number;
   };
   pausedReason?: RemediationRolloutPauseReason;
   updatedAt: string;

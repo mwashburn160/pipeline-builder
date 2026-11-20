@@ -105,6 +105,8 @@ export const PIPELINE_UPGRADE_STATE_CATALOG = {
   skipped_runner: { label: 'Skipped (runner unhealthy)', color: 'gray', section: 'wave' },
   dismissed: { label: 'Dismissed', color: 'gray', section: 'closed' },
   superseded: { label: 'Superseded', color: 'gray', section: 'closed' },
+  waiting_change_request: { label: 'Waiting for a change request', color: 'yellow', section: 'wave' },
+  moved_pending_redeploy: { label: 'Moved, redeploy pending', color: 'yellow', section: 'wave' },
 } as const satisfies Record<PipelineRemediationUpgradeState, { label: string; color: BadgeColor; section: PipelineUpgradeSection }>;
 
 export const PIPELINE_UPGRADE_STATE_LABELS: Record<PipelineRemediationUpgradeState, string> = Object.fromEntries(

@@ -9,9 +9,9 @@
  */
 
 import { describe, expect, it } from '@jest/globals';
-import { EnvKeyProvider, PerOrgKmsKeyProvider, type KeyProvider } from '@pipeline-builder/api-core';
+import { EnvKeyProvider, getDefaultKeyProvider, PerOrgKmsKeyProvider, resetDefaultKeyProvider, type KeyProvider } from '@pipeline-builder/api-core';
 import { isRunnerKeyServiceUnavailable } from '@pipeline-builder/api-core/pipeline-runners';
-import { cachedKmsResolver, isTransientKmsError, keySecrets } from '../../src/runners/key-crypto.js';
+import { cachedKmsResolver, initRunnerKeyEncryption, isTransientKmsError, keySecrets } from '../../src/runners/key-crypto.js';
 
 const ORG = '0123456789abcdef01234567';
 const MASTER = 'a'.repeat(64);
@@ -45,6 +45,30 @@ describe('cachedKmsResolver', () => {
     const perOrg = new PerOrgKmsKeyProvider({ resolver, fallback: env });
     const err = await keySecrets(() => perOrg).decrypt(stored, ORG).catch((e: unknown) => e);
     expect(isRunnerKeyServiceUnavailable(err)).toBe(true);
+  });
+});
+
+describe('initRunnerKeyEncryption (per-org KMS)', () => {
+  it('an eviction reaching the provider (e.g. broadcast from platform) also drops the resolver\'s 60 s config cache', async () => {
+    const saved = process.env.SECRET_ENCRYPTION_KEY;
+    process.env.SECRET_ENCRYPTION_KEY = MASTER;
+    try {
+      resetDefaultKeyProvider();
+      let calls = 0;
+      await initRunnerKeyEncryption({ SECRET_ENCRYPTION_PER_ORG_KMS: 'true' }, async () => { calls++; return null; });
+      const provider = getDefaultKeyProvider() as PerOrgKmsKeyProvider;
+      expect(provider).toBeInstanceOf(PerOrgKmsKeyProvider);
+      await provider.ensureWarmed(ORG);
+      expect(calls).toBe(1);
+      // Without the hook the resolver would answer from its own cache and the
+      // eviction would re-install the OLD config for another TTL.
+      provider.evict(ORG);
+      await provider.ensureWarmed(ORG);
+      expect(calls).toBe(2);
+    } finally {
+      if (saved === undefined) delete process.env.SECRET_ENCRYPTION_KEY; else process.env.SECRET_ENCRYPTION_KEY = saved;
+      resetDefaultKeyProvider();
+    }
   });
 });
 

@@ -21,7 +21,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { PIPELINE_INTERNAL, SYSTEM_PLUGIN_REMEDIATION, buildContractPath } from '@pipeline-builder/api-core';
+import { PIPELINE_INTERNAL, PIPELINE_REMEDIATION_UPGRADE_STATES, SYSTEM_PLUGIN_REMEDIATION, buildContractPath } from '@pipeline-builder/api-core';
 
 import { DIGEST_A, DIGEST_B, SYSTEM_ORG, loader, moderator, pluginRow, seedPublishers, setupEcosystemHarness, tenant, wireEcosystemHarness } from './helpers/ecosystem-harness.js';
 
@@ -61,7 +61,7 @@ const dedupe = {
 const pipelinePost = jest.fn(async (path: string, body: any) => ({
   statusCode: 200,
   headers: {},
-  body: { data: { remediationId: /plugin-remediations\/([^/]+)\//.exec(path)![1], created: true, orgDefault: null, counts: Object.fromEntries(['proposed', 'change_requested', 'queued', 'moved', 'failed', 'rolled_back', 'rollback_blocked', 'skipped_opt_out', 'skipped_runner', 'dismissed', 'superseded'].map((s) => [s, 0])) }, _sent: body },
+  body: { data: { remediationId: /plugin-remediations\/([^/]+)\//.exec(path)![1], created: true, orgDefault: null, counts: Object.fromEntries(PIPELINE_REMEDIATION_UPGRADE_STATES.map((s) => [s, 0])) }, _sent: body },
 }));
 
 function seedRules(): void {

@@ -104,13 +104,20 @@ describe('report identity reads', () => {
   });
 
   describe('orgEntitlement', () => {
-    it('asks whether any active owner/admin still holds the add-on, with the system-org token', async () => {
+    it('asks whether any active owner/admin still holds the add-on, with a token SCOPED to that org', async () => {
       mockGet.mockResolvedValue(ok({ entitled: true }));
       expect(await httpReportIdentity.orgEntitlement(ORG)).toBe(true);
       expect(mockGet).toHaveBeenCalledWith(
         `/internal/reporting/org-entitlement/${ORG}`,
         { headers: { Authorization: 'Bearer reporting-service-token' } },
       );
+      // Platform refuses a token minted for another org (or the system org).
+      expect(mockAuthHeader).toHaveBeenCalledWith(expect.objectContaining({ serviceName: 'reporting', orgId: ORG }));
+    });
+
+    it('returns null when platform refuses the token (403)', async () => {
+      mockGet.mockResolvedValue({ statusCode: 403, body: {} });
+      expect(await httpReportIdentity.orgEntitlement(ORG)).toBeNull();
     });
 
     it('carries a "not entitled" answer through', async () => {

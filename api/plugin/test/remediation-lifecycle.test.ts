@@ -240,6 +240,73 @@ describe('queueing after a completed pass', () => {
     expect(await rowsOf(id)).toHaveLength(2);
   });
 
+  // The modtime trigger stamps every UPDATE: switch it off to age a row.
+  const age = async (id: string, hours: number) => {
+    await raw.exec('ALTER TABLE plugin_remediations DISABLE TRIGGER update_plugin_remediations_modtime');
+    try {
+      await raw.query(`UPDATE plugin_remediations SET updated_at = now() - interval '${hours} hours' WHERE id = $1`, [id]);
+    } finally {
+      await raw.exec('ALTER TABLE plugin_remediations ENABLE TRIGGER update_plugin_remediations_modtime');
+    }
+  };
+
+  it('a stranded remediation (queued, no live job, hours old) is re-enqueued a bounded number of times, then failed STRANDED', async () => {
+    const id = await plugin(ORG, 'lint', '1.0.0');
+    await queuePassRemediations([cand(id, 'lint', '1.0.0', [finding()])], { enqueue });
+    const [row] = await rowsOf(id);
+    enqueue.mockClear();
+    // Fresh: left alone.
+    await queuePassRemediations([], { enqueue });
+    expect(enqueue).not.toHaveBeenCalled();
+    for (let n = 1; n <= 3; n++) {
+      await age(row.id, 5);
+      const r = await queuePassRemediations([], { enqueue });
+      expect(r).toMatchObject({ requeued: 1 });
+      expect(enqueue).toHaveBeenLastCalledWith(ORG, expect.objectContaining({ remediationId: row.id }), expect.objectContaining({ jobId: `remediation-${row.id}` }));
+      expect((await getRemediation(row.id))!).toMatchObject({ stage: 'queued', error: `STRANDED_REQUEUE:${n}` });
+    }
+    await age(row.id, 5);
+    const r = await queuePassRemediations([], { enqueue });
+    expect(r).toMatchObject({ requeued: 0, stranded: 1 });
+    expect(enqueue).toHaveBeenCalledTimes(3);
+    expect((await getRemediation(row.id))!).toMatchObject({ stage: 'failed', outcome: 'error', error: 'STRANDED' });
+    expect(counters).toContainEqual(['plugin_remediations_total', { stage: 'failed', outcome: 'error' }]);
+  });
+
+  it('a stranded approved run is re-enqueued as the approved job; a row with a live job, or an undecided proposal, is left alone', async () => {
+    const a = await plugin(ORG, 'a', '1.0.0');
+    const b = await plugin(ORG, 'b', '1.0.0');
+    const c = await plugin(ORG, 'c', '1.0.0');
+    await queuePassRemediations([cand(a, 'a', '1.0.0', [finding()]), cand(b, 'b', '1.0.0', [finding()]), cand(c, 'c', '1.0.0', [finding()])], { enqueue });
+    const [ra] = await rowsOf(a);
+    const [rb] = await rowsOf(b);
+    const [rc] = await rowsOf(c);
+    await raw.query("UPDATE plugin_remediations SET stage = 'awaiting_approval', decided_at = now(), decided_by = 'u-1' WHERE id = $1", [ra.id]);
+    await raw.query("UPDATE plugin_remediations SET stage = 'awaiting_approval' WHERE id = $1", [rc.id]);
+    await raw.query("UPDATE plugin_remediations SET stage = 'rebuild' WHERE id = $1", [rb.id]);
+    for (const r of [ra, rb, rc]) await age(r.id, 5);
+    enqueue.mockClear();
+    const hasLiveJob = jest.fn<AnyFn>(async (row: any) => row.id === rb.id);
+    const r = await queuePassRemediations([], { enqueue, hasLiveJob });
+    expect(r).toMatchObject({ requeued: 1, stranded: 0 });
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    expect(enqueue).toHaveBeenCalledWith(ORG, expect.objectContaining({ remediationId: ra.id }), expect.objectContaining({ jobId: `remediation-${ra.id}-approved` }));
+    expect((await getRemediation(rb.id))!.stage).toBe('rebuild');
+    expect((await getRemediation(rc.id))!).toMatchObject({ stage: 'awaiting_approval', error: null });
+  });
+
+  it('the nightly pass holds the cap under the same per-org lock as retry', async () => {
+    setPluginServiceConfigForTests({ enabled: true, severities: ['critical', 'high'], maxPerOrgPerDay: 1 });
+    const a = await plugin(ORG, 'a', '1.0.0');
+    const b = await plugin(ORG, 'b', '1.0.0');
+    const [x, y] = await Promise.all([
+      queuePassRemediations([cand(a, 'a', '1.0.0', [finding()])], { enqueue }),
+      queuePassRemediations([cand(b, 'b', '1.0.0', [finding()])], { enqueue }),
+    ]);
+    expect(x.queued + y.queued).toBe(1);
+    expect(x.capped + y.capped).toBe(1);
+  });
+
   it('an owner\'s newer clean upload supersedes a live remediation', async () => {
     const id = await plugin(ORG, 'lint', '1.0.0', { flagged: true });
     await queuePassRemediations([cand(id, 'lint', '1.0.0', [finding()])], { enqueue });
@@ -569,6 +636,48 @@ describe('routes', () => {
     const res = await call('post', '/remediations/:id/retry', { params: { id: row.id } });
     expect(res.statusCode).toBe(202);
     expect((await getRemediation(row.id))!).toMatchObject({ stage: 'done', outcome: 'superseded' });
+  });
+
+  const handlersOf = (method: string, path: string) => {
+    const router = createRemediationRoutes() as unknown as { stack: Layer[] };
+    return router.stack.find((l) => l.route?.path === path && l.route.methods[method])!.route!.stack.map((x) => x.handle);
+  };
+
+  it('retry steps up like approve and reject', () => {
+    for (const path of ['/remediations/:id/approve', '/remediations/:id/reject', '/remediations/:id/retry']) {
+      expect(handlersOf('post', path)).toContain(realApiCore.requireStepUp);
+    }
+  });
+
+  it('approve and retry are refused (409 PLUGIN_REMEDIATION_MODE_OFF) while the org\'s mode is off, and allowed again once it is on', async () => {
+    const row = await queued(ORG, 'lint', '1.0.0');
+    await settings(ORG, 'off');
+    await raw.query("UPDATE plugin_remediations SET stage = 'awaiting_approval'");
+    const approve = await call('post', '/remediations/:id/approve', { params: { id: row.id } });
+    expect(approve.statusCode).toBe(409);
+    expect(approve.body).toMatchObject({ code: 'PLUGIN_REMEDIATION_MODE_OFF', details: { mode: 'off' } });
+    expect((await getRemediation(row.id))!.decidedAt).toBeNull();
+    await raw.query("UPDATE plugin_remediations SET stage = 'failed', outcome = 'error'");
+    const retry = await call('post', '/remediations/:id/retry', { params: { id: row.id } });
+    expect(retry.statusCode).toBe(409);
+    expect(retry.body).toMatchObject({ code: 'PLUGIN_REMEDIATION_MODE_OFF' });
+    expect(await rowsOf(row.pluginId)).toHaveLength(1);
+    expect(enqueued).toHaveLength(0);
+    // Back on: the retry goes through.
+    await settings(ORG, 'propose');
+    expect((await call('post', '/remediations/:id/retry', { params: { id: row.id } })).statusCode).toBe(202);
+  });
+
+  it('concurrent retries never exceed the daily cap (count and insert under one per-org lock)', async () => {
+    const rows = [];
+    for (const name of ['a', 'b', 'c', 'd']) rows.push(await queued(ORG, name, '1.0.0'));
+    // Yesterday's rows: they don't count toward today's cap.
+    await raw.query("UPDATE plugin_remediations SET stage = 'failed', outcome = 'error', created_at = now() - interval '2 days'");
+    setPluginServiceConfigForTests({ enabled: true, severities: ['critical', 'high'], maxPerOrgPerDay: 2 });
+    const results = await Promise.all(rows.map((r) => call('post', '/remediations/:id/retry', { params: { id: r.id } })));
+    expect(results.map((r) => r.statusCode).sort()).toEqual([202, 202, 429, 429]);
+    const today = await raw.query<{ n: number }>("SELECT count(*)::int AS n FROM plugin_remediations WHERE created_at > now() - interval '1 day'");
+    expect(today.rows[0]!.n).toBe(2);
   });
 
   it('settings: a team inherits the root\'s rollout and cannot set allowPipelineApply; per-type levels clear with null', async () => {

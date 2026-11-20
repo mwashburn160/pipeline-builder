@@ -203,6 +203,16 @@ function getEnvCacheInvalidationBus(): CacheInvalidationBus | null {
 }
 
 /**
+ * The process-wide invalidation bus over the ambient Redis env, or null without
+ * Redis. For an in-process cache that is not a {@link CacheService} but must be
+ * invalidated across replicas the same way (the per-org KMS key cache); such a
+ * cache picks its own `prefix` so CacheService instances ignore its messages.
+ */
+export function getCacheInvalidationBus(): CacheInvalidationBus | null {
+  return getEnvCacheInvalidationBus();
+}
+
+/**
  * Cache service with get/set/del operations and automatic TTL expiry.
  *
  * @example

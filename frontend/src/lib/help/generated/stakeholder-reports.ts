@@ -1,6 +1,6 @@
 // GENERATED FROM docs/stakeholder-reports.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: ebf1776f34d4fa6de81ce53a3619e0c0a6c3eba1b93b10c1882364aecc1a6eeb
+// SOURCE-SHA256: e3b1bf645ed52af47be5bf11c304e88bc6a0f8d9587a0019156094dba44ec10a
 // SPDX-License-Identifier: Apache-2.0
 import { FileText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -195,6 +195,10 @@ export const stakeholderReportsTopic: HelpTopic = {
         {
           "type": "text",
           "content": "Auto-send needs reports:publish. An auto-send report publishes itself every period with nobody clicking Publish, so arming it is a publish decision, not an authoring one. Creating a definition with autoSend: true, turning autoSend on, or changing the recipients of a report that auto-sends all return 403 without reports:publish, even though the definition routes themselves are on reports:write. The check is made in the handler, so it does not appear in the route table. The scheduler holds the owner to the same rule on every run (see What a scheduled run re-checks)."
+        },
+        {
+          "type": "text",
+          "content": "A rollup needs reports:rollup. Creating a definition with a rollup scope, switching an existing one to rollup, or running a rollup definition on demand all return 403 INSUFFICIENT_PERMISSIONS without reports:rollup, the same as any other permission refusal. Like auto-send, the check is made in the handler and does not appear in the route table."
         },
         {
           "type": "text",
@@ -566,7 +570,7 @@ export const stakeholderReportsTopic: HelpTopic = {
           "items": [
             "Off until an administrator turns them on. An org that never considered public links has none.",
             "Turning sharing off ends the links already out there. The org's externalSharing policy and the account's Stakeholder Reports add-on are re-checked on every read of a link (page and PDF), not only when it was minted. When an administrator turns sharing off, every live link in the org is also revoked in the same request (one reporting.report.link.revoked audit row, details.reason: external_sharing_disabled, details.count), so turning sharing back on allows new links only and never revives the old ones.",
-            "A link outlives its owner leaving. The entitlement is checked as the report's owner. If the owner is no longer an active member, it is checked through the organization's active owners and administrators instead: the link keeps working while any of them still holds the add-on (platform's internal org-entitlement lookup, which answers yes or no and never names anyone). If none does, or the platform service cannot say, the link returns the same 404 as an unknown one. An owner who is still a member gets no such fallback, so a lapsed add-on still ends the link. Scheduled runs are unchanged: a departed owner's report stays paused until it is transferred.",
+            "A link outlives its owner leaving. The entitlement is checked as the report's owner. If the owner is no longer an active member, it is checked through the organization's active owners and administrators instead: the link keeps working while any of them still holds the add-on (platform's internal org-entitlement lookup, which answers yes or no and never names anyone, and only to a service token scoped to that same organization: a token for any other org, or the system org, gets 403). If none does, or the platform service cannot say, the link returns the same 404 as an unknown one. An owner who is still a member gets no such fallback, so a lapsed add-on still ends the link. Scheduled runs are unchanged: a departed owner's report stays paused until it is transferred.",
             "The token is 256 bits of CSPRNG output, stored only as a SHA-256 hash. A database copy cannot be turned back into working URLs, and the raw token is shown once, when the link is created.",
             "It expires — 30 days by default, 180 at most — and can be revoked.",
             "Optional redaction (redactNames, --redact-names) hides two things, in every section and on both the page and the PDF:",

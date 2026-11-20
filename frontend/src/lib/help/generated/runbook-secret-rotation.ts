@@ -1,6 +1,6 @@
 // GENERATED FROM docs/runbooks/secret-rotation.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: b85649f573c45173cee9c9e1cf40c96bf53597ad0ff88f2d5da3a842da36f19c
+// SOURCE-SHA256: f4f2b727b091e9de259582044280f3ab2d307afb901f38faef40d89590a9b5a6
 // SPDX-License-Identifier: Apache-2.0
 import { KeyRound } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -745,7 +745,11 @@ export const runbookSecretRotationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Proof — packages/api-core/test/secret-rotation.test.ts (overlap → rewrite → old blob rejected), platform/test/secret-reencrypt.test.ts (the fleet-wide tool, including the unreadable-row path)."
+          "content": "Every replica picks the change up without a restart. Each platform and pipeline process caches the org's unwrapped master. A PUT/DELETE evicts it on the platform replica that served the request and broadcasts the eviction over Redis pub/sub (the cache-invalidation channel, namespace per-org-kms:), so every other platform and pipeline replica drops it too and re-reads the org's config on the next secret read. A Redis reconnect clears the whole cache, because broadcasts may have been missed. As a backstop, with Redis down or not configured, a cached per-org key is trusted for at most 5 minutes, after which the next read re-resolves the config. If that refresh fails (the config source is unreachable), the cached key keeps serving and the refresh is retried 30 seconds later; an explicit eviction is never served stale. So without Redis, allow up to 5 minutes after a change before trusting reads on other replicas, or restart platform and pipeline."
+        },
+        {
+          "type": "text",
+          "content": "Proof — packages/api-core/test/secret-rotation.test.ts (overlap → rewrite → old blob rejected), platform/test/secret-reencrypt.test.ts (the fleet-wide tool, including the unreadable-row path), packages/api-core/test/secret-encryption.test.ts (cross-replica eviction and the TTL backstop)."
         }
       ]
     },

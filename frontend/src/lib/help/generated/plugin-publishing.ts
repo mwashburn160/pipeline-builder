@@ -1,6 +1,6 @@
 // GENERATED FROM docs/plugin-publishing.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 9db982de3e3db31829c238ede7d2680da384341841bf1dafbec171b3a8c818a7
+// SOURCE-SHA256: 26f0657bfbcb1083d40c2e9a131e3cf15fde55dbc476d8df6970cdd6647b5cfe
 // SPDX-License-Identifier: Apache-2.0
 import { Store } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -388,7 +388,7 @@ export const pluginPublishingTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "What is targeted. Fixable findings whose severity is in PLUGIN_REMEDIATION_SEVERITIES (default critical,high), plus every CISA known-exploited (KEV) finding whatever the list says. A KEV finding with no fixed version can't be fixed, so it goes straight to the owner request (reason no_fix). Findings a waiver or an operator VEX statement already covers are skipped, and remediation never adds a waiver. All of a version's fixable findings from one night go into one remediation and one new version, never one version per CVE. Remediations run KEV first, then by EPSS, then by how many pipelines use the version."
+          "content": "What is targeted. Fixable findings whose severity is in PLUGIN_REMEDIATION_SEVERITIES (default critical,high), plus every CISA known-exploited (KEV) finding whatever the list says. A KEV finding with no fixed version can't be fixed, so it goes straight to the owner request (reason no_fix). A finding the scanner reported without package details — no package URL, or no file location in the image (a CPE-only match, for one) — still counts toward the gates and the flag, and the scan succeeds; it is listed under <type>:<name>@<version> and goes straight to the owner request (reason no_package_details), never patched. Findings a waiver or an operator VEX statement already covers are skipped, and remediation never adds a waiver. All of a version's fixable findings from one night go into one remediation and one new version, never one version per CVE. Remediations run KEV first, then by EPSS, then by how many pipelines use the version."
         },
         {
           "type": "text",
@@ -402,7 +402,7 @@ export const pluginPublishingTopic: HelpTopic = {
             "Verify. The fix goes through the full build gate, waivers, VEX, the plugin contract check and compliance, exactly as any build. Every targeted finding must be gone, no new Critical or High may appear, the image's user, entrypoint and declared commands must be unchanged, the spec's smokeTest must pass, and the diff may touch only the named packages' lines or the single overlay layer. A patch that fails is dropped; when several packages were patched, each is retried alone so the ones that work are kept.",
             "Publish (published, or awaiting_approval in propose mode). The fix is stored as the next free version of the plugin: the next patch (1.4.3, or 1.4.4 if 1.4.3 is taken), or the next minor when a library crossed a major (so installs on a patch policy don't pick it up silently). It never crosses the plugin's own major. Each fix is a new immutable version with its provenance: the version it fixes, the patch diff, and the CVEs cleared. The flagged version is never changed or deleted.",
             "Rollout (rolling_out, then done, or needs_review if it pauses). Pipelines move onto the fix — see Remediation upgrades.",
-            "Owner request (needs_owner). Whatever is left — no fixed version, beyond the upgrade level, a Go module's new major, a library inside a compiled binary, no kept source, no patcher, a patch that broke the plugin — is sent to the plugin's security recipients (N39), listing each package, CVE, fixed version, the reason and the level it would need. The version stays flagged. A fix published with findings left is outcome partial, and the owner request is still sent."
+            "Owner request (needs_owner). Whatever is left — no fixed version, beyond the upgrade level, a Go module's new major, a library inside a compiled binary, no kept source, no patcher, no package details from the scanner, a patch that broke the plugin — is sent to the plugin's security recipients (N39), listing each package, CVE, fixed version, the reason and the level it would need. The version stays flagged. A fix published with findings left is outcome partial, and the owner request is still sent."
           ]
         },
         {
@@ -562,7 +562,7 @@ export const pluginPublishingTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "An interrupted publish resumes; it never publishes twice. Approval is recorded first — who and when, and each step's progress (bootstrap stored, cdk-synth stored, build inputs kept, notice sent) — and each step checks whether it already happened: a half already stored under the release number with the candidate's digest is reused, never stored again or renumbered. If the publish stops part-way, the card shows Resume publish (the same POST …/approve, step-up, audited toolchain.fix.approved with resumed: true), and a publish that crashed without releasing its five-minute lease is resumed automatically within ~2 minutes of the lease passing (TOOLCHAIN_FIX_RESUME_INTERVAL_MS; the nightly pass is a backstop). Two approvals at once can't both run: the second gets 409 REMEDIATION_STAGE_CONFLICT (PUBLISH_IN_PROGRESS). Once publishing has started the candidate can no longer be rejected (PUBLISH_STARTED); a build-gate refusal before anything was stored returns it to undecided."
+          "content": "An interrupted publish resumes; it never publishes twice. Approval is recorded first — who and when, and each step's progress (bootstrap stored, cdk-synth stored, build inputs kept, notice sent) — and each step checks whether it already happened: a half already stored under the release number with the candidate's digest is reused, never stored again or renumbered. If the publish stops part-way, the card shows Resume publish (the same POST …/approve, step-up, audited toolchain.fix.approved with resumed: true), and a publish that crashed without releasing its five-minute lease is resumed automatically within ~2 minutes of the lease passing (TOOLCHAIN_FIX_RESUME_INTERVAL_MS; the nightly pass is a backstop). Two approvals at once can't both run: the second gets 409 REMEDIATION_STAGE_CONFLICT (PUBLISH_IN_PROGRESS). Once publishing has started the candidate can no longer be rejected (PUBLISH_STARTED); a build-gate refusal before anything was stored returns it to undecided. Each publish attempt holds a five-minute lease that it renews after every step, including each build-gate re-scan, and an attempt that lost its lease to a resume stops (LEASE_LOST) without touching the new holder's lease or progress. After 3 build-gate refusals of its publish the candidate moves to Needs review (error GATE_REFUSED) and toolchain_fix_failures_total{stage=\"gate_refused\"} is counted, which raises ToolchainFixFailing."
         },
         {
           "type": "text",
@@ -572,7 +572,10 @@ export const pluginPublishingTopic: HelpTopic = {
           "type": "list",
           "items": [
             "Remediation builds spend no build credits and don't count toward the plugin-count quota, but run under your build quota, after user builds in the queue, at most PLUGIN_REMEDIATION_CONCURRENCY at a time.",
-            "At most PLUGIN_REMEDIATION_MAX_PER_ORG_PER_DAY (default 20) remediations start per organization per day, retries included (429 QUOTA_EXCEEDED on a retry over it). The quotas page shows today's count.",
+            "At most PLUGIN_REMEDIATION_MAX_PER_ORG_PER_DAY (default 20) remediations start per organization per day, retries included (429 QUOTA_EXCEEDED on a retry over it). The count and the new row are written under one per-organization lock, so retries at the same moment (or a retry during the nightly pass) never go over it together. The quotas page shows today's count.",
+            "Retry (POST /api/plugins/remediations/:id/retry) needs plugins:write and a step-up, like Approve and Reject.",
+            "With the operator knob off (PLUGIN_REMEDIATION_ENABLED=false), Approve, Retry and a toolchain fix's Approve / Resume publish answer 503, and no stuck toolchain publish is resumed. With your organization's own mode set to off, Approve and Retry answer 409 PLUGIN_REMEDIATION_MODE_OFF; Reject still works.",
+            "Stranded remediations. A remediation that sits queued, building, or approved and waiting for its run for more than 3 hours with no job in the queue (a lost enqueue, a crashed worker) is put back on the queue by the nightly pass, up to 3 times (its error reads STRANDED_REQUEUE:<n> meanwhile); after that it ends failed with error STRANDED, and Retry starts it again.",
             "PLUGIN_REMEDIATION_ENABLED (default true) is the operator's switch. Only the literal false turns it off; then nothing is queued, built, published or rolled out and no remediation notice is sent, and the dashboard says remediation is turned off by the operator. Organization settings stay editable, and kept sources and plugin deletion are unaffected.",
             "PLUGIN_REMEDIATION_SEVERITIES (default critical,high) is the comma-separated list of severities targeted. An empty or invalid value falls back to the default with a warning in the log. KEV findings are always targeted.",
             "PLUGIN_REMEDIATION_TOOLCHAINS (default propose) chooses between a toolchain release candidate and the owner request for a flagged managed toolchain release; off keeps the owner request. There is no apply: an invalid value falls back to propose with a warning."
@@ -1239,12 +1242,12 @@ export const pluginPublishingTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "What automatic clean-up never removes. No automatic process removes a version that is active, or a plugin's only remaining version (counting the versions of that name in your organization that are not deleted), or either one's kept source in plugin-sources. Automatic means anything nobody asked for by name:"
+          "content": "What automatic clean-up never removes. No automatic process removes a version that is active, or a plugin's only remaining live version (a version that is not deleted, when no other version of that name in your organization is either), or either one's kept source in plugin-sources. Automatic means anything nobody asked for by name:"
         },
         {
           "type": "list",
           "items": [
-            "the purge sweep never purges the last version of a name (a soft-deleted plugin whose versions are all deleted stays restorable until you purge it yourself);",
+            "the only-version rule protects live versions only: a plugin whose every version you soft-deleted (with Delete plugin, or one version at a time) is purged by the purge sweep once its SOFT_DELETE_RETENTION_DAYS window passes, with its images and kept sources, exactly like any other expired soft delete. Restore it before then to keep it;",
             "the retry of failed deletes never deletes a kept source that a live version still points to;",
             "the superseded-version retention pass keeps such a version, and its dry run shows it as kept with the reason active or only_version;",
             "a kept source object is deleted only by a purge of its version or by deleting the organization, never as a side effect (a re-upload of the same version keeps the ZIP it replaced until the version is purged)."
@@ -1402,6 +1405,10 @@ export const pluginPublishingTopic: HelpTopic = {
             [
               "REMEDIATION_STAGE_CONFLICT",
               "The remediation is not at a stage that allows this action (for example, approving one that is not awaiting approval); details.stage says where it is."
+            ],
+            [
+              "PLUGIN_REMEDIATION_MODE_OFF",
+              "Approve or Retry while your organization's plugin remediation mode is off; turn it back on in the organization settings first."
             ],
             [
               "PLUGIN_NAME_LOCKED",

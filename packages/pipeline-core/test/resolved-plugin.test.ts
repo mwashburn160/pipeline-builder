@@ -76,3 +76,37 @@ describe('resolved plugin records: automatic tidying bookkeeping', () => {
     }
   });
 });
+
+describe('resolved plugin records: fields that move without an owner edit', () => {
+  const VOLATILE = [
+    'scannedAt', 'scanFlaggedAt', 'scanFlag',
+    'vulnCritical', 'vulnHigh', 'vulnMedium', 'vulnLow', 'vulnCriticalFixable', 'vulnHighFixable',
+    'isActive', 'updatedAt', 'updatedBy',
+  ];
+
+  it('never carries the nightly rescan state, activation or the last-write stamp into a resolved record', () => {
+    const resolved = toResolvedPlugin({
+      ...full,
+      scannedAt: new Date(),
+      scanFlaggedAt: new Date(),
+      scanFlag: { gated: 1, high: 0, maxFindings: 0 },
+      vulnCritical: 1,
+      vulnHigh: 2,
+      vulnMedium: 3,
+      vulnLow: 4,
+      vulnCriticalFixable: 1,
+      vulnHighFixable: 2,
+      isActive: true,
+      updatedAt: new Date(),
+      updatedBy: 'system:plugin-tidy',
+    }) as Record<string, unknown>;
+    for (const field of VOLATILE) expect(Object.hasOwn(resolved, field)).toBe(false);
+    expect(RESOLVED_PLUGIN_OMITTED_FIELDS).toEqual(expect.arrayContaining(VOLATILE));
+  });
+
+  it('a nightly rescan (new counts, a flag) or a tidy deactivation leaves the resolved record — and so the CDK props — byte-identical', () => {
+    const before = toResolvedPlugin({ ...full, vulnHigh: 0, scannedAt: new Date('2026-11-01'), isActive: true, updatedAt: new Date('2026-11-01'), updatedBy: 'owner' });
+    const after = toResolvedPlugin({ ...full, vulnHigh: 7, scannedAt: new Date('2026-11-20'), scanFlaggedAt: new Date('2026-11-20'), isActive: false, updatedAt: new Date('2026-11-20'), updatedBy: 'system' });
+    expect(JSON.stringify(after)).toBe(JSON.stringify(before));
+  });
+});

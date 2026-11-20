@@ -347,11 +347,19 @@ const ORG_ENTITLEMENT_ADMIN_CAP = 50;
  * The resolved role must still be owner/admin, the account must still exist,
  * and the org must not be torn down (`membershipForOrg` refuses that). Capped,
  * in a stable order. A boolean only — never which admin, a role or a feature list.
+ *
+ * SCOPED to the path org: the service token's org claim must equal `:orgId` (403
+ * otherwise), exactly as report-readers.
  */
 export const getReportOrgEntitlement = withController('Report org entitlement', async (req, res) => {
   const params = parseContractParams(ORG_ENTITLEMENT, req);
   if (!params.ok) return sendError(res, 400, contractErrorMessage(params));
   const { orgId } = params.value;
+  // SCOPED like report-readers: a token minted for one org (or the system org)
+  // cannot probe another org's entitlement.
+  if (!isServicePrincipal(req) || String(req.user?.organizationId ?? '').toLowerCase() !== orgId) {
+    return sendError(res, 403, 'The service token must be scoped to the organization it asks about');
+  }
 
   const memberships = await UserOrganization.find({
     organizationId: toOrgId(orgId),

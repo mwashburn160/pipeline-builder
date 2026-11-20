@@ -738,7 +738,7 @@ Every route of the Pipeline, Plugin and Ask Agent services, generated from the r
 | `GET` | `/plugins/remediations/:id/export` | system org; `plugins:write` | `apiCalls` | — |
 | `GET` | `/plugins/remediations/:id/patch` | `plugins:read` | `apiCalls` | — |
 | `POST` | `/plugins/remediations/:id/reject` | `plugins:write`; step-up | `apiCalls` | `plugin.remediation.rejected` |
-| `POST` | `/plugins/remediations/:id/retry` | `plugins:write` | `apiCalls` | `plugin.remediation.retried`, `plugin.remediation.started` |
+| `POST` | `/plugins/remediations/:id/retry` | `plugins:write`; step-up | `apiCalls` | `plugin.remediation.retried`, `plugin.remediation.started` |
 | `GET` | `/plugins/retention/plan` | system org; `plugins:moderate`; MFA session (aal2) | `apiCalls` | — |
 | `POST` | `/plugins/retention/run` | system org; `plugins:moderate`; MFA session (aal2); step-up | `apiCalls` | `plugin.version.retire` |
 | `DELETE` | `/plugins/reviews/:id` | `plugins:read`; a person (no service account or access key) | `apiCalls` | `plugin.review.delete` |

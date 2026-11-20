@@ -123,7 +123,35 @@ describe('RemediationCard', () => {
     expect([...rolledBack.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual(['/dashboard/pipelines/pipe-1', '/dashboard/pipelines/pipe-9']);
     expect(screen.queryByRole('button', { name: /Approve and publish/ })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /Retry remediation/ }));
-    await waitFor(() => expect(api.retryPluginRemediation).toHaveBeenCalledWith('rem-1'));
+    // Retry steps up like approve and reject: nothing is sent before the password.
+    expect(api.retryPluginRemediation).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm password' }));
+    await waitFor(() => expect(api.retryPluginRemediation).toHaveBeenCalledWith('rem-1', 'step-up-token'));
+  });
+
+  it('shows the rollout\'s waiting-on-a-change-request and pending-redeploy counts when present', () => {
+    render(<RemediationCard
+      remediation={{
+        ...REMEDIATION, stage: 'rolling_out',
+        rollout: {
+          status: 'batches', toVersion: '1.4.3', updatedAt: '2026-11-19T02:00:00Z', waves: [],
+          counts: { eligible: 9, proposed: 0, changeRequested: 0, moved: 2, failed: 0, rolledBack: 0, skippedOptOut: 0, skippedRunner: 0, waitingChangeRequest: 3, movedPendingRedeploy: 1 },
+        },
+      }}
+      canWrite
+    />);
+    const text = screen.getByTestId('remediation-rollout').textContent ?? '';
+    expect(text).toContain('3 waiting on another change request');
+    expect(text).toContain('1 moved, redeploy pending');
+  });
+
+  it('says the organization turned remediation off when approve or retry answers PLUGIN_REMEDIATION_MODE_OFF', async () => {
+    api.retryPluginRemediation.mockRejectedValue(new ApiError('Plugin remediation is turned off for this organization', 409, 'PLUGIN_REMEDIATION_MODE_OFF'));
+    render(<RemediationCard remediation={{ ...REMEDIATION, stage: 'failed' }} canWrite />);
+    fireEvent.click(screen.getByRole('button', { name: /Retry remediation/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm password' }));
+    expect(await screen.findByText('Remediation is turned off for this organization')).toBeTruthy();
+    expect(toast.error).not.toHaveBeenCalled();
   });
 
   it.each([

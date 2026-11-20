@@ -225,10 +225,30 @@ describe('parseGrypeReport — package details from real grype JSON per package 
     if (want.fixedIn) expect(hit!.fixedIn).toEqual(want.fixedIn);
   });
 
-  it('the same report WITHOUT its SBOM cannot locate its findings, so it fails like any scan failure', () => {
+  it('the same report WITHOUT its SBOM cannot locate its findings: each is recorded with no locations and marked not remediable', () => {
     const { report: stdout } = fixture('npm');
-    expect(() => vs.parseGrypeReport(stdout)).toThrow(vs.GrypeFindingIncompleteError);
-    expect(() => vs.parseGrypeReport(stdout)).toThrow(/GHSA-35jh-r3h4-6jhm has no package locations/);
+    const r = vs.parseGrypeReport(stdout);
+    expect(r.findings.length).toBeGreaterThan(0);
+    for (const f of r.findings) {
+      expect(f.locations).toEqual([]);
+      expect(f.unremediable).toBe('no_package_details');
+    }
+    // grype still gave the purl: it is kept, only the locations are missing.
+    expect(r.findings.find((f) => f.id === 'GHSA-35jh-r3h4-6jhm')!.purl).toBe('pkg:npm/lodash@4.17.15');
+  });
+
+  it('a CPE-only match (no purl, no locations — real grype shape) is recorded under a fallback key, not remediable; the scan succeeds', () => {
+    const dir = path.join(path.dirname(new URL(import.meta.url).pathname), 'fixtures', 'grype');
+    const stdout = fs.readFileSync(path.join(dir, 'cpe-only.grype.json'), 'utf8');
+    const { sbom } = fixture('binary');
+    const r = vs.parseGrypeReport(stdout, sbom);
+    expect(r).toMatchObject({ critical: 1, high: 1 });
+    const cpe = r.findings.find((f) => f.id === 'CVE-2022-28391')!;
+    expect(cpe).toMatchObject({ severity: 'high', packageName: 'thing-agent', packageVersion: '2.1.0', packageType: 'other', purl: 'other:thing-agent@2.1.0', locations: [], unremediable: 'no_package_details' });
+    // The complete match beside it is untouched.
+    const busybox = r.findings.find((f) => f.id === 'CVE-2021-42377')!;
+    expect(busybox.purl).toBe('pkg:generic/busybox@1.33.0');
+    expect(busybox.unremediable).toBeUndefined();
   });
 
   it('a type grype reads back as UnknownPackage keeps the type in its SPDXID (binary)', () => {
@@ -260,13 +280,19 @@ describe('parseGrypeReport — package details from real grype JSON per package 
     });
   });
 
+  it('a Critical/High finding with no type fails the parse (and so the scan)', () => {
+    const stdout = JSON.stringify({ matches: [{ vulnerability: { id: 'CVE-7', severity: 'Critical' }, artifact: { name: 'x', version: '1', purl: 'pkg:deb/x@1', locations: [{ path: '/a', layerID: '' }] } }] });
+    expect(() => vs.parseGrypeReport(stdout)).toThrow(/CVE-7 has no package type/);
+  });
+
   it.each([
-    ['type', { purl: 'pkg:deb/x@1', locations: [{ path: '/a', layerID: '' }] }],
-    ['purl', { type: 'deb', purl: ' ', locations: [{ path: '/a', layerID: '' }] }],
-    ['locations', { type: 'deb', purl: 'pkg:deb/x@1', locations: [] }],
-  ])('a Critical/High finding with no %s fails the parse (and so the scan)', (missing, art) => {
+    ['purl', { type: 'deb', purl: ' ', locations: [{ path: '/a', layerID: '' }] }, 'deb:x@1', [{ path: '/a', layerID: '' }]],
+    ['locations', { type: 'deb', purl: 'pkg:deb/x@1', locations: [] }, 'pkg:deb/x@1', []],
+  ] as const)('a Critical/High finding with no %s is recorded (fallback key / empty locations), not remediable', (_missing, art, purl, locations) => {
     const stdout = JSON.stringify({ matches: [{ vulnerability: { id: 'CVE-7', severity: 'Critical' }, artifact: { name: 'x', version: '1', ...art } }] });
-    expect(() => vs.parseGrypeReport(stdout)).toThrow(new RegExp(`CVE-7 has no package ${missing}`));
+    const r = vs.parseGrypeReport(stdout);
+    expect(r.critical).toBe(1);
+    expect(r.findings).toEqual([expect.objectContaining({ id: 'CVE-7', packageType: 'deb', purl, locations, unremediable: 'no_package_details' })]);
   });
 
   it('a Medium/Low match needs no package details (it is counted, not itemized)', () => {
@@ -274,7 +300,7 @@ describe('parseGrypeReport — package details from real grype JSON per package 
     expect(r).toMatchObject({ medium: 1, findings: [] });
   });
 
-  it('scanSbom hands its SBOM to the parse, and an incomplete finding is a FAILED scan', async () => {
+  it('scanSbom hands its SBOM to the parse; a finding it cannot locate no longer fails the scan', async () => {
     const { report: stdout, sbom } = fixture('deb');
     mockRun.mockResolvedValue(stdout);
     const ok = await vs.scanSbom(sbom, 'build');
@@ -282,8 +308,9 @@ describe('parseGrypeReport — package details from real grype JSON per package 
 
     jest.clearAllMocks();
     mockRun.mockResolvedValue(stdout);
-    await expect(vs.scanSbom({ packages: [] }, 'rescan')).rejects.toThrow(vs.GrypeFindingIncompleteError);
-    expect(mockIncCounter).toHaveBeenCalledWith('plugin_vuln_scans_total', { trigger: 'rescan', outcome: 'failed' });
+    const bare = await vs.scanSbom({ packages: [] }, 'rescan');
+    expect(bare.findings.every((f) => f.unremediable === 'no_package_details' && f.locations.length === 0)).toBe(true);
+    expect(mockIncCounter).not.toHaveBeenCalledWith('plugin_vuln_scans_total', { trigger: 'rescan', outcome: 'failed' });
   });
 });
 

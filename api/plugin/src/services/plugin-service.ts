@@ -813,9 +813,10 @@ export class PluginService extends CrudService<
   /**
    * A tombstone any pipeline still references is never purged (the sweep
    * retries it later). The AUTOMATIC sweep ({@link purgeExpired}) also never
-   * purges a version protected from automatic removal — an active one, or a
-   * name's only remaining one (helpers/auto-removal.ts); an owner's explicit
-   * purge ({@link purgeById}) is not held by that rule.
+   * purges a version protected from automatic removal (helpers/auto-removal.ts).
+   * That rule protects LIVE versions only, so an expired tombstone — even the
+   * last version of a wholly soft-deleted plugin — is purged; the guard stays
+   * so the sweep asks the same question every automatic path does.
    */
   protected override purgeGuard(): SQL {
     const p = schema.plugin;

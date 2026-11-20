@@ -59,7 +59,9 @@ const UNREACHABLE_FALLBACK: KeyProvider = {
 };
 
 /** Evict the cached master for `orgId` from the active provider if it's a
- *  PerOrgKmsKeyProvider. No-op for any other provider. */
+ *  PerOrgKmsKeyProvider. No-op for any other provider. `evict` applies here AND
+ *  broadcasts over the cache-invalidation bus, so every other platform replica
+ *  and every pipeline replica drops the org's key too (TTL backstop otherwise). */
 function evictPerOrgCache(orgId: string): void {
   const provider = getDefaultKeyProvider();
   if (provider instanceof PerOrgKmsKeyProvider) {

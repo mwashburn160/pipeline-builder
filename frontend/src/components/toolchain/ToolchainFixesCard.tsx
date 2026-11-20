@@ -4,7 +4,8 @@
 import { useState } from 'react';
 import { Check, Download, ShieldCheck, X } from 'lucide-react';
 import { StepUpModal } from '@/components/admin/StepUpModal';
-import { RemediationStageBadge } from '@/components/plugin/RemediationCard';
+import { RemediationStageBadge, isRemediationOperatorOff } from '@/components/plugin/RemediationCard';
+import { RemediationOffNotice } from '@/components/plugin/RemediationOffNotice';
 import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { RelativeTime } from '@/components/ui/RelativeTime';
@@ -68,6 +69,8 @@ export function ToolchainFixesCard({ allowed, canWrite, onPublished }: {
 }) {
   const toast = useToast();
   const [pending, setPending] = useState<Pending>(null);
+  // Set when approve / resume answered 503: the operator turned remediation off.
+  const [operatorOff, setOperatorOff] = useState(false);
   const read = useFetch(async (signal) => (await api.listToolchainFixes({ signal })).data ?? null, [allowed], { enabled: allowed });
 
   const card = (body: React.ReactNode) => (
@@ -101,7 +104,8 @@ export function ToolchainFixesCard({ allowed, canWrite, onPublished }: {
         toast.success(`Toolchain fix ${p.fix.toRelease} rejected`);
       }
     } catch (err) {
-      toast.error(formatError(err, p.action === 'approve' ? 'Could not publish the toolchain release' : 'Could not reject the toolchain fix'));
+      if (p.action === 'approve' && isRemediationOperatorOff(err)) setOperatorOff(true);
+      else toast.error(formatError(err, p.action === 'approve' ? 'Could not publish the toolchain release' : 'Could not reject the toolchain fix'));
     } finally {
       setPending(null);
       await read.refetch();
@@ -126,6 +130,7 @@ export function ToolchainFixesCard({ allowed, canWrite, onPublished }: {
   return card(
     <div className="space-y-3">
       {off && <p className="rounded-md border border-default bg-surface-muted p-2 text-sm" data-testid="toolchain-fixes-off">{off}</p>}
+      {operatorOff && view.enabled && <RemediationOffNotice />}
       {view.fixes.length === 0 ? (
         <p className="text-sm text-fg-muted">No toolchain fixes yet. A flagged release&apos;s candidate appears here after the nightly rescan.</p>
       ) : (
@@ -185,7 +190,7 @@ export function ToolchainFixesCard({ allowed, canWrite, onPublished }: {
                   <div className="flex flex-wrap gap-2">
                     {waiting && (
                       <>
-                        <Button type="button" size="xs" readOnly={!canWrite} aria-label={`${publishing ? 'Resume publish' : 'Approve'} ${to}`} onClick={() => setPending({ fix: f, action: 'approve' })}>
+                        <Button type="button" size="xs" readOnly={!canWrite || !view.enabled || operatorOff} aria-label={`${publishing ? 'Resume publish' : 'Approve'} ${to}`} onClick={() => setPending({ fix: f, action: 'approve' })}>
                           <Check className="h-3 w-3" aria-hidden /> {publishing ? 'Resume publish' : 'Approve'}
                         </Button>
                         {!publishing && (

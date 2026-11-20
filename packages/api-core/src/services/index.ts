@@ -14,6 +14,7 @@ export {
   type CacheInvalidationBus,
   type RedisInvalidationClient,
   CacheService,
+  getCacheInvalidationBus,
 } from './cache-service.js';
 export {
   withLeaderLock,

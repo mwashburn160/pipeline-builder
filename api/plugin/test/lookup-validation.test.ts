@@ -552,7 +552,9 @@ describe('POST /plugins/lookup — listings', () => {
     expect(mockFind).not.toHaveBeenCalled();
     expect(mockResolveListed).toHaveBeenCalledWith({ orgId: 'org-1' }, { publisher: 'acme', name: 'lint', version: '^1.0.0' });
     expect(mockVerifyListed).toHaveBeenCalledWith(resolution);
-    expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, { plugin: record, warnings: [{ code: 'PLUGIN_SECRETS_WITHHELD', message: 'no secrets', severity: 'info' }], severity: 'info' });
+    // The rescan stamp moves without an owner edit: it never reaches the resolved record.
+    const { scannedAt: _scannedAt, ...resolved } = record;
+    expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, { plugin: resolved, warnings: [{ code: 'PLUGIN_SECRETS_WITHHELD', message: 'no secrets', severity: 'info' }], severity: 'info' });
   });
 
   it('falls back from the org\'s rows to the Official listing for an unqualified name', async () => {

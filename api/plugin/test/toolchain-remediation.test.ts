@@ -661,6 +661,92 @@ describe('the decision routes (system org + plugins:write; approve / reject step
     expect(persisted.map((x) => x.pluginRecord.name)).toEqual(['pipeline-bootstrap', 'cdk-synth']);
   });
 
+  const leaseOf = async (id: string) => (await raw.query<{ l: string | null }>("SELECT toolchain_candidate->'publish'->>'leaseUntil' AS l FROM plugin_remediations WHERE id = $1", [id])).rows[0]!.l;
+
+  it('the lease is renewed after each gate re-scan (a slow re-scan never lets a resume take over mid-publish)', async () => {
+    const { row } = await awaiting();
+    const p = ports();
+    const seen: Array<string | null> = [];
+    const scan = p.scan;
+    p.scan = async (...a: unknown[]) => { seen.push(await leaseOf(row.id)); await new Promise((r) => setTimeout(r, 15)); return scan(...a); };
+    const { router } = routes(p);
+    expect((await call(router, 'post', '/toolchain-fixes/:id/approve', { params: { id: row.id } })).statusCode).toBe(200);
+    // Two re-scans (one per half): the second saw a lease renewed after the first.
+    expect(seen).toHaveLength(2);
+    expect(new Date(seen[1]!).getTime()).toBeGreaterThan(new Date(seen[0]!).getTime());
+  });
+
+  it('an approver whose lease was taken over never releases (or overwrites) the new holder\'s lease, and stores nothing', async () => {
+    const { row } = await awaiting();
+    const p = ports();
+    const scan = p.scan;
+    const OTHER = '2999-01-01T00:00:00.000Z';
+    // While this approver re-scans, its lease passes and a resume claims the publish.
+    p.scan = async (...a: unknown[]) => {
+      await raw.query('UPDATE plugin_remediations SET toolchain_candidate = jsonb_set(toolchain_candidate, \'{publish,leaseUntil}\', to_jsonb($2::text)) WHERE id = $1', [row.id, OTHER]);
+      return scan(...a);
+    };
+    const { router } = routes(p);
+    const res = await call(router, 'post', '/toolchain-fixes/:id/approve', { params: { id: row.id } });
+    expect(res.statusCode).toBe(409);
+    expect(res.body.details).toMatchObject({ reason: 'LEASE_LOST' });
+    expect(await leaseOf(row.id)).toBe(OTHER);
+    expect(persisted).toEqual([]);
+  });
+
+  it('a gate refusal releases only a lease it still holds', async () => {
+    const { row } = await awaiting();
+    const good = routes();
+    faults.persistName = 'cdk-synth';
+    await call(good.router, 'post', '/toolchain-fixes/:id/approve', { params: { id: row.id } });
+    await raw.query('UPDATE plugin_remediations SET toolchain_candidate = jsonb_set(toolchain_candidate, \'{publish,leaseUntil}\', to_jsonb(\'2026-01-01T00:00:00.000Z\'::text)) WHERE id = $1', [row.id]);
+    const p = ports({ gateRefusal: 'PLUGIN_VULN_GATE' });
+    const OTHER = '2999-01-01T00:00:00.000Z';
+    const scan = p.scan;
+    p.scan = async (...a: unknown[]) => {
+      await raw.query('UPDATE plugin_remediations SET toolchain_candidate = jsonb_set(toolchain_candidate, \'{publish,leaseUntil}\', to_jsonb($2::text)) WHERE id = $1', [row.id, OTHER]);
+      return scan(...a);
+    };
+    const res = await call(routes(p).router, 'post', '/toolchain-fixes/:id/approve', { params: { id: row.id } });
+    expect(res.statusCode).toBe(409);
+    expect(await leaseOf(row.id)).toBe(OTHER);
+  });
+
+  it('after 3 gate refusals of its publish the candidate moves to needs_review and a failure is counted (ToolchainFixFailing)', async () => {
+    const { row } = await awaiting();
+    const { router } = routes(ports({ gateRefusal: 'PLUGIN_VULN_GATE' }));
+    for (let i = 1; i <= 2; i++) {
+      const res = await call(router, 'post', '/toolchain-fixes/:id/approve', { params: { id: row.id } });
+      expect(res.body.details).toMatchObject({ reason: 'GATE_REFUSED' });
+      expect((await getRemediation(row.id))!).toMatchObject({ stage: 'awaiting_approval', decidedAt: null });
+    }
+    expect(counters).not.toContainEqual(['toolchain_fix_failures_total', { stage: 'gate_refused' }]);
+    const third = await call(router, 'post', '/toolchain-fixes/:id/approve', { params: { id: row.id } });
+    expect(third.statusCode).toBe(409);
+    expect(third.body.details).toMatchObject({ reason: 'GATE_REFUSED', refusals: 3, stage: 'needs_review' });
+    expect((await getRemediation(row.id))!).toMatchObject({ stage: 'needs_review', error: 'GATE_REFUSED' });
+    expect(counters).toContainEqual(['toolchain_fix_failures_total', { stage: 'gate_refused' }]);
+    expect(persisted).toEqual([]);
+    // No longer decidable.
+    expect((await call(router, 'post', '/toolchain-fixes/:id/approve', { params: { id: row.id } })).statusCode).toBe(409);
+  });
+
+  it('approve and resume are refused (503) while the operator knob is off: nothing is claimed or published', async () => {
+    const { row } = await awaiting();
+    const { router, p, store } = routes();
+    setPluginServiceConfigForTests({ enabled: false, toolchains: 'propose' });
+    const res = await call(router, 'post', '/toolchain-fixes/:id/approve', { params: { id: row.id } });
+    expect(res.statusCode).toBe(503);
+    expect((await getRemediation(row.id))!).toMatchObject({ stage: 'awaiting_approval', decidedAt: null });
+    expect((await getRemediation(row.id))!.toolchainCandidate!.publish).toBeUndefined();
+    // A publish stuck past its lease is not resumed either.
+    await raw.query('UPDATE plugin_remediations SET toolchain_candidate = jsonb_set(toolchain_candidate, \'{publish}\', $2::jsonb) WHERE id = $1',
+      [row.id, JSON.stringify({ approvedBy: 'op-1', approvedAt: '2026-01-01T00:00:00.000Z', leaseUntil: '2026-01-01T00:00:00.000Z', steps: { bootstrap: null, cdkSynth: null, inputs: false, notice: false }, resumes: 0 })]);
+    const { resumeStuckToolchainFixes } = await import('../src/services/remediation/toolchain.js');
+    expect(await resumeStuckToolchainFixes({ ports: p, inputs: store })).toBe(0);
+    expect(persisted).toEqual([]);
+  });
+
   it('decisions need a waiting toolchain candidate: 404 for an unknown or plugin remediation, 409 once decided', async () => {
     const { row } = await awaiting();
     const { router } = routes();

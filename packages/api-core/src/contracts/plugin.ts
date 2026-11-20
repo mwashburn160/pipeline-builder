@@ -173,6 +173,8 @@ export const PLUGIN_INTERNAL = {
           rolledBack: z.number().int().nonnegative(),
           skippedOptOut: z.number().int().nonnegative(),
           skippedRunner: z.number().int().nonnegative(),
+          waitingChangeRequest: z.number().int().nonnegative().optional(),
+          movedPendingRedeploy: z.number().int().nonnegative().optional(),
         }),
         pausedReason: z.enum(REMEDIATION_ROLLOUT_PAUSE_REASONS).optional(),
         updatedAt: z.string(),

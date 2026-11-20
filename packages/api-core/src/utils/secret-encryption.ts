@@ -38,8 +38,11 @@
  * of surfacing an opaque auth-tag failure.
  */
 
-import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'crypto';
+import { createCipheriv, createDecipheriv, hkdfSync, randomBytes, randomUUID } from 'crypto';
 import { normalizeOrgId } from './identity.js';
+import { createLogger } from './logger.js';
+import { errorMessage } from './response.js';
+import type { CacheInvalidationBus } from '../services/cache-service.js';
 
 /** On-disk shape of an encrypted secret. JSON-serializable. */
 export interface EncryptedBlob {
@@ -364,6 +367,22 @@ export interface PerOrgKmsConfig {
 export type PerOrgKmsResolver = (orgId: string) => Promise<PerOrgKmsConfig | null>;
 
 /**
+ * How long a recovered per-org master is trusted before the next touch
+ * re-resolves the org's config. The backstop for a cross-replica eviction
+ * that never arrived (Redis down, a missed broadcast): a KMS config changed on
+ * one replica is picked up everywhere within this window at the latest.
+ */
+export const PER_ORG_KMS_CACHE_TTL_MS = 5 * 60_000;
+
+/** After a failed TTL refresh, how long the stale key is served before trying again. */
+const PER_ORG_KMS_REFRESH_RETRY_MS = 30_000;
+
+/** The namespace per-org KMS evictions use on the shared cache-invalidation bus. */
+export const PER_ORG_KMS_INVALIDATION_PREFIX = 'per-org-kms:';
+
+const kmsLogger = createLogger('per-org-kms');
+
+/**
  * Per-org KMS-backed KeyProvider. The blast radius of a KMS key compromise
  * is one org instead of every org under a shared master.
  *
@@ -372,8 +391,14 @@ export type PerOrgKmsResolver = (orgId: string) => Promise<PerOrgKmsConfig | nul
  * the provider:
  *   1. Calls the resolver to fetch the org's KMS config.
  *   2. Calls `kms:Decrypt` to recover the 32-byte master.
- *   3. Caches the recovered master in-memory for the process lifetime.
+ *   3. Caches the recovered master in-memory for {@link PER_ORG_KMS_CACHE_TTL_MS}.
  *   4. HKDF-derives per-call from that master + the org id salt.
+ *
+ * `evict(orgId)` drops the org locally AND broadcasts the eviction on the
+ * `invalidationBus` (Redis pub/sub), so every replica of every service holding
+ * a provider on that bus drops it too; a (re)subscribe clears everything,
+ * since broadcasts may have been missed. The TTL is the backstop when the bus
+ * is down or absent.
  *
  * Blobs encrypted by this provider carry `kid = <kms-key-id>` so the
  * decrypt path detects a stale config (operator rotated the key but
@@ -385,14 +410,18 @@ export type PerOrgKmsResolver = (orgId: string) => Promise<PerOrgKmsConfig | nul
  * stay on the shared master are explicitly supported.
  */
 export class PerOrgKmsKeyProvider implements KeyProvider {
-  /** Cached per-org master keys, keyed by orgId. */
-  private readonly masters = new Map<string, { key: Buffer; kid: string }>();
-  /** Resolved per-org configs cached for the process lifetime. */
+  /** Cached per-org master keys, keyed by orgId, each trusted until `expiresAt`. */
+  private readonly masters = new Map<string, { key: Buffer; kid: string; expiresAt: number }>();
+  /** Resolved per-org configs, dropped with the master (eviction or TTL). */
   private readonly configs = new Map<string, PerOrgKmsConfig>();
   /** In-flight resolver promises so concurrent first-touch callers share one KMS Decrypt.
    *  Resolves to `null` for orgs with no per-org config — caller treats null as
-   *  "fall through to the fallback provider", same as a cold cache miss. */
-  private readonly inFlight = new Map<string, Promise<{ key: Buffer; kid: string } | null>>();
+   *  "fall through to the fallback provider", same as a cold cache miss. `epoch`
+   *  is the org's eviction count when it started: an answer that an eviction
+   *  overtook is never cached. */
+  private readonly inFlight = new Map<string, { epoch: number; promise: Promise<{ key: Buffer; kid: string } | null> }>();
+  /** Per-org eviction counter (see `inFlight`). */
+  private readonly epochs = new Map<string, number>();
   /** Orgs the resolver has PROVEN have no per-org config — the fallback provider
    *  is the correct answer for these, and `deriveKey` may serve them
    *  synchronously. Distinct from "not yet resolved", which must not guess. */
@@ -402,17 +431,46 @@ export class PerOrgKmsKeyProvider implements KeyProvider {
   private readonly resolver: PerOrgKmsResolver;
   private readonly region?: string;
   private readonly endpoint?: string;
+  private readonly ttlMs: number;
+  private readonly now: () => number;
+  private readonly onEvict?: (orgId: string) => void;
+  private readonly bus: CacheInvalidationBus | null;
+  private readonly instanceId = randomUUID();
 
+  /**
+   * `invalidationBus` is OPT-IN: pass the process's shared bus
+   * (`getCacheInvalidationBus()`) for a long-lived provider. A short-lived one
+   * (a dry run, a re-wrap's "previous" provider) leaves it out, since a
+   * subscription is never removed. `onEvict` runs on every eviction — local,
+   * broadcast, resync or TTL expiry — for a caller with its own config cache
+   * in front of the resolver, which must be dropped too.
+   */
   constructor(opts: {
     resolver: PerOrgKmsResolver;
     fallback: KeyProvider;
     region?: string;
     endpoint?: string;
+    invalidationBus?: CacheInvalidationBus | null;
+    onEvict?: (orgId: string) => void;
+    cacheTtlMs?: number;
+    now?: () => number;
   }) {
     this.resolver = opts.resolver;
     this.fallback = opts.fallback;
     this.region = opts.region ?? process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION;
     this.endpoint = opts.endpoint ?? process.env.AWS_KMS_ENDPOINT;
+    this.ttlMs = opts.cacheTtlMs ?? PER_ORG_KMS_CACHE_TTL_MS;
+    this.now = opts.now ?? Date.now;
+    this.onEvict = opts.onEvict;
+    this.bus = opts.invalidationBus ?? null;
+    this.bus?.subscribe(
+      (msg) => {
+        if (msg.origin === this.instanceId || msg.prefix !== PER_ORG_KMS_INVALIDATION_PREFIX) return;
+        if (msg.op === 'del' && msg.key) this.evictLocal(msg.key);
+        else this.evictAllLocal();
+      },
+      () => this.evictAllLocal(),
+    );
   }
 
   /**
@@ -468,37 +526,77 @@ export class PerOrgKmsKeyProvider implements KeyProvider {
    * provider handles those orgs.
    */
   async ensureWarmed(orgId: string): Promise<void> {
-    if (this.masters.has(orgId)) return;
-    // Install the in-flight promise SYNCHRONOUSLY before yielding so concurrent
-    // callers find it on the second-and-later passes. Awaiting the resolver
-    // before populating the map is the bug that lets a Promise.all of 3
-    // callers fire 3 KMS Decrypts.
-    let promise = this.inFlight.get(orgId);
-    if (!promise) {
-      promise = this.resolveAndDecrypt(orgId);
-      this.inFlight.set(orgId, promise);
-      // `.finally()` returns a NEW promise carrying the same rejection; the
-      // trailing catch keeps it from surfacing as an unhandledRejection (which
-      // the crash handler turns into process.exit). Callers still see the
-      // failure through `await promise` below.
-      void promise
-        .finally(() => { if (this.inFlight.get(orgId) === promise) this.inFlight.delete(orgId); })
-        .catch(() => undefined);
+    // Bounded: each pass that loses to an eviction starts a fresh resolve, and
+    // evictions do not arrive without end.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const cached = this.masters.get(orgId);
+      if (cached && cached.expiresAt > this.now()) return;
+      if (cached) {
+        // TTL expiry: re-resolve the config too, not just re-decrypt.
+        this.configs.delete(orgId);
+        this.onEvict?.(orgId);
+      }
+      // Install the in-flight promise SYNCHRONOUSLY before yielding so concurrent
+      // callers find it on the second-and-later passes. Awaiting the resolver
+      // before populating the map is the bug that lets a Promise.all of 3
+      // callers fire 3 KMS Decrypts.
+      let entry = this.inFlight.get(orgId);
+      if (!entry) {
+        const created = { epoch: this.epochOf(orgId), promise: this.resolveAndDecrypt(orgId) };
+        entry = created;
+        this.inFlight.set(orgId, created);
+        // `.finally()` returns a NEW promise carrying the same rejection; the
+        // trailing catch keeps it from surfacing as an unhandledRejection (which
+        // the crash handler turns into process.exit). Callers still see the
+        // failure through `await entry.promise` below.
+        void created.promise
+          .finally(() => { if (this.inFlight.get(orgId) === created) this.inFlight.delete(orgId); })
+          .catch(() => undefined);
+      }
+      let result: { key: Buffer; kid: string } | null;
+      try {
+        result = await entry.promise;
+      } catch (err) {
+        // A failed TTL REFRESH keeps the key it was refreshing (still present
+        // only if nothing evicted it): failing every secret read because the
+        // config source blinked is worse than trusting a key one TTL longer.
+        const stale = this.masters.get(orgId);
+        if (stale && stale === cached) {
+          stale.expiresAt = this.now() + PER_ORG_KMS_REFRESH_RETRY_MS;
+          kmsLogger.warn('Per-org KMS key refresh failed; serving the cached key', { orgId, error: errorMessage(err) });
+          return;
+        }
+        throw err;
+      }
+      // An eviction overtook this resolve: its answer may predate the change.
+      if (entry.epoch !== this.epochOf(orgId)) continue;
+      if (result) {
+        this.masters.set(orgId, { ...result, expiresAt: this.now() + this.ttlMs });
+        this.resolvedNoPerOrgConfig.delete(orgId);
+      } else {
+        this.masters.delete(orgId);
+        // Remember the NEGATIVE outcome too, so the sync `deriveKey` can tell
+        // "no per-org config, fallback is correct" from "not resolved yet".
+        this.resolvedNoPerOrgConfig.add(orgId);
+      }
+      return;
     }
-    const result = await promise;
-    if (result) this.masters.set(orgId, result);
-    // Remember the NEGATIVE outcome too, so the sync `deriveKey` can tell
-    // "no per-org config, fallback is correct" from "not resolved yet".
-    else this.resolvedNoPerOrgConfig.add(orgId);
+    throw new Error(`Per-org KMS config for org ${orgId} kept changing while it was being resolved; retry`);
+  }
+
+  private epochOf(orgId: string): number {
+    return this.epochs.get(orgId) ?? 0;
   }
 
   private async resolveAndDecrypt(orgId: string): Promise<{ key: Buffer; kid: string } | null> {
     let cfg = this.configs.get(orgId);
     if (!cfg) {
+      const epoch = this.epochOf(orgId);
       const resolved = await this.resolver(orgId);
       if (!resolved) return null; // no per-org config → caller uses fallback
       cfg = resolved;
-      this.configs.set(orgId, cfg);
+      // An eviction during the read means this answer may predate the change.
+      if (epoch === this.epochOf(orgId)) this.configs.set(orgId, cfg);
     }
     const key = await this.fetchAndDecrypt(cfg);
     return { key, kid: cfg.keyId };
@@ -509,14 +607,29 @@ export class PerOrgKmsKeyProvider implements KeyProvider {
   }
 
   /** Evict a cached per-org master. Use after a key rotation so the next
-   *  touch re-fetches the new wrapped master from the resolver. */
+   *  touch re-fetches the new wrapped master from the resolver. Applied here
+   *  and broadcast to every other provider on the invalidation bus. */
   evict(orgId: string): void {
     orgId = keyScope(orgId);
+    this.evictLocal(orgId);
+    this.bus?.publish({ origin: this.instanceId, prefix: PER_ORG_KMS_INVALIDATION_PREFIX, op: 'del', key: orgId });
+  }
+
+  private evictLocal(orgId: string): void {
+    orgId = keyScope(orgId);
+    this.epochs.set(orgId, this.epochOf(orgId) + 1);
+    this.inFlight.delete(orgId);
     this.masters.delete(orgId);
     this.configs.delete(orgId);
     // Also forget a NEGATIVE resolution, or an org that gains a per-org config
     // after being resolved as "no config" would keep using the shared master.
     this.resolvedNoPerOrgConfig.delete(orgId);
+    try { this.onEvict?.(orgId); } catch { /* the hook cannot block an eviction */ }
+  }
+
+  private evictAllLocal(): void {
+    const orgs = new Set([...this.masters.keys(), ...this.configs.keys(), ...this.inFlight.keys(), ...this.resolvedNoPerOrgConfig]);
+    for (const orgId of orgs) this.evictLocal(orgId);
   }
 }
 

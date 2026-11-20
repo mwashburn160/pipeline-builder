@@ -103,6 +103,8 @@ export {
   type PerOrgKmsConfig,
   type PerOrgKmsResolver,
   PerOrgKmsKeyProvider,
+  PER_ORG_KMS_CACHE_TTL_MS,
+  PER_ORG_KMS_INVALIDATION_PREFIX,
 } from './secret-encryption.js';
 export * from './secret-rotation.js';
 export {
