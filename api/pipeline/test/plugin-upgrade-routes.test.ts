@@ -172,10 +172,11 @@ describe('POST /plugin-upgrades/apply', () => {
   // `props` is the READ row's config rewritten: an unconditional write let an
   // edit that landed between the read and the write be silently reverted.
   it('writes conditionally on the updatedAt it read, and fails only that pipeline when the row moved on', async () => {
+    const { ConcurrencyConflictError } = await import('@pipeline-builder/api-core');
     const readAt = new Date('2026-11-01T00:00:00.000Z');
     mockFindById.mockImplementation(async (id: string) => ({ id, orgId: 'acme', pipelineName: 'p', props: { stages: [] }, updatedAt: readAt }));
     mockUpdate.mockImplementation(async (id: string, data: any) => {
-      if (id === P1) throw new Error('Resource was modified by another request');
+      if (id === P1) throw new ConcurrencyConflictError('Resource was modified by another request');
       return { id, pipelineName: 'p', props: data.props };
     });
     const r = res();
@@ -244,7 +245,8 @@ describe('POST /plugin-upgrades/apply', () => {
     const r = res();
     await apply({ body: { pipelineIds: [P1, P2], redeploy: true }, user: {} }, r);
     const data = dataOf(r);
-    expect(data.redeployRequired).toBe(false);
+    // P2 got no run queued: its new versions still need a redeploy.
+    expect(data.redeployRequired).toBe(true);
     // Exactly the QueuedRunRequestDto: no executionId, no runnerId, no reused flag.
     expect(data.results.map((x: any) => x.redeploy)).toEqual([
       { requestId: queued(1).requestId, status: 'queued', runnerLabel: 'prod' },
@@ -296,9 +298,37 @@ describe('POST /plugin-upgrades/apply', () => {
     await apply({ body: { pipelineIds: ['not-a-uuid'] }, user: {} }, bad);
     expect(bad.status).toHaveBeenCalledWith(400);
 
-    mockUpdate.mockRejectedValueOnce(new Error('db down'));
+    // An unexpected error's text (driver errors, SQL, hosts) never reaches the client.
+    mockUpdate.mockRejectedValueOnce(new Error('db down: connect ECONNREFUSED 10.0.0.5:5432'));
     const r = res();
     await apply({ body: { pipelineIds: [P1] }, user: {} }, r);
-    expect(dataOf(r).results).toEqual([{ pipelineId: P1, status: 'failed', error: 'db down' }]);
+    expect(dataOf(r).results).toEqual([{ pipelineId: P1, status: 'failed', error: 'The upgrade failed because of an internal error; try again.' }]);
+    expect(JSON.stringify(dataOf(r))).not.toMatch(/db down|ECONNREFUSED|10\.0\.0\.5/);
+  });
+
+  it('a concurrent edit (ConcurrencyConflictError) and a runner refusal keep their own message; any other redeploy error is generic', async () => {
+    const { ConcurrencyConflictError } = await import('@pipeline-builder/api-core');
+    mockUpdate.mockRejectedValueOnce(new ConcurrencyConflictError('The pipeline changed since it was read; reload and try again.'));
+    const conflict = res();
+    await apply({ body: { pipelineIds: [P1] }, user: {} }, conflict);
+    expect(dataOf(conflict).results).toEqual([{ pipelineId: P1, status: 'failed', error: 'The pipeline changed since it was read; reload and try again.' }]);
+
+    mockTrigger.mockRejectedValueOnce(new Error('redis: READONLY You can\'t write against a read only replica'))
+      .mockRejectedValueOnce(new RunnerRouteError('RUNNER_UNREACHABLE', 'Pipeline runner "prod" is unreachable'));
+    const r = res();
+    await apply({ body: { pipelineIds: [P1, P2], redeploy: true }, user: {} }, r);
+    expect(dataOf(r).results.map((x: any) => x.redeploy)).toEqual([
+      { error: 'The redeploy could not be started because of an internal error; run the pipeline again from its page.' },
+      { error: 'Pipeline runner "prod" is unreachable' },
+    ]);
+    expect(JSON.stringify(dataOf(r))).not.toMatch(/READONLY|redis/);
+    expect(dataOf(r).redeployRequired).toBe(true);
+  });
+
+  it('redeployRequired is false only when every upgraded pipeline got a run queued', async () => {
+    mockTrigger.mockResolvedValueOnce(queued(1)).mockResolvedValueOnce(queued(2));
+    const r = res();
+    await apply({ body: { pipelineIds: [P1, P2], redeploy: true }, user: {} }, r);
+    expect(dataOf(r).redeployRequired).toBe(false);
   });
 });

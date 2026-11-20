@@ -23,11 +23,11 @@ jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastMod
 // Each settings component reports the org id it was handed.
 jest.mock('@/components/settings/MfaPolicySettings', () => ({
   __esModule: true,
-  MfaPolicySettings: ({ orgId }: { orgId: string }) => <div data-testid="mfa">{orgId}</div>,
+  MfaPolicySettings: ({ orgId, readOnly }: { orgId: string; readOnly?: boolean }) => <div data-testid="mfa" data-readonly={String(!!readOnly)}>{orgId}</div>,
 }));
 jest.mock('@/components/settings/ImpersonationPolicySettings', () => ({
   __esModule: true,
-  ImpersonationPolicySettings: ({ orgId }: { orgId: string }) => <div data-testid="impersonation">{orgId}</div>,
+  ImpersonationPolicySettings: ({ orgId, readOnly }: { orgId: string; readOnly?: boolean }) => <div data-testid="impersonation" data-readonly={String(!!readOnly)}>{orgId}</div>,
 }));
 jest.mock('@/components/settings/SsoDisconnect', () => ({ __esModule: true, SsoDisconnect: () => null }));
 // The SSO section is the REAL shared flow (SsoConnectionFlow → wizard / status
@@ -63,6 +63,7 @@ jest.mock('@/lib/api', () => ({
 }));
 
 const team = { orgId: 'team-7', orgName: 'Platform' };
+const ALL = ['org_settings:write', 'org_impersonation:write', 'org_idp:write'];
 
 /** A saved connection for the team, so the drawer shows the status summary. */
 const TEAM_CONFIG = {
@@ -90,7 +91,7 @@ beforeEach(() => {
 
 describe('TeamSettingsDrawer', () => {
   it('hands the TEAM\'s org id to every settings section', async () => {
-    mockAuthGuard({ user: { id: 'u1', organizationId: 'root-1' }, can: () => true });
+    mockAuthGuard({ user: { id: 'u1', organizationId: 'root-1', permissions: ALL }, can: () => true });
     render(<TeamSettingsDrawer team={team} onClose={jest.fn<AnyFn>()} onRenamed={jest.fn<AnyFn>()} />);
 
     expect(screen.getByTestId('mfa')).toHaveTextContent('team-7');
@@ -100,7 +101,7 @@ describe('TeamSettingsDrawer', () => {
   });
 
   it('gives a team the SAME six-step wizard as the org SSO page, not the old stacked editors', async () => {
-    mockAuthGuard({ user: { id: 'u1', organizationId: 'root-1' }, can: () => true });
+    mockAuthGuard({ user: { id: 'u1', organizationId: 'root-1', permissions: ALL }, can: () => true });
     render(<TeamSettingsDrawer team={team} onClose={jest.fn<AnyFn>()} onRenamed={jest.fn<AnyFn>()} />);
 
     // The wizard makes you CHOOSE a protocol (never both editors at once) and
@@ -113,7 +114,7 @@ describe('TeamSettingsDrawer', () => {
   });
 
   it('reads the SP values for the TEAM, never the active org', async () => {
-    mockAuthGuard({ user: { id: 'u1', organizationId: 'root-1' }, can: () => true });
+    mockAuthGuard({ user: { id: 'u1', organizationId: 'root-1', permissions: ALL }, can: () => true });
     render(<TeamSettingsDrawer team={team} onClose={jest.fn<AnyFn>()} onRenamed={jest.fn<AnyFn>()} />);
 
     fireEvent.click(await screen.findByRole('button', { name: /2\s*Service-provider values/ }));
@@ -122,7 +123,7 @@ describe('TeamSettingsDrawer', () => {
 
   it('shows the status summary — with test connection and "SSO required" — for a configured team', async () => {
     getOwnOrgIdpConfig.mockResolvedValue({ success: true, data: { config: TEAM_CONFIG } });
-    mockAuthGuard({ user: { id: 'u1', organizationId: 'root-1' }, can: () => true });
+    mockAuthGuard({ user: { id: 'u1', organizationId: 'root-1', permissions: ALL }, can: () => true });
     render(<TeamSettingsDrawer team={team} onClose={jest.fn<AnyFn>()} onRenamed={jest.fn<AnyFn>()} />);
 
     expect(await screen.findByTestId('sso-summary')).toBeInTheDocument();
@@ -132,7 +133,7 @@ describe('TeamSettingsDrawer', () => {
   });
 
   it('keeps each section behind its own permission', () => {
-    mockAuthGuard({ user: { id: 'u1', organizationId: 'root-1' }, can: (p: string) => p === 'org_impersonation:write' });
+    mockAuthGuard({ user: { id: 'u1', organizationId: 'root-1', permissions: ['org_impersonation:write'] }, can: (p: string) => p === 'org_impersonation:write' });
     render(<TeamSettingsDrawer team={team} onClose={jest.fn<AnyFn>()} onRenamed={jest.fn<AnyFn>()} />);
 
     expect(screen.getByTestId('impersonation')).toBeInTheDocument();
@@ -144,14 +145,30 @@ describe('TeamSettingsDrawer', () => {
 
   it('shows the sso lock instead of the editors when the account isn\'t entitled', () => {
     ssoEntitled = false;
-    mockAuthGuard({ user: { id: 'u1', organizationId: 'root-1' }, can: (p: string) => p === 'org_idp:write' });
+    mockAuthGuard({ user: { id: 'u1', organizationId: 'root-1', permissions: ['org_idp:write'] }, can: (p: string) => p === 'org_idp:write' });
     render(<TeamSettingsDrawer team={team} onClose={jest.fn<AnyFn>()} onRenamed={jest.fn<AnyFn>()} />);
     expect(screen.getByTestId('feature-lock-sso')).toBeInTheDocument();
     expect(screen.queryByText('Set up single sign-on')).not.toBeInTheDocument();
   });
 
+  it('a read-only session views every section it holds the permission for, with every write disabled', async () => {
+    // `can()` is false for every mutation under read-only impersonation; gating
+    // the sections on it left the drawer empty ("no permission") for an investigator.
+    getOwnOrgIdpConfig.mockResolvedValue({ success: true, data: { config: TEAM_CONFIG } });
+    mockAuthGuard({ user: { id: 'u1', organizationId: 'root-1', permissions: ALL }, isReadOnly: true, can: () => false });
+    render(<TeamSettingsDrawer team={team} onClose={jest.fn<AnyFn>()} onRenamed={jest.fn<AnyFn>()} />);
+
+    expect(screen.getByText('Read-only session')).toBeInTheDocument();
+    expect(screen.queryByText(/don't have permission/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Name')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Rename team' })).toBeDisabled();
+    expect(screen.getByTestId('mfa')).toHaveAttribute('data-readonly', 'true');
+    expect(screen.getByTestId('impersonation')).toHaveAttribute('data-readonly', 'true');
+    expect(await screen.findByTestId('sso-summary')).toBeInTheDocument();
+  });
+
   it('renames the team through its own identity route, then tells the parent', async () => {
-    mockAuthGuard({ user: { id: 'u1', organizationId: 'root-1' }, can: (p: string) => p === 'org_settings:write' });
+    mockAuthGuard({ user: { id: 'u1', organizationId: 'root-1', permissions: ['org_settings:write'] }, can: (p: string) => p === 'org_settings:write' });
     const onRenamed = jest.fn<AnyFn>();
     render(<TeamSettingsDrawer team={team} onClose={jest.fn<AnyFn>()} onRenamed={onRenamed} />);
 

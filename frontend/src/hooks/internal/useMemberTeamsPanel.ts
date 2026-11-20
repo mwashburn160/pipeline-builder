@@ -15,8 +15,11 @@ import { isSessionPolicyReauth } from '@/lib/sign-in-reason';
 interface UseMemberTeamsPanelOptions {
   /** The active org (the potential parent). */
   orgId: string;
-  canManageMembers: boolean;
-  canOrgSettings: boolean;
+  /** The RAW `members:manage` grant (not the read-only-aware `can()`): the team
+   *  list is a read, so a read-only session still sees it. */
+  canViewTeams: boolean;
+  /** The raw `org_settings:write` grant: the recently-deleted list is a read too. */
+  canViewDeletedTeams: boolean;
   /** Only a root org can parent a team. */
   activeOrgIsRoot: boolean;
   /** Whether the org currently parents any team. */
@@ -32,7 +35,7 @@ interface UseMemberTeamsPanelOptions {
  * the org→team hierarchy, which the roster page merely hosts.
  */
 export function useMemberTeamsPanel({
-  orgId, canManageMembers, canOrgSettings, activeOrgIsRoot, hasChildOrgs,
+  orgId, canViewTeams, canViewDeletedTeams, activeOrgIsRoot, hasChildOrgs,
 }: UseMemberTeamsPanelOptions) {
   const { refreshUser, switchOrganization } = useAuth();
   const toast = useToast();
@@ -44,17 +47,17 @@ export function useMemberTeamsPanel({
   // failure surfaces a brief note, never blanks the page. Creating a team calls
   // `refreshUser()`, which flips `hasChildOrgs` and so re-runs this read.
   const teamsQ = useFetch(async (signal) => {
-    if (!orgId || !canManageMembers || !hasChildOrgs) return [];
+    if (!orgId || !canViewTeams || !hasChildOrgs) return [];
     return (await api.getOrganizationTeams(orgId, { signal })).data?.teams ?? [];
-  }, [orgId, canManageMembers, hasChildOrgs]);
+  }, [orgId, canViewTeams, hasChildOrgs]);
 
   // Soft-deleted teams still inside their retention window. Read for any root
   // whose admin may restore them — NOT only while `hasChildOrgs`: deleting the
   // last team drops `childOrgCount` to 0, and its restore must stay reachable.
   const deletedTeamsQ = useFetch(async (signal) => {
-    if (!orgId || !canOrgSettings || !activeOrgIsRoot) return [];
+    if (!orgId || !canViewDeletedTeams || !activeOrgIsRoot) return [];
     return (await api.listDeletedTeams(orgId, { signal })).data?.teams ?? [];
-  }, [orgId, canOrgSettings, activeOrgIsRoot]);
+  }, [orgId, canViewDeletedTeams, activeOrgIsRoot]);
 
   /** After a team is created, renamed, deleted or restored: re-read both lists
    *  and the session's org list (`childOrgCount` + the switcher). */

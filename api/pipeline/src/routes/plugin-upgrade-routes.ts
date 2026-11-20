@@ -6,6 +6,8 @@ import {
   actorId,
   audited,
   checkVisibilityWriteAccess,
+  ConcurrencyConflictError,
+  createLogger,
   ErrorCode,
   errorMessage,
   getParam,
@@ -27,8 +29,26 @@ import { recordPipelineResolution } from '../helpers/plugin-contract-check.js';
 import type { PluginWarning } from '../helpers/plugin-save-check.js';
 import { applyPluginUpgrades, previewPluginUpgrades, type AppliedUpgrade, type StepUpgrade } from '../helpers/plugin-upgrades.js';
 import { DUPLICATE_TRIGGER_MESSAGE, queuedRunRequestDto, triggerExecutionInWindow } from '../helpers/trigger-execution.js';
+import { RunnerRouteError } from '../runners/routing.js';
 import { SYSTEM_PLUGIN_UPGRADE } from '../runners/vocabulary.js';
 import { pipelineService, type Pipeline } from '../services/pipeline-service.js';
+
+const logger = createLogger('plugin-upgrade-routes');
+
+const INTERNAL_UPGRADE_ERROR = 'The upgrade failed because of an internal error; try again.';
+const INTERNAL_REDEPLOY_ERROR = 'The redeploy could not be started because of an internal error; run the pipeline again from its page.';
+
+/**
+ * What a per-pipeline failure tells the client: a runner refusal or a
+ * concurrent edit keeps its own (user-facing) message; anything else is
+ * logged and answered with `fallback` — a driver, SQL or network error's text
+ * never reaches the response.
+ */
+function clientError(err: unknown, fallback: string, pipelineId: string): string {
+  if (err instanceof RunnerRouteError || err instanceof ConcurrencyConflictError) return err.message;
+  logger.warn('Plugin upgrade step failed', { pipelineId, error: errorMessage(err) });
+  return fallback;
+}
 
 /** Upper bound on pipelines per apply (each is a full validated write). */
 const MAX_APPLY_PIPELINES = 50;
@@ -106,7 +126,8 @@ type ApplyOutcome =
  *   validation, plugin contract check, compliance re-check, resolution recording),
  *   audited `pipeline.plugin.upgraded` per pipeline. With `redeploy`, starts an
  *   execution of each upgraded registered pipeline (its synth reads the new config);
- *   otherwise the response's `redeployRequired` is true when anything was upgraded.
+ *   `redeployRequired` is true when any upgraded pipeline got no run queued (no
+ *   redeploy asked, or its redeploy failed or was a suppressed duplicate).
  *
  * Each route owns its auth chain (mounted with the other self-guarded routers);
  * apiCalls is metered + checked by the '/pipelines' prefix mount in app-routes.ts.
@@ -237,7 +258,7 @@ export function createPluginUpgradeRoutes(): Router {
                 });
               }
             } catch (err) {
-              redeployOutcome = { error: errorMessage(err) };
+              redeployOutcome = { error: clientError(err, INTERNAL_REDEPLOY_ERROR, id) };
               recordAudit({
                 action: 'pipeline.execution.start',
                 actorId: actorId({ userId }),
@@ -256,7 +277,7 @@ export function createPluginUpgradeRoutes(): Router {
             ...(redeployOutcome ? { redeploy: redeployOutcome } : {}),
           });
         } catch (err) {
-          results.push({ pipelineId: id, status: 'failed', error: errorMessage(err) });
+          results.push({ pipelineId: id, status: 'failed', error: clientError(err, INTERNAL_UPGRADE_ERROR, id) });
         }
       }
 
@@ -269,8 +290,10 @@ export function createPluginUpgradeRoutes(): Router {
         upgraded: upgraded.length,
         results,
         releases,
-        // Nothing runs the new versions until a synth re-reads the config.
-        redeployRequired: !redeploy && upgraded.length > 0,
+        // Nothing runs the new versions until a synth re-reads the config: true
+        // when any upgraded pipeline got no run queued by this apply (no
+        // redeploy asked, or its redeploy failed or was a suppressed duplicate).
+        redeployRequired: upgraded.some((r) => !(r.status === 'upgraded' && r.redeploy && 'requestId' in r.redeploy)),
       });
     }));
 

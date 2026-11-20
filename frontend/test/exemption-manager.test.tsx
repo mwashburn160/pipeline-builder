@@ -129,10 +129,27 @@ describe('ExemptionManager', () => {
     await waitFor(() => expect(reviewExemption).toHaveBeenCalledWith('ex1', 'rejected', 'Too broad'));
   });
 
-  it('read-only hides every write control', async () => {
-    render(<ExemptionManager readOnly />);
+  it('without compliance:write: no review / delete, but Request and Import CSV stay (the routes need only compliance:read)', async () => {
+    const { container } = render(<ExemptionManager readOnly />);
     await screen.findByText('trivy-scan');
-    for (const name of ['Approve', 'Reject', 'Delete', 'Import CSV']) {
+    for (const name of ['Approve', 'Reject', 'Delete']) {
+      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
+    }
+    expect(screen.getByRole('button', { name: /Import CSV/ })).toBeInTheDocument();
+    fireEvent.change(fileInput(container), { target: { files: [csvFile('ruleId,entityType,entityId,reason\nr1,plugin,p1,why\n')] } });
+    await waitFor(() => expect(bulkCreateExemptions).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: /Request/ }));
+    fireEvent.change(screen.getByLabelText('Rule ID'), { target: { value: 'r9' } });
+    fireEvent.change(screen.getByLabelText('Entity ID'), { target: { value: 'pipe-7' } });
+    fireEvent.change(screen.getByLabelText('Reason for exemption'), { target: { value: 'Legacy build' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Submit Request' }));
+    await waitFor(() => expect(createExemption).toHaveBeenCalled());
+  });
+
+  it('a read-only session hides every write control, the compliance:read requests included', async () => {
+    render(<ExemptionManager readOnly sessionReadOnly />);
+    await screen.findByText('trivy-scan');
+    for (const name of ['Approve', 'Reject', 'Delete', /Import CSV/, /Request/]) {
       expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
     }
   });

@@ -37,6 +37,7 @@ import {
   type PerOrgKmsConfig,
   type PerOrgKmsResolver,
 } from '@pipeline-builder/api-core';
+import { isRunnerKeyServiceUnavailable, RunnerKeyServiceUnavailableError } from '@pipeline-builder/api-core/pipeline-runners';
 
 const logger = createLogger('runner-key-crypto');
 
@@ -58,11 +59,56 @@ function parseStored(stored: string) {
   return blob;
 }
 
-/** Secrets over a given provider (the process default when omitted). */
+/** AWS KMS error names that mean "try again" (the service, not the key or the ciphertext). */
+const TRANSIENT_KMS_NAMES = new Set([
+  'ThrottlingException', 'KMSInternalException', 'DependencyTimeoutException', 'ServiceUnavailableException',
+  'InternalFailure', 'RequestTimeout', 'RequestTimeoutException', 'TimeoutError', 'NetworkingError',
+]);
+/** Socket-level codes of a request that never got an answer. */
+const TRANSIENT_NET_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'EAI_AGAIN', 'EPIPE', 'EHOSTUNREACH', 'ENETUNREACH', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_SOCKET']);
+
+/**
+ * Whether a KMS call failed for a TRANSIENT reason: the network, throttling, a
+ * KMS-side 5xx, or an error the AWS SDK itself marks retryable. A KMS answer
+ * about the key or the ciphertext (InvalidCiphertext, AccessDenied, Disabled,
+ * NotFound, …) is not: that key really can't be read.
+ */
+export function isTransientKmsError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const e = err as { name?: unknown; code?: unknown; $retryable?: unknown; $metadata?: { httpStatusCode?: unknown }; cause?: { code?: unknown } };
+  if (typeof e.name === 'string' && TRANSIENT_KMS_NAMES.has(e.name)) return true;
+  if (e.$retryable) return true;
+  const status = e.$metadata?.httpStatusCode;
+  if (typeof status === 'number' && status >= 500) return true;
+  const code = String(e.code ?? e.cause?.code ?? '');
+  return TRANSIENT_NET_CODES.has(code);
+}
+
+/** A key-service failure as the transient error; anything else (a real decrypt failure) unchanged. */
+function classify(err: unknown): unknown {
+  if (isRunnerKeyServiceUnavailable(err)) return err;
+  if (isTransientKmsError(err)) return new RunnerKeyServiceUnavailableError('kms', `KMS is unavailable (${errorMessage(err).slice(0, 120)})`, { cause: err });
+  return err;
+}
+
+/**
+ * Secrets over a given provider (the process default when omitted). A
+ * transient key-service failure surfaces as a RunnerKeyServiceUnavailableError
+ * (RUNNERS_UNAVAILABLE upstream); a real decrypt failure as itself.
+ */
 export function keySecrets(provider?: () => KeyProvider): KeySecrets {
   return {
-    encrypt: async (pem, orgId) => JSON.stringify(await encryptSecret(pem, orgId, provider ? provider() : getDefaultKeyProvider())),
-    decrypt: (stored, orgId) => decryptSecret(parseStored(stored), orgId, provider ? provider() : getDefaultKeyProvider()),
+    encrypt: async (pem, orgId) => {
+      try {
+        return JSON.stringify(await encryptSecret(pem, orgId, provider ? provider() : getDefaultKeyProvider()));
+      } catch (err) { throw classify(err); }
+    },
+    decrypt: async (stored, orgId) => {
+      const blob = parseStored(stored);
+      try {
+        return await decryptSecret(blob, orgId, provider ? provider() : getDefaultKeyProvider());
+      } catch (err) { throw classify(err); }
+    },
   };
 }
 
@@ -83,14 +129,23 @@ export const fetchOrgKmsConfig: KmsConfigFetch = async (orgId) => {
   throw new Error(`KMS config lookup failed (${res.reason === 'status' ? `HTTP ${res.status}` : res.reason})`);
 };
 
-/** A resolver that reuses each org's answer for {@link KMS_CONFIG_CACHE_MS}; failures are not cached. */
+/**
+ * A resolver that reuses each org's answer for {@link KMS_CONFIG_CACHE_MS};
+ * failures are not cached. A failed lookup (platform down, a non-404 error)
+ * throws a RunnerKeyServiceUnavailableError: it says nothing about the key.
+ */
 export function cachedKmsResolver(fetch: KmsConfigFetch = fetchOrgKmsConfig, now: () => number = Date.now) {
   const cache = new Map<string, { value: PerOrgKmsConfig | null; at: number }>();
   const resolver: PerOrgKmsResolver = async (orgId) => {
     const k = orgId.toLowerCase();
     const hit = cache.get(k);
     if (hit && now() - hit.at < KMS_CONFIG_CACHE_MS) return hit.value;
-    const value = await fetch(k);
+    let value: PerOrgKmsConfig | null;
+    try {
+      value = await fetch(k);
+    } catch (err) {
+      throw new RunnerKeyServiceUnavailableError('kms_config', `The org's KMS config could not be read (${errorMessage(err).slice(0, 120)})`, { cause: err });
+    }
     cache.set(k, { value, at: now() });
     return value;
   };

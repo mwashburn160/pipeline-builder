@@ -98,6 +98,11 @@ describe('runSigningKeyAction', () => {
     const e = refused(403, { error: { code: 'INSUFFICIENT_PERMISSIONS' } });
     expect(() => explainSigningKeyError(e)).toThrow(e);
   });
+
+  it('an error code that names an Object.prototype member is not a known refusal: rethrown as-is', () => {
+    const e = refused(409, { error: { code: 'constructor' } });
+    expect(() => explainSigningKeyError(e)).toThrow(e);
+  });
 });
 
 describe('output', () => {

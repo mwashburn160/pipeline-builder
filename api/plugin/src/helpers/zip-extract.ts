@@ -69,17 +69,26 @@ function describeFileType(type: number): string {
 }
 
 /**
- * Per-entry refusal hook: returns a refusal message for an entry name that must
- * not be extracted (e.g. a credential file), or null to allow it. Runs before
- * anything of that entry is written.
+ * Per-entry refusal hook (the upload path's credential-file check). `byName`
+ * returns a refusal message for an entry that must not be extracted, or null to
+ * allow it; it runs before anything of that entry is written. An entry the name
+ * cannot decide (`wantsContent`) has its leading `contentBytes` captured while
+ * it streams, and `byContent` decides once the entry is written — a refusal
+ * then fails the whole extraction (the caller discards the directory).
  */
-export type ZipEntryScreen = (fileName: string) => string | null;
+export interface ZipEntryScreen {
+  byName: (fileName: string) => string | null;
+  wantsContent?: (fileName: string) => boolean;
+  byContent?: (fileName: string, text: string) => string | null;
+  /** How much of a `wantsContent` entry is captured for `byContent`. */
+  contentBytes?: number;
+}
 
 /**
  * Read specific text entries and extract all files in a single pass. `limits`
  * overrides the service-wide {@link extractionLimits} for one call — the
  * anonymous submission path passes much tighter ones (its caller is unknown).
- * `screen` refuses individual entries by name (the upload path's credential-file check).
+ * `screen` refuses individual entries by name or leading content (the upload path's credential-file check).
  */
 export async function readAndExtractZip(
   zipPath: string,
@@ -147,7 +156,7 @@ export async function readAndExtractZip(
           ));
         }
 
-        const screened = screen?.(entry.fileName);
+        const screened = screen?.byName(entry.fileName);
         if (screened) return rejectOnce(new ValidationError(screened));
 
         const targetPath = path.join(root, entry.fileName);
@@ -201,12 +210,22 @@ export async function readAndExtractZip(
               // Capture text content as well as writing it, for the wanted entries.
               const chunks: Buffer[] | null = wanted.has(entry.fileName) ? [] : null;
               let capturedBytes = 0;
+              // The leading bytes a content-decided credential check reads.
+              const byContent = screen?.byContent && screen.wantsContent?.(entry.fileName) ? screen.byContent : null;
+              const screenChunks: Buffer[] | null = byContent ? [] : null;
+              const screenMax = screen?.contentBytes ?? 1024 * 1024;
+              let screenBytes = 0;
               writeStream.on('finish', () => {
                 if (chunks) results.set(entry.fileName, Buffer.concat(chunks).toString('utf-8'));
+                if (byContent && screenChunks) {
+                  const refused = byContent(entry.fileName, Buffer.concat(screenChunks).subarray(0, screenMax).toString('utf-8'));
+                  if (refused) return rejectOnce(new ValidationError(refused));
+                }
                 zipfile.readEntry();
               });
               stream.on('data', (chunk: Buffer) => {
                 if (!countChunk(chunk)) { stream.destroy(); writeStream.destroy(); return; }
+                if (screenChunks && screenBytes < screenMax) { screenChunks.push(chunk); screenBytes += chunk.length; }
                 if (chunks) {
                   capturedBytes += chunk.length;
                   if (capturedBytes > TEXT_ENTRY_MAX_BYTES) {

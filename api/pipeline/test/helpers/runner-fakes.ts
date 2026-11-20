@@ -157,6 +157,13 @@ export function fakeStore(): FakeStore {
       });
       return true;
     },
+    async resetStaleLinkChecks(before) {
+      let n = 0;
+      for (const [k, l] of registry) {
+        if (l.linkStatus === 'checking' && l.linkCheckedAt && l.linkCheckedAt < before) { registry.set(k, { ...l, linkStatus: l.runnerId ? 'linked' : 'unlinked' }); n++; }
+      }
+      return n;
+    },
     async clearRunnerLinks(runnerId) {
       let n = 0;
       for (const [k, l] of registry) if (l.runnerId === runnerId) { registry.set(k, { ...l, runnerId: null, linkStatus: 'unlinked' }); n++; }
@@ -248,7 +255,7 @@ export function testDeps(over: Partial<RunnerDeps> = {}): TestDeps {
     signerFor: async (orgId: string) => { signerOrgs.push(orgId); return signer; },
     signerOrgs,
     testSigner: signer,
-    runnersAvailable: async () => ({ ...availability }),
+    runnersAvailable: async (opts?: { ignorePause?: boolean }) => (opts?.ignorePause && !availability.available && (availability.reason ?? 'paused') === 'paused' ? { available: true } : { ...availability }),
     deliveriesPaused: async () => !availability.available && availability.reason === 'paused',
     availability,
     // The per-org key parts (the real signer cache over them: key-fakes.ts `keyedDeps`).

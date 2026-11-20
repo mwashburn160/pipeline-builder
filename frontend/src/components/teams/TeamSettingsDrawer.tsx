@@ -20,6 +20,7 @@ import { useFeatureGate } from '@/hooks/useFeatureGate';
 import { useFetch } from '@/hooks/useFetch';
 import { useFormState } from '@/hooks/useFormState';
 import api from '@/lib/api';
+import { hasPermission } from '@/lib/auth-helpers';
 import { invalidate } from '@/lib/api-cache';
 import { formatError } from '@/lib/constants';
 import type { OrgTeamRef } from '@/lib/api/domains/organizations';
@@ -32,6 +33,10 @@ import type { OrgIdpConfigDto } from '@/types';
  * the TEAM's org id — so the step-up flows, the read/write shapes and the copy
  * are shared, not forked. Each section keeps its own permission gate (the
  * backend's `canAdministerOrg` then admits a parent admin on the team).
+ *
+ * The gates read the RAW grant (`hasPermission`), not the read-only-aware
+ * `can()`: a read-only (impersonation) session may view every section it holds
+ * the permission for, and each section gets `readOnly` to lock its writes.
  */
 export function TeamSettingsDrawer({
   team,
@@ -43,10 +48,10 @@ export function TeamSettingsDrawer({
   /** After a rename — the caller refreshes its team list and the switcher. */
   onRenamed: () => void | Promise<void>;
 }) {
-  const { can, isReadOnly } = useAuthGuard();
-  const canSettings = can('org_settings:write');
-  const canImpersonation = can('org_impersonation:write');
-  const canIdp = can('org_idp:write');
+  const { user, isReadOnly } = useAuthGuard();
+  const canSettings = hasPermission(user, 'org_settings:write');
+  const canImpersonation = hasPermission(user, 'org_impersonation:write');
+  const canIdp = hasPermission(user, 'org_idp:write');
 
   return (
     <SideDrawer

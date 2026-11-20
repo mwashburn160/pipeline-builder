@@ -53,6 +53,13 @@ const stringList = z.unknown().optional().transform((v): string[] => (
 const count = z.number().finite().nonnegative();
 
 /** System-org member service token; the caller is authorized by its key-bound name. */
+/**
+ * An org's per-org KMS config (api-core's `PerOrgKmsConfig`): the CMK id and the
+ * KMS-wrapped master. ONE schema for `orgKmsConfig`'s answer and the pipeline
+ * re-encrypt job's `previousKmsConfig`, so the two cannot drift.
+ */
+export const PerOrgKmsConfigSchema = z.object({ keyId: z.string().min(1), ciphertextBase64: z.string().min(1) });
+
 const SERVICE_TOKEN = 'Service token (system-org member); the caller is authorized by its key-bound service name.';
 
 // ---------------------------------------------------------------------------
@@ -529,7 +536,9 @@ export const PLATFORM_INTERNAL = {
    * wired in platform otherwise). `kmsConfig: null` = the org has none and uses
    * the shared provider. The ciphertext is the KMS-WRAPPED master (useless
    * without `kms:Decrypt`), but it is still never logged. The caller caches it
-   * (60 s). 404 for an unknown or deleted org.
+   * (60 s). 404 for an unknown org only: a soft-deleted org still answers
+   * its config during the retention window, matching platform's own resolver,
+   * so both services can read the keys wrapped under it until the purge.
    */
   orgKmsConfig: defineInternalEndpoint({
     id: 'platform.orgKmsConfig',
@@ -539,9 +548,7 @@ export const PLATFORM_INTERNAL = {
     callers: ['pipeline'],
     auth: SERVICE_TOKEN,
     params: z.object({ orgId: orgIdParam }),
-    response: z.object({
-      kmsConfig: z.object({ keyId: z.string().min(1), ciphertextBase64: z.string().min(1) }).nullable(),
-    }),
+    response: z.object({ kmsConfig: PerOrgKmsConfigSchema.nullable() }),
   }),
   /**
    * The ACCOUNT ROOT of an org (the top of its team ancestry; a flat org is its

@@ -555,7 +555,7 @@ export function pipelinesApi(core: ApiCore) {
     },
     /** Emergency revoke of one org's active key (system org). Step-up gated. */
     systemRevokeRunnerSigningKey: async (orgId: string, body: { reason?: string }, stepUpToken?: string) => {
-      return core.request<ApiResponse<{ orgId: string; revokedKid: string | null; activeKid: string }>>(
+      return core.request<ApiResponse<{ orgId: string; revokedKid: string | null; activeKid: string | null }>>(
         `/api/pipelines/admin/orgs/${encodeURIComponent(orgId)}/runner-signing-key/revoke`,
         { method: 'POST', body: JSON.stringify(body), headers: core.stepUpHeader(stepUpToken) },
       );

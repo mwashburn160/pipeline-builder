@@ -32,12 +32,20 @@ describe('interpretReply', () => {
     expect(interpretReply(status, body)).toEqual(verdict);
   });
 
-  // The catalog's `retryable` is the dispatcher's contract: a runner code is
-  // delivered again exactly when the catalog says so, at the catalog's status.
-  it.each([...RUNNER_REPLY_ERROR_CODES])('%s at its catalog status: retried iff the catalog says retryable', (code) => {
-    const v = interpretReply(runnerErrorStatus(code), { errorCode: code });
+  // The catalog's `retryable` is the dispatcher's contract: a runner code in
+  // the runner's own 4xx reply is delivered again exactly when the catalog
+  // says so; a 5xx is a transport failure (retried) whatever its body says.
+  it.each([...RUNNER_REPLY_ERROR_CODES])('%s in a 4xx reply: retried iff the catalog says retryable; in a 5xx: retried as transport', (code) => {
+    const status4xx = runnerErrorStatus(code) < 500 ? runnerErrorStatus(code) : 422;
+    const v = interpretReply(status4xx, { errorCode: code });
     expect([code, v.kind !== 'fail']).toEqual([code, RUNNER_ERRORS[code].retryable]);
     if (v.kind === 'fail') expect(v.code).toBe(code);
+    expect(interpretReply(500, { errorCode: code })).toEqual({ kind: 'retry', code: 'http_5xx', transport: true });
+  });
+
+  it('RUNNER_ERROR in a 4xx reply fails the request (final), as the catalog says', () => {
+    expect(RUNNER_ERRORS.RUNNER_ERROR.retryable).toBe(false);
+    expect(interpretReply(400, { errorCode: 'RUNNER_ERROR' })).toEqual({ kind: 'fail', code: 'RUNNER_ERROR' });
   });
 });
 

@@ -13,6 +13,7 @@ import {
   requirePermission,
   sendBadRequest,
   sendSuccess,
+  userHasPermission,
   validateBody,
   validateQuery,
 } from '@pipeline-builder/api-core';
@@ -38,7 +39,21 @@ const DAY_MS = 86_400_000;
  * `noticesEnabledOnInstance`, and both hard-coded the thresholds the notifier
  * reads from `QUOTA_NOTICE_THRESHOLDS`.
  */
-function noticeSettingsView(orgId: string, row: Partial<QuotaNoticeSettingsDocument> | null | undefined) {
+/** A webhook URL reduced to its scheme + host (unparsable → null). */
+function webhookHostUrl(url: string): string | null {
+  try {
+    return `https://${new URL(url).host}/…`;
+  } catch {
+    return null;
+  }
+}
+
+function noticeSettingsView(
+  orgId: string,
+  row: Partial<QuotaNoticeSettingsDocument> | null | undefined,
+  { revealWebhookUrl = true }: { revealWebhookUrl?: boolean } = {},
+) {
+  const webhookUrl = row?.webhookUrl ?? null;
   return {
     orgId,
     enabled: row?.enabled ?? true,
@@ -46,7 +61,9 @@ function noticeSettingsView(orgId: string, row: Partial<QuotaNoticeSettingsDocum
     // switch is an opt-OUT. `!== false` rather than `?? true` so a
     // stored `false` survives.
     offersEnabled: row?.offersEnabled !== false,
-    webhookUrl: row?.webhookUrl ?? null,
+    // The URL can embed a token (the audit row never carries it), so a caller
+    // who may not change it sees the host only.
+    webhookUrl: webhookUrl && !revealWebhookUrl ? webhookHostUrl(webhookUrl) : webhookUrl,
     thresholds: [...QUOTA_NOTICE_THRESHOLDS],
     // Deploy-wide switch: when off, no account gets notices regardless.
     noticesEnabledOnInstance: config.quota.thresholdNoticesEnabled,
@@ -150,7 +167,11 @@ export function createUsageRoutes(svc: QuotaService = defaultQuotaService): Rout
       const orgId = getParam(req.params, 'orgId')!;
       const rootOrgId = await resolveRootOrgId(orgId);
       const row = await QuotaNoticeSettings.findOne({ orgId: rootOrgId }).lean();
-      return sendSuccess(res, 200, { settings: noticeSettingsView(rootOrgId, row) });
+      // The full webhook URL only for a caller who could change it (`billing:manage`;
+      // a `quotas:read` member or an `orgs:read` operator sees the host).
+      return sendSuccess(res, 200, {
+        settings: noticeSettingsView(rootOrgId, row, { revealWebhookUrl: userHasPermission(req, 'billing:manage') }),
+      });
     }),
   );
 

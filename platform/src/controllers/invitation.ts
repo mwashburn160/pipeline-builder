@@ -143,7 +143,7 @@ export const sendInvitation = withController('Send invitation', async (req, res)
   // exists to remove.
   for (const email of emails) {
     try {
-      const { invitation, delivery } = await invitationService.send({
+      const { invitation, token, delivery } = await invitationService.send({
         orgId: targetOrgId,
         inviterId: req.user!.sub,
         // The permission the ROUTE proved, and separately the admin ceiling.
@@ -165,7 +165,7 @@ export const sendInvitation = withController('Send invitation', async (req, res)
         // who just created it left an undeliverable invitation with no recovery
         // at all. This is the single response that may carry it: the creator is
         // authorised and it is their own invitation.
-        ...(delivery === 'sent' ? {} : { acceptUrl: `${config.app.frontendUrl}/invite/accept?token=${invitation.token}` }),
+        ...(delivery === 'sent' ? {} : { acceptUrl: `${config.app.frontendUrl}/invite/accept?token=${token}` }),
       });
       if (delivery === 'failed') {
         logger.warn('Failed to send invitation email, but invitation created', { invitationId: invitation._id });
@@ -427,7 +427,7 @@ export const resendInvitation = withController('Resend invitation', async (req, 
   if (!orgId) return;
   const { invitationId } = req.params;
 
-  const { expiresAt, delivery, email, role, organizationId } = await invitationService.resend(
+  const { expiresAt, delivery, token, email, role, organizationId } = await invitationService.resend(
     invitationId as string, orgId, req.user!.sub, invitationManager(req),
   );
 
@@ -447,7 +447,14 @@ export const resendInvitation = withController('Resend invitation', async (req, 
   });
 
   logger.info('Invitation resent', { invitationId, delivery });
-  sendSuccess(res, 200, { expiresAt, delivery }, 'Invitation resent successfully');
+  // A resend mints a NEW token (only its hash is stored), so the previous link
+  // is dead. When no email carried the new one, hand it to the authorised caller
+  // once — the same rule as send. Never audited, never logged.
+  sendSuccess(res, 200, {
+    expiresAt,
+    delivery,
+    ...(delivery === 'sent' ? {} : { acceptUrl: `${config.app.frontendUrl}/invite/accept?token=${token}` }),
+  }, 'Invitation resent successfully');
 }, {
   [INV_NOT_FOUND]: { status: 404, message: 'Pending invitation not found' },
   [INV_UNAUTHORIZED]: { status: 403, message: 'You are not authorized to resend invitations' },

@@ -8,7 +8,7 @@ import type { QuotaService } from '@pipeline-builder/api-core';
 import { requireOrgId, withRoute, withTenantContext, rateLimitByOrg, withQuotaReservation, type QuotaSlot, type SSEManager } from '@pipeline-builder/api-server';
 import type { PluginSpec } from '@pipeline-builder/pipeline-core';
 import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
-import { Router, type Request, type Response, type RequestHandler, type ErrorRequestHandler } from 'express';
+import { Router, type Request, type Response, type RequestHandler } from 'express';
 import multer from 'multer';
 
 import { resolveBuildShape } from '../helpers/build-shape.js';
@@ -20,12 +20,12 @@ import { assertManagedUploadAllowed } from '../helpers/managed-toolchain.js';
 import { enforceNameShadowingPolicy } from '../helpers/name-shadowing-gate.js';
 import { createBuildJobData, toPluginInsert } from '../helpers/plugin-helpers.js';
 import { parsePluginZip, specContractFields, validateBuildArgs, type ParsedPlugin } from '../helpers/plugin-spec.js';
-import { UPLOAD_DEST, isZipUpload } from '../helpers/zip-upload.js';
+import { UPLOAD_DEST, isZipUpload, multipartUploadErrors } from '../helpers/zip-upload.js';
 import { admitBuildOnCredits } from '../queue/build-credits.js';
 import { getOrgTier } from '../queue/connections.js';
 import { callerFromRequest } from '../services/ecosystem/context.js';
 import { submitAfterBuild } from '../services/ecosystem/requests.js';
-import { deletePluginArtifact, pluginArtifactKey, putPluginArtifact } from '../services/plugin-artifact-storage.js';
+import { deletePluginArtifact, pluginArtifactKey, putPluginArtifactFile } from '../services/plugin-artifact-storage.js';
 import { pluginService } from '../services/plugin-service.js';
 
 const logger = createLogger('upload-plugin');
@@ -68,19 +68,8 @@ function cleanupUploadFile(req: Request): void {
   }
 }
 
-/**
- * Multer/busboy failures (an over-size ZIP, "Unexpected end of form", a non-ZIP
- * file) short-circuit before the handler, so its `finally` never runs: reclaim
- * any partially-written temp file here. An over-size ZIP is a 413, like the
- * anonymous submission path; everything else is a 400.
- */
-const multipartErrors: ErrorRequestHandler = (err, req, res, next) => {
-  if (!err) return next();
-  logger.error('Multipart parse error', { error: errorMessage(err) });
-  cleanupUploadFile(req);
-  const tooLarge = (err as { code?: string }).code === 'LIMIT_FILE_SIZE';
-  sendError(res, tooLarge ? 413 : 400, `File upload failed: ${errorMessage(err)}`, tooLarge ? ErrorCode.PAYLOAD_TOO_LARGE : ErrorCode.VALIDATION_ERROR);
-};
+/** Multer's error layer: reclaim the partial temp file; 413 for an over-size ZIP, else 400. */
+const multipartErrors = multipartUploadErrors(cleanupUploadFile, (err) => logger.error('Multipart parse error', { error: errorMessage(err) }));
 
 /** What catalog detection reads from a parsed zip. */
 function catalogInputs(plugin: Pick<ParsedPlugin, 'pluginSpec' | 'readmeMd' | 'dockerfileContent'>): {
@@ -108,13 +97,16 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
   // deploy-contracts test keeps them equal.
   const UPLOAD_TIMEOUT_MS = envInt('PLUGIN_UPLOAD_TIMEOUT_MS', 900_000, { min: 1 });
 
+  // Extend the socket timeout before multer starts reading the body — on the
+  // upload AND the inspect dry-run, which takes the same ZIP.
+  const extendUploadTimeout = ((req: Request, res: Response, next: () => void) => {
+    res.setTimeout(UPLOAD_TIMEOUT_MS);
+    req.setTimeout(UPLOAD_TIMEOUT_MS);
+    next();
+  }) as RequestHandler;
+
   router.post( '/',
-    // Extend timeout before multer starts reading the body
-    ((req: Request, res: Response, next: () => void) => {
-      res.setTimeout(UPLOAD_TIMEOUT_MS);
-      req.setTimeout(UPLOAD_TIMEOUT_MS);
-      next();
-    }) as RequestHandler,
+    extendUploadTimeout,
     // AUTHORIZE BEFORE ACCEPTING THE BODY. Multer streams the whole request to
     // UPLOAD_DEST (up to PLUGIN_MAX_UPLOAD_MB), so running it first would let an
     // unauthenticated caller fill the build-scratch volume — and nothing reclaims
@@ -387,7 +379,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
             // staging fails — a build we can't reconstruct must never be queued.
             const s3Key = pluginArtifactKey(orgId, ctx.requestId);
             try {
-              await putPluginArtifact(s3Key, await fs.promises.readFile(zipPath));
+              await putPluginArtifactFile(s3Key, zipPath);
             } catch (s3Err) {
               ctx.log('ERROR', 'Failed to stage build context in object storage', { error: errorMessage(s3Err) });
               slot.refund();
@@ -507,6 +499,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
   // per-org rate limit, then multer); builds nothing, reserves no quota and
   // stores nothing — the extracted files are removed before responding.
   router.post('/inspect',
+    extendUploadTimeout,
     requireAuth as RequestHandler,
     requireOrgId() as RequestHandler,
     requirePermission('plugins:write') as RequestHandler,

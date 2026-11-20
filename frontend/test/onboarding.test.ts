@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, it, expect } from '@jest/globals';
+import { usableRunnerCount } from '../src/lib/pipeline-runners';
 import {
   shouldShowOnboarding,
   isFreshAccount,
@@ -152,5 +153,22 @@ describe('storage keys', () => {
 
   it('dismissKey and visitedPluginsKey use distinct namespaces', () => {
     expect(dismissKey('org-a')).not.toBe(visitedPluginsKey('org-a'));
+  });
+});
+
+describe('usableRunnerCount (the dashboard\'s "Install a runner" signal)', () => {
+  const r = (status: 'active' | 'pending' | 'revoked') => ({ status });
+
+  it('counts own and shared runners that are not revoked', () => {
+    expect(usableRunnerCount({ available: true, own: [r('active'), r('pending'), r('revoked')], inherited: [r('active')] })).toBe(3);
+  });
+
+  it('a revoked runner is not an installed one', () => {
+    expect(usableRunnerCount({ available: true, own: [r('revoked')], inherited: [] })).toBe(0);
+  });
+
+  it('unknown while runners are unavailable (paused): the server lists none then', () => {
+    expect(usableRunnerCount({ available: false, own: [], inherited: [] })).toBeNull();
+    expect(usableRunnerCount(null)).toBeNull();
   });
 });

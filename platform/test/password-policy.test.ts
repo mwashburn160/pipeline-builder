@@ -26,9 +26,10 @@ jest.unstable_mockModule('../src/helpers/org-policy-lineage.js', () => ({
 }));
 let memberships: Array<{ organizationId: string }> = [];
 let invitation: Record<string, unknown> | null = null;
+const invitationFilters: unknown[] = [];
 jest.unstable_mockModule('../src/models/index.js', () => ({
   UserOrganization: { find: () => ({ select: () => ({ lean: async () => memberships }) }) },
-  Invitation: { findOne: () => ({ select: () => ({ lean: async () => invitation }) }) },
+  Invitation: { findOne: (filter: unknown) => { invitationFilters.push(filter); return { select: () => ({ lean: async () => invitation }) }; } },
 }));
 
 const breach = await import('../src/services/password-breach.js');
@@ -157,5 +158,12 @@ describe('org password policy', () => {
     expect(await policy.invitationOrgForRegistration('tok', 'new@example.com')).toBeUndefined();
     invitation = null;
     expect(await policy.invitationOrgForRegistration('tok', 'new@example.com')).toBeUndefined();
+  });
+
+  it('invitationOrgForRegistration looks the invitation up by the token\'s SHA-256, never the plaintext', async () => {
+    invitationFilters.length = 0;
+    invitation = { organizationId: 'org-9', email: 'new@example.com', expiresAt: new Date(Date.now() + 60_000) };
+    await policy.invitationOrgForRegistration('tok', 'new@example.com');
+    expect(invitationFilters).toEqual([{ tokenHash: crypto.createHash('sha256').update('tok').digest('hex'), status: 'pending' }]);
   });
 });

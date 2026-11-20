@@ -1,10 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendError, ErrorCode, verifyServicePrincipal } from '@pipeline-builder/api-core';
-import type { Request, Response } from 'express';
+import { createLogger, errorMessage, sendError, ErrorCode, verifyServicePrincipal } from '@pipeline-builder/api-core';
+import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { createSharedRateLimitStore } from './rate-limit-store.js';
+
+const logger = createLogger('rate-limit-by-org');
 
 /** Config for a {@link rateLimitByOrg} limiter. */
 export interface OrgRateLimitOptions {
@@ -26,6 +28,13 @@ export interface OrgRateLimitOptions {
    * Every mode falls back to the client-IP bucket for an unauthenticated caller.
    */
   keyBy?: 'org' | 'user' | 'ip';
+  /**
+   * What a store error (the shared Redis store unreachable) does. Default
+   * (false): the request passes unlimited — a limiter outage never fails a
+   * route. true: the request is refused with 503 SERVICE_UNAVAILABLE — for a
+   * limit that guards a security-sensitive write and must never silently lift.
+   */
+  failClosed?: boolean;
 }
 
 /**
@@ -45,8 +54,8 @@ export interface OrgRateLimitOptions {
  *     rateLimitByOrg({ name: 'message-send', max: 60, windowMs: 60_000 }),
  *     withRoute(handler));
  */
-export function rateLimitByOrg(opts: OrgRateLimitOptions) {
-  const { name, max, windowMs, message, keyBy = 'org' } = opts;
+export function rateLimitByOrg(opts: OrgRateLimitOptions): RequestHandler {
+  const { name, max, windowMs, message, keyBy = 'org', failClosed = false } = opts;
 
   const options: Parameters<typeof rateLimit>[0] = {
     max,
@@ -55,8 +64,9 @@ export function rateLimitByOrg(opts: OrgRateLimitOptions) {
     legacyHeaders: false,
     // Exempt cryptographically-verified internal service callers (signed JWT).
     skip: (req: Request) => verifyServicePrincipal(req),
-    // Redis store failure degrades to "not limited", never a 500 on the route.
-    passOnStoreError: true,
+    // Redis store failure degrades to "not limited", never a 500 on the route —
+    // unless the limiter fails closed (then the error reaches the wrapper below).
+    passOnStoreError: !failClosed,
     // Bucket by VERIFIED identity (set by requireAuth), NOT the spoofable
     // `x-org-id` header. An ORG SERVICE ACCOUNT gets its OWN bucket rather than
     // its org's: automation is exactly the traffic shape that would otherwise
@@ -83,5 +93,14 @@ export function rateLimitByOrg(opts: OrgRateLimitOptions) {
   // share a counter.
   options.store = createSharedRateLimitStore(`${process.env.SERVICE_NAME || 'api'}:${name}`);
 
-  return rateLimit(options);
+  const limiter = rateLimit(options);
+  if (!failClosed) return limiter;
+  // Fail closed: a store error is answered 503 here (never a 500, never unlimited).
+  return (req: Request, res: Response, next: NextFunction): void => {
+    void limiter(req, res, (err?: unknown) => {
+      if (err === undefined || err === null) return next();
+      logger.warn('Rate-limit store unavailable; refusing (fail-closed limiter)', { name, error: errorMessage(err) });
+      sendError(res, 503, 'This action is temporarily unavailable; try again shortly.', ErrorCode.SERVICE_UNAVAILABLE);
+    });
+  };
 }

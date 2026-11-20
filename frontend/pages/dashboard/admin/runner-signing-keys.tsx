@@ -66,7 +66,7 @@ type PendingAction =
 const ROTATION_LABEL = { none: 'None', pending: 'Pending', overlap: 'Overlap' } as const;
 
 export default function RunnerSigningKeysPage() {
-  const { accessDenied, isReady, user, can } = useAuthGuard();
+  const { accessDenied, isReady, user, can, isReadOnly } = useAuthGuard();
   const toast = useToast();
   const [filter, setFilter] = useState<FilterId>('all');
   const [offset, setOffset] = useState(0);
@@ -162,7 +162,7 @@ export default function RunnerSigningKeysPage() {
       cellClassName: 'text-right',
       render: (r) => (r.mode === 'own' && r.activeKid ? (
         <Button type="button" size="xs" variant="danger-outline" disabled={action.pending}
-          disabledReason={canManage ? undefined : 'Requires orgs:manage'}
+          readOnly={isReadOnly} disabledReason={canManage ? undefined : 'Requires orgs:manage'}
           onClick={() => setPending({ kind: 'revoke', row: r, reason: '' })}>
           Revoke key
         </Button>
@@ -205,7 +205,7 @@ export default function RunnerSigningKeysPage() {
             </div>
             {deliveries.data && (
               <Button type="button" size="sm" variant={paused ? 'secondary' : 'danger'} disabled={action.pending}
-                disabledReason={canManage ? undefined : 'Requires orgs:manage'}
+                readOnly={isReadOnly} disabledReason={canManage ? undefined : 'Requires orgs:manage'}
                 onClick={() => setPending({ kind: 'pause', paused: !paused, reason: '' })}>
                 {paused ? 'Resume pipeline runs' : 'Pause all pipeline runs'}
               </Button>

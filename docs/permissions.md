@@ -928,6 +928,15 @@ send a single invitation.
 | List, send, revoke, resend | `invitations:manage`, or ownership of the org |
 | Invite someone as **admin** | …and the admin/owner label as well — a CEILING, with its own error, because onboarding people is not the same act as minting a peer who holds every org-assignable permission |
 
+**The token is never stored.** The accept token is a bearer credential, so the
+invitation row keeps only its SHA-256 (`tokenHash`), and accept, the public
+preview (`GET /invitation/:token`) and registration-by-invitation look it up by
+hash. The plaintext exists only in the emailed link — and, once, as `acceptUrl`
+in the send or resend response when no email carried it (`delivery` is not
+`sent`). Because the plaintext can't be read back, **resend mints a new token**:
+the previously emailed link stops working. Listings and the org export carry
+neither the token nor its hash.
+
 **An invitation can carry Roles.** `roleIds` names Roles to assign on
 acceptance, so hiring into a job does not mean inviting someone as admin and
 demoting them afterwards, or inviting them as a member and remembering to assign

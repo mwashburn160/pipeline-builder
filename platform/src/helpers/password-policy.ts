@@ -28,6 +28,7 @@ import { readOrgPolicyLineage } from './org-policy-lineage.js';
 import { config } from '../config/index.js';
 import { PASSWORD_MAX_LENGTH } from '../constants/password.js';
 import { checkPasswordBreach } from '../services/password-breach.js';
+import { hashInvitationToken } from '../utils/invitation-token.js';
 
 /** The platform-wide floor every org minimum sits on. */
 function platformPasswordMinLength(): number {
@@ -168,7 +169,8 @@ export async function passwordShortfall(password: string, userId: string): Promi
  */
 export async function invitationOrgForRegistration(token: string, email: string): Promise<string | undefined> {
   const { Invitation } = await import('../models/index.js');
-  const invitation = await Invitation.findOne({ token, status: 'pending' })
+  // Only the token's hash is stored (the plaintext is only in the emailed link).
+  const invitation = await Invitation.findOne({ tokenHash: hashInvitationToken(token), status: 'pending' })
     .select('organizationId email expiresAt').lean();
   if (!invitation?.organizationId) return undefined;
   if ((invitation.email ?? '').toLowerCase() !== email.trim().toLowerCase()) return undefined;

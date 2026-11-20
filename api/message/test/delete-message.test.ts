@@ -162,7 +162,7 @@ describe('DELETE /messages/:id', () => {
     expect(res.status).toHaveBeenCalledWith(500);
   });
 
-  it('does not send SSE notification for broadcast message deletion', async () => {
+  it('broadcasts the deletion of a \'*\' announcement to every org', async () => {
     (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
     mockDeleteAsSysadmin.mockResolvedValue({ id: 'msg-1', threadId: null, orgId: '000000000000000000000001', recipientOrgId: '*' });
     mockDeleteThread.mockResolvedValue(undefined);
@@ -172,10 +172,13 @@ describe('DELETE /messages/:id', () => {
     await handler(req, res);
 
     expect(res.status).toHaveBeenCalledWith(200);
-    // No MESSAGE_DELETED fan-out for a '*' broadcast — the only push is the
-    // deleter's OWN unread-badge signal (a deleted unread row leaves its count).
+    // An announcement is in every org's inbox, so every org's open list must
+    // drop it (and refetch its unread badge) — one broadcast, not a per-org send
+    // to a literal '*' channel nobody listens on.
+    expect(mockSseManager.broadcast).toHaveBeenCalledWith('MESSAGE', 'Message deleted', {
+      action: 'MESSAGE_DELETED', messageId: 'msg-1', threadId: undefined,
+    });
     const pushes = (mockSseManager.send as jest.Mock<AnyFn>).mock.calls;
-    expect(pushes.filter((c) => (c[3] as { action?: string })?.action === 'MESSAGE_DELETED')).toEqual([]);
     expect(pushes).toEqual([['org-1', 'MESSAGE', 'Unread count changed', { action: 'UNREAD_COUNT' }]]);
   });
 });

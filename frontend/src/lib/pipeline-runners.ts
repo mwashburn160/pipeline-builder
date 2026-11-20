@@ -59,6 +59,23 @@ export function runnerBadge(r: Pick<PipelineRunner, 'health' | 'status'>): Runne
   return STATUS_BADGE[r.status] ?? HEALTH_BADGE[r.health] ?? UNKNOWN_BADGE;
 }
 
+/** Whether a runner still counts as installed (a revoked one stays listed, greyed, but reaches nothing). */
+export function isLiveRunner(r: Pick<PipelineRunner, 'status'>): boolean {
+  return r.status !== 'revoked';
+}
+
+/**
+ * How many runners the org can run pipelines through (own plus shared by a
+ * parent, revoked ones excluded), from `GET /pipelines/runners`. Null when it
+ * is not known: no answer, or runners unavailable (the server lists none then).
+ */
+export function usableRunnerCount(
+  dto: { available: boolean; own: ReadonlyArray<Pick<PipelineRunner, 'status'>>; inherited: ReadonlyArray<Pick<PipelineRunner, 'status'>> } | null | undefined,
+): number | null {
+  if (!dto || !dto.available) return null;
+  return dto.own.filter(isLiveRunner).length + dto.inherited.filter(isLiveRunner).length;
+}
+
 /** What an "Update required" runner tells its admin to do. */
 export const RUNNER_UPDATE_COPY = 'Re-run pipeline-manager infra setup-runner to update';
 
@@ -102,6 +119,11 @@ const COPY = {
     title: 'The pipeline runner is unreachable.',
     body: 'The platform could not deliver to it several times in a row, so requests are paused. Check the runner stack in your AWS account, then test the runner.',
     link: 'test',
+  },
+  RUNNER_NOT_ELIGIBLE: {
+    title: 'This run was not sent: its runner no longer serves this pipeline.',
+    body: 'The runner was un-shared from this team, or the team moved, after the run was queued. Run it again to find a runner that serves it now.',
+    link: 'runners',
   },
   PIPELINE_NOT_FOUND_IN_RUNNERS: {
     title: 'None of your pipeline runners found this pipeline.',

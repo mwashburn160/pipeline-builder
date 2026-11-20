@@ -429,7 +429,13 @@ under their own CMK, not this master, and their blobs carry a `kid`; the shared
 previous key is never applied to them. Rotating an org's CMK is a separate flow
 (`PUT /api/admin/orgs/:orgId/kms-config`, which re-encrypts that org inline,
 including its runner signing keys through the pipeline re-encrypt job; a
-runner-key failure answers 500).
+runner-key failure answers 500). If a stored platform secret can't be decrypted
+under the current provider the `PUT` refuses with 409 and changes nothing.
+Repair that row, or retry with `?reencrypt=false`: that skips **only** the
+platform (MongoDB) secret re-encrypt, so the org's existing AI provider keys and
+SSO client secret become unreadable and must be re-entered. The runner signing
+key re-wrap still runs (it does not depend on the platform pass), and a failure
+there still answers 500.
 
 **Proof** — `packages/api-core/test/secret-rotation.test.ts` (overlap → rewrite
 → old blob rejected), `platform/test/secret-reencrypt.test.ts` (the fleet-wide
@@ -806,16 +812,25 @@ deployment-wide key, no key file, no Secret and no env setting for it.
   for audit with its private key wiped). At most one of each published state per
   org, enforced by partial unique indexes.
 
-The first key is created **active** when a root org registers its first runner
-(or from the card before that). An org with no effective key gets 409
-`RUNNER_KEY_MISSING`; nothing falls back to a shared key.
+The first key is created **active** when the first runner is registered under
+an effective key org that has none (or from the card before that): a root org's
+own first runner, a team in own mode's first runner, or the first runner of a
+team that inherits — which creates its **root (inherited-from) org's** key.
+That last key is audited as `pipeline.runner.key.generate` on the root org by
+the system actor, with `details.auto: true` and `details.onBehalfOfOrgId` the
+team; the team's user is not recorded as its creator. An org with no effective
+key gets 409 `RUNNER_KEY_MISSING`; nothing falls back to a shared key.
 
 ### Rotate an org's key (org admins)
 
 Org admins do this themselves, in **Settings → Organization → Pipeline runners →
 Signing key**, or with `pipeline-manager runner signing-key rotate`. Every key
 write needs `org_settings:write`, an MFA-grade session and a step-up, and is
-limited to 5 per org per hour. The server enforces the timing, not the operator.
+limited to 5 per org per hour. The limit fails closed: while its Redis store is
+unreachable key writes answer 503 rather than go unlimited. Key writes work
+while **Pause all pipeline runs** is on (the pause stops deliveries, not key
+changes), so an admin can rotate or revoke during an incident. The server
+enforces the timing, not the operator.
 
 1. **Rotate.** A new `next` key is published at once with
    `activates_at = now + 10 minutes`, which covers the runner's 10-minute JWKS
@@ -871,7 +886,11 @@ from …** on the card) is refused for a root org (409
 - **One org, by an operator.** `POST /api/pipelines/admin/orgs/<orgId>/runner-signing-key/revoke`
   (system org, `orgs:manage`, MFA-grade, step-up; audited as
   `pipeline.runner.key.system_revoke` naming the operator) does the same for
-  any org. The ops-center **Runner signing keys** page lists every org's mode,
+  any org. It also reaches a team switching own → inherit whose own key still
+  signs (before `switch_at`): that key is retired at once, no new team key is
+  made, and signing moves to the inherited key immediately (the answer's
+  `activeKid` is the inherited key's). An org admin can't revoke a key of an
+  org in inherit mode (409 `RUNNER_KEY_INHERITED`). The ops-center **Runner signing keys** page lists every org's mode,
   active key id, age, rotation state and whether its key is unreadable.
 - **Every org at once.** The system-org **Pause all pipeline runs** toggle
   (`PUT /api/pipelines/admin/runner-deliveries`, audited) stops all runner
@@ -927,6 +946,15 @@ grant), that org's runner writes, deliveries and key writes fail closed with
 409 `RUNNER_KEY_UNREADABLE` and its card tells its admins to contact you. Other
 orgs are unaffected. `pipeline_runner_signing_keys_unreadable` goes above zero
 and `RunnerSigningKeyUnreadable` (critical) fires.
+
+A **transient** key-service failure is not an unreadable key: when platform
+can't answer the org's per-org KMS config lookup, or KMS itself is unreachable,
+throttled or answers 5xx, runner writes and key writes answer 409
+`RUNNERS_UNAVAILABLE`, queued runs stay queued (and expire after their 10
+minutes if it lasts), and neither the gauge nor the operator notice fires. Only
+a real decrypt failure of the stored ciphertext (a wrong master, a tampered or
+wrong-org blob, or KMS refusing the ciphertext or the grant) is
+`RUNNER_KEY_UNREADABLE`.
 
 1. Find the org: ops-center → **Runner signing keys**, filter *unreadable*.
 2. If the old master or KMS key still exists, put it back as

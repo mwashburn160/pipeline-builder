@@ -87,6 +87,19 @@ describe('PATCH /messages/:id (edit content)', () => {
     expect(JSON.stringify(mockAuditRecord.mock.calls[0]![0])).not.toContain('fixed text');
   });
 
+  it('broadcasts the edit of a \'*\' announcement to every org (there is no single audience org)', async () => {
+    mockEditContent.mockResolvedValue({ id: 'ann-1', orgId: 'org-1', recipientOrgId: '*', threadId: null, messageType: 'announcement', content: 'fixed' });
+    const req = mockReq({ params: { id: 'ann-1' }, body: { content: 'fixed' } });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(mockSseManager.broadcast).toHaveBeenCalledWith('MESSAGE', 'Message edited', {
+      action: 'MESSAGE_EDITED', messageId: 'ann-1', threadId: 'ann-1',
+    });
+    expect(mockSseManager.send).not.toHaveBeenCalled();
+  });
+
   it('404s when the caller is not the author / message not found', async () => {
     mockEditContent.mockResolvedValue(null);
     const req = mockReq({ params: { id: 'msg-x' }, body: { content: 'nope' } });

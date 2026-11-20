@@ -42,6 +42,55 @@ describe('backoffMs', () => {
   });
 });
 
+describe('processDelivery re-checks the runner\'s eligibility just before delivering', () => {
+  const PARENT_ORG = '0123456789abcdef01234568';
+  async function parentRunnerRequest(over: Partial<ReturnType<typeof runnerRow>> = {}) {
+    const { deps, runner, req } = await setup('start', { orgId: PARENT_ORG, shareWithTeams: true, ...over });
+    deps.store.registry.set(PIPE, { orgId: ORG, pipelineName: 'acme-pipe', region: 'eu-west-1', runnerId: runner.id, linkStatus: 'linked' });
+    deps.ancestors.push(PARENT_ORG);
+    deps.fetchMock.mockResolvedValue(reply(200, { outcome: 'started', executionId: 'exec-1' }));
+    return { deps, runner, req };
+  }
+
+  it('a parent\'s runner still shared with the team: delivered', async () => {
+    const { deps, req } = await parentRunnerRequest();
+    expect(await processDelivery(deps, req.id)).toEqual({ done: true });
+    expect(deps.fetchMock).toHaveBeenCalledTimes(1);
+    expect(deps.store.requests.get(req.id)!.status).toBe('started');
+  });
+
+  it.each([
+    ['un-shared since it was queued', (d: TestDeps, r: ReturnType<typeof runnerRow>) => { d.store.runners.set(r.id, { ...r, shareWithTeams: false }); }],
+    ['the team moved under another parent', (d: TestDeps) => { d.ancestors.length = 0; d.ancestors.push('0123456789abcdef0123456f'); }],
+  ])('%s: fails with RUNNER_NOT_ELIGIBLE, never delivered, and the stale link is cleared', async (_label, change) => {
+    const { deps, runner, req } = await parentRunnerRequest();
+    change(deps, runner);
+    expect(await processDelivery(deps, req.id)).toEqual({ done: true });
+    expect(deps.fetchMock).not.toHaveBeenCalled();
+    expect(deps.store.requests.get(req.id)).toMatchObject({ status: 'failed', errorCode: 'RUNNER_NOT_ELIGIBLE' });
+    expect(deps.store.registry.get(PIPE)!.runnerId).toBeNull();
+    // The runner's health is untouched: nothing was sent.
+    expect(deps.store.runners.get(runner.id)).toMatchObject({ health: 'healthy', consecutiveFailures: 0 });
+  });
+
+  it('the ancestry lookup failing keeps the request queued for a retry (never delivered, never failed)', async () => {
+    const { deps, req } = await parentRunnerRequest();
+    deps.hierarchy.ancestors = async (_o, _p, opts) => { if (opts?.strict) throw new Error('platform down'); return [PARENT_ORG]; };
+    const out = await processDelivery(deps, req.id);
+    expect(out.done).toBe(false);
+    expect(deps.fetchMock).not.toHaveBeenCalled();
+    expect(deps.store.requests.get(req.id)!.status).toBe('queued');
+  });
+
+  it('the org\'s own runner needs no ancestry lookup', async () => {
+    const { deps, req } = await setup();
+    deps.hierarchy.ancestors = async () => { throw new Error('must not be asked'); };
+    deps.fetchMock.mockResolvedValue(reply(200, { outcome: 'started', executionId: 'exec-1' }));
+    expect(await processDelivery(deps, req.id)).toEqual({ done: true });
+    expect(deps.store.requests.get(req.id)!.status).toBe('started');
+  });
+});
+
 describe('processDelivery', () => {
   it('delivers a start (with the registry hint), finishes started, links the pipeline and audits without the URL', async () => {
     const { deps, runner, req } = await setup();

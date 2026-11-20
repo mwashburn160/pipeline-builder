@@ -139,7 +139,8 @@ describe('invitation controller — team target, delivery and bulk', () => {
     mockValidateBody.mockReturnValue({ emails: ['x@y.io'], role: 'member', targetOrgId: 'org-team' });
     mockIsAncestorOrg.mockResolvedValueOnce(true);
     mockSend.mockResolvedValue({
-      invitation: { _id: 'inv-t', email: 'x@y.io', role: 'member', status: 'pending', token: SECRET_TOKEN },
+      invitation: { _id: 'inv-t', email: 'x@y.io', role: 'member', status: 'pending' },
+      token: SECRET_TOKEN,
       delivery: 'sent',
     });
 
@@ -155,7 +156,8 @@ describe('invitation controller — team target, delivery and bulk', () => {
   it('hands back a one-time accept link when the email did NOT go out', async () => {
     mockValidateBody.mockReturnValue({ emails: ['x@y.io'], role: 'member' });
     mockSend.mockResolvedValue({
-      invitation: { _id: 'inv-u', email: 'x@y.io', role: 'member', status: 'pending', token: SECRET_TOKEN },
+      invitation: { _id: 'inv-u', email: 'x@y.io', role: 'member', status: 'pending' },
+      token: SECRET_TOKEN,
       delivery: 'not-configured',
     });
 
@@ -176,7 +178,8 @@ describe('invitation controller — team target, delivery and bulk', () => {
   it('does NOT hand back a link when the email was delivered', async () => {
     mockValidateBody.mockReturnValue({ emails: ['x@y.io'], role: 'member' });
     mockSend.mockResolvedValue({
-      invitation: { _id: 'inv-s', email: 'x@y.io', role: 'member', status: 'pending', token: SECRET_TOKEN },
+      invitation: { _id: 'inv-s', email: 'x@y.io', role: 'member', status: 'pending' },
+      token: SECRET_TOKEN,
       delivery: 'sent',
     });
 
@@ -195,7 +198,7 @@ describe('invitation controller — team target, delivery and bulk', () => {
   it('reports each address, and one failure does not sink the rest', async () => {
     mockValidateBody.mockReturnValue({ emails: ['a@x.io', 'b@x.io', 'A@x.io'], role: 'member' });
     mockSend
-      .mockResolvedValueOnce({ invitation: { _id: 'i1', email: 'a@x.io', role: 'member', token: SECRET_TOKEN }, delivery: 'sent' })
+      .mockResolvedValueOnce({ invitation: { _id: 'i1', email: 'a@x.io', role: 'member' }, token: SECRET_TOKEN, delivery: 'sent' })
       .mockRejectedValueOnce(new Error('INV_ALREADY_MEMBER'));
 
     const res = makeRes();
@@ -272,7 +275,8 @@ describe('invitation controller — the system org is an org like any other', ()
   it('sends an invitation from the system org instead of refusing it', async () => {
     mockValidateBody.mockReturnValue({ emails: ['new@x.io'], role: 'admin' });
     mockSend.mockResolvedValue({
-      invitation: { _id: 'inv-sys', email: 'new@x.io', role: 'admin', status: 'pending', token: SECRET_TOKEN },
+      invitation: { _id: 'inv-sys', email: 'new@x.io', role: 'admin', status: 'pending' },
+      token: SECRET_TOKEN,
       emailSent: true,
     });
 
@@ -288,7 +292,8 @@ describe('invitation controller — audit emissions', () => {
   it('send → invitation.send with email + role, org as affectedOrgId, no token', async () => {
     mockValidateBody.mockReturnValue({ emails: ['new@x.io'], role: 'member' });
     mockSend.mockResolvedValue({
-      invitation: { _id: 'inv-1', email: 'new@x.io', role: 'member', status: 'pending', token: SECRET_TOKEN },
+      invitation: { _id: 'inv-1', email: 'new@x.io', role: 'member', status: 'pending' },
+      token: SECRET_TOKEN,
       emailSent: true,
     });
 
@@ -353,6 +358,24 @@ describe('invitation controller — audit emissions', () => {
       affectedOrgId: 'team-1',
       details: { email: 're@x.io', role: 'member' },
     }));
+    expect(JSON.stringify(mockAudit.mock.calls)).not.toContain(SECRET_TOKEN);
+  });
+
+  // A resend mints a new token (only its hash is stored), which kills the old
+  // link — so when no mail carried the new one, the response hands it over once,
+  // as send does. Never when the email went.
+  it('resend with no mail transport returns the new accept link; a sent resend does not', async () => {
+    mockResend.mockResolvedValue({ expiresAt: new Date(), delivery: 'not-configured', token: SECRET_TOKEN, email: 're@x.io', role: 'member', organizationId: 'team-1' });
+    const res = makeRes();
+    await (resendInvitation as any)({ user: ACTOR, params: { invitationId: 'inv-3' } }, res);
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json.mock.calls[0][0].data.acceptUrl).toMatch(new RegExp(`/invite/accept\\?token=${SECRET_TOKEN}$`));
+    expect(JSON.stringify(mockAudit.mock.calls)).not.toContain(SECRET_TOKEN);
+
+    mockResend.mockResolvedValue({ expiresAt: new Date(), delivery: 'sent', token: SECRET_TOKEN, email: 're@x.io', role: 'member', organizationId: 'team-1' });
+    const sentRes = makeRes();
+    await (resendInvitation as any)({ user: ACTOR, params: { invitationId: 'inv-3' } }, sentRes);
+    expect(JSON.stringify(sentRes.json.mock.calls)).not.toContain(SECRET_TOKEN);
   });
 });
 

@@ -66,3 +66,35 @@ describe('sendPdfRefusal', () => {
     expect(r.status).toHaveBeenCalledWith(status);
   });
 });
+
+/**
+ * The operator's cross-org error/failure reports carry raw failure text, which
+ * routinely holds ARNs (an AWS account id — never to be surfaced), bearer
+ * tokens and provider keys. The local two-pattern list missed all of them; the
+ * scrub now also runs api-core's shared `maskLine`, the one list every log
+ * masking layer uses.
+ */
+describe('scrubErrorMessage', () => {
+  it('keeps redacting the shapes it always did', () => {
+    expect(helpers.scrubErrorMessage('AWS_SECRET_ACCESS_KEY=abc123 failed')).not.toContain('abc123');
+    expect(helpers.scrubErrorMessage('password: hunter2')).not.toContain('hunter2');
+  });
+
+  it('redacts an AWS account id inside an ARN', () => {
+    const out = helpers.scrubErrorMessage('AccessDenied: arn:aws:iam::123456789012:role/deploy is not authorized');
+    expect(out).not.toContain('123456789012');
+    expect(out).toContain('AccessDenied');
+  });
+
+  it('redacts a bearer token and a GitHub token', () => {
+    const out = helpers.scrubErrorMessage('401 with Authorization: Bearer eyJabc.def.ghi and ghp_0123456789abcdefghijABCDEFGHIJ012345');
+    expect(out).not.toContain('eyJabc.def.ghi');
+    expect(out).not.toContain('ghp_0123456789abcdefghijABCDEFGHIJ012345');
+  });
+
+  it('passes empty values through', () => {
+    expect(helpers.scrubErrorMessage(null)).toBeNull();
+    expect(helpers.scrubErrorMessage(undefined)).toBeUndefined();
+    expect(helpers.scrubErrorMessage('')).toBe('');
+  });
+});

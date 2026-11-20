@@ -23,6 +23,30 @@ export function unwrapEnvelope(response: unknown): Record<string, unknown> {
 }
 
 /**
+ * The `data` of a `{ data }` envelope, or the body itself when it has none
+ * (a bare answer). Looser than {@link unwrapEnvelope}: no `success` key needed.
+ */
+export function unwrapData<T>(body: unknown): T {
+  const b = body as { data?: T };
+  return (b && typeof b === 'object' && b.data !== undefined ? b.data : body) as T;
+}
+
+/** A refused API call's HTTP status, error code and message, read off either error envelope. */
+export function apiRefusal(err: unknown): { status?: number; code?: string; message: string } {
+  const e = err as {
+    status?: number;
+    message?: string;
+    response?: { status?: number; data?: { code?: string; errorCode?: string; message?: string; error?: { code?: string; message?: string } } };
+  };
+  const data = e?.response?.data;
+  return {
+    status: e?.status ?? e?.response?.status,
+    code: data?.error?.code ?? data?.errorCode ?? data?.code,
+    message: data?.message ?? data?.error?.message ?? e?.message ?? '',
+  };
+}
+
+/**
  * Extract a single entity from an API response, handling envelope formats.
  * Tries: payload[entityKey], payload directly (if identifierKey exists), or undefined.
  */

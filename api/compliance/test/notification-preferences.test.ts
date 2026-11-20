@@ -29,8 +29,9 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', { schema: { complianceNotificationPreference: {} }, withTenantTx: jest.fn() }));
 const mockUpsert = jest.fn<(...a: unknown[]) => Promise<unknown>>()
   .mockResolvedValue({ notifyOnBlock: true, notifyOnWarning: false, emailEnabled: true, digestMode: 'immediate', targetUsers: null, webhookUrl: null, webhookSecret: null });
+const mockGetPreference = jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue(null);
 jest.unstable_mockModule('../src/services/notification-service.js', () => ({
-  getNotificationPreference: jest.fn(),
+  getNotificationPreference: (...a: unknown[]) => mockGetPreference(...a),
   upsertNotificationPreference: (...a: unknown[]) => mockUpsert(...a),
 }));
 
@@ -122,6 +123,79 @@ describe('PUT / — ask-agent provenance', () => {
 
   it('does NOT store a forged proposer', async () => {
     expect(await put({ 'x-pb-proposed-by': 'u-1' })).not.toHaveProperty('proposedBy');
+  });
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+});
+
+/**
+ * A webhook URL is often bearer-equivalent (a Slack/Teams incoming webhook
+ * carries its token in the path), so only a caller who may change it sees it
+ * in full; a `compliance:read` member sees the host only.
+ */
+describe('GET / — webhook URL disclosure', () => {
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const router: any = createNotificationPreferenceRoutes();
+  const getLayer = () => router.stack.find((l: any) => l.route?.path === '/' && l.route?.methods.get)?.route;
+  const stored = {
+    orgId: 'acme',
+    notifyOnBlock: true,
+    notifyOnWarning: false,
+    emailEnabled: false,
+    digestMode: 'immediate',
+    targetUsers: null,
+    webhookUrl: 'https://hooks.example.com/services/T000/B000/XXXXSECRET',
+    webhookSecret: null,
+  };
+
+  const get = async (permissions: string[]) => {
+    mockGetPreference.mockResolvedValueOnce(stored);
+    const stack = getLayer().stack;
+    const handler = stack[stack.length - 1].handle;
+    let body: any;
+    const res: any = { status: () => res, json: (b: any) => { body = b; return res; } };
+    const sendSuccess = (await import('@pipeline-builder/api-core')).sendSuccess as any;
+    sendSuccess.mockImplementationOnce((_r: unknown, _s: number, b: unknown) => { body = b; });
+    await handler({ req: { user: { permissions }, headers: {} }, res, ctx: { log: jest.fn() }, orgId: 'acme', userId: 'u-1' });
+    return body.preference.webhookUrl;
+  };
+
+  it('shows the full URL to a caller holding compliance:write', async () => {
+    expect(await get(['compliance:read', 'compliance:write'])).toBe(stored.webhookUrl);
+  });
+
+  it('shows only the host to a read-only member', async () => {
+    const url = await get(['compliance:read']);
+    expect(url).not.toContain('XXXXSECRET');
+    expect(url).toBe('https://hooks.example.com/…');
+  });
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+});
+
+/**
+ * The columns are `webhook_url VARCHAR(500)` and `webhook_secret VARCHAR(255)`:
+ * an over-long value used to pass the schema and surface as a Postgres error
+ * (a 500) instead of a 400.
+ */
+describe('PUT / — column-length validation', () => {
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const router: any = createNotificationPreferenceRoutes();
+  const putLayer = () => router.stack.find((l: any) => l.route?.path === '/' && l.route?.methods.put)?.route;
+
+  const put = async (body: Record<string, unknown>) => {
+    mockUpsert.mockClear();
+    const stack = putLayer().stack;
+    const handler = stack[stack.length - 1].handle;
+    const res: any = { status: () => res, json: () => res };
+    await handler({ req: { body, headers: {} }, res, ctx: { log: jest.fn() }, orgId: 'acme', userId: 'u-1' });
+  };
+
+  it.each([
+    ['a webhook URL over 500 characters', { webhookUrl: `https://hooks.example.com/${'a'.repeat(500)}` }],
+    ['a webhook secret over 255 characters', { webhookSecret: 's'.repeat(256) }],
+    ['more than 500 target users', { targetUsers: Array.from({ length: 501 }, (_, i) => `u${i}`) }],
+  ])('refuses %s before it reaches the database', async (_label, body) => {
+    await put(body);
+    expect(mockUpsert).not.toHaveBeenCalled();
   });
   /* eslint-enable @typescript-eslint/no-explicit-any */
 });

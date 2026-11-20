@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger } from '@pipeline-builder/api-core';
-import { snapNetCharge } from './price-rounding.js';
+import { snapNetCharge, volumeLineCreditCents } from './price-rounding.js';
 import { getBillingConfig } from '../config/billing-config.js';
 import type { BundleConfig, ComboDiscountConfig } from '../config/billing-types.js';
 import type { BillingInterval } from '../models/subscription.js';
@@ -188,13 +188,15 @@ export function comboBasisCents(combo: ComboDiscountConfig, bundles: readonly Bu
   return combo.bundleIds.reduce((sum, id) => {
     const b = bundles.find((x) => x.id === id);
     const qty = minQty(combo, id);
-    // Post-volume unit price: a combo member with volume tiers (e.g. `seat`) is
-    // basised on its DISCOUNTED unit at the combo's minQty, so a volume discount
-    // and the combo credit can't stack on the same units (one basis, no drift).
-    const rawUnit = b ? priceForInterval(b.prices, interval) : 0;
+    // Post-volume price: a combo member with volume tiers (e.g. `seat`) is
+    // basised on what the invoice CHARGES for its minQty units at that tier —
+    // the line's volume credit as `volumeCredits` grants it (rounded once over
+    // the line, net-snapped), not a per-unit rounded price times quantity, which
+    // drifted from the charge by cents. One basis, so a volume discount and the
+    // combo credit can't stack on the same units.
+    const gross = (b ? priceForInterval(b.prices, interval) : 0) * qty;
     const pct = b ? volumeDiscountPct(b, qty) : 0;
-    const unit = Math.round((rawUnit * (100 - pct)) / 100);
-    return sum + unit * qty;
+    return sum + gross - volumeLineCreditCents(gross, pct);
   }, 0);
 }
 

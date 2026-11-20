@@ -91,6 +91,11 @@ export interface RunnerStore {
   setRegistryRunner(pipelineId: string, orgId: string, runnerId: string | null, onlyIfRunnerId?: string): Promise<boolean>;
   /** Record a probe's state/outcome on the pipeline's registry row (no row: false). */
   writeRunnerLink(pipelineId: string, orgId: string, write: RunnerLinkWrite): Promise<boolean>;
+  /**
+   * Rows left `checking` since before `before` (a replica died mid-probe): put
+   * back `linked` / `unlinked` by their runner_id. Returns how many.
+   */
+  resetStaleLinkChecks(before: Date): Promise<number>;
   /** Clear every pipeline link to a runner (status `unlinked`). */
   clearRunnerLinks(runnerId: string): Promise<number>;
   /** runnerId → how many registry rows link to it (any org). */
@@ -187,6 +192,9 @@ export function createDrizzleRunnerStore(): RunnerStore {
       }).where(and(eq(G.pipelineId, pipelineId), eq(G.orgId, orgId))).returning({ id: G.id });
       return rows.length > 0;
     }),
+    resetStaleLinkChecks: (before) => elevated(async (tx) => (await tx.update(G)
+      .set({ runnerLinkStatus: sql`CASE WHEN ${G.runnerId} IS NULL THEN 'unlinked' ELSE 'linked' END` })
+      .where(and(eq(G.runnerLinkStatus, 'checking'), lt(G.runnerLinkCheckedAt, before))).returning({ id: G.id })).length),
     clearRunnerLinks: (runnerId) => elevated(async (tx) => (await tx.update(G).set({ runnerId: null, runnerLinkStatus: 'unlinked' })
       .where(eq(G.runnerId, runnerId)).returning({ id: G.id })).length),
     pipelineCounts: async (runnerIds) => {

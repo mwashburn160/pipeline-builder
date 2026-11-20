@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { formatDay } from '@/components/public-directory/ListingCardView';
+import { READ_ONLY_REASON } from '@/components/ui/ReadOnlyNotice';
 import { useMutation } from '@/hooks/useMutation';
 import api from '@/lib/api';
 import { REVIEW_STATUS_COLORS, REVIEW_STATUS_LABELS, reviewErrorMessage } from '@/lib/plugin-reviews';
@@ -20,10 +21,12 @@ import { Stars } from './StarRating';
  * review waits for a moderator; a removed one shows the moderator's reason and
  * can no longer be edited (only deleted).
  */
-export function OwnReviewPanel({ review, versions, verifiedUse, onChanged }: {
+export function OwnReviewPanel({ review, versions, verifiedUse, readOnly = false, onChanged }: {
   review: OwnReview;
   versions: string[];
   verifiedUse: boolean;
+  /** A read-only (impersonation) session: Edit and Delete are locked with the reason. */
+  readOnly?: boolean;
   /** Re-read the review state and the list. */
   onChanged: () => void;
 }) {
@@ -42,7 +45,9 @@ export function OwnReviewPanel({ review, versions, verifiedUse, onChanged }: {
   const error = del.error;
   const remove = () => del.run();
 
-  if (editing) {
+  const lockTitle = readOnly ? READ_ONLY_REASON : undefined;
+
+  if (editing && !readOnly) {
     return (
       <section className="rounded-lg border border-default p-4" aria-label="Edit your review">
         <h3 className="mb-3 text-sm font-semibold text-fg">Edit your review</h3>
@@ -70,8 +75,8 @@ export function OwnReviewPanel({ review, versions, verifiedUse, onChanged }: {
           {review.verifiedUse && <VerifiedUseBadge />}
         </div>
         <div className="flex gap-2">
-          {!removed && <Button variant="secondary" size="xs" onClick={() => setEditing(true)} disabled={busy}>Edit your review</Button>}
-          <Button variant="danger-outline" size="xs" onClick={() => setConfirmDelete(true)} disabled={busy}>Delete</Button>
+          {!removed && <Button variant="secondary" size="xs" onClick={() => setEditing(true)} disabled={busy || readOnly} title={lockTitle}>Edit your review</Button>}
+          <Button variant="danger-outline" size="xs" onClick={() => setConfirmDelete(true)} disabled={busy || readOnly} title={lockTitle}>Delete</Button>
         </div>
       </div>
       {review.status === 'held' && (
@@ -97,7 +102,7 @@ export function OwnReviewPanel({ review, versions, verifiedUse, onChanged }: {
       )}
       {review.reply && <ReplyBlock reply={review.reply} />}
       <ErrorAlert message={error} onDismiss={del.reset} />
-      {confirmDelete && (
+      {confirmDelete && !readOnly && (
         <ConfirmDialog
           title="Delete your review?"
           tone="danger"

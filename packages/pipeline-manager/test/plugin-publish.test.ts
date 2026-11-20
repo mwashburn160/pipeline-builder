@@ -130,6 +130,37 @@ describe('plugin zip', () => {
       .toThrow(`Refusing to package ${rel}: it looks like a ${label}`);
   });
 
+  it.each([
+    ['.envrc', 'export TOKEN=1', 'direnv file'],
+    ['prod.env', 'TOKEN=1', 'dotenv file'],
+    ['certs/client.pfx', 'binary', 'PKCS#12 key bundle'],
+    ['.kube/config', 'apiVersion: v1', 'Kubernetes kubeconfig'],
+    ['application_default_credentials.json', '{}', 'gcloud application-default credentials'],
+    ['tls/server.pem', '-----BEGIN RSA PRIVATE KEY-----\nAA\n-----END RSA PRIVATE KEY-----\n', 'private key'],
+    ['tls/server.key', '-----BEGIN OPENSSH PRIVATE KEY-----\nAA\n', 'private key'],
+    ['sa.json', '{"type":"service_account","private_key":"-----BEGIN PRIVATE KEY-----"}', 'cloud service-account key'],
+    ['.npmrc', '//registry.npmjs.org/:_authToken=npm_abc', 'npm auth token (.npmrc)'],
+    ['.yarnrc.yml', 'npmAuthToken: npm_abc', 'npm auth token (.yarnrc.yml)'],
+  ])('refuses to pack %s, reading the local file where the name cannot decide', (rel, content, label) => {
+    const dir = plugin();
+    fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+    fs.writeFileSync(path.join(dir, rel), content);
+    expect(() => collectPluginFiles(dir, { includeImageTar: false }))
+      .toThrow(`Refusing to package ${rel}: it looks like a ${label}`);
+  });
+
+  it('packs certificates, public keys, ordinary JSON and token-free npm config', () => {
+    const dir = plugin();
+    fs.mkdirSync(path.join(dir, 'certs'));
+    fs.writeFileSync(path.join(dir, 'certs/ca.pem'), '-----BEGIN CERTIFICATE-----\nAA\n-----END CERTIFICATE-----\n');
+    fs.writeFileSync(path.join(dir, 'docker.key'), '-----BEGIN PGP PUBLIC KEY BLOCK-----\nAA\n');
+    fs.writeFileSync(path.join(dir, 'package.json'), '{"name":"x"}');
+    fs.writeFileSync(path.join(dir, '.npmrc'), '//registry.npmjs.org/:_authToken=${NPM_TOKEN}\nregistry=https://r\n');
+    fs.writeFileSync(path.join(dir, '.yarnrc.yml'), 'nodeLinker: node-modules\n');
+    const names = collectPluginFiles(dir, { includeImageTar: false }).map(e => e.name);
+    expect(names).toEqual(expect.arrayContaining(['certs/ca.pem', 'docker.key', 'package.json', '.npmrc', '.yarnrc.yml']));
+  });
+
   it('packs dotenv templates and public keys', () => {
     const dir = plugin();
     fs.writeFileSync(path.join(dir, '.env.example'), 'SECRET=');

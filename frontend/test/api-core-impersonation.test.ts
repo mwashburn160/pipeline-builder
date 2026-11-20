@@ -208,3 +208,22 @@ describe('ApiCore.endImpersonation', () => {
     expect(sessionStorage.getItem('impersonation.accessToken')).toBeNull();
   });
 });
+
+describe('ApiCore.streamRequest under impersonation', () => {
+  it('a 401 on an AI stream ends the expired impersonation session, like send() does', async () => {
+    const core = impersonatingCore('req-1');
+    const expired = jest.fn<AnyFn>();
+    core.onSessionExpired(expired);
+    global.fetch = jest.fn<AnyFn>(async () => ({
+      status: 401,
+      ok: false,
+      body: null,
+      headers: new Headers(),
+      json: async () => ({ message: 'Token expired', code: 'TOKEN_EXPIRED' }),
+    })) as unknown as typeof fetch;
+
+    const stream = core.streamRequest('/ai/ask', { q: 'hi' });
+    await expect(stream.next()).rejects.toMatchObject({ statusCode: 401 });
+    expect(expired).toHaveBeenCalledTimes(1);
+  });
+});

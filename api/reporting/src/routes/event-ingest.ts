@@ -34,9 +34,11 @@ const baseIngestFields = {
   // `pb.pipeline-id` tag (= the platform pipelineId). The registry join key.
   pipelineId: z.string().min(1),
   eventType: z.enum(['PIPELINE', 'STAGE', 'ACTION', 'BUILD']),
-  executionId: z.string().optional(),
-  stageName: z.string().optional(),
-  actionName: z.string().optional(),
+  // The columns' own bounds (VARCHAR(255)): past them the INSERT failed as a 500
+  // the forwarder retries forever, rather than a 400 it can dead-letter.
+  executionId: z.string().max(255).optional(),
+  stageName: z.string().max(255).optional(),
+  actionName: z.string().max(255).optional(),
   // Failure reason (Action events) — promoted from detail.execution-result.
   errorMessage: z.string().max(8192).optional(),
   startedAt: z.string().datetime({ offset: true }).optional(),

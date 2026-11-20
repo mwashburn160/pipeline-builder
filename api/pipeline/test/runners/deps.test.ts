@@ -14,6 +14,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({ fetch
 
 const { createHierarchyClient, createKeyDeps, createPipelineLock, createRateLimiter, resyncKeyCaches, runnerDeps, runnersReady, setDispatchQueue, setRunnerDepsForTesting } = await import('../../src/runners/deps.js');
 const { keyedDeps } = await import('../helpers/key-fakes.js');
+const { setKeyInvalidationBusForTesting } = await import('../../src/runners/key-invalidation.js');
 
 afterEach(() => { setRunnerDepsForTesting(null); });
 
@@ -75,6 +76,18 @@ describe('createRateLimiter', () => {
     now = 1000;
     expect(await local.hit('k', 1, 1000)).toBe(true);
   });
+
+  it('in-process windows that expired are dropped (the public JWKS route keys it by caller-chosen runner ids)', async () => {
+    let now = 0;
+    const local = createRateLimiter(null, () => now);
+    for (let i = 0; i < 5000; i++) await local.hit(`jwks-runner:${i}`, 10, 60_000);
+    expect(local.localSize()).toBe(5000);
+    now = 60_000;
+    for (let i = 0; i < 2000; i++) await local.hit(`jwks-runner:new-${i}`, 10, 60_000);
+    // The 5000 expired windows are gone; only live ones are held.
+    expect(local.localSize()).toBe(2000);
+    expect(await local.hit('jwks-runner:new-0', 1, 60_000)).toBe(false);
+  });
 });
 
 describe('createHierarchyClient', () => {
@@ -94,6 +107,17 @@ describe('createHierarchyClient', () => {
     expect(await h.descendants('p')).toEqual([]);
     expect(await h.descendants('p')).toEqual([]);
   });
+
+  it('strict ancestry (the signing-key rules) throws on a failed lookup instead of returning a shorter chain; a 404 is "no parent"', async () => {
+    const h = createHierarchyClient();
+    mockParent.mockReset();
+    mockParent.mockResolvedValueOnce('p1').mockRejectedValueOnce(new Error('parent-org lookup failed for p1: HTTP 503'));
+    await expect(h.ancestors('x', undefined, { strict: true })).rejects.toThrow('HTTP 503');
+    expect(mockParent).toHaveBeenCalledWith('x', { throwOnHttpError: true });
+    mockParent.mockReset();
+    mockParent.mockResolvedValueOnce('p1').mockRejectedValueOnce(new Error('parent-org lookup failed for p1: HTTP 404'));
+    expect(await h.ancestors('x', undefined, { strict: true })).toEqual(['p1']);
+  });
 });
 
 describe('the bundle', () => {
@@ -108,6 +132,24 @@ describe('the bundle', () => {
     await deps.queue.enqueue('r-2', 5);
     expect(enqueue).toHaveBeenCalledWith('r-2', 5);
     await deps.sleep(1);
+  });
+
+  it('a published key change drops THIS replica\'s caches at once, before (or without) its own pub/sub echo', () => {
+    const sent: unknown[] = [];
+    setKeyInvalidationBusForTesting({ publish: (m) => { sent.push(m); }, subscribe: () => undefined });
+    try {
+      const deps = runnerDeps();
+      deps.keyCaches.jwks.set('r-1', { ownerOrgId: 'org-a', body: { keys: [] }, at: 0 });
+      deps.keyCaches.jwks.set('r-2', { ownerOrgId: 'org-b', body: { keys: [] }, at: 0 });
+      deps.keyCaches.pause = { paused: false, at: 0 };
+      deps.publishKeyInvalidation({ kind: 'keys', orgIds: ['ORG-A'] });
+      expect([...deps.keyCaches.jwks.keys()]).toEqual(['r-2']);
+      deps.publishKeyInvalidation({ kind: 'pause', paused: true });
+      expect(deps.keyCaches.pause).toBeNull();
+      expect(sent).toEqual([{ kind: 'keys', orgIds: ['ORG-A'] }, { kind: 'pause', paused: true }]);
+    } finally {
+      setKeyInvalidationBusForTesting(undefined);
+    }
   });
 });
 

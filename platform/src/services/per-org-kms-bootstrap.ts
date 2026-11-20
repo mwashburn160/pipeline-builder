@@ -36,11 +36,11 @@ import {
   createLogger,
   initSecretEncryption,
   setKeyProvider,
-  type PerOrgKmsConfig,
   type PerOrgKmsResolver,
 } from '@pipeline-builder/api-core';
 import { envLite } from '../config/env-lite.js';
 import { toOrgId } from '../helpers/org-id.js';
+import { activeKmsConfig } from '../helpers/org-kms-config.js';
 import { Organization } from '../models/index.js';
 
 const logger = createLogger('per-org-kms-bootstrap');
@@ -53,13 +53,7 @@ const logger = createLogger('per-org-kms-bootstrap');
  */
 export const perOrgKmsResolver: PerOrgKmsResolver = async (orgId) => {
   const org = await Organization.findById(toOrgId(orgId)).select('kmsConfig').lean();
-  const cfg = org?.kmsConfig;
-  if (!cfg?.keyId || !cfg?.ciphertextBase64) return null;
-  const out: PerOrgKmsConfig = {
-    keyId: cfg.keyId,
-    ciphertextBase64: cfg.ciphertextBase64,
-  };
-  return out;
+  return activeKmsConfig(org?.kmsConfig);
 };
 
 /**

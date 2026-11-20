@@ -12,7 +12,7 @@
 
 import type { PGlite } from '@electric-sql/pglite';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
-import { getTableName } from 'drizzle-orm';
+import { getTableColumns, getTableName } from 'drizzle-orm';
 import { ORG_DATA_OWNERSHIP, allOrgScopedTables, redactSecretColumns } from '../src/api/org-data-ownership.js';
 import { schema } from '../src/database/drizzle-schema.js';
 import { SYSTEM_ORG, asTenant, bootInitDb } from '../src/testing/pglite-init.js';
@@ -217,17 +217,37 @@ describe('ownership: the keys are hard pipeline data; the export never carries t
     expect(getTableName(schema.pipelineRunnerSigningKey)).toBe('pipeline_runner_signing_keys');
   });
 
-  it('marks private_key_enc secret, and only on the key table', () => {
-    const withSecrets = allOrgScopedTables().filter((t) => t.secretColumns?.length);
-    expect(withSecrets.map((t) => [t.name, t.secretColumns])).toEqual([['pipeline_runner_signing_keys', ['private_key_enc']]]);
+  it('marks private_key_enc secret on the key table', () => {
+    const keys = allOrgScopedTables().find((t) => t.name === 'pipeline_runner_signing_keys')!;
+    expect(keys.secretColumns).toEqual(['private_key_enc']);
+  });
+
+  it('marks every credential-shaped column of every org-scoped table secret, so the org export never carries one', () => {
+    // Encrypted values, webhook signing secrets, token hashes and live tokens.
+    const SECRET_SHAPED = /(_enc|_secret|_hash|_token)$/;
+    const missing = allOrgScopedTables().flatMap((t) => Object.values(getTableColumns(t.table))
+      .map((c) => c.name)
+      .filter((c) => SECRET_SHAPED.test(c) && !(t.secretColumns ?? []).includes(c))
+      .map((c) => `${t.name}.${c}`));
+    expect(missing).toEqual([]);
+    const prefs = allOrgScopedTables().find((t) => t.name === 'plugin_security_notification_prefs')!;
+    expect(redactSecretColumns(prefs, { orgId: 'o', webhookUrl: 'https://h', webhookSecret: 's', externalVerifyTokenHash: 'h', external_verify_token_hash: 'h' }))
+      .toEqual({ orgId: 'o', webhookUrl: 'https://h' });
   });
 
   it('redactSecretColumns drops the secret in either spelling and keeps the rest', () => {
     const scoped = allOrgScopedTables().find((t) => t.name === 'pipeline_runner_signing_keys')!;
     expect(redactSecretColumns(scoped, { kid: 'k', privateKeyEnc: BLOB, private_key_enc: BLOB, state: 'active' }))
       .toEqual({ kid: 'k', state: 'active' });
-    const other = allOrgScopedTables().find((t) => t.name === 'pipeline_runners')!;
-    const row = { label: 'r', functionUrl: 'u' };
-    expect(redactSecretColumns(other, row)).toBe(row);
+    const plain = allOrgScopedTables().find((t) => t.name === 'pipeline_registry')!;
+    const row = { pipelineName: 'p', orgId: 'o' };
+    expect(redactSecretColumns(plain, row)).toBe(row);
+  });
+
+  it("marks the runner's reach-me URL secret, so the org export never carries function_url", () => {
+    const runners = allOrgScopedTables().find((t) => t.name === 'pipeline_runners')!;
+    expect(runners.secretColumns).toEqual(['function_url']);
+    expect(redactSecretColumns(runners, { label: 'r', functionUrl: 'https://x.lambda-url', function_url: 'u', accountId: '1' }))
+      .toEqual({ label: 'r', accountId: '1' });
   });
 });

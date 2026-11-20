@@ -190,6 +190,22 @@ describe('POST /pipelines/registry', () => {
     expect(mockEmitPipelineAudit).not.toHaveBeenCalled();
   });
 
+  // Over-long display fields used to pass validation and fail the upsert with a
+  // Postgres "value too long" error, answering 500 instead of 400.
+  it.each([
+    ['pipelineName', 'p'.repeat(256)],
+    ['region', 'us-east-1-'.repeat(4)],
+    ['project', 'x'.repeat(256)],
+    ['organization', 'x'.repeat(256)],
+    ['stackName', 'x'.repeat(256)],
+  ])('rejects an over-long %s with a 400, before any DB work', async (field, value) => {
+    const handler = getHandler();
+    const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
+    await handler({ body: { pipelineId: '11111111-1111-4111-8111-111111111111', pipelineName: 'acme-pipeline', [field]: value } }, res);
+    expect(sendBadRequest).toHaveBeenCalled();
+    expect(mockInsert).not.toHaveBeenCalled();
+  });
+
   it('should upsert registry entry with valid data', async () => {
     const handler = getHandler();
     const req = {

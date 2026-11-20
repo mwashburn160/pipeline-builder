@@ -9,31 +9,27 @@
  * `GET /pipelines/:pipelineId/run-requests/:requestId`.
  */
 
-import type { RunnersUnavailableReason } from '@pipeline-builder/api-core/pipeline-runners';
 import { runnerDeps, type RunnerDeps } from './deps.js';
-import { discoverRunner, eligibleRunners, enqueueRun, linkedRunner, RunnerRouteError, type EligibleRunner, type QueuedRun, type RouteInput } from './routing.js';
+import {
+  discoverRunner, eligibleRunners, enqueueRun, linkedRunner, RunnerRouteError, RUNNERS_UNAVAILABLE_MESSAGES, type EligibleRunner, type QueuedRun, type RouteInput,
+} from './routing.js';
 import { pipelineService } from '../services/pipeline-service.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/** What RUNNERS_UNAVAILABLE says, by reason. */
-const UNAVAILABLE_MESSAGES: Record<RunnersUnavailableReason, string> = {
-  paused: 'Pipeline runs are paused on this platform by its operator; try again once they resume.',
-  encryption_not_configured: 'Pipeline runners are not set up on this deployment (secret encryption is not configured).',
-  tables_missing: 'Pipeline runners are not set up on this deployment: the database has no runner tables.',
-};
+/** A stop's execution id: a CodePipeline execution id, within the run-request column (varchar(100)). */
+const EXECUTION_ID = /^[A-Za-z0-9_-]{1,100}$/;
 
 /** 409 RUNNERS_UNAVAILABLE unless the deployment can sign and deliver right now. */
 export async function assertRunnersAvailable(deps: RunnerDeps): Promise<void> {
   const state = await deps.runnersAvailable();
   if (state.available) return;
-  throw new RunnerRouteError('RUNNERS_UNAVAILABLE', UNAVAILABLE_MESSAGES[state.reason ?? 'paused'] ?? UNAVAILABLE_MESSAGES.paused);
+  throw new RunnerRouteError('RUNNERS_UNAVAILABLE', RUNNERS_UNAVAILABLE_MESSAGES[state.reason ?? 'paused'] ?? RUNNERS_UNAVAILABLE_MESSAGES.paused);
 }
 
 /**
  * Route one start/stop to a runner and queue it.
  *
- * - A malformed pipeline id → 400 VALIDATION_ERROR (nothing is read).
+ * - A malformed pipeline id or stop execution id → 400 VALIDATION_ERROR (nothing is read).
  * - Runners unavailable (paused, no secret encryption, no tables) → 409 RUNNERS_UNAVAILABLE.
  * - A pipeline the caller cannot see → 404 NOT_FOUND (no runner is asked).
  * - Linked to an eligible runner → queued for it (409 RUNNER_UNREACHABLE when unhealthy).
@@ -41,6 +37,7 @@ export async function assertRunnersAvailable(deps: RunnerDeps): Promise<void> {
  */
 export async function routeExecution(input: RouteInput, deps: RunnerDeps = runnerDeps()): Promise<QueuedRun> {
   if (!UUID.test(input.pipelineId)) throw new RunnerRouteError('VALIDATION_ERROR', 'Pipeline id must be a UUID.');
+  if (input.executionId !== undefined && !EXECUTION_ID.test(input.executionId)) throw new RunnerRouteError('VALIDATION_ERROR', 'Execution id is malformed.');
   await assertRunnersAvailable(deps);
   if (!(await pipelineService.findById(input.pipelineId, input.orgId))) throw new RunnerRouteError('NOT_FOUND', 'Pipeline not found.');
 

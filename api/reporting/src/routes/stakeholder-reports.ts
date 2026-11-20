@@ -577,30 +577,35 @@ export function createStakeholderReportRoutes(): Router {
    * download strictly less useful than the screen without protecting anything. The shared
    * copy, which is the one that leaves, is rendered separately and carries less.
    */
-  router.get('/runs/:id/pdf', requirePermission('reports:read'), withRoute(async ({ req, res, ctx, orgId }) => {
-    const run = await stakeholderReportStore.requireRun(orgId, getParam(req.params, 'id') ?? '');
-    if (!await pdfAvailable()) {
-      return sendError(res, 503, 'PDF download is not available on this instance.', ErrorCode.SERVICE_UNAVAILABLE);
-    }
-    const definition = await stakeholderReportStore.getDefinition(orgId, run.definitionId);
-    const html = renderReportHtml({
-      title: definition?.name ?? 'Delivery report',
-      periodLabel: run.periodLabel,
-      periodStart: run.periodStart.toISOString(),
-      periodEnd: run.periodEnd.toISOString(),
-      version: run.version,
-      publishedAt: run.publishedAt?.toISOString() ?? null,
-      leadNotes: run.leadNotes,
-      executiveSummary: run.aiDraft,
-      snapshot: run.snapshot as Parameters<typeof renderReportHtml>[0]['snapshot'],
-      renderedAt: new Date().toISOString(),
-    });
-    const result = await renderPdf(html);
-    if (!result.ok) return sendPdfRefusal(res, result);
-    emitCounter('report_pdf_downloaded_total', { source: 'member' });
-    ctx.log('COMPLETED', 'Served report PDF', { runId: run.id, ms: result.ms, bytes: result.pdf.length });
-    sendPdf(res, result.pdf, reportFileName(definition?.name ?? 'delivery-report', run.periodLabel, run.version));
-  }));
+  router.get('/runs/:id/pdf',
+    requirePermission('reports:read'),
+    // A render is a Chromium launch from a process-wide pool of a few slots; without a
+    // per-org bucket one member refreshing could hold every slot for every org.
+    rateLimitByOrg({ name: 'report-pdf', max: 10, windowMs: 60_000, message: 'Too many PDF downloads — wait a minute and try again.' }),
+    withRoute(async ({ req, res, ctx, orgId }) => {
+      const run = await stakeholderReportStore.requireRun(orgId, getParam(req.params, 'id') ?? '');
+      if (!await pdfAvailable()) {
+        return sendError(res, 503, 'PDF download is not available on this instance.', ErrorCode.SERVICE_UNAVAILABLE);
+      }
+      const definition = await stakeholderReportStore.getDefinition(orgId, run.definitionId);
+      const html = renderReportHtml({
+        title: definition?.name ?? 'Delivery report',
+        periodLabel: run.periodLabel,
+        periodStart: run.periodStart.toISOString(),
+        periodEnd: run.periodEnd.toISOString(),
+        version: run.version,
+        publishedAt: run.publishedAt?.toISOString() ?? null,
+        leadNotes: run.leadNotes,
+        executiveSummary: run.aiDraft,
+        snapshot: run.snapshot as Parameters<typeof renderReportHtml>[0]['snapshot'],
+        renderedAt: new Date().toISOString(),
+      });
+      const result = await renderPdf(html);
+      if (!result.ok) return sendPdfRefusal(res, result);
+      emitCounter('report_pdf_downloaded_total', { source: 'member' });
+      ctx.log('COMPLETED', 'Served report PDF', { runId: run.id, ms: result.ms, bytes: result.pdf.length });
+      sendPdf(res, result.pdf, reportFileName(definition?.name ?? 'delivery-report', run.periodLabel, run.version));
+    }));
 
   /**
    * The lead's own words on a run that has not been published.

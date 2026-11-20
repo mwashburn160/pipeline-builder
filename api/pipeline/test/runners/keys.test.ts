@@ -86,9 +86,21 @@ describe('generate', () => {
     await ensureOrgKeyForFirstRunner(d, ROOT, 'u-reg');
     expect(states(d, ROOT)).toEqual(['active']);
     d.parents.set(TEAM, ROOT2);
+    d.audits.length = 0;
+    d.notified.length = 0;
     await ensureOrgKeyForFirstRunner(d, TEAM, 'u-team');
     expect(states(d, ROOT2)).toEqual(['active']);
     expect(states(d, TEAM)).toEqual([]);
+    // The root's key, made on the team's behalf: the system actor (never the team's user), naming the team.
+    const rootKey = [...d.keyStore.keys.values()].find((k) => k.orgId === ROOT2)!;
+    expect(rootKey.createdBy).toBeNull();
+    expect(d.audits).toEqual([expect.objectContaining({
+      action: 'pipeline.runner.key.generate',
+      orgId: ROOT2,
+      actorId: 'system',
+      details: { kid: rootKey.kid, state: 'active', auto: true, onBehalfOfOrgId: TEAM },
+    })]);
+    expect(d.notified).toContainEqual(expect.objectContaining({ recipientOrgId: ROOT2, content: expect.stringContaining("a team's first runner") }));
   });
 });
 
@@ -180,7 +192,7 @@ describe('revoke', () => {
     expect(await signingKid(d, ROOT)).toBe(out.activeKid);
     // With a pending next key, that one is promoted.
     const next = await rotateOrgKey(d, ROOT, user);
-    const again = await revokeOrgKey(d, ROOT, user, out.activeKid.slice(-6));
+    const again = await revokeOrgKey(d, ROOT, user, out.activeKid!.slice(-6));
     expect(again).toEqual({ revokedKid: out.activeKid, activeKid: next.kid });
     expect(states(d, ROOT)).toEqual(['active', 'retired:revoked', 'retired:revoked']);
     expect(d.audits).toContainEqual(expect.objectContaining({ action: 'pipeline.runner.key.revoke', details: { kid: out.activeKid, newActiveKid: next.kid } }));
@@ -200,6 +212,33 @@ describe('revoke', () => {
       details: { kid: first.kid, newActiveKid: out.activeKid, reason: 'leak' },
     }));
     expect(d.notified).toContainEqual(expect.objectContaining({ recipientOrgId: ROOT, subject: 'Runner signing key revoked', priority: 'high' }));
+  });
+
+  it('the system-org revoke reaches a team\'s still-signing own key during own → inherit: retired now, signing moves to the parent at once', async () => {
+    const d = keyedDeps();
+    d.parents.set(TEAM, ROOT);
+    const parent = await generateOrgKey(d, ROOT, user);
+    const r = runner(d, TEAM);
+    await setOrgKeyMode(d, TEAM, 'own', user);
+    await promoteDueKeys(d, at(d, 11));
+    await advanceKeyTransitions(d, at(d, 61));
+    const own = [...d.keyStore.keys.values()].find((k) => k.orgId === TEAM && k.state === 'active')!;
+    await setOrgKeyMode(d, TEAM, 'inherit', user);
+    expect(await signingKid(d, TEAM)).toBe(own.kid);
+    // An org admin of the team still can't (it inherits now); the operator can.
+    await expect(revokeOrgKey(d, TEAM, user, own.kid.slice(-6))).rejects.toMatchObject({ code: 'RUNNER_KEY_INHERITED' });
+    const out = await revokeOrgKey(d, TEAM, { userId: 'operator-1', system: true }, null);
+    expect(out).toEqual({ revokedKid: own.kid, activeKid: parent.kid });
+    // No new team key: the team is on its way to the parent's key, which signs from now on.
+    expect(states(d, TEAM)).toEqual(['retired:revoked']);
+    expect(await signingKid(d, TEAM)).toBe(parent.kid);
+    expect(await kids(d, r.id)).toEqual([parent.kid]);
+    expect(d.audits).toContainEqual(expect.objectContaining({ action: 'pipeline.runner.key.system_revoke', affectedOrgId: TEAM, details: { kid: own.kid, newActiveKid: parent.kid } }));
+    // Outside such a transition an inheriting team has no key of its own to revoke.
+    const d2 = keyedDeps();
+    d2.parents.set(TEAM, ROOT);
+    await generateOrgKey(d2, ROOT, user);
+    await expect(revokeOrgKey(d2, TEAM, { userId: 'operator-1', system: true }, null)).rejects.toMatchObject({ code: 'RUNNER_KEY_INHERITED' });
   });
 });
 
@@ -277,6 +316,35 @@ describe('inheritance', () => {
     expect(states(d, TEAM)).toEqual(['retired:mode_switch']);
     expect(await kids(d, r.id)).toEqual([parent.kid]);
     expect(d.keyStore.settingsRows.get(TEAM)).toMatchObject({ mode: 'inherit', transitionKind: null });
+  });
+
+  it('a failed ancestry lookup never makes a team look like a root org (no own key, no ancestry transition, no signer)', async () => {
+    const d = keyedDeps();
+    d.parents.set(TEAM, ROOT);
+    const p1 = await generateOrgKey(d, ROOT, user);
+    runner(d, TEAM);
+    await advanceKeyTransitions(d);
+    expect(d.keyStore.settingsRows.get(TEAM)).toMatchObject({ effectiveKeyOrgId: ROOT });
+    // Platform is down: the production client answers [] (lenient) or throws (strict).
+    const tree = d.hierarchy;
+    d.hierarchy = {
+      ...tree,
+      ancestors: async (o, known, opts) => {
+        if (o !== TEAM) return tree.ancestors(o, known, opts);
+        if (opts?.strict) throw new Error('platform down');
+        return [];
+      },
+    };
+    await expect(ensureOrgKeyForFirstRunner(d, TEAM, 'u-team')).rejects.toThrow('platform down');
+    await expect(generateOrgKey(d, TEAM, user)).rejects.toThrow('platform down');
+    expect(states(d, TEAM)).toEqual([]);
+    await advanceKeyTransitions(d, at(d, 1));
+    expect(d.keyStore.settingsRows.get(TEAM)).toMatchObject({ mode: 'inherit', effectiveKeyOrgId: ROOT, transitionKind: null });
+    d.keyCaches.signers.clear();
+    await expect(d.signerFor(TEAM)).rejects.toThrow('platform down');
+    // Back up: the parent's key signs, as before.
+    d.hierarchy = tree;
+    expect(await signingKid(d, TEAM)).toBe(p1.kid);
   });
 
   it('an ancestry change (team moved to another parent) keeps the old key signing, then switches with the same windows', async () => {

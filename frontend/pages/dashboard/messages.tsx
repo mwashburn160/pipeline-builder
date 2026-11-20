@@ -152,6 +152,7 @@ export default function MessagesPage() {
     deleteMessage,
     fetchMessages,
     fetchUnreadCount,
+    lastEdit,
   } = useMessages(user?.organizationId, debouncedSearch, messageFilter, listFilters);
 
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
@@ -795,6 +796,7 @@ export default function MessagesPage() {
                 canDelete={canDeleteMessage}
                 canWrite={canWrite}
                 readOnly={isReadOnly}
+                lastEdit={lastEdit}
               />
             ) : (
               <EmptyChat />

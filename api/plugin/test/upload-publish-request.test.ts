@@ -25,6 +25,8 @@ const mockSubmitAfterBuild = jest.fn<(...a: any[]) => Promise<any>>(async () => 
 const producesImage = { value: false };
 const spec = { value: { name: 'lint', version: '1.0.0', commands: ['lint'], description: 'Lints.' } as Record<string, unknown> };
 const mockOrgId = { value: 'org-1' };
+const mockPutPluginArtifact = jest.fn<(...a: any[]) => Promise<void>>(async () => undefined);
+const mockPutPluginArtifactFile = jest.fn<(...a: any[]) => Promise<void>>(async () => undefined);
 
 // The CPU-credit admission gate fails CLOSED when the quota service cannot
 // answer. This suite's quota double does not implement `check`, so without
@@ -79,7 +81,10 @@ jest.unstable_mockModule('../src/helpers/plugin-spec.js', () => ({
 jest.unstable_mockModule('../src/helpers/build-strategy.js', () => ({ getBuildStrategy: () => ({ producesImage: producesImage.value }) }));
 jest.unstable_mockModule('../src/queue/connections.js', () => ({ enqueueBuild: mockEnqueueBuild, getOrgTier: jest.fn(async () => 'developer') }));
 jest.unstable_mockModule('../src/services/plugin-artifact-storage.js', () => ({
-  putPluginArtifact: jest.fn(async () => undefined), deletePluginArtifact: jest.fn(), pluginArtifactKey: () => 'org-1/req-1.zip',
+  putPluginArtifact: mockPutPluginArtifact,
+  putPluginArtifactFile: mockPutPluginArtifactFile,
+  deletePluginArtifact: jest.fn(),
+  pluginArtifactKey: () => 'org-1/req-1.zip',
 }));
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
   pluginService: { assertDeployable: jest.fn(async () => undefined), deployVersion: mockDeployVersion },
@@ -96,9 +101,11 @@ const upload = (() => {
 
 afterAll(() => fs.rmSync(uploadDir, { recursive: true, force: true }));
 
-function call(body: Record<string, unknown>, permissions: string[]) {
+function call(body: Record<string, unknown>, permissions: string[], sizeBytes?: number) {
   const tempPath = path.join(uploadDir, `m-${Math.random().toString(36).slice(2)}`);
   fs.writeFileSync(tempPath, 'PK');
+  // Sparse: a size past fs.readFile's 2 GiB ceiling without writing the bytes.
+  if (sizeBytes !== undefined) fs.truncateSync(tempPath, sizeBytes);
   const res: any = {};
   res.status = jest.fn().mockReturnValue(res);
   res.json = jest.fn().mockReturnValue(res);
@@ -143,6 +150,20 @@ describe('POST /plugins with publishRequest=true', () => {
     expect(res.status).toHaveBeenCalledWith(202);
     expect(mockEnqueueBuild.mock.calls[0]![2]).toMatchObject({ publish: { caller: expect.objectContaining({ userId: 'user-1', orgId: 'org-1' }) } });
     expect(mockSubmitAfterBuild).not.toHaveBeenCalled();
+  });
+
+  // The upload ceiling (PLUGIN_MAX_UPLOAD_MB, default 4096) is past fs.readFile's
+  // 2 GiB limit: staging used to read the whole ZIP into the heap, so a 2-4 GiB
+  // upload failed ERR_FS_FILE_TOO_LARGE, answered "Object storage unavailable —
+  // please retry" (503) and every retry failed the same way — and a smaller one
+  // still held the whole ZIP in memory. The context is streamed from disk now.
+  it('stages a ZIP larger than 2 GiB by streaming it from the temp file', async () => {
+    producesImage.value = true;
+    const { res, done } = call({ visibility: 'org' }, ['plugins:write'], 2 ** 31 + 1);
+    await done;
+    expect(res.status).toHaveBeenCalledWith(202);
+    expect(mockPutPluginArtifactFile).toHaveBeenCalledWith('org-1/req-1.zip', expect.stringContaining(uploadDir));
+    expect(mockPutPluginArtifact).not.toHaveBeenCalled();
   });
 
   it('leaves an ordinary upload alone', async () => {

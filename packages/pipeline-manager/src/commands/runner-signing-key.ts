@@ -18,7 +18,7 @@
  */
 
 import {
-  type RunnerSigningKeyDto, type RunnerSigningKeySummary, type RunnersUnavailableReason,
+  type RunnerErrorCode, type RunnerSigningKeyDto, type RunnerSigningKeySummary, type RunnersUnavailableReason,
 } from '@pipeline-builder/api-core/pipeline-runners';
 import { Command } from 'commander';
 import { runnersUnavailableMessage } from './setup-runner.js';
@@ -27,6 +27,7 @@ import { auditLog } from '../utils/audit-log.js';
 import { createAuthenticatedClientAsync, printCommandHeader, printSslWarning, withSslOptions } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printKeyValue, printSection, printSuccess, printWarning, setMachineOutput } from '../utils/output-utils.js';
+import { apiRefusal, unwrapData } from '../utils/response-utils.js';
 import { STEP_UP_HEADER, type StepUpProvider } from '../utils/service-account.js';
 
 const RUNNERS_ROUTE = '/api/pipelines/runners';
@@ -54,13 +55,8 @@ export interface SigningKeyDeps {
   stepUp: StepUpProvider;
 }
 
-function unwrap<T>(body: unknown): T {
-  const b = body as { data?: T };
-  return (b && typeof b === 'object' && b.data !== undefined ? b.data : body) as T;
-}
-
 /** What to do about each refusal the key routes answer with. */
-const KEY_REFUSALS: Readonly<Record<string, string>> = {
+const KEY_REFUSALS = {
   RUNNER_KEY_EXISTS: 'Your organization already has a signing key. Rotate it instead: pipeline-manager runner signing-key rotate.',
   RUNNER_KEY_MISSING: 'Your organization has no runner signing key yet. Create one: pipeline-manager runner signing-key generate.',
   RUNNER_KEY_TRANSITION_IN_PROGRESS: 'A key rotation or key-mode change is already in progress. Wait for it to finish (up to about 75 minutes), '
@@ -71,15 +67,13 @@ const KEY_REFUSALS: Readonly<Record<string, string>> = {
   RUNNER_KEY_INHERITED: `This organization uses its parent's signing key. Switch to your own key (Use our own key) under ${PANEL} before changing it, `
     + 'or ask the parent organization\'s admins.',
   RUNNER_KEY_UNREADABLE: 'Your signing key can\'t be read. Runs through your runners are paused until your platform operator fixes it.',
-};
+} as const satisfies Partial<Record<RunnerErrorCode, string>>;
 
 /** Turn a key-route refusal into what to do; anything else is rethrown as-is. */
 export function explainSigningKeyError(err: unknown): never {
-  const e = err as { status?: number; response?: { status?: number; data?: { code?: string; errorCode?: string; error?: { code?: string } } } };
-  const data = e?.response?.data;
-  const code = data?.error?.code ?? data?.errorCode ?? data?.code;
-  const status = e?.status ?? e?.response?.status;
-  if (code && KEY_REFUSALS[code]) throw new Error(`${KEY_REFUSALS[code]} (${code})`);
+  const { code, status } = apiRefusal(err);
+  // Own keys only: a code such as `constructor` is not a refusal this command knows.
+  if (code && Object.hasOwn(KEY_REFUSALS, code)) throw new Error(`${KEY_REFUSALS[code as keyof typeof KEY_REFUSALS]} (${code})`);
   if (code === 'RUNNERS_UNAVAILABLE') throw new Error(runnersUnavailableMessage(null));
   if (status === 429) throw new Error('Too many signing-key changes for your organization this hour. Try again later.');
   throw err;
@@ -89,14 +83,14 @@ export function explainSigningKeyError(err: unknown): never {
 export async function runSigningKeyAction(action: SigningKeyAction, deps: SigningKeyDeps): Promise<RunnerSigningKeyDto> {
   try {
     if (action === 'status') {
-      const list = unwrap<{ available?: boolean; unavailableReason?: RunnersUnavailableReason | null; signingKey?: RunnerSigningKeyDto | null }>(
+      const list = unwrapData<{ available?: boolean; unavailableReason?: RunnersUnavailableReason | null; signingKey?: RunnerSigningKeyDto | null }>(
         await deps.platform.get(RUNNERS_ROUTE),
       );
       if (list.available === false || !list.signingKey) throw new Error(runnersUnavailableMessage(list.unavailableReason));
       return list.signingKey;
     }
     const headers = { [STEP_UP_HEADER]: await deps.stepUp() };
-    return unwrap<RunnerSigningKeyDto>(await deps.platform.post(WRITE_ROUTES[action], {}, headers));
+    return unwrapData<RunnerSigningKeyDto>(await deps.platform.post(WRITE_ROUTES[action], {}, headers));
   } catch (err) {
     return explainSigningKeyError(err);
   }

@@ -121,6 +121,16 @@ describe('OrgMembersService.transferOwnership', () => {
     expect(mockUserUpdateMany).not.toHaveBeenCalled();
   });
 
+  it('refuses a soft-deleted org as not found: no membership read, write or token bump', async () => {
+    const save = jest.fn();
+    mockOrgFindById.mockReturnValue(sessionResolving({ owner: 'old-owner', deletedAt: new Date(), save }));
+    await expect(orgMembersService.transferOwnership('org-1', 'new-owner')).rejects.toThrow(OM_ORG_NOT_FOUND);
+    expect(mockUoFindOne).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+    expect(mockUserUpdateMany).not.toHaveBeenCalled();
+    expect(mockAssignBuiltinAdminRole).not.toHaveBeenCalled();
+  });
+
   it('throws when no current owner membership exists (no token bump)', async () => {
     mockOrgFindById.mockReturnValue(sessionResolving({ owner: 'x', save: jest.fn() }));
     mockUoFindOne.mockReturnValueOnce(sessionResolving(null));
@@ -154,5 +164,20 @@ describe('OrgMembersService.transferOwnership', () => {
       .mockReturnValueOnce(sessionResolving(null));
     await expect(orgMembersService.transferOwnership('org-1', 'deactivated')).rejects.toThrow(OM_NEW_OWNER_MUST_BE_MEMBER);
     expect(mockUoFindOne.mock.calls[1]![0]).toEqual({ userId: 'deactivated', organizationId: 'org-1', isActive: true });
+  });
+});
+
+describe('OrgMembersService.isOrgOwner', () => {
+  it('true for the owner of a live org; false for anyone else or an unknown org', async () => {
+    mockOrgFindById.mockReturnValue(Promise.resolve({ owner: 'owner-1', deletedAt: null }));
+    expect(await orgMembersService.isOrgOwner('org-1', 'owner-1')).toBe(true);
+    expect(await orgMembersService.isOrgOwner('org-1', 'someone')).toBe(false);
+    mockOrgFindById.mockReturnValue(Promise.resolve(null));
+    expect(await orgMembersService.isOrgOwner('org-1', 'owner-1')).toBe(false);
+  });
+
+  it('false for the owner of a soft-deleted org', async () => {
+    mockOrgFindById.mockReturnValue(Promise.resolve({ owner: 'owner-1', deletedAt: new Date() }));
+    expect(await orgMembersService.isOrgOwner('org-1', 'owner-1')).toBe(false);
   });
 });

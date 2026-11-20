@@ -1,6 +1,6 @@
 // GENERATED FROM docs/runbooks/secret-rotation.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 145a5ed57fd1e0f11c0d3441920407171fb65547387f7f75ca83522a141933be
+// SOURCE-SHA256: 8dc7f4027ca7dab2f50e965cf31160156a54162999c1d6df6017aed1fed29b0a
 // SPDX-License-Identifier: Apache-2.0
 import { KeyRound } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -741,7 +741,7 @@ export const runbookSecretRotationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Per-org KMS. Orgs with SECRET_ENCRYPTION_PER_ORG_KMS config are wrapped under their own CMK, not this master, and their blobs carry a kid; the shared previous key is never applied to them. Rotating an org's CMK is a separate flow (PUT /api/admin/orgs/:orgId/kms-config, which re-encrypts that org inline, including its runner signing keys through the pipeline re-encrypt job; a runner-key failure answers 500)."
+          "content": "Per-org KMS. Orgs with SECRET_ENCRYPTION_PER_ORG_KMS config are wrapped under their own CMK, not this master, and their blobs carry a kid; the shared previous key is never applied to them. Rotating an org's CMK is a separate flow (PUT /api/admin/orgs/:orgId/kms-config, which re-encrypts that org inline, including its runner signing keys through the pipeline re-encrypt job; a runner-key failure answers 500). If a stored platform secret can't be decrypted under the current provider the PUT refuses with 409 and changes nothing. Repair that row, or retry with ?reencrypt=false: that skips only the platform (MongoDB) secret re-encrypt, so the org's existing AI provider keys and SSO client secret become unreadable and must be re-entered. The runner signing key re-wrap still runs (it does not depend on the platform pass), and a failure there still answers 500."
         },
         {
           "type": "text",
@@ -1231,7 +1231,7 @@ export const runbookSecretRotationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The first key is created active when a root org registers its first runner (or from the card before that). An org with no effective key gets 409 RUNNER_KEY_MISSING; nothing falls back to a shared key."
+          "content": "The first key is created active when the first runner is registered under an effective key org that has none (or from the card before that): a root org's own first runner, a team in own mode's first runner, or the first runner of a team that inherits — which creates its root (inherited-from) org's key. That last key is audited as pipeline.runner.key.generate on the root org by the system actor, with details.auto: true and details.onBehalfOfOrgId the team; the team's user is not recorded as its creator. An org with no effective key gets 409 RUNNER_KEY_MISSING; nothing falls back to a shared key."
         },
         {
           "type": "text",
@@ -1239,7 +1239,7 @@ export const runbookSecretRotationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Org admins do this themselves, in Settings → Organization → Pipeline runners → Signing key, or with pipeline-manager runner signing-key rotate. Every key write needs org_settings:write, an MFA-grade session and a step-up, and is limited to 5 per org per hour. The server enforces the timing, not the operator."
+          "content": "Org admins do this themselves, in Settings → Organization → Pipeline runners → Signing key, or with pipeline-manager runner signing-key rotate. Every key write needs org_settings:write, an MFA-grade session and a step-up, and is limited to 5 per org per hour. The limit fails closed: while its Redis store is unreachable key writes answer 503 rather than go unlimited. Key writes work while Pause all pipeline runs is on (the pause stops deliveries, not key changes), so an admin can rotate or revoke during an incident. The server enforces the timing, not the operator."
         },
         {
           "type": "list",
@@ -1347,7 +1347,7 @@ export const runbookSecretRotationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "(system org, orgs:manage, MFA-grade, step-up; audited as pipeline.runner.key.system_revoke naming the operator) does the same for any org. The ops-center Runner signing keys page lists every org's mode, active key id, age, rotation state and whether its key is unreadable."
+          "content": "(system org, orgs:manage, MFA-grade, step-up; audited as pipeline.runner.key.system_revoke naming the operator) does the same for any org. It also reaches a team switching own → inherit whose own key still signs (before switch_at): that key is retired at once, no new team key is made, and signing moves to the inherited key immediately (the answer's activeKid is the inherited key's). An org admin can't revoke a key of an org in inherit mode (409 RUNNER_KEY_INHERITED). The ops-center Runner signing keys page lists every org's mode, active key id, age, rotation state and whether its key is unreadable."
         },
         {
           "type": "list",
@@ -1398,6 +1398,10 @@ export const runbookSecretRotationTopic: HelpTopic = {
         {
           "type": "text",
           "content": "If an org's effective key can't be decrypted (a master changed without the re-encrypt job, a rotated or disabled per-org KMS key, a lost kms:Decrypt grant), that org's runner writes, deliveries and key writes fail closed with 409 RUNNER_KEY_UNREADABLE and its card tells its admins to contact you. Other orgs are unaffected. pipeline_runner_signing_keys_unreadable goes above zero and RunnerSigningKeyUnreadable (critical) fires."
+        },
+        {
+          "type": "text",
+          "content": "A transient key-service failure is not an unreadable key: when platform can't answer the org's per-org KMS config lookup, or KMS itself is unreachable, throttled or answers 5xx, runner writes and key writes answer 409 RUNNERS_UNAVAILABLE, queued runs stay queued (and expire after their 10 minutes if it lasts), and neither the gauge nor the operator notice fires. Only a real decrypt failure of the stored ciphertext (a wrong master, a tampered or wrong-org blob, or KMS refusing the ciphertext or the grant) is RUNNER_KEY_UNREADABLE."
         },
         {
           "type": "list",

@@ -576,11 +576,13 @@ export function organizationsApi(core: ApiCore) {
       });
     },
 
-    /** POST /invitation/:id/resend — renews the expiry and re-mails the link.
+    /** POST /invitation/:id/resend — mints a NEW link (the old one stops working),
+     *  renews the expiry and mails it. When no email went out, `acceptUrl` carries
+     *  the new link ONCE.
      *  `delivery: 'not-configured'` is a 200 too: the invitation was renewed but
      *  NO email went out (a refused transport is the 500). */
     resendInvitation: async (invitationId: string) => {
-      return core.request<ApiResponse<{ expiresAt: string; delivery: InvitationDelivery }>>(`/api/invitation/${invitationId}/resend`, {
+      return core.request<ApiResponse<{ expiresAt: string; delivery: InvitationDelivery; acceptUrl?: string }>>(`/api/invitation/${invitationId}/resend`, {
         method: 'POST',
       });
     },

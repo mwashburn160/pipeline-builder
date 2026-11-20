@@ -5,15 +5,40 @@
  * Credential files that must never ride inside an uploaded plugin ZIP. The
  * catalog of kinds is api-core's `SECRET_FILE_KINDS`, shared with the CLI's
  * packer (which refuses to pack them before upload); this is the upload's
- * refusal for an archive built some other way, naming the file.
+ * refusal for an archive built some other way, naming the file. Most kinds are
+ * decided by the entry name; a few (a `.pem` / `.key` private key, a
+ * service-account JSON, an `.npmrc` / `.yarnrc.yml` auth token) by the entry's
+ * leading content, which the extraction captures for them.
  */
 
-import { SECRET_FILE_KINDS, secretFileKind } from '@pipeline-builder/api-core';
+import {
+  SECRET_FILE_CONTENT_SCAN_BYTES, SECRET_FILE_KINDS, secretFileKind, secretFileNeedsContent,
+  type SecretFileKindKey,
+} from '@pipeline-builder/api-core';
 
-/** Refusal message for a credential entry, or null when the entry is allowed. */
-export function secretFileProblem(fileName: string): string | null {
-  const kind = secretFileKind(fileName);
-  if (!kind) return null;
+import type { ZipEntryScreen } from './zip-extract.js';
+
+function refusal(fileName: string, kind: SecretFileKindKey): string {
   return `ZIP entry ${fileName} looks like a ${SECRET_FILE_KINDS[kind].label} — remove credentials from the plugin `
     + 'directory before packaging (pass secrets through the plugin spec `secrets` instead)';
 }
+
+/** Refusal message for a credential entry decided by its name, or null when the name allows it. */
+export function secretFileProblem(fileName: string): string | null {
+  const kind = secretFileKind(fileName);
+  return kind ? refusal(fileName, kind) : null;
+}
+
+/** Refusal message for a content-decided credential entry, or null when its content is harmless. */
+export function secretFileContentProblem(fileName: string, text: string): string | null {
+  const kind = secretFileKind(fileName, text);
+  return kind ? refusal(fileName, kind) : null;
+}
+
+/** The upload's per-entry credential screen (name first; content for the entries the name cannot decide). */
+export const SECRET_FILE_SCREEN: ZipEntryScreen = {
+  byName: secretFileProblem,
+  wantsContent: secretFileNeedsContent,
+  byContent: secretFileContentProblem,
+  contentBytes: SECRET_FILE_CONTENT_SCAN_BYTES,
+};

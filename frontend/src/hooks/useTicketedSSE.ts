@@ -15,10 +15,23 @@
  * build log) passes `maxRetries` + `onGiveUp`. A consumer can also end the
  * stream from a message (return `true` from `onMessage`), which stops any
  * further reconnects until `subscriptionKey` changes.
+ *
+ * A mint refused for good — a 401 that is not the transient
+ * SESSION_REFRESH_UNAVAILABLE, or a 403 — stops at once and calls `onGiveUp`:
+ * retrying it would only hammer the ticket endpoint with the same refusal.
  */
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useSSE } from './useSSE';
 import { MESSAGE_SSE_BASE_RETRY_DELAY_MS } from '@/lib/constants';
+import { SESSION_REFRESH_UNAVAILABLE } from '@/lib/api/core';
+import { ApiError } from '@/lib/api/errors';
+
+/** A ticket-mint failure no retry can fix: signed out, or not allowed. */
+export function isNonRetryableTicketError(err: unknown): boolean {
+  if (!(err instanceof ApiError)) return false;
+  if (err.statusCode === 403) return true;
+  return err.statusCode === 401 && err.code !== SESSION_REFRESH_UNAVAILABLE;
+}
 
 const MAX_RECONNECT_DELAY_MS = 30_000;
 /**
@@ -81,17 +94,20 @@ export function useTicketedSSE(opts: TicketedSSEOptions): { connected: boolean; 
   /** Set when the consumer closed the stream or retries ran out. */
   const stoppedRef = useRef(false);
 
+  const giveUp = useCallback(() => {
+    if (stoppedRef.current) return;
+    stoppedRef.current = true;
+    clearTimeout(reconnectTimerRef.current);
+    onGiveUpRef.current?.();
+  }, []);
+
   const scheduleReconnect = useCallback(() => {
     if (stoppedRef.current) return;
     const attempt = (reconnectAttemptRef.current += 1);
-    if (attempt > maxRetriesRef.current) {
-      stoppedRef.current = true;
-      onGiveUpRef.current?.();
-      return;
-    }
+    if (attempt > maxRetriesRef.current) { giveUp(); return; }
     const delay = Math.min(MESSAGE_SSE_BASE_RETRY_DELAY_MS * 2 ** (attempt - 1), MAX_RECONNECT_DELAY_MS);
     reconnectTimerRef.current = setTimeout(() => setTicketKey((k) => k + 1), delay);
-  }, []);
+  }, [giveUp]);
   useEffect(() => () => clearTimeout(reconnectTimerRef.current), []);
 
   // A new subscription starts with a clean slate: full retry budget, not
@@ -123,9 +139,14 @@ export function useTicketedSSE(opts: TicketedSSEOptions): { connected: boolean; 
         streamKeyRef.current = subscriptionKey;
         setUrl(buildUrlRef.current(ticket, subscriptionKey));
       })
-      .catch(() => { if (!cancelled) { setUrl(null); scheduleReconnect(); } });
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setUrl(null);
+        if (isNonRetryableTicketError(err)) giveUp();
+        else scheduleReconnect();
+      });
     return () => { cancelled = true; };
-  }, [subscriptionKey, ticketKey, scheduleReconnect]);
+  }, [subscriptionKey, ticketKey, scheduleReconnect, giveUp]);
 
   const onMessage = useCallback((data: unknown): boolean => {
     if (streamKeyRef.current !== subscriptionKeyRef.current) return false;

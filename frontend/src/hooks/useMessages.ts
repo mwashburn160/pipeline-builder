@@ -91,6 +91,19 @@ interface UseMessagesReturn {
    * in that case `onDeleted` runs if and when the replay lands.
    */
   deleteMessage: (id: string, onDeleted?: () => void) => Promise<boolean>;
+  /**
+   * The latest MESSAGE_EDITED frame (a message or an announcement edited
+   * elsewhere), so an open thread can re-read; `seq` changes on every frame.
+   * Null until one arrives.
+   */
+  lastEdit: MessageEdit | null;
+}
+
+/** One MESSAGE_EDITED frame: the edited message and the thread it belongs to. */
+export interface MessageEdit {
+  messageId: string;
+  threadId: string;
+  seq: number;
 }
 
 /** Polling interval for unread message count fallback (30 seconds). */
@@ -121,6 +134,7 @@ export function useMessages(orgId?: string | null, search = '', view: MessageVie
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState<number | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [lastEdit, setLastEdit] = useState<MessageEdit | null>(null);
   // Kept in a ref so fetchMessages/loadMore stay stable (no SSE/poll effect
   // churn) while still reading the CURRENT search term.
   const searchRef = useRef(search);
@@ -372,6 +386,17 @@ export function useMessages(orgId?: string | null, search = '', view: MessageVie
           // the frame cannot carry a number that is right for every recipient.
           void fetchUnreadCount();
           break;
+        case 'MESSAGE_EDITED': {
+          // Carries no content: re-read. The list only when the edited message
+          // (or its thread's root) is loaded here — an announcement edit reaches
+          // every org, and a metered list read for a row nobody sees is waste.
+          const { messageId } = notification.data;
+          const threadId = notification.data.threadId ?? messageId;
+          if (!messageId || !threadId) break;
+          if (messagesRef.current.some(m => m.id === messageId || m.id === threadId)) void fetchMessages();
+          setLastEdit(prev => ({ messageId, threadId, seq: (prev?.seq ?? 0) + 1 }));
+          break;
+        }
         case 'MESSAGE_DELETED':
           if (notification.data.messageId) {
             const goneId = notification.data.messageId;
@@ -435,5 +460,6 @@ export function useMessages(orgId?: string | null, search = '', view: MessageVie
     markAsRead,
     markThreadAsRead,
     deleteMessage,
+    lastEdit,
   };
 }

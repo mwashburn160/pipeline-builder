@@ -210,11 +210,23 @@ describe('notice settings', () => {
     }));
   });
 
-  it('GET returns a saved row as-is', async () => {
+  it('GET returns a saved row as-is to a billing contact', async () => {
     settingsFindOne.mockResolvedValue({ orgId: 'root', enabled: false, webhookUrl: 'https://h.example.com' });
     const res = makeRes();
-    await run('get', '/:orgId/notice-settings', { user: member('root'), params: { orgId: 'root' }, query: {} }, res);
+    await run('get', '/:orgId/notice-settings', { user: member('root', ['quotas:read', 'billing:manage']), params: { orgId: 'root' }, query: {} }, res);
     expect(res.json.mock.calls[0][0].data.settings).toMatchObject({ enabled: false, webhookUrl: 'https://h.example.com' });
+  });
+
+  // The webhook URL can embed a token (the audit row already never carries it),
+  // so a caller who may not change it — a plain `quotas:read` member, or an
+  // operator reading cross-tenant on `orgs:read` — sees only its host.
+  it('GET shows only the webhook host to a caller without billing:manage', async () => {
+    settingsFindOne.mockResolvedValue({ orgId: 'root', enabled: true, webhookUrl: 'https://hooks.example.com/services/T0/B0/SECRET' });
+    const res = makeRes();
+    await run('get', '/:orgId/notice-settings', { user: member('root'), params: { orgId: 'root' }, query: {} }, res);
+    const url = res.json.mock.calls[0][0].data.settings.webhookUrl as string;
+    expect(url).not.toContain('SECRET');
+    expect(url).toBe('https://hooks.example.com/…');
   });
 
   it('PUT clearing the webhook only touches the webhook, and audits it as unconfigured', async () => {

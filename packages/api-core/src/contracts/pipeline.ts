@@ -16,12 +16,10 @@
 import { z } from 'zod';
 import { CASCADE_LEG_AUTH, CascadeOrgParams, OrgPurgeResponse } from './cascade.js';
 import { defineInternalEndpoint } from './define.js';
+import { PerOrgKmsConfigSchema } from './platform.js';
 
 const ORG_ID = /^[a-f0-9]{24}$/i;
 const ORG_ID_MESSAGE = 'orgId must be an organization id';
-
-/** The per-org KMS config shape (api-core's `PerOrgKmsConfig`). */
-const KmsConfig = z.object({ keyId: z.string().min(1), ciphertextBase64: z.string().min(1) });
 
 export const PIPELINE_INTERNAL = {
   /** Idempotent: 200 `{ orgId, tables }`; 500 when any table failed (the leg retries). */
@@ -62,7 +60,7 @@ export const PIPELINE_INTERNAL = {
     params: z.object({}),
     body: z.object({
       orgId: z.string({ error: ORG_ID_MESSAGE }).regex(ORG_ID, ORG_ID_MESSAGE).transform((s) => s.toLowerCase()).optional(),
-      previousKmsConfig: KmsConfig.nullable().optional(),
+      previousKmsConfig: PerOrgKmsConfigSchema.nullable().optional(),
     }).strict(),
     response: z.object({
       scanned: z.number().int().nonnegative(),

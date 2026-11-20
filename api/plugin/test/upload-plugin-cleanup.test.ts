@@ -77,7 +77,7 @@ jest.unstable_mockModule('../src/helpers/plugin-helpers.js', () => ({ createBuil
 jest.unstable_mockModule('../src/helpers/build-strategy.js', () => ({ getBuildStrategy: () => ({ producesImage: true }) }));
 jest.unstable_mockModule('../src/queue/connections.js', () => ({ enqueueBuild: jest.fn(), getOrgTier: jest.fn(async () => 'developer') }));
 jest.unstable_mockModule('../src/services/plugin-artifact-storage.js', () => ({
-  putPluginArtifact: jest.fn(), deletePluginArtifact: jest.fn(), pluginArtifactKey: () => 'k',
+  putPluginArtifact: jest.fn(), putPluginArtifactFile: jest.fn(), deletePluginArtifact: jest.fn(), pluginArtifactKey: () => 'k',
 }));
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
   pluginService: { assertDeployable: jest.fn(async () => undefined), deployVersion: jest.fn() },
@@ -259,5 +259,25 @@ describe('POST /plugins — multipart errors', () => {
     const res = mockRes();
     errorLayer('/')(new Error('Unexpected end of form'), req, res, jest.fn());
     expect(res.status).toHaveBeenCalledWith(400);
+  });
+});
+
+// api-server cuts every request at 25 s; the upload extends its socket timeout
+// before multer reads the body. The inspect dry-run takes the SAME (up to 4 GiB)
+// ZIP — nginx gives it 300 s — but did not, so any inspect whose body took over
+// 25 s to stream answered 503 "Request timeout" before the dialog's catalog step.
+describe('POST /plugins/inspect — upload timeout', () => {
+  it.each(['/', '/inspect'])('%s extends the socket timeout before reading the body', (routePath) => {
+    const l = (router.stack as any[]).find((x) => x.route?.path === routePath && x.route?.methods?.post);
+    const first = l.route.stack[0].handle;
+    const req: any = { setTimeout: jest.fn() };
+    const res: any = { setTimeout: jest.fn() };
+    const next = jest.fn();
+
+    first(req, res, next);
+
+    expect(res.setTimeout).toHaveBeenCalledWith(900_000);
+    expect(req.setTimeout).toHaveBeenCalledWith(900_000);
+    expect(next).toHaveBeenCalled();
   });
 });

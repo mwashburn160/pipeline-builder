@@ -91,10 +91,11 @@ async function serviceAccountIds(orgId: string): Promise<Types.ObjectId[]> {
 const COLLECTION_DEFS = [
   {
     name: 'invitations',
-    // Never the `token`: it IS each pending invitation's bearer credential (the
-    // accept link), and the export reaches holders of `org_settings:write` who
-    // may lack `invitations:manage` — the same reason `listForOrg` strips it.
-    read: (orgId) => Invitation.find({ organizationId: toOrgId(orgId) }).select('-token').lean(),
+    // Never the `tokenHash`: the plaintext token (each pending invitation's
+    // bearer credential, the accept link) is never stored, and the export
+    // reaches holders of `org_settings:write` who may lack `invitations:manage`
+    // — the same reason `listForOrg` strips even the hash.
+    read: (orgId) => Invitation.find({ organizationId: toOrgId(orgId) }).select('-tokenHash').lean(),
     remove: async (orgId) => (await Invitation.deleteMany({ organizationId: toOrgId(orgId) })).deletedCount ?? 0,
   },
   {

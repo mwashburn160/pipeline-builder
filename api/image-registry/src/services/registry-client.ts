@@ -3,7 +3,7 @@
 
 import { Agent } from 'https';
 import type { Readable } from 'stream';
-import { envInt, createLogger } from '@pipeline-builder/api-core';
+import { envInt, createLogger, ValidationError } from '@pipeline-builder/api-core';
 import axios, { type AxiosInstance, type AxiosResponse } from 'axios';
 import type { RegistryScope } from './scope.js';
 import { authorizeAndIssue } from './token-service.js';
@@ -51,6 +51,7 @@ function isValidDigest(digest: string): boolean {
  *
  * Rejects names with `//`, leading/trailing `/`, or `..` segments — those
  * forms could escape into adjacent namespaces or trip up upstream parsers.
+ * Throws a {@link ValidationError} (400): the name is the caller's input.
  */
 function encodeRepoName(name: string): string {
   if (
@@ -59,7 +60,7 @@ function encodeRepoName(name: string): string {
     name.endsWith('/') ||
     name.split('/').some((s) => s === '..')
   ) {
-    throw new Error(`Invalid repository name: ${name}`);
+    throw new ValidationError(`Invalid repository name: ${name}`);
   }
   return name.split('/').map(encodeURIComponent).join('/');
 }

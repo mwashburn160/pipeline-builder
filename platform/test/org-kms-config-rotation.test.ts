@@ -123,10 +123,52 @@ describe('PUT kms-config: runner signing keys', () => {
     expect(mockAudit.mock.calls[0][2]).toMatchObject({ details: { runnerKeyFailures: failures } });
   });
 
-  it('?reencrypt=false skips every re-encrypt, runner keys included', async () => {
+  it('marks a failed runner-key re-encrypt as a failure outcome in the audit row', async () => {
+    mockOrgFindById.mockReturnValue(orgDoc({ ...OLD }));
+    mockRunnerReencrypt.mockResolvedValue({ ok: false, error: 'pipeline service unreachable' });
+    await put();
+    expect(mockAudit.mock.calls[0][2]).toMatchObject({ outcome: 'failure' });
+  });
+
+  it('a Mongo re-encrypt failure still re-wraps the runner keys (the previous config is gone once saved) and is audited', async () => {
+    mockOrgFindById.mockReturnValue(orgDoc({ ...OLD }));
+    mockReencryptOrg.mockRejectedValue(new Error('kms throttled'));
+    const res = await put();
+    expect(res.statusCode).toBe(500);
+    expect(res.body.message).toMatch(/kms throttled/);
+    expect(mockRunnerReencrypt).toHaveBeenCalledWith({ orgId: ORG, previousKmsConfig: OLD });
+    expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'admin.org.kms-config.upsert', expect.objectContaining({
+      outcome: 'failure',
+      details: expect.objectContaining({ secretsReencryptError: expect.stringMatching(/kms throttled/), runnerKeysReencrypted: 2 }),
+    }));
+  });
+
+  it('?reencrypt=false skips only the Mongo secret re-encrypt; the runner keys are still re-wrapped', async () => {
     mockOrgFindById.mockReturnValue(orgDoc({ ...OLD }));
     const res = await put({ reencrypt: 'false' });
     expect(res.statusCode).toBe(200);
+    expect(mockCapture).not.toHaveBeenCalled();
+    expect(mockReencryptOrg).not.toHaveBeenCalled();
+    expect(mockRunnerReencrypt).toHaveBeenCalledWith({ orgId: ORG, previousKmsConfig: OLD });
+    expect(res.body.data).toMatchObject({ configured: true, runnerKeysReencrypted: 2 });
+  });
+
+  it('?reencrypt=false still reports a failed runner-key re-wrap (500)', async () => {
+    mockOrgFindById.mockReturnValue(orgDoc({ ...OLD }));
+    mockRunnerReencrypt.mockResolvedValue({ ok: false, error: 'pipeline service unreachable' });
+    const res = await put({ reencrypt: 'false' });
+    expect(res.statusCode).toBe(500);
+    expect(res.body.message).toMatch(/pipeline service unreachable/);
+  });
+
+  it('a failed capture answers 409 naming ?reencrypt=false as skipping only the platform secrets', async () => {
+    mockOrgFindById.mockReturnValue(orgDoc({ ...OLD }));
+    mockCapture.mockRejectedValue(new Error('bad row'));
+    const res = await put();
+    expect(res.statusCode).toBe(409);
+    expect(res.body.message).toMatch(/\?reencrypt=false/);
+    expect(res.body.message).toMatch(/platform secrets/i);
+    expect(res.body.message).toMatch(/runner signing keys are still re-wrapped/i);
     expect(mockRunnerReencrypt).not.toHaveBeenCalled();
   });
 });
@@ -144,7 +186,7 @@ describe('DELETE kms-config: runner signing keys', () => {
     mockRunnerReencrypt.mockResolvedValue({ ok: false, error: 'Runner signing key re-encryption failed: pipeline service responded HTTP 500' });
     const res = await del();
     expect(res.statusCode).toBe(500);
-    expect(mockAudit.mock.calls[0][2]).toMatchObject({ details: { runnerKeysReencryptError: expect.stringMatching(/HTTP 500/) } });
+    expect(mockAudit.mock.calls[0][2]).toMatchObject({ outcome: 'failure', details: { runnerKeysReencryptError: expect.stringMatching(/HTTP 500/) } });
   });
 
   it('no config to clear: nothing to re-encrypt', async () => {

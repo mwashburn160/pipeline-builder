@@ -201,8 +201,10 @@ export function recurringDiscountStandingCents(
  * subtotal (0 once no scoped bundle is held), as a scoped percent one already is
  * by construction — otherwise removing the scoped bundle would leave the full
  * amount re-granting every period against an add-on no longer held. The ONE
- * spelling shared by the per-period re-grant and the floor's standing figure,
- * so the floor never counts credit the account does not receive.
+ * spelling shared by the per-period re-grant, the floor's standing figure and
+ * the redemption of any price-cut code (one-time or recurring — see
+ * `redemptionCents`), so the floor never counts credit the account does not
+ * receive and a scoped dollar code never banks more than the scoped subtotal.
  */
 export function recurringCreditCents(
   rule: { unit: DiscountUnit; value: number; appliesToBundles?: readonly string[] },

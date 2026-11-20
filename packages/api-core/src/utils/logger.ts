@@ -164,6 +164,15 @@ const redactFormat = winston.format((info) => {
 })();
 
 /**
+ * Routing ids `maskFormat` must leave alone. A random 24-hex org/user id (or a
+ * 32-hex trace id) holds a run of 12 decimal digits about 1% of the time, which
+ * the AWS-account-id pattern would mask: promtail would then file that org's
+ * lines under the `_infra` tenant and trace correlation would break. These are
+ * ids the service stamps, never free text, so value masking has nothing to find.
+ */
+const MASK_EXEMPT_KEYS = new Set(['orgId', 'userId', 'trace_id']);
+
+/**
  * Winston format that masks secret-shaped VALUES in the rendered message and in
  * any string metadata.
  *
@@ -176,6 +185,7 @@ const redactFormat = winston.format((info) => {
  */
 const maskFormat = winston.format((info) => {
   for (const key of Object.keys(info)) {
+    if (MASK_EXEMPT_KEYS.has(key)) continue;
     info[key] = maskDeep(info[key]);
   }
   return info;

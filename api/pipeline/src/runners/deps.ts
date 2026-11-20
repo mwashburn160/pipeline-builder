@@ -31,7 +31,7 @@ import {
 import { RUNNER_KEY_CACHE_MS, RUNNER_KEY_METRICS, type RunnerKeyInvalidation, type RunnersUnavailableReason } from '@pipeline-builder/api-core/pipeline-runners';
 import { incCounter, resetGauge, setGauge } from '@pipeline-builder/api-server';
 import { encryptionReady, evictOrgKms, keySecrets, type KeySecrets } from './key-crypto.js';
-import { keyInvalidationBus, type KeyInvalidationInput } from './key-invalidation.js';
+import { keyInvalidationBus, REPLICA_ID, type KeyInvalidationInput } from './key-invalidation.js';
 import type { RunnerKeyStore } from './key-store.js';
 import { createOrgSignerCache, type OrgSignerCache, type RunRequestSigner } from './signing.js';
 import type { RunnerStore } from './store.js';
@@ -56,8 +56,13 @@ export interface RateLimiter {
 
 /** Org ancestry + names for team inheritance. */
 export interface HierarchyClient {
-  /** Ancestors of `orgId`, NEAREST first (the direct parent, then its parent, …). */
-  ancestors(orgId: string, knownParent?: string): Promise<string[]>;
+  /**
+   * Ancestors of `orgId`, NEAREST first (the direct parent, then its parent, …).
+   * Lenient by default (a failed lookup returns what was resolved: fewer
+   * inherited runners, never more). `strict` THROWS instead: the signing-key
+   * rules must never mistake a team for a root org because platform was down.
+   */
+  ancestors(orgId: string, knownParent?: string, opts?: { strict?: boolean }): Promise<string[]>;
   /** Every descendant of `orgId` (all levels, without `orgId`); [] when it has none or the lookup fails. */
   descendants(orgId: string): Promise<string[]>;
   names(orgIds: string[]): Promise<Record<string, string>>;
@@ -89,8 +94,12 @@ export interface RunnerDeps {
    * or RUNNER_KEY_UNREADABLE (that org only).
    */
   signerFor: (orgId: string) => Promise<RunRequestSigner>;
-  /** Secret encryption set up, runner + key tables present, deliveries not paused. */
-  runnersAvailable: () => Promise<RunnersAvailability>;
+  /**
+   * Secret encryption set up, runner + key tables present, deliveries not
+   * paused. `ignorePause` checks only the first two (signing-key writes work
+   * while deliveries are paused: an operator pause must not block a revoke).
+   */
+  runnersAvailable: (opts?: { ignorePause?: boolean }) => Promise<RunnersAvailability>;
   /** The system-org pause toggle (cached; refreshed every 60 s or on a pub/sub message). */
   deliveriesPaused: () => Promise<boolean>;
   keyStore: RunnerKeyStore;
@@ -149,10 +158,19 @@ export function createPipelineLock(redis: LockRedisClient | null, now: () => num
   };
 }
 
-/** A limiter over api-core's atomic `incrWindow`; in-process without Redis; fails OPEN on a Redis error. */
-export function createRateLimiter(redis: LockRedisClient | null, now: () => number = Date.now): RateLimiter {
+/** How often the in-process limiter drops its expired windows. */
+const LOCAL_LIMITER_SWEEP_MS = 60_000;
+
+/**
+ * A limiter over api-core's atomic `incrWindow`; in-process without Redis; fails OPEN on a Redis error.
+ * The in-process windows are swept once a minute: the public JWKS route keys
+ * them by caller-chosen runner ids, so they must not accumulate.
+ */
+export function createRateLimiter(redis: LockRedisClient | null, now: () => number = Date.now): RateLimiter & { localSize(): number } {
   const local = new Map<string, { count: number; until: number }>();
+  let nextSweep = now() + LOCAL_LIMITER_SWEEP_MS;
   return {
+    localSize: () => local.size,
     async hit(key, max, windowMs) {
       if (redis) {
         try {
@@ -163,6 +181,10 @@ export function createRateLimiter(redis: LockRedisClient | null, now: () => numb
         }
       }
       const t = now();
+      if (t >= nextSweep) {
+        nextSweep = t + LOCAL_LIMITER_SWEEP_MS;
+        for (const [k, v] of local) if (v.until <= t) local.delete(k);
+      }
       const w = local.get(key);
       if (!w || w.until <= t) {
         local.set(key, { count: 1, until: t + windowMs });
@@ -179,18 +201,31 @@ export function createRateLimiter(redis: LockRedisClient | null, now: () => numb
 /** Ancestry via platform's `/organization/:id/parent`, walked up (cycle- and depth-guarded). */
 export function createHierarchyClient(): HierarchyClient {
   return {
-    async ancestors(orgId, knownParent) {
+    async ancestors(orgId, knownParent, opts = {}) {
       const out: string[] = [];
       const seen = new Set([orgId.toLowerCase()]);
+      // Strict: an HTTP error throws too (by default it reads as "no parent"); a 404 is an org that is gone.
+      const parentOf = opts.strict
+        ? async (id: string) => {
+          try { return await fetchParentOrgId(id, { throwOnHttpError: true }); } catch (err) {
+            if (/HTTP 404\b/.test(errorMessage(err))) return undefined;
+            throw err;
+          }
+        }
+        : (id: string) => fetchParentOrgId(id);
       let next: string | undefined = knownParent;
       try {
-        if (next === undefined) next = await fetchParentOrgId(orgId);
+        if (next === undefined) next = await parentOf(orgId);
         while (next && !seen.has(next.toLowerCase()) && out.length < MAX_ORG_DEPTH) {
           out.push(next);
           seen.add(next.toLowerCase());
-          next = await fetchParentOrgId(next);
+          next = await parentOf(next);
         }
       } catch (err) {
+        if (opts.strict) {
+          logger.warn('Org ancestry lookup failed', { error: errorMessage(err) });
+          throw err;
+        }
         // Inheritance is additive: a failed lookup means fewer runners, never more.
         logger.warn('Org ancestry lookup failed; using what was resolved', { error: errorMessage(err) });
       }
@@ -290,11 +325,11 @@ export function createKeyDeps(get: () => RunnerDeps, opts: { encryptionReady?: (
     keyCaches,
     signerFor: (orgId) => keyCaches.signers.signerFor(orgId),
     deliveriesPaused,
-    async runnersAvailable() {
+    async runnersAvailable(check = {}) {
       const d = get();
       if (!ready()) return { available: false, reason: 'encryption_not_configured' };
       if (!(await runnerTablesPresent(d))) return { available: false, reason: 'tables_missing' };
-      if (await deliveriesPaused()) return { available: false, reason: 'paused' };
+      if (!check.ignorePause && await deliveriesPaused()) return { available: false, reason: 'paused' };
       return { available: true };
     },
   };
@@ -335,7 +370,14 @@ function defaultDeps(): RunnerDeps {
     ...keyParts,
     keyStore: lazyKeyStore(),
     secrets: keySecrets(),
-    publishKeyInvalidation: (msg) => keyInvalidationBus().publish(msg),
+    // Apply to this replica first: its own echo arrives later (over Redis), and
+    // until then it would keep signing with, and publishing, the old keys.
+    publishKeyInvalidation: (msg) => {
+      applyKeyInvalidation(runnerDeps(), msg.kind === 'keys'
+        ? { v: 1, kind: 'keys', origin: REPLICA_ID, orgIds: msg.orgIds }
+        : { v: 1, kind: 'pause', origin: REPLICA_ID, paused: msg.paused });
+      keyInvalidationBus().publish(msg);
+    },
     store: lazyDrizzleStore(),
     fetch: safeFetch,
     now,

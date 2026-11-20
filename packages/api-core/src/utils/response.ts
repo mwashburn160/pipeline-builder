@@ -306,7 +306,8 @@ const NODE_ERRNO_PATTERN = /^E/;
 /**
  * Strip ROW VALUES out of a Postgres `detail`, keeping its shape. A unique or
  * foreign-key violation's detail is `Key (email)=(alice@example.com) already
- * exists.`, and a not-null/check violation's is `Failing row contains (…)` —
+ * exists.`, a not-null/check violation's is `Failing row contains (…)` and an
+ * invalid json value's is `Token "…" is invalid.` —
  * real tenant data (emails, names, ids) that every caller of
  * {@link extractDbError} then wrote into a log line or an audit record. The
  * column list stays: it is what makes the detail useful. The value match is
@@ -316,7 +317,8 @@ const NODE_ERRNO_PATTERN = /^E/;
 function redactDbDetail(detail: string): string {
   return detail
     .replace(/\)=\(.*\)/s, `)=(${REDACTED})`)
-    .replace(/Failing row contains \(.*\)/s, `Failing row contains ${REDACTED}`);
+    .replace(/Failing row contains \(.*\)/s, `Failing row contains ${REDACTED}`)
+    .replace(/^Token ".*" is invalid/s, `Token "${REDACTED}" is invalid`);
 }
 
 /**

@@ -7,7 +7,7 @@ import {
   parseVulnWaivers, SYSTEM_ORG_ID, TOOLCHAIN_RELEASE_VERSION_PATTERN, MANAGED_TOOLCHAIN,
   compareSemverLenient, isVersionRange,
 } from '@pipeline-builder/api-core';
-import type { ManagedToolchainPlugin, VulnSeverity, VulnWarning } from '@pipeline-builder/api-core';
+import type { ManagedToolchainPlugin, PluginLookupNotFoundState, VulnSeverity, VulnWarning } from '@pipeline-builder/api-core';
 import { incCounter, withRoute } from '@pipeline-builder/api-server';
 import type { RequestContext } from '@pipeline-builder/api-server';
 import { Config, CoreConstants, pluginImageRepository, toResolvedPlugin } from '@pipeline-builder/pipeline-core';
@@ -25,7 +25,7 @@ import { pipelinePluginRefs } from '../helpers/pipeline-plugin-refs.js';
 import { parentOrgIdOf, pluginRequiresImage, shapePlugin } from '../helpers/plugin-helpers.js';
 import { fetchImageSbom, ImageVerificationError, verifyImageSignature } from '../helpers/supply-chain.js';
 import { resolveListedLookup, shadowedListing, verifyListedImage } from '../services/ecosystem/lookup.js';
-import { pluginRowState } from '../services/plugin-row-state.js';
+import { pluginRowState, type PluginRowState } from '../services/plugin-row-state.js';
 import { notifyPipelineVulnerable } from '../services/plugin-security-notifications.js';
 import { pluginService } from '../services/plugin-service.js';
 
@@ -156,6 +156,15 @@ export function resolutionFilter(filter: PluginFilter): PluginFilter {
     ...(filter.name !== undefined ? { nameMatch: 'exact' as const } : {}),
     ...(pinned ? {} : { excludeYanked: true }),
   };
+}
+
+/**
+ * The state a lookup 404 carries: a `live` org row the lookup still did not
+ * resolve (the reference's other fields rule it out) reads `excluded` — a 404
+ * never says `live`, which is no not-found state.
+ */
+function notFoundStateOf(state: PluginRowState): PluginLookupNotFoundState {
+  return state === 'live' ? 'excluded' : state;
 }
 
 /** Lookup refusal reasons, as `plugin_lookup_refusals_total{reason}` reports them. */
@@ -477,7 +486,7 @@ export function createReadPluginRoutes(): Router {
 
     // Listings resolve by name (an `id` pins an org row, which didn't match).
     if (typeof rowFilter.name !== 'string' || rowFilter.id !== undefined) {
-      const state = await pluginRowState(scope, rowFilter);
+      const state = notFoundStateOf(await pluginRowState(scope, rowFilter));
       return refused(404, 'Plugin not found.', ErrorCode.NOT_FOUND, { reason: 'not_found', state });
     }
     // An UNQUALIFIED reference to a name the org DELETED must not fall through to
@@ -499,7 +508,7 @@ export function createReadPluginRoutes(): Router {
     }
     if (!listed) {
       if (publisher) return refused(404, `No listing ${publisher}/${rowFilter.name}.`, ErrorCode.NOT_FOUND, { reason: 'not_found', state: 'missing' });
-      const state = await pluginRowState(scope, rowFilter);
+      const state = notFoundStateOf(await pluginRowState(scope, rowFilter));
       return refused(404, 'Plugin not found.', ErrorCode.NOT_FOUND, { reason: 'not_found', state });
     }
     const listedRecord = listed.record as Record<string, unknown> & { buildType: string; pluginType: string; name: string; version: string };

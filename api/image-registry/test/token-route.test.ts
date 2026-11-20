@@ -234,6 +234,27 @@ describe('GET /token — scope handling', () => {
     expect(scopes.map((s) => s.name)).toEqual(['a', 'b']);
   });
 
+  it('400s a request carrying more scope params than the cap, before resolving credentials', async () => {
+    // Each granted scope lands in the JWT `access` claim (sent on every
+    // registry request) and the audit row, so the count must be bounded.
+    const query = '?' + Array.from({ length: 33 }, (_, i) => `scope=repository:org-acme/r${i}:pull`).join('&');
+    const res = await getToken({ auth: basic('u', 'p'), query });
+
+    expect(res.status).toBe(400);
+    expect(res.body?.code).toBe('VALIDATION_ERROR');
+    expect(resolveIdentity).not.toHaveBeenCalled();
+    expect(authorizeAndIssue).not.toHaveBeenCalled();
+  });
+
+  it('accepts exactly the cap of scope params', async () => {
+    const query = '?' + Array.from({ length: 32 }, (_, i) => `scope=repository:org-acme/r${i}:pull`).join('&');
+    const res = await getToken({ auth: basic('u', 'p'), query });
+
+    expect(res.status).toBe(200);
+    const [, scopes] = authorizeAndIssue.mock.calls[0] as unknown as [unknown, unknown[]];
+    expect(scopes).toHaveLength(32);
+  });
+
   it('DROPS a scope the parser rejects instead of forwarding it', async () => {
     // A scope that cannot be parsed must not reach the authorizer as a partial
     // or null entry — it is discarded, never granted.

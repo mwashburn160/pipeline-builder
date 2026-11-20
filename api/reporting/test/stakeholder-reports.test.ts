@@ -1306,6 +1306,16 @@ describe('stakeholder report routes', () => {
       store.getDefinition.mockResolvedValue(definition());
     });
 
+    // A render is a Chromium launch out of a process-wide pool of a few slots, so
+    // one org's member must not be able to hold every slot (the public link has
+    // its own, tighter bucket for the same reason).
+    it('rate-limits member PDF renders per org', () => {
+      const limiter = layers('/runs/:id/pdf', 'get')
+        .map((l: any) => (l.handle as any).limiterOpts)
+        .find(Boolean);
+      expect(limiter).toMatchObject({ name: 'report-pdf', max: 10, windowMs: 60_000 });
+    });
+
     it('serves the file, named after the report and its period', async () => {
       await pdf();
       expect(headers.get('Content-Type')).toBe('application/pdf');

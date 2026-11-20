@@ -18,7 +18,8 @@
  * - POST   /pipelines/runners/signing-key/finish      retire the retiring key once its time has passed.
  * - POST   /pipelines/runners/signing-key/revoke      emergency revoke (typed confirmation).
  * - PUT    /pipelines/runners/signing-key/mode        inherit / own (sub-organizations).
- *   Every signing-key write is also limited to 5 per org per hour.
+ *   Every signing-key write is also limited to 5 per org per hour (failing closed when the
+ *   limit store is down), and is allowed while deliveries are paused.
  *
  * Operators (system org):
  * - GET    /pipelines/admin/runner-signing-keys               orgs:read — key status of every org.
@@ -87,8 +88,9 @@ import {
   rotateOrgKey,
   setOrgKeyMode,
   signingKeyDto,
+  type KeyAuditAction,
 } from '../runners/keys.js';
-import { RunnerRouteError } from '../runners/routing.js';
+import { RunnerRouteError, RUNNERS_UNAVAILABLE_MESSAGES } from '../runners/routing.js';
 import { readRunRequest } from '../runners/run-request-status.js';
 import { runnerSettings } from '../runners/vocabulary.js';
 
@@ -124,21 +126,33 @@ const StatusQuery = z.object({
   offset: z.coerce.number().int().min(0).default(0),
 });
 
-const UNAVAILABLE_MESSAGES: Record<RunnersUnavailableReason, string> = {
-  paused: 'Pipeline runs are paused on this deployment by the platform operator.',
-  encryption_not_configured: 'Pipeline runners are not set up on this deployment: secret encryption (SECRET_ENCRYPTION_KEY) is not configured.',
-  tables_missing: 'Pipeline runners are not set up on this deployment: the database has no runner tables. The platform operator must create them (see postgres-init.sql).',
-};
+/** Answer 409 RUNNERS_UNAVAILABLE with the shared message for `reason` (the default every runner path uses: paused). */
+function sendUnavailable(res: Response, reason: RunnersUnavailableReason | undefined): void {
+  const r = reason ?? 'paused';
+  sendError(res, runnerErrorStatus('RUNNERS_UNAVAILABLE'), RUNNERS_UNAVAILABLE_MESSAGES[r], 'RUNNERS_UNAVAILABLE', { reason: r });
+}
 
 /** 409 RUNNERS_UNAVAILABLE (paused, no secret encryption, or no runner tables) — checked before any step-up is spent. */
 export async function requireRunnersAvailable(_req: Request, res: Response, next: NextFunction): Promise<void> {
   const a = await runnerDeps().runnersAvailable();
-  if (!a.available) {
-    const reason = a.reason ?? 'tables_missing';
-    return sendError(res, runnerErrorStatus('RUNNERS_UNAVAILABLE'), UNAVAILABLE_MESSAGES[reason], 'RUNNERS_UNAVAILABLE', { reason });
-  }
+  if (!a.available) return sendUnavailable(res, a.reason);
   next();
 }
+
+/**
+ * The signing-key writes' gate: 409 RUNNERS_UNAVAILABLE only when runners are
+ * not set up (no secret encryption, no runner tables). The operator's pause
+ * stops deliveries, not key changes: an admin can still rotate or revoke a
+ * suspected-leaked key while every run is paused.
+ */
+export async function requireRunnersConfigured(_req: Request, res: Response, next: NextFunction): Promise<void> {
+  const a = await runnerDeps().runnersAvailable({ ignorePause: true });
+  if (!a.available) return sendUnavailable(res, a.reason);
+  next();
+}
+
+/** What a signing-key write's operation gets. */
+type KeyWriteInput = { req: Request; orgId: string; userId: string };
 
 /** Map a runner refusal to the error envelope (`code` + optional `details`). */
 function sendRunnerError(res: Response, err: unknown): boolean {
@@ -201,12 +215,15 @@ export function createRunnerRoutes(): Router {
   const admin = [...createAuthenticatedWithOrgRoute(), requirePermission('org_settings:write')];
   // Writes: MFA-grade session AND a fresh step-up — checked after the
   // availability gate so an unavailable deployment never spends a step-up token.
-  const write = [...admin, requireRunnersAvailable, requireAssurance({ minAssurance: 2 }) as RequestHandler, requireStepUp as RequestHandler];
-  const keyWrite = [...write, rateLimitByOrg({
+  const stepUp = [requireAssurance({ minAssurance: 2 }) as RequestHandler, requireStepUp as RequestHandler];
+  const write = [...admin, requireRunnersAvailable, ...stepUp];
+  // Signing-key writes are not blocked by the delivery pause (only by runners not being set up).
+  const keyWrite = [...admin, requireRunnersConfigured, ...stepUp, rateLimitByOrg({
     name: 'pipeline-runner-key-write',
     max: RUNNER_KEY_WRITES_PER_HOUR,
     windowMs: 3_600_000,
     message: `Too many signing-key changes: at most ${RUNNER_KEY_WRITES_PER_HOUR} per organization per hour.`,
+    failClosed: true,
   }) as RequestHandler];
   const testLimiter = rateLimitByOrg({ name: 'pipeline-runner-test', max: 5, windowMs: 60_000, message: 'Too many runner tests; wait a minute and try again.' });
   const operatorRead = [...createAuthenticatedWithOrgRoute(), ...requireSystemOrgPermission('orgs:read')];
@@ -230,7 +247,7 @@ export function createRunnerRoutes(): Router {
   // -- Signing key (registered before /runners/:id) --
 
   /** One key write: run `op`, answer the fresh DTO; a refusal is audited as a failure with its code only. */
-  const keyWriteRoute = (action: string, status: number, op: (deps: RunnerDeps, input: { req: Request; orgId: string; userId: string }) => Promise<unknown>) =>
+  const keyWriteRoute = (action: KeyAuditAction, status: number, op: (deps: RunnerDeps, input: KeyWriteInput) => Promise<unknown>) =>
     withRoute(async ({ req, res, ctx, orgId, userId }) => {
       const deps = runnerDeps();
       try {
@@ -239,38 +256,40 @@ export function createRunnerRoutes(): Router {
         return sendSuccess(res, status, await signingKeyDto(deps, orgId));
       } catch (err) {
         if (err instanceof RunnerRouteError) {
-          deps.audit({ action: action as never, actorId: actorId({ userId }), orgId, targetType: 'pipeline_runner_signing_key', outcome: 'failure', details: { reason: err.code } });
+          deps.audit({ action, actorId: actorId({ userId }), orgId, targetType: 'pipeline_runner_signing_key', outcome: 'failure', details: { reason: err.code } });
         }
         if (sendRunnerError(res, err)) return;
         throw err;
       }
     });
 
-  router.post('/runners/signing-key', ...keyWrite, audited('pipeline.runner.key.generate'),
-    keyWriteRoute('pipeline.runner.key.generate', 201, (deps, { orgId, userId }) => generateOrgKey(deps, orgId, { userId })));
+  const revokeOp = async (deps: RunnerDeps, { req, orgId, userId }: KeyWriteInput) => {
+    const body = validateBody(req, RevokeKeySchema);
+    if (!body.ok) throw new RunnerRouteError('VALIDATION_ERROR', body.error);
+    return revokeOrgKey(deps, orgId, { userId }, body.value.confirm);
+  };
+  const modeOp = async (deps: RunnerDeps, { req, orgId, userId }: KeyWriteInput) => {
+    const body = validateBody(req, ModeSchema);
+    if (!body.ok) throw new RunnerRouteError('VALIDATION_ERROR', body.error);
+    return setOrgKeyMode(deps, orgId, body.value.mode, { userId });
+  };
 
-  router.post('/runners/signing-key/rotate', ...keyWrite, audited('pipeline.runner.key.rotate'),
-    keyWriteRoute('pipeline.runner.key.rotate', 200, (deps, { orgId, userId }) => rotateOrgKey(deps, orgId, { userId })));
-
-  router.delete('/runners/signing-key/rotate', ...keyWrite, audited('pipeline.runner.key.cancel'),
-    keyWriteRoute('pipeline.runner.key.cancel', 200, (deps, { orgId, userId }) => cancelOrgKeyRotation(deps, orgId, { userId })));
-
-  router.post('/runners/signing-key/finish', ...keyWrite, audited('pipeline.runner.key.finish'),
-    keyWriteRoute('pipeline.runner.key.finish', 200, (deps, { orgId, userId }) => finishOrgKeyRotation(deps, orgId, { userId })));
-
-  router.post('/runners/signing-key/revoke', ...keyWrite, audited('pipeline.runner.key.revoke'),
-    keyWriteRoute('pipeline.runner.key.revoke', 200, async (deps, { req, orgId, userId }) => {
-      const body = validateBody(req, RevokeKeySchema);
-      if (!body.ok) throw new RunnerRouteError('VALIDATION_ERROR', body.error);
-      return revokeOrgKey(deps, orgId, { userId }, body.value.confirm);
-    }));
-
-  router.put('/runners/signing-key/mode', ...keyWrite, audited('pipeline.runner.key.mode'),
-    keyWriteRoute('pipeline.runner.key.mode', 200, async (deps, { req, orgId, userId }) => {
-      const body = validateBody(req, ModeSchema);
-      if (!body.ok) throw new RunnerRouteError('VALIDATION_ERROR', body.error);
-      return setOrgKeyMode(deps, orgId, body.value.mode, { userId });
-    }));
+  /** Every signing-key write: one entry per route, its audit action named once. */
+  const KEY_WRITES: ReadonlyArray<{
+    method: 'post' | 'delete' | 'put';
+    path: string;
+    action: KeyAuditAction;
+    status: number;
+    op: (deps: RunnerDeps, input: KeyWriteInput) => Promise<unknown>;
+  }> = [
+    { method: 'post', path: '/runners/signing-key', action: 'pipeline.runner.key.generate', status: 201, op: (deps, { orgId, userId }) => generateOrgKey(deps, orgId, { userId }) },
+    { method: 'post', path: '/runners/signing-key/rotate', action: 'pipeline.runner.key.rotate', status: 200, op: (deps, { orgId, userId }) => rotateOrgKey(deps, orgId, { userId }) },
+    { method: 'delete', path: '/runners/signing-key/rotate', action: 'pipeline.runner.key.cancel', status: 200, op: (deps, { orgId, userId }) => cancelOrgKeyRotation(deps, orgId, { userId }) },
+    { method: 'post', path: '/runners/signing-key/finish', action: 'pipeline.runner.key.finish', status: 200, op: (deps, { orgId, userId }) => finishOrgKeyRotation(deps, orgId, { userId }) },
+    { method: 'post', path: '/runners/signing-key/revoke', action: 'pipeline.runner.key.revoke', status: 200, op: revokeOp },
+    { method: 'put', path: '/runners/signing-key/mode', action: 'pipeline.runner.key.mode', status: 200, op: modeOp },
+  ];
+  for (const w of KEY_WRITES) router[w.method](w.path, ...keyWrite, audited(w.action), keyWriteRoute(w.action, w.status, w.op));
 
   // -- Runners --
 

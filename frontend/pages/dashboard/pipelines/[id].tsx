@@ -57,6 +57,7 @@ import type { PipelineDeployment, PipelineRegistrationStatus } from '@/lib/api/d
 import { runnerTestFailureCopy } from '@/lib/pipeline-runners';
 import type { Pipeline } from '@/types';
 import { formatError } from '@/lib/constants';
+import { MfaRequiredError } from '@/lib/api/errors';
 import { formatDuration } from '@/lib/format';
 import { awsStackConsoleUrl } from '@/lib/deploy-target';
 import { toolchainChangeRunId } from '@/lib/pipeline-security';
@@ -244,7 +245,11 @@ function PipelineDetail({ id }: { id: string }) {
   // bound to the pipeline it started for: an id switch mid-flight drops it.
   // A refusal with a pipeline-runner error code (NO_RUNNER, RUNNER_UNREACHABLE,
   // …) gets specific copy and the way to fix it, not the bare server sentence.
-  const reportActionError = (e: unknown, message: string) => setActionError(runnerErrorMessage(e) ?? message);
+  // An MFA refusal is the shell's (its enrol / sign-in-again dialog): no second error here.
+  const reportActionError = (e: unknown, message: string) => {
+    if (e instanceof MfaRequiredError) return;
+    setActionError(runnerErrorMessage(e) ?? message);
+  };
 
   // Every run goes through the pipeline's runner: the write answers 202
   // `{ requestId, status: 'queued', runnerLabel }` and the page follows the
@@ -550,7 +555,7 @@ function PipelineDetail({ id }: { id: string }) {
                 {/* The pipeline runner every run goes through, by LABEL — the
                     registry never carries the customer's account number. */}
                 {runnerLink.link && (
-                  <RunnerLinkRow link={runnerLink.link} canRefresh={canEdit} onFindAgain={() => setRunnerStepUp('find')} />
+                  <RunnerLinkRow link={runnerLink.link} stalled={runnerLink.stalled} canRefresh={canEdit} onFindAgain={() => setRunnerStepUp('find')} />
                 )}
                 <div className="flex justify-between gap-2">
                   <dt className="text-fg-muted">Stack</dt>

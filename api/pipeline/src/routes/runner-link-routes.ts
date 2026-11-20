@@ -35,7 +35,7 @@ import { createAuthenticatedWithOrgRoute, rateLimitByOrg, withRoute } from '@pip
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 import { ownRunner } from '../runners/admin.js';
 import { runnerDeps, type RunnerDeps } from '../runners/deps.js';
-import { asRunnerRouteError, probeRunnerLink } from '../runners/routing.js';
+import { asRunnerRouteError, probeRunnerLink, RUNNERS_UNAVAILABLE_MESSAGES } from '../runners/routing.js';
 import type { RegistryLink } from '../runners/store.js';
 import { pipelineService } from '../services/pipeline-service.js';
 
@@ -44,10 +44,13 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** 409 RUNNERS_UNAVAILABLE (paused, no secret encryption, no runner tables) — checked before a step-up is spent. */
 async function requireRunnersAvailable(_req: Request, res: Response, next: NextFunction): Promise<void> {
   const state = await runnerDeps().runnersAvailable();
-  if (!state.available) {
-    return sendError(res, runnerErrorStatus('RUNNERS_UNAVAILABLE'), 'Pipeline runners are unavailable on this deployment right now.', 'RUNNERS_UNAVAILABLE', { reason: state.reason ?? null });
-  }
+  if (!state.available) return sendUnavailable(res, state.reason ?? 'paused');
   next();
+}
+
+/** The 409 RUNNERS_UNAVAILABLE envelope, with its reason. */
+function sendUnavailable(res: Response, reason: keyof typeof RUNNERS_UNAVAILABLE_MESSAGES): void {
+  sendError(res, runnerErrorStatus('RUNNERS_UNAVAILABLE'), RUNNERS_UNAVAILABLE_MESSAGES[reason], 'RUNNERS_UNAVAILABLE', { reason });
 }
 
 /** The registry link of a pipeline the caller can see, or null (unknown, not registered, not visible). */
@@ -60,8 +63,11 @@ async function visibleLink(deps: RunnerDeps, pipelineId: string, orgId: string):
 /** The DTO of a registry link (the linked runner's owner named when it is an ancestor's). */
 export async function runnerLinkDto(deps: RunnerDeps, pipelineId: string, orgId: string, link: RegistryLink, statusOverride?: RunnerLinkDto['status']): Promise<RunnerLinkDto> {
   const runner = link.runnerId ? await deps.store.getRunner(link.runnerId) : null;
-  const ownerOrgName = runner && runner.orgId !== orgId
-    ? (await deps.hierarchy.names([runner.orgId]))[runner.orgId.toLowerCase()] ?? null
+  // Non-null for every inherited runner (the org id when its name can't be
+  // read): the dashboard reads null as "your own runner" and offers Test.
+  const isOwn = !!runner && runner.orgId.toLowerCase() === orgId.toLowerCase();
+  const ownerOrgName = runner && !isOwn
+    ? (await deps.hierarchy.names([runner.orgId]).catch(() => ({} as Record<string, string>)))[runner.orgId.toLowerCase()] ?? runner.orgId
     : null;
   const availability = await deps.runnersAvailable();
   return {
@@ -73,6 +79,7 @@ export async function runnerLinkDto(deps: RunnerDeps, pipelineId: string, orgId:
       health: runner.health,
       lastDeliveryAt: runner.lastDeliveryAt ? runner.lastDeliveryAt.toISOString() : null,
       ownerOrgName,
+      isOwn,
     } : null,
     checkedAt: link.linkCheckedAt ? link.linkCheckedAt.toISOString() : null,
     detail: link.linkDetail ?? null,
@@ -89,7 +96,7 @@ export function createRunnerLinkRoutes(): Router {
     requireRunnersAvailable,
     requireAssurance({ minAssurance: 2 }) as RequestHandler,
     requireStepUp as RequestHandler,
-    rateLimitByOrg({ name: 'pipeline-runner-link-refresh', max: RUNNER_LINK_REFRESHES_PER_MINUTE, windowMs: 60_000, message: 'Too many runner-link refreshes; wait a minute and try again.' }),
+    rateLimitByOrg({ name: 'pipeline-runner-link-refresh', max: RUNNER_LINK_REFRESHES_PER_MINUTE, windowMs: 60_000, message: 'Too many runner-link refreshes; wait a minute and try again.', failClosed: true }),
   ];
   const admin = [...createAuthenticatedWithOrgRoute(), requirePermission('org_settings:write')];
 
@@ -97,7 +104,7 @@ export function createRunnerLinkRoutes(): Router {
     const pipelineId = getParam(req.params, 'pipelineId') ?? '';
     const deps = runnerDeps();
     if (!(await deps.store.tablesPresent().catch(() => false))) {
-      return sendError(res, runnerErrorStatus('RUNNERS_UNAVAILABLE'), 'Pipeline runners are unavailable on this deployment right now.', 'RUNNERS_UNAVAILABLE', { reason: 'tables_missing' });
+      return sendUnavailable(res, 'tables_missing');
     }
     const link = await visibleLink(deps, pipelineId, orgId);
     if (!link) return sendError(res, 404, 'Pipeline is not registered.', ErrorCode.NOT_FOUND);
@@ -134,7 +141,7 @@ export function createRunnerLinkRoutes(): Router {
     const id = getParam(req.params, 'id') ?? '';
     const deps = runnerDeps();
     if (!(await deps.store.tablesPresent().catch(() => false))) {
-      return sendError(res, runnerErrorStatus('RUNNERS_UNAVAILABLE'), 'Pipeline runners are unavailable on this deployment right now.', 'RUNNERS_UNAVAILABLE', { reason: 'tables_missing' });
+      return sendUnavailable(res, 'tables_missing');
     }
     try {
       const runner = await ownRunner(deps, orgId, id);

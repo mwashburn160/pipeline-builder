@@ -17,6 +17,8 @@ const { DEFAULT_TIER, PLAN_TIERS } = await import('@pipeline-builder/api-core');
 const { Types } = await import('mongoose');
 const { default: Organization } = await import('../src/models/organization.js');
 const { default: Invitation } = await import('../src/models/invitation.js');
+const { generateInvitationToken, hashInvitationToken } = await import('../src/utils/invitation-token.js');
+const { createHash } = await import('crypto');
 const { default: User } = await import('../src/models/user.js');
 
 type Hooked = { schema: { s: { hooks: { execPre: (name: string, ctx: unknown, args: unknown[]) => Promise<void> } } } };
@@ -79,21 +81,37 @@ describe('Invitation model', () => {
     role: 'member',
   });
 
-  it('generates a token and expiry on validate', async () => {
+  // The invitation token is a bearer credential: only its SHA-256 is stored,
+  // and the plaintext exists only in the emailed link.
+  it('stores only a token hash — the schema has no plaintext token path', () => {
+    expect(Invitation.schema.path('tokenHash')).toBeDefined();
+    expect(Invitation.schema.path('token')).toBeUndefined();
+  });
+
+  it('requires a token hash; validate defaults only the expiry', async () => {
     const inv = new Invitation(base());
-    await inv.validate().catch(() => undefined);
-    expect(inv.token).toMatch(/^[0-9a-f]{64}$/);
+    const err = await inv.validate().then(() => undefined, (e: any) => e);
+    expect(err?.errors?.tokenHash).toBeDefined();
     const days = (inv.expiresAt.getTime() - Date.now()) / 86_400_000;
     expect(days).toBeGreaterThan(6.9);
     expect(days).toBeLessThanOrEqual(7);
   });
 
-  it('keeps a pre-set token and expiry', async () => {
+  it('keeps a pre-set token hash and expiry', async () => {
     const expiresAt = new Date(Date.now() + 1000);
-    const inv = new Invitation({ ...base(), token: 'fixed', expiresAt });
-    await inv.validate().catch(() => undefined);
-    expect(inv.token).toBe('fixed');
+    const { tokenHash } = generateInvitationToken();
+    const inv = new Invitation({ ...base(), tokenHash, expiresAt });
+    await inv.validate();
+    expect(inv.tokenHash).toBe(tokenHash);
     expect(inv.expiresAt).toEqual(expiresAt);
+  });
+
+  it('generateInvitationToken: a 64-hex token whose SHA-256 is the stored hash', () => {
+    const { token, tokenHash } = generateInvitationToken();
+    expect(token).toMatch(/^[0-9a-f]{64}$/);
+    expect(tokenHash).toBe(createHash('sha256').update(token).digest('hex'));
+    expect(hashInvitationToken(token)).toBe(tokenHash);
+    expect(tokenHash).not.toBe(token);
   });
 
   it('isExpired / isValid track status and expiry', () => {

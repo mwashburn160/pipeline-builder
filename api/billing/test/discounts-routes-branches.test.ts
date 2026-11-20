@@ -82,6 +82,10 @@ const Campaign = { exists: jest.fn<AnyFn>(async () => ({ _id: 'c' })) };
 jest.unstable_mockModule('../src/models/campaign.js', () => ({ Campaign }));
 const record = jest.fn<AnyFn>();
 
+// The recurring-discount stop is one guarded `updateOne` (#20).
+const subscriptionUpdateOne = jest.fn<AnyFn>(async () => ({ matchedCount: 1, modifiedCount: 1 }));
+jest.unstable_mockModule('../src/models/subscription.js', () => ({ Subscription: { updateOne: subscriptionUpdateOne } }));
+
 const { createDiscountRoutes } = await import('../src/routes/discounts.js');
 
 type Layer = { route?: { path: string; methods: Record<string, boolean>; stack: Array<{ handle: AnyFn }> }; handle: AnyFn; regexp?: RegExp };
@@ -343,8 +347,12 @@ describe('self-service', () => {
     const sub = { _id: { toString: () => 'sub_1' }, recurringDiscount: { discountId: 'disc_1' } as unknown, save: jest.fn<AnyFn>(async () => undefined) };
     helpers.loadManageableSubscription.mockResolvedValueOnce(sub);
     await call('delete', '/subscriptions/:id/discounts/:discountId', { params: { discountId: 'disc_1' } });
-    expect(sub.recurringDiscount).toBeNull();
-    expect(sub.save).toHaveBeenCalled();
+    // One write guarded on the id being removed — never a read-then-save.
+    expect(subscriptionUpdateOne).toHaveBeenCalledWith(
+      { '_id': sub._id, 'recurringDiscount.discountId': 'disc_1' },
+      { $set: { recurringDiscount: null } },
+    );
+    expect(sub.save).not.toHaveBeenCalled();
     expect(createBillingEvent).toHaveBeenCalledWith('org_1', 'discount_removed', { discountId: 'disc_1' }, 'sub_1', 'admin-1');
     expect(sendSuccess).toHaveBeenCalledWith({}, 200, { removed: 'disc_1' });
   });

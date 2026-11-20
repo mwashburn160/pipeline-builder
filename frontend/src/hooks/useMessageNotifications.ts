@@ -3,8 +3,8 @@
 
 /**
  * SSE-based hook for real-time message notifications. Connects to the message
- * service and receives push notifications for new messages, deletions, and
- * unread-count updates. The ticket exchange + reconnect/backoff live in
+ * service and receives push notifications for new messages, edits, deletions
+ * and unread-count updates. The ticket exchange + reconnect/backoff live in
  * {@link useTicketedSSE}; this hook adds the unread-count state + a listener
  * subscription on top.
  */
@@ -13,7 +13,7 @@ import { useTicketedSSE } from './useTicketedSSE';
 import api from '@/lib/api';
 
 /** Discriminator for message notification actions. */
-export type MessageNotificationAction = 'NEW_MESSAGE' | 'MESSAGE_DELETED' | 'UNREAD_COUNT';
+export type MessageNotificationAction = 'NEW_MESSAGE' | 'MESSAGE_EDITED' | 'MESSAGE_DELETED' | 'UNREAD_COUNT';
 
 /** A message notification event received via SSE. */
 export interface MessageNotification {

@@ -27,6 +27,8 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@p
 const { schema } = await import('@pipeline-builder/pipeline-data/lib/database/drizzle-schema.js');
 /** Every WHERE the sweep's tenant-tx selects were given, in order. */
 const selectWheres: unknown[] = [];
+/** Every ORDER BY the sweep's selects were given, with the WHERE it ordered. */
+const selectOrders: Array<{ where: unknown; order: unknown }> = [];
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   schema,
@@ -44,7 +46,11 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
   withTenantTx: (fn: (tx: unknown) => unknown) => fn({
     select: jest.fn(() => ({
       from: jest.fn(() => ({
-        where: jest.fn((w: unknown) => { selectWheres.push(w); return { limit: jest.fn(() => Promise.resolve([])) }; }),
+        where: jest.fn((w: unknown) => {
+          selectWheres.push(w);
+          const limit = jest.fn(() => Promise.resolve([]));
+          return { limit, orderBy: jest.fn((o: unknown) => { selectOrders.push({ where: w, order: o }); return { limit }; }) };
+        }),
       })),
     })),
     insert: jest.fn(() => ({ values: jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined) })),
@@ -105,6 +111,21 @@ describe('scheduler sweep', () => {
     const rendered = due[0];
     expect(rendered).toContain('"compliance_scan_schedules"."is_active" = $');
     expect(rendered).toContain('"compliance_scan_schedules"."deleted_at" is null');
+  });
+  // Pending scans are claimed 10 per tick. Without an ORDER BY the batch is
+  // whatever order Postgres returns, so a steady inflow of new scans can starve
+  // an older one indefinitely; oldest-first makes the queue FIFO.
+  it('claims pending scans oldest first', async () => {
+    selectOrders.length = 0;
+    selectWheres.length = 0;
+    await sweep!();
+    type Where = Parameters<InstanceType<typeof PgDialect>['sqlToQuery']>[0];
+    const dialect = new PgDialect();
+    const pending = selectWheres.find((w) => dialect.sqlToQuery(w as Where).sql.includes('"compliance_scans"."status"'));
+    expect(pending).toBeDefined();
+    const ordered = selectOrders.find((o) => o.where === pending);
+    expect(ordered).toBeDefined();
+    expect(dialect.sqlToQuery(ordered!.order as Where).sql).toBe('"compliance_scans"."created_at" asc');
   });
 });
 

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-discounts.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 898f3716d86bc2265a48a2f0184a10c2ec5631f990802b735c8d66fc5f49261f
+// SOURCE-SHA256: ad2ff29f3e418f7acefdb46dab519c11366aa78170e02a48b6ce821cb5852705
 // SPDX-License-Identifier: Apache-2.0
 import { BadgePercent } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -273,8 +273,8 @@ export const billingDiscountsTopic: HelpTopic = {
             "No matching bundle means no redemption. If the account holds none of the scoped bundles, redeeming (and previewing) is refused with DISCOUNT_SCOPE_NOT_HELD (HTTP 409) before anything is reserved, so a limited code's redemption is not burned on a credit of 0, and a dollar code is not granted against an add-on the account does not have. The base is never the plan price — otherwise \"30% off Premium Support\" would quietly become 30% off the plan for everyone who never bought support.",
             "Unknown bundle ids are rejected at mint (and on update), because a typo would otherwise resolve to a base of 0 and ship a discount that silently did nothing.",
             "Recurring scoped discounts re-price each period from the account's current add-on quantities — the scope is stored on the subscription's recurring-discount record, so a renewal cannot fall back to the plan price.",
-            "dollar discounts are not sized by the scope, being an absolute cents amount already (but see the per-period cap below). They remain the way to grant a flat concession against anything, support included.",
-            "A recurring scoped dollar discount is capped each period at the scoped subtotal — min(amount, scoped subtotal), the same per-period base a scoped percent discount uses. Remove the scoped bundle and the next re-grant is 0 rather than the full amount against an add-on the account no longer holds; hold less of it than the amount and the grant is that subtotal."
+            "dollar discounts are not sized by the scope, being an absolute cents amount already (but see the cap below). They remain the way to grant a flat concession against anything, support included.",
+            "A scoped dollar discount is capped at the scoped subtotal — min(amount, scoped subtotal), the same base a scoped percent discount uses. This holds at redemption for both onetime and recurring codes (a $50 code scoped to a $19.99 add-on banks $19.99, and the preview shows the same figure), and again on every recurring re-grant: remove the scoped bundle and the next re-grant is 0 rather than the full amount against an add-on the account no longer holds. A credit (a prepayment, not a price cut) keeps its face value."
           ]
         },
         {
@@ -690,7 +690,7 @@ export const billingDiscountsTopic: HelpTopic = {
               "DELETE",
               "/subscriptions/:id/discounts/:discountId",
               "billing:manage",
-              "Stop a standing recurring discount (granted credits persist)"
+              "Stop a standing recurring discount (granted credits persist). One write guarded on that id: 404 when it is not the standing rule, 409 if the rule changed concurrently — a different discount is never cleared"
             ],
             [
               "GET",

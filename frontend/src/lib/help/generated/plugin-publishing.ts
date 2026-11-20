@@ -1,6 +1,6 @@
 // GENERATED FROM docs/plugin-publishing.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 15f6e8fd00bf19cceba023ef31bf5bb5a6c139afcb4c600a590758c7b3711338
+// SOURCE-SHA256: ade3dade440315d16ecd78ad69abc4f734495b7f0613f29f8e58f718e271e7d8
 // SPDX-License-Identifier: Apache-2.0
 import { Store } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -497,7 +497,7 @@ export const pluginPublishingTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Packing refuses a credential file and names it, so nothing is uploaded: Refusing to package .env: it looks like a dotenv file. The refused files are dotenv files (.env, .env.production, …), SSH private keys (id_rsa, id_ed25519, …), .aws/credentials, .docker/config.json, .netrc / _netrc, .git-credentials and .pypirc, at any depth. Templates such as .env.example, .env.sample or .env.template, and public keys (id_ed25519.pub), are packed as usual. Remove the file from the plugin directory and pass secrets through the spec's secrets instead. The upload API refuses the same files in a zip built any other way."
+          "content": "Packing refuses a credential file and names it, so nothing is uploaded: Refusing to package .env: it looks like a dotenv file. These are refused by name, at any depth: dotenv files (.env, .env.production, prod.env, …), .envrc, SSH private keys (id_rsa, id_ed25519, …), .aws/credentials, .docker/config.json, .kube/config, gcloud's application_default_credentials.json, .netrc / _netrc, .git-credentials, .pypirc, and PKCS#12 bundles (.p12, .pfx). These are refused by what they contain: a .pem holding a private-key block; a .key unless it is plainly public material (a certificate, a PUBLIC KEY PEM, a PGP public key block, an OpenSSH public key line); a *.json that is a service-account key (\"type\": \"service_account\" with a \"private_key\"); an .npmrc with an _authToken or _auth value; and a .yarnrc.yml with an npmAuthToken value. A token line whose value is only an environment variable reference (_authToken=${NPM_TOKEN}) is allowed, because it holds no token. Dotenv templates (any name with an example, sample, template, dist or defaults part, such as .env.example or example.env), public keys (id_ed25519.pub) and certificate-only files (ca.pem) are packed as usual. Remove the file from the plugin directory and pass secrets through the spec's secrets instead. The upload API refuses the same files in a zip built any other way, and reads the zip entry's content for the content-based checks."
         },
         {
           "type": "text",

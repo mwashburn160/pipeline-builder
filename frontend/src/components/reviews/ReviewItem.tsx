@@ -11,6 +11,7 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { FormField } from '@/components/ui/FormField';
 import { Textarea } from '@/components/ui/Textarea';
 import { formatDay } from '@/components/public-directory/ListingCardView';
+import { READ_ONLY_REASON } from '@/components/ui/ReadOnlyNotice';
 import { useMutation } from '@/hooks/useMutation';
 import api from '@/lib/api';
 import { REPLY_BODY_MAX, reviewErrorMessage } from '@/lib/plugin-reviews';
@@ -51,6 +52,8 @@ export interface ReviewViewer {
   helpful: boolean;
   reported: boolean;
   canReply: boolean;
+  /** A read-only (impersonation) session: every action is locked with the reason. */
+  readOnly?: boolean;
 }
 
 /**
@@ -98,11 +101,14 @@ export function ReviewItem({
   });
   // One action at a time on a review: every control disables while either is in flight.
   const busy = vote.pending || removeReply.pending;
+  const readOnly = !!viewer?.readOnly;
+  const locked = busy || readOnly;
+  const lockTitle = readOnly ? READ_ONLY_REASON : undefined;
   const error = vote.error ?? removeReply.error;
   const clearError = () => { vote.reset(); removeReply.reset(); };
 
   const toggleHelpful = async () => {
-    if (!viewer) return;
+    if (!viewer || readOnly) return;
     await vote.run(viewer);
   };
 
@@ -134,7 +140,8 @@ export function ReviewItem({
               variant="ghost"
               size="xs"
               onClick={() => void toggleHelpful()}
-              disabled={busy}
+              disabled={locked}
+              title={lockTitle}
               aria-pressed={viewer.helpful}
             >
               <ThumbsUp className={`h-3.5 w-3.5 ${viewer.helpful ? 'fill-current' : ''}`} aria-hidden="true" /> Helpful
@@ -142,7 +149,7 @@ export function ReviewItem({
             {viewer.reported ? (
               <span>Reported</span>
             ) : (
-              <Button variant="ghost" size="xs" onClick={() => setReporting(true)} disabled={busy}>
+              <Button variant="ghost" size="xs" onClick={() => setReporting(true)} disabled={locked} title={lockTitle}>
                 <Flag className="h-3.5 w-3.5" aria-hidden="true" /> Report
               </Button>
             )}
@@ -150,11 +157,11 @@ export function ReviewItem({
         )}
         {viewer?.canReply && !replying && (
           <>
-            <Button variant="ghost" size="xs" onClick={() => setReplying(true)} disabled={busy}>
+            <Button variant="ghost" size="xs" onClick={() => setReplying(true)} disabled={locked} title={lockTitle}>
               <MessageSquareReply className="h-3.5 w-3.5" aria-hidden="true" /> {review.reply ? 'Edit response' : 'Respond'}
             </Button>
             {review.reply && (
-              <Button variant="ghost" size="xs" onClick={() => setConfirmDeleteReply(true)} disabled={busy}>Delete response</Button>
+              <Button variant="ghost" size="xs" onClick={() => setConfirmDeleteReply(true)} disabled={locked} title={lockTitle}>Delete response</Button>
             )}
           </>
         )}

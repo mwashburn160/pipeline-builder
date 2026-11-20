@@ -151,6 +151,7 @@ describe('resolvePluginsForProps — every refusal at once, and missing pins', (
     ['inactive', 'is inactive'],
     ['yanked', 'was yanked'],
     ['missing', 'does not exist'],
+    ['excluded', 'exists in your organization but the lookup excluded it'],
   ])('phrases a missing exact pin from details.state=%s', async (state, text) => {
     const client = clientByName({ trivy: { status: 404, data: { code: 'NOT_FOUND', message: 'Plugin not found', details: { state } } } });
     await expect(resolvePluginsForProps(client, steps({ name: 'trivy', filter: { version: '1.2.0' } })))
@@ -169,6 +170,15 @@ describe('resolvePluginsForProps — every refusal at once, and missing pins', (
     const client = clientReturning({ data: { plugin: null } });
     await expect(resolvePluginsForProps(client, propsWithPlugin('trivy', { version: '1.2.0-rc.1' })))
       .rejects.toThrow(/"trivy" version 1\.2\.0-rc\.1 does not exist/);
+  });
+
+  // The org HAS the plugin, live: "not found … check that it is published" sent
+  // the owner looking for a publish that already happened.
+  it('says a range reference matched an org plugin the lookup excluded (details.state=excluded)', async () => {
+    const client = clientByName({ trivy: { status: 404, data: { code: 'NOT_FOUND', message: 'Plugin not found', details: { state: 'excluded' } } } });
+    const err = await resolvePluginsForProps(client, steps({ name: 'trivy', filter: { version: '^1.2.0' } })).then(() => null, (e: Error) => e);
+    expect(err?.message).toContain('"trivy" exists in your organization, but the lookup excluded it');
+    expect((err as InstanceType<typeof PluginResolutionError>).refusals).toMatchObject([{ plugin: 'trivy', code: 'PLUGIN_NOT_FOUND' }]);
   });
 
   it.each(['^1.2.0', '~1.2', 'latest'])('is FATAL on a 404 for a range/latest (%s) as PLUGIN_NOT_FOUND', async (version) => {

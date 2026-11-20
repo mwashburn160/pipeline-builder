@@ -30,10 +30,16 @@ import { LoadingSpinner } from '@/components/ui/Loading';
 import { StatusPill } from '@/components/ui/StatusPill';
 
 interface ExemptionManagerProps {
+  /** No `compliance:write`: no approve / reject / extend / delete. Requesting
+   *  and the CSV import stay — those routes need only `compliance:read`. */
   readOnly?: boolean;
+  /** A read-only (impersonation) session, which refuses even the
+   *  `compliance:read` POSTs: no request or import either. */
+  sessionReadOnly?: boolean;
 }
 
-export default function ExemptionManager({ readOnly = false }: ExemptionManagerProps) {
+export default function ExemptionManager({ readOnly = false, sessionReadOnly = false }: ExemptionManagerProps) {
+  const canRequest = !sessionReadOnly;
   const toast = useToast();
   // Read toast via a ref so the fetcher closure stays referentially stable —
   // useServerPagination compares filters by JSON, but the fetcher itself is
@@ -287,7 +293,7 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
             <option value="">All statuses</option>
             {EXEMPTION_STATUS_IDS.map((st) => <option key={st} value={st}>{EXEMPTION_STATUS_META[st].label}</option>)}
           </FilterSelect>
-          {!readOnly && (
+          {canRequest && (
             <>
               <input
                 ref={fileInputRef}
@@ -325,7 +331,7 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
         )}
       />
 
-      {showForm && (
+      {canRequest && showForm && (
         <div className="p-4 rounded-lg border border-info-border bg-info-bg space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <Input aria-label="Rule ID" placeholder="Rule ID" value={form.ruleId} onChange={e => setForm(f => ({ ...f, ruleId: e.target.value }))} />

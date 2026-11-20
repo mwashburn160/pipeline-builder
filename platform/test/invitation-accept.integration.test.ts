@@ -27,7 +27,7 @@
  * Gated behind RUN_MONGO_INTEGRATION=1 (skipped by default).
  */
 
-import { it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
+import { jest, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
 import { integrationSuite } from './helpers/integration-gate.js';
 
 process.env.SECRET_ENCRYPTION_KEY ||= '0000000000000000000000000000000000000000000000000000000000000000';
@@ -137,10 +137,10 @@ suite('invitation accept (real Mongo replica set)', () => {
   // ---------------------------------------------------------------------------
 
   it('send → accept by an existing password user creates the membership with the invited role, once', async () => {
-    const { invitation } = await send({ role: 'admin', roleIds: [securityRoleId] });
+    const { invitation, token } = await send({ role: 'admin', roleIds: [securityRoleId] });
     const invitee = await createUser('invitee');
 
-    const result = await invitationService.accept(invitation.token, String(invitee._id));
+    const result = await invitationService.accept(token, String(invitee._id));
 
     expect(result).toMatchObject({ role: 'admin', email: 'invitee@example.com', organizationId: orgId, grantedRoleIds: [securityRoleId] });
     const membership = await membershipOf(String(invitee._id));
@@ -158,25 +158,25 @@ suite('invitation accept (real Mongo replica set)', () => {
     expect(String((await m.User.findById(invitee._id).lean()).lastActiveOrgId)).toBe(orgId);
 
     // Single-use: a second click is refused and changes nothing.
-    await expect(invitationService.accept(invitation.token, String(invitee._id))).rejects.toThrow('INV_ACCEPTED');
+    await expect(invitationService.accept(token, String(invitee._id))).rejects.toThrow('INV_ACCEPTED');
     expect(await m.UserOrganization.countDocuments({ userId: invitee._id })).toBe(1);
   });
 
   it('refuses an accept by a signed-in user whose email is not the invited one', async () => {
-    const { invitation } = await send();
+    const { invitation, token } = await send();
     const other = await createUser('someone-else');
-    await expect(invitationService.accept(invitation.token, String(other._id))).rejects.toThrow('INV_EMAIL_MISMATCH');
+    await expect(invitationService.accept(token, String(other._id))).rejects.toThrow('INV_EMAIL_MISMATCH');
     expect(await membershipOf(String(other._id))).toBeNull();
     expect((await m.Invitation.findById(invitation._id).lean()).status).toBe('pending');
   });
 
   it('tombstones the invitation for an existing member but still answers INV_ALREADY_MEMBER (write survives the commit)', async () => {
-    const { invitation } = await send();
+    const { invitation, token } = await send();
     const invitee = await createUser('invitee');
     // They joined some other way after the invitation went out.
     await m.UserOrganization.create({ userId: invitee._id, organizationId: orgId, role: 'member', isActive: true });
 
-    await expect(invitationService.accept(invitation.token, String(invitee._id))).rejects.toThrow('INV_ALREADY_MEMBER');
+    await expect(invitationService.accept(token, String(invitee._id))).rejects.toThrow('INV_ALREADY_MEMBER');
     const stored = await m.Invitation.findById(invitation._id).lean();
     expect(stored.status).toBe('accepted');
     expect(String(stored.acceptedBy)).toBe(String(invitee._id));
@@ -184,11 +184,11 @@ suite('invitation accept (real Mongo replica set)', () => {
   });
 
   it('refuses an expired invitation', async () => {
-    const { invitation } = await send();
+    const { invitation, token } = await send();
     await m.Invitation.updateOne({ _id: invitation._id }, { $set: { expiresAt: new Date(Date.now() - 1000) } });
     const invitee = await createUser('invitee');
 
-    await expect(invitationService.accept(invitation.token, String(invitee._id))).rejects.toThrow('INV_EXPIRED');
+    await expect(invitationService.accept(token, String(invitee._id))).rejects.toThrow('INV_EXPIRED');
     expect(await membershipOf(String(invitee._id))).toBeNull();
     // Expired rows stop reserving a seat by `expiresAt`, whatever their status.
     expect((await seats.pooledSeatUsage(orgId)).used).toBe(2);
@@ -197,18 +197,18 @@ suite('invitation accept (real Mongo replica set)', () => {
   // Regression: the expiry write used to be inside the accept transaction that
   // INV_EXPIRED aborts, so it was always rolled back.
   it('records the expiry on the row when an accept hits an expired invitation', async () => {
-    const { invitation } = await send();
+    const { invitation, token } = await send();
     await m.Invitation.updateOne({ _id: invitation._id }, { $set: { expiresAt: new Date(Date.now() - 1000) } });
     const invitee = await createUser('invitee');
 
-    await expect(invitationService.accept(invitation.token, String(invitee._id))).rejects.toThrow('INV_EXPIRED');
+    await expect(invitationService.accept(token, String(invitee._id))).rejects.toThrow('INV_EXPIRED');
     expect((await m.Invitation.findById(invitation._id).lean()).status).toBe('expired');
   });
 
   it('refuses an email accept of an OAuth-only invitation', async () => {
-    const { invitation } = await send({ invitationType: 'oauth', allowedOAuthProviders: ['google'] });
+    const { token } = await send({ invitationType: 'oauth', allowedOAuthProviders: ['google'] });
     const invitee = await createUser('invitee');
-    await expect(invitationService.accept(invitation.token, String(invitee._id))).rejects.toThrow('INV_EMAIL_NOT_ALLOWED');
+    await expect(invitationService.accept(token, String(invitee._id))).rejects.toThrow('INV_EMAIL_NOT_ALLOWED');
     expect(await membershipOf(String(invitee._id))).toBeNull();
   });
 
@@ -217,9 +217,9 @@ suite('invitation accept (real Mongo replica set)', () => {
   // ---------------------------------------------------------------------------
 
   it('OAuth accept for a brand-new invitee creates a verified, provider-linked user and joins them', async () => {
-    const { invitation } = await send({ invitationType: 'oauth', allowedOAuthProviders: ['google'] });
+    const { invitation, token } = await send({ invitationType: 'oauth', allowedOAuthProviders: ['google'] });
 
-    const result = await invitationService.acceptViaOAuth(invitation.token, 'google', {
+    const result = await invitationService.acceptViaOAuth(token, 'google', {
       id: 'google-sub-1', email: 'Invitee@Example.com', name: 'Invitee',
     });
 
@@ -236,25 +236,25 @@ suite('invitation accept (real Mongo replica set)', () => {
   });
 
   it('OAuth accept refuses a provider the invitation does not allow, and an unverified same-email account', async () => {
-    const { invitation } = await send({ invitationType: 'oauth', allowedOAuthProviders: ['google'] });
-    await expect(invitationService.acceptViaOAuth(invitation.token, 'github', { id: 'gh-1', email: 'invitee@example.com' }))
+    const { invitation, token } = await send({ invitationType: 'oauth', allowedOAuthProviders: ['google'] });
+    await expect(invitationService.acceptViaOAuth(token, 'github', { id: 'gh-1', email: 'invitee@example.com' }))
       .rejects.toThrow('INV_OAUTH_NOT_ALLOWED');
 
     // An unverified account squatting on the invited address must not be linked.
     await createUser('invitee', { isEmailVerified: false });
-    await expect(invitationService.acceptViaOAuth(invitation.token, 'google', { id: 'google-sub-2', email: 'invitee@example.com' }))
+    await expect(invitationService.acceptViaOAuth(token, 'google', { id: 'google-sub-2', email: 'invitee@example.com' }))
       .rejects.toThrow('ACCOUNT_EMAIL_UNVERIFIED');
     expect(await m.UserOrganization.countDocuments({ organizationId: orgId })).toBe(2);
     expect((await m.Invitation.findById(invitation._id).lean()).status).toBe('pending');
   });
 
   it('a signed-in accept naming a provider counts only when the account really holds that linked identity', async () => {
-    const { invitation } = await send({ invitationType: 'oauth', allowedOAuthProviders: ['google'] });
+    const { invitation, token } = await send({ invitationType: 'oauth', allowedOAuthProviders: ['google'] });
     const unlinked = await createUser('invitee');
-    await expect(invitationService.accept(invitation.token, String(unlinked._id), 'google')).rejects.toThrow('INV_OAUTH_NOT_ALLOWED');
+    await expect(invitationService.accept(token, String(unlinked._id), 'google')).rejects.toThrow('INV_OAUTH_NOT_ALLOWED');
 
     await m.User.updateOne({ _id: unlinked._id }, { $set: { 'oauth.google': { id: 'google-sub-3', email: 'invitee@example.com', linkedAt: new Date() } } });
-    const result = await invitationService.accept(invitation.token, String(unlinked._id), 'google');
+    const result = await invitationService.accept(token, String(unlinked._id), 'google');
     expect(result.role).toBe('member');
     expect((await m.Invitation.findById(invitation._id).lean()).acceptedVia).toBe('google');
   });
@@ -264,7 +264,7 @@ suite('invitation accept (real Mongo replica set)', () => {
   // ---------------------------------------------------------------------------
 
   it('removing the inviter revokes their pending invitations (only theirs) and the accept is refused', async () => {
-    const { invitation } = await send();
+    const { invitation, token } = await send();
     const { invitation: ownersInvitation } = await send({ inviterId: ownerId, email: 'other@example.com' });
 
     const { revokedInvitations } = await orgMembersService.removeMember(orgId, adminId, OWNER_ACTOR);
@@ -274,24 +274,24 @@ suite('invitation accept (real Mongo replica set)', () => {
     expect((await m.Invitation.findById(ownersInvitation._id).lean()).status).toBe('pending');
 
     const invitee = await createUser('invitee');
-    await expect(invitationService.accept(invitation.token, String(invitee._id))).rejects.toThrow('INV_REVOKED');
+    await expect(invitationService.accept(token, String(invitee._id))).rejects.toThrow('INV_REVOKED');
     expect(await membershipOf(String(invitee._id))).toBeNull();
   });
 
   it('deactivating the inviter revokes their pending invitations and the accept is refused', async () => {
-    const { invitation } = await send();
+    const { invitation, token } = await send();
 
     const { revokedInvitations } = await orgMembersService.deactivateMember(orgId, adminId, OWNER_ACTOR);
     expect(revokedInvitations).toHaveLength(1);
     expect((await m.Invitation.findById(invitation._id).lean()).status).toBe('revoked');
 
     const invitee = await createUser('invitee');
-    await expect(invitationService.accept(invitation.token, String(invitee._id))).rejects.toThrow('INV_REVOKED');
+    await expect(invitationService.accept(token, String(invitee._id))).rejects.toThrow('INV_REVOKED');
     expect(await membershipOf(String(invitee._id))).toBeNull();
   });
 
   it('backstop: a still-pending invitation whose inviter left the org (no revoke ran) is refused at acceptance', async () => {
-    const { invitation } = await send();
+    const { invitation, token } = await send();
     // The inviter vanishes from the org WITHOUT the member-exit path (e.g. a
     // direct data change / an exit path predating the revoke).
     await m.UserOrganization.deleteOne({ userId: adminId, organizationId: orgId });
@@ -299,7 +299,7 @@ suite('invitation accept (real Mongo replica set)', () => {
     expect((await m.Invitation.findById(invitation._id).lean()).status).toBe('pending');
 
     const invitee = await createUser('invitee');
-    await expect(invitationService.accept(invitation.token, String(invitee._id))).rejects.toThrow('INV_REVOKED');
+    await expect(invitationService.accept(token, String(invitee._id))).rejects.toThrow('INV_REVOKED');
     expect(await membershipOf(String(invitee._id))).toBeNull();
     // Rolled back with the transaction: the row is untouched, not half-accepted.
     expect((await m.Invitation.findById(invitation._id).lean()).status).toBe('pending');
@@ -311,13 +311,13 @@ suite('invitation accept (real Mongo replica set)', () => {
     await m.UserOrganization.create({ userId: delegate._id, organizationId: orgId, role: 'member', isActive: true });
     await roles.ensureBaselineRole(delegate._id, orgId);
     await m.RoleAssignment.create({ userId: delegate._id, roleId: inviterRoleId, organizationId: orgId });
-    const { invitation } = await send({ inviterId: String(delegate._id), inviterIsAdmin: false });
+    const { token } = await send({ inviterId: String(delegate._id), inviterIsAdmin: false });
 
     // ...then loses the Role.
     await m.RoleAssignment.deleteOne({ userId: delegate._id, roleId: inviterRoleId });
 
     const invitee = await createUser('invitee');
-    await expect(invitationService.accept(invitation.token, String(invitee._id))).rejects.toThrow('INV_REVOKED');
+    await expect(invitationService.accept(token, String(invitee._id))).rejects.toThrow('INV_REVOKED');
     expect(await membershipOf(String(invitee._id))).toBeNull();
   });
 
@@ -337,20 +337,20 @@ suite('invitation accept (real Mongo replica set)', () => {
 
   it('accept at exactly the cap succeeds — the reservation becomes the seat, usage unchanged', async () => {
     await m.Organization.updateOne({ _id: orgId }, { $set: { 'quotas.seats': 3 } });
-    const { invitation } = await send();
+    const { token } = await send();
     const invitee = await createUser('invitee');
 
-    await invitationService.accept(invitation.token, String(invitee._id));
+    await invitationService.accept(token, String(invitee._id));
     expect(await seats.pooledSeatUsage(orgId)).toMatchObject({ limit: 3, used: 3 });
   });
 
   it('a cap lowered between send and accept refuses the accept and rolls the whole acceptance back', async () => {
-    const { invitation } = await send({ roleIds: [securityRoleId] });
+    const { invitation, token } = await send({ roleIds: [securityRoleId] });
     // Billing downgrade: only the two existing humans fit now.
     await m.Organization.updateOne({ _id: orgId }, { $set: { 'quotas.seats': 2 } });
     const invitee = await createUser('invitee');
 
-    await expect(invitationService.accept(invitation.token, String(invitee._id))).rejects.toThrow('INV_SEAT_LIMIT');
+    await expect(invitationService.accept(token, String(invitee._id))).rejects.toThrow('INV_SEAT_LIMIT');
 
     // The post-write re-count ran AFTER membership, Roles and the status flip
     // were written — all three must be gone with the aborted transaction.
@@ -370,7 +370,7 @@ suite('invitation accept (real Mongo replica set)', () => {
   });
 
   it('an admin invitation whose inviter was demoted joins as member, and Roles above the new ceiling are dropped', async () => {
-    const { invitation } = await send({ role: 'admin', roleIds: [securityRoleId, inviterRoleId] });
+    const { token } = await send({ role: 'admin', roleIds: [securityRoleId, inviterRoleId] });
 
     // Demote the admin to a People Manager: still may invite (invitations:manage)
     // but no longer an admin and does not hold `members:manage`.
@@ -379,7 +379,7 @@ suite('invitation accept (real Mongo replica set)', () => {
     await m.RoleAssignment.create({ userId: adminId, roleId: inviterRoleId, organizationId: orgId });
 
     const invitee = await createUser('invitee');
-    const result = await invitationService.accept(invitation.token, String(invitee._id));
+    const result = await invitationService.accept(token, String(invitee._id));
 
     expect(result.role).toBe('member');
     expect(result.grantedRoleIds).toEqual([inviterRoleId]);
@@ -392,20 +392,97 @@ suite('invitation accept (real Mongo replica set)', () => {
   });
 
   it('an admin invitation sent by the org owner is accepted as admin with the built-in Admin Role', async () => {
-    const { invitation } = await send({ inviterId: ownerId, role: 'admin' });
+    const { token } = await send({ inviterId: ownerId, role: 'admin' });
     const invitee = await createUser('invitee');
-    const result = await invitationService.accept(invitation.token, String(invitee._id));
+    const result = await invitationService.accept(token, String(invitee._id));
     expect(result.role).toBe('admin');
     expect(await roleIdsOf(String(invitee._id))).toContain(await builtinRoleId('admin'));
   });
 
   it('a Role deleted between send and accept is dropped, not fatal', async () => {
-    const { invitation } = await send({ roleIds: [securityRoleId] });
+    const { token } = await send({ roleIds: [securityRoleId] });
     await m.Role.deleteOne({ _id: securityRoleId });
     const invitee = await createUser('invitee');
 
-    const result = await invitationService.accept(invitation.token, String(invitee._id));
+    const result = await invitationService.accept(token, String(invitee._id));
     expect(result.droppedRoleIds).toEqual([securityRoleId]);
     expect(await roleIdsOf(String(invitee._id))).toEqual([await builtinRoleId('member')]);
+  });
+  // ---------------------------------------------------------------------------
+  // Token at rest: only its SHA-256 is stored; the plaintext is only in the link
+  // ---------------------------------------------------------------------------
+
+  const sha256 = async (s: string) => (await import('crypto')).createHash('sha256').update(s).digest('hex');
+  const rawRow = (id: unknown) => mongoose.connection.collection('invitations').findOne({ _id: id });
+
+  it('create stores the SHA-256 of the emailed token, never the token itself', async () => {
+    const { emailService } = await import('../src/utils/email.js');
+    const spy = jest.spyOn(emailService, 'sendInvitation');
+    try {
+      const { invitation, token } = await send();
+      expect(token).toMatch(/^[0-9a-f]{64}$/);
+      expect(spy.mock.calls[0][0]).toMatchObject({ invitationToken: token });
+      const row = await rawRow(invitation._id);
+      expect(row.tokenHash).toBe(await sha256(token));
+      expect(row.token).toBeUndefined();
+      expect(JSON.stringify(row)).not.toContain(token);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('lookup/preview finds the invitation by the plaintext token only (the stored hash is not a token)', async () => {
+    const { invitation, token } = await send();
+    expect(String((await invitationService.getByToken(token))._id)).toBe(String(invitation._id));
+    const row = await rawRow(invitation._id);
+    expect(await invitationService.getByToken(row.tokenHash)).toBeNull();
+    await expect(invitationService.accept(row.tokenHash, ownerId)).rejects.toThrow('INV_NOT_FOUND');
+  });
+
+  it('lookup of an expired invitation records the expiry', async () => {
+    const { invitation, token } = await send();
+    await m.Invitation.updateOne({ _id: invitation._id }, { $set: { expiresAt: new Date(Date.now() - 1000) } });
+    const found = await invitationService.getByToken(token);
+    expect(found.status).toBe('expired');
+    expect((await rawRow(invitation._id)).status).toBe('expired');
+  });
+
+  it('resend rotates the token: the new emailed token is accepted, the old link is dead', async () => {
+    const { emailService } = await import('../src/utils/email.js');
+    const { invitation, token: oldToken } = await send();
+    const spy = jest.spyOn(emailService, 'sendInvitation');
+    let newToken: string;
+    try {
+      await invitationService.resend(String(invitation._id), orgId, ownerId, true);
+      newToken = (spy.mock.calls[0][0] as { invitationToken: string }).invitationToken;
+    } finally {
+      spy.mockRestore();
+    }
+    expect(newToken).toMatch(/^[0-9a-f]{64}$/);
+    expect(newToken).not.toBe(oldToken);
+    const row = await rawRow(invitation._id);
+    expect(row.tokenHash).toBe(await sha256(newToken));
+    expect(await invitationService.getByToken(oldToken)).toBeNull();
+
+    const invitee = await createUser('invitee');
+    await expect(invitationService.accept(oldToken, String(invitee._id))).rejects.toThrow('INV_NOT_FOUND');
+    const result = await invitationService.accept(newToken, String(invitee._id));
+    expect(result.invitationId).toBe(String(invitation._id));
+  });
+
+  it('revoke by id: the token then answers INV_REVOKED', async () => {
+    const { invitation, token } = await send();
+    await invitationService.revoke(String(invitation._id), orgId, ownerId, true);
+    const invitee = await createUser('invitee');
+    await expect(invitationService.accept(token, String(invitee._id))).rejects.toThrow('INV_REVOKED');
+    expect((await invitationService.getByToken(token)).status).toBe('revoked');
+  });
+
+  it('the org listing carries neither the token nor its hash', async () => {
+    await send();
+    const { invitations } = await invitationService.listForOrg(orgId, { offset: 0, limit: 10 });
+    expect(invitations).toHaveLength(1);
+    expect(invitations[0]).not.toHaveProperty('tokenHash');
+    expect(invitations[0]).not.toHaveProperty('token');
   });
 });

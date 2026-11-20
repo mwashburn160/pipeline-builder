@@ -146,4 +146,18 @@ describe('Drizzle runner store (real SQL)', () => {
     expect(await store.linkedOrgIds(r.id, OTHER)).toEqual([ORG]);
     expect(await store.linkedOrgIds(r.id, ORG)).toEqual([]);
   });
+
+  it('resetStaleLinkChecks: a row `checking` since before the cutoff goes back to linked / unlinked by its runner_id; a fresh one stays', async () => {
+    const r = await store.insertRunner({ orgId: ORG, label: 'own', functionUrl: URL_A, status: 'active' });
+    await registry(ORG, r.id);
+    await store.writeRunnerLink(PIPE, ORG, { status: 'checking', checkedAt: T, detail: null });
+    expect(await store.resetStaleLinkChecks(new Date(T.getTime() - 1))).toBe(0);
+    expect((await store.getRegistryLink(PIPE, ORG))!.linkStatus).toBe('checking');
+    expect(await store.resetStaleLinkChecks(new Date(T.getTime() + 1))).toBe(1);
+    expect((await store.getRegistryLink(PIPE, ORG))!.linkStatus).toBe('linked');
+    await store.setRegistryRunner(PIPE, ORG, null);
+    await store.writeRunnerLink(PIPE, ORG, { status: 'checking', checkedAt: T, detail: null });
+    expect(await store.resetStaleLinkChecks(new Date(T.getTime() + 1))).toBe(1);
+    expect((await store.getRegistryLink(PIPE, ORG))!.linkStatus).toBe('unlinked');
+  });
 });

@@ -237,6 +237,15 @@ describe('POST /reports/events', () => {
     expect(mockIngestEvents).not.toHaveBeenCalled();
   });
 
+  // `execution_id` / `stage_name` / `action_name` are VARCHAR(255): an over-long
+  // value used to pass the schema and fail the INSERT (a 500 the forwarder
+  // retries forever) instead of a 400 it can dead-letter.
+  it.each(['executionId', 'stageName', 'actionName'])('refuses an over-long %s before the insert', async (field) => {
+    await getHandler()(ingestReq({ body: { events: [{ ...validEvent, [field]: 'x'.repeat(256) }] } }), res());
+    expect(mockSendBadRequest).toHaveBeenCalledWith(expect.anything(), expect.any(String), 'VALIDATION_ERROR');
+    expect(mockIngestEvents).not.toHaveBeenCalled();
+  });
+
   it('rejects a malformed failure', async () => {
     await getHandler()(ingestReq({ body: { events: [{ ...validEvent, failure: { message: 'no code' } }] } }), res());
     expect(mockSendBadRequest).toHaveBeenCalledWith(expect.anything(), expect.any(String), 'VALIDATION_ERROR');

@@ -38,6 +38,8 @@
  */
 
 import {
+  ALL_PERMISSIONS,
+  type Permission,
   PLATFORM_INTERNAL,
   contractErrorMessage,
   isServicePrincipal,
@@ -77,8 +79,20 @@ const {
   reportReaders: READERS,
 } = PLATFORM_INTERNAL;
 
-/** The only permissions this endpoint will talk about. */
-const REPORT_PERMISSIONS = ['reports:read', 'reports:write', 'reports:publish', 'reports:rollup'] as const;
+/** Answer order for the `reports:*` family: escalating authority, so the
+ *  response never reshuffles when the catalog is re-ordered. A verb added to the
+ *  catalog later sorts after these, alphabetically. */
+const REPORT_VERB_ORDER = ['read', 'write', 'publish', 'rollup'];
+const reportVerbRank = (p: string): number => {
+  const i = REPORT_VERB_ORDER.indexOf(p.slice('reports:'.length));
+  return i === -1 ? REPORT_VERB_ORDER.length : i;
+};
+
+/** The only permissions this endpoint will talk about: api-core's whole
+ *  `reports:*` family, derived from the catalog so a new one is never missed. */
+export const REPORT_PERMISSIONS: readonly Permission[] = ALL_PERMISSIONS
+  .filter((p) => p.startsWith('reports:'))
+  .sort((a, b) => reportVerbRank(a) - reportVerbRank(b) || a.localeCompare(b));
 
 /**
  * GET /internal/reporting/report-authority/:orgId/:userId

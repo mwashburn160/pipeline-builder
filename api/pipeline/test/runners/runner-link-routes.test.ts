@@ -26,9 +26,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   requireAssurance: () => mockAssurance,
 }));
 const mockRateLimit = jest.fn<AnyFn>((_req, _res, next: () => void) => next());
+const limiterOpts: Array<Record<string, unknown>> = [];
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   createAuthenticatedWithOrgRoute: () => [],
-  rateLimitByOrg: () => mockRateLimit,
+  rateLimitByOrg: (opts: Record<string, unknown>) => { limiterOpts.push(opts); return mockRateLimit; },
   withRoute: (handler: any) => async (req: any, response: any) => {
     await handler({ req, res: response, ctx: { log: jest.fn() }, orgId: ORG_ID, userId: 'user-1' });
   },
@@ -93,7 +94,7 @@ describe('GET /:pipelineId/runner-link', () => {
     expect(data(out)).toEqual({
       pipelineId: PIPE,
       status,
-      runner: status === 'unlinked' ? null : { id: r.id, label: 'prod', health: 'healthy', lastDeliveryAt: '2026-11-18T00:00:00.000Z', ownerOrgName: null },
+      runner: status === 'unlinked' ? null : { id: r.id, label: 'prod', health: 'healthy', lastDeliveryAt: '2026-11-18T00:00:00.000Z', ownerOrgName: null, isOwn: true },
       checkedAt: checkedAt.toISOString(),
       detail: { runnersChecked: ['prod'], matched: status === 'linked' ? ['prod'] : [], errorCode: null },
       deliveriesPaused: false,
@@ -108,7 +109,7 @@ describe('GET /:pipelineId/runner-link', () => {
     deps.store.registry.set(PIPE, { orgId: ORG, pipelineName: 'p', region: null, runnerId: p.id, linkStatus: 'linked' });
     deps.availability.available = false;
     deps.availability.reason = 'paused';
-    expect(data(await getLink())).toMatchObject({ runner: { ownerOrgName: expect.any(String) }, deliveriesPaused: true });
+    expect(data(await getLink())).toMatchObject({ runner: { ownerOrgName: expect.any(String), isOwn: false }, deliveriesPaused: true });
   });
 });
 
@@ -120,6 +121,8 @@ describe('POST /:pipelineId/runner-link/refresh (Find runner again)', () => {
     expect(iAssure).toBeGreaterThan(0);
     expect(iStepUp).toBeGreaterThan(iAssure);
     expect(chain.indexOf(mockRateLimit)).toBeGreaterThan(iStepUp);
+    // The refresh limit fails closed (a limit-store outage refuses, never lifts it).
+    expect(limiterOpts).toContainEqual(expect.objectContaining({ name: 'pipeline-runner-link-refresh', failClosed: true }));
   });
 
   it('409 RUNNERS_UNAVAILABLE before any step-up is spent', async () => {

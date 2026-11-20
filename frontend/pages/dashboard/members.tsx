@@ -72,7 +72,10 @@ export default function MembersPage() {
   // DELETE /teams/:teamId, /restore); the Manage drawer shows whichever of a
   // team's settings this viewer may edit.
   const canOrgSettings = can('org_settings:write');
-  const canManageTeamSettings = canOrgSettings || can('org_impersonation:write') || can('org_idp:write');
+  // The Manage opener reads the raw grants, not `can()`: a read-only session may
+  // open the drawer to VIEW a team's settings (the drawer locks every write).
+  const canManageTeamSettings = hasPermission(user, 'org_settings:write')
+    || hasPermission(user, 'org_impersonation:write') || hasPermission(user, 'org_idp:write');
   const { refreshUser, switchOrganization } = useAuth();
   const toast = useToast();
   const router = useRouter();
@@ -173,7 +176,13 @@ export default function MembersPage() {
   const {
     teams, teamsLoadWarning, childTeamCount, deletedTeams, refreshTeams, switchTeam, reauthFor, clearReauth,
     addToTeam, setAddToTeam, teamMemberEmail, setTeamMemberEmail, teamAddForm, teamAddInviteEmail, handleAddToTeam,
-  } = useMemberTeamsPanel({ orgId: orgId ?? '', canManageMembers, canOrgSettings, activeOrgIsRoot, hasChildOrgs });
+  } = useMemberTeamsPanel({
+    orgId: orgId ?? '',
+    canViewTeams: canViewMembers,
+    canViewDeletedTeams: hasPermission(user, 'org_settings:write'),
+    activeOrgIsRoot,
+    hasChildOrgs,
+  });
 
   // Pooled seat usage for the whole account (distinct members + pending invites
   // across the subtree vs the root's seat limit). Endpoint resolves to root, so

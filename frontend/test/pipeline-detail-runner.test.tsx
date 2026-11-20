@@ -21,10 +21,11 @@ import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals
 import type { AnyFn } from './helpers/mock-fn';
 import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { mockAuthGuard, pageToast } from './helpers/pageMocks';
-import { ApiError } from '../src/lib/api/errors';
+import { ApiError, MfaRequiredError } from '../src/lib/api/errors';
 import { PIPELINE_RUNNERS_HREF, RUNNER_ERROR_COPY } from '../src/lib/pipeline-runners';
 import { RUN_REQUEST_POLL } from '../src/hooks/useRunRequestTracker';
 import { runnerErrorBanner } from '../src/components/pipeline/RunnerError';
+import { RUNNER_LINK_CHECK_STALE_MS } from '../src/components/pipeline/RunnerLinkStatus';
 import PipelineDetailPage from '../pages/dashboard/pipelines/[id]';
 
 jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
@@ -78,7 +79,7 @@ const row = (over: Record<string, unknown> = {}) => ({ pipelineId: 'p1', region:
 const linkDto = (over: Record<string, unknown> = {}) => ({
   success: true,
   data: {
-    pipelineId: 'p1', status: 'linked', runner: { id: 'r1', label: 'Production', health: 'healthy', lastDeliveryAt: '2026-11-17T00:00:00Z', ownerOrgName: null },
+    pipelineId: 'p1', status: 'linked', runner: { id: 'r1', label: 'Production', health: 'healthy', lastDeliveryAt: '2026-11-17T00:00:00Z', ownerOrgName: null, isOwn: true },
     checkedAt: '2026-11-18T00:00:00Z', detail: { runnersChecked: ['Production'], matched: ['Production'], errorCode: null }, deliveriesPaused: false, ...over,
   },
 });
@@ -259,7 +260,7 @@ describe('Re-run through a pipeline runner', () => {
       'AMBIGUOUS_PIPELINE', 'AMBIGUOUS_RUNNER', 'NOT_YET_VISIBLE', 'NO_MATCH', 'NO_RUNNER', 'PIPELINE_IDENTITY_MISMATCH', 'PIPELINE_NOT_FOUND',
       'PIPELINE_NOT_FOUND_IN_RUNNERS', 'PIPELINE_NOT_TAGGED', 'RUNNERS_UNAVAILABLE', 'RUNNER_ERROR', 'RUNNER_KEY_CONFIRMATION_MISMATCH',
       'RUNNER_KEY_EXISTS', 'RUNNER_KEY_INHERITED', 'RUNNER_KEY_MISSING', 'RUNNER_KEY_MODE_ROOT_ORG', 'RUNNER_KEY_NO_ROTATION',
-      'RUNNER_KEY_RETIRE_TOO_EARLY', 'RUNNER_KEY_TRANSITION_IN_PROGRESS', 'RUNNER_KEY_UNREADABLE', 'RUNNER_LIMIT',
+      'RUNNER_KEY_RETIRE_TOO_EARLY', 'RUNNER_KEY_TRANSITION_IN_PROGRESS', 'RUNNER_KEY_UNREADABLE', 'RUNNER_LIMIT', 'RUNNER_NOT_ELIGIBLE',
       'RUNNER_PENDING', 'RUNNER_PERMISSION_DENIED', 'RUNNER_PING_FAILED', 'RUNNER_REFUSED', 'RUNNER_REVOKED', 'RUNNER_UNREACHABLE',
       'RUNNER_UPDATE_REQUIRED', 'RUN_REQUEST_EXPIRED', 'RUN_REQUEST_RATE_LIMITED', 'SIGNATURE_INVALID', 'TOO_MANY_PENDING',
     ]);
@@ -437,7 +438,7 @@ describe('Deployment card — runner link', () => {
   });
 
   it('a parent\'s shared runner names its owner', async () => {
-    api.getPipelineRunnerLink.mockResolvedValue(linkDto({ runner: { id: 'r9', label: 'Shared prod', health: 'healthy', lastDeliveryAt: null, ownerOrgName: 'Acme Root' } }));
+    api.getPipelineRunnerLink.mockResolvedValue(linkDto({ runner: { id: 'r9', label: 'Shared prod', health: 'healthy', lastDeliveryAt: null, ownerOrgName: 'Acme Root', isOwn: false } }));
     render(<PipelineDetailPage />);
     expect(await screen.findByTestId('deployment-runner')).toHaveTextContent('Shared prod (shared by Acme Root)');
   });
@@ -492,9 +493,38 @@ describe('Deployment card — runner link', () => {
     await waitFor(() => expect(screen.getByTestId('runner-link-status')).toHaveAttribute('data-status', 'checking'));
     expect(status).toHaveTextContent('Checking');
     expect(screen.getByRole('button', { name: /Find runner again/ })).toBeDisabled();
-    api.getPipelineRunnerLink.mockResolvedValue(linkDto({ runner: { id: 'r2', label: 'New prod', health: 'healthy', lastDeliveryAt: null, ownerOrgName: null } }));
+    api.getPipelineRunnerLink.mockResolvedValue(linkDto({ runner: { id: 'r2', label: 'New prod', health: 'healthy', lastDeliveryAt: null, ownerOrgName: null, isOwn: true } }));
     await advance(3_000);
     await waitFor(() => expect(screen.getByTestId('deployment-runner')).toHaveTextContent('New prod'));
+  });
+
+  it('a check that never settles stops polling and offers Find runner again (no permanent lock)', async () => {
+    api.getPipelineRunnerLink.mockResolvedValue(linkDto({ status: 'checking' }));
+    render(<PipelineDetailPage />);
+    await waitFor(() => expect(screen.getByTestId('runner-link-status')).toHaveAttribute('data-status', 'checking'));
+    expect(screen.getByRole('button', { name: /Find runner again/ })).toBeDisabled();
+    await advance(RUNNER_LINK_CHECK_STALE_MS + 3_000);
+    await waitFor(() => expect(screen.getByTestId('runner-link-status')).toHaveTextContent('The last check did not finish'));
+    expect(screen.getByRole('button', { name: /Find runner again/ })).toBeEnabled();
+    const reads = api.getPipelineRunnerLink.mock.calls.length;
+    await advance(30_000);
+    expect(api.getPipelineRunnerLink.mock.calls.length).toBe(reads);
+    // A new refresh starts a fresh check (spinner again, polling again).
+    fireEvent.click(screen.getByRole('button', { name: /Find runner again/ }));
+    fireEvent.click(within(screen.getByTestId('stepup-modal')).getByRole('button', { name: 'Confirm step-up' }));
+    await waitFor(() => expect(api.refreshPipelineRunnerLink).toHaveBeenCalledWith('p1', 'tok'));
+    await waitFor(() => expect(screen.getByTestId('runner-link-status')).toHaveTextContent('Checking'));
+    expect(screen.getByRole('button', { name: /Find runner again/ })).toBeDisabled();
+  });
+
+  it('Find runner again from a single-factor session: the shell\'s MFA dialog only, no second error on the page', async () => {
+    api.refreshPipelineRunnerLink.mockRejectedValue(new MfaRequiredError('Two-factor authentication is required', 'MFA_REQUIRED'));
+    render(<PipelineDetailPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /Find runner again/ }));
+    fireEvent.click(within(screen.getByTestId('stepup-modal')).getByRole('button', { name: 'Confirm step-up' }));
+    await waitFor(() => expect(api.refreshPipelineRunnerLink).toHaveBeenCalledWith('p1', 'tok'));
+    await advance(0);
+    expect(screen.queryByText('Two-factor authentication is required')).not.toBeInTheDocument();
   });
 
   it('Find runner again: cancelling the step-up sends nothing', async () => {
@@ -520,7 +550,7 @@ describe('runner banners', () => {
   });
 
   it('an unhealthy runner: last successful contact and a Test button (step-up) for its admins', async () => {
-    api.getPipelineRunnerLink.mockResolvedValue(linkDto({ runner: { id: 'r1', label: 'Production', health: 'unreachable', lastDeliveryAt: '2026-11-17T00:00:00Z', ownerOrgName: null } }));
+    api.getPipelineRunnerLink.mockResolvedValue(linkDto({ runner: { id: 'r1', label: 'Production', health: 'unreachable', lastDeliveryAt: '2026-11-17T00:00:00Z', ownerOrgName: null, isOwn: true } }));
     render(<PipelineDetailPage />);
     const banner = await screen.findByTestId('runner-unhealthy-banner');
     expect(banner).toHaveTextContent('The runner Production is not answering.');
@@ -532,7 +562,15 @@ describe('runner banners', () => {
   });
 
   it('an unhealthy runner shared by a parent links to the panel instead of offering Test', async () => {
-    api.getPipelineRunnerLink.mockResolvedValue(linkDto({ runner: { id: 'r9', label: 'Shared prod', health: 'unreachable', lastDeliveryAt: null, ownerOrgName: 'Acme Root' } }));
+    api.getPipelineRunnerLink.mockResolvedValue(linkDto({ runner: { id: 'r9', label: 'Shared prod', health: 'unreachable', lastDeliveryAt: null, ownerOrgName: 'Acme Root', isOwn: false } }));
+    render(<PipelineDetailPage />);
+    const banner = await screen.findByTestId('runner-unhealthy-banner');
+    expect(within(banner).queryByRole('button', { name: 'Test' })).not.toBeInTheDocument();
+    expect(within(banner).getByRole('link')).toHaveAttribute('href', PIPELINE_RUNNERS_HREF);
+  });
+
+  it('an unhealthy runner this org does not own (owner name unknown) offers no Test: isOwn decides, not ownerOrgName', async () => {
+    api.getPipelineRunnerLink.mockResolvedValue(linkDto({ runner: { id: 'r9', label: 'Shared prod', health: 'unreachable', lastDeliveryAt: null, ownerOrgName: null, isOwn: false } }));
     render(<PipelineDetailPage />);
     const banner = await screen.findByTestId('runner-unhealthy-banner');
     expect(within(banner).queryByRole('button', { name: 'Test' })).not.toBeInTheDocument();

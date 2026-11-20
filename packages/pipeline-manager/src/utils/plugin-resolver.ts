@@ -165,15 +165,23 @@ export class PluginResolutionError extends Error {
 
 /**
  * Why an exact pin was not found, phrased from the 404's `details.state`
- * (`deleted` / `inactive` / `yanked` / `missing`). Without a state the answer
+ * (`deleted` / `inactive` / `yanked` / `missing` / `excluded`). Without a state the answer
  * cannot tell the cases apart, so the message names the two likeliest.
  */
 function pinNotFoundMessage(label: string, pin: string, err?: unknown): string {
   return exactPinNotFoundMessage(label, pin, lookupNotFoundState(err));
 }
 
-/** Why a range / default reference matched nothing. */
-function notFoundMessage(label: string): string {
+/**
+ * Why a range / default reference matched nothing. A 404 whose `details.state`
+ * is `excluded` found the org's plugin live, so "check that it is published"
+ * would send the owner the wrong way: the reference's other fields ruled it out.
+ */
+function notFoundMessage(label: string, err?: unknown): string {
+  if (lookupNotFoundState(err) === 'excluded') {
+    return `Plugin "${label}" exists in your organization, but the lookup excluded it: no version of it matches the reference. `
+      + 'Check the reference\'s version range and its other fields (such as its plugin type or image digest), then re-run the synth.';
+  }
   return `Plugin "${label}" was not found: no active version matching the reference is available to your organization. `
     + 'Check the plugin name, publisher and version, and that it is published (or installed), then re-run the synth.';
 }
@@ -328,7 +336,7 @@ export async function resolvePluginsForProps(
       }
       if (isNotFound(err)) {
         if (pin) refuse('PLUGIN_VERSION_NOT_FOUND', pinNotFoundMessage(label, pin, err));
-        else refuse('PLUGIN_NOT_FOUND', notFoundMessage(label));
+        else refuse('PLUGIN_NOT_FOUND', notFoundMessage(label, err));
         return;
       }
       refuse('PLUGIN_LOOKUP_FAILED', lookupFailedMessage(label, err));

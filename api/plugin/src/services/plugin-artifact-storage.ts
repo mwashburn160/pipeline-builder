@@ -27,7 +27,8 @@
  * `S3_BUCKET` (default 'plugins') and `PLUGIN_QUARANTINE_BUCKET` are read here.
  */
 
-import { createWriteStream } from 'node:fs';
+import { createReadStream, createWriteStream } from 'node:fs';
+import { stat } from 'node:fs/promises';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import {
@@ -76,6 +77,31 @@ export async function putPluginArtifact(key: string, body: Buffer, bucket: strin
     Body: body,
     ContentType: 'application/zip',
   }));
+}
+
+/**
+ * Upload a ZIP that is already on disk (a multer temp file), streamed with its
+ * length rather than read into the heap: an upload may be up to
+ * `PLUGIN_MAX_UPLOAD_MB` (4 GiB by default) — past `fs.readFile`'s 2 GiB
+ * ceiling, and far too much to buffer once per concurrent request. Throws like
+ * {@link putPluginArtifact}.
+ */
+export async function putPluginArtifactFile(key: string, filePath: string, bucket: string = PLUGIN_ARTIFACT_BUCKET): Promise<void> {
+  const { size } = await stat(filePath);
+  await ensureBucket(bucket);
+  const body = createReadStream(filePath);
+  try {
+    await s3Client().send(new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Body: body,
+      ContentLength: size,
+      ContentType: 'application/zip',
+    }));
+  } finally {
+    // The SDK consumes the stream on success; on a failed send close the fd.
+    if (!body.closed) body.destroy();
+  }
 }
 
 /**

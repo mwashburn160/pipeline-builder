@@ -4,7 +4,7 @@
 import { createLogger, errorMessage, createScheduler, nextCronRun, recordAudit, type Scheduler, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID, leaderLockKey, DEFAULT_LEADER_LOCK_TTL_MS } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 import { schema, withTenantTx, runWithTenantContext } from '@pipeline-builder/pipeline-data';
-import { eq, and, isNull, lte, sql } from 'drizzle-orm';
+import { asc, eq, and, isNull, lte, sql } from 'drizzle-orm';
 import { executeScan, recoverStaleScans } from './scan-executor.js';
 
 const logger = createLogger('scan-scheduler');
@@ -77,6 +77,9 @@ async function processPendingScans(): Promise<void> {
     .select({ id: schema.complianceScan.id })
     .from(schema.complianceScan)
     .where(eq(schema.complianceScan.status, 'pending'))
+    // Oldest first: 10 are claimed per tick, and an unordered batch lets a
+    // steady inflow of new scans starve an older one indefinitely.
+    .orderBy(asc(schema.complianceScan.createdAt))
     .limit(10));
 
   for (const scan of pendingScans) {

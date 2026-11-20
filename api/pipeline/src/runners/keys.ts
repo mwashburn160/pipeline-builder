@@ -25,15 +25,15 @@
  */
 
 import { createPrivateKey, generateKeyPairSync, type KeyObject } from 'node:crypto';
-import { actorId, createLogger, errorMessage, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { actorId, createLogger, errorMessage, SYSTEM_ORG_ID, type RemoteAuditAction } from '@pipeline-builder/api-core';
 import {
   RUNNER_KEY_ACTIVATION_DELAY_MS,
   RUNNER_KEY_AGE_FOLLOWUP_DAYS,
   RUNNER_KEY_METRICS,
   RUNNER_KEY_RETIRE_WINDOW_MS,
+  isRunnerKeyServiceUnavailable,
   runnerKeyAgeDays,
   runnerKeyRevokeConfirmation,
-  runnerTunable,
   type PublishedRunnerKeyState,
   type RunnerKeyMode,
   type RunnerKeyRetiredReason,
@@ -50,6 +50,7 @@ import { sendKeyNotice, sendUnreadableKeyNotice, type KeyNoticeEvent } from './k
 import { isUniqueViolation, type KeyRow, type KeySettingsRow, type KeyTx } from './key-store.js';
 import { RunnerRouteError } from './routing.js';
 import { createRunRequestSigner, type ResolvedSigner } from './signing.js';
+import { tunable } from './vocabulary.js';
 
 const logger = createLogger('runner-keys');
 
@@ -57,6 +58,11 @@ const logger = createLogger('runner-keys');
 const KEY_TARGET = 'pipeline_runner_signing_key';
 /** The sweep's actor id. */
 const SYSTEM_ACTOR = actorId({ userId: null });
+/** The audit actions of key events (the shared catalog's `pipeline.runner.key.*` members). */
+export type KeyAuditAction = Extract<RemoteAuditAction, `pipeline.runner.key.${string}`>;
+
+/** The public JWK of a stored key, rebuilt from its kid and x only (nothing else in the row is published). */
+const publicJwkOf = (kid: string, x: string): RunnerPublicJwk => ({ kty: 'OKP', crv: 'Ed25519', x, kid, use: 'sig', alg: 'EdDSA' });
 
 const lc = (s: string) => s.toLowerCase();
 const uniq = (xs: readonly (string | null | undefined)[]) => [...new Set(xs.filter((x): x is string => !!x).map(lc))];
@@ -100,7 +106,8 @@ function modeAt(chain: string[], settings: Map<string, KeySettingsRow>, i: numbe
 /** Resolve the effective key org, the transition in force and the signing org of `orgId`. */
 export async function resolveKeyContext(deps: RunnerDeps, orgId: string, now: Date = new Date(deps.now())): Promise<KeyContext> {
   const owner = lc(orgId);
-  const chain = [owner, ...(await deps.hierarchy.ancestors(owner)).map(lc)];
+  // Strict: a failed lookup throws rather than make a team look like a root org.
+  const chain = [owner, ...(await deps.hierarchy.ancestors(owner, undefined, { strict: true })).map(lc)];
   const settings = new Map((await deps.keyStore.settings(chain)).map((r) => [lc(r.orgId), r]));
   let transition: ActiveTransition | null = null;
   let effectiveOrgId = chain[chain.length - 1]!;
@@ -154,7 +161,21 @@ function noteReadable(deps: RunnerDeps, orgId: string, readable: boolean): void 
   if (!readable && !wasUnreadable) void sendUnreadableKeyNotice(deps, orgId);
 }
 
-/** Decrypt one key row into a KeyObject; RUNNER_KEY_UNREADABLE on any failure (logged without material). */
+/** What a transient key-service failure answers (KMS config lookup or KMS unreachable): not the key's fault. */
+export const KEY_SERVICE_UNAVAILABLE_MESSAGE = "The platform can't reach its key service right now. Queued runs are delivered once it answers; try again in a few minutes.";
+
+/** A transient key-service failure as 409 RUNNERS_UNAVAILABLE (logged; no unreadable gauge, no operator notice), else null. */
+function keyServiceRefusal(err: unknown, orgId: string): RunnerRouteError | null {
+  if (!isRunnerKeyServiceUnavailable(err)) return null;
+  logger.warn('Runner signing key service unavailable; retried later', { orgId, source: err.source, error: errorMessage(err) });
+  return new RunnerRouteError('RUNNERS_UNAVAILABLE', KEY_SERVICE_UNAVAILABLE_MESSAGE);
+}
+
+/**
+ * Decrypt one key row into a KeyObject. A transient key-service failure is
+ * RUNNERS_UNAVAILABLE; any other failure (a real decrypt failure of the
+ * ciphertext) is RUNNER_KEY_UNREADABLE (logged without material).
+ */
 async function privateKeyOf(deps: RunnerDeps, row: KeyRow): Promise<KeyObject> {
   try {
     if (!row.privateKeyEnc) throw new Error('key has no private part');
@@ -164,6 +185,8 @@ async function privateKeyOf(deps: RunnerDeps, row: KeyRow): Promise<KeyObject> {
     noteReadable(deps, lc(row.orgId), true);
     return key;
   } catch (err) {
+    const transient = keyServiceRefusal(err, row.orgId);
+    if (transient) throw transient;
     logger.error('Runner signing key could not be decrypted', { orgId: row.orgId, kid: row.kid, error: errorMessage(err) });
     noteReadable(deps, lc(row.orgId), false);
     throw new RunnerRouteError('RUNNER_KEY_UNREADABLE', "Your organization's runner signing key can't be read. Runs through your runners are paused until your platform operator fixes it.");
@@ -192,7 +215,8 @@ export async function buildOrgSigner(deps: RunnerDeps, orgId: string): Promise<R
 
 // -- Public keys ------------------------------------------------------------------
 
-const STATE_ORDER: Record<string, number> = { active: 0, next: 1, retiring: 2 };
+/** The order published keys are listed in: the signing key first. */
+const STATE_ORDER = { active: 0, next: 1, retiring: 2 } as const satisfies Record<PublishedRunnerKeyState, number>;
 
 /**
  * The public keys runner `runnerId` trusts: its owner's effective key org's
@@ -205,14 +229,13 @@ export async function publicKeysForRunner(deps: RunnerDeps, runnerId: string): P
   const ctx = await resolveKeyContext(deps, runner.orgId);
   const rows = await deps.keyStore.publishedKeys(uniq([ctx.effectiveOrgId, ctx.previousOrgId]));
   const keep = rows.filter((r) => lc(r.orgId) === ctx.effectiveOrgId || (r.state === 'active' || r.state === 'retiring'));
-  keep.sort((a, b) => (lc(a.orgId) === ctx.effectiveOrgId ? 0 : 1) - (lc(b.orgId) === ctx.effectiveOrgId ? 0 : 1) || STATE_ORDER[a.state]! - STATE_ORDER[b.state]!);
+  keep.sort((a, b) => (lc(a.orgId) === ctx.effectiveOrgId ? 0 : 1) - (lc(b.orgId) === ctx.effectiveOrgId ? 0 : 1) || STATE_ORDER[a.state as PublishedRunnerKeyState] - STATE_ORDER[b.state as PublishedRunnerKeyState]);
   const seen = new Set<string>();
   const keys: RunnerPublicJwk[] = [];
   for (const r of keep) {
     if (seen.has(r.kid)) continue;
     seen.add(r.kid);
-    const j = r.publicJwk;
-    keys.push({ kty: 'OKP', crv: 'Ed25519', x: j.x, kid: r.kid, use: 'sig', alg: 'EdDSA' });
+    keys.push(publicJwkOf(r.kid, r.publicJwk.x));
   }
   return keys.length > 0 ? { ownerOrgId: lc(runner.orgId), keys } : null;
 }
@@ -261,11 +284,13 @@ async function newKeyMaterial(deps: RunnerDeps, orgId: string): Promise<NewKey> 
   try {
     privateKeyEnc = await deps.secrets.encrypt(privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(), orgId);
   } catch (err) {
+    const transient = keyServiceRefusal(err, orgId);
+    if (transient) throw transient;
     logger.error('Runner signing key could not be encrypted', { orgId, error: errorMessage(err) });
     noteReadable(deps, orgId, false);
     throw new RunnerRouteError('RUNNER_KEY_UNREADABLE', "Your organization's runner signing key can't be stored. Your platform operator must fix secret encryption.");
   }
-  return { kid: jwk.kid, publicJwk: { kty: 'OKP', crv: 'Ed25519', x: jwk.x, kid: jwk.kid, use: 'sig', alg: 'EdDSA' }, privateKeyEnc };
+  return { kid: jwk.kid, publicJwk: publicJwkOf(jwk.kid, jwk.x), privateKeyEnc };
 }
 
 const RETIRED = (now: Date, reason: RunnerKeyRetiredReason): Partial<KeyRow> => ({
@@ -306,9 +331,9 @@ function transitionActive(s: KeySettingsRow | null, now: Date): boolean {
 /** Who did it, for audit and `created_by`. */
 export interface KeyActor { userId: string | null; system?: boolean; reason?: string }
 
-function audit(deps: RunnerDeps, actor: KeyActor, orgId: string, action: string, targetId: string, details: Record<string, unknown>, extra: { targetType?: string; affectedOrgId?: string } = {}): void {
+function audit(deps: RunnerDeps, actor: KeyActor, orgId: string, action: KeyAuditAction, targetId: string, details: Record<string, unknown>, extra: { targetType?: string; affectedOrgId?: string } = {}): void {
   deps.audit({
-    action: action as never,
+    action,
     actorId: actor.userId ? actorId({ userId: actor.userId }) : SYSTEM_ACTOR,
     orgId,
     targetType: extra.targetType ?? KEY_TARGET,
@@ -324,13 +349,13 @@ async function afterChange(deps: RunnerDeps, orgId: string, notice: KeyNoticeEve
 }
 
 async function rootness(deps: RunnerDeps, orgId: string): Promise<boolean> {
-  return (await deps.hierarchy.ancestors(orgId)).length === 0;
+  return (await deps.hierarchy.ancestors(orgId, undefined, { strict: true })).length === 0;
 }
 
 // -- Org-admin operations ----------------------------------------------------------------
 
 /** Generate the org's first key, created `active` (no runner trusts any key of it yet). */
-export async function generateOrgKey(deps: RunnerDeps, orgId: string, actor: KeyActor, opts: { auto?: boolean } = {}): Promise<{ kid: string }> {
+export async function generateOrgKey(deps: RunnerDeps, orgId: string, actor: KeyActor, opts: { auto?: boolean; onBehalfOfOrgId?: string } = {}): Promise<{ kid: string }> {
   const org = lc(orgId);
   const isRoot = await rootness(deps, org);
   const material = await newKeyMaterial(deps, org);
@@ -341,23 +366,33 @@ export async function generateOrgKey(deps: RunnerDeps, orgId: string, actor: Key
     await tx.insertKey({ orgId: org, ...material, state: 'active', activatesAt: now, createdBy: actor.userId });
     if (!v.settings) await tx.upsertSettings(org, { mode: 'own', effectiveKeyOrgId: org, updatedBy: actor.userId });
   }, exists);
-  audit(deps, actor, org, 'pipeline.runner.key.generate', material.kid, { kid: material.kid, state: 'active', ...(opts.auto ? { auto: true } : {}) });
-  await afterChange(deps, org, { kind: 'generate', kid: material.kid, auto: !!opts.auto });
+  const onBehalfOfOrgId = opts.onBehalfOfOrgId ? lc(opts.onBehalfOfOrgId) : undefined;
+  audit(deps, actor, org, 'pipeline.runner.key.generate', material.kid, {
+    kid: material.kid, state: 'active', ...(opts.auto ? { auto: true } : {}), ...(onBehalfOfOrgId ? { onBehalfOfOrgId } : {}),
+  });
+  await afterChange(deps, org, { kind: 'generate', kid: material.kid, auto: !!opts.auto, forTeam: !!onBehalfOfOrgId });
   return { kid: material.kid };
 }
 
 /**
  * Called before a runner registers: when the registering org's effective key
  * org has no key at all, create one `active` for it (audited `.generate`,
- * `auto: true`). A lost race with another registration is fine.
+ * `auto: true`). That is the org itself (a root org, or a team in `own` mode),
+ * or — for an inheriting team — the ancestor whose key it inherits, usually
+ * the root org. A key made for an ancestor is the system actor's, on behalf
+ * of the team (`details.onBehalfOfOrgId`): the team's user is no actor in the
+ * ancestor's audit trail and no `created_by` of its key. A lost race with
+ * another registration is fine.
  */
 export async function ensureOrgKeyForFirstRunner(deps: RunnerDeps, orgId: string, userId: string | null = null): Promise<void> {
   const ctx = await resolveKeyContext(deps, orgId);
   if (ctx.transition) return;
   const keys = await deps.keyStore.publishedKeys([ctx.effectiveOrgId]);
   if (keys.length > 0) return;
+  const forAncestor = ctx.effectiveOrgId !== ctx.ownerOrgId;
   try {
-    await generateOrgKey(deps, ctx.effectiveOrgId, { userId }, { auto: true });
+    await generateOrgKey(deps, ctx.effectiveOrgId, forAncestor ? { userId: null, system: true } : { userId },
+      { auto: true, ...(forAncestor ? { onBehalfOfOrgId: ctx.ownerOrgId } : {}) });
   } catch (err) {
     if (err instanceof RunnerRouteError && err.code === 'RUNNER_KEY_EXISTS') return;
     throw err;
@@ -427,15 +462,31 @@ export async function finishOrgKeyRotation(deps: RunnerDeps, orgId: string, acto
  * Emergency revoke: retire the active key now and promote `next` (or create a
  * new active key). `confirm` (org admins) must be the last 6 characters of the
  * active kid; the system-org operator path passes `null`.
+ *
+ * A team switching own → inherit keeps signing with its own key until
+ * `switch_at`: the operator may revoke that key too. It is retired now (a
+ * pending `next` with it), no new team key is made, and signing moves to the
+ * inherited key at once (`switch_at` brought forward to now). The answer's
+ * `activeKid` is then the inherited key's (null when that org has none yet).
  */
-export async function revokeOrgKey(deps: RunnerDeps, orgId: string, actor: KeyActor, confirm: string | null): Promise<{ revokedKid: string | null; activeKid: string }> {
+export async function revokeOrgKey(deps: RunnerDeps, orgId: string, actor: KeyActor, confirm: string | null): Promise<{ revokedKid: string | null; activeKid: string | null }> {
   const org = lc(orgId);
   const isRoot = await rootness(deps, org);
   const material = await newKeyMaterial(deps, org);
   const now = new Date(deps.now());
   const result = await withOrgLocked(deps, org, isRoot, async (tx, v) => {
-    if (v.mode === 'inherit') throw inherited();
     const active = byState(v.keys, 'active');
+    const leaving = v.mode === 'inherit' && !!actor.system && !!active && v.settings?.transitionKind === 'to_inherit' && transitionActive(v.settings, now);
+    if (v.mode === 'inherit' && !leaving) throw inherited();
+    if (leaving) {
+      await tx.updateKey(active!.id, RETIRED(now, 'revoked'));
+      const pending = byState(v.keys, 'next');
+      if (pending) await tx.updateKey(pending.id, RETIRED(now, 'mode_switch'));
+      await tx.upsertSettings(org, { mode: 'inherit', switchAt: now });
+      const target = v.settings?.effectiveKeyOrgId ? lc(v.settings.effectiveKeyOrgId) : null;
+      const inheritedKeys = target ? await deps.keyStore.publishedKeys([target]) : [];
+      return { revokedKid: active!.kid, activeKid: byState(inheritedKeys, 'active')?.kid ?? null };
+    }
     if (!active && !actor.system) throw missing();
     if (confirm !== null && (!active || confirm.trim() !== runnerKeyRevokeConfirmation(active.kid))) {
       throw new RunnerRouteError('RUNNER_KEY_CONFIRMATION_MISMATCH', "The confirmation doesn't match. Type the last 6 characters of the active key id.");
@@ -451,10 +502,10 @@ export async function revokeOrgKey(deps: RunnerDeps, orgId: string, actor: KeyAc
     return { revokedKid: active?.kid ?? null, activeKid: material.kid };
   }, inProgress);
   if (actor.system) {
-    audit(deps, actor, SYSTEM_ORG_ID, 'pipeline.runner.key.system_revoke', result.revokedKid ?? result.activeKid,
+    audit(deps, actor, SYSTEM_ORG_ID, 'pipeline.runner.key.system_revoke', result.revokedKid ?? result.activeKid ?? org,
       { kid: result.revokedKid, newActiveKid: result.activeKid, ...(actor.reason ? { reason: actor.reason } : {}) }, { affectedOrgId: org });
   } else {
-    audit(deps, actor, org, 'pipeline.runner.key.revoke', result.revokedKid ?? result.activeKid, { kid: result.revokedKid, newActiveKid: result.activeKid });
+    audit(deps, actor, org, 'pipeline.runner.key.revoke', result.revokedKid ?? result.activeKid ?? org, { kid: result.revokedKid, newActiveKid: result.activeKid });
   }
   await afterChange(deps, org, { kind: 'revoke', kid: result.revokedKid, newActiveKid: result.activeKid, bySystem: !!actor.system });
   return result;
@@ -643,7 +694,7 @@ export async function advanceKeyTransitions(deps: RunnerDeps, now: Date = new Da
  * sent once), and the key gauges.
  */
 export async function sendKeyAgeReminders(deps: RunnerDeps, now: Date = new Date(deps.now())): Promise<void> {
-  const maxAge = runnerTunable('RUNNER_KEY_MAX_AGE_DAYS', process.env);
+  const maxAge = tunable('RUNNER_KEY_MAX_AGE_DAYS');
   const active = await deps.keyStore.activeKeys();
   let oldest = 0;
   let overAge = 0;
@@ -750,7 +801,7 @@ export async function signingKeyDto(deps: RunnerDeps, orgId: string): Promise<Ru
       ? { kind: s.transitionKind, switchAt: s.switchAt.toISOString(), until: s.transitionUntil.toISOString() }
       : null,
     unreadable: await isUnreadable(deps, org),
-    maxAgeDays: runnerTunable('RUNNER_KEY_MAX_AGE_DAYS', process.env),
+    maxAgeDays: tunable('RUNNER_KEY_MAX_AGE_DAYS'),
   };
 }
 
@@ -766,7 +817,7 @@ export interface KeyStatusFilter {
 /** The operator table: every org with keys, a key-mode row or runners. Never key material. */
 export async function listKeyStatus(deps: RunnerDeps, filter: KeyStatusFilter = {}): Promise<RunnerKeyStatusRow[]> {
   const now = new Date(deps.now());
-  const maxAge = runnerTunable('RUNNER_KEY_MAX_AGE_DAYS', process.env);
+  const maxAge = tunable('RUNNER_KEY_MAX_AGE_DAYS');
   const counts = await deps.keyStore.runnerCounts();
   const orgIds = uniq([...(await deps.keyStore.keyOrgIds()), ...counts.keys()]).sort();
   const names = orgIds.length > 0 ? await deps.hierarchy.names(orgIds) : {};

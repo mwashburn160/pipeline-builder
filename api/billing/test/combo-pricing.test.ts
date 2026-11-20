@@ -61,6 +61,32 @@ describe('comboBasisCents', () => {
   });
 });
 
+/**
+ * #19: the combo basis is the members' INVOICED net at the combo minimum — the
+ * line total at the volume rate, rounded once and net-snapped exactly as
+ * `volumeCredits` invoices it — not a per-unit rounded price times quantity,
+ * which drifted from the charge by cents.
+ */
+describe('comboBasisCents — matches the invoiced volume credit', () => {
+  const seat = {
+    ...(bundle('seat', 4999) as object),
+    stackable: true,
+    volumeTiers: [{ minQuantity: 3, discountPercent: 10 }],
+  } as never;
+  const B = [seat, bundle('team_usage_analytics', 3000)];
+  const GROWTH = combo('growth', ['seat', 'team_usage_analytics'], 12000, 0, { seat: 3 });
+
+  it('members held at the minimum net exactly the combined price', () => {
+    const addons = [{ bundleId: 'seat', quantity: 3 }, { bundleId: 'team_usage_analytics', quantity: 1 }];
+    const sum = (xs: { creditCents: number }[]) => xs.reduce((n, x) => n + x.creditCents, 0);
+    const list = 3 * 4999 + 3000;
+    const net = list - sum(activeComboCredits(addons, B, [GROWTH], 'monthly')) - sum(volumeCredits(addons, B, 'monthly', [GROWTH]));
+    expect(net).toBe(12000);
+    // The seat line's invoiced net is the basis' seat share.
+    expect(comboBasisCents(GROWTH, B, 'monthly')).toBe(3 * 4999 - sum(volumeCredits([{ bundleId: 'seat', quantity: 3 }], B, 'monthly', [])) + 3000);
+  });
+});
+
 describe('activeComboCredits — quantity gate', () => {
   it('credits basis − combined ($55 − $35 = $20/mo) when Seat Pack + TUA held', () => {
     const out = activeComboCredits(

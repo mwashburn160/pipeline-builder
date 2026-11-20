@@ -170,3 +170,14 @@ describe('registry-client manifest bytes (tag-copy must not change digests)', ()
     expect(index.contentType).toBe(OCI_INDEX);
   });
 });
+
+describe('encodeRepoName guard', () => {
+  it('rejects a malformed repository name as a 400 ValidationError, not a plain Error (500)', async () => {
+    const { ValidationError } = await import('@pipeline-builder/api-core');
+    for (const bad of ['org-acme/../org-other', '/org-acme/x', 'org-acme/x/', 'org-acme//x']) {
+      const err = await listTags(bad).then(() => null, (e: unknown) => e);
+      expect(err).toBeInstanceOf(ValidationError);
+      expect((err as { statusCode: number }).statusCode).toBe(400);
+    }
+  });
+});

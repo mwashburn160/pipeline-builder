@@ -336,7 +336,8 @@ Your organization's first runner also creates its **runner signing key**: every
 run request is signed with it, and only your org's runners trust it. View and
 rotate it on the **Signing key** card, or with
 `pipeline-manager runner signing-key status|rotate|finish`. A team uses its
-parent's shared runners and key with no setup. Manage runners under **Settings → Organization → Pipeline runners**;
+parent's shared runners and key with no setup; a team's first runner creates
+its top-level organization's key if that organization has none yet. Manage runners under **Settings → Organization → Pipeline runners**;
 remove one with `pipeline-manager infra setup-runner --delete`. Prefer no
 inbound endpoint? Use `pipeline-manager pipeline run --id <pipelineId>` (and
 `pipeline stop`) with your own AWS credentials instead. Full detail:

@@ -138,7 +138,7 @@ describe('invitation revoke / resend reach', () => {
 
     await expect(invitationService.resend(INV_ID, 'parent-1', 'u1', true)).rejects.toThrow(INV_NOT_FOUND);
     expect(inv.save).not.toHaveBeenCalled();
-    expect(mockInvUpdateOne).toHaveBeenCalledWith({ _id: INV_ID, status: 'pending' }, { $set: { expiresAt: expect.any(Date) } });
+    expect(mockInvUpdateOne).toHaveBeenCalledWith({ _id: INV_ID, status: 'pending' }, { $set: { expiresAt: expect.any(Date), tokenHash: expect.stringMatching(/^[0-9a-f]{64}$/) } });
     expect(mockSendInvitation).not.toHaveBeenCalled();
   });
 

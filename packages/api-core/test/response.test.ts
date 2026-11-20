@@ -281,6 +281,9 @@ describe('extractDbError', () => {
     ['Key (org_id)=(abc) is not present in table "organizations".', 'Key (org_id)=([REDACTED]) is not present in table "organizations".'],
     ['Failing row contains (1, alice@example.com, null).', 'Failing row contains [REDACTED].'],
     ['Key (lower(email::text))=(Bob@x.io) already exists.', 'Key (lower(email::text))=([REDACTED]) already exists.'],
+    ['Key (r)=([1,5)) conflicts with existing key (r)=([2,6)).', 'Key (r)=([REDACTED]).'],
+    // 22P02 on a json/jsonb column echoes the offending token (a user-typed value).
+    ['Token "alice@example.com" is invalid.', 'Token "[REDACTED]" is invalid.'],
   ])('redacts row values from a pg detail: %p', (detail, expected) => {
     expect(extractDbError({ code: '23505', detail }).dbDetail).toBe(expected);
   });

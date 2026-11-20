@@ -9,6 +9,15 @@ import type { Request, Response, NextFunction } from 'express';
 const logger = createLogger('idempotency');
 
 /**
+ * What a log line carries in place of the store key: its SHA-256, truncated.
+ * The store key embeds the org id, the user id and the client's Idempotency-Key,
+ * none of which belongs in a log; the hash still correlates one key's lines.
+ */
+function logKey(fullKey: string): string {
+  return createHash('sha256').update(fullKey).digest('hex').slice(0, 16);
+}
+
+/**
  * Short, stable fingerprint of a request body. Folds the payload into the
  * idempotency key so replaying the SAME key with a DIFFERENT body is treated as
  * a distinct operation (fresh execution) rather than replaying the old response.
@@ -391,7 +400,7 @@ export function idempotencyMiddleware(options: IdempotencyMiddlewareOptions = {}
     store.get(fullKey).then(async (cached) => {
       if (cached && !cached.pending) {
         // Completed response on record → replay it.
-        logger.debug('Idempotent request replayed', { key: fullKey });
+        logger.debug('Idempotent request replayed', { keyHash: logKey(fullKey) });
         (res.locals ??= {})[IDEMPOTENT_REPLAY_LOCAL] = true;
         res.setHeader('X-Idempotent-Replayed', 'true');
         replayCached(res, cached);
@@ -399,7 +408,7 @@ export function idempotencyMiddleware(options: IdempotencyMiddlewareOptions = {}
       }
       if (cached && cached.pending) {
         // The original is still running — don't run the mutation a second time.
-        logger.debug('Idempotent request rejected (in progress)', { key: fullKey });
+        logger.debug('Idempotent request rejected (in progress)', { keyHash: logKey(fullKey) });
         return sendInProgress();
       }
 
@@ -411,7 +420,7 @@ export function idempotencyMiddleware(options: IdempotencyMiddlewareOptions = {}
         pendingTtlSec,
       );
       if (!won) {
-        logger.debug('Idempotent request rejected (lost reserve race)', { key: fullKey });
+        logger.debug('Idempotent request rejected (lost reserve race)', { keyHash: logKey(fullKey) });
         return sendInProgress();
       }
 
@@ -438,7 +447,7 @@ export function idempotencyMiddleware(options: IdempotencyMiddlewareOptions = {}
         if (settled) return;
         settled = true;
         store.delete(fullKey).catch((err) => {
-          logger.warn('Idempotency reservation release failed', { key: fullKey, error: errorMessage(err) });
+          logger.warn('Idempotency reservation release failed', { keyHash: logKey(fullKey), error: errorMessage(err) });
         });
       };
 
@@ -448,7 +457,7 @@ export function idempotencyMiddleware(options: IdempotencyMiddlewareOptions = {}
         if (streamed || /^text\/event-stream\b/i.test(contentType ?? '')) {
           // A streamed body can't be replayed faithfully (only the first chunk,
           // if anything, was seen) — skip storing and free the key.
-          logger.debug('Idempotency skipped for streamed response', { key: fullKey });
+          logger.debug('Idempotency skipped for streamed response', { keyHash: logKey(fullKey) });
           release();
           return;
         }
@@ -459,7 +468,7 @@ export function idempotencyMiddleware(options: IdempotencyMiddlewareOptions = {}
           ...(contentType ? { contentType } : {}),
           expiresAt: Date.now() + ttlMs,
         }, ttlSec).catch((err) => {
-          logger.warn('Idempotency store.set failed', { key: fullKey, error: errorMessage(err) });
+          logger.warn('Idempotency store.set failed', { keyHash: logKey(fullKey), error: errorMessage(err) });
         });
       };
 
@@ -546,7 +555,7 @@ export function idempotencyMiddleware(options: IdempotencyMiddlewareOptions = {}
       next();
     }).catch((err) => {
       // If the store backend is down, fail open — process the request normally.
-      logger.warn('Idempotency store.get failed; proceeding without dedup', { key: fullKey, error: errorMessage(err) });
+      logger.warn('Idempotency store.get failed; proceeding without dedup', { keyHash: logKey(fullKey), error: errorMessage(err) });
       next();
     });
   };

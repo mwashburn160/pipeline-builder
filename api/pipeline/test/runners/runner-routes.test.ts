@@ -98,6 +98,35 @@ describe('unavailable (paused / no secret encryption / no tables)', () => {
     expect(gate.body).toMatchObject({ code: 'RUNNERS_UNAVAILABLE', details: { reason } });
   });
 
+  /** The middleware of one route, in order (from the real router stack). */
+  const stackOf = (method: string, path: string): any[] => {
+    const layer = (router as unknown as { stack: any[] }).stack.find((l) => l.route?.path === path && l.route?.methods?.[method]);
+    return layer.route.stack.map((h: { handle: unknown }) => h.handle);
+  };
+  const gateOf = (method: string, path: string) => stackOf(method, path).find((h) => /^requireRunners/.test(h.name));
+  const runGate = async (gate: any) => { const r = res(); const next = jest.fn(); await gate({}, r, next); return { r, passed: next.mock.calls.length > 0 }; };
+
+  it('key writes are allowed while deliveries are paused (only encryption and tables gate them); runner writes are not', async () => {
+    const { RUNNERS_UNAVAILABLE_MESSAGES } = await import('../../src/runners/routing.js');
+    deps.availability.available = false;
+    deps.availability.reason = 'paused';
+    for (const [method, path] of [['post', '/runners/signing-key'], ['post', '/runners/signing-key/rotate'], ['delete', '/runners/signing-key/rotate'],
+      ['post', '/runners/signing-key/finish'], ['post', '/runners/signing-key/revoke'], ['put', '/runners/signing-key/mode']] as const) {
+      expect((await runGate(gateOf(method, path))).passed).toBe(true);
+    }
+    const blocked = await runGate(gateOf('post', '/runners'));
+    expect(blocked.passed).toBe(false);
+    expect(blocked.r.body).toMatchObject({ code: 'RUNNERS_UNAVAILABLE', message: RUNNERS_UNAVAILABLE_MESSAGES.paused, details: { reason: 'paused' } });
+    // Not set up at all: key writes are refused too, with the shared message.
+    deps.availability.reason = 'encryption_not_configured';
+    const key = await runGate(gateOf('post', '/runners/signing-key/rotate'));
+    expect(key.passed).toBe(false);
+    expect(key.r.body).toMatchObject({ code: 'RUNNERS_UNAVAILABLE', message: RUNNERS_UNAVAILABLE_MESSAGES.encryption_not_configured, details: { reason: 'encryption_not_configured' } });
+    // No reason given: the default every runner path uses (paused).
+    delete deps.availability.reason;
+    expect((await runGate(gateOf('post', '/runners'))).r.body).toMatchObject({ details: { reason: 'paused' }, message: RUNNERS_UNAVAILABLE_MESSAGES.paused });
+  });
+
   it('the gate passes when available; the run-request read is a 404 without the runner tables', async () => {
     const next = jest.fn();
     await requireRunnersAvailable({} as never, res() as never, next);
@@ -217,7 +246,9 @@ describe('signing-key routes', () => {
 
   it('every key write carries the 5-per-org-per-hour limit; the runner test its own', () => {
     const keyLimit = limiters.find((l) => l.opts.name === 'pipeline-runner-key-write')!;
-    expect(keyLimit.opts).toMatchObject({ max: 5, windowMs: 3_600_000 });
+    // Fail closed: a limit-store outage must not lift the key-write limit; the test limiter keeps the default.
+    expect(keyLimit.opts).toMatchObject({ max: 5, windowMs: 3_600_000, failClosed: true });
+    expect(limiters.find((l) => l.opts.name === 'pipeline-runner-test')!.opts.failClosed).toBeUndefined();
     const stack = (router as unknown as { stack: Array<{ route?: { path: string; methods: Record<string, boolean>; stack: Array<{ handle: unknown }> } }> }).stack;
     const keyRoutes = stack.filter((l) => l.route?.path.startsWith('/runners/signing-key'));
     expect(keyRoutes.map((l) => `${Object.keys(l.route!.methods)[0]} ${l.route!.path}`).sort()).toEqual([

@@ -174,6 +174,36 @@ describe('createOrgSignerCache', () => {
     await expect(failing.signerFor('o')).rejects.toThrow('nope');
     expect(failing.size()).toBe(0);
   });
+
+  it('a call made AFTER an invalidation never joins a resolution that started before it (the revoked key is not served)', async () => {
+    const releases: Array<() => void> = [];
+    let n = 0;
+    const resolve = jest.fn(async () => {
+      const mine = ++n;
+      await new Promise<void>((r) => { releases.push(r); });
+      return resolved(`k${mine}`, mine);
+    });
+    const cache = createOrgSignerCache({ resolve, version: async () => 0 });
+    const before = cache.signerFor('o');
+    cache.invalidate(['o']);
+    const after = cache.signerFor('o');
+    expect(resolve).toHaveBeenCalledTimes(2);
+    releases.forEach((r) => r());
+    expect((await before).kid).toBe('k1');
+    expect((await after).kid).toBe('k2');
+    // The fresh resolution is cached; the stale one's cleanup did not drop it.
+    expect(cache.size()).toBe(1);
+    expect((await cache.signerFor('o')).kid).toBe('k2');
+    expect(resolve).toHaveBeenCalledTimes(2);
+    // clear() (a resubscribe) is an invalidation too.
+    const r2 = jest.fn(async () => resolved('x', 1));
+    const c2 = createOrgSignerCache({ resolve: r2, version: async () => 0 });
+    const p1 = c2.signerFor('o');
+    c2.clear();
+    const p2 = c2.signerFor('o');
+    await Promise.all([p1, p2]);
+    expect(r2).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('signerFor: the owning org\'s effective key', () => {

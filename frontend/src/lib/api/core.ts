@@ -1257,6 +1257,11 @@ export class ApiCore {
         }
         this.throwIfRefreshUnavailable();
       }
+      // An expired impersonation token cannot be refreshed: end the session so
+      // the app routes back to the operator's own (mirrors send()).
+      if (response.status === 401 && this.isImpersonating()) {
+        this.notifySessionExpired();
+      }
       // Every service checks apiCalls now, the streaming generators included, so a
       // refused stream raises the same global notice a refused request does.
       if (response.status === 429 && data.code === 'QUOTA_EXCEEDED') {

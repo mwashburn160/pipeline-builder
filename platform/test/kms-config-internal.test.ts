@@ -67,7 +67,7 @@ describe('GET /internal/kms-config/:orgId', () => {
     const res = await call(ORG);
     expect(res.statusCode).toBe(200);
     expect(res.body.data).toEqual({ kmsConfig: { keyId: 'alias/acme', ciphertextBase64: 'AQICAHg=' } });
-    expect(selected).toEqual(['kmsConfig deletedAt']);
+    expect(selected).toEqual(['kmsConfig']);
   });
 
   it('lowercases the org id from the contract', async () => {
@@ -82,10 +82,15 @@ describe('GET /internal/kms-config/:orgId', () => {
     expect((await call(ORG)).body.data).toEqual({ kmsConfig: null });
   });
 
-  it('404 for an unknown or soft-deleted org; 400 for a malformed id', async () => {
-    expect((await call(ORG)).statusCode).toBe(404);
-    docs.set(ORG, { deletedAt: new Date(), kmsConfig: { keyId: 'k', ciphertextBase64: 'AQ==' } });
+  it('404 for an unknown org; 400 for a malformed id', async () => {
     expect((await call(ORG)).statusCode).toBe(404);
     expect((await call('not-an-id')).statusCode).toBe(400);
+  });
+
+  it('a soft-deleted org still gets its config during the retention window (same as platform\'s own resolver)', async () => {
+    docs.set(ORG, { deletedAt: new Date(), kmsConfig: { keyId: 'k', ciphertextBase64: 'AQ==' } });
+    const res = await call(ORG);
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data).toEqual({ kmsConfig: { keyId: 'k', ciphertextBase64: 'AQ==' } });
   });
 });

@@ -39,6 +39,7 @@ import {
   PIPELINE_RUNNERS_ANCHOR,
   RUNNER_UPDATE_COPY,
   asCidr,
+  isLiveRunner,
   isRunnerError,
   runnerBadge,
   runnerErrorCopy,
@@ -492,7 +493,9 @@ export function PipelineRunnersSettings({ orgId, readOnly = false, parentOrgName
   if (!dto || !dto.available) return null;
 
   const locked = readOnly || write.pending;
-  const showInstall = installOpen ?? dto.own.length === 0;
+  // A revoked runner stays listed but reaches nothing: it does not count as installed.
+  const liveOwn = dto.own.filter(isLiveRunner).length;
+  const showInstall = installOpen ?? liveOwn === 0;
   const widening = !!pending && pendingWidens(pending);
   const openPending = (p: PendingWrite) => { setWidenAck(false); setPending(p); };
   const unhealthy = [...dto.own, ...dto.inherited].filter((r) => r.status === 'active' && r.health === 'unreachable');
@@ -527,7 +530,7 @@ export function PipelineRunnersSettings({ orgId, readOnly = false, parentOrgName
               signingKey={dto.signingKey}
               readOnly={readOnly}
               locked={locked}
-              hasRunners={dto.own.length > 0}
+              hasRunners={liveOwn > 0}
               parentOrgName={parentOrgName}
               onWrite={openPending}
               onRefetch={read.refetch}
@@ -536,7 +539,7 @@ export function PipelineRunnersSettings({ orgId, readOnly = false, parentOrgName
 
           {showInstall && <InstallInstructions egressIps={dto.platformEgressIps ?? null} />}
 
-          {dto.own.length === 0 && (
+          {liveOwn === 0 && (
             <EmptyState
               compact
               title="No pipeline runners"

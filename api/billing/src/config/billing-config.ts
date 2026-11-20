@@ -16,7 +16,7 @@
  */
 import { QUOTA_RESET_DAYS, PLAN_TIERS, TIER_FEATURES, FEATURE_METADATA, SUPPORT_RESPONSE_TARGETS, VALID_TIERS, STANDARD_TIERS, SEAT_PACK_TIERS, envBool, isValidFeatureFlag, isValidTier, type PlanTier, type PlanTierLimits } from '@pipeline-builder/api-core';
 import type { BillingConfig, BillingPlanConfig, BundleConfig, ComboDiscountConfig } from './billing-types.js';
-import { snapUpPrice } from '../helpers/price-rounding.js';
+import { snapUpPrice, volumeLineCreditCents } from '../helpers/price-rounding.js';
 
 /** Per-unit quota deltas for a bundle — keys constrained to real quota fields
  *  (matches `BundleConfig.grants`), so a typo'd dimension fails to compile. */
@@ -446,9 +446,8 @@ function warnOnNonDiscountCombos(combos: ComboDiscountConfig[], bundles: BundleC
       const basket = combo.bundleIds.reduce((s, id) => {
         const b = byId.get(id);
         const qty = combo.minQuantities?.[id] ?? 1;
-        const rawUnit = b?.prices[interval] ?? 0;
-        const unit = Math.round((rawUnit * (100 - volumeDiscountPctAt(b, qty))) / 100);
-        return s + unit * qty;
+        const gross = (b?.prices[interval] ?? 0) * qty;
+        return s + gross - volumeLineCreditCents(gross, volumeDiscountPctAt(b, qty));
       }, 0);
       if (combo.prices[interval] >= basket) {
         // eslint-disable-next-line no-console

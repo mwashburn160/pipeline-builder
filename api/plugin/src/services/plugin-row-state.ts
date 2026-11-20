@@ -11,18 +11,21 @@
  * scoped by the explicit org ids — the parent's rows sit outside the caller's RLS).
  */
 
-import type { PluginLookupNotFoundState } from '@pipeline-builder/api-core';
+import { createLogger, type PluginLookupNotFoundState } from '@pipeline-builder/api-core';
 import { anyText, executeRows, isVersionRange, scopeOrgIds, type ResolutionScope } from '@pipeline-builder/pipeline-data';
 import { sql } from 'drizzle-orm';
 
 import { elevated } from './ecosystem/store.js';
 
+const logger = createLogger('plugin-row-state');
+
 /**
  * What the org's rows say: `live`, or one of api-core's lookup not-found states
  * (`PLUGIN_LOOKUP_NOT_FOUND_STATES`, the vocabulary a lookup 404 carries in
- * `details.state` and the CLI reads back).
+ * `details.state` and the CLI reads back). `excluded` is never answered here:
+ * it is what the lookup's 404 says for a `live` row.
  */
-export type PluginRowState = 'live' | PluginLookupNotFoundState;
+export type PluginRowState = 'live' | Exclude<PluginLookupNotFoundState, 'excluded'>;
 
 /** The state of the org rows `filter` names (by id, or by name and an exact version). */
 export async function pluginRowState(scope: ResolutionScope, filter: { id?: unknown; name?: unknown; version?: unknown }): Promise<PluginRowState> {
@@ -37,7 +40,14 @@ export async function pluginRowState(scope: ResolutionScope, filter: { id?: unkn
        AND ${byId ? sql`id::text = ${filter.id as string}` : sql`name = ${filter.name as string}`}
        ${exact && !byId ? sql`AND version = ${exact}` : sql``}
      LIMIT 200
-  `)).catch(() => []);
+  `)).catch((err: unknown) => {
+    // Read as `missing` (the 404 still answers), but not silently: the
+    // classification is wrong while the database is the problem.
+    logger.warn('Plugin row state read failed; reporting missing', {
+      ...(byId ? { id: filter.id } : { name: filter.name }), error: err instanceof Error ? err.message : String(err),
+    });
+    return [];
+  });
   if (rows.length === 0) return 'missing';
   const live = rows.filter((r) => !r.deleted);
   if (live.some((r) => r.active && !r.yanked)) return 'live';

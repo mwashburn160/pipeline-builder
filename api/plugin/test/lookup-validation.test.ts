@@ -283,6 +283,21 @@ describe('POST /plugins/lookup — filter validation', () => {
     rowState = 'missing';
   });
 
+  // A live org row the lookup still did not resolve must not 404 as state
+  // `live` (no not-found state; the CLI read it as unknown).
+  it.each([
+    [{ name: 'mine', version: '1.0.0' }],
+    [{ id: '00000000-0000-0000-0000-000000000001' }],
+  ])('a 404 over a live-but-excluded row says excluded, never live (%o)', async (filter) => {
+    mockFind.mockResolvedValue(null);
+    mockResolveListed.mockResolvedValue(null);
+    rowState = 'live';
+    const { res } = makeRes();
+    await getLookupHandler()({ body: { filter } }, res);
+    expect(mockSendError).toHaveBeenCalledWith(res, 404, 'Plugin not found.', 'NOT_FOUND', { reason: 'not_found', state: 'excluded' });
+    rowState = 'missing';
+  });
+
   it('refuses 410 PLUGIN_DELETED rather than falling through to a same-named listing', async () => {
     mockFind.mockResolvedValue(null);
     rowState = 'deleted';

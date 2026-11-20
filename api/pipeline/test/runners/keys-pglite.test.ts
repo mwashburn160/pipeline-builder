@@ -10,7 +10,7 @@
  */
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from '@jest/globals';
-import { resetDefaultKeyProvider } from '@pipeline-builder/api-core';
+import { EnvKeyProvider, resetDefaultKeyProvider } from '@pipeline-builder/api-core';
 import { bootTenantDb, type TenantTestDb } from '@pipeline-builder/pipeline-data/testing';
 
 process.env.JWT_SECRET ||= 'runner-keys-pglite-test-secret';
@@ -21,7 +21,7 @@ delete process.env.SECRET_ENCRYPTION_KEY_PREVIOUS;
 
 const { createDrizzleKeyStore } = await import('../../src/runners/key-store.js');
 const { keySecrets } = await import('../../src/runners/key-crypto.js');
-const { reencryptRunnerKeys } = await import('../../src/runners/key-reencrypt.js');
+const { reencryptProviders, reencryptRunnerKeys } = await import('../../src/runners/key-reencrypt.js');
 const { generateOrgKey, promoteDueKeys, revokeOrgKey, rotateOrgKey, setOrgKeyMode } = await import('../../src/runners/keys.js');
 const { keyedDeps } = await import('../helpers/key-fakes.js');
 const { ORG, PARENT } = await import('../helpers/runner-fakes.js');
@@ -168,5 +168,25 @@ describe('re-encryption and unreadable keys (real secret encryption)', () => {
     const result = await reencryptRunnerKeys(d, { orgId: A, previousKmsConfig: null });
     expect(result).toEqual({ scanned: 1, reencrypted: 1, failures: [] });
     expect(d.audits).toContainEqual(expect.objectContaining({ action: 'pipeline.runner.key.reencrypt', targetId: A, affectedOrgId: A }));
+  });
+
+  it('one org, re-run: a second run, and one after a partial run, leave every row readable (rows already under the new config count as done)', async () => {
+    // The org moves from the shared provider to its own KMS key (stand-ins: two env masters).
+    const shared = new EnvKeyProvider(MASTER_A);
+    const cmk = new EnvKeyProvider('c'.repeat(64));
+    const src = { current: () => cmk, base: () => shared, previous: () => shared };
+    const d = deps();
+    d.secrets = keySecrets(() => shared) as never;
+    await generateOrgKey(d, A, user);
+    const input = { orgId: A, previousKmsConfig: null };
+    expect(await reencryptRunnerKeys(d, input, reencryptProviders(input, src))).toMatchObject({ scanned: 1, reencrypted: 1, failures: [] });
+    // Platform retries the same call (the first answer was lost): nothing fails.
+    expect(await reencryptRunnerKeys(d, input, reencryptProviders(input, src))).toMatchObject({ scanned: 1, reencrypted: 1, failures: [] });
+    // A partial run: one row was written under the old provider after the first pass.
+    await rotateOrgKey(d, A, user);
+    expect(await reencryptRunnerKeys(d, input, reencryptProviders(input, src))).toMatchObject({ scanned: 2, reencrypted: 2, failures: [] });
+    const after = deps();
+    after.secrets = keySecrets(() => cmk) as never;
+    for (const k of await store.publishedKeys([A])) await expect(after.secrets.decrypt(k.privateKeyEnc!, A)).resolves.toContain('PRIVATE KEY');
   });
 });

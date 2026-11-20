@@ -21,7 +21,7 @@ import { withRoute, createAuthenticatedWithOrgRoute, incCounter } from '@pipelin
 import type { RouteContext, SSEManager } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { ownRootMessageRefusal } from '../helpers/message-authz.js';
-import { signalUnreadCountChanged } from '../helpers/new-message.js';
+import { BROADCAST, signalUnreadCountChanged } from '../helpers/new-message.js';
 import { messageService } from '../services/message-service.js';
 
 /** What happened to one id: deleted, not visible to the caller, or refused. */
@@ -94,14 +94,17 @@ async function deleteOne(
     },
   });
 
-  // Notify the other party (or both, when sysadmin-deleting) about the deletion.
+  // Notify the other party (or both, when sysadmin-deleting) about the deletion;
+  // an announcement sits in every org's inbox, so its deletion goes to all.
   try {
-    if (deleted.recipientOrgId && deleted.recipientOrgId !== '*') {
-      const payload = {
-        action: 'MESSAGE_DELETED' as const,
-        messageId: id,
-        threadId: deleted.threadId || undefined,
-      };
+    const payload = {
+      action: 'MESSAGE_DELETED' as const,
+      messageId: id,
+      threadId: deleted.threadId || undefined,
+    };
+    if (deleted.recipientOrgId === BROADCAST) {
+      sseManager.broadcast('MESSAGE', 'Message deleted', payload);
+    } else if (deleted.recipientOrgId) {
       if (sysadmin) {
         sseManager.send(deleted.orgId.toLowerCase(), 'MESSAGE', 'Message deleted', payload);
         sseManager.send(deleted.recipientOrgId.toLowerCase(), 'MESSAGE', 'Message deleted', payload);

@@ -60,12 +60,15 @@ describe('pipeline-runners catalog', () => {
   });
 
   it('retries only the runner answers that are transient', () => {
-    expect(RUNNER_ERROR_CODES.filter((c) => RUNNER_ERRORS[c].retryable).sort()).toEqual(['DUPLICATE', 'NOT_YET_VISIBLE', 'RUNNER_ERROR']);
+    // RUNNER_ERROR in a runner's own 4xx reply is final (a bare 5xx is retried as a transport failure, whatever its body).
+    expect(RUNNER_ERROR_CODES.filter((c) => RUNNER_ERRORS[c].retryable).sort()).toEqual(['DUPLICATE', 'NOT_YET_VISIBLE']);
     for (const c of RUNNER_ERROR_CODES) if (RUNNER_ERRORS[c].retryable) expect(RUNNER_ERRORS[c].category).toBe('runner');
   });
 
   it('partitions the codes by category', () => {
-    expect(RUNNER_API_ERROR_CODES.length + RUNNER_REPLY_ERROR_CODES.length + 2).toBe(RUNNER_ERROR_CODES.length);
+    // + the recorded ones: RUN_REQUEST_EXPIRED, NO_MATCH, RUNNER_NOT_ELIGIBLE.
+    expect(RUNNER_API_ERROR_CODES.length + RUNNER_REPLY_ERROR_CODES.length + 3).toBe(RUNNER_ERROR_CODES.length);
+    expect(RUNNER_ERRORS.RUNNER_NOT_ELIGIBLE).toEqual({ httpStatus: null, retryable: false, category: 'recorded' });
     expect(isRunnerErrorCode('NO_RUNNER')).toBe(true);
     expect(isRunnerErrorCode('toString')).toBe(false);
     expect(isRunnerErrorCode(undefined)).toBe(false);
@@ -140,6 +143,9 @@ describe('signing-key catalog', () => {
     expect(runnerKeyAgeDays(new Date('2026-11-19T11:00:00Z'), now)).toBe(0);
     expect(runnerKeyAgeDays('2026-11-20T00:00:00Z', now)).toBe(0);
     expect(runnerKeyAgeDays('not a date', now)).toBe(0);
+    // An unparseable `now` must not leak NaN into the DTO's ageDays / the age gauge.
+    expect(runnerKeyAgeDays('2025-11-19T12:00:00Z', new Date('nope'))).toBe(0);
+    expect(runnerKeyAgeDays('2025-11-19T12:00:00Z', Number.NaN)).toBe(0);
   });
 });
 
@@ -163,11 +169,48 @@ describe('tunable limits', () => {
   it('reads a valid override and falls back on anything else', () => {
     expect(runnerTunable('MAX_PENDING_PER_ORG', {})).toBe(500);
     expect(runnerTunable('MAX_PENDING_PER_ORG', { MAX_PENDING_PER_ORG: ' 1200 ' })).toBe(1200);
-    expect(runnerTunable('MAX_PENDING_PER_ORG', { MAX_PENDING_PER_ORG: '7.9' })).toBe(7);
     expect(runnerTunable('MAX_PENDING_PER_ORG', { MAX_PENDING_PER_ORG: '' })).toBe(500);
-    expect(runnerTunable('MAX_PENDING_PER_ORG', { MAX_PENDING_PER_ORG: 'lots' })).toBe(500);
-    expect(runnerTunable('MAX_PENDING_PER_ORG', { MAX_PENDING_PER_ORG: '0' })).toBe(500);
-    expect(runnerTunable('RUNNER_HEALTH_PING_INTERVAL_SECONDS', { RUNNER_HEALTH_PING_INTERVAL_SECONDS: '5' })).toBe(60);
+    expect(runnerTunable('MAX_PENDING_PER_ORG', { MAX_PENDING_PER_ORG: 'lots' }, () => undefined)).toBe(500);
+    expect(runnerTunable('MAX_PENDING_PER_ORG', { MAX_PENDING_PER_ORG: '0' }, () => undefined)).toBe(500);
+    expect(runnerTunable('RUNNER_HEALTH_PING_INTERVAL_SECONDS', { RUNNER_HEALTH_PING_INTERVAL_SECONDS: '5' }, () => undefined)).toBe(60);
+  });
+
+  it('accepts digits only: a fraction, sign, exponent, hex or unit falls back to the default with one warning per value', () => {
+    const warnings: string[] = [];
+    const warn = (m: string) => { warnings.push(m); };
+    for (const raw of ['7.9', '1e3', '0x10', '+20', '-5', '20s', '1_000', 'Infinity']) {
+      expect(runnerTunable('MAX_PENDING_PER_ORG', { MAX_PENDING_PER_ORG: raw }, warn)).toBe(500);
+    }
+    expect(warnings).toHaveLength(8);
+    expect(warnings[0]).toMatch(/MAX_PENDING_PER_ORG.*"7\.9".*500/);
+    // The same bad value again is not warned twice (settings are re-read per request).
+    runnerTunable('MAX_PENDING_PER_ORG', { MAX_PENDING_PER_ORG: '7.9' }, warn);
+    expect(warnings).toHaveLength(8);
+    // Unset and blank are the default without a warning; plain digits are taken.
+    runnerTunable('MAX_PENDING_PER_ORG', {}, warn);
+    runnerTunable('MAX_PENDING_PER_ORG', { MAX_PENDING_PER_ORG: '  ' }, warn);
+    expect(runnerTunable('MAX_PENDING_PER_ORG', { MAX_PENDING_PER_ORG: '0042' }, warn)).toBe(42);
+    expect(warnings).toHaveLength(8);
+    // Below the minimum is warned too.
+    expect(runnerTunable('MAX_PENDING_PER_ORG', { MAX_PENDING_PER_ORG: '0' }, warn)).toBe(500);
+    expect(warnings).toHaveLength(9);
+  });
+});
+
+describe('RunnerKeyServiceUnavailableError', () => {
+  it('is a transient RUNNERS_UNAVAILABLE (never RUNNER_KEY_UNREADABLE), recognised by class or by name', () => {
+    const err = new catalog.RunnerKeyServiceUnavailableError('kms_config', 'lookup failed', { cause: new Error('HTTP 503') });
+    expect(err).toBeInstanceOf(Error);
+    expect(err).toMatchObject({ name: 'RunnerKeyServiceUnavailableError', code: 'RUNNERS_UNAVAILABLE', source: 'kms_config', message: 'lookup failed' });
+    expect(catalog.RUNNER_ERRORS[err.code].retryable).toBe(false);
+    expect(catalog.isRunnerKeyServiceUnavailable(err)).toBe(true);
+    // Another bundle's copy of the class.
+    const copy = Object.assign(new Error('x'), { name: 'RunnerKeyServiceUnavailableError', code: 'RUNNERS_UNAVAILABLE' });
+    expect(catalog.isRunnerKeyServiceUnavailable(copy)).toBe(true);
+    for (const other of [new Error('Unsupported state or unable to authenticate data'), { code: 'RUNNERS_UNAVAILABLE' }, null, 'x']) {
+      expect(catalog.isRunnerKeyServiceUnavailable(other)).toBe(false);
+    }
+    expect(catalog.RUNNER_KEY_SERVICE_SOURCES).toEqual(['kms_config', 'kms']);
   });
 });
 

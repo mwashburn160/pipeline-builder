@@ -589,7 +589,9 @@ class OrgMembersService {
     let oldOwnerId: string | undefined;
     await withMongoTransaction(async (session) => {
       const org = await Organization.findById(toOrgId(orgId)).session(session);
-      if (!org) throw new Error(OM_ORG_NOT_FOUND);
+      // A soft-deleted org is gone for every member-facing write: ownership of
+      // one cannot be handed on during its retention window.
+      if (!org || (org as { deletedAt?: Date | null }).deletedAt) throw new Error(OM_ORG_NOT_FOUND);
 
       const oldOwnerMembership = await UserOrganization.findOne({
         organizationId: toOrgId(orgId), role: 'owner',
@@ -641,7 +643,8 @@ class OrgMembersService {
   /** Check if the caller is the org owner — used by ownership-transfer authz. */
   async isOrgOwner(orgId: string, userId: string): Promise<boolean> {
     const org = await Organization.findById(toOrgId(orgId));
-    return !!org && org.owner.toString() === userId;
+    // Nobody owns a soft-deleted org for authorization purposes.
+    return !!org && !(org as { deletedAt?: Date | null }).deletedAt && org.owner.toString() === userId;
   }
 
   /**

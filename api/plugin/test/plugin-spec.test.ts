@@ -166,6 +166,42 @@ dockerfile: "/etc/passwd"
     expect(fs.existsSync(path.join(result.extractDir, '.env.example'))).toBe(true);
   });
 
+  it.each([
+    ['.envrc', 'export TOKEN=hunter2', 'direnv file'],
+    ['config/prod.env', 'TOKEN=hunter2', 'dotenv file'],
+    ['certs/client.p12', 'binary', 'PKCS#12 key bundle'],
+    ['home/.kube/config', 'apiVersion: v1', 'Kubernetes kubeconfig'],
+    ['gcloud/application_default_credentials.json', '{}', 'gcloud application-default credentials'],
+    ['tls/server.pem', '-----BEGIN CERTIFICATE-----\nAA\n-----END CERTIFICATE-----\n-----BEGIN EC PRIVATE KEY-----\nAA\n-----END EC PRIVATE KEY-----\n', 'private key'],
+    ['tls/server.key', '-----BEGIN PRIVATE KEY-----\nAA\n-----END PRIVATE KEY-----\n', 'private key'],
+    ['deploy/sa.json', '{"type": "service_account", "project_id": "p", "private_key": "-----BEGIN PRIVATE KEY-----"}', 'cloud service-account key'],
+    ['.npmrc', '//registry.npmjs.org/:_authToken=npm_abc123', 'npm auth token (.npmrc)'],
+    ['.yarnrc.yml', 'npmAuthToken: npm_abc123', 'npm auth token (.yarnrc.yml)'],
+  ])('refuses a ZIP carrying %s (decided by name or by its content)', async (secretPath, content, label) => {
+    const zipPath = buildZip({
+      'plugin-spec.yaml': 'name: leaky\nversion: "1.0.0"\ncommands:\n  - make\n',
+      'Dockerfile': 'FROM node:20',
+      [secretPath]: content,
+    });
+    await expect(parsePluginZip(zipPath)).rejects.toThrow(`ZIP entry ${secretPath} looks like a ${label}`);
+  });
+
+  it('allows certificates, public keys, ordinary JSON and token-free npm config (content guards)', async () => {
+    const zipPath = buildZip({
+      'plugin-spec.yaml': 'name: tidy\nversion: "1.0.0"\ncommands:\n  - make\n',
+      'Dockerfile': 'FROM node:20',
+      'certs/ca.pem': '-----BEGIN CERTIFICATE-----\nAA\n-----END CERTIFICATE-----\n',
+      'apt/docker.key': '-----BEGIN PGP PUBLIC KEY BLOCK-----\nAA\n-----END PGP PUBLIC KEY BLOCK-----\n',
+      'package.json': '{"name": "x", "type": "module"}',
+      '.npmrc': 'registry=https://registry.npmjs.org/\n//registry.npmjs.org/:_authToken=${NPM_TOKEN}\n',
+      '.yarnrc.yml': 'nodeLinker: node-modules\n',
+      'example.env': 'TOKEN=',
+    });
+    const result = await parsePluginZip(zipPath);
+    expect(fs.existsSync(path.join(result.extractDir, 'certs/ca.pem'))).toBe(true);
+    expect(fs.existsSync(path.join(result.extractDir, '.npmrc'))).toBe(true);
+  });
+
   // Accepted, a build_image upload with no Dockerfile only failed later in the
   // build — on a missing file every retry would miss again. Refused at upload
   // with the missing path named instead.

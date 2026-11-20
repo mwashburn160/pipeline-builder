@@ -192,8 +192,10 @@ function promotionFloorBreach(
   subscription: SubscriptionDocument,
   cents: number,
   planPriceCents: number,
+  /** Other promotion credit already standing against the same invoice (the per-period pass). */
+  otherPromotionCents = 0,
 ): { listCents: number; standingCreditCents: number; budgetCents: number } | null {
-  const standingExtraCents = recurringDiscountStandingCents(subscription, planPriceCents, getBundleCatalog());
+  const standingExtraCents = recurringDiscountStandingCents(subscription, planPriceCents, getBundleCatalog()) + otherPromotionCents;
   const breach = discountFloorBreach(
     { planPriceCents, addons: subscription.addons ?? [], interval: subscription.interval, bundles: getBundleCatalog(), standingExtraCents },
     cents,
@@ -587,14 +589,22 @@ export async function grantRecurringPromotions(subscription: SubscriptionDocumen
   const promos = (await Promotion.find({ isActive: true, kind: 'recurring' }))
     .filter((p) => inWindow(p, now) && matchesConditions(p.trigger?.conditions, ctx));
 
+  // Promotion credit already standing against THIS period's invoice — granted
+  // earlier in this pass, or in an earlier pass for the same period. Each
+  // promotion is floored against it, or two that each fit alone are both granted
+  // when together they breach the floor.
+  let periodPromotionCents = 0;
   for (const promo of promos) {
     const dedupeKey = `promo:${promo._id}:${subscription.orgId}:${periodKey}`;
-    if (subscription.creditLedger?.some((l) => l.dedupeKey === dedupeKey)) continue; // this period already granted
     const cents = promotionCreditCents(promo, ctx.planPriceCents);
+    if (subscription.creditLedger?.some((l) => l.dedupeKey === dedupeKey)) { // this period already granted
+      periodPromotionCents += Math.max(0, cents);
+      continue;
+    }
     if (cents <= 0) continue;
     // The floor, per period, for the same reason the recurring DISCOUNT re-grant
     // clamps to it: the composition moves after the promotion starts standing.
-    if (promotionFloorBreach(promo, subscription, cents, ctx.planPriceCents)) {
+    if (promotionFloorBreach(promo, subscription, cents, ctx.planPriceCents, periodPromotionCents)) {
       emitCounter('billing_promotion_floor_refused_total', { kind: promo.kind });
       continue;
     }
@@ -635,12 +645,14 @@ export async function grantRecurringPromotions(subscription: SubscriptionDocumen
         await releaseBoth();
         continue;
       }
+      periodPromotionCents += cents;
       await createBillingEvent(subscription.orgId, 'promotion_granted', { promotionId: promo._id, cents, campaign: promo.campaign, periodKey }, subscription._id.toString());
       continue;
     }
     // In-memory grant (the Marketplace metering caller saves the subscription).
     subscription.creditBalanceCents = (subscription.creditBalanceCents ?? 0) + cents;
     subscription.creditLedger.push(creditLedgerEntry({ discountId: ledgerId(promo._id), cents, fulfillmentRef: ref, dedupeKey, campaign: promo.campaign }));
+    periodPromotionCents += cents;
     await createBillingEvent(subscription.orgId, 'promotion_granted', { promotionId: promo._id, cents, campaign: promo.campaign, periodKey }, subscription._id.toString());
   }
 

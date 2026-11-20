@@ -176,6 +176,11 @@ describe('G5 caps', () => {
       .toMatchObject({ runRequestsPerMinute: 12, maxPendingPerOrg: 20, maxInFlightPerRunner: 2, healthPingIntervalMs: 30_000, unhealthyAfterPings: 3 });
     expect(runnerSettings({ RUNNER_HEALTH_PING_INTERVAL_SECONDS: '5', MAX_PENDING_PER_ORG: '0' })).toMatchObject({ healthPingIntervalMs: 60_000, maxPendingPerOrg: 500 });
   });
+
+  it('a tunable must be digits only: a fraction or exponent is the default, not a truncation', () => {
+    expect(runnerSettings({ MAX_PENDING_PER_ORG: '7.9', RUN_REQUESTS_PER_MINUTE: '1e2', MAX_IN_FLIGHT_PER_RUNNER: '4 ' }))
+      .toMatchObject({ maxPendingPerOrg: 500, runRequestsPerMinute: 6, maxInFlightPerRunner: 4 });
+  });
 });
 
 describe('G7 MIN_RUNNER_VERSION', () => {

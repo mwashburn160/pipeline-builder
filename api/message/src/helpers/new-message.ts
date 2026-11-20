@@ -5,7 +5,7 @@ import { ErrorCode, errorMessage } from '@pipeline-builder/api-core';
 import type { RouteContext, SSEManager } from '@pipeline-builder/api-server';
 
 /** The broadcast recipient — reserved for sysadmin announcements. */
-const BROADCAST = '*';
+export const BROADCAST = '*';
 
 export interface RecipientInput {
   messageType: 'announcement' | 'conversation';

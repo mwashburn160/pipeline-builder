@@ -6,15 +6,19 @@
  * directory IS the zip root). A small, dependency-free ZIP writer: DEFLATE
  * entries, regular files only — symlinks and anything outside the directory
  * are refused, which the server would refuse anyway. So are credential files
- * (`.env`, SSH keys, `.aws/credentials`, … — api-core's `SECRET_FILE_KINDS`,
- * the catalog the upload refuses by): refused here, before anything is
- * uploaded, so the secret never leaves this machine.
+ * (`.env`, SSH keys, `.aws/credentials`, a private-key `.pem`, a token-bearing
+ * `.npmrc`, … — api-core's `SECRET_FILE_KINDS`, the catalog the upload refuses
+ * by; content-decided kinds are judged on the local file's leading bytes):
+ * refused here, before anything is uploaded, so the secret never leaves this
+ * machine.
  */
 
 import fs from 'fs';
 import path from 'path';
 import zlib from 'zlib';
-import { SECRET_FILE_KINDS, secretFileKind } from '@pipeline-builder/api-core';
+import {
+  SECRET_FILE_CONTENT_SCAN_BYTES, SECRET_FILE_KINDS, secretFileKind, secretFileNeedsContent,
+} from '@pipeline-builder/api-core';
 
 /** Never packaged: build outputs and VCS/editor state. */
 const EXCLUDED = new Set(['.git', '.DS_Store', 'node_modules', 'plugin.zip']);
@@ -43,12 +47,16 @@ export function collectPluginFiles(dir: string, opts: { includeImageTar: boolean
       if (st.isDirectory()) {
         walk(full);
       } else if (st.isFile()) {
-        const kind = secretFileKind(rel);
+        const data = fs.readFileSync(full);
+        // A `.pem`, `.json`, `.npmrc`, … is decided by what it holds: pass its leading text.
+        const kind = secretFileKind(rel, secretFileNeedsContent(rel)
+          ? data.subarray(0, SECRET_FILE_CONTENT_SCAN_BYTES).toString('utf-8')
+          : undefined);
         if (kind) {
           throw new Error(`Refusing to package ${rel}: it looks like a ${SECRET_FILE_KINDS[kind].label}. `
             + 'Remove it from the plugin directory (pass secrets through the plugin spec `secrets` instead)');
         }
-        entries.push({ name: rel, data: fs.readFileSync(full) });
+        entries.push({ name: rel, data });
       }
     }
   };

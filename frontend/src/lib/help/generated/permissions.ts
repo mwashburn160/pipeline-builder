@@ -1,6 +1,6 @@
 // GENERATED FROM docs/permissions.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 1e9f4be9a442cfb5a7d2e5669a6a0c24feb8108aa6a3a29d8561afd3b10a5402
+// SOURCE-SHA256: fa11efdfd003335a26ec613a7fe78a33e1dd15b349c87c6062f6574c9be5e284
 // SPDX-License-Identifier: Apache-2.0
 import { UserCog } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1430,6 +1430,10 @@ export const permissionsTopic: HelpTopic = {
               "…and the admin/owner label as well — a CEILING, with its own error, because onboarding people is not the same act as minting a peer who holds every org-assignable permission"
             ]
           ]
+        },
+        {
+          "type": "text",
+          "content": "The token is never stored. The accept token is a bearer credential, so the invitation row keeps only its SHA-256 (tokenHash), and accept, the public preview (GET /invitation/:token) and registration-by-invitation look it up by hash. The plaintext exists only in the emailed link — and, once, as acceptUrl in the send or resend response when no email carried it (delivery is not sent). Because the plaintext can't be read back, resend mints a new token: the previously emailed link stops working. Listings and the org export carry neither the token nor its hash."
         },
         {
           "type": "text",

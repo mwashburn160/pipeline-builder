@@ -37,6 +37,7 @@ import {
 import { audit } from '../helpers/audit.js';
 import { requireSystemAdmin, withController } from '../helpers/controller-helper.js';
 import { toOrgId } from '../helpers/org-id.js';
+import { activeKmsConfig } from '../helpers/org-kms-config.js';
 import { Organization } from '../models/index.js';
 import { reencryptRunnerSigningKeys, type RunnerKeyReencryptResult } from '../services/runner-key-reencrypt.js';
 import { captureOrgSecrets, reencryptOrgSecrets } from '../services/secret-reencrypt.js';
@@ -62,11 +63,6 @@ function evictPerOrgCache(orgId: string): void {
   }
 }
 
-/** The org's current per-org config, or null when it has none (the shared provider). */
-function currentKmsConfig(cfg: { keyId?: string; ciphertextBase64?: string } | undefined): { keyId: string; ciphertextBase64: string } | null {
-  return cfg?.keyId && cfg?.ciphertextBase64 ? { keyId: cfg.keyId, ciphertextBase64: cfg.ciphertextBase64 } : null;
-}
-
 /** Audit / response fields for the pipeline service's runner-key re-encrypt. */
 function runnerKeyDetails(result: RunnerKeyReencryptResult): Record<string, unknown> {
   return result.ok
@@ -81,8 +77,8 @@ export const getOrgKmsConfig = withController('Get org KMS config', async (req, 
   const org = await Organization.findById(toOrgId(orgId)).select('kmsConfig').lean();
   if (!org) return sendError(res, 404, 'Organization not found');
 
-  const cfg = org.kmsConfig;
-  if (!cfg?.keyId || !cfg?.ciphertextBase64) {
+  const cfg = activeKmsConfig(org.kmsConfig);
+  if (!cfg) {
     return sendSuccess(res, 200, { configured: false });
   }
   // Return only the keyId — the ciphertext is intentionally elided. See
@@ -101,11 +97,13 @@ export const getOrgKmsConfig = withController('Get org KMS config', async (req, 
  *  4. Ask the pipeline service to re-wrap the org's runner signing keys
  *     (Postgres), handing it the config they were written under.
  *
- * Opt out with `?reencrypt=false` only when you know the org has no
- * stored secrets yet — otherwise existing secrets (and runner signing keys)
- * become unreadable. A runner-key failure is reported (500, audited), never
- * swallowed: the config is saved by then, so the operator must rerun the
- * pipeline re-encrypt for the org.
+ * `?reencrypt=false` skips phases 1 and 3 only (the platform Mongo secrets):
+ * use it only when the org has no stored platform secrets yet, or to push past
+ * an unreadable row — those secrets become unreadable. Phase 4 always runs:
+ * the runner keys are independent of the Mongo capture, and once the config is
+ * saved the previous one survives only in this request. A runner-key failure
+ * is reported (500, audited), never swallowed: the config is saved by then, so
+ * the operator must rerun the pipeline re-encrypt for the org.
  */
 export const putOrgKmsConfig = withController('Put org KMS config', async (req, res) => {
   if (!requireSystemAdmin(req, res)) return;
@@ -132,38 +130,36 @@ export const putOrgKmsConfig = withController('Put org KMS config', async (req, 
       });
       return sendError(
         res, 409,
-        `Cannot rotate KMS config: failed to decrypt existing secrets under the current provider. ${errorMessage(err)}. Repair the failing row OR retry with ?reencrypt=false (existing secrets will become unreadable).`,
+        `Cannot rotate KMS config: failed to decrypt existing platform secrets under the current provider. ${errorMessage(err)}. Repair the failing row OR retry with ?reencrypt=false, which skips only the platform secret re-encrypt (existing platform secrets — AI provider keys, the SSO client secret — will become unreadable; the org's runner signing keys are still re-wrapped).`,
       );
     }
   }
 
-  const previousKmsConfig = currentKmsConfig(org.kmsConfig);
+  const previousKmsConfig = activeKmsConfig(org.kmsConfig);
   org.kmsConfig = { keyId: parsed.keyId, ciphertextBase64: parsed.ciphertextBase64 };
   org.markModified('kmsConfig');
   await org.save();
 
   evictPerOrgCache(orgId);
 
+  // Once the config is saved the previous one survives only in this request,
+  // so the runner keys are re-wrapped even when the Mongo pass failed —
+  // skipping them would strand them under a config nothing can name again.
   let reencryptCounts;
+  let secretsError: string | undefined;
   if (reencrypt && captured) {
     try {
       reencryptCounts = await reencryptOrgSecrets(orgId, captured);
     } catch (err) {
       // Mid-flight failure: secrets are partially re-encrypted. Surface
       // the error loud so on-call can finish the migration manually.
-      logger.error('KMS rotation: re-encryption failed after config change', {
-        orgId,
-        error: errorMessage(err),
-      });
-      return sendError(
-        res, 500,
-        `KMS config saved but re-encryption failed mid-flight: ${errorMessage(err)}. Some secrets may now be unreadable. Re-enter them via their respective admin endpoints.`,
-      );
+      secretsError = errorMessage(err);
+      logger.error('KMS rotation: re-encryption failed after config change', { orgId, error: secretsError });
     }
   }
 
-  const runnerKeys = reencrypt ? await reencryptRunnerSigningKeys({ orgId, previousKmsConfig }) : undefined;
-  if (runnerKeys && !runnerKeys.ok) {
+  const runnerKeys = await reencryptRunnerSigningKeys({ orgId, previousKmsConfig });
+  if (!runnerKeys.ok) {
     logger.error('KMS rotation: runner signing key re-encryption failed after config change', { orgId, error: runnerKeys.error });
   }
 
@@ -171,17 +167,31 @@ export const putOrgKmsConfig = withController('Put org KMS config', async (req, 
     targetType: 'org-kms-config',
     targetId: orgId,
     affectedOrgId: orgId,
-    details: { keyId: parsed.keyId, ...(reencryptCounts ?? {}), ...(runnerKeys ? runnerKeyDetails(runnerKeys) : {}) },
+    details: {
+      keyId: parsed.keyId,
+      ...(reencryptCounts ?? {}),
+      ...(secretsError ? { secretsReencryptError: secretsError } : {}),
+      ...runnerKeyDetails(runnerKeys),
+    },
+    ...(secretsError || !runnerKeys.ok ? { outcome: 'failure' as const } : {}),
   });
 
-  if (runnerKeys && !runnerKeys.ok) {
+  if (secretsError) {
+    const runnerNote = !runnerKeys.ok ? ` Also, ${runnerKeys.error}.` : '';
     return sendError(
       res, 500,
-      `KMS config saved and platform secrets re-encrypted, but ${runnerKeys.error}. That org's pipeline runners cannot sign until the pipeline re-encrypt is rerun for it.`,
+      `KMS config saved but re-encryption failed mid-flight: ${secretsError}. Some secrets may now be unreadable. Re-enter them via their respective admin endpoints.${runnerNote}`,
     );
   }
 
-  sendSuccess(res, 200, { configured: true, keyId: parsed.keyId, ...(reencryptCounts ?? {}), ...(runnerKeys ? runnerKeyDetails(runnerKeys) : {}) });
+  if (!runnerKeys.ok) {
+    return sendError(
+      res, 500,
+      `KMS config saved${reencrypt ? ' and platform secrets re-encrypted' : ''}, but ${runnerKeys.error}. That org's pipeline runners cannot sign until the pipeline re-encrypt is rerun for it.`,
+    );
+  }
+
+  sendSuccess(res, 200, { configured: true, keyId: parsed.keyId, ...(reencryptCounts ?? {}), ...runnerKeyDetails(runnerKeys) });
 });
 
 /** DELETE /api/admin/orgs/:orgId/kms-config */
@@ -196,7 +206,7 @@ export const deleteOrgKmsConfig = withController('Delete org KMS config', async 
     return sendSuccess(res, 200, { configured: false, message: 'No KMS config to clear' });
   }
 
-  const previousKmsConfig = currentKmsConfig(org.kmsConfig);
+  const previousKmsConfig = activeKmsConfig(org.kmsConfig);
   org.kmsConfig = undefined;
   org.markModified('kmsConfig');
   await org.save();
@@ -214,6 +224,7 @@ export const deleteOrgKmsConfig = withController('Delete org KMS config', async 
     targetId: orgId,
     affectedOrgId: orgId,
     details: runnerKeyDetails(runnerKeys),
+    ...(runnerKeys.ok ? {} : { outcome: 'failure' as const }),
   });
 
   if (!runnerKeys.ok) {

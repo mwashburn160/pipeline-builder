@@ -217,6 +217,13 @@ function auditInviterExitRevocations(
   }
 }
 
+/** Whether a path user id names the caller. ObjectId hex is case-insensitive
+ *  (Mongo casts `AAAA…` and `aaaa…` to the same id), so the self-guards compare
+ *  case-folded — an exact compare let a re-cased id slip past them. */
+function isSelf(callerId: string, pathUserId: string): boolean {
+  return callerId.toLowerCase() === pathUserId.toLowerCase();
+}
+
 /** DELETE /organization/:id/members/:userId */
 export const removeMemberFromOrganization = withController('Remove member', async (req, res) => {
   if (!ensureAuthenticated(req, res)) return;
@@ -225,7 +232,9 @@ export const removeMemberFromOrganization = withController('Remove member', asyn
   const userId = req.params.userId as string;
   const admin = getAdminContext(req);
   if (!(await requireOrgScope(req, res, id))) return;
-  if (admin.isOrgAdmin && userId === req.user!.sub) {
+  // Refused for every caller (superadmin included), the same rule as
+  // deactivate: removing your own membership is a lock-out from inside the org.
+  if (isSelf(req.user!.sub, userId)) {
     return sendError(res, 400, 'Cannot remove yourself from the organization');
   }
 
@@ -285,7 +294,7 @@ export const deactivateMember = withController('Deactivate member', async (req, 
   if (!(await requireOrgScope(req, res, id))) return;
   // An inactive member cannot reactivate themselves, so deactivating your own
   // membership is a lock-out with no way back from inside the org.
-  if (userId === req.user!.sub) {
+  if (isSelf(req.user!.sub, userId)) {
     return sendError(res, 400, 'Cannot deactivate yourself');
   }
 

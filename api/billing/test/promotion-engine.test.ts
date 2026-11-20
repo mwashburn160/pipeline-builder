@@ -617,6 +617,27 @@ describe('grantRecurringPromotions — campaign budget', () => {
     }
   });
 
+  // Two recurring promotions that each fit the floor alone must not BOTH be
+  // granted when together they breach it: each was measured against the
+  // standing credit without the other promotion granted in the same pass.
+  it('counts the promotions already granted this period against the floor', async () => {
+    mockCfg.discounts.floorPercent = 40; // $49 list → 2940c budget
+    try {
+      const a = { ...promo, _id: 'promo_a', kind: 'recurring' as const, campaign: undefined, value: 2000 };
+      const b = { ...promo, _id: 'promo_b', kind: 'recurring' as const, campaign: undefined, value: 2000 };
+      mockPromoFind.mockResolvedValueOnce([a, b]);
+      const reserveAny = async (filter: any, update: any) => ({ ...(filter._id === 'promo_a' ? a : b), spentCents: update.$inc.spentCents });
+      mockPromoFindOneAndUpdate.mockImplementationOnce(reserveAny).mockImplementationOnce(reserveAny);
+      const s = sub();
+      await grantRecurringPromotions(s as any, '2026-07');
+      // 2000 + 2000 = 4000 > 2940: the second is refused.
+      expect(s.creditLedger.map((l: any) => l.discountId)).toEqual(['promo:promo_a']);
+      expect(s.creditBalanceCents).toBe(2000);
+    } finally {
+      mockCfg.discounts.floorPercent = 0;
+    }
+  });
+
   it('grants without touching a campaign when the promotion names none', async () => {
     promo.campaign = undefined;
     const s = sub();

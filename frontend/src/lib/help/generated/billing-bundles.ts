@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-bundles.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 18e7d06a479f5202f9e4b9e6f596fcbf4c683f17d9d46338c7386ef115153992
+// SOURCE-SHA256: b69dd95ee533738792331a0129b8280912b1509e9092d23d5a88e36d82ba5bb6
 // SPDX-License-Identifier: Apache-2.0
 import { Package } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -618,7 +618,7 @@ export const billingBundlesTopic: HelpTopic = {
           "items": [
             "The combo applies automatically the moment its members are present — there is nothing extra to buy or redeem.",
             "Minimum-quantity members. A member can require a minimum quantity: Team Growth needs ≥ 5 Member Seats. It counts the purchased Seat add-on, not the account's total tier seats, and the credit is flat — extra seats beyond the minimum don't increase it.",
-            "Combo and volume discounts don't stack on the same units. A tiered member's minimum units are priced inside the combo at the volume rate for that minimum (Team Growth's 5 seats at the ≥ 5 rate), and they get exactly that rate — never the deeper tier the account's total holding reaches. Only the units above the combo minimum get the held-quantity volume tier. So 20 seats + Team Usage Analytics bills the combo at its combined price plus 15 seats at the ≥ 15 rate; at exactly 5 seats nothing changes.",
+            "Combo and volume discounts don't stack on the same units. A tiered member's minimum units are priced inside the combo at the volume rate for that minimum (Team Growth's 5 seats at the ≥ 5 rate), and they get exactly that rate — never the deeper tier the account's total holding reaches. Only the units above the combo minimum get the held-quantity volume tier. So 20 seats + Team Usage Analytics bills the combo at its combined price plus 15 seats at the ≥ 15 rate; at exactly 5 seats nothing changes. The combo credit is computed from what the invoice actually charges those minimum units after their volume credit (rounded once over the line, the same way the volume credit itself is), so members held at the minimum net exactly the combined price — not a few cents over it.",
             "The saving is shown up front: the add-on preview and the add/remove responses include a negative combo line (e.g. Team Growth Bundle discount −$83.96), so totalCents already reflects the net.",
             "It is realized as a recurring usage credit re-granted each billing period, derived fresh from the current add-on composition — the invoice reconciler grants Σ member price × minQty − combined price (clamped ≥ 0) per period, idempotent per invoice. Existing qualifying accounts begin receiving the credit at their next invoice, retroactive by design."
           ]

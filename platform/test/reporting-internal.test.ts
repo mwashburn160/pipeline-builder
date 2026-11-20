@@ -90,7 +90,8 @@ jest.unstable_mockModule('../src/services/session/membership-context.js', () => 
   membershipForOrg: (...a: unknown[]) => mockMembership(...a),
 }));
 
-const { getReportAuthority, getRecipientCheck, getAccessPosture, getReportReaders, REPORT_READERS_CAP } = await import('../src/controllers/reporting-internal.js');
+const { getReportAuthority, getRecipientCheck, getAccessPosture, getReportReaders, REPORT_READERS_CAP, REPORT_PERMISSIONS } = await import('../src/controllers/reporting-internal.js');
+const { ALL_PERMISSIONS } = await import('@pipeline-builder/api-core');
 
 function mockRes() {
   const res: any = {};
@@ -110,6 +111,19 @@ beforeEach(() => {
     tier: 'team',
     rolePermissions: ['reports:read', 'reports:write', 'pipelines:write', 'members:manage'],
     featureEntitlements: ['stakeholder_reports'],
+  });
+});
+
+describe('REPORT_PERMISSIONS', () => {
+  // Derived from api-core's catalog (every `reports:*` id), in a fixed order so
+  // the report-authority answer never reshuffles when the catalog is re-ordered.
+  it('is exactly the reports:* family, in its stable order', () => {
+    expect(REPORT_PERMISSIONS).toEqual(['reports:read', 'reports:write', 'reports:publish', 'reports:rollup']);
+  });
+
+  it('covers every reports:* id in the catalog and nothing else', () => {
+    const family = (ALL_PERMISSIONS as readonly string[]).filter((p) => p.startsWith('reports:'));
+    expect([...REPORT_PERMISSIONS].sort()).toEqual([...family].sort());
   });
 });
 

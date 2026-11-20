@@ -92,3 +92,20 @@ export function snapNetCharge(grossCents: number, rawCreditCents: number): { net
   const netCents = snapUpPrice(gross - raw);
   return { netCents, creditCents: gross - netCents };
 }
+
+/**
+ * The volume credit a line of `grossCents` earns at `pct` percent: the raw
+ * percentage rounded ONCE over the whole line, then net-snapped
+ * ({@link snapNetCharge}). `0` when the snap leaves nothing to credit — the
+ * line is then invoiced at gross.
+ *
+ * The one spelling shared by the invoiced volume credit (`volumeCredits`) and the
+ * combo basis (`comboBasisCents`, and the config guardrail mirroring it), so the
+ * basis a combo credit is derived from is exactly what the invoice charges for
+ * those units — a per-unit rounded price times quantity drifted by cents.
+ */
+export function volumeLineCreditCents(grossCents: number, pct: number): number {
+  if (!(pct > 0)) return 0;
+  const { creditCents } = snapNetCharge(grossCents, Math.round((grossCents * pct) / 100));
+  return creditCents > 0 ? creditCents : 0;
+}

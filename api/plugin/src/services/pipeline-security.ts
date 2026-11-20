@@ -28,6 +28,7 @@ import { sql } from 'drizzle-orm';
 
 import { EcosystemError } from './ecosystem/context.js';
 import { elevated } from './ecosystem/store.js';
+import type { PluginRowState } from './plugin-row-state.js';
 import { notifyPipelineVulnerable } from './plugin-security-notifications.js';
 import { acceptanceFor, acceptancesFor, consumptionPolicyFor } from '../helpers/lookup-vuln-policy.js';
 
@@ -36,7 +37,8 @@ export interface DigestRecord extends ScannedRecord {
   id: string;
   source: 'org' | 'listing';
   publisher: string | null;
-  state: 'live' | 'inactive' | 'yanked' | 'deleted';
+  /** The row's state — {@link PluginRowState} less `missing` (the row exists). */
+  state: Exclude<PluginRowState, 'missing'>;
 }
 
 const SHA256 = /^sha256:[0-9a-f]{64}$/;

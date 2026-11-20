@@ -16,18 +16,22 @@
 import { PLATFORM_INTERNAL, contractErrorMessage, parseContractParams, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import { withController } from '../helpers/controller-helper.js';
 import { toOrgId } from '../helpers/org-id.js';
+import { activeKmsConfig } from '../helpers/org-kms-config.js';
 import { Organization } from '../models/index.js';
 
 const { orgKmsConfig: KMS_CONFIG } = PLATFORM_INTERNAL;
 
-/** 404 for an unknown or soft-deleted org; 400 for a malformed id. */
+/**
+ * 404 for an unknown org; 400 for a malformed id. A soft-deleted org still
+ * gets its config: its runner signing keys stay wrapped under it until the
+ * retention purge, and platform's own `perOrgKmsResolver` ignores `deletedAt`
+ * too, so both services resolve the same key during the retention window.
+ */
 export const getOrgKmsConfigInternal = withController('Org KMS config (internal)', async (req, res) => {
   const params = parseContractParams(KMS_CONFIG, req);
   if (!params.ok) return sendError(res, 400, contractErrorMessage(params));
-  const org = await Organization.findById(toOrgId(params.value.orgId)).select('kmsConfig deletedAt').lean() as
-    { kmsConfig?: { keyId?: string; ciphertextBase64?: string }; deletedAt?: Date | null } | null;
-  if (!org || org.deletedAt) return sendError(res, 404, 'Organization not found');
-  const cfg = org.kmsConfig;
-  const kmsConfig = cfg?.keyId && cfg?.ciphertextBase64 ? { keyId: cfg.keyId, ciphertextBase64: cfg.ciphertextBase64 } : null;
-  return sendSuccess(res, 200, { kmsConfig });
+  const org = await Organization.findById(toOrgId(params.value.orgId)).select('kmsConfig').lean() as
+    { kmsConfig?: { keyId?: string; ciphertextBase64?: string } } | null;
+  if (!org) return sendError(res, 404, 'Organization not found');
+  return sendSuccess(res, 200, { kmsConfig: activeKmsConfig(org.kmsConfig) });
 });

@@ -19,9 +19,10 @@ import type { OwnReview, ReviewState } from '../src/types/plugin-reviews';
 import { detail } from './helpers/publicDirectoryFixtures';
 
 let signedIn = false;
+let readOnly = false;
 jest.mock('@/components/public-directory/PublicHeader', () => ({
   __esModule: true,
-  useClientAuth: () => ({ mounted: true, signedIn, user: signedIn ? { id: 'u1' } : null }),
+  useClientAuth: () => ({ mounted: true, signedIn, user: signedIn ? { id: 'u1' } : null, isReadOnly: signedIn && readOnly }),
 }));
 
 const getListingReviews = jest.fn<AnyFn>();
@@ -85,6 +86,7 @@ function renderPanel(over: Parameters<typeof detail>[0] = {}) {
 beforeEach(() => {
   jest.clearAllMocks();
   signedIn = false;
+  readOnly = false;
   getListingReviews.mockImplementation(() => page([review()]));
   api.getReviewState.mockImplementation(() => ok(state()));
 });
@@ -325,6 +327,42 @@ describe('Reviews tab — signed in', () => {
     renderPanel();
     expect(await screen.findByTestId('review-blocked')).toHaveTextContent(copy);
     expect(screen.queryByRole('button', { name: 'Write a review' })).toBeNull();
+  });
+});
+
+describe('Reviews tab — read-only session', () => {
+  const READ_ONLY = 'Read-only session — stop impersonating to make changes';
+  beforeEach(() => { signedIn = true; readOnly = true; });
+
+  it('Write a review is disabled with the read-only reason', async () => {
+    renderPanel();
+    const write = await screen.findByRole('button', { name: 'Write a review' });
+    expect(write).toBeDisabled();
+    expect(write).toHaveAttribute('title', READ_ONLY);
+  });
+
+  it('the viewer\'s own review cannot be edited or deleted', async () => {
+    api.getReviewState.mockImplementation(() => ok(state({ myReview: ownReview() })));
+    renderPanel();
+    const own = await screen.findByTestId('own-review');
+    for (const name of ['Edit your review', 'Delete']) {
+      const b = within(own).getByRole('button', { name });
+      expect(b).toBeDisabled();
+      expect(b).toHaveAttribute('title', READ_ONLY);
+    }
+  });
+
+  it('Helpful, Report, Respond and Delete response are disabled with the read-only reason', async () => {
+    getListingReviews.mockImplementation(() => page([review({ reply: { bodyHtml: '<p>Thanks</p>', publisherDisplayName: 'PB', createdAt: '2026-09-11T00:00:00Z', updatedAt: '2026-09-11T00:00:00Z' } })]));
+    api.getReviewState.mockImplementation(() => ok(state({ canReply: true })));
+    renderPanel();
+    const item = await screen.findByTestId('review-r1');
+    await waitFor(() => expect(within(item).getByRole('button', { name: /Helpful/ })).toBeInTheDocument());
+    for (const name of [/Helpful/, /Report/, /Edit response/, 'Delete response']) {
+      const b = within(item).getByRole('button', { name });
+      expect(b).toBeDisabled();
+      expect(b).toHaveAttribute('title', READ_ONLY);
+    }
   });
 });
 

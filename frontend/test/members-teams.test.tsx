@@ -200,6 +200,18 @@ describe('Teams row actions', () => {
     await waitFor(() => expect(refreshUser).toHaveBeenCalled());
   });
 
+  it('a read-only session can still open Manage to VIEW team settings (the drawer locks its writes)', async () => {
+    mockAuthGuard({
+      isAdmin: true,
+      isReadOnly: true,
+      user: { id: 'me', organizationId: 'org-1', permissions: ADMIN_PERMS },
+      can: () => false,
+    });
+    render(<MembersPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage Data' }));
+    expect(screen.getByTestId('team-drawer')).toHaveTextContent('t2');
+  });
+
   it('member-only admins get no lifecycle menu', async () => {
     asAdmin(['members:manage']);
     render(<MembersPage />);

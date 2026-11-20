@@ -31,7 +31,6 @@ const mockDeactivateMember = jest.fn<AnyFn>();
 const mockActivateMember = jest.fn<AnyFn>();
 const mockIsOrgOwner = jest.fn<AnyFn>();
 const mockValidateBody = jest.fn((_schema: unknown, body: unknown) => body);
-const mockGetAdminContext: jest.Mock = jest.fn(() => ({ isSuperAdmin: true, isOrgAdmin: false, adminType: 'sysadmin' }));
 const mockIsSystemAdmin: jest.Mock = jest.fn(() => true);
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -86,7 +85,6 @@ beforeEach(() => {
   mockActivateMember.mockReset();
   mockIsOrgOwner.mockReset();
   mockValidateBody.mockReset().mockImplementation((_s, body) => body);
-  mockGetAdminContext.mockReset().mockReturnValue({ isSuperAdmin: true, isOrgAdmin: false, adminType: 'sysadmin' });
   mockIsSystemAdmin.mockReset().mockReturnValue(true);
 });
 
@@ -238,6 +236,48 @@ describe('deactivating yourself', () => {
     await (deactivateMember as unknown as (req: any, res: any) => Promise<void>)(req, res);
     expect(res.status).toHaveBeenCalledWith(400);
     expect(mockDeactivateMember).not.toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
+
+  it('is refused when the path id differs only in case (ObjectId hex is case-insensitive)', async () => {
+    const res = mockRes();
+    const req: any = {
+      params: { id: 'org-acme', userId: 'AAAAAAAAAAAAAAAAAAAAAAAA' },
+      user: { sub: 'aaaaaaaaaaaaaaaaaaaaaaaa', organizationId: 'org-acme' },
+    };
+    await (deactivateMember as unknown as (req: any, res: any) => Promise<void>)(req, res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockDeactivateMember).not.toHaveBeenCalled();
+  });
+});
+
+describe('removing yourself', () => {
+  it('is refused for an org admin even when the path id differs only in case', async () => {
+    mockIsSystemAdmin.mockReturnValue(false);
+    const res = mockRes();
+    const req: any = {
+      params: { id: 'org-acme', userId: 'AAAAAAAAAAAAAAAAAAAAAAAA' },
+      user: { sub: 'aaaaaaaaaaaaaaaaaaaaaaaa', organizationId: 'org-acme', role: 'admin' },
+    };
+    await (removeMemberFromOrganization as unknown as (req: any, res: any) => Promise<void>)(req, res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockRemoveMember).not.toHaveBeenCalled();
+  });
+
+  // Same rule as deactivate: refused for every caller, whatever their role.
+  it.each([
+    ['a platform superadmin', true, 'member'],
+    ['a non-admin member', false, 'member'],
+  ])('is refused for %s too', async (_label, superAdmin, role) => {
+    mockIsSystemAdmin.mockReturnValue(superAdmin);
+    const res = mockRes();
+    const req: any = {
+      params: { id: 'org-acme', userId: 'AAAAAAAAAAAAAAAAAAAAAAAA' },
+      user: { sub: 'aaaaaaaaaaaaaaaaaaaaaaaa', organizationId: 'org-acme', role },
+    };
+    await (removeMemberFromOrganization as unknown as (req: any, res: any) => Promise<void>)(req, res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockRemoveMember).not.toHaveBeenCalled();
     expect(mockAudit).not.toHaveBeenCalled();
   });
 });

@@ -19,6 +19,8 @@ import { act, renderHook } from '@testing-library/react';
 import { useTicketedSSE, type TicketedSSEOptions } from '../src/hooks/useTicketedSSE';
 import { useBuildStatus } from '../src/hooks/useBuildStatus';
 import { BUILD_SSE_MAX_RETRIES } from '../src/lib/constants';
+import { ApiError } from '../src/lib/api/errors';
+import { SESSION_REFRESH_UNAVAILABLE } from '../src/lib/api/core';
 
 const getBuildLogTicket = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
@@ -106,6 +108,34 @@ describe('useTicketedSSE', () => {
     for (let i = 0; i < 5; i++) await runBackoff();
     expect(getTicket).toHaveBeenCalledTimes(3); // first try + 2 retries
     expect(onGiveUp).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['a 401', new ApiError('Unauthorized', 401)],
+    ['a 403', new ApiError('Forbidden', 403)],
+  ])('stops at once and calls onGiveUp when the mint fails with %s (no budget needed)', async (_label, err) => {
+    const getTicket = jest.fn<AnyFn>().mockRejectedValue(err);
+    const onGiveUp = jest.fn<AnyFn>();
+    renderTicketed({ getTicket, onGiveUp });
+    await flush();
+    for (let i = 0; i < 4; i++) await runBackoff();
+    expect(getTicket).toHaveBeenCalledTimes(1);
+    expect(onGiveUp).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['a refresh that could not reach the server', new ApiError('later', 401, SESSION_REFRESH_UNAVAILABLE)],
+    ['the transient-refresh 503', new ApiError('later', 503, SESSION_REFRESH_UNAVAILABLE)],
+    ['a 500', new ApiError('boom', 500)],
+    ['a network error', new TypeError('Failed to fetch')],
+  ])('keeps backing off after %s', async (_label, err) => {
+    const getTicket = jest.fn<AnyFn>().mockRejectedValue(err);
+    const onGiveUp = jest.fn<AnyFn>();
+    renderTicketed({ getTicket, onGiveUp });
+    await flush();
+    for (let i = 0; i < 3; i++) await runBackoff();
+    expect(getTicket).toHaveBeenCalledTimes(4);
+    expect(onGiveUp).not.toHaveBeenCalled();
   });
 
   it('counts stream errors against maxRetries too', async () => {

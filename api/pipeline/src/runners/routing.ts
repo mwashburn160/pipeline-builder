@@ -24,10 +24,11 @@
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import {
   isRunnerErrorCode, runnerErrorStatus, type PendingRunRequestStatus, type RunnerApiErrorCode, type RunnerErrorCode, type RunnerLinkDetail, type RunnerLinkStatus, type RunnerReplyErrorCode,
+  type RunnersUnavailableReason,
 } from '@pipeline-builder/api-core/pipeline-runners';
 import { deliverPush } from './delivery.js';
 import type { RunnerDeps } from './deps.js';
-import { recordRunnerFailure, recordRunnerSuccess, updateGraceExpired } from './lifecycle.js';
+import { PLATFORM_SIDE, recordRunnerFailure, recordRunnerSuccess, updateGraceExpired } from './lifecycle.js';
 import type { RegistryLink, RunRequestRow, RunnerRow } from './store.js';
 import { isSystemRequester, RUN_REQUEST_TTL_MS, runnerSettings } from './vocabulary.js';
 
@@ -69,6 +70,13 @@ export function asRunnerRouteError(err: unknown): RunnerRouteError | null {
   return typeof mapped.status === 'number' ? mapped : null;
 }
 
+/** What RUNNERS_UNAVAILABLE says, by reason (every route and discovery answer it with these). */
+export const RUNNERS_UNAVAILABLE_MESSAGES = {
+  paused: 'Pipeline runs are paused on this platform by its operator; try again once they resume.',
+  encryption_not_configured: 'Pipeline runners are not set up on this deployment (secret encryption is not configured).',
+  tables_missing: 'Pipeline runners are not set up on this deployment: the database has no runner tables.',
+} as const satisfies Record<RunnersUnavailableReason, string>;
+
 /** A runner as routing sees it: the row plus the org it is inherited from (if any). */
 export interface EligibleRunner {
   runner: RunnerRow;
@@ -79,9 +87,11 @@ export interface EligibleRunner {
 /**
  * The runners org `orgId` may use, in routing order: its own active runners,
  * then each ancestor's active runners shared with teams, nearest first.
+ * `strict` throws when the ancestry lookup fails (by default a failure means
+ * fewer inherited runners).
  */
-export async function eligibleRunners(deps: RunnerDeps, orgId: string, parentOrgId?: string): Promise<EligibleRunner[]> {
-  const ancestors = await deps.hierarchy.ancestors(orgId, parentOrgId);
+export async function eligibleRunners(deps: RunnerDeps, orgId: string, parentOrgId?: string, opts: { strict?: boolean } = {}): Promise<EligibleRunner[]> {
+  const ancestors = await deps.hierarchy.ancestors(orgId, parentOrgId, opts.strict ? { strict: true } : undefined);
   const rows = await deps.store.listRunners([orgId, ...ancestors], { activeOnly: true });
   const out: EligibleRunner[] = [];
   const own = rows.filter((r) => r.orgId === orgId);
@@ -90,6 +100,18 @@ export async function eligibleRunners(deps: RunnerDeps, orgId: string, parentOrg
     for (const r of rows) if (r.orgId === a && r.shareWithTeams) out.push({ runner: r, depth: i + 1 });
   });
   return out;
+}
+
+/**
+ * Whether the request's org may still use its runner, re-checked just before
+ * delivery (shares and ancestry change while a request waits). The org's own
+ * runner needs no lookup; an ancestor's is checked against a STRICT ancestry
+ * read, which throws when platform can't answer (the caller retries later
+ * rather than fail a request over an outage).
+ */
+export async function stillEligible(deps: RunnerDeps, orgId: string, runner: RunnerRow): Promise<boolean> {
+  if (runner.orgId.toLowerCase() === orgId.toLowerCase()) return runner.status === 'active';
+  return isEligible(runner, await eligibleRunners(deps, orgId, undefined, { strict: true }));
 }
 
 /** Whether `runner` is usable by `orgId` given its eligible set. */
@@ -205,8 +227,25 @@ export async function linkedRunner(deps: RunnerDeps, link: RegistryLink | null, 
 /** The message NO_RUNNER answers with: the expected first-run state, pointing at the install. */
 export const NO_RUNNER_MESSAGE = 'This pipeline needs a runner. Install one in the pipeline\'s AWS account (one per account per organization) from Settings → Pipeline runners, then run it again.';
 
+/**
+ * The platform refusals a probe can come back with (deliverPush refused before
+ * sending anything): the pause toggle flipped mid-request, or the runner-owning
+ * org's key missing / unreadable. Discovery answers them as themselves.
+ */
+const PLATFORM_REFUSALS = {
+  RUNNERS_UNAVAILABLE: RUNNERS_UNAVAILABLE_MESSAGES.paused,
+  RUNNER_KEY_MISSING: 'Your organization has no runner signing key yet. A key is created when you register your first runner, or generate one in Settings → Pipeline runners.',
+  RUNNER_KEY_UNREADABLE: "Your organization's runner signing key can't be read. Runs through your runners are paused until your platform operator fixes it.",
+} as const satisfies Partial<Record<RunnerApiErrorCode, string>>;
+type PlatformRefusal = keyof typeof PLATFORM_REFUSALS;
+
 /** One probe's verdict, by runner. */
-interface ProbeResult { entry: EligibleRunner; matched: boolean; ambiguousPipeline: boolean }
+interface ProbeResult { entry: EligibleRunner; matched: boolean; ambiguousPipeline: boolean; platformRefusal?: PlatformRefusal }
+
+/** What the registry row said before a probe marked it `checking` (never `checking` itself). */
+function statusBefore(link: RegistryLink): RunnerLinkStatus {
+  return link.linkStatus && link.linkStatus !== 'checking' ? link.linkStatus : (link.runnerId ? 'linked' : 'unlinked');
+}
 
 /** Record a probe's state/outcome on the registry row (best effort: a failed write never fails routing). */
 async function writeLink(deps: RunnerDeps, input: Pick<RouteInput, 'pipelineId' | 'orgId'>, status: RunnerLinkStatus, detail: RunnerLinkDetail | null, runnerId?: string): Promise<void> {
@@ -249,7 +288,8 @@ async function probe(deps: RunnerDeps, input: RouteInput, entry: EligibleRunner,
   await deps.store.updateRequest(row.id, matched
     ? { status: 'started' }
     : { status: 'failed', errorCode: verdict.kind === 'fail' ? verdict.code : verdict.kind === 'success' ? 'NO_MATCH' : 'RUNNER_UNREACHABLE' });
-  return { entry, matched, ambiguousPipeline: verdict.kind === 'fail' && verdict.code === 'AMBIGUOUS_PIPELINE' };
+  const platformRefusal = verdict.kind === 'fail' && PLATFORM_SIDE.has(verdict.code) && verdict.code in PLATFORM_REFUSALS ? verdict.code as PlatformRefusal : undefined;
+  return { entry, matched, ambiguousPipeline: verdict.kind === 'fail' && verdict.code === 'AMBIGUOUS_PIPELINE', ...(platformRefusal ? { platformRefusal } : {}) };
 }
 
 /**
@@ -284,13 +324,19 @@ export async function discoverRunner(
     results = await Promise.all(healthy.map((e) => probe(deps, input, e, link, parentRequestId)));
   } catch (err) {
     // Never leave the row `checking`: put back what it said before this probe.
-    const before = link?.linkStatus && link.linkStatus !== 'checking' ? link.linkStatus : (link?.runnerId ? 'linked' : 'unlinked');
-    if (link) await writeLink(deps, input, before, link.linkDetail ?? null);
+    if (link) await writeLink(deps, input, statusBefore(link), link.linkDetail ?? null);
     throw err;
   }
   const depths = [...new Set(results.map((r) => r.entry.depth))].sort((a, b) => a - b);
   for (const depth of depths) {
     const level = results.filter((r) => r.entry.depth === depth);
+    // The platform could not ask this level (one org: one key): fail closed
+    // rather than let a farther level win, and record nothing new on the row.
+    const platformRefusal = level.find((r) => r.platformRefusal)?.platformRefusal;
+    if (platformRefusal) {
+      if (link) await writeLink(deps, input, statusBefore(link), link.linkDetail ?? null);
+      throw new RunnerRouteError(platformRefusal, PLATFORM_REFUSALS[platformRefusal]);
+    }
     // A runner that sees MORE than one pipeline carrying this id cannot pick one.
     const ambiguous = level.filter((r) => r.ambiguousPipeline).map((r) => r.entry.runner.label);
     if (ambiguous.length > 0) {
@@ -318,8 +364,9 @@ export async function discoverRunner(
  * match replaces the link; anything else keeps the old `runner_id`.
  */
 export async function probeRunnerLink(deps: RunnerDeps, input: Pick<RouteInput, 'pipelineId' | 'orgId' | 'parentOrgId' | 'requestedBy'>): Promise<RunnerLinkStatus> {
+  let link: RegistryLink | null = null;
   try {
-    const link = await deps.store.getRegistryLink(input.pipelineId, input.orgId);
+    link = await deps.store.getRegistryLink(input.pipelineId, input.orgId);
     if (!link) return 'unlinked';
     const eligible = await eligibleRunners(deps, input.orgId, input.parentOrgId);
     await discoverRunner(deps, { ...input, action: 'start' }, eligible, link);
@@ -327,6 +374,8 @@ export async function probeRunnerLink(deps: RunnerDeps, input: Pick<RouteInput, 
   } catch (err) {
     if (err instanceof RunnerRouteError) return err.code === 'AMBIGUOUS_RUNNER' || err.code === 'AMBIGUOUS_PIPELINE' ? 'ambiguous' : 'not_found';
     logger.warn('Background runner-link probe failed', { pipelineId: input.pipelineId, error: errorMessage(err) });
+    // Find runner again marked the row `checking` before this ran: never leave it there.
+    if (link) await writeLink(deps, input, statusBefore(link), link.linkDetail ?? null);
     return 'not_found';
   }
 }

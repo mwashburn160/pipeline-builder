@@ -26,6 +26,7 @@ import { SysadminHome } from '@/components/dashboard/SysadminHome';
 import { OrgAdminHome } from '@/components/dashboard/OrgAdminHome';
 import { dismissKey, isFreshAccount, shouldShowOnboarding, visitedPluginsKey } from '@/lib/onboarding';
 import { pluginWarningsToast } from '@/lib/pipeline-security';
+import { usableRunnerCount } from '@/lib/pipeline-runners';
 
 // The create wizard is large and only mounts once opened.
 const CreatePipelineModal = dynamic(() => import('@/components/pipeline/CreatePipelineModal'), { ssr: false });
@@ -91,8 +92,7 @@ export default function DashboardPage() {
   const runnerCountQ = useFetch(async (signal) => {
     if (!isAuthenticated || !isOrgAdmin || !orgId) return null;
     try {
-      const dto = (await api.getPipelineRunners({ signal })).data;
-      return dto ? dto.own.length + dto.inherited.length : null;
+      return usableRunnerCount((await api.getPipelineRunners({ signal })).data);
     } catch {
       return null;
     }

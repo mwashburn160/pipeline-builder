@@ -13,10 +13,22 @@ import { authorizeAndIssue, parseScope, storageGateReason, type RequestedScope, 
 
 const logger = createLogger('token-route');
 
-/** Parse `scope` query — can be string, array, or absent. */
+/**
+ * Most `scope` params one /token request may carry. Docker asks for one to a
+ * handful (a cross-repo blob mount is two); every granted scope lands in the
+ * JWT `access` claim — sent on every registry request — and in the audit row,
+ * so an unbounded list would mint oversized tokens and trail entries.
+ */
+export const MAX_SCOPES_PER_TOKEN_REQUEST = 32;
+
+/** The raw `scope` query as a list — it can be a string, an array, or absent. */
+function rawScopeList(raw: unknown): unknown[] {
+  return Array.isArray(raw) ? raw : raw ? [raw] : [];
+}
+
+/** Parse `scope` query, dropping entries the parser rejects. */
 function collectScopes(raw: unknown): RequestedScope[] {
-  const list = Array.isArray(raw) ? raw : raw ? [raw] : [];
-  return list
+  return rawScopeList(raw)
     .filter((s): s is string => typeof s === 'string')
     .map(parseScope)
     .filter((s): s is RequestedScope => s !== null);
@@ -146,6 +158,12 @@ export function createTokenRoute(): Router {
     const sourceIp = req.ip || 'unknown';
     if (!(await checkTokenRateLimit(sourceIp, basic.username))) {
       sendError(res, 429, 'Too many token requests; slow down.', ErrorCode.RATE_LIMIT_EXCEEDED);
+      return;
+    }
+
+    // Refused before credential resolution: an oversized request costs nothing.
+    if (rawScopeList(req.query.scope).length > MAX_SCOPES_PER_TOKEN_REQUEST) {
+      sendError(res, 400, `At most ${MAX_SCOPES_PER_TOKEN_REQUEST} scope parameters per token request`, ErrorCode.VALIDATION_ERROR);
       return;
     }
 

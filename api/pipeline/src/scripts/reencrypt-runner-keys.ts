@@ -15,9 +15,10 @@
  *   kubectl exec -n pipeline-builder deploy/pipeline -- node scripts/reencrypt-runner-keys.js
  *
  * (The image copies `lib/` to `/app`, so `lib/scripts/…` in the repo is
- * `scripts/…` in the container.) `--org` re-wraps one org's keys; reads then use
- * the shared provider (the org's previous per-org KMS config is not known here —
- * use platform's rotation flow for a CMK change). Exits 0 only when every row
+ * `scripts/…` in the container.) `--org` re-wraps one org's keys; reads try the
+ * org's current provider, then the shared one (the org's previous per-org KMS
+ * config is not known here — use platform's rotation flow for a CMK change).
+ * Safe to re-run: a row already under the current provider counts as done. Exits 0 only when every row
  * was rewritten; 1 (listing each failure by org and kid) otherwise.
  */
 

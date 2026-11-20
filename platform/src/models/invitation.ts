@@ -1,7 +1,6 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import crypto from 'crypto';
 import { Schema, model, Types, type HydratedDocument, type Model } from 'mongoose';
 import { config } from '../config/index.js';
 import { ORG_ROLES, type OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
@@ -32,7 +31,13 @@ export interface InvitationData {
    * sent it may have lost the authority meanwhile.
    */
   roleIds?: Types.ObjectId[];
-  token: string;
+  /**
+   * SHA-256 (hex) of the invitation token. The token is a bearer credential —
+   * anyone holding it can accept — so only its hash is stored and looked up;
+   * the plaintext exists only in the emailed accept link (and, once, in the
+   * send response when the email did not go). See `utils/invitation-token.ts`.
+   */
+  tokenHash: string;
   status: InvitationStatus;
   expiresAt: Date;
   acceptedAt?: Date;
@@ -88,11 +93,10 @@ const invitationSchema = new Schema<InvitationData, InvitationModel, InvitationM
       type: [{ type: Schema.Types.ObjectId, ref: 'Role' }],
       default: undefined,
     },
-    token: {
+    tokenHash: {
       type: String,
       required: true,
       unique: true,
-      index: true,
     },
     status: {
       type: String,
@@ -136,12 +140,11 @@ const invitationSchema = new Schema<InvitationData, InvitationModel, InvitationM
 );
 
 /**
- * Generate secure invitation token before saving
+ * Default the expiry before saving. The token hash is set by the caller
+ * (`generateInvitationToken`): generating it here would leave a row whose
+ * plaintext nobody holds.
  */
 invitationSchema.pre('validate', function () {
-  if (!this.token) {
-    this.token = crypto.randomBytes(32).toString('hex');
-  }
   if (!this.expiresAt) {
     this.expiresAt = new Date(Date.now() + config.invitation.expirationDays * 24 * 60 * 60 * 1000);
   }

@@ -12,6 +12,7 @@ import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { mockAuthGuard, pageToast } from './helpers/pageMocks';
+import { READ_ONLY_REASON } from '../src/components/ui/ReadOnlyNotice';
 import { resolvePageGate } from '../src/lib/page-access';
 import RunnerSigningKeysPage from '../pages/dashboard/admin/runner-signing-keys';
 
@@ -118,5 +119,14 @@ describe('Runner signing keys (operators)', () => {
     expect(pause.hasAttribute('disabled') || pause.getAttribute('aria-disabled') === 'true').toBe(true);
     const revoke = screen.getByRole('button', { name: 'Revoke key' });
     expect(revoke.hasAttribute('disabled') || revoke.getAttribute('aria-disabled') === 'true').toBe(true);
+  });
+
+  it('a read-only session says so, not "Requires orgs:manage"', async () => {
+    mockAuthGuard({ user: { id: 'op', organizationId: 'system' }, can: (p: string) => p === 'orgs:read', isReadOnly: true });
+    render(<RunnerSigningKeysPage />);
+    const pause = await screen.findByRole('button', { name: 'Pause all pipeline runs' });
+    expect(pause).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getAllByText(READ_ONLY_REASON).length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText('Requires orgs:manage')).not.toBeInTheDocument();
   });
 });

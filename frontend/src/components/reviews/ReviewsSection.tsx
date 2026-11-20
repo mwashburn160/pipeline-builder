@@ -9,6 +9,7 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { useClientAuth } from '@/components/public-directory/PublicHeader';
+import { READ_ONLY_REASON } from '@/components/ui/ReadOnlyNotice';
 import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
 import { REVIEW_BLOCKED_COPY, reviewErrorMessage, starsLabel } from '@/lib/plugin-reviews';
@@ -54,7 +55,9 @@ export function ReviewsSection({ listing, initial }: { listing: ListingDetail; i
   const publisher = listing.publisher.handle;
   const name = listing.name;
   const signInHref = loginHref(`${pluginPagePath(publisher, name)}?tab=reviews`);
-  const { signedIn } = useClientAuth();
+  // A read-only (impersonation) session reads everything but every write is
+  // refused server-side, so each write control is locked with the reason.
+  const { signedIn, isReadOnly } = useClientAuth();
 
   const [sort, setSort] = useState<ReviewSort>(DEFAULT_REVIEW_SORT);
   const [ratingFilter, setRatingFilter] = useState(0);
@@ -135,6 +138,7 @@ export function ReviewsSection({ listing, initial }: { listing: ListingDetail; i
       <h2 id="reviews-heading" className="sr-only">Reviews</h2>
       <WriteArea
         signedIn={signedIn}
+        readOnly={isReadOnly}
         signInHref={signInHref}
         state={state}
         versions={versions}
@@ -168,6 +172,7 @@ export function ReviewsSection({ listing, initial }: { listing: ListingDetail; i
                   helpful: helpful.has(r.id),
                   reported: reported.has(r.id),
                   canReply: viewerState.canReply,
+                  readOnly: isReadOnly,
                 } : null}
                 onChange={updateReview}
               />
@@ -192,8 +197,9 @@ export function ReviewsSection({ listing, initial }: { listing: ListingDetail; i
 }
 
 /** "Write a review" / the viewer's own review / why they can't review. */
-function WriteArea({ signedIn, signInHref, state, versions, onChanged, onCreate }: {
+function WriteArea({ signedIn, readOnly, signInHref, state, versions, onChanged, onCreate }: {
   signedIn: boolean;
+  readOnly: boolean;
   signInHref: string;
   state: { data: ReviewState | null; loading: boolean; error: Error | null; refetch: () => void };
   versions: string[];
@@ -218,7 +224,7 @@ function WriteArea({ signedIn, signInHref, state, versions, onChanged, onCreate 
   }
   const s = state.data;
   if (s.myReview) {
-    return <OwnReviewPanel review={s.myReview} versions={versions} verifiedUse={s.verifiedUse} onChanged={onChanged} />;
+    return <OwnReviewPanel review={s.myReview} versions={versions} verifiedUse={s.verifiedUse} readOnly={readOnly} onChanged={onChanged} />;
   }
   if (!s.canReview) {
     return (
@@ -227,8 +233,12 @@ function WriteArea({ signedIn, signInHref, state, versions, onChanged, onCreate 
       </p>
     );
   }
-  if (!writing) {
-    return <Button size="sm" onClick={() => setWriting(true)}>Write a review</Button>;
+  if (!writing || readOnly) {
+    return (
+      <Button size="sm" onClick={() => setWriting(true)} disabled={readOnly} title={readOnly ? READ_ONLY_REASON : undefined}>
+        Write a review
+      </Button>
+    );
   }
   return (
     <section className="rounded-lg border border-default p-4" aria-label="Write a review">

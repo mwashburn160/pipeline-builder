@@ -29,8 +29,8 @@ import type { RunnerDeps } from './deps.js';
 import { advanceKeyTransitions, promoteDueKeys, retireDueKeys, sendKeyAgeReminders } from './keys.js';
 import type { RunRequestRow, RunnerRow } from './store.js';
 import {
-  backoffMs, NO_MATCH, PENDING_RUNNER_TTL_MS, PENDING_STATUSES, TERMINAL_STATUSES, NOT_YET_VISIBLE_RETRY_MS,
-  NOT_YET_VISIBLE_WINDOW_MS, RUN_REQUEST_EXPIRED, runnerSettings, SYSTEM_PLUGIN_UPGRADE, SYSTEM_RUNNER_PING, UNREACHABLE_AFTER_FAILURES,
+  backoffMs, isSystemRequester, NO_MATCH, PENDING_RUNNER_TTL_MS, PENDING_STATUSES, TERMINAL_STATUSES, NOT_YET_VISIBLE_RETRY_MS,
+  NOT_YET_VISIBLE_WINDOW_MS, RUN_REQUEST_EXPIRED, RUNNER_NOT_ELIGIBLE, runnerSettings, SYSTEM_PLUGIN_UPGRADE, SYSTEM_RUNNER_PING, UNREACHABLE_AFTER_FAILURES,
   versionBelow,
 } from './vocabulary.js';
 
@@ -44,7 +44,10 @@ const BUSY_RETRY_MS = 1_000;
 /** What the dispatch job should do next. */
 export type DispatchResult = { done: true } | { done: false; retryInMs: number };
 
-const actorOf = (requestedBy: string): string => (requestedBy.startsWith('system:') ? SYSTEM_ACTOR_ID : requestedBy);
+const actorOf = (requestedBy: string): string => (isSystemRequester(requestedBy) ? SYSTEM_ACTOR_ID : requestedBy);
+
+/** The platform's own refusals (paused, no key, an unreadable key): not the runner's fault, never counted. */
+export const PLATFORM_SIDE: ReadonlySet<string> = new Set<string>(RUNNER_API_ERROR_CODES);
 
 /** Codes that mean the linked pipeline is not (or no longer) the one this runner can see. */
 const CLEARS_LINK = new Set<string>(['PIPELINE_IDENTITY_MISMATCH', 'PIPELINE_NOT_TAGGED'] satisfies RunnerReplyErrorCode[]);
@@ -107,6 +110,17 @@ export async function applyVerdict(deps: RunnerDeps, request: RunRequestRow, run
     } else {
       await finishRequest(deps, request, request.action === 'start' ? 'started' : 'stopped', { ...(verdict.executionId ? { executionId: verdict.executionId } : {}) });
     }
+    return { done: true };
+  }
+  if (verdict.kind === 'fail' && PLATFORM_SIDE.has(verdict.code)) {
+    // The platform refused before anything was sent (never the runner's doing:
+    // its health is untouched). Paused mid-job: the request stays queued and the
+    // sweep re-kicks it on resume. The org's key missing or unreadable: fail closed.
+    if (verdict.code === 'RUNNERS_UNAVAILABLE') {
+      await deps.store.updateRequest(request.id, { status: 'queued', lastDeliveryError: verdict.code, nextAttemptAt: null }, PENDING_STATUSES);
+      return { done: true };
+    }
+    await finishRequest(deps, request, 'failed', { errorCode: verdict.code });
     return { done: true };
   }
   if (verdict.kind === 'fail') {
@@ -301,6 +315,23 @@ export async function processDelivery(deps: RunnerDeps, requestId: string): Prom
   if (runner.health !== 'healthy') return { done: true }; // paused until resume
   if (request.nextAttemptAt && request.nextAttemptAt.getTime() > now) return { done: false, retryInMs: request.nextAttemptAt.getTime() - now };
 
+  // Still a runner this org may use? (An ancestor's runner may have been
+  // un-shared, or the team moved, since the request was routed.) Never sent
+  // otherwise; an ancestry lookup that fails is retried, never a failure.
+  let eligible: boolean;
+  try {
+    const { stillEligible } = await import('./routing.js');
+    eligible = await stillEligible(deps, request.orgId, runner);
+  } catch (err) {
+    logger.warn('Runner eligibility could not be re-checked; delivery retried', { requestId: request.id, error: errorMessage(err) });
+    return { done: false, retryInMs: backoffMs(Math.max(1, request.attempts)) };
+  }
+  if (!eligible) {
+    await deps.store.setRegistryRunner(request.pipelineId, request.orgId, null, runner.id).catch(() => false);
+    await finishRequest(deps, request, 'failed', { errorCode: RUNNER_NOT_ELIGIBLE });
+    return { done: true };
+  }
+
   // At most MAX_IN_FLIGHT_PER_RUNNER deliveries to one runner at a time.
   if ((await deps.store.countDelivering(runner.id)) >= runnerSettings().maxInFlightPerRunner) return { done: false, retryInMs: BUSY_RETRY_MS };
   const token = await deps.lock.acquire(request.pipelineId, LOCK_TTL_MS);
@@ -334,8 +365,19 @@ export async function hintFor(deps: RunnerDeps, request: RunRequestRow): Promise
 // -- Sweep --------------------------------------------------------------------
 
 export interface SweepCounts {
-  expired: number; pinged: number; recovered: number; markedUnhealthy: number; rekicked: number; pendingDeleted: number; retained: number;
+  expired: number;
+  pinged: number;
+  recovered: number;
+  markedUnhealthy: number;
+  rekicked: number;
+  pendingDeleted: number;
+  retained: number;
+  /** Registry rows left `checking` past {@link STALE_LINK_CHECK_MS}, put back. */
+  staleLinkChecks: number;
 }
+
+/** A probe takes seconds (one delivery timeout); a row `checking` longer than this lost its probe. */
+const STALE_LINK_CHECK_MS = 5 * 60_000;
 
 /** The signing-key lifecycle steps, run by the leader each sweep (each is idempotent). */
 const KEY_SWEEPS = [
@@ -348,7 +390,7 @@ const KEY_SWEEPS = [
 /** The periodic sweep (leader-locked by the scheduler). */
 export async function runSweep(deps: RunnerDeps): Promise<SweepCounts> {
   const now = deps.now();
-  const counts: SweepCounts = { expired: 0, pinged: 0, recovered: 0, markedUnhealthy: 0, rekicked: 0, pendingDeleted: 0, retained: 0 };
+  const counts: SweepCounts = { expired: 0, pinged: 0, recovered: 0, markedUnhealthy: 0, rekicked: 0, pendingDeleted: 0, retained: 0, staleLinkChecks: 0 };
   // A database without the runner tables: nothing to sweep, and no error every cycle.
   if (!(await deps.store.tablesPresent())) return counts;
   const settings = runnerSettings();
@@ -363,6 +405,8 @@ export async function runSweep(deps: RunnerDeps): Promise<SweepCounts> {
   counts.pendingDeleted = await deps.store.deletePendingRunnersBefore(new Date(now - PENDING_RUNNER_TTL_MS));
   counts.retained += await deps.store.deleteRequestsBefore(['started', 'stopped'], new Date(now - settings.retentionDays * day));
   counts.retained += await deps.store.deleteRequestsBefore(['failed', 'expired'], new Date(now - settings.failedRetentionDays * day));
+  // A replica that died mid-probe (Find runner again, registration) left its row `checking`.
+  counts.staleLinkChecks = await deps.store.resetStaleLinkChecks(new Date(now - STALE_LINK_CHECK_MS));
 
   // 2. The signing-key lifecycle: promote due `next` keys, retire `retiring`
   // ones past retire_after, advance mode/ancestry transitions, age reminders.
@@ -410,8 +454,6 @@ function healthState(deps: RunnerDeps): HealthState {
 
 /** A ping reply that means a key or configuration problem: unhealthy at once. */
 const IMMEDIATELY_UNHEALTHY = new Set<string>(['SIGNATURE_INVALID', 'RUNNER_REFUSED'] satisfies RunnerReplyErrorCode[]);
-/** The platform's own refusals (paused, no key, an unreadable key): not the runner's fault, never counted. */
-const PLATFORM_SIDE = new Set<string>(RUNNER_API_ERROR_CODES);
 
 type PingResult = 'ok' | 'recovered' | 'failed' | 'unhealthy' | 'skipped';
 

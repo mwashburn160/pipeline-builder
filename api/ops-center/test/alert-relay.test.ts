@@ -66,6 +66,16 @@ describe('relayWebhook', () => {
     expect(deliver).not.toHaveBeenCalled();
   });
 
+  it('skips a malformed alert (no labels/annotations objects) instead of aborting the batch', async () => {
+    // A throw here 500s the webhook, so Alertmanager re-sends the WHOLE group
+    // and the alerts already delivered before the bad one go out twice.
+    const bad = { status: 'firing', startsAt: '', endsAt: '' } as unknown as ReturnType<typeof alert>;
+    const noAnnotations = { ...alert({ org_id: 'org-a', alertname: 'NoAnn' }), annotations: undefined } as unknown as ReturnType<typeof alert>;
+    const res = await relayWebhook(payload(alert({ org_id: 'org-a' }), bad, noAnnotations));
+    expect(res).toEqual({ delivered: 2, skipped: 1, failed: 0 });
+    expect(deliver.mock.calls[1]![0]).toMatchObject({ title: 'NoAnn', summary: '' });
+  });
+
   it('routes critical to the critical tier and anything else to warning', async () => {
     await relayWebhook(payload(alert({ org_id: 'org-a', severity: 'critical' }), alert({ org_id: 'org-a', severity: 'info' })));
     expect(findForDelivery.mock.calls.map((c) => c[1])).toEqual(['critical', 'warning']);

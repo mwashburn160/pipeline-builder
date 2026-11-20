@@ -225,7 +225,7 @@ jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({
 process.env.BILLING_DISCOUNT_KEYS = `v1:${Buffer.alloc(32, 3).toString('base64')}`;
 
 const { createDiscountRoutes } = await import('../src/routes/discounts.js');
-const { reconcileDiscountsOnInvoice, clearDiscountsOnCancel, grantPeriodicCredits, applyDiscountToOrg } = await import('../src/helpers/discount-helpers.js');
+const { reconcileDiscountsOnInvoice, clearDiscountsOnCancel, grantPeriodicCredits, applyDiscountToOrg, previewDiscountForOrg } = await import('../src/helpers/discount-helpers.js');
 
 // Extract handlers by (method, path) from the router stack.
 const router: any = createDiscountRoutes();
@@ -357,6 +357,51 @@ describe('POST /admin/discounts/:id/apply (Mode A)', () => {
     await call(handler('post', '/admin/discounts/:id/apply'), adminReq({ params: { id: 'disc_scope_held' }, body: { targetOrgId: 'org-cust' } }));
     expect(mockSendError).not.toHaveBeenCalledWith({}, 409, expect.any(String), 'DISCOUNT_SCOPE_NOT_HELD');
     expect(subDoc.creditLedger).toHaveLength(1);
+  });
+
+  // #18: a ONE-TIME bundle-scoped dollar code is capped at the scoped subtotal
+  // at redemption, exactly as a recurring one is — a $50 code scoped to a $19.99
+  // add-on must not bank $50 — and the preview projects the same capped figure.
+  it('caps a one-time bundle-scoped dollar redemption (and its preview) at the scoped subtotal', async () => {
+    subDoc = freshSub({ addons: [{ bundleId: 'support_standard', quantity: 1 }] });
+    mockDiscountBaseCents.mockImplementation((d: { appliesToBundles?: readonly string[] }, planCents: number) => (d.appliesToBundles?.length ? 1999 : planCents));
+    try {
+      await mockDiscountCreate({ _id: 'disc_once_scoped', value: 5000, unit: 'dollar', kind: 'onetime', isActive: true, appliesToBundles: ['support_standard'] });
+      const preview = await previewDiscountForOrg('org-cust', discountStore.get('disc_once_scoped'));
+      // $49 plan, $19.99 credit → $29.01 charged.
+      expect(preview).toMatchObject({ ok: true, breakdown: { totalCents: 4900 - 1999 } });
+      await call(handler('post', '/admin/discounts/:id/apply'), adminReq({ params: { id: 'disc_once_scoped' }, body: { targetOrgId: 'org-cust' } }));
+      expect(subDoc.creditLedger.find((c: any) => c.discountId === 'disc_once_scoped')?.cents).toBe(1999);
+      expect(subDoc.creditBalanceCents).toBe(1999);
+    } finally {
+      mockDiscountBaseCents.mockImplementation(defaultDiscountBase);
+    }
+  });
+
+  // A bundle-scoped CREDIT (a prepayment) is not a price cut and is not capped.
+  it('leaves a bundle-scoped dollar CREDIT at its face value', async () => {
+    subDoc = freshSub({ addons: [{ bundleId: 'support_standard', quantity: 1 }] });
+    mockDiscountBaseCents.mockImplementation((d: { appliesToBundles?: readonly string[] }, planCents: number) => (d.appliesToBundles?.length ? 1999 : planCents));
+    try {
+      await mockDiscountCreate({ _id: 'disc_credit_scoped', value: 5000, unit: 'dollar', kind: 'credit', isActive: true, appliesToBundles: ['support_standard'] });
+      await call(handler('post', '/admin/discounts/:id/apply'), adminReq({ params: { id: 'disc_credit_scoped' }, body: { targetOrgId: 'org-cust' } }));
+      expect(subDoc.creditBalanceCents).toBe(5000);
+    } finally {
+      mockDiscountBaseCents.mockImplementation(defaultDiscountBase);
+    }
+  });
+
+  // A RECURRING scoped dollar code's redemption banks the first period's
+  // credit, so it is capped at the scoped subtotal exactly as every re-grant
+  // after it (and the floor's standing figure) is — not the full face value.
+  it('caps a recurring bundle-scoped dollar redemption at the scoped subtotal', async () => {
+    subDoc = freshSub({ addons: [{ bundleId: 'support_standard', quantity: 1 }] });
+    mockDiscountBaseCents.mockImplementation((d: { appliesToBundles?: readonly string[] }, planCents: number) => (d.appliesToBundles?.length ? 1999 : planCents));
+    await mockDiscountCreate({ _id: 'disc_rec_scoped', value: 5000, unit: 'dollar', kind: 'recurring', isActive: true, appliesToBundles: ['support_standard'] });
+    await call(handler('post', '/admin/discounts/:id/apply'), adminReq({ params: { id: 'disc_rec_scoped' }, body: { targetOrgId: 'org-cust' } }));
+    expect(subDoc.creditLedger.find((c: any) => c.discountId === 'disc_rec_scoped')?.cents).toBe(1999);
+    expect(subDoc.creditBalanceCents).toBe(1999);
+    mockDiscountBaseCents.mockImplementation(defaultDiscountBase);
   });
 });
 
@@ -662,6 +707,29 @@ describe('provider push', () => {
     expect(await applyDiscountToOrg('org-cust', discountStore.get('w_d'), 'u1')).toMatchObject({ code: 'CAMPAIGN_INACTIVE' });
   });
 
+  // A preview must give the answer the redemption would: a dry run that projects
+  // a discounted invoice for a code the apply then refuses tells the customer the
+  // code works when it does not.
+  it('previews the same campaign-window refusal the apply gives', async () => {
+    subDoc = freshSub({ externalCustomerId: 'cus_ext_1' });
+    await mockCampaignCreate({ _id: 'pv_future', name: 'Future', startsAt: new Date(Date.now() + 86_400_000), spentCents: 0, grantsCount: 0, isActive: true });
+    await mockDiscountCreate({ _id: 'pv_w_f', value: 10, unit: 'percent', kind: 'onetime', isActive: true, campaign: 'pv_future' });
+    await mockDiscountCreate({ _id: 'pv_orphan', value: 10, unit: 'percent', kind: 'onetime', isActive: true, campaign: 'pv_gone' });
+    expect(await previewDiscountForOrg('org-cust', discountStore.get('pv_w_f'))).toMatchObject({ ok: false, code: 'CAMPAIGN_NOT_STARTED' });
+    expect(await previewDiscountForOrg('org-cust', discountStore.get('pv_orphan'))).toMatchObject({ ok: false, code: 'CAMPAIGN_NOT_FOUND' });
+  });
+
+  it('previews the aggregate-floor refusal the apply gives', async () => {
+    mockConfig.discounts.floorPercent = 40;
+    try {
+      subDoc = freshSub({ externalCustomerId: 'cus_ext_1' });
+      await mockDiscountCreate({ _id: 'pv_floor', value: 90, unit: 'percent', kind: 'onetime', isActive: true });
+      expect(await previewDiscountForOrg('org-cust', discountStore.get('pv_floor'))).toMatchObject({ ok: false, status: 409, code: 'DISCOUNT_FLOOR_BREACHED' });
+    } finally {
+      mockConfig.discounts.floorPercent = 0;
+    }
+  });
+
   // Mint validates the reference, so this is a deleted campaign or hand-edited
   // data — fail closed rather than redeem it as if it were uncampaigned, which
   // would skip the budget, the window and the one-per-account rule at once.
@@ -729,6 +797,30 @@ describe('DELETE /subscriptions/:id/discounts/:discountId (stop recurring)', () 
     await call(handler('delete', '/subscriptions/:id/discounts/:discountId'), { user: { sub: 'u1', organizationId: 'org-cust' }, params: { id: 'sub-1', discountId: 'disc_rm' }, body: {} });
     expect(subDoc.recurringDiscount).toBeNull();
     expect(mockAuditRecord).toHaveBeenCalledWith(expect.objectContaining({ action: 'billing.discount.remove' }));
+  });
+
+  // #20: the stop is ONE atomic write guarded on the discount being removed. A
+  // read-then-save cleared whatever rule the row held at save time, so a
+  // different recurring discount applied between the read and the save was
+  // erased by a request that named another id.
+  it('clears with one guarded write and never erases a concurrently applied different discount', async () => {
+    subDoc = freshSub({ recurringDiscount: { discountId: 'disc_new', unit: 'percent', value: 15, appliedAt: new Date() } });
+    const stale = freshSub({ recurringDiscount: { discountId: 'disc_rm', unit: 'percent', value: 10, appliedAt: new Date() } });
+    mockSubscriptionFindOne.mockResolvedValueOnce(stale);
+    // The database holds disc_new: a write guarded on disc_rm matches nothing.
+    mockSubscriptionUpdateOne.mockImplementationOnce(async (filter: any) => (
+      filter['recurringDiscount.discountId'] === subDoc.recurringDiscount?.discountId
+        ? { matchedCount: 1, modifiedCount: 1 }
+        : { matchedCount: 0, modifiedCount: 0 }));
+    await call(handler('delete', '/subscriptions/:id/discounts/:discountId'), { user: { sub: 'u1', organizationId: 'org-cust' }, params: { id: 'sub-1', discountId: 'disc_rm' }, body: {} });
+    expect(stale.save).not.toHaveBeenCalled();
+    expect(mockSubscriptionUpdateOne).toHaveBeenCalledWith(
+      expect.objectContaining({ 'recurringDiscount.discountId': 'disc_rm' }),
+      { $set: { recurringDiscount: null } },
+    );
+    expect(mockSendError).toHaveBeenCalledWith({}, 409, expect.any(String), 'CONFLICT');
+    expect(subDoc.recurringDiscount).toMatchObject({ discountId: 'disc_new' });
+    expect(mockAuditRecord).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'billing.discount.remove' }));
   });
 });
 

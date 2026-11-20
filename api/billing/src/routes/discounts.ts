@@ -41,6 +41,7 @@ import { refuseTeamBilling } from '../helpers/root-org-guard.js';
 import { Campaign } from '../models/campaign.js';
 import { Discount } from '../models/discount.js';
 import type { DiscountDocument } from '../models/discount.js';
+import { Subscription } from '../models/subscription.js';
 import { DiscountMintSchema, DiscountUpdateSchema, DiscountApplySchema, DiscountRedeemSchema } from '../validation/schemas.js';
 
 const logger = createLogger('billing-discounts');
@@ -407,8 +408,16 @@ export function createDiscountRoutes(): Router {
       return sendError(res, 404, 'No active recurring discount with that id', ErrorCode.NOT_FOUND);
     }
 
-    subscription.recurringDiscount = null;
-    await subscription.save();
+    // ONE atomic write guarded on the rule being removed — never a read-then-save,
+    // which cleared whatever rule the row held at save time and so erased a
+    // different recurring discount applied in between.
+    const cleared = await Subscription.updateOne(
+      { '_id': subscription._id, 'recurringDiscount.discountId': discountId },
+      { $set: { recurringDiscount: null } },
+    );
+    if (cleared.matchedCount === 0) {
+      return sendError(res, 409, 'The recurring discount changed while it was being removed — reload and try again', ErrorCode.CONFLICT);
+    }
     await createBillingEvent(orgId, 'discount_removed', { discountId }, subscription._id.toString(), req.user?.sub);
     recordAudit({
       action: 'billing.discount.remove',

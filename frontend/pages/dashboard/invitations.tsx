@@ -152,6 +152,10 @@ export default function InvitationsPage() {
 
   // Resend state
   const [resendLoadingId, setResendLoadingId] = useState<string | null>(null);
+  // A resend mints a NEW token (only its hash is stored) and kills the old link.
+  // When no email went out, the API hands the new link back ONCE: show it here,
+  // or the invitation is unreachable.
+  const [resendLink, setResendLink] = useState<{ email: string; acceptUrl: string } | null>(null);
 
   // Bulk-revoke multi-select. Only pending invites are selectable (the others
   // can't be revoked). Mirrors the users-page bulk-delete UX: a Set of ids, a
@@ -290,6 +294,7 @@ export default function InvitationsPage() {
     setResendLoadingId(invitation.id);
     try {
       const res = await api.resendInvitation(invitation.id);
+      setResendLink(res.data?.acceptUrl ? { email: invitation.email, acceptUrl: res.data.acceptUrl } : null);
       if (res.data?.delivery === 'not-configured') {
         toast.warning(`Invitation to ${invitation.email} renewed, but no email was sent — this deployment has no mail transport`);
       } else {
@@ -338,6 +343,24 @@ export default function InvitationsPage() {
       <RoleBanner isSuperAdmin={isSuperAdmin} resourceName="invitations" />
 
       <ErrorAlert message={list.error} onRetry={list.refresh} onDismiss={() => list.setError(null)} />
+
+      {resendLink && (
+        <Callout variant="warning" icon={Mail} className="mb-3">
+          <p className="text-xs">
+            No email went out for the resent invitation to <span className="font-medium">{resendLink.email}</span>, and
+            the old link no longer works. Copy the new link to them yourself — <strong>it is shown once</strong> and
+            cannot be retrieved after you dismiss this.
+          </p>
+          <input
+            readOnly
+            value={resendLink.acceptUrl}
+            onFocus={(e) => e.currentTarget.select()}
+            aria-label={`Invitation link for ${resendLink.email}`}
+            className="mt-1 w-full rounded border border-default bg-surface px-2 py-1 font-mono text-2xs text-fg"
+          />
+          <button type="button" className="action-link mt-1 text-xs" onClick={() => setResendLink(null)}>Dismiss</button>
+        </Callout>
+      )}
 
       {canManageInvitations && <BulkSelectionBanner
         count={selectedIds.size}

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { attachmentDisposition, createLogger, envInt, envStr, ErrorCode, fetchOrgDescendants, RETENTION_MAX_DAYS, sendError, userHasPermission } from '@pipeline-builder/api-core';
+import { attachmentDisposition, createLogger, envInt, envStr, ErrorCode, fetchOrgDescendants, maskLine, RETENTION_MAX_DAYS, sendError, userHasPermission } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
 import type { PdfFailure, PdfRefusal } from '../services/report-pdf.js';
 
@@ -54,10 +54,15 @@ const CREDENTIAL_PATTERNS: ReadonlyArray<RegExp> = [
   /(password|secret|token|key)[\s:=]+\S+/gi,
 ];
 
-/** Redact credential-shaped substrings from a failure/error message. */
+/**
+ * Redact credential-shaped substrings from a failure/error message: the local
+ * patterns above, then api-core's shared `maskLine` — the one list every log
+ * masking layer uses (bearer tokens, JWTs, provider keys, URL credentials) plus
+ * the AWS account-id scrub, since raw failure text routinely carries ARNs.
+ */
 export function scrubErrorMessage(msg: string | null | undefined): string | null | undefined {
   if (!msg) return msg;
-  return CREDENTIAL_PATTERNS.reduce((acc, re) => acc.replace(re, '[REDACTED]'), msg);
+  return maskLine(CREDENTIAL_PATTERNS.reduce((acc, re) => acc.replace(re, '[REDACTED]'), msg));
 }
 
 /**

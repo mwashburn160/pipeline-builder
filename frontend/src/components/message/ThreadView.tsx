@@ -9,6 +9,7 @@ import { SupportCasePanel } from '@/components/message/SupportCasePanel';
 import { CannedResponsePicker } from '@/components/message/CannedResponsePicker';
 import { useAuth } from '@/hooks/useAuth';
 import type { MemberOption } from '@/components/message/RecipientPicker';
+import type { MessageEdit } from '@/hooks/useMessages';
 import api from '@/lib/api';
 import { useFetch } from '@/hooks/useFetch';
 import { useMutation } from '@/hooks/useMutation';
@@ -93,6 +94,12 @@ interface ThreadViewProps {
    * operator viewing as the case author must not get a live composer.
    */
   readOnly?: boolean;
+  /**
+   * The latest MESSAGE_EDITED frame from the live stream (useMessages'
+   * `lastEdit`). When it names this thread, the thread re-reads so an edit
+   * made elsewhere shows without reopening it.
+   */
+  lastEdit?: MessageEdit | null;
 }
 
 /** Colored badge indicating message priority; renders nothing for "normal" (or an unknown) priority. */
@@ -109,7 +116,7 @@ function PriorityBadge({ priority }: { priority: string }) {
 }
 
 /** Chat-style thread view displaying a conversation with reply input. */
-export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOrgName, fetchMembers, onBack, onThreadRead, onDelete, onFollowUpCreated, canDelete, canWrite = false, readOnly = false, supportCase, supportContacts = [], onCaseChanged }: ThreadViewProps) {
+export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOrgName, fetchMembers, onBack, onThreadRead, onDelete, onFollowUpCreated, canDelete, canWrite = false, readOnly = false, supportCase, supportContacts = [], onCaseChanged, lastEdit = null }: ThreadViewProps) {
   const { organizations } = useAuth();
   // The current org's own display name, for labelling optimistic (own) bubbles
   // before the server round-trip returns the resolved name.
@@ -221,6 +228,24 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
     },
   );
   const loading = threadQ.loading;
+
+  // A live edit in THIS thread: re-read it, and swap each edited row in place
+  // by id — so an optimistic reply still sending (or failed) keeps its bubble,
+  // and the list does not flash back to the loading state.
+  const editSeq = lastEdit?.seq ?? 0;
+  const editHere = !!lastEdit && (lastEdit.threadId === rootMessage.id || lastEdit.threadId === rootMessage.threadId);
+  useEffect(() => {
+    if (!editSeq || !editHere) return;
+    const controller = new AbortController();
+    api.getThread(rootMessage.id, { signal: controller.signal })
+      .then((res) => {
+        const fresh = new Map((res.data?.messages ?? []).map((m) => [m.id, m]));
+        setThread((prev) => prev.map((m) => fresh.get(m.id) ?? m));
+      })
+      .catch(() => { /* best-effort: the thread keeps what it shows */ });
+    return () => controller.abort();
+    // Each new frame (a new seq) re-reads once.
+  }, [editSeq, editHere, rootMessage.id]);
   useEffect(() => {
     // Mark thread as read when viewing.
     onThreadReadRef.current(rootMessage.id);

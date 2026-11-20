@@ -16,7 +16,7 @@ import { decodeDiscountCode, type DiscountSpec, type DiscountKind } from './disc
 import { standingRecurringPromotionCents } from './promotion-engine.js';
 import { invoiceCreditPeriodKey, type InvoiceLineLike } from './stripe-period.js';
 import { loadManageableSubscription } from './subscription-status.js';
-import { Campaign } from '../models/campaign.js';
+import { Campaign, type CampaignDocument } from '../models/campaign.js';
 import { Discount } from '../models/discount.js';
 import type { DiscountDocument } from '../models/discount.js';
 import { Plan } from '../models/plan.js';
@@ -132,14 +132,16 @@ function computeDiscountBreakdown(planName: string, prices: { monthly: number; a
  * The credit redeeming `discount` grants `subscription` now — one spelling for
  * apply and preview, so a preview can never project a figure the redemption
  * does not bank. A bundle-scoped code is a percentage of the scoped add-on
- * subtotal (`discountBaseCents`), not of the plan.
+ * subtotal (`discountBaseCents`), not of the plan, and a bundle-scoped DOLLAR
+ * price cut — one-time or recurring — is capped at that subtotal
+ * (`recurringCreditCents`, the same cap every recurring re-grant and the floor's
+ * standing view use), so a $50 code scoped to a $19.99 add-on banks $19.99. A
+ * `credit` is a prepayment rather than a price cut and keeps its face value.
  */
-function redemptionCents(discount: Pick<DiscountDocument, 'unit' | 'value' | 'appliesToBundles'>, subscription: SubscriptionDocument, plan: { prices: { monthly: number; annual: number } }): number {
+function redemptionCents(discount: Pick<DiscountDocument, 'kind' | 'unit' | 'value' | 'appliesToBundles'>, subscription: SubscriptionDocument, plan: { prices: { monthly: number; annual: number } }): number {
   const intervalPrice = priceForInterval(plan.prices, subscription.interval);
-  return creditCents(
-    discount,
-    discountBaseCents(discount, intervalPrice, subscription.addons ?? [], getBundleCatalog(), subscription.interval),
-  );
+  const base = discountBaseCents(discount, intervalPrice, subscription.addons ?? [], getBundleCatalog(), subscription.interval);
+  return discount.kind === 'credit' ? creditCents(discount, base) : recurringCreditCents(discount, base);
 }
 
 /** Hypothetical breakdown if a credit of `cents` were redeemed now (adds it to the balance). */
@@ -229,11 +231,90 @@ export async function previewDiscountForOrg(orgId: string, discount: DiscountDoc
   if (!loaded.ok) return loaded;
   const invalid = validateApplicable(orgId, discount, loaded.subscription, loaded.plan);
   if (invalid) return { ok: false, ...invalid };
+  // The same floor and campaign answers the apply gives: a preview that projects
+  // a discounted invoice for a code the redemption then refuses says it works.
+  const cents = redemptionCents(discount, loaded.subscription, loaded.plan);
+  const floor = await floorRefusal(orgId, discount, loaded.subscription, loaded.plan, cents, false);
+  if (floor) return { ok: false, ...floor };
+  const campaign = await campaignCheck(discount, loaded.subscription);
+  if (!campaign.ok) return campaign;
   return {
     ok: true,
     kind: discount.kind,
-    breakdown: projectDiscountBreakdown(loaded.plan.name, loaded.plan.prices, loaded.subscription, redemptionCents(discount, loaded.subscription, loaded.plan)),
+    breakdown: projectDiscountBreakdown(loaded.plan.name, loaded.plan.prices, loaded.subscription, cents),
   };
+}
+
+/**
+ * The aggregate-floor refusal for redeeming `cents` of `discount` now, or null.
+ * Both values are derived from the live composition rather than stored, so
+ * adding or dropping an add-on moves the answer with no separate trigger.
+ * STANDING means every source: the combo/volume credits the composition
+ * implies, the account's own recurring discount and its eligible recurring
+ * promotions.
+ */
+async function floorRefusal(
+  orgId: string,
+  discount: DiscountDocument,
+  subscription: SubscriptionDocument,
+  plan: { prices: { monthly: number; annual: number } },
+  cents: number,
+  /** False for a preview: a dry run is not a refusal, so it is neither logged nor counted. */
+  record = true,
+): Promise<{ status: number; error: string; code: string } | null> {
+  const intervalPrice = priceForInterval(plan.prices, subscription.interval);
+  const standingExtraCents = recurringDiscountStandingCents(subscription, intervalPrice, getBundleCatalog())
+    + await standingRecurringPromotionCents(subscription);
+  const breach = discountFloorBreach(
+    { planPriceCents: intervalPrice, addons: subscription.addons ?? [], interval: subscription.interval, bundles: getBundleCatalog(), standingExtraCents },
+    cents,
+    discount.kind,
+  );
+  if (!breach) return null;
+  if (record) {
+    logger.warn('Refused a discount that would breach the aggregate floor', {
+      orgId, discountId: String(discount._id), ...breach,
+    });
+    incCounter('billing_discount_floor_refused_total', { kind: discount.kind });
+  }
+  return {
+    status: 409,
+    error: `This discount cannot be combined with the discounts already on this account — it would take the invoice below ${breach.floorPercent}% of list.`,
+    code: 'DISCOUNT_FLOOR_BREACHED',
+  };
+}
+
+type CampaignCheck =
+  | { ok: true; campaign: CampaignDocument | null }
+  | { ok: false; status: number; error: string; code?: string };
+
+/**
+ * The campaign rules a redemption is judged by (window, one-per-account), with
+ * the campaign itself for the caller's budget reservation. Read-only. The
+ * campaign is the authority for the window, the budget and the one-per-account
+ * rule, so a code pointing at a campaign that no longer exists has no authority
+ * to read: fail closed rather than treat it as uncampaigned — mint validates the
+ * reference, so this is either a deleted campaign or hand-edited data.
+ */
+async function campaignCheck(discount: DiscountDocument, subscription: SubscriptionDocument): Promise<CampaignCheck> {
+  const campaign = discount.campaign ? await Campaign.findById(discount.campaign) : null;
+  if (discount.campaign && !campaign) {
+    logger.error('Discount references a campaign that does not exist', { discountId: String(discount._id), campaign: discount.campaign });
+    return { ok: false, status: 409, error: 'This discount is not currently redeemable', code: 'CAMPAIGN_NOT_FOUND' };
+  }
+  if (campaign) {
+    const windowRefusal = campaignWindowRefusal(campaign);
+    if (windowRefusal) return { ok: false, ...windowRefusal };
+    if (campaign.exclusive && await orgRedeemedCampaign(campaign._id, subscription, discount._id)) {
+      return {
+        ok: false,
+        status: 409,
+        error: 'This account has already redeemed a code from this campaign',
+        code: 'CAMPAIGN_ALREADY_REDEEMED',
+      };
+    }
+  }
+  return { ok: true, campaign };
 }
 
 // The aggregate credit floor lives in `credit-floor.ts` — a module low enough
@@ -273,60 +354,18 @@ export async function applyDiscountToOrg(
   if (invalid) return { ok: false, ...invalid };
 
   // The aggregate floor, checked BEFORE the reserve: a refusal here must not
-  // burn one of a limited code's redemptions. Both values are derived from the
-  // live composition rather than stored, so adding or dropping an add-on moves
-  // the answer with no separate trigger.
-  const intervalPrice = priceForInterval(plan.prices, subscription.interval);
+  // burn one of a limited code's redemptions.
   const cents = redemptionCents(discount, subscription, plan);
-  // STANDING now means every source, not just the derived ones: the account's
-  // own recurring discount and its eligible recurring promotions were both
-  // invisible here, so a coupon was measured against an understated baseline.
-  const standingExtraCents = recurringDiscountStandingCents(subscription, intervalPrice, getBundleCatalog())
-    + await standingRecurringPromotionCents(subscription);
-  const breach = discountFloorBreach(
-    { planPriceCents: intervalPrice, addons: subscription.addons ?? [], interval: subscription.interval, bundles: getBundleCatalog(), standingExtraCents },
-    cents,
-    discount.kind,
-  );
-  if (breach) {
-    logger.warn('Refused a discount that would breach the aggregate floor', {
-      orgId, discountId: String(discount._id), ...breach,
-    });
-    incCounter('billing_discount_floor_refused_total', { kind: discount.kind });
-    return {
-      ok: false,
-      status: 409,
-      error: `This discount cannot be combined with the discounts already on this account — it would take the invoice below ${breach.floorPercent}% of list.`,
-      code: 'DISCOUNT_FLOOR_BREACHED',
-    };
-  }
+  const floor = await floorRefusal(orgId, discount, subscription, plan, cents);
+  if (floor) return { ok: false, ...floor };
 
   // CAMPAIGN RULES, before the reserve for the same reason as the floor: a
   // refusal must not burn one of a limited code's redemptions. These need
   // lookups, so they can't live in the synchronous `validateApplicable`. The
   // campaign's BUDGET is claimed after the reserve, being itself a reservation.
-  const campaign = discount.campaign ? await Campaign.findById(discount.campaign) : null;
-  if (discount.campaign && !campaign) {
-    // The campaign is the authority for the window, the budget and the
-    // one-per-account rule, so a code pointing at a campaign that no longer
-    // exists has no authority to read. Fail closed rather than redeem it as if
-    // it were uncampaigned — mint validates the reference, so this is either a
-    // deleted campaign or hand-edited data.
-    logger.error('Discount references a campaign that does not exist', { discountId: String(discount._id), campaign: discount.campaign });
-    return { ok: false, status: 409, error: 'This discount is not currently redeemable', code: 'CAMPAIGN_NOT_FOUND' };
-  }
-  if (campaign) {
-    const windowRefusal = campaignWindowRefusal(campaign);
-    if (windowRefusal) return { ok: false, ...windowRefusal };
-    if (campaign.exclusive && await orgRedeemedCampaign(campaign._id, subscription, discount._id)) {
-      return {
-        ok: false,
-        status: 409,
-        error: 'This account has already redeemed a code from this campaign',
-        code: 'CAMPAIGN_ALREADY_REDEEMED',
-      };
-    }
-  }
+  const checked = await campaignCheck(discount, subscription);
+  if (!checked.ok) return checked;
+  const { campaign } = checked;
 
   // CLAIM the subscription for this apply, before anything is consumed. The
   // one-recurring rule and the floor above were judged against an in-memory read,

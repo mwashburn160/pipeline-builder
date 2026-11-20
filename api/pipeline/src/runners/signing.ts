@@ -117,7 +117,8 @@ export function createOrgSignerCache(opts: OrgSignerCacheOptions): OrgSignerCach
   const ttl = opts.ttlMs ?? RUNNER_KEY_CACHE_MS;
   const entries = new Map<string, Entry>();
   const inFlight = new Map<string, Promise<RunRequestSigner>>();
-  // Bumped on every invalidation, so a resolution that started before it is not cached.
+  // Bumped on every invalidation, so a resolution that started before it is not
+  // cached; the invalidation also forgets it, so no later call joins it.
   let generation = 0;
 
   const load = (key: string, orgId: string): Promise<RunRequestSigner> => {
@@ -127,7 +128,7 @@ export function createOrgSignerCache(opts: OrgSignerCacheOptions): OrgSignerCach
       p = opts.resolve(orgId).then((r) => {
         if (gen === generation) entries.set(key, { ...r, checkedAt: now() });
         return r.signer;
-      }).finally(() => { inFlight.delete(key); });
+      }).finally(() => { if (inFlight.get(key) === p) inFlight.delete(key); });
       inFlight.set(key, p);
     }
     return p;
@@ -154,12 +155,15 @@ export function createOrgSignerCache(opts: OrgSignerCacheOptions): OrgSignerCach
     invalidate(orgIds, source = 'pubsub') {
       generation++;
       for (const o of orgIds) {
-        if (entries.delete(o.toLowerCase())) opts.onInvalidate?.(source);
+        const key = o.toLowerCase();
+        inFlight.delete(key);
+        if (entries.delete(key)) opts.onInvalidate?.(source);
       }
     },
     clear() {
       generation++;
       entries.clear();
+      inFlight.clear();
     },
     size: () => entries.size,
   };

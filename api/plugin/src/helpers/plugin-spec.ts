@@ -21,7 +21,7 @@ import type { BuildType } from './docker-build.js';
 import type { PluginConfig, PluginContractFields } from './plugin-helpers.js';
 import { pluginIdentityProblem } from './plugin-identity.js';
 import { validateSafePath } from './safe-path.js';
-import { secretFileProblem } from './secret-files.js';
+import { SECRET_FILE_SCREEN } from './secret-files.js';
 import { readAndExtractZip, type ExtractionLimits } from './zip-extract.js';
 
 // -----------------------------------------------------------------------------
@@ -136,7 +136,7 @@ export async function parsePluginZip(zipPath: string, opts: ParseZipOptions = {}
   try {
     // --- Single-pass: extract all + capture text entries ---------------------
     const textEntries = ['config.yaml', 'config.yml', 'plugin-spec.yaml', 'README.md'];
-    const texts = await readAndExtractZip(zipPath, textEntries, extractDir, opts.limits, secretFileProblem);
+    const texts = await readAndExtractZip(zipPath, textEntries, extractDir, opts.limits, SECRET_FILE_SCREEN);
 
     // --- Config -------------------------------------------------------------
     const config = parsePluginConfig(texts.get('config.yaml') ?? texts.get('config.yml'));

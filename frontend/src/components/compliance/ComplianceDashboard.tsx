@@ -185,7 +185,7 @@ export default function ComplianceDashboard({ canManage = false, sessionReadOnly
           </div>
         )}
         {tab === 'enforced' && <EnforcedRulesView />}
-        {tab === 'exemptions' && <ExemptionManager readOnly={!canManage} />}
+        {tab === 'exemptions' && <ExemptionManager readOnly={!canManage} sessionReadOnly={sessionReadOnly} />}
         {tab === 'scans' && (
           detailScanId
             ? <ScanDetail scanId={detailScanId} onBack={() => setDetailScanId(null)} readOnly={!canManage} sessionReadOnly={sessionReadOnly} />

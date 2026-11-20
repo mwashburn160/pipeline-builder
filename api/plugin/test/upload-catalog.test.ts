@@ -77,7 +77,7 @@ jest.unstable_mockModule('../src/helpers/build-strategy.js', () => ({
 }));
 jest.unstable_mockModule('../src/queue/connections.js', () => ({ enqueueBuild: mockEnqueueBuild, getOrgTier: jest.fn(async () => 'developer') }));
 jest.unstable_mockModule('../src/services/plugin-artifact-storage.js', () => ({
-  putPluginArtifact: jest.fn(async () => undefined), deletePluginArtifact: jest.fn(), pluginArtifactKey: () => 'org-1/req-1.zip',
+  putPluginArtifact: jest.fn(async () => undefined), putPluginArtifactFile: jest.fn(async () => undefined), deletePluginArtifact: jest.fn(), pluginArtifactKey: () => 'org-1/req-1.zip',
 }));
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
   pluginService: { assertDeployable: mockAssertDeployable, deployVersion: mockDeployVersion },

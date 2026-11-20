@@ -24,7 +24,7 @@ const cpMock = { ...realCp, execFileSync: trap('execFileSync'), execSync: trap('
 jest.unstable_mockModule('child_process', () => ({ ...cpMock, default: cpMock }));
 
 const {
-  planRunner, describePlan, setupRunnerFlow, deleteRunner, prefixesFromPipelineNames, setupRunner, explainRunnerError,
+  planRunner, describePlan, setupRunnerFlow, deleteRunner, prefixesFromPipelineNames, setupRunner, explainRunnerError, scanRegionStacks,
   runnersUnavailableMessage, NO_ORG_KEY_MESSAGE, KEY_UNREADABLE_MESSAGE, classifyAccountRunners, prefixesOverlap, runnerStackInfo, SETUP_RUNNER_HELP,
 } = await import('../src/commands/setup-runner.js');
 type SetupRunnerDeps = import('../src/commands/setup-runner.js').SetupRunnerDeps;
@@ -77,6 +77,8 @@ function fakeDeps(opts: {
   names?: string[];
   deleteError?: unknown;
   confirm?: boolean;
+  /** The account's enabled regions (EC2 DescribeRegions), or the error reading them. */
+  enabledRegions?: string[] | Error;
 } = {}) {
   const calls: string[] = [];
   const detail: Record<string, unknown[]> = {};
@@ -128,7 +130,13 @@ function fakeDeps(opts: {
       if (!deployed.has(name)) return undefined;
       return { outputs: { EndpointUrl: ENDPOINT }, parameters: {} };
     },
-    async listRunnerStacks(regions) { rec('listRunnerStacks', regions); return opts.stacks ?? []; },
+    // Recorded in `detail` only: the flows' call order below stays about the platform and the stacks.
+    async enabledRegions(region) {
+      (detail.enabledRegions ??= []).push(region);
+      if (opts.enabledRegions instanceof Error) throw opts.enabledRegions;
+      return opts.enabledRegions ?? ['us-east-1'];
+    },
+    async listRunnerStacks(regions, required) { rec('listRunnerStacks', { regions, required }); return opts.stacks ?? []; },
     async deleteStack(name, region) { rec('deleteStack', { name, region }); },
     async uploadCode(fn) { rec('uploadCode', fn); },
     async registeredPipelineNames() { rec('registry'); return opts.names ?? ['acme-app-pipeline', 'acme-web-pipeline']; },
@@ -216,7 +224,7 @@ describe('planRunner', () => {
     ]);
     expect(Object.keys(d.iam)).toHaveLength(2);
     expect(d.bundleSha256).toBe(SHA);
-    expect(d.steps[0]).toMatch(/list the account's runner stacks \(us-east-1, eu-west-2\): one runner per AWS account per organization/);
+    expect(d.steps[0]).toMatch(/list the account's runner stacks in every enabled region of the account \(EC2 DescribeRegions; us-east-1, eu-west-2 always\): one runner per AWS account per organization/);
     expect(d.steps[1]).toMatch(/register a pending runner/);
     expect(d.steps[2]).toMatch(/deploy stack pipeline-builder-runner-<runnerId> with its RUNNER_ID/);
     expect(d.stackName).toBe('pipeline-builder-runner-<runnerId>');
@@ -226,6 +234,74 @@ describe('planRunner', () => {
   });
 });
 
+
+describe('account scan: every enabled region of the account', () => {
+  // The rule is one runner per ACCOUNT: a runner stack in a region outside the
+  // stack region and --regions was invisible, so a second one was installed.
+  it('lists the runner stacks of every enabled region, the stack region and --regions first (and required)', async () => {
+    const f = fakeDeps({ enabledRegions: ['ap-south-1', 'eu-west-2', 'sa-east-1', 'us-east-1'] });
+    await setupRunnerFlow(basePlan({ regions: 'us-east-1,eu-west-2' }), f.deps);
+    expect(f.detail.enabledRegions).toEqual(['us-east-1']);
+    expect(f.detail.listRunnerStacks).toEqual([{
+      regions: ['us-east-1', 'eu-west-2', 'ap-south-1', 'sa-east-1'], required: ['us-east-1', 'eu-west-2'],
+    }]);
+  });
+
+  it('refuses a second runner of the org found in a region outside --regions', async () => {
+    const f = fakeDeps({
+      enabledRegions: ['us-east-1', 'sa-east-1'],
+      stacks: [stack('run-9', { region: 'sa-east-1', label: 'ops' })],
+      own: [{ id: 'run-9', label: 'ops', status: 'active', regions: ['sa-east-1'] }],
+    });
+    await expect(setupRunnerFlow(basePlan(), f.deps)).rejects.toThrow(/runner "ops" \(run-9, stack pipeline-builder-runner-run-9 in sa-east-1\)/);
+    expect(f.calls).not.toContain('deployStack');
+  });
+
+  it('--delete finds the runner in any enabled region', async () => {
+    const f = fakeDeps({
+      enabledRegions: ['us-east-1', 'ca-central-1'],
+      stacks: [stack('run-4', { region: 'ca-central-1', label: 'default' })],
+      own: [{ id: 'run-4', label: 'default', status: 'active', regions: ['ca-central-1'] }],
+    });
+    await expect(deleteRunner(basePlan({ delete: true }), f.deps)).rejects.toThrow(/lives in stack pipeline-builder-runner-run-4 in ca-central-1/);
+    expect((f.detail.listRunnerStacks as any[])[0].regions).toEqual(['us-east-1', 'ca-central-1']);
+  });
+
+  it('stops before anything is created when the enabled regions cannot be read', async () => {
+    const f = fakeDeps({ enabledRegions: new Error('UnauthorizedOperation') });
+    await expect(setupRunnerFlow(basePlan(), f.deps)).rejects.toThrow(/ec2:DescribeRegions.*UnauthorizedOperation/);
+    expect(f.calls).toEqual(['GET /api/pipelines/runners']);
+  });
+});
+
+describe('scanRegionStacks', () => {
+  it('reads every region in parallel', async () => {
+    const started: string[] = [];
+    const gates: Array<() => void> = [];
+    const p = scanRegionStacks(['us-east-1', 'eu-west-2', 'ap-south-1'], ['us-east-1'], (region) => {
+      started.push(region);
+      return new Promise((resolve) => gates.push(() => resolve([stack(`r-${region}`, { region })])));
+    }, () => {});
+    await Promise.resolve();
+    expect(started).toEqual(['us-east-1', 'eu-west-2', 'ap-south-1']);
+    gates.forEach((g) => g());
+    expect((await p).map((s) => s.region)).toEqual(['us-east-1', 'eu-west-2', 'ap-south-1']);
+  });
+
+  it('a region it must cover fails the scan; any other unreadable region is warned and skipped', async () => {
+    const warnings: string[] = [];
+    const list = async (region: string) => {
+      if (region === 'me-south-1') throw new Error('AccessDenied by SCP');
+      if (region === 'eu-west-2') throw new Error('throttled');
+      return [stack(`r-${region}`, { region })];
+    };
+    await expect(scanRegionStacks(['us-east-1', 'eu-west-2'], ['us-east-1', 'eu-west-2'], list, (m) => warnings.push(m)))
+      .rejects.toThrow(/eu-west-2.*throttled/);
+    const found = await scanRegionStacks(['us-east-1', 'me-south-1'], ['us-east-1'], list, (m) => warnings.push(m));
+    expect(found.map((s) => s.region)).toEqual(['us-east-1']);
+    expect(warnings).toEqual([expect.stringMatching(/me-south-1.*AccessDenied by SCP/)]);
+  });
+});
 
 describe('install', () => {
   it('GET → list account runner stacks → register pending (step-up) → deploy ONCE as pipeline-builder-runner-<id> → upload → read ENDPOINT → PATCH (step-up) → events check', async () => {
@@ -240,7 +316,7 @@ describe('install', () => {
       'stepUp', 'PATCH /api/pipelines/runners/run-1',
       EVENTS,
     ]);
-    expect(f.detail.listRunnerStacks).toEqual([['us-east-1', 'eu-west-2']]);
+    expect(f.detail.listRunnerStacks).toEqual([{ regions: ['us-east-1', 'eu-west-2'], required: ['us-east-1', 'eu-west-2'] }]);
     const register = f.detail['POST /api/pipelines/runners']![0] as any;
     expect(register.data).toEqual({ label: 'default', regions: ['us-east-1', 'eu-west-2'] });
     expect(register.headers).toEqual({ 'X-Step-Up-Token': 'su-1' });
@@ -472,6 +548,18 @@ describe('signing key', () => {
     expect(r.signingKey).toEqual({ origin: 'generated', kid: 'kid-generated-abcdef' });
   });
 
+  it('--generate-key that loses a race (409 RUNNER_KEY_EXISTS: the key was just created elsewhere) carries on with that key', async () => {
+    const f = fakeDeps({ signingKey: { ...NO_KEY, isRootOrg: false } });
+    const post = f.deps.platform.post.bind(f.deps.platform);
+    f.deps.platform.post = (async (url: string, data?: unknown, headers?: Record<string, string>) => {
+      if (url.endsWith('/signing-key')) throw refused(409, { error: { code: 'RUNNER_KEY_EXISTS' } });
+      return post(url, data, headers);
+    }) as typeof f.deps.platform.post;
+    const r = await setupRunnerFlow(basePlan({ generateKey: true }), f.deps);
+    expect(r.signingKey).toEqual({ origin: 'existing', kid: null });
+    expect(f.calls).toContain('POST /api/pipelines/runners');
+  });
+
   it('--generate-key is a no-op when the org already has a key', async () => {
     const f = fakeDeps();
     expect((await setupRunnerFlow(basePlan({ generateKey: true }), f.deps)).signingKey).toEqual({ origin: 'existing', kid: 'kid-active-123456' });
@@ -581,9 +669,9 @@ describe('delete', () => {
     expect(f.calls).toEqual(['GET /api/pipelines/runners', 'listRunnerStacks', 'stepUp', 'DELETE /api/pipelines/runners/run-7']);
   });
 
-  it('with no stack here, never revokes an ACTIVE runner found only by label (its stack is in another account or region)', async () => {
+  it('with no stack in any enabled region, never revokes an ACTIVE runner found only by label (its stack is in another account)', async () => {
     const f = fakeDeps({ own: [{ id: 'run-7', label: 'default', status: 'active' }] });
-    await expect(deleteRunner(basePlan({ delete: true }), f.deps)).rejects.toThrow(/active.*another AWS account or region.*Pipeline runners/s);
+    await expect(deleteRunner(basePlan({ delete: true }), f.deps)).rejects.toThrow(/active.*any of this account's 1 enabled regions.*another AWS account.*Pipeline runners/s);
     expect(f.calls).toEqual(['GET /api/pipelines/runners', 'listRunnerStacks']);
   });
 
@@ -594,13 +682,19 @@ describe('delete', () => {
   });
 
   it('an already-revoked runner (404) still has its stack removed; any other failure stops before the stack', async () => {
-    const gone = fakeDeps({ stacks: [stack('run-1')], own: [mine], deleteError: refused(404, {}) });
+    const gone = fakeDeps({ stacks: [stack('run-1')], own: [mine], deleteError: refused(404, { message: 'Pipeline runner not found.', code: 'NOT_FOUND' }) });
     await deleteRunner(basePlan({ delete: true }), gone.deps);
     expect(gone.calls).toContain('deleteStack');
     expect(gone.warnings[0]).toMatch(/no such runner/);
     const paused = fakeDeps({ stacks: [stack('run-1')], own: [mine], deleteError: refused(409, { error: { code: 'RUNNERS_UNAVAILABLE' } }) });
     await expect(deleteRunner(basePlan({ delete: true }), paused.deps)).rejects.toThrow(/unavailable/);
     expect(paused.calls).not.toContain('deleteStack');
+  });
+
+  it('a 404 that is not the runner route\'s NOT_FOUND (a proxy or a missing route) keeps the stack of a runner the platform may still have', async () => {
+    const f = fakeDeps({ stacks: [stack('run-1')], own: [mine], deleteError: refused(404, { message: 'Not Found' }) });
+    await expect(deleteRunner(basePlan({ delete: true }), f.deps)).rejects.toThrow(/Not Found/);
+    expect(f.calls).not.toContain('deleteStack');
   });
 
   it('nothing to delete is an error that names the runner this account does have', async () => {

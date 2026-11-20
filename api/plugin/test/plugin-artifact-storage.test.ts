@@ -119,6 +119,27 @@ describe('putPluginArtifact', () => {
   });
 });
 
+// A staged upload ZIP may be up to PLUGIN_MAX_UPLOAD_MB (4 GiB by default) —
+// past fs.readFile's 2 GiB ceiling, and far too much to buffer per request.
+describe('putPluginArtifactFile', () => {
+  it('streams the file with its length instead of buffering it', async () => {
+    const src = path.join(tmp, 'upload.zip');
+    fs.writeFileSync(src, 'PK-zip-bytes');
+    await storage.putPluginArtifactFile('org/f.zip', src);
+    const put = sent.find((c) => c.__type === 'Put')!;
+    expect(put.input).toMatchObject({ Bucket: 'plugins', Key: 'org/f.zip', ContentType: 'application/zip', ContentLength: 12 });
+    expect(put.input.Body).toBeInstanceOf(Readable);
+    (put.input.Body as Readable).destroy();
+  });
+
+  it('writes to the bucket it is given', async () => {
+    const src = path.join(tmp, 'sub.zip');
+    fs.writeFileSync(src, 'PK');
+    await storage.putPluginArtifactFile('submissions/s.zip', src, 'plugin-quarantine');
+    expect(sent.find((c) => c.__type === 'Put')!.input).toMatchObject({ Bucket: 'plugin-quarantine', Key: 'submissions/s.zip' });
+  });
+});
+
 describe('getPluginArtifactToFile', () => {
   it('streams the object to disk', async () => {
     const dest = path.join(tmp, 'ctx.zip');

@@ -60,11 +60,13 @@ const PipelineRegistrySchema = z.object({
   // The pipeline's row id (a uuid column): anything else would reach the
   // ownership lookup as a Postgres cast error and answer 500, not 400.
   pipelineId: z.string().uuid('pipelineId must be a pipeline UUID'),
-  pipelineName: z.string().min(1, 'pipelineName is required'),
-  region: z.string().optional(),
-  project: z.string().optional(),
-  organization: z.string().optional(),
-  stackName: z.string().optional(),
+  // Bounded by the registry columns: an over-long value is a 400, not a
+  // Postgres "value too long" 500.
+  pipelineName: z.string().min(1, 'pipelineName is required').max(255),
+  region: z.string().max(30).optional(),
+  project: z.string().max(255).optional(),
+  organization: z.string().max(255).optional(),
+  stackName: z.string().max(255).optional(),
   steps: z.array(StepManifestEntrySchema).max(MAX_MANIFEST_STEPS).optional(),
 });
 

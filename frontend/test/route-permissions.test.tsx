@@ -3260,7 +3260,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   ], {
     category: 'same-control',
     coveredBy: 'Compliance reads (rules, policies, scans)',
-    why: 'Catalog Subscribe / Preview impact and the exemption request + CSV import, on the compliance:read-gated page. Activate (PATCH with isActive:true) and bulk Activate are live on compliance:read, matching the route, which demands compliance:write only for the deactivate branch — SubscriptionManager shows Deactivate only under `canWrite`. A read-only impersonation session disables all of them. The remaining controls sit inside the same `!readOnly` block as the writes above, i.e. the UI asks for MORE (compliance:write) than the route does — safe, and noted rather than relaxed.',
+    why: 'Catalog Subscribe / Preview impact and the exemption request + CSV import, on the compliance:read-gated page. Activate (PATCH with isActive:true) and bulk Activate are live on compliance:read, matching the route, which demands compliance:write only for the deactivate branch — SubscriptionManager shows Deactivate only under `canWrite`. The exemption Request and Import CSV in src/components/compliance/ExemptionManager.tsx sit outside its `!readOnly` (compliance:write) block, behind only `!sessionReadOnly`, matching the routes. A read-only impersonation session disables or hides all of them.',
   }),
   ...group('compliance', ['POST /compliance/validate/pipeline/dry-run', 'POST /compliance/validate/plugin/dry-run'], {
     category: 'same-control',

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/notifications.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 0dab25ad2eefd225f888f271f2d8e189066c8b58daec59988339d933f423cde0
+// SOURCE-SHA256: 7470300f2fab5edcc1e6cfb42cc3fff9b0b9539e770d8669214f5b2ad70371f4
 // SPDX-License-Identifier: Apache-2.0
 import { Bell } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1015,8 +1015,8 @@ export const notificationsTopic: HelpTopic = {
           "rows": [
             [
               "Invitation says \"Invitation sent successfully\", invitee gets nothing",
-              "EMAIL_ENABLED=false. The send is a no-op that returns success, so the API answers 201 and the UI reports delivery. The invitation row really exists; only the email is missing, and the token is not shown to the admin.",
-              "Enable email, then Resend the invitation. (resend does return a 500 when a send genuinely fails — but only when EMAIL_ENABLED is true.)"
+              "EMAIL_ENABLED=false. The send is a no-op that returns success, so the API answers 201 and the UI reports delivery. The invitation row really exists; only the email is missing.",
+              "Enable email, then Resend the invitation, or hand over the one-time acceptUrl the send (and resend) response carries when delivery is not sent. A resend mints a new token, so any earlier link stops working. (resend does return a 500 when a send genuinely fails — but only when EMAIL_ENABLED is true.)"
             ],
             [
               "\"Verification email sent\", nothing arrives",

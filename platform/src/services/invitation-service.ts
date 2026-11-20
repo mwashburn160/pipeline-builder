@@ -17,6 +17,7 @@ import { seatCapacityAvailable, seatCapacityStillWithinCap, withSeatGuard } from
 import { Invitation, type InvitationDocument, Organization, type OrganizationDocument, Role, User, type UserDocument, UserOrganization } from '../models/index.js';
 import type { OAuthProviderName } from '../types/oauth-provider.js';
 import { emailService } from '../utils/email.js';
+import { generateInvitationToken, hashInvitationToken } from '../utils/invitation-token.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 import { escapeRegex } from '../utils/regex.js';
 
@@ -89,6 +90,8 @@ function deliveryOf(sent: boolean): InvitationDelivery {
 
 interface SendInvitationResult {
   invitation: InvitationDocument;
+  /** The plaintext token — for the accept link only. The row stores its hash. */
+  token: string;
   delivery: InvitationDelivery;
 }
 
@@ -192,7 +195,7 @@ class InvitationService {
    * INV_EXPIRED / INV_REVOKED.
    */
   private async validateToken(token: string, session: mongoose.ClientSession): Promise<InvitationDocument> {
-    const invitation = await Invitation.findOne({ token }).session(session);
+    const invitation = await Invitation.findOne({ tokenHash: hashInvitationToken(token) }).session(session);
     if (!invitation) throw new Error(INV_NOT_FOUND);
     if (invitation.status !== 'pending') throw new Error(INVITATION_STATUS_ERROR[invitation.status]);
     if (invitation.isExpired()) {
@@ -420,6 +423,9 @@ class InvitationService {
    * single Mongo transaction so half-completed sends can't leak rows.
    */
   async send(input: SendInvitationInput): Promise<SendInvitationResult> {
+    // Minted once, outside the retryable transaction: only the hash is written,
+    // and the plaintext goes into the emailed link (never the database).
+    const { token, tokenHash } = generateInvitationToken();
     const { invitation, inviterName, organizationName, allowedOAuthProviders } = await withMongoTransaction(async (session) => {
       const org = await Organization.findById(toOrgId(input.orgId)).session(session);
       // Same rule as accept: a soft-deleted org or team takes no new members, so
@@ -486,6 +492,7 @@ class InvitationService {
           organizationId: toOrgId(input.orgId),
           invitedBy: input.inviterId,
           role: input.role,
+          tokenHash,
           expiresAt: getExpirationDate(),
           invitationType: input.invitationType,
         };
@@ -515,14 +522,14 @@ class InvitationService {
       recipientEmail: input.email.toLowerCase(),
       inviterName,
       organizationName,
-      invitationToken: invitation.token,
+      invitationToken: token,
       expiresAt: invitation.expiresAt,
       role: input.role,
       invitationType: input.invitationType,
       allowedOAuthProviders,
     });
 
-    return { invitation, delivery: deliveryOf(emailSent) };
+    return { invitation, token, delivery: deliveryOf(emailSent) };
   }
 
   /**
@@ -750,7 +757,7 @@ class InvitationService {
    * `isValid` / `canAcceptVia*` derived for the frontend.
    */
   async getByToken(token: string) {
-    const invitation = await Invitation.findOne({ token })
+    const invitation = await Invitation.findOne({ tokenHash: hashInvitationToken(token) })
       .populate('organizationId', 'name slug')
       .populate('invitedBy', 'username');
     if (!invitation) return null;
@@ -795,9 +802,9 @@ class InvitationService {
 
     const [invitations, total] = await Promise.all([
       Invitation.find(query)
-        // The token IS the invitation's bearer credential (anyone holding it can
-        // accept) — it never leaves the server in a listing.
-        .select('-token')
+        // The token is the invitation's bearer credential (anyone holding it can
+        // accept); not even its hash leaves the server in a listing.
+        .select('-tokenHash')
         .populate('invitedBy', 'username email')
         .populate('acceptedBy', 'username email')
         .sort({ createdAt: -1 })
@@ -892,10 +899,11 @@ class InvitationService {
   /**
    * Re-send an invitation email and reset its expiry — one in the caller's org
    * or one of its teams. Verifies caller authz against the invitation's org.
-   * Returns the new expiry, the org it belongs to, and what became of the email
-   * (the caller surfaces a 500 for a transport that refused).
+   * Returns the new expiry, the new plaintext token (the previous link is dead),
+   * the org it belongs to, and what became of the email (the caller surfaces a
+   * 500 for a transport that refused).
    */
-  async resend(invitationId: string, orgId: string, userId: string, canManage: boolean): Promise<{ expiresAt: Date; delivery: InvitationDelivery; email: string; role: string; organizationId: string }> {
+  async resend(invitationId: string, orgId: string, userId: string, canManage: boolean): Promise<{ expiresAt: Date; delivery: InvitationDelivery; token: string; email: string; role: string; organizationId: string }> {
     const invitation = await this.findManageable(invitationId, orgId, { status: 'pending' });
     const invitationOrgId = String(invitation.organizationId);
 
@@ -919,9 +927,11 @@ class InvitationService {
     }
 
     // Conditional, like revoke: one accepted or revoked since the read above is
-    // neither re-armed nor re-mailed.
+    // neither re-armed nor re-mailed. Only the token's hash is stored, so the
+    // resend mints a NEW token: the previous link stops working.
     const expiresAt = getExpirationDate();
-    const rearmed = await Invitation.updateOne({ _id: invitation._id, status: 'pending' }, { $set: { expiresAt } });
+    const { token, tokenHash } = generateInvitationToken();
+    const rearmed = await Invitation.updateOne({ _id: invitation._id, status: 'pending' }, { $set: { expiresAt, tokenHash } });
     if (rearmed.matchedCount === 0) throw new Error(INV_NOT_FOUND);
     invitation.expiresAt = expiresAt;
 
@@ -929,14 +939,14 @@ class InvitationService {
       recipientEmail: invitation.email,
       inviterName: inviter.username,
       organizationName: org.name,
-      invitationToken: invitation.token,
+      invitationToken: token,
       expiresAt: invitation.expiresAt,
       role: invitation.role,
       invitationType: invitation.invitationType,
       allowedOAuthProviders: invitation.allowedOAuthProviders,
     });
 
-    return { expiresAt: invitation.expiresAt, delivery: deliveryOf(emailSent), email: invitation.email, role: invitation.role, organizationId: invitationOrgId };
+    return { expiresAt: invitation.expiresAt, delivery: deliveryOf(emailSent), token, email: invitation.email, role: invitation.role, organizationId: invitationOrgId };
   }
 }
 

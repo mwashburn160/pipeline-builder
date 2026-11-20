@@ -255,6 +255,23 @@ describe('PipelineRunnersSettings — what it shows', () => {
   });
 });
 
+describe('PipelineRunnersSettings — revoked runners do not count as installed', () => {
+  it('an org whose only runner is revoked gets the install instructions open, the empty state and the no-runner key copy', async () => {
+    api.getPipelineRunners.mockResolvedValue(ok(dto({
+      own: [runner({ status: 'revoked' })],
+      signingKey: {
+        mode: 'own', isRootOrg: true, active: null, next: null, retiring: null, rotation: 'none', inheritedFrom: null,
+        inheritingTeams: 0, inheritingTeamNames: [], inheritingRunners: 0, transition: null, unreadable: false, maxAgeDays: 365,
+      },
+    })));
+    render(<PipelineRunnersSettings orgId="org-1" />);
+    await screen.findByTestId('runner-r1');
+    expect(screen.getByTestId('runner-install')).toBeInTheDocument();
+    expect(screen.getByText('No pipeline runners')).toBeInTheDocument();
+    expect(screen.getByTestId('key-none')).toHaveTextContent('A signing key is created when you register your first runner.');
+  });
+});
+
 describe('PipelineRunnersSettings — writes (step-up gated)', () => {
   it('rename: PATCH { label } with the step-up token, then re-read', async () => {
     render(<PipelineRunnersSettings orgId="org-1" />);

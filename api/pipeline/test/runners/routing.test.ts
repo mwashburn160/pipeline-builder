@@ -61,6 +61,16 @@ describe('routeExecution (runners are the only path)', () => {
     expect(mockFindById).not.toHaveBeenCalled();
   });
 
+  // A malformed or over-long stop execution id used to reach discovery (signed
+  // probes to every runner) and then fail the insert (varchar(100)) with a 500.
+  it.each(['x'.repeat(101), 'exec id', 'exec/../1'])('a malformed stop execution id (%s) is 400 VALIDATION_ERROR, no runner asked', async (executionId) => {
+    const deps = testDeps();
+    addRunner(deps);
+    expect(await refusal(routeExecution(input({ action: 'stop', executionId }), deps))).toMatchObject({ status: 400, code: 'VALIDATION_ERROR' });
+    expect(mockFindById).not.toHaveBeenCalled();
+    expect(deps.fetchMock).not.toHaveBeenCalled();
+  });
+
   it('runners unavailable (paused) → 409 RUNNERS_UNAVAILABLE, nothing read', async () => {
     const deps = testDeps();
     addRunner(deps);

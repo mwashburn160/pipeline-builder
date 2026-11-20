@@ -107,9 +107,9 @@ describe('InvitationService.listForOrg', () => {
     expect(invitations).toHaveLength(1);
   });
 
-  it('never returns the invitation TOKEN — it is the invitation\'s bearer credential', async () => {
+  it('never returns the stored token hash (the plaintext token is never stored at all)', async () => {
     await invitationService.listForOrg('org-1', { offset: 0, limit: 25 });
-    expect(capturedSelect).toBe('-token');
+    expect(capturedSelect).toBe('-tokenHash');
   });
 
   it('always scopes to the organization', async () => {

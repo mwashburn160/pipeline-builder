@@ -86,9 +86,9 @@ export const ORG_DATA_OWNERSHIP: Readonly<Record<OrgDataOwner, OrgDataSlice>> = 
       t(schema.pipelineStepLookup, 'pipeline_step_lookups'),
       t(schema.pipelineSecurityReport, 'pipeline_security_reports'),
       t(schema.pipelinePluginResolution, 'pipeline_plugin_resolution'),
-      // Cross-account runners (their reach-me URLs are org secrets) and the
-      // run requests delivered to them.
-      t(schema.pipelineRunner, 'pipeline_runners'),
+      // Cross-account runners (their reach-me URLs are org secrets, so the
+      // export never carries function_url) and the run requests delivered to them.
+      t(schema.pipelineRunner, 'pipeline_runners', ['function_url']),
       t(schema.pipelineRunRequest, 'pipeline_run_requests'),
       // The org's run-request signing keys (HARD: purge removes the rows, key
       // material and all — never tombstoned) and its key mode.
@@ -106,7 +106,10 @@ export const ORG_DATA_OWNERSHIP: Readonly<Record<OrgDataOwner, OrgDataSlice>> = 
       t(schema.pluginInstall, 'plugin_installs'),
       t(schema.pluginInstallPolicy, 'plugin_install_policies'),
       t(schema.pluginAdvisoryDelivery, 'plugin_advisory_deliveries'),
-      t(schema.pluginSecurityNotificationPref, 'plugin_security_notification_prefs'),
+      // The webhook's signing secret, the external recipient's encrypted address
+      // and lookup hash, and the pending verification token's hash.
+      t(schema.pluginSecurityNotificationPref, 'plugin_security_notification_prefs',
+        ['webhook_secret', 'external_email_enc', 'external_email_hash', 'external_verify_token_hash']),
       // Written for the system org only (never purged) — listed so the drift
       // guard holds, not because a tenant has rows.
       t(schema.pluginKeptSetupImage, 'plugin_kept_setup_images'),
@@ -128,7 +131,7 @@ export const ORG_DATA_OWNERSHIP: Readonly<Record<OrgDataOwner, OrgDataSlice>> = 
       t(schema.complianceRuleSubscription, 'compliance_rule_subscriptions'),
       t(schema.complianceScan, 'compliance_scans'),
       t(schema.complianceScanSchedule, 'compliance_scan_schedules'),
-      t(schema.complianceNotificationPreference, 'compliance_notification_preferences'),
+      t(schema.complianceNotificationPreference, 'compliance_notification_preferences', ['webhook_secret']),
       t(schema.complianceNotificationLog, 'compliance_notification_log'),
     ],
   },
@@ -155,7 +158,8 @@ export const ORG_DATA_OWNERSHIP: Readonly<Record<OrgDataOwner, OrgDataSlice>> = 
       // stakeholders — tombstoned, not dropped, so they keep the retention window.
       t(schema.reportDefinition, 'report_definitions'),
       t(schema.reportRun, 'report_runs'),
-      t(schema.reportRecipient, 'report_recipients'),
+      // A recipient's unsubscribe link is a live token; the verification hash looks one up.
+      t(schema.reportRecipient, 'report_recipients', ['verification_token_hash', 'unsubscribe_token']),
     ],
     hard: [
       t(schema.pipelineEvent, 'pipeline_events'),
@@ -165,7 +169,7 @@ export const ORG_DATA_OWNERSHIP: Readonly<Record<OrgDataOwner, OrgDataSlice>> = 
       t(schema.doraSettings, 'dora_settings'),
       // HARD-deleted, never tombstoned: a soft-deleted link row is still a live
       // token to the public route's hash lookup.
-      t(schema.reportShareLink, 'report_share_links'),
+      t(schema.reportShareLink, 'report_share_links', ['token_hash']),
       t(schema.doraDeployment, 'dora_deployments'),
       t(schema.executionDailyRollup, 'execution_daily_rollups'),
       t(schema.pluginVulnExposure, 'plugin_vuln_exposure'),

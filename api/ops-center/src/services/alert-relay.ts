@@ -58,7 +58,16 @@ export async function relayWebhook(payload: AlertmanagerWebhook): Promise<{
   let skipped = 0;
   let failed = 0;
 
-  for (const alert of payload.alerts) {
+  for (const raw of payload.alerts) {
+    // The controller checks only that `alerts` is an array. A malformed entry is
+    // skipped, never thrown on: a throw 500s the webhook and Alertmanager
+    // re-sends the whole group, duplicating what was already delivered.
+    if (!isPlainObject(raw) || !isPlainObject(raw.labels)) {
+      skipped++;
+      logger.warn('Skipping malformed alert (no labels object)');
+      continue;
+    }
+    const alert: Alert = isPlainObject(raw.annotations) ? raw : { ...raw, annotations: {} };
     const orgId = alert.labels.org_id;
     if (!orgId) {
       // Platform-wide alert that shouldn't have hit this relay  Alertmanager
@@ -106,6 +115,10 @@ export async function relayWebhook(payload: AlertmanagerWebhook): Promise<{
   }
 
   return { delivered, skipped, failed };
+}
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
 /** Map an Alertmanager alert + destination onto the transport-agnostic message. */

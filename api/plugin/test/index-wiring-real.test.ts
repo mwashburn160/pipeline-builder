@@ -212,6 +212,7 @@ const pluginService = {
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({ pluginService }));
 jest.unstable_mockModule('../src/services/plugin-artifact-storage.js', () => ({
   putPluginArtifact: jest.fn(async () => undefined),
+  putPluginArtifactFile: jest.fn(async () => undefined),
   deletePluginArtifact: jest.fn(async () => undefined),
   getPluginArtifactToFile: jest.fn<AnyFn>(),
   pluginArtifactKey: (orgId: string, requestId: string) => `${orgId}/${requestId}.zip`,

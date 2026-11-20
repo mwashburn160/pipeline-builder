@@ -544,13 +544,13 @@ describe('exportOrg', () => {
     expect(select).toHaveBeenCalledWith('-keyHash');
   });
 
-  it('never exports an invitation TOKEN (the accept link is a bearer credential)', async () => {
+  it('never exports an invitation token hash (the plaintext token is never stored)', async () => {
     const select = jest.fn((..._args: unknown[]) => findChain([{ email: 'a@acme.test' }]));
     mockInvitationFind.mockReturnValue({ select } as never);
 
     const dump = await exportOrg('org-acme', '000000000000000000000001');
 
-    expect(select).toHaveBeenCalledWith('-token');
+    expect(select).toHaveBeenCalledWith('-tokenHash');
     expect(dump.mongo.invitations).toHaveLength(1);
   });
 

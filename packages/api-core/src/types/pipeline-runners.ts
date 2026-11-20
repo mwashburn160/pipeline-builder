@@ -99,7 +99,11 @@ export type RunnerErrorCategory = 'platform' | 'runner' | 'recorded';
 export interface RunnerErrorMeta {
   /** The HTTP status it is answered with; null for a `recorded` code. */
   readonly httpStatus: number | null;
-  /** The dispatcher delivers again on this runner answer (vs. failing the request). */
+  /**
+   * The dispatcher delivers again on this code in a runner's 4xx answer (vs.
+   * failing the request). Any 5xx is retried as a transport failure, whatever
+   * its body says.
+   */
   readonly retryable: boolean;
   readonly category: RunnerErrorCategory;
 }
@@ -149,13 +153,27 @@ export const RUNNER_ERRORS = {
   NOT_YET_VISIBLE: { httpStatus: 409, retryable: true, category: 'runner' },
   /** The runner holds this request in flight with no final result yet. */
   DUPLICATE: { httpStatus: 409, retryable: true, category: 'runner' },
-  /** Anything unexpected inside the runner (a 5xx; retried). */
-  RUNNER_ERROR: { httpStatus: 500, retryable: true, category: 'runner' },
+  /**
+   * Anything unexpected inside the runner, or a reply the platform can't use
+   * (an unknown code, a non-JSON 4xx). Final: a runner's own 4xx reply fails
+   * the request. The runner answers it with a bare 500, which — like every
+   * 5xx — the dispatcher retries as a transport failure (`http_5xx`), not by
+   * this code.
+   */
+  RUNNER_ERROR: { httpStatus: 500, retryable: false, category: 'runner' },
   // -- Recorded by the platform --
   /** Not delivered within the request's lifetime. */
   RUN_REQUEST_EXPIRED: { httpStatus: null, retryable: false, category: 'recorded' },
   /** A discovery probe that found nothing (probe rows only). */
   NO_MATCH: { httpStatus: null, retryable: false, category: 'recorded' },
+  /**
+   * The runner a queued request was routed to is no longer one its org may use
+   * (an ancestor's runner un-shared from teams, or the team moved under another
+   * parent): re-checked just before delivery, the request fails instead of
+   * being sent, and the pipeline's stale link is cleared (the next run
+   * rediscovers).
+   */
+  RUNNER_NOT_ELIGIBLE: { httpStatus: null, retryable: false, category: 'recorded' },
 } as const satisfies Record<string, RunnerErrorMeta>;
 
 export type RunnerErrorCode = keyof typeof RUNNER_ERRORS;
@@ -310,11 +328,11 @@ export function runnerKeyRevokeConfirmation(kid: string): string {
   return kid.slice(-RUNNER_KEY_REVOKE_CONFIRM_CHARS);
 }
 
-/** Whole days from `since` to `now` (never negative). */
+/** Whole days from `since` to `now` (never negative; 0 when either date is unparseable). */
 export function runnerKeyAgeDays(since: Date | string, now: Date | number = Date.now()): number {
   const from = typeof since === 'string' ? Date.parse(since) : since.getTime();
   const to = typeof now === 'number' ? now : now.getTime();
-  return Number.isFinite(from) ? Math.max(0, Math.floor((to - from) / 86_400_000)) : 0;
+  return Number.isFinite(from) && Number.isFinite(to) ? Math.max(0, Math.floor((to - from) / 86_400_000)) : 0;
 }
 
 // -----------------------------------------------------------------------------
@@ -386,13 +404,32 @@ export const RUNNER_TUNABLE_MINIMUMS: Readonly<Record<RunnerTunableEnv, number>>
   RUNNER_KEY_MAX_AGE_DAYS: 1,
 };
 
-/** Read one tunable from `env` (default when unset, unparseable or below its minimum). */
-export function runnerTunable(name: RunnerTunableEnv, env: Readonly<Record<string, string | undefined>>): number {
-  const raw = env[name];
-  const n = Number((raw ?? '').trim());
-  return raw !== undefined && raw.trim() !== '' && Number.isFinite(n) && n >= RUNNER_TUNABLE_MINIMUMS[name]
-    ? Math.floor(n)
-    : Number(RUNNER_TUNABLE_DEFAULTS[name]);
+/** The bad values each warning sink was already told about (settings are re-read per request: warn once). */
+const tunableWarned = new WeakMap<(message: string) => void, Set<string>>();
+
+// eslint-disable-next-line no-console
+const consoleWarn = (message: string): void => console.warn(message);
+
+/**
+ * Read one tunable from `env`: a whole number written in digits only
+ * (`/^\d+$/` after trimming) at or above its minimum. Unset or blank is the
+ * default; anything else (a fraction, sign, exponent, hex, unit, or a value
+ * below the minimum) is the default too, with one `warn` per distinct value.
+ */
+export function runnerTunable(name: RunnerTunableEnv, env: Readonly<Record<string, string | undefined>>, warn: (message: string) => void = consoleWarn): number {
+  const fallback = Number(RUNNER_TUNABLE_DEFAULTS[name]);
+  const raw = (env[name] ?? '').trim();
+  if (raw === '') return fallback;
+  const n = /^\d+$/.test(raw) ? Number(raw) : NaN;
+  if (Number.isSafeInteger(n) && n >= RUNNER_TUNABLE_MINIMUMS[name]) return n;
+  let seen = tunableWarned.get(warn);
+  if (!seen) tunableWarned.set(warn, (seen = new Set()));
+  const key = `${name}=${raw}`;
+  if (!seen.has(key)) {
+    seen.add(key);
+    warn(`${name}=${JSON.stringify(raw)} is not a whole number of at least ${RUNNER_TUNABLE_MINIMUMS[name]} (digits only); using the default ${fallback}.`);
+  }
+  return fallback;
 }
 
 // -----------------------------------------------------------------------------
@@ -491,6 +528,36 @@ export interface RunnerSigningKeyDto {
   maxAgeDays: number;
 }
 
+/** Where a {@link RunnerKeyServiceUnavailableError} came from: the org's KMS config lookup, or KMS itself. */
+export const RUNNER_KEY_SERVICE_SOURCES = ['kms_config', 'kms'] as const;
+export type RunnerKeyServiceSource = (typeof RUNNER_KEY_SERVICE_SOURCES)[number];
+
+/**
+ * A signing key could not be USED for a reason that is not the key: the
+ * per-org KMS config lookup (platform) failed, or KMS could not be reached
+ * (network, throttling, a 5xx). Transient — it says nothing about the stored
+ * ciphertext, so it is never RUNNER_KEY_UNREADABLE (no unreadable gauge, no
+ * operator notice): the caller answers 409 RUNNERS_UNAVAILABLE and a queued
+ * request stays queued. Only a real decrypt failure of the ciphertext (wrong
+ * master, tampered or wrong-org blob, a KMS key that refuses it) is
+ * RUNNER_KEY_UNREADABLE.
+ */
+export class RunnerKeyServiceUnavailableError extends Error {
+  /** The catalog code this maps to. */
+  readonly code = 'RUNNERS_UNAVAILABLE' as const satisfies RunnerApiErrorCode;
+
+  constructor(readonly source: RunnerKeyServiceSource, message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = 'RunnerKeyServiceUnavailableError';
+  }
+}
+
+/** Whether `err` is a {@link RunnerKeyServiceUnavailableError} (by name too: bundles may carry their own copy of the class). */
+export function isRunnerKeyServiceUnavailable(err: unknown): err is RunnerKeyServiceUnavailableError {
+  return err instanceof RunnerKeyServiceUnavailableError
+    || (err instanceof Error && err.name === 'RunnerKeyServiceUnavailableError' && (err as { code?: unknown }).code === 'RUNNERS_UNAVAILABLE');
+}
+
 /** Why runners are unavailable on this deployment (`available: false`). */
 export const RUNNERS_UNAVAILABLE_REASONS = ['paused', 'encryption_not_configured', 'tables_missing'] as const;
 export type RunnersUnavailableReason = (typeof RUNNERS_UNAVAILABLE_REASONS)[number];
@@ -537,8 +604,13 @@ export interface PipelineRunnersListDto {
 export interface RunnerLinkDto {
   pipelineId: string;
   status: RunnerLinkStatus;
-  /** The linked runner, when `runner_id` is set (it may be kept through a failed refresh). */
-  runner: { id: string; label: string; health: RunnerHealth; lastDeliveryAt: string | null; ownerOrgName: string | null } | null;
+  /**
+   * The linked runner, when `runner_id` is set (it may be kept through a failed refresh).
+   * `isOwn`: the caller's org owns it (false for an ancestor's shared runner) — what
+   * decides "shared by …" and the Test action, never inferred from `ownerOrgName`.
+   * `ownerOrgName` is set for every runner that is not the caller's own.
+   */
+  runner: { id: string; label: string; health: RunnerHealth; lastDeliveryAt: string | null; ownerOrgName: string | null; isOwn: boolean } | null;
   checkedAt: string | null;
   detail: RunnerLinkDetail | null;
   /** The platform pause toggle is on (the pipeline page's banner). */

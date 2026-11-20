@@ -144,13 +144,14 @@ export const BUILD_IMAGE_MANIFEST_ACTION = 'build-image';
  * classifies the org's rows) and the CLI (which reads the state back): each
  * state and what an exact pin that hit it is told
  * (`Plugin "<label>" version <pin> <pinRefusal>`). The service's row check can
- * also answer `live` (a row would resolve under a different filter); that is
- * not a not-found state and never rides a 404.
+ * also find the org's row `live` while the lookup still did not resolve it (the
+ * reference's other filters rule it out); that 404 says `excluded`, never `live`.
  */
 export const PLUGIN_LOOKUP_NOT_FOUND_STATES = {
   deleted: { pinRefusal: 'was deleted from your organization' },
   inactive: { pinRefusal: 'is inactive' },
   yanked: { pinRefusal: 'was yanked' },
   missing: { pinRefusal: 'does not exist' },
+  excluded: { pinRefusal: 'exists in your organization but the lookup excluded it (check the reference\'s other fields, such as its plugin type or image digest)' },
 } as const satisfies Record<string, { pinRefusal: string }>;
 export type PluginLookupNotFoundState = keyof typeof PLUGIN_LOOKUP_NOT_FOUND_STATES;

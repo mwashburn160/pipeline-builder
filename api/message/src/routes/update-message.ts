@@ -21,7 +21,7 @@ import {
 import { withRoute, createAuthenticatedWithOrgRoute } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
 import { Router } from 'express';
-import { signalUnreadCountChanged } from '../helpers/new-message.js';
+import { BROADCAST, signalUnreadCountChanged } from '../helpers/new-message.js';
 import { enrichOneWithOrgNames } from '../helpers/org-names.js';
 import { messageService } from '../services/message-service.js';
 
@@ -87,19 +87,23 @@ export function createUpdateMessageRoutes(sseManager: SSEManager): Router {
       },
     });
 
-    // Notify the other party's org so an open thread refreshes to the new text.
-    // Best-effort; the edit already persisted. Carries no content (the client
-    // refetches — server-side visibility still gates who can read it).
+    // Notify the other party's org (every org, for an announcement) so an open
+    // thread refreshes to the new text. Best-effort; the edit already persisted.
+    // Carries no content (the client refetches — server-side visibility still
+    // gates who can read it).
     try {
-      const audienceOrg = updated.recipientOrgId.toLowerCase() === orgId
-        ? updated.orgId.toLowerCase()
-        : updated.recipientOrgId.toLowerCase();
-      if (audienceOrg && audienceOrg !== '*') {
-        sseManager.send(audienceOrg, 'MESSAGE', 'Message edited', {
-          action: 'MESSAGE_EDITED' as const,
-          messageId: updated.id,
-          threadId: updated.threadId ?? updated.id,
-        });
+      const payload = {
+        action: 'MESSAGE_EDITED' as const,
+        messageId: updated.id,
+        threadId: updated.threadId ?? updated.id,
+      };
+      if (updated.recipientOrgId === BROADCAST) {
+        sseManager.broadcast('MESSAGE', 'Message edited', payload);
+      } else {
+        const audienceOrg = updated.recipientOrgId.toLowerCase() === orgId
+          ? updated.orgId.toLowerCase()
+          : updated.recipientOrgId.toLowerCase();
+        if (audienceOrg) sseManager.send(audienceOrg, 'MESSAGE', 'Message edited', payload);
       }
     } catch (err) {
       ctx.log('WARN', 'Failed to send SSE notification', { error: errorMessage(err) });

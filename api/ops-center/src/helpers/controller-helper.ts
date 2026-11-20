@@ -193,7 +193,7 @@ export function handleControllerError(
     return sendError(res, errObj.statusCode, errObj.message as string, errObj.code as string);
   }
 
-  // 4. Database failures. Same two rules as api-server's `withRoute`:
+  // 3. Database failures. Same two rules as api-server's `withRoute`:
   // 22P02 (a caller-supplied value Postgres could not cast — a malformed uuid
   // path param) is the client's input, so 400; and the error object is never
   // logged as-is, because a DrizzleQueryError's message carries the SQL and
@@ -204,7 +204,7 @@ export function handleControllerError(
     return sendError(res, 400, 'Invalid identifier or value format', ErrorCode.VALIDATION_ERROR);
   }
 
-  // 5. Fallback
+  // 4. Fallback
   logger.error(fallbackMessage, { error: safeErrorForLog(err), ...(Object.keys(db).length ? { db } : {}) });
   sendError(res, 500, fallbackMessage);
 }

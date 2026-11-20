@@ -1,6 +1,6 @@
 // GENERATED FROM docs/onboarding.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: fd26cc59dc94e2d078138f6996ba17255d0a07b65b12b9b22cf0769f22358dde
+// SOURCE-SHA256: 472aa7ee53f953c7172b60e0c4f939f24a1881b091630a78cc8ff183805b7839
 // SPDX-License-Identifier: Apache-2.0
 import { Rocket } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -431,7 +431,7 @@ export const onboardingTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "It registers the runner with the platform, deploys its stack and runs a test. Your organization's first runner also creates its runner signing key: every run request is signed with it, and only your org's runners trust it. View and rotate it on the Signing key card, or with pipeline-manager runner signing-key status|rotate|finish. A team uses its parent's shared runners and key with no setup. Manage runners under Settings → Organization → Pipeline runners; remove one with pipeline-manager infra setup-runner --delete. Prefer no inbound endpoint? Use pipeline-manager pipeline run --id <pipelineId> (and pipeline stop) with your own AWS credentials instead. Full detail: Cross-account pipeline runner."
+          "content": "It registers the runner with the platform, deploys its stack and runs a test. Your organization's first runner also creates its runner signing key: every run request is signed with it, and only your org's runners trust it. View and rotate it on the Signing key card, or with pipeline-manager runner signing-key status|rotate|finish. A team uses its parent's shared runners and key with no setup; a team's first runner creates its top-level organization's key if that organization has none yet. Manage runners under Settings → Organization → Pipeline runners; remove one with pipeline-manager infra setup-runner --delete. Prefer no inbound endpoint? Use pipeline-manager pipeline run --id <pipelineId> (and pipeline stop) with your own AWS credentials instead. Full detail: Cross-account pipeline runner."
         },
         {
           "type": "note",

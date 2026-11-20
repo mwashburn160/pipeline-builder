@@ -7,10 +7,20 @@
  * constants of the delivery protocol (docs: the runner v6 contract).
  */
 
+import { createLogger } from '@pipeline-builder/api-core';
 import {
-  PENDING_RUN_REQUEST_STATUSES, RUNNER_API_ERROR_CODES, RUNNER_DELIVERY_FAILURE_CLASSES, RUNNER_REPLY_ERROR_CODES, runnerTunable, TERMINAL_RUN_REQUEST_STATUSES,
-  type RunnerApiErrorCode, type RunnerDeliveryFailureClass, type RunnerErrorCode, type RunnerReplyErrorCode, type RunRequestStatus,
+  PENDING_RUN_REQUEST_STATUSES, RUNNER_REPLY_ERROR_CODES, runnerTunable, TERMINAL_RUN_REQUEST_STATUSES,
+  type RunnerDeliveryFailureClass, type RunnerErrorCode, type RunnerReplyErrorCode, type RunRequestStatus, type RunnerTunableEnv,
 } from '@pipeline-builder/api-core/pipeline-runners';
+
+const logger = createLogger('runner-settings');
+/** One stable sink, so api-core warns once per bad value however often the settings are read. */
+const warnTunable = (message: string): void => { logger.warn(message); };
+
+/** One runner tunable from `env` (digits only; anything else is the default, logged once). */
+export function tunable(name: RunnerTunableEnv, env: Readonly<Record<string, string | undefined>> = process.env): number {
+  return runnerTunable(name, env, warnTunable);
+}
 
 // The contract half (codes, statuses, outcomes, the request lifetime) is
 // api-core's `pipeline-runners` catalog, shared with the runner Lambda, the CLI
@@ -19,10 +29,6 @@ export { RUNNER_OUTCOMES, RUN_REQUEST_TTL_MS, UNREACHABLE_AFTER_FAILURES, type R
 
 export const TERMINAL_STATUSES: readonly RunRequestStatus[] = TERMINAL_RUN_REQUEST_STATUSES;
 export const PENDING_STATUSES: readonly RunRequestStatus[] = PENDING_RUN_REQUEST_STATUSES;
-
-/** Error codes the pipeline service answers with on a runner path (`code` of the error envelope). */
-export const RUNNER_API_ERRORS = RUNNER_API_ERROR_CODES;
-export type RunnerApiError = RunnerApiErrorCode;
 
 /** Error codes a RUNNER answers with (its 4xx/5xx `errorCode`). */
 export const RUNNER_REPLY_ERRORS = RUNNER_REPLY_ERROR_CODES;
@@ -33,6 +39,8 @@ export type RunnerReplyError = RunnerReplyErrorCode;
 export const RUN_REQUEST_EXPIRED = 'RUN_REQUEST_EXPIRED' satisfies RunnerErrorCode;
 /** A discovery probe that found nothing (probe rows only). */
 export const NO_MATCH = 'NO_MATCH' satisfies RunnerErrorCode;
+/** The routed runner is no longer one the request's org may use (re-checked before delivery). */
+export const RUNNER_NOT_ELIGIBLE = 'RUNNER_NOT_ELIGIBLE' satisfies RunnerErrorCode;
 
 /** Push delivery's per-attempt timeout. */
 export const DELIVERY_TIMEOUT_MS = 10_000;
@@ -52,7 +60,6 @@ export const STATUS_REFRESH_MS = 15_000;
 export const STATUS_READ_CACHE_MS = 2_000;
 
 /** Delivery failure classes recorded in `last_delivery_error` (the shared catalog's). */
-export const FAILURE_CLASSES = RUNNER_DELIVERY_FAILURE_CLASSES;
 export type FailureClass = RunnerDeliveryFailureClass;
 
 const envNumber = (raw: string | undefined, fallback: number, min: number): number => {
@@ -111,11 +118,11 @@ export function runnerSettings(env: NodeJS.ProcessEnv = process.env): RunnerSett
     platformEgressIps: ips.length > 0 ? ips : null,
     retentionDays: envNumber(env.RUNNER_REQUEST_RETENTION_DAYS, Number(DEFAULTS.RUNNER_REQUEST_RETENTION_DAYS), 1),
     failedRetentionDays: envNumber(env.RUNNER_FAILED_REQUEST_RETENTION_DAYS, Number(DEFAULTS.RUNNER_FAILED_REQUEST_RETENTION_DAYS), 1),
-    runRequestsPerMinute: runnerTunable('RUN_REQUESTS_PER_MINUTE', env),
-    maxPendingPerOrg: runnerTunable('MAX_PENDING_PER_ORG', env),
-    maxInFlightPerRunner: runnerTunable('MAX_IN_FLIGHT_PER_RUNNER', env),
-    healthPingIntervalMs: runnerTunable('RUNNER_HEALTH_PING_INTERVAL_SECONDS', env) * 1000,
-    unhealthyAfterPings: runnerTunable('RUNNER_UNHEALTHY_AFTER_PINGS', env),
+    runRequestsPerMinute: tunable('RUN_REQUESTS_PER_MINUTE', env),
+    maxPendingPerOrg: tunable('MAX_PENDING_PER_ORG', env),
+    maxInFlightPerRunner: tunable('MAX_IN_FLIGHT_PER_RUNNER', env),
+    healthPingIntervalMs: tunable('RUNNER_HEALTH_PING_INTERVAL_SECONDS', env) * 1000,
+    unhealthyAfterPings: tunable('RUNNER_UNHEALTHY_AFTER_PINGS', env),
   };
 }
 

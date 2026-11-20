@@ -23,6 +23,19 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   verifyServicePrincipal: (req: { serviceToken?: boolean }) => req?.serviceToken === true,
 }));
 
+/** A store whose every call fails (the shared Redis store during an outage); limiter names containing `broken` get it. */
+const brokenStore = () => ({
+  init: () => undefined,
+  get: async () => { throw new Error('redis down'); },
+  increment: async () => { throw new Error('redis down'); },
+  decrement: async () => { throw new Error('redis down'); },
+  resetKey: async () => { throw new Error('redis down'); },
+});
+jest.unstable_mockModule('../src/api/rate-limit-store.js', () => ({
+  // Memory store (undefined) for every limiter but the deliberately broken ones.
+  createSharedRateLimitStore: (namespace: string) => (namespace.includes('broken') ? brokenStore() : undefined),
+}));
+
 const { rateLimitByOrg } = await import('../src/api/rate-limit-by-org.js');
 
 interface MockReq {
@@ -106,6 +119,24 @@ describe('rateLimitByOrg', () => {
       expect((await run(mw, svc)).nexted).toBe(true);
     }
     expect(mockSendError).not.toHaveBeenCalled();
+  });
+
+  it('a store error lets the request through by default', async () => {
+    const mw = rateLimitByOrg({ name: 'test-broken-open', max: 1, windowMs: 60_000 });
+    expect((await run(mw, { ip: '10.0.0.1', user: { organizationId: 'org-1' } })).nexted).toBe(true);
+    expect(mockSendError).not.toHaveBeenCalled();
+  });
+
+  it('failClosed: a store error refuses the request with 503 (never unlimited), the cap still applies', async () => {
+    const mw = rateLimitByOrg({ name: 'test-broken-closed', max: 1, windowMs: 60_000, failClosed: true });
+    expect((await run(mw, { ip: '10.0.0.1', user: { organizationId: 'org-1' } })).nexted).toBe(false);
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 503, expect.any(String), 'SERVICE_UNAVAILABLE');
+    // With a working store a fail-closed limiter is an ordinary one.
+    mockSendError.mockReset();
+    const ok = rateLimitByOrg({ name: 'test-closed-ok', max: 1, windowMs: 60_000, failClosed: true });
+    expect((await run(ok, { ip: '10.0.0.1', user: { organizationId: 'org-1' } })).nexted).toBe(true);
+    expect((await run(ok, { ip: '10.0.0.1', user: { organizationId: 'org-1' } })).nexted).toBe(false);
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 429, expect.any(String), expect.anything());
   });
 
   it('falls back to a client-IP bucket when unauthenticated', async () => {

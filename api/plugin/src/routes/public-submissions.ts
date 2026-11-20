@@ -24,12 +24,12 @@ import * as fs from 'fs';
 
 import { audited, ErrorCode, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import { rateLimitByOrg } from '@pipeline-builder/api-server';
-import { Router, type ErrorRequestHandler, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
+import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 import multer from 'multer';
 
 import { bodyFrom, ecosystemRoute } from './ecosystem-route.js';
 import { InspectFields, SubmissionFields, TokenBody } from './ecosystem-schemas.js';
-import { UPLOAD_DEST, isZipUpload } from '../helpers/zip-upload.js';
+import { UPLOAD_DEST, isZipUpload, multipartUploadErrors } from '../helpers/zip-upload.js';
 import { EcosystemError } from '../services/ecosystem/context.js';
 import { assertSubmissionsAvailable, submissionConfig } from '../services/ecosystem/submission-config.js';
 import { issueChallenge } from '../services/ecosystem/submission-guards.js';
@@ -52,12 +52,7 @@ function cleanupUpload(req: Request): void {
   if (file?.path) fs.rm(file.path, { force: true }, () => undefined);
 }
 
-const multipartErrors: ErrorRequestHandler = (err, req, res, next) => {
-  if (!err) return next();
-  cleanupUpload(req);
-  const tooLarge = (err as { code?: string }).code === 'LIMIT_FILE_SIZE';
-  sendError(res, tooLarge ? 413 : 400, `File upload failed: ${(err as Error).message}`, tooLarge ? ErrorCode.PAYLOAD_TOO_LARGE : ErrorCode.VALIDATION_ERROR);
-};
+const multipartErrors = multipartUploadErrors(cleanupUpload);
 
 /** 404 unless the anonymous path is available right now; never cacheable. */
 async function availability(_req: Request, res: Response, next: NextFunction): Promise<void> {
