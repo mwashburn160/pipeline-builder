@@ -106,6 +106,20 @@ export function complianceApi(core: ApiCore) {
       });
     },
 
+    /**
+     * Dry-run raw pipeline ATTRIBUTES as typed into the Rule Editor's tester, sent
+     * unchanged. Not `dryRunPipelineCompliance`, which wraps a pipeline's
+     * BuilderProps into the creation-time shape ({ project, organization,
+     * pipelineName, props }) — re-wrapping a rule tester's attributes would test
+     * the rule against something the author never typed.
+     */
+    dryRunPipelineComplianceAttributes: async (attributes: Record<string, unknown>) => {
+      return core.request<ApiResponse<ComplianceCheckResult>>('/api/compliance/validate/pipeline/dry-run', {
+        method: 'POST',
+        body: JSON.stringify({ attributes }),
+      });
+    },
+
     /** Validate pipeline attributes against compliance rules (dry-run) */
     dryRunPipelineCompliance: async (props: BuilderProps, opts?: { signal?: AbortSignal }) => {
       const { project, organization, pipelineName } = props;

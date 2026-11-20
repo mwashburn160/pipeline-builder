@@ -33,3 +33,16 @@ it('sends pipeline preview attributes in the shape used by pipeline creation', a
     },
   });
 });
+
+it('sends a rule tester\'s typed attributes unchanged (the Rule Editor dry run)', async () => {
+  const request = jest.fn(async (_path: string, _init: RequestInit) => ({ success: true }));
+  const api = complianceApi({ request } as unknown as ApiCore);
+  const attrs = { project: 'p', organization: 'o', 'props.tags.environment': 'prod', visibility: 'public' };
+
+  await api.dryRunPipelineComplianceAttributes(attrs);
+
+  const [path, init] = request.mock.calls[0];
+  expect(path).toBe('/api/compliance/validate/pipeline/dry-run');
+  expect(init.method).toBe('POST');
+  expect(JSON.parse(String(init.body))).toEqual({ attributes: attrs });
+});

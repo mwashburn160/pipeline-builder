@@ -291,8 +291,9 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
       return;
     }
     try {
-      const fn = form.target === 'pipeline' ? api.dryRunPipelineCompliance : api.dryRunPluginCompliance;
-      const res = await fn.call(api, attrs);
+      const res = form.target === 'pipeline'
+        ? await api.dryRunPipelineComplianceAttributes(attrs)
+        : await api.dryRunPluginCompliance(attrs);
       if (res.success && res.data) setDryRunResult(res.data);
       else setError(res.message || 'Dry-run failed');
     } catch (err) {
