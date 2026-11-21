@@ -69,3 +69,7 @@ f2557386cb89c52fb0424a60ed64367bd966cbd1:README.md:curl-auth-header:240
 fa5be9768394e76252bc42cea6a50287a48ce06f:deploy/aws/eks/bin/setup.sh:generic-api-key:233
 fd48427855381242289395a52da6ab217fc1387e:deploy/local/certs/nginx.key:private-key:1
 fd48427855381242289395a52da6ab217fc1387e:deploy/local/certs/registry.key:private-key:1
+12ec89bca651f5d3b8bb09fa96030a333bc9009a:api/plugin/test/plugin-spec.test.ts:private-key:185
+12ec89bca651f5d3b8bb09fa96030a333bc9009a:api/plugin/test/plugin-spec.test.ts:private-key:211
+12ec89bca651f5d3b8bb09fa96030a333bc9009a:packages/pipeline-manager/test/plugin-publish.test.ts:private-key:149
+12ec89bca651f5d3b8bb09fa96030a333bc9009a:packages/api-core/test/plugin-secret-files.test.ts:private-key:195
