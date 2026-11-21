@@ -192,6 +192,24 @@ describe('Delete plugin — preview and delete', () => {
     expect(audits('plugin.delete-all')[0]!.details).toMatchObject({ cancelledBuilds: 1, cancelledRemediations: 1 });
   });
 
+  it('the job\'s batch id is the one the versions are deleted under; its acceptance hook runs under the lock before anything is cancelled', async () => {
+    await seed('1.0.0');
+    const BATCH_ID = '0190c0de-0000-7000-8000-0000000000b1';
+    const onAccepted = jest.fn<AnyFn>(async () => { lockEvents.push('accepted'); });
+    const result = await asOrg(ORG, () => actions.deleteByName('lint', caller(), { force: false, quotaService, batchId: BATCH_ID, onAccepted }));
+    expect(result.batchId).toBe(BATCH_ID);
+    expect((await rowsOf())[0]!.delete_batch_id).toBe(BATCH_ID);
+    expect(lockEvents.slice(0, 3)).toEqual(['lock:lint', 'accepted', 'cancelQueued']);
+  });
+
+  it('an acceptance hook that throws aborts the delete with nothing touched', async () => {
+    await seed('1.0.0');
+    const onAccepted = async () => { throw new Error('status store down'); };
+    await expect(asOrg(ORG, () => actions.deleteByName('lint', caller(), { force: false, quotaService, onAccepted }))).rejects.toThrow('status store down');
+    expect(mockCancelQueued).not.toHaveBeenCalled();
+    expect((await rowsOf())[0]!.deleted_at).toBeNull();
+  });
+
   it('a name already locked by another by-name action is refused before anything is touched', async () => {
     await seed('1.0.0');
     locked.add(`${ORG}:lint`);

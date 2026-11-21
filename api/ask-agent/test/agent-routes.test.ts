@@ -195,6 +195,26 @@ describe('POST /ask-agent/agent/stream', () => {
     expect(mockReserveQuota).not.toHaveBeenCalled();
   });
 
+  it('gives every proposal a single-use draft id bound to the caller and the agent feature (outside the model-visible output)', async () => {
+    const { getAiDraftStore, _setAiDraftStoreForTests, createMemoryAiDraftStore } = await import('@pipeline-builder/api-core');
+    _setAiDraftStoreForTests(createMemoryAiDraftStore());
+    streamParts = turn(
+      { type: 'tool-call', toolCallId: 'c1', toolName: 'propose_pipeline', input: {} },
+      { type: 'tool-result', toolCallId: 'c1', toolName: 'propose_pipeline', input: {}, output: { kind: 'pipeline', props: { name: 'x' } } },
+      ...text('Here is a draft.'),
+    );
+    const res = mockRes();
+    await handler(mockReq({ query: 'create a pipeline' }), res);
+
+    const frame = res.write.mock.calls.map((c: unknown[]) => String(c[0])).find((f: string) => f.includes('"type":"proposal"'))!;
+    const event = JSON.parse(frame.replace(/^data: /, '').trim());
+    expect(event.data).toEqual({ kind: 'pipeline', props: { name: 'x' } });
+    expect(typeof event.draftId).toBe('string');
+    expect(await getAiDraftStore().redeem(event.draftId, { orgId: 'org-1', userId: 'u9', feature: 'pipeline-generate' })).toBe('invalid');
+    expect(await getAiDraftStore().redeem(event.draftId, { orgId: 'org-1', userId: 'u9', feature: 'agent' })).toBe('ok');
+    _setAiDraftStoreForTests();
+  });
+
   it('maps fullStream to SSE (tool-call, proposal, token, done) and keeps the slot', async () => {
     streamParts = turn(
       { type: 'tool-call', toolCallId: 'c1', toolName: 'propose_pipeline', input: {} },

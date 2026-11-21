@@ -10,7 +10,7 @@
  *    exports CSV;
  *  - `useAiDraftOutcome` reports what became of each AI draft — accepted,
  *    edited then accepted, or discarded — exactly once, carrying only the
- *    feature and the outcome.
+ *    feature, the outcome and the draft's single-use id.
  */
 
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
@@ -22,6 +22,7 @@ import { useAiDraftOutcome } from '@/hooks/useAiDraftOutcome';
 import type { AiUsageReport } from '@/types/ai-usage';
 import { createRef } from 'react';
 import PromptGenerateTab, { type PromptGenerateTabRef } from '@/components/pipeline/PromptGenerateTab';
+import AIPluginBuilderTab from '@/components/plugin/AIPluginBuilderTab';
 
 jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule());
 jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
@@ -31,6 +32,8 @@ const downloadAiUsageCsv = jest.fn<AnyFn>();
 const getReportPolicy = jest.fn<AnyFn>();
 const recordAiDraftOutcome = jest.fn<AnyFn>();
 const streamPipelineFromPrompt = jest.fn<AnyFn>();
+const streamPluginGeneration = jest.fn<AnyFn>();
+const deployGeneratedPlugin = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => {
   const api = {
     getAiUsageReport: (...a: unknown[]) => getAiUsageReport(...a),
@@ -44,6 +47,11 @@ jest.mock('@/lib/api', () => {
     getOrgAIConfig: async () => ({ data: { providers: {}, aiEnabled: true } }),
     getAskAvailability: async () => ({ success: true, data: { available: true } }),
     streamPipelineFromPrompt: (...a: unknown[]) => streamPipelineFromPrompt(...a),
+    // AIPluginBuilderTab's own reads.
+    getPluginAIProviders: async () => ({ data: { providers: [{ id: 'anthropic', name: 'Anthropic', models: [{ id: 'm', name: 'M' }] }] } }),
+    streamPluginGeneration: (...a: unknown[]) => streamPluginGeneration(...a),
+    deployGeneratedPlugin: (...a: unknown[]) => deployGeneratedPlugin(...a),
+    isAuthenticated: () => false,
   };
   return { __esModule: true, default: api, api };
 });
@@ -152,29 +160,43 @@ describe('AiUsagePanel', () => {
 });
 
 describe('useAiDraftOutcome', () => {
-  it('reports an untouched draft as accepted, once', () => {
+  // The single-use id the generator issued with the draft; it is what the
+  // server redeems, so every report carries it.
+  const ID = 'a'.repeat(32);
+  const ID2 = 'b'.repeat(32);
+
+  it('reports an untouched draft as accepted, once, with its draft id', () => {
     const { result } = renderHook(() => useAiDraftOutcome());
-    act(() => { result.current.offered('pipeline-generate', { b: 1, a: { y: 2, x: 1 } }); });
+    act(() => { result.current.offered('pipeline-generate', { b: 1, a: { y: 2, x: 1 } }, ID); });
     // Same draft, different key order: not an edit.
     act(() => { result.current.accepted({ a: { x: 1, y: 2 }, b: 1 }); });
     act(() => { result.current.accepted({ a: 1 }); });
-    expect(recordAiDraftOutcome.mock.calls).toEqual([['pipeline-generate', 'accepted']]);
+    expect(recordAiDraftOutcome.mock.calls).toEqual([['pipeline-generate', 'accepted', ID]]);
   });
 
   it('reports a changed draft as edited_accepted — and never sends the draft itself', () => {
     const { result } = renderHook(() => useAiDraftOutcome());
-    act(() => { result.current.offered('agent', { project: 'secret-project' }); });
+    act(() => { result.current.offered('agent', { project: 'secret-project' }, ID); });
     act(() => { result.current.accepted({ project: 'renamed' }); });
-    expect(recordAiDraftOutcome.mock.calls).toEqual([['agent', 'edited_accepted']]);
+    expect(recordAiDraftOutcome.mock.calls).toEqual([['agent', 'edited_accepted', ID]]);
     expect(JSON.stringify(recordAiDraftOutcome.mock.calls)).not.toContain('secret-project');
   });
 
-  it('a draft replaced by a new one, or left pending at unmount, is discarded', () => {
+  it('a draft replaced by a new one, or left pending at unmount, is discarded — each under its own id', () => {
     const { result, unmount } = renderHook(() => useAiDraftOutcome());
-    act(() => { result.current.offered('plugin-generate', { v: 1 }); });
-    act(() => { result.current.offered('plugin-generate', { v: 2 }); });
+    act(() => { result.current.offered('plugin-generate', { v: 1 }, ID); });
+    act(() => { result.current.offered('plugin-generate', { v: 2 }, ID2); });
     unmount();
-    expect(recordAiDraftOutcome.mock.calls).toEqual([['plugin-generate', 'discarded'], ['plugin-generate', 'discarded']]);
+    expect(recordAiDraftOutcome.mock.calls).toEqual([['plugin-generate', 'discarded', ID], ['plugin-generate', 'discarded', ID2]]);
+  });
+
+  it('a draft that came without an id is tracked but never reported (the server would refuse it)', () => {
+    const { result, unmount } = renderHook(() => useAiDraftOutcome());
+    act(() => { result.current.offered('agent', { v: 1 }); });
+    act(() => { result.current.accepted(); });
+    act(() => { result.current.offered('agent', { v: 2 }); });
+    unmount();
+    expect(recordAiDraftOutcome).not.toHaveBeenCalled();
   });
 
   it('nothing pending ⇒ nothing sent, and a failing send never throws', async () => {
@@ -182,10 +204,10 @@ describe('useAiDraftOutcome', () => {
     const { result, unmount } = renderHook(() => useAiDraftOutcome());
     act(() => { result.current.accepted({}); });
     expect(recordAiDraftOutcome).not.toHaveBeenCalled();
-    act(() => { result.current.offered('agent', {}); });
+    act(() => { result.current.offered('agent', {}, ID); });
     unmount();
     await Promise.resolve();
-    expect(recordAiDraftOutcome).toHaveBeenCalledWith('agent', 'discarded');
+    expect(recordAiDraftOutcome).toHaveBeenCalledWith('agent', 'discarded', ID);
   });
 });
 
@@ -193,7 +215,7 @@ describe('PromptGenerateTab reports what became of its draft', () => {
   const props = { project: 'demo', organization: 'acme', synth: { source: { type: 'github', options: { repo: 'acme/demo' } } }, stages: [] };
 
   async function generate() {
-    streamPipelineFromPrompt.mockImplementation(async function* () { yield { type: 'done', data: { props } }; });
+    streamPipelineFromPrompt.mockImplementation(async function* () { yield { type: 'done', data: { props, draftId: 'p'.repeat(32) } }; });
     const ref = createRef<PromptGenerateTabRef>();
     const view = render(<PromptGenerateTab ref={ref} />);
     fireEvent.change(await screen.findByLabelText('Describe your pipeline'), { target: { value: 'a node pipeline' } });
@@ -209,14 +231,42 @@ describe('PromptGenerateTab reports what became of its draft', () => {
     const { ref } = await generate();
     await waitFor(async () => expect(await ref.current!.getProps()).not.toBeNull());
     act(() => { ref.current!.markAccepted(); });
-    expect(recordAiDraftOutcome.mock.calls).toEqual([['pipeline-generate', 'accepted']]);
+    expect(recordAiDraftOutcome.mock.calls).toEqual([['pipeline-generate', 'accepted', 'p'.repeat(32)]]);
   });
 
   it('a draft left behind when the dialog closes is discarded', async () => {
     const { ref, view } = await generate();
     await waitFor(async () => expect(await ref.current!.getProps()).not.toBeNull());
     view.unmount();
-    expect(recordAiDraftOutcome.mock.calls).toEqual([['pipeline-generate', 'discarded']]);
+    expect(recordAiDraftOutcome.mock.calls).toEqual([['pipeline-generate', 'discarded', 'p'.repeat(32)]]);
   });
 });
 
+describe('AIPluginBuilderTab reports what became of its draft', () => {
+  const PLUGIN_DRAFT_ID = 'q'.repeat(32);
+
+  async function generate() {
+    streamPluginGeneration.mockImplementation(async function* () {
+      yield { type: 'done', data: { config: { name: 'lint' }, dockerfile: 'FROM node', draftId: PLUGIN_DRAFT_ID } };
+    });
+    const view = render(<AIPluginBuilderTab canPublish={false} onCreated={jest.fn<AnyFn>()} onClose={jest.fn<AnyFn>()} />);
+    fireEvent.change(await screen.findByLabelText('Describe your plugin'), { target: { value: 'a linter' } });
+    await waitFor(() => expect(screen.getByRole('button', { name: /Generate Plugin/ })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: /Generate Plugin/ }));
+    await screen.findByText('Generated Dockerfile');
+    return view;
+  }
+
+  it('a deployed draft is accepted under the draft id its generation issued (plugin-generate)', async () => {
+    deployGeneratedPlugin.mockResolvedValue({ success: true, statusCode: 200, data: {} });
+    await generate();
+    fireEvent.click(screen.getByRole('button', { name: /Deploy/ }));
+    await waitFor(() => expect(recordAiDraftOutcome.mock.calls).toEqual([['plugin-generate', 'accepted', PLUGIN_DRAFT_ID]]));
+  });
+
+  it('a draft left behind is discarded under its draft id', async () => {
+    const view = await generate();
+    view.unmount();
+    expect(recordAiDraftOutcome.mock.calls).toEqual([['plugin-generate', 'discarded', PLUGIN_DRAFT_ID]]);
+  });
+});

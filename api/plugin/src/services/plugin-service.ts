@@ -854,10 +854,22 @@ export class PluginService extends CrudService<
   /** The rows about to be hard-purged, kept for {@link onAfterPurge}'s teardown outside Postgres. */
   private readonly purging = new Map<string, { id: string; orgId: string; name: string; version: string; imageDigest: string | null }>();
 
+  /**
+   * Inside the purge transaction, before the rows go: the versions'
+   * remediations that never produced a fix (`to_plugin_id IS NULL` — failed,
+   * rejected, cancelled, proposals never published) are deleted with them. A
+   * remediation WITH a fix version is the record of that fix and outlives the
+   * purge: `plugin_id` goes NULL (FK ON DELETE SET NULL), its name, version and
+   * diff (stored under the fix version) stay readable. Their audit entries were
+   * written as each stage happened.
+   */
   protected override async onBeforePurge(ids: string[], tx: TenantTx): Promise<void> {
     const p = schema.plugin;
     const rows = await tx.select({ id: p.id, orgId: p.orgId, name: p.name, version: p.version, imageDigest: p.imageDigest }).from(p).where(inArray(p.id, ids));
     for (const r of rows) this.purging.set(String(r.id), { id: String(r.id), orgId: String(r.orgId), name: String(r.name), version: String(r.version), imageDigest: (r.imageDigest as string | null) ?? null });
+    const r = schema.pluginRemediation;
+    const dropped = await tx.delete(r).where(and(inArray(r.pluginId, ids), isNull(r.toPluginId))).returning({ id: r.id });
+    if (dropped.length > 0) logger.info('Purged versions\' remediations without a fix deleted with them', { versions: ids.length, remediations: dropped.length });
   }
 
   /**

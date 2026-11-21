@@ -3,7 +3,8 @@
 
 import { SYSTEM_ORG_ID, type MessagePriority, type MessageType } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
-import { boolean, varchar, pgTable, text, timestamp, uuid, jsonb, index } from 'drizzle-orm/pg-core';
+import { boolean, varchar, pgTable, text, timestamp, uuid, index } from 'drizzle-orm/pg-core';
+import { jsonb } from './jsonb.js';
 
 export type { MessageType, MessagePriority };
 

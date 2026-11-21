@@ -73,6 +73,10 @@ const EXEMPT: Record<string, Exemption> = {
     reason: 'self-healing',
     why: 'Listing stats are recomputed by the ecosystem sweep; a review write deliberately never fails on its stats (services/ecosystem/stats.ts). The only symptom is a rating that lags until the next pass.',
   },
+  registry_storage_snapshot_org_write_failures_total: {
+    reason: 'self-healing',
+    why: 'One org\'s snapshot record not landing in the store during a storage snapshot run (api/image-registry/src/services/storage-snapshot.ts). The run carries on, the marker names the org and it reads as unknown, so the push gate fails closed. The next run or a targeted refresh rewrites the record. A store that stays down also fails the marker write, and RegistryStorageSnapshotStale fires.',
+  },
   ecosystem_registry_retag_failed_total: {
     reason: 'non-blocking',
     why: 'Re-tagging `public/*` after an unyank. The catalog row is authoritative and deployed pipelines pull by DIGEST, so a failed re-tag changes nothing a user can observe (services/ecosystem/execute.ts).',

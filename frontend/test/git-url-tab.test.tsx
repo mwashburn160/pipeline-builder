@@ -94,6 +94,25 @@ describe('GitUrlTab inside the create modal', () => {
     expect(keywords).toEqual(['web', 'node']);
   });
 
+  it('a generated draft is reported under the draft id the stream issued (discarded when the modal closes unused)', async () => {
+    const DRAFT_ID = 'g'.repeat(32);
+    apiFn('recordAiDraftOutcome').mockResolvedValue({ success: true });
+    apiFn('streamPipelineFromUrl').mockImplementation(() => stream([
+      { type: 'done', data: { props: GENERATED, description: 'd', keywords: [], draftId: DRAFT_ID } },
+    ]));
+    const view = render(
+      <CreatePipelineModal isOpen onClose={jest.fn<AnyFn>()} onSubmit={jest.fn<AnyFn>()} createLoading={false} createError={null} createSuccess={null} canPublish />,
+    );
+    fireEvent.change(await screen.findByLabelText('Git repository URL'), { target: { value: 'https://github.com/acme/web' } });
+    const generate = screen.getByRole('button', { name: /Generate from URL/ });
+    await waitFor(() => expect(generate).toBeEnabled());
+    fireEvent.click(generate);
+    // The generation settled: its project override is filled in.
+    await screen.findByDisplayValue('web');
+    view.unmount();
+    expect(apiFn('recordAiDraftOutcome')).toHaveBeenCalledWith('pipeline-generate', 'discarded', DRAFT_ID);
+  });
+
   it('Create before generating asks for a generation; a stream error is shown', async () => {
     apiFn('streamPipelineFromUrl').mockImplementation(() => stream([{ type: 'error', data: { message: 'Repository not found' } }]));
     const { onSubmit } = renderModal();

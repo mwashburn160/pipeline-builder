@@ -840,8 +840,10 @@ export function createStakeholderReportRoutes(): Router {
 
     const policy = await stakeholderReportStore.getReportPolicy(orgId);
     if (!policy.externalSharing) {
-      return sendBadRequest(
-        res,
+      // The org's own policy forbids it: a permission refusal (403), like the
+      // rollup and auto-send refusals, not a malformed request.
+      return sendError(
+        res, 403,
         'Public share links are turned off for this organization. An administrator can enable them in reporting settings.',
         ErrorCode.INSUFFICIENT_PERMISSIONS,
       );

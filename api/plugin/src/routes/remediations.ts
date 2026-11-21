@@ -76,6 +76,12 @@ async function assertOrgModeOn(caller: Caller): Promise<void> {
 }
 const notFound = (): EcosystemError => new EcosystemError(ErrorCode.NOT_FOUND, 'Remediation not found');
 const stageConflict = (stage: string): EcosystemError => new EcosystemError(ErrorCode.REMEDIATION_STAGE_CONFLICT, `Not possible while the remediation is ${stage}`, { stage });
+/**
+ * The version it fixed was purged (`plugin_id` NULL): the record of a published
+ * fix stays readable, but nothing is left to rebuild or re-verify.
+ */
+const sourcePurged = (row: PluginRemediation): EcosystemError => new EcosystemError(ErrorCode.REMEDIATION_STAGE_CONFLICT,
+  `${row.pluginName}@${row.fromVersion} was purged; this remediation can no longer be approved or retried`, { stage: row.stage, reason: 'source_version_purged' });
 /** A toolchain release candidate is decided only by the system org's toolchain-fixes routes (it is never re-run and published from here). */
 const toolchainCandidate = (): EcosystemError => new EcosystemError(ErrorCode.REMEDIATION_STAGE_CONFLICT, 'A toolchain release candidate is approved or rejected under /plugins/toolchain-fixes', { stage: 'toolchain_candidate' });
 
@@ -138,6 +144,7 @@ export function createRemediationRoutes(): Router {
     const row = await ownRemediation(caller, param(req, 'id'));
     if (row.kind === 'toolchain') throw toolchainCandidate();
     if (row.stage !== 'awaiting_approval' || row.decidedAt) throw stageConflict(row.decidedAt ? 'approved and publishing' : row.stage);
+    if (!row.pluginId) throw sourcePurged(row);
     // The approved run is the job's: with the operator knob off it would never run.
     if (!remediationConfig().enabled) throw disabled();
     await assertOrgModeOn(caller);
@@ -166,6 +173,7 @@ export function createRemediationRoutes(): Router {
   router.post('/remediations/:id/retry', write, requireStepUp as RequestHandler, audited('plugin.remediation.retried', 'plugin.remediation.started') as RequestHandler, ecosystemRoute(async ({ req, res, caller }) => {
     const row = await ownRemediation(caller, param(req, 'id'));
     if (!(RETRYABLE_STAGES as readonly string[]).includes(row.stage)) throw stageConflict(row.stage);
+    if (!row.pluginId) throw sourcePurged(row);
     const cfg = remediationConfig();
     if (!cfg.enabled) throw disabled();
     await assertOrgModeOn(caller);
@@ -191,6 +199,8 @@ export function createRemediationRoutes(): Router {
     if (inserted.status === 'capped') {
       throw new EcosystemError(ErrorCode.QUOTA_EXCEEDED, `This organization has used its ${cfg.maxPerOrgPerDay} remediations for today`, { used: inserted.used, limit: cfg.maxPerOrgPerDay });
     }
+    // Copied from the org's own row, so this never fires unless a row was corrupted: answered like another org's.
+    if (inserted.status === 'refused') throw new EcosystemError(ErrorCode.NOT_FOUND, 'The version this remediation fixes is not in your organization');
     const next = inserted.status === 'inserted' ? inserted.row : null;
     if (!next) throw stageConflict('already being remediated');
     countStage('queued', null);

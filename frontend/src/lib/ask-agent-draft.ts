@@ -67,7 +67,8 @@ export async function* streamAgentDraft(
         const complete = expected === 'plugin' ? payload.config && payload.dockerfile : payload.props;
         if (!complete) break; // the delegated generation failed; the agent explains in its text
         if (analysis) yield { type: 'analyzed', data: analysis };
-        yield { type: 'done', data: payload };
+        // The proposal's draft id rides along, so the tab reports the outcome under it.
+        yield { type: 'done', data: event.draftId ? { ...payload, draftId: event.draftId } : payload };
         return;
       }
       case 'error':

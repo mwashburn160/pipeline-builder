@@ -1,6 +1,6 @@
 // GENERATED FROM docs/notifications.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 329496fd02e2839bdcf2b0842f2d8c58577dd3b4c4211757f3f851109ff4e4d8
+// SOURCE-SHA256: fda4cbd84aa5036fc998a9997fb2d77d157ce98446646453c46bea0f15d7a367
 // SPDX-License-Identifier: Apache-2.0
 import { Bell } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -565,7 +565,7 @@ export const notificationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Each destination carries a minSeverity and an enabled flag. Targets are masked on read-back (•••• plus the last 12 characters, or the last 4 for a very short target) because a webhook URL is itself a credential; the API never returns the raw value after creation. Both webhook transports resolve and pin the target address and refuse redirects."
+          "content": "Each destination carries a minSeverity and an enabled flag. Targets are masked on read-back because a webhook URL is itself a credential: a Slack or webhook URL reads back as its origin only (https://hooks.slack.com/•••• — none of the path, query or userinfo, where the secret lives), and an email address as •••• plus its last 12 characters (the last 4 for a very short one). The API never returns the raw value after creation. Both webhook transports resolve and pin the target address and refuse redirects."
         },
         {
           "type": "text",

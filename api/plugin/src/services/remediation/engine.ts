@@ -491,7 +491,7 @@ export async function runRemediationEngine(input: EngineInput, ports: Remediatio
         version: final.version,
         gated: final.gated!,
         patched: zipDir(final.dir!),
-        diff: originalTree ? treeDiff(originalTree, tree) : treeDiff(new Map(), tree, 'remediation-overlay/'),
+        diff: candidateDiff(originalTree, baseTree, tree, final.plans.every((p) => p.kind === 'overlay')),
         dockerfile: final.dockerfile,
       };
     } else if (stage1 && stage1.verify.ok) {
@@ -523,4 +523,19 @@ export async function runRemediationEngine(input: EngineInput, ports: Remediatio
   function candidateOf(s: Stage1Result, originalTree: Map<string, string> | null): EngineCandidate {
     return { ref: s.ref, version: s.version, gated: s.gated, patched: zipDir(s.dir), diff: originalTree ? treeDiff(originalTree, readTree(s.dir)) : '', dockerfile: s.dockerfile };
   }
+}
+
+/**
+ * A candidate's diff. A source patch (alone or with an overlay riding along in
+ * `.remediation/`) is its context against the original. An overlay-only fix
+ * built from a context holding just the overlay Dockerfile: diffed against the
+ * original it would list every other file as deleted, so it is what the
+ * overlay really changed — any Stage 1 rebuild of the context it builds FROM
+ * (`base` against the original), then the overlay as a new
+ * `remediation-overlay/` file (as for a plugin with no kept source).
+ */
+export function candidateDiff(original: Map<string, string> | null, base: Map<string, string> | null, built: Map<string, string>, overlayOnly: boolean): string {
+  if (original && !overlayOnly) return treeDiff(original, built);
+  const rebuilt = original && base ? treeDiff(original, base) : '';
+  return rebuilt + treeDiff(new Map(), built, 'remediation-overlay/');
 }

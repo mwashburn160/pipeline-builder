@@ -9,6 +9,13 @@
  * own kept source (a copy of the patched ZIP, so the next remediation starts
  * from it), no `plugins` quota slot (`quota_reset_at` NULL — nothing to refund
  * either), then the Official listing fix or the tenant rollout.
+ *
+ * The remediation's diff (and an Official fix's export) is kept under the FIX
+ * version's prefix too (`<orgId>/<toPluginId>/<toVersion>/remediations/<id>/`),
+ * and `patch_key` / `export_key` point at those copies: the from-version is
+ * superseded by its fix and is the one tidying and retention purge first, and
+ * its purge deletes its whole prefix — the diff must not go with it while the
+ * fix version it explains is still live.
  */
 
 import { createHash } from 'crypto';
@@ -17,7 +24,9 @@ import {
   ACTIVE_BUILD_REMEDIATION_STAGES,
   createLogger,
   isSystemOrgId,
+  errorMessage,
   pluginSourceKey,
+  remediationDiffKey,
   SYSTEM_PLUGIN_REMEDIATION,
   type PluginSmokeTest,
 } from '@pipeline-builder/api-core';
@@ -156,6 +165,7 @@ export async function publishCandidate(input: {
     logger.warn('Remediation ended while its fix version was stored; not published', { remediationId: row.id, toPluginId: stored.id });
     return (await getRemediation(row.id)) ?? fresh;
   }
+  const kept = await keepDiffWithFixVersion(published, stored, candidate.diff);
   countStage('published', published.outcome);
   countCleared(published);
   auditRemediation('plugin.remediation.published', published, {
@@ -181,12 +191,30 @@ export async function publishCandidate(input: {
 
   if (isSystemOrgId(published.orgId)) {
     // Official: the maintainers' export, then the listing new-version request; the ecosystem starts the rollout.
-    if (published.patchKey) await storeOfficialExport(published.id, candidate.diff, putRemediationArtifact, from.category).catch(() => null);
+    if (kept.patchKey) await storeOfficialExport(published.id, candidate.diff, putRemediationArtifact, from.category).catch(() => null);
     await openOfficialListingFix({ remediationId: published.id, toPluginId: stored.id, toVersion: stored.version, digest: candidate.ref.digest }).catch(() => null);
     return (await getRemediation(published.id)) ?? published;
   }
-  if (await startTenantRollout(published)) {
-    return (await updateRemediation(published.id, { stage: 'rolling_out' }, ['published'])) ?? published;
+  if (await startTenantRollout(kept)) {
+    return (await updateRemediation(published.id, { stage: 'rolling_out' }, ['published'])) ?? kept;
   }
-  return published;
+  return kept;
+}
+
+/**
+ * Write the remediation's diff under the fix version's prefix and point
+ * `patch_key` at it (see the module comment). Only when a diff was stored with
+ * the remediation; a failed write keeps the from-version key (logged).
+ */
+async function keepDiffWithFixVersion(row: PluginRemediation, fix: { id: string; version: string }, diff: string): Promise<PluginRemediation> {
+  if (!row.patchKey || !diff) return row;
+  const key = remediationDiffKey(row.orgId, fix.id, fix.version, row.id);
+  if (key === row.patchKey) return row;
+  try {
+    await putRemediationArtifact(key, diff);
+    return (await updateRemediation(row.id, { patchKey: key })) ?? row;
+  } catch (err) {
+    logger.warn('Remediation diff not kept with its fix version; it goes with the from-version\'s purge', { remediationId: row.id, error: errorMessage(err) });
+    return row;
+  }
 }

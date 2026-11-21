@@ -292,7 +292,9 @@ export type RemediationArtifactWriter = (key: string, body: Buffer | string) => 
 
 /**
  * Store an Official fix's export with the remediation (`…/remediations/<id>/export.diff`)
- * and record it (`export_key`). The source diff is the remediation's own
+ * and record it (`export_key`) — under the FIX version's prefix once the fix is
+ * published (`to_plugin_id` / `to_version`), so the from-version's purge never
+ * takes it (remediation/publish.ts). The source diff is the remediation's own
  * `remediation.diff`; `put` is plugin-sources' `putRemediationArtifact` (passed
  * in by the engine, which already holds the storage module). Returns the key,
  * or null when the remediation isn't the system org's. Throws on a storage
@@ -301,7 +303,11 @@ export type RemediationArtifactWriter = (key: string, body: Buffer | string) => 
 export async function storeOfficialExport(remediationId: string, diff: string, put: RemediationArtifactWriter, category?: string | null): Promise<string | null> {
   const row = await remediationById(remediationId);
   if (!row || !isSystemOrgId(row.orgId)) return null;
-  const key = remediationExportKey(row.orgId, row.pluginId, row.fromVersion, row.id);
+  const key = row.toPluginId && row.toVersion
+    ? remediationExportKey(row.orgId, row.toPluginId, row.toVersion, row.id)
+    : row.pluginId ? remediationExportKey(row.orgId, row.pluginId, row.fromVersion, row.id) : null;
+  // Neither version is stored any more (both purged): nowhere to keep it.
+  if (!key) return null;
   await put(key, officialExportDiff(diff, row.pluginName, category));
   await updateRemediation(row.id, { exportKey: key });
   return key;

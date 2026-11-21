@@ -148,6 +148,9 @@ export const listings = {
     elevated(async (tx) => (await tx.insert(L()).values(values).returning())[0] as PluginListing),
   update: (id: string, patch: Partial<PluginListingInsert>): Promise<PluginListing | null> =>
     elevated(async (tx) => first(await tx.update(L()).set({ ...patch, updatedAt: new Date() }).where(eq(L().id, id)).returning())),
+  /** Hard-delete a listing (its versions go by FK cascade); the removed row, or null. Its kept sources are the caller's (listing-purge.ts). */
+  remove: (id: string): Promise<PluginListing | null> =>
+    !isUuid(id) ? Promise.resolve(null) : elevated(async (tx) => first(await tx.delete(L()).where(eq(L().id, id)).returning())),
 };
 
 /** Listings by id, each with its publisher (null when missing) — two queries, however many ids. */
@@ -174,6 +177,9 @@ export const versions = {
     elevated(async (tx) => (await tx.insert(V()).values(values).returning())[0] as PluginListingVersion),
   update: (id: string, patch: Partial<PluginListingVersionInsert>): Promise<PluginListingVersion | null> =>
     elevated(async (tx) => first(await tx.update(V()).set(patch).where(eq(V().id, id)).returning())),
+  /** Hard-delete one listing version; the removed row, or null. Its kept sources are the caller's (listing-purge.ts). */
+  remove: (id: string): Promise<PluginListingVersion | null> =>
+    !isUuid(id) ? Promise.resolve(null) : elevated(async (tx) => first(await tx.delete(V()).where(eq(V().id, id)).returning())),
 };
 
 /**

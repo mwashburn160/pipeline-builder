@@ -16,8 +16,9 @@ jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastMod
 
 jest.mock('@/components/admin/StepUpModal', () => ({
   __esModule: true,
-  StepUpModal: ({ onConfirmed, title }: { onConfirmed: (t: string) => void; title?: string }) => (
+  StepUpModal: ({ onConfirmed, title, details }: { onConfirmed: (t: string) => void; title?: string; details?: unknown }) => (
     <div role="dialog" aria-label={title}>
+      {details as never}
       <button type="button" onClick={() => onConfirmed('step-up-token')}>Confirm password</button>
     </div>
   ),
@@ -36,6 +37,7 @@ const api = {
 jest.mock('@/lib/api', () => ({ __esModule: true, default: new Proxy({}, { get: (_t, k: string) => (api as Record<string, unknown>)[k] }) }));
 
 import { RemediationCard, PluginRemediationSection } from '../src/components/plugin/RemediationCard';
+import { RemediationsPanel } from '../src/components/plugin/RemediationsPanel';
 import { PluginFindingsPanel } from '../src/components/plugin/PluginFindingsPanel';
 import { REMEDIATION } from './helpers/remediationFixtures';
 import { ApiError } from '../src/lib/api/errors';
@@ -76,11 +78,65 @@ describe('RemediationCard', () => {
     await waitFor(() => expect(api.rejectPluginRemediation).toHaveBeenCalledWith('rem-1', {}, 'step-up-token'));
   });
 
+  it('sends the optional reject reason from the step-up details', async () => {
+    api.rejectPluginRemediation.mockReturnValue(ok({ ...REMEDIATION, stage: 'failed', outcome: 'rejected' }));
+    render(<RemediationCard remediation={REMEDIATION} canWrite />);
+    fireEvent.click(screen.getByRole('button', { name: /^Reject/ }));
+    const reason = screen.getByTestId('remediation-reject-reason') as HTMLTextAreaElement;
+    expect(reason.maxLength).toBe(1000);
+    fireEvent.change(reason, { target: { value: '  breaks our arm64 build  ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm password' }));
+    await waitFor(() => expect(api.rejectPluginRemediation).toHaveBeenCalledWith('rem-1', { reason: 'breaks our arm64 build' }, 'step-up-token'));
+  });
+
+  it('approve has no reason field; only reject does', () => {
+    render(<RemediationCard remediation={REMEDIATION} canWrite />);
+    fireEvent.click(screen.getByRole('button', { name: /Approve and publish/ }));
+    expect(screen.queryByTestId('remediation-reject-reason')).toBeNull();
+  });
+
+  it('one busy state: while a decision runs, Approve and Reject are both disabled', async () => {
+    let settle: (v: unknown) => void = () => undefined;
+    api.approvePluginRemediation.mockReturnValue(new Promise((r) => { settle = r; }));
+    render(<RemediationCard remediation={REMEDIATION} canWrite />);
+    fireEvent.click(screen.getByRole('button', { name: /Approve and publish/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm password' }));
+    await waitFor(() => expect(api.approvePluginRemediation).toHaveBeenCalled());
+    expect(screen.getByRole('button', { name: /Approve and publish/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /^Reject/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: /^Reject/ }));
+    expect(screen.queryByRole('dialog', { name: 'Reject this fix?' })).toBeNull();
+    settle({ success: true, statusCode: 202, data: REMEDIATION });
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Reject/ })).not.toBeDisabled());
+    expect(screen.getByRole('button', { name: /Approve and publish/ })).not.toBeDisabled();
+  });
+
+  it('one busy state: a retry in flight disables Retry until it settles', async () => {
+    let settle: (v: unknown) => void = () => undefined;
+    api.retryPluginRemediation.mockReturnValue(new Promise((r) => { settle = r; }));
+    render(<RemediationCard remediation={{ ...REMEDIATION, stage: 'failed' }} canWrite />);
+    fireEvent.click(screen.getByRole('button', { name: /Retry remediation/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm password' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /Retry remediation/ })).toBeDisabled());
+    settle({ success: true, statusCode: 202, data: { ...REMEDIATION, stage: 'queued' } });
+    await waitFor(() => expect(screen.getByRole('button', { name: /Retry remediation/ })).not.toBeDisabled());
+  });
+
   it('offers no second decision once a fix is approved and still publishing (the server answers 409)', () => {
     render(<RemediationCard remediation={{ ...REMEDIATION, decidedAt: '2026-11-19T02:00:00Z', decidedBy: 'u-1' }} canWrite />);
     expect(screen.queryByRole('button', { name: /Approve and publish/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /^Reject/ })).toBeNull();
     expect(screen.getByTestId('remediation-fix-version').textContent).toContain('approved, publishing');
+  });
+
+  it('a fix whose from-version was purged stays readable (patch included) but offers no Approve or Retry', () => {
+    const { unmount } = render(<RemediationCard remediation={{ ...REMEDIATION, pluginId: null, stage: 'needs_review' }} canWrite />);
+    expect(screen.getByTestId('remediation-source-purged').textContent).toContain(`${REMEDIATION.pluginName} ${REMEDIATION.fromVersion} was purged`);
+    expect(screen.queryByRole('button', { name: /Retry remediation/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /Show patch/ })).toBeTruthy();
+    unmount();
+    render(<RemediationCard remediation={{ ...REMEDIATION, pluginId: null }} canWrite />);
+    expect(screen.queryByRole('button', { name: /Approve and publish/ })).toBeNull();
   });
 
   it('hides Approve and Reject without plugins:write', () => {
@@ -173,6 +229,21 @@ describe('RemediationCard', () => {
     expect(screen.queryByRole('button', { name: /Download patch for deploy\/plugins/ })).toBeNull();
     rerender(<RemediationCard remediation={{ ...REMEDIATION, hasExport: true }} canWrite isSystemOrg />);
     expect(screen.getByRole('button', { name: /Download patch for deploy\/plugins/ })).toBeTruthy();
+  });
+});
+
+describe('RemediationsPanel', () => {
+  it('links a row to its from-version only while that version is stored', async () => {
+    api.listPluginRemediations.mockReturnValue(ok({
+      remediations: [{ ...REMEDIATION, id: 'rem-kept' }, { ...REMEDIATION, id: 'rem-purged', pluginId: null }],
+      nextCursor: null, enabled: true, severities: ['critical', 'high'], usedToday: 0, maxPerDay: 20,
+    }));
+    const onOpenPlugin = jest.fn<AnyFn>();
+    render(<RemediationsPanel canWrite onOpenPlugin={onOpenPlugin} />);
+    const kept = await screen.findByTestId('remediation-row-rem-kept');
+    fireEvent.click(kept.querySelector('button.action-link') as HTMLElement);
+    expect(onOpenPlugin).toHaveBeenCalledWith(REMEDIATION.pluginId);
+    expect(screen.getByTestId('remediation-row-rem-purged').textContent).not.toContain('Open plugin');
   });
 });
 

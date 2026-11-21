@@ -9,7 +9,7 @@
 
 import { PLUGIN_REMEDIATION_STAGES, type PluginRemediationStage } from '@pipeline-builder/api-core';
 import { schema } from '@pipeline-builder/pipeline-data';
-import { desc, sql } from 'drizzle-orm';
+import { desc, isNotNull, sql } from 'drizzle-orm';
 
 import { canaryStatus } from './canary.js';
 import { elevatedTx } from './store.js';
@@ -33,8 +33,9 @@ export async function fleetRemediationPosture(now: Date = new Date()): Promise<F
   const counts = await elevatedTx((tx) => tx.select({ stage: r.stage, n: sql<number>`count(*)::int` }).from(r).groupBy(r.stage)) as Array<{ stage: PluginRemediationStage; n: number }>;
   const stages: Partial<Record<PluginRemediationStage, number>> = {};
   for (const c of counts) if ((PLUGIN_REMEDIATION_STAGES as readonly string[]).includes(c.stage)) stages[c.stage] = Number(c.n);
+  // Stored versions only: a fix record whose version was purged (plugin_id NULL) has no version to key.
   const latest = await elevatedTx((tx) => tx.selectDistinctOn([r.pluginId], { pluginId: r.pluginId, stage: r.stage })
-    .from(r).orderBy(r.pluginId, desc(r.createdAt)).limit(5_000)) as Array<{ pluginId: string; stage: PluginRemediationStage }>;
+    .from(r).where(isNotNull(r.pluginId)).orderBy(r.pluginId, desc(r.createdAt)).limit(5_000)) as Array<{ pluginId: string; stage: PluginRemediationStage }>;
   const o = schema.pluginSourceOrphan;
   const [orphans] = await elevatedTx((tx) => tx.select({ n: sql<number>`count(*)::int` }).from(o)) as Array<{ n: number }>;
   const canary = await canaryStatus().catch(() => null);

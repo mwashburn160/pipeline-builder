@@ -387,6 +387,15 @@ export interface ScanTimings {
   blobHeadsMs: number;
 }
 
+/** One repository's share of a scan: the unique blobs billed to it (see
+ *  {@link scanRepositories} `perRepo`), and whether any of them, or its tags or
+ *  manifests, could not be measured. */
+export interface RepoUsage {
+  bytes: number;
+  blobs: number;
+  incomplete: boolean;
+}
+
 /** A zeroed {@link ScanTimings} accumulator. */
 export function newScanTimings(): ScanTimings {
   return { tagsMs: 0, manifestsMs: 0, blobHeadsMs: 0 };
@@ -395,7 +404,9 @@ export function newScanTimings(): ScanTimings {
 /**
  * Sum unique blob bytes across `repos`. The shared core of every rollup;
  * `incomplete` when anything couldn't be measured (see {@link StorageUsage}).
- * Pass `timings` to accumulate where the time went (the storage snapshot does).
+ * Pass `timings` to accumulate where the time went (the storage snapshot does),
+ * and `perRepo` for each repository's share (each unique blob billed once, to
+ * the first repository in input order that references it).
  *
  * Three phases — tag lists, then manifests, then blob HEADs — each with at
  * most {@link storageScanConcurrency} calls in flight. `limiter`, when given,
@@ -406,8 +417,8 @@ export function newScanTimings(): ScanTimings {
  */
 export async function scanRepositories(
   reposBeingScanned: string[],
-  opts: { detail?: boolean; timings?: ScanTimings; limiter?: Limiter } = {},
-): Promise<{ bytes: number; blobs: number; incomplete: boolean; perBlob?: Map<string, BlobFacts> }> {
+  opts: { detail?: boolean; perRepo?: boolean; timings?: ScanTimings; limiter?: Limiter } = {},
+): Promise<{ bytes: number; blobs: number; incomplete: boolean; perBlob?: Map<string, BlobFacts>; perRepo?: Map<string, RepoUsage> }> {
   const { timings, limiter } = opts;
   const concurrency = storageScanConcurrency();
   const timed = async <T>(phase: keyof ScanTimings, fn: () => Promise<T>): Promise<T> => {
@@ -426,13 +437,16 @@ export async function scanRepositories(
   // Any non-404 failure below means a repo/manifest/blob couldn't be read, so
   // the byte total under-counts — track that so the push-gate can fail closed.
   let incomplete = false;
+  // The repositories a failure is attributable to, for the per-repo breakdown.
+  const incompleteRepos = new Set<string>();
+  const markIncomplete = (repo: string): void => { incomplete = true; incompleteRepos.add(repo); };
 
   // Phase 1: each repo's tags.
   const tagLists = await mapWithConcurrency(reposBeingScanned, concurrency, async (repo) => {
     try {
       return (await timed('tagsMs', () => listTags(repo))).tags;
     } catch (err) {
-      if (!isNotFound(err)) incomplete = true;
+      if (!isNotFound(err)) markIncomplete(repo);
       logger.warn('Tag list failed during storage rollup', {
         repo, error: errorMessage(err),
       });
@@ -460,7 +474,7 @@ export async function scanRepositories(
           collectBlobDigests(childBody, digests);
         } catch (childErr) {
           if (!isNotFound(childErr)) {
-            incomplete = true;
+            markIncomplete(repo);
             logger.warn('Child manifest fetch failed during storage rollup', {
               repo, tag, childDigest, error: errorMessage(childErr),
             });
@@ -470,7 +484,7 @@ export async function scanRepositories(
       return digests;
     } catch (err) {
       if (!isNotFound(err)) {
-        incomplete = true;
+        markIncomplete(repo);
         logger.warn('Manifest fetch failed during storage rollup', {
           repo, tag, error: errorMessage(err),
         });
@@ -551,20 +565,30 @@ export async function scanRepositories(
 
   let totalBytes = 0;
   const perBlob = blobTags ? new Map<string, BlobFacts>() : null;
-  blobEntries.forEach(([digest], i) => {
+  // Each unique blob is billed to ONE repository — the first in input order that
+  // references it — so the per-repo figures sum to the deduplicated total.
+  const perRepo = opts.perRepo
+    ? new Map<string, RepoUsage>(reposBeingScanned.map((repo) => [repo, { bytes: 0, blobs: 0, incomplete: false }]))
+    : null;
+  blobEntries.forEach(([digest, repos], i) => {
     const size = sizes[i];
+    const owner = perRepo?.get(repos[0]!);
+    if (owner) owner.blobs++;
     if (size === null || size === undefined) {
-      incomplete = true;
+      markIncomplete(repos[0]!);
       return;
     }
     totalBytes += size;
+    if (owner) owner.bytes += size;
     // Only a MEASURED blob enters the breakdown. An unmeasurable one is
     // already marked incomplete, and attributing 0 bytes to it would
     // under-promise a prune rather than say the figure is partial.
     if (perBlob) perBlob.set(digest, { size, refs: blobTags!.get(digest) ?? [] });
   });
 
-  return { bytes: totalBytes, blobs: blobRepos.size, incomplete, ...(perBlob ? { perBlob } : {}) };
+  if (perRepo) for (const repo of incompleteRepos) { const r = perRepo.get(repo); if (r) r.incomplete = true; }
+
+  return { bytes: totalBytes, blobs: blobRepos.size, incomplete, ...(perBlob ? { perBlob } : {}), ...(perRepo ? { perRepo } : {}) };
 }
 
 /** Force-evict a cached rollup so the next call recomputes. Used by the

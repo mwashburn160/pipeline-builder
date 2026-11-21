@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { AI_DRAFT_FEATURES, AI_DRAFT_ID_PATTERN, AI_DRAFT_OUTCOMES } from '@pipeline-builder/api-core';
 import { z } from 'zod';
 
 /**
@@ -58,12 +59,14 @@ export const AskFeedbackSchema = z.object({
 
 /**
  * POST /ask-agent/draft-outcome — what the user did with one AI-generated draft.
- * Two closed catalogs and nothing else (unknown keys are stripped, so a prompt or
- * draft sent by mistake never leaves this service). Mirrors the quota service's
- * `AI_DRAFT_FEATURES` / `AI_DRAFT_OUTCOMES` (api/quota/src/services/ai-draft-catalog.ts),
- * which validates the forwarded body again.
+ * Two closed catalogs — the ONE shared copy in api-core (`AI_DRAFT_FEATURES` /
+ * `AI_DRAFT_OUTCOMES`), which the quota service validates the forwarded body
+ * against again — plus the `draftId` the generator issued with that draft
+ * (single use, bound to the org, the user and the feature). Unknown keys are
+ * stripped, so a prompt or draft sent by mistake never leaves this service.
  */
 export const AskDraftOutcomeSchema = z.object({
-  feature: z.enum(['agent', 'pipeline-generate', 'plugin-generate']),
-  outcome: z.enum(['accepted', 'edited_accepted', 'discarded']),
+  feature: z.enum(AI_DRAFT_FEATURES),
+  outcome: z.enum(AI_DRAFT_OUTCOMES),
+  draftId: z.string().regex(AI_DRAFT_ID_PATTERN, 'draftId is not a draft id'),
 });

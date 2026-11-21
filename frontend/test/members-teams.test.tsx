@@ -176,7 +176,10 @@ describe('Teams row actions', () => {
     render(<MembersPage />);
     fireEvent.click(await screen.findByRole('button', { name: 'More actions for Platform' }));
     fireEvent.click(screen.getByRole('menuitem', { name: /export data/i }));
-    await waitFor(() => expect(mockApi.exportOrganization).toHaveBeenCalledWith('t1'));
+    // Step-up gated server-side: the export waits for the factor, then carries its token.
+    expect(mockApi.exportOrganization).not.toHaveBeenCalled();
+    fireEvent.click(within(screen.getByRole('dialog', { name: /export platform/i })).getByRole('button', { name: 'Verify' }));
+    await waitFor(() => expect(mockApi.exportOrganization).toHaveBeenCalledWith('t1', 'step-up-token'));
     expect(triggerBlobDownload).toHaveBeenCalledWith(expect.any(Blob), 'team-Platform-export.json');
   });
 

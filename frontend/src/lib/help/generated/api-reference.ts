@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 83a204c7723ff0ffcfc358718468a8f0692ba46e72832f624056114c6f7f08a5
+// SOURCE-SHA256: d362d94ad126c5839f4710f98df1e771e4604fc644addab74995ddad5f99034c
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -269,7 +269,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "POST",
               "/pipelines/generate",
-              "AI-generate pipeline from prompt (consumes aiCalls quota)"
+              "AI-generate pipeline from prompt (consumes aiCalls quota). Every generate route's JSON response and done event also carry draftId, the single-use id the draft's outcome is reported under (POST /ask-agent/draft-outcome)"
             ],
             [
               "POST",
@@ -419,7 +419,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "POST",
               "/plugins/generate",
-              "AI-generate plugin from prompt (consumes aiCalls quota). Also returns similarPlugins (see below)"
+              "AI-generate plugin from prompt (consumes aiCalls quota). Also returns similarPlugins (see below). Every generate route's JSON response and done event also carry draftId, the single-use id the draft's outcome is reported under (POST /ask-agent/draft-outcome)"
             ],
             [
               "POST",
@@ -1016,7 +1016,7 @@ export const apiReferenceTopic: HelpTopic = {
               "'pipeline-generate' \\",
               "'plugin-generate', outcome: 'accepted' \\",
               "'edited_accepted' \\",
-              "'discarded' } → { recorded } — counts what happened to a reviewable draft, per org and feature only. Not audited (it must never be attributable to a person). Also capped per user (ASK_DRAFT_OUTCOME_RATE_LIMIT_PER_MIN`, default 20 a minute) on top of the per-org limit"
+              "'discarded', draftId } → { recorded } — counts what happened to a reviewable draft, per org and feature only. draftId is the single-use id the generation returned with the draft (~1 h, bound to org + user + feature): reused → 409, unknown / forged / expired / another user's → 400, store unavailable → 503. Not audited (it must never be attributable to a person). Free: outside the apiCalls quota and the per-org Ask rate limit; capped per user (ASK_DRAFT_OUTCOME_RATE_LIMIT_PER_MIN`, default 20 a minute)"
             ]
           ]
         },
@@ -1382,7 +1382,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/organization/:id/export",
-              "GDPR data export — a single JSON blob carrying every Postgres table and every Mongo collection the delete cascade removes (invitations, audit events, IdP config + group mappings, domains, join requests, SAML SLO sessions, service accounts + keys with the key hash stripped, memberships, Role assignments and Roles). The same artifact is captured as the recovery snapshot at soft-delete time; failed names any store that could not be read and truncated any that hit its cap",
+              "GDPR data export (+ step-up) — a single JSON blob carrying every Postgres table and every Mongo collection the delete cascade removes (invitations, audit events, IdP config + group mappings, domains, join requests, SAML SLO sessions, service accounts + keys with the key hash stripped, memberships, Role assignments and Roles). The same artifact is captured as the recovery snapshot at soft-delete time; failed names any store that could not be read and truncated any that hit its cap",
               "org_settings:write"
             ],
             [
@@ -2563,7 +2563,7 @@ export const apiReferenceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "177 routes, from frontend/src/generated/route-table/plugin.json."
+          "content": "178 routes, from frontend/src/generated/route-table/plugin.json."
         },
         {
           "type": "table",
@@ -2693,6 +2693,13 @@ export const apiReferenceTopic: HelpTopic = {
               "plugins:write; step-up",
               "apiCalls",
               "plugin.delete-all"
+            ],
+            [
+              "GET",
+              "/plugins/by-name/:name/delete-jobs/:jobId",
+              "plugins:read",
+              "apiCalls",
+              "—"
             ],
             [
               "GET",
@@ -3859,7 +3866,7 @@ export const apiReferenceTopic: HelpTopic = {
               "POST",
               "/ask-agent/draft-outcome",
               "pipelines:read or plugins:read or templates:read; feature ai_generation",
-              "apiCalls",
+              "—",
               "—"
             ],
             [

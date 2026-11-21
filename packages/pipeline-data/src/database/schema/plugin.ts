@@ -8,7 +8,8 @@ import {
   type PluginSmokeTest, type PluginSourceKind, type PluginUploadedIcon, type Visibility,
 } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
-import { bigint, boolean, integer, varchar, pgTable, text, timestamp, uuid, jsonb, index, uniqueIndex, check } from 'drizzle-orm/pg-core';
+import { bigint, boolean, integer, varchar, pgTable, text, timestamp, uuid, index, uniqueIndex, check } from 'drizzle-orm/pg-core';
+import { jsonb } from './jsonb.js';
 
 // The JSON-column / enum types are plugin WIRE types owned by api-core
 // (`types/plugin-wire.ts`) and re-exported here for existing importers.

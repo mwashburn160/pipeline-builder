@@ -5,7 +5,7 @@
  * Nightly plugin CVE remediation schema (postgres-init.sql, real SQL on
  * PGlite): the idempotency indexes, the vocabulary CHECKs, the kept-source
  * coherence rule, the pipeline election, own-org RLS (no system-org carve-out),
- * the cascade from a purged version, and the org purge.
+ * a purged version nulling (never cascading to) its remediations, and the org purge.
  */
 
 import { randomUUID } from 'crypto';
@@ -81,15 +81,25 @@ describe('plugin_remediations — idempotency and vocabulary', () => {
     await expect(owner((q) => q.query("UPDATE plugin_remediations SET kind = 'release' WHERE id = $1", [r.rows[0]!.id]))).rejects.toThrow(/check/i);
   });
 
-  it('cascades from a purged version, and only nulls the link from a purged fix version', async () => {
+  it('a purged from-version or fix version only nulls its link: the record (name, version) survives', async () => {
     const from = await insertPlugin(ORG_A);
     const fix = await insertPlugin(ORG_A, '1.0.1');
     const r = (await insertRemediation(ORG_A, from, 'done')).rows[0]!.id;
     await owner((q) => q.query('UPDATE plugin_remediations SET to_plugin_id = $2 WHERE id = $1', [r, fix]));
-    await owner((q) => q.query('DELETE FROM plugins WHERE id = $1', [fix]));
-    expect((await owner((q) => q.query('SELECT to_plugin_id FROM plugin_remediations WHERE id = $1', [r]))).rows).toEqual([{ to_plugin_id: null }]);
     await owner((q) => q.query('DELETE FROM plugins WHERE id = $1', [from]));
-    expect((await owner((q) => q.query('SELECT 1 FROM plugin_remediations WHERE id = $1', [r]))).rows).toEqual([]);
+    expect((await owner((q) => q.query('SELECT plugin_id, to_plugin_id, plugin_name, from_version FROM plugin_remediations WHERE id = $1', [r]))).rows)
+      .toEqual([{ plugin_id: null, to_plugin_id: fix, plugin_name: 'p', from_version: '1.0.0' }]);
+    await owner((q) => q.query('DELETE FROM plugins WHERE id = $1', [fix]));
+    expect((await owner((q) => q.query('SELECT plugin_id, to_plugin_id FROM plugin_remediations WHERE id = $1', [r]))).rows).toEqual([{ plugin_id: null, to_plugin_id: null }]);
+  });
+
+  it('rows whose from-version was purged never collide in the per-version unique indexes', async () => {
+    const a = await insertPlugin(ORG_A);
+    const b = await insertPlugin(ORG_A);
+    await insertRemediation(ORG_A, a, 'published');
+    await insertRemediation(ORG_A, b, 'published');
+    await owner((q) => q.query('DELETE FROM plugins WHERE id = ANY($1)', [[a, b]]));
+    expect((await owner((q) => q.query("SELECT count(*)::int AS n FROM plugin_remediations WHERE plugin_id IS NULL AND findings_hash = $1 AND stage = 'published'", [HASH]))).rows[0]).toEqual({ n: 2 });
   });
 });
 

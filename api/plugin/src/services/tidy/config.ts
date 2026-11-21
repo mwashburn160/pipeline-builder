@@ -30,6 +30,8 @@ export const TIDY_DIGEST_INTERVAL_DAYS = 7;
 export const TIDY_STALE_DEFAULT_DAYS = 90;
 export const TIDY_STALE_MIN_DAYS = 30;
 export const TIDY_STALE_MAX_DAYS = 3650;
+/** At most this many names on an org's "never tidy" list. */
+export const TIDY_NEVER_MAX_NAMES = 500;
 /** A version's `last_used_at` is written at most this often. */
 export const TIDY_USE_THROTTLE_MS = 60 * 60_000;
 

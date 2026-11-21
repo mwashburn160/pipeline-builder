@@ -103,6 +103,8 @@ const deps: RolloutDeps = {
   },
   rollbackTarget: async () => rollbackTarget,
   report: async (remediationId, body) => { reports.push({ remediationId, body }); return 'ok'; },
+  // The platform org hierarchy: TEAM is a team under ROOT; OTHER is its own root.
+  ancestors: async (orgId) => (orgId === TEAM ? [ROOT] : []),
 };
 
 const engine = createRolloutEngine(deps);
@@ -296,6 +298,42 @@ describe('start: who is proposed, queued or skipped', () => {
     expect((await stateOf(rem))[teamPipe]).toBe('proposed');
     await engine.tick();
     expect(moveCalls).toEqual([]);
+  });
+
+  it('writes no row for a pipeline outside the rollout\'s org: a resolution row CLAIMING the root does not make another org a team', async () => {
+    await settings(ROOT, { rollout: 'apply' });
+    const own = await pipelineOn(ROOT);
+    const team = await pipelineOn(TEAM, { root: ROOT });
+    // OTHER is not under ROOT, whatever its resolution row recorded as root.
+    const foreign = await pipelineOn(OTHER, { root: ROOT });
+    const rem = randomUUID();
+    await engine.start(rem, startBody());
+    const rows = await loadRows(rem);
+    expect(rows.map((r) => r.pipelineId).sort()).toEqual([own, team].sort());
+    expect(rows.find((r) => r.pipelineId === team)?.orgId).toBe(TEAM);
+    await engine.tick();
+    expect(moveCalls.map((m) => m.pipelineId)).not.toContain(foreign);
+  });
+
+  it('refuses the row when the org hierarchy cannot be confirmed (fail-closed), and still writes the root\'s own', async () => {
+    await settings(ROOT, { rollout: 'apply' });
+    const own = await pipelineOn(ROOT);
+    await pipelineOn(TEAM, { root: ROOT });
+    const failing = createRolloutEngine({ ...deps, ancestors: async () => { throw new Error('platform down'); } });
+    const rem = randomUUID();
+    await failing.start(rem, startBody());
+    expect((await loadRows(rem)).map((r) => r.pipelineId)).toEqual([own]);
+  });
+
+  it('rowOrgAdmits: the row org must be the pipeline\'s org, and the scope its own org or an ancestor', async () => {
+    const { rowOrgAdmits } = engineModule;
+    const anc = deps.ancestors;
+    expect(await rowOrgAdmits({ pipelineOrgId: ROOT, rowOrgId: ROOT, scopeOrgId: ROOT }, anc)).toBe(true);
+    expect(await rowOrgAdmits({ pipelineOrgId: ROOT, rowOrgId: ROOT.toUpperCase(), scopeOrgId: null }, anc)).toBe(true);
+    expect(await rowOrgAdmits({ pipelineOrgId: TEAM, rowOrgId: TEAM, scopeOrgId: ROOT }, anc)).toBe(true);
+    expect(await rowOrgAdmits({ pipelineOrgId: TEAM, rowOrgId: ROOT, scopeOrgId: ROOT }, anc)).toBe(false);
+    expect(await rowOrgAdmits({ pipelineOrgId: OTHER, rowOrgId: OTHER, scopeOrgId: ROOT }, anc)).toBe(false);
+    expect(await rowOrgAdmits({ pipelineOrgId: ROOT, rowOrgId: ROOT, scopeOrgId: TEAM }, anc)).toBe(false);
   });
 
   it('is idempotent per remediation, and a new toVersion re-targets the open rows', async () => {

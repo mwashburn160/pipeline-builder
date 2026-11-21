@@ -13,17 +13,21 @@
  * usual `COPY . .`, baked into an image that may be published.
  *
  * Most kinds are decided by the file's path inside the package
- * (case-insensitive). A few are decided by CONTENT, because the name alone is
+ * (case-insensitive). Others are decided by CONTENT, because the name alone is
  * shared with harmless files: a `.pem` may be a CA certificate, a `.json` is
- * usually config, an `.npmrc` usually just names a registry. For those the
- * name only makes the file a candidate ({@link secretFileNeedsContent}) and
- * the caller passes the first {@link SECRET_FILE_CONTENT_SCAN_BYTES} of it —
- * the server reads the ZIP entry, the CLI the local file.
+ * usually config, an `.npmrc` / `pip.conf` / Maven `settings.xml` usually just
+ * names a registry. For those the name only makes the file a candidate
+ * ({@link secretFileNeedsContent}) and the caller passes the first
+ * {@link SECRET_FILE_CONTENT_SCAN_BYTES} of it — the server reads the ZIP
+ * entry, the CLI the local file. A complete private-key block (or a PuTTY key)
+ * is refused under ANY name, so every file except a `.tar` is a content
+ * candidate unless its name already decides it.
  *
  * Allowed on purpose: dotenv templates (`.env.example`, `example.env`, …:
  * they document variables, they hold no values), public keys (`*.pub`, a
- * `PUBLIC KEY` PEM), certificate-only files, and a token line whose value is
- * only an env-var reference (`_authToken=${NPM_TOKEN}`, how CI injects it).
+ * `PUBLIC KEY` PEM), certificate-only files, and a token / password whose
+ * value is only an env-var reference (`_authToken=${NPM_TOKEN}`, Maven's
+ * `${env.MAVEN_PASSWORD}`: how CI injects it).
  * Dependency-free.
  */
 
@@ -54,10 +58,49 @@ const PRIVATE_KEY_PEM = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----/;
 /** Text that is plainly public material: a certificate, a public key PEM/PGP block, an OpenSSH public key line. */
 const PUBLIC_MATERIAL = /-----BEGIN (?:CERTIFICATE|TRUSTED CERTIFICATE|X509 CRL|[A-Z0-9 ]*PUBLIC KEY(?: BLOCK)?)-----|^(?:ssh-[a-z0-9-]+|ecdsa-sha2-[a-z0-9-]+|sk-[a-z0-9-@.]+) [A-Za-z0-9+/=]+/m;
 
-/** A token value that is real (not empty, not just a `${VAR}` / `$VAR` reference). */
+/** A whole value that is only an env-var reference: `${VAR}`, `$VAR`, or Maven's `${env.VAR}`. */
+const ENV_REFERENCE = /^\$(?:\{[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*\}|[A-Za-z_][A-Za-z0-9_]*)$/;
+
+/** A token value that is real (not empty, not just a `${VAR}` / `$VAR` / `${env.VAR}` reference). */
 function isLiteralToken(raw: string): boolean {
   const v = raw.trim().replace(/^(['"])(.*)\1$/, '$2').trim();
-  return v.length > 0 && !/^\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)$/.test(v);
+  return v.length > 0 && !ENV_REFERENCE.test(v);
+}
+
+/**
+ * A COMPLETE private-key block of any flavour (PKCS#1 / PKCS#8 / EC / DSA /
+ * OPENSSH / ENCRYPTED / PGP): matching BEGIN and END labels around a base64
+ * body (PGP armour headers allowed), so a README quoting the header line, a
+ * `...` placeholder, or a script grepping for it is not one.
+ */
+const PRIVATE_KEY_BLOCK = /-----BEGIN ((?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?)-----[ \t]*\r?\n(?:[A-Za-z-]+: [^\r\n]*\r?\n)*(?:[ \t]*\r?\n)?(?:[ \t]*[A-Za-z0-9+/=]+[ \t]*\r?\n){1,}-----END \1-----/;
+/** A PuTTY private key file: its header and its private-key lines. */
+const PUTTY_KEY = /^PuTTY-User-Key-File-\d+: \S+[\s\S]*^Private-Lines: \d+/m;
+
+/** True when `text` holds a private key (literally, or inside a string with escaped `\n`s). */
+function holdsPrivateKey(text: string): boolean {
+  if (PRIVATE_KEY_BLOCK.test(text) || PUTTY_KEY.test(text)) return true;
+  if (!text.includes('PRIVATE KEY')) return false;
+  const unescaped = text.replace(/\\r\\n|\\n/g, '\n');
+  return unescaped !== text && PRIVATE_KEY_BLOCK.test(unescaped);
+}
+
+/** Every `<tag>…</tag>` body in an XML text. */
+const xmlValues = (text: string, tag: string): string[] =>
+  [...text.matchAll(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, 'g'))].map((m) => m[1] ?? '');
+
+/**
+ * A URL with credentials in it: `scheme://user:password@` with a literal
+ * password, or `scheme://token@` with a literal token as the user (how
+ * GitLab / Gemfury / Artifactory tokens ride in an index URL).
+ */
+function urlHoldsCredentials(text: string): boolean {
+  for (const m of text.matchAll(/[a-z][a-z0-9+.-]*:\/\/([^\s/@]+)@/gi)) {
+    const userinfo = m[1]!;
+    const colon = userinfo.indexOf(':');
+    if (isLiteralToken(colon >= 0 ? userinfo.slice(colon + 1) : userinfo)) return true;
+  }
+  return false;
 }
 const anyLine = (text: string, re: RegExp): boolean =>
   text.split(/\r?\n/).some((line) => { const m = re.exec(line); return m !== null && isLiteralToken(m[1] ?? ''); });
@@ -109,6 +152,19 @@ export const SECRET_FILE_KINDS = {
     label: 'PKCS#12 key bundle',
     matches: (_entry, base) => base.endsWith('.p12') || base.endsWith('.pfx'),
   },
+  putty_private_key: {
+    label: 'PuTTY private key',
+    matches: (_entry, base) => base.endsWith('.ppk'),
+  },
+  pkcs8_private_key: {
+    // `.p8` is PKCS#8 private-key syntax (Apple's AuthKey_*.p8, Snowflake key-pair auth).
+    label: 'PKCS#8 private key',
+    matches: (_entry, base) => base.endsWith('.p8'),
+  },
+  gem_credentials: {
+    label: 'RubyGems credentials file',
+    matches: (entry) => atPath(entry, '.gem/credentials'),
+  },
   // -- Content-decided kinds (the name makes a candidate; the text decides) --
   private_key: {
     label: 'private key',
@@ -135,6 +191,37 @@ export const SECRET_FILE_KINDS = {
     matches: (_entry, base) => base === '.yarnrc.yml' || base === '.yarnrc.yaml',
     // npmAuthToken, or npmAuthIdent (`user:password` or its base64).
     content: (text) => anyLine(text, /^\s*npmAuth(?:Token|Ident)\s*:(.*)$/),
+  },
+  maven_settings: {
+    label: 'Maven settings.xml with a password',
+    matches: (_entry, base) => base === 'settings.xml',
+    // A server `<password>` / key `<passphrase>` (an `{…}` encrypted one still decrypts with the master key);
+    // `${env.VAR}` interpolation is how CI injects it.
+    content: (text) => [...xmlValues(text, 'password'), ...xmlValues(text, 'passphrase')].some(isLiteralToken),
+  },
+  pip_conf: {
+    label: 'pip configuration with credentials',
+    matches: (_entry, base) => base === 'pip.conf' || base === 'pip.ini',
+    // Credentials in an index-url / extra-index-url / find-links URL, or a `password` key.
+    content: (text) => urlHoldsCredentials(text) || anyLine(text, /^\s*password\s*[=:](.*)$/i),
+  },
+  cargo_credentials: {
+    label: 'Cargo registry credentials',
+    matches: (entry) => atPath(entry, '.cargo/credentials') || atPath(entry, '.cargo/credentials.toml'),
+    content: (text) => anyLine(text, /^\s*(?:token|secret-key)\s*=(.*)$/),
+  },
+  gh_hosts: {
+    label: 'GitHub CLI token (gh hosts.yml)',
+    matches: (entry) => atPath(entry, 'gh/hosts.yml') || atPath(entry, 'gh/hosts.yaml'),
+    content: (text) => anyLine(text, /^\s*oauth_token\s*:(.*)$/),
+  },
+  // Last, so a more specific kind above names the file first: a private key under
+  // ANY name (a heredoc in a script, a key string in code, an extensionless key file).
+  // A tar is skipped — a prebuilt `image.tar` carries OS packages' own test keys.
+  private_key_content: {
+    label: 'private key',
+    matches: (_entry, base) => !base.endsWith('.tar'),
+    content: (text) => holdsPrivateKey(text),
   },
 } as const satisfies Record<string, SecretFileKind>;
 

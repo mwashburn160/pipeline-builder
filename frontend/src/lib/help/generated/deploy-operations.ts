@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 8874e3406037a4f2d2a4dee861c5fe45b0eaca29455e1e7453a9c4b5ea706bae
+// SOURCE-SHA256: 2750ef61683caa09bfc374246248d3e53efdc3ce0f2c00e51d9f3666b76869ce
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -719,6 +719,10 @@ export const deployOperationsTopic: HelpTopic = {
         {
           "type": "text",
           "content": "Mechanism. api/image-registry/src/services/storage-snapshot.ts, on every image-registry replica under the leader lock image-registry:storage-snapshot:leader: one catalog walk per run, the publication records read from that same listing, every org measured with the same scan as the on-demand rollup, each org's record written to Redis (image-registry:storage-snapshot:org:<id>), then the run marker (image-registry:storage-snapshot:meta) last, so a run that dies part-way never looks current. Every REGISTRY_STORAGE_SNAPSHOT_INTERVAL_MS (10 min). The lock only stops two runs overlapping and is released after each, so a cycle that finds a run (by any replica) started within 90% of the interval skips — one walk per interval fleet-wide, however many replicas. Orgs are scanned several at a time with at most REGISTRY_STORAGE_SCAN_CONCURRENCY (8) registry calls in flight for the whole run (tag lists, manifests and blob HEADs alike); the on-demand rollups and breakdowns use the same per-phase bound. A delete or prune re-measures that org's known repositories straight away; a new push is counted at the next run. Without Redis each pod keeps its own snapshot in memory and runs unlocked."
+        },
+        {
+          "type": "text",
+          "content": "Each org's record holds a per-repository breakdown: bytes and blob count per repository, and when each figure was measured. A blob shared by several of the org's repositories is billed once, to the first of them in name order, so the per-repository figures add up to the de-duplicated total. A full run and a targeted refresh both merge into the stored record instead of replacing it. For each repository, the figure measured later wins. A refresh that lands while a run is measuring the org keeps its freed bytes when the run writes. A run that finds repositories the refresh never knew adds them. If one org's record cannot be written, the run logs Storage snapshot could not store an org record, counts registry_storage_snapshot_org_write_failures_total and moves on to the next org. The marker is still written, with that org listed in incompleteOrgIds, and the org reads as unknown until a later run or refresh stores a record for it."
         },
         {
           "type": "text",

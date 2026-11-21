@@ -29,6 +29,10 @@ const ALICE_REPLY = '22222222-2222-4222-8222-222222222222';
 const A_REPLY = '33333333-3333-4333-8333-333333333333';
 const OPEN_ROOT = '44444444-4444-4444-8444-444444444444';
 const OPEN_REPLY = '55555555-5555-4555-8555-555555555555';
+// Same-org private message: dave (org C) to carol (org C).
+const ORG_C = 'org-c';
+const SAME_ORG_ROOT = '66666666-6666-4666-8666-666666666666';
+const SAME_ORG_REPLY = '77777777-7777-4777-8777-777777777777';
 
 let db: PGlite;
 
@@ -43,6 +47,9 @@ beforeAll(async () => {
   // Ordinary org-wide thread: B's replies stay visible org-wide.
   await db.query(ins, [OPEN_ROOT, ORG_A, null, ORG_B, null, 'a-user']);
   await db.query(ins, [OPEN_REPLY, ORG_B, OPEN_ROOT, ORG_A, null, 'bob']);
+  // Same org on both sides: the sender org IS the target org.
+  await db.query(ins, [SAME_ORG_ROOT, ORG_C, null, ORG_C, 'carol', 'dave']);
+  await db.query(ins, [SAME_ORG_REPLY, ORG_C, SAME_ORG_ROOT, ORG_C, 'carol', 'carol']);
 }, 120_000);
 afterAll(async () => { await db?.close(); });
 
@@ -74,5 +81,27 @@ describe('private thread replies (sender side of a user-targeted thread)', () =>
 
   it('the SENDER org (org-wide side) still sees the whole thread', async () => {
     expect(await visible(ORG_A, 'anyone')).toEqual(expect.arrayContaining([ROOT, ALICE_REPLY, A_REPLY, OPEN_ROOT, OPEN_REPLY]));
+  });
+});
+
+describe('a private message inside ONE org (sender org = target org)', () => {
+  it('another member of that org sees neither the root nor the reply', async () => {
+    const seen = await visible(ORG_C, 'erin');
+    expect(seen).not.toContain(SAME_ORG_ROOT);
+    expect(seen).not.toContain(SAME_ORG_REPLY);
+  });
+
+  it('the target and the author both see the root', async () => {
+    expect(await visible(ORG_C, 'carol')).toContain(SAME_ORG_ROOT);
+    expect(await visible(ORG_C, 'dave')).toContain(SAME_ORG_ROOT);
+  });
+
+  it("the root's author sees the target's reply", async () => {
+    expect(await visible(ORG_C, 'dave')).toContain(SAME_ORG_REPLY);
+    expect(await visible(ORG_C, 'carol')).toContain(SAME_ORG_REPLY);
+  });
+
+  it('with no viewer the same-org private root is hidden (fail-closed)', async () => {
+    expect(await visible(ORG_C)).not.toContain(SAME_ORG_ROOT);
   });
 });

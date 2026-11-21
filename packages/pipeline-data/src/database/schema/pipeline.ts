@@ -6,7 +6,8 @@ import {
   type OwnerType, type Visibility,
 } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
-import { bigint, boolean, check, integer, varchar, pgTable, text, timestamp, uuid, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { bigint, boolean, check, integer, varchar, pgTable, text, timestamp, uuid, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { jsonb } from './jsonb.js';
 import type { PipelineCreationSource } from './reporting-analytics.js';
 
 /**

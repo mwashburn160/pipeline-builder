@@ -53,9 +53,10 @@ import type {
 } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
 import {
-  bigint, boolean, check, customType, doublePrecision, index, integer, jsonb, pgTable, pgView, primaryKey, smallint, text,
+  bigint, boolean, check, customType, doublePrecision, index, integer, pgTable, pgView, primaryKey, smallint, text,
   timestamp, uniqueIndex, uuid, varchar,
 } from 'drizzle-orm/pg-core';
+import { jsonb } from './jsonb.js';
 import type { PluginIcon, PluginSecret, PluginUploadedIcon } from './plugin.js';
 
 /** Per-component health scores, as stored — api-core's {@link HealthBreakdown}. */

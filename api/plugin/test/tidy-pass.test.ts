@@ -333,6 +333,24 @@ describe('the clock restarts', () => {
     await setNeverTidy(A, 'lint', false, 'u-1');
     expect((await readTidySettings(A)).neverTidy).toEqual(['keepme']);
   });
+
+  it('never-tidy names must be lowercase, name a plugin of the org, and stay within 500 (400 otherwise)', async () => {
+    await expect(setNeverTidy(A, 'Lint', true, 'u-1')).rejects.toMatchObject({ statusCode: 400, code: 'VALIDATION_ERROR' });
+    await expect(setNeverTidy(A, 'no-such-plugin', true, 'u-1')).rejects.toMatchObject({ statusCode: 400, code: 'VALIDATION_ERROR' });
+    // Another org's plugin is not this org's.
+    await version('only-in-b', '1.0.0', {}, B);
+    await expect(setNeverTidy(A, 'only-in-b', true, 'u-1')).rejects.toMatchObject({ statusCode: 400 });
+    expect((await readTidySettings(A)).neverTidy).toEqual(['keepme']);
+
+    const full = Array.from({ length: 499 }, (_, i) => `p${String(i).padStart(3, '0')}`);
+    await writeTidySettings(A, { neverTidy: ['keepme', ...full] }, 'u-1');
+    await expect(setNeverTidy(A, 'lint', true, 'u-1')).rejects.toMatchObject({ statusCode: 400, details: { max: 500 } });
+    // Clearing is always allowed, and a name already on the list is no new entry.
+    await setNeverTidy(A, 'keepme', true, 'u-1');
+    await setNeverTidy(A, 'keepme', false, 'u-1');
+    await setNeverTidy(A, 'lint', true, 'u-1');
+    expect((await readTidySettings(A)).neverTidy).toHaveLength(500);
+  });
 });
 
 describe('the digest', () => {

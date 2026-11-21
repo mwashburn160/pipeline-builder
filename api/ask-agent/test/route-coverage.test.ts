@@ -43,11 +43,18 @@ const EXCEPTIONS: RouteCoverageException[] = [
 
 /**
  * User routes that deliberately do not meter and/or check apiCalls, each with
- * its reason (docs/quotas.md). None: `/ask-agent` mounts `apiCallsQuota` once, ahead
- * of both routers, so every Ask costs one apiCall on top of its aiCalls
- * reservation.
+ * its reason (docs/quotas.md). Every other `/ask-agent` route rides the ONE
+ * `apiCallsQuota` mount ahead of both routers, so every Ask costs one apiCall on
+ * top of its aiCalls reservation.
  */
-const QUOTA_EXCEPTIONS: QuotaCoverageException[] = [];
+const QUOTA_EXCEPTIONS: QuotaCoverageException[] = [
+  {
+    method: 'POST',
+    path: '/ask-agent/draft-outcome',
+    waive: 'all',
+    reason: 'Reports what became of an AI draft (accepted / edited / discarded) for the AI usage report — not an Ask. Fired by the console after the user acts on a draft; metering it would bill the org a call for telemetry, and checking it would lose the outcome exactly when the org is out of calls. Bounded by its per-user cap and the single-use draft id instead.',
+  },
+];
 
 let table: RouteTableEntry[];
 
@@ -71,6 +78,15 @@ describe('ask-agent route coverage', () => {
   it('has no stale quota exceptions', () => {
     const { unusedExceptions } = findQuotaCoverageViolations(table, QUOTA_EXCEPTIONS);
     expect(unusedExceptions).toEqual([]);
+  });
+
+  it('serves POST /ask-agent/draft-outcome authenticated, feature-gated, and outside the apiCalls meter and check', () => {
+    const entry = table.find((e) => e.method === 'POST' && e.path === '/ask-agent/draft-outcome');
+    expect(entry).toBeDefined();
+    expect(entry!.auth).toBe(true);
+    expect(entry!.features).toContain('ai_generation');
+    expect(entry!.quota?.metered ?? []).not.toContain('apiCalls');
+    expect(entry!.quota?.checked ?? []).not.toContain('apiCalls');
   });
 
   it('serves a non-empty route table', () => {

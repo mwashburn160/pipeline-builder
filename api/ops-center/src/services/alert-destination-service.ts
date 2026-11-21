@@ -54,14 +54,35 @@ export interface DestinationUpdate {
 }
 
 /**
- * Mask a webhook/Slack URL for read-back via the API. Slack incoming webhooks
- * are bearer-equivalent — anyone with the URL can post to the channel — so we
- * only return the last 12 chars + a leading mask on GETs after creation.
+ * Mask a destination target for read-back via the API.
+ *
+ * A webhook URL is bearer-equivalent — anyone holding it can post to the
+ * channel — and its SECRET is its tail: a Slack hook's last path segment, a
+ * generic webhook's `?token=…`. So a URL reads back as its ORIGIN only
+ * (`https://hooks.slack.com/••••`): enough to say which service it posts to,
+ * none of the path, query or userinfo. A "last N characters" mask returned half
+ * a Slack secret, and the whole of a short query-string key, to every holder of
+ * the `observability:read` list gate.
+ *
+ * Anything else (an email address — not a credential) keeps the suffix mask:
+ * the last 12 chars, or the last 4 for a very short value.
  */
 function maskTarget(target: string): string {
   if (!target) return '';
+  const origin = urlOrigin(target);
+  if (origin) return `${origin}/••••`;
   if (target.length <= 16) return '••••' + target.slice(-4);
   return '••••' + target.slice(-12);
+}
+
+/** `scheme://host[:port]` of an http(s) URL, or null when `s` is not one. */
+function urlOrigin(s: string): string | null {
+  if (!/^https?:\/\//i.test(s)) return null;
+  try {
+    return new URL(s).origin;
+  } catch {
+    return null;
+  }
 }
 
 /** Strip + mask the target field for API responses. The caller still knows

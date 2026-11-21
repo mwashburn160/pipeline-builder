@@ -89,11 +89,12 @@ export function askApi(core: ApiCore) {
     /**
      * Record what the user did with one AI-generated draft (accepted, edited
      * then accepted, or discarded) for the AI usage report's acceptance rate.
-     * Carries the feature and the outcome only — no draft, no prompt. Fire-and-
-     * forget like the feedback above: the caller never blocks on it.
+     * Carries the feature, the outcome and the single-use `draftId` the
+     * generator issued with the draft — no draft, no prompt. Fire-and-forget
+     * like the feedback above: the caller never blocks on it.
      */
-    recordAiDraftOutcome: async (feature: AiDraftFeature, outcome: AiDraftOutcome) => {
-      return core.request<ApiResponse<{ recorded: boolean }>>('/api/ask-agent/draft-outcome', { method: 'POST', body: JSON.stringify({ feature, outcome }) });
+    recordAiDraftOutcome: async (feature: AiDraftFeature, outcome: AiDraftOutcome, draftId: string) => {
+      return core.request<ApiResponse<{ recorded: boolean }>>('/api/ask-agent/draft-outcome', { method: 'POST', body: JSON.stringify({ feature, outcome, draftId }) });
     },
 
     /** List the AI providers (and their models) configured on the ask-agent service. */

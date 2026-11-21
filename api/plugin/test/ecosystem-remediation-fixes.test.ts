@@ -311,9 +311,11 @@ describe('the patch export for deploy/plugins/** maintainers', () => {
   });
 
   it('stores it with the remediation for system-org admins, and only for system-org remediations', async () => {
-    const { flagged, remediation } = officialFix();
+    const { flagged, fix, remediation } = officialFix();
     const key = await fixes.storeOfficialExport(remediation.id, diff, putArtifact, 'quality');
-    expect(key).toBe(`${SYSTEM_ORG}/${flagged.id}/1.0.0/remediations/${remediation.id}/export.diff`);
+    // Under the FIX version's prefix: the from-version's purge (its whole prefix) never takes it.
+    expect(key).toBe(`${SYSTEM_ORG}/${fix.id}/1.0.1/remediations/${remediation.id}/export.diff`);
+    expect(key!.startsWith(`${SYSTEM_ORG}/${flagged.id}/1.0.0/`)).toBe(false);
     expect(putArtifact).toHaveBeenCalledWith(key!, expect.stringContaining('deploy/plugins/quality/lint/Dockerfile'));
     expect(db.tables.plugin_remediations![0]!.exportKey).toBe(key);
 

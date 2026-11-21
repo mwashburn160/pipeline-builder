@@ -21,8 +21,9 @@ import type { OrganizationDetail } from '@/lib/api/domains/organizations';
 /**
  * Scaffolding + destructive operations for one org: the k8s namespace manifest
  * (step-up — it pins service-account tokens and namespace labels), the GDPR
- * export, the org's audit trail, and the soft delete. Both step-up-gated
- * operations state what they cost inside the step-up dialog itself.
+ * export (step-up — a bulk read of everything the org owns), the org's audit
+ * trail, and the soft delete. Every step-up-gated operation states what it
+ * costs inside the step-up dialog itself.
  */
 export function OrgOperationsCard({ org }: { org: OrganizationDetail }) {
   // `orgs:manage`, which is NOT what gets you this page — that is `orgs:read`,
@@ -42,14 +43,15 @@ export function OrgOperationsCard({ org }: { org: OrganizationDetail }) {
   const router = useRouter();
   const toast = useToast();
   const [error, setError] = useState<string | null>(null);
-  // Both operations are step-up gated, so each is ONE dialog that states what
-  // it costs and takes the factor — no confirm modal in front of it.
-  const [pendingOp, setPendingOp] = useState<'delete' | 'yaml' | null>(null);
+  // All three operations are step-up gated, so each is ONE dialog that states
+  // what it costs and takes the factor — no confirm modal in front of it.
+  const [pendingOp, setPendingOp] = useState<'delete' | 'yaml' | 'export' | null>(null);
 
   // GDPR portability dump. The endpoint streams raw JSON (not an ApiResponse
   // envelope); the client method returns the body text, saved here as a file.
+  // Step-up gated server-side (a bulk read of every row the org owns).
   const exportM = useMutation({
-    fn: () => api.exportOrganization(org.id),
+    fn: (stepUpToken: string) => api.exportOrganization(org.id, stepUpToken),
     scopeKey: org.id,
     errorFallback: 'Failed to export organization data',
     toast: { success: 'Organization data exported' },
@@ -59,11 +61,15 @@ export function OrgOperationsCard({ org }: { org: OrganizationDetail }) {
     onError: (_e, message) => setError(message),
   });
   const exporting = exportM.pending;
-  const exportData = () => exportM.run();
 
   const onStepUpConfirmed = async (stepUpToken: string) => {
     const op = pendingOp;
     setPendingOp(null);
+    if (op === 'export') {
+      // useMutation owns the export's error, toast and step-up replay.
+      void exportM.run(stepUpToken);
+      return;
+    }
     try {
       if (op === 'yaml') {
         const yaml = await api.getOrgNamespaceYaml(org.id, stepUpToken);
@@ -88,7 +94,7 @@ export function OrgOperationsCard({ org }: { org: OrganizationDetail }) {
         <Button variant="secondary" onClick={() => setPendingOp('yaml')} className="inline-flex items-center gap-2 text-sm">
           <FileDown className="w-4 h-4" /> Download k8s namespace YAML
         </Button>
-        <Button variant="secondary" onClick={() => void exportData()} disabled={exporting} className="inline-flex items-center gap-2 text-sm disabled:opacity-60">
+        <Button variant="secondary" onClick={() => setPendingOp('export')} disabled={exporting} className="inline-flex items-center gap-2 text-sm disabled:opacity-60">
           <Download className="w-4 h-4" /> {exporting ? 'Exporting…' : 'Export data'}
         </Button>
         <LinkButton href={`/dashboard/audit?affectedOrgId=${org.id}`} variant="secondary" className="text-sm">
@@ -119,13 +125,20 @@ export function OrgOperationsCard({ org }: { org: OrganizationDetail }) {
           a second modal for the same click. */}
       {pendingOp && (
         <StepUpModal
-          title={pendingOp === 'delete' ? `Delete ${org.name}?` : `Download ${org.name}'s namespace YAML?`}
-          action={pendingOp === 'delete' ? `Delete organization ${org.name}` : `Download k8s namespace YAML for ${org.name}`}
+          title={pendingOp === 'delete' ? `Delete ${org.name}?`
+            : pendingOp === 'export' ? `Export ${org.name}'s data?` : `Download ${org.name}'s namespace YAML?`}
+          action={pendingOp === 'delete' ? `Delete organization ${org.name}`
+            : pendingOp === 'export' ? `Export all data for ${org.name}` : `Download k8s namespace YAML for ${org.name}`}
           details={pendingOp === 'delete' ? (
             <p>
               <strong className="text-fg">{org.name}</strong> and its members, pipelines, plugins and settings stop being
               reachable. It is soft-deleted and restorable from the organizations list until its retention window ends,
               then purged permanently. Export its data first if you need a copy.
+            </p>
+          ) : pendingOp === 'export' ? (
+            <p>
+              The file holds every row the platform keeps for <strong className="text-fg">{org.name}</strong> — members,
+              settings, pipelines and audit events. Store it somewhere safe.
             </p>
           ) : (
             <p>

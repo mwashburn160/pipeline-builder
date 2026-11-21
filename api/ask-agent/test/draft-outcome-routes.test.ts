@@ -32,6 +32,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
     post(...a: unknown[]) { return mockPost(...a); }
   },
   sendBadRequest: jest.fn((res: any, msg: string) => res.status(400).json({ message: msg })),
+  sendError: jest.fn((res: any, code: number, msg: string, errCode?: string) => res.status(code).json({ message: msg, code: errCode })),
   sendSuccess: jest.fn((res: any, code: number, data?: any) => res.status(code).json({ success: true, data })),
 }));
 
@@ -55,6 +56,9 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@p
   Config: { get: () => ({ services: { quotaHost: 'quota', quotaPort: 3000 } }) },
 }));
 
+delete process.env.REDIS_URL;
+delete process.env.REDIS_SENTINELS;
+const { createMemoryAiDraftStore, _setAiDraftStoreForTests, getAiDraftStore } = await import('@pipeline-builder/api-core');
 const { createDraftOutcomeRoutes } = await import('../src/routes/draft-outcome.js');
 const router = createDraftOutcomeRoutes();
 
@@ -65,12 +69,18 @@ function handler() {
   return stack[stack.length - 1].handle;
 }
 
-function mockReq(body: unknown): any {
+function mockReq(body: unknown, identity: { orgId: string; userId: string } = { orgId: 'ORG-1', userId: 'user-9' }): any {
   return {
     body,
     headers: { authorization: 'Bearer USER-BEARER-tok' },
-    context: { identity: { orgId: 'ORG-1', userId: 'user-9' }, log: jest.fn(), requestId: 'req-1' },
+    context: { identity, log: jest.fn(), requestId: 'req-1' },
   };
+}
+
+type DraftFeature = 'agent' | 'pipeline-generate' | 'plugin-generate';
+/** A draft id as a generator would have issued it for user-9 in org-1. */
+async function issued(feature: DraftFeature, ref: { orgId: string; userId: string } = { orgId: 'org-1', userId: 'user-9' }): Promise<string> {
+  return (await getAiDraftStore().issue({ ...ref, feature }))!;
 }
 
 function mockRes(): any {
@@ -82,6 +92,7 @@ function mockRes(): any {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  _setAiDraftStoreForTests(createMemoryAiDraftStore());
   mockPost.mockResolvedValue({ statusCode: 200, body: { success: true } });
 });
 
@@ -95,7 +106,7 @@ describe('POST /ask-agent/draft-outcome', () => {
 
   it('forwards org, feature and outcome ONLY, on ask-agent\'s own identity — never the user\'s token or id', async () => {
     const res = mockRes();
-    await handler()(mockReq({ feature: 'pipeline-generate', outcome: 'edited_accepted' }), res);
+    await handler()(mockReq({ feature: 'pipeline-generate', outcome: 'edited_accepted', draftId: await issued('pipeline-generate') }), res);
 
     expect(mockGetServiceAuthHeader).toHaveBeenCalledWith({ serviceName: 'ask-agent', orgId: 'org-1', role: 'member' });
     const [path, body, opts] = mockPost.mock.calls[0] as [string, unknown, { headers: Record<string, string> }];
@@ -112,7 +123,7 @@ describe('POST /ask-agent/draft-outcome', () => {
 
   it('strips anything but the two catalog fields (a prompt or draft in the body never leaves)', async () => {
     const res = mockRes();
-    await handler()(mockReq({ feature: 'agent', outcome: 'accepted', prompt: 'secret prompt', draft: { name: 'x' }, userId: 'u-1' }), res);
+    await handler()(mockReq({ feature: 'agent', outcome: 'accepted', draftId: await issued('agent'), prompt: 'secret prompt', draft: { name: 'x' }, userId: 'u-1' }), res);
     const sent = JSON.stringify(mockPost.mock.calls);
     expect(sent).not.toContain('secret prompt');
     expect(sent).not.toContain('u-1');
@@ -120,7 +131,8 @@ describe('POST /ask-agent/draft-outcome', () => {
   });
 
   it('refuses a feature or outcome outside the bounded catalogs', async () => {
-    for (const body of [{ feature: 'ask', outcome: 'accepted' }, { feature: 'agent', outcome: 'meh' }, {}]) {
+    const draftId = await issued('agent');
+    for (const body of [{ feature: 'ask', outcome: 'accepted', draftId }, { feature: 'agent', outcome: 'meh', draftId }, { feature: 'agent', outcome: 'accepted' }, {}]) {
       const res = mockRes();
       await handler()(mockReq(body), res);
       expect(res.status).toHaveBeenCalledWith(400);
@@ -131,14 +143,68 @@ describe('POST /ask-agent/draft-outcome', () => {
   it('a quota service that is down or refuses does not fail the user\'s flow — it answers recorded: false', async () => {
     mockPost.mockResolvedValueOnce({ statusCode: 503, body: {} });
     const res1 = mockRes();
-    await handler()(mockReq({ feature: 'plugin-generate', outcome: 'discarded' }), res1);
+    await handler()(mockReq({ feature: 'plugin-generate', outcome: 'discarded', draftId: await issued('plugin-generate') }), res1);
     expect(res1.json).toHaveBeenCalledWith({ success: true, data: { recorded: false } });
 
     mockPost.mockRejectedValueOnce(new Error('ECONNREFUSED'));
     const res2 = mockRes();
-    await handler()(mockReq({ feature: 'plugin-generate', outcome: 'discarded' }), res2);
+    await handler()(mockReq({ feature: 'plugin-generate', outcome: 'discarded', draftId: await issued('plugin-generate') }), res2);
     expect(res2.json).toHaveBeenCalledWith({ success: true, data: { recorded: false } });
     expect(mockIncCounter).toHaveBeenCalledWith('ai_draft_outcome_forward_failures_total', { reason: 'non-ok' });
     expect(mockIncCounter).toHaveBeenCalledWith('ai_draft_outcome_forward_failures_total', { reason: 'exception' });
+  });
+
+  describe('draft ids', () => {
+    const post = async (body: unknown, identity?: { orgId: string; userId: string }) => {
+      const res = mockRes();
+      await handler()(mockReq(body, identity), res);
+      return res;
+    };
+
+    it('counts an outcome for a valid draft id exactly once; a reuse is 409 and counts nothing', async () => {
+      const draftId = await issued('pipeline-generate');
+      const first = await post({ feature: 'pipeline-generate', outcome: 'accepted', draftId });
+      expect(first.status).toHaveBeenCalledWith(200);
+      const again = await post({ feature: 'pipeline-generate', outcome: 'discarded', draftId });
+      expect(again.status).toHaveBeenCalledWith(409);
+      expect(mockPost).toHaveBeenCalledTimes(1);
+    });
+
+    it('refuses another user\'s draft id (400), and it stays redeemable by its owner', async () => {
+      const draftId = await issued('agent');
+      const res = await post({ feature: 'agent', outcome: 'accepted', draftId }, { orgId: 'ORG-1', userId: 'user-other' });
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(mockPost).not.toHaveBeenCalled();
+      expect((await post({ feature: 'agent', outcome: 'accepted', draftId })).status).toHaveBeenCalledWith(200);
+    });
+
+    it('refuses a draft id from another org, or for another feature (400)', async () => {
+      const draftId = await issued('agent');
+      expect((await post({ feature: 'agent', outcome: 'accepted', draftId }, { orgId: 'ORG-2', userId: 'user-9' })).status).toHaveBeenCalledWith(400);
+      expect((await post({ feature: 'plugin-generate', outcome: 'accepted', draftId })).status).toHaveBeenCalledWith(400);
+      expect(mockPost).not.toHaveBeenCalled();
+    });
+
+    it('refuses a forged draft id (400)', async () => {
+      const res = await post({ feature: 'agent', outcome: 'accepted', draftId: 'Z'.repeat(32) });
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(mockPost).not.toHaveBeenCalled();
+    });
+
+    it('refuses an expired draft id (400)', async () => {
+      _setAiDraftStoreForTests(createMemoryAiDraftStore({ ttlMs: 20 }));
+      const draftId = await issued('agent');
+      await new Promise((r) => setTimeout(r, 40));
+      const res = await post({ feature: 'agent', outcome: 'accepted', draftId });
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(mockPost).not.toHaveBeenCalled();
+    });
+
+    it('answers 503 when the draft store cannot verify the id (fail-closed: nothing counted)', async () => {
+      _setAiDraftStoreForTests({ issue: async () => null, redeem: async () => 'unavailable', stop: () => undefined });
+      const res = await post({ feature: 'agent', outcome: 'accepted', draftId: 'Z'.repeat(32) });
+      expect(res.status).toHaveBeenCalledWith(503);
+      expect(mockPost).not.toHaveBeenCalled();
+    });
   });
 });

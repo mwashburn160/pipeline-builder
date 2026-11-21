@@ -132,6 +132,21 @@ describe('assessVersionVulns', () => {
     expect(down.warnings.map((w) => [w.code, w.severity])).toEqual([['COMPLIANCE_UNAVAILABLE', 'info']]);
   });
 
+  it('calls compliance as THIS process\'s service (the pipeline service resolves versions too), never as plugin', async () => {
+    const prior = process.env.SERVICE_NAME;
+    process.env.SERVICE_NAME = 'pipeline';
+    try {
+      let auth = '';
+      setVulnPolicyComplianceClientForTests({ dryRunPlugin: async (_o: string, _a: unknown, h: string) => { auth = h; return { violations: [], warnings: [] }; } } as never);
+      const a = await assessVersionVulns({ orgId: 'org-a', record: image as never, policy, now });
+      expect(a.warnings).toEqual([]);
+      const claims = JSON.parse(Buffer.from(auth.replace(/^Bearer /, '').split('.')[1]!, 'base64url').toString());
+      expect(claims).toMatchObject({ username: 'pipeline-service', principalType: 'service', organizationId: 'org-a', role: 'member' });
+    } finally {
+      if (prior === undefined) delete process.env.SERVICE_NAME; else process.env.SERVICE_NAME = prior;
+    }
+  });
+
   it('orders severities', () => {
     expect(maxSeverity('warning', 'critical')).toBe('critical');
     expect(maxSeverity('error', 'info')).toBe('error');

@@ -27,6 +27,9 @@
  *   the purge sweep retries it ({@link retryPluginSourceOrphans}).
  * - {@link deleteOrgSources}: the org purge deletes `<orgId>/` and THROWS on
  *   failure, so the purge leg is retried before the org's orphan rows go.
+ * - {@link deleteListingSources}: a purged listing version (or a removed
+ *   listing) deletes its `listings/<listingId>/…` prefix, which no org purge
+ *   covers; a failure is an orphan like a version purge's.
  *
  * Nothing here ever returns, logs or labels a source's content; logs carry
  * keys and error names only. No route serves a source ZIP.
@@ -47,7 +50,7 @@ import {
   PutObjectCommand,
 } from '@aws-sdk/client-s3';
 import {
-  createLogger, errorMessage, listingSourceKey, PLUGIN_REMEDIATION_METRICS, pluginSourceKey, pluginSourceOrgPrefix,
+  createLogger, errorMessage, listingSourceKey, PLUGIN_REMEDIATION_METRICS, pluginSourceKey, pluginSourceOrgPrefix, SYSTEM_ORG_ID,
   type PluginSourceKind, type PluginSourceOrphanKind,
 } from '@pipeline-builder/api-core';
 import { ensureBucket, s3Client } from '@pipeline-builder/api-core/s3';
@@ -420,6 +423,35 @@ export async function deletePluginSourcePrefix(input: { orgId: string; pluginId?
     await deletePrefix(bucket, input.prefix);
   } catch (err) {
     await recordSourceOrphan({ orgId: input.orgId, kind: 'prefix', bucket, target: input.prefix, pluginId: input.pluginId, pluginVersion: input.version, error: err });
+  }
+}
+
+/**
+ * The kept-source prefix of a listed version (`listings/<listingId>/<version>/`:
+ * its own source copy, and any remediation artifacts kept beside it), or of the
+ * whole listing (`listings/<listingId>/`) when `version` is omitted. Same layout
+ * as api-core `listingSourceKey`.
+ */
+export function listingSourcePrefix(listingId: string, version?: string): string {
+  return `listings/${listingId.toLowerCase()}/${version ? `${version}/` : ''}`;
+}
+
+/**
+ * The listing hook: delete a purged listing version's kept sources, or a
+ * removed listing's (every version). These live under `listings/`, not under
+ * any org, so neither a version purge nor the org purge (`<orgId>/`) reaches
+ * them. Never throws: a failure is a `prefix` orphan (under the system org,
+ * which is never purged, so the row outlives any publisher org) that
+ * {@link retryPluginSourceOrphans} retries — and skips while a listed version
+ * still points under the prefix.
+ */
+export async function deleteListingSources(input: { listingId: string; version?: string | null }): Promise<void> {
+  const bucket = pluginSourcesBucket();
+  const prefix = listingSourcePrefix(input.listingId, input.version ?? undefined);
+  try {
+    await deletePrefix(bucket, prefix);
+  } catch (err) {
+    await recordSourceOrphan({ orgId: SYSTEM_ORG_ID, kind: 'prefix', bucket, target: prefix, pluginVersion: input.version ?? null, error: err });
   }
 }
 

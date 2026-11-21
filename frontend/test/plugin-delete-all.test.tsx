@@ -10,8 +10,8 @@
 
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import { DeletePluginDialog, pluginByNameError } from '../src/components/plugin/DeletePluginDialog';
+import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { DELETE_JOB_POLL_MS, DeletePluginDialog, pluginByNameError } from '../src/components/plugin/DeletePluginDialog';
 import { DeletedPluginBatches, groupDeletedBatches } from '../src/components/plugin/DeletedPluginBatches';
 import { PluginDetailModal } from '../src/components/plugin/PluginDetailModal';
 import { ApiError } from '../src/lib/api/errors';
@@ -19,6 +19,7 @@ import { pageToast } from './helpers/pageMocks';
 
 const getPluginDeletePreview = jest.fn<AnyFn>();
 const deletePluginByName = jest.fn<AnyFn>();
+const getPluginDeleteJob = jest.fn<AnyFn>();
 const listDeletedPlugins = jest.fn<AnyFn>();
 const restorePluginByName = jest.fn<AnyFn>();
 const purgePluginByName = jest.fn<AnyFn>();
@@ -28,6 +29,7 @@ jest.mock('@/lib/api', () => ({
   default: {
     getPluginDeletePreview: (...a: unknown[]) => getPluginDeletePreview(...a),
     deletePluginByName: (...a: unknown[]) => deletePluginByName(...a),
+    getPluginDeleteJob: (...a: unknown[]) => getPluginDeleteJob(...a),
     listDeletedPlugins: (...a: unknown[]) => listDeletedPlugins(...a),
     restorePluginByName: (...a: unknown[]) => restorePluginByName(...a),
     purgePluginByName: (...a: unknown[]) => purgePluginByName(...a),
@@ -55,10 +57,20 @@ const PREVIEW = {
   inFlight: { builds: 1, remediations: 2 },
 };
 
+const JOB = {
+  jobId: 'j1', name: 'tf-plan', batchId: 'b1', force: false, startedAt: '2026-11-20T10:00:00Z', finishedAt: null,
+  state: 'running', deleted: [], skipped: [], error: null,
+};
+const DONE = {
+  ...JOB, state: 'succeeded', finishedAt: '2026-11-20T10:01:00Z',
+  deleted: [{ id: 'v1', version: '1.0.0' }, { id: 'v2', version: '1.1.0' }], skipped: PREVIEW.skipped,
+};
+
 beforeEach(() => {
   jest.clearAllMocks();
   getPluginDeletePreview.mockResolvedValue({ success: true, data: PREVIEW });
-  deletePluginByName.mockResolvedValue({ success: true, data: { batchId: 'b1', deleted: [{ id: 'v1', version: '1.0.0' }, { id: 'v2', version: '1.1.0' }], skipped: PREVIEW.skipped } });
+  deletePluginByName.mockResolvedValue({ success: true, statusCode: 202, data: { batchId: 'b1', jobId: 'j1' } });
+  getPluginDeleteJob.mockResolvedValue({ success: true, data: DONE });
 });
 
 describe('DeletePluginDialog', () => {
@@ -72,14 +84,58 @@ describe('DeletePluginDialog', () => {
     expect(deletePluginByName).not.toHaveBeenCalled();
   });
 
-  it('deletes with the step-up token and reports deleted and skipped', async () => {
+  it('deletes with the step-up token and reports deleted and skipped once the job finishes', async () => {
     const onDeleted = jest.fn();
     render(<DeletePluginDialog name="tf-plan" onClose={() => {}} onDeleted={onDeleted} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Delete 2 versions' }));
     fireEvent.click(screen.getByText('confirm-step-up'));
     await waitFor(() => expect(deletePluginByName).toHaveBeenCalledWith('tf-plan', { force: false, stepUpToken: 'stepup-token' }));
     expect(await screen.findByTestId('delete-plugin-result')).toHaveTextContent('Deleted 2 versions: 1.0.0, 1.1.0');
-    expect(onDeleted).toHaveBeenCalled();
+    expect(getPluginDeleteJob).toHaveBeenCalledWith('tf-plan', 'j1', expect.anything());
+    expect(screen.getByText('Skipped 2:')).toBeInTheDocument();
+    expect(onDeleted).toHaveBeenCalledWith(expect.objectContaining({ batchId: 'b1', state: 'succeeded' }));
+  });
+
+  it('polls a running delete job until it settles, showing that it is running meanwhile', async () => {
+    jest.useFakeTimers();
+    try {
+      getPluginDeleteJob.mockResolvedValueOnce({ success: true, data: JOB }).mockResolvedValueOnce({ success: true, data: JOB });
+      const onDeleted = jest.fn();
+      render(<DeletePluginDialog name="tf-plan" onClose={() => {}} onDeleted={onDeleted} />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Delete 2 versions' }));
+      fireEvent.click(screen.getByText('confirm-step-up'));
+      expect(await screen.findByTestId('delete-plugin-running')).toHaveTextContent('Deleting tf-plan');
+      expect(screen.getByRole('button', { name: 'Delete 2 versions' })).toBeDisabled();
+      await act(async () => { jest.advanceTimersByTime(DELETE_JOB_POLL_MS); });
+      expect(getPluginDeleteJob).toHaveBeenCalledTimes(2);
+      expect(onDeleted).not.toHaveBeenCalled();
+      await act(async () => { jest.advanceTimersByTime(DELETE_JOB_POLL_MS); });
+      expect(getPluginDeleteJob).toHaveBeenCalledTimes(3);
+      expect(await screen.findByTestId('delete-plugin-result')).toHaveTextContent('Deleted 2 versions');
+      expect(onDeleted).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('a failed delete job is shown as an error, not a result', async () => {
+    getPluginDeleteJob.mockResolvedValue({ success: true, data: { ...JOB, state: 'failed', error: { code: null, message: 'server restarted' } } });
+    const onDeleted = jest.fn();
+    render(<DeletePluginDialog name="tf-plan" onClose={() => {}} onDeleted={onDeleted} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete 2 versions' }));
+    fireEvent.click(screen.getByText('confirm-step-up'));
+    expect(await screen.findByText('The delete did not finish: server restarted')).toBeInTheDocument();
+    expect(screen.queryByTestId('delete-plugin-result')).toBeNull();
+    expect(onDeleted).not.toHaveBeenCalled();
+  });
+
+  it('an expired or unknown job (404) stops polling and says so', async () => {
+    getPluginDeleteJob.mockRejectedValue(new ApiError('Delete job not found.', 404, 'NOT_FOUND'));
+    render(<DeletePluginDialog name="tf-plan" onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete 2 versions' }));
+    fireEvent.click(screen.getByText('confirm-step-up'));
+    expect(await screen.findByText(/Delete job not found/)).toBeInTheDocument();
+    expect(getPluginDeleteJob).toHaveBeenCalledTimes(1);
   });
 
   it('offers the listing request and the force option for listed versions', async () => {

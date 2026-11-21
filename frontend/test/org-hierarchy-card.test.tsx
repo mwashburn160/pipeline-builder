@@ -40,11 +40,13 @@ jest.mock('@/components/admin/StepUpModal', () => ({
 
 const listOrganizations = jest.fn<AnyFn>();
 const moveOrganization = jest.fn<AnyFn>();
+const exportOrganization = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
     listOrganizations: (...a: unknown[]) => listOrganizations(...a),
     moveOrganization: (...a: unknown[]) => moveOrganization(...a),
+    exportOrganization: (...a: unknown[]) => exportOrganization(...a),
   },
 }));
 
@@ -207,6 +209,16 @@ describe('OrgOperationsCard — delete vs. live teams', () => {
     const del = screen.getByRole('button', { name: /delete organization/i });
     expect(del).toBeDisabled();
     expect(del).toHaveAttribute('title', expect.stringContaining('orgs:manage'));
+  });
+
+  it('Export data goes through the step-up dialog and sends its token', async () => {
+    exportOrganization.mockResolvedValue('{"org":1}');
+    render(<OrgOperationsCard org={base()} />);
+    fireEvent.click(screen.getByRole('button', { name: /export data/i }));
+    expect(exportOrganization).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog')).toHaveTextContent(/export .*platform/i);
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+    await waitFor(() => expect(exportOrganization).toHaveBeenCalledWith('org-9', 'step-up-token'));
   });
 
   it('refuses up front on a root with live teams, and says what to do', () => {

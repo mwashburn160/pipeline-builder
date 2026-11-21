@@ -3137,12 +3137,15 @@ CREATE INDEX IF NOT EXISTS plugin_kept_setup_image_expires_idx
 -- awaiting approval. A failed / needs_owner / done row for the same hash keeps
 -- the nightly pass from re-queueing it until the findings (or their fixed
 -- versions) change; a retry inserts a new row (attempt + 1, retry_of).
--- plugin_id cascades (purging the flagged version removes its remediations);
--- to_plugin_id is SET NULL (deleting a fix version leaves the remediation).
+-- plugin_id is SET NULL: purging the flagged version first deletes its rows
+-- that never produced a fix (to_plugin_id IS NULL, audited); a row with a fix
+-- version survives with plugin_id NULL (plugin_name / from_version keep it
+-- readable, its diff lives under the fix version). to_plugin_id is SET NULL
+-- too (deleting a fix version leaves the remediation).
 CREATE TABLE IF NOT EXISTS plugin_remediations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     org_id VARCHAR(255) NOT NULL,
-    plugin_id UUID NOT NULL REFERENCES plugins(id) ON DELETE CASCADE,
+    plugin_id UUID REFERENCES plugins(id) ON DELETE SET NULL,
     plugin_name VARCHAR(255) NOT NULL,
     from_version VARCHAR(50) NOT NULL,
     findings_hash VARCHAR(64) NOT NULL CONSTRAINT plugin_remediation_findings_hash_check

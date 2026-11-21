@@ -29,6 +29,7 @@
  */
 
 import { createComplianceClient, type ComplianceViolation } from './compliance-client.js';
+import { serviceIdentity } from './service-keys.js';
 import { getServiceAuthHeader } from '../middleware/service-tokens.js';
 import { isSystemOrgId } from '../middleware/system-org.js';
 import {
@@ -374,7 +375,8 @@ async function complianceVulnWarnings(orgId: string, record: ScannedRecord): Pro
   const attributes: PluginComplianceAttributes = { name: record.name, version: record.version, ...facts };
   try {
     complianceClient ??= createComplianceClient();
-    const auth = getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' });
+    // This runs in the plugin AND pipeline services: mint as whichever this process is (it holds only its own key).
+    const auth = getServiceAuthHeader({ serviceName: serviceIdentity(), orgId, role: 'member' });
     const result = await complianceClient.dryRunPlugin(orgId, attributes as Record<string, unknown>, auth);
     const relevant = (v: ComplianceViolation) => VULN_RULE_FIELDS.has(fieldRoot(v.field));
     const as = (mode: 'block' | 'warn') => (v: ComplianceViolation): VulnWarning => ({

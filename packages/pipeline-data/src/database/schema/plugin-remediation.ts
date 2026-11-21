@@ -33,7 +33,8 @@ import type {
   GrypePackageType,
 } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
-import { boolean, check, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid, varchar } from 'drizzle-orm/pg-core';
+import { boolean, check, index, integer, pgTable, text, timestamp, uniqueIndex, uuid, varchar } from 'drizzle-orm/pg-core';
+import { jsonb } from './jsonb.js';
 import { pipeline } from './pipeline.js';
 import { plugin } from './plugin.js';
 
@@ -47,16 +48,23 @@ import { plugin } from './plugin.js';
  * re-queueing it until the findings (or their fixed versions) change; `POST
  * …/retry` inserts a new row (`attempt + 1`, `retry_of`).
  *
- * `plugin_id` cascades: purging the flagged version removes its remediations
- * (after their audit entries are written). `to_plugin_id` is SET NULL: deleting
- * a fix version leaves the remediation of the version it fixed.
+ * `plugin_id` is SET NULL, never a cascade: a fix record outlives a purge of
+ * the version it fixed. The purge (api/plugin `PluginService.onBeforePurge`)
+ * first deletes, in its own transaction, the version's rows that never
+ * produced a fix (`to_plugin_id IS NULL`); a row WITH a fix version survives
+ * with `plugin_id` NULL and stays readable from its denormalized `plugin_name`
+ * / `from_version`, its diff stored under the fix version. Such a row is never
+ * re-run (approve / retry refuse it). NULLs never collide in the per-version
+ * unique indexes below. `to_plugin_id` is SET NULL too: deleting a fix version
+ * leaves the remediation of the version it fixed.
  *
  * @table plugin_remediations
  */
 export const pluginRemediation = pgTable('plugin_remediations', {
   id: uuid('id').primaryKey().defaultRandom(),
   orgId: varchar('org_id', { length: 255 }).notNull(),
-  pluginId: uuid('plugin_id').notNull().references(() => plugin.id, { onDelete: 'cascade' }),
+  /** NULL once the version it fixed was purged (see the table comment). */
+  pluginId: uuid('plugin_id').references(() => plugin.id, { onDelete: 'set null' }),
   pluginName: varchar('plugin_name', { length: 255 }).notNull(),
   fromVersion: varchar('from_version', { length: 50 }).notNull(),
   findingsHash: varchar('findings_hash', { length: 64 }).notNull(),

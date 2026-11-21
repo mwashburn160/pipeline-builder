@@ -20,6 +20,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   checkVisibilityWriteAccess: () => 'ok',
   sendSuccess: (res: any, statusCode: number, data?: unknown, message?: string) => res.status(statusCode).json({ success: true, data, message }),
   sendBadRequest: (res: any, message: string) => res.status(400).json({ success: false, message }),
+  sendEntityNotFound: (res: any, entity: string) => res.status(404).json({ success: false, message: `${entity} not found.` }),
 }));
 
 const limiterOpts: unknown[] = [];
@@ -29,12 +30,15 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 }));
 
 const mockPreview = jest.fn<AnyFn>(async () => ({ name: 'lint' }));
-const mockDelete = jest.fn<AnyFn>(async () => ({ batchId: 'b', deleted: [], skipped: [], cancelled: { builds: 0, remediations: 0 } }));
 const mockRestore = jest.fn<AnyFn>(async () => ({ batchId: 'b', done: [], skipped: [] }));
 const mockPurge = jest.fn<AnyFn>(async () => ({ batchId: 'b', done: [], skipped: [] }));
 jest.unstable_mockModule('../src/services/plugin-name-actions.js', () => ({
-  previewDeleteByName: mockPreview, deleteByName: mockDelete, restoreByName: mockRestore, purgeByName: mockPurge,
+  previewDeleteByName: mockPreview, restoreByName: mockRestore, purgeByName: mockPurge,
 }));
+const JOB = '0190c0de-0000-7000-8000-0000000000aa';
+const mockStartJob = jest.fn<AnyFn>(async () => ({ batchId: 'b', jobId: JOB, done: Promise.resolve() }));
+const mockReadJob = jest.fn<AnyFn>(async () => null);
+jest.unstable_mockModule('../src/services/plugin-delete-jobs.js', () => ({ startDeleteJob: mockStartJob, readDeleteJob: mockReadJob }));
 
 const { createPluginByNameRoutes } = await import('../src/routes/plugin-by-name.js');
 const router = createPluginByNameRoutes({} as never);
@@ -64,11 +68,12 @@ describe('plugin-by-name route gates', () => {
   it.each([
     ['get', '/by-name/:name/delete-preview', null],
     ['delete', '/by-name/:name', 'plugin.delete-all'],
+    ['get', '/by-name/:name/delete-jobs/:jobId', null],
     ['post', '/by-name/:name/restore', 'plugin.restore-all'],
     ['post', '/by-name/:name/purge', 'plugin.purge-all'],
   ])('%s %s needs plugins:write (and destructive ones: audit, limiter, then step-up)', (method, path, audit) => {
     const h = stack(method, path);
-    expect(h[0].__perm).toBe('plugins:write');
+    expect(h[0].__perm).toBe(path.includes('delete-jobs') ? 'plugins:read' : 'plugins:write');
     if (audit === null) {
       expect(h.some((x) => x === STEP_UP || x.__limit)).toBe(false);
       return;
@@ -87,7 +92,7 @@ describe('plugin-by-name route gates', () => {
 describe('plugin-by-name handlers', () => {
   it('rejects an invalid name', async () => {
     expect((await call('delete', '/by-name/:name', { params: { name: '../etc' } })).statusCode).toBe(400);
-    expect(mockDelete).not.toHaveBeenCalled();
+    expect(mockStartJob).not.toHaveBeenCalled();
   });
 
   it('the caller it hands the service checks visibility per row and logs warnings', async () => {
@@ -98,21 +103,38 @@ describe('plugin-by-name handlers', () => {
     expect(c.parentOrgId).toBeNull();
   });
 
-  it('says how many were skipped', async () => {
-    mockDelete.mockResolvedValueOnce({ batchId: 'b', deleted: [{ id: '1', version: '1' }], skipped: [{ id: '2', version: '2', reason: 'in_use' }], cancelled: { builds: 0, remediations: 0 } });
+  it('answers 202 with the batch and job ids once the delete is accepted; the delete runs as a job', async () => {
     const out = await call('delete', '/by-name/:name', { params: { name: 'lint' } });
-    expect(out.body.message).toBe('Deleted 1 version(s); 1 skipped.');
+    expect(out.statusCode).toBe(202);
+    expect(out.body.data).toEqual({ batchId: 'b', jobId: JOB });
+    expect(out.body.message).toBe('Delete started.');
+    expect(mockStartJob).toHaveBeenCalledWith('lint', expect.objectContaining({ orgId: 'org-1', userId: 'u-1' }), expect.objectContaining({ force: false }));
     expect((await call('get', '/by-name/:name/delete-preview', { params: { name: '' } })).statusCode).toBe(400);
     expect((await call('post', '/by-name/:name/purge', { params: { name: 'A B' }, query: { batchId: BATCH } })).statusCode).toBe(400);
+  });
+
+  it('a refusal before acceptance (managed, locked, 404, 403) is the request\'s own error', async () => {
+    mockStartJob.mockRejectedValueOnce(Object.assign(new Error('locked'), { statusCode: 409 }));
+    await expect(call('delete', '/by-name/:name', { params: { name: 'lint' } })).rejects.toThrow('locked');
   });
 
   it('passes force through to the preview and the delete', async () => {
     await call('get', '/by-name/:name/delete-preview', { params: { name: 'lint' }, query: { force: 'true' } });
     expect(mockPreview).toHaveBeenCalledWith('lint', expect.objectContaining({ orgId: 'org-1', userId: 'u-1' }), { force: true });
-    const out = await call('delete', '/by-name/:name', { params: { name: 'lint' } });
+    await call('delete', '/by-name/:name', { params: { name: 'lint' }, query: { force: 'true' } });
+    expect(mockStartJob).toHaveBeenCalledWith('lint', expect.anything(), expect.objectContaining({ force: true }));
+  });
+
+  it('the delete-job status route answers the org\'s job, 404 for an unknown one, 400 for a bad id', async () => {
+    const status = { jobId: JOB, name: 'lint', batchId: 'b', state: 'succeeded', deleted: [{ id: '1', version: '1.0.0' }], skipped: [] };
+    mockReadJob.mockResolvedValueOnce(status);
+    const out = await call('get', '/by-name/:name/delete-jobs/:jobId', { params: { name: 'lint', jobId: JOB } });
     expect(out.statusCode).toBe(200);
-    expect(out.body.data).toEqual({ batchId: 'b', deleted: [], skipped: [] });
-    expect(mockDelete).toHaveBeenCalledWith('lint', expect.anything(), expect.objectContaining({ force: false }));
+    expect(out.body.data).toEqual(status);
+    expect(mockReadJob).toHaveBeenCalledWith('org-1', 'lint', JOB);
+    expect((await call('get', '/by-name/:name/delete-jobs/:jobId', { params: { name: 'lint', jobId: JOB } })).statusCode).toBe(404);
+    expect((await call('get', '/by-name/:name/delete-jobs/:jobId', { params: { name: 'lint', jobId: 'nope' } })).statusCode).toBe(400);
+    expect((await call('get', '/by-name/:name/delete-jobs/:jobId', { params: { name: 'A B', jobId: JOB } })).statusCode).toBe(400);
   });
 
   it.each(['restore', 'purge'])('%s requires a valid batchId and acts on that batch', async (action) => {

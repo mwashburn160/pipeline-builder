@@ -177,6 +177,14 @@ dockerfile: "/etc/passwd"
     ['deploy/sa.json', '{"type": "service_account", "project_id": "p", "private_key": "-----BEGIN PRIVATE KEY-----"}', 'cloud service-account key'],
     ['.npmrc', '//registry.npmjs.org/:_authToken=npm_abc123', 'npm auth token (.npmrc)'],
     ['.yarnrc.yml', 'npmAuthToken: npm_abc123', 'npm auth token (.yarnrc.yml)'],
+    ['.m2/settings.xml', '<settings><servers><server><id>r</id><password>s3cret</password></server></servers></settings>', 'Maven settings.xml with a password'],
+    ['.pip/pip.conf', '[global]\nindex-url = https://ci:s3cret@pypi.acme.dev/simple\n', 'pip configuration with credentials'],
+    ['.gem/credentials', '---\n:rubygems_api_key: rubygems_abc\n', 'RubyGems credentials file'],
+    ['.cargo/credentials.toml', '[registry]\ntoken = "cio_abc"\n', 'Cargo registry credentials'],
+    ['.config/gh/hosts.yml', 'github.com:\n    oauth_token: gho_abc\n', 'GitHub CLI token (gh hosts.yml)'],
+    ['scripts/install.sh', 'cat > key <<EOF\n-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQ\n-----END OPENSSH PRIVATE KEY-----\nEOF\n', 'private key'],
+    ['keys/deploy.ppk', 'PuTTY-User-Key-File-3: ssh-ed25519\n', 'PuTTY private key'],
+    ['AuthKey_ABC.p8', 'binary', 'PKCS#8 private key'],
   ])('refuses a ZIP carrying %s (decided by name or by its content)', async (secretPath, content, label) => {
     const zipPath = buildZip({
       'plugin-spec.yaml': 'name: leaky\nversion: "1.0.0"\ncommands:\n  - make\n',
@@ -196,6 +204,12 @@ dockerfile: "/etc/passwd"
       '.npmrc': 'registry=https://registry.npmjs.org/\n//registry.npmjs.org/:_authToken=${NPM_TOKEN}\n',
       '.yarnrc.yml': 'nodeLinker: node-modules\n',
       'example.env': 'TOKEN=',
+      'settings.xml': '<settings><servers><server><password>${env.MAVEN_PASSWORD}</password></server></servers></settings>',
+      'pip.conf': '[global]\nindex-url = https://${PIP_TOKEN}@pypi.acme.dev/simple\n',
+      '.cargo/credentials.toml': '[registry]\ntoken = "${CARGO_TOKEN}"\n',
+      '.config/gh/hosts.yml': 'github.com:\n    user: octo\n',
+      'README.md': 'Your key starts with -----BEGIN OPENSSH PRIVATE KEY-----\n',
+      'keys/pub.pem': '-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA\n-----END PUBLIC KEY-----\n',
     });
     const result = await parsePluginZip(zipPath);
     expect(fs.existsSync(path.join(result.extractDir, 'certs/ca.pem'))).toBe(true);

@@ -21,7 +21,7 @@ import AdmZip from 'adm-zip';
 import { fixtureFinding } from './helpers/remediation-fixtures.js';
 import type { PluginRecordData } from '../src/helpers/plugin-helpers.js';
 import { CANARY_FIXTURES, canaryContext, type CanaryFixture } from '../src/services/remediation/canary.js';
-import { contractOfRecord, runRemediationEngine, type EngineInput } from '../src/services/remediation/engine.js';
+import { candidateDiff, contractOfRecord, runRemediationEngine, type EngineInput } from '../src/services/remediation/engine.js';
 import type { ImageRef, RemediationPorts } from '../src/services/remediation/ports.js';
 import { readTree } from '../src/services/remediation/workspace.js';
 
@@ -120,6 +120,39 @@ describe('one fixture per package type comes out clean', () => {
     // Every candidate but the selected one was discarded.
     expect(world.discarded).not.toContain(out.candidate!.ref.digest);
     expect(world.discarded.length).toBe(world.builds.length - 1);
+  });
+});
+
+describe('the candidate diff', () => {
+  /** The files a unified diff touches, as `path: added | deleted | modified`. */
+  const touched = (diff: string) => [...diff.matchAll(/^--- (\S+)\n\+\+\+ (\S+)$/gm)]
+    .map(([, a, b]) => (a === '/dev/null' ? `${b!.replace(/^b\//, '')}: added` : b === '/dev/null' ? `${a!.replace(/^a\//, '')}: deleted` : `${b!.replace(/^b\//, '')}: modified`));
+
+  it('an overlay-only fix of a plugin WITH a kept source shows the overlay alone, never the rest of the context as deleted', async () => {
+    const apk = CANARY_FIXTURES.find((f) => f.type === 'apk')!;
+    const finding = fixtureFinding(apk);
+    const out = await runRemediationEngine(input([finding]), fakeWorld([{ f: apk, finding }], canaryContext(apk)).ports);
+    expect(out.cleared).toEqual([expect.objectContaining({ method: 'overlay' })]);
+    expect(Object.keys(canaryContext(apk)).length).toBeGreaterThan(1);
+    expect(touched(out.candidate!.diff)).toEqual(['remediation-overlay/Dockerfile: added']);
+  });
+
+  it('a source patch shows only the files it changed', async () => {
+    const npm = CANARY_FIXTURES.find((f) => f.type === 'npm')!;
+    const finding = fixtureFinding(npm);
+    const out = await runRemediationEngine(input([finding]), fakeWorld([{ f: npm, finding }], canaryContext(npm)).ports);
+    expect(out.cleared).toEqual([expect.objectContaining({ method: 'source_patch' })]);
+    expect(touched(out.candidate!.diff).every((t) => t.endsWith(': modified'))).toBe(true);
+  });
+
+  it('an overlay on a Stage 1 rebuild shows the rebuild\'s change and the overlay; with no source, the overlay alone', () => {
+    const original = new Map([['Dockerfile', 'FROM a@sha256:1\n'], ['config.yaml', 'x: 1\n']]);
+    const rebuilt = new Map([['Dockerfile', 'FROM a@sha256:2\n'], ['config.yaml', 'x: 1\n']]);
+    const overlay = new Map([['Dockerfile', 'FROM reg/p@sha256:3\nRUN apk upgrade curl\n']]);
+    expect(touched(candidateDiff(original, rebuilt, overlay, true))).toEqual(['Dockerfile: modified', 'remediation-overlay/Dockerfile: added']);
+    expect(touched(candidateDiff(original, original, overlay, true))).toEqual(['remediation-overlay/Dockerfile: added']);
+    expect(touched(candidateDiff(null, null, overlay, true))).toEqual(['remediation-overlay/Dockerfile: added']);
+    expect(touched(candidateDiff(original, original, rebuilt, false))).toEqual(['Dockerfile: modified']);
   });
 });
 

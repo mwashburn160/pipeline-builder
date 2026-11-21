@@ -34,7 +34,8 @@
  */
 
 import { sql } from 'drizzle-orm';
-import { boolean, index, integer, jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex, varchar } from 'drizzle-orm/pg-core';
+import { boolean, index, integer, pgTable, primaryKey, text, timestamp, uniqueIndex, varchar } from 'drizzle-orm/pg-core';
+import { jsonb } from './jsonb.js';
 
 /**
  * Why a deploy's lead time could not be measured. Recorded rather than left NULL

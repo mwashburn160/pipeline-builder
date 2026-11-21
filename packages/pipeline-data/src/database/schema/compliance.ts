@@ -6,7 +6,8 @@ import {
   type ComplianceScanTrigger, type RuleConditionMode, type RuleOperator, type RuleScope, type RuleSeverity, type RuleTarget,
 } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
-import { boolean, integer, varchar, pgTable, text, timestamp, uuid, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { boolean, integer, varchar, pgTable, text, timestamp, uuid, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { jsonb } from './jsonb.js';
 
 // ========================================
 // Compliance Service Tables

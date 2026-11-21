@@ -91,10 +91,27 @@ beforeEach(() => {
 });
 
 describe('toApiDestination', () => {
-  it('masks long targets to the last 12 chars', () => {
-    const out = toApiDestination(dest());
-    expect(out.target).toBe('••••' + 'XXXXXXXXXXXX');
+  // A webhook URL IS the credential, and the secret part is its tail — a Slack
+  // hook's last path segment, a generic webhook's `?token=`. The old "last 12
+  // characters" mask returned half a Slack secret, and the WHOLE of a short
+  // query-string key, to every `observability:read` holder. A URL now reads
+  // back as its origin only: enough to tell which service it posts to.
+  it('masks a Slack URL to its origin, revealing none of the secret path', () => {
+    const out = toApiDestination(dest({ target: 'https://hooks.slack.com/services/T000/B000/abcdefghijklmnopqrstuvwx' }));
+    expect(out.target).toBe('https://hooks.slack.com/••••');
     expect(out.hasTarget).toBe(true);
+  });
+  it('masks a generic webhook with a short query-string key without echoing any of it', () => {
+    const out = toApiDestination(dest({ channel: 'webhook', target: 'https://example.com/hook?token=k3y9' }));
+    expect(out.target).toBe('https://example.com/••••');
+    expect(out.target).not.toContain('k3y9');
+  });
+  it('never echoes URL userinfo', () => {
+    const out = toApiDestination(dest({ channel: 'webhook', target: 'https://bob:pw123@example.com:8443/h' }));
+    expect(out.target).toBe('https://example.com:8443/••••');
+  });
+  it('masks a long non-URL target (an email address) to the last 12 chars', () => {
+    expect(toApiDestination(dest({ channel: 'email', target: 'oncall-team@example.com' })).target).toBe('••••@example.com');
   });
   it('masks short targets to the last 4 chars', () => {
     expect(toApiDestination(dest({ target: 'a@b.io' })).target).toBe('••••b.io');

@@ -3,7 +3,8 @@
 
 import { SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
-import { integer, varchar, pgTable, text, timestamp, uuid, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { integer, varchar, pgTable, text, timestamp, uuid, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { jsonb } from './jsonb.js';
 
 /**
  * User-editable observability dashboard. Replaces the code-defined dashboards

@@ -21,6 +21,16 @@ export interface AskRouteDeps {
  * the one production serves.
  */
 export function mountRoutes(app: Express, { quotaService }: AskRouteDeps): void {
+  // -- POST /ask-agent/draft-outcome ---------------------------------------------
+  // Mounted FIRST, outside the `apiCallsQuota` meter/check and the per-org Ask
+  // rate limit below: reporting what became of a draft is not an Ask, so it must
+  // neither spend the org's apiCalls / Ask allowance nor be refused because they
+  // ran out. Auth + orgId run only for this path; the router keeps its own gates
+  // (requireAskAccess, ai_generation, the per-user cap) and the single-use draft
+  // id check. Any other /ask-agent request falls through it untouched.
+  app.use('/ask-agent/draft-outcome', ...createAuthenticatedWithOrgRoute());
+  app.use('/ask-agent', createDraftOutcomeRoutes());
+
   // -- /ask-agent routes --------------------------------------------------------
   // Auth + orgId at the mount; each handler adds its own capability gate
   // (`requireAskAccess`) and `requireFeature('ai_generation')`.
@@ -44,6 +54,5 @@ export function mountRoutes(app: Express, { quotaService }: AskRouteDeps): void 
     }),
     createAskRoutes(quotaService),
     createAgentRoutes(quotaService),
-    createDraftOutcomeRoutes(),
   );
 }

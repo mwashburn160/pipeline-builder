@@ -29,6 +29,7 @@
 
 import { createHash } from 'crypto';
 import {
+  ErrorCode,
   PerOrgKmsKeyProvider,
   type KeyProvider,
   createLogger,
@@ -95,6 +96,15 @@ export const getOrgKmsConfig = withController('Get org KMS config', async (req, 
 
 type ProposedKmsConfig = { keyId: string; ciphertextBase64: string };
 
+/** Mongo filter fragment matching an org whose stored kmsConfig is still
+ *  `current` — the exact keyId and ciphertext, or no active config at all
+ *  (either field missing/empty, the {@link activeKmsConfig} reading). */
+function kmsConfigMatch(current: ProposedKmsConfig | null): Record<string, unknown> {
+  return current
+    ? { 'kmsConfig.keyId': current.keyId, 'kmsConfig.ciphertextBase64': current.ciphertextBase64 }
+    : { $or: [{ 'kmsConfig.keyId': { $in: [null, ''] } }, { 'kmsConfig.ciphertextBase64': { $in: [null, ''] } }] };
+}
+
 /** The two config changes, keyed: their audit action and the words their messages use. */
 const KMS_CONFIG_CHANGES = {
   upsert: { action: 'admin.org.kms-config.upsert', verb: 'rotate', done: 'saved' },
@@ -111,7 +121,9 @@ type KmsConfigChange = keyof typeof KMS_CONFIG_CHANGES;
  *  1. Capture all encrypted platform secrets under the org with the OLD
  *     provider active (skipped with `?reencrypt=false`). A capture failure
  *     refuses the change (409) before anything is written.
- *  2. Save the new kmsConfig + evict the per-org cache so the NEW provider
+ *  2. Save the new kmsConfig — conditionally on the outgoing config still
+ *     being current, so a concurrent PUT/DELETE gets 409 CONFLICT before it
+ *     re-encrypts anything — + evict the per-org cache so the NEW provider
  *     becomes active on the next encrypt call.
  *  3. Re-encrypt the captured plaintexts under the NEW provider.
  *  4. Ask the pipeline service to re-wrap the org's runner signing keys
@@ -155,10 +167,26 @@ async function changeKmsConfig(
     }
   }
 
+  // Save conditionally on the config this request read (and captured under)
+  // still being the current one. Two concurrent changes both read the same
+  // outgoing config; only the first save matches, and the second is refused
+  // here — before it re-encrypts anything — instead of re-wrapping secrets it
+  // captured under a config that is no longer the org's.
   const previousKmsConfig = activeKmsConfig(org.kmsConfig);
-  org.kmsConfig = next ? { keyId: next.keyId, ciphertextBase64: next.ciphertextBase64 } : undefined;
-  org.markModified('kmsConfig');
-  await org.save();
+  const saved = await Organization.updateOne(
+    { _id: org._id, ...kmsConfigMatch(previousKmsConfig) },
+    next
+      ? { $set: { kmsConfig: { keyId: next.keyId, ciphertextBase64: next.ciphertextBase64 } } }
+      : { $unset: { kmsConfig: 1 } },
+  );
+  if (saved.matchedCount === 0) {
+    logger.warn(`KMS config ${verb} refused: the config changed since this request read it`, { orgId });
+    return void sendError(
+      res, 409,
+      `Cannot ${verb} KMS config: it was changed by another request while this one was in flight. Nothing was written; re-read the config and retry.`,
+      ErrorCode.CONFLICT,
+    );
+  }
 
   evictPerOrgCache(orgId);
 

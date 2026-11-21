@@ -301,7 +301,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
           patchLast({ sources: (ev.data as AskSource[]) ?? [] });
         } else if (ev.type === 'proposal') {
           patchLast({ proposal: ev.data as Proposal });
-          draftOutcome.offered('agent', ev.data);
+          draftOutcome.offered('agent', ev.data, ev.draftId);
           pendingDraftIndex.current = assistantIndex;
         } else if (ev.type === 'token') {
           text += String(ev.data ?? '');

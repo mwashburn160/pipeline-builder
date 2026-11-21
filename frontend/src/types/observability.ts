@@ -154,7 +154,7 @@ export interface AlertDestination {
   updatedBy: string;
   updatedAt: string;
   channel: AlertChannel;
-  /** Masked URL/address (e.g. `••••XXXXXXXXXXXX`). Use `hasTarget` to know whether it's set. */
+  /** Masked URL/address: origin only for a URL (`https://hooks.slack.com/••••`), else the last few characters (`••••1234`). Use `hasTarget` to know whether it's set. */
   target: string;
   hasTarget: boolean;
   label: string;

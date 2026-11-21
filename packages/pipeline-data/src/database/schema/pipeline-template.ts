@@ -12,7 +12,8 @@ import {
   type Visibility,
 } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
-import { boolean, varchar, pgTable, text, timestamp, uuid, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { boolean, varchar, pgTable, text, timestamp, uuid, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { jsonb } from './jsonb.js';
 
 /**
  * Golden-path pipeline templates. A template is a parameterized starter: its

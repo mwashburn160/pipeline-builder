@@ -123,7 +123,7 @@ describe('list / listDeleted', () => {
     results = [[]];
     await svc.listDeleted(caller);
     const where = step(queries[0], 'where')!.args[0] as any;
-    expect(where.and[1].or[2]).toEqual({ and: [{ eq: ['dashboard.visibility', 'private'] }, { eq: ['dashboard.createdBy', 'u-1'] }] });
+    expect(where.and[1].or[2]).toEqual({ and: [{ eq: ['dashboard.visibility', 'private'] }, { eq: ['dashboard.createdBy', 'u-1'] }, { eq: ['dashboard.orgId', 'org-1'] }] });
   });
 });
 

@@ -1854,6 +1854,8 @@ const CONTROLS: Control[] = [
     file: 'pages/dashboard/members.tsx',
     gateFiles: ['src/components/teams/TeamsCard.tsx'],
     permissions: ['org_settings:write'],
+    // Every route here but the deleted-team list steps up: the export is a bulk
+    // read of everything the team owns, so it goes through its own StepUpModal too.
     stepUp: true,
     routes: [
       'platform GET /organization/:id/export',
@@ -3623,7 +3625,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     why: 'Fire-and-forget outcome of an AI draft (accepted / edited / discarded) for the AI usage report, sent by '
       + 'src/hooks/useAiDraftOutcome.ts from the AI generation tabs: PromptGenerateTab and GitUrlTab (create pipeline) '
       + 'and AIPluginBuilderTab (the plugin AI Builder). It only follows a generation those tabs ran, behind the same '
-      + 'ai_generation entitlement and requireAskAccess read gate; it carries feature + outcome only and changes no tenant state.',
+      + 'ai_generation entitlement and requireAskAccess read gate; it carries feature + outcome + the single-use draftId the generator issued, and changes no tenant state.',
   },
   'ask-agent POST /ask-agent/stream': { category: 'no-ui', why: 'Tool-less streaming answer for API / CLI callers; the dashboard Ask panel only drives /ask-agent/agent/stream.' },
 

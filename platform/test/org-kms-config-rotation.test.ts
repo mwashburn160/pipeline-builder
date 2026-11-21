@@ -17,13 +17,14 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 const mockOrgFindById = jest.fn<AnyFn>();
+const mockOrgUpdateOne = jest.fn<AnyFn>();
 const mockAudit = jest.fn<AnyFn>();
 const mockCapture = jest.fn<AnyFn>();
 const mockReencryptOrg = jest.fn<AnyFn>();
 const mockRunnerReencrypt = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  sendError: (res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg }),
+  sendError: (res: any, status: number, msg: string, code?: string) => res.status(status).json({ success: false, message: msg, code }),
   sendSuccess: (res: any, status: number, data: unknown) => res.status(status).json({ success: true, data }),
   getDefaultKeyProvider: jest.fn(() => ({})),
 }));
@@ -31,7 +32,10 @@ jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unkno
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
 jest.unstable_mockModule('../src/models/index.js', () => ({
-  Organization: { findById: (...a: unknown[]) => mockOrgFindById(...a) },
+  Organization: {
+    findById: (...a: unknown[]) => mockOrgFindById(...a),
+    updateOne: (...a: unknown[]) => mockOrgUpdateOne(...a),
+  },
 }));
 jest.unstable_mockModule('../src/services/secret-reencrypt.js', () => ({
   captureOrgSecrets: (...a: unknown[]) => mockCapture(...a),
@@ -63,8 +67,10 @@ function mockRes() {
   return res;
 }
 function orgDoc(kmsConfig?: unknown) {
-  return { kmsConfig, markModified: jest.fn(), save: jest.fn(async () => undefined) };
+  return { _id: ORG, kmsConfig };
 }
+/** The conditional save, as recorded by the updateOne mock. */
+const save = mockOrgUpdateOne;
 const put = async (query: Record<string, string> = {}) => {
   const res = mockRes();
   await (putOrgKmsConfig as any)({ params: { orgId: ORG }, query, body: NEW, user: SYSADMIN, headers: {} }, res);
@@ -83,17 +89,17 @@ beforeEach(() => {
   mockCapture.mockResolvedValue([]);
   mockReencryptOrg.mockResolvedValue({ aiKeysReencrypted: 0 });
   mockRunnerReencrypt.mockResolvedValue(OK);
+  mockOrgUpdateOne.mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
 });
 
 describe('PUT kms-config: runner signing keys', () => {
   it('re-encrypts the org\'s runner keys AFTER the Mongo pass, naming the previous config', async () => {
-    const org = orgDoc({ ...OLD });
-    mockOrgFindById.mockReturnValue(org);
+    mockOrgFindById.mockReturnValue(orgDoc({ ...OLD }));
     const res = await put();
     expect(res.statusCode).toBe(200);
     expect(mockRunnerReencrypt).toHaveBeenCalledWith({ orgId: ORG, previousKmsConfig: OLD });
     expect(mockReencryptOrg.mock.invocationCallOrder[0]).toBeLessThan(mockRunnerReencrypt.mock.invocationCallOrder[0]);
-    expect(org.save.mock.invocationCallOrder[0]).toBeLessThan(mockRunnerReencrypt.mock.invocationCallOrder[0]);
+    expect(save.mock.invocationCallOrder[0]).toBeLessThan(mockRunnerReencrypt.mock.invocationCallOrder[0]);
     expect(res.body.data).toMatchObject({ configured: true, runnerKeysReencrypted: 2 });
   });
 
@@ -197,25 +203,23 @@ describe('DELETE kms-config: runner signing keys', () => {
   });
 
   it('re-encrypts the platform secrets: captured under the CMK BEFORE the clear, re-wrapped AFTER it', async () => {
-    const org = orgDoc({ ...OLD });
-    mockOrgFindById.mockReturnValue(org);
+    mockOrgFindById.mockReturnValue(orgDoc({ ...OLD }));
     mockReencryptOrg.mockResolvedValue({ aiKeysReencrypted: 2, idpSecretReencrypted: true });
     const res = await del();
     expect(res.statusCode).toBe(200);
     expect(mockCapture).toHaveBeenCalledWith(ORG);
-    expect(mockCapture.mock.invocationCallOrder[0]).toBeLessThan(org.save.mock.invocationCallOrder[0]);
-    expect(org.save.mock.invocationCallOrder[0]).toBeLessThan(mockReencryptOrg.mock.invocationCallOrder[0]);
+    expect(mockCapture.mock.invocationCallOrder[0]).toBeLessThan(save.mock.invocationCallOrder[0]);
+    expect(save.mock.invocationCallOrder[0]).toBeLessThan(mockReencryptOrg.mock.invocationCallOrder[0]);
     expect(res.body.data).toMatchObject({ configured: false, aiKeysReencrypted: 2, idpSecretReencrypted: true });
   });
 
   it('a failed capture refuses the clear (409) and leaves the config in place', async () => {
-    const org = orgDoc({ ...OLD });
-    mockOrgFindById.mockReturnValue(org);
+    mockOrgFindById.mockReturnValue(orgDoc({ ...OLD }));
     mockCapture.mockRejectedValue(new Error('bad row'));
     const res = await del();
     expect(res.statusCode).toBe(409);
     expect(res.body.message).toMatch(/\?reencrypt=false/);
-    expect(org.save).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
     expect(mockRunnerReencrypt).not.toHaveBeenCalled();
   });
 
@@ -236,5 +240,78 @@ describe('DELETE kms-config: runner signing keys', () => {
     expect(res.body.message).toMatch(/kms throttled/);
     expect(mockRunnerReencrypt).toHaveBeenCalled();
     expect(mockAudit.mock.calls[0][2]).toMatchObject({ outcome: 'failure', details: { secretsReencryptError: expect.stringMatching(/kms throttled/) } });
+  });
+});
+
+describe('kms-config: concurrent changes', () => {
+  /** A stateful org store: findById hands each request a snapshot of the
+   *  stored config, updateOne applies a filter on keyId/ciphertext the way
+   *  Mongo would. */
+  function store(initial: { keyId: string; ciphertextBase64: string } | undefined) {
+    let current = initial ? { ...initial } : undefined;
+    mockOrgFindById.mockImplementation(async () => orgDoc(current ? { ...current } : undefined));
+    mockOrgUpdateOne.mockImplementation(async (filter: any, update: any) => {
+      const matches = filter['kmsConfig.keyId'] !== undefined
+        ? current?.keyId === filter['kmsConfig.keyId'] && current?.ciphertextBase64 === filter['kmsConfig.ciphertextBase64']
+        : !current?.keyId || !current?.ciphertextBase64;
+      if (!matches) return { matchedCount: 0, modifiedCount: 0 };
+      current = update.$set ? { ...update.$set.kmsConfig } : undefined;
+      return { matchedCount: 1, modifiedCount: 1 };
+    });
+    return { get: () => current };
+  }
+  /** Both requests read and capture before either saves. */
+  function slowCapture() {
+    mockCapture.mockImplementation(() => new Promise((r) => setTimeout(() => r([]), 5)));
+  }
+
+  it('saves conditionally on the config it read', async () => {
+    store({ ...OLD });
+    await put();
+    expect(mockOrgUpdateOne).toHaveBeenCalledWith(
+      expect.objectContaining({ '_id': ORG, 'kmsConfig.keyId': OLD.keyId, 'kmsConfig.ciphertextBase64': OLD.ciphertextBase64 }),
+      { $set: { kmsConfig: NEW } },
+    );
+  });
+
+  it('two concurrent PUTs: one rotates, the other gets 409 CONFLICT before re-encrypting', async () => {
+    const db = store({ ...OLD });
+    slowCapture();
+    const [a, b] = await Promise.all([put(), put()]);
+    const codes = [a.statusCode, b.statusCode].sort();
+    expect(codes).toEqual([200, 409]);
+    const loser = a.statusCode === 409 ? a : b;
+    expect(loser.body.message).toMatch(/changed by another request/);
+    expect(mockOrgUpdateOne).toHaveBeenCalledTimes(2);
+    expect(mockReencryptOrg).toHaveBeenCalledTimes(1);
+    expect(mockRunnerReencrypt).toHaveBeenCalledTimes(1);
+    expect(mockAudit).toHaveBeenCalledTimes(1);
+    expect(db.get()).toEqual(NEW);
+  });
+
+  it('a PUT racing a DELETE: the loser is refused with 409 and nothing of its migration runs', async () => {
+    store({ ...OLD });
+    slowCapture();
+    const [p, d] = await Promise.all([put(), del()]);
+    expect([p.statusCode, d.statusCode].sort()).toEqual([200, 409]);
+    expect(mockReencryptOrg).toHaveBeenCalledTimes(1);
+    expect(mockRunnerReencrypt).toHaveBeenCalledTimes(1);
+  });
+
+  it('the 409 carries the CONFLICT error code', async () => {
+    store({ ...OLD });
+    mockOrgUpdateOne.mockResolvedValue({ matchedCount: 0, modifiedCount: 0 });
+    const res = await put();
+    expect(res.statusCode).toBe(409);
+    expect(res.body.code).toBe('CONFLICT');
+    expect(mockRunnerReencrypt).not.toHaveBeenCalled();
+    expect(mockReencryptOrg).not.toHaveBeenCalled();
+  });
+
+  it('an org on the shared provider matches on having no active config', async () => {
+    store(undefined);
+    const res = await put();
+    expect(res.statusCode).toBe(200);
+    expect(mockOrgUpdateOne.mock.calls[0][0]).toHaveProperty('$or');
   });
 });

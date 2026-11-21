@@ -159,6 +159,8 @@ export interface StreamEvent {
   status?: number;
   /** On an `error` event: the provider's own `Retry-After`, in seconds, when it sent one. */
   retryAfterSeconds?: number;
+  /** On an agent `proposal` event: the single-use id the draft's outcome is reported under. */
+  draftId?: string;
 }
 
 /**

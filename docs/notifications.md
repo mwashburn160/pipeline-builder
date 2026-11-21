@@ -314,9 +314,11 @@ Four channels:
 | `email` | an address | Goes through platform's `EmailService` — **only works when `EMAIL_ENABLED=true`** |
 
 Each destination carries a `minSeverity` and an enabled flag. Targets are
-**masked on read-back** (`••••` plus the last 12 characters, or the last 4 for a
-very short target) because a webhook URL
-is itself a credential; the API never returns the raw value after creation. Both
+**masked on read-back** because a webhook URL is itself a credential: a Slack or
+webhook URL reads back as its origin only (`https://hooks.slack.com/••••` — none
+of the path, query or userinfo, where the secret lives), and an email address as
+`••••` plus its last 12 characters (the last 4 for a very short one). The API
+never returns the raw value after creation. Both
 webhook transports resolve and pin the target address and refuse redirects.
 
 **Send test** delivers a real `info`-severity test alert to one destination with a

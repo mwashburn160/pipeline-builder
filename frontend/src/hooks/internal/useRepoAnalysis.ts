@@ -76,7 +76,7 @@ export function useRepoAnalysis({ initialUrl, autoGenerate }: UseRepoAnalysisOpt
   const [checkingPlugins, setCheckingPlugins] = useState(false);
   const [missingPlugins, setMissingPlugins] = useState<MissingPluginProposal | null>(null);
   const [pluginStatus, setPluginStatus] = useState<PluginCreationStatus | null>(null);
-  const [served, setServed] = useState<{ servedBy?: AIServedByInfo; usage?: AIUsageInfo } | null>(null);
+  const [served, setServed] = useState<{ servedBy?: AIServedByInfo; usage?: AIUsageInfo; draftId?: string } | null>(null);
   const [projectOverride, setProjectOverride] = useState('');
   const [organizationOverride, setOrganizationOverride] = useState('');
 
@@ -125,7 +125,7 @@ export function useRepoAnalysis({ initialUrl, autoGenerate }: UseRepoAnalysisOpt
     const keyToUse = ai.customApiKey.trim() || undefined;
     const tokenToUse = repoToken.trim() || undefined;
 
-    await generate<{ props: BuilderProps; description?: string; keywords?: string[]; servedBy?: AIServedByInfo; usage?: AIUsageInfo }>({
+    await generate<{ props: BuilderProps; description?: string; keywords?: string[]; servedBy?: AIServedByInfo; usage?: AIUsageInfo; draftId?: string }>({
       // Via the Ask agent the repo is analyzed by its propose_pipeline_from_repo
       // tool (the adapter re-emits the analysis as `analyzed`); it drafts only.
       // Neither path creates plugins: the direct one PROPOSES the missing ones.
@@ -144,7 +144,8 @@ export function useRepoAnalysis({ initialUrl, autoGenerate }: UseRepoAnalysisOpt
         setGeneratedKeywords(Array.isArray(data.keywords) ? data.keywords.join(', ') : '');
         setProjectOverride(data.props.project || '');
         setOrganizationOverride(data.props.organization || '');
-        setServed({ servedBy: data.servedBy, usage: data.usage });
+        // The draft id rides with the served info: the tab reports the draft's outcome under it.
+        setServed({ servedBy: data.servedBy, usage: data.usage, ...(data.draftId ? { draftId: data.draftId } : {}) });
       },
       onEvent: (event) => {
         switch (event.type) {
@@ -230,6 +231,7 @@ export function useRepoAnalysis({ initialUrl, autoGenerate }: UseRepoAnalysisOpt
     pluginStatus,
     servedBy: served?.servedBy,
     usage: served?.usage,
+    draftId: served?.draftId,
     projectOverride, setProjectOverride,
     organizationOverride, setOrganizationOverride,
     ai,

@@ -100,8 +100,9 @@ export function RemediationsPanel({ canWrite, isSystemOrg = false, focusId, onOp
                     {counts && counts.skippedOptOut > 0 && ` · ${counts.skippedOptOut} opted out`}
                   </span>
                   <span className="text-xs text-fg-muted"><RelativeTime value={r.updatedAt} /></span>
-                  {onOpenPlugin && (
-                    <button type="button" className="action-link text-xs" onClick={() => onOpenPlugin(r.pluginId)}>Open plugin</button>
+                  {/* No link once the from-version was purged (pluginId null): the record outlives it. */}
+                  {onOpenPlugin && r.pluginId && (
+                    <button type="button" className="action-link text-xs" onClick={() => onOpenPlugin(r.pluginId as string)}>Open plugin</button>
                   )}
                 </div>
                 {open && (

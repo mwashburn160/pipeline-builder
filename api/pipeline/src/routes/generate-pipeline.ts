@@ -10,6 +10,7 @@ import {
   errorMessage,
   handleAIError,
   initSSEStream,
+  issueAiDraftId,
   requireFeature,
   requireOrgAIEnabled,
   sendBadRequest,
@@ -95,6 +96,7 @@ async function streamGeneration(
   result: StreamingGenerationResult,
   sse: SseStream,
   requestId: string,
+  caller: DraftCaller,
 ): Promise<{ completed: false } | { completed: true; props: Record<string, unknown> | null; usage: GenerationUsage }> {
   await streamPartials(result.partialOutputStream, sse, requestId);
   if (sse.aborted()) return { completed: false };
@@ -102,6 +104,7 @@ async function streamGeneration(
   const final = await result.final;
   const usage = await result.usage;
   if (!final) return { completed: true, props: null, usage };
+  const draftId = await issueDraftId(caller);
 
   sse.send({
     type: 'done',
@@ -113,13 +116,27 @@ async function streamGeneration(
       usage,
       servedBy: result.servedBy,
       promptVersion: result.promptVersion,
+      ...(draftId ? { draftId } : {}),
     },
   });
   return { completed: true, props: final.props, usage };
 }
 
+/** Who a generated draft is for: its draft id is bound to this org + user. */
+interface DraftCaller { orgId: string; userId: string }
+
+/**
+ * The single-use id the console reports this draft's outcome under
+ * (`POST /ask-agent/draft-outcome`, feature `pipeline-generate`). Undefined
+ * when it could not be issued — the draft is served either way.
+ */
+function issueDraftId(caller: DraftCaller): Promise<string | undefined> {
+  return issueAiDraftId({ ...caller, feature: 'pipeline-generate' });
+}
+
 /** JSON body of a non-streaming generation (plus any route-specific extras). */
-function generationResponse(result: GenerationResult, extra: Record<string, unknown> = {}): Record<string, unknown> {
+async function generationResponse(result: GenerationResult, caller: DraftCaller, extra: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
+  const draftId = await issueDraftId(caller);
   return {
     props: result.props,
     description: result.description,
@@ -129,6 +146,7 @@ function generationResponse(result: GenerationResult, extra: Record<string, unkn
     servedBy: result.servedBy,
     promptVersion: result.promptVersion,
     validationWarnings: result.validationWarnings,
+    ...(draftId ? { draftId } : {}),
   };
 }
 
@@ -248,7 +266,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
 
         run.succeed(result.usage, { stageCount: stageCount(result.props) });
         ctx.log('COMPLETED', 'AI pipeline generation completed', { pluginCount: plugins.length, servedBy: result.servedBy, tokens: result.usage.totalTokens });
-        sendSuccess(res, 200, generationResponse(result));
+        sendSuccess(res, 200, await generationResponse(result, { orgId, userId }));
       }, onGenerationError(run, ctx.requestId, 'AI pipeline generation failed', 'Failed to generate pipeline configuration', res));
     }),
   );
@@ -283,7 +301,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
         // The whole stream runs inside the failover: a platform provider that
         // fails retryably BEFORE its first chunk is retried on the next one.
         const outcome = await run.run(modelRequest, (selection) =>
-          streamGeneration(streamPipelineConfig(request, { selection, signal: sse.signal, onProviderResponse: run.markResponded }), sse, ctx.requestId));
+          streamGeneration(streamPipelineConfig(request, { selection, signal: sse.signal, onProviderResponse: run.markResponded }), sse, ctx.requestId, { orgId, userId }));
 
         if (outcome.completed) {
           run.succeed(outcome.usage, { stageCount: stageCount(outcome.props), emptyOutput: outcome.props === null });
@@ -359,7 +377,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
 
         run.succeed(result.usage, { gitProvider: parsed.provider, stageCount: stageCount(result.props) });
         ctx.log('COMPLETED', 'AI pipeline generation from URL completed (JSON)', { pluginCount: plugins.length, servedBy: result.servedBy, tokens: result.usage.totalTokens });
-        sendSuccess(res, 200, generationResponse(result, { analysis: summarizeAnalysis(analysis) }));
+        sendSuccess(res, 200, await generationResponse(result, { orgId, userId }, { analysis: summarizeAnalysis(analysis) }));
       }, onGenerationError(run, ctx.requestId, 'AI pipeline generation from URL failed', 'Failed to generate pipeline from URL', res));
     }),
   );
@@ -491,7 +509,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
         const plugins = await pluginsForAnalysis(orgId, analysis);
         const prompt = buildEnhancedPrompt(analysis);
         const outcome = await run.run(modelRequest, (selection) =>
-          streamGeneration(streamPipelineConfig({ prompt, plugins, orgId }, { selection, signal: sse.signal, onProviderResponse: run.markResponded }), sse, ctx.requestId));
+          streamGeneration(streamPipelineConfig({ prompt, plugins, orgId }, { selection, signal: sse.signal, onProviderResponse: run.markResponded }), sse, ctx.requestId, { orgId, userId }));
 
         if (outcome.completed) {
           // Step 3: report the plugins the config references but the org lacks.

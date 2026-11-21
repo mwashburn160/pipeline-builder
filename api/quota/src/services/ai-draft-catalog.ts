@@ -1,20 +1,19 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { AiDraftOutcome } from '@pipeline-builder/api-core';
+
 /**
  * The bounded catalogs of the AI assistant usage report. Config-free on
  * purpose, so the request schemas and the model can both import them.
  */
 
 /**
- * What happened to one AI-generated draft:
- *  - `accepted`        — created / applied exactly as drafted;
- *  - `edited_accepted` — the user changed it, then created / applied it;
- *  - `discarded`       — closed, dismissed or replaced without being used.
+ * The draft-outcome catalogs (`AI_DRAFT_OUTCOMES`, `AI_DRAFT_FEATURES`) are the
+ * ONE shared copy in api-core, so ask-agent's request schema, this service's
+ * validation and its model can never drift apart.
  */
-export const AI_DRAFT_OUTCOMES = ['accepted', 'edited_accepted', 'discarded'] as const;
-export type AiDraftOutcome = (typeof AI_DRAFT_OUTCOMES)[number];
-
+export { AI_DRAFT_FEATURES, AI_DRAFT_OUTCOMES, type AiDraftFeature, type AiDraftOutcome } from '@pipeline-builder/api-core';
 /**
  * The report field each stored outcome is tallied into (wire names are
  * camelCase, stored outcomes snake_case). Keyed by every outcome, so a new one
@@ -30,15 +29,6 @@ export type AiDraftTallyField = (typeof AI_DRAFT_OUTCOME_TALLY_FIELDS)[AiDraftOu
 /** Time-bucket sizes the AI usage report offers. */
 export const AI_USAGE_INTERVALS = ['day', 'week'] as const;
 export type AiUsageInterval = (typeof AI_USAGE_INTERVALS)[number];
-
-/**
- * The AI features that produce a draft a user accepts or discards — the subset
- * of the ledger's `feature` values (api-server `AiFeature`) a draft outcome may
- * name. `ask` answers questions and `report-summary` writes into a report:
- * neither offers a draft to accept.
- */
-export const AI_DRAFT_FEATURES = ['agent', 'pipeline-generate', 'plugin-generate'] as const;
-export type AiDraftFeature = (typeof AI_DRAFT_FEATURES)[number];
 
 /**
  * The report's FEATURE dimension, keyed, with its label. Every ledger

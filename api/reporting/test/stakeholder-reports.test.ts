@@ -1034,7 +1034,11 @@ describe('stakeholder report routes', () => {
       store.getReportPolicy.mockResolvedValue({ externalSharing: false, recipientDomains: null, requireApproval: true });
       await call('/runs/:id/links', 'post', { params: { id: 'run-1' }, body: {} });
       expect(store.createShareLink).not.toHaveBeenCalled();
-      expect(mockSendBadRequest.mock.calls[0][1]).toContain('turned off');
+      // An org-policy refusal is a permission refusal: 403, like the rollup one, not a 400.
+      expect(lastRes.status).toHaveBeenCalledWith(403);
+      expect(mockSendBadRequest).not.toHaveBeenCalled();
+      expect(lastRes.json.mock.calls[0][0]).toEqual(expect.objectContaining({ code: 'INSUFFICIENT_PERMISSIONS' }));
+      expect(JSON.stringify(lastRes.json.mock.calls[0][0])).toContain('turned off');
     });
 
     it('keeps the token out of the audit event', async () => {

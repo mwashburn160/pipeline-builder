@@ -404,7 +404,8 @@ export async function runToolchainRemediation(row: PluginRemediation, deps: Tool
       synthSmoke: 'passed',
       verifiedAt: new Date().toISOString(),
     };
-    let exportKey: string | null = remediationExportKey(SYSTEM_ORG_ID, row.pluginId, release, row.id);
+    // The release's live bootstrap row (the row's own plugin_id is NULL once the one it was queued on was purged).
+    let exportKey: string | null = remediationExportKey(SYSTEM_ORG_ID, halves['pipeline-bootstrap'].id, release, row.id);
     try {
       await putRemediationArtifact(exportKey, change.diff);
     } catch (err) {

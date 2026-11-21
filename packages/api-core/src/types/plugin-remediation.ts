@@ -12,13 +12,16 @@
  * libraries by package type, the fix is published as the next free patch (or
  * minor) version, and Stage 3 moves pipelines onto it.
  *
- * Dependency-free apart from the semver module, so the browser loads it through
+ * Dependency-free apart from the semver and package-version-order modules, so the browser loads it through
  * `@pipeline-builder/api-core/plugin-scan` (which re-exports this module).
  * Nothing here reads the environment: the env NAMES and defaults are constants,
  * and each service reads them with a literal envInt / envBool / envStr call (the env name spelled out) so the
  * env-documented guard sees them.
  */
 
+import {
+  compareGemVersions, compareMavenVersions, compareNuGetVersions, comparePep440, pep440Release, verrevcmp,
+} from './package-version-order.js';
 import type { PluginScanFinding, PluginScanFindingLocation } from './plugin-scan.js';
 import { compareSemverParts, parseSemver } from '../utils/semver.js';
 
@@ -63,6 +66,12 @@ export interface GrypePackageTypeSpec {
   overlayHow: string | null;
   /** Shipped in the first patcher wave (deb, apk, npm, python). */
   firstWave: boolean;
+  /**
+   * The ecosystem's version order (negative when `a` is lower; only the sign
+   * counts): dpkg for OS packages, PEP 440, Maven ComparableVersion, RubyGems,
+   * NuGet, else SemVer (falling back to the dpkg order of the strings).
+   */
+  compare: (a: string, b: string) => number;
 }
 
 export const GRYPE_PACKAGE_TYPE_CATALOG: Readonly<Record<GrypePackageType, GrypePackageTypeSpec>> = {
@@ -75,6 +84,7 @@ export const GRYPE_PACKAGE_TYPE_CATALOG: Readonly<Record<GrypePackageType, Grype
     firstWave: true,
     sourcePatchHow: 'Pin pkg=<fixed> in the Dockerfile\'s apt-get install',
     overlayHow: 'apt-get update && apt-get install --only-upgrade -y pkg=<fixed>',
+    compare: (a, b) => compareOsVersions(a, b, 'deb'),
   },
   'apk': {
     label: 'Alpine package',
@@ -85,6 +95,7 @@ export const GRYPE_PACKAGE_TYPE_CATALOG: Readonly<Record<GrypePackageType, Grype
     firstWave: true,
     sourcePatchHow: 'Pin pkg=<fixed> in apk add',
     overlayHow: 'apk add --no-cache --upgrade \'pkg=<fixed>\'',
+    compare: (a, b) => compareOsVersions(a, b, 'apk'),
   },
   'rpm': {
     label: 'RPM package',
@@ -95,6 +106,7 @@ export const GRYPE_PACKAGE_TYPE_CATALOG: Readonly<Record<GrypePackageType, Grype
     firstWave: false,
     sourcePatchHow: 'Pin in dnf / microdnf install',
     overlayHow: 'dnf upgrade -y pkg-<fixed>',
+    compare: (a, b) => compareOsVersions(a, b, 'rpm'),
   },
   'npm': {
     label: 'npm package',
@@ -105,6 +117,7 @@ export const GRYPE_PACKAGE_TYPE_CATALOG: Readonly<Record<GrypePackageType, Grype
     firstWave: true,
     sourcePatchHow: 'overrides entry in package.json, then npm install --package-lock-only',
     overlayHow: 'npm install pkg@<fixed> in the reported directory',
+    compare: compareSemverOrDpkg,
   },
   'python': {
     label: 'Python package',
@@ -115,6 +128,7 @@ export const GRYPE_PACKAGE_TYPE_CATALOG: Readonly<Record<GrypePackageType, Grype
     firstWave: true,
     sourcePatchHow: 'Pin in requirements*.txt or a constraints file',
     overlayHow: 'pip install --no-deps \'pkg==<fixed>\' into the reported site-packages',
+    compare: comparePep440,
   },
   'go-module': {
     label: 'Go module',
@@ -125,6 +139,7 @@ export const GRYPE_PACKAGE_TYPE_CATALOG: Readonly<Record<GrypePackageType, Grype
     firstWave: false,
     sourcePatchHow: 'go get mod@<fixed> and go mod tidy (rebuilds the binary)',
     overlayHow: null,
+    compare: compareSemverOrDpkg,
   },
   'java-archive': {
     label: 'Java archive',
@@ -135,6 +150,7 @@ export const GRYPE_PACKAGE_TYPE_CATALOG: Readonly<Record<GrypePackageType, Grype
     firstWave: false,
     sourcePatchHow: 'dependencyManagement (Maven) or constraints (Gradle) override',
     overlayHow: null,
+    compare: compareMavenVersions,
   },
   'gem': {
     label: 'Ruby gem',
@@ -145,6 +161,7 @@ export const GRYPE_PACKAGE_TYPE_CATALOG: Readonly<Record<GrypePackageType, Grype
     firstWave: false,
     sourcePatchHow: 'bundle update --conservative pkg',
     overlayHow: 'gem install pkg -v <fixed>',
+    compare: compareGemVersions,
   },
   'rust-crate': {
     label: 'Rust crate',
@@ -155,6 +172,7 @@ export const GRYPE_PACKAGE_TYPE_CATALOG: Readonly<Record<GrypePackageType, Grype
     firstWave: false,
     sourcePatchHow: 'cargo update -p pkg --precise <fixed>',
     overlayHow: null,
+    compare: compareSemverOrDpkg,
   },
   'dotnet': {
     label: '.NET package',
@@ -165,6 +183,7 @@ export const GRYPE_PACKAGE_TYPE_CATALOG: Readonly<Record<GrypePackageType, Grype
     firstWave: false,
     sourcePatchHow: 'Update the PackageReference version',
     overlayHow: null,
+    compare: compareNuGetVersions,
   },
   'binary': {
     label: 'Binary',
@@ -175,6 +194,7 @@ export const GRYPE_PACKAGE_TYPE_CATALOG: Readonly<Record<GrypePackageType, Grype
     firstWave: false,
     sourcePatchHow: 'Bump the tool\'s pinned version when the Dockerfile pins it with a recognised ARG',
     overlayHow: null,
+    compare: compareSemverOrDpkg,
   },
   'other': {
     label: 'Other',
@@ -185,6 +205,7 @@ export const GRYPE_PACKAGE_TYPE_CATALOG: Readonly<Record<GrypePackageType, Grype
     firstWave: false,
     sourcePatchHow: null,
     overlayHow: null,
+    compare: compareSemverOrDpkg,
   },
 };
 
@@ -398,41 +419,6 @@ export function effectiveLibraryUpgradeLevel(
 
 // -- package version parsing / ordering ---------------------------------------
 
-const isDigit = (c: string | undefined): boolean => c !== undefined && c >= '0' && c <= '9';
-
-/** dpkg's character order: `~` before everything (even the end), letters before other punctuation. */
-function charOrder(c: string | undefined): number {
-  if (c === undefined || c === '' || isDigit(c)) return 0;
-  if (c === '~') return -1;
-  if (/[A-Za-z]/.test(c)) return c.charCodeAt(0);
-  return c.charCodeAt(0) + 256;
-}
-
-/** dpkg `verrevcmp`: alternating non-digit / digit runs. */
-function verrevcmp(a: string, b: string): number {
-  let i = 0;
-  let j = 0;
-  while (i < a.length || j < b.length) {
-    while ((i < a.length && !isDigit(a[i])) || (j < b.length && !isDigit(b[j]))) {
-      const ac = charOrder(a[i]);
-      const bc = charOrder(b[j]);
-      if (ac !== bc) return ac - bc;
-      i++; j++;
-    }
-    while (a[i] === '0') i++;
-    while (b[j] === '0') j++;
-    let firstDiff = 0;
-    while (isDigit(a[i]) && isDigit(b[j])) {
-      if (!firstDiff) firstDiff = a.charCodeAt(i) - b.charCodeAt(j);
-      i++; j++;
-    }
-    if (isDigit(a[i])) return 1;
-    if (isDigit(b[j])) return -1;
-    if (firstDiff) return firstDiff;
-  }
-  return 0;
-}
-
 interface OsVersion { epoch: number; upstream: string; revision: string }
 
 /** `[epoch:]upstream[-revision]` (deb / rpm `-release`; apk `-rN`). */
@@ -452,24 +438,32 @@ function parseOsVersion(v: string, type: GrypePackageType): OsVersion {
 /** Drop a leading `v` / `go` before a digit (`v1.2.3`, `go1.26.4`). */
 const stripPrefix = (v: string): string => v.trim().replace(/^(?:v|go)(?=\d)/i, '');
 
-/**
- * Order two versions of the same package: negative when `a` is lower.
- * OS packages compare epoch, then upstream, then revision (dpkg order); others
- * use SemVer precedence when both parse, else the dpkg order of the strings.
- */
-export function comparePackageVersions(a: string, b: string, packageType: GrypePackageType): number {
-  if (GRYPE_PACKAGE_TYPE_CATALOG[packageType].osPackage) {
-    const x = parseOsVersion(a, packageType);
-    const y = parseOsVersion(b, packageType);
-    if (x.epoch !== y.epoch) return x.epoch - y.epoch;
-    return verrevcmp(x.upstream, y.upstream) || verrevcmp(x.revision, y.revision);
-  }
+/** OS packages: epoch, then upstream, then revision (dpkg order). */
+function compareOsVersions(a: string, b: string, type: GrypePackageType): number {
+  const x = parseOsVersion(a, type);
+  const y = parseOsVersion(b, type);
+  if (x.epoch !== y.epoch) return x.epoch - y.epoch;
+  return verrevcmp(x.upstream, y.upstream) || verrevcmp(x.revision, y.revision);
+}
+
+/** SemVer precedence when both parse (a leading `v` / `go` dropped), else the dpkg order of the strings. */
+function compareSemverOrDpkg(a: string, b: string): number {
   const sa = stripPrefix(a);
   const sb = stripPrefix(b);
   const pa = parseSemver(sa);
   const pb = parseSemver(sb);
   if (pa && pb) return compareSemverParts(pa, pb);
   return verrevcmp(sa, sb);
+}
+
+/**
+ * Order two versions of the same package: negative when `a` is lower. Each
+ * package type's own order ({@link GrypePackageTypeSpec.compare}): dpkg for
+ * deb / apk / rpm, PEP 440 for python, Maven ComparableVersion for
+ * java-archive, RubyGems for gem, NuGet for dotnet, SemVer for the rest.
+ */
+export function comparePackageVersions(a: string, b: string, packageType: GrypePackageType): number {
+  return GRYPE_PACKAGE_TYPE_CATALOG[packageType].compare(a, b);
 }
 
 /** The first three numeric parts (missing = 0), or null when the version does not start with a number. */
@@ -503,6 +497,15 @@ export function libraryUpgradeRequirement(installed: string, candidate: string, 
     if (verrevcmp(x.upstream, y.upstream) === 0) return 'patch';
     from = x.upstream;
     to = y.upstream;
+  } else if (packageType === 'python') {
+    // PEP 440: an epoch change is a major; the level reads the release numbers.
+    const x = pep440Release(installed);
+    const y = pep440Release(candidate);
+    if (x && y) {
+      if (x.epoch !== y.epoch) return 'major';
+      from = x.release.join('.');
+      to = y.release.join('.');
+    }
   }
   const a = numericParts(from);
   const b = numericParts(to);
@@ -615,7 +618,9 @@ export function remediationVersionBump(choices: ReadonlyArray<{ requirement: Lib
 }
 
 /**
- * The next FREE version after `fromVersion` (its prerelease/build ignored):
+ * The next FREE version after `fromVersion` (its prerelease/build ignored;
+ * each `taken` version is read through the semver grammar, a leading `v` and
+ * build metadata dropped):
  * `patch` → the smallest `M.m.(p+k)` not taken (1.4.3, or 1.4.4 when 1.4.3 is
  * taken); `minor` → the smallest `M.(m+k).0` not taken. Never crosses the
  * major. `taken` should include soft-deleted versions (the name/version is
@@ -624,7 +629,13 @@ export function remediationVersionBump(choices: ReadonlyArray<{ requirement: Lib
 export function nextRemediationVersion(fromVersion: string, taken: Iterable<string>, bump: RemediationVersionBump): string | null {
   const p = parseSemver(stripPrefix(fromVersion));
   if (!p) return null;
-  const used = new Set([...taken].map((v) => v.trim()));
+  // A taken `v1.4.3` or `1.4.3+build.7` reserves 1.4.3 (build metadata is not a
+  // different version); a prerelease (`1.4.3-rc.1`) does not reserve the release.
+  const used = new Set<string>();
+  for (const t of taken) {
+    const q = parseSemver(stripPrefix(t));
+    if (q) used.add(`${q.major}.${q.minor}.${q.patch}${q.prerelease.length ? `-${q.prerelease.join('.')}` : ''}`);
+  }
   for (let k = 1; k < 10_000; k++) {
     const v = bump === 'patch' ? `${p.major}.${p.minor}.${p.patch + k}` : `${p.major}.${p.minor + k}.0`;
     if (!used.has(v)) return v;
@@ -884,7 +895,8 @@ export interface PluginRemediationJobData {
   kind: 'plugin-remediation';
   remediationId: string;
   orgId: string;
-  pluginId: string;
+  /** Informational (the job reads the row): NULL once the version it fixes was purged, and the job then ends the row. */
+  pluginId: string | null;
   pluginName: string;
   fromVersion: string;
 }
@@ -1049,7 +1061,12 @@ export const PLUGIN_DELETE_INFLIGHT_WAIT_MS = 600_000;
 /** One remediation as `GET /plugins/remediations[/:id]` answers it. */
 export interface PluginRemediationDto {
   id: string;
-  pluginId: string;
+  /**
+   * The version it fixed; NULL once that version was purged (the record of a
+   * published fix outlives it: name, version and diff stay readable, but it is
+   * never re-run).
+   */
+  pluginId: string | null;
   pluginName: string;
   fromVersion: string;
   stage: PluginRemediationStage;
@@ -1112,6 +1129,37 @@ export interface PluginDeleteAllResult {
   batchId: string;
   deleted: Array<{ id: string; version: string }>;
   skipped: PluginDeleteSkip[];
+}
+
+/**
+ * `DELETE /plugins/by-name/:name` answers 202 with this: the delete (name lock,
+ * cancel in-flight builds and remediations, wait for running ones, soft-delete)
+ * runs as a background job. `batchId` is the batch the versions are deleted
+ * under (Restore plugin / Purge plugin take it); poll `jobId` at
+ * `GET /plugins/by-name/:name/delete-jobs/:jobId`.
+ */
+export interface PluginDeleteJobAccepted {
+  batchId: string;
+  jobId: string;
+}
+
+export const PLUGIN_DELETE_JOB_STATES = ['running', 'succeeded', 'failed'] as const;
+export type PluginDeleteJobState = typeof PLUGIN_DELETE_JOB_STATES[number];
+
+/** `GET /plugins/by-name/:name/delete-jobs/:jobId` (`plugins:read`). Kept 24 hours. */
+export interface PluginDeleteJobStatus {
+  jobId: string;
+  name: string;
+  batchId: string;
+  state: PluginDeleteJobState;
+  force: boolean;
+  startedAt: string;
+  finishedAt: string | null;
+  /** Filled once `state` is `succeeded`. */
+  deleted: Array<{ id: string; version: string }>;
+  skipped: PluginDeleteSkip[];
+  /** Set when `state` is `failed`: the error code (when typed) and message. A job whose worker stopped reporting is failed with code null. */
+  error: { code: string | null; message: string } | null;
 }
 
 /** `POST /plugins/by-name/:name/restore` and `/purge` (`?batchId=` required). */

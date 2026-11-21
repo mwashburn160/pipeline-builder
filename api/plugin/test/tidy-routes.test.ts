@@ -158,4 +158,10 @@ describe('PUT /plugins/by-name/:name/never-tidy', () => {
     expect((await call('PUT', '/plugins/by-name/lint/never-tidy', token(['plugins:write']), { neverTidy: 'yes' })).status).toBe(400);
     expect((await call('PUT', '/plugins/by-name/lint/never-tidy', token(['plugins:read']), { neverTidy: true })).status).toBe(403);
   });
+
+  it('refuses a name that is not lowercase (400) before the service is asked', async () => {
+    setNeverTidy.mockClear();
+    expect((await call('PUT', '/plugins/by-name/Lint/never-tidy', token(['plugins:write']), { neverTidy: true })).status).toBe(400);
+    expect(setNeverTidy).not.toHaveBeenCalled();
+  });
 });

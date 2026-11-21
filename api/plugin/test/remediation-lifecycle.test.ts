@@ -10,8 +10,9 @@
  * routes' stage rules and the pipeline service's rollout report.
  */
 
-import { describe, it, expect, beforeEach, afterAll, jest } from '@jest/globals';
+import { describe, it, expect, beforeAll, beforeEach, afterAll, jest } from '@jest/globals';
 import { bindTestAuditService, stubModule, type AnyFn } from '@pipeline-builder/api-core/testing';
+import type { PluginRemediation } from '@pipeline-builder/pipeline-data';
 
 const realApiCore = await import('@pipeline-builder/api-core');
 const realPipelineData = await import('@pipeline-builder/pipeline-data');
@@ -22,7 +23,8 @@ const audits = bindTestAuditService('plugin');
 
 const pipelinesOnVersion = jest.fn<AnyFn>(async () => []);
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
-  ...realPipelineData, withTenantTx: testDb.withTenantTx, pipelinesOnVersion,
+  // findVersionReferences opens its own pool: no pipeline references anything here (a purge's guard).
+  ...realPipelineData, withTenantTx: testDb.withTenantTx, pipelinesOnVersion, findVersionReferences: async () => [],
 }));
 const counters: Array<[string, Record<string, string>]> = [];
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
@@ -54,6 +56,10 @@ const sources = {
   recordVersionSource: jest.fn<AnyFn>(async () => null),
   fetchPluginSource: jest.fn<AnyFn>(async () => 'missing'),
   pluginSourcesBucket: () => 'plugin-sources',
+  // The purge's teardown (services/version-purge.ts).
+  deletePluginSourcePrefix: jest.fn<AnyFn>(async () => undefined),
+  recordSourceOrphan: jest.fn<AnyFn>(async () => undefined),
+  retryPluginSourceOrphans: jest.fn<AnyFn>(async () => ({ tried: 0, cleared: 0, failed: 0 })),
 };
 jest.unstable_mockModule('../src/services/plugin-sources.js', () => sources);
 const rollout = { startTenantRollout: jest.fn<AnyFn>(async () => true), cancelRollout: jest.fn<AnyFn>(async () => true), setRolloutClientForTests: jest.fn() };
@@ -113,7 +119,7 @@ async function plugin(orgId: string, name: string, version: string, o: { deleted
 }
 const cand = (id: string, name: string, version: string, findings: any[], orgId = ORG, extra: Record<string, unknown> = {}): any =>
   ({ kind: 'plugin', id, orgId, name, version, imageDigest: DIGEST, deleted: false, yanked: false, createdBy: 'uploader', summary: summary(findings), ...extra });
-const rowsOf = async (pluginId: string) => (await raw.query<any>('SELECT * FROM plugin_remediations WHERE plugin_id = $1 ORDER BY created_at', [pluginId])).rows;
+const rowsOf = async (pluginId: string | null) => (await raw.query<any>('SELECT * FROM plugin_remediations WHERE plugin_id = $1 ORDER BY created_at', [pluginId])).rows;
 const enqueue = jest.fn<AnyFn>(async () => undefined);
 const settings = (orgId: string, mode: string) => raw.query('INSERT INTO plugin_remediation_settings (org_id, mode) VALUES ($1, $2) ON CONFLICT (org_id) DO UPDATE SET mode = EXCLUDED.mode', [orgId, mode]);
 
@@ -341,7 +347,8 @@ function ports(opts: { clears?: boolean } = {}): any {
 async function queued(orgId: string, name: string, version: string, o: Parameters<typeof plugin>[3] = {}) {
   const id = await plugin(orgId, name, version, o);
   await queuePassRemediations([cand(id, name, version, [finding()], orgId)], { enqueue });
-  return (await getRemediation((await rowsOf(id))[0].id))!;
+  // A freshly queued row always names its (stored) version.
+  return (await getRemediation((await rowsOf(id))[0].id))! as PluginRemediation & { pluginId: string };
 }
 
 describe('the remediation job', () => {
@@ -358,6 +365,44 @@ describe('the remediation job', () => {
     expect(rollout.startTenantRollout).toHaveBeenCalled();
     expect(notices.map((n) => n.code)).toEqual(['N36']);
     expect(p.discarded).toEqual([]);
+  });
+
+  it('publish keeps the diff under the FIX version\'s prefix: purging the from-version\'s prefix leaves it downloadable', async () => {
+    await settings(ORG, 'apply');
+    const objects = new Map<string, string>();
+    sources.putRemediationArtifact.mockImplementation(async (k: string, b: Buffer | string) => { objects.set(k, String(b)); });
+    setRemediationArtifactReaderForTests(async (k) => objects.get(k) ?? null);
+    try {
+      const row = await queued(ORG, 'lint', '1.0.0');
+      expect(await runRemediation(row, { ports: ports() })).toBe('rolling_out');
+      const after = (await getRemediation(row.id))!;
+      const fromPrefix = realApiCore.pluginSourceVersionPrefix(ORG, row.pluginId, '1.0.0');
+      const fixPrefix = realApiCore.pluginSourceVersionPrefix(ORG, after.toPluginId!, after.toVersion!);
+      expect(after.patchKey).toBe(realApiCore.remediationDiffKey(ORG, after.toPluginId!, after.toVersion!, row.id));
+      // The from-version's own copy was written first (the reviewer's diff while it ran).
+      expect(objects.get(realApiCore.remediationDiffKey(ORG, row.pluginId, '1.0.0', row.id))).toBe(objects.get(after.patchKey!));
+      // The from-version's purge deletes its whole prefix.
+      for (const k of [...objects.keys()]) if (k.startsWith(fromPrefix)) objects.delete(k);
+      expect([...objects.keys()].every((k) => k.startsWith(fixPrefix))).toBe(true);
+      const patch = await call('get', '/remediations/:id/patch', { params: { id: row.id } });
+      expect(patch.statusCode).toBe(200);
+      expect(patch.body).toBe(objects.get(after.patchKey!));
+    } finally {
+      setRemediationArtifactReaderForTests();
+      sources.putRemediationArtifact.mockImplementation(async () => undefined);
+    }
+  });
+
+  it('a failed copy under the fix version keeps the from-version key; the publish still lands', async () => {
+    await settings(ORG, 'apply');
+    sources.putRemediationArtifact.mockImplementation(async (k: string) => { if (!k.includes('/1.0.0/')) throw new Error('rustfs down'); });
+    try {
+      const row = await queued(ORG, 'lint', '1.0.0');
+      expect(await runRemediation(row, { ports: ports() })).toBe('rolling_out');
+      expect((await getRemediation(row.id))!.patchKey).toBe(realApiCore.remediationDiffKey(ORG, row.pluginId, '1.0.0', row.id));
+    } finally {
+      sources.putRemediationArtifact.mockImplementation(async () => undefined);
+    }
   });
 
   it('propose (the default): waits for approval, discards the candidate, says so (N36 awaiting)', async () => {
@@ -468,6 +513,53 @@ describe('deactivating a fixed version', () => {
   });
 });
 
+describe('org checks on remediation rows', () => {
+  const base = (orgId: string, pluginId: string | null, extra: Record<string, unknown> = {}): any => ({
+    orgId, pluginId, pluginName: 'lint', fromVersion: '1.0.0', findingsHash: 'e'.repeat(64), targeted: [finding()], createdBy: 'u-1', ...extra,
+  });
+
+  it('refuses an insert whose plugin_id or to_plugin_id is another org\'s (or missing); writes nothing', async () => {
+    const { insertRemediation, insertRemediationUnderCap } = await import('../src/services/remediation/store.js');
+    const mine = await plugin(ORG, 'lint', '1.0.0');
+    const theirs = await plugin(OTHER, 'lint', '1.0.0');
+    const official = await plugin(SYSTEM, 'lint', '1.0.0');
+    expect(await insertRemediationUnderCap(base(ORG, theirs), 20)).toEqual({ status: 'refused' });
+    expect(await insertRemediationUnderCap(base(ORG, official), 20)).toEqual({ status: 'refused' });
+    expect(await insertRemediationUnderCap(base(ORG, mine, { toPluginId: theirs }), 20)).toEqual({ status: 'refused' });
+    expect(await insertRemediationUnderCap(base(ORG, '00000000-0000-4000-8000-00000000dead'), 20)).toEqual({ status: 'refused' });
+    // plugin_id is nullable only so a fix record outlives its version's purge: an insert always names one.
+    expect(await insertRemediationUnderCap(base(ORG, null), 20)).toEqual({ status: 'refused' });
+    expect(await insertRemediation(base(ORG, null))).toBeNull();
+    expect(await insertRemediation(base(ORG, theirs))).toBeNull();
+    expect((await raw.query('SELECT id FROM plugin_remediations')).rows).toEqual([]);
+    // The row's own org: inserted (case-insensitively), the system org's Official rows included.
+    expect((await insertRemediationUnderCap(base(ORG.toUpperCase(), mine), 20)).status).toBe('inserted');
+    expect((await insertRemediationUnderCap(base(SYSTEM, official), 20)).status).toBe('inserted');
+    expect(await insertRemediation(base(OTHER, theirs))).not.toBeNull();
+  });
+
+  it('a fix version of another org is never written as to_plugin_id', async () => {
+    const { updateRemediation } = await import('../src/services/remediation/store.js');
+    const row = await queued(ORG, 'lint', '1.0.0');
+    const theirs = await plugin(OTHER, 'lint', '1.0.1');
+    expect(await updateRemediation(row.id, { toPluginId: theirs, toVersion: '1.0.1' })).toBeNull();
+    expect((await getRemediation(row.id))!.toPluginId).toBeNull();
+    const mine = await plugin(ORG, 'lint', '1.0.1');
+    expect((await updateRemediation(row.id, { toPluginId: mine, toVersion: '1.0.1' }))!.toPluginId).toBe(mine);
+  });
+
+  it('a retry whose row names another org\'s version is a 404 and inserts nothing', async () => {
+    const theirs = await plugin(OTHER, 'lint', '1.0.0');
+    const row = await queued(ORG, 'fmt', '1.0.0');
+    // A corrupted row (written before the check): its plugin_id is another org's.
+    await raw.query("UPDATE plugin_remediations SET stage = 'failed', plugin_id = $2 WHERE id = $1", [row.id, theirs]);
+    await settings(ORG, 'propose');
+    const res = await call('post', '/remediations/:id/retry', { params: { id: row.id } });
+    expect(res.statusCode).toBe(404);
+    expect((await raw.query('SELECT id FROM plugin_remediations')).rows).toHaveLength(1);
+  });
+});
+
 describe('cancel on delete', () => {
   it('cancels live remediations of the deleted versions and their rollouts', async () => {
     const row = await queued(ORG, 'lint', '1.0.0');
@@ -476,6 +568,45 @@ describe('cancel on delete', () => {
     expect((await rowsOf(row.pluginId))[0]).toMatchObject({ stage: 'failed', outcome: 'cancelled' });
     expect(rollout.cancelRollout).toHaveBeenCalledWith(expect.objectContaining({ id: row.id }), 'version_deleted');
     expect(await cancelRemediationsFor({ orgId: OTHER, pluginIds: [row.pluginId], reason: 'version_deleted' })).toBe(0);
+  });
+});
+
+describe('a rollout start that failed at publish', () => {
+  /** A published fix of `orgId` whose rollout was never started, last touched `minutes` ago. */
+  async function publishedFix(orgId: string, name: string, minutes: number) {
+    const row = await queued(orgId, name, '1.0.0');
+    const fix = await plugin(orgId, name, '1.0.1');
+    await raw.exec('ALTER TABLE plugin_remediations DISABLE TRIGGER update_plugin_remediations_modtime');
+    try {
+      await raw.query(`UPDATE plugin_remediations SET stage = 'published', to_version = '1.0.1', to_plugin_id = $2, updated_at = now() - interval '${minutes} minutes' WHERE id = $1`, [row.id, fix]);
+    } finally {
+      await raw.exec('ALTER TABLE plugin_remediations ENABLE TRIGGER update_plugin_remediations_modtime');
+    }
+    return row.id;
+  }
+
+  it('is started again by the nightly sweep until the pipeline service takes it, then never again', async () => {
+    const id = await publishedFix(ORG, 'lint', 60);
+    rollout.startTenantRollout.mockResolvedValueOnce(false);
+    expect(await queuePassRemediations([], { enqueue })).toMatchObject({ rolloutsStarted: 0 });
+    expect(rollout.startTenantRollout).toHaveBeenCalledTimes(1);
+    expect(rollout.startTenantRollout).toHaveBeenCalledWith(expect.objectContaining({ id, stage: 'published', toVersion: '1.0.1' }));
+    expect((await getRemediation(id))!.stage).toBe('published');
+
+    expect(await queuePassRemediations([], { enqueue })).toMatchObject({ rolloutsStarted: 1 });
+    expect(rollout.startTenantRollout).toHaveBeenCalledTimes(2);
+    expect((await getRemediation(id))!.stage).toBe('rolling_out');
+
+    // Started: the sweep never starts it again.
+    await queuePassRemediations([], { enqueue });
+    expect(rollout.startTenantRollout).toHaveBeenCalledTimes(2);
+  });
+
+  it('leaves a just-published fix (its publish may still be starting it) and an Official fix alone', async () => {
+    await publishedFix(ORG, 'fresh', 1);
+    await publishedFix(SYSTEM, 'official', 60);
+    expect(await queuePassRemediations([], { enqueue })).toMatchObject({ rolloutsStarted: 0 });
+    expect(rollout.startTenantRollout).not.toHaveBeenCalled();
   });
 });
 
@@ -620,6 +751,9 @@ describe('routes', () => {
     expect(res.body.data).toMatchObject({ stage: 'failed', outcome: 'rejected', decidedBy: 'u-1' });
     expect(counters).toContainEqual(['plugin_remediations_total', { stage: 'failed', outcome: 'rejected' }]);
     expect(audits.mock.calls.map((c) => (c[0] as any).action)).toContain('plugin.remediation.rejected');
+    // The reason the person typed is on the audit row (and the row's decision_reason).
+    expect(audits.mock.calls.map((c) => c[0] as any).find((a) => a.action === 'plugin.remediation.rejected').details).toMatchObject({ reason: 'not this one' });
+    expect((await getRemediation(row.id))!.decisionReason).toBe('not this one');
     const other = await queued(ORG, 'fmt', '1.0.0');
     await raw.query("UPDATE plugin_remediations SET stage = 'awaiting_approval', decided_at = now() WHERE id = $1", [other.id]);
     expect((await call('post', '/remediations/:id/reject', { params: { id: other.id } })).statusCode).toBe(409);
@@ -700,5 +834,85 @@ describe('routes', () => {
     expect((await call('get', '/remediation-settings')).body.data.settings.libraryUpgradeLevelByPlugin).toEqual({ lint: 'patch' });
     await call('put', '/by-name/:name/remediation-level', { params: { name: 'lint' }, body: { level: null } });
     expect((await call('get', '/remediation-settings')).body.data.settings.libraryUpgradeLevelByPlugin).toEqual({});
+  });
+});
+
+describe('purging the from-version', () => {
+  // The purge itself is pipeline-data's CrudService on its OWN `db`: install this
+  // PGlite as that db too (the session goes back to the superuser seeding role).
+  beforeAll(async () => {
+    const { bootTenantDb } = await import('@pipeline-builder/pipeline-data/testing');
+    await bootTenantDb(raw as never);
+    await raw.exec('RESET ROLE');
+  });
+
+  it('keeps the fix record (plugin_id NULL, diff still served), deletes the attempts that never produced a fix; the survivor cannot be retried', async () => {
+    const { pluginService } = await import('../src/services/plugin-service.js');
+    await settings(ORG, 'apply');
+    const objects = new Map<string, string>();
+    sources.putRemediationArtifact.mockImplementation(async (k: string, b: Buffer | string) => { objects.set(k, String(b)); });
+    sources.deletePluginSourcePrefix.mockImplementation(async (i: { prefix: string }) => { for (const k of [...objects.keys()]) if (k.startsWith(i.prefix)) objects.delete(k); });
+    setRemediationArtifactReaderForTests(async (k) => objects.get(k) ?? null);
+    try {
+      const row = await queued(ORG, 'lint', '1.0.0');
+      const fromId = row.pluginId!;
+      expect(await runRemediation(row, { ports: ports() })).toBe('rolling_out');
+      // A paused rollout (retryable), and an earlier attempt of another findings set that never produced a fix.
+      await raw.query("UPDATE plugin_remediations SET stage = 'needs_review' WHERE id = $1", [row.id]);
+      const { rows: [unpublished] } = await raw.query<{ id: string }>(
+        `INSERT INTO plugin_remediations (org_id, plugin_id, plugin_name, from_version, findings_hash, stage, outcome, created_by)
+         VALUES ($1, $2, 'lint', '1.0.0', $3, 'failed', 'rejected', 'u-1') RETURNING id`, [ORG, fromId, 'f'.repeat(64)]);
+      // Soft-deleted (a tombstone), then purged through the plugin service's own purge.
+      await raw.query("UPDATE plugins SET is_active = false, deleted_at = now(), image_digest = NULL, visibility = 'org' WHERE id = $1", [fromId]);
+      const purged = await realPipelineData.runWithTenantContext({ orgId: ORG, isSuperAdmin: false }, () => pluginService.purgeById(fromId, ORG));
+      expect(purged).toBe(fromId);
+      expect((await raw.query('SELECT id FROM plugins WHERE id = $1', [fromId])).rows).toEqual([]);
+      expect(sources.deletePluginSourcePrefix).toHaveBeenCalledWith(expect.objectContaining({ prefix: realApiCore.pluginSourceVersionPrefix(ORG, fromId, '1.0.0') }));
+
+      const { rows: left } = await raw.query<any>('SELECT id, plugin_id, plugin_name, from_version, to_plugin_id FROM plugin_remediations ORDER BY created_at');
+      expect(left).toEqual([expect.objectContaining({ id: row.id, plugin_id: null, plugin_name: 'lint', from_version: '1.0.0' })]);
+      expect(left[0].to_plugin_id).not.toBeNull();
+      expect(left.map((r: { id: string }) => r.id)).not.toContain(unpublished!.id);
+
+      const list = await call('get', '/remediations');
+      expect(list.body.data.remediations).toEqual([expect.objectContaining({ id: row.id, pluginId: null, pluginName: 'lint', fromVersion: '1.0.0', hasPatch: true })]);
+      const one = await call('get', '/remediations/:id', { params: { id: row.id } });
+      expect(one.statusCode).toBe(200);
+      const patch = await call('get', '/remediations/:id/patch', { params: { id: row.id } });
+      expect(patch.statusCode).toBe(200);
+      expect(patch.body).toBe(objects.get((await getRemediation(row.id))!.patchKey!));
+
+      const retry = await call('post', '/remediations/:id/retry', { params: { id: row.id } });
+      expect(retry.statusCode).toBe(409);
+      expect(retry.body).toMatchObject({ code: 'REMEDIATION_STAGE_CONFLICT', details: { reason: 'source_version_purged' } });
+      expect((await raw.query('SELECT id FROM plugin_remediations')).rows).toHaveLength(1);
+    } finally {
+      setRemediationArtifactReaderForTests();
+      sources.putRemediationArtifact.mockImplementation(async () => undefined);
+      sources.deletePluginSourcePrefix.mockImplementation(async () => undefined);
+    }
+  });
+
+  it('the fleet posture keys versions only: a purged version\'s record is counted, never listed under a null id', async () => {
+    const { fleetRemediationPosture } = await import('../src/services/remediation/posture.js');
+    const kept = await queued(ORG, 'lint', '1.0.0');
+    const gone = await queued(ORG, 'fmt', '1.0.0');
+    await raw.query("UPDATE plugin_remediations SET stage = 'done', outcome = 'cleared', plugin_id = NULL WHERE id = $1", [gone.id]);
+    const p = await fleetRemediationPosture();
+    expect(p.byVersion).toEqual({ [kept.pluginId!]: 'queued' });
+    expect(p.stages).toMatchObject({ queued: 1, done: 1 });
+  });
+
+  it('a rollout report on a row whose from-version was purged deactivates nothing', async () => {
+    expect(await deactivateIfUnreferenced({ pluginId: null, orgId: ORG, pluginName: 'lint', fromVersion: '1.0.0' })).toBe(false);
+  });
+
+  it('approve of a row whose from-version was purged is refused 409, never a 500', async () => {
+    const row = await queued(ORG, 'lint', '1.0.0');
+    await raw.query("UPDATE plugin_remediations SET stage = 'awaiting_approval', plugin_id = NULL WHERE id = $1", [row.id]);
+    const res = await call('post', '/remediations/:id/approve', { params: { id: row.id } });
+    expect(res.statusCode).toBe(409);
+    expect(res.body).toMatchObject({ code: 'REMEDIATION_STAGE_CONFLICT', details: { reason: 'source_version_purged' } });
+    expect((await getRemediation(row.id))!.decidedAt).toBeNull();
   });
 });

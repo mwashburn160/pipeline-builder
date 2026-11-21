@@ -446,6 +446,12 @@ answers 500 and is audited as a failure: the change is NOT rolled back, so
 re-enter the affected secrets through their admin endpoints (and rerun the
 runner-key re-encrypt if the message names it).
 
+**One change at a time.** The `PUT`/`DELETE` saves the new config only if the
+config it read (keyId and wrapped ciphertext) is still the org's current one.
+When two changes to the same org overlap, the first one to save wins. The other
+gets 409 `CONFLICT` before it re-encrypts anything and writes nothing. Re-read
+the config (`GET`) and retry if you still want that change.
+
 **Every replica picks the change up without a restart.** Each platform and
 pipeline process caches the org's unwrapped master. A `PUT`/`DELETE` evicts it
 on the platform replica that served the request and broadcasts the eviction

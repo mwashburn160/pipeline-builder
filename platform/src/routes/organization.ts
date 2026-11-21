@@ -306,8 +306,10 @@ router.post('/:id/restore', requireAuth, requirePermission('org_settings:write')
 
 /** GET /organization/:id/export - GDPR portability dump (org_settings:write holder or sysadmin).
  *  Controller gates with `canManageOrgScope` (target-org scope); `requirePermission`
- *  is the capability gate (org_settings:write, in the admin/owner bundle). */
-router.get('/:id/export', requireAuth, requirePermission('org_settings:write'), exportOrganization);
+ *  is the capability gate (org_settings:write, in the admin/owner bundle). Step-up
+ *  gated: it is a bulk read of every row the org owns, which a stolen session must
+ *  not take without a fresh factor (the same rule as the caller's own GET /user/export). */
+router.get('/:id/export', requireAuth, requirePermission('org_settings:write'), requireStepUp, audited('admin.org.export'), exportOrganization);
 
 /** Billing is the ONE service that syncs and reads an account's seat /
  *  entitlement window; any other service token is refused, exactly as on the

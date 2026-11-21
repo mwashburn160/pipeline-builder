@@ -11,6 +11,7 @@ import { Callout } from '@/components/ui/Callout';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { RetryError } from '@/components/ui/RetryError';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { Textarea } from '@/components/ui/Textarea';
 import { useToast } from '@/components/ui/Toast';
 import { useFetch } from '@/hooks/useFetch';
 import { useMutation } from '@/hooks/useMutation';
@@ -56,6 +57,9 @@ export function PatchDiffView({ patch }: { patch: string }) {
 
 type PendingAction = 'approve' | 'reject' | 'retry' | null;
 
+/** The reject route's `reason` cap (api-core `PluginRemediationDecisionSchema`). */
+export const REJECT_REASON_MAX = 1000;
+
 /** The decision and retry routes answer 503 while the operator has remediation turned off (PLUGIN_REMEDIATION_ENABLED=false). */
 export const isRemediationOperatorOff = (err: unknown): boolean => err instanceof ApiError && err.statusCode === 503;
 
@@ -65,7 +69,10 @@ export const isRemediationModeOff = (err: unknown): boolean => err instanceof Ap
 /**
  * One remediation: its stage, the fix version once published, the findings it
  * cleared and the ones it left (each with why), the patch diff, and — in
- * propose mode — Approve and publish / Reject, each behind a step-up.
+ * propose mode — Approve and publish / Reject, each behind a step-up. Approve,
+ * Reject and Retry share ONE busy state: while any of them runs, all three are
+ * disabled (the server would only answer the second with a 409). Reject takes
+ * an optional reason, sent to the route and kept on its audit row.
  */
 export function RemediationCard({ remediation, canWrite, isSystemOrg = false, onChanged, onOpenPlugin }: {
   remediation: PluginRemediationDto;
@@ -81,6 +88,9 @@ export function RemediationCard({ remediation, canWrite, isSystemOrg = false, on
   const r = remediation;
   const toast = useToast();
   const [pending, setPending] = useState<PendingAction>(null);
+  // The decision or retry in flight (one at a time across all three buttons).
+  const [busy, setBusy] = useState<Exclude<PendingAction, null> | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
   const [showPatch, setShowPatch] = useState(false);
   // Set when a decision or retry answered 503: the card then says so with the shared notice instead of an error toast.
   const [operatorOff, setOperatorOff] = useState(false);
@@ -89,10 +99,12 @@ export function RemediationCard({ remediation, canWrite, isSystemOrg = false, on
   const patchQ = useFetch(async () => api.getPluginRemediationPatch(r.id), [r.id], { enabled: showPatch && r.hasPatch });
 
   const decide = async (action: 'approve' | 'reject', token: string) => {
+    setBusy(action);
+    const reason = rejectReason.trim().slice(0, REJECT_REASON_MAX);
     try {
       const res = action === 'approve'
         ? await api.approvePluginRemediation(r.id, {}, token)
-        : await api.rejectPluginRemediation(r.id, {}, token);
+        : await api.rejectPluginRemediation(r.id, reason ? { reason } : {}, token);
       toast.success(action === 'approve' ? `Fix${r.toVersion ? ` ${r.toVersion}` : ''} approved and publishing` : 'Fix rejected');
       setPending(null);
       onChanged?.(res.data ?? null);
@@ -101,6 +113,8 @@ export function RemediationCard({ remediation, canWrite, isSystemOrg = false, on
       else if (isRemediationModeOff(err)) setModeOff(true);
       else toast.error(formatError(err, action === 'approve' ? 'Could not approve the fix' : 'Could not reject the fix'));
       setPending(null);
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -117,6 +131,16 @@ export function RemediationCard({ remediation, canWrite, isSystemOrg = false, on
     },
   });
 
+  const runRetry = async (token: string) => {
+    setBusy('retry');
+    try {
+      await retryM.run(token);
+    } finally {
+      setBusy(null);
+    }
+  };
+  const anyBusy = busy !== null || retryM.pending;
+
   const exportM = useMutation({
     fn: async () => {
       const { blob, filename } = await api.downloadPluginRemediationExport(r.id);
@@ -131,6 +155,9 @@ export function RemediationCard({ remediation, canWrite, isSystemOrg = false, on
   // The approve route records the decision and leaves the stage at awaiting_approval while the job rebuilds and
   // publishes; a second Approve or Reject would only answer 409.
   const awaitingDecision = r.stage === 'awaiting_approval' && !r.decidedAt;
+  // The version it fixed was purged: the record (and its patch) stays, but there is nothing left to rebuild,
+  // so the server refuses approve and retry (409).
+  const sourcePurged = r.pluginId === null;
   const counts = r.rollout?.counts;
   const wavePipelines = [...new Set((r.rollout?.waves ?? []).flatMap((w) => w.pipelineIds))];
   return (
@@ -236,6 +263,12 @@ export function RemediationCard({ remediation, canWrite, isSystemOrg = false, on
         </Callout>
       )}
 
+      {sourcePurged && (
+        <p className="text-fg-muted" data-testid="remediation-source-purged">
+          {r.pluginName} {r.fromVersion} was purged. This record of its fix stays, but it can no longer be approved or retried.
+        </p>
+      )}
+
       {r.error && <p className="text-danger-strong" data-testid="remediation-error">Error: <span className="font-mono">{r.error}</span></p>}
 
       <div className="flex flex-wrap gap-2">
@@ -251,16 +284,18 @@ export function RemediationCard({ remediation, canWrite, isSystemOrg = false, on
         )}
         {canWrite && awaitingDecision && (
           <>
-            <Button variant="success" size="xs" onClick={() => setPending('approve')}>
-              <Check className="mr-1 h-3.5 w-3.5" aria-hidden />Approve and publish
-            </Button>
-            <Button variant="danger-outline" size="xs" onClick={() => setPending('reject')}>
+            {!sourcePurged && (
+              <Button variant="success" size="xs" onClick={() => setPending('approve')} disabled={anyBusy} loading={busy === 'approve'}>
+                <Check className="mr-1 h-3.5 w-3.5" aria-hidden />Approve and publish
+              </Button>
+            )}
+            <Button variant="danger-outline" size="xs" onClick={() => { setRejectReason(''); setPending('reject'); }} disabled={anyBusy} loading={busy === 'reject'}>
               <X className="mr-1 h-3.5 w-3.5" aria-hidden />Reject
             </Button>
           </>
         )}
-        {canWrite && RETRYABLE.has(r.stage) && (
-          <Button variant="outline" size="xs" onClick={() => setPending('retry')} loading={retryM.pending}>
+        {canWrite && !sourcePurged && RETRYABLE.has(r.stage) && (
+          <Button variant="outline" size="xs" onClick={() => setPending('retry')} disabled={anyBusy} loading={busy === 'retry' || retryM.pending}>
             <RotateCcw className="mr-1 h-3.5 w-3.5" aria-hidden />Retry remediation
           </Button>
         )}
@@ -280,8 +315,22 @@ export function RemediationCard({ remediation, canWrite, isSystemOrg = false, on
             : pending === 'reject'
               ? `Reject the fix for ${r.pluginName} ${r.fromVersion}; the version stays flagged`
               : `Start a new remediation attempt for ${r.pluginName} ${r.fromVersion} (counts toward today's limit)`}
+          details={pending === 'reject' ? (
+            <div className="space-y-1">
+              <label htmlFor={`remediation-reject-reason-${r.id}`} className="block text-fg">Reason (optional)</label>
+              <Textarea
+                id={`remediation-reject-reason-${r.id}`}
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                maxLength={REJECT_REASON_MAX}
+                rows={3}
+                placeholder="Why this fix should not be published — kept with the decision and its audit record"
+                data-testid="remediation-reject-reason"
+              />
+            </div>
+          ) : undefined}
           onConfirmed={(token) => {
-            if (pending === 'retry') { setPending(null); void retryM.run(token); } else {void decide(pending, token);}
+            if (pending === 'retry') { setPending(null); void runRetry(token); } else { void decide(pending, token); }
           }}
           onClose={() => setPending(null)}
         />

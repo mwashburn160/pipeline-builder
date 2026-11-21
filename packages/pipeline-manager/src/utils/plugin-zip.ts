@@ -6,9 +6,10 @@
  * directory IS the zip root). A small, dependency-free ZIP writer: DEFLATE
  * entries, regular files only — symlinks and anything outside the directory
  * are refused, which the server would refuse anyway. So are credential files
- * (`.env`, SSH keys, `.aws/credentials`, a private-key `.pem`, a token-bearing
- * `.npmrc`, … — api-core's `SECRET_FILE_KINDS`, the catalog the upload refuses
- * by; content-decided kinds are judged on the local file's leading bytes):
+ * (`.env`, SSH keys, `.aws/credentials`, a private key under any name, a
+ * token-bearing `.npmrc` / `pip.conf` / Cargo credentials, … — api-core's
+ * `SECRET_FILE_KINDS`, the catalog the upload refuses by; content-decided kinds
+ * are judged on the local file's leading bytes):
  * refused here, before anything is uploaded, so the secret never leaves this
  * machine.
  */

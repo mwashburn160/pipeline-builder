@@ -60,4 +60,10 @@ describe('organizationsApi', () => {
     await expect(organizationsApi(core).exportOrganization('org-1')).resolves.toBe('{"org":1}');
     expect(calls[0]).toMatchObject({ path: '/api/organization/org-1/export', init: { timeoutMs: null } });
   });
+
+  it('the export replays a step-up token in its header', async () => {
+    const { core, calls } = fakeCore();
+    await organizationsApi(core).exportOrganization('org-1', 'tok');
+    expect(calls[0]).toMatchObject({ path: '/api/organization/org-1/export', init: { headers: { 'X-Step-Up-Token': 'tok' } } });
+  });
 });

@@ -141,6 +141,14 @@ describe('plugin zip', () => {
     ['sa.json', '{"type":"service_account","private_key":"-----BEGIN PRIVATE KEY-----"}', 'cloud service-account key'],
     ['.npmrc', '//registry.npmjs.org/:_authToken=npm_abc', 'npm auth token (.npmrc)'],
     ['.yarnrc.yml', 'npmAuthToken: npm_abc', 'npm auth token (.yarnrc.yml)'],
+    ['.m2/settings.xml', '<settings><servers><server><password>s3cret</password></server></servers></settings>', 'Maven settings.xml with a password'],
+    ['pip.conf', '[global]\npassword = s3cret\n', 'pip configuration with credentials'],
+    ['.gem/credentials', ':rubygems_api_key: abc\n', 'RubyGems credentials file'],
+    ['.cargo/credentials', '[registry]\ntoken = "abc"\n', 'Cargo registry credentials'],
+    ['.config/gh/hosts.yml', 'github.com:\n  oauth_token: gho_abc\n', 'GitHub CLI token (gh hosts.yml)'],
+    ['deploy/key', '-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAu1SU1LfVLPHCozMxH2Mo4lgOEePzNm0t\n-----END RSA PRIVATE KEY-----\n', 'private key'],
+    ['keys/me.ppk', 'PuTTY-User-Key-File-3: ssh-ed25519\n', 'PuTTY private key'],
+    ['AuthKey_X.p8', 'k', 'PKCS#8 private key'],
   ])('refuses to pack %s, reading the local file where the name cannot decide', (rel, content, label) => {
     const dir = plugin();
     fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
@@ -157,8 +165,11 @@ describe('plugin zip', () => {
     fs.writeFileSync(path.join(dir, 'package.json'), '{"name":"x"}');
     fs.writeFileSync(path.join(dir, '.npmrc'), '//registry.npmjs.org/:_authToken=${NPM_TOKEN}\nregistry=https://r\n');
     fs.writeFileSync(path.join(dir, '.yarnrc.yml'), 'nodeLinker: node-modules\n');
+    fs.writeFileSync(path.join(dir, 'settings.xml'), '<settings><servers><server><password>${env.MVN_PW}</password></server></servers></settings>');
+    fs.writeFileSync(path.join(dir, 'pip.conf'), '[global]\nindex-url = https://pypi.org/simple\n');
+    fs.writeFileSync(path.join(dir, 'README.md'), 'Keys begin -----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----\n');
     const names = collectPluginFiles(dir, { includeImageTar: false }).map(e => e.name);
-    expect(names).toEqual(expect.arrayContaining(['certs/ca.pem', 'docker.key', 'package.json', '.npmrc', '.yarnrc.yml']));
+    expect(names).toEqual(expect.arrayContaining(['certs/ca.pem', 'docker.key', 'package.json', '.npmrc', '.yarnrc.yml', 'settings.xml', 'pip.conf', 'README.md']));
   });
 
   it('packs dotenv templates and public keys', () => {

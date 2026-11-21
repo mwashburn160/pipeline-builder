@@ -555,7 +555,7 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | platform | PATCH | `/organization/:id/domains/:domainId` | `any(org_settings:write)` |
 | platform | PATCH | `/organization/:id/domains/:domainId/team-sharing` | `any(org_settings:write) + step-up(any)` |
 | platform | POST | `/organization/:id/domains/:domainId/verify` | `any(org_settings:write)` |
-| platform | GET | `/organization/:id/export` | `any(org_settings:write)` |
+| platform | GET | `/organization/:id/export` | `any(org_settings:write) + step-up(any)` |
 | platform | PATCH | `/organization/:id/identity` | `any(org_settings:write)` |
 | platform | DELETE | `/organization/:id/idp` | `any(org_idp:write) + aal2 + step-up(totp,webauthn)` |
 | platform | GET | `/organization/:id/idp` | `any(org_idp:write)` |
@@ -643,6 +643,7 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | plugin | GET | `/plugins/toolchain-fixes/:id/export` | `system-org + any(plugins:write)` |
 | plugin | GET | `/plugins/by-name/:name/delete-preview` | `any(plugins:write)` |
 | plugin | DELETE | `/plugins/by-name/:name` | `any(plugins:write) + step-up(any)` |
+| plugin | GET | `/plugins/by-name/:name/delete-jobs/:jobId` | `any(plugins:read)` |
 | plugin | POST | `/plugins/by-name/:name/restore` | `any(plugins:write) + step-up(any)` |
 | plugin | POST | `/plugins/by-name/:name/purge` | `any(plugins:write) + step-up(any)` |
 | plugin | GET | `/plugins` | `any(plugins:read)` |

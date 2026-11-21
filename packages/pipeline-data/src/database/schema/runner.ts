@@ -6,7 +6,8 @@ import type {
   RunnerPublicJwk, RunnerStatus, RunRequestAction, RunRequestStatus,
 } from '@pipeline-builder/api-core/pipeline-runners';
 import { sql } from 'drizzle-orm';
-import { bigint, boolean, check, index, integer, jsonb, pgSequence, pgTable, text, timestamp, uniqueIndex, uuid, varchar } from 'drizzle-orm/pg-core';
+import { bigint, boolean, check, index, integer, pgSequence, pgTable, text, timestamp, uniqueIndex, uuid, varchar } from 'drizzle-orm/pg-core';
+import { jsonb } from './jsonb.js';
 
 // The runner vocabulary is api-core's (the contract the service, the runner
 // Lambda, the CLI and the dashboard share); re-exported for the schema's callers.

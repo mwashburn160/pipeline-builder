@@ -77,15 +77,24 @@ export function TeamsCard({
   const [pendingDelete, setPendingDelete] = useState<OrgTeamRef | null>(null);
   const [pendingRestore, setPendingRestore] = useState<DeletedTeam | null>(null);
   const [exporting, setExporting] = useState<string | null>(null);
+  // The export is step-up gated server-side (a bulk read of every row the team
+  // owns), so the menu item opens the step-up dialog and the download replays it.
+  const [pendingExport, setPendingExport] = useState<OrgTeamRef | null>(null);
 
-  const exportTeam = async (team: OrgTeamRef) => {
+  const exportTeam = async (stepUpToken: string) => {
+    const team = pendingExport;
+    setPendingExport(null);
+    if (!team) return;
+    const save = (json: string) => {
+      triggerBlobDownload(new Blob([json], { type: 'application/json' }), `team-${team.orgName}-export.json`);
+      toast.success(`Exported ${team.orgName}`);
+    };
     setExporting(team.orgId);
     try {
       // Raw JSON body (not an ApiResponse envelope), saved like the org export.
-      const json = await api.exportOrganization(team.orgId);
-      triggerBlobDownload(new Blob([json], { type: 'application/json' }), `team-${team.orgName}-export.json`);
-      toast.success(`Exported ${team.orgName}`);
+      save(await api.exportOrganization(team.orgId, stepUpToken));
     } catch (e) {
+      if (continueAfterStepUp<string>(e, save)) return;
       toast.error(formatError(e, `Failed to export ${team.orgName}`));
     } finally {
       setExporting(null);
@@ -190,7 +199,7 @@ export function TeamsCard({
                   <TeamRowMenu
                     team={t}
                     exporting={exporting === t.orgId}
-                    onExport={() => void exportTeam(t)}
+                    onExport={() => setPendingExport(t)}
                     onDelete={() => setPendingDelete(t)}
                   />
                 )}
@@ -259,6 +268,15 @@ export function TeamsCard({
           )}
           onConfirmed={executeDelete}
           onClose={() => setPendingDelete(null)}
+        />
+      )}
+      {pendingExport && (
+        <StepUpModal
+          title={`Export ${pendingExport.orgName}?`}
+          action={`Export all data for team ${pendingExport.orgName}`}
+          details={<p>The file holds the team&apos;s members, settings, pipelines and audit events. Store it somewhere safe.</p>}
+          onConfirmed={exportTeam}
+          onClose={() => setPendingExport(null)}
         />
       )}
       {pendingRestore && (

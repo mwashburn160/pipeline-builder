@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { History, RotateCcw, Trash2 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -51,9 +51,51 @@ type Resource =
  * (once its backend grows a list-deleted route) is a single entry here plus a
  * widening of the `Resource` union — no branching in the component body.
  */
+/** One page request. Ignored by an unpaged loader (its route returns every tombstone). */
+interface PageRequest { limit: number; offset: number }
+
+/** One loaded page. `hasMore` is the "ask for the next page" signal. */
+interface DeletedPage { rows: DeletedRow[]; hasMore: boolean }
+
+/**
+ * Rows per page. The paged list-deleted routes (`parsePaginationParams`:
+ * `?limit=&offset=`, default 10) report no total, so the panel asks for a page
+ * explicitly and treats a FULL page as "there may be more".
+ */
+const DELETED_PAGE_SIZE = 25;
+
+/** Wrap a paged list-deleted call (limit/offset contract) into a page loader. */
+function paged<T>(
+  call: (params: Record<string, string>) => Promise<{ success: boolean; data?: T }>,
+  pick: (data: T) => DeletedRow[],
+  failure: string,
+): (page: PageRequest) => Promise<DeletedPage> {
+  return async ({ limit, offset }) => {
+    const res = await call({ limit: String(limit), offset: String(offset) });
+    if (!res.success || !res.data) throw new Error(failure);
+    const rows = pick(res.data);
+    return { rows, hasMore: rows.length >= limit };
+  };
+}
+
+/** Wrap an UNPAGED list-deleted call (the ops-center routes return every
+ *  tombstone in one read) — never offers a next page. */
+function unpaged<T>(
+  call: () => Promise<{ success: boolean; data?: T }>,
+  pick: (data: T) => DeletedRow[],
+  failure: string,
+): (page: PageRequest) => Promise<DeletedPage> {
+  return async () => {
+    const res = await call();
+    if (!res.success || !res.data) throw new Error(failure);
+    return { rows: pick(res.data), hasMore: false };
+  };
+}
+
 interface ResourceConfig {
   labels: { singular: string; plural: string };
-  load: () => Promise<DeletedRow[]>;
+  /** Load one page of tombstones; throws on failure so the panel can surface it. */
+  load: (page: PageRequest) => Promise<DeletedPage>;
   restore: (id: string, stepUpToken?: string) => Promise<{ success: boolean }>;
   /** Permanently hard-delete a tombstone before the retention sweep would. Step-up
    *  gated like restore (irreversible destruction): the re-verified token is forwarded. */
@@ -106,91 +148,55 @@ function alertDestinationToRow(d: AlertDestination): DeletedRow {
 const RESOURCES: Record<Resource, ResourceConfig> = {
   pipeline: {
     labels: { singular: 'pipeline', plural: 'pipelines' },
-    load: async () => {
-      const res = await api.listDeletedPipelines();
-      if (res.success && res.data) return res.data.pipelines.map(pipelineToRow);
-      throw new Error('Failed to load deleted pipelines');
-    },
+    load: paged((params) => api.listDeletedPipelines(params), (d) => d.pipelines.map(pipelineToRow), 'Failed to load deleted pipelines'),
     restore: (id, stepUpToken) => api.restorePipeline(id, stepUpToken),
     purge: (id, stepUpToken) => api.purgePipeline(id, stepUpToken),
   },
   plugin: {
     labels: { singular: 'plugin', plural: 'plugins' },
-    load: async () => {
-      const res = await api.listDeletedPlugins();
-      if (res.success && res.data) return res.data.plugins.map(pluginToRow);
-      throw new Error('Failed to load deleted plugins');
-    },
+    load: paged((params) => api.listDeletedPlugins(params), (d) => d.plugins.map(pluginToRow), 'Failed to load deleted plugins'),
     restore: (id, stepUpToken) => api.restorePlugin(id, stepUpToken),
     purge: (id, stepUpToken) => api.purgePlugin(id, stepUpToken),
   },
   template: {
     labels: { singular: 'template', plural: 'templates' },
-    load: async () => {
-      const res = await api.listDeletedTemplates();
-      if (res.success && res.data) return res.data.templates.map(templateToRow);
-      throw new Error('Failed to load deleted templates');
-    },
+    load: paged((params) => api.listDeletedTemplates(params), (d) => d.templates.map(templateToRow), 'Failed to load deleted templates'),
     restore: (id, stepUpToken) => api.restorePipelineTemplate(id, stepUpToken),
     purge: (id, stepUpToken) => api.purgePipelineTemplate(id, stepUpToken),
   },
   message: {
     labels: { singular: 'message', plural: 'messages' },
-    load: async () => {
-      const res = await api.listDeletedMessages();
-      if (res.success && res.data) return res.data.messages.map(messageToRow);
-      throw new Error('Failed to load deleted messages');
-    },
+    load: paged((params) => api.listDeletedMessages(params), (d) => d.messages.map(messageToRow), 'Failed to load deleted messages'),
     restore: (id, stepUpToken) => api.restoreMessage(id, stepUpToken),
     purge: (id, stepUpToken) => api.purgeMessage(id, stepUpToken),
   },
   'compliance-rule': {
     labels: { singular: 'rule', plural: 'rules' },
-    load: async () => {
-      const res = await api.listDeletedComplianceRules();
-      if (res.success && res.data) return res.data.rules.map(ruleToRow);
-      throw new Error('Failed to load deleted rules');
-    },
+    load: paged((params) => api.listDeletedComplianceRules(params), (d) => d.rules.map(ruleToRow), 'Failed to load deleted rules'),
     restore: (id, stepUpToken) => api.restoreComplianceRule(id, stepUpToken),
     purge: (id, stepUpToken) => api.purgeComplianceRule(id, stepUpToken),
   },
   'compliance-policy': {
     labels: { singular: 'policy', plural: 'policies' },
-    load: async () => {
-      const res = await api.listDeletedCompliancePolicies();
-      if (res.success && res.data) return res.data.policies.map(policyToRow);
-      throw new Error('Failed to load deleted policies');
-    },
+    load: paged((params) => api.listDeletedCompliancePolicies(params), (d) => d.policies.map(policyToRow), 'Failed to load deleted policies'),
     restore: (id, stepUpToken) => api.restoreCompliancePolicy(id, stepUpToken),
     purge: (id, stepUpToken) => api.purgeCompliancePolicy(id, stepUpToken),
   },
   dashboard: {
     labels: { singular: 'dashboard', plural: 'dashboards' },
-    load: async () => {
-      const res = await api.listDeletedDashboards();
-      if (res.success && res.data) return res.data.dashboards.map(dashboardToRow);
-      throw new Error('Failed to load deleted dashboards');
-    },
+    load: unpaged(() => api.listDeletedDashboards(), (d) => d.dashboards.map(dashboardToRow), 'Failed to load deleted dashboards'),
     restore: (id, stepUpToken) => api.restoreDashboard(id, stepUpToken),
     purge: (id, stepUpToken) => api.purgeDashboard(id, stepUpToken),
   },
   'alert-rule': {
     labels: { singular: 'alert rule', plural: 'alert rules' },
-    load: async () => {
-      const res = await api.listDeletedAlertRules();
-      if (res.success && res.data) return res.data.rules.map(alertRuleToRow);
-      throw new Error('Failed to load deleted alert rules');
-    },
+    load: unpaged(() => api.listDeletedAlertRules(), (d) => d.rules.map(alertRuleToRow), 'Failed to load deleted alert rules'),
     restore: (id, stepUpToken) => api.restoreAlertRule(id, stepUpToken),
     purge: (id, stepUpToken) => api.purgeAlertRule(id, stepUpToken),
   },
   'alert-destination': {
     labels: { singular: 'alert destination', plural: 'alert destinations' },
-    load: async () => {
-      const res = await api.listDeletedAlertDestinations();
-      if (res.success && res.data) return res.data.destinations.map(alertDestinationToRow);
-      throw new Error('Failed to load deleted alert destinations');
-    },
+    load: unpaged(() => api.listDeletedAlertDestinations(), (d) => d.destinations.map(alertDestinationToRow), 'Failed to load deleted alert destinations'),
     restore: (id, stepUpToken) => api.restoreAlertDestination(id, stepUpToken),
     purge: (id, stepUpToken) => api.purgeAlertDestination(id, stepUpToken),
   },
@@ -225,14 +231,68 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
   const [pendingPurge, setPendingPurge] = useState<DeletedRow | null>(null);
   const [purging, setPurging] = useState<string | null>(null);
 
-  // Registry-driven loader — each resource's `load` narrows its own response
-  // shape and throws on failure so useFetch surfaces it.
-  const loader = useCallback(() => config.load(), [config]);
-  const { data: rowsLoaded, loading, error: loadErrorFailure, refetch: load } = useFetch<DeletedRow[]>(() => loader(), [loader], {
-    onError: (err) => toast.error(formatError(err, `Failed to load deleted ${labels.plural}`)),
-  });
-  const rows = rowsLoaded ?? [];
+  // The loaded pages, appended in order. `nextOffset` is where the next page
+  // starts on the SERVER: it advances by a page per load and steps back by one
+  // for every loaded row this panel restores or purges (each one shifts every
+  // later tombstone down a slot), so "Load more" never skips a row.
+  const [rows, setRows] = useState<DeletedRow[]>([]);
+  const [nextOffset, setNextOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  // Bumped whenever the first page is re-read (resource change / retry), so a
+  // "Load more" answer for the previous list can't append into the new one.
+  const generation = useRef(0);
+
+  useEffect(() => {
+    generation.current += 1;
+    setRows([]);
+    setNextOffset(0);
+    setHasMore(false);
+    setLoadingMore(false);
+  }, [config]);
+
+  const { loading, error: loadErrorFailure, refetch: load } = useFetch<DeletedPage>(
+    () => config.load({ limit: DELETED_PAGE_SIZE, offset: 0 }),
+    [config],
+    {
+      onSuccess: (page) => {
+        generation.current += 1;
+        setRows(page.rows);
+        setNextOffset(DELETED_PAGE_SIZE);
+        setHasMore(page.hasMore);
+      },
+      onError: (err) => toast.error(formatError(err, `Failed to load deleted ${labels.plural}`)),
+    },
+  );
   const loadError = loadErrorFailure ? formatError(loadErrorFailure, `Failed to load deleted ${labels.plural}`) : null;
+
+  const loadMore = async () => {
+    const gen = generation.current;
+    setLoadingMore(true);
+    try {
+      const page = await config.load({ limit: DELETED_PAGE_SIZE, offset: nextOffset });
+      if (gen !== generation.current) return;
+      // De-dupe by id: a deletion made elsewhere since the last page shifts the
+      // server's offsets up, re-serving a row this panel already shows.
+      setRows((prev) => {
+        const seen = new Set(prev.map((r) => r.id));
+        return [...prev, ...page.rows.filter((r) => !seen.has(r.id))];
+      });
+      setNextOffset((o) => o + DELETED_PAGE_SIZE);
+      setHasMore(page.hasMore);
+    } catch (err) {
+      if (gen === generation.current) toast.error(formatError(err, `Failed to load more deleted ${labels.plural}`));
+    } finally {
+      if (gen === generation.current) setLoadingMore(false);
+    }
+  };
+
+  /** Drop a restored / purged row in place — re-reading page 1 would throw away
+   *  every page the user loaded to find it. */
+  const removeRow = (id: string) => {
+    setRows((prev) => prev.filter((r) => r.id !== id));
+    setNextOffset((o) => Math.max(0, o - 1));
+  };
 
   const executeRestore = async (stepUpToken: string) => {
     if (!pendingRestore) return;
@@ -242,7 +302,7 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
       const res = await config.restore(id, stepUpToken);
       if (res.success) {
         toast.success(`Restored ${labels.singular} "${name}"`);
-        void load();
+        removeRow(id);
         // Refresh the mounting page's main list — the restored entity reappears
         // there, so skipping this leaves it showing a stale list.
         onRestored?.();
@@ -259,7 +319,7 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
 
   // Purge = permanent hard-delete, step-up gated like restore (the re-verified
   // token is forwarded). Unlike restore it does NOT call onRestored — the item is
-  // gone, not returned to the main list; the panel's own `load()` refreshes the list.
+  // gone, not returned to the main list; the panel drops the row in place.
   const executePurge = async (stepUpToken: string) => {
     if (!pendingPurge) return;
     const { id, name } = pendingPurge;
@@ -268,7 +328,7 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
       const res = await config.purge(id, stepUpToken);
       if (res.success) {
         toast.success(`Permanently deleted ${labels.singular} "${name}"`);
-        void load();
+        removeRow(id);
       } else {
         toast.error(`Failed to purge ${labels.singular}`);
       }
@@ -374,6 +434,17 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
             getRowKey={(r) => r.id}
             emptyState={{ icon: History, title: `No recently deleted ${labels.plural}`, description: `Deleted ${labels.plural} still within the retention window appear here.` }}
           />
+          <div className="mt-3 flex items-center justify-between gap-2">
+            <p className="text-xs text-fg-subtle" role="status">
+              Showing {rows.length} deleted {rows.length === 1 ? labels.singular : labels.plural}
+              {hasMore ? ' — older deletions are on later pages' : ''}
+            </p>
+            {hasMore && (
+              <Button variant="secondary" size="xs" onClick={() => void loadMore()} disabled={loadingMore}>
+                {loadingMore ? 'Loading…' : 'Load more'}
+              </Button>
+            )}
+          </div>
         </div>
       )}
     </Card>

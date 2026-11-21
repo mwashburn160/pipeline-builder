@@ -1273,7 +1273,7 @@ if (frontend.jest) {
     // ../utils/semver.js.
     '^\\.\\./(middleware/system-org|utils/env)\\.js$': '<rootDir>/../packages/api-core/src/$1.ts',
     // ./toolchain-remediation.js (the nightly toolchain fixes' wire shapes) rides it too.
-    '^\\./(plugin-remediation|toolchain-remediation)\\.js$': '<rootDir>/../packages/api-core/src/types/$1.ts',
+    '^\\./(plugin-remediation|toolchain-remediation|package-version-order)\\.js$': '<rootDir>/../packages/api-core/src/types/$1.ts',
     '^\\.\\./utils/semver\\.js$': '<rootDir>/../packages/api-core/src/utils/semver.ts',
     '^@pipeline-builder/pipeline-core/template$': '<rootDir>/../packages/pipeline-core/src/template/tokenizer.ts',
   };

@@ -22,12 +22,32 @@ const OUT_DIR = mkdtempSync(join(os.tmpdir(), 'pm-org-export-out-'));
 const ORG = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
 
 let server: Server;
+let exportHeaders: Record<string, string | string[] | undefined> = {};
 beforeAll(async () => {
   server = createServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(req.url === `/api/organization/${ORG}/export`
-      ? { exportedAt: '2026-01-01T00:00:00.000Z', postgres: { pipelines: [] } }
-      : {}));
+    const send = (status: number, body: unknown): void => {
+      res.writeHead(status, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(body));
+    };
+    req.resume();
+    req.on('end', () => {
+      if (req.url === '/api/auth/device/code') {
+        return send(200, { device_code: 'dc', user_code: 'ABCD-EFGH', verification_uri: 'http://x/verify', expires_in: 30, interval: 1 });
+      }
+      if (req.url === '/api/auth/device/token') {
+        return send(200, { access_token: 'at', token_type: 'Bearer', expires_in: 900, step_up_token: 'su' });
+      }
+      if (req.url === `/api/organization/${ORG}/export`) {
+        exportHeaders = req.headers;
+        // The export is step-up gated: the token the device approval minted,
+        // spent by the SAME user's session.
+        if (req.headers['x-step-up-token'] !== 'su' || req.headers.authorization !== 'Bearer at') {
+          return send(403, { success: false, code: 'STEP_UP_REQUIRED', message: 'Step-up required' });
+        }
+        return send(200, { exportedAt: '2026-01-01T00:00:00.000Z', postgres: { pipelines: [] } });
+      }
+      return send(404, {});
+    });
   });
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   process.env.PLATFORM_BASE_URL = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -51,7 +71,7 @@ async function run(output: string): Promise<void> {
   const program = new Command();
   program.exitOverride();
   orgExport(program.command('org'));
-  await program.parseAsync(['node', 'pm', 'org', 'export', '--id', ORG, '--output', output]);
+  await program.parseAsync(['node', 'pm', 'org', 'export', '--id', ORG, '--output', output, '--no-browser']);
 }
 
 describe('org export', () => {
@@ -66,5 +86,12 @@ describe('org export', () => {
     writeFileSync(out, 'stale', { mode: 0o644 });
     await run(out);
     expect((statSync(out).mode % 0o1000).toString(8)).toBe('600');
+  });
+
+  it('sends the device approval\'s step-up token with that session\'s bearer', async () => {
+    const out = join(OUT_DIR, 'stepup.json');
+    await run(out);
+    expect(exportHeaders['x-step-up-token']).toBe('su');
+    expect(exportHeaders.authorization).toBe('Bearer at');
   });
 });

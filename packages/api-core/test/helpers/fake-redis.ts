@@ -63,6 +63,16 @@ export function makeFakeRedis() {
         strings.set(key, { value: String(n), expiresAt: e && n !== 1 ? e.expiresAt : Date.now() + Number(windowMs) });
         return n;
       }
+      if (script.includes('KEEPTTL')) {
+        // ai-draft-store REDEEM_DRAFT_SCRIPT.
+        const [key, feature] = args.map(String);
+        const e = liveString(key);
+        if (!e) return 'invalid';
+        if (e.value === `${feature}:spent`) return 'used';
+        if (e.value !== feature) return 'invalid';
+        e.value = `${feature}:spent`;
+        return 'ok';
+      }
       throw new Error('fake-redis: unknown script');
     },
     async getdel(key: string): Promise<string | null> {

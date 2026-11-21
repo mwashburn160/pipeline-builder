@@ -29,7 +29,7 @@ jest.mock('@/lib/api', () => ({
   },
 }));
 
-type Ev = { type: string; data?: unknown; message?: string };
+type Ev = { type: string; data?: unknown; message?: string; draftId?: string };
 async function* gen(events: Ev[]) {
   for (const e of events) yield e;
 }
@@ -96,6 +96,14 @@ describe('streamAgentDraft', () => {
       { type: 'tool-call', data: { toolName: 'propose_pipeline' } },
       { type: 'done', data: { props: { project: 'app' }, description: 'd', keywords: ['node'] } },
     ]);
+  });
+
+  it('carries the proposal\'s draft id into done, so the tab reports its outcome under it', async () => {
+    askAgentStream.mockReturnValue(gen([
+      { type: 'proposal', data: { kind: 'plugin', config: { name: 'x' }, dockerfile: 'FROM node' }, draftId: 'z'.repeat(32) } as Ev,
+    ]));
+    const events = await collect(streamAgentDraft('plugin', 'a build plugin', 'anthropic|claude'));
+    expect(events).toEqual([{ type: 'done', data: { config: { name: 'x' }, dockerfile: 'FROM node', draftId: 'z'.repeat(32) } }]);
   });
 
   it('emits the repo analysis as analyzed before done, and forwards the repo token', async () => {

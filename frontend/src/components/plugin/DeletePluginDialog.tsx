@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
@@ -13,7 +13,8 @@ import api from '@/lib/api';
 import { ApiError } from '@/lib/api/errors';
 import { formatError } from '@/lib/constants';
 import { formatBytes } from '@/lib/format';
-import type { PluginBatchActionResult, PluginDeleteAllResult, PluginDeletePreview } from '@/types/plugin-remediation';
+import type { PluginDeleteJobAccepted, PluginDeleteJobStatus } from '@pipeline-builder/api-core/plugin-scan';
+import type { PluginBatchActionResult, PluginDeletePreview } from '@/types/plugin-remediation';
 import { PluginDeleteSkipList } from './PluginInUseModal';
 
 /**
@@ -36,6 +37,11 @@ export function pluginByNameError(err: unknown, fallback: string): string {
   return formatError(err, fallback);
 }
 
+/** How often the dialog asks for the delete job's status. */
+export const DELETE_JOB_POLL_MS = 2_000;
+/** Consecutive failed status reads before the dialog stops and says so. */
+const DELETE_JOB_POLL_MAX_FAILURES = 5;
+
 function sumBytes(rows: ReadonlyArray<{ sourceBytes: number | null }>): number {
   return rows.reduce((n, r) => n + (r.sourceBytes ?? 0), 0);
 }
@@ -44,7 +50,9 @@ function sumBytes(rows: ReadonlyArray<{ sourceBytes: number | null }>): number {
  * "Delete plugin (all versions)". Loads the server's delete PREVIEW first — the
  * same answer scripts get — and shows how many versions will be deleted, which
  * are skipped and why, and what in-flight builds and remediations the delete
- * cancels. Confirms with step-up. Listed names get the ecosystem request offer
+ * cancels. Confirms with step-up. The server answers 202 with a job id; the
+ * dialog polls the job until it finishes and then shows what was deleted and
+ * skipped. Listed names get the ecosystem request offer
  * (the delete never changes the listing); a name inherited from the root org
  * has nothing here to delete.
  */
@@ -52,7 +60,7 @@ export function DeletePluginDialog({ name, onClose, onDeleted }: {
   name: string;
   onClose: () => void;
   /** After a delete that removed at least one version (refresh the list). */
-  onDeleted?: (result: PluginDeleteAllResult) => void;
+  onDeleted?: (result: PluginDeleteJobStatus) => void;
 }) {
   const { data: preview, loading, error: loadError, refetch } = useFetch<PluginDeletePreview>(async () => {
     const res = await api.getPluginDeletePreview(name);
@@ -62,20 +70,64 @@ export function DeletePluginDialog({ name, onClose, onDeleted }: {
   const [force, setForce] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<PluginDeleteAllResult | null>(null);
+  const [job, setJob] = useState<PluginDeleteJobAccepted | null>(null);
+  const [result, setResult] = useState<PluginDeleteJobStatus | null>(null);
 
   const listedSkips = preview?.skipped.filter((s) => s.reason === 'listed') ?? [];
   const deleteCount = (preview?.deletable.length ?? 0) + (force ? listedSkips.length : 0);
   const shownSkips = preview ? preview.skipped.filter((s) => !(force && s.reason === 'listed')) : [];
 
+  // The latest callback, without restarting the poll when the parent re-renders.
+  const onDeletedRef = useRef(onDeleted);
+  onDeletedRef.current = onDeleted;
+
+  // Poll the accepted job until it settles.
+  useEffect(() => {
+    if (!job) return undefined;
+    let stopped = false;
+    let failures = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const controller = new AbortController();
+    const poll = async () => {
+      try {
+        const res = await api.getPluginDeleteJob(name, job.jobId, { signal: controller.signal });
+        if (stopped) return;
+        failures = 0;
+        const status = res.data;
+        if (status && status.state !== 'running') {
+          setJob(null);
+          if (status.state === 'failed') {
+            setError(`The delete did not finish: ${status.error?.message ?? 'unknown error'}`);
+            return;
+          }
+          setResult(status);
+          if (status.deleted.length > 0) onDeletedRef.current?.(status);
+          return;
+        }
+      } catch (err) {
+        if (stopped) return;
+        failures += 1;
+        if ((err instanceof ApiError && err.statusCode === 404) || failures >= DELETE_JOB_POLL_MAX_FAILURES) {
+          setJob(null);
+          setError(pluginByNameError(err, 'Could not read the delete\'s progress; check Recently deleted'));
+          return;
+        }
+      }
+      timer = setTimeout(() => void poll(), DELETE_JOB_POLL_MS);
+    };
+    void poll();
+    return () => {
+      stopped = true;
+      controller.abort();
+      if (timer) clearTimeout(timer);
+    };
+  }, [job, name]);
+
   const execute = async (stepUpToken: string) => {
     setError(null);
     try {
       const res = await api.deletePluginByName(name, { force, stepUpToken });
-      if (res.data) {
-        setResult(res.data);
-        if (res.data.deleted.length > 0) onDeleted?.(res.data);
-      }
+      if (res.data) setJob(res.data);
     } catch (err) {
       setError(pluginByNameError(err, 'Failed to delete the plugin'));
     } finally {
@@ -89,7 +141,7 @@ export function DeletePluginDialog({ name, onClose, onDeleted }: {
     <div className="flex justify-end gap-2">
       <Button variant="secondary" onClick={onClose}>Cancel</Button>
       {preview && !preview.inheritedFromRoot && (
-        <Button variant="danger" disabled={deleteCount === 0} onClick={() => setConfirming(true)}>
+        <Button variant="danger" disabled={deleteCount === 0 || job !== null} onClick={() => setConfirming(true)}>
           Delete {deleteCount} version{deleteCount === 1 ? '' : 's'}
         </Button>
       )}
@@ -115,6 +167,11 @@ export function DeletePluginDialog({ name, onClose, onDeleted }: {
                 </>
               )}
             </div>
+          ) : job ? (
+            <p role="status" className="text-fg" data-testid="delete-plugin-running">
+              Deleting {name}… In-flight builds and remediations are cancelled first and running builds are allowed to finish,
+              which can take a few minutes. You can close this dialog; the delete carries on and its versions appear in Recently deleted.
+            </p>
           ) : loading && !preview ? (
             <p role="status" className="text-fg-subtle">Checking what would be deleted…</p>
           ) : loadError && !preview ? (

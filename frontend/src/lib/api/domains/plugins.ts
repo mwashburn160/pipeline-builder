@@ -11,6 +11,7 @@ import type {
 } from '@/types';
 import type { LookupWarning, VulnSeverity } from '@/lib/plugin-vulns';
 import type { BuildClass, BuildSize } from '@pipeline-builder/api-core/build-catalog';
+import type { PluginDeleteJobAccepted, PluginDeleteJobStatus } from '@pipeline-builder/api-core/plugin-scan';
 import type {
   ExposureTriageBody, KeptSetupImageView, PipelineExposureView, PipelineSecurity, PromotionResult,
 } from '../pipeline-security-types';
@@ -21,7 +22,7 @@ import type {
   PluginSecurityNotificationPrefs, PluginSecurityNotificationPrefsWrite, PluginSecurityTestResult,
 } from '@/types/plugin-security-notifications';
 import type {
-  LibraryUpgradeLevel, PluginBatchActionResult, PluginDeleteAllResult, PluginDeletePreview, PluginRemediationDto,
+  LibraryUpgradeLevel, PluginBatchActionResult, PluginDeletePreview, PluginRemediationDto,
   PluginRemediationList, PluginRemediationListQuery, PluginRemediationSettings, PluginRemediationSettingsView, PluginRemediationSettingsWrite,
 } from '@/types/plugin-remediation';
 
@@ -653,13 +654,21 @@ export function pluginsApi(core: ApiCore) {
     /**
      * Soft-delete every eligible version of `name` (one batch). `force` also
      * deletes listed source versions. `plugins:write` + step-up; 10 per org per hour.
+     * Answers 202 `{ batchId, jobId }` once accepted: the delete runs as a job —
+     * poll {@link getPluginDeleteJob} for its deleted / skipped result.
      */
     deletePluginByName: async (name: string, opts: { force?: boolean; stepUpToken?: string } = {}) => {
-      return core.request<ApiResponse<PluginDeleteAllResult>>(`/api/plugins/by-name/${encodeURIComponent(name)}${opts.force ? '?force=true' : ''}`, {
+      return core.request<ApiResponse<PluginDeleteJobAccepted>>(`/api/plugins/by-name/${encodeURIComponent(name)}${opts.force ? '?force=true' : ''}`, {
         method: 'DELETE',
         replayOnStepUp: false,
         headers: core.stepUpHeader(opts.stepUpToken),
       });
+    },
+
+    /** One "Delete plugin" job's status: `{ state, deleted, skipped }` once it finishes. `plugins:read`; kept 24 hours. */
+    getPluginDeleteJob: async (name: string, jobId: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<PluginDeleteJobStatus>>(
+        `/api/plugins/by-name/${encodeURIComponent(name)}/delete-jobs/${encodeURIComponent(jobId)}`, { signal: opts?.signal });
     },
 
     /** Restore one "Delete plugin" batch, within the retention window. `plugins:write` + step-up. */

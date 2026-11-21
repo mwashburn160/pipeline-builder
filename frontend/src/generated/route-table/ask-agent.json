@@ -141,15 +141,7 @@
       "ai_generation"
     ],
     "scopes": [],
-    "audit": [],
-    "quota": {
-      "metered": [
-        "apiCalls"
-      ],
-      "checked": [
-        "apiCalls"
-      ]
-    }
+    "audit": []
   },
   {
     "method": "POST",

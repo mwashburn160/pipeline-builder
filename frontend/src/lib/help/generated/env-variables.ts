@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 8b9fe6046fd00f57e52a4bbf1958d10dd4937926b0927862812e8d2601f9f69d
+// SOURCE-SHA256: c773ea4803f75caa53b0efacd2700b4c9c023192dd90911643c0d11289107519
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -2403,7 +2403,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "ASK_DRAFT_OUTCOME_RATE_LIMIT_PER_MIN",
               "20",
-              "Per-USER ceiling (min 1) on POST /ask-agent/draft-outcome, applied on top of the per-org ASK_RATE_LIMIT_PER_MIN. An outcome report is not tied to a real draft, so without a per-user cap one member could swing the org's acceptance rate with a loop. The limiter key stays inside the Ask service; the forwarded count is anonymous."
+              "Per-USER ceiling (min 1) on POST /ask-agent/draft-outcome. The route sits outside the per-org ASK_RATE_LIMIT_PER_MIN and the apiCalls quota (an outcome is not an Ask), and each outcome must redeem the single-use draft id its generation issued; this cap bounds what is left. The limiter key stays inside the Ask service; the forwarded count is anonymous."
             ],
             [
               "ASK_HTTP_MAX_RESPONSE_BYTES",

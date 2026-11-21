@@ -9,6 +9,7 @@ import {
   errorMessage,
   handleAIError,
   initSSEStream,
+  issueAiDraftId,
   requireFeature,
   requireOrgAIEnabled,
   requirePermission,
@@ -85,6 +86,11 @@ function tierOf(req: Request): string | undefined {
  * them, and return them as `similarPlugins` (the `done` event's data on the
  * stream) so the UI can point the user at a plugin to reuse.
  *
+ * Each generated draft also carries a single-use `draftId` (api-core
+ * `issueAiDraftId`, feature `plugin-generate`, bound to the caller's org + user,
+ * ~1 h) that the console sends back with the draft's outcome
+ * (`POST /ask-agent/draft-outcome`).
+ *
  * @returns Express Router with AI generation endpoints
  */
 export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
@@ -120,6 +126,10 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
       run.succeed(result.usage, { dockerfileViolations: result.dockerfileViolations.length });
       ctx.log('COMPLETED', 'AI plugin generation completed', { servedBy: result.servedBy, tokens: result.usage.totalTokens });
 
+      // The single-use id the console reports this draft's outcome under
+      // (POST /ask-agent/draft-outcome); the draft is served without one if it
+      // could not be issued.
+      const draftId = await issueAiDraftId({ orgId, userId, feature: 'plugin-generate' });
       // The catalog Dockerfile rules the draft breaks (empty when compliant):
       // returned, never accepted silently.
       sendSuccess(res, 200, {
@@ -130,6 +140,7 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
         usage: result.usage,
         servedBy: result.servedBy,
         promptVersion: result.promptVersion,
+        ...(draftId ? { draftId } : {}),
       });
     }, (error) => {
       run.fail({ error });
@@ -171,9 +182,10 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
         const final = await result.final;
         const usage = await result.usage;
         if (final) {
+          const draftId = await issueAiDraftId({ orgId, userId, feature: 'plugin-generate' });
           sse.send({
             type: 'done',
-            data: { ...final, similarPlugins, usage, servedBy: result.servedBy, promptVersion: result.promptVersion },
+            data: { ...final, similarPlugins, usage, servedBy: result.servedBy, promptVersion: result.promptVersion, ...(draftId ? { draftId } : {}) },
           });
         }
         return { completed: true as const, usage, empty: !final };

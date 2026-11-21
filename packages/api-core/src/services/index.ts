@@ -207,6 +207,19 @@ export {
   type SseTicketStoreConfig,
 } from './sse-ticket-store.js';
 export {
+  createMemoryAiDraftStore,
+  createRedisAiDraftStore,
+  createEnvAiDraftStore,
+  getAiDraftStore,
+  issueAiDraftId,
+  _setAiDraftStoreForTests,
+  type AiDraftRef,
+  type AiDraftRedeemResult,
+  type AiDraftRedis,
+  type AiDraftStore,
+  type AiDraftStoreConfig,
+} from './ai-draft-store.js';
+export {
   wireServiceSecurity,
 } from './service-boot.js';
 export {

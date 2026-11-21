@@ -393,6 +393,7 @@ describe('similarPlugins hint', () => {
         usage: USAGE,
         servedBy: SERVED_BY,
         promptVersion: 'plugin-generate@test',
+        draftId: expect.stringMatching(/^[A-Za-z0-9_-]{32}$/),
       },
     });
   });
@@ -427,6 +428,10 @@ describe('similarPlugins hint', () => {
     expect(event.data.dockerfileViolations).toEqual(['Dockerfile: the final stage sets no USER']);
     // Who served it and what it cost ride the done event too.
     expect(event.data).toEqual(expect.objectContaining({ usage: USAGE, servedBy: SERVED_BY, promptVersion: 'plugin-generate@test' }));
+    // The single-use id the outcome is reported under: plugin-generate, this org + user.
+    const { getAiDraftStore } = await import('@pipeline-builder/api-core');
+    expect(await getAiDraftStore().redeem(event.data.draftId, { orgId: 'org-1', userId: 'user-9', feature: 'agent' })).toBe('invalid');
+    expect(await getAiDraftStore().redeem(event.data.draftId, { orgId: 'org-1', userId: 'user-9', feature: 'plugin-generate' })).toBe('ok');
   });
 });
 

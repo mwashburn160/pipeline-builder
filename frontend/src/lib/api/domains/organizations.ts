@@ -129,9 +129,12 @@ export function organizationsApi(core: ApiCore) {
      *  endpoints this streams a RAW JSON body (application/json + a
      *  Content-Disposition attachment header), NOT the usual `ApiResponse`
      *  envelope, so it returns the body text for the caller to save as a file.
-     *  Sysadmin or an org admin/owner (org_settings:write + `canAdministerOrg`). */
-    exportOrganization: async (id: string): Promise<string> => {
+     *  Sysadmin or an org admin/owner (org_settings:write + `canAdministerOrg`).
+     *  Step-up gated (a bulk read of every row the org owns): pass the token
+     *  the caller's StepUpModal returned. */
+    exportOrganization: async (id: string, stepUpToken?: string): Promise<string> => {
       return core.requestText(`/api/organization/${id}/export`, {
+        headers: core.stepUpHeader(stepUpToken),
         timeoutMs: null,
         errorMessage: 'Failed to export organization',
       });

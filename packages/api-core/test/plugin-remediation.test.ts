@@ -100,6 +100,78 @@ describe('comparePackageVersions', () => {
   });
 });
 
+describe('comparePackageVersions per ecosystem', () => {
+  /** Each list is strictly ascending; every pair must order accordingly. */
+  const ascending = (type: GrypePackageType, list: string[]) => {
+    for (let i = 0; i < list.length; i++) {
+      for (let j = 0; j < list.length; j++) {
+        const c = Math.sign(comparePackageVersions(list[i]!, list[j]!, type));
+        expect([type, list[i], list[j], c]).toEqual([type, list[i], list[j], Math.sign(i - j)]);
+      }
+    }
+  };
+  const equal = (type: GrypePackageType, a: string, b: string) =>
+    expect([type, a, b, comparePackageVersions(a, b, type)]).toEqual([type, a, b, 0]);
+
+  it('python follows PEP 440 (dev < pre < final < post, epochs, local versions)', () => {
+    ascending('python', ['1.0.dev0', '1.0a1', '1.0a2.dev1', '1.0a2', '1.0b1', '1.0rc1', '1.0rc2', '1.0', '1.0+local.1', '1.0.post1.dev0', '1.0.post1', '1.0.1', '1.1', '2.0', '1!0.5']);
+    equal('python', '1.0', '1.0.0');
+    equal('python', '2.31', '2.31.0');
+    equal('python', '1.0RC1', '1.0rc1');
+    equal('python', '1.0-preview.1', '1.0rc1');
+    equal('python', '1.0-1', '1.0.post1');
+    equal('python', 'v1.2', '1.2');
+    ascending('python', ['1.0+abc', '1.0+abc.1', '1.0+1', '1.0+2']);
+  });
+
+  it('java-archive follows Maven ComparableVersion (qualifiers, numeric padding)', () => {
+    ascending('java-archive', ['1.0-alpha1', '1.0-alpha2', '1.0-beta1', '1.0-m1', '1.0-rc1', '1.0-SNAPSHOT', '1.0', '1.0-sp1', '1.0.1', '1.1', '1.10']);
+    equal('java-archive', '2.31', '2.31.0');
+    equal('java-archive', '1.0', '1.0.0.0');
+    equal('java-archive', '1.2.3.Final', '1.2.3');
+    equal('java-archive', '1.0-ga', '1.0');
+    equal('java-archive', '1.0-cr1', '1.0-RC1');
+    equal('java-archive', '1.0-a1', '1.0-alpha-1');
+    // Unknown qualifiers sort after release qualifiers, lexically.
+    ascending('java-archive', ['1.0', '1.0-sp', '1.0-xyz', '1.0.1']);
+  });
+
+  it('gem follows RubyGems (letter segments are prereleases)', () => {
+    ascending('gem', ['1.0.0.a', '1.0.0.b1', '1.0.0.pre', '1.0.0.rc1', '1.0.0', '1.0.1', '1.1', '1.10']);
+    equal('gem', '1.0', '1.0.0');
+    equal('gem', '1.0.a', '1.a');
+    equal('gem', '1.0.0-rc1', '1.0.0.pre.rc1');
+  });
+
+  it('dotnet follows NuGet SemVer 2 (4 parts, prerelease, case-insensitive)', () => {
+    ascending('dotnet', ['1.0.0-alpha', '1.0.0-alpha.1', '1.0.0-beta', '1.0.0-beta.2', '1.0.0-beta.11', '1.0.0-rc.1', '1.0.0', '1.0.0.1', '1.0.1', '1.1']);
+    equal('dotnet', '1.0', '1.0.0.0');
+    equal('dotnet', '1.0.0-Beta', '1.0.0-beta');
+    equal('dotnet', '1.0.0+build.5', '1.0.0');
+  });
+
+  it('npm, cargo and go keep SemVer; deb keeps dpkg', () => {
+    ascending('npm', ['1.0.0-alpha', '1.0.0-alpha.1', '1.0.0-beta', '1.0.0']);
+    ascending('rust-crate', ['0.9.9', '1.0.0-rc.1', '1.0.0']);
+    ascending('go-module', ['v1.2.9', 'v1.2.10', 'v2.0.0']);
+    ascending('deb', ['1.0~rc1', '1.0', '1.0-1', '1:0.1']);
+    expect(GRYPE_PACKAGE_TYPES.every((t) => typeof GRYPE_PACKAGE_TYPE_CATALOG[t].compare === 'function')).toBe(true);
+  });
+
+  it('upgrade levels and fix choice use the ecosystem order', () => {
+    // PEP 440: the final release is above its rc; an epoch change is a major.
+    expect(libraryUpgradeRequirement('1.0rc1', '1.0', 'python')).toBe('patch');
+    expect(libraryUpgradeRequirement('1.0', '1.0rc1', 'python')).toBe('patch');
+    expect(libraryUpgradeRequirement('2.0', '1!1.0', 'python')).toBe('major');
+    expect(libraryUpgradeRequirement('1!1.0', '1!1.1', 'python')).toBe('minor');
+    const py = { packageType: 'python' as const, packageName: 'req', purl: 'pkg:pypi/req@2.31rc1', packageVersion: '2.31rc1' };
+    expect(chooseFixVersion([f({ ...py, id: 'A', fixedIn: ['2.31', '2.31rc2'] })])[0]!.fixVersion).toBe('2.31rc2');
+    expect(chooseFixVersion([f({ ...py, id: 'A', fixedIn: ['2.31rc2'] }), f({ ...py, id: 'B', fixedIn: ['2.31'] })])[0]!.fixVersion).toBe('2.31');
+    const mvn = { packageType: 'java-archive' as const, packageName: 'g:a', purl: 'pkg:maven/g/a@1.0-rc1', packageVersion: '1.0-rc1' };
+    expect(chooseFixVersion([f({ ...mvn, id: 'A', fixedIn: ['1.0'] }), f({ ...mvn, id: 'B', fixedIn: ['1.0-SNAPSHOT'] })])[0]!.fixVersion).toBe('1.0');
+  });
+});
+
 describe('libraryUpgradeRequirement / libraryUpgradeAllowed', () => {
   it('maps the plan\'s example (installed 2.3.1) to each level', () => {
     expect(libraryUpgradeRequirement('2.3.1', '2.3.4', 'npm')).toBe('patch');
@@ -202,6 +274,14 @@ describe('plugin version numbering', () => {
     expect(nextRemediationVersion('1.4.2', ['1.5.0'], 'minor')).toBe('1.6.0');
     expect(nextRemediationVersion('1.4.2-beta.1', [], 'patch')).toBe('1.4.3');
     expect(nextRemediationVersion('not-semver', [], 'patch')).toBeNull();
+  });
+  it('a taken version reserves its number whatever its build metadata or leading v', () => {
+    expect(nextRemediationVersion('1.4.2', ['1.4.3+build.7'], 'patch')).toBe('1.4.4');
+    expect(nextRemediationVersion('1.4.2', ['v1.4.3', ' V1.4.4 '], 'patch')).toBe('1.4.5');
+    expect(nextRemediationVersion('1.4.2', ['v1.5.0+x'], 'minor')).toBe('1.6.0');
+    // A prerelease is a different version: it does not reserve the release.
+    expect(nextRemediationVersion('1.4.2', ['1.4.3-rc.1'], 'patch')).toBe('1.4.3');
+    expect(nextRemediationVersion('1.4.2', ['garbage', ''], 'patch')).toBe('1.4.3');
     expect(remediationVersionBump([{ requirement: 'minor' }, { requirement: 'patch' }])).toBe('patch');
     expect(remediationVersionBump([{ requirement: 'major' }])).toBe('minor');
   });

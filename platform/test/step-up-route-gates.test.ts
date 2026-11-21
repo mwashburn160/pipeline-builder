@@ -148,6 +148,13 @@ describe('step-up route gates', () => {
     expect(routeChain(organizationRouter, 'get', '/:id/teams/deleted')).not.toContain('requireStepUp');
   });
 
+  it('GET /organization/:id/export requires step-up after the permission gate and declares its audit row', () => {
+    // A bulk read of every row the org owns — a stolen session must not take it
+    // without a fresh factor, the same as the caller's own GET /user/export.
+    const mw = routeChain(organizationRouter, 'get', '/:id/export');
+    expect(mw).toEqual(['requireAuth', 'requirePermission', 'requireStepUp', 'audited', 'exportOrganization']);
+  });
+
   it('the setup-guide flag is deliberately NOT step-up gated (a UI preference, not a control)', () => {
     for (const method of ['get', 'patch'] as const) {
       const mw = routeChain(organizationRouter, method, '/:id/setup-guide');

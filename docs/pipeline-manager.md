@@ -351,7 +351,7 @@ Run `pipeline-manager <command> --help` for the full flag reference on any comma
 | `plugin yank` | Yank one plugin version (`--id`, required `--reason`): ranges, `latest` and the default stop resolving to it; exact pins still resolve with a warning. Yanking the default promotes the next version. A version published to the ecosystem is refused (409) |
 | `template instantiate` | Render a golden-path pipeline template into concrete pipeline `props` — resolve it by `--name` (or `--id`), supply its declared inputs with repeatable `--input k=v` / `--inputs-file`, and write the result to `--output` (or stdout). **Creates nothing**: feed the props to `pipeline create --file`, which is where compliance and quota apply |
 | `template validate` | Parse and validate `{{ ... }}` templates in a pipeline or plugin spec (local file, registered pipeline by ID, or registered plugin by `name:version`) |
-| `org export` | Export an organization's data as JSON for GDPR portability (sysadmins can export any org; org admins their own only) |
+| `org export` | Export an organization's data as JSON for GDPR portability (sysadmins can export any org; org admins their own only). Needs a fresh step-up: like `auth pat`, it shows a device code to approve in the browser (`--no-browser` prints the URL instead) |
 
 ### Auth & infrastructure
 

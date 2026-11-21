@@ -79,11 +79,15 @@ export class DashboardService {
         return tx.select().from(schema.dashboard).where(baseWhere).orderBy(asc(schema.dashboard.name));
       }
       // Non-sysadmin visibility tree:
-      //   public OR (org AND same-org) OR (private AND created_by = me)
+      //   public OR (org AND same-org) OR (private AND created_by = me AND same-org)
       const visibilityWhere = or(
         eq(schema.dashboard.visibility, 'public'),
         and(eq(schema.dashboard.visibility, 'org'), eq(schema.dashboard.orgId, orgId)),
-        and(eq(schema.dashboard.visibility, 'private'), eq(schema.dashboard.createdBy, userId)),
+        // The creator, and only in the dashboard's own org — the same pin
+        // `canRead` applies. RLS admits every org to system-org rows, so the
+        // creator check alone listed a system-org member's private dashboard to
+        // that person acting in any other org (a row GET /:id then refused).
+        and(eq(schema.dashboard.visibility, 'private'), eq(schema.dashboard.createdBy, userId), eq(schema.dashboard.orgId, orgId)),
       );
       return tx
         .select()
@@ -287,7 +291,11 @@ export class DashboardService {
       const visibilityWhere = or(
         eq(schema.dashboard.visibility, 'public'),
         and(eq(schema.dashboard.visibility, 'org'), eq(schema.dashboard.orgId, orgId)),
-        and(eq(schema.dashboard.visibility, 'private'), eq(schema.dashboard.createdBy, userId)),
+        // The creator, and only in the dashboard's own org — the same pin
+        // `canRead` applies. RLS admits every org to system-org rows, so the
+        // creator check alone listed a system-org member's private dashboard to
+        // that person acting in any other org (a row GET /:id then refused).
+        and(eq(schema.dashboard.visibility, 'private'), eq(schema.dashboard.createdBy, userId), eq(schema.dashboard.orgId, orgId)),
       );
       return tx
         .select()

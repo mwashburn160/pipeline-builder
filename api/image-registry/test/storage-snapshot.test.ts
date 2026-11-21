@@ -217,11 +217,31 @@ describe('fail-closed reads', () => {
     expect(store.writes.filter((k) => k.endsWith(':meta'))).toHaveLength(1);
   });
 
-  it('a store write failure mid-run leaves the previous marker in charge', async () => {
+  it('one org\'s store write failure does not lose the run: that org reads unknown, the rest are current', async () => {
     const first = (await run())!;
     const realSet = store.set;
     store.set = async (key: string, value: string) => {
       if (key.endsWith('org:beta')) throw new Error('redis down');
+      return realSet(key, value);
+    };
+    const second = (await run())!;
+    expect(second).not.toBeNull();
+    // The marker still moved on, naming the org whose record did not land.
+    const meta = JSON.parse(store.data.get('image-registry:storage-snapshot:meta')!);
+    expect(meta.runId).toBe(second.runId);
+    expect(meta.runId).toBeGreaterThanOrEqual(first.runId);
+    expect(meta.incompleteOrgIds).toEqual(['beta']);
+    expect(await readOrgStorageUsage('acme')).toMatchObject({ bytes: 1030, incomplete: false });
+    // Fail closed: beta's last record is older than the marker, which would
+    // otherwise read as "the run found nothing for it" (0 bytes, complete).
+    expect(await readOrgStorageUsage('beta')).toMatchObject({ bytes: 0, incomplete: true });
+  });
+
+  it('a store write failure for the marker itself still throws (nothing marked current)', async () => {
+    const first = (await run())!;
+    const realSet = store.set;
+    store.set = async (key: string, value: string) => {
+      if (key.endsWith(':meta')) throw new Error('redis down');
       return realSet(key, value);
     };
     await expect(run()).rejects.toThrow('redis down');
@@ -285,6 +305,62 @@ describe('targeted refresh after a delete / prune', () => {
     await first;
     // 2 repos per pass, 2 passes (the original + one coalesced re-run).
     expect(listTags).toHaveBeenCalledTimes(4);
+  });
+
+  it('each org record carries a per-repository breakdown that sums to its total', async () => {
+    await run();
+    const record = JSON.parse(store.data.get('image-registry:storage-snapshot:org:acme')!);
+    expect(Object.keys(record.perRepo).sort()).toEqual(['org-acme/app', 'public/acme/app']);
+    // The shared layer is billed once, to the first repository (sorted) that references it.
+    expect(record.perRepo['org-acme/app']).toMatchObject({ bytes: 1010, blobs: 2, incomplete: false, measuredAt: expect.any(Number) });
+    expect(record.perRepo['public/acme/app']).toMatchObject({ bytes: 20, blobs: 1, incomplete: false });
+    expect(record.bytes).toBe(1030);
+    expect(record.blobs).toBe(3);
+  });
+
+  it('a refresh that lands while a full run is measuring the org is not overwritten by the run', async () => {
+    let now = Date.now();
+    jest.spyOn(Date, 'now').mockImplementation(() => (now += 1));
+    await run();
+    // The second run reads every blob size, then stalls before its results
+    // come back — the window in which a delete + targeted refresh lands.
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    let stall = true;
+    headBlob.mockImplementation(async (_repo, digest) => {
+      const size = SIZES[digest];
+      if (stall) await gate;
+      return { contentLength: size };
+    });
+    const before = headBlob.mock.calls.length;
+    const second = run();
+    while (headBlob.mock.calls.length < before + 4) await new Promise((r) => setImmediate(r));
+    stall = false;
+    SIZES['sha256:shared'] = 0; // the delete
+    await refreshOrgSnapshot('acme');
+    expect(await readOrgStorageUsage('acme')).toMatchObject({ bytes: 30 });
+    release();
+    await second;
+    // The run measured before the delete; the refresh's newer figures survive it.
+    expect(await readOrgStorageUsage('acme')).toMatchObject({ bytes: 30, repos: 2, incomplete: false });
+    // An org the refresh did not touch takes the run's figures as usual.
+    expect(await readOrgStorageUsage('beta')).toMatchObject({ bytes: 5, incomplete: false });
+  });
+
+  it('a full run keeps its own figures where they are newer than a refresh, and adds repositories the refresh never knew', async () => {
+    let now = Date.now();
+    jest.spyOn(Date, 'now').mockImplementation(() => (now += 1));
+    await run();
+    await refreshOrgSnapshot('acme');
+    REPO_BLOBS['org-acme/new'] = ['sha256:new'];
+    SIZES['sha256:new'] = 7;
+    catalog = [...catalog, 'org-acme/new'];
+    try {
+      await run();
+      expect(await readOrgStorageUsage('acme')).toMatchObject({ bytes: 1037, repos: 3, incomplete: false });
+    } finally {
+      delete REPO_BLOBS['org-acme/new'];
+    }
   });
 
   it('a failing refresh never throws to the caller', async () => {

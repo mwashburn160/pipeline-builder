@@ -20,13 +20,14 @@
  * hold the version through its step manifest (`in_use`).
  */
 
-import { createLogger, errorMessage, recordAudit, SYSTEM_ACTOR_ID } from '@pipeline-builder/api-core';
+import { createLogger, ErrorCode, errorMessage, recordAudit, SYSTEM_ACTOR_ID } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { schema, type Plugin } from '@pipeline-builder/pipeline-data';
 import { and, eq, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
 
-import { TIDY_USE_THROTTLE_MS } from './config.js';
-import { readTidySettings, writeTidySettings, type TidySettings } from './settings.js';
+import { TIDY_NEVER_MAX_NAMES, TIDY_USE_THROTTLE_MS } from './config.js';
+import { isPluginName, readTidySettings, writeTidySettings, type TidySettings } from './settings.js';
+import { EcosystemError } from '../ecosystem/context.js';
 import { elevated } from '../ecosystem/store.js';
 import { pluginService } from '../plugin-service.js';
 
@@ -107,11 +108,25 @@ export async function keepVersion(orgId: string, pluginId: string, userId: strin
 /**
  * Set (or clear) a plugin's "never tidy". Turning it on reactivates the
  * name's tidy-deactivated versions at once and drops their warnings.
+ *
+ * Adding a name is refused (400 VALIDATION_ERROR) unless it is lowercase, names
+ * a plugin the org has a live version of, and the list stays within
+ * {@link TIDY_NEVER_MAX_NAMES}. Clearing a name is always allowed (a name whose
+ * plugin has since been deleted can still come off the list).
  */
 export async function setNeverTidy(orgId: string, name: string, never: boolean, userId: string): Promise<TidySettings> {
   const org = orgId.toLowerCase();
   const current = await readTidySettings(org);
   const names = new Set(current.neverTidy);
+  if (never && !names.has(name)) {
+    if (!isPluginName(name)) throw new EcosystemError(ErrorCode.VALIDATION_ERROR, 'A never-tidy name must be a lowercase plugin name.', { name });
+    if (names.size >= TIDY_NEVER_MAX_NAMES) {
+      throw new EcosystemError(ErrorCode.VALIDATION_ERROR, `The never-tidy list holds at most ${TIDY_NEVER_MAX_NAMES} plugins; clear one first.`, { max: TIDY_NEVER_MAX_NAMES });
+    }
+    const exists = await elevated((tx) => tx.select({ id: p().id }).from(p())
+      .where(and(eq(p().orgId, org), eq(p().name, name), isNull(p().deletedAt))).limit(1));
+    if (exists.length === 0) throw new EcosystemError(ErrorCode.VALIDATION_ERROR, `Your organization has no plugin named "${name}".`, { name });
+  }
   if (never) names.add(name); else names.delete(name);
   const settings = await writeTidySettings(org, { neverTidy: [...names].sort() }, userId);
   if (never) {

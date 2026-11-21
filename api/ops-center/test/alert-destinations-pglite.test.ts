@@ -85,7 +85,8 @@ describe('create', () => {
   it('stores a Slack destination, reserves quota, audits, and MASKS the target in the response', async () => {
     const d = await create(A, { channel: 'slack', label: 'ops', target: SLACK, minSeverity: 'critical' });
     expect(d.target).not.toBe(SLACK);
-    expect(d.target.startsWith('••••')).toBe(true);
+    // Origin only — none of the secret path (see maskTarget).
+    expect(d.target).toBe('https://hooks.slack.com/••••');
     expect(d.hasTarget).toBe(true);
     expect(mockReserve).toHaveBeenCalledWith(A.orgId, 'alertDestinations');
     expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'alert.destination.create', expect.objectContaining({
@@ -166,7 +167,7 @@ describe('list / isolation', () => {
     expect(res.statusCode).toBe(200);
     const list = res.body!.data.destinations as Array<{ orgId: string; target: string }>;
     expect(list.map((x) => x.orgId).sort()).toEqual([A.orgId, B.orgId]);
-    expect(list.every((x) => !x.target.includes('hooks.slack.com'))).toBe(true);
+    expect(list.every((x) => !x.target.includes('/services/'))).toBe(true);
   });
 });
 

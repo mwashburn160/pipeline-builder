@@ -155,7 +155,8 @@ async function runToolchain(row: PluginRemediation, deps: RemediationJobDeps, op
 export async function runRemediation(row: PluginRemediation, deps: RemediationJobDeps, opts: { lastAttempt: boolean } = { lastAttempt: true }): Promise<JobResult> {
   if (row.kind === 'toolchain') return runToolchain(row, deps, opts);
   const approved = row.stage === 'awaiting_approval' && !!row.decidedAt;
-  const from = await pluginRow(row.pluginId);
+  // NULL once the version was purged (its fix record outlives it): nothing to rebuild.
+  const from = row.pluginId ? await pluginRow(row.pluginId) : null;
   if (!from || from.deletedAt) return fail(row, 'VERSION_DELETED', 'cancelled');
   const settings = await readSettings(row.orgId);
   if (settings.mode === 'off' && !approved) return fail(row, 'MODE_OFF', 'cancelled');
@@ -245,13 +246,13 @@ export async function runRemediation(row: PluginRemediation, deps: RemediationJo
   const c = outcome.candidate;
   let patchKey: string | null = null;
   try {
-    await putRemediationArtifact(remediationPatchedSourceKey(row.orgId, row.pluginId, row.fromVersion, row.id, c.patched.sha256), c.patched.zip);
+    await putRemediationArtifact(remediationPatchedSourceKey(row.orgId, from.id, row.fromVersion, row.id, c.patched.sha256), c.patched.zip);
     if (c.diff) {
-      patchKey = remediationDiffKey(row.orgId, row.pluginId, row.fromVersion, row.id);
+      patchKey = remediationDiffKey(row.orgId, from.id, row.fromVersion, row.id);
       await putRemediationArtifact(patchKey, c.diff);
     }
   } catch (err) {
-    logger.warn('Remediation artifacts not stored', { remediationId: row.id, prefix: remediationArtifactPrefix(row.orgId, row.pluginId, row.fromVersion, row.id), error: errorMessage(err) });
+    logger.warn('Remediation artifacts not stored', { remediationId: row.id, prefix: remediationArtifactPrefix(row.orgId, from.id, row.fromVersion, row.id), error: errorMessage(err) });
   }
 
   const decision = remediationPublishMode(approved ? 'apply' : settings.mode, {

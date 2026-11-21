@@ -34,6 +34,15 @@ beforeAll(async () => {
     let raw = '';
     req.on('data', (c) => { raw += c; });
     req.on('end', () => {
+      // `org export` first runs a device sign-in for its step-up; answer it as
+      // an approved code so the assertions below see only the export request.
+      if (req.url === '/api/auth/device/code' || req.url === '/api/auth/device/token') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(req.url.endsWith('/code')
+          ? { device_code: 'dc', user_code: 'ABCD-EFGH', verification_uri: 'http://x/verify', expires_in: 30, interval: 1 }
+          : { access_token: 'at', token_type: 'Bearer', expires_in: 900, step_up_token: 'su' }));
+        return;
+      }
       requests.push({ method: req.method, url: req.url, body: raw ? JSON.parse(raw) : null });
       res.writeHead(reply.status, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(reply.body));
@@ -336,7 +345,7 @@ describe('org export', () => {
 
   it('writes the export to the default file and summarises it', async () => {
     reply = { status: 200, body: { exportedAt: '2026-09-21T00:00:00Z', postgres: { pipelines: [], plugins: [] } } };
-    await run(orgExport, 'org', ['export', '--id', ORG]);
+    await run(orgExport, 'org', ['export', '--id', ORG, '--no-browser']);
     expect(requests[0]!.url).toBe(`/api/organization/${ORG}/export`);
     const saved = JSON.parse(readFileSync(join(WORK, `org-${ORG}-export.json`), 'utf8'));
     expect(saved.exportedAt).toBe('2026-09-21T00:00:00Z');
@@ -345,14 +354,14 @@ describe('org export', () => {
 
   it('honours --output, and tolerates an export without postgres/exportedAt', async () => {
     reply = { status: 200, body: { mongo: {} } };
-    await run(orgExport, 'org', ['export', '--id', ORG, '--output', 'custom.json']);
+    await run(orgExport, 'org', ['export', '--id', ORG, '--output', 'custom.json', '--no-browser']);
     expect(existsSync(join(WORK, 'custom.json'))).toBe(true);
     expect(text()).toContain('(not set)');
   });
 
   it('a failed export exits non-zero', async () => {
     reply = { status: 404, body: { message: 'no such org' } };
-    const err = await run(orgExport, 'org', ['export', '--id', ORG]);
+    const err = await run(orgExport, 'org', ['export', '--id', ORG, '--no-browser']);
     expect(err).toBeInstanceOf(ExitError);
   });
 });

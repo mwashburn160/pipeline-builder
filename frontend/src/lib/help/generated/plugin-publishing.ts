@@ -1,6 +1,6 @@
 // GENERATED FROM docs/plugin-publishing.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 26f0657bfbcb1083d40c2e9a131e3cf15fde55dbc476d8df6970cdd6647b5cfe
+// SOURCE-SHA256: efda892d9adcd7738de8fe1cff66613c3e8f3f5853028830351bfccbafc41ef0
 // SPDX-License-Identifier: Apache-2.0
 import { Store } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -400,8 +400,8 @@ export const pluginPublishingTopic: HelpTopic = {
             "Rebuild (rebuild). The version's kept build context is rebuilt on a freshly pulled base image of the same tag (a digest-pinned FROM is re-resolved within its tag, never to a new tag) with --pull --no-cache, which clears most OS-package CVEs without touching the plugin's own files. A finding in a shared platform base (_plugin-base and the other _*-base images) rebuilds that base once per pass, in a system-org pass of its own (PLUGIN_REMEDIATION_BASE_CONCURRENCY) that runs ahead of tenant remediations.",
             "Libraries (libraries). For each targeted finding the rebuild didn't clear, the named library is upgraded to the smallest fixed version — the highest of the lowest fixed versions across its CVEs, so one upgrade clears them all — within the allowed upgrade level. A source patch edits the manifest or lockfile in the kept context (a pin in apt-get/apk add/dnf install, an npm overrides entry, a requirements*.txt pin, go get, a Maven/Gradle override, bundle update --conservative, cargo update --precise, a PackageReference, or a recognised pinned tool ARG). An overlay layer is one RUN on top of the current image digest that upgrades the named packages in place (deb, apk, rpm, npm, python and gem only), with labels, user, entrypoint and working directory unchanged. Libraries compiled into a binary (Go, Rust, .NET, fat JARs) can only be fixed from source. When no patcher fits, the ask agent may draft a patch; it is verified the same way and only ever proposed.",
             "Verify. The fix goes through the full build gate, waivers, VEX, the plugin contract check and compliance, exactly as any build. Every targeted finding must be gone, no new Critical or High may appear, the image's user, entrypoint and declared commands must be unchanged, the spec's smokeTest must pass, and the diff may touch only the named packages' lines or the single overlay layer. A patch that fails is dropped; when several packages were patched, each is retried alone so the ones that work are kept.",
-            "Publish (published, or awaiting_approval in propose mode). The fix is stored as the next free version of the plugin: the next patch (1.4.3, or 1.4.4 if 1.4.3 is taken), or the next minor when a library crossed a major (so installs on a patch policy don't pick it up silently). It never crosses the plugin's own major. Each fix is a new immutable version with its provenance: the version it fixes, the patch diff, and the CVEs cleared. The flagged version is never changed or deleted.",
-            "Rollout (rolling_out, then done, or needs_review if it pauses). Pipelines move onto the fix — see Remediation upgrades.",
+            "Publish (published, or awaiting_approval in propose mode). The fix is stored as the next free version of the plugin: the next patch (1.4.3, or 1.4.4 if 1.4.3 is taken — also when it was published as v1.4.3 or 1.4.3+build.7, since a leading v and build metadata don't make a different version; a prerelease such as 1.4.3-rc.1 doesn't reserve 1.4.3), or the next minor when a library crossed a major (so installs on a patch policy don't pick it up silently). It never crosses the plugin's own major. Each fix is a new immutable version with its provenance: the version it fixes, the patch diff, and the CVEs cleared. An overlay-only fix's diff shows just the overlay, as a new remediation-overlay/Dockerfile (after any change the rebuild made to the kept context), never the rest of the context as deleted. The flagged version is never changed or deleted.",
+            "Rollout (rolling_out, then done, or needs_review if it pauses). Pipelines move onto the fix — see Remediation upgrades. If the pipeline service can't take the rollout when the fix is published (it is down, or answers an error), the fix stays published and the nightly pass starts its rollout again — once it has sat for 15 minutes, every night until it is taken. Starting a rollout twice is harmless.",
             "Owner request (needs_owner). Whatever is left — no fixed version, beyond the upgrade level, a Go module's new major, a library inside a compiled binary, no kept source, no patcher, no package details from the scanner, a patch that broke the plugin — is sent to the plugin's security recipients (N39), listing each package, CVE, fixed version, the reason and the level it would need. The version stays flagged. A fix published with findings left is outcome partial, and the owner request is still sent."
           ]
         },
@@ -456,7 +456,52 @@ export const pluginPublishingTopic: HelpTopic = {
             "OS packages (deb, apk, rpm): the level applies to the upstream version. A distro revision of the same upstream (1.1.1n-0+deb11u5 → 1.1.1n-0+deb11u6) is a patch; an epoch change is a major.",
             "0.x packages: a minor bump counts as major, following semver.",
             "Go modules: a new major is a different module path (/v2), so it always goes to the owner, whatever the level.",
+            "Python: an epoch change (1!2.0) is a major; otherwise the release numbers decide.",
             "Non-semver versions (dates, four-part numbers) are read from their first three numeric parts; a version that can't be parsed counts as major."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Versions are ordered by each ecosystem's own rules, both to pick the fix version and to tell whether a candidate is an upgrade at all:"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Package type",
+            "Ordering",
+            "For example"
+          ],
+          "rows": [
+            [
+              "deb, apk, rpm",
+              "dpkg: epoch, then upstream, then revision; ~ sorts lowest",
+              "1.0~rc1 < 1.0 < 1.0-1 < 1:0.1"
+            ],
+            [
+              "python",
+              "PEP 440: epochs, dev < pre (a < b < rc) < final < post releases, local versions after their public one, trailing zeros ignored",
+              "1.0.dev0 < 1.0rc1 < 1.0 = 1.0.0 < 1.0+local < 1.0.post1"
+            ],
+            [
+              "java-archive",
+              "Maven ComparableVersion: alpha < beta < milestone < rc (= cr) < snapshot < release (= ga, final) < sp; trailing zeros are padding",
+              "1.0-rc1 < 1.0-SNAPSHOT < 1.0 = 1.0.0 < 1.0-sp1"
+            ],
+            [
+              "gem",
+              "RubyGems: a letter segment is a prerelease and sorts below any number",
+              "1.0.0.rc1 < 1.0.0 = 1.0"
+            ],
+            [
+              "dotnet",
+              "NuGet: up to four numbers, prerelease below release, labels compared case-insensitively, build metadata ignored",
+              "1.0.0-beta.2 < 1.0.0-Beta.11 < 1.0.0 < 1.0.0.1"
+            ],
+            [
+              "npm, rust-crate, go-module, others",
+              "SemVer (a leading v allowed), else the dpkg order of the strings",
+              "1.0.0-alpha < 1.0.0"
+            ]
           ]
         },
         {
@@ -474,7 +519,8 @@ export const pluginPublishingTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "In propose mode a fix waits as Awaiting approval on the plugin's remediation card, with the cleared and remaining findings and the patch diff. Approve and publish and Reject need plugins:write and a step-up.",
+            "In propose mode a fix waits as Awaiting approval on the plugin's remediation card, with the cleared and remaining findings and the patch diff. Approve and publish and Reject need plugins:write and a step-up. Reject takes an optional reason (up to 1,000 characters), which is kept with the decision and on its plugin.remediation.rejected audit entry. While Approve, Reject or Retry runs, the card disables all three.",
+            "When a fix is published, its patch diff (and, for an Official fix, the export for deploy/plugins) is stored under the fix version's kept-source prefix, and the remediation's download links point there. Purging the old version therefore leaves them downloadable: the remediation record of a published fix outlives the version it fixed. It still lists under the old version's name and number, with its diff, but it no longer links to that version, and approve and retry answer 409 REMEDIATION_STAGE_CONFLICT (reason source_version_purged), since there is nothing left to rebuild. See What a purge removes.",
             "In apply mode it publishes without waiting — except that some fixes are always proposed: a library upgrade that crosses a major, a plugin whose spec declares no smokeTest, and an ask-agent patch."
           ]
         },
@@ -706,7 +752,7 @@ export const pluginPublishingTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Packing refuses a credential file and names it, so nothing is uploaded: Refusing to package .env: it looks like a dotenv file. These are refused by name, at any depth: dotenv files (.env, .env.production, prod.env, …), .envrc, SSH private keys (id_rsa, id_ed25519, …), .aws/credentials, .docker/config.json, .kube/config, gcloud's application_default_credentials.json, .netrc / _netrc, .git-credentials, .pypirc, and PKCS#12 bundles (.p12, .pfx). These are refused by what they contain: a .pem holding a private-key block; a .key unless it is plainly public material (a certificate, a PUBLIC KEY PEM, a PGP public key block, an OpenSSH public key line); a *.json that is a service-account key (\"type\": \"service_account\" with a \"private_key\"); an .npmrc with an _authToken or _auth value; and a .yarnrc.yml with an npmAuthToken value. A token line whose value is only an environment variable reference (_authToken=${NPM_TOKEN}) is allowed, because it holds no token. Dotenv templates (any name with an example, sample, template, dist or defaults part, such as .env.example or example.env), public keys (id_ed25519.pub) and certificate-only files (ca.pem) are packed as usual. Remove the file from the plugin directory and pass secrets through the spec's secrets instead. The upload API refuses the same files in a zip built any other way, and reads the zip entry's content for the content-based checks."
+          "content": "Packing refuses a credential file and names it, so nothing is uploaded: Refusing to package .env: it looks like a dotenv file. These are refused by name, at any depth: dotenv files (.env, .env.production, prod.env, …), .envrc, SSH private keys (id_rsa, id_ed25519, …), .aws/credentials, .docker/config.json, .kube/config, gcloud's application_default_credentials.json, .netrc / _netrc, .git-credentials, .pypirc, .gem/credentials, PKCS#12 bundles (.p12, .pfx), PuTTY private keys (.ppk) and PKCS#8 private keys (.p8). These are refused by what they contain: a .pem holding a private-key block; a .key unless it is plainly public material (a certificate, a PUBLIC KEY PEM, a PGP public key block, an OpenSSH public key line); a *.json that is a service-account key (\"type\": \"service_account\" with a \"private_key\"); an .npmrc with an _authToken, _auth or _password value; a .yarnrc.yml with an npmAuthToken or npmAuthIdent value; a Maven settings.xml with a <password> or <passphrase> value; a pip.conf (or .pip/pip.conf, pip.ini) with credentials in an index URL (https://user:password@… or https://token@…) or a password value; a .cargo/credentials / .cargo/credentials.toml with a token or secret-key; and a GitHub CLI gh/hosts.yml (~/.config/gh/hosts.yml) with an oauth_token. A private key is also refused under any name by its content: a complete -----BEGIN … PRIVATE KEY----- … -----END … PRIVATE KEY----- block (RSA, EC, PKCS#8, OPENSSH, encrypted, PGP), including one inside a script heredoc or a code string with escaped \\ns, or a PuTTY key file; a README that quotes only the header line or a ... placeholder is not a key, and .tar files (a prebuilt image.tar) are not scanned. A token or password whose value is only an environment variable reference (_authToken=${NPM_TOKEN}, Maven's ${env.MAVEN_PASSWORD}) is allowed, because it holds no secret. Dotenv templates (any name with an example, sample, template, dist or defaults part, such as .env.example or example.env), public keys (id_ed25519.pub, a PUBLIC KEY PEM) and certificate-only files (ca.pem) are packed as usual. Remove the file from the plugin directory and pass secrets through the spec's secrets instead. The upload API refuses the same files in a zip built any other way, and reads the zip entry's content for the content-based checks."
         },
         {
           "type": "text",
@@ -1185,8 +1231,13 @@ export const pluginPublishingTopic: HelpTopic = {
             ],
             [
               "Delete plugin",
-              "DELETE /api/plugins/by-name/:name (step-up)",
+              "DELETE /api/plugins/by-name/:name (step-up) → 202 { batchId, jobId }",
               "Every version of that name in your organization, remediation fix versions included"
+            ],
+            [
+              "Delete plugin status",
+              "GET /api/plugins/by-name/:name/delete-jobs/:jobId (plugins:read)",
+              "That delete job: state (running, succeeded, failed), deleted, skipped"
             ],
             [
               "Restore plugin",
@@ -1206,7 +1257,11 @@ export const pluginPublishingTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Skips, not failures. Delete plugin soft-deletes every version it can and answers with deleted and skipped lists. A version is skipped when a pipeline uses it (in_use, with up to 50 of the pipelines), it is frozen by a request (frozen), or it is listed (listed). ?force=true also deletes listed source versions; their listed copies keep running for installers, as for a single version. The plugin leaves the catalog only when no live version is left. Quota slots are refunded per version, and organizations using any of the versions get one N14 notice."
+          "content": "A background job. Because a delete waits for running builds, DELETE /api/plugins/by-name/:name answers 202 with the batchId its versions are deleted under and a jobId, once the delete is accepted. These refusals still answer the request itself, with nothing touched: an invalid name (400), a managed name, a missing step-up, the rate limit, the name lock (409 PLUGIN_NAME_LOCKED), a name with no versions in your organization (404), and a version you may not delete (403). Poll GET /api/plugins/by-name/:name/delete-jobs/:jobId until state is no longer running. The Delete plugin dialog polls every two seconds and then shows what was deleted and skipped. A job's status is kept for 24 hours, and only your organization can read it. If the server running a job stops, its status reads failed within two minutes. Check Recently deleted for what it deleted before it stopped."
+        },
+        {
+          "type": "text",
+          "content": "Skips, not failures. Delete plugin soft-deletes every version it can, and its job reports deleted and skipped lists. A version is skipped when a pipeline uses it (in_use, with up to 50 of the pipelines), it is frozen by a request (frozen), or it is listed (listed). ?force=true also deletes listed source versions; their listed copies keep running for installers, as for a single version. The plugin leaves the catalog only when no live version is left. Quota slots are refunded per version, and organizations using any of the versions get one N14 notice."
         },
         {
           "type": "text",
@@ -1233,12 +1288,16 @@ export const pluginPublishingTopic: HelpTopic = {
             "the version row and its tombstone;",
             "its image, signature and SBOM attestations, deleted through image-registry — unless another stored version references the same digest (an identical rebuild);",
             "its kept build sources under plugin-sources/<orgId>/<pluginId>/<version>/: the source ZIP, any patched ZIP and the remediation diff, deleted by prefix so nothing is left behind;",
-            "its remediation records, after their audit entries are written."
+            "its remediation records that never produced a fix (failed, rejected, cancelled, or proposals never published). A remediation that published a fix version is kept as the record of that fix, with its diff (stored under the fix version), and no longer links to the purged version. Every remediation's audit entries were written as each stage happened."
           ]
         },
         {
           "type": "text",
           "content": "A failed object or image delete never blocks the purge: it is recorded, retried by the next purge sweep, counted on plugin_source_delete_failures_total{kind} and alerted on. Deleting an organization removes its whole plugin-sources/<orgId>/ prefix."
+        },
+        {
+          "type": "text",
+          "content": "A listed version's own source copy lives under plugin-sources/listings/<listingId>/<version>/, outside any organization, so no organization purge reaches it. When a listing version is purged, or a whole listing is removed, that prefix (or listings/<listingId>/) is deleted with it. A failed delete is recorded and retried in the same way, and the retry never deletes a prefix that a listed version still points to."
         },
         {
           "type": "text",
@@ -1335,7 +1394,7 @@ export const pluginPublishingTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Preview. GET /api/plugins/tidy/preview (plugins:read) is the dry run of today's pass: every version it would warn, deactivate or delete, each protected version with the reason it is skipped, and the bytes tidying would free (kept sources, plus image bytes when the registry can measure them). The settings page and the Storage section show the same figures. Keep a version with POST /api/plugins/tidy/versions/:id/keep and set a plugin's never-tidy with PUT /api/plugins/by-name/:name/never-tidy (both plugins:write)."
+          "content": "Preview. GET /api/plugins/tidy/preview (plugins:read) is the dry run of today's pass: every version it would warn, deactivate or delete, each protected version with the reason it is skipped, and the bytes tidying would free (kept sources, plus image bytes when the registry can measure them). The settings page and the Storage section show the same figures. Keep a version with POST /api/plugins/tidy/versions/:id/keep and set a plugin's never-tidy with PUT /api/plugins/by-name/:name/never-tidy (both plugins:write). A never-tidy name must be lowercase and name a plugin your organization has a live version of, and the list holds at most 500 names. Anything else answers 400. You can always clear a name, even after its plugin is deleted."
         },
         {
           "type": "text",

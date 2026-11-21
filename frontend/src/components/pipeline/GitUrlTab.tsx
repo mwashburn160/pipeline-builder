@@ -51,7 +51,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
       generatedProps, setGeneratedProps,
       stageCount, generatedDescription, generatedKeywords,
       checkingPlugins, missingPlugins, creatingPlugins, confirmMissingPlugins, pluginStatus,
-      servedBy, usage,
+      servedBy, usage, draftId,
       projectOverride, setProjectOverride,
       organizationOverride, setOrganizationOverride,
       ai, generating, error, setError,
@@ -73,7 +73,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
     const draftOutcome = useAiDraftOutcome();
     const generationSettled = useEffectEvent(() => {
       const draft = withOverrides();
-      if (draft) draftOutcome.offered(isAskAgentProvider(ai.selectedProvider) ? 'agent' : 'pipeline-generate', draft);
+      if (draft) draftOutcome.offered(isAskAgentProvider(ai.selectedProvider) ? 'agent' : 'pipeline-generate', draft, draftId);
     });
     useEffect(() => {
       if (!generating) generationSettled();

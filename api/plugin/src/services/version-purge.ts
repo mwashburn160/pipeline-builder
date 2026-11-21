@@ -13,8 +13,11 @@
  *   stored version of the same name (live or tombstoned) still carries the same
  *   digest, an identical rebuild whose pipelines pull that manifest.
  *
- * The version's `plugin_remediations` rows go with the row itself (FK ON DELETE
- * CASCADE) — their audit entries were written when each stage happened.
+ * The version's `plugin_remediations` rows that never produced a fix are
+ * deleted in the purge transaction itself (PluginService.onBeforePurge); a
+ * remediation WITH a fix version outlives the purge (`plugin_id` SET NULL), its
+ * diff kept under the fix version's prefix, not this one. Their audit entries
+ * were written when each stage happened.
  *
  * A failed delete never blocks the purge: it lands in `plugin_source_orphans`,
  * counts `plugin_source_delete_failures_total{kind}` (alerted), and

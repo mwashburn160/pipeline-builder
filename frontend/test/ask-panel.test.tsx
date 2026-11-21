@@ -46,7 +46,7 @@ jest.mock('@/lib/api', () => ({
 }));
 
 /** Build an async generator over the given stream events. */
-async function* gen(events: Array<{ type: string; data?: unknown; message?: string }>) {
+async function* gen(events: Array<{ type: string; data?: unknown; message?: string; draftId?: string }>) {
   for (const e of events) yield e;
 }
 
@@ -343,25 +343,37 @@ describe('AskPanel model + repository controls', () => {
 
   describe('draft outcomes (the AI usage report\'s acceptance rate)', () => {
     beforeEach(() => { recordAiDraftOutcome.mockResolvedValue({ success: true }); });
+    // The single-use ids the agent stream issues with each proposal.
+    const DRAFT_1 = 'd'.repeat(32);
+    const DRAFT_2 = 'e'.repeat(32);
+
+    it('a proposal that came without a draft id reports nothing (the server would refuse it)', async () => {
+      askAgentStream.mockReturnValue(gen([{ type: 'proposal', data: PLUGIN_PROPOSAL }, { type: 'done' }]));
+      const { unmount } = render(<AskPanel onClose={jest.fn<AnyFn>()} />);
+      ask('a trivy scan plugin');
+      fireEvent.click(await screen.findByRole('button', { name: /Dismiss/i }));
+      unmount();
+      expect(recordAiDraftOutcome).not.toHaveBeenCalled();
+    });
 
     it('records an applied proposal as accepted, once, under the agent feature', async () => {
-      askAgentStream.mockReturnValue(gen([{ type: 'proposal', data: PLUGIN_PROPOSAL }, { type: 'done' }]));
+      askAgentStream.mockReturnValue(gen([{ type: 'proposal', data: PLUGIN_PROPOSAL, draftId: DRAFT_1 }, { type: 'done' }]));
       deployGeneratedPlugin.mockResolvedValue({ success: true, data: { plugin: { id: 'pl1' } } });
       const { unmount } = render(<AskPanel onClose={jest.fn<AnyFn>()} />);
       ask('a trivy scan plugin');
       await waitFor(() => expect(screen.getByRole('button', { name: /Create plugin/i })).toBeEnabled());
       expect(recordAiDraftOutcome).not.toHaveBeenCalled();
       fireEvent.click(screen.getByRole('button', { name: /Create plugin/i }));
-      await waitFor(() => expect(recordAiDraftOutcome).toHaveBeenCalledWith('agent', 'accepted'));
+      await waitFor(() => expect(recordAiDraftOutcome).toHaveBeenCalledWith('agent', 'accepted', DRAFT_1));
       // Closing the panel afterwards reports nothing more.
       unmount();
-      expect(recordAiDraftOutcome.mock.calls).toEqual([['agent', 'accepted']]);
+      expect(recordAiDraftOutcome.mock.calls).toEqual([['agent', 'accepted', DRAFT_1]]);
       // Only the feature and the outcome leave the browser.
       expect(JSON.stringify(recordAiDraftOutcome.mock.calls)).not.toContain('trivy');
     });
 
     it('a failed apply records nothing, and the draft is still pending', async () => {
-      askAgentStream.mockReturnValue(gen([{ type: 'proposal', data: PLUGIN_PROPOSAL }, { type: 'done' }]));
+      askAgentStream.mockReturnValue(gen([{ type: 'proposal', data: PLUGIN_PROPOSAL, draftId: DRAFT_1 }, { type: 'done' }]));
       deployGeneratedPlugin.mockRejectedValue(new Error('boom'));
       const { unmount } = render(<AskPanel onClose={jest.fn<AnyFn>()} />);
       ask('a trivy scan plugin');
@@ -370,45 +382,45 @@ describe('AskPanel model + repository controls', () => {
       await screen.findByRole('alert');
       expect(recordAiDraftOutcome).not.toHaveBeenCalled();
       unmount();
-      expect(recordAiDraftOutcome.mock.calls).toEqual([['agent', 'discarded']]);
+      expect(recordAiDraftOutcome.mock.calls).toEqual([['agent', 'discarded', DRAFT_1]]);
     });
 
     it('Dismiss removes the proposal and records it discarded, once', async () => {
-      askAgentStream.mockReturnValue(gen([{ type: 'proposal', data: PLUGIN_PROPOSAL }, { type: 'done' }]));
+      askAgentStream.mockReturnValue(gen([{ type: 'proposal', data: PLUGIN_PROPOSAL, draftId: DRAFT_1 }, { type: 'done' }]));
       const { unmount } = render(<AskPanel onClose={jest.fn<AnyFn>()} />);
       ask('a trivy scan plugin');
       fireEvent.click(await screen.findByRole('button', { name: /Dismiss/i }));
-      expect(recordAiDraftOutcome.mock.calls).toEqual([['agent', 'discarded']]);
+      expect(recordAiDraftOutcome.mock.calls).toEqual([['agent', 'discarded', DRAFT_1]]);
       expect(screen.queryByRole('button', { name: /Create plugin/i })).not.toBeInTheDocument();
       unmount();
-      expect(recordAiDraftOutcome.mock.calls).toEqual([['agent', 'discarded']]);
+      expect(recordAiDraftOutcome.mock.calls).toEqual([['agent', 'discarded', DRAFT_1]]);
       expect(deployGeneratedPlugin).not.toHaveBeenCalled();
     });
 
     it('closing the panel with a proposal pending records it discarded', async () => {
-      askAgentStream.mockReturnValue(gen([{ type: 'proposal', data: PLUGIN_PROPOSAL }, { type: 'done' }]));
+      askAgentStream.mockReturnValue(gen([{ type: 'proposal', data: PLUGIN_PROPOSAL, draftId: DRAFT_1 }, { type: 'done' }]));
       const { unmount } = render(<AskPanel onClose={jest.fn<AnyFn>()} />);
       ask('a trivy scan plugin');
       await screen.findByRole('button', { name: /Create plugin/i });
       unmount();
-      expect(recordAiDraftOutcome.mock.calls).toEqual([['agent', 'discarded']]);
+      expect(recordAiDraftOutcome.mock.calls).toEqual([['agent', 'discarded', DRAFT_1]]);
     });
 
     it('a newer proposal replaces a pending one: the older is discarded, applying it later records nothing', async () => {
-      askAgentStream.mockReturnValueOnce(gen([{ type: 'proposal', data: PLUGIN_PROPOSAL }, { type: 'done' }]));
+      askAgentStream.mockReturnValueOnce(gen([{ type: 'proposal', data: PLUGIN_PROPOSAL, draftId: DRAFT_1 }, { type: 'done' }]));
       render(<AskPanel onClose={jest.fn<AnyFn>()} />);
       ask('a trivy scan plugin');
       await screen.findByRole('button', { name: /Create plugin/i });
-      askAgentStream.mockReturnValueOnce(gen([{ type: 'proposal', data: { ...PLUGIN_PROPOSAL, config: { ...PLUGIN_PROPOSAL.config, name: 'trivy-two' } } }, { type: 'done' }]));
+      askAgentStream.mockReturnValueOnce(gen([{ type: 'proposal', data: { ...PLUGIN_PROPOSAL, config: { ...PLUGIN_PROPOSAL.config, name: 'trivy-two' } }, draftId: DRAFT_2 }, { type: 'done' }]));
       ask('another one');
       await waitFor(() => expect(screen.getAllByRole('button', { name: /Create plugin/i })).toHaveLength(2));
-      expect(recordAiDraftOutcome.mock.calls).toEqual([['agent', 'discarded']]);
+      expect(recordAiDraftOutcome.mock.calls).toEqual([['agent', 'discarded', DRAFT_1]]);
       deployGeneratedPlugin.mockResolvedValue({ success: true, data: { plugin: { id: 'pl1' } } });
       await waitFor(() => expect(screen.getAllByRole('button', { name: /Create plugin/i })[0]).toBeEnabled());
       fireEvent.click(screen.getAllByRole('button', { name: /Create plugin/i })[0]!);
       await waitFor(() => expect(deployGeneratedPlugin).toHaveBeenCalled());
       await waitFor(() => expect(screen.getAllByRole('button', { name: /Create plugin/i })).toHaveLength(1));
-      expect(recordAiDraftOutcome.mock.calls).toEqual([['agent', 'discarded']]);
+      expect(recordAiDraftOutcome.mock.calls).toEqual([['agent', 'discarded', DRAFT_1]]);
     });
   });
 });

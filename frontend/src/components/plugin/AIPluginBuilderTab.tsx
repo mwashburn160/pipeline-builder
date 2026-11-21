@@ -188,7 +188,7 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
         setDockerfileViolations(data.dockerfileViolations ?? []);
         setServed({ servedBy: data.servedBy, usage: data.usage });
         setStreamPreview(null);
-        draftOutcome.offered(isAskAgentProvider(ai.selectedProvider) ? 'agent' : 'plugin-generate', { config: data.config, dockerfile: data.dockerfile });
+        draftOutcome.offered(isAskAgentProvider(ai.selectedProvider) ? 'agent' : 'plugin-generate', { config: data.config, dockerfile: data.dockerfile }, data.draftId);
       },
       onSettled: () => setStreamPreview(null),
     });

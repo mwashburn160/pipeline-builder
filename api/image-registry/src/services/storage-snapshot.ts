@@ -33,7 +33,13 @@
  *
  * Freshness: a new push is counted at the next run (the interval). A delete or
  * prune re-measures that org's known repositories straight away
- * ({@link refreshOrgSnapshot}), so freed bytes show without waiting.
+ * ({@link refreshOrgSnapshot}), so freed bytes show without waiting. Each org
+ * record keeps a per-repository breakdown stamped with when it was measured,
+ * and both writers MERGE into the stored record rather than replace it
+ * ({@link mergeOrgRecord}): a full run keeps a refresh's newer figures for the
+ * repositories it re-measured, and a refresh keeps repositories a newer run
+ * found. One org's record failing to store does not lose the run: the org is
+ * named in the marker and reads as unknown until it is measured again.
  */
 
 import {
@@ -56,6 +62,7 @@ import {
   onOrgStorageInvalidated,
   scanRepositories,
   storageScanConcurrency,
+  type RepoUsage,
   type StorageUsage,
 } from './storage-usage.js';
 
@@ -88,6 +95,12 @@ export const SNAPSHOT_RUNS_COUNTER = 'registry_storage_snapshot_runs_total';
  * scraped. Alerted by `RegistryStorageSnapshotStale`.
  */
 export const SNAPSHOT_LAST_SUCCESS_GAUGE = 'registry_storage_snapshot_last_success_timestamp_seconds';
+/**
+ * Counter: org records a snapshot run measured but could not store. The run
+ * carries on and the marker names the org, which reads as unknown (the push
+ * gate refuses) until a later write lands.
+ */
+export const SNAPSHOT_ORG_WRITE_FAILURES_COUNTER = 'registry_storage_snapshot_org_write_failures_total';
 /** Gauge: the interval (seconds) the last completed run was scheduled at; the stale alert's yardstick. */
 export const SNAPSHOT_INTERVAL_GAUGE = 'registry_storage_snapshot_interval_seconds';
 
@@ -109,6 +122,19 @@ export interface SnapshotMeta {
   /** The leader's configured interval, so readers judge age against what actually runs. */
   intervalMs: number;
   orgs: number;
+  /** Orgs this run measured but could not store: they read as unknown (not as
+   *  "the run found nothing") until a later record lands. */
+  incompleteOrgIds?: string[];
+}
+
+/** One repository's figures inside an org record. */
+interface RepoFigure {
+  bytes: number;
+  blobs: number;
+  /** When the scan that produced these figures started (epoch ms): the state it
+   *  read is at least this recent. */
+  measuredAt: number;
+  incomplete: boolean;
 }
 
 /** One org's measurement. */
@@ -123,6 +149,61 @@ interface OrgRecord {
   incomplete: boolean;
   /** False when publication records were unreadable during the run (scope may be short). */
   recordsComplete: boolean;
+  /** Per-repository breakdown; `bytes`/`blobs` are its sums. Absent on a record
+   *  written before the breakdown existed (then nothing in it outranks a new scan). */
+  perRepo?: Record<string, RepoFigure>;
+}
+
+/** Stamp a scan's per-repo usage with when it started. */
+function figuresFrom(perRepo: ReadonlyMap<string, RepoUsage> | undefined, measuredAt: number): Map<string, RepoFigure> {
+  const out = new Map<string, RepoFigure>();
+  for (const [repo, u] of perRepo ?? []) out.set(repo, { ...u, measuredAt });
+  return out;
+}
+
+/**
+ * Merge a scan's per-repo figures into the stored record for the org. For each
+ * repository in `repos`, the more recently measured figure wins — the stored
+ * one when another writer (a refresh during a run, a run during a refresh)
+ * measured it later than this scan did. A repository neither side measured
+ * leaves the org incomplete. The record's `runId` never goes backwards, so a
+ * record that already counted as current for the latest marker still does.
+ */
+export function mergeOrgRecord(opts: {
+  measured: ReadonlyMap<string, RepoFigure>;
+  repos: readonly string[];
+  stored: OrgRecord | null;
+  runId: number;
+  recordsComplete: boolean;
+}): OrgRecord {
+  const { measured, repos, stored, runId, recordsComplete } = opts;
+  const perRepo: Record<string, RepoFigure> = {};
+  let bytes = 0;
+  let blobs = 0;
+  let incomplete = !recordsComplete;
+  for (const repo of repos) {
+    const mine = measured.get(repo);
+    const theirs = stored?.perRepo?.[repo];
+    const pick = theirs && (!mine || theirs.measuredAt > mine.measuredAt) ? theirs : mine;
+    if (!pick) {
+      incomplete = true;
+      continue;
+    }
+    perRepo[repo] = pick;
+    bytes += pick.bytes;
+    blobs += pick.blobs;
+    if (pick.incomplete) incomplete = true;
+  }
+  return {
+    runId: Math.max(runId, stored?.runId ?? 0),
+    bytes,
+    blobs,
+    repos: [...repos],
+    computedAt: Date.now(),
+    incomplete,
+    recordsComplete,
+    perRepo,
+  };
 }
 
 /** Key/value store the snapshot lives in: Redis when configured, else this process. */
@@ -229,6 +310,12 @@ export async function readOrgStorageUsage(orgId: string): Promise<StorageUsage> 
   }
   incCounter(SNAPSHOT_READS_COUNTER, { outcome: 'fresh' });
   const record = parse<OrgRecord>(recordRaw);
+  // The last run measured this org but could not store the result: whatever is
+  // stored predates it, so the org is unknown until something newer than the
+  // run (a targeted refresh, the next run) lands.
+  if (meta.incompleteOrgIds?.includes(id) && (!record || record.runId <= meta.runId)) {
+    return { prefix, bytes: 0, repos: 0, blobs: 0, computedAt: meta.completedAt, incomplete: true };
+  }
   // Every org the last completed run found was written BEFORE its marker, so a
   // record older than that run (or none) means the run found nothing for it.
   if (!record || record.runId < meta.runId) {
@@ -291,10 +378,14 @@ export async function runStorageSnapshot(opts: { intervalMs: number; signal?: Ab
   for (const [publicRepo, owner] of owners) {
     if (owner) add(owner.toLowerCase(), publicRepo);
   }
+  // A canonical order, so a shared blob is billed to the same repository by
+  // every scan of the org (the per-repo figures of a run and a refresh merge).
+  for (const repos of orgRepos.values()) repos.sort();
 
   const s = getStore();
   const perOrgMs: Array<{ orgId: string; ms: number; repos: number }> = [];
   let incompleteOrgs = 0;
+  const unstoredOrgs: string[] = [];
   // Several orgs at once, and ONE cap on registry calls for the whole run: each
   // org's scan is itself concurrent, so without the shared limiter the run
   // would keep orgs × per-scan calls in flight.
@@ -303,14 +394,28 @@ export async function runStorageSnapshot(opts: { intervalMs: number; signal?: Ab
   await mapWithConcurrency([...orgRepos], concurrency, async ([orgId, repos]) => {
     if (signal?.aborted) return;
     const orgStart = Date.now();
-    const scan = await scanRepositories(repos, { timings, limiter });
+    const scan = await scanRepositories(repos, { timings, limiter, perRepo: true });
     if (signal?.aborted) return;
-    const incomplete = scan.incomplete || !recordsComplete;
-    if (incomplete) incompleteOrgs++;
-    const record: OrgRecord = {
-      runId, bytes: scan.bytes, blobs: scan.blobs, repos, computedAt: Date.now(), incomplete, recordsComplete,
-    };
-    await s.set(orgKey(orgId), JSON.stringify(record), RECORD_TTL_SECONDS);
+    try {
+      // Read-merge-write: a targeted refresh may have stored newer figures for
+      // some of these repositories since this scan started.
+      const record = mergeOrgRecord({
+        measured: figuresFrom(scan.perRepo, orgStart),
+        repos,
+        stored: parse<OrgRecord>(await s.get(orgKey(orgId))),
+        runId,
+        recordsComplete,
+      });
+      if (record.incomplete) incompleteOrgs++;
+      await s.set(orgKey(orgId), JSON.stringify(record), RECORD_TTL_SECONDS);
+    } catch (err) {
+      // One org's record not landing must not lose every other org's: the
+      // marker names it, so it reads as unknown rather than as 0 bytes.
+      incompleteOrgs++;
+      unstoredOrgs.push(orgId);
+      incCounter(SNAPSHOT_ORG_WRITE_FAILURES_COUNTER, {});
+      logger.warn('Storage snapshot could not store an org record — it reads as unknown', { orgId, error: errorMessage(err) });
+    }
     perOrgMs.push({ orgId, ms: Date.now() - orgStart, repos: repos.length });
   });
   if (signal?.aborted) {
@@ -319,7 +424,14 @@ export async function runStorageSnapshot(opts: { intervalMs: number; signal?: Ab
   }
 
   const completedAt = Date.now();
-  const meta: SnapshotMeta = { runId, completedAt, durationMs: completedAt - runId, intervalMs, orgs: orgRepos.size };
+  const meta: SnapshotMeta = {
+    runId,
+    completedAt,
+    durationMs: completedAt - runId,
+    intervalMs,
+    orgs: orgRepos.size,
+    ...(unstoredOrgs.length > 0 ? { incompleteOrgIds: unstoredOrgs.sort() } : {}),
+  };
   await s.set(META_KEY, JSON.stringify(meta), RECORD_TTL_SECONDS);
   publishSnapshotGauges(meta);
 
@@ -335,6 +447,7 @@ export async function runStorageSnapshot(opts: { intervalMs: number; signal?: Ab
   logger.info('Storage snapshot complete', {
     orgs: meta.orgs,
     incompleteOrgs,
+    unstoredOrgs: unstoredOrgs.length,
     catalogRepos: catalog.length,
     recordsComplete,
     phaseMs: phases,
@@ -379,20 +492,21 @@ async function refreshOnce(orgId: string): Promise<void> {
   // Nothing measured for it yet — the next full run will.
   if (!record) return;
   const startedAt = Date.now();
-  const scan = await scanRepositories(record.repos);
-  // A full run that started after this refresh has newer figures: keep them.
-  const current = parse<OrgRecord>(await s.get(orgKey(orgId)));
-  if (current && current.runId > startedAt) return;
-  const next: OrgRecord = {
-    ...record,
+  const repos = [...record.repos].sort();
+  const scan = await scanRepositories(repos, { perRepo: true });
+  // Merge into what is stored NOW: a full run may have written since this
+  // refresh read the record. Its repositories (including any this refresh never
+  // knew) are kept, and its figures win wherever it measured after `startedAt`.
+  const current = parse<OrgRecord>(await s.get(orgKey(orgId))) ?? record;
+  const next = mergeOrgRecord({
+    measured: figuresFrom(scan.perRepo, startedAt),
+    repos: current.repos,
+    stored: current,
     // The refresh measured the org at or after `startedAt`, so it is at least as
     // current as any run that started before it.
     runId: startedAt,
-    bytes: scan.bytes,
-    blobs: scan.blobs,
-    computedAt: Date.now(),
-    incomplete: scan.incomplete || !record.recordsComplete,
-  };
+    recordsComplete: current.recordsComplete,
+  });
   await s.set(orgKey(orgId), JSON.stringify(next), RECORD_TTL_SECONDS);
   logger.info('Storage snapshot refreshed for org', { orgId, bytes: next.bytes, incomplete: next.incomplete, ms: Date.now() - startedAt });
 }

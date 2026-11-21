@@ -1,6 +1,6 @@
 // GENERATED FROM docs/pipeline-manager.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 743309dd1cf9af2c5bc11bf27f62cdacc14e452de05f3a564aa2102d83efc46e
+// SOURCE-SHA256: 9a1364969ba3ceb99a122d6603c7fc860f5339515c1ed55114cabe17e965e6fb
 // SPDX-License-Identifier: Apache-2.0
 import { Terminal } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -589,7 +589,7 @@ export const cliReferenceTopic: HelpTopic = {
             ],
             [
               "org export",
-              "Export an organization's data as JSON for GDPR portability (sysadmins can export any org; org admins their own only)"
+              "Export an organization's data as JSON for GDPR portability (sysadmins can export any org; org admins their own only). Needs a fresh step-up: like auth pat, it shows a device code to approve in the browser (--no-browser prints the URL instead)"
             ]
           ]
         },

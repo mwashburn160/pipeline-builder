@@ -29,7 +29,8 @@
 
 import type { WeekStart } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
-import { boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, varchar } from 'drizzle-orm/pg-core';
+import { boolean, index, integer, pgTable, text, timestamp, uniqueIndex, varchar } from 'drizzle-orm/pg-core';
+import { jsonb } from './jsonb.js';
 
 /** How often a definition produces a report. */
 export const REPORT_CADENCES = ['weekly', 'monthly', 'quarterly'] as const;

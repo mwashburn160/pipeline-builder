@@ -192,6 +192,26 @@ async function recoverStranded(row: PluginRemediation, result: QueuePassResult, 
   logger.warn('Stranded remediation re-enqueued', { remediationId: row.id, stage: row.stage, requeue: n + 1 });
 }
 
+/** A published tenant fix untouched this long whose rollout never started is started again (its publish is long past its own attempt). */
+export const ROLLOUT_START_RETRY_AFTER_MS = 15 * 60_000;
+
+/**
+ * A TENANT fix stays `published` only when its publish's rollout start was
+ * refused or never answered (the pipeline service down, a 5xx): a started
+ * one moves to `rolling_out` (on the start's answer, or on the pipeline
+ * service's first report). Start it again; the pipeline side is idempotent per
+ * remediation id, so a start that did land but lost its answer only moves the
+ * stage. An Official fix (system org) is started by its listing publish, never here.
+ */
+async function retryRolloutStart(row: PluginRemediation, result: QueuePassResult, now: Date): Promise<void> {
+  if (isSystemOrgId(row.orgId) || row.updatedAt.getTime() > now.getTime() - ROLLOUT_START_RETRY_AFTER_MS) return;
+  if (!await startTenantRollout(row)) return;
+  if (await updateRemediation(row.id, { stage: 'rolling_out' }, ['published'])) {
+    result.rolloutsStarted++;
+    logger.info('Remediation rollout started on retry', { remediationId: row.id });
+  }
+}
+
 async function liveResumeToolchainFixes(): Promise<number> {
   const [{ resumeStuckToolchainFixes }, { liveToolchainPorts }] = await Promise.all([import('./toolchain.js'), import('./tooling.js')]);
   return resumeStuckToolchainFixes({ ports: liveToolchainPorts() });
@@ -216,10 +236,12 @@ export interface QueuePassResult {
   requeued: number;
   /** Stranded rows failed (`STRANDED`) after their re-enqueues. */
   stranded: number;
+  /** Published tenant fixes whose failed rollout start was retried and taken this pass. */
+  rolloutsStarted: number;
 }
 
 export async function queuePassRemediations(candidates: readonly RemediationCandidate[], deps: QueueDeps): Promise<QueuePassResult> {
-  const result: QueuePassResult = { queued: 0, ownerRequests: 0, publisherRequests: 0, capped: 0, superseded: 0, deactivated: 0, requeued: 0, stranded: 0 };
+  const result: QueuePassResult = { queued: 0, ownerRequests: 0, publisherRequests: 0, capped: 0, superseded: 0, deactivated: 0, requeued: 0, stranded: 0, rolloutsStarted: 0 };
   const cfg = remediationConfig();
   if (!cfg.enabled) return result;
   const now = deps.now?.() ?? new Date();
@@ -411,6 +433,7 @@ async function sweepLive(result: QueuePassResult, deps: Pick<QueueDeps, 'discard
       continue;
     }
     if (row.toPluginId && (row.stage === 'rolling_out' || row.stage === 'published')) {
+      if (row.stage === 'published') await retryRolloutStart(row, result, now).catch((err) => logger.warn('Remediation rollout start not retried', { remediationId: row.id, error: errorMessage(err) }));
       if (await deactivateIfUnreferenced(row)) result.deactivated++;
       continue;
     }
@@ -425,7 +448,7 @@ async function sweepLive(result: QueuePassResult, deps: Pick<QueueDeps, 'discard
  * path's. Deactivation is the step that takes an ACTIVE version out of use, so
  * only the rule's only-version half applies here.
  */
-async function onlyRemainingVersion(row: Pick<PluginRemediation, 'pluginId' | 'orgId' | 'pluginName' | 'fromVersion'>): Promise<boolean> {
+async function onlyRemainingVersion(row: Pick<PluginRemediation, 'orgId' | 'pluginName' | 'fromVersion'> & { pluginId: string }): Promise<boolean> {
   const p = schema.plugin;
   const others = await elevatedTx((tx) => tx.select({ id: p.id }).from(p)
     .where(and(eq(p.orgId, row.orgId), eq(p.name, row.pluginName), isNull(p.deletedAt), ne(p.id, row.pluginId))).limit(1)) as unknown[];
@@ -437,18 +460,21 @@ async function onlyRemainingVersion(row: Pick<PluginRemediation, 'pluginId' | 'o
 /**
  * Deactivate the flagged version once no pipeline references it — never the
  * plugin's only remaining version; it stays stored, flagged and restorable,
- * with its kept source. Remediation never deletes anything.
+ * with its kept source. Remediation never deletes anything. A row whose version
+ * was already purged (`pluginId` NULL) has nothing to deactivate.
  */
 export async function deactivateIfUnreferenced(row: Pick<PluginRemediation, 'pluginId' | 'orgId' | 'pluginName' | 'fromVersion'>): Promise<boolean> {
+  const pluginId = row.pluginId;
+  if (!pluginId) return false;
   const p = schema.plugin;
-  const [from] = await elevatedTx((tx) => tx.select({ isActive: p.isActive, imageDigest: p.imageDigest }).from(p).where(eq(p.id, row.pluginId)).limit(1)) as Array<{ isActive: boolean; imageDigest: string | null }>;
+  const [from] = await elevatedTx((tx) => tx.select({ isActive: p.isActive, imageDigest: p.imageDigest }).from(p).where(eq(p.id, pluginId)).limit(1)) as Array<{ isActive: boolean; imageDigest: string | null }>;
   if (!from?.isActive) return false;
   // Never the plugin's only remaining version (automatic paths never take a plugin's last version out of use).
-  if (await onlyRemainingVersion(row)) return false;
+  if (await onlyRemainingVersion({ ...row, pluginId })) return false;
   const using = await pipelinesOnVersion({ pluginName: row.pluginName, pluginVersion: row.fromVersion, imageDigest: from.imageDigest });
   if (using.length > 0) return false;
-  await elevatedTx((tx) => tx.update(p).set({ isActive: false, updatedAt: new Date(), updatedBy: SYSTEM_PLUGIN_REMEDIATION }).where(eq(p.id, row.pluginId)));
-  logger.info('Flagged version deactivated: its fix is published and no pipeline references it', { pluginId: row.pluginId });
+  await elevatedTx((tx) => tx.update(p).set({ isActive: false, updatedAt: new Date(), updatedBy: SYSTEM_PLUGIN_REMEDIATION }).where(eq(p.id, pluginId)));
+  logger.info('Flagged version deactivated: its fix is published and no pipeline references it', { pluginId });
   return true;
 }
 

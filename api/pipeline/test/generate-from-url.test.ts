@@ -933,6 +933,15 @@ describe('POST /generate/from-url/stream', () => {
 
   // Null final output  done event not sent, but [DONE] still sent
 
+  it('the done event carries a draft id the caller can report the outcome under', async () => {
+    const { getAiDraftStore } = await import('@pipeline-builder/api-core');
+    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([{ project: 'app' }], { project: 'app', organization: 'test' }));
+    const res = mockSseRes();
+    await handler(mockReq(), res);
+    const done = parseSseEvents(res.chunks).find((e: any) => e.type === 'done') as { data: { draftId?: string } };
+    expect(await getAiDraftStore().redeem(done.data.draftId!, { orgId: 'test-org', userId: 'test-user', feature: 'pipeline-generate' })).toBe('ok');
+  });
+
   it('skips done event but sends [DONE] when AI returns null output', async () => {
     mockStreamPipelineConfig.mockReturnValue(createMockStreamResult( [{ project: 'app' }],
       null,
@@ -1137,6 +1146,20 @@ describe('POST /generate (aiCalls refund policy)', () => {
     expect(auditRows()[0].details.quota.slot).toBe('kept');
   });
 
+  it('returns a draft id with the generated draft', async () => {
+    mockGeneratePipelineConfig.mockResolvedValue({
+      props: { project: 'app', organization: 'test' },
+      description: 'desc',
+      keywords: [],
+      usage: USAGE,
+      servedBy: { provider: 'anthropic', model: 'claude-sonnet-5' },
+      promptVersion: 'pipeline-generate@test',
+    });
+    await handler(mockReq({ body: {} }), mockSseRes());
+    const data = mockSendSuccess.mock.calls[0][2] as { draftId?: string };
+    expect(data.draftId).toMatch(/^[A-Za-z0-9_-]{32}$/);
+  });
+
   it('does not refund on a successful generation', async () => {
     mockGeneratePipelineConfig.mockResolvedValue({
       props: { project: 'app', organization: 'test' },
@@ -1222,6 +1245,15 @@ describe('POST /generate/from-url (JSON)', () => {
     expect(data.keywords).toEqual(['node']);
     expect(data.analysis).toEqual(expect.objectContaining({ owner: MOCK_ANALYSIS.owner, repo: MOCK_ANALYSIS.repo }));
     expect(mockDecrementQuota).not.toHaveBeenCalled();
+  });
+
+  it('carries a single-use pipeline-generate draft id bound to the caller', async () => {
+    const { getAiDraftStore } = await import('@pipeline-builder/api-core');
+    await handler(mockReq({ body: {} }), mockSseRes());
+    const data = mockSendSuccess.mock.calls[0][2] as { draftId?: string };
+    expect(typeof data.draftId).toBe('string');
+    expect(await getAiDraftStore().redeem(data.draftId!, { orgId: 'test-org', userId: 'other-user', feature: 'pipeline-generate' })).toBe('invalid');
+    expect(await getAiDraftStore().redeem(data.draftId!, { orgId: 'test-org', userId: 'test-user', feature: 'pipeline-generate' })).toBe('ok');
   });
 
   it('never auto-creates missing plugins (drafts have no side effects)', async () => {

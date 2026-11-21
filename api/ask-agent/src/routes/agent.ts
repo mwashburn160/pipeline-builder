@@ -19,6 +19,7 @@ import {
   errorMessage,
   hasPermission,
   initSSEStream,
+  issueAiDraftId,
   requireFeature,
   requireOrgAIEnabled,
   sendBadRequest,
@@ -131,7 +132,8 @@ const AGENT_SYSTEM = [
  * SSE events:
  *   { type: 'token', data: string }             — assistant text delta
  *   { type: 'tool-call', data: { toolName } }    — a tool started (UI can show a spinner)
- *   { type: 'proposal', data: {...} }            — a reviewable draft (propose_* tools)
+ *   { type: 'proposal', data: {...}, draftId? }  — a reviewable draft (propose_* tools), with the
+ *     single-use id its outcome is reported under (POST /ask-agent/draft-outcome)
  *   { type: 'done', data: { servedBy?, usage, toolUsage, slotsCharged } } then [DONE]
  *     `usage` is the agent's own tokens, `toolUsage` the in-process tool
  *     generations', and `slotsCharged` the aiCalls units this turn drew as far
@@ -385,7 +387,11 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
                   if (sources) sse.send({ type: 'sources', data: sources });
                 } else if (part.toolName.startsWith('propose_')) {
                   // Every propose_* tool returns a reviewable draft (pipeline/plugin/template).
-                  sse.send({ type: 'proposal', data: part.output });
+                  // Its single-use draft id rides the EVENT, not the tool output, so
+                  // the model never sees it; the console sends it back with the
+                  // draft's outcome (POST /ask-agent/draft-outcome).
+                  const draftId = await issueAiDraftId({ orgId, userId, feature: 'agent' });
+                  sse.send({ type: 'proposal', data: part.output, ...(draftId ? { draftId } : {}) });
                 }
                 break;
               case 'error':

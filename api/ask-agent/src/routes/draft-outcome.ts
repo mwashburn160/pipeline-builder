@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, envInt, errorMessage, getServiceAuthHeader, InternalHttpClient, requireFeature, sendBadRequest, sendSuccess, validateBody } from '@pipeline-builder/api-core';
+import { createLogger, envInt, ErrorCode, errorMessage, getAiDraftStore, getServiceAuthHeader, InternalHttpClient, requireFeature, sendBadRequest, sendError, sendSuccess, validateBody } from '@pipeline-builder/api-core';
 import { incCounter, rateLimitByOrg, withRoute } from '@pipeline-builder/api-server';
 import { Config } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
@@ -58,10 +58,19 @@ async function forwardDraftOutcome(orgId: string, feature: string, outcome: stri
  * purpose: an audit row carries its actor, and this signal must never be
  * attributable to a person — it is counted per org and feature, nothing else.
  *
- * Capped per USER (`ASK_DRAFT_OUTCOME_RATE_LIMIT_PER_MIN`, default 20) on top
- * of the mount's per-org Ask limit: an outcome is not tied to a real draft, so
- * without it one member could swing the org's acceptance rate with a loop. The
- * limiter's key never leaves this service; the forwarded count stays anonymous.
+ * Each outcome names the `draftId` the generator issued with the draft
+ * (pipeline / plugin generate, or an agent proposal): single use, ~1 h, bound
+ * to the org, the user and the producing feature (api-core `AiDraftStore`). A
+ * reused id is refused with 409, an unknown / forged / expired id or one issued
+ * to another user, org or feature with 400, and a draft store that cannot
+ * answer with 503 — so an outcome is only ever counted for a real draft, once.
+ *
+ * Mounted OUTSIDE the per-org Ask rate limit and the `apiCalls` quota
+ * (app-routes.ts): reporting what became of a draft is not an Ask, and must
+ * neither use up the org's Ask allowance nor be refused because it ran out.
+ * Still capped per USER (`ASK_DRAFT_OUTCOME_RATE_LIMIT_PER_MIN`, default 20).
+ * The limiter's key and the draft id never leave this service; the forwarded
+ * count stays anonymous.
  */
 export function createDraftOutcomeRoutes(): Router {
   const router: Router = Router();
@@ -73,10 +82,17 @@ export function createDraftOutcomeRoutes(): Router {
     message: 'Too many draft outcomes',
   });
 
-  router.post('/draft-outcome', requireAskAccess, requireFeature('ai_generation'), perUser, withRoute(async ({ req, res, ctx, orgId }) => {
+  router.post('/draft-outcome', requireAskAccess, requireFeature('ai_generation'), perUser, withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const parsed = validateBody(req, AskDraftOutcomeSchema);
     if (!parsed.ok) return sendBadRequest(res, parsed.error);
-    const { feature, outcome } = parsed.value;
+    const { feature, outcome, draftId } = parsed.value;
+    const verdict = await getAiDraftStore().redeem(draftId, { orgId, userId, feature });
+    if (verdict !== 'ok') {
+      ctx.log('WARN', 'Draft outcome refused', { feature, verdict });
+      if (verdict === 'used') return sendError(res, 409, 'This draft\'s outcome was already recorded', ErrorCode.CONFLICT);
+      if (verdict === 'unavailable') return sendError(res, 503, 'Draft outcomes cannot be verified right now', ErrorCode.SERVICE_UNAVAILABLE);
+      return sendBadRequest(res, 'Unknown or expired draft id');
+    }
     incCounter('ai_draft_outcomes_total', { feature, outcome });
     const recorded = await forwardDraftOutcome(orgId, feature, outcome);
     ctx.log('COMPLETED', 'Draft outcome', { feature, outcome, recorded });

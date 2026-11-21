@@ -28,9 +28,9 @@
  * Restore plugin / Purge plugin act on ONE batch only — never on versions
  * deleted earlier on their own. A restore re-charges a `plugins` slot per
  * version (like the single restore; a version over the cap is skipped). A purge
- * removes, per version, the row (and with it its `plugin_remediations` rows,
- * FK cascade), then its kept-source prefix and its image
- * (services/version-purge.ts).
+ * removes, per version, the row (and with it its `plugin_remediations` rows
+ * that never produced a fix; a published fix's record stays, its `plugin_id`
+ * NULL), then its kept-source prefix and its image (services/version-purge.ts).
  */
 
 import { randomUUID } from 'node:crypto';
@@ -183,8 +183,22 @@ function refusalReason(err: unknown): PluginDeleteSkipReason | null {
   return null;
 }
 
+export interface DeleteByNameOptions {
+  force: boolean;
+  quotaService: QuotaService;
+  /** The batch id to delete under (the background job picks it up front so its 202 can name it). */
+  batchId?: string;
+  /**
+   * Called once the lock is held and the refusals that touch nothing (404, 403)
+   * have passed, before anything is cancelled or deleted. A throw here aborts
+   * the delete with nothing touched (services/plugin-delete-jobs.ts answers its
+   * 202 from this point).
+   */
+  onAccepted?: () => Promise<void>;
+}
+
 /** Delete every version of `name` the caller can (see the module comment). */
-export async function deleteByName(name: string, caller: NameActionCaller, opts: { force: boolean; quotaService: QuotaService }): Promise<PluginDeleteAllResult & { cancelled: { builds: number; remediations: number } }> {
+export async function deleteByName(name: string, caller: NameActionCaller, opts: DeleteByNameOptions): Promise<PluginDeleteAllResult & { cancelled: { builds: number; remediations: number } }> {
   assertNameNotManaged(name);
   const { orgId, userId } = caller;
   return withPluginNameLock(orgId, name, async () => {
@@ -192,6 +206,7 @@ export async function deleteByName(name: string, caller: NameActionCaller, opts:
     if (before.length === 0) throw nameNotFound(name, await rootHasName(caller.parentOrgId, name));
     const refused = before.map((row) => ({ id: row.id, version: row.version, verdict: caller.checkWrite(row) })).filter((r) => r.verdict !== 'ok');
     if (refused.length > 0) throw visibilityRefusal(name, refused);
+    await opts.onAccepted?.();
 
     // Nothing new lands from here: queued work goes, running work finishes
     // (or is refused at its store), remediations stop.
@@ -204,7 +219,7 @@ export async function deleteByName(name: string, caller: NameActionCaller, opts:
     }
     await waitForRunning(orgId, name, PLUGIN_DELETE_INFLIGHT_WAIT_MS);
 
-    const batchId = randomUUID();
+    const batchId = opts.batchId ?? randomUUID();
     const deleted: Plugin[] = [];
     const skipped: PluginDeleteSkip[] = [];
     for (const row of await liveRows(orgId, name)) {
@@ -365,7 +380,7 @@ export async function purgeByName(name: string, batchId: string, caller: NameAct
         skipped.push({ id: row.id, version: row.version, reason: 'not_purgeable' });
         continue;
       }
-      // The row and its remediation rows are gone; the plugin service's purge
+      // The row and its unfixed remediation rows are gone (a fix's record stays); the plugin service's purge
       // hook has removed its kept-source prefix and image (version-purge.ts).
       refundPluginSlot(opts.quotaService, row, caller.logWarn);
       done.push({ id: row.id, version: row.version });

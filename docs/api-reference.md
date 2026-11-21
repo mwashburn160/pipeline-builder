@@ -127,7 +127,7 @@ answer before any credential exists:
 | `DELETE` | `/pipelines/:id` | Delete pipeline |
 | `POST` | `/pipelines/bulk/create` | Create up to the bulk cap in one request (`{ pipelines: [...] }`; `?upsert=true` as single create). The status reflects the outcome: **201** every item saved, **207** some failed, **422** none saved. The per-item body `{ created, updated, failed, items, errors }` is in `data` on 201/207 and in the error envelope's `details` on 422 |
 | `GET` | `/pipelines/providers` | List AI providers |
-| `POST` | `/pipelines/generate` | AI-generate pipeline from prompt (consumes `aiCalls` quota) |
+| `POST` | `/pipelines/generate` | AI-generate pipeline from prompt (consumes `aiCalls` quota). Every generate route's JSON response and `done` event also carry `draftId`, the single-use id the draft's outcome is reported under (`POST /ask-agent/draft-outcome`) |
 | `POST` | `/pipelines/generate/stream` | Stream AI generation as SSE (consumes `aiCalls` quota) |
 | `POST` | `/pipelines/generate/from-url` | Analyze Git URL + generate pipeline as one JSON response — no plugin auto-creation; used by the Ask agent's `propose_pipeline_from_repo` (consumes `aiCalls` quota) |
 | `POST` | `/pipelines/analyze/from-url` | Repository analysis ONLY (`{ gitUrl, repoToken? }` → `{ analysis }`): no model call, no `aiCalls` slot, persists nothing (`pipelines:write` + `ai_generation`). Used by the Ask agent's `propose_plugin_from_repo` |
@@ -158,7 +158,7 @@ answer before any credential exists:
 | `POST` | `/plugins/bulk/delete` | Bulk soft-delete; versions that are frozen, listed or in use are skipped (`skipped: [{ id, reason }]`), each deleted slot is refunded and deleted defaults are replaced |
 | `DELETE` | `/plugins/:id` | Delete a version. Referenced by any pipeline → 409 `PLUGIN_VERSION_IN_USE` (`reason: 'in_use'`, no override: the answer names the pipelines, the version's severity and `suggestedVersion`); published to a listing → 409 `PLUGIN_VERSION_IN_USE` (`reason: 'listed'`) unless `?force=true` with a step-up token; referenced by a pending publish request → 409 `PLUGIN_VERSION_FROZEN`. Deleting the default promotes the next default; the `plugins` quota slot is refunded while its period is current; the orgs using the version are notified (N14) |
 | `GET` | `/plugins/providers` | List AI providers |
-| `POST` | `/plugins/generate` | AI-generate plugin from prompt (consumes `aiCalls` quota). Also returns `similarPlugins` (see below) |
+| `POST` | `/plugins/generate` | AI-generate plugin from prompt (consumes `aiCalls` quota). Also returns `similarPlugins` (see below). Every generate route's JSON response and `done` event also carry `draftId`, the single-use id the draft's outcome is reported under (`POST /ask-agent/draft-outcome`) |
 | `POST` | `/plugins/generate/stream` | Stream AI plugin generation as SSE (consumes `aiCalls` quota) |
 | `POST` | `/plugins/deploy-generated` | Build and deploy AI-generated plugin |
 | `GET` | `/plugins/plugin-usage` | Counts pipelines (in caller's org) referencing each plugin: keyed by `name` for unqualified references and `publisher/name` for qualified ones |
@@ -292,7 +292,7 @@ The three answering routes take one body: `{ query (1–6000 chars), provider?, 
 | `POST` | `/ask-agent/stream` | The same answer as SSE: `{ type: 'sources' }`, then `{ type: 'token', data }` deltas, then `{ type: 'done', data: { servedBy: { provider, model, fallbackFrom? }, usage } }` and `[DONE]`. A scheduled-off model mid-stream ends with `{ type: 'error', message }`. Audited `ask.query` |
 | `POST` | `/ask-agent/agent/stream` | One agent turn as SSE: `token`, `tool-call` (`{ toolName }`), `sources`, `proposal` (a draft pipeline, plugin or template for the user to review — the agent writes nothing; the client applies a draft through the owning service), then `done` and `[DONE]`. Tools run as the caller, with the caller's own token and permissions. Each generating tool reserves its own `aiCalls` slot on top of the turn's. Audited `ask.agent.turn` |
 | `POST` | `/ask-agent/feedback` | `{ kind: 'answer' \| 'help-search-miss', rating?: 'up' \| 'down' (required for an answer), sources?: string[] (doc ids, ≤ 20) }` → `{ recorded: true }`. Carries no free text by construction. An answer rating is audited `ask.feedback` |
-| `POST` | `/ask-agent/draft-outcome` | `{ feature: 'agent' \| 'pipeline-generate' \| 'plugin-generate', outcome: 'accepted' \| 'edited_accepted' \| 'discarded' }` → `{ recorded }` — counts what happened to a reviewable draft, per org and feature only. Not audited (it must never be attributable to a person). Also capped per user (`ASK_DRAFT_OUTCOME_RATE_LIMIT_PER_MIN`, default 20 a minute) on top of the per-org limit |
+| `POST` | `/ask-agent/draft-outcome` | `{ feature: 'agent' \| 'pipeline-generate' \| 'plugin-generate', outcome: 'accepted' \| 'edited_accepted' \| 'discarded', draftId }` → `{ recorded }` — counts what happened to a reviewable draft, per org and feature only. `draftId` is the single-use id the generation returned with the draft (~1 h, bound to org + user + feature): reused → 409, unknown / forged / expired / another user's → 400, store unavailable → 503. Not audited (it must never be attributable to a person). Free: outside the `apiCalls` quota and the per-org Ask rate limit; capped per user (`ASK_DRAFT_OUTCOME_RATE_LIMIT_PER_MIN`, default 20 a minute) |
 
 ### Compliance Service
 
@@ -387,7 +387,7 @@ Cross-tenant permissions such as `orgs:manage` are **system-org-only**: they can
 | `POST` | `/organization/:id/restore` | Restore a soft-deleted org inside its window (+ step-up). A parent admin may restore its own team; a team restore needs its parent live and still team-capable (`409`) and room in the account's pooled seats (`409`), and re-syncs the root's tier + entitlements | `org_settings:write` (own org / managed team) |
 | `POST` | `/organization/:id/move` | Reparent (+ step-up). Body `{ parentOrgId: string \| null }`: a team to another eligible root (team/enterprise tier), a team out as a standalone root (`null`), or a root **with no teams** (live or pending deletion) in under a root. Refuses self-parenting, cycles, nesting two deep, an ineligible/missing destination and a no-op (`400`/`404`), a move over the destination's seat cap (`409`), a competing move that landed first (`409 ORG_MOVE_CONFLICT` — every structural check is re-asserted inside the transaction and the write is conditional on the parent this request read, so of two interleaved moves exactly one commits), and nesting a root that still has a billable subscription (`409`, cancel it first; `503` if billing can't confirm). Re-syncs tier, entitlements and quota seeding for the new account (a team takes the root's tier + entitlements with `-1` quotas; a new root starts on the default tier, since no subscription follows it, with that tier's quota preset and no entitlements) and invalidates every session scoped to the org → `{ organization }` (the detail DTO with hierarchy) | `orgs:manage` |
 | `PATCH` | `/organization/:id/tier` | Change pricing tier (+ step-up) | `orgs:manage` |
-| `GET` | `/organization/:id/export` | GDPR data export — a single JSON blob carrying every Postgres table and every Mongo collection the delete cascade removes (invitations, audit events, IdP config + group mappings, domains, join requests, SAML SLO sessions, service accounts + keys with the key hash stripped, memberships, Role assignments and Roles). The same artifact is captured as the recovery snapshot at soft-delete time; `failed` names any store that could not be read and `truncated` any that hit its cap | `org_settings:write` |
+| `GET` | `/organization/:id/export` | GDPR data export (+ step-up) — a single JSON blob carrying every Postgres table and every Mongo collection the delete cascade removes (invitations, audit events, IdP config + group mappings, domains, join requests, SAML SLO sessions, service accounts + keys with the key hash stripped, memberships, Role assignments and Roles). The same artifact is captured as the recovery snapshot at soft-delete time; `failed` names any store that could not be read and `truncated` any that hit its cap | `org_settings:write` |
 | `PATCH` | `/organization/:id/transfer-owner` | Transfer ownership (+ step-up on an `aal: 2` session) | `org_settings:write` |
 | `GET` | `/organization/:id/members` | List members | — (member) |
 | `GET` | `/organization/:id/members/:userId/exists` | Active-membership probe (`{ isMember }`) — internal, used by the message service to reject a per-user DM to a non-member | — (service / member) |
@@ -615,7 +615,7 @@ Every route of the Pipeline, Plugin and Ask Agent services, generated from the r
 
 ### Plugin Service — every route
 
-177 routes, from `frontend/src/generated/route-table/plugin.json`.
+178 routes, from `frontend/src/generated/route-table/plugin.json`.
 
 | Method | Endpoint | Requires | Meters | Audit action |
 |--------|----------|----------|--------|--------------|
@@ -636,6 +636,7 @@ Every route of the Pipeline, Plugin and Ask Agent services, generated from the r
 | `POST` | `/plugins/bulk/delete` | `plugins:write`; feature `bulk_operations` | `apiCalls` | `plugin.bulk.delete` |
 | `PUT` | `/plugins/bulk/update` | `plugins:write`; feature `bulk_operations` | `apiCalls` | `plugin.bulk.update` |
 | `DELETE` | `/plugins/by-name/:name` | `plugins:write`; step-up | `apiCalls` | `plugin.delete-all` |
+| `GET` | `/plugins/by-name/:name/delete-jobs/:jobId` | `plugins:read` | `apiCalls` | — |
 | `GET` | `/plugins/by-name/:name/delete-preview` | `plugins:write` | `apiCalls` | — |
 | `PUT` | `/plugins/by-name/:name/never-tidy` | `plugins:write` | `apiCalls` | `plugin.tidy.kept` |
 | `POST` | `/plugins/by-name/:name/purge` | `plugins:write`; step-up | `apiCalls` | `plugin.purge-all` |
@@ -806,7 +807,7 @@ Every route of the Pipeline, Plugin and Ask Agent services, generated from the r
 | `POST` | `/ask-agent` | `pipelines:read` or `plugins:read` or `templates:read`; feature `ai_generation` | `apiCalls` | `ask.query` |
 | `POST` | `/ask-agent/agent/stream` | `pipelines:read` or `plugins:read` or `templates:read`; feature `ai_generation` | `apiCalls` | `ask.agent.turn` |
 | `GET` | `/ask-agent/availability` | `pipelines:read` or `plugins:read` or `templates:read`; feature `ai_generation` | `apiCalls` | — |
-| `POST` | `/ask-agent/draft-outcome` | `pipelines:read` or `plugins:read` or `templates:read`; feature `ai_generation` | `apiCalls` | — |
+| `POST` | `/ask-agent/draft-outcome` | `pipelines:read` or `plugins:read` or `templates:read`; feature `ai_generation` | — | — |
 | `POST` | `/ask-agent/feedback` | `pipelines:read` or `plugins:read` or `templates:read` | `apiCalls` | `ask.feedback` |
 | `GET` | `/ask-agent/providers` | `pipelines:read` or `plugins:read` or `templates:read`; feature `ai_generation` | `apiCalls` | — |
 | `POST` | `/ask-agent/stream` | `pipelines:read` or `plugins:read` or `templates:read`; feature `ai_generation` | `apiCalls` | `ask.query` |

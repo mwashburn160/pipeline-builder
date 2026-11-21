@@ -1,6 +1,6 @@
 // GENERATED FROM docs/stakeholder-reports.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: e3b1bf645ed52af47be5bf11c304e88bc6a0f8d9587a0019156094dba44ec10a
+// SOURCE-SHA256: 19380f637285379000b6d9ee6fb6726135e4996ca666a990dd5cb99065d909ff
 // SPDX-License-Identifier: Apache-2.0
 import { FileText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -568,7 +568,7 @@ export const stakeholderReportsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Off until an administrator turns them on. An org that never considered public links has none.",
+            "Off until an administrator turns them on. An org that never considered public links has none. While sharing is off, creating a link (POST /api/reports/stakeholder/runs/:id/links) is refused with 403 INSUFFICIENT_PERMISSIONS, the same refusal as a rollup scope without reports:rollup.",
             "Turning sharing off ends the links already out there. The org's externalSharing policy and the account's Stakeholder Reports add-on are re-checked on every read of a link (page and PDF), not only when it was minted. When an administrator turns sharing off, every live link in the org is also revoked in the same request (one reporting.report.link.revoked audit row, details.reason: external_sharing_disabled, details.count), so turning sharing back on allows new links only and never revives the old ones.",
             "A link outlives its owner leaving. The entitlement is checked as the report's owner. If the owner is no longer an active member, it is checked through the organization's active owners and administrators instead: the link keeps working while any of them still holds the add-on (platform's internal org-entitlement lookup, which answers yes or no and never names anyone, and only to a service token scoped to that same organization: a token for any other org, or the system org, gets 403). If none does, or the platform service cannot say, the link returns the same 404 as an unknown one. An owner who is still a member gets no such fallback, so a lapsed add-on still ends the link. Scheduled runs are unchanged: a departed owner's report stays paused until it is transferred.",
             "The token is 256 bits of CSPRNG output, stored only as a SHA-256 hash. A database copy cannot be turned back into working URLs, and the raw token is shown once, when the link is created.",

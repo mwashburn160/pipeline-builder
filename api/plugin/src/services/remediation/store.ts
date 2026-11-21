@@ -12,6 +12,7 @@
 import {
   ACTIVE_BUILD_REMEDIATION_STAGES,
   compareSemverLenient,
+  createLogger,
   LIVE_REMEDIATION_STAGES,
   normalizePluginRemediationSettings,
   SYSTEM_PLUGIN_REMEDIATION,
@@ -38,6 +39,8 @@ export const ROLLOUT_REMEDIATION_STAGES = LIVE_REMEDIATION_STAGES.filter(
 ) as ReadonlyArray<Exclude<(typeof LIVE_REMEDIATION_STAGES)[number], (typeof ACTIVE_BUILD_REMEDIATION_STAGES)[number]>>;
 export const isRolloutStage = (stage: PluginRemediationStage): boolean => (ROLLOUT_REMEDIATION_STAGES as readonly string[]).includes(stage);
 
+const logger = createLogger('plugin-remediation-store');
+
 const R = () => schema.pluginRemediation;
 const S = () => schema.pluginRemediationSetting;
 const P = () => schema.plugin;
@@ -61,9 +64,41 @@ export async function getOrgRemediation(orgId: string, id: string): Promise<Plug
 
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Insert a queued remediation. Null when an idempotency index refused it (already live / building for that version). */
+/**
+ * Whether the versions a remediation row names — `plugin_id` (the version it
+ * fixes) and `to_plugin_id` (its fix), when set — exist and belong to the row's
+ * own org. Every table here is written elevated, so RLS never catches a row of
+ * one org pointing at another org's version; this does, before any insert.
+ * (The system org's Official flows are no exception: their rows are the system
+ * org's, and so are the versions they fix and publish.) `plugin_id` is nullable
+ * only so a fix record outlives its version's purge: an insert always names one.
+ */
+async function pluginsBelongToRowOrg(tx: any, row: Pick<PluginRemediationInsert, 'orgId' | 'pluginId' | 'toPluginId'>): Promise<boolean> { // eslint-disable-line @typescript-eslint/no-explicit-any
+  if (typeof row.pluginId !== 'string' || row.pluginId.length === 0) return false;
+  const ids = [...new Set([row.pluginId, row.toPluginId].filter((x): x is string => typeof x === 'string' && x.length > 0))];
+  if (ids.some((x) => !UUID.test(x))) return false;
+  const found = await tx.select({ id: P().id, orgId: P().orgId }).from(P()).where(inArray(P().id, ids)) as Array<{ id: string; orgId: string }>;
+  const org = row.orgId.toLowerCase();
+  return found.length === ids.length && found.every((f) => f.orgId.toLowerCase() === org);
+}
+
+function logRefusedInsert(row: Pick<PluginRemediationInsert, 'orgId' | 'pluginId' | 'toPluginId'>): void {
+  logger.error('Remediation insert refused: a version it names is not the row\'s org', { orgId: row.orgId, pluginId: row.pluginId, toPluginId: row.toPluginId ?? null });
+}
+
+/**
+ * Insert a queued remediation. Null when an idempotency index refused it
+ * (already live / building for that version), or when a version it names is
+ * not the row's org's (logged).
+ */
 export async function insertRemediation(row: PluginRemediationInsert): Promise<PluginRemediation | null> {
-  const rows = await elevatedTx((tx) => tx.insert(R()).values(row).onConflictDoNothing().returning()) as PluginRemediation[];
+  const rows = await elevatedTx(async (tx) => {
+    if (!await pluginsBelongToRowOrg(tx, row)) {
+      logRefusedInsert(row);
+      return [];
+    }
+    return tx.insert(R()).values(row).onConflictDoNothing().returning();
+  }) as PluginRemediation[];
   return rows[0] ?? null;
 }
 
@@ -86,7 +121,9 @@ export async function remediationsCreatedSince(orgId: string, now: Date = new Da
 export type CappedInsert =
   | { status: 'inserted'; row: PluginRemediation }
   | { status: 'capped'; used: number }
-  | { status: 'conflict' };
+  | { status: 'conflict' }
+  /** A version the row names (`plugin_id`, `to_plugin_id`) is missing or another org's. Nothing was written. */
+  | { status: 'refused' };
 
 /**
  * Insert a remediation only while `orgId` is under its daily cap: the count of
@@ -95,7 +132,8 @@ export type CappedInsert =
  * the nightly pass) are serialized and can never exceed `cap` together.
  * `beforeInsert` runs inside the same transaction once the cap holds (retry
  * closes the needs_review row it replaces there). `conflict` = an idempotency
- * index refused the row (already live / building for that version).
+ * index refused the row (already live / building for that version);
+ * `refused` = a version it names is not the row's org's (checked first).
  */
 export async function insertRemediationUnderCap(
   row: PluginRemediationInsert,
@@ -105,6 +143,10 @@ export async function insertRemediationUnderCap(
   const org = row.orgId.toLowerCase();
   const since = new Date((opts.now ?? new Date()).getTime() - 24 * 3_600_000);
   return elevatedTx(async (tx) => {
+    if (!await pluginsBelongToRowOrg(tx, row)) {
+      logRefusedInsert(row);
+      return { status: 'refused' } as const;
+    }
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`plugin-remediation-cap:${org}`}))`);
     const counted = await tx.select({ n: sql<number>`count(*)::int` }).from(R())
       .where(and(eq(R().orgId, org), gt(R().createdAt, since))) as Array<{ n: number }>;
@@ -119,7 +161,8 @@ export async function insertRemediationUnderCap(
 /**
  * Update a remediation, optionally only when it is still in one of `from`
  * stages (a guarded transition). Returns the new row, or null when the guard
- * did not hold.
+ * did not hold. A patch that sets `toPluginId` also only applies while that
+ * version is the row's own org's (in the same statement).
  */
 export async function updateRemediation(
   id: string,
@@ -133,6 +176,7 @@ export async function updateRemediation(
       ...(from ? [inArray(R().stage, [...from])] : []),
       // `undecided`: only while nobody has approved it yet (two approvals never both win).
       ...(opts.undecided ? [isNull(R().decidedAt)] : []),
+      ...(patch.toPluginId ? [sql`EXISTS (SELECT 1 FROM ${P()} WHERE ${P().id} = ${patch.toPluginId} AND lower(${P().orgId}) = lower(${R().orgId}))`] : []),
     ))
     .returning()) as PluginRemediation[];
   return rows[0] ?? null;

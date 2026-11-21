@@ -225,4 +225,6 @@ export interface PluginGenerationDone<TConfig> {
   usage?: { inputTokens: number; outputTokens: number; cachedInputTokens?: number; totalTokens?: number };
   /** The versioned prompt that produced it (recorded on the audit row too). */
   promptVersion?: string;
+  /** The single-use id this draft's outcome is reported under (`POST /api/ask-agent/draft-outcome`). */
+  draftId?: string;
 }

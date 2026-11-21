@@ -104,6 +104,7 @@ import {
   activeAcceptances,
   drizzleListingSource,
   failedStatusList,
+  getTenantContext,
   orgListingStates,
   runWithTenantContext,
   terminalStatusList,
@@ -211,6 +212,8 @@ export interface RolloutDeps {
   redeploy(input: { row: UpgradeRow; pipeline: RolloutPipeline; rootOrgId: string | null }): Promise<MoveResult>;
   rollbackTarget(row: UpgradeRow, rootOrgId: string | null): Promise<RollbackTargetCheck>;
   report(remediationId: string, body: { summary: RemediationRolloutSummary; events: RolloutEvent[] }): Promise<'ok' | 'unknown' | 'failed'>;
+  /** The org's ancestors in the platform hierarchy (nearest first); throws when it cannot be read. */
+  ancestors(orgId: string): Promise<string[]>;
 }
 
 /** A per-pipeline event the plugin service turns into notices (N38). */
@@ -358,6 +361,33 @@ export async function rolloutCandidates(input: Pick<StartRolloutInput, 'orgId' |
     ORDER BY pipeline_id`));
   return rowsOf<{ org_id: string; pipeline_id: string; root_org_id: string | null }>(res)
     .map((r) => ({ orgId: r.org_id, pipelineId: r.pipeline_id, rootOrgId: r.root_org_id && r.root_org_id !== r.org_id ? r.root_org_id : null }));
+}
+
+/**
+ * Whether a `pipeline_remediation_upgrades` row for `rowOrgId` may be written
+ * for a pipeline of `pipelineOrgId`, in a rollout scoped to `scopeOrgId` (null:
+ * an instance-wide remediation). The row's org must BE the pipeline's org, and a
+ * scoped rollout reaches only the scope org's own pipelines or those of a team
+ * under it — confirmed against the platform org hierarchy (`ancestors`), never
+ * against the root a resolution row recorded, which the candidate query reads
+ * and a stale or foreign row could claim. Fail-closed: a hierarchy that cannot
+ * be read refuses the row (logged); the pipeline is picked up by a later start.
+ */
+export async function rowOrgAdmits(
+  input: { pipelineOrgId: string; rowOrgId: string; scopeOrgId: string | null },
+  ancestors: (orgId: string) => Promise<string[]>,
+): Promise<boolean> {
+  const pipelineOrg = input.pipelineOrgId.toLowerCase();
+  if (pipelineOrg !== input.rowOrgId.toLowerCase()) return false;
+  if (input.scopeOrgId === null) return true;
+  const scope = input.scopeOrgId.toLowerCase();
+  if (pipelineOrg === scope) return true;
+  try {
+    return (await ancestors(input.pipelineOrgId)).some((a) => a.toLowerCase() === scope);
+  } catch (err) {
+    logger.warn('Remediation row refused: org hierarchy unavailable', { orgId: input.pipelineOrgId, scopeOrgId: input.scopeOrgId, error: errorMessage(err) });
+    return false;
+  }
 }
 
 /** The root org a TEAM pipeline's resolution recorded (null for a root org's pipeline). */
@@ -680,8 +710,8 @@ export function createRolloutEngine(deps: RolloutDeps) {
     const existing = await loadRows(remediationId);
     const requested = new Set<string>();
 
-    const placeFor = async (orgId: string, pipelineId: string, rootOrgId: string | null): Promise<Placement | null> => {
-      const pipeline = await loadPipeline(pipelineId);
+    const placeFor = async (orgId: string, pipelineId: string, rootOrgId: string | null, loaded?: RolloutPipeline): Promise<Placement | null> => {
+      const pipeline = loaded ?? await loadPipeline(pipelineId);
       if (!pipeline) return null;
       const settings = await settingsOf(orgId, rootOrgId);
       const resolved = effectiveRollout(pipeline.remediationUpgrades, settings);
@@ -710,12 +740,24 @@ export function createRolloutEngine(deps: RolloutDeps) {
     }
 
     for (const c of await rolloutCandidates(input)) {
-      const placement = await placeFor(c.orgId, c.pipelineId, c.rootOrgId);
+      const pipeline = await loadPipeline(c.pipelineId);
+      if (!pipeline) continue;
+      // The row is written as the system: check its org against the pipeline
+      // (and the rollout's scope) here, before anything is planned or requested.
+      if (!await rowOrgAdmits({ pipelineOrgId: pipeline.orgId, rowOrgId: c.orgId, scopeOrgId: input.orgId }, deps.ancestors)) {
+        logger.warn('Remediation row refused: pipeline outside the rollout org', { remediationId, pipelineId: c.pipelineId, orgId: c.orgId, scopeOrgId: input.orgId });
+        continue;
+      }
+      const placement = await placeFor(c.orgId, c.pipelineId, c.rootOrgId, pipeline);
       if (!placement || placement.state === 'superseded') continue;
+      // Guarded in SQL too: the row is inserted only while the pipeline is live
+      // and still belongs to the row's org.
       await asSystem((tx) => tx.execute(sql`
         INSERT INTO pipeline_remediation_upgrades (org_id, remediation_id, pipeline_id, plugin_name, plugin_publisher, from_version, to_version, mode, state, error)
-        VALUES (${c.orgId}, ${remediationId}::uuid, ${c.pipelineId}::uuid, ${input.plugin}, ${input.publisher}, ${input.fromVersion}, ${input.toVersion},
-                ${placement.mode}, ${placement.state}, ${placement.error})
+        SELECT ${c.orgId}, ${remediationId}::uuid, p.id, ${input.plugin}, ${input.publisher}, ${input.fromVersion}, ${input.toVersion},
+               ${placement.mode}, ${placement.state}, ${placement.error}
+        FROM pipelines p
+        WHERE p.id = ${c.pipelineId}::uuid AND p.deleted_at IS NULL AND lower(p.org_id) = ${c.orgId.toLowerCase()}
         ON CONFLICT (remediation_id, pipeline_id) DO NOTHING`));
     }
     const rows = await loadRows(remediationId);
@@ -1060,6 +1102,19 @@ export async function planMove(pipeline: Pick<RolloutPipeline, 'orgId' | 'props'
 }
 
 /**
+ * {@link planMove} as the engine's `plan`: under the caller's tenant scope
+ * when there is one (a user's proposal apply), else — a start from the plugin
+ * service's internal call, the rollout worker — sysadmin-scoped in the
+ * pipeline's org, as {@link moveReal} scopes a system move. Unscoped, the
+ * contract resolver's `withTenantTx` throws in strict tenant mode.
+ */
+function planInScope(...args: Parameters<typeof planMove>): Promise<MovePlan> {
+  if (getTenantContext()) return planMove(...args);
+  const [pipeline, rootOrgId] = args;
+  return runWithTenantContext({ orgId: pipeline.orgId, isSuperAdmin: true, ...(rootOrgId ? { parentOrgId: rootOrgId } : {}) }, () => planMove(...args));
+}
+
+/**
  * Move a pinned install's pin `from` → `to` (guarded on the pin; a no-op when
  * it already reads `to`): `moved`, `pending` (another change request holds the
  * install) or `changed` (it no longer pins `from`).
@@ -1254,12 +1309,13 @@ export function realRolloutDeps(): RolloutDeps {
   return {
     now: () => new Date(),
     settings: (orgId, rootOrgId) => readOrgRolloutSettings(orgId, rootOrgId),
-    plan: planMove,
+    plan: planInScope,
     move: moveReal,
     requestInstallChange,
     redeploy: redeployReal,
     rollbackTarget: checkRollbackTarget,
     report: reportReal,
+    ancestors: (orgId) => runnerDeps().hierarchy.ancestors(orgId, undefined, { strict: true }),
   };
 }
 
