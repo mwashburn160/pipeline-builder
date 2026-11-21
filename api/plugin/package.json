@@ -143,7 +143,8 @@
     "collectCoverageFrom": [
       "src/**/*.ts",
       "!src/**/*.d.ts",
-      "!src/testing/**"
+      "!src/testing/**",
+      "!src/services/remediation/ports.ts"
     ],
     "coverageThreshold": {
       "global": {

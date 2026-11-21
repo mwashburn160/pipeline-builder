@@ -197,16 +197,22 @@ jobs:
       - name: Details NX_BASE, NX_HEAD
         id: details_nx_base_nx_head
         run: 'echo "NX_BASE: ${{ env.NX_BASE }}, NX_HEAD: ${{ env.NX_HEAD }}"'
+      - name: Restore Nx cache
+        id: restore_nx_cache
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25
+        with:
+          path: |-
+            .nx/cache
+            .nx/workspace-data
+          key: nx-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: |-
+            nx-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
+            nx-${{ runner.os }}-
       - name: Run build target
         id: run_build_target
         env:
           GITHUB_TOKEN: ${{ secrets.GHRC_TOKEN }}
         run: pnpm nx affected --target build --base ${{ env.NX_BASE }} --head ${{ env.NX_HEAD }} --verbose
-      - name: Run test target
-        id: run_test_target
-        env:
-          GITHUB_TOKEN: ${{ secrets.GHRC_TOKEN }}
-        run: pnpm nx affected --target test --base ${{ env.NX_BASE }} --head ${{ env.NX_HEAD }} --verbose
       - name: Semantic version
         id: semantic_version
         env:

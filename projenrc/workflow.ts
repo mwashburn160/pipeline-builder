@@ -51,6 +51,7 @@ const ACTIONS = {
     setupNode: 'actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38', // v6
     uploadArtifact: 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a', // v7
     downloadArtifact: 'actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c', // v8
+    cache: 'actions/cache@caa296126883cff596d87d8935842f9db880ef25', // v5 (v5.1.0)
     dockerLogin: 'docker/login-action@dbcb813823bdd20940b903addbd779551569679f', // v4
     setupQemu: 'docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1', // v4
     setupBuildx: 'docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069', // v4
@@ -486,22 +487,19 @@ export class Workflow extends Component {
                     name: 'Details NX_BASE, NX_HEAD',
                     run: 'echo "NX_BASE: ${{ env.NX_BASE }}, NX_HEAD: ${{ env.NX_HEAD }}"',
                 },
+                this.nxCacheStep(),
                 {
+                    // Release gate. Every project's `build` task runs `test`
+                    // (typecheck:tests + jest + eslint) after compiling, so this ONE
+                    // step both builds and tests the affected projects against their
+                    // just-built upstream libs BEFORE anything is versioned or
+                    // published. A failure fails the build job, which skips `publish`
+                    // (needs: build) and `record_build` (which advances .nx_base) — so
+                    // a broken commit can neither ship an image nor move the affected
+                    // base forward. (A separate `nx affected -t test` step used to run
+                    // every suite a second time.)
                     name: 'Run build target',
                     run: 'pnpm nx affected --target build --base ${{ env.NX_BASE }} --head ${{ env.NX_HEAD }} --verbose',
-                    env: { GITHUB_TOKEN: '${{ secrets.GHRC_TOKEN }}' },
-                },
-                {
-                    // Release gate: run the affected projects' tests against the
-                    // just-built libs BEFORE versioning/publishing anything. A test
-                    // failure fails the build job, which skips `publish` (needs:
-                    // build) and `record_build` (which advances .nx_base) — so a
-                    // broken commit can neither ship an image nor move the affected
-                    // base forward. The `test` target dependsOn ['^build'] (nx.json),
-                    // so upstream libs are already built here. The dedicated `test`
-                    // workflow is the per-PR merge gate; this is the release-path gate.
-                    name: 'Run test target',
-                    run: 'pnpm nx affected --target test --base ${{ env.NX_BASE }} --head ${{ env.NX_HEAD }} --verbose',
                     env: { GITHUB_TOKEN: '${{ secrets.GHRC_TOKEN }}' },
                 },
                 {
@@ -1454,6 +1452,7 @@ export class Workflow extends Component {
             },
             steps: [
                 ...this.ciSetupSteps(),
+                this.nxCacheStep(),
                 {
                     name: 'Build affected projects',
                     run: `${Workflow.DIFF_BASE}; if [ -n "$BASE" ]; then pnpm nx affected -t build --base "$BASE" --head HEAD --verbose; else pnpm nx run-many -t build --all --verbose; fi`,
@@ -1664,6 +1663,28 @@ export class Workflow extends Component {
      *
      * @returns Array of job steps common to all jobs
      */
+    /**
+     * Restore/save the Nx task cache (`.nx/cache` + its `.nx/workspace-data`
+     * index) across runs. `nx affected -t build` also runs `^build` for every
+     * UNCHANGED upstream library, and `build` includes that library's full test
+     * suite, so without a persisted cache every run recompiled and retested
+     * api-core & co. from scratch. With it, an upstream lib whose nx-hashed inputs
+     * did not change is restored instead. Keyed by lockfile + commit; restore-keys
+     * fall back to the newest cache for the same lockfile, then any. GitHub scopes
+     * caches per branch, so a PR cannot seed main's.
+     */
+    private nxCacheStep(): JobStep {
+        return {
+            name: 'Restore Nx cache',
+            uses: ACTIONS.cache,
+            with: {
+                path: '.nx/cache\n.nx/workspace-data',
+                'key': "nx-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}",
+                'restore-keys': "nx-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-\nnx-${{ runner.os }}-",
+            },
+        };
+    }
+
     private bootstrapSteps(): JobStep[] {
 
         return [

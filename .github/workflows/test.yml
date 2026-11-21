@@ -64,6 +64,17 @@ jobs:
       - name: Install dependencies
         id: install_dependencies
         run: pnpm install --frozen-lockfile
+      - name: Restore Nx cache
+        id: restore_nx_cache
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25
+        with:
+          path: |-
+            .nx/cache
+            .nx/workspace-data
+          key: nx-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: |-
+            nx-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
+            nx-${{ runner.os }}-
       - name: Build affected projects
         id: build_affected_projects
         env:
