@@ -76,7 +76,7 @@ jest.unstable_mockModule('../src/utils/secret-blob.js', () => ({
   unwrapEncrypted: (...a: unknown[]) => mockUnwrap(...a),
 }));
 
-const { reencryptOrgSecrets, captureOrgSecrets, reencryptAllStoredSecrets, OrgSecretsReencryptError } = await import('../src/services/secret-reencrypt.js');
+const { reencryptOrgSecrets, captureOrgSecrets, findUnreadableOrgSecrets, reencryptAllStoredSecrets, OrgSecretsReencryptError } = await import('../src/services/secret-reencrypt.js');
 
 /** `Model.find().select().cursor()` over a fixed array of docs. */
 function cursorOver(docs: unknown[]) {
@@ -286,6 +286,32 @@ describe('captureOrgSecrets', () => {
     expect(captured.idpClientSecret).toBe('plain:cipher-idp');
     // The exact stored blobs are kept, so phase 3 can write conditionally on them.
     expect(captured.blobs).toEqual({ aiKeys: { openai: 'cipher-openai' }, idpClientSecret: 'cipher-idp' });
+  });
+});
+
+describe('findUnreadableOrgSecrets (post-change verification)', () => {
+  it('names every field that does not decrypt under the current config — never stopping at the first', async () => {
+    mockOrgFindById.mockReturnValue({
+      select: () => ({ lean: () => Promise.resolve({ aiProviderKeys: { anthropic: 'old-key-blob', openai: 'good-blob' } }) }),
+    });
+    mockIdpFindOne.mockReturnValue({
+      select: () => ({ lean: () => Promise.resolve({ clientSecretEncrypted: 'old-key-idp' }) }),
+    });
+    mockUnwrap.mockImplementation((raw: unknown) => {
+      if (String(raw).startsWith('old-key')) throw new Error('KMS key id mismatch');
+      return 'plain';
+    });
+
+    const unreadable = await findUnreadableOrgSecrets('org-1');
+    expect(unreadable).toEqual(['aiProviderKeys.anthropic', 'idpClientSecret']);
+    // Field names only: no blob, no plaintext, no error text.
+    expect(JSON.stringify(unreadable)).not.toMatch(/old-key|plain|mismatch/);
+  });
+
+  it('is empty when every stored secret opens (or the org holds none)', async () => {
+    mockOrgFindById.mockReturnValue({ select: () => ({ lean: () => Promise.resolve({}) }) });
+    mockIdpFindOne.mockReturnValue({ select: () => ({ lean: () => Promise.resolve(null) }) });
+    expect(await findUnreadableOrgSecrets('org-1')).toEqual([]);
   });
 });
 

@@ -59,7 +59,8 @@ describe('recordUsageEvent', () => {
         model: null,
         keySource: null,
       },
-      update: { $inc: { amount: 3, tokensIn: 0, tokensOut: 0 }, $set: { rootOrgId: 'root' } },
+      // `calls: 0` on every write, so every bucket carries the count.
+      update: { $inc: { amount: 3, tokensIn: 0, tokensOut: 0, calls: 0 }, $set: { rootOrgId: 'root' } },
       upsert: true,
     });
     expect(insertMany).not.toHaveBeenCalled();

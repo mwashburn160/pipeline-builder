@@ -109,7 +109,6 @@ export function fakeKeyStore(opts: { runners?: () => RunnerRow[]; now?: () => nu
     get settingsRows() { return settingsRows; },
     pauseRow: null,
     txCount: 0,
-    async tablesPresent() { return true; },
     transaction<T>(fn: (t: KeyTx) => Promise<T>): Promise<T> {
       // Serialized like row locks would serialize writers of one org; rolled back on a throw.
       const run = chain.then(async () => {

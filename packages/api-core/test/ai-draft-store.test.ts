@@ -122,18 +122,50 @@ describe('process-wide store', () => {
       stores.push(env);
       expect(await env.redeem((await env.issue(REF))!, REF)).toBe('ok');
       expect(getAiDraftStore()).toBe(getAiDraftStore());
-      const id = await issueAiDraftId(REF);
-      expect(await getAiDraftStore().redeem(id!, REF)).toBe('ok');
+      expect(getAiDraftStore().crossService).toBe(false);
     } finally {
       if (saved.url !== undefined) process.env.REDIS_URL = saved.url;
       if (saved.sentinels !== undefined) process.env.REDIS_SENTINELS = saved.sentinels;
     }
   });
 
+  describe('issueAiDraftId on a process-local (in-memory) store', () => {
+    const savedName = process.env.SERVICE_NAME;
+    afterEach(() => {
+      if (savedName === undefined) delete process.env.SERVICE_NAME;
+      else process.env.SERVICE_NAME = savedName;
+    });
+
+    it('issues NO id from a service other than the redeemer (ask-agent could never verify it)', async () => {
+      _setAiDraftStoreForTests(createMemoryAiDraftStore());
+      for (const name of ['pipeline', 'plugin']) {
+        process.env.SERVICE_NAME = name;
+        expect(await issueAiDraftId(REF)).toBeUndefined();
+        expect(await issueAiDraftId({ ...REF, feature: 'plugin-generate' })).toBeUndefined();
+      }
+    });
+
+    it('issues a redeemable id inside the redeemer itself (the Ask agent\'s own drafts)', async () => {
+      _setAiDraftStoreForTests(createMemoryAiDraftStore());
+      process.env.SERVICE_NAME = 'ask-agent';
+      const id = await issueAiDraftId({ ...REF, feature: 'agent' });
+      expect(id).toMatch(AI_DRAFT_ID_PATTERN);
+      expect(await getAiDraftStore().redeem(id!, { ...REF, feature: 'agent' })).toBe('ok');
+    });
+
+    it('a shared (Redis) store issues from every service', async () => {
+      _setAiDraftStoreForTests(createRedisAiDraftStore(makeFakeRedis() as never));
+      process.env.SERVICE_NAME = 'pipeline';
+      const id = await issueAiDraftId(REF);
+      expect(id).toMatch(AI_DRAFT_ID_PATTERN);
+      expect(await getAiDraftStore().redeem(id!, REF)).toBe('ok');
+    });
+  });
+
   it('issueAiDraftId never throws: a failing store serves the draft without an id', async () => {
-    _setAiDraftStoreForTests({ issue: async () => { throw new Error('boom'); }, redeem: async () => 'unavailable', stop: () => undefined });
+    _setAiDraftStoreForTests({ crossService: true, issue: async () => { throw new Error('boom'); }, redeem: async () => 'unavailable', stop: () => undefined });
     expect(await issueAiDraftId(REF)).toBeUndefined();
-    _setAiDraftStoreForTests({ issue: async () => null, redeem: async () => 'unavailable', stop: () => undefined });
+    _setAiDraftStoreForTests({ crossService: true, issue: async () => null, redeem: async () => 'unavailable', stop: () => undefined });
     expect(await issueAiDraftId(REF)).toBeUndefined();
   });
 

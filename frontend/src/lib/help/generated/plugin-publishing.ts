@@ -1,6 +1,6 @@
 // GENERATED FROM docs/plugin-publishing.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 9737ef77f8babc1df7d79b8c8a34b95a84566502795e67874f45e08065b6448e
+// SOURCE-SHA256: 33ef7e7d7dd58f64aa7ce8a21d91a0cebfb021407c90c47fa8843616c655d0e8
 // SPDX-License-Identifier: Apache-2.0
 import { Store } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -499,7 +499,7 @@ export const pluginPublishingTopic: HelpTopic = {
             ],
             [
               "java-archive",
-              "Maven ComparableVersion: alpha < beta < milestone < rc (= cr) < snapshot < release (= ga, final) < sp; trailing zeros are padding",
+              "Maven ComparableVersion: alpha < beta < milestone < rc (= cr) < snapshot < release (= ga, final) < sp; trailing zeros are padding; a qualifier after . reads as - (1.x = 1-x, Maven 3.9)",
               "1.0-rc1 < 1.0-SNAPSHOT < 1.0 = 1.0.0 < 1.0-sp1"
             ],
             [
@@ -509,7 +509,7 @@ export const pluginPublishingTopic: HelpTopic = {
             ],
             [
               "dotnet",
-              "NuGet: up to four numbers, prerelease below release, labels compared case-insensitively, build metadata ignored",
+              "NuGet: up to four numbers, prerelease below release, labels compared case-insensitively (a numeric label is a number only within int32, as Int32.TryParse reads it; a longer one compares as text), build metadata ignored",
               "1.0.0-beta.2 < 1.0.0-Beta.11 < 1.0.0 < 1.0.0.1"
             ],
             [
@@ -1272,7 +1272,7 @@ export const pluginPublishingTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "A background job. Because a delete waits for running builds, DELETE /api/plugins/by-name/:name answers 202 with the batchId its versions are deleted under and a jobId, once the delete is accepted. These refusals still answer the request itself, with nothing touched: an invalid name (400), a managed name, a missing step-up, the rate limit, the name lock (409 PLUGIN_NAME_LOCKED), a name with no versions in your organization (404), and a version you may not delete (403). Poll GET /api/plugins/by-name/:name/delete-jobs/:jobId until state is no longer running. The Delete plugin dialog polls every two seconds and then shows what was deleted and skipped. A job's status is kept for 24 hours, and only your organization can read it. If the server running a job stops, its status reads failed within two minutes. Check Recently deleted for what it deleted before it stopped."
+          "content": "A background job. Because a delete waits for running builds, DELETE /api/plugins/by-name/:name answers 202 with the batchId its versions are deleted under and a jobId, once the delete is accepted. These refusals still answer the request itself, with nothing touched: an invalid name (400), a managed name, a missing step-up, the rate limit, the name lock (409 PLUGIN_NAME_LOCKED), a name with no versions in your organization (404), and a version you may not delete (403). Poll GET /api/plugins/by-name/:name/delete-jobs/:jobId until state is no longer running. The Delete plugin dialog polls every two seconds and then shows what was deleted and skipped. Closing the dialog while the delete runs does not stop the delete: the Plugins page keeps polling it, refreshes the list when it ends and says if it failed. If the job's status has expired or is unknown (404), the dialog says progress is no longer available; check Recently deleted. A job's status is kept for 24 hours, and only your organization can read it. If the server running a job stops, its status reads failed within two minutes. Check Recently deleted for what it deleted before it stopped."
         },
         {
           "type": "text",

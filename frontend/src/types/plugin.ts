@@ -122,8 +122,8 @@ export interface Plugin {
 
   // Supply chain — set once the image is pushed, cosign-signed and carries its
   // SBOM attestation (signing failure fails the build, so a digest ⇒ signed).
-  // NULL for plugins that produce no image, and for an image-producing plugin
-  // that predates signing (synth refuses those; see `pluginProducesImage`).
+  // NULL for plugins that produce no image (and until the build pushes one;
+  // synth refuses an image-producing plugin without it — see `pluginProducesImage`).
   /** `sha256:<64 hex>` of the pushed, signed image. */
   imageDigest: string | null;
   /** `built` = BuildKit on the platform (SLSA provenance); `uploaded` = a prebuilt image.tar (no provenance). */

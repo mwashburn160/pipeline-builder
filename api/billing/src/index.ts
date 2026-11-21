@@ -14,8 +14,10 @@ import { startOffersProfile, stopOffersProfile } from './helpers/offers-profile.
 import { startOffersCycle, stopOffersCycle } from './helpers/offers-run.js';
 import { startPromotionBackfill, stopPromotionBackfill } from './helpers/promotion-backfill.js';
 import { seedPlans } from './helpers/seed-plans.js';
+import { startStripeWebhookReconcile, stopStripeWebhookReconcile } from './helpers/stripe-webhook-reconcile.js';
 import { startSubscriptionLifecycleChecker, stopSubscriptionLifecycleChecker } from './helpers/subscription-lifecycle.js';
 import { validateProviderConfig } from './helpers/validate-provider-config.js';
+import { STRIPE_WEBHOOK_EVENTS } from './routes/stripe-webhook.js';
 
 const logger = createLogger('billing');
 
@@ -72,6 +74,10 @@ if (config.enabled) {
       startSubscriptionLifecycleChecker();
       startMarketplaceMetering();
       startPromotionBackfill();
+      // Keep the Stripe webhook endpoint subscribed to every handled event (a
+      // background pass now, then daily). Never blocks or fails startup: a
+      // failure is logged by event name and raises BillingStripeWebhookEventsMissing.
+      startStripeWebhookReconcile(STRIPE_WEBHOOK_EVENTS);
       // The expansion-offers signal store. Started whatever OFFERS_ENABLED
       // says: the history cannot be backfilled, so a deployment that enables
       // offers later has something to act on rather than starting blind.
@@ -86,6 +92,7 @@ if (config.enabled) {
       stopSubscriptionLifecycleChecker();
       stopMarketplaceMetering();
       stopPromotionBackfill();
+      stopStripeWebhookReconcile();
       stopOffersProfile();
       stopOffersCycle();
       await entitlementSyncSub?.stop();

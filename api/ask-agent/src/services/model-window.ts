@@ -209,11 +209,11 @@ function evaluateWindow(now: Date): WindowState {
  * precondition for saying anything, because nothing about "the model at this
  * address did not answer" depends on a schedule existing.
  *
- * It used to gate the whole function, and that left the exact hole this module
- * was written to close: an operator who scaled `ask-model` down by hand, or
- * whose `.env` predates `ASK_SCHEDULE_ENABLED`, got "The assistant failed to
- * respond" — the generic fallback, indistinguishable from a broken model, which
- * is what sends people to an operator over a deliberate setting.
+ * Gating on it would leave the exact hole this module was written to close: an
+ * operator who scaled `ask-model` down by hand, or never set
+ * `ASK_SCHEDULE_ENABLED`, would get "The assistant failed to respond" — the
+ * generic fallback, indistinguishable from a broken model, which is what sends
+ * people to an operator over a deliberate setting.
  *
  * @param providerId - The RESOLVED provider that failed (not the requested one,
  *   which is often absent — the registry picks the first configured provider).

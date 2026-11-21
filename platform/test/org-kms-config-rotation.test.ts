@@ -45,6 +45,8 @@ jest.unstable_mockModule('../src/services/secret-reencrypt.js', () => ({
   captureOrgSecrets: (...a: unknown[]) => mockCapture(...a),
   reencryptOrgSecrets: (...a: unknown[]) => mockReencryptOrg(...a),
 }));
+/** The verification marker the save writes (helpers/org-kms-config.ts kmsVerifySchedule). */
+const DUE = expect.any(Date);
 jest.unstable_mockModule('../src/services/runner-key-reencrypt.js', () => ({
   reencryptRunnerSigningKeys: (...a: unknown[]) => mockRunnerReencrypt(...a),
 }));
@@ -206,6 +208,41 @@ describe('DELETE kms-config: runner signing keys', () => {
     expect(mockRunnerReencrypt).not.toHaveBeenCalled();
   });
 
+  it('no config to clear writes nothing', async () => {
+    mockOrgFindById.mockReturnValue(orgDoc({}));
+    const res = await del();
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data).toMatchObject({ configured: false, message: 'No KMS config to clear' });
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a stray ciphertext with no keyId', { ciphertextBase64: 'c3RyYXk=' }],
+    ['a keyId with no ciphertext', { keyId: 'alias/half' }],
+  ])('%s is a partial config: DELETE clears it (no migration — nothing is wrapped under it) and audits it', async (_label, partial) => {
+    mockOrgFindById.mockReturnValue(orgDoc(partial));
+    const res = await del();
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data).toMatchObject({ configured: false });
+    expect(save).toHaveBeenCalledTimes(1);
+    // Conditional on the org still having no ACTIVE config, so a concurrent PUT is never wiped.
+    expect(save.mock.calls[0][0]).toHaveProperty('$or');
+    expect(save.mock.calls[0][1]).toEqual({ $unset: { kmsConfig: 1 } });
+    expect(mockCapture).not.toHaveBeenCalled();
+    expect(mockRunnerReencrypt).not.toHaveBeenCalled();
+    expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'admin.org.kms-config.delete', expect.objectContaining({
+      details: expect.objectContaining({ partialConfigCleared: true }),
+    }));
+  });
+
+  it('a partial config a concurrent PUT completed meanwhile is left alone (409)', async () => {
+    mockOrgFindById.mockReturnValue(orgDoc({ ciphertextBase64: 'c3RyYXk=' }));
+    mockOrgUpdateOne.mockResolvedValue({ matchedCount: 0, modifiedCount: 0 });
+    const res = await del();
+    expect(res.statusCode).toBe(409);
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
+
   it('re-encrypts the platform secrets: captured under the CMK BEFORE the clear, re-wrapped AFTER it', async () => {
     mockOrgFindById.mockReturnValue(orgDoc({ ...OLD }));
     mockReencryptOrg.mockResolvedValue({ aiKeysReencrypted: 2, idpSecretReencrypted: true, concurrentlyChanged: [], unreadableConcurrentWrites: [] });
@@ -276,7 +313,7 @@ describe('kms-config: concurrent changes', () => {
         ? current?.keyId === filter['kmsConfig.keyId'] && current?.ciphertextBase64 === filter['kmsConfig.ciphertextBase64']
         : !current?.keyId || !current?.ciphertextBase64;
       if (!matches) return { matchedCount: 0, modifiedCount: 0 };
-      current = update.$set ? { ...update.$set.kmsConfig } : undefined;
+      current = update.$set?.kmsConfig ? { ...update.$set.kmsConfig } : undefined;
       return { matchedCount: 1, modifiedCount: 1 };
     });
     return { get: () => current };
@@ -291,8 +328,21 @@ describe('kms-config: concurrent changes', () => {
     await put();
     expect(mockOrgUpdateOne).toHaveBeenCalledWith(
       expect.objectContaining({ '_id': ORG, 'kmsConfig.keyId': OLD.keyId, 'kmsConfig.ciphertextBase64': OLD.ciphertextBase64 }),
-      { $set: { kmsConfig: NEW } },
+      { $set: { kmsConfig: NEW, kmsVerifyDueAt: DUE } },
     );
+  });
+
+  it('the save schedules the post-change verification in the same write (durable, and a later change supersedes it)', async () => {
+    store({ ...OLD });
+    await del();
+    expect(mockOrgUpdateOne.mock.calls[0][1]).toEqual({ $unset: { kmsConfig: 1 }, $set: { kmsVerifyDueAt: DUE } });
+  });
+
+  it('a refused (409) change schedules nothing: its save never matched', async () => {
+    store({ ...OLD });
+    mockOrgUpdateOne.mockResolvedValue({ matchedCount: 0, modifiedCount: 0 });
+    await put();
+    expect(mockOrgUpdateOne).toHaveBeenCalledTimes(1);
   });
 
   it('two concurrent PUTs: one rotates, the other gets 409 CONFLICT before re-encrypting', async () => {

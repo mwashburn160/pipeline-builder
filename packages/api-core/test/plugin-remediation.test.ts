@@ -134,6 +134,12 @@ describe('comparePackageVersions per ecosystem', () => {
     equal('java-archive', '1.0-a1', '1.0-alpha-1');
     // Unknown qualifiers sort after release qualifiers, lexically.
     ascending('java-archive', ['1.0', '1.0-sp', '1.0-xyz', '1.0.1']);
+    // Maven 3.9: a string qualifier after `.` reads as `-X` (1.0.0.X1 < 1.0.0-X2; 1.x = 1-x).
+    ascending('java-archive', ['1.0.0.x1', '1.0.0-x2']);
+    equal('java-archive', '1.x', '1-x');
+    equal('java-archive', '1.0.0.rc1', '1.0.0-rc1');
+    // MNG-6964: a sublist against nothing compares all its items, not just the first.
+    ascending('java-archive', ['1', '1-0.1']);
   });
 
   it('gem follows RubyGems (letter segments are prereleases)', () => {
@@ -150,6 +156,9 @@ describe('comparePackageVersions per ecosystem', () => {
     equal('dotnet', '1.0', '1.0.0.0');
     equal('dotnet', '1.0.0-Beta', '1.0.0-beta');
     equal('dotnet', '1.0.0+build.5', '1.0.0');
+    // Labels are numeric only when Int32.TryParse accepts them; larger digit runs compare as text.
+    ascending('dotnet', ['1.0.0-2147483647', '1.0.0-10000000000', '1.0.0-9999999999', '1.0.0-a']);
+    ascending('dotnet', ['1.0.0--1', '1.0.0-0']);
   });
 
   it('npm, cargo and go keep SemVer; deb keeps dpkg', () => {

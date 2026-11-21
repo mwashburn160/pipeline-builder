@@ -227,30 +227,29 @@ export interface SeatLimitResult {
  * aimed at a team can never rewrite the whole account's entitlement. Returns the
  * root id, or null if the org is missing.
  *
- * The name is narrower than the payload — it predates support contacts sharing
- * the leg — which is worth knowing before a third such limit arrives.
+ * Every field is required: billing pushes the full limits payload each time.
  */
 export async function setSeatLimit(
   orgId: string,
   seats: number,
-  features?: string[],
-  tier?: PlanTier,
-  supportContacts?: number,
-  supportPremiumContacts?: number,
+  features: string[],
+  tier: PlanTier,
+  supportContacts: number,
+  supportPremiumContacts: number,
 ): Promise<SeatLimitResult | null> {
   // Same reasoning as `setTier`: a seat cap on the org that owns the platform
   // is a tenant limit applied to the one org that is not a tenant.
   if (isSystemOrgId(orgId)) throw new Error(SYSTEM_ORG_LIMIT_FORBIDDEN);
   const { rootOrgId } = await resolveOrgLineage(orgId);
   if (String(rootOrgId) !== String(orgId)) throw new Error(ORG_SEAT_LIMIT_NOT_ROOT);
-  const set: Record<string, unknown> = { 'quotas.seats': seats };
-  // Optional so a sync that carries only seats leaves the org's contact
-  // allowance as it is rather than zeroing it.
-  if (supportContacts !== undefined) set['quotas.supportContacts'] = supportContacts;
-  if (supportPremiumContacts !== undefined) set['quotas.supportPremiumContacts'] = supportPremiumContacts;
   // Account-level purchased feature entitlements (bundles) also live on the
   // root and are synced by billing alongside the seat limit.
-  if (features !== undefined) set.featureEntitlements = features;
+  const set: Record<string, unknown> = {
+    'quotas.seats': seats,
+    'quotas.supportContacts': supportContacts,
+    'quotas.supportPremiumContacts': supportPremiumContacts,
+    'featureEntitlements': features,
+  };
 
   // Members whose claimsVersion was bumped by an access reduction (feature shrink
   // or tier downgrade) — published after commit (never mid-transaction).
@@ -262,33 +261,26 @@ export async function setSeatLimit(
     // Read the pre-change tier + entitlements FIRST so we can detect a REDUCTION
     // (a feature dropped, or a tier downgrade) before the $set overwrites them —
     // access reductions must invalidate the affected members' stale tokens.
-    let featureShrink = false;
-    // Whether the passed feature set actually DIFFERS from the current one
-    // (order-independent). An idempotent re-sync of the same set need not rewrite
-    // `featureEntitlements` onto every descendant team — see the propagate guard.
-    let featuresChanged = false;
-    let tierDowngrade = false;
-    // The added/removed feature delta (order-independent), so the audit trail can
-    // reconstruct WHICH entitlements a sync granted or revoked — e.g. a DORA
-    // (advanced_reporting) access grant/revoke — not just the resulting set.
-    // Undefined when `features` was not part of this call (no entitlement change).
-    let featureDelta: FeatureDelta | undefined;
     // Always read: the limits being replaced are the audit row's `previous`.
     const current = await Organization.findById(toOrgId(rootOrgId))
       .select('featureEntitlements tier quotas.seats quotas.supportContacts quotas.supportPremiumContacts')
       .session(session).lean();
 
-    if (features !== undefined) {
-      featureDelta = computeFeatureDelta(current?.featureEntitlements ?? [], features);
-      featureShrink = featureDelta.removed.length > 0;
-      // Set inequality: a removal (shrink) OR an addition. A reorder of the same
-      // members leaves both empty → no descendant rewrite.
-      featuresChanged = featureShrink || featureDelta.added.length > 0;
-    }
+    // The added/removed feature delta (order-independent), so the audit trail can
+    // reconstruct WHICH entitlements a sync granted or revoked — e.g. a DORA
+    // (advanced_reporting) access grant/revoke — not just the resulting set.
+    const featureDelta: FeatureDelta = computeFeatureDelta(current?.featureEntitlements ?? [], features);
+    // Access reductions must invalidate the affected members' stale tokens.
+    const featureShrink = featureDelta.removed.length > 0;
+    // Set inequality: a removal (shrink) OR an addition. A reorder of the same
+    // members leaves both empty → an idempotent re-sync need not rewrite
+    // `featureEntitlements` onto every descendant team (see the propagate guard).
+    const featuresChanged = featureShrink || featureDelta.added.length > 0;
+    let tierDowngrade = false;
     // Billing pushes the account tier alongside seats/features so a plan
     // DOWNGRADE invalidates stale tokens here (the JWT re-derives tier-included
     // features from `org.tier`, so a stale tier would keep granting them).
-    if (tier !== undefined && current && current.tier !== tier) {
+    if (current && current.tier !== tier) {
       set.tier = tier;
       tierDowngrade = isTierDowngrade(current.tier, tier);
       // Keep `org.tier` and the org-doc `quotas` CONSISTENT for the degraded read.
@@ -319,7 +311,7 @@ export async function setSeatLimit(
     // propagate featureEntitlements when the set actually changed — an
     // idempotent re-sync would otherwise rewrite identical values subtree-wide.
     const propagate: Record<string, unknown> = {};
-    if (features !== undefined && featuresChanged) propagate.featureEntitlements = features;
+    if (featuresChanged) propagate.featureEntitlements = features;
     if (set.tier !== undefined) propagate.tier = tier;
     bumpedMemberIds = await applyAccountAccessChange(rootOrgId, {
       propagate,

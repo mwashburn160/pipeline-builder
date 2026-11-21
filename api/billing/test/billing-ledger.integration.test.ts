@@ -109,6 +109,49 @@ suite('Billing ledger (real Mongo)', () => {
     expect(await BillingPendingReversal.findById('in_1').lean()).toBeNull();
   });
 
+  // ── 1b. a WON dispute restores the row (the one way down from disputed) ──
+
+  it('a won dispute restores a disputed row to paid with the disputed amount', async () => {
+    await ledger.ingestStripeInvoice('org-1', invoice());
+    await ledger.reverseLedgerInvoice('in_1', 'disputed', 0);
+    await ledger.restoreDisputedLedgerInvoice('in_1', 'paid', 4900);
+
+    expect(await row()).toMatchObject({ status: 'paid', amountPaidCents: 4900 });
+  });
+
+  it('a won dispute on a refunded-then-disputed row returns it to refunded, refund still counted', async () => {
+    await ledger.ingestStripeInvoice('org-1', invoice());
+    await ledger.reverseLedgerInvoice('in_1', 'refunded', 3000);
+    await ledger.reverseLedgerInvoice('in_1', 'disputed', 0);
+    await ledger.restoreDisputedLedgerInvoice('in_1', 'refunded', 3000);
+
+    expect(await row()).toMatchObject({ status: 'refunded', amountPaidCents: 3000 });
+  });
+
+  it('a won dispute never touches a row that is not disputed (redelivery / no dispute applied)', async () => {
+    await ledger.ingestStripeInvoice('org-1', invoice());
+    await ledger.reverseLedgerInvoice('in_1', 'refunded', 1000);
+    await ledger.restoreDisputedLedgerInvoice('in_1', 'paid', 4900);
+
+    expect(await row()).toMatchObject({ status: 'refunded', amountPaidCents: 1000 });
+  });
+
+  it('a won dispute on a BANKED dispute rewrites the bank, so the ingest lands the restored state', async () => {
+    await ledger.reverseLedgerInvoice('in_1', 'disputed', 0);
+    await ledger.restoreDisputedLedgerInvoice('in_1', 'paid', 4900);
+    expect(await BillingPendingReversal.findById('in_1').lean()).toBeNull();
+    await ledger.ingestStripeInvoice('org-1', invoice());
+    expect(await row()).toMatchObject({ status: 'paid', amountPaidCents: 4900 });
+
+    await BillingInvoice.deleteMany({});
+    await ledger.reverseLedgerInvoice('in_1', 'refunded', 3000);
+    await ledger.reverseLedgerInvoice('in_1', 'disputed', 0);
+    await ledger.restoreDisputedLedgerInvoice('in_1', 'refunded', 3000);
+    expect(await BillingPendingReversal.findById('in_1').lean()).toMatchObject({ status: 'refunded', amountPaidCents: 3000 });
+    await ledger.ingestStripeInvoice('org-1', invoice());
+    expect(await row()).toMatchObject({ status: 'refunded', amountPaidCents: 3000 });
+  });
+
   // ── 2. summaries leave out uncollected invoices ───────────────────────────
 
   it('the account and admin summaries leave out void and uncollectible invoices', async () => {
@@ -117,12 +160,29 @@ suite('Billing ledger (real Mongo)', () => {
     await ledger.ingestStripeInvoice('org-1', invoice({ id: 'in_unc', status: 'uncollectible', amount_paid: 0 }));
 
     const account = await ledger.getBillingSummary('org-1');
-    expect(account.totals).toMatchObject({ grossBilledCents: 4900, netBilledCents: 4900 });
+    expect(account.totalsByCurrency).toEqual([expect.objectContaining({ currency: 'usd', grossBilledCents: 4900, netBilledCents: 4900 })]);
     expect(account.invoiceCount).toBe(1);
     expect(account.timeline).toHaveLength(1);
 
     const admin = await ledger.getAdminBillingSummary();
-    expect(admin.totals).toMatchObject({ grossBilledCents: 4900, netBilledCents: 4900 });
-    expect(admin.byOrg).toEqual([expect.objectContaining({ orgId: 'org-1', netBilledCents: 4900, invoiceCount: 1 })]);
+    expect(admin.totalsByCurrency).toEqual([expect.objectContaining({ currency: 'usd', grossBilledCents: 4900, netBilledCents: 4900 })]);
+    expect(admin.byOrg).toEqual([expect.objectContaining({ orgId: 'org-1', currency: 'usd', netBilledCents: 4900, invoiceCount: 1 })]);
+  });
+
+  it('groups the account and admin summaries by currency', async () => {
+    await ledger.ingestStripeInvoice('org-1', invoice());
+    await ledger.ingestStripeInvoice('org-1', invoice({ id: 'in_eur', currency: 'eur', subtotal: 3000, total: 3000, amount_paid: 3000 }));
+    await ledger.ingestStripeInvoice('org-2', invoice({ id: 'in_eur2', currency: 'eur', subtotal: 1000, total: 1000, amount_paid: 1000 }));
+
+    const account = await ledger.getBillingSummary('org-1');
+    expect(account.totalsByCurrency.map((t: any) => [t.currency, t.grossBilledCents, t.amountPaidCents, t.invoiceCount]))
+      .toEqual([['eur', 3000, 3000, 1], ['usd', 4900, 4900, 1]]);
+    expect(account.timeline.map((p: any) => p.currency).sort()).toEqual(['eur', 'usd']);
+
+    const admin = await ledger.getAdminBillingSummary();
+    expect(admin.totalsByCurrency.map((t: any) => [t.currency, t.grossBilledCents])).toEqual([['eur', 4000], ['usd', 4900]]);
+    expect(admin.byOrg.map((o: any) => [o.orgId, o.currency, o.netBilledCents])).toEqual([
+      ['org-1', 'usd', 4900], ['org-1', 'eur', 3000], ['org-2', 'eur', 1000],
+    ]);
   });
 });

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/dora-metrics.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: ad50a637f2e3210d968c8fde6dc7250bde4964eecd2b25825c022cafce3f069f
+// SOURCE-SHA256: f983c09a0ef27681a5fa1b349b93336aacd55c2a18b0b188ef51bf2bb9fd0815
 // SPDX-License-Identifier: Apache-2.0
 import { Gauge } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -55,12 +55,8 @@ export const doraMetricsTopic: HelpTopic = {
           "content": "DORA is an advanced analytics feature, gated behind the advanced_reporting entitlement — included on Business and Enterprise, or the Advanced Reporting add-on on Developer, Pro and Team — and the reports:read permission. (Stakeholder Reports, stakeholder_reports, is a separate entitlement included only on Enterprise.)"
         },
         {
-          "type": "text",
-          "content": "These metrics are DEPLOY-BASIS ONLY. There is no run-based mode. This is a deliberate, no-backward-compatibility change: the old run-based frequency, the median-run-duration lead-time proxy, and the inferred CFR/time-to-restore are removed."
-        },
-        {
-          "type": "text",
-          "content": "Historical pre-cutover data is excluded, and there is no migration or backfill."
+          "type": "note",
+          "content": "These metrics are DEPLOY-BASIS ONLY. There is no run-based mode: frequency, lead time, CFR and time-to-restore are all computed from deploy rows."
         }
       ]
     },

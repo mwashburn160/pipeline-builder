@@ -32,9 +32,7 @@ This page is for platform teams and engineering leaders tracking delivery health
 
 DORA is an **advanced analytics** feature, gated behind the `advanced_reporting` entitlement — included on Business and Enterprise, or the [Advanced Reporting add-on](billing-bundles.md) on Developer, Pro and Team — and the `reports:read` permission. (Stakeholder Reports, `stakeholder_reports`, is a separate entitlement included only on Enterprise.)
 
-> **These metrics are DEPLOY-BASIS ONLY.** There is no run-based mode. This is a deliberate, **no-backward-compatibility** change: the old run-based frequency, the median-run-duration lead-time proxy, and the inferred CFR/time-to-restore are **removed**.
->
-> **Historical pre-cutover data is excluded**, and there is no migration or backfill.
+> **These metrics are DEPLOY-BASIS ONLY.** There is no run-based mode: frequency, lead time, CFR and time-to-restore are all computed from deploy rows.
 
 ## How it works
 

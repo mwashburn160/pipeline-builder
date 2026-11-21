@@ -34,8 +34,10 @@
  * Freshness: a new push is counted at the next run (the interval). A delete or
  * prune re-measures that org's known repositories straight away
  * ({@link refreshOrgSnapshot}), so freed bytes show without waiting. Each org
- * record keeps a per-repository breakdown stamped with when it was measured,
- * and both writers MERGE into the stored record rather than replace it
+ * record keeps a per-repository breakdown stamped with the store's measurement
+ * sequence when its scan started ({@link SnapshotStore.nextSeq}: one counter
+ * for the whole fleet, never a pod's wall clock, so clock skew cannot let an
+ * older figure win), and both writers MERGE into the stored record rather than replace it
  * ({@link mergeOrgRecord}): a full run keeps a refresh's newer figures for the
  * repositories it re-measured, and a refresh keeps repositories a newer run
  * found. One org's record failing to store does not lose the run: the org is
@@ -70,6 +72,7 @@ const logger = createLogger('storage-snapshot');
 
 const KEY_PREFIX = 'image-registry:storage-snapshot:';
 const META_KEY = `${KEY_PREFIX}meta`;
+const SEQ_KEY = `${KEY_PREFIX}seq`;
 const orgKey = (orgId: string): string => `${KEY_PREFIX}org:${orgId}`;
 /** Records outlive any freshness window by far; the expiry only drops departed orgs. */
 const RECORD_TTL_SECONDS = 7 * 24 * 60 * 60;
@@ -115,8 +118,11 @@ export const RECENT_RUN_FRACTION = 0.9;
 
 /** The marker of the last COMPLETED run. */
 export interface SnapshotMeta {
-  /** When the run started (epoch ms). Org records carry the run that wrote them. */
+  /** The run's measurement sequence ({@link SnapshotStore.nextSeq}), taken at its
+   *  start. Org records carry the run (or refresh) that wrote them. */
   runId: number;
+  /** When the run started (epoch ms, the running pod's clock): age only. */
+  startedAt: number;
   completedAt: number;
   durationMs: number;
   /** The leader's configured interval, so readers judge age against what actually runs. */
@@ -131,15 +137,16 @@ export interface SnapshotMeta {
 interface RepoFigure {
   bytes: number;
   blobs: number;
-  /** When the scan that produced these figures started (epoch ms): the state it
-   *  read is at least this recent. */
-  measuredAt: number;
+  /** The measurement sequence taken when the scan that produced these figures
+   *  started ({@link SnapshotStore.nextSeq}): the state it read is at least as
+   *  recent as every figure with a lower one. */
+  seq: number;
   incomplete: boolean;
 }
 
 /** One org's measurement. */
 interface OrgRecord {
-  /** The run (or refresh) start time that produced it; see {@link readOrgStorageUsage}. */
+  /** The measurement sequence of the run (or refresh) that produced it; see {@link readOrgStorageUsage}. */
   runId: number;
   bytes: number;
   blobs: number;
@@ -149,23 +156,22 @@ interface OrgRecord {
   incomplete: boolean;
   /** False when publication records were unreadable during the run (scope may be short). */
   recordsComplete: boolean;
-  /** Per-repository breakdown; `bytes`/`blobs` are its sums. Absent on a record
-   *  written before the breakdown existed (then nothing in it outranks a new scan). */
-  perRepo?: Record<string, RepoFigure>;
+  /** Per-repository breakdown; `bytes`/`blobs` are its sums. */
+  perRepo: Record<string, RepoFigure>;
 }
 
-/** Stamp a scan's per-repo usage with when it started. */
-function figuresFrom(perRepo: ReadonlyMap<string, RepoUsage> | undefined, measuredAt: number): Map<string, RepoFigure> {
+/** Stamp a scan's per-repo usage with the sequence taken when it started. */
+function figuresFrom(perRepo: ReadonlyMap<string, RepoUsage> | undefined, seq: number): Map<string, RepoFigure> {
   const out = new Map<string, RepoFigure>();
-  for (const [repo, u] of perRepo ?? []) out.set(repo, { ...u, measuredAt });
+  for (const [repo, u] of perRepo ?? []) out.set(repo, { ...u, seq });
   return out;
 }
 
 /**
  * Merge a scan's per-repo figures into the stored record for the org. For each
- * repository in `repos`, the more recently measured figure wins — the stored
- * one when another writer (a refresh during a run, a run during a refresh)
- * measured it later than this scan did. A repository neither side measured
+ * repository in `repos`, the more recently measured figure (higher `seq`) wins —
+ * the stored one when another writer (a refresh during a run, a run during a
+ * refresh) started measuring it after this scan did. A repository neither side measured
  * leaves the org incomplete. The record's `runId` never goes backwards, so a
  * record that already counted as current for the latest marker still does.
  */
@@ -183,8 +189,8 @@ export function mergeOrgRecord(opts: {
   let incomplete = !recordsComplete;
   for (const repo of repos) {
     const mine = measured.get(repo);
-    const theirs = stored?.perRepo?.[repo];
-    const pick = theirs && (!mine || theirs.measuredAt > mine.measuredAt) ? theirs : mine;
+    const theirs = stored?.perRepo[repo];
+    const pick = theirs && (!mine || theirs.seq > mine.seq) ? theirs : mine;
     if (!pick) {
       incomplete = true;
       continue;
@@ -217,10 +223,17 @@ export interface SnapshotStore {
    * org never drop each other's merge.
    */
   setIfUnchanged(key: string, expected: string | null, value: string, ttlSeconds: number): Promise<boolean>;
+  /**
+   * The next measurement sequence: strictly increasing across every writer
+   * sharing the store (Redis `INCR`), so it orders scans by when they started
+   * whatever each pod's clock says.
+   */
+  nextSeq(): Promise<number>;
 }
 
 interface RedisKv {
   get(key: string): Promise<string | null>;
+  incr(key: string): Promise<number>;
   set(key: string, value: string, mode: 'EX', seconds: number): Promise<unknown>;
   eval(script: string, numKeys: number, ...args: (string | number)[]): Promise<unknown>;
 }
@@ -247,11 +260,13 @@ function createStore(): SnapshotStore {
       set: async (key, value, ttlSeconds) => { await redis.set(key, value, 'EX', ttlSeconds); },
       setIfUnchanged: async (key, expected, value, ttlSeconds) =>
         Number(await redis.eval(SET_IF_UNCHANGED_SCRIPT, 1, key, expected === null ? '0' : '1', expected ?? '', value, ttlSeconds)) === 1,
+      nextSeq: async () => Number(await redis.incr(SEQ_KEY)),
     };
   }
   // No Redis: each pod runs the (then unlocked) job and keeps its own copy.
   logger.info('Redis not configured — storage snapshot kept in process memory');
   const mem = new Map<string, { value: string; expires: number }>();
+  let seq = 0;
   const read = (key: string): string | null => {
     const hit = mem.get(key);
     if (!hit || hit.expires < Date.now()) return null;
@@ -268,6 +283,7 @@ function createStore(): SnapshotStore {
       write(key, value, ttlSeconds);
       return true;
     },
+    nextSeq: async () => ++seq,
   };
 }
 
@@ -394,7 +410,9 @@ export async function readOrgStorageUsage(orgId: string): Promise<StorageUsage> 
  */
 export async function runStorageSnapshot(opts: { intervalMs: number; signal?: AbortSignal }): Promise<SnapshotMeta | null> {
   const { intervalMs, signal } = opts;
-  const runId = Date.now();
+  const s = getStore();
+  const startedAt = Date.now();
+  const runId = await s.nextSeq();
   const timings = newScanTimings();
 
   let t = Date.now();
@@ -434,7 +452,6 @@ export async function runStorageSnapshot(opts: { intervalMs: number; signal?: Ab
   // every scan of the org (the per-repo figures of a run and a refresh merge).
   for (const repos of orgRepos.values()) repos.sort();
 
-  const s = getStore();
   const perOrgMs: Array<{ orgId: string; ms: number; repos: number }> = [];
   let incompleteOrgs = 0;
   const unstoredOrgs: string[] = [];
@@ -446,13 +463,14 @@ export async function runStorageSnapshot(opts: { intervalMs: number; signal?: Ab
   await mapWithConcurrency([...orgRepos], concurrency, async ([orgId, repos]) => {
     if (signal?.aborted) return;
     const orgStart = Date.now();
+    const seq = await s.nextSeq();
     const scan = await scanRepositories(repos, { timings, limiter, perRepo: true });
     if (signal?.aborted) return;
     try {
       // Read-merge-write: a targeted refresh may have stored newer figures for
       // some of these repositories since this scan started (or store them while
       // this write is in flight — the write is conditional on what it merged).
-      const measured = figuresFrom(scan.perRepo, orgStart);
+      const measured = figuresFrom(scan.perRepo, seq);
       const record = await storeMergedOrgRecord(s, orgId, (stored) => mergeOrgRecord({
         measured, repos, stored, runId, recordsComplete,
       }));
@@ -475,8 +493,9 @@ export async function runStorageSnapshot(opts: { intervalMs: number; signal?: Ab
   const completedAt = Date.now();
   const meta: SnapshotMeta = {
     runId,
+    startedAt,
     completedAt,
-    durationMs: completedAt - runId,
+    durationMs: completedAt - startedAt,
     intervalMs,
     orgs: orgRepos.size,
     ...(unstoredOrgs.length > 0 ? { incompleteOrgIds: unstoredOrgs.sort() } : {}),
@@ -516,14 +535,14 @@ export type SnapshotCycleOutcome = 'ran' | 'skipped_recent' | 'aborted';
  */
 export async function runStorageSnapshotCycle(opts: { intervalMs: number; signal?: AbortSignal }): Promise<SnapshotCycleOutcome> {
   const meta = parse<SnapshotMeta>(await getStore().get(META_KEY));
-  // `runId` is the run's start, so this also covers a run that completed
+  // Judged by the run's start, so this also covers a run that completed
   // recently; judging by completion instead would push every run out by the
   // previous run's duration.
-  if (meta && Date.now() - meta.runId < RECENT_RUN_FRACTION * opts.intervalMs) {
+  if (meta && Date.now() - meta.startedAt < RECENT_RUN_FRACTION * opts.intervalMs) {
     incCounter(SNAPSHOT_RUNS_COUNTER, { outcome: 'skipped_recent' });
     publishSnapshotGauges(meta);
     logger.debug('Storage snapshot cycle skipped — a run started recently', {
-      runId: new Date(meta.runId).toISOString(), intervalMs: opts.intervalMs,
+      startedAt: new Date(meta.startedAt).toISOString(), intervalMs: opts.intervalMs,
     });
     return 'skipped_recent';
   }
@@ -541,24 +560,25 @@ async function refreshOnce(orgId: string): Promise<void> {
   // Nothing measured for it yet — the next full run will.
   if (!record) return;
   const startedAt = Date.now();
+  const seq = await s.nextSeq();
   const repos = [...record.repos].sort();
   const scan = await scanRepositories(repos, { perRepo: true });
   // Merge into what is stored AT THE WRITE: a full run may have written since
   // this refresh read the record (or write while this one is in flight — the
   // write is conditional on what it merged). The run's repositories (including
-  // any this refresh never knew) are kept, its figures win wherever it measured
-  // after `startedAt`, and its `runId` is kept, so the record still counts as
-  // current for that run's marker.
-  const measured = figuresFrom(scan.perRepo, startedAt);
+  // any this refresh never knew) are kept, its figures win wherever it started
+  // measuring after this refresh did (a higher `seq`), and its `runId` is kept,
+  // so the record still counts as current for that run's marker.
+  const measured = figuresFrom(scan.perRepo, seq);
   const next = await storeMergedOrgRecord(s, orgId, (stored) => {
     const current = stored ?? record;
     return mergeOrgRecord({
       measured,
       repos: current.repos,
       stored: current,
-      // The refresh measured the org at or after `startedAt`, so it is at least as
-      // current as any run that started before it.
-      runId: startedAt,
+      // The refresh measured the org after taking `seq`, so it is at least as
+      // current as any run that took a lower one.
+      runId: seq,
       recordsComplete: current.recordsComplete,
     });
   });

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/aws-deployment.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 88e2abe54a201f2312ee396be79c3a0f6c564b6eed390f26d71026e77d4977a2
+// SOURCE-SHA256: c4725474eb009d55c4181df10ace116d0e0ce939dfe42b7cd4a92faacc7e352f
 // SPDX-License-Identifier: Apache-2.0
 import { Server } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1875,7 +1875,7 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "By default infra store-token only writes the secret — you must re-run it before the key expires (audit tokens warns you in advance). To avoid that, add --schedule to also deploy a small daily key-rotation stack (pipeline-builder-token-renew):"
+          "content": "By default infra store-token only writes the secret — you must re-run it before the key expires (audit tokens warns you in advance). To avoid that, add --schedule to also deploy a small daily key-rotation stack (pipeline-builder-token-renew-<secret>, e.g. pipeline-builder-token-renew-platform):"
         },
         {
           "type": "code",

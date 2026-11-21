@@ -10,8 +10,8 @@
  * Pure and dependency-free so both can import it without dragging in models.
  *
  * The session is stale when:
- *   - the record carries no operator stamp (`requesterTokenVersion`) — redeemed
- *     before the stamp existed; fail closed;
+ *   - the record carries no operator stamp (`requesterTokenVersion`, set on
+ *     redemption) — a malformed consumed record; fail closed;
  *   - the operator no longer exists;
  *   - their hard `tokenVersion` moved (sign-out everywhere, password reset, …);
  *   - it was opened as a SUPERADMIN and they no longer hold the flag;

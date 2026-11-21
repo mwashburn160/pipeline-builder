@@ -66,7 +66,8 @@ export async function recordRolloutStart(row: PluginRemediation, result: Rollout
       };
     }
     const prev = readRolloutStart(cur.rollout)?.attempts;
-    // A row from before the bookkeeping: its publish made attempt 1.
+    // No bookkeeping yet: the publish stopped between `published` and its start's
+    // answer (a throw, a restart). Its publish counts as attempt 1.
     const attempts = attempt === 'sweep' ? (prev ?? 1) + 1 : 1;
     const giveUp: RemediationRolloutStartGiveUp | undefined = result.permanent ? 'permanent'
       : attempts >= REMEDIATION_ROLLOUT_START_MAX_ATTEMPTS ? 'exhausted' : undefined;

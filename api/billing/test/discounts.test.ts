@@ -932,12 +932,22 @@ describe('lifecycle reconciliation', () => {
 // (periodKey = the period's start date, `YYYY-MM-DD`). The reconcile tests above cover the invoice-id
 // path; these assert the Marketplace calendar-period path directly.
 describe('grantPeriodicCredits (shared re-grant, calendar period key)', () => {
-  const sub = (over: any = {}) => ({ _id: { toString: () => 'sub-1' }, orgId: 'org-cust', planId: 'pro', interval: 'monthly', creditBalanceCents: 0, creditLedger: [] as any[], recurringDiscount: null, ...over });
+  // Every write is atomic; the store mock applies them to the shared `subDoc`.
+  const sub = (over: any = {}) => {
+    subDoc = { _id: { toString: () => 'sub-1' }, orgId: 'org-cust', planId: 'pro', interval: 'monthly', creditBalanceCents: 0, creditLedger: [] as any[], recurringDiscount: null, ...over };
+    return subDoc;
+  };
 
   it('re-grants a recurring discount keyed by the calendar period, idempotent per period', async () => {
     await mockDiscountCreate({ _id: 'dP', value: 50, unit: 'percent', kind: 'recurring', isActive: true });
     const s = sub({ externalCustomerId: 'cus_x', recurringDiscount: { discountId: 'dP', unit: 'percent', value: 50 } });
     await grantPeriodicCredits(s as any, '2026-07');
+    // Persisted as ONE guarded write, never an in-memory push the caller saves.
+    expect(mockSubscriptionFindOneAndUpdate.mock.calls as unknown[][]).toContainEqual([
+      expect.objectContaining({ creditLedger: { $not: { $elemMatch: { discountId: 'dP', dedupeKey: '2026-07' } } } }),
+      expect.objectContaining({ $inc: { creditBalanceCents: 2401 } }),
+      { new: true },
+    ]);
     expect(s.creditBalanceCents).toBe(2401); // 50% of $49 plan, net-snapped
     expect(mockApplyUsageCredit).toHaveBeenCalledWith('cus_x', 2401, expect.stringContaining('2026-07'));
     // Same period again → idempotent (no second grant).

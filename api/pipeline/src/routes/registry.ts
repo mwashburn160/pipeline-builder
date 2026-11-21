@@ -70,13 +70,9 @@ const PipelineRegistrySchema = z.object({
   steps: z.array(StepManifestEntrySchema).max(MAX_MANIFEST_STEPS).optional(),
 });
 
-/**
- * The Deployment card's `runner: { id, label } | null` on each row (the
- * caller's own org only). A database without the runner tables answers `null`
- * (runners unavailable, never a 500).
- */
+/** The Deployment card's `runner: { id, label } | null` on each row (the caller's own org only). */
 async function withRunners<T extends { pipelineId: string }>(rows: T[], orgId: string, ownOrg: boolean): Promise<Array<T & { runner: { id: string; label: string } | null }>> {
-  if (!ownOrg || rows.length === 0 || !(await runnerDeps().store.tablesPresent().catch(() => false))) return rows.map((r) => ({ ...r, runner: null }));
+  if (!ownOrg || rows.length === 0) return rows.map((r) => ({ ...r, runner: null }));
   const links = await runnerDeps().store.runnerLinks(rows.map((r) => r.pipelineId), orgId);
   return rows.map((r) => ({ ...r, runner: links.get(r.pipelineId) ?? null }));
 }

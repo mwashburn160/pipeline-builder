@@ -13,6 +13,7 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import { mockAuthGuard, pageToast } from './helpers/pageMocks';
 import type { UserOrgMembership } from '@/types';
 import MembersPage from '../pages/dashboard/members';
+import { StepUpRequiredError } from '../src/lib/api/errors';
 
 jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
@@ -181,6 +182,31 @@ describe('Teams row actions', () => {
     fireEvent.click(within(screen.getByRole('dialog', { name: /export platform/i })).getByRole('button', { name: 'Verify' }));
     await waitFor(() => expect(mockApi.exportOrganization).toHaveBeenCalledWith('t1', 'step-up-token'));
     expect(triggerBlobDownload).toHaveBeenCalledWith(expect.any(Blob), 'team-Platform-export.json');
+  });
+
+  it('Export: a step-up replay that fails is reported; a dismissed one is not', async () => {
+    const refusal = (resume: (self: StepUpRequiredError) => Promise<unknown>) => {
+      const err = new StepUpRequiredError('Confirm it is you', 'STEP_UP_REQUIRED');
+      const p = resume(err);
+      p.catch(() => undefined);
+      err.attachResume(p);
+      return err;
+    };
+    mockApi.exportOrganization = jest.fn<AnyFn>()
+      .mockRejectedValueOnce(refusal((self) => Promise.reject(self)))
+      .mockRejectedValueOnce(refusal(() => Promise.reject(new Error('export store unavailable'))));
+    render(<MembersPage />);
+    for (let i = 0; i < 2; i += 1) {
+      fireEvent.click(await screen.findByRole('button', { name: 'More actions for Platform' }));
+      fireEvent.click(screen.getByRole('menuitem', { name: /export data/i }));
+      fireEvent.click(within(screen.getByRole('dialog', { name: /export platform/i })).getByRole('button', { name: 'Verify' }));
+      await waitFor(() => expect(mockApi.exportOrganization).toHaveBeenCalledTimes(i + 1));
+      await new Promise((r) => setTimeout(r, 0));
+      if (i === 0) expect(pageToast.error).not.toHaveBeenCalled();
+    }
+    await waitFor(() => expect(pageToast.error).toHaveBeenCalledWith(expect.stringMatching(/export store unavailable/)));
+    expect(pageToast.error).toHaveBeenCalledTimes(1);
+    expect(triggerBlobDownload).not.toHaveBeenCalled();
   });
 
   it('Delete opens ONE dialog that states the retention window and takes the factor', async () => {

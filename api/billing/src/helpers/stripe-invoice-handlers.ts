@@ -11,16 +11,18 @@ import { createLogger, errorMessage, sendSystemNotification } from '@pipeline-bu
 import type Stripe from 'stripe';
 import { createBillingEvent, recordReactivatePlanMissing } from './billing-helpers.js';
 import { ingestStripeInvoice } from './billing-ledger.js';
+import { compactStoredCreditLedger, type LedgerCollection } from './credit-ledger-compaction.js';
 import { reconcileDiscountsOnInvoice } from './discount-helpers.js';
 import { syncEntitlements } from './entitlement-sync.js';
 import { prepareLapseReconcile } from './lapse-reconcile.js';
 import { grantRecurringPromotions, qualifyReferral } from './promotion-engine.js';
 import { findSubscriptionByStripeId, invoiceSubscriptionId, type StripeEventMeta } from './stripe-helpers.js';
 import { invoiceCreditPeriodKey, recurringInvoicePeriod } from './stripe-period.js';
-import { acceptStripeEvent, awaitsLocalRow, grantOnBecomingEntitled } from './stripe-subscription-handlers.js';
+import { acceptStripeEvent, awaitsLocalRow, grantOnBecomingEntitled, settleCanceledDuplicate } from './stripe-subscription-handlers.js';
 import { MANAGEABLE_SUBSCRIPTION_STATUSES } from './subscription-status.js';
 import { config } from '../config.js';
 import { Plan, type PlanDocument } from '../models/plan.js';
+import { Subscription } from '../models/subscription.js';
 
 const logger = createLogger('billing-stripe-webhook');
 
@@ -78,6 +80,9 @@ export async function handlePaymentSucceeded(invoice: Stripe.Invoice, event: Str
 
   const subscription = await findSubscriptionByStripeId(stripeSubscriptionId);
   if (!subscription) {
+    // A DUPLICATE checkout never gets a row: its payment is refunded here (it
+    // may settle only after the duplicate was canceled), not waited on.
+    if (await settleCanceledDuplicate(stripeSubscriptionId, invoiceSubscriptionMetadata(invoice))) return;
     // A first invoice can settle BEFORE its row exists: inside an in-app
     // create's bind (row reserved, Stripe id not saved yet), or before a
     // Checkout sub's `.created` provisioned it. Answering 200 there dropped the
@@ -185,10 +190,16 @@ export async function handlePaymentSucceeded(invoice: Stripe.Invoice, event: Str
     // Atomic: persist promo credits with guarded $push/$inc, NOT via the full-doc
     // save below — so a concurrent redemption's credit write on the same ledger
     // isn't clobbered (M2). The reconcile above is atomic for the same reason.
-    await grantRecurringPromotions(subscription, invoiceCreditPeriodKey(invoice, subscription), { atomic: true });
+    await grantRecurringPromotions(subscription, invoiceCreditPeriodKey(invoice, subscription));
   } catch (promoErr) {
     logger.warn('Recurring promotion re-grant failed', { orgId: subscription.orgId, invoiceId: invoice.id, error: String(promoErr) });
   }
+  // Bound the ledger the period's re-grants just appended to (compare-and-set,
+  // so it never clobbers a concurrent credit write). Housekeeping: fail-soft,
+  // and the next period's pass retries a fold that lost a race or failed.
+  await compactStoredCreditLedger(Subscription.collection as unknown as LedgerCollection, subscription._id).catch((err) => {
+    logger.warn('Credit-ledger compaction failed', { orgId: subscription.orgId, error: String(err) });
+  });
 
   // The credit reconciliation + promo re-grant above wrote atomically and did NOT
   // touch the in-memory doc, so this save() persists only the lifecycle fields this

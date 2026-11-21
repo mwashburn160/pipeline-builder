@@ -115,10 +115,14 @@ jest.unstable_mockModule('../src/models/referral.js', () => ({
 // ── In-memory Subscription store emulating the dedupeKey idempotency guard ──
 interface LedgerRow { discountId: string; cents: number; dedupeKey?: string }
 let ledgerStore: LedgerRow[]; // authoritative store (what mongo holds)
+let storeBalance: number; // what mongo's creditBalanceCents holds after $inc
 const mockSubFindOneAndUpdate = jest.fn(async (filter: any, update: any) => {
-  const key = filter['creditLedger.dedupeKey'].$ne as string;
+  // Two guard shapes: the one-time grant's `creditLedger.dedupeKey: { $ne }`, and
+  // the per-period re-grant's `creditLedger: { $not: { $elemMatch: { dedupeKey } } }`.
+  const key = (filter['creditLedger.dedupeKey']?.$ne ?? filter.creditLedger?.$not?.$elemMatch?.dedupeKey) as string;
   if (ledgerStore.some((l) => l.dedupeKey === key)) return null; // already granted
   ledgerStore.push(update.$push.creditLedger);
+  storeBalance += update.$inc?.creditBalanceCents ?? 0;
   return { _id: filter._id, creditLedger: ledgerStore };
 });
 const mockSubUpdateOne = jest.fn(async (..._args: unknown[]) => ({ acknowledged: true, modifiedCount: 1 }));
@@ -127,7 +131,7 @@ jest.unstable_mockModule('../src/models/subscription.js', () => ({
   Subscription: { findOneAndUpdate: mockSubFindOneAndUpdate, updateOne: mockSubUpdateOne, findOne: mockSubFindOne, find: jest.fn<AnyFn>(), countDocuments: jest.fn<AnyFn>(), aggregate: jest.fn<AnyFn>() },
 }));
 
-const { grantPromotionToOrg, clawbackRecentPromotions, processReferralSignup, qualifyReferral, standingRecurringPromotionCents, grantRecurringPromotions } = await import('../src/helpers/promotion-engine.js');
+const { grantPromotionToOrg, clawbackRecentPromotions, regrantDisputeClawback, processReferralSignup, qualifyReferral, standingRecurringPromotionCents, grantRecurringPromotions } = await import('../src/helpers/promotion-engine.js');
 const { retryPendingCreditDebits } = await import('../src/helpers/credit-debits.js');
 
 const ORG = 'org_1';
@@ -138,6 +142,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   providerSupport = 'balance';
   ledgerStore = [];
+  storeBalance = 0;
   referralStore = [];
   campaignStore.clear();
   mockCfg.discounts.floorPercent = 0;
@@ -440,6 +445,90 @@ describe('clawbackRecentPromotions', () => {
   });
 });
 
+describe('dispute clawback → won-dispute re-grant', () => {
+  const disputedSub = (over: Record<string, unknown> = {}) => ({
+    _id: 'sub_1',
+    orgId: ORG,
+    externalCustomerId: 'cus_1',
+    planId: 'plan_1',
+    interval: 'monthly',
+    creditBalanceCents: 0,
+    creditLedger: [{ discountId: 'promo:promo_1', cents: 3800, grantCount: 0, appliedAt: new Date(), dedupeKey: 'promo:promo_1:org_1', clawedBackAt: new Date(), clawbackRef: 'dispute:dp_1', clawedBackCents: 1200 }],
+    ...over,
+  });
+
+  it('a clawback given a ref stamps the tombstone with it and the recovered cents', async () => {
+    const sub = {
+      _id: 'sub_1',
+      orgId: ORG,
+      externalCustomerId: 'cus_1',
+      creditBalanceCents: 1200,
+      creditLedger: [{ discountId: 'promo:promo_1', cents: 5000, appliedAt: new Date(), dedupeKey: 'promo:promo_1:org_1' }],
+    };
+    expect(await clawbackRecentPromotions(sub as any, undefined, 'dispute:dp_1')).toBe(1);
+    const [, update] = mockSubUpdateOne.mock.calls[0] as [unknown, { $set: Record<string, unknown> }];
+    expect(update.$set).toMatchObject({ 'creditLedger.$.clawbackRef': 'dispute:dp_1', 'creditLedger.$.clawedBackCents': 1200 });
+  });
+
+  it('re-grants exactly what that dispute clawed back, through the atomic grant (budget reserved, ledger pushed)', async () => {
+    promo.spentCents = 3800; promo.grantsCount = 0;
+    const n = await regrantDisputeClawback(disputedSub() as any, 'dp_1');
+    expect(n).toBe(1);
+    expect(ledgerStore).toEqual([expect.objectContaining({ discountId: 'promo:promo_1', cents: 1200, dedupeKey: 'promo:promo_1:org_1:dispute-won:dp_1' })]);
+    expect((mockSubFindOneAndUpdate.mock.calls as unknown[][])[0]).toEqual([
+      expect.objectContaining({ 'creditLedger.dedupeKey': { $ne: 'promo:promo_1:org_1:dispute-won:dp_1' } }),
+      expect.objectContaining({ $inc: { creditBalanceCents: 1200 } }),
+      { new: true },
+    ]);
+    expect(promo).toMatchObject({ spentCents: 5000, grantsCount: 1 });
+    expect((mockApplyUsageCredit.mock.calls as unknown[][])[0]).toEqual(['cus_1', 1200, 'promo-promo:promo_1:org_1:dispute-won:dp_1']);
+  });
+
+  it('is idempotent per dispute id: a redelivered won event grants nothing twice', async () => {
+    await regrantDisputeClawback(disputedSub() as any, 'dp_1');
+    const second = await regrantDisputeClawback(disputedSub() as any, 'dp_1');
+    expect(second).toBe(0);
+    expect(ledgerStore).toHaveLength(1);
+    expect(promo.spentCents).toBe(1200);
+  });
+
+  it('re-grants nothing when promotions are off or the plan is gone, and skips a promotion that no longer exists', async () => {
+    mockCfg.promotions.enabled = false;
+    try {
+      expect(await regrantDisputeClawback(disputedSub() as any, 'dp_1')).toBe(0);
+    } finally {
+      mockCfg.promotions.enabled = true;
+    }
+    mockPlanFindById.mockReturnValueOnce({ lean: async () => null } as any);
+    expect(await regrantDisputeClawback(disputedSub() as any, 'dp_1')).toBe(0);
+    mockPromoFindById.mockResolvedValueOnce(null as any);
+    expect(await regrantDisputeClawback(disputedSub() as any, 'dp_1')).toBe(0);
+    expect(ledgerStore).toHaveLength(0);
+  });
+
+  it('a refused re-grant (budget gone) is logged and grants nothing; a row without a dedupeKey keys on its discount id', async () => {
+    promo.spentCents = promo.budgetCents; // exhausted
+    expect(await regrantDisputeClawback(disputedSub() as any, 'dp_1')).toBe(0);
+    expect(ledgerStore).toHaveLength(0);
+    promo.spentCents = 0;
+    const sub = disputedSub({ creditLedger: [{ discountId: 'promo:promo_1', cents: 0, grantCount: 0, appliedAt: new Date(), clawedBackAt: new Date(), clawbackRef: 'dispute:dp_1', clawedBackCents: 700 }] });
+    expect(await regrantDisputeClawback(sub as any, 'dp_1')).toBe(1);
+    expect(ledgerStore[0]).toMatchObject({ cents: 700, dedupeKey: 'promo:promo_1:dispute-won:dp_1' });
+  });
+
+  it('ignores clawbacks made by another dispute or reversal, and ones that recovered nothing', async () => {
+    const sub = disputedSub({
+      creditLedger: [
+        { discountId: 'promo:promo_1', cents: 0, grantCount: 0, appliedAt: new Date(), dedupeKey: 'promo:promo_1:org_1', clawedBackAt: new Date(), clawbackRef: 'dispute:dp_other', clawedBackCents: 5000 },
+        { discountId: 'promo:promo_1', cents: 5000, grantCount: 0, appliedAt: new Date(), dedupeKey: 'promo:promo_1:org_1:2026-07', clawedBackAt: new Date(), clawbackRef: 'dispute:dp_1', clawedBackCents: 0 },
+        { discountId: 'promo:promo_1', cents: 0, grantCount: 0, appliedAt: new Date(), dedupeKey: 'promo:promo_1:org_1:2026-08', clawedBackAt: new Date() },
+      ],
+    });
+    expect(await regrantDisputeClawback(sub as any, 'dp_1')).toBe(0);
+    expect(ledgerStore).toHaveLength(0);
+  });
+});
+
 describe('retryPendingCreditDebits', () => {
   it('re-posts each queued debit under its ORIGINAL key and clears the ones that land', async () => {
     mockDebitUsageCredit.mockRejectedValueOnce(new Error('still down'));
@@ -556,6 +645,7 @@ describe('standingRecurringPromotionCents', () => {
 // must unwind both together — or a campaign leaks budget on an error that gave
 // the promotion's own reservation back.
 describe('grantRecurringPromotions — campaign budget', () => {
+  // Every write is atomic: assertions read the store, never the passed doc.
   const sub = () => ({ _id: 'sub_1', orgId: ORG, planId: 'pro', interval: 'monthly', creditBalanceCents: 0, creditLedger: [] as LedgerRow[], externalCustomerId: 'cus_1' });
 
   beforeEach(() => {
@@ -567,10 +657,10 @@ describe('grantRecurringPromotions — campaign budget', () => {
     campaignStore.set('launch', { _id: 'launch', isActive: true, spentCents: 0, grantsCount: 0, budgetCents: 10_000 });
     const s = sub();
     await grantRecurringPromotions(s as any, '2026-07');
-    expect(s.creditBalanceCents).toBe(5000);
+    expect(storeBalance).toBe(5000);
     expect(campaignStore.get('launch')!.spentCents).toBe(5000);
     // The ledger row carries the campaign, so campaign spend is one query.
-    expect(s.creditLedger[0]).toMatchObject({ campaign: 'launch' });
+    expect(ledgerStore[0]).toMatchObject({ campaign: 'launch' });
   });
 
   it('skips the grant when the CAMPAIGN budget is exhausted, releasing the promotion reservation', async () => {
@@ -578,8 +668,8 @@ describe('grantRecurringPromotions — campaign budget', () => {
     campaignStore.set('launch', { _id: 'launch', isActive: true, spentCents: 9_000, grantsCount: 1, budgetCents: 10_000 });
     const s = sub();
     await grantRecurringPromotions(s as any, '2026-07');
-    expect(s.creditLedger).toHaveLength(0);
-    expect(s.creditBalanceCents).toBe(0);
+    expect(ledgerStore).toHaveLength(0);
+    expect(storeBalance).toBe(0);
     // Reserved then released — never left claimed on a grant that did not happen.
     expect(promo.spentCents).toBe(0);
     expect(campaignStore.get('launch')!.spentCents).toBe(9_000);
@@ -590,7 +680,7 @@ describe('grantRecurringPromotions — campaign budget', () => {
     mockApplyUsageCredit.mockRejectedValueOnce(new Error('stripe down'));
     const s = sub();
     await grantRecurringPromotions(s as any, '2026-07');
-    expect(s.creditLedger).toHaveLength(0);
+    expect(ledgerStore).toHaveLength(0);
     expect(promo.spentCents).toBe(0);
     expect(campaignStore.get('launch')!.spentCents).toBe(0);
     expect(campaignStore.get('launch')!.grantsCount).toBe(0);
@@ -608,7 +698,7 @@ describe('grantRecurringPromotions — campaign budget', () => {
       campaignStore.set('launch', { _id: 'launch', isActive: true, spentCents: 0, grantsCount: 0, budgetCents: 10_000 });
       const s = sub();
       await grantRecurringPromotions(s as any, '2026-07');
-      expect(s.creditLedger).toHaveLength(0);
+      expect(ledgerStore).toHaveLength(0);
       // Refused BEFORE either reservation, so neither budget moved.
       expect(promo.spentCents).toBe(0);
       expect(campaignStore.get('launch')!.spentCents).toBe(0);
@@ -631,8 +721,8 @@ describe('grantRecurringPromotions — campaign budget', () => {
       const s = sub();
       await grantRecurringPromotions(s as any, '2026-07');
       // 2000 + 2000 = 4000 > 2940: the second is refused.
-      expect(s.creditLedger.map((l: any) => l.discountId)).toEqual(['promo:promo_a']);
-      expect(s.creditBalanceCents).toBe(2000);
+      expect(ledgerStore.map((l: any) => l.discountId)).toEqual(['promo:promo_a']);
+      expect(storeBalance).toBe(2000);
     } finally {
       mockCfg.discounts.floorPercent = 0;
     }
@@ -642,7 +732,7 @@ describe('grantRecurringPromotions — campaign budget', () => {
     promo.campaign = undefined;
     const s = sub();
     await grantRecurringPromotions(s as any, '2026-07');
-    expect(s.creditBalanceCents).toBe(5000);
-    expect(s.creditLedger[0]).not.toHaveProperty('campaign', 'launch');
+    expect(storeBalance).toBe(5000);
+    expect(ledgerStore[0]).not.toHaveProperty('campaign', 'launch');
   });
 });

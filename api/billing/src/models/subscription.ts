@@ -118,7 +118,7 @@ export interface SubscriptionDocument extends Document {
    *  periodic rows into one, carrying their summed `cents` + grant count so the
    *  promotion-spend reconcile stays exact while the array stays bounded. Absent
    *  on ordinary rows (counted as 1). */
-  creditLedger: Array<{ discountId: string; cents: number; appliedAt: Date; fulfillmentRef?: { kind: string; ref: string }; dedupeKey?: string; grantCount?: number; campaign?: string; clawedBackAt?: Date }>;
+  creditLedger: Array<{ discountId: string; cents: number; appliedAt: Date; fulfillmentRef?: { kind: string; ref: string }; dedupeKey?: string; grantCount?: number; campaign?: string; clawedBackAt?: Date; clawbackRef?: string; clawedBackCents?: number }>;
   /**
    * Provider balance DEBITS owed back after a promotion clawback — the outbox
    * that makes a clawback reach the provider. The local `$pull` of the grant and
@@ -246,6 +246,10 @@ const subscriptionSchema = new Schema<SubscriptionDocument>(
         // Same strict-mode rule: absent from the schema it is stripped and the
         // row is clawed back again on the next pass.
         clawedBackAt: { type: Date, default: undefined },
+        // Set on a tombstone a DISPUTE clawed (`dispute:<id>`), with the cents it
+        // recovered, so a won dispute re-grants exactly that (regrantDisputeClawback).
+        clawbackRef: { type: String, default: undefined },
+        clawedBackCents: { type: Number, default: undefined },
       }],
       default: [],
     },

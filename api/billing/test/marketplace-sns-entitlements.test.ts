@@ -538,6 +538,18 @@ describe('POST /marketplace/sns — License Deprovisioned', () => {
 describe('POST /marketplace/sns — License Updated', () => {
   const handler = getHandler('post', '/marketplace/sns');
 
+  it.each(['trialing', 'past_due'])('matches a %s license (the same manageable set as resolve/claim)', async (status) => {
+    const doc = subDoc({ status, planId: 'developer' });
+    mockSubscriptionFindOne.mockReturnValue(query(doc));
+    mockGetEntitlements.mockResolvedValue([{ isEntitled: true, planId: 'team', dimension: 'team-dim' }]);
+    await handler({ body: snsEnvelope({ Message: event(UPDATED) }) }, mockRes());
+
+    expect(mockSubscriptionFindOne).toHaveBeenNthCalledWith(2, {
+      'metadata.awsLicenseArn': LICENSE, 'status': { $in: ['active', 'trialing', 'past_due'] },
+    });
+    expect(doc.planId).toBe('team');
+  });
+
   it('re-checks entitlements and upgrades the plan when the entitled plan changed', async () => {
     const doc = subDoc({ status: 'active', planId: 'developer' });
     mockSubscriptionFindOne.mockReturnValue(query(doc));

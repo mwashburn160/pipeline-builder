@@ -89,6 +89,8 @@ function memoryStore() {
     data,
     writes,
     beforeWrite: null as null | ((key: string) => Promise<void>),
+    seq: 0,
+    nextSeq: async () => ++self.seq,
     get: async (key: string) => data.get(key) ?? null,
     set: async (key: string, value: string, _ttlSeconds?: number) => {
       await self.beforeWrite?.(key);
@@ -330,7 +332,7 @@ describe('targeted refresh after a delete / prune', () => {
     const record = JSON.parse(store.data.get('image-registry:storage-snapshot:org:acme')!);
     expect(Object.keys(record.perRepo).sort()).toEqual(['org-acme/app', 'public/acme/app']);
     // The shared layer is billed once, to the first repository (sorted) that references it.
-    expect(record.perRepo['org-acme/app']).toMatchObject({ bytes: 1010, blobs: 2, incomplete: false, measuredAt: expect.any(Number) });
+    expect(record.perRepo['org-acme/app']).toMatchObject({ bytes: 1010, blobs: 2, incomplete: false, seq: expect.any(Number) });
     expect(record.perRepo['public/acme/app']).toMatchObject({ bytes: 20, blobs: 1, incomplete: false });
     expect(record.bytes).toBe(1030);
     expect(record.blobs).toBe(3);
@@ -412,6 +414,18 @@ describe('targeted refresh after a delete / prune', () => {
     }
   });
 
+  it('a refresh stamped by a pod whose clock is ahead does not beat a newer run\'s figure (ordered by the store\'s sequence, never wall time)', async () => {
+    await run();
+    // The refresh runs on a pod whose clock is an hour fast.
+    const ahead = Date.now() + 3_600_000;
+    const skewed = jest.spyOn(Date, 'now').mockImplementation(() => ahead);
+    await refreshOrgSnapshot('acme');
+    skewed.mockRestore();
+    SIZES['sha256:shared'] = 0; // a delete, measured only by the NEXT run
+    await run();
+    expect(await readOrgStorageUsage('acme')).toMatchObject({ bytes: 30, incomplete: false });
+  });
+
   it('a failing refresh never throws to the caller', async () => {
     await run();
     listTags.mockRejectedValue(new Error('registry down'));
@@ -422,8 +436,10 @@ describe('targeted refresh after a delete / prune', () => {
 describe('backing store', () => {
   it('uses Redis when configured: values written with an expiry, read back', async () => {
     const kv = new Map<string, string>();
+    let seq = 0;
     const redis = {
       get: jest.fn(async (k: string) => kv.get(k) ?? null),
+      incr: jest.fn(async (_k: string) => ++seq),
       set: jest.fn(async (k: string, v: string, _mode: string, _secs: number) => { kv.set(k, v); return 'OK'; }),
       // The compare-and-set script, emulated: ARGV = hasExpected, expected, value, ttl.
       eval: jest.fn(async (_script: string, _n: number, k: string, has: string, expected: string, v: string, _secs: number) => {
@@ -508,7 +524,7 @@ describe('recent-run skip — N pods, one walk per interval', () => {
   it('a second cycle (another pod, same store) inside 0.9 × interval skips the walk', async () => {
     expect(await cycle()).toBe('ran');
     const meta = JSON.parse(store.data.get('image-registry:storage-snapshot:meta')!);
-    now = meta.runId + 0.9 * INTERVAL - 1;
+    now = meta.startedAt + 0.9 * INTERVAL - 1;
     setGauge.mockClear();
     expect(await cycle()).toBe('skipped_recent');
     // One full registry walk for both cycles.
@@ -524,7 +540,7 @@ describe('recent-run skip — N pods, one walk per interval', () => {
   it('at 0.9 × interval after the last run started, a new walk runs', async () => {
     await cycle();
     const meta = JSON.parse(store.data.get('image-registry:storage-snapshot:meta')!);
-    now = meta.runId + 0.9 * INTERVAL;
+    now = meta.startedAt + 0.9 * INTERVAL;
     expect(await cycle()).toBe('ran');
     expect(listRepositoriesUnderPrefix).toHaveBeenCalledTimes(2);
     expect(incCounter).not.toHaveBeenCalledWith(SNAPSHOT_RUNS_COUNTER, { outcome: 'skipped_recent' });

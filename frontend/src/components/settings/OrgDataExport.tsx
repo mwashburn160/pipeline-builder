@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SectionCard } from '@/components/ui/SectionCard';
 import api from '@/lib/api';
-import { continueAfterStepUp } from '@/lib/api/errors';
+import { continueAfterStepUp, stepUpReplayFailed } from '@/lib/api/errors';
 import { formatError } from '@/lib/constants';
 import { triggerBlobDownload } from '@/lib/download';
 
@@ -42,8 +42,11 @@ export function OrgDataExport({ orgId, orgName }: { orgId: string; orgName?: str
       save(await api.exportOrganization(orgId, stepUpToken));
     } catch (err) {
       // A refused-again token hands the replay to the global dialog; the file
-      // is saved when that replay answers.
-      if (continueAfterStepUp<string>(err, save)) return;
+      // is saved when that replay answers. A replay that fails is reported; a
+      // dismissed dialog is the person's choice and says nothing.
+      if (continueAfterStepUp<string>(err, save, (reason) => {
+        if (stepUpReplayFailed(reason)) setError(formatError(reason, 'Could not export the organization\'s data'));
+      })) return;
       setError(formatError(err, 'Could not export the organization\'s data'));
     } finally {
       setPending(false);

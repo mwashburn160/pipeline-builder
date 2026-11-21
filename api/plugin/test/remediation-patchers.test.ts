@@ -48,7 +48,8 @@ describe('source patchers, one fixture per package type', () => {
   it('npm adds an overrides entry and asks for the lockfile to be regenerated', () => {
     const f = CANARY_FIXTURES.find((x) => x.type === 'npm')!;
     const patch = SOURCE_PATCHERS.npm!(new Map(Object.entries(canaryContext(f))), targetOf(f), { dockerfile: 'Dockerfile' })!;
-    expect(JSON.parse(patch.files.get('package.json')!).overrides).toEqual({ lodash: '4.17.21' });
+    // lodash is a DIRECT dependency: its spec moves with the override (npm refuses one that differs).
+    expect(JSON.parse(patch.files.get('package.json')!)).toMatchObject({ dependencies: { lodash: '4.18.0' }, overrides: { lodash: '4.18.0' } });
     expect(patch.regenerate).toEqual([expect.objectContaining({ ecosystem: 'npm', outputs: ['package-lock.json'] })]);
     expect(patch.lockfiles).toEqual(['package-lock.json']);
   });
@@ -56,16 +57,29 @@ describe('source patchers, one fixture per package type', () => {
   it('go-module edits the require line with a v prefix and regenerates go.sum', () => {
     const f = CANARY_FIXTURES.find((x) => x.type === 'go-module')!;
     const patch = SOURCE_PATCHERS['go-module']!(new Map(Object.entries(canaryContext(f))), targetOf(f), { dockerfile: 'Dockerfile' })!;
-    expect(patch.files.get('go.mod')).toContain('require golang.org/x/text v0.3.7');
-    expect(patch.regenerate[0]!.command).toBe('go mod download golang.org/x/text@v0.3.7 && go mod tidy');
+    expect(patch.files.get('go.mod')).toContain('require github.com/golang-jwt/jwt/v5 v5.2.2');
+    expect(patch.regenerate[0]!.command).toBe('go mod download github.com/golang-jwt/jwt/v5@v5.2.2 && go mod tidy');
+  });
+
+  it('rust-crate bumps the Cargo.lock entry, drops its now-stale checksum, and re-resolves it by the version it now names', () => {
+    const f = CANARY_FIXTURES.find((x) => x.type === 'rust-crate')!;
+    const patch = SOURCE_PATCHERS['rust-crate']!(new Map(Object.entries(canaryContext(f))), targetOf(f), { dockerfile: 'Dockerfile' })!;
+    const block = patch.files.get('Cargo.lock')!.split('[[package]]').find((b) => b.includes('name = "regex"\n'))!;
+    expect(block).toContain('version = "1.5.5"');
+    // cargo refuses a lockfile whose checksum does not match the version it names.
+    expect(block).not.toContain('checksum');
+    // The other packages keep theirs.
+    expect(patch.files.get('Cargo.lock')!.match(/^checksum = /gm)).toHaveLength(3);
+    // The regeneration runs on the EDITED lockfile, which no longer has regex 1.5.4 in it.
+    expect(patch.regenerate).toEqual([expect.objectContaining({ ecosystem: 'cargo', command: 'cargo update -p regex@1.5.5 --precise 1.5.5', outputs: ['Cargo.lock'] })]);
   });
 
   it('Maven: a direct dependency\'s version is bumped and a dependencyManagement entry added', () => {
     const f = CANARY_FIXTURES.find((x) => x.type === 'java-archive')!;
     const pom = SOURCE_PATCHERS['java-archive']!(new Map(Object.entries(canaryContext(f))), targetOf(f), { dockerfile: 'Dockerfile' })!.files.get('pom.xml')!;
     expect(pom).toContain('<dependencyManagement>');
-    expect(pom).not.toContain('<version>2.13.2</version>');
-    expect(pom.match(/<version>2\.13\.4\.2<\/version>/g)).toHaveLength(2);
+    expect(pom).not.toContain('<version>2.18.10</version>');
+    expect(pom.match(/<version>2\.18\.11<\/version>/g)).toHaveLength(2);
   });
 
   it('Gradle: a constraints entry pins a transitive coordinate', () => {
@@ -73,19 +87,19 @@ describe('source patchers, one fixture per package type', () => {
     const tree = new Map([['build.gradle.kts', 'plugins { java }\n\ndependencies {\n    implementation("org.example:app:1.0")\n}\n']]);
     const out = SOURCE_PATCHERS['java-archive']!(tree, targetOf(f), { dockerfile: 'Dockerfile' })!.files.get('build.gradle.kts')!;
     expect(out).toContain('constraints {');
-    expect(out).toContain('implementation("com.fasterxml.jackson.core:jackson-databind:2.13.4.2")');
+    expect(out).toContain('implementation("com.fasterxml.jackson.core:jackson-databind:2.18.11")');
   });
 
   it('dotnet pins a transitive package with a direct PackageReference', () => {
     const f = CANARY_FIXTURES.find((x) => x.type === 'dotnet')!;
     const tree = new Map([['App.csproj', '<Project>\n  <ItemGroup>\n    <PackageReference Include="Other" Version="1.0.0" />\n  </ItemGroup>\n</Project>\n']]);
-    expect(SOURCE_PATCHERS.dotnet!(tree, targetOf(f), { dockerfile: 'Dockerfile' })!.files.get('App.csproj')).toContain('<PackageReference Include="Newtonsoft.Json" Version="13.0.1" />');
+    expect(SOURCE_PATCHERS.dotnet!(tree, targetOf(f), { dockerfile: 'Dockerfile' })!.files.get('App.csproj')).toContain('<PackageReference Include="Snappier" Version="1.3.1" />');
   });
 
   it('binary bumps only a recognised ARG pin; anything else has no source patch', () => {
     const f = CANARY_FIXTURES.find((x) => x.type === 'binary')!;
-    expect(SOURCE_PATCHERS.binary!(new Map(Object.entries(canaryContext(f))), targetOf(f), { dockerfile: 'Dockerfile' })!.files.get('Dockerfile')).toContain('ARG YQ_VERSION=4.44.3');
-    expect(SOURCE_PATCHERS.binary!(new Map([['Dockerfile', 'FROM alpine\nRUN wget yq\n']]), targetOf(f), { dockerfile: 'Dockerfile' })).toBeNull();
+    expect(SOURCE_PATCHERS.binary!(new Map(Object.entries(canaryContext(f))), targetOf(f), { dockerfile: 'Dockerfile' })!.files.get('Dockerfile')).toContain('ARG NODE_VERSION=24.22.3');
+    expect(SOURCE_PATCHERS.binary!(new Map([['Dockerfile', 'FROM debian\nRUN curl -fsSLO https://nodejs.org/dist/latest/node.tar.gz\n']]), targetOf(f), { dockerfile: 'Dockerfile' })).toBeNull();
     expect(pinnedArgNames('stdlib')).toEqual(['GO_VERSION', 'GOLANG_VERSION']);
     expect(findPinnedArg('ARG GO_VERSION=1.22.1\n', pinnedArgNames('stdlib'))?.value).toBe('1.22.1');
   });
@@ -150,7 +164,7 @@ describe('overlay layer', () => {
   });
   it('npm installs into the reported directory; compiled types have no overlay', () => {
     const f = CANARY_FIXTURES.find((x) => x.type === 'npm')!;
-    expect(overlayCommand(targetOf(f), [{ path: '/app/node_modules/lodash/package.json', layerID: 'l' }])).toBe("(cd '/app' && npm install --no-save --ignore-scripts --no-audit --no-fund 'lodash@4.17.21')");
+    expect(overlayCommand(targetOf(f), [{ path: '/app/node_modules/lodash/package.json', layerID: 'l' }])).toBe("(cd '/app' && npm install --no-save --ignore-scripts --no-audit --no-fund 'lodash@4.18.0')");
     expect(overlayCommand(targetOf(CANARY_FIXTURES.find((x) => x.type === 'go-module')!), [])).toBeNull();
   });
 });

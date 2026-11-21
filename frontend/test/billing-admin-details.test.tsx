@@ -145,10 +145,30 @@ describe('PromotionsPage', () => {
 describe('BillingAdminPage finance summary', () => {
   it('shows a retryable error on a failed summary, then re-reads on Retry', async () => {
     apiMock.getAdminBillingSummary.mockRejectedValueOnce(new Error('ledger down'));
-    apiMock.getAdminBillingSummary.mockResolvedValue({ success: true, data: { totals: { grossBilledCents: 0, discountsCents: 0, creditsCents: 0, taxCents: 0, netBilledCents: 0, amountPaidCents: 0 }, byOrg: [], invoiceCount: 0 } });
+    apiMock.getAdminBillingSummary.mockResolvedValue({ success: true, data: { totalsByCurrency: [], byOrg: [], invoiceCount: 0 } });
     render(<BillingAdminPage />);
     fireEvent.click(await screen.findByRole('button', { name: 'Retry' }));
     expect(await screen.findByText(/0 invoices across 0 accounts/)).toBeInTheDocument();
+    // An empty window still reads as zero, exactly as before.
+    expect(screen.getAllByText('$0.00').length).toBeGreaterThan(0);
+  });
+
+  it('shows the finance totals per currency, and counts an account billed in two currencies once', async () => {
+    const t = (currency: string, cents: number, invoiceCount: number) => ({ currency, grossBilledCents: cents, discountsCents: 0, creditsCents: 0, taxCents: 0, netBilledCents: cents, amountPaidCents: cents, invoiceCount });
+    apiMock.getAdminBillingSummary.mockResolvedValue({ success: true, data: {
+      totalsByCurrency: [t('eur', 3000, 1), t('usd', 4900, 1)],
+      byOrg: [
+        { orgId: 'org-1', currency: 'usd', grossBilledCents: 4900, creditsCents: 0, discountsCents: 0, netBilledCents: 4900, invoiceCount: 1 },
+        { orgId: 'org-1', currency: 'eur', grossBilledCents: 3000, creditsCents: 0, discountsCents: 0, netBilledCents: 3000, invoiceCount: 1 },
+      ],
+      invoiceCount: 2,
+    } });
+    render(<BillingAdminPage />);
+    expect(await screen.findByText(/2 invoices across 1 account\b/)).toBeInTheDocument();
+    expect(screen.getAllByText('Gross billed')).toHaveLength(2);
+    expect(screen.getAllByText('€30.00').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('$49.00').length).toBeGreaterThan(0);
+    expect(screen.queryByText('$79.00')).not.toBeInTheDocument();
   });
 
   it('only re-reads the summary for a new range when Apply is pressed', async () => {

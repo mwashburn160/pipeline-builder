@@ -43,9 +43,8 @@ interface PendingMfaChallenge {
   userId: string;
   /** The account's `tokenVersion` when the first factor was proven. The
    *  verify leg refuses the challenge if it has moved since (password reset /
-   *  change, sign-out-everywhere). Absent only on a challenge minted before
-   *  this field existed — refused like a moved one. */
-  tokenVersion?: number;
+   *  change, sign-out-everywhere). */
+  tokenVersion: number;
   /** Active org the completed sign-in should land on — resolved BEFORE the
    *  challenge so the second leg can't be steered somewhere else. */
   orgId?: string;

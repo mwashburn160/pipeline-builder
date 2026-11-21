@@ -35,9 +35,9 @@ export class PipelineConfiguration {
   public readonly pipelineName: string;
   /**
    * Short stable hash of the RAW (project, organization) when either holds a
-   * character outside the legacy set (letters, digits, `-`, `_`) — e.g.
-   * `my.app` vs `my_app` — else null, so already-deployed names never change.
-   * See `pipelineIdentityHash`. Folded into every name derived from the pair.
+   * character outside the clean set (letters, digits, `-`) — e.g. `my.app` vs
+   * `my-app`, `my_app` vs `my-app` — else null. See `pipelineIdentityHash`.
+   * Folded into every name derived from the pair.
    */
   public readonly identityHash: string | null;
   public readonly metadata: {
@@ -61,8 +61,7 @@ export class PipelineConfiguration {
     this.project = replaceNonAlphanumeric(props.project, '_').toLowerCase();
     this.organization = replaceNonAlphanumeric(props.organization, '_').toLowerCase();
 
-    // A pair with non-legacy characters carries a hash of the raw pair; legacy
-    // pairs keep the names they always had.
+    // A pair with characters outside the clean set carries a hash of the raw pair.
     this.identityHash = pipelineIdentityHash(props.project, props.organization);
 
     // Calculate pipeline name (the one rule the CLI shares: `defaultPipelineName`)

@@ -446,7 +446,7 @@ describe('the browser approval endpoints', () => {
     expect(approve[2].targetType).toBe('device-authorization');
   });
 
-  it('fails closed when the approving session predates the identity claims', async () => {
+  it('fails closed when the approving session carries no identity claims (malformed token)', async () => {
     const started = await start();
     const res = await call(approveDeviceRequest, {
       user: { sub: 'user-1', organizationId: 'org-1' }, // no amr/aal/auth_time

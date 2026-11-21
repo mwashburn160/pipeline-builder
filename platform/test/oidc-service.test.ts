@@ -326,8 +326,8 @@ describe('PKCE', () => {
 
   it('REFUSES to exchange without a verifier once the issuer takes PKCE', async () => {
     stubFetch(signIdToken(goodPem));
-    // A state minted before PKCE shipped, or a forged callback with no stored
-    // verifier: no silent downgrade to an unprotected exchange.
+    // A forged callback with no stored verifier: no silent downgrade to an
+    // unprotected exchange.
     await expect(exchangeAndValidate(cfg, 'auth-code', 'nonce-1')).rejects.toThrow('OIDC_INVALID_STATE');
   });
 

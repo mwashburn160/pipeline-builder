@@ -6,8 +6,8 @@
  * clawback, referral happy path) leaves out: the event evaluator's eligibility
  * filter (window, recurring exclusion, tier/interval/first-subscription
  * conditions, fail-soft), the base scans (preview + batch/backfill), the
- * ledger-spend healer, the RECURRING per-period re-grant (both the in-memory and
- * the atomic Stripe-webhook path, each compensating its reservation on failure)
+ * ledger-spend healer, the RECURRING per-period re-grant (a guarded atomic
+ * write, compensating its reservation on every failure)
  * and the referral guards. Money paths: every "no grant" branch must also mean
  * "no budget reserved" or a compensating release.
  */
@@ -260,7 +260,7 @@ describe('grantRecurringPromotions — per-period re-grant', () => {
     expect(Promotion.find).not.toHaveBeenCalled();
   });
 
-  it('in-memory path: grants each eligible promo once per period, skipping zero, exhausted and failed realizations', async () => {
+  it('grants each eligible promo once per period, skipping zero, exhausted and failed realizations', async () => {
     const s = sub({ creditLedger: [{ dedupeKey: 'promo:done:org_1:2026-09', discountId: 'promo:done', cents: 1 }] });
     Promotion.find.mockResolvedValue([
       promo({ _id: 'done', kind: 'recurring' }),
@@ -275,23 +275,28 @@ describe('grantRecurringPromotions — per-period re-grant', () => {
       .mockResolvedValueOnce({ _id: 'realize-fails' })
       .mockResolvedValueOnce({ _id: 'ok' });
     (provider.applyUsageCredit as jest.Mock<AnyFn>).mockRejectedValueOnce(new Error('stripe down')).mockResolvedValueOnce({ ref: { kind: 'stub', ref: 'r2' } });
+    Subscription.findOneAndUpdate.mockResolvedValueOnce({ _id: 'sub_1' });
     await engine.grantRecurringPromotions(s, '2026-09');
     expect(Promotion.updateOne).toHaveBeenCalledWith({ _id: 'realize-fails' }, { $inc: { spentCents: -500, grantsCount: -1 } });
-    expect(s.creditBalanceCents).toBe(490);
-    expect(s.creditLedger.map((l: { dedupeKey?: string }) => l.dedupeKey)).toContain('promo:ok:org_1:2026-09');
+    // Only the one grant reached the ledger, as a guarded atomic write.
+    expect(Subscription.findOneAndUpdate).toHaveBeenCalledTimes(1);
+    expect(Subscription.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ creditLedger: { $not: { $elemMatch: { dedupeKey: 'promo:ok:org_1:2026-09' } } } }),
+      expect.objectContaining({ $inc: { creditBalanceCents: 490 } }),
+      { new: true },
+    );
     expect(createBillingEvent).toHaveBeenCalledTimes(1);
-    expect(Subscription.findOneAndUpdate).not.toHaveBeenCalled();
   });
 
-  it('atomic (Stripe webhook) path: a guarded write, compensated when the period was already granted', async () => {
+  it('a guarded write, compensated when the period was already granted; the passed doc is never mutated', async () => {
     Promotion.find.mockResolvedValue([promo({ _id: 'a', kind: 'recurring' }), promo({ _id: 'b', kind: 'recurring' })]);
     Subscription.findOneAndUpdate.mockResolvedValueOnce({ _id: 'sub_1' }).mockResolvedValueOnce(null);
     const s = sub({ externalCustomerId: undefined });
-    await engine.grantRecurringPromotions(s, '2026-10', { atomic: true });
+    await engine.grantRecurringPromotions(s, '2026-10');
     expect(Subscription.findOneAndUpdate).toHaveBeenCalledTimes(2);
     expect(createBillingEvent).toHaveBeenCalledWith('org_1', 'promotion_granted', expect.objectContaining({ promotionId: 'a', periodKey: '2026-10' }), 'sub_1');
     expect(Promotion.updateOne).toHaveBeenCalledWith({ _id: 'b' }, { $inc: { spentCents: -500, grantsCount: -1 } });
-    expect(s.creditLedger).toHaveLength(0); // the atomic path never touches the in-memory ledger
+    expect(s.creditLedger).toHaveLength(0);
   });
 });
 

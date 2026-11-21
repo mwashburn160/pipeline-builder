@@ -676,9 +676,18 @@ export interface AdminSubscriptionUpdate {
 }
 
 /** Cross-account finance aggregate (GET /billing/admin/summary). */
+/** One currency's ledger totals (lower-case ISO 4217 code). Currencies are never summed together. */
+export interface CurrencyTotals {
+  currency: string;
+  grossBilledCents: number; discountsCents: number; creditsCents: number; taxCents: number; netBilledCents: number; amountPaidCents: number;
+  invoiceCount: number;
+}
+
 export interface AdminBillingSummary {
-  totals: { grossBilledCents: number; discountsCents: number; creditsCents: number; taxCents: number; netBilledCents: number; amountPaidCents: number };
-  byOrg: Array<{ orgId: string; grossBilledCents: number; creditsCents: number; discountsCents: number; netBilledCents: number; invoiceCount: number }>;
+  /** One entry per currency, sorted by code; empty for a window with no invoices. */
+  totalsByCurrency: CurrencyTotals[];
+  /** One row per (account, currency). */
+  byOrg: Array<{ orgId: string; currency: string; grossBilledCents: number; creditsCents: number; discountsCents: number; netBilledCents: number; invoiceCount: number }>;
   invoiceCount: number;
 }
 
@@ -705,21 +714,26 @@ export interface TeamUsageRow {
 
 export interface BillingSummary {
   scope: string;
-  totals: { grossBilledCents: number; discountsCents: number; creditsCents: number; taxCents: number; netBilledCents: number; amountPaidCents: number };
-  timeline: Array<{ periodStart: string; grossCents: number; discountCents: number; creditCents: number; netCents: number }>;
+  /** One entry per currency the account was billed in, sorted by code. */
+  totalsByCurrency: CurrencyTotals[];
+  timeline: Array<{ periodStart: string; currency: string; grossCents: number; discountCents: number; creditCents: number; netCents: number }>;
   invoiceCount: number;
 }
 
 export interface BillingInvoiceRow {
   periodStart: string; periodEnd: string;
   grossCents: number; discountCents: number; creditCents: number; taxCents: number; netCents: number; amountPaidCents: number;
+  currency: string;
   /** `refunded`/`disputed` are reversals set from charge webhooks. */
   status: 'paid' | 'open' | 'void' | 'uncollectible' | 'refunded' | 'disputed';
 }
 
+type AllocationTotals = { grossBilledCents: number; discountsCents: number; creditsCents: number; taxCents: number; netBilledCents: number };
+
 export interface BillingAllocation {
   driver: string;
-  totals: { grossBilledCents: number; discountsCents: number; creditsCents: number; taxCents: number; netBilledCents: number };
-  rows: Array<{ orgId: string; driverUnits: number; sharePct: number; grossCents: number; discountCents: number; creditCents: number; taxCents: number; netCents: number }>;
-  unallocated: { grossBilledCents: number; discountsCents: number; creditsCents: number; taxCents: number; netBilledCents: number };
+  /** Each currency is apportioned on its own. */
+  byCurrency: Array<{ currency: string; totals: AllocationTotals; unallocated: AllocationTotals }>;
+  /** One row per (team, currency). */
+  rows: Array<{ orgId: string; currency: string; driverUnits: number; sharePct: number; grossCents: number; discountCents: number; creditCents: number; taxCents: number; netCents: number }>;
 }

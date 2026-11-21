@@ -110,12 +110,13 @@ export const updateOrganizationSeatLimit = withController('Update organization s
   if (typeof body.seats !== 'number' || !Number.isInteger(body.seats) || body.seats < -1) {
     return sendError(res, 400, 'seats must be an integer >= -1');
   }
-  // Optional account-level feature entitlements (purchased bundles).
-  let features: string[] | undefined;
-  if (body.features !== undefined) {
-    if (!Array.isArray(body.features) || body.features.some((f) => typeof f !== 'string')) {
-      return sendError(res, 400, 'features must be an array of strings');
-    }
+  // Billing pushes the FULL limits payload every time (seats, both support caps,
+  // features, tier): each field is required, so a partial push is refused.
+  // Account-level feature entitlements (purchased bundles).
+  if (!Array.isArray(body.features) || body.features.some((f) => typeof f !== 'string')) {
+    return sendError(res, 400, 'features must be an array of strings');
+  }
+  {
     // Whitelist against the canonical feature-flag registry: these entitlements
     // are persisted onto the root AND propagated to every descendant team, so an
     // unknown/junk flag would perpetually trip billing's entitlement-drift
@@ -125,9 +126,9 @@ export const updateOrganizationSeatLimit = withController('Update organization s
     if (unknown.length > 0) {
       return sendError(res, 400, `features contains unknown feature flag(s): ${unknown.join(', ')}`);
     }
-    features = body.features as string[];
   }
-  // Optional account tier — billing pushes it so a plan DOWNGRADE invalidates
+  const features = body.features as string[];
+  // The account tier — billing pushes it so a plan DOWNGRADE invalidates
   // stale tokens (setSeatLimit sets only the tier label, no quota reseed).
   //
   // TRUST BOUNDARY: unlike the sysadmin `PATCH /organization/:id/tier` route, this path runs NO
@@ -135,35 +136,23 @@ export const updateOrganizationSeatLimit = withController('Update organization s
   // caller and gates the downgrade via `checkEntitlementOvercap` BEFORE calling
   // this endpoint, so the guard lives caller-side by design. If another producer
   // ever writes here, add the structural guard.
-  let tier: PlanTier | undefined;
-  if (body.tier !== undefined) {
-    if (typeof body.tier !== 'string' || !VALID_TIERS.includes(body.tier as PlanTier)) {
-      return sendError(res, 400, `tier must be one of: ${VALID_TIERS.join(', ')}`);
-    }
-    tier = body.tier as PlanTier;
+  if (typeof body.tier !== 'string' || !VALID_TIERS.includes(body.tier as PlanTier)) {
+    return sendError(res, 400, `tier must be one of: ${VALID_TIERS.join(', ')}`);
   }
+  const tier = body.tier as PlanTier;
 
-  // Support contacts: the other platform-owned tier limit, synced on the same
-  // leg. Optional, and validated to the same shape as `seats` (-1 = unlimited)
-  // so a malformed push cannot zero an org's contact allowance by accident.
-  let supportContacts: number | undefined;
-  if (body.supportContacts !== undefined) {
-    if (typeof body.supportContacts !== 'number' || !Number.isInteger(body.supportContacts) || body.supportContacts < -1) {
-      return sendError(res, 400, 'supportContacts must be an integer >= -1');
-    }
-    supportContacts = body.supportContacts;
+  // Support contacts and the premium UPGRADE cap: the other platform-owned tier
+  // limits, synced on the same leg and validated like `seats` (-1 = unlimited).
+  if (typeof body.supportContacts !== 'number' || !Number.isInteger(body.supportContacts) || body.supportContacts < -1) {
+    return sendError(res, 400, 'supportContacts must be an integer >= -1');
   }
-  // The premium UPGRADE cap. Optional and validated the same way; absent leaves
-  // the stored cap as it is.
-  let supportPremiumContacts: number | undefined;
-  if (body.supportPremiumContacts !== undefined) {
-    if (typeof body.supportPremiumContacts !== 'number'
-      || !Number.isInteger(body.supportPremiumContacts)
-      || body.supportPremiumContacts < -1) {
-      return sendError(res, 400, 'supportPremiumContacts must be an integer >= -1');
-    }
-    supportPremiumContacts = body.supportPremiumContacts;
+  const supportContacts = body.supportContacts;
+  if (typeof body.supportPremiumContacts !== 'number'
+    || !Number.isInteger(body.supportPremiumContacts)
+    || body.supportPremiumContacts < -1) {
+    return sendError(res, 400, 'supportPremiumContacts must be an integer >= -1');
   }
+  const supportPremiumContacts = body.supportPremiumContacts;
 
   const result = await organizationService.setSeatLimit(
     id, body.seats, features, tier, supportContacts, supportPremiumContacts,
@@ -200,15 +189,15 @@ export const updateOrganizationSeatLimit = withController('Update organization s
     // support-contact change reads as a before/after rather than a bare value.
     details: {
       seats: body.seats,
-      ...(supportContacts !== undefined ? { supportContacts } : {}),
-      ...(supportPremiumContacts !== undefined ? { supportPremiumContacts } : {}),
+      supportContacts,
+      supportPremiumContacts,
       previous: result.previous,
-      ...(features ? { features } : {}),
+      features,
       ...(result.featureDelta &&
       (result.featureDelta.added.length > 0 || result.featureDelta.removed.length > 0)
         ? { featuresAdded: result.featureDelta.added, featuresRemoved: result.featureDelta.removed }
         : {}),
-      ...(tier ? { tier } : {}),
+      tier,
     },
   });
   logger.info('Seat limit synced', { orgId: id, rootOrgId: result.rootOrgId, seats: body.seats, features, tier, by: req.user!.sub });

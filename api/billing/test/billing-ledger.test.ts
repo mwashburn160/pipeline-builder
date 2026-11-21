@@ -114,11 +114,15 @@ function matchRows(filter: any): any[] {
     })
     .map((r) => ({ ...r, periodStart: r.periodStart instanceof Date ? r.periodStart : new Date(r.periodStart) }));
 }
-const evalField = (expr: any, row: any) => (typeof expr === 'string' && expr.startsWith('$') ? row[expr.slice(1)] : expr);
+const evalField = (expr: any, row: any): any => {
+  if (typeof expr === 'string' && expr.startsWith('$')) return row[expr.slice(1).replace(/^_id\./, '')] ?? (expr.startsWith('$_id.') ? row._id?.[expr.slice(5)] : undefined);
+  if (expr && typeof expr === 'object' && !(expr instanceof Date)) return Object.fromEntries(Object.entries(expr).map(([k, v]) => [k, evalField(v, row)]));
+  return expr;
+};
 function applyGroup(stage: any, rows: any[]): any[] {
   const groups = new Map<string, any>();
   for (const row of rows) {
-    const key = stage._id === null ? '\u0000null' : String(evalField(stage._id, row));
+    const key = stage._id === null ? '\u0000null' : JSON.stringify(evalField(stage._id, row));
     let acc = groups.get(key);
     if (!acc) {
       acc = { _id: stage._id === null ? null : evalField(stage._id, row) };
@@ -144,12 +148,17 @@ function applyProject(stage: any, rows: any[]): any[] {
   });
 }
 function applySort(spec: any, rows: any[]): any[] {
-  const [[field, dir]] = Object.entries<any>(spec);
+  const keyOf = (r: any, field: string) => {
+    const v = field.split('.').reduce((o, k) => o?.[k], r);
+    return v instanceof Date ? v.getTime() : v;
+  };
   return [...rows].sort((a, b) => {
-    const an = a[field] instanceof Date ? a[field].getTime() : a[field];
-    const bn = b[field] instanceof Date ? b[field].getTime() : b[field];
-    const cmp = an < bn ? -1 : an > bn ? 1 : 0;
-    return dir === 1 ? cmp : -cmp;
+    for (const [field, dir] of Object.entries<any>(spec)) {
+      const an = keyOf(a, field); const bn = keyOf(b, field);
+      const cmp = an < bn ? -1 : an > bn ? 1 : 0;
+      if (cmp !== 0) return dir === 1 ? cmp : -cmp;
+    }
+    return 0;
   });
 }
 function runPipeline(pipeline: any[], rows: any[]): any[] {
@@ -178,6 +187,7 @@ jest.unstable_mockModule('../src/models/billing-invoice.js', () => ({
       const row = store.get(filter.externalInvoiceId);
       if (!row) return null;
       if (filter.status?.$in && !filter.status.$in.includes(row.status)) return null;
+      if (typeof filter.status === 'string' && row.status !== filter.status) return null;
       applyUpdate(row, update);
       return row;
     },
@@ -191,8 +201,11 @@ const bank = new Map<string, any>();
 let bankClock = 0;
 jest.unstable_mockModule('../src/models/billing-pending-reversal.js', () => ({
   BillingPendingReversal: {
-    updateOne: async (filter: any, update: any) => {
+    updateOne: async (filter: any, update: any, opts: any = {}) => {
       const prior = bank.get(filter._id);
+      // A plain status filter (a won dispute rewriting a banked one) never upserts.
+      if (typeof filter.status === 'string' && prior?.status !== filter.status) return { modifiedCount: 0 };
+      if (!prior && !opts.upsert) return { modifiedCount: 0 };
       // A precedence miss on an existing doc → the upsert's insert trips `_id`.
       if (prior && filter.status?.$in && !filter.status.$in.includes(prior.status)) throw Object.assign(new Error('dup'), { code: 11000 });
       const row = { ...(prior ?? { _id: filter._id }) };
@@ -200,17 +213,20 @@ jest.unstable_mockModule('../src/models/billing-pending-reversal.js', () => ({
       row.updatedAt = new Date(++bankClock);
       for (const k of Object.keys(update.$unset ?? {})) delete row[k];
       bank.set(filter._id, row);
+      return { modifiedCount: 1 };
     },
     findOne: (filter: any) => ({ lean: async () => (bank.has(filter._id) ? { ...bank.get(filter._id) } : null) }),
     deleteOne: async (filter: any) => {
       const row = bank.get(filter._id);
-      if (row && (!filter.updatedAt || row.updatedAt.getTime() === filter.updatedAt.getTime())) bank.delete(filter._id);
+      if (typeof filter.status === 'string' && row?.status !== filter.status) return { deletedCount: 0 };
+      if (row && (!filter.updatedAt || row.updatedAt.getTime() === filter.updatedAt.getTime())) { bank.delete(filter._id); return { deletedCount: 1 }; }
+      return { deletedCount: 0 };
     },
   },
   PENDING_REVERSAL_TTL_MS: 1000,
 }));
 
-const { ingestStripeInvoice, recordMarketplaceConsumption, getBillingSummary, getAdminBillingSummary, reverseLedgerInvoice } = await import('../src/helpers/billing-ledger.js');
+const { ingestStripeInvoice, recordMarketplaceConsumption, getBillingSummary, getAdminBillingSummary, reverseLedgerInvoice, restoreDisputedLedgerInvoice } = await import('../src/helpers/billing-ledger.js');
 const { createBillingSummaryRoutes } = await import('../src/routes/billing-summary.js');
 
 const invoice = (over: any = {}) => ({
@@ -279,16 +295,20 @@ describe('getBillingSummary', () => {
     await ingestStripeInvoice('org-1', invoice({ id: 'in_2', subtotal: 4900, ending_balance: 0, starting_balance: -1000, total: 3900 }));
     const summary = await getBillingSummary('org-1');
     expect(summary.scope).toBe('account');
-    expect(summary.totals.grossBilledCents).toBe(9800);
-    expect(summary.totals.creditsCents).toBe(3000); // 2000 + 1000
-    expect(summary.totals.netBilledCents).toBe(6800); // 2900 + 3900
+    expect(summary.totalsByCurrency).toHaveLength(1);
+    const [usd] = summary.totalsByCurrency;
+    expect(usd.currency).toBe('usd');
+    expect(usd.grossBilledCents).toBe(9800);
+    expect(usd.creditsCents).toBe(3000); // 2000 + 1000
+    expect(usd.netBilledCents).toBe(6800); // 2900 + 3900
+    expect(usd.invoiceCount).toBe(2);
     expect(summary.invoiceCount).toBe(2);
     expect(summary.timeline).toHaveLength(2);
   });
 
-  it('returns zeroed totals for an account with no invoices', async () => {
+  it('returns no currency totals for an account with no invoices', async () => {
     const summary = await getBillingSummary('org-empty');
-    expect(summary.totals.grossBilledCents).toBe(0);
+    expect(summary.totalsByCurrency).toEqual([]);
     expect(summary.invoiceCount).toBe(0);
   });
 
@@ -309,10 +329,24 @@ describe('getBillingSummary', () => {
     }), { grossBilledCents: 0, discountsCents: 0, creditsCents: 0, taxCents: 0, netBilledCents: 0, amountPaidCents: 0 });
 
     const summary = await getBillingSummary('org-1');
-    expect(summary.totals).toEqual(ref);
+    expect(summary.totalsByCurrency).toEqual([{ currency: 'usd', ...ref, invoiceCount: rows.length }]);
     expect(summary.invoiceCount).toBe(rows.length);
     // Timeline is still one projected point per invoice period, sorted ascending.
     expect(summary.timeline).toHaveLength(rows.length);
+  });
+
+  it('keeps each currency apart: totals per currency, the timeline tagged with its currency', async () => {
+    await ingestStripeInvoice('org-1', invoice({ id: 'u1' }));
+    await ingestStripeInvoice('org-1', invoice({ id: 'u2' }));
+    await ingestStripeInvoice('org-1', invoice({ id: 'e1', currency: 'eur', subtotal: 3000, total: 3000, amount_paid: 3000, starting_balance: 0, ending_balance: 0 }));
+    await ingestStripeInvoice('org-1', invoice({ id: 'g1', currency: 'gbp', subtotal: 1000, total: 900, amount_paid: 900, starting_balance: -100, ending_balance: 0 }));
+    const summary = await getBillingSummary('org-1');
+    // Sorted by currency code; nothing summed across currencies.
+    expect(summary.totalsByCurrency.map((t) => [t.currency, t.grossBilledCents, t.netBilledCents, t.invoiceCount])).toEqual([
+      ['eur', 3000, 3000, 1], ['gbp', 1000, 900, 1], ['usd', 9800, 5800, 2],
+    ]);
+    expect(summary.invoiceCount).toBe(4);
+    expect(new Set(summary.timeline.map((p) => p.currency))).toEqual(new Set(['usd', 'eur', 'gbp']));
   });
 });
 
@@ -322,7 +356,7 @@ describe('getAdminBillingSummary (cross-account)', () => {
     await ingestStripeInvoice('org-2', invoice({ id: 'b', subtotal: 4900, total: 3900, ending_balance: 0, starting_balance: -1000 }));
     const admin = await getAdminBillingSummary();
     expect(admin.invoiceCount).toBe(2);
-    expect(admin.totals.grossBilledCents).toBe(9800);
+    expect(admin.totalsByCurrency).toEqual([expect.objectContaining({ currency: 'usd', grossBilledCents: 9800, invoiceCount: 2 })]);
     expect(admin.byOrg).toHaveLength(2);
     // Sorted by net desc — org-2 ($39) before org-1 ($29).
     expect(admin.byOrg[0].orgId).toBe('org-2');
@@ -353,7 +387,7 @@ describe('getAdminBillingSummary (cross-account)', () => {
     }), { grossBilledCents: 0, discountsCents: 0, creditsCents: 0, taxCents: 0, netBilledCents: 0, amountPaidCents: 0 });
 
     const admin = await getAdminBillingSummary();
-    expect(admin.totals).toEqual(grand);
+    expect(admin.totalsByCurrency).toEqual([{ currency: 'usd', ...grand, invoiceCount: all.length }]);
     expect(admin.invoiceCount).toBe(all.length);
     // org-1 has two invoices summed into one breakdown row.
     const org1 = admin.byOrg.find((o) => o.orgId === 'org-1')!;
@@ -363,6 +397,56 @@ describe('getAdminBillingSummary (cross-account)', () => {
     // Sorted by net desc across accounts.
     const nets = admin.byOrg.map((o) => o.netBilledCents);
     expect(nets).toEqual([...nets].sort((x, y) => y - x));
+  });
+
+  it('splits the grand totals and the per-org breakdown by currency', async () => {
+    await ingestStripeInvoice('org-1', invoice({ id: 'a', subtotal: 4900, total: 4900 }));
+    await ingestStripeInvoice('org-1', invoice({ id: 'a-eur', currency: 'eur', subtotal: 2000, total: 2000 }));
+    await ingestStripeInvoice('org-2', invoice({ id: 'b-eur', currency: 'eur', subtotal: 1000, total: 1000 }));
+    const admin = await getAdminBillingSummary();
+    expect(admin.totalsByCurrency.map((t) => [t.currency, t.grossBilledCents, t.invoiceCount])).toEqual([['eur', 3000, 2], ['usd', 4900, 1]]);
+    // One breakdown row per (org, currency) — org-1's dollars and euros are not added together.
+    expect(admin.byOrg.map((o) => [o.orgId, o.currency, o.grossBilledCents])).toEqual(expect.arrayContaining([
+      ['org-1', 'usd', 4900], ['org-1', 'eur', 2000], ['org-2', 'eur', 1000],
+    ]));
+    expect(admin.byOrg).toHaveLength(3);
+  });
+});
+
+describe('restoreDisputedLedgerInvoice (won dispute)', () => {
+  it('moves a disputed row back to paid, or to refunded with the refund counted', async () => {
+    await ingestStripeInvoice('org-1', invoice({ id: 'in_w' }));
+    await reverseLedgerInvoice('in_w', 'disputed', 0);
+    await restoreDisputedLedgerInvoice('in_w', 'paid', 2900);
+    expect(store.get('in_w')).toMatchObject({ status: 'paid', amountPaidCents: 2900 });
+
+    await ingestStripeInvoice('org-1', invoice({ id: 'in_r' }));
+    await reverseLedgerInvoice('in_r', 'refunded', 1000);
+    await reverseLedgerInvoice('in_r', 'disputed', 0);
+    await restoreDisputedLedgerInvoice('in_r', 'refunded', 1000);
+    expect(store.get('in_r')).toMatchObject({ status: 'refunded', amountPaidCents: 1000 });
+  });
+
+  it('leaves a row no dispute reached, and a negative net clamps to 0', async () => {
+    await ingestStripeInvoice('org-1', invoice({ id: 'in_p' }));
+    await restoreDisputedLedgerInvoice('in_p', 'paid', 9999);
+    expect(store.get('in_p')).toMatchObject({ status: 'paid', amountPaidCents: 2900 });
+    await reverseLedgerInvoice('in_p', 'disputed', 0);
+    await restoreDisputedLedgerInvoice('in_p', 'paid', -5);
+    expect(store.get('in_p')).toMatchObject({ status: 'paid', amountPaidCents: 0 });
+  });
+
+  it('rewrites a BANKED dispute: dropped when restored to paid, re-banked as refunded otherwise, untouched when none', async () => {
+    await reverseLedgerInvoice('in_b1', 'disputed', 0);
+    await restoreDisputedLedgerInvoice('in_b1', 'paid', 2900);
+    expect(bank.has('in_b1')).toBe(false);
+
+    await reverseLedgerInvoice('in_b2', 'disputed', 0);
+    await restoreDisputedLedgerInvoice('in_b2', 'refunded', 1000);
+    expect(bank.get('in_b2')).toMatchObject({ status: 'refunded', amountPaidCents: 1000 });
+
+    await restoreDisputedLedgerInvoice('in_none', 'paid', 2900);
+    expect(bank.has('in_none')).toBe(false);
   });
 });
 
@@ -420,7 +504,7 @@ describe('refund vs invoice arrival order', () => {
 
     expect(reversalFirst).toEqual(invoiceFirst);
     expect(reversalFirst.row).toMatchObject({ status, amountPaidCents: net });
-    expect(reversalFirst.summary.totals.amountPaidCents).toBe(net);
+    expect(reversalFirst.summary.totalsByCurrency[0].amountPaidCents).toBe(net);
     expect(reversalFirst.banked).toBe(0); // the bank is consumed once applied
   });
 
@@ -472,7 +556,7 @@ describe('routes/billing-summary', () => {
     await call(handler('/summary'));
     const [, status, body] = mockSendSuccess.mock.calls[0];
     expect(status).toBe(200);
-    expect((body as any).totals.grossBilledCents).toBe(4900);
+    expect((body as any).totalsByCurrency).toEqual([expect.objectContaining({ currency: 'usd', grossBilledCents: 4900 })]);
   });
 
   it('GET /summary rejects a malformed date', async () => {

@@ -629,7 +629,6 @@ describe('platform refusals', () => {
     await expect(setupRunnerFlow(basePlan(), f.deps)).rejects.toThrow(runnersUnavailableMessage('paused'));
     expect(runnersUnavailableMessage('paused')).toMatch(/paused/);
     expect(runnersUnavailableMessage('encryption_not_configured')).toMatch(/secret encryption/);
-    expect(runnersUnavailableMessage('tables_missing')).toMatch(/runner tables/);
     expect(runnersUnavailableMessage('key_service')).toBe("Runs can't be signed right now because the key service is unreachable. Queued runs retry automatically.");
     expect(runnersUnavailableMessage('key_service')).not.toMatch(/paused/);
     expect(f.calls).toEqual(['GET /api/pipelines/runners']);

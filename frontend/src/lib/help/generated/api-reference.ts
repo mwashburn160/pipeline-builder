@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: d362d94ad126c5839f4710f98df1e771e4604fc644addab74995ddad5f99034c
+// SOURCE-SHA256: 8238ff89cbdbcd1219891146f6d706d20a421d6d267c9bb3f2c837e7d698acc0
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1016,7 +1016,7 @@ export const apiReferenceTopic: HelpTopic = {
               "'pipeline-generate' \\",
               "'plugin-generate', outcome: 'accepted' \\",
               "'edited_accepted' \\",
-              "'discarded', draftId } → { recorded } — counts what happened to a reviewable draft, per org and feature only. draftId is the single-use id the generation returned with the draft (~1 h, bound to org + user + feature): reused → 409, unknown / forged / expired / another user's → 400, store unavailable → 503. Not audited (it must never be attributable to a person). Free: outside the apiCalls quota and the per-org Ask rate limit; capped per user (ASK_DRAFT_OUTCOME_RATE_LIMIT_PER_MIN`, default 20 a minute)"
+              "'discarded', draftId } → { recorded } — counts what happened to a reviewable draft, per org and feature only. draftId is the single-use id the generation returned with the draft (~1 h, bound to org + user + feature): reused → 409, unknown / forged / expired / another user's → 400, store unavailable → 503; an org that switched AI off → 403 AI_DISABLED (the same gate as /agent/stream). Not audited (it must never be attributable to a person). Free: outside the apiCalls quota and the per-org Ask rate limit; capped per user (ASK_DRAFT_OUTCOME_RATE_LIMIT_PER_MIN`, default 20 a minute)"
             ]
           ]
         },

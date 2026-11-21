@@ -40,10 +40,12 @@ jest.unstable_mockModule('../src/helpers/addon-prune.js', () => ({
 }));
 
 const mockIngestStripeInvoice = jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
+const mockRestoreDisputed = jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
 const mockReverseLedgerInvoice = jest.fn<(...a: unknown[]) => Promise<string | null>>().mockResolvedValue('org-1');
 jest.unstable_mockModule('../src/helpers/billing-ledger.js', () => ({
   ingestStripeInvoice: (...a: unknown[]) => mockIngestStripeInvoice(...a),
   reverseLedgerInvoice: (...a: unknown[]) => mockReverseLedgerInvoice(...a),
+  restoreDisputedLedgerInvoice: (...a: unknown[]) => mockRestoreDisputed(...a),
 }));
 
 jest.unstable_mockModule('../src/helpers/discount-helpers.js', () => ({
@@ -51,9 +53,11 @@ jest.unstable_mockModule('../src/helpers/discount-helpers.js', () => ({
   reconcileDiscountsOnInvoice: jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined),
 }));
 
+const mockRegrant = jest.fn<(...a: unknown[]) => Promise<number>>().mockResolvedValue(0);
 const mockClawback = jest.fn<(...a: unknown[]) => Promise<number>>().mockResolvedValue(0);
 jest.unstable_mockModule('../src/helpers/promotion-engine.js', () => ({
   clawbackRecentPromotions: (...a: unknown[]) => mockClawback(...a),
+  regrantDisputeClawback: (...a: unknown[]) => mockRegrant(...a),
   grantRecurringPromotions: jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined),
   qualifyReferral: jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined),
   evaluatePromotions: jest.fn<(...a: unknown[]) => Promise<unknown[]>>().mockResolvedValue([]),
@@ -83,6 +87,8 @@ const mockChargesRetrieve = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 // A charge names its invoice only through the InvoicePayment on its
 // PaymentIntent; this stand-in maps `pi_X` to `in_X`.
 const mockInvoicePaymentsList = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+// The created handler re-reads the dispute; by default it is still open.
+const mockDisputesRetrieve = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const invoiceForPaymentIntent = async (params: unknown) => {
   const pi = (params as { payment: { payment_intent: string } }).payment.payment_intent;
   return { data: [{ invoice: pi.replace('pi_', 'in_') }] };
@@ -92,6 +98,7 @@ class MockStripeProvider {
     return {
       charges: { retrieve: (...a: unknown[]) => mockChargesRetrieve(...a) },
       invoicePayments: { list: (...a: unknown[]) => mockInvoicePaymentsList(...a) },
+      disputes: { retrieve: (...a: unknown[]) => mockDisputesRetrieve(...a) },
     };
   }
 }
@@ -101,7 +108,7 @@ jest.unstable_mockModule('../src/models/webhook-dedupe.js', () => ({ claimWebhoo
 jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({ getPaymentProvider: () => new MockStripeProvider() }));
 jest.unstable_mockModule('../src/providers/stripe-provider.js', () => ({ StripeProvider: MockStripeProvider }));
 
-const { handleChargeRefunded, handleChargeDisputeCreated, handleInvoiceReversal } = await import('../src/helpers/stripe-reversals.js');
+const { handleChargeRefunded, handleChargeDisputeCreated, handleChargeDisputeClosed, handleInvoiceReversal } = await import('../src/helpers/stripe-reversals.js');
 
 /** A subscription doc with a spied `.save()` (which must NOT be called by reversals). */
 function subDoc(over: Record<string, unknown> = {}) {
@@ -119,6 +126,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockReverseLedgerInvoice.mockResolvedValue('org-1');
   mockInvoicePaymentsList.mockImplementation(invoiceForPaymentIntent);
+  mockDisputesRetrieve.mockImplementation(async (id: unknown) => ({ id, status: 'needs_response' }));
   mockClawback.mockResolvedValue(0);
 });
 
@@ -231,7 +239,8 @@ describe('charge.dispute.created', () => {
     expect(mockChargesRetrieve).toHaveBeenCalledWith('ch_d');
     // Net paid = charge.amount − dispute.amount = 0; status 'disputed'.
     expect(mockReverseLedgerInvoice).toHaveBeenCalledWith('in_d', 'disputed', 0);
-    expect(mockClawback).toHaveBeenCalled();
+    // The clawback is tagged with the dispute, so a WON dispute can re-grant exactly it.
+    expect(mockClawback).toHaveBeenCalledWith(expect.anything(), undefined, 'dispute:dp_1');
     expect(mockCreateBillingEvent).toHaveBeenCalledWith(
       'org-1', 'subscription_updated',
       expect.objectContaining({ reason: 'invoice_disputed', disputedCents: 4900, disputeStatus: 'warning_needs_response' }),
@@ -268,6 +277,24 @@ describe('charge.dispute.created', () => {
     expect(mockClawback).toHaveBeenCalled();
   });
 
+  it('a created event processed AFTER the dispute was won (late redelivery) reverses nothing', async () => {
+    mockDisputesRetrieve.mockResolvedValue({ id: 'dp_late', status: 'won' });
+    mockChargesRetrieve.mockResolvedValue({ id: 'ch_d', payment_intent: 'pi_d', customer: 'cus_1', amount: 4900 });
+    mockFindReversalSub.mockResolvedValue({ subscription: subDoc(), ambiguous: false });
+
+    await handleChargeDisputeCreated({ id: 'dp_late', charge: 'ch_d', amount: 4900, status: 'needs_response' } as any);
+
+    expect(mockDisputesRetrieve).toHaveBeenCalledWith('dp_late');
+    expect(mockReverseLedgerInvoice).not.toHaveBeenCalled();
+    expect(mockClawback).not.toHaveBeenCalled();
+  });
+
+  it('RE-THROWS a dispute re-read failure so Stripe redelivers', async () => {
+    mockDisputesRetrieve.mockRejectedValue(new Error('stripe 503'));
+    await expect(handleChargeDisputeCreated({ id: 'dp_e', charge: 'ch_d', amount: 4900, status: 'needs_response' } as any)).rejects.toThrow('stripe 503');
+    expect(mockReverseLedgerInvoice).not.toHaveBeenCalled();
+  });
+
   it('no-ops when the dispute carries no charge id', async () => {
     await handleChargeDisputeCreated({ id: 'dp_2', charge: null, amount: 100 } as any);
     expect(mockChargesRetrieve).not.toHaveBeenCalled();
@@ -291,6 +318,63 @@ describe('charge.dispute.created', () => {
     expect(mockReverseLedgerInvoice).not.toHaveBeenCalled();
     expect(mockClawback).not.toHaveBeenCalled();
     expect(mockCreateBillingEvent).not.toHaveBeenCalled();
+  });
+});
+
+describe('charge.dispute.closed', () => {
+  it('WON: restores the ledger row to paid with the disputed amount and re-grants the clawed-back credit', async () => {
+    mockChargesRetrieve.mockResolvedValue({ id: 'ch_d', payment_intent: 'pi_d', customer: 'cus_1', amount: 4900, amount_refunded: 0 });
+    const sub = subDoc();
+    mockFindReversalSub.mockResolvedValue({ subscription: sub, ambiguous: false });
+    mockRegrant.mockResolvedValue(1);
+
+    await handleChargeDisputeClosed({ id: 'dp_1', charge: 'ch_d', amount: 4900, status: 'won' } as any);
+
+    expect(mockRestoreDisputed).toHaveBeenCalledWith('in_d', 'paid', 4900);
+    expect(mockRegrant).toHaveBeenCalledWith(sub, 'dp_1');
+    expect(mockReverseLedgerInvoice).not.toHaveBeenCalled();
+    expect(mockClawback).not.toHaveBeenCalled();
+    expect(sub.save).not.toHaveBeenCalled();
+    expect(mockCreateBillingEvent).toHaveBeenCalledWith(
+      'org-1', 'subscription_updated',
+      expect.objectContaining({ reason: 'invoice_dispute_won', disputeId: 'dp_1', invoiceId: 'in_d', regrantedPromotions: 1 }),
+      'sub-1',
+    );
+  });
+
+  it('WON after an earlier refund: the row returns to refunded with the refund still counted', async () => {
+    mockChargesRetrieve.mockResolvedValue({ id: 'ch_d', payment_intent: 'pi_d', customer: 'cus_1', amount: 4900, amount_refunded: 1900 });
+    mockFindReversalSub.mockResolvedValue({ subscription: subDoc(), ambiguous: false });
+
+    await handleChargeDisputeClosed({ id: 'dp_r', charge: 'ch_d', amount: 3000, status: 'won' } as any);
+
+    expect(mockRestoreDisputed).toHaveBeenCalledWith('in_d', 'refunded', 3000);
+  });
+
+  it.each(['lost', 'warning_closed'])('%s: changes nothing', async (status) => {
+    await handleChargeDisputeClosed({ id: 'dp_l', charge: 'ch_d', amount: 4900, status } as any);
+
+    expect(mockChargesRetrieve).not.toHaveBeenCalled();
+    expect(mockRestoreDisputed).not.toHaveBeenCalled();
+    expect(mockRegrant).not.toHaveBeenCalled();
+    expect(mockCreateBillingEvent).not.toHaveBeenCalled();
+  });
+
+  it('WON with an ambiguous subscription restores the ledger but re-grants nothing', async () => {
+    mockChargesRetrieve.mockResolvedValue({ id: 'ch_d', payment_intent: 'pi_d', customer: 'cus_1', amount: 4900 });
+    mockFindReversalSub.mockResolvedValue({ subscription: null, ambiguous: true });
+
+    await handleChargeDisputeClosed({ id: 'dp_a', charge: 'ch_d', amount: 4900, status: 'won' } as any);
+
+    expect(mockRestoreDisputed).toHaveBeenCalledWith('in_d', 'paid', 4900);
+    expect(mockRegrant).not.toHaveBeenCalled();
+  });
+
+  it('RE-THROWS a charge-retrieve failure so Stripe redelivers', async () => {
+    mockChargesRetrieve.mockRejectedValue(new Error('stripe 503'));
+    await expect(handleChargeDisputeClosed({ id: 'dp_x', charge: 'ch_x', amount: 4900, status: 'won' } as any)).rejects.toThrow('stripe 503');
+    expect(mockRestoreDisputed).not.toHaveBeenCalled();
+    expect(mockRegrant).not.toHaveBeenCalled();
   });
 });
 

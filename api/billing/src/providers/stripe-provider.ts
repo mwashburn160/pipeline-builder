@@ -64,6 +64,19 @@ async function tracked<T>(op: string, fn: () => Promise<T>): Promise<T> {
   }
 }
 
+/** The parts of a Stripe webhook endpoint the event-subscription reconcile reads. */
+export interface WebhookEndpointView {
+  id: string;
+  url: string;
+  /** `['*']` means every event. */
+  enabledEvents: string[];
+  livemode: boolean;
+}
+
+const toEndpointView = (ep: Stripe.WebhookEndpoint): WebhookEndpointView => ({
+  id: ep.id, url: ep.url, enabledEvents: [...ep.enabled_events], livemode: ep.livemode,
+});
+
 /** Stripe statuses in which a subscription is over and cannot be cancelled again. */
 const STRIPE_ENDED_STATUSES: ReadonlySet<string> = new Set(['canceled', 'incomplete_expired']);
 
@@ -235,6 +248,30 @@ export class StripeProvider implements PaymentProvider {
       }
       throw err;
     }
+  }
+
+  /**
+   * Refund the subscription's first paid invoice in full (see the interface).
+   * The invoice names its payment through an InvoicePayment (API 2025-03-31+);
+   * the refund is keyed on the invoice id, so a retry or a redelivered webhook
+   * cannot refund twice. Throws on a provider failure — the caller counts it.
+   */
+  async refundFirstPaidInvoice(externalId: string): Promise<{ invoiceId: string; refundId: string } | null> {
+    const invoices = await tracked('invoices.list', () => this.stripe.invoices.list({ subscription: externalId, status: 'paid', limit: 100 }));
+    // Newest first: the first paid invoice is the last listed.
+    const first = invoices.data[invoices.data.length - 1];
+    if (!first?.id) return null;
+    const payments = await tracked('invoicePayments.list', () => this.stripe.invoicePayments.list({ invoice: first.id, status: 'paid', limit: 1 }));
+    const payment = payments.data[0]?.payment;
+    const paymentIntent = typeof payment?.payment_intent === 'string' ? payment.payment_intent : payment?.payment_intent?.id;
+    const charge = typeof payment?.charge === 'string' ? payment.charge : payment?.charge?.id;
+    if (!paymentIntent && !charge) return null;
+    const refund = await tracked('refunds.create', () => this.stripe.refunds.create(
+      { ...(paymentIntent ? { payment_intent: paymentIntent } : { charge }), reason: 'duplicate', metadata: { invoiceId: first.id!, subscriptionId: externalId } },
+      { idempotencyKey: `duplicate-subscription-refund-${first.id}` },
+    ));
+    logger.warn('Refunded a duplicate Stripe subscription\'s first invoice', { externalId, invoiceId: first.id, refundId: refund.id });
+    return { invoiceId: first.id, refundId: refund.id };
   }
 
   /**
@@ -443,6 +480,42 @@ export class StripeProvider implements PaymentProvider {
     ));
     logger.info('Stripe usage credit debited', { externalCustomerId, cents });
     return { ref: { kind: 'balance', ref: txn.id } };
+  }
+
+  /**
+   * Every webhook endpoint on the account. The key decides the Stripe world, so
+   * this lists the test-mode endpoints for a test key and the live ones for a
+   * live key; each view still carries `livemode` for the caller to check.
+   */
+  async listWebhookEndpoints(): Promise<WebhookEndpointView[]> {
+    const out: WebhookEndpointView[] = [];
+    let startingAfter: string | undefined;
+    for (;;) {
+      const page = await tracked('webhookEndpoints.list', () => this.stripe.webhookEndpoints.list(
+        startingAfter ? { limit: 100, starting_after: startingAfter } : { limit: 100 },
+      ));
+      out.push(...page.data.map(toEndpointView));
+      if (!page.has_more || page.data.length === 0) return out;
+      startingAfter = page.data[page.data.length - 1].id;
+    }
+  }
+
+  /** One webhook endpoint by id (`we_…`). Throws Stripe's `resource_missing` when absent. */
+  async retrieveWebhookEndpoint(id: string): Promise<WebhookEndpointView> {
+    return toEndpointView(await tracked('webhookEndpoints.retrieve', () => this.stripe.webhookEndpoints.retrieve(id)));
+  }
+
+  /**
+   * Replace an endpoint's `enabled_events`. Needs a key with WRITE access to
+   * Webhook Endpoints (a standard secret key has it; a restricted key must be
+   * granted it). The caller passes the full list — this does not merge.
+   */
+  async updateWebhookEndpointEvents(id: string, events: readonly string[]): Promise<WebhookEndpointView> {
+    const ep = await tracked('webhookEndpoints.update', () => this.stripe.webhookEndpoints.update(id, {
+      enabled_events: [...events] as Stripe.WebhookEndpointUpdateParams.EnabledEvent[],
+    }));
+    logger.info('Stripe webhook endpoint events updated', { endpointId: id, count: events.length });
+    return toEndpointView(ep);
   }
 
   /** Expose the Stripe instance for webhook signature verification. */

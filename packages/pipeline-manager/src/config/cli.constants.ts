@@ -245,11 +245,11 @@ const STACK_NAME_LETTER_PREFIX = 'pb-';
  * standard: starts with a letter, holds only letters, digits and hyphens, and
  * is at most 128 characters.
  *
- * - A pair whose plain derivation — `<project>-<organization>`, lowercased,
- *   `_` → `-` — already satisfies the standard keeps exactly that name. Every
- *   pipeline deployed so far is such a pair, so its stack is never renamed
- *   (`spring_boot` / `system` → `spring-boot-system`).
- * - Any other pair is rewritten to conform: each disallowed character becomes
+ * - A pair whose plain derivation — `<project>-<organization>`, lowercased —
+ *   already satisfies the standard keeps exactly that name
+ *   (`spring-boot` / `system` → `spring-boot-system`).
+ * - Any other pair is rewritten to conform: each disallowed character (`_`
+ *   included: `spring_boot` / `system` → `spring-boot-system-<hash>`) becomes
  *   `-`, a leading non-letter gets `pb-`, and the base is truncated so that
  *   `-<hash>` of the RAW pair (`pipelineIdentityDigest`) still fits. The hash
  *   keeps rewritten names distinct from each other and from every plain name
@@ -269,7 +269,7 @@ export function pipelineStackName(project: string, organization: string): string
       `Cannot derive a stack name from project '${project}' and organization '${organization}': both are required.`,
     );
   }
-  const plain = `${project}-${organization}`.toLowerCase().replace(/_/g, '-');
+  const plain = `${project}-${organization}`.toLowerCase();
   if (plain.length <= STACK_NAME_MAX_LENGTH && STACK_NAME_PATTERN.test(plain)) return plain;
 
   let base = plain.replace(/[^a-z0-9-]/g, '-');

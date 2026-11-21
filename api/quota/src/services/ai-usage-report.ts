@@ -177,7 +177,7 @@ interface CountRow { _id: unknown; n: number }
 
 const sumWhen = (outcome: string) => ({ $sum: { $cond: [{ $eq: ['$outcome', outcome] }, '$amount', 0] } });
 const USAGE_SUMS = {
-  calls: { $sum: { $ifNull: ['$calls', 0] } },
+  calls: { $sum: '$calls' },
   counted: sumWhen('counted'),
   refunded: sumWhen('refunded'),
   tokensIn: { $sum: { $ifNull: ['$tokensIn', 0] } },

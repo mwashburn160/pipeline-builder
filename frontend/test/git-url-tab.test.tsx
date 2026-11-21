@@ -110,6 +110,8 @@ describe('GitUrlTab inside the create modal', () => {
     // The generation settled: its project override is filled in.
     await screen.findByDisplayValue('web');
     view.unmount();
+    // The unmount report waits a microtask (StrictMode's simulated unmount must not spend the id).
+    await Promise.resolve();
     expect(apiFn('recordAiDraftOutcome')).toHaveBeenCalledWith('pipeline-generate', 'discarded', DRAFT_ID);
   });
 

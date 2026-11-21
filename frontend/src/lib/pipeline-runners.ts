@@ -301,11 +301,6 @@ export const RUNNERS_UNAVAILABLE_COPY = {
     body: 'Secret encryption for runner signing keys is not configured — ask your platform operator. pipeline-manager pipeline run with your own AWS credentials still works.',
     link: null,
   },
-  tables_missing: {
-    title: 'Pipeline runners are not set up on this platform.',
-    body: 'Its database has no runner tables — ask your platform operator. pipeline-manager pipeline run with your own AWS credentials still works.',
-    link: null,
-  },
   key_service: {
     title: 'Runs can\'t be signed right now because the key service is unreachable.',
     body: 'Queued runs retry automatically.',

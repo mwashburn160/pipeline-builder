@@ -27,6 +27,8 @@
  * `requireActual` cannot work in this project.
  */
 
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { jest, describe, it, expect, beforeAll, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -52,6 +54,7 @@ const h = {
   upcoming: handler(),
   refunded: handler(),
   disputed: handler(),
+  disputeClosed: handler(),
   reversal: handler(),
 };
 jest.unstable_mockModule('../src/helpers/stripe-subscription-handlers.js', () => ({
@@ -67,6 +70,7 @@ jest.unstable_mockModule('../src/helpers/stripe-invoice-handlers.js', () => ({
 jest.unstable_mockModule('../src/helpers/stripe-reversals.js', () => ({
   handleChargeRefunded: (...a: unknown[]) => h.refunded(...a),
   handleChargeDisputeCreated: (...a: unknown[]) => h.disputed(...a),
+  handleChargeDisputeClosed: (...a: unknown[]) => h.disputeClosed(...a),
   handleInvoiceReversal: (...a: unknown[]) => h.reversal(...a),
 }));
 
@@ -102,7 +106,7 @@ const mockConstructEvent = jest.fn<(...a: unknown[]) => any>();
 jest.unstable_mockModule('../src/providers/stripe-provider.js', () => ({ StripeProvider: FakeStripeProvider }));
 jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({ getPaymentProvider: () => activeProvider }));
 
-const { createStripeWebhookRoutes } = await import('../src/routes/stripe-webhook.js');
+const { createStripeWebhookRoutes, STRIPE_WEBHOOK_EVENTS } = await import('../src/routes/stripe-webhook.js');
 
 let route: (req: unknown, res: unknown) => Promise<unknown>;
 beforeAll(() => {
@@ -284,6 +288,7 @@ describe('the dispatch table', () => {
     ['invoice.upcoming', 'upcoming'],
     ['charge.refunded', 'refunded'],
     ['charge.dispute.created', 'disputed'],
+    ['charge.dispute.closed', 'disputeClosed'],
   ] as const)('routes %s to exactly one handler, with the event object', async (type, name) => {
     await deliverEvent(type, { id: 'obj_x' });
 
@@ -319,5 +324,41 @@ describe('the dispatch table', () => {
     // a permanent 500 on each would drown the retry queue.
     expect(mockMarkDone).toHaveBeenCalledWith('stripe', 'evt_1', 'claim-token');
     expect(last()).toEqual({ kind: 'success', status: 200, body: { received: true } });
+  });
+});
+
+// The catalog is what the startup reconcile subscribes the Stripe endpoint to,
+// so an event missing from it is an event Stripe may never deliver.
+describe('the handled-event catalog', () => {
+  it('is exactly the dispatch table: every catalog event reaches a handler', async () => {
+    expect(STRIPE_WEBHOOK_EVENTS.length).toBeGreaterThan(0);
+    for (const type of STRIPE_WEBHOOK_EVENTS) {
+      jest.clearAllMocks();
+      await deliverEvent(type);
+      expect({ type, handlers: handlerCalls().length }).toEqual({ type, handlers: 1 });
+    }
+  });
+
+  it('lists every event the route handles (none dispatched outside it)', () => {
+    expect([...STRIPE_WEBHOOK_EVENTS].sort()).toEqual([
+      'charge.dispute.closed', 'charge.dispute.created', 'charge.refunded',
+      'customer.subscription.created', 'customer.subscription.deleted', 'customer.subscription.updated',
+      'invoice.marked_uncollectible', 'invoice.payment_failed', 'invoice.payment_succeeded',
+      'invoice.upcoming', 'invoice.voided',
+    ]);
+  });
+
+  it('matches the webhook events table in docs/billing-providers.md', () => {
+    const doc = readFileSync(join(import.meta.dirname, '..', '..', '..', 'docs', 'billing-providers.md'), 'utf8');
+    const start = doc.indexOf('<!-- stripe-webhook-events:start -->');
+    const end = doc.indexOf('<!-- stripe-webhook-events:end -->');
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const table = doc.slice(start, end);
+    // First cell of each body row; a row may name several events (`a` / `b`).
+    const documented = table.split('\n')
+      .filter((l) => l.startsWith('| `'))
+      .flatMap((l) => [...l.split('|')[1].matchAll(/`([^`]+)`/g)].map((m) => m[1]));
+    expect(documented.sort()).toEqual([...STRIPE_WEBHOOK_EVENTS].sort());
   });
 });

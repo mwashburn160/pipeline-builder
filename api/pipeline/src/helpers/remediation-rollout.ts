@@ -174,7 +174,7 @@ export interface MovePlan {
 export interface UpgradeRow {
   id: string;
   orgId: string;
-  /** The root org the rollout start resolved for a team's row (null: a root org's own pipeline, or not recorded — see {@link rowRootOrg}). */
+  /** The root org the rollout start resolved for a team's row (null: a root org's own pipeline — no parent). Every row's later step plans under it as stored. */
   rootOrgId: string | null;
   remediationId: string;
   pipelineId: string;
@@ -216,6 +216,8 @@ export interface RolloutDeps {
   report(remediationId: string, body: { summary: RemediationRolloutSummary; events: RolloutEvent[] }): Promise<'ok' | 'unknown' | 'failed'>;
   /** The org's ancestors in the platform hierarchy (nearest first); throws when it cannot be read. */
   ancestors(orgId: string): Promise<string[]>;
+  /** Every descendant of the org in the platform hierarchy (all levels, without the org); throws when it cannot be read. */
+  descendants(orgId: string): Promise<string[]>;
 }
 
 /** A per-pipeline event the plugin service turns into notices (N38). */
@@ -344,12 +346,38 @@ export async function patchRow(id: string, patch: RowPatch, fromStates?: readonl
   return rowsOf(res).length > 0;
 }
 
-/** The pipelines (with their org, root org and election) using `fromVersion` — declared or deployed. */
-export async function rolloutCandidates(input: Pick<StartRolloutInput, 'orgId' | 'plugin' | 'publisher' | 'fromVersion'>): Promise<Array<{ orgId: string; pipelineId: string; rootOrgId: string | null }>> {
+/** Org ids per candidate query: a large subtree is read in batches, never one unbounded IN list. */
+const CANDIDATE_ORG_BATCH = 500;
+
+/**
+ * The pipelines (with their org, recorded root org) using `fromVersion` —
+ * declared or deployed. `orgIds` null: every org (an official, instance-wide
+ * rollout); else only pipelines OWNED by one of `orgIds` (a scoped rollout
+ * passes the scope org and its LIVE descendants — never matched on the root
+ * a resolution row recorded, which goes stale when a team moves).
+ */
+export async function rolloutCandidates(
+  input: Pick<StartRolloutInput, 'plugin' | 'publisher' | 'fromVersion'>,
+  orgIds: string[] | null,
+): Promise<Array<{ orgId: string; pipelineId: string; rootOrgId: string | null }>> {
+  if (orgIds === null) return candidatesIn(input, null);
+  const ids = [...new Set(orgIds.map((o) => o.toLowerCase()))];
+  const byId = new Map<string, { orgId: string; pipelineId: string; rootOrgId: string | null }>();
+  for (let i = 0; i < ids.length; i += CANDIDATE_ORG_BATCH) {
+    for (const c of await candidatesIn(input, ids.slice(i, i + CANDIDATE_ORG_BATCH))) byId.set(c.pipelineId, c);
+  }
+  return [...byId.values()].sort((a, b) => (a.pipelineId < b.pipelineId ? -1 : a.pipelineId > b.pipelineId ? 1 : 0));
+}
+
+async function candidatesIn(
+  input: Pick<StartRolloutInput, 'plugin' | 'publisher' | 'fromVersion'>,
+  orgIds: string[] | null,
+): Promise<Array<{ orgId: string; pipelineId: string; rootOrgId: string | null }>> {
   const pub = (col: string) => (input.publisher === null ? sql` AND ${sql.raw(col)} IS NULL` : sql` AND ${sql.raw(col)} = ${input.publisher}`);
-  const orgFilter = input.orgId === null
+  if (orgIds !== null && orgIds.length === 0) return [];
+  const orgFilter = orgIds === null
     ? sql``
-    : sql` AND (lower(p.org_id) = ${input.orgId.toLowerCase()} OR lower(x.root_org_id) = ${input.orgId.toLowerCase()})`;
+    : sql` AND lower(p.org_id) IN (${sql.join(orgIds.map((o) => sql`${o}`), sql`, `)})`;
   const res = await asSystem((tx) => tx.execute(sql`
     SELECT DISTINCT p.org_id, p.id::text AS pipeline_id, x.root_org_id
     FROM (
@@ -399,7 +427,7 @@ export async function rowOrgAdmits(
 
 /**
  * The LIVE root of `orgId` in the platform hierarchy (its farthest ancestor),
- * or null when the org is itself a root — the same shape as `rootOrgOf`. A
+ * or null when the org is itself a root (a row's `rootOrgId` shape). A
  * scoped rollout start reads this instead of the resolution row's recorded
  * root, which goes stale when a team moves to another root. Throws (logged)
  * when the hierarchy cannot be read, failing the start whole.
@@ -414,24 +442,6 @@ export async function liveRootOrg(orgId: string, ancestors: (orgId: string) => P
   }
   const root = chain.at(-1);
   return root && root.toLowerCase() !== orgId.toLowerCase() ? root : null;
-}
-
-/** The root org a TEAM pipeline's resolution recorded (null for a root org's pipeline). */
-export async function rootOrgOf(pipelineId: string, orgId: string): Promise<string | null> {
-  const res = await asSystem((tx) => tx.execute(sql`
-    SELECT MAX(root_org_id) AS root FROM pipeline_plugin_resolution WHERE pipeline_id = ${pipelineId}`));
-  const root = rowsOf<{ root: string | null }>(res)[0]?.root ?? null;
-  return root && root.toLowerCase() !== orgId.toLowerCase() ? root : null;
-}
-
-/**
- * The root a row's later steps (move, redeploy retry, rollback, resume) plan
- * under: the one the rollout start resolved and stored on the row (the live
- * hierarchy's for a scoped rollout), else — a root org's own pipeline, or a
- * row written before the root was recorded — the resolution row's.
- */
-export async function rowRootOrg(row: Pick<UpgradeRow, 'rootOrgId' | 'pipelineId' | 'orgId'>): Promise<string | null> {
-  return row.rootOrgId ?? rootOrgOf(row.pipelineId, row.orgId);
 }
 
 /** The pipeline row (live only), cross-org. */
@@ -783,7 +793,7 @@ export function createRolloutEngine(deps: RolloutDeps) {
       // Every root is read before any row is patched: an unreadable hierarchy
       // fails the start with nothing re-targeted.
       const roots = new Map<string, string | null>();
-      for (const row of retarget) roots.set(row.id, await rootFor(row.orgId, () => rowRootOrg(row)));
+      for (const row of retarget) roots.set(row.id, await rootFor(row.orgId, async () => row.rootOrgId));
       for (const row of retarget) {
         const rootOrgId = roots.get(row.id) ?? null;
         const placement = await placeFor(row.orgId, row.pipelineId, rootOrgId);
@@ -797,8 +807,11 @@ export function createRolloutEngine(deps: RolloutDeps) {
     // The rows are written as the system: check every candidate's org against
     // its pipeline (and the rollout's scope) FIRST, before anything is planned,
     // requested or written — an unreadable hierarchy fails the start whole.
+    // A scoped rollout's candidates are the pipelines of the scope org and its
+    // LIVE descendants (an unreadable hierarchy throws: nothing is written).
+    const scopeOrgIds = input.orgId === null ? null : [input.orgId, ...await deps.descendants(input.orgId)];
     const admitted: Array<{ c: Awaited<ReturnType<typeof rolloutCandidates>>[number]; pipeline: RolloutPipeline; rootOrgId: string | null }> = [];
-    for (const c of await rolloutCandidates(input)) {
+    for (const c of await rolloutCandidates(input, scopeOrgIds)) {
       const pipeline = await loadPipeline(c.pipelineId);
       if (!pipeline) continue;
       if (!await rowOrgAdmits({ pipelineOrgId: pipeline.orgId, rowOrgId: c.orgId, scopeOrgId: input.orgId }, ancestorsOf)) {
@@ -846,7 +859,7 @@ export function createRolloutEngine(deps: RolloutDeps) {
       await patchRow(row.id, { state: 'superseded', error: 'pipeline_deleted' }, from);
       return 'superseded';
     }
-    const rootOrgId = await rowRootOrg(row);
+    const rootOrgId = row.rootOrgId;
     const resolved = effectiveRollout(pipeline.remediationUpgrades, await deps.settings(row.orgId, rootOrgId));
     const ref = REF_OF(row);
     const plan = resolved.mode === 'off' ? NO_PLAN : await deps.plan(pipeline, rootOrgId, ref);
@@ -889,7 +902,7 @@ export function createRolloutEngine(deps: RolloutDeps) {
       return 'superseded';
     }
     const attempts = redeployAttempts(row.error) + 1;
-    const result = await deps.redeploy({ row, pipeline, rootOrgId: await rowRootOrg(row) });
+    const result = await deps.redeploy({ row, pipeline, rootOrgId: row.rootOrgId });
     if (result.ok && movedState(result) === 'moved') {
       await patchRow(row.id, { state: 'moved', runRequestId: result.runRequestId, error: null }, from);
       return 'moved';
@@ -915,7 +928,7 @@ export function createRolloutEngine(deps: RolloutDeps) {
       await patchRow(row.id, { state: 'superseded', error: 'pipeline_deleted' }, from);
       return 'superseded';
     }
-    const plan = await deps.plan(pipeline, await rowRootOrg(row), REF_OF(row));
+    const plan = await deps.plan(pipeline, row.rootOrgId, REF_OF(row));
     if (plan.install?.pendingChange) return 'waiting_change_request';
     if (plan.kind === 'install_pin') {
       await patchRow(row.id, { state: 'dismissed', error: 'change_request_rejected' }, from);
@@ -928,7 +941,7 @@ export function createRolloutEngine(deps: RolloutDeps) {
   /** Roll one moved row back (see the module doc for when it is refused). */
   async function rollbackOne(row: UpgradeRow): Promise<PipelineRemediationUpgradeState> {
     const now = deps.now();
-    const rootOrgId = await rowRootOrg(row);
+    const rootOrgId = row.rootOrgId;
     const target = await deps.rollbackTarget(row, rootOrgId);
     const audit = (outcome: 'success' | 'failure', extra: Record<string, unknown>) => recordAudit({
       action: 'plugin.remediation.rolled_back',
@@ -1166,7 +1179,9 @@ export async function planMove(pipeline: Pick<RolloutPipeline, 'orgId' | 'props'
  * when there is one (a user's proposal apply), else — a start from the plugin
  * service's internal call, the rollout worker — sysadmin-scoped in the
  * pipeline's org, as {@link moveReal} scopes a system move. Unscoped, the
- * contract resolver's `withTenantTx` throws in strict tenant mode.
+ * contract resolver's `withTenantTx` throws in strict tenant mode. That scope
+ * has no user, so the resolver does NOT lift the private-draft rung for it
+ * (plugin-contract-check `viewerFilter`): no member's private draft is planned.
  */
 function planInScope(...args: Parameters<typeof planMove>): Promise<MovePlan> {
   if (getTenantContext()) return planMove(...args);
@@ -1376,6 +1391,7 @@ export function realRolloutDeps(): RolloutDeps {
     rollbackTarget: checkRollbackTarget,
     report: reportReal,
     ancestors: (orgId) => runnerDeps().hierarchy.ancestors(orgId, undefined, { strict: true }),
+    descendants: (orgId) => runnerDeps().hierarchy.descendants(orgId, { strict: true }),
   };
 }
 

@@ -264,9 +264,10 @@ class InvitationService {
     // vouches for it, so a plain member invitation they sent must stop
     // admitting people too. A platform superadmin inviter keeps the standing
     // the send route gave them. Refused as revoked — which is what the
-    // inviter's removal now does to their pending invitations
-    // (`revokePendingInvitationsBy`); this is the backstop for any that
-    // predate it or were sent from an inherited (parent-org) authority.
+    // inviter's removal does to their pending invitations
+    // (`revokePendingInvitationsBy`); this is the backstop for a lost authority
+    // that revocation does not see (a permission change, an inherited
+    // parent-org authority).
     const inviterIsOwner = !!inviterDoc && String((org as { owner?: unknown }).owner ?? '') === String(invitation.invitedBy);
     const inviterMayInvite = inviterIsSuperAdmin
       || (inviterNow.inOrg && (inviterIsOwner || inviterNow.permissions.includes('invitations:manage')));

@@ -169,6 +169,17 @@ export function continueAfterStepUp<T = unknown>(
 }
 
 /**
+ * For an `onAbandoned` handler: `true` when the step-up replay itself FAILED
+ * (the request was sent again and errored), `false` when the person dismissed
+ * the dialog. A dismissal rejects with the claimed refusal itself (a
+ * `StepUpRequiredError` carrying `resume`); anything else is a failure the
+ * caller should report.
+ */
+export function stepUpReplayFailed(reason: unknown): boolean {
+  return !(reason instanceof StepUpRequiredError && reason.resume !== undefined);
+}
+
+/**
  * Thrown when a route refuses the SESSION rather than the request:
  * `MFA_REQUIRED` (the session is single-factor and the route needs two) or
  * `REAUTH_REQUIRED` (it is MFA-grade but older than the route allows).

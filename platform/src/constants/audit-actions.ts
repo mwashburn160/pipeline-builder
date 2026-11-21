@@ -381,6 +381,12 @@ export const PLATFORM_AUDIT_ACTIONS = [
   // master fallback. Both emit `affectedOrgId` for cross-org filtering.
   'admin.org.kms-config.upsert',
   'admin.org.kms-config.delete',
+  // The post-change verification (services/kms-config-verify.ts), TTL + margin
+  // after an upsert/delete: written as a `failure` when org secrets do not
+  // decrypt under the current config (a replica wrote them under the OLD key
+  // before the cache eviction reached it). System actor; `details.unreadableSecrets`
+  // names the fields only, never values. A clean check writes nothing.
+  'admin.org.kms-config.verify',
   // Emitted by the org-delete cascade when the deleted org had a per-org KMS
   // CMK (`kmsConfig`). Auto-deleting a CMK is IRREVERSIBLE, so the cascade
   // does NOT schedule the key for deletion — it records this operator-

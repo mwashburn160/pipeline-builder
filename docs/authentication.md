@@ -807,10 +807,8 @@ Mappings are managed on **Settings → Single Sign-On**, or through
 role change is audited (`sso.jit.provision`, `sso.jit.role.change`) and counted
 (`platform_sso_jit_provisioned_total`).
 
-> **Operator note (fresh behaviour, no migration):** orgs that already have SSO
-> configured start provisioning memberships on the next sign-in. Until a mapping
-> exists, members get the built-in Member role only — existing role assignments
-> are untouched because they are all `manual`.
+> Until a mapping exists, members get the built-in Member role only. Role
+> assignments made by hand (`manual`) are never touched by provisioning.
 
 ### SCIM 2.0 provisioning
 
@@ -2397,10 +2395,8 @@ agree on the spelling.
 
 Services reject a token that lacks these claims (an unknown `principalType`, a
 user principal with no assurance claims, a `service` principal whose subject
-doesn't name a service). There is no legacy shape: **every token minted before
-this release stops working at release** — sessions re-authenticate, and stored
-machine credentials must be re-issued (see below). Personal access tokens are
-gone entirely; they are replaced by access keys.
+doesn't name a service). There are no personal access tokens: machine
+credentials are access keys.
 
 ## Access keys (opaque, verified by exchange)
 
@@ -2833,14 +2829,13 @@ owner-only (`0600` inside the `0700` directory), keyed by platform base URL so
 one workstation can hold sessions for several platforms. `PLATFORM_TOKEN` always
 takes precedence, which is what CI sets to an access key.
 
-> **At release — no backward compatibility.** `auth login -u/-p` and
-> `auth login --refresh <token>` are **gone**, not deprecated. Scripts that used
-> either must move to an access key (`auth pat`, exported as `PLATFORM_TOKEN`) —
-> which is what they should have used anyway, since a session token expires in
-> minutes. `init-platform.sh` and `infra provision --admin-password` still
-> register and log in the bootstrap admin with a password over `curl`: that is a
-> genuinely non-interactive first-boot step with no browser to approve anything
-> in, and it is the *only* password path left.
+> The CLI has no password or refresh-token login (`auth login -u/-p`,
+> `auth login --refresh`). Scripts use an access key (`auth pat`, exported as
+> `PLATFORM_TOKEN`), since a session token expires in minutes.
+> `init-platform.sh` and `infra provision --admin-password` register and log in
+> the bootstrap admin with a password over `curl`: that is a genuinely
+> non-interactive first-boot step with no browser to approve anything in, and it
+> is the *only* password path.
 
 ## Where the refresh token lives
 
@@ -2887,10 +2882,6 @@ tab is broadcast too. The Web Lock is load-bearing: it guarantees a sibling's
 refreshing together can never both send the pre-rotation token (which the server
 would read as reuse and answer by revoking the slot).
 
-> **At release**: sessions opened before this change simply **stop refreshing** —
-> their refresh token was in `localStorage`, which is no longer read, and no
-> cookie exists for them. Users sign in again once. There is no migration.
->
 > **Operators**: the cookie is same-origin only — the UI and the API must be
 > served from one origin (they are: the browser calls `/api/...` on the gateway
 > that fronts both), and `PLATFORM_FRONTEND_URL` must name that origin so CORS

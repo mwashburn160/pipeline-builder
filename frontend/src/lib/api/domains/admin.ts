@@ -27,6 +27,22 @@ export interface AtRiskDimension {
   percent: number;
 }
 
+/**
+ * What a KMS config change (PUT / DELETE .../kms-config) reports. The counts are
+ * absent with `?reencrypt=false`. `concurrentlyChanged` names secrets set or
+ * removed while the migration ran (kept as written); `unreadableConcurrentWrites`
+ * is the subset written under the OLD key, which nothing can now open — those
+ * must be re-entered. Field names only, never values.
+ */
+export interface KmsConfigChangeResult {
+  configured: boolean;
+  keyId?: string;
+  aiKeysReencrypted?: number;
+  idpSecretReencrypted?: boolean;
+  concurrentlyChanged?: string[];
+  unreadableConcurrentWrites?: string[];
+}
+
 export function adminApi(core: ApiCore) {
   return {
     // ============================================
@@ -165,7 +181,7 @@ export function adminApi(core: ApiCore) {
       stepUpToken?: string,
     ) => {
       const q = opts?.reencrypt === false ? '?reencrypt=false' : '';
-      return core.request<ApiResponse<{ configured: boolean; keyId: string; aiKeysReencrypted?: number; idpSecretReencrypted?: boolean }>>(
+      return core.request<ApiResponse<KmsConfigChangeResult & { keyId: string }>>(
         `/api/admin/orgs/${orgId}/kms-config${q}`,
         { method: 'PUT', body: JSON.stringify(data), headers: core.stepUpHeader(stepUpToken) },
       );
@@ -173,7 +189,7 @@ export function adminApi(core: ApiCore) {
 
     /** Clear the org's KMS config — org reverts to the shared master. */
     deleteOrgKmsConfig: async (orgId: string, stepUpToken?: string) => {
-      return core.request<ApiResponse<{ configured: boolean }>>(
+      return core.request<ApiResponse<KmsConfigChangeResult>>(
         `/api/admin/orgs/${orgId}/kms-config`,
         { method: 'DELETE', headers: core.stepUpHeader(stepUpToken) },
       );

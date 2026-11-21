@@ -21,19 +21,20 @@ jest.mock('@/lib/api', () => ({
   },
 }));
 
-const allocation = (rows: any[]) => ({ data: { driver: 'seats', totals: {}, rows, unallocated: {} } });
+// Rows default to USD, the single-currency account most tests describe.
+const allocation = (rows: any[]) => ({ data: { driver: 'seats', byCurrency: [], rows: rows.map((r) => ({ currency: 'usd', ...r })), unallocated: {} } });
 
 const summary = (invoiceCount: number) => ({
   data: {
     scope: 'account',
-    totals: { grossBilledCents: 9800, discountsCents: 0, creditsCents: 3000, taxCents: 0, netBilledCents: 6800, amountPaidCents: 6800 },
-    timeline: [{ periodStart: '2026-06-01T00:00:00.000Z', grossCents: 4900, discountCents: 0, creditCents: 2000, netCents: 2900 }],
+    totalsByCurrency: [{ currency: 'usd', grossBilledCents: 9800, discountsCents: 0, creditsCents: 3000, taxCents: 0, netBilledCents: 6800, amountPaidCents: 6800, invoiceCount }],
+    timeline: [{ periodStart: '2026-06-01T00:00:00.000Z', currency: 'usd', grossCents: 4900, discountCents: 0, creditCents: 2000, netCents: 2900 }],
     invoiceCount,
   },
 });
 const invoices = {
   data: {
-    invoices: [{ periodStart: '2026-06-01T00:00:00.000Z', periodEnd: '2026-07-01T00:00:00.000Z', grossCents: 4900, discountCents: 0, creditCents: 2000, taxCents: 0, netCents: 2900, amountPaidCents: 2900, status: 'paid' }],
+    invoices: [{ periodStart: '2026-06-01T00:00:00.000Z', periodEnd: '2026-07-01T00:00:00.000Z', grossCents: 4900, discountCents: 0, creditCents: 2000, taxCents: 0, netCents: 2900, amountPaidCents: 2900, currency: 'usd', status: 'paid' }],
     pagination: { total: 1, limit: 24, offset: 0 },
   },
 };
@@ -56,6 +57,37 @@ describe('BillingDashboard', () => {
     expect(screen.getAllByText('$68.00').length).toBeGreaterThan(0);
     expect(screen.getByText('Invoices')).toBeInTheDocument();
     expect(screen.getByText('paid')).toBeInTheDocument();
+  });
+
+  it('a single-currency account shows one set of totals, with no currency heading', async () => {
+    getBillingSummary.mockResolvedValue(summary(1));
+    render(<BillingDashboard />);
+    await screen.findByText('Amounts billed');
+    expect(screen.getAllByText('Total billed')).toHaveLength(1);
+    expect(screen.queryByText('USD')).not.toBeInTheDocument();
+  });
+
+  it('shows one set of totals PER CURRENCY, each in its own currency, never summed', async () => {
+    getBillingSummary.mockResolvedValue({
+      data: {
+        scope: 'account',
+        totalsByCurrency: [
+          { currency: 'eur', grossBilledCents: 3000, discountsCents: 0, creditsCents: 0, taxCents: 0, netBilledCents: 3000, amountPaidCents: 3000, invoiceCount: 1 },
+          { currency: 'usd', grossBilledCents: 9800, discountsCents: 0, creditsCents: 3000, taxCents: 0, netBilledCents: 6800, amountPaidCents: 6800, invoiceCount: 2 },
+        ],
+        timeline: [{ periodStart: '2026-06-01T00:00:00.000Z', currency: 'eur', grossCents: 3000, discountCents: 0, creditCents: 0, netCents: 3000 }],
+        invoiceCount: 3,
+      },
+    });
+    render(<BillingDashboard />);
+    await screen.findByText('Amounts billed');
+    expect(screen.getAllByText('Total billed')).toHaveLength(2);
+    expect(screen.getByText('EUR')).toBeInTheDocument();
+    expect(screen.getByText('USD')).toBeInTheDocument();
+    expect(screen.getAllByText('€30.00').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('$68.00').length).toBeGreaterThan(0);
+    // Nothing adds euros to dollars ($98 + €30 is no total).
+    expect(screen.queryByText('$128.00')).not.toBeInTheDocument();
   });
 
   it('renders nothing for an account with no billing history', async () => {

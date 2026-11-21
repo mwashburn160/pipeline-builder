@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 40494f247ee68579becc369bb33c5950c9a002b4588f4981f0e3f0bf6618a8a8
+// SOURCE-SHA256: 2c76ea264b5f6013f73649b3ef3295f1d92d4b335904c67b9f6ddd90eb33e90c
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1399,6 +1399,10 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
+          "content": "The canary fixtures. PluginRemediationCanaryStale watches one remediation-canary-<type> plugin per package type, built into the system org at the end of a completed rescan pass when it is not stored yet, and fixed every night as a dry run (built, patched, verified, never published) under the system org's own remediation settings. Each fixture (api/plugin/src/services/remediation/canary.ts) builds on linux/amd64 and linux/arm64 (a downloaded tool follows TARGETARCH), carries go.sum / a checksummed Cargo.lock so the build needs no resolution, builds on version tags rather than digests and upgrades its base packages, so that the build gate's floor (no fixable Critical) passes and the pinned package carries the only fixable High. That fix is within the default upgrade level (minor). OS fixtures take their vulnerable version from a frozen archive (deb: a snapshot.debian.org trixie-security snapshot; rpm: AlmaLinux's 9.8 vault; apk: the alpine:3.24.3 patch release with the package held back from apk upgrade), so the builds need outbound access to those hosts as well as the usual registries. If a fixture's build is refused by the gate (its package picked up a fixable Critical) or the canary stays failing because a new fix is beyond the minor level, re-pin that fixture to a newer vulnerable version."
+        },
+        {
+          "type": "text",
           "content": "Turning remediation off (PLUGIN_REMEDIATION_ENABLED=false) silences the error and canary rules (nothing runs); the delete and missing-source rules keep working, because source retention and purge do not depend on it."
         },
         {
@@ -1584,7 +1588,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "At 242 rules one root cause is a pager flood, and a flood is functionally the same as no alert. The inhibition tree in alertmanager.yml suppresses the consequences of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service being down."
+          "content": "At 245 rules one root cause is a pager flood, and a flood is functionally the same as no alert. The inhibition tree in alertmanager.yml suppresses the consequences of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service being down."
         },
         {
           "type": "text",

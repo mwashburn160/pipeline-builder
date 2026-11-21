@@ -786,8 +786,8 @@ export async function getPipelineStreaks(
  * Pipelines that RAN in the window but produced no deploy rows.
  *
  * A measurement gap, not a failure, and the reason a deployment-frequency number can
- * be quietly wrong: a pipeline whose synth predates the `pb.deploys` tags deploys
- * perfectly well and is invisible to every DORA aggregate. Nothing else in the
+ * be quietly wrong: a pipeline whose deploy stages are not tagged (`pb.deploys`)
+ * deploys perfectly well and is invisible to every DORA aggregate. Nothing else in the
  * report would say so.
  */
 export async function getUntrackedPipelines(scope: AnalyticsScope): Promise<string[]> {

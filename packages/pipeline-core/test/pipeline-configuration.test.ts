@@ -173,18 +173,20 @@ describe('PipelineConfiguration', () => {
       expect(config.pipelineName).toBe('acme-spring_boot-pipeline');
     });
 
-    it('keeps a legacy underscore pair\'s pipeline name unhashed (already-deployed names must not change)', () => {
-      const config = new PipelineConfiguration(validProps({ project: 'spring_boot', organization: 'acme' }));
-      expect(config.identityHash).toBeNull();
-      expect(config.pipelineName).toBe('acme-spring_boot-pipeline');
+    it('hashes an underscore pair, so it never shares the hyphen pair\'s pipeline (spring_boot vs spring-boot)', () => {
+      const underscore = new PipelineConfiguration(validProps({ project: 'spring_boot', organization: 'acme' }));
+      const hyphen = new PipelineConfiguration(validProps({ project: 'spring-boot', organization: 'acme' }));
+      expect(underscore.identityHash).toMatch(/^[0-9a-f]{8}$/);
+      expect(underscore.pipelineName).toBe(`acme-spring_boot-pipeline-${underscore.identityHash}`);
+      expect(underscore.pipelineName).not.toBe(hyphen.pipelineName);
     });
 
-    it('hashes the raw pair into the pipeline name for characters outside the legacy set (my.app vs my_app)', () => {
-      const lossy = new PipelineConfiguration(validProps({ project: 'my.app', organization: 'acme' }));
-      const legacy = new PipelineConfiguration(validProps({ project: 'my_app', organization: 'acme' }));
-      expect(lossy.identityHash).toMatch(/^[0-9a-f]{8}$/);
-      expect(lossy.pipelineName).toBe(`acme-my_app-pipeline-${lossy.identityHash}`);
-      expect(lossy.pipelineName).not.toBe(legacy.pipelineName);
+    it('hashes the raw pair into the pipeline name for characters outside the clean set (my.app vs my_app)', () => {
+      const dot = new PipelineConfiguration(validProps({ project: 'my.app', organization: 'acme' }));
+      const underscore = new PipelineConfiguration(validProps({ project: 'my_app', organization: 'acme' }));
+      expect(dot.identityHash).toMatch(/^[0-9a-f]{8}$/);
+      expect(dot.pipelineName).toBe(`acme-my_app-pipeline-${dot.identityHash}`);
+      expect(dot.pipelineName).not.toBe(underscore.pipelineName);
     });
 
     it('uses custom pipeline name when provided', () => {

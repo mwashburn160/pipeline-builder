@@ -22,6 +22,7 @@ import { applyPlanTierChange, applyTierIncludedAddonPrune } from './addon-prune.
 import { calculatePeriodEnd, createBillingEvent } from './billing-helpers.js';
 import { syncEntitlements } from './entitlement-sync.js';
 import { licenseIdOf, type MarketplaceEvent } from './marketplace-license.js';
+import { MANAGEABLE_SUBSCRIPTION_STATUSES } from './subscription-status.js';
 import { config } from '../config.js';
 import { Plan } from '../models/plan.js';
 import { Subscription, type BillingInterval } from '../models/subscription.js';
@@ -144,13 +145,15 @@ export async function handleEntitlementUpdate(licenseArn: string): Promise<void>
   if (!provider) return;
   const licenseId = licenseIdOf(licenseArn);
 
+  // The same manageable set resolve/claim bind licenses in: a trialing or
+  // past-due license is still the buyer's, and its plan change must land.
   const subscription = await Subscription.findOne({
     'metadata.awsLicenseArn': licenseArn,
-    'status': 'active',
+    'status': { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] },
   });
 
   if (!subscription) {
-    logger.warn('No active subscription for entitlement update', { licenseId });
+    logger.warn('No manageable subscription for entitlement update', { licenseId });
     return;
   }
 

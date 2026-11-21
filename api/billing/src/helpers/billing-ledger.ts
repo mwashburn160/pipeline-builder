@@ -11,6 +11,7 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
+import type { PipelineStage } from 'mongoose';
 import { recurringInvoicePeriod, type InvoiceLineLike } from './stripe-period.js';
 import { BillingInvoice, type BillingInvoiceStatus } from '../models/billing-invoice.js';
 import { BillingPendingReversal, PENDING_REVERSAL_TTL_MS } from '../models/billing-pending-reversal.js';
@@ -59,6 +60,8 @@ function mapInvoiceStatus(status?: string | null): LedgerStatus {
  * row back to `refunded` with a higher amount still paid. A reversal now only moves
  * the status UP this ranking, and the net amount paid only ever goes DOWN (`$min`:
  * the provider's cumulative totals make the latest reversal the lowest net).
+ * The one sanctioned way DOWN is a won dispute ({@link restoreDisputedLedgerInvoice}),
+ * which moves only a `disputed` row, and only to what its refund history allows.
  */
 const REVERSAL_RANK: Readonly<Record<LedgerStatus, number>> = {
   open: 0, paid: 0, void: 1, uncollectible: 1, refunded: 2, disputed: 3,
@@ -158,6 +161,42 @@ export async function reverseLedgerInvoice(
   incCounter('billing_invoice_reversal_banked_total', { source: 'stripe', status });
   logger.info('Invoice not in the ledger yet — reversal banked for its ingest', { invoiceId, status });
   return null;
+}
+
+/**
+ * A WON dispute (`charge.dispute.closed`, status `won`): the disputed funds came
+ * back, so a `disputed` row returns to the state its refund history allows —
+ * `paid` with the full amount, or `refunded` with the refund still counted
+ * (`netAmountPaidCents` = charge amount − amount refunded). The only write that
+ * moves DOWN {@link REVERSAL_RANK}, and it moves only a row that is `disputed`:
+ * a redelivered won event, or one for a row no dispute reached, changes nothing.
+ * A dispute still BANKED (its invoice not ingested yet) is rewritten the same
+ * way — dropped when nothing is left reversed, so the ingest lands the paid row.
+ */
+export async function restoreDisputedLedgerInvoice(
+  invoiceId: string,
+  status: 'paid' | 'refunded',
+  netAmountPaidCents: number,
+): Promise<void> {
+  const amountPaidCents = Math.max(0, netAmountPaidCents);
+  const row = await BillingInvoice.findOneAndUpdate(
+    { externalInvoiceId: invoiceId, status: 'disputed' },
+    { $set: { status, amountPaidCents } },
+    { new: true },
+  );
+  if (row) {
+    incCounter('billing_invoice_dispute_won_total', { source: 'stripe', status });
+    logger.info('Won dispute restored the billing invoice', { orgId: row.orgId, invoiceId, status });
+    return;
+  }
+  const banked = status === 'paid'
+    ? await BillingPendingReversal.deleteOne({ _id: invoiceId, status: 'disputed' })
+    : await BillingPendingReversal.updateOne({ _id: invoiceId, status: 'disputed' }, { $set: { status, amountPaidCents } });
+  const touched = 'deletedCount' in banked ? banked.deletedCount : banked.modifiedCount;
+  if (touched) {
+    incCounter('billing_invoice_dispute_won_total', { source: 'stripe', status });
+    logger.info('Won dispute rewrote the banked reversal', { invoiceId, status });
+  }
 }
 
 /**
@@ -273,17 +312,28 @@ export async function recordMarketplaceConsumption(
   logger.debug('Marketplace consumption recorded', { orgId, periodKey, consumedCents });
 }
 
+/** Summed ledger columns, in minor units of one currency. */
+export interface BillingTotals {
+  grossBilledCents: number;
+  discountsCents: number;
+  creditsCents: number;
+  taxCents: number;
+  netBilledCents: number;
+  amountPaidCents: number;
+}
+
+/** One currency's totals. Amounts in different currencies are never added together. */
+export interface CurrencyTotals extends BillingTotals {
+  /** Lower-case ISO 4217 code, as the provider reports it (`usd`, `eur`). */
+  currency: string;
+  invoiceCount: number;
+}
+
 export interface BillingSummary {
   scope: 'account';
-  totals: {
-    grossBilledCents: number;
-    discountsCents: number;
-    creditsCents: number;
-    taxCents: number;
-    netBilledCents: number;
-    amountPaidCents: number;
-  };
-  timeline: Array<{ periodStart: string; grossCents: number; discountCents: number; creditCents: number; netCents: number }>;
+  /** One entry per currency the account was billed in, sorted by currency code; empty with no invoices. */
+  totalsByCurrency: CurrencyTotals[];
+  timeline: Array<{ periodStart: string; currency: string; grossCents: number; discountCents: number; creditCents: number; netCents: number }>;
   invoiceCount: number;
 }
 
@@ -299,11 +349,6 @@ function windowFilter(orgId: string, from?: Date, to?: Date): Record<string, unk
   return filter;
 }
 
-/** Zeroed totals accumulator shared by both summary shapes. */
-function zeroTotals(): BillingSummary['totals'] {
-  return { grossBilledCents: 0, discountsCents: 0, creditsCents: 0, taxCents: 0, netBilledCents: 0, amountPaidCents: 0 };
-}
-
 /** The per-`$group` sum accumulators mapping ledger columns → summary totals. */
 const TOTALS_ACCUMULATORS = {
   grossBilledCents: { $sum: '$subtotalCents' },
@@ -315,17 +360,24 @@ const TOTALS_ACCUMULATORS = {
   invoiceCount: { $sum: 1 },
 } as const;
 
-/** Fold a `$group` totals row (or nothing) into the plain totals + count shape. */
-function readTotals(row: (BillingSummary['totals'] & { invoiceCount?: number }) | undefined): { totals: BillingSummary['totals']; invoiceCount: number } {
-  const totals = zeroTotals();
-  if (!row) return { totals, invoiceCount: 0 };
-  totals.grossBilledCents = row.grossBilledCents ?? 0;
-  totals.discountsCents = row.discountsCents ?? 0;
-  totals.creditsCents = row.creditsCents ?? 0;
-  totals.taxCents = row.taxCents ?? 0;
-  totals.netBilledCents = row.netBilledCents ?? 0;
-  totals.amountPaidCents = row.amountPaidCents ?? 0;
-  return { totals, invoiceCount: row.invoiceCount ?? 0 };
+/** The `$facet` branch summing the ledger per currency, sorted by currency code. */
+const TOTALS_BY_CURRENCY: PipelineStage.FacetPipelineStage[] = [{ $group: { _id: '$currency', ...TOTALS_ACCUMULATORS } }, { $sort: { _id: 1 } }];
+
+type TotalsRow = Omit<CurrencyTotals, 'currency'> & { _id: string };
+
+/** Map the per-currency `$group` rows into the summary shape. */
+function readTotals(rows: TotalsRow[] | undefined): { totalsByCurrency: CurrencyTotals[]; invoiceCount: number } {
+  const totalsByCurrency = (rows ?? []).map((r) => ({
+    currency: r._id,
+    grossBilledCents: r.grossBilledCents,
+    discountsCents: r.discountsCents,
+    creditsCents: r.creditsCents,
+    taxCents: r.taxCents,
+    netBilledCents: r.netBilledCents,
+    amountPaidCents: r.amountPaidCents,
+    invoiceCount: r.invoiceCount,
+  }));
+  return { totalsByCurrency, invoiceCount: totalsByCurrency.reduce((n, t) => n + t.invoiceCount, 0) };
 }
 
 /**
@@ -333,25 +385,28 @@ function readTotals(row: (BillingSummary['totals'] & { invoiceCount?: number }) 
  * The root org IS the whole account (billing is root-scoped), so this is the
  * consolidated account total — no subtree traversal needed.
  *
- * Totals are summed by a Mongo `$group` (not by loading every invoice document
- * into JS); the timeline is a projection of the (bounded, one-per-invoice-period)
- * rows. A single `$facet` runs both branches over one `$match`+`$sort` scan.
+ * Totals are summed PER CURRENCY by a Mongo `$group` (an account billed in two
+ * currencies gets two totals — adding dollars to euros is no total at all); the
+ * timeline is a projection of the (bounded, one-per-invoice-period) rows, each
+ * tagged with its currency. A single `$facet` runs both branches over one
+ * `$match`+`$sort` scan.
  */
 export async function getBillingSummary(orgId: string, from?: Date, to?: Date): Promise<BillingSummary> {
   const [facet] = await BillingInvoice.aggregate<{
-    totals: Array<BillingSummary['totals'] & { invoiceCount: number }>;
-    timeline: Array<{ periodStart: Date; grossCents: number; discountCents: number; creditCents: number; netCents: number }>;
+    totals: TotalsRow[];
+    timeline: Array<{ periodStart: Date; currency: string; grossCents: number; discountCents: number; creditCents: number; netCents: number }>;
   }>([
     // Void / uncollectible invoices were never collected — not billed revenue.
     { $match: { ...windowFilter(orgId, from, to), status: { $nin: [...UNCOLLECTED_STATUSES] } } },
     { $sort: { periodStart: 1 } },
     {
       $facet: {
-        totals: [{ $group: { _id: null, ...TOTALS_ACCUMULATORS } }],
+        totals: TOTALS_BY_CURRENCY,
         timeline: [{
           $project: {
             _id: 0,
             periodStart: 1,
+            currency: '$currency',
             grossCents: '$subtotalCents',
             discountCents: '$discountCents',
             creditCents: '$creditCents',
@@ -361,28 +416,30 @@ export async function getBillingSummary(orgId: string, from?: Date, to?: Date): 
       },
     },
   ]);
-  const { totals, invoiceCount } = readTotals(facet?.totals?.[0]);
+  const { totalsByCurrency, invoiceCount } = readTotals(facet?.totals);
   const timeline = (facet?.timeline ?? []).map((r) => ({
     periodStart: new Date(r.periodStart).toISOString(),
+    currency: r.currency,
     grossCents: r.grossCents,
     discountCents: r.discountCents,
     creditCents: r.creditCents,
     netCents: r.netCents,
   }));
-  return { scope: 'account', totals, timeline, invoiceCount };
+  return { scope: 'account', totalsByCurrency, timeline, invoiceCount };
 }
 
 export interface AdminBillingSummary {
-  totals: BillingSummary['totals'];
-  byOrg: Array<{ orgId: string; grossBilledCents: number; creditsCents: number; discountsCents: number; netBilledCents: number; invoiceCount: number }>;
+  totalsByCurrency: CurrencyTotals[];
+  /** One row per (account, currency), sorted by net billed descending. */
+  byOrg: Array<{ orgId: string; currency: string; grossBilledCents: number; creditsCents: number; discountsCents: number; netBilledCents: number; invoiceCount: number }>;
   invoiceCount: number;
 }
 
 /**
  * Cross-ACCOUNT aggregate for the system-admin finance view — totals + a per-org
- * breakdown (discount/credit impact vs net). `orgId` narrows to one account;
- * omitted spans every account. Distinct from {@link getBillingSummary}, which is
- * a single account's own dashboard.
+ * breakdown (discount/credit impact vs net), both PER CURRENCY. `orgId` narrows
+ * to one account; omitted spans every account. Distinct from
+ * {@link getBillingSummary}, which is a single account's own dashboard.
  */
 export async function getAdminBillingSummary(from?: Date, to?: Date, orgId?: string): Promise<AdminBillingSummary> {
   // Void / uncollectible invoices were never collected — not billed revenue.
@@ -395,21 +452,19 @@ export async function getAdminBillingSummary(from?: Date, to?: Date, orgId?: str
     filter.periodStart = range;
   }
   // Sum ENTIRELY in Mongo — a `$facet` computes the grand totals and the per-org
-  // breakdown in one pass. The old `.find()` streamed every invoice across ALL
-  // accounts into JS (an OOM risk on the unscoped admin view); nothing but the
-  // aggregated rows crosses the wire now.
+  // breakdown in one pass, so nothing but the aggregated rows crosses the wire.
   const [facet] = await BillingInvoice.aggregate<{
-    totals: Array<BillingSummary['totals'] & { invoiceCount: number }>;
-    byOrg: Array<{ _id: string; grossBilledCents: number; creditsCents: number; discountsCents: number; netBilledCents: number; invoiceCount: number }>;
+    totals: TotalsRow[];
+    byOrg: Array<{ _id: { orgId: string; currency: string }; grossBilledCents: number; creditsCents: number; discountsCents: number; netBilledCents: number; invoiceCount: number }>;
   }>([
     { $match: filter },
     {
       $facet: {
-        totals: [{ $group: { _id: null, ...TOTALS_ACCUMULATORS } }],
+        totals: TOTALS_BY_CURRENCY,
         byOrg: [
           {
             $group: {
-              _id: '$orgId',
+              _id: { orgId: '$orgId', currency: '$currency' },
               grossBilledCents: { $sum: '$subtotalCents' },
               creditsCents: { $sum: '$creditCents' },
               discountsCents: { $sum: '$discountCents' },
@@ -417,21 +472,22 @@ export async function getAdminBillingSummary(from?: Date, to?: Date, orgId?: str
               invoiceCount: { $sum: 1 },
             },
           },
-          { $sort: { netBilledCents: -1 } },
+          { $sort: { 'netBilledCents': -1, '_id.orgId': 1, '_id.currency': 1 } },
         ],
       },
     },
   ]);
-  const { totals, invoiceCount } = readTotals(facet?.totals?.[0]);
+  const { totalsByCurrency, invoiceCount } = readTotals(facet?.totals);
   const byOrg = (facet?.byOrg ?? []).map((o) => ({
-    orgId: o._id,
+    orgId: o._id.orgId,
+    currency: o._id.currency,
     grossBilledCents: o.grossBilledCents,
     creditsCents: o.creditsCents,
     discountsCents: o.discountsCents,
     netBilledCents: o.netBilledCents,
     invoiceCount: o.invoiceCount,
   }));
-  return { totals, byOrg, invoiceCount };
+  return { totalsByCurrency, byOrg, invoiceCount };
 }
 
 /** Paginated raw invoice rows for the dashboard's invoice table. */
@@ -451,6 +507,7 @@ export async function listBillingInvoices(orgId: string, from: Date | undefined,
       taxCents: r.taxCents,
       netCents: r.totalCents,
       amountPaidCents: r.amountPaidCents,
+      currency: r.currency,
       status: r.status,
     })),
     pagination: { total, limit, offset },

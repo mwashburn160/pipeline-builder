@@ -4,6 +4,7 @@
 import crypto from 'crypto';
 
 import { createEnvRedisClient } from './env-redis.js';
+import { serviceIdentity } from './service-keys.js';
 import { AI_DRAFT_ID_PATTERN, AI_DRAFT_ID_TTL_MS, type AiDraftFeature } from '../constants/ai-draft.js';
 import { createLogger } from '../utils/logger.js';
 import { errorMessage } from '../utils/response.js';
@@ -43,11 +44,14 @@ export type AiDraftRedeemResult = 'ok' | 'invalid' | 'used' | 'unavailable';
  *
  * The Redis backend is shared by every service (`REDIS_URL` / `REDIS_SENTINELS`),
  * which is what lets ask-agent redeem an id the pipeline or plugin service
- * issued. Without Redis the in-memory backend only redeems ids issued by the
- * same process (the Ask agent's own drafts); an outcome for another service's
- * draft is then refused as `invalid` — the count is lost, nothing else is.
+ * issued. Without Redis the in-memory backend is process-local: only ask-agent
+ * (the redeemer) issues ids on it — its own agent drafts. The pipeline and
+ * plugin services then serve their drafts WITHOUT an id ({@link issueAiDraftId}),
+ * so the dashboard never reports an outcome nobody could verify.
  */
 export interface AiDraftStore {
+  /** True when ids issued here are visible to every service (Redis); false for the process-local memory backend. */
+  readonly crossService: boolean;
   /** Issue a draft id for `ref`, or null when the backend could not record it. */
   issue(ref: AiDraftRef): Promise<string | null>;
   /** Redeem `draftId` for `ref`, exactly once. */
@@ -88,6 +92,7 @@ export function createMemoryAiDraftStore(config: AiDraftStoreConfig = {}): AiDra
   timer.unref();
 
   return {
+    crossService: false,
     async issue(ref) {
       if (!ref.orgId || !ref.userId) return null;
       const id = newDraftId();
@@ -141,6 +146,7 @@ return 'ok'`;
 export function createRedisAiDraftStore(redis: AiDraftRedis, config: AiDraftStoreConfig = {}): AiDraftStore {
   const ttlMs = Math.max(1, Math.ceil(config.ttlMs ?? AI_DRAFT_ID_TTL_MS));
   return {
+    crossService: true,
     async issue(ref) {
       if (!ref.orgId || !ref.userId) return null;
       try {
@@ -191,15 +197,23 @@ export function _setAiDraftStoreForTests(store?: AiDraftStore): void {
   shared = store;
 }
 
+/** The one service that redeems draft ids (`POST /ask-agent/draft-outcome`). */
+const AI_DRAFT_REDEEMER = 'ask-agent';
+
 /**
  * Issue a draft id for a draft about to be returned to the user, on the
  * process-wide store. Never throws: with no id the draft is still served, its
  * outcome just can't be recorded. Returns undefined for a caller with no user
- * (a service principal has nobody to report an outcome).
+ * (a service principal has nobody to report an outcome), and on a process-local
+ * store when this service is not the redeemer: ask-agent could never resolve
+ * that id, so issuing one would only make the dashboard report an outcome that
+ * is refused.
  */
 export async function issueAiDraftId(ref: AiDraftRef): Promise<string | undefined> {
   try {
-    return (await getAiDraftStore().issue(ref)) ?? undefined;
+    const store = getAiDraftStore();
+    if (!store.crossService && serviceIdentity() !== AI_DRAFT_REDEEMER) return undefined;
+    return (await store.issue(ref)) ?? undefined;
   } catch (err) {
     logger.warn('AI draft id issue failed', { error: errorMessage(err) });
     return undefined;

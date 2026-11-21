@@ -66,13 +66,6 @@ describe('the sweep runs the signing-key lifecycle', () => {
     await opts.run({ signal: new AbortController().signal } as never);
     expect(mockPromote).toHaveBeenCalledTimes(1);
   });
-
-  it('a database without the runner tables skips the whole sweep', async () => {
-    const deps = testDeps();
-    deps.store.tablesPresent = async () => false;
-    await runSweep(deps);
-    expect(mockPromote).not.toHaveBeenCalled();
-  });
 });
 
 describe('the dispatcher', () => {

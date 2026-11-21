@@ -11,7 +11,7 @@
  */
 
 import type { RunnerLinkDetail, RunnerLinkStatus } from '@pipeline-builder/api-core/pipeline-runners';
-import { pipelineRegistryRunnerLink, runWithTenantContext, schema, tableExists, withTenantTx, type RunRequestStatus } from '@pipeline-builder/pipeline-data';
+import { pipelineRegistryRunnerLink, runWithTenantContext, schema, withTenantTx, type RunRequestStatus } from '@pipeline-builder/pipeline-data';
 import { and, asc, count, eq, inArray, lt, lte, ne, sql } from 'drizzle-orm';
 
 export type RunnerRow = typeof schema.pipelineRunner.$inferSelect;
@@ -43,8 +43,6 @@ export interface RunnerLinkWrite {
 }
 
 export interface RunnerStore {
-  /** Whether this database has the runner tables (one created before runners does not). */
-  tablesPresent(): Promise<boolean>;
   insertRunner(row: RunnerInsert): Promise<RunnerRow>;
   getRunner(id: string): Promise<RunnerRow | null>;
   /** Runners of the given orgs (optionally active only), oldest first. */
@@ -119,8 +117,6 @@ const G = pipelineRegistryRunnerLink;
 /** The Drizzle/Postgres implementation. */
 export function createDrizzleRunnerStore(): RunnerStore {
   return {
-    tablesPresent: () => runWithTenantContext({ isSuperAdmin: true }, async () =>
-      (await tableExists('pipeline_runners')) && (await tableExists('pipeline_run_requests'))),
     insertRunner: (row) => elevated(async (tx) => (await tx.insert(R).values(row).returning())[0]!),
     getRunner: (id) => elevated(async (tx) => (await tx.select().from(R).where(eq(R.id, id)))[0] ?? null),
     listRunners: (orgIds, opts) => (orgIds.length === 0 ? Promise.resolve([]) : elevated((tx) => tx.select().from(R)

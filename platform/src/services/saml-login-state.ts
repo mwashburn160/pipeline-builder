@@ -57,15 +57,13 @@ export async function beginSamlLogin(orgId: string, binding: string): Promise<{ 
 
 /** Consume the RelayState and confirm it was minted for THIS org. Consumed on
  *  ANY lookup — valid or not — so a state can never be probed or replayed, the
- *  same one-time contract the OIDC callback keeps. A state recorded without a
- *  request id (minted before the binding existed) is refused like any other
- *  invalid state. */
+ *  same one-time contract the OIDC callback keeps. */
 export async function consumeSamlRelayState(
   orgId: string,
   relayState: string | undefined,
 ): Promise<{ state: string; binding: string; requestId: string }> {
   if (!relayState) throw new Error('SAML_IDP_INITIATED');
   const pending = await pendingSamlStates.consume(relayState);
-  if (!pending || pending.orgId !== orgId || !pending.requestId) throw new Error('SAML_INVALID_STATE');
+  if (!pending || pending.orgId !== orgId) throw new Error('SAML_INVALID_STATE');
   return { state: relayState, binding: pending.binding, requestId: pending.requestId };
 }

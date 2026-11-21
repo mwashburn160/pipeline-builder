@@ -102,6 +102,17 @@ function roleFor(entry: CatalogEntry): SeedBundleId | undefined {
 }
 
 /**
+ * The rotation stack's name suffix for `secretName`: its trailing path segment
+ * (`-platform`, `-reporting-ingest`, …). Per-secret, so each credential's stack
+ * coexists with the others instead of colliding on the (account-global) IAM
+ * role / Lambda / rule names.
+ */
+export function renewNameSuffix(secretName: string): string {
+  const leaf = secretName.replace(/.*\//, '');
+  return `-${leaf.replace(/[^a-z0-9]+/gi, '-')}`;
+}
+
+/**
  * Deploy (or update) the once-a-day KEY ROTATION stack: a scheduled Lambda that
  * replaces the service-account key in this secret before it expires. Mirrors
  * setup-events — `aws cloudformation deploy` for the infra, then a direct
@@ -117,14 +128,7 @@ async function deployRenewSchedule(opts: {
 }): Promise<string> {
   const scheduleExpression = toEventBridgeCron(opts.fiveFieldCron); // validates + 15-min guard
 
-  // Name renewal resources per-secret so a scoped-credential stack (e.g. the
-  // reporting-ingest key the event Lambda reads) coexists with the
-  // platform-credential stack instead of colliding on the (account-global) IAM
-  // role / Lambda / rule names. The platform secret keeps the bare name
-  // (suffix '') so existing deployments' stack is updated in place, not
-  // duplicated; any other secret appends its trailing path segment.
-  const secretLeaf = opts.secretName.replace(/.*\//, ''); // 'platform' | 'reporting-ingest' | …
-  const nameSuffix = secretLeaf === 'platform' ? '' : `-${secretLeaf.replace(/[^a-z0-9]+/gi, '-')}`;
+  const nameSuffix = renewNameSuffix(opts.secretName);
   const stackName = `${RENEW_STACK_NAME}${nameSuffix}`;
   const lambdaName = `${RENEW_LAMBDA_NAME}${nameSuffix}`;
 
@@ -193,8 +197,7 @@ async function previousKeyId(
     const parsed = JSON.parse(raw) as { keyId?: string; serviceAccountId?: string };
     return { keyId: parsed.keyId, serviceAccountId: parsed.serviceAccountId };
   } catch {
-    // No secret yet (first run), or one written before the service-account
-    // cutover (no keyId). Either way there is nothing this run can retire.
+    // No secret yet (first run): there is nothing this run can retire.
     return {};
   }
 }

@@ -16,7 +16,7 @@
  *      (`pendingBillingPlanId`) instead of losing the intent. Never throws —
  *      registration success is independent of billing latency.
  *   2. {@link reconcilePendingBillingSubscriptions} — a lightweight pass (boot
- *      drain + periodic interval, wired in index.ts alongside the RBAC backfill)
+ *      drain + periodic interval, wired in index.ts)
  *      that re-attempts every marked org and clears the marker on success.
  *
  * The org's `tier` is NEVER granted locally here — it stays developer until

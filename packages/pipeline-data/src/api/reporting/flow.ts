@@ -23,8 +23,8 @@
  *    "pipeline start → first stage start" from the PIPELINE and STAGE STARTED
  *    rows that already exist.
  *
- * Data appears for runs ingested after the release that started collecting it:
- * older rows carry no `buildPhases`, and are simply not in the queue sample.
+ * `buildPhases` is best-effort (absent when the forwarder could not read the
+ * build record); a row without it is simply not in the queue sample.
  *
  * WINDOWS AND BUCKETS. Approvals and builds land in the bucket they FINISHED
  * in (`completed_at`), the start → first stage gap in the bucket the execution

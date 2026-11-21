@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-providers.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 878b12f6fc39c8572b2e0ba6bd835798206a92d362157895871e2b014787a133
+// SOURCE-SHA256: 5b99b9f2ae9ce9e0c9cc3c4bba1aef05396712f2c1277a0d7a7f29bc0ae2f9af
 // SPDX-License-Identifier: Apache-2.0
 import { CreditCard } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -411,7 +411,7 @@ export const billingProvidersTopic: HelpTopic = {
         },
         {
           "type": "note",
-          "content": "automation_pack needs its own Prices. It is the newest add-on (the automationCalls top-up). On an install whose STRIPE_PRICE_MAP predates it, create its monthly and annual Prices (or re-run the provisioning helper) and add automation_pack_monthly / automation_pack_annual. Until then billing boots with a price_map_incomplete warning naming both keys, and an org that buys the pack is granted the capacity but never charged."
+          "content": "automation_pack needs its own Prices (the automationCalls top-up): automation_pack_monthly / automation_pack_annual. Without them billing boots with a price_map_incomplete warning naming both keys, and an org that buys the pack is granted the capacity but never charged."
         },
         {
           "type": "text",
@@ -517,7 +517,7 @@ export const billingProvidersTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Stripe Dashboard → Developers → Webhooks → Add endpoint → enter that URL, then select the events the app consumes:"
+          "content": "Stripe Dashboard → Developers → Webhooks → Add endpoint → enter that URL, then select the events the app consumes (or all events):"
         },
         {
           "type": "table",
@@ -528,7 +528,7 @@ export const billingProvidersTopic: HelpTopic = {
           "rows": [
             [
               "customer.subscription.created",
-              "Records the subscription + grants the tier"
+              "Records the subscription + grants the tier. A duplicate checkout (the org already holds a subscription bound to another Stripe subscription) is canceled at once and its first paid invoice refunded in full (idempotent on the invoice id); a duplicate whose first invoice settles only after the cancel is refunded when its invoice.payment_succeeded arrives. A failed refund counts billing_duplicate_stripe_refund_failed_total and fires BillingDuplicateRefundFailing — refund that invoice by hand"
             ],
             [
               "customer.subscription.updated",
@@ -556,12 +556,32 @@ export const billingProvidersTopic: HelpTopic = {
             ],
             [
               "charge.dispute.created",
-              "Reverses on dispute"
+              "Reverses on dispute: the invoice's billing-ledger row moves to disputed and a full reversal claws back recent promotion credits, each tagged with the dispute id. The dispute is re-read first, so a delivery processed after the dispute was already won reverses nothing"
+            ],
+            [
+              "charge.dispute.closed",
+              "A won dispute undoes that reversal: the ledger row returns to paid with the disputed amount restored (or to refunded, its refund still counted, if the charge was partly refunded before the dispute), and the promotion credit that dispute clawed back is re-granted through the normal budget-guarded grant, at most once per dispute id. A lost dispute (or a closed inquiry) changes nothing"
             ],
             [
               "invoice.voided / invoice.marked_uncollectible",
               "Reversal handling"
             ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "This table is the dispatch map in api/billing/src/routes/stripe-webhook.ts (STRIPE_WEBHOOK_EVENTS); a test fails if the two disagree."
+        },
+        {
+          "type": "text",
+          "content": "The service keeps the subscription complete itself. At startup, and again once a day, billing (one pod, leader-locked) finds the endpoint and adds any handled event its enabled_events lacks. An endpoint on all events (*) is left alone, and the update is additive: events other consumers of the same endpoint rely on are kept. That is what makes a newly handled event (for example charge.dispute.closed) or a later Dashboard edit that drops one safe. Without it, Stripe would never send that event, and nothing would say so."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Which endpoint. It uses STRIPE_WEBHOOK_ENDPOINT_ID (we_…) if set. Otherwise it uses the endpoint whose URL is PLATFORM_BASE_URL + /billing/stripe/webhook, ignoring a trailing slash. Set the id when the endpoint is registered at any other URL, such as a proxy in front of the gateway. Only endpoints in the key's own Stripe world (test vs live) are considered.",
+            "Key permission. STRIPE_SECRET_KEY needs write access to Webhook Endpoints. A standard secret key has it. A restricted key (rk_…) must be granted Webhook Endpoints: Write. Without it the check still runs and reports, but cannot fix anything.",
+            "When it cannot fix it. Startup never fails because of this check. If the endpoint cannot be found, read or updated (missing permission, network, wrong id or URL), billing logs the missing event names and sets billing_stripe_webhook_events_missing to how many handled events are not confirmed on the endpoint. If the endpoint could not be read at all, that is every handled event. BillingStripeWebhookEventsMissing fires while the gauge is above 0. Read the stripe-webhook-reconcile log line for the event names and the reason. Then grant the permission, set STRIPE_WEBHOOK_ENDPOINT_ID, or add the events in the Dashboard. The next daily pass, or a restart, clears it."
           ]
         },
         {
@@ -643,6 +663,11 @@ export const billingProvidersTopic: HelpTopic = {
               "Secret. Signing secret (whsec_…) for the endpoint at POST /billing/stripe/webhook; every delivery is signature-verified against it"
             ],
             [
+              "STRIPE_WEBHOOK_ENDPOINT_ID",
+              "—",
+              "Id (we_…) of the webhook endpoint whose events billing keeps complete. Unset = the endpoint registered at PLATFORM_BASE_URL/billing/stripe/webhook. See Step 4"
+            ],
+            [
               "STRIPE_PRICE_MAP",
               "{}",
               "JSON map of <id>_<interval> → Stripe Price id, where <id> is a plan id or a bundle id (e.g. {\"pro_monthly\":\"price_…\",\"seat_annual\":\"price_…\"}). A plan/interval absent here cannot be subscribed; a bundle absent here is granted but not charged"
@@ -659,7 +684,7 @@ export const billingProvidersTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "BILLING_ENABLED=true\nBILLING_PROVIDER=stripe\n\nSTRIPE_SECRET_KEY=sk_test_REPLACE\nSTRIPE_WEBHOOK_SECRET=whsec_REPLACE\n\nSTRIPE_PRICE_MAP='{\"pro_monthly\":\"price_REPLACE\",\"pro_annual\":\"price_REPLACE\",\"team_monthly\":\"price_REPLACE\",\"team_annual\":\"price_REPLACE\",\"business_monthly\":\"price_REPLACE\",\"business_annual\":\"price_REPLACE\",\"enterprise_monthly\":\"price_REPLACE\",\"enterprise_annual\":\"price_REPLACE\",\"seat_monthly\":\"price_REPLACE\",\"seat_annual\":\"price_REPLACE\",\"pipeline_pack_monthly\":\"price_REPLACE\",\"pipeline_pack_annual\":\"price_REPLACE\",\"plugin_pack_monthly\":\"price_REPLACE\",\"plugin_pack_annual\":\"price_REPLACE\",\"cpu_credits_pack_monthly\":\"price_REPLACE\",\"cpu_credits_pack_annual\":\"price_REPLACE\",\"api_pack_monthly\":\"price_REPLACE\",\"api_pack_annual\":\"price_REPLACE\",\"automation_pack_monthly\":\"price_REPLACE\",\"automation_pack_annual\":\"price_REPLACE\",\"ai_pack_monthly\":\"price_REPLACE\",\"ai_pack_annual\":\"price_REPLACE\",\"storage_pack_monthly\":\"price_REPLACE\",\"storage_pack_annual\":\"price_REPLACE\",\"retention_pack_monthly\":\"price_REPLACE\",\"retention_pack_annual\":\"price_REPLACE\",\"dora_history_pack_monthly\":\"price_REPLACE\",\"dora_history_pack_annual\":\"price_REPLACE\",\"advanced_reporting_monthly\":\"price_REPLACE\",\"advanced_reporting_annual\":\"price_REPLACE\",\"team_usage_analytics_monthly\":\"price_REPLACE\",\"team_usage_analytics_annual\":\"price_REPLACE\",\"compliance_standard_monthly\":\"price_REPLACE\",\"compliance_standard_annual\":\"price_REPLACE\",\"compliance_advanced_monthly\":\"price_REPLACE\",\"compliance_advanced_annual\":\"price_REPLACE\",\"stakeholder_reports_monthly\":\"price_REPLACE\",\"stakeholder_reports_annual\":\"price_REPLACE\",\"support_standard_monthly\":\"price_REPLACE\",\"support_standard_annual\":\"price_REPLACE\",\"support_priority_monthly\":\"price_REPLACE\",\"support_priority_annual\":\"price_REPLACE\",\"support_premium_monthly\":\"price_REPLACE\",\"support_premium_annual\":\"price_REPLACE\"}'\n\nBILLING_DISCOUNTS_ENABLED=true\nBILLING_DISCOUNT_MAX_PERCENT=50\nBILLING_DISCOUNT_MAX_CENTS=2000000\nBILLING_PROMOTIONS_ENABLED=true\nPAYMENT_GRACE_PERIOD_DAYS=7\nRENEWAL_REMINDER_DAYS=7",
+          "content": "BILLING_ENABLED=true\nBILLING_PROVIDER=stripe\n\nSTRIPE_SECRET_KEY=sk_test_REPLACE\nSTRIPE_WEBHOOK_SECRET=whsec_REPLACE\nSTRIPE_WEBHOOK_ENDPOINT_ID=\n\nSTRIPE_PRICE_MAP='{\"pro_monthly\":\"price_REPLACE\",\"pro_annual\":\"price_REPLACE\",\"team_monthly\":\"price_REPLACE\",\"team_annual\":\"price_REPLACE\",\"business_monthly\":\"price_REPLACE\",\"business_annual\":\"price_REPLACE\",\"enterprise_monthly\":\"price_REPLACE\",\"enterprise_annual\":\"price_REPLACE\",\"seat_monthly\":\"price_REPLACE\",\"seat_annual\":\"price_REPLACE\",\"pipeline_pack_monthly\":\"price_REPLACE\",\"pipeline_pack_annual\":\"price_REPLACE\",\"plugin_pack_monthly\":\"price_REPLACE\",\"plugin_pack_annual\":\"price_REPLACE\",\"cpu_credits_pack_monthly\":\"price_REPLACE\",\"cpu_credits_pack_annual\":\"price_REPLACE\",\"api_pack_monthly\":\"price_REPLACE\",\"api_pack_annual\":\"price_REPLACE\",\"automation_pack_monthly\":\"price_REPLACE\",\"automation_pack_annual\":\"price_REPLACE\",\"ai_pack_monthly\":\"price_REPLACE\",\"ai_pack_annual\":\"price_REPLACE\",\"storage_pack_monthly\":\"price_REPLACE\",\"storage_pack_annual\":\"price_REPLACE\",\"retention_pack_monthly\":\"price_REPLACE\",\"retention_pack_annual\":\"price_REPLACE\",\"dora_history_pack_monthly\":\"price_REPLACE\",\"dora_history_pack_annual\":\"price_REPLACE\",\"advanced_reporting_monthly\":\"price_REPLACE\",\"advanced_reporting_annual\":\"price_REPLACE\",\"team_usage_analytics_monthly\":\"price_REPLACE\",\"team_usage_analytics_annual\":\"price_REPLACE\",\"compliance_standard_monthly\":\"price_REPLACE\",\"compliance_standard_annual\":\"price_REPLACE\",\"compliance_advanced_monthly\":\"price_REPLACE\",\"compliance_advanced_annual\":\"price_REPLACE\",\"stakeholder_reports_monthly\":\"price_REPLACE\",\"stakeholder_reports_annual\":\"price_REPLACE\",\"support_standard_monthly\":\"price_REPLACE\",\"support_standard_annual\":\"price_REPLACE\",\"support_priority_monthly\":\"price_REPLACE\",\"support_priority_annual\":\"price_REPLACE\",\"support_premium_monthly\":\"price_REPLACE\",\"support_premium_annual\":\"price_REPLACE\"}'\n\nBILLING_DISCOUNTS_ENABLED=true\nBILLING_DISCOUNT_MAX_PERCENT=50\nBILLING_DISCOUNT_MAX_CENTS=2000000\nBILLING_PROMOTIONS_ENABLED=true\nPAYMENT_GRACE_PERIOD_DAYS=7\nRENEWAL_REMINDER_DAYS=7",
           "language": "bash"
         },
         {
@@ -772,7 +797,7 @@ export const billingProvidersTopic: HelpTopic = {
           "rows": [
             [
               "License Updated - Manufacturer",
-              "Re-reads the license's entitlements and moves the plan (and cadence) to match"
+              "Re-reads the license's entitlements and moves the plan (and cadence) to match, for a subscription that is active, trialing or past due (the same statuses registration binds a license in)"
             ],
             [
               "License Deprovisioned - Manufacturer",

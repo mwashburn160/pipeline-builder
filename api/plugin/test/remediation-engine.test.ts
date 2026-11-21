@@ -109,14 +109,14 @@ describe('one fixture per package type comes out clean', () => {
   it.each(CANARY_FIXTURES.map((f) => [f.type, f] as const))('%s', async (type, f) => {
     const finding = fixtureFinding(f);
     const world = fakeWorld([{ f, finding }], canaryContext(f));
-    // dotnet's fix (12 → 13) is a major move: allowed here, held to propose by the job.
-    const out = await runRemediationEngine(input([finding], type === 'dotnet' ? { libraryUpgradeLevel: 'major' } : {}), world.ports);
+    // DEFAULT settings: the nightly canary runs under the system org's, so every fixture's fix is within them.
+    const out = await runRemediationEngine(input([finding]), world.ports);
     expect(out.remaining).toEqual([]);
     expect(out.cleared).toEqual([expect.objectContaining({ id: f.advisory, method: type === 'apk' ? 'overlay' : 'source_patch' })]);
     expect(out.candidate).not.toBeNull();
     expect(out.candidate!.diff).toContain(f.fixed.replace(/^v/, ''));
-    expect(out.versionBump).toBe(type === 'dotnet' ? 'minor' : 'patch');
-    expect(out.majorUpgrade).toBe(type === 'dotnet');
+    expect(out.versionBump).toBe('patch');
+    expect(out.majorUpgrade).toBe(false);
     // Every candidate but the selected one was discarded.
     expect(world.discarded).not.toContain(out.candidate!.ref.digest);
     expect(world.discarded.length).toBe(world.builds.length - 1);
@@ -159,16 +159,18 @@ describe('the candidate diff', () => {
 describe('upgrade levels', () => {
   const dotnet = CANARY_FIXTURES.find((f) => f.type === 'dotnet')!;
   it('a major-only fix goes to the owner with the level it needs', async () => {
-    const finding = fixtureFinding(dotnet);
-    const out = await runRemediationEngine(input([finding]), fakeWorld([{ f: dotnet, finding }], canaryContext(dotnet)).ports);
+    const major: CanaryFixture = { ...dotnet, fixed: '2.0.0' };
+    const finding = fixtureFinding(major);
+    const out = await runRemediationEngine(input([finding]), fakeWorld([{ f: major, finding }], canaryContext(dotnet)).ports);
     expect(out.candidate).toBeNull();
     expect(out.remaining).toEqual([expect.objectContaining({ reason: 'beyond_upgrade_level', requiredLevel: 'major' })]);
   });
 
   it('the strictest of org, per-type and per-plugin levels applies', async () => {
-    const yq = CANARY_FIXTURES.find((f) => f.type === 'binary')!; // 4.30.0 → 4.44.3: a minor move
-    const finding = fixtureFinding(yq);
-    const world = fakeWorld([{ f: yq, finding }], canaryContext(yq));
+    const node = CANARY_FIXTURES.find((f) => f.type === 'binary')!;
+    const minor: CanaryFixture = { ...node, fixed: '24.23.0' }; // 24.22.2 → 24.23.0: a minor move
+    const finding = fixtureFinding(minor);
+    const world = fakeWorld([{ f: minor, finding }], canaryContext(node));
     const byPlugin = await runRemediationEngine(input([finding], { libraryUpgradeLevel: 'major', libraryUpgradeLevelByPlugin: { p: 'patch' } }), world.ports);
     expect(byPlugin.remaining[0]).toMatchObject({ reason: 'beyond_upgrade_level', requiredLevel: 'minor' });
     const byType = await runRemediationEngine(input([finding], { libraryUpgradeLevel: 'major', libraryUpgradeLevelByType: { binary: 'patch' } }), world.ports);
@@ -215,15 +217,15 @@ describe('verification drops what breaks', () => {
   });
 
   it('a mixed patch keeps the packages that work and sends the rest to the owner', async () => {
-    const wget: CanaryFixture = { ...deb, packageName: 'wget', installed: '1.21.3-1', fixed: '1.21.3-1+deb12u1', advisory: 'CVE-2024-38428' };
-    const files = { ...canaryContext(deb), Dockerfile: deb.files.Dockerfile!.replace('ca-certificates curl', 'ca-certificates curl wget') };
+    const wget: CanaryFixture = { ...deb, packageName: 'wget', installed: '1.25.0-2', fixed: '1.25.0-2+deb13u1', advisory: 'CVE-2024-10524' };
+    const files = { ...canaryContext(deb), Dockerfile: deb.files.Dockerfile!.replace(`${deb.packageName}=`, `wget ${deb.packageName}=`) };
     const pkgs = [{ f: deb, finding: fixtureFinding(deb) }, { f: wget, finding: fixtureFinding(wget) }];
     const world = fakeWorld(pkgs, files);
     world.smokeFails = (tree) => (tree.get('Dockerfile') ?? '').includes(`wget=${wget.fixed}`);
     const out = await runRemediationEngine(input(pkgs.map((p) => p.finding)), world.ports);
-    expect(out.cleared.map((c) => c.packageName)).toEqual(['curl']);
+    expect(out.cleared.map((c) => c.packageName)).toEqual([deb.packageName]);
     expect(out.remaining).toEqual([expect.objectContaining({ packageName: 'wget', reason: 'patch_broke_plugin' })]);
-    expect(out.candidate!.dockerfile).toContain(`curl=${deb.fixed}`);
+    expect(out.candidate!.dockerfile).toContain(`${deb.packageName}=${deb.fixed}`);
     expect(out.candidate!.dockerfile).not.toContain(`wget=${wget.fixed}`);
   });
 
@@ -248,7 +250,7 @@ describe('verification drops what breaks', () => {
     const pkgs = [{ f: rust, finding: fixtureFinding(rust) }, { f: deb, finding: fixtureFinding(deb) }];
     const out = await runRemediationEngine(input(pkgs.map((p) => p.finding), {}, { sourceKind: 'none' }), fakeWorld(pkgs, {}, { source: false }).ports);
     expect(out.remaining).toEqual([expect.objectContaining({ packageName: 'regex', reason: 'no_source' })]);
-    expect(out.cleared).toEqual([expect.objectContaining({ packageName: 'curl', method: 'overlay' })]);
+    expect(out.cleared).toEqual([expect.objectContaining({ packageName: deb.packageName, method: 'overlay' })]);
   });
 });
 
@@ -300,7 +302,7 @@ describe('the shared-base pass', () => {
     expect(a).toMatch(/^reg:5000\/org-x\/plugin-base@sha256:/);
     expect(b).toBe(a);
     expect(world.builds).toHaveLength(1);
-    expect(world.builds[0]!.dir.get('Dockerfile')).toContain(`'curl=${deb.fixed}'`);
+    expect(world.builds[0]!.dir.get('Dockerfile')).toContain(`'${deb.packageName}=${deb.fixed}'`);
     expect(zset.size).toBe(0);
   });
 });
@@ -333,7 +335,7 @@ describe('never a downgrade pin in a shared base', () => {
       zadd: async () => 1,
     };
     const deb = CANARY_FIXTURES.find((f) => f.type === 'deb')!;
-    const finding = fixtureFinding(deb, { fixedIn: ['7.88.1-10+deb12u4'] });
+    const finding = fixtureFinding(deb, { fixedIn: ['2.8.2-1~deb13u1'] }); // below the installed 2.8.3-1~deb13u1
     const world = fakeWorld([{ f: deb, finding }], {}, { resolve: `sha256:${'e'.repeat(64)}` });
     const base = { key: 'plugin', image: 'plugin-base:26.10', dir: '_plugin-base', provides: '', smokeTest: 'bash --version' };
     expect(await ensureSharedBaseRebuilt(base, [finding], world.ports, { redis, sleep: async () => undefined })).toBeNull();

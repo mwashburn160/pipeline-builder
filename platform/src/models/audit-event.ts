@@ -174,8 +174,7 @@ auditEventSchema.index({ affectedOrgId: 1, seq: 1 }, { unique: true });
 // are deleted by the retention prune (`services/audit-retention.ts`), which
 // records each chain's watermark before it deletes; a Mongo TTL deletes with no
 // hook, and verify could then not tell retention from someone deleting the
-// oldest rows. Same name as the former TTL index, so the boot index reconcile
-// rebuilds an existing database's TTL index as this plain one.
+// oldest rows.
 auditEventSchema.index({ createdAt: 1 });
 
 export default model<AuditEventData>('AuditEvent', auditEventSchema);

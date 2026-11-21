@@ -11,8 +11,9 @@
  *  - **The tenant header.** Every call takes a resolved `X-Scope-OrgID` from
  *    `log-query.ts`. Loki enforces it, which is why tenancy here is physical
  *    rather than a filter we have to remember to append.
- *  - **Masking.** Every line is passed through `maskLine` on the way out,
- *    covering history written before ingest-time masking shipped. Read-time
+ *  - **Masking.** Every line is passed through `maskLine` on the way out:
+ *    defense in depth for a line the ingest pipeline did not mask (a pattern
+ *    added after the line was stored, a line from another source). Read-time
  *    masking is NOT the guarantee (a searcher can still confirm a guess from a
  *    hit) — see `packages/api-core/src/utils/sensitive-patterns.ts`.
  */

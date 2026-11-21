@@ -329,7 +329,7 @@ export function summaryContradicts(
  * the caller falls back to the raw columns — FAIL CLOSED, because the failure
  * this guards is "list something unvetted", not "leave something unlisted":
  *
- *  - no summary at all (a version scanned before the column existed);
+ *  - no summary at all (the version has no stored scan);
  *  - `truncated`: findings were capped at {@link SCAN_SUMMARY_MAX_FINDINGS}, so
  *    what is missing cannot be counted and a derived figure would undercount by
  *    an unknown amount;

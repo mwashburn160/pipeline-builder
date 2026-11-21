@@ -43,7 +43,7 @@ import { AdvisorySearchPanel } from '@/components/plugin/AdvisorySearchPanel';
 import { OrgFailedBuildsPanel } from '@/components/plugin/OrgFailedBuildsPanel';
 import { RemediationsPanel } from '@/components/plugin/RemediationsPanel';
 import { PluginInUseModal, pluginInUseRefusal, type PluginInUseRefusal } from '@/components/plugin/PluginInUseModal';
-import { DeletePluginDialog } from '@/components/plugin/DeletePluginDialog';
+import { DeletePluginDialog, usePluginDeleteJobWatcher } from '@/components/plugin/DeletePluginDialog';
 import { DeletedPluginBatches } from '@/components/plugin/DeletedPluginBatches';
 import { TidyKeepBanner } from '@/components/plugin/PluginTidyControls';
 import { invalidate, queryTags } from '@/lib/api-cache';
@@ -228,6 +228,12 @@ export default function PluginsPage() {
   const [inUse, setInUse] = useState<PluginInUseRefusal | null>(null);
   // "Delete plugin (all versions)": the name whose delete preview dialog is open.
   const [deleteAllName, setDeleteAllName] = useState<string | null>(null);
+  // A whole-plugin delete whose dialog was closed mid-run: watched here so the
+  // list still refreshes when it ends (stops with the page).
+  const watchDeleteJob = usePluginDeleteJobWatcher({
+    onDeleted: (r) => { setViewPlugin((v) => (v?.name === r.name ? null : v)); afterWrite(); toast.success(`Deleted ${r.deleted.length} version${r.deleted.length === 1 ? '' : 's'} of ${r.name}`); },
+    onFailed: (n, message) => toast.error(`${n}: ${message}`),
+  });
   const deletingRef = useRef<PluginSummary | null>(null);
   const del = useDelete<PluginSummary>(
     (p) => { deletingRef.current = p; return api.deletePlugin(p.id); },
@@ -669,7 +675,7 @@ export default function PluginsPage() {
       {inUse && <PluginInUseModal refusal={inUse} onClose={() => setInUse(null)} />}
 
       {deleteAllName && (
-        <DeletePluginDialog name={deleteAllName} onClose={() => setDeleteAllName(null)} onDeleted={() => { setViewPlugin(null); afterWrite(); }} />
+        <DeletePluginDialog name={deleteAllName} onClose={() => setDeleteAllName(null)} onDeleted={() => { setViewPlugin(null); afterWrite(); }} onContinueInBackground={watchDeleteJob} />
       )}
 
       {lifecycleTarget && (

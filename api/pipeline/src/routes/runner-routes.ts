@@ -75,7 +75,7 @@ import { listRunners, registerRunner, revokeRunner, runnerDto, runnerJwksUrl, te
 
 /** The absolute per-runner JWKS URL (admin.ts owns it). */
 export { runnerJwksUrl };
-import { runnerDeps, runnerTablesPresent, type RunnerDeps } from '../runners/deps.js';
+import { runnerDeps, type RunnerDeps } from '../runners/deps.js';
 import { reencryptRunnerKeys } from '../runners/key-reencrypt.js';
 import {
   cancelOrgKeyRotation,
@@ -132,7 +132,7 @@ function sendUnavailable(res: Response, reason: RunnersUnavailableReason | undef
   sendError(res, runnerErrorStatus('RUNNERS_UNAVAILABLE'), RUNNERS_UNAVAILABLE_MESSAGES[r], 'RUNNERS_UNAVAILABLE', { reason: r });
 }
 
-/** 409 RUNNERS_UNAVAILABLE (paused, no secret encryption, or no runner tables) — checked before any step-up is spent. */
+/** 409 RUNNERS_UNAVAILABLE (paused, or no secret encryption) — checked before any step-up is spent. */
 export async function requireRunnersAvailable(_req: Request, res: Response, next: NextFunction): Promise<void> {
   const a = await runnerDeps().runnersAvailable();
   if (!a.available) return sendUnavailable(res, a.reason);
@@ -141,7 +141,7 @@ export async function requireRunnersAvailable(_req: Request, res: Response, next
 
 /**
  * The signing-key writes' gate: 409 RUNNERS_UNAVAILABLE only when runners are
- * not set up (no secret encryption, no runner tables). The operator's pause
+ * not set up (no secret encryption). The operator's pause
  * stops deliveries, not key changes: an admin can still rotate or revoke a
  * suspected-leaked key while every run is paused.
  */
@@ -190,7 +190,6 @@ export function createRunnerJwksRoutes(): Router {
       const hit = deps.keyCaches.jwks.get(runnerId);
       let body = hit && deps.now() - hit.at < RUNNER_JWKS_CACHE_SECONDS * 1000 ? hit.body : undefined;
       if (body === undefined) {
-        if (!(await runnerTablesPresent(deps))) return notFound();
         const found = await publicKeysForRunner(deps, runnerId);
         if (!found) { deps.keyCaches.jwks.delete(runnerId); return notFound(); }
         body = { keys: found.keys };
@@ -232,7 +231,7 @@ export function createRunnerRoutes(): Router {
   router.get('/runners', ...admin, withRoute(async ({ req, res, ctx, orgId }) => {
     const deps = runnerDeps();
     const platformEgressIps = runnerSettings().platformEgressIps;
-    // Paused, no secret encryption, or a database without the runner tables: unavailable (never a 500).
+    // Paused, or no secret encryption: unavailable (never a 500).
     const avail = await deps.runnersAvailable();
     if (!avail.available) {
       return sendSuccess(res, 200, { available: false, unavailableReason: avail.reason ?? null, platformEgressIps, own: [], inherited: [], signingKey: null });
@@ -463,7 +462,7 @@ export function createRunnerRoutes(): Router {
     const pipelineId = (getParam(req.params, 'pipelineId') ?? '').toLowerCase();
     const requestId = getParam(req.params, 'requestId') ?? '';
     const notFound = () => sendError(res, 404, 'Run request not found.', ErrorCode.NOT_FOUND);
-    if (!/^[0-9a-f-]{36}$/i.test(requestId) || !(await runnerTablesPresent(runnerDeps()))) return notFound();
+    if (!/^[0-9a-f-]{36}$/i.test(requestId)) return notFound();
     const dto = await readRunRequest(runnerDeps(), orgId, pipelineId, requestId);
     if (!dto) return notFound();
     return sendSuccess(res, 200, dto);

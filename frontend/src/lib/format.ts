@@ -20,12 +20,14 @@ export function fmtNum(n: number): string {
 }
 
 /**
- * Render a cents amount as USD (locale-grouped, two decimals), e.g. 123450 →
- * "$1,234.50". The single money formatter shared by every billing surface, so
- * large amounts render consistently (thousands separators included).
+ * Render a minor-unit amount in `currency` (default USD; locale-grouped, two
+ * decimals), e.g. 123450 → "$1,234.50", (3000, 'eur') → "€30.00". The single
+ * money formatter shared by every billing surface, so large amounts render
+ * consistently (thousands separators included). `currency` is the ISO 4217
+ * code in either case, as the billing ledger reports it (`usd`, `eur`).
  */
-export function formatCents(cents: number): string {
-  return (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+export function formatCents(cents: number, currency = 'USD'): string {
+  return (cents / 100).toLocaleString('en-US', { style: 'currency', currency: currency.toUpperCase() });
 }
 
 

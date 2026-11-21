@@ -91,8 +91,8 @@ export function recordUsage(inputs: UsageEventInput[]): void {
         update: {
           // `calls`: one usage REPORT is one AI call that reached the provider —
           // the AI usage report's call count (units undercount: BYOK and
-          // weight-0 calls spend none). Absent on older buckets (reads as 0).
-          $inc: { amount: i.amount, tokensIn: i.tokensIn ?? 0, tokensOut: i.tokensOut ?? 0, ...(i.report ? { calls: 1 } : {}) },
+          // weight-0 calls spend none). Always written, so every bucket has it.
+          $inc: { amount: i.amount, tokensIn: i.tokensIn ?? 0, tokensOut: i.tokensOut ?? 0, calls: i.report ? 1 : 0 },
           $set: { rootOrgId: i.rootOrgId },
         },
         upsert: true,

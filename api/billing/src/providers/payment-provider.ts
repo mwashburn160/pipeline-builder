@@ -185,6 +185,15 @@ export interface PaymentProvider {
    * {@link cancelSubscription} (a logged no-op on both).
    */
   cancelSubscriptionNow?(externalId: string): Promise<void>;
+
+  /**
+   * Refund a subscription's FIRST paid invoice in full — the money a DUPLICATE
+   * checkout took, refunded alongside {@link cancelSubscriptionNow}. Idempotent
+   * on the invoice id, so a redelivered event refunds once. Null when nothing was
+   * charged yet (no paid invoice, or one settled without a payment). Optional:
+   * only Stripe can take a duplicate checkout.
+   */
+  refundFirstPaidInvoice?(externalId: string): Promise<{ invoiceId: string; refundId: string } | null>;
 }
 
 /**

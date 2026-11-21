@@ -63,8 +63,12 @@ export interface HierarchyClient {
    * rules must never mistake a team for a root org because platform was down.
    */
   ancestors(orgId: string, knownParent?: string, opts?: { strict?: boolean }): Promise<string[]>;
-  /** Every descendant of `orgId` (all levels, without `orgId`); [] when it has none or the lookup fails. */
-  descendants(orgId: string): Promise<string[]>;
+  /**
+   * Every descendant of `orgId` (all levels, without `orgId`); [] when it has
+   * none or the lookup fails. Strict: a failed lookup THROWS instead (a 404 —
+   * an org that is gone — is still []).
+   */
+  descendants(orgId: string, opts?: { strict?: boolean }): Promise<string[]>;
   names(orgIds: string[]): Promise<Record<string, string>>;
 }
 
@@ -231,12 +235,14 @@ export function createHierarchyClient(): HierarchyClient {
       }
       return out;
     },
-    async descendants(orgId) {
+    async descendants(orgId, opts = {}) {
       try {
-        const ids = await fetchOrgDescendants(orgId);
+        const ids = await fetchOrgDescendants(orgId, opts.strict ? { throwOnHttpError: true } : {});
         return (ids ?? []).filter((id) => id.toLowerCase() !== orgId.toLowerCase());
       } catch (err) {
+        if (opts.strict && /HTTP 404\b/.test(errorMessage(err))) return [];
         logger.warn('Org descendants lookup failed', { error: errorMessage(err) });
+        if (opts.strict) throw err;
         return [];
       }
     },
@@ -326,9 +332,7 @@ export function createKeyDeps(get: () => RunnerDeps, opts: { encryptionReady?: (
     signerFor: (orgId) => keyCaches.signers.signerFor(orgId),
     deliveriesPaused,
     async runnersAvailable(check = {}) {
-      const d = get();
       if (!ready()) return { available: false, reason: 'encryption_not_configured' };
-      if (!(await runnerTablesPresent(d))) return { available: false, reason: 'tables_missing' };
       if (!check.ignorePause && await deliveriesPaused()) return { available: false, reason: 'paused' };
       return { available: true };
     },
@@ -416,23 +420,7 @@ export function setRunnerDepsForTesting(overrides: Partial<RunnerDeps> | null): 
   return current;
 }
 
-let tablesWarned = false;
-
-/**
- * Whether this database has the runner tables. One created before runners
- * (postgres-init.sql runs on new installs only) does not: runners are then
- * unavailable — said once in the log, never a 500.
- */
-export async function runnerTablesPresent(deps: RunnerDeps): Promise<boolean> {
-  const present = (await deps.store.tablesPresent().catch(() => false)) && (await deps.keyStore.tablesPresent().catch(() => false));
-  if (!present && !tablesWarned) {
-    tablesWarned = true;
-    logger.warn('The runner tables (pipeline_runners, pipeline_run_requests, pipeline_runner_signing_keys, pipeline_runner_key_settings, pipeline_runner_platform_settings) are missing; pipeline runners are unavailable until the operator creates them');
-  }
-  return present;
-}
-
-/** Runners usable right now (encryption set up, tables present, not paused). */
+/** Runners usable right now (encryption set up, not paused). */
 export async function runnersReady(deps?: RunnerDeps): Promise<boolean> {
   return (await (deps ?? runnerDeps()).runnersAvailable()).available;
 }

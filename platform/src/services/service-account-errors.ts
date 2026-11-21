@@ -35,7 +35,7 @@ export const SA_INVALID_SCOPE = 'SA_INVALID_SCOPE';
  *  `registry:push` needs `plugins:write`. */
 export const SA_SCOPE_NOT_PERMITTED = 'SA_SCOPE_NOT_PERMITTED';
 
-/** The org has no built-in (`system`) Role for the requested seed bundle — the
- *  platform's startup backfill creates it, so this means an un-restarted
- *  platform or a hand-deleted Role (provision-key's `role`). */
+/** The org has no built-in (`system`) Role for the requested seed bundle —
+ *  every org seeds it at creation (`seedDefaultRoles`), so this means the Role
+ *  was removed outside the API (provision-key's `role`). */
 export const SA_BUILTIN_ROLE_MISSING = 'SA_BUILTIN_ROLE_MISSING';

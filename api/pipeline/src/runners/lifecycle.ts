@@ -395,8 +395,6 @@ const KEY_SWEEPS = [
 export async function runSweep(deps: RunnerDeps): Promise<SweepCounts> {
   const now = deps.now();
   const counts: SweepCounts = { expired: 0, pinged: 0, recovered: 0, markedUnhealthy: 0, rekicked: 0, pendingDeleted: 0, retained: 0, staleLinkChecks: 0 };
-  // A database without the runner tables: nothing to sweep, and no error every cycle.
-  if (!(await deps.store.tablesPresent())) return counts;
   const settings = runnerSettings();
   const day = 24 * 60 * 60_000;
 

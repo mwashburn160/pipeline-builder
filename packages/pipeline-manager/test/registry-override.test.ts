@@ -70,14 +70,14 @@ describe('readStepManifest', () => {
 describe('buildRegistryPayload stack name', () => {
   // The registry must record the SAME stack name the synth app deploys
   // (boilerplate.ts), or audit-stacks reports a live stack as orphaned.
-  it('records the hyphenated stack name and keeps project/organization as given', async () => {
+  it('records the derived stack name and keeps project/organization as given', async () => {
     const payload = await buildRegistryPayload(
       { id: 'pl-1', orgId: 'org-1', project: 'spring_boot', organization: 'system' },
       'us-east-1',
     );
-    // A legacy underscore pair keeps the stack name it always deployed as.
+    // An underscore pair is rewritten with the raw-pair hash (never the hyphen pair's stack).
     expect(payload.stackName).toBe(pipelineStackName('spring_boot', 'system'));
-    expect(payload.stackName).toBe('spring-boot-system');
+    expect(payload.stackName).toMatch(/^spring-boot-system-[0-9a-f]{8}$/);
     expect(payload.project).toBe('spring_boot');
     expect(payload.organization).toBe('system');
   });

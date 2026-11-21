@@ -269,7 +269,7 @@ describe('requireAuth — impersonation session', () => {
     expect(next).toHaveBeenCalled();
   });
 
-  it('fails closed on a consumed record without the operator stamp (redeemed before it existed)', async () => {
+  it('fails closed on a malformed consumed record without the operator stamp', async () => {
     mockImpFindOne.mockReturnValue(selectLean(live({ requesterTokenVersion: undefined })));
     const res = makeRes(); const next = jest.fn();
     await (requireAuth as any)(req(), res, next);

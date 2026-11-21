@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
@@ -42,6 +42,94 @@ export const DELETE_JOB_POLL_MS = 2_000;
 /** Consecutive failed status reads before the dialog stops and says so. */
 const DELETE_JOB_POLL_MAX_FAILURES = 5;
 
+/** What a polled delete job ended with: its final status, or why the poll stopped. */
+type DeleteJobOutcome = { kind: 'settled'; status: PluginDeleteJobStatus } | { kind: 'error'; message: string };
+
+const PROGRESS_GONE = 'Progress is no longer available; check Recently deleted';
+
+/**
+ * Poll one delete job until it settles (or the reads fail), then call `onOutcome`
+ * once. Returns a stop function; after it is called `onOutcome` never fires. Used
+ * by the dialog while it is open and by the page's background watcher after the
+ * dialog is closed mid-delete.
+ */
+function watchPluginDeleteJob(name: string, jobId: string, onOutcome: (o: DeleteJobOutcome) => void): () => void {
+  let stopped = false;
+  let failures = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const controller = new AbortController();
+  const poll = async () => {
+    try {
+      const res = await api.getPluginDeleteJob(name, jobId, { signal: controller.signal });
+      if (stopped) return;
+      const status = res.data;
+      // An answer without a status is a failed read too: counted toward the
+      // same stop, so a broken reply can never keep the poll going forever.
+      if (!status) throw new Error('Could not read the delete\'s progress; check Recently deleted');
+      failures = 0;
+      if (status.state !== 'running') {
+        stopped = true;
+        onOutcome(status.state === 'failed'
+          ? { kind: 'error', message: `The delete did not finish: ${status.error?.message ?? 'unknown error'}` }
+          : { kind: 'settled', status });
+        return;
+      }
+    } catch (err) {
+      if (stopped) return;
+      failures += 1;
+      // A 404 is an expired or unknown job: its progress is gone, the server's
+      // "not found" wording would only confuse.
+      if (err instanceof ApiError && err.statusCode === 404) {
+        stopped = true;
+        onOutcome({ kind: 'error', message: PROGRESS_GONE });
+        return;
+      }
+      if (failures >= DELETE_JOB_POLL_MAX_FAILURES) {
+        stopped = true;
+        onOutcome({ kind: 'error', message: pluginByNameError(err, 'Could not read the delete\'s progress; check Recently deleted') });
+        return;
+      }
+    }
+    timer = setTimeout(() => void poll(), DELETE_JOB_POLL_MS);
+  };
+  void poll();
+  return () => {
+    stopped = true;
+    controller.abort();
+    if (timer) clearTimeout(timer);
+  };
+}
+
+/**
+ * The page side of a delete the person closed the dialog on: keeps polling each
+ * handed-over job and calls `onDeleted` (refresh the list) when one removed at
+ * least one version, or `onFailed` when it did not finish. Every watch stops when
+ * the page unmounts.
+ */
+export function usePluginDeleteJobWatcher(handlers: {
+  onDeleted?: (result: PluginDeleteJobStatus) => void;
+  onFailed?: (name: string, message: string) => void;
+}): (name: string, jobId: string) => void {
+  const handlersRef = useRef(handlers);
+  handlersRef.current = handlers;
+  const stops = useRef(new Set<() => void>());
+  useEffect(() => {
+    const active = stops.current;
+    return () => {
+      for (const stop of active) stop();
+      active.clear();
+    };
+  }, []);
+  return useCallback((name: string, jobId: string) => {
+    const stop = watchPluginDeleteJob(name, jobId, (outcome) => {
+      stops.current.delete(stop);
+      if (outcome.kind === 'error') handlersRef.current.onFailed?.(name, outcome.message);
+      else if (outcome.status.deleted.length > 0) handlersRef.current.onDeleted?.(outcome.status);
+    });
+    stops.current.add(stop);
+  }, []);
+}
+
 function sumBytes(rows: ReadonlyArray<{ sourceBytes: number | null }>): number {
   return rows.reduce((n, r) => n + (r.sourceBytes ?? 0), 0);
 }
@@ -56,11 +144,16 @@ function sumBytes(rows: ReadonlyArray<{ sourceBytes: number | null }>): number {
  * (the delete never changes the listing); a name inherited from the root org
  * has nothing here to delete.
  */
-export function DeletePluginDialog({ name, onClose, onDeleted }: {
+export function DeletePluginDialog({ name, onClose, onDeleted, onContinueInBackground }: {
   name: string;
   onClose: () => void;
   /** After a delete that removed at least one version (refresh the list). */
   onDeleted?: (result: PluginDeleteJobStatus) => void;
+  /**
+   * The dialog was closed while the delete job still runs: the page keeps
+   * watching it (see `usePluginDeleteJobWatcher`), so the list still refreshes.
+   */
+  onContinueInBackground?: (name: string, jobId: string) => void;
 }) {
   const { data: preview, loading, error: loadError, refetch } = useFetch<PluginDeletePreview>(async () => {
     const res = await api.getPluginDeletePreview(name);
@@ -84,47 +177,23 @@ export function DeletePluginDialog({ name, onClose, onDeleted }: {
   // Poll the accepted job until it settles.
   useEffect(() => {
     if (!job) return undefined;
-    let stopped = false;
-    let failures = 0;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const controller = new AbortController();
-    const poll = async () => {
-      try {
-        const res = await api.getPluginDeleteJob(name, job.jobId, { signal: controller.signal });
-        if (stopped) return;
-        const status = res.data;
-        // An answer without a status is a failed read too: counted toward the
-        // same stop, so a broken reply can never keep the dialog polling forever.
-        if (!status) throw new Error('Could not read the delete\'s progress; check Recently deleted');
-        failures = 0;
-        if (status.state !== 'running') {
-          setJob(null);
-          if (status.state === 'failed') {
-            setError(`The delete did not finish: ${status.error?.message ?? 'unknown error'}`);
-            return;
-          }
-          setResult(status);
-          if (status.deleted.length > 0) onDeletedRef.current?.(status);
-          return;
-        }
-      } catch (err) {
-        if (stopped) return;
-        failures += 1;
-        if ((err instanceof ApiError && err.statusCode === 404) || failures >= DELETE_JOB_POLL_MAX_FAILURES) {
-          setJob(null);
-          setError(pluginByNameError(err, 'Could not read the delete\'s progress; check Recently deleted'));
-          return;
-        }
+    return watchPluginDeleteJob(name, job.jobId, (outcome) => {
+      setJob(null);
+      if (outcome.kind === 'error') {
+        setError(outcome.message);
+        return;
       }
-      timer = setTimeout(() => void poll(), DELETE_JOB_POLL_MS);
-    };
-    void poll();
-    return () => {
-      stopped = true;
-      controller.abort();
-      if (timer) clearTimeout(timer);
-    };
+      setResult(outcome.status);
+      if (outcome.status.deleted.length > 0) onDeletedRef.current?.(outcome.status);
+    });
   }, [job, name]);
+
+  // Closing while the delete still runs hands the job to the page, which keeps
+  // watching it and refreshes the list when it ends.
+  const close = () => {
+    if (job) onContinueInBackground?.(name, job.jobId);
+    onClose();
+  };
 
   const execute = async (stepUpToken: string) => {
     setError(null);
@@ -139,10 +208,10 @@ export function DeletePluginDialog({ name, onClose, onDeleted }: {
   };
 
   const footer = result ? (
-    <div className="flex justify-end"><Button variant="secondary" onClick={onClose}>Close</Button></div>
+    <div className="flex justify-end"><Button variant="secondary" onClick={close}>Close</Button></div>
   ) : (
     <div className="flex justify-end gap-2">
-      <Button variant="secondary" onClick={onClose}>Cancel</Button>
+      <Button variant="secondary" onClick={close}>Cancel</Button>
       {preview && !preview.inheritedFromRoot && (
         <Button variant="danger" disabled={deleteCount === 0 || job !== null} onClick={() => setConfirming(true)}>
           Delete {deleteCount} version{deleteCount === 1 ? '' : 's'}
@@ -153,7 +222,7 @@ export function DeletePluginDialog({ name, onClose, onDeleted }: {
 
   return (
     <>
-      <Modal title={`Delete plugin ${name}`} onClose={onClose} maxWidth="max-w-lg" footer={footer}>
+      <Modal title={`Delete plugin ${name}`} onClose={close} maxWidth="max-w-lg" footer={footer}>
         <div className="space-y-4 text-sm" data-testid="delete-plugin-dialog">
           {error && <Callout variant="danger">{error}</Callout>}
           {result ? (

@@ -42,7 +42,7 @@ import type { Request, Response } from 'express';
 import { audit } from '../helpers/audit.js';
 import { requireSystemAdmin, withController } from '../helpers/controller-helper.js';
 import { toOrgId } from '../helpers/org-id.js';
-import { activeKmsConfig } from '../helpers/org-kms-config.js';
+import { activeKmsConfig, kmsVerifySchedule } from '../helpers/org-kms-config.js';
 import type { AuditAction } from '../models/audit-event.js';
 import { Organization, type OrganizationDocument } from '../models/index.js';
 import { reencryptRunnerSigningKeys, type RunnerKeyReencryptResult } from '../services/runner-key-reencrypt.js';
@@ -160,6 +160,10 @@ type KmsConfigChange = keyof typeof KMS_CONFIG_CHANGES;
  *     previous config and answers 500 without touching the runner keys.
  *  4. Ask the pipeline service to re-wrap the org's runner signing keys
  *     (Postgres), handing it the config they were written under.
+ *  5. Later — one per-org cache TTL plus a margin after the save, which
+ *     scheduled it — the verification sweep decrypts every org secret under
+ *     the current config, catching one a replica that missed the eviction
+ *     wrote under the OLD key (services/kms-config-verify.ts).
  *
  * `?reencrypt=false` skips phases 1 and 3 only (the platform Mongo secrets):
  * use it only when the org has no stored platform secrets yet, or to push past
@@ -207,9 +211,12 @@ async function changeKmsConfig(
   const previousKmsConfig = activeKmsConfig(org.kmsConfig);
   const saved = await Organization.updateOne(
     { _id: org._id, ...kmsConfigMatch(previousKmsConfig) },
+    // The verification of every org secret under the new config, due once all
+    // replicas' per-org key caches have lapsed, is scheduled in this same write:
+    // durable, and a later change's save supersedes it.
     next
-      ? { $set: { kmsConfig: { keyId: next.keyId, ciphertextBase64: next.ciphertextBase64 } } }
-      : { $unset: { kmsConfig: 1 } },
+      ? { $set: { kmsConfig: { keyId: next.keyId, ciphertextBase64: next.ciphertextBase64 }, ...kmsVerifySchedule() } }
+      : { $unset: { kmsConfig: 1 }, $set: kmsVerifySchedule() },
   );
   if (saved.matchedCount === 0) {
     logger.warn(`KMS config ${verb} refused: the config changed since this request read it`, { orgId });
@@ -325,8 +332,25 @@ export const deleteOrgKmsConfig = withController('Delete org KMS config', async 
   const org = await Organization.findById(toOrgId(orgId));
   if (!org) return sendError(res, 404, 'Organization not found');
 
-  if (!org.kmsConfig?.keyId) {
-    return sendSuccess(res, 200, { configured: false, message: 'No KMS config to clear' });
+  if (!activeKmsConfig(org.kmsConfig)) {
+    if (!org.kmsConfig?.keyId && !org.kmsConfig?.ciphertextBase64) {
+      return sendSuccess(res, 200, { configured: false, message: 'No KMS config to clear' });
+    }
+    // A partial config (keyId or ciphertext alone) is no config to the
+    // providers, so nothing is wrapped under it and there is nothing to migrate:
+    // just remove it — conditionally on the org still having no active config,
+    // so a PUT that completed it meanwhile is never wiped.
+    const cleared = await Organization.updateOne({ _id: org._id, ...kmsConfigMatch(null) }, { $unset: { kmsConfig: 1 } });
+    if (cleared.matchedCount === 0) {
+      return sendError(res, 409, 'Cannot clear KMS config: it was changed by another request while this one was in flight. Re-read the config and retry.', ErrorCode.CONFLICT);
+    }
+    audit(req, 'admin.org.kms-config.delete', {
+      targetType: 'org-kms-config',
+      targetId: orgId,
+      affectedOrgId: orgId,
+      details: { ...(org.kmsConfig.keyId ? { keyId: org.kmsConfig.keyId } : {}), partialConfigCleared: true },
+    });
+    return sendSuccess(res, 200, { configured: false, message: 'Cleared a partial KMS config (nothing was encrypted under it)' });
   }
 
   await changeKmsConfig(req, res, orgId, org, null, 'delete');

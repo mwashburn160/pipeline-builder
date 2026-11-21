@@ -106,6 +106,9 @@ jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
 const { sendSuccess, sendBadRequest, sendError, sendPaginatedNested } = await import('@pipeline-builder/api-core') as unknown as Record<string, jest.Mock<AnyFn>>;
 const { createRegistryRoutes } = await import('../src/routes/registry.js');
 const { pipelineRegistryService } = await import('../src/services/pipeline-registry-service.js');
+const { setRunnerDepsForTesting } = await import('../src/runners/deps.js');
+// The Deployment card's runner links: none linked (the runner store is not under test here).
+setRunnerDepsForTesting({ store: { runnerLinks: async () => new Map() } as never });
 
 describe('POST /pipelines/registry', () => {
   let router: any;

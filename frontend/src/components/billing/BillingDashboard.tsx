@@ -30,11 +30,11 @@ const STATUS_COLOR: Record<BillingInvoiceRow['status'], string> = {
 
 const INVOICE_COLUMNS: Column<BillingInvoiceRow>[] = [
   { id: 'period', header: 'Period', cellClassName: 'text-fg-muted', render: (r) => formatMonthYear(r.periodStart) },
-  { id: 'gross', header: 'Gross', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (r) => money(r.grossCents) },
-  { id: 'discount', header: 'Discount', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-fg-muted', render: (r) => (r.discountCents ? `−${money(r.discountCents)}` : '—') },
-  { id: 'credit', header: 'Credit', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-fg-muted', render: (r) => (r.creditCents ? `−${money(r.creditCents)}` : '—') },
-  { id: 'tax', header: 'Tax', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-fg-muted', render: (r) => (r.taxCents ? money(r.taxCents) : '—') },
-  { id: 'net', header: 'Net', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums font-medium text-fg', render: (r) => money(r.netCents) },
+  { id: 'gross', header: 'Gross', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (r) => money(r.grossCents, r.currency) },
+  { id: 'discount', header: 'Discount', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-fg-muted', render: (r) => (r.discountCents ? `−${money(r.discountCents, r.currency)}` : '—') },
+  { id: 'credit', header: 'Credit', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-fg-muted', render: (r) => (r.creditCents ? `−${money(r.creditCents, r.currency)}` : '—') },
+  { id: 'tax', header: 'Tax', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-fg-muted', render: (r) => (r.taxCents ? money(r.taxCents, r.currency) : '—') },
+  { id: 'net', header: 'Net', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums font-medium text-fg', render: (r) => money(r.netCents, r.currency) },
   { id: 'status', header: 'Status', cellClassName: 'capitalize', render: (r) => <span className={STATUS_COLOR[r.status] ?? ''}>{r.status}</span> },
 ];
 
@@ -153,8 +153,11 @@ export function BillingDashboard() {
     );
   }
 
-  const t = summary.totals;
-  const maxGross = Math.max(1, ...summary.timeline.map((p) => p.grossCents));
+  // One set of totals per currency (amounts in different currencies are never
+  // added together); the currency code labels each only when there are several.
+  const multiCurrency = summary.totalsByCurrency.length > 1;
+  // Bars scale within their own currency.
+  const maxGross = (currency: string) => Math.max(1, ...summary.timeline.filter((p) => p.currency === currency).map((p) => p.grossCents));
 
   const allocationColumns: Column<AllocationRow>[] = [
     // The allocation rows are ids; the session's org list already names every
@@ -163,37 +166,43 @@ export function BillingDashboard() {
     { id: 'team', header: 'Team', cellClassName: 'text-fg-muted text-xs', render: (r) => teamName(r.orgId) },
     { id: 'units', header: allocation?.driver ?? 'Units', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (r) => r.driverUnits },
     { id: 'share', header: 'Share', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-fg-muted', render: (r) => `${r.sharePct}%` },
-    { id: 'credits', header: 'Credits', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-fg-muted', render: (r) => (r.creditCents ? `−${money(r.creditCents)}` : '—') },
-    { id: 'net', header: 'Net', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums font-medium text-fg', render: (r) => money(r.netCents) },
+    { id: 'credits', header: 'Credits', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-fg-muted', render: (r) => (r.creditCents ? `−${money(r.creditCents, r.currency)}` : '—') },
+    { id: 'net', header: 'Net', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums font-medium text-fg', render: (r) => money(r.netCents, r.currency) },
   ];
 
   return (
     <div className="space-y-4">
       {rangeToolbar}
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-        <StatCard label="Total billed" value={money(t.grossBilledCents)} />
-        <StatCard label="Discounts" value={money(t.discountsCents)} />
-        <StatCard label="Usage credits" value={money(t.creditsCents)} />
-        <StatCard label="Net billed" value={money(t.netBilledCents)} />
-        <StatCard label="Amount paid" value={money(t.amountPaidCents)} />
-      </div>
+      {summary.totalsByCurrency.map((t) => (
+        <div key={t.currency} className="space-y-2">
+          {multiCurrency && <h3 className="text-xs font-semibold text-fg-muted">{t.currency.toUpperCase()}</h3>}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+            <StatCard label="Total billed" value={money(t.grossBilledCents, t.currency)} />
+            <StatCard label="Discounts" value={money(t.discountsCents, t.currency)} />
+            <StatCard label="Usage credits" value={money(t.creditsCents, t.currency)} />
+            <StatCard label="Net billed" value={money(t.netBilledCents, t.currency)} />
+            <StatCard label="Amount paid" value={money(t.amountPaidCents, t.currency)} />
+          </div>
+        </div>
+      ))}
 
       {summary.timeline.length > 0 && (
         <Card>
           <h3 className="h3 mb-3">Billed by period</h3>
           <div className="space-y-1.5">
             {summary.timeline.map((p) => {
-              const netPct = Math.round((p.netCents / maxGross) * 100);
-              const creditPct = Math.round(((p.creditCents + p.discountCents) / maxGross) * 100);
+              const max = maxGross(p.currency);
+              const netPct = Math.round((p.netCents / max) * 100);
+              const creditPct = Math.round(((p.creditCents + p.discountCents) / max) * 100);
               return (
-                <div key={p.periodStart} className="flex items-center gap-3">
+                <div key={`${p.periodStart}|${p.currency}`} className="flex items-center gap-3">
                   <span className="text-xs text-fg-muted w-20 shrink-0 tabular-nums">{formatMonthYear(p.periodStart)}</span>
                   <div className="flex-1 h-4 bg-surface-muted rounded overflow-hidden flex">
-                    <div className="h-full bg-blue-500" style={{ width: `${netPct}%` }} title={`Net ${money(p.netCents)}`} />
-                    <div className="h-full bg-emerald-400" style={{ width: `${creditPct}%` }} title={`Discounts + credits ${money(p.creditCents + p.discountCents)}`} />
+                    <div className="h-full bg-blue-500" style={{ width: `${netPct}%` }} title={`Net ${money(p.netCents, p.currency)}`} />
+                    <div className="h-full bg-emerald-400" style={{ width: `${creditPct}%` }} title={`Discounts + credits ${money(p.creditCents + p.discountCents, p.currency)}`} />
                   </div>
-                  <span className="text-xs tabular-nums w-16 text-right text-fg-muted">{money(p.netCents)}</span>
+                  <span className="text-xs tabular-nums w-16 text-right text-fg-muted">{money(p.netCents, p.currency)}</span>
                 </div>
               );
             })}
@@ -215,7 +224,7 @@ export function BillingDashboard() {
           columns={INVOICE_COLUMNS}
           isLoading={false}
           animated={false}
-          getRowKey={(r) => `${r.periodStart}|${r.periodEnd}|${r.status}`}
+          getRowKey={(r) => `${r.periodStart}|${r.periodEnd}|${r.currency}|${r.status}`}
           emptyState={{ icon: Receipt, title: 'No invoices', description: 'No invoices in the selected range.' }}
         />
         )}
@@ -243,7 +252,7 @@ export function BillingDashboard() {
             columns={allocationColumns}
             isLoading={false}
             animated={false}
-            getRowKey={(r) => r.orgId}
+            getRowKey={(r) => `${r.orgId}|${r.currency}`}
             emptyState={{ icon: Users, title: 'No allocation', description: 'No cost allocation for the selected range.' }}
           />
         </Card>

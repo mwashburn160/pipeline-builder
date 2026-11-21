@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Stripe REVERSAL handling — refunds, disputes, and voided/uncollectible
- * invoices — plus the shared clawback tail they all run.
+ * Stripe REVERSAL handling — refunds, disputes (and their won outcome), and
+ * voided/uncollectible invoices — plus the shared clawback tail they all run.
  *
  * Dispatched by routes/stripe-webhook.ts.
  */
@@ -12,8 +12,8 @@ import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import type Stripe from 'stripe';
 import { createBillingEvent } from './billing-helpers.js';
-import { ingestStripeInvoice, reverseLedgerInvoice } from './billing-ledger.js';
-import { clawbackRecentPromotions } from './promotion-engine.js';
+import { ingestStripeInvoice, restoreDisputedLedgerInvoice, reverseLedgerInvoice } from './billing-ledger.js';
+import { clawbackRecentPromotions, regrantDisputeClawback } from './promotion-engine.js';
 import { findReversalSubscription, findSubscriptionByStripeId, invoiceSubscriptionId } from './stripe-helpers.js';
 import type { SubscriptionDocument } from '../models/subscription.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
@@ -68,11 +68,13 @@ async function clawbackAndRecordReversal(
   details: Record<string, unknown>,
   /** False for a PARTIAL charge reversal: record it, but claw back nothing. */
   clawback = true,
+  /** Tags the clawback with its reversal (`dispute:<id>`) so a won dispute can undo it. */
+  clawbackRef?: string,
 ): Promise<void> {
   let clawedPromotions = 0;
   if (clawback) {
     try {
-      clawedPromotions = await clawbackRecentPromotions(subscription);
+      clawedPromotions = await (clawbackRef ? clawbackRecentPromotions(subscription, undefined, clawbackRef) : clawbackRecentPromotions(subscription));
     } catch (err) {
       logger.warn('Promotion clawback failed during reversal', {
         orgId: subscription.orgId, reason, error: errorMessage(err),
@@ -114,6 +116,7 @@ async function applyChargeReversal(
   stripe: Stripe | null,
   /** Whether the reversal is full — gates the promotion clawback. */
   fullReversal: boolean,
+  clawbackRef?: string,
 ): Promise<void> {
   const invoiceId = await chargeInvoiceId(charge, stripe);
   const customerId = idOf(charge.customer);
@@ -142,7 +145,7 @@ async function applyChargeReversal(
     }
     return;
   }
-  await clawbackAndRecordReversal(subscription, reason, { ...details, invoiceId }, fullReversal);
+  await clawbackAndRecordReversal(subscription, reason, { ...details, invoiceId }, fullReversal, clawbackRef);
   logger.info('Stripe charge reversal processed', { orgId: subscription.orgId, reason, chargeId: charge.id, invoiceId, fullReversal });
 }
 
@@ -184,16 +187,22 @@ export async function handleChargeDisputeCreated(dispute: Stripe.Dispute): Promi
   // Throwing lets the dispatcher release the dedupe lease + 500 so Stripe retries
   // over its ~3-day window (disputes are rare; a few retries are fine). The metric
   // surfaces a persistently-failing dispute for operator follow-up.
-  let charge: Stripe.Charge;
+  // Stripe delivers unordered and redelivers a failed event for days, so this
+  // event can be processed after the dispute was already WON — re-read it, and
+  // leave a won dispute alone (its `charge.dispute.closed` restored the row).
+  let current: Stripe.Dispute;
   try {
-    charge = await stripe.charges.retrieve(chargeId);
+    current = await stripe.disputes.retrieve(dispute.id);
   } catch (err) {
-    incCounter('billing_dispute_retrieve_failed_total', { reason: 'charge_retrieve_error' });
-    logger.error('Stripe dispute charge retrieve failed — rethrowing so Stripe redelivers', {
-      disputeId: dispute.id, chargeId, error: errorMessage(err),
-    });
+    incCounter('billing_dispute_retrieve_failed_total', { reason: 'dispute_retrieve_error' });
+    logger.error('Stripe dispute re-read failed — rethrowing so Stripe redelivers', { disputeId: dispute.id, error: errorMessage(err) });
     throw err;
   }
+  if (current.status === 'won') {
+    logger.info('Stripe dispute already won — the created event reverses nothing', { disputeId: dispute.id });
+    return;
+  }
+  const charge = await retrieveDisputedCharge(stripe, dispute, chargeId);
   // A dispute covers what is LEFT on the charge, so a refund made before it is
   // part of the reversal too: refund 19 then dispute the remaining 30 of a 49
   // charge leaves nothing collected, and is a FULL reversal for the clawback.
@@ -204,7 +213,66 @@ export async function handleChargeDisputeCreated(dispute: Stripe.Dispute): Promi
   await applyChargeReversal(charge, 'disputed', 'invoice_disputed', netPaidCents, {
     disputedCents: dispute.amount ?? 0,
     disputeStatus: dispute.status,
-  }, stripe, isFullReversal(charge.amount ?? 0, reversedCents));
+  }, stripe, isFullReversal(charge.amount ?? 0, reversedCents), `dispute:${dispute.id}`);
+}
+
+/** Re-fetch a dispute's charge; a failure re-throws so Stripe redelivers. */
+async function retrieveDisputedCharge(stripe: Stripe, dispute: Stripe.Dispute, chargeId: string): Promise<Stripe.Charge> {
+  try {
+    return await stripe.charges.retrieve(chargeId);
+  } catch (err) {
+    incCounter('billing_dispute_retrieve_failed_total', { reason: 'charge_retrieve_error' });
+    logger.error('Stripe dispute charge retrieve failed — rethrowing so Stripe redelivers', {
+      disputeId: dispute.id, chargeId, error: errorMessage(err),
+    });
+    throw err;
+  }
+}
+
+/**
+ * `charge.dispute.closed` — a chargeback was decided. Only a WON dispute changes
+ * anything: the disputed funds came back, so the ledger row leaves `disputed` for
+ * the state the charge's refund history allows (`paid`, or `refunded` with the
+ * refund still counted — see {@link restoreDisputedLedgerInvoice}), and the
+ * promotion credit this dispute clawed back is re-granted, idempotently per
+ * dispute id ({@link regrantDisputeClawback}). `lost` (and an inquiry's
+ * `warning_closed`) leave the reversal standing. Dedupe is the dispatcher's
+ * per-event claim; both writes are idempotent, so a failure re-throws for a
+ * redelivery rather than half-applying.
+ */
+export async function handleChargeDisputeClosed(dispute: Stripe.Dispute): Promise<void> {
+  if (dispute.status !== 'won') {
+    logger.info('Stripe dispute closed without a win — reversal stands', { disputeId: dispute.id, status: dispute.status });
+    return;
+  }
+  const chargeId = idOf(dispute.charge);
+  const stripe = activeStripeClient();
+  if (!chargeId || !stripe) {
+    logger.warn('Won dispute without a resolvable charge — cannot restore', { disputeId: dispute.id, chargeId });
+    return;
+  }
+  const charge = await retrieveDisputedCharge(stripe, dispute, chargeId);
+  const refundedCents = charge.amount_refunded ?? 0;
+  const invoiceId = await chargeInvoiceId(charge, stripe);
+  if (invoiceId) {
+    await restoreDisputedLedgerInvoice(invoiceId, refundedCents > 0 ? 'refunded' : 'paid', (charge.amount ?? 0) - refundedCents);
+  }
+
+  const customerId = idOf(charge.customer);
+  const { subscription, ambiguous } = customerId
+    ? await findReversalSubscription(customerId)
+    : { subscription: null, ambiguous: false };
+  if (!subscription) {
+    logger.warn('Won dispute without a single matching local subscription — ledger restored, nothing re-granted', {
+      disputeId: dispute.id, chargeId, invoiceId, customerId, ambiguous,
+    });
+    return;
+  }
+  const regrantedPromotions = await regrantDisputeClawback(subscription, dispute.id);
+  await createBillingEvent(subscription.orgId, 'subscription_updated', {
+    provider: 'stripe', reason: 'invoice_dispute_won', disputeId: dispute.id, invoiceId, regrantedPromotions,
+  }, subscription._id.toString());
+  logger.info('Stripe won dispute processed', { orgId: subscription.orgId, disputeId: dispute.id, invoiceId, regrantedPromotions });
 }
 
 /**

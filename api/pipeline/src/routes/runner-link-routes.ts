@@ -41,7 +41,7 @@ import { pipelineService } from '../services/pipeline-service.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** 409 RUNNERS_UNAVAILABLE (paused, no secret encryption, no runner tables) — checked before a step-up is spent. */
+/** 409 RUNNERS_UNAVAILABLE (paused, or no secret encryption) — checked before a step-up is spent. */
 async function requireRunnersAvailable(_req: Request, res: Response, next: NextFunction): Promise<void> {
   const state = await runnerDeps().runnersAvailable();
   if (!state.available) return sendUnavailable(res, state.reason ?? 'paused');
@@ -103,9 +103,6 @@ export function createRunnerLinkRoutes(): Router {
   router.get('/:pipelineId/runner-link', ...readGuards, withRoute(async ({ req, res, orgId }) => {
     const pipelineId = getParam(req.params, 'pipelineId') ?? '';
     const deps = runnerDeps();
-    if (!(await deps.store.tablesPresent().catch(() => false))) {
-      return sendUnavailable(res, 'tables_missing');
-    }
     const link = await visibleLink(deps, pipelineId, orgId);
     if (!link) return sendError(res, 404, 'Pipeline is not registered.', ErrorCode.NOT_FOUND);
     return sendSuccess(res, 200, await runnerLinkDto(deps, pipelineId, orgId, link));
@@ -140,9 +137,6 @@ export function createRunnerLinkRoutes(): Router {
   router.get('/runners/:id/pipelines', ...admin, withRoute(async ({ req, res, ctx, orgId }) => {
     const id = getParam(req.params, 'id') ?? '';
     const deps = runnerDeps();
-    if (!(await deps.store.tablesPresent().catch(() => false))) {
-      return sendUnavailable(res, 'tables_missing');
-    }
     try {
       const runner = await ownRunner(deps, orgId, id);
       const { limit, offset } = parsePaginationParams(req.query as Record<string, unknown>);

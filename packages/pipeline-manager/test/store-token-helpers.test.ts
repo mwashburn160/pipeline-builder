@@ -19,7 +19,7 @@ jest.unstable_mockModule('../src/utils/service-account.js', () => ({
   revokeSiblingKey,
 }));
 
-const { buildSecretValue, chooseStepUp, printDryRunPlan, printStoredKey, readKeyInput, retirePreviousKey } = await import('../src/commands/store-token.js');
+const { buildSecretValue, chooseStepUp, printDryRunPlan, printStoredKey, readKeyInput, renewNameSuffix, retirePreviousKey } = await import('../src/commands/store-token.js');
 
 const provisioned = {
   key: 'pb_sa_new',
@@ -35,6 +35,14 @@ const client = {} as Parameters<typeof retirePreviousKey>[0];
 afterEach(() => {
   jest.restoreAllMocks();
   revokeSiblingKey.mockReset();
+});
+
+describe('renewNameSuffix', () => {
+  it('names every secret\'s rotation stack after its trailing path segment — the platform secret too', () => {
+    expect(renewNameSuffix('pipeline-builder/acme/platform')).toBe('-platform');
+    expect(renewNameSuffix('pipeline-builder/acme/reporting-ingest')).toBe('-reporting-ingest');
+    expect(renewNameSuffix('pipeline-builder/acme/registry_push')).toBe('-registry-push');
+  });
 });
 
 describe('buildSecretValue', () => {

@@ -367,6 +367,7 @@ describe('AskPanel model + repository controls', () => {
       await waitFor(() => expect(recordAiDraftOutcome).toHaveBeenCalledWith('agent', 'accepted', DRAFT_1));
       // Closing the panel afterwards reports nothing more.
       unmount();
+      await Promise.resolve();
       expect(recordAiDraftOutcome.mock.calls).toEqual([['agent', 'accepted', DRAFT_1]]);
       // Only the feature and the outcome leave the browser.
       expect(JSON.stringify(recordAiDraftOutcome.mock.calls)).not.toContain('trivy');
@@ -382,6 +383,7 @@ describe('AskPanel model + repository controls', () => {
       await screen.findByRole('alert');
       expect(recordAiDraftOutcome).not.toHaveBeenCalled();
       unmount();
+      await Promise.resolve();
       expect(recordAiDraftOutcome.mock.calls).toEqual([['agent', 'discarded', DRAFT_1]]);
     });
 
@@ -393,6 +395,7 @@ describe('AskPanel model + repository controls', () => {
       expect(recordAiDraftOutcome.mock.calls).toEqual([['agent', 'discarded', DRAFT_1]]);
       expect(screen.queryByRole('button', { name: /Create plugin/i })).not.toBeInTheDocument();
       unmount();
+      await Promise.resolve();
       expect(recordAiDraftOutcome.mock.calls).toEqual([['agent', 'discarded', DRAFT_1]]);
       expect(deployGeneratedPlugin).not.toHaveBeenCalled();
     });
@@ -403,6 +406,7 @@ describe('AskPanel model + repository controls', () => {
       ask('a trivy scan plugin');
       await screen.findByRole('button', { name: /Create plugin/i });
       unmount();
+      await Promise.resolve();
       expect(recordAiDraftOutcome.mock.calls).toEqual([['agent', 'discarded', DRAFT_1]]);
     });
 

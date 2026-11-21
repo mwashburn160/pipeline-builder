@@ -414,12 +414,12 @@ describe('the challenge is bound to the tokenVersion at first-factor proof', () 
     expect(mockVerifyRecoveryCode).not.toHaveBeenCalled();
   });
 
-  it('refuses a challenge recorded without a tokenVersion (fail closed)', async () => {
+  it('refuses a malformed challenge recorded without a tokenVersion (fail closed)', async () => {
     const { challengeId } = await createMfaChallenge(USER, 'org-1', TV);
     const pending = await claimMfaChallenge(challengeId);
     const { tokenVersion: _drop, ...unbound } = pending!;
     void _drop;
-    await restoreMfaChallenge(challengeId, unbound);
+    await restoreMfaChallenge(challengeId, unbound as typeof pending & object);
     const res = makeRes();
     await verifyMfaLogin(body({ challengeId, code: '123456' }), res);
     expect(res.json.mock.calls[0][0].code).toBe('TOTP_INVALID_CHALLENGE');

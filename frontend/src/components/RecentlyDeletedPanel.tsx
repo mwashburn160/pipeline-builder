@@ -237,7 +237,11 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
   // for every loaded row this panel restores or purges (each one shifts every
   // later tombstone down a slot), so "Load more" never skips a row.
   const [rows, setRows] = useState<DeletedRow[]>([]);
-  const [nextOffset, setNextOffset] = useState(0);
+  // A ref, not state: "Load more" reads the CURRENT value after an await.
+  const nextOffset = useRef(0);
+  // Loaded rows restored / purged so far; "Load more" compares it across its
+  // request to tell whether the server's rows shifted under the page it asked for.
+  const removals = useRef(0);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   // Bumped whenever the first page is re-read (resource change / retry), so a
@@ -247,7 +251,7 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
   useEffect(() => {
     generation.current += 1;
     setRows([]);
-    setNextOffset(0);
+    nextOffset.current = 0;
     setHasMore(false);
     setLoadingMore(false);
   }, [config]);
@@ -259,7 +263,7 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
       onSuccess: (page) => {
         generation.current += 1;
         setRows(page.rows);
-        setNextOffset(DELETED_PAGE_SIZE);
+        nextOffset.current = DELETED_PAGE_SIZE;
         setHasMore(page.hasMore);
       },
       onError: (err) => toast.error(formatError(err, `Failed to load deleted ${labels.plural}`)),
@@ -271,15 +275,27 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
     const gen = generation.current;
     setLoadingMore(true);
     try {
-      const page = await config.load({ limit: DELETED_PAGE_SIZE, offset: nextOffset });
-      if (gen !== generation.current) return;
+      // A row restored or purged while the request was in flight shifted the
+      // server's rows down a slot, so the answer (read at the old offset) may
+      // start one row late. Ask again from the adjusted offset until a page
+      // comes back with no removal during its flight; the id de-dupe below
+      // absorbs the overlap.
+      let offset: number;
+      let page: DeletedPage;
+      for (;;) {
+        const before = removals.current;
+        offset = nextOffset.current;
+        page = await config.load({ limit: DELETED_PAGE_SIZE, offset });
+        if (gen !== generation.current) return;
+        if (removals.current === before) break;
+      }
       // De-dupe by id: a deletion made elsewhere since the last page shifts the
       // server's offsets up, re-serving a row this panel already shows.
       setRows((prev) => {
         const seen = new Set(prev.map((r) => r.id));
         return [...prev, ...page.rows.filter((r) => !seen.has(r.id))];
       });
-      setNextOffset((o) => o + DELETED_PAGE_SIZE);
+      nextOffset.current = offset + DELETED_PAGE_SIZE;
       setHasMore(page.hasMore);
     } catch (err) {
       if (gen === generation.current) toast.error(formatError(err, `Failed to load more deleted ${labels.plural}`));
@@ -292,7 +308,8 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
    *  every page the user loaded to find it. */
   const removeRow = (id: string) => {
     setRows((prev) => prev.filter((r) => r.id !== id));
-    setNextOffset((o) => Math.max(0, o - 1));
+    nextOffset.current = Math.max(0, nextOffset.current - 1);
+    removals.current += 1;
   };
 
   /**

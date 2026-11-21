@@ -709,6 +709,9 @@ describe('the decision routes (system org + plugins:write; approve / reject step
     };
     const res = await call(routes(p).router, 'post', '/toolchain-fixes/:id/approve', { params: { id: row.id } });
     expect(res.statusCode).toBe(409);
+    // Progress was stored (bootstrap), so this is the keep-progress branch: the lease was
+    // lost, not the gate's verdict to report — the new holder carries on.
+    expect(res.body.details).toMatchObject({ reason: 'LEASE_LOST' });
     expect(await leaseOf(row.id)).toBe(OTHER);
   });
 

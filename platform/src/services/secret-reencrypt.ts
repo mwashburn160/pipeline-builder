@@ -102,6 +102,37 @@ export async function captureOrgSecrets(orgId: string): Promise<CapturedSecrets>
 }
 
 /**
+ * The post-change verification (services/kms-config-verify.ts): try to decrypt
+ * every secret {@link captureOrgSecrets} covers under whatever provider is
+ * active now, and name each one that does not open. Unlike the capture it never
+ * stops at the first failure — the operator and the org's admins need the whole
+ * list. Field names only (`aiProviderKeys.<provider>`, `idpClientSecret`), never
+ * a value or the decrypt error. A database error still throws.
+ */
+export async function findUnreadableOrgSecrets(orgId: string): Promise<string[]> {
+  const unreadable: string[] = [];
+  const opens = async (raw: string, field: string): Promise<void> => {
+    try {
+      await unwrapEncrypted(raw, orgId, field);
+    } catch {
+      unreadable.push(field);
+    }
+  };
+
+  const org = await Organization.findById(toOrgId(orgId)).select('aiProviderKeys').lean();
+  const keys = (org?.aiProviderKeys ?? {}) as Record<string, string | undefined>;
+  for (const provider of AI_PROVIDERS) {
+    const raw = keys[provider];
+    if (raw) await opens(raw, `aiProviderKeys.${provider}`);
+  }
+
+  const idp = await OrgIdpConfig.findOne({ organizationId: orgId }).select('clientSecretEncrypted').lean();
+  if (idp?.clientSecretEncrypted) await opens(idp.clientSecretEncrypted, 'idpClientSecret');
+
+  return unreadable;
+}
+
+/**
  * Thrown by {@link reencryptOrgSecrets}. `written` is false when it failed
  * before writing anything — every stored blob is still the one captured under
  * the OLD provider, so restoring the previous config leaves the org consistent.

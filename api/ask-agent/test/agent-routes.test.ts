@@ -197,7 +197,10 @@ describe('POST /ask-agent/agent/stream', () => {
 
   it('gives every proposal a single-use draft id bound to the caller and the agent feature (outside the model-visible output)', async () => {
     const { getAiDraftStore, _setAiDraftStoreForTests, createMemoryAiDraftStore } = await import('@pipeline-builder/api-core');
+    // Without Redis the memory store is process-local; ask-agent is the redeemer, so it still issues.
     _setAiDraftStoreForTests(createMemoryAiDraftStore());
+    const savedName = process.env.SERVICE_NAME;
+    process.env.SERVICE_NAME = 'ask-agent';
     streamParts = turn(
       { type: 'tool-call', toolCallId: 'c1', toolName: 'propose_pipeline', input: {} },
       { type: 'tool-result', toolCallId: 'c1', toolName: 'propose_pipeline', input: {}, output: { kind: 'pipeline', props: { name: 'x' } } },
@@ -213,6 +216,8 @@ describe('POST /ask-agent/agent/stream', () => {
     expect(await getAiDraftStore().redeem(event.draftId, { orgId: 'org-1', userId: 'u9', feature: 'pipeline-generate' })).toBe('invalid');
     expect(await getAiDraftStore().redeem(event.draftId, { orgId: 'org-1', userId: 'u9', feature: 'agent' })).toBe('ok');
     _setAiDraftStoreForTests();
+    if (savedName === undefined) delete process.env.SERVICE_NAME;
+    else process.env.SERVICE_NAME = savedName;
   });
 
   it('maps fullStream to SSE (tool-call, proposal, token, done) and keeps the slot', async () => {

@@ -11,7 +11,7 @@
  * provider-driven events.
  */
 
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { isValidObjectId } from 'mongoose';
 import type Stripe from 'stripe';
@@ -258,15 +258,57 @@ export async function awaitsLocalRow(
 }
 
 /** Cancel a DUPLICATE Stripe subscription immediately (best-effort) + alert, so a
- *  concurrent second checkout can't double-bill the org. */
-async function cancelDuplicateStripeSub(externalId: string, orgId: string): Promise<void> {
-  logger.error('Duplicate Stripe subscription for org — canceling to prevent double-billing', { orgId, externalId });
-  incCounter('billing_duplicate_stripe_subscription_total', { reason: 'concurrent_checkout' });
+ *  concurrent second checkout can't double-bill the org, then refund its first
+ *  paid invoice in full (idempotent on the invoice id). Nothing is refunded when
+ *  nothing was charged yet. A failed refund is counted
+ *  (`billing_duplicate_stripe_refund_failed_total`, alerted) and recorded on the
+ *  billing event for an operator to refund by hand. */
+async function cancelDuplicateStripeSub(
+  externalId: string,
+  orgId: string,
+  reason: 'concurrent_checkout' | 'paid_after_cancel' = 'concurrent_checkout',
+): Promise<void> {
+  logger.error('Duplicate Stripe subscription for org — canceling to prevent double-billing', { orgId, externalId, reason });
+  incCounter('billing_duplicate_stripe_subscription_total', { reason });
   const provider = getPaymentProvider();
   if (provider.cancelSubscriptionNow) {
     await provider.cancelSubscriptionNow(externalId).catch((e) => logger.error('Failed to cancel duplicate Stripe sub — operator refund may be needed', { externalId, err: (e as Error).message }));
   }
-  await createBillingEvent(orgId, 'subscription_updated', { duplicate: true, canceledExternalId: externalId, reason: 'duplicate_checkout' });
+  let refund: Record<string, unknown> = {};
+  if (provider.refundFirstPaidInvoice) {
+    try {
+      const r = await provider.refundFirstPaidInvoice(externalId);
+      refund = { refundedInvoiceId: r?.invoiceId ?? null, ...(r ? { refundId: r.refundId } : {}) };
+    } catch (e) {
+      incCounter('billing_duplicate_stripe_refund_failed_total', {});
+      logger.error('Failed to refund duplicate Stripe sub — operator refund needed', { orgId, externalId, err: errorMessage(e) });
+      refund = { refundFailed: true };
+    }
+  }
+  await createBillingEvent(orgId, 'subscription_updated', { duplicate: true, canceledExternalId: externalId, reason: 'duplicate_checkout', ...refund });
+}
+
+/**
+ * A paid invoice for a Stripe subscription with no local row: is it a DUPLICATE
+ * checkout? The same rule `.created` applies — a Checkout-stamped sub (`orgId`,
+ * no in-app `subscriptionRef`) whose org already holds a manageable subscription
+ * BOUND to a different Stripe sub. A duplicate's first invoice may settle only
+ * after `.created` canceled it (an async payment method), when there was nothing
+ * to refund yet; this is where that payment is refunded. Re-runs the duplicate
+ * handling — the cancel resolves on an ended sub and the refund is keyed on the
+ * invoice id, so a payment already refunded is not refunded twice. True when it
+ * was a duplicate (the caller then acks instead of waiting for a row).
+ */
+export async function settleCanceledDuplicate(
+  externalId: string,
+  metadata: Stripe.Metadata | null | undefined,
+): Promise<boolean> {
+  const orgId = (metadata?.orgId || '').trim();
+  if (!orgId || (metadata?.subscriptionRef || '').trim()) return false;
+  const keeper = await Subscription.findOne({ orgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] } });
+  if (!keeper?.externalId || keeper.externalId === externalId) return false;
+  await cancelDuplicateStripeSub(externalId, orgId, 'paid_after_cancel');
+  return true;
 }
 
 /**

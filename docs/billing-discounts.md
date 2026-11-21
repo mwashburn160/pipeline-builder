@@ -292,7 +292,7 @@ Every mutation writes a local `billing_events` row and mirrors to the central [a
 
 - **Stripe-billed accounts** — the full in-app flow above, realized as customer-balance usage credits.
 - **AWS Marketplace-billed accounts** — the in-app flow works when `BILLING_METERING_ENABLED` is on, with credits realized by withholding metered usage, priced via `AWS_MARKETPLACE_DIMENSION_PRICE_MAP`. Default-off, so enable and validate with `BILLING_METERING_DRAWDOWN_DRYRUN` first. Withholding offsets metered add-on usage only — for plan-level or contract pricing use [private offers](#aws-marketplace--private-offers-handled-in-aws-not-in-app).
-- **Billing dashboard** — the account's **Billing** page summarizes the period as **gross billed → discounts + usage credits → net**, with a per-period bar chart and an invoice table showing the discount or credit applied to each invoice (`GET /billing/summary`). This is where an account sees the effect of its discounts.
+- **Billing dashboard** — the account's **Billing** page summarizes the period as **gross billed → discounts + usage credits → net**, with a per-period bar chart and an invoice table showing the discount or credit applied to each invoice (`GET /billing/summary`). This is where an account sees the effect of its discounts. Totals are kept **per currency** (`totalsByCurrency`, one entry per currency the account was billed in; timeline points, invoice rows, cost-by-team rows and the admin per-account breakdown each name their currency): amounts in different currencies are never added together, and an account billed in one currency sees one set of totals.
 
 ## Related
 

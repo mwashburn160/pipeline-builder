@@ -55,85 +55,139 @@ export interface CanaryFixture {
 
 const df = (...lines: string[]): string => `${lines.join('\n')}\n`;
 
-/** One fixture per package type the patcher table covers. */
+/**
+ * One fixture per package type the patcher table covers. Each must, on amd64
+ * AND arm64 (test/remediation-canary-fixtures.test.ts holds these):
+ *
+ *  - build offline-complete: go.sum and a checksummed Cargo.lock beside the
+ *    manifests, an architecture taken from `${TARGETARCH}`, never hard-coded;
+ *  - pass the build gate: bases are VERSION TAGS (a digest pin ages into fixable
+ *    Criticals before a new install loads it; the remediation rebuild pulls the
+ *    tag), and the published stage upgrades its base packages, so the pinned
+ *    package is the only one carrying a fixable High;
+ *  - stay fixable by the dry run under the system org's DEFAULT settings: the
+ *    fix is within `DEFAULT_LIBRARY_UPGRADE_LEVEL`, and `fixed` is the highest
+ *    fix grype reports for the package (what api-core `chooseFixVersion` picks).
+ *
+ * OS packages need the vulnerable version from somewhere the live archive no
+ * longer keeps it: deb from a frozen snapshot.debian.org trixie-security, rpm
+ * from AlmaLinux's 9.8 vault, apk from the alpine:3.24.3 patch release with
+ * the package held back from `apk upgrade` (so the overlay, not a source
+ * patch, fixes it). The fixed versions come from the live archives.
+ *
+ * Last verified 2026-11-21 with syft 1.56 + grype 0.121 (the plugin image's
+ * scan path) on linux/amd64 and linux/arm64. A fixture whose package gets a new
+ * advisory keeps working (the fix moves with it); one whose new advisory is
+ * Critical, or whose fix leaves the default upgrade level, needs re-pinning.
+ */
 export const CANARY_FIXTURES: readonly CanaryFixture[] = [
   {
     type: 'deb',
-    packageName: 'curl',
-    installed: '7.88.1-10+deb12u5',
-    fixed: '7.88.1-10+deb12u6',
-    advisory: 'CVE-2024-2398',
-    files: { Dockerfile: df('FROM debian:12.5', 'RUN apt-get update && apt-get install -y --no-install-recommends \\', '      ca-certificates curl \\', '    && rm -rf /var/lib/apt/lists/*', 'USER 1000:1000') },
+    packageName: 'libexpat1',
+    installed: '2.8.3-1~deb13u1',
+    fixed: '2.9.0-1~deb13u1',
+    advisory: 'CVE-2026-66046',
+    files: {
+      Dockerfile: df(
+        'FROM debian:13-slim',
+        'RUN echo \'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/20261001T000000Z trixie-security main\' > /etc/apt/sources.list.d/canary-snapshot.list \\',
+        '    && apt-get update && apt-get upgrade -y \\',
+        '    && apt-get install -y --no-install-recommends libexpat1=2.8.3-1~deb13u1 \\',
+        '    && rm -rf /var/lib/apt/lists/*',
+        'USER 1000:1000',
+      ),
+    },
   },
   {
     type: 'apk',
     packageName: 'libcrypto3',
-    installed: '3.1.4-r5',
-    fixed: '3.1.4-r6',
-    advisory: 'CVE-2024-2511',
-    files: { Dockerfile: df('FROM alpine:3.19.1', 'RUN apk add --no-cache bash', 'USER 1000:1000') },
+    installed: '3.5.9-r0',
+    fixed: '3.5.9-r1',
+    advisory: 'CVE-2026-88823',
+    files: { Dockerfile: df('FROM alpine:3.24.3', 'RUN apk upgrade --no-cache --ignore libcrypto3 libssl3 && apk add --no-cache bash', 'USER 1000:1000') },
   },
   {
     type: 'rpm',
-    packageName: 'openssl-libs',
-    installed: '1:3.0.7-24.el9',
-    fixed: '1:3.0.7-25.el9_3',
-    advisory: 'CVE-2023-5678',
-    files: { Dockerfile: df('FROM rockylinux:9.3-minimal', 'RUN microdnf install -y openssl-libs && microdnf clean all', 'USER 1000:1000') },
+    packageName: 'expat',
+    installed: '2.5.0-6.el9_8.7',
+    fixed: '0:2.5.0-9.el9_9.8',
+    advisory: 'CVE-2026-115506',
+    files: {
+      Dockerfile: df(
+        'FROM almalinux:9-minimal',
+        'RUN printf \'[canary-vault]\\nname=AlmaLinux 9.8 BaseOS (vault)\\nbaseurl=https://vault.almalinux.org/9.8/BaseOS/$basearch/os/\\ngpgcheck=1\\ngpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-AlmaLinux-9\\n\' > /etc/yum.repos.d/canary-vault.repo \\',
+        '    && microdnf upgrade -y && microdnf install -y expat-2.5.0-6.el9_8.7 && microdnf clean all',
+        'USER 1000:1000',
+      ),
+    },
   },
   {
     type: 'npm',
     packageName: 'lodash',
-    installed: '4.17.20',
-    fixed: '4.17.21',
-    advisory: 'GHSA-35jh-r3h4-6jhm',
+    installed: '4.17.21',
+    fixed: '4.18.0',
+    advisory: 'GHSA-r5fr-rjxr-66jc',
     files: {
-      'Dockerfile': df('FROM node:20-alpine', 'WORKDIR /app', 'COPY package.json package-lock.json ./', 'RUN npm ci --ignore-scripts', 'USER node'),
-      'package.json': `${JSON.stringify({ name: 'remediation-canary-npm', version: '1.0.0', private: true, dependencies: { lodash: '4.17.20' } }, null, 2)}\n`,
-      'package-lock.json': `${JSON.stringify({ name: 'remediation-canary-npm', version: '1.0.0', lockfileVersion: 3, requires: true, packages: { '': { name: 'remediation-canary-npm', version: '1.0.0', dependencies: { lodash: '4.17.20' } }, 'node_modules/lodash': { version: '4.17.20' } } }, null, 2)}\n`,
+      // npm itself is removed after the install: its bundled dependencies carry advisories of their own.
+      'Dockerfile': df(
+        'FROM node:24-alpine',
+        'RUN apk upgrade --no-cache',
+        'WORKDIR /app',
+        'COPY package.json package-lock.json ./',
+        'RUN npm ci --ignore-scripts \\',
+        '    && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /opt/yarn-* /usr/local/bin/yarn /usr/local/bin/yarnpkg',
+        'USER node',
+      ),
+      'package.json': `${JSON.stringify({ name: 'remediation-canary-npm', version: '1.0.0', private: true, dependencies: { lodash: '4.17.21' } }, null, 2)}\n`,
+      'package-lock.json': `${JSON.stringify({ name: 'remediation-canary-npm', version: '1.0.0', lockfileVersion: 3, requires: true, packages: { '': { name: 'remediation-canary-npm', version: '1.0.0', dependencies: { lodash: '4.17.21' } }, 'node_modules/lodash': { version: '4.17.21' } } }, null, 2)}\n`,
     },
   },
   {
     type: 'python',
     packageName: 'urllib3',
-    installed: '1.26.4',
-    fixed: '1.26.5',
-    advisory: 'GHSA-q2q7-5pp4-w6pg',
-    files: { 'Dockerfile': df('FROM python:3.12-slim', 'COPY requirements.txt /tmp/requirements.txt', 'RUN pip install --no-cache-dir -r /tmp/requirements.txt', 'USER 1000:1000'), 'requirements.txt': 'urllib3==1.26.4\n' },
+    installed: '2.7.0',
+    fixed: '2.8.0',
+    advisory: 'GHSA-vxq7-64xx-v4gw',
+    files: {
+      'Dockerfile': df('FROM python:3.12-slim', 'RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*', 'COPY requirements.txt /tmp/requirements.txt', 'RUN pip install --no-cache-dir -r /tmp/requirements.txt', 'USER 1000:1000'),
+      'requirements.txt': 'urllib3==2.7.0\n',
+    },
   },
   {
     type: 'go-module',
-    packageName: 'golang.org/x/text',
-    installed: 'v0.3.5',
-    fixed: 'v0.3.7',
-    advisory: 'GHSA-ppp9-7jff-5vj2',
+    packageName: 'github.com/golang-jwt/jwt/v5',
+    installed: 'v5.2.1',
+    fixed: 'v5.2.2',
+    advisory: 'GHSA-mh63-6h87-95cp',
     files: {
-      'Dockerfile': df('FROM golang:1.22 AS build', 'WORKDIR /src', 'COPY . .', 'RUN CGO_ENABLED=0 go build -o /canary .', 'FROM alpine:3.20', 'COPY --from=build /canary /usr/local/bin/canary', 'USER 1000:1000'),
-      'go.mod': 'module example.com/canary\n\ngo 1.22\n\nrequire golang.org/x/text v0.3.5\n',
-      'main.go': 'package main\n\nimport (\n\t"fmt"\n\n\t"golang.org/x/text/language"\n)\n\nfunc main() { fmt.Println(language.English) }\n',
+      'Dockerfile': df('FROM golang:1.27-alpine AS build', 'WORKDIR /src', 'COPY . .', 'RUN CGO_ENABLED=0 go build -o /canary .', 'FROM alpine:3.24', 'RUN apk upgrade --no-cache', 'COPY --from=build /canary /usr/local/bin/canary', 'USER 1000:1000'),
+      'go.mod': 'module example.com/canary\n\ngo 1.22\n\nrequire github.com/golang-jwt/jwt/v5 v5.2.1\n',
+      'go.sum': 'github.com/golang-jwt/jwt/v5 v5.2.1 h1:OuVbFODueb089Lh128TAcimifWaLhJwVflnrgM17wHk=\ngithub.com/golang-jwt/jwt/v5 v5.2.1/go.mod h1:pqrtFR0X4osieyHYxtmOUWsAWrfe1Q5UVIyoH402zdk=\n',
+      'main.go': 'package main\n\nimport (\n\t"fmt"\n\n\t"github.com/golang-jwt/jwt/v5"\n)\n\nfunc main() { fmt.Println(jwt.SigningMethodHS256.Alg()) }\n',
     },
   },
   {
     type: 'java-archive',
     packageName: 'jackson-databind',
-    installed: '2.13.2',
-    fixed: '2.13.4.2',
-    advisory: 'GHSA-jjjh-jjxp-wpff',
+    installed: '2.18.10',
+    fixed: '2.18.11',
+    advisory: 'GHSA-cxp5-3px4-pw24',
     files: {
-      'Dockerfile': df('FROM maven:3.9-eclipse-temurin-21 AS build', 'WORKDIR /src', 'COPY pom.xml .', 'RUN mvn -q dependency:copy-dependencies -DoutputDirectory=/libs', 'FROM eclipse-temurin:21-jre', 'COPY --from=build /libs /opt/libs', 'USER 1000:1000'),
-      'pom.xml': '<project>\n  <modelVersion>4.0.0</modelVersion>\n  <groupId>example</groupId>\n  <artifactId>canary</artifactId>\n  <version>1.0.0</version>\n  <dependencies>\n    <dependency>\n      <groupId>com.fasterxml.jackson.core</groupId>\n      <artifactId>jackson-databind</artifactId>\n      <version>2.13.2</version>\n    </dependency>\n  </dependencies>\n</project>\n',
+      // The jars alone: a JRE in the published stage would bring the JDK's own advisories.
+      'Dockerfile': df('FROM maven:3.9-eclipse-temurin-21 AS build', 'WORKDIR /src', 'COPY pom.xml .', 'RUN mvn -q dependency:copy-dependencies -DoutputDirectory=/libs', 'FROM alpine:3.24', 'RUN apk upgrade --no-cache', 'COPY --from=build /libs /opt/libs', 'USER 1000:1000'),
+      'pom.xml': '<project>\n  <modelVersion>4.0.0</modelVersion>\n  <groupId>example</groupId>\n  <artifactId>canary</artifactId>\n  <version>1.0.0</version>\n  <dependencies>\n    <dependency>\n      <groupId>com.fasterxml.jackson.core</groupId>\n      <artifactId>jackson-databind</artifactId>\n      <version>2.18.10</version>\n    </dependency>\n  </dependencies>\n</project>\n',
     },
   },
   {
     type: 'gem',
     packageName: 'rack',
-    installed: '2.2.6.2',
-    fixed: '2.2.6.3',
-    advisory: 'GHSA-3h57-hmj3-gj3p',
+    installed: '2.2.24',
+    fixed: '2.2.25',
+    advisory: 'GHSA-5v64-555j-wjxm',
     files: {
-      'Dockerfile': df('FROM ruby:3.3-slim', 'WORKDIR /app', 'COPY Gemfile Gemfile.lock ./', 'RUN bundle install', 'USER 1000:1000'),
+      'Dockerfile': df('FROM ruby:3.3-slim', 'RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*', 'WORKDIR /app', 'COPY Gemfile Gemfile.lock ./', 'RUN bundle install', 'USER 1000:1000'),
       'Gemfile': "source 'https://rubygems.org'\ngem 'rack', '~> 2.2'\n",
-      'Gemfile.lock': 'GEM\n  remote: https://rubygems.org/\n  specs:\n    rack (2.2.6.2)\n\nPLATFORMS\n  ruby\n\nDEPENDENCIES\n  rack (~> 2.2)\n',
+      'Gemfile.lock': 'GEM\n  remote: https://rubygems.org/\n  specs:\n    rack (2.2.24)\n\nPLATFORMS\n  ruby\n\nDEPENDENCIES\n  rack (~> 2.2)\n',
     },
   },
   {
@@ -143,31 +197,91 @@ export const CANARY_FIXTURES: readonly CanaryFixture[] = [
     fixed: '1.5.5',
     advisory: 'GHSA-m5pq-gvj9-9vr8',
     files: {
-      'Dockerfile': df('FROM rust:1.79 AS build', 'WORKDIR /src', 'COPY . .', 'RUN cargo build --release --locked', 'FROM debian:12-slim', 'COPY --from=build /src/target/release/canary /usr/local/bin/canary', 'USER 1000:1000'),
+      // `cargo auditable` embeds the dependency list in the binary: without it syft sees no crates at all.
+      'Dockerfile': df('FROM alpine:3.24 AS build', 'RUN apk add --no-cache cargo cargo-auditable', 'WORKDIR /src', 'COPY . .', 'RUN cargo auditable build --release --locked', 'FROM alpine:3.24', 'RUN apk upgrade --no-cache && apk add --no-cache libgcc', 'COPY --from=build /src/target/release/canary /usr/local/bin/canary', 'USER 1000:1000'),
       'Cargo.toml': '[package]\nname = "canary"\nversion = "1.0.0"\nedition = "2021"\n\n[dependencies]\nregex = "1.5"\n',
-      'Cargo.lock': 'version = 3\n\n[[package]]\nname = "canary"\nversion = "1.0.0"\ndependencies = [\n "regex",\n]\n\n[[package]]\nname = "regex"\nversion = "1.5.4"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\n',
+      'Cargo.lock': [
+        '# This file is automatically @generated by Cargo.',
+        '# It is not intended for manual editing.',
+        'version = 4',
+        '',
+        '[[package]]',
+        'name = "aho-corasick"',
+        'version = "0.7.20"',
+        'source = "registry+https://github.com/rust-lang/crates.io-index"',
+        'checksum = "cc936419f96fa211c1b9166887b38e5e40b19958e5b895be7c1f93adec7071ac"',
+        'dependencies = [',
+        ' "memchr",',
+        ']',
+        '',
+        '[[package]]',
+        'name = "canary"',
+        'version = "1.0.0"',
+        'dependencies = [',
+        ' "regex",',
+        ']',
+        '',
+        '[[package]]',
+        'name = "memchr"',
+        'version = "2.8.3"',
+        'source = "registry+https://github.com/rust-lang/crates.io-index"',
+        'checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"',
+        '',
+        '[[package]]',
+        'name = "regex"',
+        'version = "1.5.4"',
+        'source = "registry+https://github.com/rust-lang/crates.io-index"',
+        'checksum = "d07a8629359eb56f1e2fb1652bb04212c072a87ba68546a04065d525673ac461"',
+        'dependencies = [',
+        ' "aho-corasick",',
+        ' "memchr",',
+        ' "regex-syntax",',
+        ']',
+        '',
+        '[[package]]',
+        'name = "regex-syntax"',
+        'version = "0.6.29"',
+        'source = "registry+https://github.com/rust-lang/crates.io-index"',
+        'checksum = "f162c6dd7b008981e4d40210aca20b4bd0f9b60ca9271061b07f78537722f2e1"',
+        '',
+      ].join('\n'),
       'src/main.rs': 'fn main() { println!("{}", regex::Regex::new("a+").unwrap().is_match("aa")); }\n',
     },
   },
   {
     type: 'dotnet',
-    packageName: 'Newtonsoft.Json',
-    installed: '12.0.3',
-    fixed: '13.0.1',
-    advisory: 'GHSA-5crp-9r3c-p9vr',
+    packageName: 'Snappier',
+    installed: '1.3.0',
+    fixed: '1.3.1',
+    advisory: 'GHSA-pggp-6c3x-2xmx',
     files: {
-      'Dockerfile': df('FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build', 'WORKDIR /src', 'COPY . .', 'RUN dotnet publish -c Release -o /out', 'FROM mcr.microsoft.com/dotnet/runtime:8.0', 'COPY --from=build /out /app', 'USER 1000:1000'),
-      'Canary.csproj': '<Project Sdk="Microsoft.NET.Sdk">\n  <PropertyGroup>\n    <OutputType>Exe</OutputType>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n  <ItemGroup>\n    <PackageReference Include="Newtonsoft.Json" Version="12.0.3" />\n  </ItemGroup>\n</Project>\n',
-      'Program.cs': 'System.Console.WriteLine(Newtonsoft.Json.JsonConvert.SerializeObject(1));\n',
+      'Dockerfile': df('FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build', 'WORKDIR /src', 'COPY . .', 'RUN dotnet publish -c Release -o /out', 'FROM mcr.microsoft.com/dotnet/runtime:10.0', 'RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*', 'COPY --from=build /out /app', 'USER 1000:1000'),
+      'Canary.csproj': '<Project Sdk="Microsoft.NET.Sdk">\n  <PropertyGroup>\n    <OutputType>Exe</OutputType>\n    <TargetFramework>net10.0</TargetFramework>\n  </PropertyGroup>\n  <ItemGroup>\n    <PackageReference Include="Snappier" Version="1.3.0" />\n  </ItemGroup>\n</Project>\n',
+      'Program.cs': 'System.Console.WriteLine(Snappier.Snappy.CompressToArray(new byte[] { 1, 2, 3 }).Length);\n',
     },
   },
   {
     type: 'binary',
-    packageName: 'yq',
-    installed: '4.30.0',
-    fixed: '4.44.3',
-    advisory: 'GHSA-canary-yq-stdlib',
-    files: { Dockerfile: df('FROM alpine:3.20', 'ARG YQ_VERSION=4.30.0', 'RUN wget -qO /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/yq_linux_amd64" && chmod +x /usr/local/bin/yq', 'USER 1000:1000') },
+    packageName: 'node',
+    installed: '24.22.2',
+    fixed: '24.22.3',
+    advisory: 'CVE-2026-123865',
+    files: {
+      // A tool downloaded at a pinned ARG, for the build's own architecture; only the binary is published.
+      Dockerfile: df(
+        'FROM debian:13-slim AS fetch',
+        'ARG TARGETARCH',
+        'ARG NODE_VERSION=24.22.2',
+        'RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \\',
+        '    && case "${TARGETARCH}" in amd64) arch=x64 ;; arm64) arch=arm64 ;; *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; esac \\',
+        '    && curl -fsSLo /tmp/node.tar.gz "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${arch}.tar.gz" \\',
+        '    && tar -xzf /tmp/node.tar.gz -C /usr/local/bin --strip-components=2 "node-v${NODE_VERSION}-linux-${arch}/bin/node"',
+        'FROM debian:13-slim',
+        'RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*',
+        'COPY --from=fetch /usr/local/bin/node /usr/local/bin/node',
+        'USER 1000:1000',
+      ),
+    },
   },
 ];
 

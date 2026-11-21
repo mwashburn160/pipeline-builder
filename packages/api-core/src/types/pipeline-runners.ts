@@ -563,13 +563,12 @@ export function isRunnerKeyServiceUnavailable(err: unknown): err is RunnerKeySer
 /**
  * Why runners are unavailable (`available: false`, and `details.reason` of a
  * 409 RUNNERS_UNAVAILABLE): `paused` — the operator's pause toggle;
- * `encryption_not_configured` / `tables_missing` — the deployment is not set
- * up; `key_service` — a transient key-service failure (the org's KMS config
+ * `encryption_not_configured` — the deployment is not set up; `key_service` — a transient key-service failure (the org's KMS config
  * lookup or KMS itself, {@link RunnerKeyServiceUnavailableError}) while
  * resolving a signing key: queued runs retry on their own. Only the first
- * three are ever a deployment-wide `available: false`.
+ * two are ever a deployment-wide `available: false`.
  */
-export const RUNNERS_UNAVAILABLE_REASONS = ['paused', 'encryption_not_configured', 'tables_missing', 'key_service'] as const;
+export const RUNNERS_UNAVAILABLE_REASONS = ['paused', 'encryption_not_configured', 'key_service'] as const;
 export type RunnersUnavailableReason = (typeof RUNNERS_UNAVAILABLE_REASONS)[number];
 
 /** One runner on `GET /pipelines/runners`. Never an AWS account id. */

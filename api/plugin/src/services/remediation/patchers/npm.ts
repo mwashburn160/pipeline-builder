@@ -5,10 +5,16 @@
  * npm source patch: an `overrides` entry (`"<pkg>": "<fixed>"`) in every
  * package.json of the context that a lockfile sits beside (or the root one),
  * then `npm install --package-lock-only --ignore-scripts` regenerates the
- * lockfile. Formatting (indent, trailing newline) is kept.
+ * lockfile. A package the manifest depends on DIRECTLY (dependencies, dev-,
+ * optional-) gets the fixed version as that spec too: npm refuses an override
+ * that differs from a direct dependency's spec (EOVERRIDE). Peer dependencies
+ * are ranges a consumer satisfies, not installs, and are left alone.
+ * Formatting (indent, trailing newline) is kept.
  */
 
 import { baseName, dirOf, isSafeToken, joinPath, type SourcePatch, type SourcePatcher } from './types.js';
+
+const DIRECT_SECTIONS = ['dependencies', 'devDependencies', 'optionalDependencies'] as const;
 
 function indentOf(json: string): string | number {
   const m = /^\{\s*\n([ \t]+)"/.exec(json);
@@ -32,8 +38,12 @@ export const npmPatcher: SourcePatcher = (tree, target) => {
     let json: Record<string, unknown>;
     try { json = JSON.parse(raw) as Record<string, unknown>; } catch { continue; }
     if (!json || typeof json !== 'object' || Array.isArray(json)) continue;
-    const overrides = (json.overrides && typeof json.overrides === 'object' && !Array.isArray(json.overrides)) ? json.overrides as Record<string, unknown> : {};
-    if (overrides[target.packageName] === target.fixVersion) continue;
+    const isMap = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+    const overrides = isMap(json.overrides) ? json.overrides : {};
+    const direct = DIRECT_SECTIONS.filter((s) => isMap(json[s]) && (json[s] as Record<string, unknown>)[target.packageName] !== undefined);
+    if (overrides[target.packageName] === target.fixVersion
+      && direct.every((s) => (json[s] as Record<string, unknown>)[target.packageName] === target.fixVersion)) continue;
+    for (const s of direct) json[s] = { ...(json[s] as Record<string, unknown>), [target.packageName]: target.fixVersion };
     json.overrides = { ...overrides, [target.packageName]: target.fixVersion };
     files.set(path, `${JSON.stringify(json, null, indentOf(raw))}${raw.endsWith('\n') ? '\n' : ''}`);
     const dir = dirOf(path);

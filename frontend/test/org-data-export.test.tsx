@@ -27,6 +27,16 @@ jest.mock('@/components/admin/StepUpModal', () => ({
 }));
 
 import { OrgDataExport } from '../src/components/settings/OrgDataExport';
+import { ApiError, StepUpRequiredError } from '../src/lib/api/errors';
+
+/** A refusal the global step-up dialog took over; its replay settles with `resume`. */
+function claimedRefusal(resume: (self: StepUpRequiredError) => Promise<unknown>): StepUpRequiredError {
+  const err = new StepUpRequiredError('Confirm it is you', 'STEP_UP_REQUIRED');
+  const p = resume(err);
+  p.catch(() => undefined);
+  err.attachResume(p);
+  return err;
+}
 
 it('asks for a step-up first, then downloads the org export with its token as a named JSON file', async () => {
   render(<OrgDataExport orgId="org-1" orgName="Acme Corp" />);
@@ -44,4 +54,24 @@ it('shows a refused export', async () => {
   fireEvent.click(screen.getByRole('button', { name: /download export/i }));
   fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
   expect(await screen.findByText(/403 Forbidden/)).toBeInTheDocument();
+});
+
+it('a step-up replay that fails says the export did not happen', async () => {
+  exportOrganization.mockRejectedValueOnce(claimedRefusal(() => Promise.reject(new ApiError('Export store unavailable', 503))));
+  render(<OrgDataExport orgId="org-1" />);
+  fireEvent.click(screen.getByRole('button', { name: /download export/i }));
+  fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+  expect(await screen.findByText(/Export store unavailable/)).toBeInTheDocument();
+  expect(triggerBlobDownload).not.toHaveBeenCalled();
+});
+
+it('a dismissed step-up replay dialog shows no error', async () => {
+  exportOrganization.mockRejectedValueOnce(claimedRefusal((self) => Promise.reject(self)));
+  render(<OrgDataExport orgId="org-1" />);
+  fireEvent.click(screen.getByRole('button', { name: /download export/i }));
+  fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+  await waitFor(() => expect(exportOrganization).toHaveBeenCalled());
+  await new Promise((r) => setTimeout(r, 0));
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(screen.queryByText(/Could not export/)).toBeNull();
 });

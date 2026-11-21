@@ -11,7 +11,8 @@
  *   go-module    go.mod require line → v<fixed>; `go mod tidy` regenerates go.sum
  *   java-archive Maven: dependencyManagement entry (and an explicit direct version);
  *                Gradle: a `constraints {}` entry (and a direct coordinate's version)
- *   rust-crate   Cargo.lock `[[package]]` version; `cargo update -p <pkg> --precise <fixed>`
+ *   rust-crate   Cargo.lock `[[package]]` version (its stale checksum dropped);
+ *                `cargo update -p <pkg>@<fixed> --precise <fixed>` on the edited lockfile
  *   dotnet       PackageReference / PackageVersion Version (a transitive one is pinned);
  *                packages.lock.json re-resolved when present
  *   gem          Gemfile.lock spec line; `bundle lock` re-resolves conservatively
@@ -142,14 +143,17 @@ export const javaPatcher: SourcePatcher = (tree, target) => {
 export const rustPatcher: SourcePatcher = (tree, target) => {
   if (!isSafeToken(target.packageName) || !isSafeToken(target.fixVersion)) return null;
   const patch = emptyPatch(target.purl, 'rust-crate');
-  const block = new RegExp(`(\\[\\[package\\]\\]\\s*\\nname = "${escapeRe(target.packageName)}"\\s*\\nversion = ")${escapeRe(target.installedVersion)}(")`, 'g');
+  // The entry's version, and its checksum: the old one no longer matches, and
+  // cargo refuses a lockfile that names a version under another's checksum.
+  const block = new RegExp(`(\\[\\[package\\]\\]\\s*\\nname = "${escapeRe(target.packageName)}"\\s*\\nversion = ")${escapeRe(target.installedVersion)}("\\s*\\n(?:source = "[^"\\n]*"\\s*\\n)?)(?:checksum = "[^"\\n]*"\\s*\\n)?`, 'g');
   for (const [path, text] of tree) {
     if (baseName(path) !== 'Cargo.lock') continue;
     const next = text.replace(block, `$1${target.fixVersion}$2`);
     if (next === text) continue;
     patch.files.set(path, next);
     const dir = dirOf(path);
-    patch.regenerate.push({ ecosystem: 'cargo', dir, command: `cargo update -p ${target.packageName}@${target.installedVersion} --precise ${target.fixVersion}`, outputs: ['Cargo.lock'] });
+    // It runs on the EDITED lockfile, which names the fixed version now.
+    patch.regenerate.push({ ecosystem: 'cargo', dir, command: `cargo update -p ${target.packageName}@${target.fixVersion} --precise ${target.fixVersion}`, outputs: ['Cargo.lock'] });
     patch.lockfiles.push(path);
   }
   return patch.files.size > 0 ? patch : null;

@@ -15,6 +15,7 @@ import { Modal } from '@/components/ui/Modal';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import type { Organization } from '@/types';
 import { formatError } from '@/lib/constants';
+import type { KmsConfigChangeResult } from '@/lib/api/domains/admin';
 
 interface Props {
   org: Organization;
@@ -44,6 +45,9 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
   const [keyId, setKeyId] = useState('');
   const [ciphertextBase64, setCiphertextBase64] = useState('');
   const [testResult, setTestResult] = useState<string | null>(null);
+  // Secrets the last change could not move (written under the OLD key by a
+  // replica mid-migration): the change landed, but these must be re-entered.
+  const [unreadable, setUnreadable] = useState<string[]>([]);
   // Gate destructive ops (save/clear) on a step-up password reverify.
   const [pendingOp, setPendingOp] = useState<'save' | 'clear' | null>(null);
 
@@ -60,6 +64,18 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
   // One banner for save / test / clear: starting any of them clears it.
   const showError = (_err: unknown, message: string) => setError(message);
 
+  /** After a change landed: close, unless it left secrets unreadable — then stay
+   *  open naming them, since closing would read as a clean migration. */
+  const finishChange = (result: KmsConfigChangeResult | undefined) => {
+    onSaved?.();
+    const stranded = result?.unreadableConcurrentWrites ?? [];
+    if (stranded.length > 0) {
+      setUnreadable(stranded);
+      return;
+    }
+    onClose();
+  };
+
   const saveM = useMutation({
     fn: async (stepUpToken: string) => {
       setError(null);
@@ -72,8 +88,7 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
       setWritten({ configured: true, keyId: res.data?.keyId });
       setKeyId('');
       setCiphertextBase64('');
-      onSaved?.();
-      onClose();
+      finishChange(res.data);
     },
     onError: showError,
   });
@@ -100,12 +115,12 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
       setError(null);
       const res = await api.deleteOrgKmsConfig(org.id, stepUpToken);
       if (!res.success) throw new Error(res.message || 'Failed to clear KMS config');
+      return res;
     },
     scopeKey: org.id,
-    onSuccess: () => {
+    onSuccess: (res) => {
       setWritten({ configured: false });
-      onSaved?.();
-      onClose();
+      finishChange(res.data);
     },
     onError: showError,
   });
@@ -163,6 +178,23 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
           {loading && <LoadingSpinner size="sm" />}
 
           <ErrorAlert message={error ?? (loadError ? formatError(loadError) : null)} />
+
+          {unreadable.length > 0 && (
+            <div
+              role="alert"
+              aria-label="Secrets that must be re-entered"
+              className="flex gap-2 rounded-lg bg-warning-bg px-3 py-2 text-sm text-warning-strong"
+            >
+              <AlertTriangle className="w-5 h-5 flex-shrink-0" />
+              <div>
+                The change was saved, but {unreadable.length === 1 ? 'this secret was' : 'these secrets were'} written under
+                the previous key while the migration ran and can no longer be read. The org&apos;s admins must re-enter them:
+                <ul className="mt-1 list-disc pl-5 font-mono text-xs">
+                  {unreadable.map((f) => <li key={f}>{f}</li>)}
+                </ul>
+              </div>
+            </div>
+          )}
 
           {testResult && (
             <div className="rounded-lg bg-info-bg px-3 py-2 text-sm text-info-strong font-mono">

@@ -235,6 +235,8 @@ function parseMaven(version: string): MavenItem[] {
       openSublist();
     } else if (isDigit(c)) {
       if (!isDigitRun && i > start) {
+        // 1.0.0.X1 < 1.0.0-X2: a string qualifier after `.` reads as `-X`.
+        if (list.length) openSublist();
         list.push(mavenString(v.slice(start, i), true));
         start = i;
         openSublist();
@@ -249,7 +251,10 @@ function parseMaven(version: string): MavenItem[] {
       isDigitRun = false;
     }
   }
-  if (v.length > start) list.push(mavenParseItem(isDigitRun, v.slice(start)));
+  if (v.length > start) {
+    if (!isDigitRun && list.length) openSublist();
+    list.push(mavenParseItem(isDigitRun, v.slice(start)));
+  }
   while (stack.length) mavenNormalize(stack.pop()!);
   return root;
 }
@@ -264,7 +269,14 @@ function mavenCompareItem(a: MavenItem, b: MavenItem | null): number {
     if (b === null) return compareStrings(mavenQualifier(a.value), MAVEN_RELEASE_INDEX);
     return b.kind === 'str' ? compareStrings(mavenQualifier(a.value), mavenQualifier(b.value)) : -1;
   }
-  if (b === null) return a.items.length === 0 ? 0 : mavenCompareItem(a.items[0]!, null);
+  if (b === null) {
+    // MNG-6964: every item against nothing, not just the first.
+    for (const item of a.items) {
+      const c = mavenCompareItem(item, null);
+      if (c) return c;
+    }
+    return 0;
+  }
   if (b.kind === 'int') return -1;
   if (b.kind === 'str') return 1;
   return mavenCompareLists(a.items, b.items);
@@ -283,7 +295,8 @@ function mavenCompareLists(a: MavenItem[], b: MavenItem[]): number {
 /**
  * Maven `ComparableVersion` order: `.` / `-` / digit-letter transitions split
  * items, trailing zeros and release qualifiers are padding (`1.0` = `1` =
- * `1.0.0` = `1.0-final`), and qualifiers order
+ * `1.0.0` = `1.0-final`), a string qualifier after `.` reads as `-X`
+ * (`1.x` = `1-x`, Maven 3.9), and qualifiers order
  * `alpha` < `beta` < `milestone` < `rc` (= `cr`) < `snapshot` < release < `sp`,
  * then any other qualifier lexically (`a1` / `b1` / `m1` abbreviate the first three).
  */
@@ -346,11 +359,24 @@ export function compareGemVersions(a: string, b: string): number {
 
 const NUGET = /^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:\.(\d+))?(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z.-]*)?$/i;
 
+const INT32_MIN = -2147483648;
+const INT32_MAX = 2147483647;
+
+/** A prerelease label's value when .NET `Int32.TryParse` accepts it (optional `-`, in int32 range), else null. */
+function nugetInt32(label: string): number | null {
+  if (!/^-?\d+$/.test(label)) return null;
+  const digits = label.replace(/^-/, '').replace(/^0+(?=\d)/, '');
+  if (digits.length > 10) return null;
+  const n = Number(label);
+  return n >= INT32_MIN && n <= INT32_MAX ? n : null;
+}
+
 /**
  * NuGet order (SemVer 2 with an optional 4th part): missing parts are zero
  * (`1.0` = `1.0.0.0`), a prerelease sorts below its release, prerelease
- * labels compare per dot segment — numeric numerically and below
- * alphanumeric, alphanumeric case-insensitively — and build metadata is ignored.
+ * labels compare per dot segment — numeric (an int32, as `Int32.TryParse`
+ * reads it; a longer digit run is text) numerically and below alphanumeric,
+ * alphanumeric case-insensitively — and build metadata is ignored.
  */
 export function compareNuGetVersions(a: string, b: string): number {
   const x = NUGET.exec(a.trim());
@@ -370,9 +396,9 @@ export function compareNuGetVersions(a: string, b: string): number {
     const r = ys[i];
     if (l === undefined) return -1;
     if (r === undefined) return 1;
-    const ln = /^\d+$/.test(l);
-    const rn = /^\d+$/.test(r);
-    const c = ln && rn ? compareDigits(l, r) : ln ? -1 : rn ? 1 : compareStrings(l, r);
+    const ln = nugetInt32(l);
+    const rn = nugetInt32(r);
+    const c = ln !== null && rn !== null ? ln - rn : ln !== null ? -1 : rn !== null ? 1 : compareStrings(l, r);
     if (c) return c;
   }
   return 0;

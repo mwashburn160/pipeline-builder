@@ -1,6 +1,6 @@
 // GENERATED FROM docs/authentication.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 4a1c07619cd6861dde13ec0d479797bb6a651147385cacaad0688398b804d06a
+// SOURCE-SHA256: 2b2e1f630b7a07f87269b130042cae0e97bb5c7915cbb7e563665592f8613f5d
 // SPDX-License-Identifier: Apache-2.0
 import { Lock } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1267,7 +1267,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "note",
-          "content": "Operator note (fresh behaviour, no migration): orgs that already have SSO configured start provisioning memberships on the next sign-in. Until a mapping exists, members get the built-in Member role only — existing role assignments are untouched because they are all manual."
+          "content": "Until a mapping exists, members get the built-in Member role only. Role assignments made by hand (manual) are never touched by provisioning."
         },
         {
           "type": "text",
@@ -3731,7 +3731,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Services reject a token that lacks these claims (an unknown principalType, a user principal with no assurance claims, a service principal whose subject doesn't name a service). There is no legacy shape: every token minted before this release stops working at release — sessions re-authenticate, and stored machine credentials must be re-issued (see below). Personal access tokens are gone entirely; they are replaced by access keys."
+          "content": "Services reject a token that lacks these claims (an unknown principalType, a user principal with no assurance claims, a service principal whose subject doesn't name a service). There are no personal access tokens: machine credentials are access keys."
         }
       ]
     },
@@ -4387,7 +4387,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "note",
-          "content": "At release — no backward compatibility. auth login -u/-p and auth login --refresh <token> are gone, not deprecated. Scripts that used either must move to an access key (auth pat, exported as PLATFORM_TOKEN) — which is what they should have used anyway, since a session token expires in minutes. init-platform.sh and infra provision --admin-password still register and log in the bootstrap admin with a password over curl: that is a genuinely non-interactive first-boot step with no browser to approve anything in, and it is the only password path left."
+          "content": "The CLI has no password or refresh-token login (auth login -u/-p, auth login --refresh). Scripts use an access key (auth pat, exported as PLATFORM_TOKEN), since a session token expires in minutes. init-platform.sh and infra provision --admin-password register and log in the bootstrap admin with a password over curl: that is a genuinely non-interactive first-boot step with no browser to approve anything in, and it is the only password path."
         }
       ]
     },
@@ -4443,11 +4443,7 @@ export const authenticationTopic: HelpTopic = {
           "content": "Cross-tab: tabs can no longer read the refresh token, so they coordinate over a BroadcastChannel (pipeline-builder:auth) plus the existing Web Lock. The tab that wins the lock refreshes and broadcasts the new access token; the others adopt it instead of rotating the shared cookie again. A sign-out in one tab is broadcast too. The Web Lock is load-bearing: it guarantees a sibling's Set-Cookie has landed before the next tab presents the cookie, so two tabs refreshing together can never both send the pre-rotation token (which the server would read as reuse and answer by revoking the slot)."
         },
         {
-          "type": "text",
-          "content": "At release: sessions opened before this change simply stop refreshing — their refresh token was in localStorage, which is no longer read, and no cookie exists for them. Users sign in again once. There is no migration."
-        },
-        {
-          "type": "text",
+          "type": "note",
           "content": "Operators: the cookie is same-origin only — the UI and the API must be served from one origin (they are: the browser calls /api/... on the gateway that fronts both), and PLATFORM_FRONTEND_URL must name that origin so CORS and the OAuth callbacks agree. nginx passes Cookie/Set-Cookie through untouched on every shipped target and needs no proxy_cookie_path: the platform stamps the public path (/api/auth/refresh) even though nginx strips /api before proxying. Secure is set by default and every target terminates TLS in front of the gateway (docker and minikube on :8443, EC2 and EKS at the load balancer); browsers also accept Secure on http://localhost. Only a plain-http deployment on a non-localhost hostname needs AUTH_COOKIE_SECURE=false, and AUTH_REFRESH_COOKIE_PATH only if the UI is served under a different public prefix."
         }
       ]

@@ -26,8 +26,7 @@ function makeClient(routes: {
   accounts?: unknown[];
   createAccount?: () => unknown;
   createKey?: () => unknown;
-  /** `POST …/provision-key`. Default: 404 — a platform without the single-call
-   *  route, so these tests exercise the per-step fallback. */
+  /** `POST …/provision-key`. Default: 404. */
   provisionKey?: (body: unknown) => unknown;
 }) {
   const posts: Recorded[] = [];
@@ -134,143 +133,24 @@ describe('provisionServiceAccountKey', () => {
     expect(sent).not.toHaveProperty('scope');
   });
 
-  it('a non-404 provision-key failure is raised, not papered over by the per-step path', async () => {
+  it('a provision-key failure is raised', async () => {
     const { client, posts } = makeClient({ provisionKey: () => { throw new ApiError('forbidden', 403, undefined); } });
     await expect(provisionServiceAccountKey({ client, stepUp: async () => 't', ...BASE })).rejects.toThrow('forbidden');
     expect(posts.some((p) => p.url.endsWith('/keys'))).toBe(false);
   });
 
-  it('FALLBACK (platform without provision-key): creates the account and issues the key, step-up gating BOTH writes', async () => {
+  it('a 404 from provision-key is raised: there is no per-step path', async () => {
     const { client, posts } = makeClient({});
-    const result = await provisionServiceAccountKey({ client, stepUp: passwordStepUp(client, 'hunter2'), ...BASE, scope: 'reporting:ingest' });
-
-    expect(result).toMatchObject({
-      key: 'pb_sa_newkey',
-      keyId: 'key-1',
-      serviceAccountId: 'sa-1',
-      serviceAccountName: 'reporting-ingest',
-      organizationId: 'acme',
-    });
-
-    // Each gated write is preceded by its OWN step-up (single-use, ~60s) — plus
-    // the one minted for the provision-key attempt the 404 refused.
-    const gated = posts.filter((p) => p.url !== '/api/auth/step-up' && !p.url.endsWith('/provision-key'));
-    expect(gated.map((p) => p.url)).toEqual([
-      '/api/organization/acme/service-accounts',
-      '/api/organization/acme/service-accounts/sa-1/keys',
-    ]);
-    for (const call of gated) expect(call.headers?.['X-Step-Up-Token']).toMatch(/^step-/);
-    expect(posts.filter((p) => p.url === '/api/auth/step-up')).toHaveLength(3);
+    await expect(provisionServiceAccountKey({ client, stepUp: async () => 't', ...BASE })).rejects.toThrow('Not Found');
+    expect(posts.some((p) => p.url.endsWith('/service-accounts') || p.url.endsWith('/keys'))).toBe(false);
   });
 
-  it('gives a SCOPED credential no roles at all, and stamps the scope on the key', async () => {
-    const { client, posts } = makeClient({});
-    await provisionServiceAccountKey({ client, stepUp: passwordStepUp(client, 'hunter2'), ...BASE, scope: 'registry:push' });
-
-    const create = posts.find((p) => p.url.endsWith('/service-accounts'))!;
-    expect((create.body as { roleIds: string[] }).roleIds).toEqual([]);
-    const key = posts.find((p) => p.url.endsWith('/keys'))!;
-    expect(key.body).toMatchObject({ scope: 'registry:push', expiresIn: BASE.expiresInSeconds });
-  });
-
-  it('grants the platform credential the Pipeline Automation Role — never the org admin one', async () => {
-    const { client, posts } = makeClient({
-      roles: {
-        data: {
-          roles: [
-            { id: 'role-super', name: 'Super Admin', grantsRole: 'superadmin', system: true },
-            { id: 'role-admin', name: 'Admin', grantsRole: 'admin', system: true },
-            // A CUSTOM Role that happens to share the name must not be picked.
-            { id: 'role-fake', name: 'Pipeline Automation', grantsRole: 'member', system: false },
-            { id: 'role-pa', name: 'Pipeline Automation', grantsRole: 'member', system: true },
-          ],
-        },
-      },
-    });
-    await provisionServiceAccountKey({ client, stepUp: passwordStepUp(client, 'hunter2'), ...BASE, accountName: 'platform-automation', role: 'pipeline_automation' });
-
-    const create = posts.find((p) => p.url.endsWith('/service-accounts'))!;
-    expect((create.body as { roleIds: string[] }).roleIds).toEqual(['role-pa']);
-    // …and an unscoped key never sends a `scope` it wasn't given.
-    expect(posts.find((p) => p.url.endsWith('/keys'))!.body).not.toHaveProperty('scope');
-  });
-
-  it('grants the registration credential the Pipeline Registration Role, on an unscoped key', async () => {
-    const { client, posts } = makeClient({});
-    await provisionServiceAccountKey({ client, stepUp: passwordStepUp(client, 'hunter2'), ...BASE, accountName: 'pipeline-register', role: 'pipeline_registration' });
-
-    const create = posts.find((p) => p.url.endsWith('/service-accounts'))!;
-    expect((create.body as { roleIds: string[] }).roleIds).toEqual(['role-pr']);
-    expect(posts.find((p) => p.url.endsWith('/keys'))!.body).not.toHaveProperty('scope');
-  });
-
-  it('REUSES an existing account rather than creating a second one (idempotent re-run)', async () => {
-    const { client, posts } = makeClient({ accounts: [{ id: 'sa-existing', name: 'reporting-ingest', keys: [] }] });
-    const result = await provisionServiceAccountKey({ client, stepUp: passwordStepUp(client, 'hunter2'), ...BASE });
-
-    expect(result.serviceAccountId).toBe('sa-existing');
-    expect(posts.some((p) => p.url === '/api/organization/acme/service-accounts')).toBe(false);
-    // Only ONE step-up for the writes: the key issue (reusing an account is not
-    // a write) — plus the one the refused provision-key attempt minted.
-    expect(posts.filter((p) => p.url === '/api/auth/step-up')).toHaveLength(2);
-  });
-
-  it('resolves the 409 create race by looking the account up again', async () => {
+  it('reports a key the platform retired at the active-key cap', async () => {
     const { client } = makeClient({
-      accounts: [],
-      createAccount: () => { throw new ApiError('exists', 409, undefined); },
+      provisionKey: () => ({ data: { serviceAccount: { id: 'sa-1', name: 'reporting-ingest', created: false }, key: 'k', accessKey: { id: 'key-2', expiresAt: 'x', scope: null }, retiredKeyIds: ['key-oldest'] } }),
     });
-    // The listing is re-read after the 409; the stub adds the account on create,
-    // so simulate the concurrent winner by seeding it on the second read.
-    const spy = client.get as unknown as jest.Mock<AnyFn>;
-    let listReads = 0;
-    const original = spy.getMockImplementation()!;
-    spy.mockImplementation(async (url: string) => {
-      if (url.endsWith('/service-accounts')) {
-        listReads += 1;
-        return { data: { serviceAccounts: listReads === 1 ? [] : [{ id: 'sa-raced', name: 'reporting-ingest' }] } };
-      }
-      return (original as (u: string) => Promise<unknown>)(url);
-    });
-
-    const result = await provisionServiceAccountKey({ client, stepUp: passwordStepUp(client, 'hunter2'), ...BASE });
-    expect(result.serviceAccountId).toBe('sa-raced');
-  });
-
-  it('self-heals past the active-key cap by retiring the OLDEST key, then retrying once', async () => {
-    let attempts = 0;
-    const { client, posts, deletes } = makeClient({
-      accounts: [{
-        id: 'sa-1',
-        name: 'reporting-ingest',
-        keys: [
-          { id: 'key-new', status: 'active', createdAt: '2026-03-10T00:00:00Z' },
-          { id: 'key-oldest', status: 'active', createdAt: '2026-01-01T00:00:00Z' },
-          { id: 'key-revoked', status: 'revoked', createdAt: '2025-01-01T00:00:00Z' },
-        ],
-      }],
-      createKey: () => {
-        attempts += 1;
-        if (attempts === 1) throw new ApiError('limit', 409, { data: { code: 'SA_KEY_LIMIT' } } as never);
-        return { data: { key: 'pb_sa_newkey', accessKey: { id: 'key-2', expiresAt: '2026-04-01T00:00:00.000Z', scope: null } } };
-      },
-    });
-
-    const result = await provisionServiceAccountKey({ client, stepUp: passwordStepUp(client, 'hunter2'), ...BASE });
-    expect(result.keyId).toBe('key-2');
-    // The REVOKED key is never a candidate; the oldest ACTIVE one is.
-    expect(deletes.map((d) => d.url)).toEqual(['/api/organization/acme/service-accounts/sa-1/keys/key-oldest']);
-    expect(deletes[0]!.headers?.['X-Step-Up-Token']).toMatch(/^step-/);
-    expect(posts.filter((p) => p.url.endsWith('/keys'))).toHaveLength(2);
-  });
-
-  it('re-raises a non-cap key failure instead of retiring someone else’s key', async () => {
-    const { client, deletes } = makeClient({
-      accounts: [{ id: 'sa-1', name: 'reporting-ingest', keys: [{ id: 'k', status: 'active', createdAt: '2026-01-01T00:00:00Z' }] }],
-      createKey: () => { throw new ApiError('nope', 403, undefined); },
-    });
-    await expect(provisionServiceAccountKey({ client, stepUp: passwordStepUp(client, 'hunter2'), ...BASE })).rejects.toThrow('nope');
-    expect(deletes).toHaveLength(0);
+    const result = await provisionServiceAccountKey({ client, stepUp: async () => 't', ...BASE });
+    expect(result).toMatchObject({ keyId: 'key-2', serviceAccountId: 'sa-1' });
   });
 
   it('explains a failed step-up rather than surfacing a bare 401', async () => {
@@ -286,12 +166,6 @@ describe('provisionServiceAccountKey', () => {
   it('refuses to guess when the platform reports no active organization', async () => {
     const { client } = makeClient({ organization: { data: {} } });
     await expect(provisionServiceAccountKey({ client, stepUp: passwordStepUp(client, 'hunter2'), ...BASE })).rejects.toThrow(/active organization/);
-  });
-
-  it('refuses — and names the fix — when the org has no built-in machine Role yet', async () => {
-    const { client } = makeClient({ roles: { data: { roles: [{ id: 'r', name: 'Admin', grantsRole: 'admin', system: true }] } } });
-    await expect(provisionServiceAccountKey({ client, stepUp: passwordStepUp(client, 'hunter2'), ...BASE, role: 'pipeline_automation' }))
-      .rejects.toThrow(/no built-in 'Pipeline Automation' Role.*restart the platform/s);
   });
 });
 

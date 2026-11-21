@@ -18,8 +18,6 @@ export interface OrgTablePurgeOutcome {
   ok: boolean;
   rowCount?: number;
   error?: string;
-  /** The table does not exist in this database (created before it shipped): nothing to purge. */
-  absent?: true;
 }
 
 /** The result of one owner's purge of one org. */
@@ -30,41 +28,9 @@ export interface OrgDataPurgeResult {
   tables: Record<string, OrgTablePurgeOutcome>;
   /** Names of the tables that failed. Non-empty ⇒ the caller must NOT ack. */
   failed: string[];
-  /**
-   * Names of the tables this database does not have — it was created before
-   * they shipped (postgres-init.sql runs on a NEW install only, never as an
-   * upgrade). Skipped, not failed: an absent table holds no rows to purge.
-   */
-  absent: string[];
 }
 
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
-
-/**
- * Tables known to exist, per process. Only PRESENT tables are cached: a table
- * missing now may be created later (a fresh install of a newer schema), so an
- * absent one is re-checked on the next purge.
- */
-const presentTables = new Set<string>();
-
-/**
- * Whether `public.<name>` exists (`to_regclass`, no error for a missing
- * relation). Call inside a tenant scope. A database created before a table
- * shipped never gets it (postgres-init.sql runs on new installs only).
- */
-export async function tableExists(name: string): Promise<boolean> {
-  if (presentTables.has(name)) return true;
-  const res = await withTenantTx((tx) => tx.execute(sql`SELECT to_regclass(${`public.${name}`}) IS NOT NULL AS present`));
-  const rows = (res as unknown as { rows?: Array<{ present?: unknown }> }).rows ?? (res as unknown as Array<{ present?: unknown }>);
-  const present = Array.isArray(rows) && (rows[0]?.present === true || rows[0]?.present === 't');
-  if (present) presentTables.add(name);
-  return present;
-}
-
-/** Forget the per-process existence cache (tests). */
-export function resetPurgeTableCacheForTesting(): void {
-  presentTables.clear();
-}
 
 /**
  * Tombstone (`soft`) or remove (`hard`) every row `owner` holds for `orgId`.
@@ -85,20 +51,12 @@ export async function purgeOrgData(
   { now = new Date() }: { now?: Date } = {},
 ): Promise<OrgDataPurgeResult> {
   const slice = ORG_DATA_OWNERSHIP[owner];
-  const result: OrgDataPurgeResult = { orgId, owner, tables: {}, failed: [], absent: [] };
+  const result: OrgDataPurgeResult = { orgId, owner, tables: {}, failed: [] };
   if (!orgId) throw new Error('purgeOrgData: orgId is required');
 
   await runWithTenantContext({ isSuperAdmin: true }, async () => {
-    /** True (and recorded) when the table is missing from this database. */
-    const skipAbsent = async (name: string): Promise<boolean> => {
-      if (await tableExists(name)) return false;
-      result.tables[name] = { ok: true, rowCount: 0, absent: true };
-      result.absent.push(name);
-      return true;
-    };
     for (const { table, name } of slice.soft) {
       try {
-        if (await skipAbsent(name)) continue;
         // `purge_after = now` ALONGSIDE `deleted_at`: the owner's retention sweep
         // is keyed on `deleted_at IS NOT NULL AND purge_after < now`, so a NULL
         // `purge_after` would leave the rows in Postgres forever. `is_active =
@@ -118,7 +76,6 @@ export async function purgeOrgData(
     }
     for (const { table, name } of slice.hard) {
       try {
-        if (await skipAbsent(name)) continue;
         const res = await withTenantTx((tx) => tx.delete(table)
           .where(eq((table as unknown as { orgId: unknown }).orgId as never, orgId)));
         result.tables[name] = { ok: true, rowCount: affectedRowCount(res) };

@@ -108,6 +108,22 @@ describe('createHierarchyClient', () => {
     expect(await h.descendants('p')).toEqual([]);
   });
 
+  it('strict descendants (the scoped remediation rollout) throw on a failed lookup; a 404 or no subtree is []', async () => {
+    const h = createHierarchyClient();
+    mockDescendants.mockReset();
+    mockDescendants.mockRejectedValueOnce(new Error('descendant-org lookup failed for p: HTTP 503'))
+      .mockRejectedValueOnce(new Error('connect ECONNREFUSED'))
+      .mockRejectedValueOnce(new Error('descendant-org lookup failed for p: HTTP 404'))
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(['p', 't1']);
+    await expect(h.descendants('p', { strict: true })).rejects.toThrow('HTTP 503');
+    await expect(h.descendants('p', { strict: true })).rejects.toThrow('ECONNREFUSED');
+    expect(await h.descendants('p', { strict: true })).toEqual([]);
+    expect(await h.descendants('p', { strict: true })).toEqual([]);
+    expect(await h.descendants('p', { strict: true })).toEqual(['t1']);
+    expect(mockDescendants).toHaveBeenCalledWith('p', { throwOnHttpError: true });
+  });
+
   it('strict ancestry (the signing-key rules) throws on a failed lookup instead of returning a shorter chain; a 404 is "no parent"', async () => {
     const h = createHierarchyClient();
     mockParent.mockReset();
@@ -160,11 +176,8 @@ describe('runnersAvailable: encryption, tables, pause', () => {
     return d;
   }
 
-  it('no secret encryption → encryption_not_configured; no tables → tables_missing; paused → paused; else available', async () => {
+  it('no secret encryption → encryption_not_configured; paused → paused; else available', async () => {
     expect(await bundle(false).runnersAvailable()).toEqual({ available: false, reason: 'encryption_not_configured' });
-    const noTables = bundle(true);
-    noTables.keyStore.tablesPresent = async () => false;
-    expect(await noTables.runnersAvailable()).toEqual({ available: false, reason: 'tables_missing' });
     const d = bundle(true);
     expect(await d.runnersAvailable()).toEqual({ available: true });
     setRunnerDepsForTesting(d);

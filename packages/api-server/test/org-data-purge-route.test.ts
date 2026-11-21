@@ -60,22 +60,6 @@ describe('handleOrgDataPurge', () => {
     }));
   });
 
-  it('acks a purge that skipped tables this database does not have, naming them (not a failure)', async () => {
-    mockPurge.mockResolvedValue({
-      orgId: 'org-1',
-      owner: 'pipeline',
-      tables: { pipelines: { ok: true, rowCount: 2 }, pipeline_runners: { ok: true, rowCount: 0, absent: true } },
-      failed: [],
-      absent: ['pipeline_runners'],
-    });
-    await handleOrgDataPurge(req('org-1'), res, opts);
-    expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, { orgId: 'org-1', tables: { pipelines: 2, pipeline_runners: 0 }, absent: ['pipeline_runners'] });
-    expect(mockRecordAudit).toHaveBeenCalledWith(expect.objectContaining({
-      details: { owner: 'pipeline', tables: { pipelines: 2, pipeline_runners: 0 }, absent: ['pipeline_runners'] },
-    }));
-    expect(mockRecordAudit.mock.calls[0]![0]).not.toHaveProperty('outcome', 'failure');
-  });
-
   it('answers 500 (not an ack) when any table failed, naming it', async () => {
     mockPurge.mockResolvedValue({
       orgId: 'org-1',

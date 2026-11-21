@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, envInt, ErrorCode, errorMessage, getAiDraftStore, getServiceAuthHeader, InternalHttpClient, requireFeature, sendBadRequest, sendError, sendSuccess, validateBody } from '@pipeline-builder/api-core';
+import { createLogger, envInt, ErrorCode, errorMessage, getAiDraftStore, getServiceAuthHeader, InternalHttpClient, requireFeature, requireOrgAIEnabled, sendBadRequest, sendError, sendSuccess, validateBody } from '@pipeline-builder/api-core';
 import { incCounter, rateLimitByOrg, withRoute } from '@pipeline-builder/api-server';
 import { Config } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
@@ -53,8 +53,9 @@ async function forwardDraftOutcome(orgId: string, feature: string, outcome: stri
  * edits, or closed / replaced unused. It feeds the acceptance rate of the AI
  * assistant usage report (`GET /quotas/:orgId/ai-usage`).
  *
- * Same gates as every Ask route (`requireAskAccess` + `ai_generation`: an
- * outcome only follows a generation those gates admitted). NOT audited, on
+ * Same gates as every Ask route (`requireAskAccess` + `ai_generation` +
+ * `requireOrgAIEnabled`, as on `/agent/stream`: an outcome only follows a
+ * generation those gates admitted, and an org that turned AI off reports none). NOT audited, on
  * purpose: an audit row carries its actor, and this signal must never be
  * attributable to a person — it is counted per org and feature, nothing else.
  *
@@ -82,7 +83,7 @@ export function createDraftOutcomeRoutes(): Router {
     message: 'Too many draft outcomes',
   });
 
-  router.post('/draft-outcome', requireAskAccess, requireFeature('ai_generation'), perUser, withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/draft-outcome', requireAskAccess, requireFeature('ai_generation'), requireOrgAIEnabled, perUser, withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const parsed = validateBody(req, AskDraftOutcomeSchema);
     if (!parsed.ok) return sendBadRequest(res, parsed.error);
     const { feature, outcome, draftId } = parsed.value;

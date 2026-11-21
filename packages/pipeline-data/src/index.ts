@@ -77,8 +77,6 @@ export {
 export {
   purgeOrgData,
   purgeRowCounts,
-  resetPurgeTableCacheForTesting,
-  tableExists,
   type OrgDataPurgeResult,
   type OrgTablePurgeOutcome,
 } from './api/org-data-purge.js';

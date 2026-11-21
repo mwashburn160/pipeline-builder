@@ -65,6 +65,21 @@ describe('npm source patch edges', () => {
     expect(patch.lockfiles).toEqual(['a/npm-shrinkwrap.json']);
   });
 
+  it('a DIRECT dependency gets the fixed version as its spec too (npm refuses an override that differs from it: EOVERRIDE)', () => {
+    const patch = npm({
+      'package.json': '{"dependencies":{"lodash":"4.17.20","left-pad":"1.3.0"},"devDependencies":{"lodash":"^4.17.0"},"optionalDependencies":{"lodash":"~4.17.20"}}',
+      'package-lock.json': '{}',
+    })!;
+    expect(JSON.parse(patch.files.get('package.json')!)).toEqual({
+      dependencies: { 'lodash': '4.17.21', 'left-pad': '1.3.0' },
+      devDependencies: { lodash: '4.17.21' },
+      optionalDependencies: { lodash: '4.17.21' },
+      overrides: { lodash: '4.17.21' },
+    });
+    // A peer dependency is a range the consumer satisfies, not an install: left alone.
+    expect(JSON.parse(npm({ 'package.json': '{"peerDependencies":{"lodash":"^4.0.0"}}' })!.files.get('package.json')!).peerDependencies).toEqual({ lodash: '^4.0.0' });
+  });
+
   it('answers null when every manifest already carries the fix', () => {
     expect(npm({ 'package.json': '{"overrides":{"lodash":"4.17.21"}}' })).toBeNull();
     expect(npm({ 'sub/package.json': '{}' })).toBeNull();

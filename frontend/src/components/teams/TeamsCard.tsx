@@ -11,7 +11,7 @@ import { useToast } from '@/components/ui/Toast';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { TeamSettingsDrawer } from './TeamSettingsDrawer';
 import api from '@/lib/api';
-import { continueAfterStepUp } from '@/lib/api/errors';
+import { continueAfterStepUp, stepUpReplayFailed } from '@/lib/api/errors';
 import { invalidate } from '@/lib/api-cache';
 import { formatError } from '@/lib/constants';
 import { formatDateMedium } from '@/lib/format';
@@ -94,7 +94,11 @@ export function TeamsCard({
       // Raw JSON body (not an ApiResponse envelope), saved like the org export.
       save(await api.exportOrganization(team.orgId, stepUpToken));
     } catch (e) {
-      if (continueAfterStepUp<string>(e, save)) return;
+      // The global dialog replays a refused-again token: a failed replay is
+      // reported, a dismissed dialog is not.
+      if (continueAfterStepUp<string>(e, save, (reason) => {
+        if (stepUpReplayFailed(reason)) toast.error(formatError(reason, `Failed to export ${team.orgName}`));
+      })) return;
       toast.error(formatError(e, `Failed to export ${team.orgName}`));
     } finally {
       setExporting(null);

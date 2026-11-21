@@ -33,6 +33,7 @@ const deps: RolloutDeps = {
   requestInstallChange: async () => {},
   report: async () => 'ok',
   ancestors: async () => [],
+  descendants: async () => [],
 };
 
 beforeAll(async () => { tdb = await bootTenantDb(); }, 120_000);
@@ -43,7 +44,7 @@ describe('rollout start without a tenant scope (the internal start call)', () =>
     const pipelineId = randomUUID();
     const props = { stages: [{ stageName: 'Build', steps: [{ name: 'trivy', plugin: { name: 'trivy', filter: { version: '1.4.2' } } }] }] };
     await tdb.asOwner(async (q) => {
-      await q.query("INSERT INTO plugins (org_id, name, version, visibility) VALUES ($1, 'trivy', '1.4.2', 'private')", [ORG]);
+      await q.query("INSERT INTO plugins (org_id, name, version, visibility) VALUES ($1, 'trivy', '1.4.2', 'org')", [ORG]);
       await q.query(
         `INSERT INTO pipelines (id, project, organization, org_id, pipeline_name, props, remediation_upgrades)
          VALUES ($1, 'proj', 'acme', $2, 'pipe', $3::jsonb, 'inherit')`, [pipelineId, ORG, JSON.stringify(props)]);
@@ -57,5 +58,27 @@ describe('rollout start without a tenant scope (the internal start call)', () =>
     expect(out.created).toBe(true);
     // The real plan resolved the exact pin on the flagged version: a proposal (the default rollout).
     expect((await loadRows(rem)).map((r) => ({ pipelineId: r.pipelineId, state: r.state }))).toEqual([{ pipelineId, state: 'proposed' }]);
+  });
+
+  it('a system plan never resolves a member\'s PRIVATE draft (as synth for a system actor would not)', async () => {
+    const OTHER_ORG = 'aaaaaaaaaaaaaaaaaaaaaab1';
+    const pipelineId = randomUUID();
+    const props = { stages: [{ stageName: 'Build', steps: [{ name: 'grype', plugin: { name: 'grype', filter: { version: '2.0.1' } } }] }] };
+    await tdb.asOwner(async (q) => {
+      // Only another member's private draft carries the flagged version.
+      await q.query("INSERT INTO plugins (org_id, name, version, visibility, created_by) VALUES ($1, 'grype', '2.0.1', 'private', 'user-other')", [OTHER_ORG]);
+      await q.query(
+        `INSERT INTO pipelines (id, project, organization, org_id, pipeline_name, props, remediation_upgrades)
+         VALUES ($1, 'proj', 'acme', $2, 'pipe', $3::jsonb, 'inherit')`, [pipelineId, OTHER_ORG, JSON.stringify(props)]);
+    });
+    expect(getTenantContext()).toBeUndefined();
+    const ref = { remediationId: randomUUID(), plugin: 'grype', publisher: null, fromVersion: '2.0.1', toVersion: '2.0.2' };
+    const plan = await deps.plan({ id: pipelineId, orgId: OTHER_ORG, props } as never, null, ref);
+    // Not the draft's step pin: nothing the pipeline resolves to is on the flagged version.
+    expect(plan.kind).toBe('stale');
+    expect(plan.steps).toEqual([]);
+    // Shared (org-visible) under the same name and version, it IS planned.
+    await tdb.asOwner((q) => q.query("UPDATE plugins SET visibility = 'org' WHERE org_id = $1 AND name = 'grype'", [OTHER_ORG]));
+    expect((await deps.plan({ id: pipelineId, orgId: OTHER_ORG, props } as never, null, ref)).kind).toBe('step_pin');
   });
 });

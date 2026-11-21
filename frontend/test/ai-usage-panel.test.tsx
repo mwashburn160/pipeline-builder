@@ -20,7 +20,7 @@ import { mockAuthGuard } from './helpers/pageMocks';
 import { AiUsagePanel } from '@/components/quotas/AiUsagePanel';
 import { useAiDraftOutcome } from '@/hooks/useAiDraftOutcome';
 import type { AiUsageReport } from '@/types/ai-usage';
-import { createRef } from 'react';
+import { createRef, StrictMode, useEffect } from 'react';
 import PromptGenerateTab, { type PromptGenerateTabRef } from '@/components/pipeline/PromptGenerateTab';
 import AIPluginBuilderTab from '@/components/plugin/AIPluginBuilderTab';
 
@@ -182,21 +182,53 @@ describe('useAiDraftOutcome', () => {
     expect(JSON.stringify(recordAiDraftOutcome.mock.calls)).not.toContain('secret-project');
   });
 
-  it('a draft replaced by a new one, or left pending at unmount, is discarded — each under its own id', () => {
+  it('a draft replaced by a new one, or left pending at unmount, is discarded — each under its own id', async () => {
     const { result, unmount } = renderHook(() => useAiDraftOutcome());
     act(() => { result.current.offered('plugin-generate', { v: 1 }, ID); });
     act(() => { result.current.offered('plugin-generate', { v: 2 }, ID2); });
     unmount();
+    await Promise.resolve();
     expect(recordAiDraftOutcome.mock.calls).toEqual([['plugin-generate', 'discarded', ID], ['plugin-generate', 'discarded', ID2]]);
   });
 
-  it('a draft that came without an id is tracked but never reported (the server would refuse it)', () => {
+  it('a draft that came without an id is tracked but never reported (the server would refuse it)', async () => {
     const { result, unmount } = renderHook(() => useAiDraftOutcome());
     act(() => { result.current.offered('agent', { v: 1 }); });
     act(() => { result.current.accepted(); });
     act(() => { result.current.offered('agent', { v: 2 }); });
     unmount();
+    await Promise.resolve();
     expect(recordAiDraftOutcome).not.toHaveBeenCalled();
+  });
+
+  it('StrictMode\'s simulated unmount does not spend a draft offered in a mount effect', async () => {
+    function Offerer() {
+      const outcome = useAiDraftOutcome();
+      useEffect(() => { outcome.offered('agent', { v: 1 }, ID); }, [outcome]);
+      return <button type="button" onClick={() => outcome.accepted()}>accept</button>;
+    }
+    const view = render(<StrictMode><Offerer /></StrictMode>);
+    await Promise.resolve();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(recordAiDraftOutcome).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'accept' }));
+    expect(recordAiDraftOutcome.mock.calls).toEqual([['agent', 'accepted', ID]]);
+    view.unmount();
+    await Promise.resolve();
+    expect(recordAiDraftOutcome).toHaveBeenCalledTimes(1);
+  });
+
+  it('a real unmount under StrictMode still reports the pending draft discarded, once', async () => {
+    function Offerer() {
+      const outcome = useAiDraftOutcome();
+      useEffect(() => { outcome.offered('agent', { v: 1 }, ID); }, [outcome]);
+      return null;
+    }
+    const view = render(<StrictMode><Offerer /></StrictMode>);
+    await Promise.resolve();
+    view.unmount();
+    await Promise.resolve();
+    expect(recordAiDraftOutcome.mock.calls).toEqual([['agent', 'discarded', ID]]);
   });
 
   it('nothing pending ⇒ nothing sent, and a failing send never throws', async () => {
@@ -238,6 +270,7 @@ describe('PromptGenerateTab reports what became of its draft', () => {
     const { ref, view } = await generate();
     await waitFor(async () => expect(await ref.current!.getProps()).not.toBeNull());
     view.unmount();
+    await Promise.resolve();
     expect(recordAiDraftOutcome.mock.calls).toEqual([['pipeline-generate', 'discarded', 'p'.repeat(32)]]);
   });
 });
@@ -267,6 +300,7 @@ describe('AIPluginBuilderTab reports what became of its draft', () => {
   it('a draft left behind is discarded under its draft id', async () => {
     const view = await generate();
     view.unmount();
+    await Promise.resolve();
     expect(recordAiDraftOutcome.mock.calls).toEqual([['plugin-generate', 'discarded', PLUGIN_DRAFT_ID]]);
   });
 });

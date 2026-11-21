@@ -17,7 +17,7 @@
  *
  * Both halves of the defence read this one list: `PluginSpecSchema` refuses a
  * reserved name at upload, and pipeline-core's `toSecretEnvVars` throws at
- * synth (a plugin row can predate the schema check). It lives in api-core
+ * synth (defence in depth for a row written by any path other than upload). It lives in api-core
  * because pipeline-core depends on api-core, not the other way round.
  */
 export const RESERVED_SECRET_NAMES: ReadonlySet<string> = new Set([

@@ -58,10 +58,6 @@ describe('Drizzle runner store (real SQL)', () => {
     expect(await store.markRunnerUnreachable(a.id)).toBeNull();
   });
 
-  it('tablesPresent: true on a database created from the shipped init script', async () => {
-    expect(await store.tablesPresent()).toBe(true);
-  });
-
   it('runners: insert (pending by default), get, list (active filter), count, update, failure counter, unhealthy count', async () => {
     const a = await store.insertRunner({ orgId: ORG, label: 'a', functionUrl: URL_A, status: 'active' });
     const p = await store.insertRunner({ orgId: ORG, label: 'pending' });

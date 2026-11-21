@@ -80,13 +80,13 @@ describe('5. admin pings keep the MIN_RUNNER_VERSION bookkeeping', () => {
   });
 });
 
-describe('7. a database without the runner tables', () => {
+describe('7. runners unavailable', () => {
   it('execution routing answers 409 RUNNERS_UNAVAILABLE (no 500, no runner asked)', async () => {
     const deps = testDeps();
     add(deps);
     deps.availability.available = false;
-    deps.availability.reason = 'tables_missing';
-    deps.store.getRegistryLink = async () => { throw new Error('relation "pipeline_runners" does not exist'); };
+    deps.availability.reason = 'encryption_not_configured';
+    deps.store.getRegistryLink = async () => { throw new Error('must not be read'); };
     await expect(routeExecution(input(), deps)).rejects.toMatchObject({ status: 409, code: 'RUNNERS_UNAVAILABLE' });
     expect(deps.fetchMock).not.toHaveBeenCalled();
   });

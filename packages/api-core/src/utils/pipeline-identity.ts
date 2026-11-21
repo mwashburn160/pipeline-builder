@@ -5,19 +5,14 @@ import { createHash } from 'crypto';
 
 /**
  * Characters a (project, organization) name may hold and still derive its
- * pipeline and stack names WITHOUT a disambiguating hash: letters, digits,
- * hyphens and underscores — exactly the set that deployed before the hash
- * existed (the stack name has always mapped `_` to `-`; any other character
- * failed stack-name validation). A legacy pair MUST keep the names it always
- * had: hashing it would rename the CodePipeline, the CloudFormation stack and
- * every construct id, deploying a second pipeline beside the orphaned first.
- *
- * Consequence (accepted): legacy pairs that differ only by `_` vs `-` or by
- * case (`spring_boot` / `spring-boot`, `My-App` / `my-app`) still derive the
- * same names, as they always did. Only characters that never deployed get
- * the hash.
+ * pipeline and stack names WITHOUT a disambiguating hash: letters, digits and
+ * hyphens. Within that set the derivation loses only case, and names are
+ * case-insensitive by design (the hash lowercases too). Every other character
+ * — `_` included, since the stack name maps it to `-` and the pipeline name
+ * maps `-` to `_` — gets the hash, so `spring_boot` and `spring-boot` never
+ * share a CodePipeline or a CloudFormation stack.
  */
-const CLEAN_NAME = /^[A-Za-z0-9_-]*$/;
+const CLEAN_NAME = /^[A-Za-z0-9-]*$/;
 
 /**
  * A short stable hash of the RAW (project, organization) pair — or `null`
@@ -26,8 +21,8 @@ const CLEAN_NAME = /^[A-Za-z0-9_-]*$/;
  * The derived names are lossy: the pipeline name maps every non-alphanumeric
  * character to `_` and the stack name maps `_` to `-`, so `my.app` and `my_app`
  * would share one CodePipeline and one CloudFormation stack, each deploy
- * overwriting the other. A pair holding a character outside the legacy set
- * gets this hash appended, so it can never collide with a legacy name. The pair is hashed as a JSON array (not joined with a character
+ * overwriting the other. A pair holding a character outside the clean set
+ * gets this hash appended, so it can never collide with a clean name. The pair is hashed as a JSON array (not joined with a character
  * either part may contain), lowercased because every derived name is.
  */
 export function pipelineIdentityHash(project: string, organization: string): string | null {
@@ -37,8 +32,8 @@ export function pipelineIdentityHash(project: string, organization: string): str
 
 /**
  * The 8-hex digest {@link pipelineIdentityHash} appends, computed
- * unconditionally — for a derivation that must disambiguate even a pair of
- * legacy characters (e.g. a stack name rewritten to satisfy CloudFormation).
+ * unconditionally — for a derivation that must disambiguate even a clean
+ * pair (e.g. a stack name truncated to satisfy CloudFormation).
  */
 export function pipelineIdentityDigest(project: string, organization: string): string {
   return createHash('sha256')

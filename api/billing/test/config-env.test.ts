@@ -14,6 +14,7 @@ const TOUCHED = [
   'MONGODB_URI', 'PORT', 'BILLING_PROVIDER', 'BILLING_LIFECYCLE_CHECK_INTERVAL_MS', 'PAYMENT_GRACE_PERIOD_DAYS',
   'BILLING_METERING_INTERVAL_MS', 'BILLING_DISCOUNT_MAX_PERCENT', 'BILLING_DISCOUNT_MAX_CENTS', 'QUOTA_SERVICE_PORT',
   'BILLING_METERING_ENABLED', 'BILLING_DISCOUNTS_ENABLED', 'BILLING_PROMOTIONS_ENABLED', 'BILLING_ENTITLEMENT_DRIFT_MAX_PER_TICK',
+  'PLATFORM_BASE_URL', 'STRIPE_WEBHOOK_ENDPOINT_ID',
 ] as const;
 const original = Object.fromEntries(TOUCHED.map((k) => [k, process.env[k]]));
 
@@ -32,6 +33,15 @@ describe('billing config env parsing', () => {
       else process.env[k] = original[k];
     }
     jest.restoreAllMocks();
+  });
+
+  it('derives the public Stripe webhook URL from PLATFORM_BASE_URL and reads the endpoint id', async () => {
+    const config = await loadConfig({ PLATFORM_BASE_URL: 'https://pb.example.com/', STRIPE_WEBHOOK_ENDPOINT_ID: ' we_123 ' });
+    expect(config.stripe.webhookUrl).toBe('https://pb.example.com/billing/stripe/webhook');
+    expect(config.stripe.webhookEndpointId).toBe('we_123');
+    const bare = await loadConfig({});
+    expect(bare.stripe.webhookUrl).toBe('');
+    expect(bare.stripe.webhookEndpointId).toBe('');
   });
 
   it('falls back to the default (with a warning) instead of NaN for malformed integers', async () => {

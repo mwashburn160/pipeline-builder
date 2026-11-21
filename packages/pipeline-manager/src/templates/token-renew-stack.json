@@ -25,8 +25,7 @@
     },
     "NameSuffix": {
       "Type": "String",
-      "Default": "",
-      "Description": "Suffix appended to the rotation stack's resource names so a scoped-token renewal (e.g. '-reporting-ingest') coexists with the platform-token stack instead of clobbering its role/function/rule. Empty for the platform secret."
+      "Description": "Suffix appended to the rotation stack's resource names (the secret's trailing path segment, e.g. '-platform', '-reporting-ingest') so each credential's renewal coexists with the others instead of clobbering their role/function/rule."
     }
   },
   "Resources": {

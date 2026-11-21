@@ -11,7 +11,7 @@ import { jest, describe, expect, it, beforeEach } from '@jest/globals';
 const mockFindById = jest.fn<(id: string, orgId: string) => Promise<unknown>>();
 jest.unstable_mockModule('../../src/services/pipeline-service.js', () => ({ pipelineService: { findById: mockFindById } }));
 
-const { processDelivery, runSweep } = await import('../../src/runners/lifecycle.js');
+const { processDelivery } = await import('../../src/runners/lifecycle.js');
 const { enqueueRun } = await import('../../src/runners/routing.js');
 const { bullDispatchQueue } = await import('../../src/runners/dispatch-queue.js');
 const { readRunRequest, resetRunRequestCachesForTesting } = await import('../../src/runners/run-request-status.js');
@@ -95,15 +95,6 @@ describe('status refresh when the runner no longer finds the pipeline', () => {
     // A read never re-routes: the next start/stop through the link runs G4 re-discovery.
     expect(deps.store.registry.get(PIPE)!.runnerId).toBe(r.id);
     expect(deps.store.runners.get(r.id)!.health).toBe('healthy');
-  });
-});
-
-describe('the sweep on a database created before runners', () => {
-  it('skips quietly when the runner tables are absent (no error every 15 s)', async () => {
-    const deps = testDeps();
-    const missing = () => Promise.reject(new Error('relation "pipeline_run_requests" does not exist'));
-    Object.assign(deps.store, { tablesPresent: async () => false, listExpired: missing, deletePendingRunnersBefore: missing });
-    await expect(runSweep(deps)).resolves.toEqual({ expired: 0, pinged: 0, recovered: 0, markedUnhealthy: 0, rekicked: 0, pendingDeleted: 0, retained: 0, staleLinkChecks: 0 });
   });
 });
 

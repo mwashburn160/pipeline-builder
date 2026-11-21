@@ -159,17 +159,11 @@ describe('PUT /plugins/by-name/:name/never-tidy', () => {
     expect((await call('PUT', '/plugins/by-name/lint/never-tidy', token(['plugins:read']), { neverTidy: true })).status).toBe(403);
   });
 
-  it('refuses a name that is not lowercase (400) before the service is asked', async () => {
+  it('refuses a name that is not lowercase (400), adding or clearing, before the service is asked', async () => {
     setNeverTidy.mockClear();
     expect((await call('PUT', '/plugins/by-name/Lint/never-tidy', token(['plugins:write']), { neverTidy: true })).status).toBe(400);
-    expect(setNeverTidy).not.toHaveBeenCalled();
-  });
-
-  it('clears a mixed-case name stored before adds were lowercase-only (a clear is always allowed)', async () => {
-    setNeverTidy.mockClear();
-    const off = await call('PUT', '/plugins/by-name/Legacy-Name/never-tidy', token(['plugins:write']), { neverTidy: false });
-    expect(off.status).toBe(200);
-    expect(setNeverTidy).toHaveBeenCalledWith(TENANT, 'Legacy-Name', false, 'u-1');
+    expect((await call('PUT', '/plugins/by-name/Lint/never-tidy', token(['plugins:write']), { neverTidy: false })).status).toBe(400);
     expect((await call('PUT', '/plugins/by-name/-bad/never-tidy', token(['plugins:write']), { neverTidy: false })).status).toBe(400);
+    expect(setNeverTidy).not.toHaveBeenCalled();
   });
 });

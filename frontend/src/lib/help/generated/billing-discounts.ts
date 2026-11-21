@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-discounts.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: ad2ff29f3e418f7acefdb46dab519c11366aa78170e02a48b6ce821cb5852705
+// SOURCE-SHA256: 7261ad7515c51bfbf27b8fe3bb3692d5b0547da64945e426ec085e29b8ff15ad
 // SPDX-License-Identifier: Apache-2.0
 import { BadgePercent } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -735,7 +735,7 @@ export const billingDiscountsTopic: HelpTopic = {
           "items": [
             "Stripe-billed accounts — the full in-app flow above, realized as customer-balance usage credits.",
             "AWS Marketplace-billed accounts — the in-app flow works when BILLING_METERING_ENABLED is on, with credits realized by withholding metered usage, priced via AWS_MARKETPLACE_DIMENSION_PRICE_MAP. Default-off, so enable and validate with BILLING_METERING_DRAWDOWN_DRYRUN first. Withholding offsets metered add-on usage only — for plan-level or contract pricing use private offers.",
-            "Billing dashboard — the account's Billing page summarizes the period as gross billed → discounts + usage credits → net, with a per-period bar chart and an invoice table showing the discount or credit applied to each invoice (GET /billing/summary). This is where an account sees the effect of its discounts."
+            "Billing dashboard — the account's Billing page summarizes the period as gross billed → discounts + usage credits → net, with a per-period bar chart and an invoice table showing the discount or credit applied to each invoice (GET /billing/summary). This is where an account sees the effect of its discounts. Totals are kept per currency (totalsByCurrency, one entry per currency the account was billed in; timeline points, invoice rows, cost-by-team rows and the admin per-account breakdown each name their currency): amounts in different currencies are never added together, and an account billed in one currency sees one set of totals."
           ]
         }
       ]

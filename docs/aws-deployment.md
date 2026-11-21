@@ -1075,7 +1075,7 @@ Each run writes its own secret and its own rotation stack:
 
 By default `infra store-token` **only writes the secret** — you must re-run it before the
 key expires (`audit tokens` warns you in advance). To avoid that, add `--schedule`
-to also deploy a small **daily key-rotation stack** (`pipeline-builder-token-renew`):
+to also deploy a small **daily key-rotation stack** (`pipeline-builder-token-renew-<secret>`, e.g. `pipeline-builder-token-renew-platform`):
 
 ```bash
 # Custom rotation time (5-field cron; minimum every 15 minutes):

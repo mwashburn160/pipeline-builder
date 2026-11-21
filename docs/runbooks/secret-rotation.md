@@ -477,10 +477,51 @@ source is unreachable), the cached key keeps serving and the refresh is retried
 allow up to 5 minutes after a change before trusting reads on other replicas,
 or restart platform and pipeline.
 
+**Post-change verification.** The eviction closes the old-key window only on
+the replicas it reaches. A replica that misses it keeps encrypting new secrets
+under the outgoing key until its cached entry lapses, and those writes land
+after the change's own re-encrypt pass, so `unreadableConcurrentWrites` cannot
+see them. To catch them, every `PUT`/`DELETE` that saves a config also stamps a
+verification marker on the org (`Organization.kmsVerifyDueAt`) in the same
+write, due 6 minutes later (the 5-minute cache TTL plus a 1-minute margin). The
+platform sweep `kms-config-verify` (runs every minute, one replica at a time)
+then tries to decrypt each of the org's AI provider keys and its SSO client
+secret under the current config:
+
+- Every secret opens: the marker is cleared and nothing is reported.
+- Some do not: their **field names only** (`aiProviderKeys.<provider>`,
+  `idpClientSecret`, never values) are logged as an error, recorded as an
+  `admin.org.kms-config.verify` audit row with `outcome: failure` and
+  `details.unreadableSecrets`, counted in
+  `platform_kms_secret_verify_failed_total{field}` (alert
+  `KmsSecretVerifyFailed`), and sent to the org's owners and admins, in-app and
+  by email, with a request to re-enter them. Nothing can recover these values;
+  re-entry is the fix. If no admin can, re-enter them yourself through the
+  same admin endpoints.
+- The provider cannot encrypt for the org at all (a KMS outage or a revoked
+  `kms:Decrypt` grant): that is not counted as unreadable secrets. The check
+  fails, the sweep reports a failed cycle, and the check runs again after a
+  5-minute lease. Fix KMS access first (`POST .../kms-config/test`).
+
+The marker survives a restart, and it is claimed by a conditional update, so
+only one replica runs each check. A crash mid-check leaves the lease, which
+comes due again. A second change before the check runs moves the marker, so
+only the newer change's check runs. A change that lands while a check is
+running makes that check drop its result unreported, because the newer change
+has its own check.
+
+**A partial config** (a stored keyId with no wrapped ciphertext, or the
+reverse) counts as no config: secrets are under the shared provider. `DELETE`
+removes it without migrating anything, conditionally on the org still having no
+complete config, and audits `admin.org.kms-config.delete` with
+`details.partialConfigCleared: true`. A `PUT` that completed the config
+meanwhile makes it answer 409 instead.
+
 **Proof** — `packages/api-core/test/secret-rotation.test.ts` (overlap → rewrite
 → old blob rejected), `platform/test/secret-reencrypt.test.ts` (the fleet-wide
 tool, including the unreadable-row path), `packages/api-core/test/secret-encryption.test.ts`
-(cross-replica eviction and the TTL backstop).
+(cross-replica eviction and the TTL backstop), `platform/test/kms-config-verify.test.ts`
+(the post-change verification: claim, supersede, KMS outage, report).
 
 ---
 

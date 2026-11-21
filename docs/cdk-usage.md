@@ -96,7 +96,7 @@ new PipelineBuilder(stack, 'MyPipeline', {
 | `project` | `string` | Yes | Project identifier (sanitized to lowercase alphanumeric) |
 | `organization` | `string` | Yes | Organization identifier |
 | `orgId` | `string` | No | Tenant ID for resolving per-org secrets from Secrets Manager |
-| `pipelineName` | `string` | No | Custom name. Default: `{organization}-{project}-pipeline` |
+| `pipelineName` | `string` | No | Custom name. Default: `{organization}-{project}-pipeline` (non-alphanumerics → `_`, lowercased), plus `-<8-hex hash>` of the raw pair when either name holds anything but letters, digits and `-` (so `spring_boot` and `spring-boot` never share a pipeline) |
 | `synth` | `SynthOptions` | Yes | Synthesis step configuration (source + plugin) |
 | `stages` | `StageOptions[]` | No | Pipeline stages, each with one or more build steps |
 | `global` | `MetaDataType` | No | Metadata inherited by all steps |

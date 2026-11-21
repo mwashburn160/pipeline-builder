@@ -95,7 +95,19 @@ export function createBillingSummaryRoutes(): Router {
     }));
 
     logger.debug('Cost allocation computed', { orgId, driver, orgs: orgIds.length });
-    return sendSuccess(res, 200, { ...allocateCosts(summary.totals, children, driver), estimated: true });
+    // Apportioned per CURRENCY: an account billed in two currencies gets each
+    // allocated on its own, and every row names the currency of its amounts.
+    const byCurrency = summary.totalsByCurrency.map(({ currency, grossBilledCents, discountsCents, creditsCents, taxCents, netBilledCents }) => ({
+      currency,
+      ...allocateCosts({ grossBilledCents, discountsCents, creditsCents, taxCents, netBilledCents }, children, driver),
+    }));
+    return sendSuccess(res, 200, {
+      driver,
+      byCurrency: byCurrency.map(({ currency, totals, unallocated }) => ({ currency, totals, unallocated })),
+      rows: children.flatMap((child) => byCurrency.flatMap(({ currency, rows }) =>
+        rows.filter((r) => r.orgId === child.orgId).map((r) => ({ ...r, currency })))),
+      estimated: true,
+    });
   }));
 
   // GET /billing/summary/usage-by-team — per-team CURRENT usage across every

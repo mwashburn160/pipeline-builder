@@ -340,7 +340,6 @@ async function stepUpHeaders(deps: SetupRunnerDeps): Promise<Record<string, stri
 const RUNNERS_UNAVAILABLE_MESSAGES = {
   paused: 'Pipeline runs through runners are paused on this platform by its operator. Try again once they are resumed.',
   encryption_not_configured: 'Runners are unavailable: this platform has no secret encryption configured for runner signing keys — ask your platform operator.',
-  tables_missing: 'Runners are unavailable: this platform\'s database has no runner tables — ask your platform operator.',
   key_service: 'Runs can\'t be signed right now because the key service is unreachable. Queued runs retry automatically.',
 } as const satisfies Record<RunnersUnavailableReason, string>;
 

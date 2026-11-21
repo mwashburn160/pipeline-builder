@@ -247,7 +247,7 @@ export const verifyMfaLogin = withController('MFA login verify', async (req, res
   // gets the dead-challenge answer, which sends them back to the first factor.
   const user = await authService.findForTokenIssue(pending.userId);
   if (!user) return deny('user-missing', pending.userId);
-  if (typeof pending.tokenVersion !== 'number' || user.tokenVersion !== pending.tokenVersion) {
+  if (user.tokenVersion !== pending.tokenVersion) {
     audit(req, 'user.login.failed', {
       targetType: 'user',
       targetId: pending.userId,

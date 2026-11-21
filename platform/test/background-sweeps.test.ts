@@ -51,6 +51,7 @@ jest.unstable_mockModule('../src/services/invitation-reaper.js', () => ({ invita
 jest.unstable_mockModule('../src/services/impersonation-reaper.js', () => ({ impersonationReaperSweep: def('impersonation-reaper') }));
 jest.unstable_mockModule('../src/services/org-purge.js', () => ({ orgPurgeSweep: def('org-purge-sweep') }));
 jest.unstable_mockModule('../src/services/cascade-outbox.js', () => ({ cascadeOutboxSweep: def('cascade-outbox') }));
+jest.unstable_mockModule('../src/services/kms-config-verify.js', () => ({ kmsConfigVerifySweep: def('kms-config-verify') }));
 
 const { sweepDefinitions, registerBackgroundSweeps, buildSweep } = await import('../src/services/background-sweeps.js');
 
@@ -67,7 +68,7 @@ describe('sweepDefinitions', () => {
   it('lists every sweep when everything is configured', async () => {
     expect((await sweepDefinitions()).map((d) => d.name)).toEqual([
       'audit-local-spool-drain', 'audit-retention-prune', 'audit-head-export', 'billing-reconcile', 'domain-reverify',
-      'invitation-reaper', 'impersonation-reaper', 'org-purge-sweep', 'cascade-outbox',
+      'invitation-reaper', 'impersonation-reaper', 'org-purge-sweep', 'cascade-outbox', 'kms-config-verify',
     ]);
   });
 
@@ -102,14 +103,14 @@ describe('buildSweep', () => {
 describe('registerBackgroundSweeps', () => {
   it('starts every applicable sweep and returns them for shutdown', async () => {
     const started = await registerBackgroundSweeps();
-    expect(started).toHaveLength(9);
+    expect(started).toHaveLength(10);
     for (const s of started) expect((s as unknown as { start: jest.Mock }).start).toHaveBeenCalledTimes(1);
   });
 
   it('survives a sweep that fails to build', async () => {
     failBuild = 'org-purge-sweep';
     const started = await registerBackgroundSweeps();
-    expect(started).toHaveLength(8);
+    expect(started).toHaveLength(9);
     expect(lockedCalls.map((c) => c.name)).toContain('impersonation-reaper');
   });
 });

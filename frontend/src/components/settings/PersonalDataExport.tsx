@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SectionCard } from '@/components/ui/SectionCard';
 import api from '@/lib/api';
-import { continueAfterStepUp } from '@/lib/api/errors';
+import { continueAfterStepUp, stepUpReplayFailed } from '@/lib/api/errors';
 import { formatError } from '@/lib/constants';
 import { triggerBlobDownload } from '@/lib/download';
 import { localDay } from '@/lib/local-day';
@@ -43,8 +43,11 @@ export function PersonalDataExport() {
       save(await api.exportOwnData(stepUpToken));
     } catch (err) {
       // A refused-again token hands the replay to the global dialog; the file
-      // is saved when that replay answers.
-      if (continueAfterStepUp<string>(err, save)) return;
+      // is saved when that replay answers. A failed replay is shown; a
+      // dismissed dialog says nothing.
+      if (continueAfterStepUp<string>(err, save, (reason) => {
+        if (stepUpReplayFailed(reason)) setError(formatError(reason, 'Could not export your data'));
+      })) return;
       setError(formatError(err, 'Could not export your data'));
     }
   };

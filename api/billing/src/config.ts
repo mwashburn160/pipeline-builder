@@ -67,6 +67,12 @@ export interface StripeConfig {
    *  call — the Dashboard toggle reaches neither API-created Checkout Sessions
    *  nor `subscriptions.create`. */
   automaticTax: boolean;
+  /** The webhook endpoint (`we_…`) whose subscribed events billing keeps complete
+   *  (`STRIPE_WEBHOOK_ENDPOINT_ID`). Empty = find it by {@link webhookUrl}. */
+  webhookEndpointId: string;
+  /** Billing's public webhook URL, `${PLATFORM_BASE_URL}/billing/stripe/webhook`.
+   *  Empty when PLATFORM_BASE_URL is unset. */
+  webhookUrl: string;
 }
 
 export interface DiscountConfig {
@@ -403,6 +409,10 @@ export const config: AppConfig = {
     ),
     currency: billingCurrency,
     automaticTax,
+    webhookEndpointId: (process.env.STRIPE_WEBHOOK_ENDPOINT_ID || '').trim(),
+    webhookUrl: process.env.PLATFORM_BASE_URL
+      ? `${process.env.PLATFORM_BASE_URL.trim().replace(/\/+$/, '')}/billing/stripe/webhook`
+      : '',
   },
   discounts: {
     // On by default (mirrors BILLING_ENABLED's opt-out style); set

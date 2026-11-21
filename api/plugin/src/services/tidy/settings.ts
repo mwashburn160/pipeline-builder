@@ -28,9 +28,8 @@ export interface TidySettings {
   lastDigestAt: string | null;
 }
 
-const PLUGIN_NAME = /^[a-z0-9][a-z0-9._-]{0,254}$/i;
-/** A name a write may ADD: lowercase only, as the spec schema stores plugin names. */
-const PLUGIN_NAME_WRITE = /^[a-z0-9][a-z0-9._-]{0,254}$/;
+/** A plugin name: lowercase only, as the spec schema stores plugin names. */
+const PLUGIN_NAME = /^[a-z0-9][a-z0-9._-]{0,254}$/;
 
 /** `PUT /plugins/tidy/settings` body: only the fields to change. */
 export const TidySettingsWriteSchema = z.object({
@@ -69,8 +68,5 @@ export async function writeTidySettings(orgId: string, patch: SettingsPatch, by:
   return normalizeTidySettings(rows[0]);
 }
 
-/** Whether `name` is a plugin name as stored — lowercase only (what the never-tidy route may ADD). */
-export const isPluginName = (name: string): boolean => PLUGIN_NAME_WRITE.test(name);
-
-/** Whether `name` may be on a stored never-tidy list (any case: a list written before adds were lowercase-only can still be cleared). */
-export const isListedPluginName = (name: string): boolean => PLUGIN_NAME.test(name);
+/** Whether `name` is a plugin name as stored — lowercase only (what the never-tidy route may add or clear). */
+export const isPluginName = (name: string): boolean => PLUGIN_NAME.test(name);

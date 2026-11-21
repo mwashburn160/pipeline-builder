@@ -152,7 +152,7 @@ Add-ons are charged as extra **subscription line items** on the same subscriptio
 
 > If a purchased bundle's `<bundleId>_<interval>` key is **absent** from the map, its line item is **silently skipped** — the customer gets the entitlement but is **never charged** for it. Map every bundle you enable (see `BILLING_BUNDLES_ENABLED`), only for the intervals you sell.
 
-> **`automation_pack` needs its own Prices.** It is the newest add-on (the `automationCalls` top-up). On an install whose `STRIPE_PRICE_MAP` predates it, create its monthly and annual Prices (or re-run the provisioning helper) and add `automation_pack_monthly` / `automation_pack_annual`. Until then billing boots with a `price_map_incomplete` warning naming both keys, and an org that buys the pack is **granted the capacity but never charged**.
+> **`automation_pack` needs its own Prices** (the `automationCalls` top-up): `automation_pack_monthly` / `automation_pack_annual`. Without them billing boots with a `price_map_incomplete` warning naming both keys, and an org that buys the pack is **granted the capacity but never charged**.
 
 #### Complete example (all paid plans + every add-on)
 
@@ -224,19 +224,30 @@ The app reconciles all subscription and payment state from Stripe webhooks. The 
 POST https://<your-public-host>/billing/stripe/webhook
 ```
 
-Stripe Dashboard → **Developers → Webhooks → Add endpoint** → enter that URL, then select the events the app consumes:
+Stripe Dashboard → **Developers → Webhooks → Add endpoint** → enter that URL, then select the events the app consumes (or **all events**):
 
+<!-- stripe-webhook-events:start -->
 | Event | Effect in Pipeline Builder |
 |---|---|
-| `customer.subscription.created` | Records the subscription + grants the tier |
+| `customer.subscription.created` | Records the subscription + grants the tier. A **duplicate** checkout (the org already holds a subscription bound to another Stripe subscription) is canceled at once and its first paid invoice refunded in full (idempotent on the invoice id); a duplicate whose first invoice settles only after the cancel is refunded when its `invoice.payment_succeeded` arrives. A failed refund counts `billing_duplicate_stripe_refund_failed_total` and fires `BillingDuplicateRefundFailing` — refund that invoice by hand |
 | `customer.subscription.updated` | Re-syncs status, plan and billing period (status mapped internally; `unpaid` ⇒ canceled after grace) |
 | `customer.subscription.deleted` | Cancels the subscription, downgrades tier |
 | `invoice.payment_succeeded` | Marks paid / clears past-due. Its per-invoice effects (billing-ledger actuals, usage-credit draw-down, recurring promotion and discount re-grant, referral credit) always run and are idempotent per invoice / period; only the status and period changes are skipped when the event is older than one already applied, because Stripe delivers events unordered |
 | `invoice.payment_failed` | Moves to past-due (grace period applies). The first failure of a lapse posts one in-app notice naming the date access ends; `GET /billing/subscriptions` carries `dunning: { firstFailedAt, downgradeAt, downgraded, downgradedAt? }` while past-due |
 | `invoice.upcoming` | Drives renewal reminders + recurring-credit re-grant |
 | `charge.refunded` | Reverses the matching subscription and the invoice's billing-ledger row. A refund that arrives before its invoice has been ingested is banked and applied when the invoice lands, so the ledger reads the same in either order |
-| `charge.dispute.created` | Reverses on dispute |
+| `charge.dispute.created` | Reverses on dispute: the invoice's billing-ledger row moves to `disputed` and a full reversal claws back recent promotion credits, each tagged with the dispute id. The dispute is re-read first, so a delivery processed after the dispute was already won reverses nothing |
+| `charge.dispute.closed` | A **won** dispute undoes that reversal: the ledger row returns to `paid` with the disputed amount restored (or to `refunded`, its refund still counted, if the charge was partly refunded before the dispute), and the promotion credit that dispute clawed back is re-granted through the normal budget-guarded grant, at most once per dispute id. A lost dispute (or a closed inquiry) changes nothing |
 | `invoice.voided` / `invoice.marked_uncollectible` | Reversal handling |
+<!-- stripe-webhook-events:end -->
+
+This table is the dispatch map in `api/billing/src/routes/stripe-webhook.ts` (`STRIPE_WEBHOOK_EVENTS`); a test fails if the two disagree.
+
+**The service keeps the subscription complete itself.** At startup, and again once a day, billing (one pod, leader-locked) finds the endpoint and adds any handled event its `enabled_events` lacks. An endpoint on **all events** (`*`) is left alone, and the update is **additive**: events other consumers of the same endpoint rely on are kept. That is what makes a newly handled event (for example `charge.dispute.closed`) or a later Dashboard edit that drops one safe. Without it, Stripe would never send that event, and nothing would say so.
+
+- **Which endpoint.** It uses `STRIPE_WEBHOOK_ENDPOINT_ID` (`we_…`) if set. Otherwise it uses the endpoint whose URL is `PLATFORM_BASE_URL` + `/billing/stripe/webhook`, ignoring a trailing slash. Set the id when the endpoint is registered at any other URL, such as a proxy in front of the gateway. Only endpoints in the key's own Stripe world (test vs live) are considered.
+- **Key permission.** `STRIPE_SECRET_KEY` needs **write** access to **Webhook Endpoints**. A standard secret key has it. A restricted key (`rk_…`) must be granted *Webhook Endpoints: Write*. Without it the check still runs and reports, but cannot fix anything.
+- **When it cannot fix it.** Startup never fails because of this check. If the endpoint cannot be found, read or updated (missing permission, network, wrong id or URL), billing logs the missing event names and sets `billing_stripe_webhook_events_missing` to how many handled events are not confirmed on the endpoint. If the endpoint could not be read at all, that is every handled event. **`BillingStripeWebhookEventsMissing`** fires while the gauge is above 0. Read the `stripe-webhook-reconcile` log line for the event names and the reason. Then grant the permission, set `STRIPE_WEBHOOK_ENDPOINT_ID`, or add the events in the Dashboard. The next daily pass, or a restart, clears it.
 
 Copy the endpoint's **Signing secret** (`whsec_…`) into:
 
@@ -281,6 +292,7 @@ Net: enabling Stripe is **purely configuration** (`BILLING_PROVIDER`, the two se
 |---|---|---|
 | `STRIPE_SECRET_KEY` | — | **Secret.** Stripe API secret key (`sk_test_…` / `sk_live_…`). Required when `BILLING_PROVIDER=stripe` |
 | `STRIPE_WEBHOOK_SECRET` | — | **Secret.** Signing secret (`whsec_…`) for the endpoint at `POST /billing/stripe/webhook`; every delivery is signature-verified against it |
+| `STRIPE_WEBHOOK_ENDPOINT_ID` | — | Id (`we_…`) of the webhook endpoint whose events billing keeps complete. Unset = the endpoint registered at `PLATFORM_BASE_URL/billing/stripe/webhook`. See [Step 4](#step-4--register-the-webhook) |
 | `STRIPE_PRICE_MAP` | `{}` | JSON map of `<id>_<interval>` → Stripe Price id, where `<id>` is a **plan id or a bundle id** (e.g. `{"pro_monthly":"price_…","seat_annual":"price_…"}`). A plan/interval absent here cannot be subscribed; a bundle absent here is granted but not charged |
 
 
@@ -296,6 +308,9 @@ BILLING_PROVIDER=stripe
 # From the Stripe dashboard (Developers → API keys, and the webhook endpoint).
 STRIPE_SECRET_KEY=sk_test_REPLACE
 STRIPE_WEBHOOK_SECRET=whsec_REPLACE
+# Optional: the endpoint (we_…) whose events billing keeps complete. Empty = the
+# endpoint at PLATFORM_BASE_URL/billing/stripe/webhook.
+STRIPE_WEBHOOK_ENDPOINT_ID=
 
 # 3 paid plans + 14 add-ons, monthly and annual = the 34 keys the validator wants.
 # A missing key means that plan cannot be subscribed, or that add-on is granted
@@ -372,7 +387,7 @@ AWS sends the subscription lifecycle as **EventBridge** events (`source: aws.agr
 
 | Event | Billing does |
 |---|---|
-| `License Updated - Manufacturer` | Re-reads the license's entitlements and moves the plan (and cadence) to match |
+| `License Updated - Manufacturer` | Re-reads the license's entitlements and moves the plan (and cadence) to match, for a subscription that is active, trialing or past due (the same statuses registration binds a license in) |
 | `License Deprovisioned - Manufacturer` | Cancels the subscription and downgrades the org to `developer` |
 
 Agreement events need no handler: each one is followed by a License event for the same purchase, and only License events name the license. A buyer who comes back accepts a new agreement, which issues a new license and goes through registration (Step 3) again.

@@ -341,6 +341,9 @@ describe('the clock restarts', () => {
     await version('only-in-b', '1.0.0', {}, B);
     await expect(setNeverTidy(A, 'only-in-b', true, 'u-1')).rejects.toMatchObject({ statusCode: 400 });
     expect((await readTidySettings(A)).neverTidy).toEqual(['keepme']);
+    // A stored name that is not lowercase is no plugin name: it is not read back.
+    await writeTidySettings(A, { neverTidy: ['keepme', 'Lint'] }, 'u-1');
+    expect((await readTidySettings(A)).neverTidy).toEqual(['keepme']);
 
     const full = Array.from({ length: 499 }, (_, i) => `p${String(i).padStart(3, '0')}`);
     await writeTidySettings(A, { neverTidy: ['keepme', ...full] }, 'u-1');

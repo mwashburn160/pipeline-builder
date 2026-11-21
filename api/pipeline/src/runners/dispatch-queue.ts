@@ -12,7 +12,7 @@
  * Plus the sweep (expiry, health pings, the signing-key lifecycle, the unhealthy
  * gauge), leader-locked so one replica runs it per window. Always started:
  * runners are the only execution path, and availability (the pause toggle,
- * secret encryption, the runner tables) is checked per job and per sweep.
+ * secret encryption) is checked per job and per sweep.
  */
 
 import { createLogger, createRedisClient, createScheduler, errorMessage, leaderLockKey, resolveRedisConnection, type Scheduler, type SchedulerOptions } from '@pipeline-builder/api-core';

@@ -85,7 +85,7 @@ afterEach(() => {
 });
 
 describe('unavailable (paused / no secret encryption / no tables)', () => {
-  it.each(['paused', 'encryption_not_configured', 'tables_missing'] as const)('%s: GET answers available:false with the reason and no signingKey; writes answer 409 RUNNERS_UNAVAILABLE', async (reason) => {
+  it.each(['paused', 'encryption_not_configured'] as const)('%s: GET answers available:false with the reason and no signingKey; writes answer 409 RUNNERS_UNAVAILABLE', async (reason) => {
     deps.availability.available = false;
     deps.availability.reason = reason;
     const list = await call('get', '/runners');
@@ -127,11 +127,10 @@ describe('unavailable (paused / no secret encryption / no tables)', () => {
     expect((await runGate(gateOf('post', '/runners'))).r.body).toMatchObject({ details: { reason: 'paused' }, message: RUNNERS_UNAVAILABLE_MESSAGES.paused });
   });
 
-  it('the gate passes when available; the run-request read is a 404 without the runner tables', async () => {
+  it('the gate passes when available; an unknown run request is a 404', async () => {
     const next = jest.fn();
     await requireRunnersAvailable({} as never, res() as never, next);
     expect(next).toHaveBeenCalled();
-    deps.store.tablesPresent = async () => false;
     expect((await call('get', '/:pipelineId/run-requests/:requestId', { params: { pipelineId: PIPE, requestId: '00000000-0000-4000-8000-000000000001' } })).statusCode).toBe(404);
   });
 });

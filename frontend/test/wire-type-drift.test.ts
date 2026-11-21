@@ -43,6 +43,8 @@ const ROOTS = ['api', 'frontend', 'packages', 'platform'];
 /** Wire shapes declared on BOTH sides, kept identical by this test. */
 const REGISTERED: ReadonlyArray<readonly [string, string, string]> = [
   ['ActionFailure', 'frontend/src/components/reports/types.ts', 'packages/pipeline-data/src/api/reporting/types.ts'],
+  // Admin billing summary, per currency (api/billing, not importable).
+  ['AdminBillingSummary', 'frontend/src/lib/api/domains/billing.ts', 'api/billing/src/helpers/billing-ledger.ts'],
   ['Alert', 'frontend/src/types/observability.ts', 'api/ops-center/src/observability/alertmanager-client.ts'],
   // Plugin-upgrade apply's per-step change (api/pipeline, not importable).
   ['AppliedUpgrade', 'frontend/src/lib/api/pipeline-security-types.ts', 'api/pipeline/src/helpers/plugin-upgrades.ts'],

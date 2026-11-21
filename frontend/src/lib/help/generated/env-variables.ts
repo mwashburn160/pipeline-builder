@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: c773ea4803f75caa53b0efacd2700b4c9c023192dd90911643c0d11289107519
+// SOURCE-SHA256: 327b08f41114054409a8cb2154e9eabede6e19fe47a69ad5ae5ac3a158ff1152
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -3210,6 +3210,11 @@ export const envVariablesTopic: HelpTopic = {
               "STRIPE_WEBHOOK_SECRET",
               "—",
               "Secret. Signing secret (whsec_…) for POST /billing/stripe/webhook; every delivery is signature-verified against it over the raw body"
+            ],
+            [
+              "STRIPE_WEBHOOK_ENDPOINT_ID",
+              "—",
+              "Id (we_…) of the Stripe webhook endpoint whose enabled_events billing keeps complete. At startup and daily, billing adds any handled event the endpoint lacks. It leaves * alone and keeps events other consumers rely on. Unset = the endpoint whose URL is PLATFORM_BASE_URL + /billing/stripe/webhook; set it when the endpoint is registered at any other URL. STRIPE_SECRET_KEY needs Webhook Endpoints write access. When the endpoint cannot be found or updated, startup still continues, the event names are logged and BillingStripeWebhookEventsMissing fires — see Billing Providers → Step 4"
             ],
             [
               "STRIPE_PRICE_MAP",

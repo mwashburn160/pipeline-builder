@@ -43,12 +43,17 @@ const INTERVAL_OPTIONS: BillingInterval[] = ['monthly', 'annual'];
 
 type ByOrgRow = AdminBillingSummary['byOrg'][number];
 
+/** Zero totals shown for a window with no invoices. */
+const EMPTY_TOTALS: AdminBillingSummary['totalsByCurrency'][number] = {
+  currency: 'usd', grossBilledCents: 0, discountsCents: 0, creditsCents: 0, taxCents: 0, netBilledCents: 0, amountPaidCents: 0, invoiceCount: 0,
+};
+
 const BY_ORG_COLUMNS: Column<ByOrgRow>[] = [
   { id: 'account', header: 'Account', cellClassName: 'font-mono text-xs text-fg break-all', render: (o) => o.orgId },
-  { id: 'gross', header: 'Gross', headerClassName: 'text-right', cellClassName: 'text-right text-fg-muted', render: (o) => formatCents(o.grossBilledCents) },
-  { id: 'discounts', header: 'Discounts', headerClassName: 'text-right', cellClassName: 'text-right text-fg-muted', render: (o) => formatCents(o.discountsCents) },
-  { id: 'credits', header: 'Credits', headerClassName: 'text-right', cellClassName: 'text-right text-fg-muted', render: (o) => formatCents(o.creditsCents) },
-  { id: 'net', header: 'Net', headerClassName: 'text-right', cellClassName: 'text-right font-medium text-fg', render: (o) => formatCents(o.netBilledCents) },
+  { id: 'gross', header: 'Gross', headerClassName: 'text-right', cellClassName: 'text-right text-fg-muted', render: (o) => formatCents(o.grossBilledCents, o.currency) },
+  { id: 'discounts', header: 'Discounts', headerClassName: 'text-right', cellClassName: 'text-right text-fg-muted', render: (o) => formatCents(o.discountsCents, o.currency) },
+  { id: 'credits', header: 'Credits', headerClassName: 'text-right', cellClassName: 'text-right text-fg-muted', render: (o) => formatCents(o.creditsCents, o.currency) },
+  { id: 'net', header: 'Net', headerClassName: 'text-right', cellClassName: 'text-right font-medium text-fg', render: (o) => formatCents(o.netBilledCents, o.currency) },
   { id: 'invoices', header: 'Invoices', headerClassName: 'text-right', cellClassName: 'text-right text-fg-muted', render: (o) => o.invoiceCount },
 ];
 
@@ -135,6 +140,8 @@ export default function BillingAdminPage() {
     }
   }, [isAuthenticated, canReadSubscriptions, range.from, range.to]);
   const summary = summaryQ.data;
+  // byOrg holds a row per (account, currency): an account billed in two currencies is still one account.
+  const accountCount = new Set((summary?.byOrg ?? []).map((o) => o.orgId)).size;
   const summaryLoading = summaryQ.loading;
   const summaryError = summaryQ.error ? formatError(summaryQ.error, 'Failed to load billing summary') : null;
   const applyRange = () => {
@@ -335,15 +342,22 @@ export default function BillingAdminPage() {
 
             {summary ? (
               <>
-                <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-                  <SummaryStat label="Gross billed" value={formatCents(summary.totals.grossBilledCents)} />
-                  <SummaryStat label="Discounts" value={`-${formatCents(summary.totals.discountsCents)}`} />
-                  <SummaryStat label="Credits" value={`-${formatCents(summary.totals.creditsCents)}`} />
-                  <SummaryStat label="Net billed" value={formatCents(summary.totals.netBilledCents)} accent />
-                  <SummaryStat label="Amount paid" value={formatCents(summary.totals.amountPaidCents)} />
-                </div>
+                {/* One row of totals per currency — never summed across currencies. An
+                    empty window still reads as zero, in the default currency. */}
+                {(summary.totalsByCurrency.length > 0 ? summary.totalsByCurrency : [EMPTY_TOTALS]).map((t) => (
+                  <div key={t.currency} className="mt-4">
+                    {summary.totalsByCurrency.length > 1 && <p className="mb-1 text-xs font-semibold text-fg-muted">{t.currency.toUpperCase()}</p>}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                      <SummaryStat label="Gross billed" value={formatCents(t.grossBilledCents, t.currency)} />
+                      <SummaryStat label="Discounts" value={`-${formatCents(t.discountsCents, t.currency)}`} />
+                      <SummaryStat label="Credits" value={`-${formatCents(t.creditsCents, t.currency)}`} />
+                      <SummaryStat label="Net billed" value={formatCents(t.netBilledCents, t.currency)} accent />
+                      <SummaryStat label="Amount paid" value={formatCents(t.amountPaidCents, t.currency)} />
+                    </div>
+                  </div>
+                ))}
                 <p className="mt-2 text-xs text-fg-muted">
-                  {summary.invoiceCount} invoice{summary.invoiceCount !== 1 ? 's' : ''} across {summary.byOrg.length} account{summary.byOrg.length !== 1 ? 's' : ''}.
+                  {summary.invoiceCount} invoice{summary.invoiceCount !== 1 ? 's' : ''} across {accountCount} account{accountCount !== 1 ? 's' : ''}.
                 </p>
 
                 {summary.byOrg.length > 0 && (
@@ -353,7 +367,7 @@ export default function BillingAdminPage() {
                       columns={BY_ORG_COLUMNS}
                       isLoading={false}
                       animated={false}
-                      getRowKey={(o) => o.orgId}
+                      getRowKey={(o) => `${o.orgId}|${o.currency}`}
                       emptyState={{ icon: CreditCard, title: 'No accounts', description: 'No billing activity for any account.' }}
                     />
                   </div>

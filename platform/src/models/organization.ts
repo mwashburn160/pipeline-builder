@@ -210,6 +210,16 @@ export interface OrganizationData {
     ciphertextBase64?: string;
   };
   /**
+   * Durable "verify this org's secrets under its current KMS config" marker,
+   * written in the same update as every `kmsConfig` change (set or clear) and
+   * due one per-org KMS cache TTL plus a margin later: by then every replica
+   * has dropped the outgoing key, so a secret that still does not decrypt was
+   * written under the OLD key by a replica the eviction broadcast missed. The
+   * verification sweep (services/kms-config-verify.ts) claims it, checks, and
+   * clears it. A later change overwrites it, superseding the pending check.
+   */
+  kmsVerifyDueAt?: Date;
+  /**
    * Durable "paid-signup billing bootstrap still pending" marker. Set when a
    * new org selected a paid `planId` at signup but the fire-and-forget billing
    * subscription call couldn't be provisioned (billing down/unreachable, all
@@ -608,6 +618,13 @@ const organizationSchema = new Schema<OrganizationData>(
       // The base64-wrapped 32-byte master. Safe to store at rest — it can
       // only be decrypted by an identity with kms:Decrypt on `keyId`.
       ciphertextBase64: { type: String, default: undefined },
+    },
+    // Post-KMS-change verification marker (see interface docs). Sparse: only
+    // orgs with a change awaiting its check carry it.
+    kmsVerifyDueAt: {
+      type: Date,
+      default: undefined,
+      index: { sparse: true },
     },
     // Durable paid-signup billing-bootstrap marker (see interface docs). Indexed
     // so the reconcile pass's `{ pendingBillingPlanId: { $exists: true, $ne: null } }`

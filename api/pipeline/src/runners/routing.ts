@@ -75,7 +75,6 @@ export function asRunnerRouteError(err: unknown): RunnerRouteError | null {
 export const RUNNERS_UNAVAILABLE_MESSAGES = {
   paused: 'Pipeline runs are paused on this platform by its operator; try again once they resume.',
   encryption_not_configured: 'Pipeline runners are not set up on this deployment (secret encryption is not configured).',
-  tables_missing: 'Pipeline runners are not set up on this deployment: the database has no runner tables.',
   key_service: "Runs can't be signed right now because the key service is unreachable. Queued runs retry automatically.",
 } as const satisfies Record<RunnersUnavailableReason, string>;
 

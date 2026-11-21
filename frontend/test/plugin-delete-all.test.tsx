@@ -11,7 +11,8 @@
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
 import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
-import { DELETE_JOB_POLL_MS, DeletePluginDialog, pluginByNameError } from '../src/components/plugin/DeletePluginDialog';
+import { useState } from 'react';
+import { DELETE_JOB_POLL_MS, DeletePluginDialog, pluginByNameError, usePluginDeleteJobWatcher } from '../src/components/plugin/DeletePluginDialog';
 import { DeletedPluginBatches, groupDeletedBatches } from '../src/components/plugin/DeletedPluginBatches';
 import { PluginDetailModal } from '../src/components/plugin/PluginDetailModal';
 import { ApiError } from '../src/lib/api/errors';
@@ -153,8 +154,81 @@ describe('DeletePluginDialog', () => {
     render(<DeletePluginDialog name="tf-plan" onClose={() => {}} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Delete 2 versions' }));
     fireEvent.click(screen.getByText('confirm-step-up'));
-    expect(await screen.findByText(/Delete job not found/)).toBeInTheDocument();
+    expect(await screen.findByText('Progress is no longer available; check Recently deleted')).toBeInTheDocument();
+    expect(screen.queryByText(/Delete job not found/)).toBeNull();
     expect(getPluginDeleteJob).toHaveBeenCalledTimes(1);
+  });
+
+  /** The page's wiring: the dialog hands a still-running job to the page's watcher on close. */
+  function PageHarness({ onDeleted, onFailed }: { onDeleted: (s: unknown) => void; onFailed?: (name: string, m: string) => void }) {
+    const [open, setOpen] = useState(true);
+    const watch = usePluginDeleteJobWatcher({ onDeleted, onFailed });
+    return open ? <DeletePluginDialog name="tf-plan" onClose={() => setOpen(false)} onDeleted={onDeleted} onContinueInBackground={watch} /> : <p>closed</p>;
+  }
+
+  it('closing the dialog while the delete runs keeps watching it and refreshes the list when it ends', async () => {
+    jest.useFakeTimers();
+    try {
+      getPluginDeleteJob.mockResolvedValueOnce({ success: true, data: JOB }).mockResolvedValueOnce({ success: true, data: JOB });
+      const onDeleted = jest.fn();
+      render(<PageHarness onDeleted={onDeleted} />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Delete 2 versions' }));
+      fireEvent.click(screen.getByText('confirm-step-up'));
+      expect(await screen.findByTestId('delete-plugin-running')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+      expect(screen.getByText('closed')).toBeInTheDocument();
+      for (let i = 0; i < 3; i += 1) {
+        await act(async () => { jest.advanceTimersByTime(DELETE_JOB_POLL_MS); });
+      }
+      expect(onDeleted).toHaveBeenCalledTimes(1);
+      expect(onDeleted).toHaveBeenCalledWith(expect.objectContaining({ state: 'succeeded' }));
+      const calls = getPluginDeleteJob.mock.calls.length;
+      await act(async () => { jest.advanceTimersByTime(DELETE_JOB_POLL_MS * 3); });
+      expect(getPluginDeleteJob).toHaveBeenCalledTimes(calls);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('a background-watched delete that fails is reported to the page, not as a refresh', async () => {
+    jest.useFakeTimers();
+    try {
+      getPluginDeleteJob.mockResolvedValueOnce({ success: true, data: JOB })
+        .mockResolvedValue({ success: true, data: { ...JOB, state: 'failed', error: { code: null, message: 'server restarted' } } });
+      const onDeleted = jest.fn();
+      const onFailed = jest.fn();
+      render(<PageHarness onDeleted={onDeleted} onFailed={onFailed} />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Delete 2 versions' }));
+      fireEvent.click(screen.getByText('confirm-step-up'));
+      expect(await screen.findByTestId('delete-plugin-running')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+      await act(async () => { jest.advanceTimersByTime(DELETE_JOB_POLL_MS); });
+      expect(onFailed).toHaveBeenCalledWith('tf-plan', 'The delete did not finish: server restarted');
+      expect(onDeleted).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('unmounting the page stops the background watch', async () => {
+    jest.useFakeTimers();
+    try {
+      getPluginDeleteJob.mockResolvedValue({ success: true, data: JOB });
+      const onDeleted = jest.fn();
+      const view = render(<PageHarness onDeleted={onDeleted} />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Delete 2 versions' }));
+      fireEvent.click(screen.getByText('confirm-step-up'));
+      expect(await screen.findByTestId('delete-plugin-running')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+      await act(async () => { jest.advanceTimersByTime(DELETE_JOB_POLL_MS); });
+      const calls = getPluginDeleteJob.mock.calls.length;
+      view.unmount();
+      await act(async () => { jest.advanceTimersByTime(DELETE_JOB_POLL_MS * 5); });
+      expect(getPluginDeleteJob).toHaveBeenCalledTimes(calls);
+      expect(onDeleted).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('offers the listing request and the force option for listed versions', async () => {

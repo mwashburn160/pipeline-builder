@@ -11,7 +11,7 @@ import { campaignWindowRefusal, orgRedeemedCampaign, releaseCampaignBudget, rese
 export { loadManageableSubscription };
 import { activeComboCredits, comboLedgerId, discountBaseCents, getComboDiscounts, priceForInterval, volumeCredits, volumeLedgerId } from './combo-pricing.js';
 import { creditCents, discountFloorBreach, floorHeadroomCents, recurringCreditCents, recurringDiscountStandingCents } from './credit-floor.js';
-import { compactInMemoryLedger, creditLedgerEntry } from './credit-ledger-compaction.js';
+import { creditLedgerEntry } from './credit-ledger-compaction.js';
 import { decodeDiscountCode, type DiscountSpec, type DiscountKind } from './discount-code.js';
 import { standingRecurringPromotionCents } from './promotion-engine.js';
 import { invoiceCreditPeriodKey, type InvoiceLineLike } from './stripe-period.js';
@@ -564,39 +564,26 @@ async function realizeUsageCredit(subscription: SubscriptionDocument, cents: num
 
 /**
  * Grant a usage credit of `cents`: post it to the provider (customer balance,
- * when supported + an external customer exists), bank it on the subscription
- * mirror + ledger, and emit `credit_applied`. Mutates `subscription` in place;
- * the caller saves. `idemSeed` dedupes the provider grant.
+ * when supported + an external customer exists), then bank it on the
+ * subscription mirror + ledger with ONE guarded atomic write, and emit
+ * `credit_applied`. The passed `subscription` is not mutated, so a caller's own
+ * `save()` persists only its lifecycle fields and a concurrent redemption's
+ * `$push` to the same ledger can't be clobbered (M2). The guard makes the grant
+ * idempotent per period (dedupeKey) / per discount, so a redelivered webhook
+ * can't double-grant. `idemSeed` dedupes the provider grant.
  */
-async function grantUsageCredit(subscription: SubscriptionDocument, discountId: string, cents: number, idemSeed: string, actorId?: string, dedupeKey?: string, atomic = false): Promise<void> {
+async function grantUsageCredit(subscription: SubscriptionDocument, discountId: string, cents: number, idemSeed: string, dedupeKey?: string): Promise<void> {
   const ref = await realizeUsageCredit(subscription, cents, idemSeed);
-
-  if (atomic) {
-    // Stripe-webhook path: persist the credit with a guarded atomic write instead
-    // of an in-memory push the caller full-saves — so a concurrent redemption's
-    // $push to the SAME ledger can't be clobbered (M2). The guard also makes the
-    // grant idempotent per period (dedupeKey) / per discount, so a redelivered
-    // webhook can't double-grant. The in-memory doc is deliberately NOT mutated:
-    // the caller's `save()` then persists only its own lifecycle fields.
-    const guard = dedupeKey
-      ? { creditLedger: { $not: { $elemMatch: { discountId, dedupeKey } } } }
-      : { 'creditLedger.discountId': { $ne: discountId } };
-    const committed = await Subscription.findOneAndUpdate(
-      { _id: subscription._id, ...guard },
-      { $push: { creditLedger: creditLedgerEntry({ discountId, cents, fulfillmentRef: ref, dedupeKey }) }, $inc: { creditBalanceCents: cents } },
-      { new: true },
-    );
-    if (!committed) return; // already granted (concurrent / redelivery) — no double-grant
-    await createBillingEvent(subscription.orgId, 'credit_applied', { discountId, cents }, subscription._id.toString(), actorId);
-    incCounter('billing_credit_applied_total', {});
-    return;
-  }
-
-  // In-memory path: the caller saves. (Both production callers — the Stripe
-  // invoice reconcile and the Marketplace metering cycle — now pass `atomic`.)
-  subscription.creditBalanceCents = (subscription.creditBalanceCents ?? 0) + cents;
-  subscription.creditLedger.push(creditLedgerEntry({ discountId, cents, fulfillmentRef: ref, dedupeKey }));
-  await createBillingEvent(subscription.orgId, 'credit_applied', { discountId, cents }, subscription._id.toString(), actorId);
+  const guard = dedupeKey
+    ? { creditLedger: { $not: { $elemMatch: { discountId, dedupeKey } } } }
+    : { 'creditLedger.discountId': { $ne: discountId } };
+  const committed = await Subscription.findOneAndUpdate(
+    { _id: subscription._id, ...guard },
+    { $push: { creditLedger: creditLedgerEntry({ discountId, cents, fulfillmentRef: ref, dedupeKey }) }, $inc: { creditBalanceCents: cents } },
+    { new: true },
+  );
+  if (!committed) return; // already granted (concurrent / redelivery) — no double-grant
+  await createBillingEvent(subscription.orgId, 'credit_applied', { discountId, cents }, subscription._id.toString());
   // Observability parity with promotions (billing_promotion_granted_total): make a
   // spike in discount/credit spend alertable rather than only a billing_events row.
   incCounter('billing_credit_applied_total', {});
@@ -666,7 +653,7 @@ export async function reconcileDiscountsOnInvoice(subscription: SubscriptionDocu
   // makes the re-grant idempotent when more than one invoice settles in it — a
   // proration / one-off / out-of-cycle invoice reuses the period key and hits the
   // ledger dedupe instead of double-crediting the account.
-  await grantPeriodicCredits(subscription, invoiceCreditPeriodKey(invoice, subscription), { atomic: true });
+  await grantPeriodicCredits(subscription, invoiceCreditPeriodKey(invoice, subscription));
 }
 
 /**
@@ -675,22 +662,21 @@ export async function reconcileDiscountsOnInvoice(subscription: SubscriptionDocu
  * percent tracks plan changes) and any active combo credits (derived from the live
  * add-on composition). Idempotent per `periodKey` on `(discountId, dedupeKey)`.
  * A revoked/expired recurring rule is stopped (emitting `discount_expired`) so it
- * can't leak credits. `atomic` (the Stripe webhook) persists each grant with a
- * guarded write; otherwise `subscription` is mutated in place and the caller saves.
+ * can't leak credits. Each grant is a guarded atomic write; `subscription` is
+ * read, never mutated, so the caller's own save cannot clobber a credit write.
  *
  * Shared realization for both providers: both pass the period-start key
  * (`billingPeriodKey`) — the Stripe invoice reconciler so several invoices in
  * one period share one grant, the Marketplace metering cycle because it has no
  * invoices to drive it.
  */
-export async function grantPeriodicCredits(subscription: SubscriptionDocument, periodKey: string, opts: { atomic?: boolean } = {}): Promise<void> {
+export async function grantPeriodicCredits(subscription: SubscriptionDocument, periodKey: string): Promise<void> {
   // Symmetric across providers: when the discount surface is off, neither Stripe
   // (invoice reconcile) nor Marketplace (metering cycle) re-grants — otherwise a
   // standing recurring/combo credit would keep topping up on Stripe after the flag
   // is flipped. Existing banked balance still drains; only NEW grants stop.
   if (!discountsEnabled()) return;
   const orgId = subscription.orgId;
-  const { atomic = false } = opts;
 
   // Standing recurring discount.
   const rd = subscription.recurringDiscount;
@@ -699,10 +685,9 @@ export async function grantPeriodicCredits(subscription: SubscriptionDocument, p
     // standing rule alone would otherwise leak credits forever after a revoke.
     const discount = await Discount.findById(rd.discountId);
     if (!discount || !discount.isActive || (discount.redeemBy && discount.redeemBy.getTime() < Date.now())) {
-      // Atomic path (Stripe): persist the expiry without a full-doc save so it
-      // can't clobber a concurrent credit write.
-      if (atomic) await Subscription.updateOne({ _id: subscription._id }, { $set: { recurringDiscount: null } });
-      else subscription.recurringDiscount = null;
+      // Persist the expiry without a full-doc save so it can't clobber a
+      // concurrent credit write.
+      await Subscription.updateOne({ _id: subscription._id }, { $set: { recurringDiscount: null } });
       await createBillingEvent(orgId, 'discount_expired', { discountId: rd.discountId, reason: 'recurring_ended' }, subscription._id.toString());
     } else if (!subscription.creditLedger.some((c) => c.discountId === rd.discountId && c.dedupeKey === periodKey)) {
       // Idempotent per period: a redelivered webhook / repeated cycle must not double-grant.
@@ -751,7 +736,7 @@ export async function grantPeriodicCredits(subscription: SubscriptionDocument, p
           }, subscription._id.toString());
         }
         if (cents > 0) {
-          await grantUsageCredit(subscription, rd.discountId, cents, creditIdemSeed(orgId, rd.discountId, periodKey), undefined, periodKey, atomic);
+          await grantUsageCredit(subscription, rd.discountId, cents, creditIdemSeed(orgId, rd.discountId, periodKey), periodKey);
         }
       }
     }
@@ -762,7 +747,7 @@ export async function grantPeriodicCredits(subscription: SubscriptionDocument, p
   for (const combo of activeComboCredits(subscription.addons ?? [], getBundleCatalog(), getComboDiscounts(), subscription.interval)) {
     const discountId = comboLedgerId(combo.comboId);
     if (subscription.creditLedger.some((c) => c.discountId === discountId && c.dedupeKey === periodKey)) continue;
-    await grantUsageCredit(subscription, discountId, combo.creditCents, creditIdemSeed(orgId, discountId, periodKey), undefined, periodKey, atomic);
+    await grantUsageCredit(subscription, discountId, combo.creditCents, creditIdemSeed(orgId, discountId, periodKey), periodKey);
   }
 
   // Volume credits (per-unit tier discount on a stackable pack, e.g. `seat`),
@@ -771,12 +756,9 @@ export async function grantPeriodicCredits(subscription: SubscriptionDocument, p
   for (const vol of volumeCredits(subscription.addons ?? [], getBundleCatalog(), subscription.interval, getComboDiscounts())) {
     const discountId = volumeLedgerId(vol.bundleId);
     if (subscription.creditLedger.some((c) => c.discountId === discountId && c.dedupeKey === periodKey)) continue;
-    await grantUsageCredit(subscription, discountId, vol.creditCents, creditIdemSeed(orgId, discountId, periodKey), undefined, periodKey, atomic);
+    await grantUsageCredit(subscription, discountId, vol.creditCents, creditIdemSeed(orgId, discountId, periodKey), periodKey);
   }
 
-  // Bound the ledger's growth: fold old per-period rows into per-family carry
-  // rows. In-memory path only — see compactInMemoryLedger for why.
-  compactInMemoryLedger(subscription, atomic);
 }
 
 /**

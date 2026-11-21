@@ -56,6 +56,12 @@ const mockStripeBalanceTxnCreate = jest.fn<AnyFn>();
 // `checkout.sessions.create` was unmocked, so the Checkout path had no coverage
 // at all — adding it is what lets the automatic_tax assertion reach both paths.
 const mockStripeCheckoutCreate = jest.fn<AnyFn>();
+const mockStripeInvoicesList = jest.fn<AnyFn>();
+const mockStripeInvoicePaymentsList = jest.fn<AnyFn>();
+const mockStripeRefundsCreate = jest.fn<AnyFn>();
+const mockStripeWebhookEndpointsList = jest.fn<AnyFn>();
+const mockStripeWebhookEndpointsRetrieve = jest.fn<AnyFn>();
+const mockStripeWebhookEndpointsUpdate = jest.fn<AnyFn>();
 jest.unstable_mockModule('stripe', () => {
   const StripeMock = jest.fn<AnyFn>().mockImplementation(() => ({
     customers: { create: mockStripeCustomersCreate, retrieve: mockStripeCustomersRetrieve, createBalanceTransaction: mockStripeBalanceTxnCreate },
@@ -69,6 +75,10 @@ jest.unstable_mockModule('stripe', () => {
     paymentMethods: { list: mockStripePaymentMethodsList },
     billingPortal: { sessions: { create: mockStripePortalCreate } },
     checkout: { sessions: { create: mockStripeCheckoutCreate } },
+    invoices: { list: mockStripeInvoicesList },
+    invoicePayments: { list: mockStripeInvoicePaymentsList },
+    refunds: { create: mockStripeRefundsCreate },
+    webhookEndpoints: { list: mockStripeWebhookEndpointsList, retrieve: mockStripeWebhookEndpointsRetrieve, update: mockStripeWebhookEndpointsUpdate },
   }));
   return { default: StripeMock };
 });
@@ -370,6 +380,8 @@ describe('StripeProvider', () => {
     },
     currency: 'usd',
     automaticTax: false,
+    webhookEndpointId: '',
+    webhookUrl: '',
   };
 
   let provider: StripeProvider;
@@ -389,6 +401,41 @@ describe('StripeProvider', () => {
     });
     expect(STRIPE_TIMEOUT_MS).toBeLessThanOrEqual(15_000);
     expect(STRIPE_MAX_NETWORK_RETRIES).toBe(2);
+  });
+
+  describe('webhook endpoints', () => {
+    const ep = (id: string, extra: Record<string, unknown> = {}) => ({
+      id, object: 'webhook_endpoint', url: `https://pb.example.com/${id}`, enabled_events: ['invoice.paid'], livemode: false, ...extra,
+    });
+
+    it('lists EVERY endpoint, following pagination', async () => {
+      mockStripeWebhookEndpointsList
+        .mockResolvedValueOnce({ data: [ep('we_1'), ep('we_2')], has_more: true })
+        .mockResolvedValueOnce({ data: [ep('we_3', { livemode: true })], has_more: false });
+
+      const out = await provider.listWebhookEndpoints();
+
+      expect(out).toEqual([
+        { id: 'we_1', url: 'https://pb.example.com/we_1', enabledEvents: ['invoice.paid'], livemode: false },
+        { id: 'we_2', url: 'https://pb.example.com/we_2', enabledEvents: ['invoice.paid'], livemode: false },
+        { id: 'we_3', url: 'https://pb.example.com/we_3', enabledEvents: ['invoice.paid'], livemode: true },
+      ]);
+      expect(mockStripeWebhookEndpointsList).toHaveBeenNthCalledWith(1, { limit: 100 });
+      expect(mockStripeWebhookEndpointsList).toHaveBeenNthCalledWith(2, { limit: 100, starting_after: 'we_2' });
+    });
+
+    it('retrieves one endpoint by id', async () => {
+      mockStripeWebhookEndpointsRetrieve.mockResolvedValue(ep('we_9'));
+      expect(await provider.retrieveWebhookEndpoint('we_9')).toMatchObject({ id: 'we_9', enabledEvents: ['invoice.paid'] });
+      expect(mockStripeWebhookEndpointsRetrieve).toHaveBeenCalledWith('we_9');
+    });
+
+    it('replaces the endpoint\'s enabled_events with the given list', async () => {
+      mockStripeWebhookEndpointsUpdate.mockResolvedValue(ep('we_1', { enabled_events: ['invoice.paid', 'charge.refunded'] }));
+      const out = await provider.updateWebhookEndpointEvents('we_1', ['invoice.paid', 'charge.refunded']);
+      expect(mockStripeWebhookEndpointsUpdate).toHaveBeenCalledWith('we_1', { enabled_events: ['invoice.paid', 'charge.refunded'] });
+      expect(out.enabledEvents).toEqual(['invoice.paid', 'charge.refunded']);
+    });
   });
 
   describe('call metering', () => {
@@ -682,6 +729,37 @@ describe('StripeProvider', () => {
       mockStripeSubscriptionsCancel.mockRejectedValue(new Error('stripe down'));
       mockStripeSubscriptionsRetrieve.mockResolvedValue({ status: 'incomplete' });
       await expect(provider.cancelSubscriptionNow('sub_live')).rejects.toThrow('stripe down');
+    });
+  });
+
+  describe('refundFirstPaidInvoice', () => {
+    it('refunds the subscription\'s FIRST paid invoice in full, idempotent on the invoice id', async () => {
+      // Stripe lists newest first: the first paid invoice is the last one.
+      mockStripeInvoicesList.mockResolvedValue({ data: [{ id: 'in_2', amount_paid: 4900 }, { id: 'in_1', amount_paid: 4900 }] });
+      mockStripeInvoicePaymentsList.mockResolvedValue({ data: [{ payment: { type: 'payment_intent', payment_intent: 'pi_1' } }] });
+      mockStripeRefundsCreate.mockResolvedValue({ id: 're_1' });
+
+      await expect(provider.refundFirstPaidInvoice('sub_dup')).resolves.toEqual({ invoiceId: 'in_1', refundId: 're_1' });
+
+      expect(mockStripeInvoicesList).toHaveBeenCalledWith({ subscription: 'sub_dup', status: 'paid', limit: 100 });
+      expect(mockStripeInvoicePaymentsList).toHaveBeenCalledWith({ invoice: 'in_1', status: 'paid', limit: 1 });
+      expect(mockStripeRefundsCreate).toHaveBeenCalledWith(
+        { payment_intent: 'pi_1', reason: 'duplicate', metadata: { invoiceId: 'in_1', subscriptionId: 'sub_dup' } },
+        { idempotencyKey: 'duplicate-subscription-refund-in_1' },
+      );
+    });
+
+    it('refunds nothing when no invoice is paid yet (no charge to refund)', async () => {
+      mockStripeInvoicesList.mockResolvedValue({ data: [] });
+      await expect(provider.refundFirstPaidInvoice('sub_dup')).resolves.toBeNull();
+      expect(mockStripeRefundsCreate).not.toHaveBeenCalled();
+    });
+
+    it('refunds nothing when the paid invoice carried no payment (settled by credit balance / $0)', async () => {
+      mockStripeInvoicesList.mockResolvedValue({ data: [{ id: 'in_1', amount_paid: 0 }] });
+      mockStripeInvoicePaymentsList.mockResolvedValue({ data: [] });
+      await expect(provider.refundFirstPaidInvoice('sub_dup')).resolves.toBeNull();
+      expect(mockStripeRefundsCreate).not.toHaveBeenCalled();
     });
   });
 

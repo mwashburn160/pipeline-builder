@@ -159,11 +159,13 @@ const mockGetStripeClient = jest.fn<AnyFn>().mockReturnValue({
 });
 
 const mockCancelSubscriptionNow = jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
+const mockRefundFirstPaidInvoice = jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue(null);
 jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({
   getPaymentProvider: () => ({
     getStripeClient: mockGetStripeClient,
     getWebhookSecret: mockGetWebhookSecret,
     cancelSubscriptionNow: (...a: unknown[]) => mockCancelSubscriptionNow(...a),
+    refundFirstPaidInvoice: (...a: unknown[]) => mockRefundFirstPaidInvoice(...a),
     // StripeProvider instanceof check needs help
     constructor: { name: 'StripeProvider' },
   }),
@@ -182,7 +184,7 @@ jest.unstable_mockModule('../src/helpers/signup-promotions.js', () => ({
   runSignupPromotions: (...a: unknown[]) => mockRunSignupPromotions(...a),
 }));
 
-const { planFromStripePrice, handleSubscriptionUpdated, handleSubscriptionCreated, handleSubscriptionDeleted, awaitsLocalRow } = await import('../src/helpers/stripe-subscription-handlers.js');
+const { planFromStripePrice, handleSubscriptionUpdated, handleSubscriptionCreated, handleSubscriptionDeleted, awaitsLocalRow, settleCanceledDuplicate } = await import('../src/helpers/stripe-subscription-handlers.js');
 
 /** Event envelope the webhook route passes every lifecycle handler. */
 const EVT = { id: 'evt_1', created: 1767225600 };
@@ -580,6 +582,68 @@ describe('handleSubscriptionCreated (checkout provisioning)', () => {
     await handleSubscriptionCreated(created({ orgId: 'org-9', planId: 'team', interval: 'monthly' }), EVT);
     expect(mockCancelSubscriptionNow).toHaveBeenCalledWith('sub_ext');
     expect(mockSubscriptionCreate).not.toHaveBeenCalled();
+    expect(mockIncCounter).toHaveBeenCalledWith('billing_duplicate_stripe_subscription_total', { reason: 'concurrent_checkout' });
+  });
+
+  it('refunds the canceled duplicate\'s first paid invoice and records it', async () => {
+    mockSubscriptionFindOne.mockResolvedValue({ externalId: 'sub_KEEPER', status: 'active' });
+    mockRefundFirstPaidInvoice.mockResolvedValueOnce({ invoiceId: 'in_dup', refundId: 're_dup' });
+    await handleSubscriptionCreated(created({ orgId: 'org-9', planId: 'team', interval: 'monthly' }), EVT);
+    expect(mockRefundFirstPaidInvoice).toHaveBeenCalledWith('sub_ext');
+    expect(mockCreateBillingEvent).toHaveBeenCalledWith('org-9', 'subscription_updated', expect.objectContaining({
+      duplicate: true, canceledExternalId: 'sub_ext', refundedInvoiceId: 'in_dup', refundId: 're_dup',
+    }));
+    expect(mockIncCounter).not.toHaveBeenCalledWith('billing_duplicate_stripe_refund_failed_total', expect.anything());
+  });
+
+  it('records no refund when the duplicate has no paid invoice yet (nothing charged)', async () => {
+    mockSubscriptionFindOne.mockResolvedValue({ externalId: 'sub_KEEPER', status: 'active' });
+    mockRefundFirstPaidInvoice.mockResolvedValueOnce(null);
+    await handleSubscriptionCreated(created({ orgId: 'org-9', planId: 'team', interval: 'monthly' }), EVT);
+    expect(mockRefundFirstPaidInvoice).toHaveBeenCalledWith('sub_ext');
+    expect(mockCreateBillingEvent).toHaveBeenCalledWith('org-9', 'subscription_updated', expect.objectContaining({ refundedInvoiceId: null }));
+    expect(mockIncCounter).not.toHaveBeenCalledWith('billing_duplicate_stripe_refund_failed_total', expect.anything());
+  });
+
+  it('counts a failed refund (alerted) and still records the cancel', async () => {
+    mockSubscriptionFindOne.mockResolvedValue({ externalId: 'sub_KEEPER', status: 'active' });
+    mockRefundFirstPaidInvoice.mockRejectedValueOnce(new Error('stripe down'));
+    await handleSubscriptionCreated(created({ orgId: 'org-9', planId: 'team', interval: 'monthly' }), EVT);
+    expect(mockIncCounter).toHaveBeenCalledWith('billing_duplicate_stripe_refund_failed_total', {});
+    expect(mockCreateBillingEvent).toHaveBeenCalledWith('org-9', 'subscription_updated', expect.objectContaining({
+      duplicate: true, refundFailed: true,
+    }));
+  });
+});
+
+// ============================================
+// settleCanceledDuplicate — a duplicate checkout's invoice paid after the cancel
+// ============================================
+
+describe('settleCanceledDuplicate', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  it('cancels (idempotently) and refunds a Checkout sub whose org kept a DIFFERENT bound sub', async () => {
+    mockSubscriptionFindOne.mockResolvedValue({ externalId: 'sub_KEEPER', status: 'active' });
+    mockRefundFirstPaidInvoice.mockResolvedValueOnce({ invoiceId: 'in_late', refundId: 're_late' });
+    await expect(settleCanceledDuplicate('sub_dup', { orgId: 'org-9', planId: 'team' })).resolves.toBe(true);
+    expect(mockCancelSubscriptionNow).toHaveBeenCalledWith('sub_dup');
+    expect(mockRefundFirstPaidInvoice).toHaveBeenCalledWith('sub_dup');
+    expect(mockIncCounter).toHaveBeenCalledWith('billing_duplicate_stripe_subscription_total', { reason: 'paid_after_cancel' });
+    expect(mockCreateBillingEvent).toHaveBeenCalledWith('org-9', 'subscription_updated', expect.objectContaining({ duplicate: true, canceledExternalId: 'sub_dup', refundedInvoiceId: 'in_late' }));
+  });
+
+  it.each([
+    ['no Checkout org stamp', {}, { externalId: 'sub_KEEPER', status: 'active' }],
+    ['an in-app create (subscriptionRef) still binding', { orgId: 'org-9', planId: 'team', subscriptionRef: 'ref' }, { externalId: 'sub_KEEPER', status: 'active' }],
+    ['no other manageable sub for the org', { orgId: 'org-9', planId: 'team' }, null],
+    ['the org\'s sub IS this one', { orgId: 'org-9', planId: 'team' }, { externalId: 'sub_dup', status: 'active' }],
+    ['the org\'s sub is not bound yet', { orgId: 'org-9', planId: 'team' }, { externalId: null, status: 'active' }],
+  ])('is not a duplicate with %s', async (_label, metadata, keeper) => {
+    mockSubscriptionFindOne.mockResolvedValue(keeper);
+    await expect(settleCanceledDuplicate('sub_dup', metadata as any)).resolves.toBe(false);
+    expect(mockCancelSubscriptionNow).not.toHaveBeenCalled();
+    expect(mockRefundFirstPaidInvoice).not.toHaveBeenCalled();
   });
 });
 

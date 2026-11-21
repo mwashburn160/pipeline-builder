@@ -116,7 +116,7 @@ const PATTERNS_PER_CATEGORY = 3;
 /**
  * The org-facing error report: the same failures as {@link errorsQuery}, grouped
  * by the category the ingest-time classifier gave them (`failure_category`;
- * `other` when it matched nothing or the row predates classification), each with
+ * `other` when it matched nothing), each with
  * its top few error texts. Tenant-only — there is deliberately no cross-org
  * variant of this query.
  */

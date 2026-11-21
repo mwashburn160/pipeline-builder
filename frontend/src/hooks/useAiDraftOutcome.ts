@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import api from '@/lib/api';
 import type { AiDraftFeature, AiDraftOutcome } from '@/types/ai-usage';
 
@@ -36,7 +36,11 @@ function send(feature: AiDraftFeature, outcome: AiDraftOutcome, draftId: string 
  *  - `accepted(final?)` — the draft was created / deployed. `final` is what was
  *    actually submitted: different from the draft as offered ⇒ `edited_accepted`.
  *  - unmount with a draft still pending (the dialog closed, the tab changed) ⇒
- *    `discarded`.
+ *    `discarded`. The report waits a microtask and is dropped if the component
+ *    mounted again meanwhile: React StrictMode's simulated unmount/re-mount in
+ *    development must not spend the single-use id of a draft that is still on
+ *    screen. Re-offering the draft already pending (same id, as a re-run mount
+ *    effect does) keeps it rather than reporting it replaced.
  *
  * Each draft reports once, under its own draft id (the server refuses a reused,
  * forged or expired one). Only the feature, the outcome and that id leave the
@@ -54,7 +58,7 @@ export function useAiDraftOutcome() {
 
   const offered = useCallback((feature: AiDraftFeature, draft: unknown, draftId?: string) => {
     const prev = pending.current;
-    if (prev) send(prev.feature, 'discarded', prev.draftId);
+    if (prev && !(draftId && prev.draftId === draftId)) send(prev.feature, 'discarded', prev.draftId);
     pending.current = { feature, snapshot: stableJson(draft), ...(draftId ? { draftId } : {}) };
   }, []);
 
@@ -65,7 +69,16 @@ export function useAiDraftOutcome() {
     send(p.feature, final !== undefined && stableJson(final) !== p.snapshot ? 'edited_accepted' : 'accepted', p.draftId);
   }, []);
 
-  useEffect(() => discarded, [discarded]);
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      // Only a REAL unmount reports: StrictMode re-mounts synchronously, before
+      // this microtask runs.
+      queueMicrotask(() => { if (!mounted.current) discarded(); });
+    };
+  }, [discarded]);
 
-  return { offered, accepted, discarded };
+  return useMemo(() => ({ offered, accepted, discarded }), [offered, accepted, discarded]);
 }

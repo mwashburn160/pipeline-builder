@@ -228,8 +228,8 @@ export async function handleSamlTestAssertion(
     const cfg = await getTestableSamlConfig(orgId);
     const identity = await validateSamlResponse(cfg, samlResponse, relayState, relayState, {
       test: true,
-      // Missing on a test started before the binding existed — refused as an
-      // invalid state, like the sign-in path.
+      // Optional only because PendingTest also holds OIDC tests; a SAML test
+      // always records it (controllers/sso-test.ts).
       expectedRequestId: pending.samlRequestId ?? '',
     });
     report = await dryRunChecks(orgId, { protocol: 'saml' }, identity);

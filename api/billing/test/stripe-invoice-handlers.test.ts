@@ -48,6 +48,8 @@ jest.unstable_mockModule('../src/helpers/billing-ledger.js', () => ({ ingestStri
 
 const reconcileDiscountsOnInvoice = jest.fn<(...a: unknown[]) => Promise<void>>(async () => undefined);
 jest.unstable_mockModule('../src/helpers/discount-helpers.js', () => ({ reconcileDiscountsOnInvoice }));
+const compactStoredCreditLedger = jest.fn<(...a: unknown[]) => Promise<boolean>>(async () => false);
+jest.unstable_mockModule('../src/helpers/credit-ledger-compaction.js', () => ({ compactStoredCreditLedger }));
 
 const grantRecurringPromotions = jest.fn<(...a: unknown[]) => Promise<void>>(async () => undefined);
 const qualifyReferral = jest.fn<(...a: unknown[]) => Promise<void>>(async () => undefined);
@@ -68,7 +70,8 @@ jest.unstable_mockModule('../src/config.js', () => ({
 const acceptStripeEvent = jest.fn<(...a: unknown[]) => Promise<boolean>>(async () => true);
 const grantOnBecomingEntitled = jest.fn<(...a: unknown[]) => Promise<void>>(async () => undefined);
 const awaitsLocalRow = jest.fn<(...a: unknown[]) => Promise<boolean>>(async () => false);
-jest.unstable_mockModule('../src/helpers/stripe-subscription-handlers.js', () => ({ acceptStripeEvent, awaitsLocalRow, grantOnBecomingEntitled }));
+const settleCanceledDuplicate = jest.fn<(...a: unknown[]) => Promise<boolean>>(async () => false);
+jest.unstable_mockModule('../src/helpers/stripe-subscription-handlers.js', () => ({ acceptStripeEvent, awaitsLocalRow, grantOnBecomingEntitled, settleCanceledDuplicate }));
 
 /** Event envelope the webhook route passes every lifecycle handler. */
 const EVT = { id: 'evt_1', created: 1767225600 };
@@ -153,6 +156,23 @@ describe('handleInvoiceUpcoming', () => {
 });
 
 describe('handlePaymentSucceeded', () => {
+  it('a payment on a DUPLICATE checkout (no local row, org kept another sub) is settled as a duplicate, not retried', async () => {
+    findSubscriptionByStripeId.mockResolvedValue(null);
+    settleCanceledDuplicate.mockResolvedValueOnce(true);
+    await expect(handlePaymentSucceeded(makeInvoice(), EVT)).resolves.toBeUndefined();
+    expect(settleCanceledDuplicate).toHaveBeenCalledWith('sub_stripe_1', null);
+    // Not mistaken for a sub still binding (which would 500 into a retry loop).
+    expect(awaitsLocalRow).not.toHaveBeenCalled();
+    expect(ingestStripeInvoice).not.toHaveBeenCalled();
+  });
+
+  it('an unknown sub that is not a duplicate falls through to the binding check', async () => {
+    findSubscriptionByStripeId.mockResolvedValue(null);
+    await handlePaymentSucceeded(makeInvoice(), EVT);
+    expect(settleCanceledDuplicate).toHaveBeenCalled();
+    expect(awaitsLocalRow).toHaveBeenCalled();
+  });
+
   it('advances the billing window from the RECURRING line period, and anchors on its day', async () => {
     const sub = makeSub();
     findSubscriptionByStripeId.mockResolvedValue(sub);
@@ -175,7 +195,9 @@ describe('handlePaymentSucceeded', () => {
 
     expect(sub.currentPeriodStart).toEqual(new Date('2026-09-01T00:00:00Z'));
     expect(sub.currentPeriodEnd).toEqual(new Date('2026-10-01T00:00:00Z'));
-    expect(grantRecurringPromotions).toHaveBeenCalledWith(sub, '2026-09-01', { atomic: true });
+    expect(grantRecurringPromotions).toHaveBeenCalledWith(sub, '2026-09-01');
+    // The period's re-grants are followed by a compare-and-set fold of the stored ledger.
+    expect(compactStoredCreditLedger).toHaveBeenCalledWith(expect.anything(), sub._id);
   });
 
   it('leaves the period alone for an invoice with no recurring line (proration-only or one-off)', async () => {
@@ -188,7 +210,7 @@ describe('handlePaymentSucceeded', () => {
     expect(sub.currentPeriodStart).toEqual(new Date('2026-08-01T00:00:00Z'));
     expect(sub.currentPeriodEnd).toEqual(new Date('2026-09-01T00:00:00Z'));
     // ...and its credits share the current period's one grant.
-    expect(grantRecurringPromotions).toHaveBeenCalledWith(sub, '2026-08-01', { atomic: true });
+    expect(grantRecurringPromotions).toHaveBeenCalledWith(sub, '2026-08-01');
   });
 
   it('resets the grace-period counters on every successful payment', async () => {
@@ -359,7 +381,7 @@ describe('handlePaymentSucceeded', () => {
     expect(reconcileDiscountsOnInvoice).toHaveBeenCalledWith(sub, invoice);
     // Out of order, so the period was not adopted, but the credit still keys on
     // the period the invoice's recurring charge opens (2026-01-01).
-    expect(grantRecurringPromotions).toHaveBeenCalledWith(sub, '2026-01-01', { atomic: true });
+    expect(grantRecurringPromotions).toHaveBeenCalledWith(sub, '2026-01-01');
     expect(qualifyReferral).toHaveBeenCalledWith('org-1');
     const [, kind, details] = createBillingEvent.mock.calls.at(-1) as [string, string, Record<string, unknown>];
     expect(kind).toBe('payment_succeeded');

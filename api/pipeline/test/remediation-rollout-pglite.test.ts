@@ -105,6 +105,7 @@ const deps: RolloutDeps = {
   report: async (remediationId, body) => { reports.push({ remediationId, body }); return 'ok'; },
   // The platform org hierarchy: TEAM is a team under ROOT; OTHER is its own root.
   ancestors: async (orgId) => (orgId === TEAM ? [ROOT] : []),
+  descendants: async (orgId) => (orgId === ROOT ? [TEAM] : []),
 };
 
 const engine = createRolloutEngine(deps);
@@ -359,6 +360,56 @@ describe('start: who is proposed, queued or skipped', () => {
     expect((await stateOf(rem))[teamPipe]).toBe('queued');
   });
 
+  describe('scoped candidates come from the LIVE hierarchy, not the resolution row\'s recorded root', () => {
+    const MOVED = 'dddddddddddddddddddddddd';
+    const AWAY = 'eeeeeeeeeeeeeeeeeeeeeeee';
+    // MOVED is now a team under ROOT (its resolution row still names OTHER);
+    // AWAY moved from ROOT to OTHER (its resolution row still names ROOT).
+    const ancestorCalls: string[] = [];
+    const moved = createRolloutEngine({
+      ...deps,
+      ancestors: async (orgId) => { ancestorCalls.push(orgId); return orgId === MOVED || orgId === TEAM ? [ROOT] : orgId === AWAY ? [OTHER] : []; },
+      descendants: async (orgId) => (orgId === ROOT ? [TEAM, MOVED] : orgId === OTHER ? [AWAY] : []),
+    });
+
+    it('a team moved under the scope org with a stale resolution root is a candidate of its new root\'s start', async () => {
+      await settings(ROOT, { rollout: 'apply' });
+      const pipe = await pipelineOn(MOVED, { root: OTHER });
+      const rem = randomUUID();
+      await moved.start(rem, startBody(ROOT));
+      expect((await loadRows(rem)).map((r) => ({ pipelineId: r.pipelineId, orgId: r.orgId, rootOrgId: r.rootOrgId }))).toEqual([{ pipelineId: pipe, orgId: MOVED, rootOrgId: ROOT }]);
+    });
+
+    it('a team that moved away is not a candidate of its old root\'s start', async () => {
+      await settings(ROOT, { rollout: 'apply' });
+      const own = await pipelineOn(ROOT);
+      await pipelineOn(AWAY, { root: ROOT });
+      ancestorCalls.length = 0;
+      const rem = randomUUID();
+      await moved.start(rem, startBody(ROOT));
+      expect((await loadRows(rem)).map((r) => r.pipelineId)).toEqual([own]);
+      // Never even considered (not refused after the fact by rowOrgAdmits).
+      expect(ancestorCalls).not.toContain(AWAY);
+    });
+
+    it('an unreadable descendant set fails the scoped start whole, nothing written', async () => {
+      await settings(ROOT, { rollout: 'apply' });
+      await pipelineOn(ROOT);
+      const failing = createRolloutEngine({ ...deps, descendants: async () => { throw new Error('platform down'); } });
+      const rem = randomUUID();
+      await expect(failing.start(rem, startBody(ROOT))).rejects.toThrow(/platform down/);
+      expect(await loadRows(rem)).toEqual([]);
+      expect(changeRequests).toEqual([]);
+    });
+
+    it('an official (instance-wide) start never reads the hierarchy\'s descendants', async () => {
+      const own = await pipelineOn(ROOT);
+      const rem = randomUUID();
+      await createRolloutEngine({ ...deps, descendants: async () => { throw new Error('must not be called'); } }).start(rem, startBody(null));
+      expect((await loadRows(rem)).map((r) => r.pipelineId)).toEqual([own]);
+    });
+  });
+
   it('rowOrgAdmits: the row org must be the pipeline\'s org, and the scope its own org or an ancestor', async () => {
     const { rowOrgAdmits } = engineModule;
     const anc = deps.ancestors;
@@ -515,17 +566,18 @@ describe('rollback', () => {
     expect(roots.slice(1)).toEqual([{ step: 'rollbackTarget', rootOrgId: ROOT }, { step: 'rollback', rootOrgId: ROOT }]);
   });
 
-  it('a row with no stored root (NULL) falls back to the resolution row\'s root', async () => {
+  it('a NULL stored root means "no parent": later steps never re-read the resolution row\'s root', async () => {
     await settings(ROOT, { rollout: 'apply' });
-    const teamPipe = await pipelineOn(TEAM, { root: ROOT });
-    plans.set(teamPipe, { kind: 'redeploy', steps: [], install: null });
+    // A root org's own pipeline whose resolution row (wrongly) names another root.
+    const pipe = await pipelineOn(ROOT, { root: OTHER });
+    plans.set(pipe, { kind: 'redeploy', steps: [], install: null });
     const roots: Array<string | null> = [];
     const live = createRolloutEngine({ ...deps, move: (input) => { roots.push(input.rootOrgId); return deps.move(input); } });
     const rem = randomUUID();
     await live.start(rem, startBody());
-    await owner((q) => q.query('UPDATE pipeline_remediation_upgrades SET root_org_id = NULL WHERE remediation_id = $1', [rem]));
+    expect((await loadRows(rem))[0]?.rootOrgId).toBeNull();
     await live.tick();
-    expect(roots).toEqual([ROOT]);
+    expect(roots).toEqual([null]);
   });
 
   it('a failed canary run on a step using the new version rolls that pipeline back and stops the rollout', async () => {

@@ -13,7 +13,7 @@ import { Router, type Request, type Response } from 'express';
 import type Stripe from 'stripe';
 import type { StripeEventMeta } from '../helpers/stripe-helpers.js';
 import { handleInvoiceUpcoming, handlePaymentFailed, handlePaymentSucceeded } from '../helpers/stripe-invoice-handlers.js';
-import { handleChargeRefunded, handleChargeDisputeCreated, handleInvoiceReversal } from '../helpers/stripe-reversals.js';
+import { handleChargeRefunded, handleChargeDisputeClosed, handleChargeDisputeCreated, handleInvoiceReversal } from '../helpers/stripe-reversals.js';
 import { handleSubscriptionCreated, handleSubscriptionDeleted, handleSubscriptionUpdated } from '../helpers/stripe-subscription-handlers.js';
 import { claimWebhookEvent, markWebhookEventDone, releaseWebhookEvent, webhookEventStatus } from '../models/webhook-dedupe.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
@@ -21,12 +21,20 @@ import { StripeProvider } from '../providers/stripe-provider.js';
 
 const logger = createLogger('billing-stripe-webhook');
 
+type StripeEventHandler = (data: unknown, event: StripeEventMeta) => Promise<void>;
+
 /**
  * Stripe event type → handler dispatch map (built once at module load). Each
  * handler gets the event envelope (`id` + `created`) too: the lifecycle handlers
  * order events per subscription on `created`, since Stripe delivers unordered.
+ *
+ * THE single list of handled events: {@link STRIPE_WEBHOOK_EVENTS} is derived
+ * from its keys, the startup reconcile subscribes the Stripe endpoint to them,
+ * and a test holds docs/billing-providers.md's events table to the same set.
+ * Keys are checked against Stripe's own event-name union, so a typo is a
+ * compile error rather than an event that is subscribed and never sent.
  */
-const STRIPE_EVENT_HANDLERS: Readonly<Record<string, (data: unknown, event: StripeEventMeta) => Promise<void>>> = {
+const STRIPE_EVENT_HANDLERS = {
   'customer.subscription.created': (data, event) => handleSubscriptionCreated(data as Stripe.Subscription, event),
   'customer.subscription.updated': (data, event) => handleSubscriptionUpdated(data as Stripe.Subscription, event),
   'customer.subscription.deleted': (data, event) => handleSubscriptionDeleted(data as Stripe.Subscription, event),
@@ -37,9 +45,22 @@ const STRIPE_EVENT_HANDLERS: Readonly<Record<string, (data: unknown, event: Stri
   // clawback window (defuses subscribe-grab-refund/chargeback abuse).
   'charge.refunded': (data) => handleChargeRefunded(data as Stripe.Charge),
   'charge.dispute.created': (data) => handleChargeDisputeCreated(data as Stripe.Dispute),
+  // A WON dispute undoes the dispute reversal (ledger row + clawed-back credits).
+  'charge.dispute.closed': (data) => handleChargeDisputeClosed(data as Stripe.Dispute),
   'invoice.voided': (data) => handleInvoiceReversal(data as Stripe.Invoice, 'invoice_voided'),
   'invoice.marked_uncollectible': (data) => handleInvoiceReversal(data as Stripe.Invoice, 'invoice_uncollectible'),
-};
+} as const satisfies Partial<Record<Stripe.WebhookEndpointUpdateParams.EnabledEvent, StripeEventHandler>>;
+
+/** A Stripe event type billing handles. */
+export type StripeWebhookEvent = keyof typeof STRIPE_EVENT_HANDLERS;
+
+/** Every Stripe event type billing handles — the keys of the dispatch map. */
+export const STRIPE_WEBHOOK_EVENTS: readonly StripeWebhookEvent[] = Object.freeze(
+  Object.keys(STRIPE_EVENT_HANDLERS) as StripeWebhookEvent[],
+);
+
+const handlerFor = (type: string): StripeEventHandler | undefined =>
+  Object.hasOwn(STRIPE_EVENT_HANDLERS, type) ? STRIPE_EVENT_HANDLERS[type as StripeWebhookEvent] : undefined;
 
 /**
  * Create the Stripe webhook router.
@@ -136,7 +157,7 @@ export function createStripeWebhookRoutes(): Router {
       }
 
       try {
-        const handler = STRIPE_EVENT_HANDLERS[event.type];
+        const handler = handlerFor(event.type);
         if (handler) {
           await handler(event.data.object, { id: event.id, created: event.created });
         } else {

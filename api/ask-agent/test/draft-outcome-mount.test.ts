@@ -58,6 +58,18 @@ const quotaService = {
   getTierStrict: jest.fn(async () => 'developer' as const),
 } as unknown as QuotaService & Record<'check' | 'increment' | 'incrementMetered', jest.Mock<AnyFn>>;
 
+/** The org's AI switch as the fake platform reports it (`GET /internal/ai/access/:orgId`). */
+const aiEnabled = new Map<string, boolean>();
+const platform = http.createServer((req, res) => {
+  const orgId = decodeURIComponent((req.url ?? '').split('/').pop() ?? '');
+  res.writeHead(200, { 'content-type': 'application/json' });
+  res.end(JSON.stringify({ success: true, data: { aiEnabled: aiEnabled.get(orgId) ?? true, providers: [] } }));
+});
+await new Promise<void>((resolve) => platform.listen(0, '127.0.0.1', () => resolve()));
+process.env.PLATFORM_SERVICE_HOST = '127.0.0.1';
+process.env.PLATFORM_SERVICE_PORT = String((platform.address() as { port: number }).port);
+process.env.ORG_AI_ACCESS_TTL_MS = '0';
+
 const jwks = installTestJwks();
 const { createApp, attachRequestContext } = await import('@pipeline-builder/api-server');
 const { getAiDraftStore } = await import('@pipeline-builder/api-core');
@@ -77,6 +89,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
+  await new Promise<void>((resolve) => platform.close(() => resolve()));
 });
 
 beforeEach(() => {
@@ -120,6 +133,20 @@ describe('POST /ask-agent/draft-outcome mount', () => {
     expect(anon.status).toBe(401);
     const noFeature = await postOutcome({ feature: 'pipeline-generate', outcome: 'accepted', draftId: await issue() }, token([]));
     expect(noFeature.status).toBe(403);
+  });
+
+  it('is refused (403 AI_DISABLED) for an org that switched AI off, and the draft id stays unspent', async () => {
+    aiEnabled.set(ORG, false);
+    try {
+      const draftId = await issue();
+      const res = await postOutcome({ feature: 'pipeline-generate', outcome: 'accepted', draftId });
+      expect(res.status).toBe(403);
+      expect(res.json.code).toBe('AI_DISABLED');
+      aiEnabled.set(ORG, true);
+      expect((await postOutcome({ feature: 'pipeline-generate', outcome: 'accepted', draftId })).status).toBe(200);
+    } finally {
+      aiEnabled.delete(ORG);
+    }
   });
 
   it('spends no apiCall and is served for an org at its apiCalls limit', async () => {

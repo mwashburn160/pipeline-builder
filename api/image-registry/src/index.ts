@@ -45,8 +45,8 @@ runServer(app, {
       registryPort: config.registry.port,
     });
     // in-process periodic GC over `org-*` namespaces. Opt-in via
-    // REGISTRY_GC_ENABLED=true; no-op otherwise so existing deployments
-    // don't see surprise traffic on the registry.
+    // REGISTRY_GC_ENABLED=true; no-op otherwise, so the registry sees no GC
+    // traffic unless the operator asks for it.
     startGcScheduler();
     // Always-on: anonymous-submission builds (`quarantine/*`) are removed 30
     // days after their build even if the plugin service's delete hook missed.

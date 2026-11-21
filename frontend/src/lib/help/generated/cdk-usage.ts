@@ -1,6 +1,6 @@
 // GENERATED FROM docs/cdk-usage.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 0e35e3554d0da563f795a3281f443f27f540ae34054613ad01366ef4e5d7ac7c
+// SOURCE-SHA256: 87754862ea4e75bbfade81e54f502b8175fc9a4d72504fec6eee9cea7e219a95
 // SPDX-License-Identifier: Apache-2.0
 import { Boxes } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -143,7 +143,7 @@ export const cdkUsageTopic: HelpTopic = {
               "pipelineName",
               "string",
               "No",
-              "Custom name. Default: {organization}-{project}-pipeline"
+              "Custom name. Default: {organization}-{project}-pipeline (non-alphanumerics → _, lowercased), plus -<8-hex hash> of the raw pair when either name holds anything but letters, digits and - (so spring_boot and spring-boot never share a pipeline)"
             ],
             [
               "synth",

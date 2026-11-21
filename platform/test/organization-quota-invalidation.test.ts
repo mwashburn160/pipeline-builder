@@ -276,16 +276,16 @@ describe('setTier — tier downgrade invalidation', () => {
 });
 
 describe('setSeatLimit — feature (bundle) removal invalidation', () => {
-  /** findById(...).select('featureEntitlements').session().lean() → current doc. */
+  /** findById(...).select(...).session().lean() → current doc (tier unchanged by these pushes). */
   const currentFeatures = (features: string[]) =>
     mockOrgFindById.mockReturnValue({
-      select: () => ({ session: () => ({ lean: () => Promise.resolve({ featureEntitlements: features }) }) }),
+      select: () => ({ session: () => ({ lean: () => Promise.resolve({ tier: 'pro', featureEntitlements: features }) }) }),
     });
 
   it('bumps every active member when a feature is REMOVED (sso dropped)', async () => {
     currentFeatures(['sso', 'audit_log']);
 
-    await setSeatLimit('root-1', 5, ['audit_log']); // sso removed
+    await setSeatLimit('root-1', 5, ['audit_log'], 'pro', 2, 1); // sso removed
 
     const bump = tokenBump();
     expect(bump).toBeDefined();
@@ -296,7 +296,7 @@ describe('setSeatLimit — feature (bundle) removal invalidation', () => {
   it('does NOT bump when a feature is only ADDED', async () => {
     currentFeatures(['sso']);
 
-    await setSeatLimit('root-1', 5, ['sso', 'audit_log']); // audit_log added
+    await setSeatLimit('root-1', 5, ['sso', 'audit_log'], 'pro', 2, 1); // audit_log added
 
     expect(tokenBump()).toBeUndefined();
   });
@@ -304,7 +304,7 @@ describe('setSeatLimit — feature (bundle) removal invalidation', () => {
   it('does NOT bump when the feature set is UNCHANGED', async () => {
     currentFeatures(['sso', 'audit_log']);
 
-    await setSeatLimit('root-1', 5, ['audit_log', 'sso']); // same set, reordered
+    await setSeatLimit('root-1', 5, ['audit_log', 'sso'], 'pro', 2, 1); // same set, reordered
 
     expect(tokenBump()).toBeUndefined();
   });
@@ -315,20 +315,11 @@ describe('setSeatLimit — feature (bundle) removal invalidation', () => {
     mockExpandOrgScope.mockResolvedValue(['root-1', 'team-1']);
     currentFeatures(['sso', 'audit_log']);
 
-    await setSeatLimit('root-1', 5, ['audit_log', 'sso']); // same set, reordered
+    await setSeatLimit('root-1', 5, ['audit_log', 'sso'], 'pro', 2, 1); // same set, reordered
 
     // No descendant featureEntitlements rewrite (no updateMany at all here).
     expect(mockOrgUpdateMany).not.toHaveBeenCalled();
     // And still no token bump (nothing was reduced).
-    expect(tokenBump()).toBeUndefined();
-  });
-
-  it('does NOT touch entitlements or bump when features are omitted (seat-only update)', async () => {
-    // The root IS read now — the limits being replaced are the audit row's
-    // `previous` — but a seat-only update rewrites no entitlement and bumps no one.
-    await setSeatLimit('root-1', 8);
-
-    expect(mockOrgUpdateMany).not.toHaveBeenCalled();
     expect(tokenBump()).toBeUndefined();
   });
 
@@ -340,7 +331,7 @@ describe('setSeatLimit — feature (bundle) removal invalidation', () => {
     mockUserOrgDistinct.mockReturnValue({ session: () => Promise.resolve(['u1', 'u2', 'u3']) });
     currentFeatures(['advanced_reporting', 'audit_log']);
 
-    await setSeatLimit('root-1', 5, ['audit_log']); // advanced_reporting removed
+    await setSeatLimit('root-1', 5, ['audit_log'], 'pro', 2, 1); // advanced_reporting removed
 
     const bump = tokenBump();
     expect(bump).toBeDefined();
@@ -373,7 +364,7 @@ describe('setSeatLimit — tier downgrade invalidation (billing tier push)', () 
     mockUserOrgDistinct.mockReturnValue({ session: () => Promise.resolve(['u1', 'u2', 'u3']) });
     currentDoc('team');
 
-    await setSeatLimit('root-1', 5, undefined, 'pro');
+    await setSeatLimit('root-1', 5, [], 'pro', 2, 1);
 
     // Root write carries the tier label + the pushed seat value.
     const set = (mockOrgUpdateOne.mock.calls[0][1] as any).$set;
@@ -396,7 +387,7 @@ describe('setSeatLimit — tier downgrade invalidation (billing tier push)', () 
     // NEW tier — else they report the OLD tier's caps under the new label.
     currentDoc('team'); // team → pro downgrade
 
-    await setSeatLimit('root-1', 5, undefined, 'pro');
+    await setSeatLimit('root-1', 5, [], 'pro', 2, 1);
 
     const set = (mockOrgUpdateOne.mock.calls[0][1] as any).$set;
     // seats stays the billing-pushed effective value — NOT clobbered by pro's base (3).
@@ -414,7 +405,7 @@ describe('setSeatLimit — tier downgrade invalidation (billing tier push)', () 
   it('does NOT reseed quotas when the tier is UNCHANGED (seat-only within a tier)', async () => {
     currentDoc('pro');
 
-    await setSeatLimit('root-1', 7, undefined, 'pro');
+    await setSeatLimit('root-1', 7, [], 'pro', 2, 1);
 
     const set = (mockOrgUpdateOne.mock.calls[0][1] as any).$set;
     expect(set['quotas.seats']).toBe(7);
@@ -425,7 +416,7 @@ describe('setSeatLimit — tier downgrade invalidation (billing tier push)', () 
   it('does NOT bump on an UPGRADE (pro → team) but still sets the tier label', async () => {
     currentDoc('pro');
 
-    await setSeatLimit('root-1', 5, undefined, 'team');
+    await setSeatLimit('root-1', 5, [], 'team', 2, 1);
 
     expect((mockOrgUpdateOne.mock.calls[0][1] as any).$set.tier).toBe('team');
     expect(tokenBump()).toBeUndefined();
@@ -434,7 +425,7 @@ describe('setSeatLimit — tier downgrade invalidation (billing tier push)', () 
   it('leaves the tier untouched (no $set, no bump) when unchanged', async () => {
     currentDoc('pro');
 
-    await setSeatLimit('root-1', 5, undefined, 'pro');
+    await setSeatLimit('root-1', 5, [], 'pro', 2, 1);
 
     expect((mockOrgUpdateOne.mock.calls[0][1] as any).$set.tier).toBeUndefined();
     expect(tokenBump()).toBeUndefined();
@@ -445,7 +436,7 @@ describe('setSeatLimit — tier downgrade invalidation (billing tier push)', () 
     // scalar organizationId, not a single-element $in.
     currentDoc('team');
 
-    await setSeatLimit('root-1', 5, undefined, 'pro');
+    await setSeatLimit('root-1', 5, [], 'pro', 2, 1);
 
     expect(tokenBump()).toBeDefined();
     expect(mockUserOrgDistinct).toHaveBeenCalledWith('userId', { organizationId: 'root-1', isActive: true });
@@ -458,7 +449,7 @@ describe('setSeatLimit — tier downgrade invalidation (billing tier push)', () 
     mockUserOrgDistinct.mockReturnValue({ session: () => Promise.resolve(['u1', 'u2', 'u3']) });
     currentDoc('team', ['advanced_reporting', 'audit_log']);
 
-    await setSeatLimit('root-1', 5, ['audit_log'], 'pro'); // advanced_reporting dropped AND team→pro
+    await setSeatLimit('root-1', 5, ['audit_log'], 'pro', 2, 1); // advanced_reporting dropped AND team→pro
 
     // Exactly one tokenVersion bump write (not one per reduction).
     const bumps = mockUserUpdateMany.mock.calls.filter((c) => (c[1] as any)?.$inc?.claimsVersion === 1);
@@ -476,7 +467,7 @@ describe('setSeatLimit — tier downgrade invalidation (billing tier push)', () 
     currentDoc('team');
     mockOrgUpdateOne.mockResolvedValueOnce({ matchedCount: 0 });
 
-    const result = await setSeatLimit('root-1', 5, undefined, 'pro');
+    const result = await setSeatLimit('root-1', 5, [], 'pro', 2, 1);
 
     expect(result).toBeNull();
     expect(tokenBump()).toBeUndefined();
@@ -494,7 +485,7 @@ describe('quota reseed — billing-owned retention dims are EXCLUDED', () => {
   it('setSeatLimit tier-push does NOT write eventRetentionDays/doraRetentionDays onto the org doc', async () => {
     currentDoc('team'); // team → pro downgrade triggers the non-seat reseed
 
-    await setSeatLimit('root-1', 5, undefined, 'pro');
+    await setSeatLimit('root-1', 5, [], 'pro', 2, 1);
 
     const set = (mockOrgUpdateOne.mock.calls[0][1] as any).$set;
     // Non-retention dims reseed as before...
@@ -523,7 +514,7 @@ describe('setSeatLimit — root-only', () => {
     const { ORG_SEAT_LIMIT_NOT_ROOT } = await import('../src/services/org-errors.js');
     mockResolveOrgLineage.mockResolvedValue({ rootOrgId: 'root-1' });
 
-    await expect(setSeatLimit('team-7', 5, ['sso'])).rejects.toThrow(ORG_SEAT_LIMIT_NOT_ROOT);
+    await expect(setSeatLimit('team-7', 5, ['sso'], 'pro', 2, 1)).rejects.toThrow(ORG_SEAT_LIMIT_NOT_ROOT);
     expect(mockOrgUpdateOne).not.toHaveBeenCalled();
     expect(mockOrgUpdateMany).not.toHaveBeenCalled();
   });

@@ -60,6 +60,7 @@ import {
   replacePipelineResolution,
   resolveListingReference,
   resolveManagedToolchainHalf,
+  getTenantContext,
   runWithTenantContext,
   schema,
   scopeOrgIds,
@@ -217,10 +218,24 @@ export function setContractListingSourceForTests(fn: typeof listingSourceFor | n
   listingSourceFor = fn ?? drizzleListingSource;
 }
 
+/**
+ * The viewer a resolution is made for. A SYSTEM job (a super-admin scope with no
+ * user — the rollout worker / internal start, a system move) runs sysadmin only
+ * so it can reach a private pipeline and cross RLS; it is not a person, so it
+ * must not lift the private-draft rung: like synth for a system actor it sees
+ * no one's private drafts. A real caller (an operator included) keeps the
+ * request's own viewer.
+ */
+function viewerFilter(filter: Partial<PluginFilter>): Partial<PluginFilter> {
+  const ctx = getTenantContext();
+  if (ctx?.isSuperAdmin && !ctx.userId) return { ...filter, viewerUserId: undefined, viewerIsSuperAdmin: false };
+  return withViewerContext<PluginFilter>(filter);
+}
+
 /** The caller's own org row a filter selects (own org, then parent), or null. */
 async function resolveOwnRow(filter: Partial<PluginFilter>, orgId: string, parentOrgId?: string): Promise<ResolvedContractPlugin | null> {
   const conditions = [
-    ...buildPluginConditions(withViewerContext<PluginFilter>({ ...filter, nameMatch: 'exact' }), orgId, parentOrgId),
+    ...buildPluginConditions(viewerFilter({ ...filter, nameMatch: 'exact' }), orgId, parentOrgId),
     isNull(schema.plugin.deletedAt),
   ];
   const read = () => withTenantTx(async (tx) => tx

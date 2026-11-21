@@ -40,12 +40,16 @@ export interface CreditLedgerEntry {
   campaign?: string;
   /** Set on a promotion clawback tombstone (see clawbackRecentPromotions). */
   clawedBackAt?: Date;
+  /** The reversal that clawed this row back (`dispute:<id>`), when tagged. */
+  clawbackRef?: string;
+  /** The cents that clawback recovered (re-granted if the dispute is won). */
+  clawedBackCents?: number;
 }
 
 /**
  * Build a credit-ledger row. Single source of the row SHAPE so the discount and
- * promotion grant paths — the in-memory `.push()` sites AND the atomic `$push`
- * sites — can't drift (add a field to one, forget the others). Stamps `appliedAt`
+ * promotion grant paths' atomic `$push` sites can't drift (add a field to one,
+ * forget the others). Stamps `appliedAt`
  * at call time; callers supply the provenance + amount.
  */
 export function creditLedgerEntry(e: {
@@ -81,30 +85,36 @@ function grantsOf(entry: CreditLedgerEntry): number {
 }
 
 /**
- * Compact a subscription's ledger in place, but ONLY on the in-memory path.
- *
- * This condition is the whole point, and it was written out at both call sites
- * (grantDueDiscounts and grantRecurringPromotions) with the reasoning duplicated
- * in two comments — the shape that drifts, because a change to the invariant
- * only has to be missed in one of them.
- *
- * The in-memory (Marketplace) path owns the authoritative array and full-saves
- * it, so folding rows there is safe. The atomic (Stripe) path never touches the
- * in-memory ledger — it `$push`es — so compacting and saving would CLOBBER rows
- * that were pushed concurrently. Its growth is bounded by the next in-memory
- * pass instead.
- *
- * Takes the ledger holder STRUCTURALLY rather than importing `SubscriptionDocument`,
- * so this module stays dependency-free (it is pure arithmetic otherwise, and
- * several suites load it without a model layer).
+ * The raw collection calls {@link compactStoredCreditLedger} needs. Structural, so
+ * this module stays free of the model layer: callers pass `Subscription.collection`.
  */
-export function compactInMemoryLedger(
-  subscription: { creditLedger: CreditLedgerEntry[] },
-  atomic: boolean,
-): void {
-  if (atomic) return;
-  const compacted = compactCreditLedger(subscription.creditLedger);
-  if (compacted.length !== subscription.creditLedger.length) subscription.creditLedger = compacted;
+export interface LedgerCollection {
+  findOne(filter: { _id: unknown }, options: { projection: { creditLedger: 1 } }): Promise<{ creditLedger?: CreditLedgerEntry[] } | null>;
+  updateOne(filter: Record<string, unknown>, update: Record<string, unknown>): Promise<{ modifiedCount: number }>;
+}
+
+/**
+ * Compact the STORED ledger of one subscription. Every grant writes the ledger
+ * atomically (`$push` / positional `$set`), so a compaction cannot read, fold
+ * and save the document — that would clobber a grant or a clawback tombstone
+ * written in between. Instead it is a compare-and-set on the whole array: read
+ * the raw ledger, fold it ({@link compactCreditLedger}), and replace it only
+ * where it still equals exactly what was read. A concurrent write makes the
+ * filter miss and nothing is written; the next period's pass folds it then.
+ * Runs on the raw collection so the read and the filter are the same BSON,
+ * with no schema casting between them. Returns whether it wrote.
+ */
+export async function compactStoredCreditLedger(
+  collection: LedgerCollection,
+  subscriptionId: unknown,
+  keepRecent: number = DEFAULT_KEEP_RECENT,
+): Promise<boolean> {
+  const doc = await collection.findOne({ _id: subscriptionId }, { projection: { creditLedger: 1 } });
+  const ledger = doc?.creditLedger ?? [];
+  const compacted = compactCreditLedger(ledger, keepRecent);
+  if (compacted.length === ledger.length) return false;
+  const result = await collection.updateOne({ _id: subscriptionId, creditLedger: ledger }, { $set: { creditLedger: compacted } });
+  return result.modifiedCount === 1;
 }
 
 /**

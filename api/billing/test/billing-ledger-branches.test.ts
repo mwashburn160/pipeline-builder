@@ -202,23 +202,22 @@ describe('summaries', () => {
     expect(matchOf()).toEqual(match);
   });
 
-  it('an empty ledger is all zeros, and a sparse totals row reads missing sums as 0', async () => {
+  it('an empty ledger has no currency totals; each $group row maps to one currency', async () => {
     BillingInvoice.aggregate.mockResolvedValueOnce([]);
-    await expect(ledger.getBillingSummary('org_1')).resolves.toEqual({
-      scope: 'account', totals: { grossBilledCents: 0, discountsCents: 0, creditsCents: 0, taxCents: 0, netBilledCents: 0, amountPaidCents: 0 }, timeline: [], invoiceCount: 0,
-    });
-    BillingInvoice.aggregate.mockResolvedValueOnce([{ totals: [{ grossBilledCents: 900 }], timeline: [{ periodStart: new Date(0), grossCents: 900, discountCents: 0, creditCents: 0, netCents: 900 }] }]);
+    await expect(ledger.getBillingSummary('org_1')).resolves.toEqual({ scope: 'account', totalsByCurrency: [], timeline: [], invoiceCount: 0 });
+    const row = { grossBilledCents: 900, discountsCents: 0, creditsCents: 0, taxCents: 0, netBilledCents: 900, amountPaidCents: 900, invoiceCount: 1 };
+    BillingInvoice.aggregate.mockResolvedValueOnce([{ totals: [{ _id: 'eur', ...row }], timeline: [{ periodStart: new Date(0), currency: 'eur', grossCents: 900, discountCents: 0, creditCents: 0, netCents: 900 }] }]);
     const s = await ledger.getBillingSummary('org_1');
-    expect(s.totals).toMatchObject({ grossBilledCents: 900, netBilledCents: 0 });
-    expect(s.invoiceCount).toBe(0);
-    expect(s.timeline[0]!.periodStart).toBe('1970-01-01T00:00:00.000Z');
+    expect(s.totalsByCurrency).toEqual([{ currency: 'eur', ...row }]);
+    expect(s.invoiceCount).toBe(1);
+    expect(s.timeline[0]).toMatchObject({ periodStart: '1970-01-01T00:00:00.000Z', currency: 'eur' });
   });
 
   it('the admin summary narrows by org and window, and maps the per-org breakdown', async () => {
-    BillingInvoice.aggregate.mockResolvedValueOnce([{ totals: [{ netBilledCents: 10, invoiceCount: 2 }], byOrg: [{ _id: 'org_1', grossBilledCents: 10, creditsCents: 0, discountsCents: 0, netBilledCents: 10, invoiceCount: 2 }] }]);
+    BillingInvoice.aggregate.mockResolvedValueOnce([{ totals: [{ _id: 'usd', netBilledCents: 10, invoiceCount: 2 }], byOrg: [{ _id: { orgId: 'org_1', currency: 'usd' }, grossBilledCents: 10, creditsCents: 0, discountsCents: 0, netBilledCents: 10, invoiceCount: 2 }] }]);
     const out = await ledger.getAdminBillingSummary(new Date(1), new Date(2), 'org_1');
     expect(matchOf()).toEqual({ status: { $nin: ['void', 'uncollectible'] }, orgId: 'org_1', periodStart: { $gte: new Date(1), $lte: new Date(2) } });
-    expect(out).toMatchObject({ invoiceCount: 2, byOrg: [{ orgId: 'org_1', netBilledCents: 10 }] });
+    expect(out).toMatchObject({ invoiceCount: 2, totalsByCurrency: [{ currency: 'usd', netBilledCents: 10 }], byOrg: [{ orgId: 'org_1', currency: 'usd', netBilledCents: 10 }] });
     BillingInvoice.aggregate.mockResolvedValueOnce([]);
     await expect(ledger.getAdminBillingSummary(undefined, new Date(2))).resolves.toMatchObject({ byOrg: [], invoiceCount: 0 });
     expect(matchOf()).toEqual({ status: { $nin: ['void', 'uncollectible'] }, periodStart: { $lte: new Date(2) } });
@@ -228,11 +227,11 @@ describe('summaries', () => {
   });
 
   it('lists invoice rows newest first with pagination', async () => {
-    const row = { periodStart: new Date(0), periodEnd: new Date(1), subtotalCents: 5, discountCents: 0, creditCents: 1, taxCents: 0, totalCents: 4, amountPaidCents: 4, status: 'paid' };
+    const row = { periodStart: new Date(0), periodEnd: new Date(1), subtotalCents: 5, discountCents: 0, creditCents: 1, taxCents: 0, totalCents: 4, amountPaidCents: 4, currency: 'eur', status: 'paid' };
     BillingInvoice.find.mockReturnValue({ sort: () => ({ skip: () => ({ limit: async () => [row] }) }) });
     BillingInvoice.countDocuments.mockResolvedValue(7);
     await expect(ledger.listBillingInvoices('org_1', undefined, undefined, 1, 3)).resolves.toEqual({
-      invoices: [{ periodStart: '1970-01-01T00:00:00.000Z', periodEnd: '1970-01-01T00:00:00.001Z', grossCents: 5, discountCents: 0, creditCents: 1, taxCents: 0, netCents: 4, amountPaidCents: 4, status: 'paid' }],
+      invoices: [{ periodStart: '1970-01-01T00:00:00.000Z', periodEnd: '1970-01-01T00:00:00.001Z', grossCents: 5, discountCents: 0, creditCents: 1, taxCents: 0, netCents: 4, amountPaidCents: 4, currency: 'eur', status: 'paid' }],
       pagination: { total: 7, limit: 1, offset: 3 },
     });
   });

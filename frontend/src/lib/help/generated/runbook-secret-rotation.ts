@@ -1,6 +1,6 @@
 // GENERATED FROM docs/runbooks/secret-rotation.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: a2c61f24019455b276571d0220d501ebbb85c92f7ca9f599c0904bb16ff3b779
+// SOURCE-SHA256: f21c28392c1d51f964108497855f2331fff6cd17a9b56ca1012bce0e3433ee48
 // SPDX-License-Identifier: Apache-2.0
 import { KeyRound } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -757,7 +757,40 @@ export const runbookSecretRotationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Proof — packages/api-core/test/secret-rotation.test.ts (overlap → rewrite → old blob rejected), platform/test/secret-reencrypt.test.ts (the fleet-wide tool, including the unreadable-row path), packages/api-core/test/secret-encryption.test.ts (cross-replica eviction and the TTL backstop)."
+          "content": "Post-change verification. The eviction closes the old-key window only on the replicas it reaches. A replica that misses it keeps encrypting new secrets under the outgoing key until its cached entry lapses, and those writes land after the change's own re-encrypt pass, so unreadableConcurrentWrites cannot see them. To catch them, every PUT/DELETE that saves a config also stamps a verification marker on the org (Organization.kmsVerifyDueAt) in the same write, due 6 minutes later (the 5-minute cache TTL plus a 1-minute margin). The platform sweep kms-config-verify (runs every minute, one replica at a time) then tries to decrypt each of the org's AI provider keys and its SSO client secret under the current config:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Every secret opens: the marker is cleared and nothing is reported.",
+            "Some do not: their field names only (aiProviderKeys.<provider>,"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "idpClientSecret, never values) are logged as an error, recorded as an admin.org.kms-config.verify audit row with outcome: failure and details.unreadableSecrets, counted in platform_kms_secret_verify_failed_total{field} (alert KmsSecretVerifyFailed), and sent to the org's owners and admins, in-app and by email, with a request to re-enter them. Nothing can recover these values; re-entry is the fix. If no admin can, re-enter them yourself through the same admin endpoints."
+        },
+        {
+          "type": "list",
+          "items": [
+            "The provider cannot encrypt for the org at all (a KMS outage or a revoked"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "kms:Decrypt grant): that is not counted as unreadable secrets. The check fails, the sweep reports a failed cycle, and the check runs again after a 5-minute lease. Fix KMS access first (POST .../kms-config/test)."
+        },
+        {
+          "type": "text",
+          "content": "The marker survives a restart, and it is claimed by a conditional update, so only one replica runs each check. A crash mid-check leaves the lease, which comes due again. A second change before the check runs moves the marker, so only the newer change's check runs. A change that lands while a check is running makes that check drop its result unreported, because the newer change has its own check."
+        },
+        {
+          "type": "text",
+          "content": "A partial config (a stored keyId with no wrapped ciphertext, or the reverse) counts as no config: secrets are under the shared provider. DELETE removes it without migrating anything, conditionally on the org still having no complete config, and audits admin.org.kms-config.delete with details.partialConfigCleared: true. A PUT that completed the config meanwhile makes it answer 409 instead."
+        },
+        {
+          "type": "text",
+          "content": "Proof — packages/api-core/test/secret-rotation.test.ts (overlap → rewrite → old blob rejected), platform/test/secret-reencrypt.test.ts (the fleet-wide tool, including the unreadable-row path), packages/api-core/test/secret-encryption.test.ts (cross-replica eviction and the TTL backstop), platform/test/kms-config-verify.test.ts (the post-change verification: claim, supersede, KMS outage, report)."
         }
       ]
     },

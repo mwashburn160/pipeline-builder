@@ -1513,6 +1513,22 @@ groups:
           summary: "Billing provider {{ $labels.provider }} is misconfigured ({{ $labels.reason }})"
           description: "The billing service booted with an incomplete {{ $labels.provider }} configuration: {{ $labels.reason }}. Depending on the reason this means lifecycle webhooks are rejected, entitlement changes never arrive, or a plan/add-on cannot be charged. See docs/billing-providers.md and the startup log of the billing pod."
 
+      # A handled Stripe event the webhook endpoint does not subscribe to is never
+      # delivered, and nothing else says so. Billing adds missing events itself at
+      # startup and daily (helpers/stripe-webhook-reconcile.ts); this fires when it
+      # could not: the endpoint was not found, could not be read, or the key lacks
+      # Webhook Endpoints write permission. Only the leader pod publishes the gauge.
+      - alert: BillingStripeWebhookEventsMissing
+        expr: max(billing_stripe_webhook_events_missing) > 0
+        for: 15m
+        labels:
+          severity: warning
+          component: billing
+          tenancy: platform
+        annotations:
+          summary: "{{ $value }} handled Stripe event type(s) are not confirmed on the webhook endpoint"
+          description: "Billing could not make the Stripe webhook endpoint subscribe to every event it handles, so Stripe may never deliver those events (subscription changes, payments, refunds or disputes would silently stop reconciling). The stripe-webhook-reconcile log line on the billing leader names the missing events and the reason. Grant STRIPE_SECRET_KEY Webhook Endpoints write access, set STRIPE_WEBHOOK_ENDPOINT_ID when the endpoint is not at PLATFORM_BASE_URL/billing/stripe/webhook, or add the events in the Stripe Dashboard. See docs/billing-providers.md (Step 4)."
+
       # ---- Notifications that never reached the organization ----
       # The dropped-after-retries case above is watched; these three are the paths
       # that fail OUTRIGHT, and none of them was. They are invisible by nature: the
@@ -3047,7 +3063,22 @@ groups:
           tenancy: platform
         annotations:
           summary: "Duplicate Stripe subscription created ({{ $labels.reason }})"
-          description: "{{ $value | humanize }} duplicate Stripe subscription(s) appeared in the last hour. The handler cancels the extra one immediately, so this is normally self-healing — but a sustained rate means two checkouts are racing and a customer may see two charges before the cancel lands."
+          description: "{{ $value | humanize }} duplicate Stripe subscription(s) appeared in the last hour. The handler cancels the extra one immediately and refunds its first paid invoice in full, so this is normally self-healing — but a sustained rate means two checkouts are racing. A refund that failed fires BillingDuplicateRefundFailing."
+
+      - alert: BillingDuplicateRefundFailing
+        # cancelDuplicateStripeSub canceled a duplicate checkout's subscription
+        # but the refund of its first paid invoice failed. The refund is keyed on
+        # the invoice id (safe to repeat) but is not retried by anything: the
+        # customer stays charged twice until an operator refunds by hand.
+        expr: sum(increase(billing_duplicate_stripe_refund_failed_total[1h])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: billing
+          tenancy: platform
+        annotations:
+          summary: "A duplicate Stripe subscription was canceled but not refunded"
+          description: "A duplicate checkout was canceled but its first invoice could not be refunded {{ $value | humanize }} time(s) in the last hour, so a customer has paid twice. The refund is not retried: find the billing event (reason duplicate_checkout, refundFailed) for the org and the canceled subscription id, then refund that subscription's first paid invoice in the Stripe Dashboard. The billing log line 'Failed to refund duplicate Stripe sub' carries the Stripe error."
 
       - alert: BillingUnboundStripeSubscription
         expr: sum by (reason) (increase(billing_unbound_stripe_subscription_total[1h])) > 0
@@ -4456,6 +4487,25 @@ groups:
         annotations:
           summary: "A {{ $labels.kind }} cascade leg to {{ $labels.service }} ran out of retries"
           description: "{{ $value | humanize }} {{ $labels.kind }} leg(s) to {{ $labels.service }} were dead-lettered in the last hour: that service still holds the purged org's (or erased user's) data. The subject id is in the platform logs ('Cascade leg DEAD') and the org.cascade.dead audit row; GET /api/admin/cascade?status=dead lists the dead legs with their lastError and lastStatusCode. Fix the service, then POST /api/admin/cascade/<leg id>/redrive (orgs:manage + step-up; resets attempts unless resetAttempts=false) — every leg's handler is idempotent, so redelivering is safe."
+
+      # ---- Per-org KMS: secrets left under the old key ----
+      # TTL + margin after an org's KMS config change, platform's verification
+      # sweep (services/kms-config-verify.ts) decrypts every org secret under the
+      # new config. One that will not open was written under the OUTGOING key by
+      # a replica the cache-eviction broadcast missed; nothing can read it now.
+      # One series per field (aiProviderKeys.<provider>, idpClientSecret). The
+      # org's admins are told in-app and by email to re-enter it; this alert is
+      # the operator's copy. `for: 0m` because each increment is already final.
+      - alert: KmsSecretVerifyFailed
+        expr: sum by (field) (increase(platform_kms_secret_verify_failed_total[1h])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: platform
+          tenancy: platform
+        annotations:
+          summary: "{{ $labels.field }} unreadable after a per-org KMS config change"
+          description: "{{ $value | humanize }} org secret(s) ({{ $labels.field }}) did not decrypt under their org's current KMS config in the post-change verification: a platform replica wrote them under the previous key before the cache eviction reached it. The org is named in the platform logs ('KMS verify: org secrets do not decrypt') and the admin.org.kms-config.verify failure audit row; its admins were asked to re-enter the secret. If they cannot, follow docs/runbooks/secret-rotation.md (Per-org KMS -> Post-change verification)."
 
       # ---- Support: cases opened that nothing can serve ----
       # An `unentitled` send is normal for an org with no support add-on. A

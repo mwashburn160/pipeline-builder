@@ -66,7 +66,6 @@ export function fakeStore(): FakeStore {
     runners,
     requests,
     registry,
-    async tablesPresent() { return true; },
     async insertRunner(row) { const r = runnerRow(row as Partial<RunnerRow>); runners.set(r.id, r); return r; },
     async getRunner(id) { return runners.get(id) ?? null; },
     async listRunners(orgIds, opts) {

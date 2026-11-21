@@ -5,9 +5,9 @@
  * Tests for the impersonation policy RESOLVER — the single owner of the defaults.
  *
  * The case that matters most is the absent field. Organizations are read through
- * `.lean()`, which bypasses Mongoose hydration, so a document that predates the
- * field arrives with it `undefined` and a schema `default:` never fires. If the
- * default lived anywhere but here, new and existing orgs could silently diverge.
+ * `.lean()`, which bypasses Mongoose hydration, and the field is stored only
+ * when an admin sets it, so it usually arrives `undefined`. If the default lived
+ * anywhere but here, readers could silently diverge.
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';

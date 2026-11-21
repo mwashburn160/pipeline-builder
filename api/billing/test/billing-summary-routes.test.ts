@@ -39,7 +39,7 @@ jest.unstable_mockModule('../src/config.js', () => ({ config: { platformService:
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({ billingServiceAuth: (id: string) => `Bearer svc-${id}`, getBillingTimeout: () => 5000 }));
 
 const totals = { grossBilledCents: 1000, discountsCents: 0, creditsCents: 0, taxCents: 0, netBilledCents: 1000 };
-const getBillingSummary = jest.fn<AnyFn>(async () => ({ totals, timeline: [] }));
+const getBillingSummary = jest.fn<AnyFn>(async () => ({ totalsByCurrency: [{ currency: 'usd', ...totals, amountPaidCents: 1000, invoiceCount: 1 }], timeline: [] }));
 const listBillingInvoices = jest.fn<AnyFn>(async () => ({ invoices: [], pagination: { total: 0 } }));
 const getAdminBillingSummary = jest.fn<AnyFn>(async () => ({ accounts: [] }));
 jest.unstable_mockModule('../src/helpers/billing-ledger.js', () => ({ getBillingSummary, listBillingInvoices, getAdminBillingSummary }));
@@ -99,6 +99,24 @@ describe('GET /summary/allocation (showback)', () => {
     const rows = body().rows as Array<{ orgId: string; driverUnits: number; grossCents: number }>;
     expect(rows.map((r) => [r.orgId, r.driverUnits])).toEqual([['root', 2], ['team-a', 6], ['team-b', 0]]);
     expect(rows.reduce((sum, r) => sum + r.grossCents, 0)).toBe(1000);
+  });
+
+  it('allocates each currency on its own — rows tagged with their currency, nothing summed across', async () => {
+    getBillingSummary.mockResolvedValueOnce({
+      totalsByCurrency: [
+        { currency: 'eur', ...totals, grossBilledCents: 800, netBilledCents: 800, amountPaidCents: 800, invoiceCount: 1 },
+        { currency: 'usd', ...totals, amountPaidCents: 1000, invoiceCount: 1 },
+      ],
+      timeline: [],
+    });
+    await call('/summary/allocation', { includeDescendants: 'true' });
+    const b = body();
+    expect(b.byCurrency.map((c: any) => [c.currency, c.totals.grossBilledCents])).toEqual([['eur', 800], ['usd', 1000]]);
+    const rows = b.rows as Array<{ orgId: string; currency: string; grossCents: number }>;
+    const sum = (cur: string) => rows.filter((r) => r.currency === cur).reduce((n, r) => n + r.grossCents, 0);
+    expect(sum('eur')).toBe(800);
+    expect(sum('usd')).toBe(1000);
+    expect(rows.filter((r) => r.orgId === 'team-a').map((r) => r.currency)).toEqual(['eur', 'usd']);
   });
 
   it('ignores includeDescendants without reports:rollup', async () => {

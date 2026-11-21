@@ -331,10 +331,10 @@ class OrganizationService {
   async setSeatLimit(
     orgId: string,
     seats: number,
-    features?: string[],
-    tier?: PlanTier,
-    supportContacts?: number,
-    supportPremiumContacts?: number,
+    features: string[],
+    tier: PlanTier,
+    supportContacts: number,
+    supportPremiumContacts: number,
   ): Promise<SeatLimitResult | null> {
     return setSeatLimit(orgId, seats, features, tier, supportContacts, supportPremiumContacts);
   }

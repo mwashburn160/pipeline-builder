@@ -328,7 +328,7 @@ suite('refresh-session slots (real Mongo)', () => {
     expect((await slotOf(a.refreshToken) as { activeOrgId?: string }).activeOrgId).toBe(first);
   });
 
-  it('a slot that predates activeOrgId renews as before (lastActiveOrgId)', async () => {
+  it('a slot opened without an org (no activeOrgId) renews into lastActiveOrgId', async () => {
     const { second } = await twoOrgs();
     const a = await signIn();
     await RefreshSession.updateMany({ userId }, { $unset: { activeOrgId: '' } });

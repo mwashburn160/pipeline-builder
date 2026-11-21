@@ -43,6 +43,8 @@ const mockGrantPeriodicCredits = jest.fn<(...a: unknown[]) => Promise<void>>().m
 jest.unstable_mockModule('../src/helpers/discount-helpers.js', () => ({ grantPeriodicCredits: (...a: unknown[]) => mockGrantPeriodicCredits(...a) }));
 const mockGrantRecurringPromotions = jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
 jest.unstable_mockModule('../src/helpers/promotion-engine.js', () => ({ grantRecurringPromotions: (...a: unknown[]) => mockGrantRecurringPromotions(...a) }));
+const mockCompactStoredCreditLedger = jest.fn<(...a: unknown[]) => Promise<boolean>>().mockResolvedValue(false);
+jest.unstable_mockModule('../src/helpers/credit-ledger-compaction.js', () => ({ compactStoredCreditLedger: (...a: unknown[]) => mockCompactStoredCreditLedger(...a) }));
 const mockRecordMarketplaceConsumption = jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
 jest.unstable_mockModule('../src/helpers/billing-ledger.js', () => ({ recordMarketplaceConsumption: (...a: unknown[]) => mockRecordMarketplaceConsumption(...a) }));
 const mockAuditRecord = jest.fn<AnyFn>();
@@ -311,8 +313,9 @@ describe('reportMarketplaceAddonUsage — usage-credit realization', () => {
     claims({ period: granted, hour: { creditBalanceCents: 0 } });
 
     await reportMarketplaceAddonUsage('org-1', new Date('2026-07-29T14:00:00Z'));
-    expect(mockGrantPeriodicCredits).toHaveBeenCalledWith(granted, '2026-07-15', { atomic: true }); // the period's start date
-    expect(mockGrantRecurringPromotions).toHaveBeenCalledWith(granted, '2026-07-15', { atomic: true });
+    expect(mockGrantPeriodicCredits).toHaveBeenCalledWith(granted, '2026-07-15'); // the period's start date
+    expect(mockGrantRecurringPromotions).toHaveBeenCalledWith(granted, '2026-07-15');
+    expect(mockCompactStoredCreditLedger).toHaveBeenCalledTimes(1);
     expect((granted as unknown as { save: unknown }).save).not.toHaveBeenCalled();
     // The drawdown plans from the RE-READ balance (the atomic grants did not touch the in-memory doc).
     expect(mockSubscriptionFindById).toHaveBeenCalled();

@@ -183,6 +183,18 @@ describe('Download my data', () => {
     await waitFor(() => expect(triggerBlobDownload).toHaveBeenCalled());
   });
 
+  it('a step-up replay that fails is shown; the file is not saved', async () => {
+    const err = new StepUpRequiredError('Re-verify', 'STEP_UP_REQUIRED');
+    const replay = Promise.reject(new Error('Replay export failed'));
+    replay.catch(() => undefined);
+    err.attachResume(replay);
+    exportOwnData.mockRejectedValue(err);
+    render(<SettingsPage />);
+    await download();
+    expect(await screen.findByText(/Replay export failed/i)).toBeInTheDocument();
+    expect(triggerBlobDownload).not.toHaveBeenCalled();
+  });
+
   it('shows a failed export', async () => {
     exportOwnData.mockRejectedValue(new Error('Export failed'));
     render(<SettingsPage />);

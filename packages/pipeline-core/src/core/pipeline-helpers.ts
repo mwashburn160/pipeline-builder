@@ -95,9 +95,9 @@ function toSecretEnvVars(
 ): Record<string, { value: string; type: BuildEnvironmentVariableType }> {
   return Object.fromEntries(
     secrets.map(({ name }) => {
-      // Defence in depth behind PluginSpecSchema: a plugin row can predate that
-      // check, and granting a platform leaf would hand the plugin's build the
-      // org's automation credentials.
+      // Defence in depth behind PluginSpecSchema (a row written by any path
+      // other than upload): granting a platform leaf would hand the plugin's
+      // build the org's automation credentials.
       if (isReservedSecretName(name)) {
         throw new Error(`Plugin secret "${name}" is a platform-reserved secret name and cannot be granted to a plugin step`);
       }

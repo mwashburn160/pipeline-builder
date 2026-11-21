@@ -20,7 +20,6 @@ import type { RunnerKeyState } from '@pipeline-builder/api-core/pipeline-runners
 import {
   runWithTenantContext,
   schema,
-  tableExists,
   withTenantTx,
   type PipelineRunnerKeySettingsInsert,
   type PipelineRunnerKeySettingsRow,
@@ -52,8 +51,6 @@ export interface KeyTx {
 }
 
 export interface RunnerKeyStore {
-  /** Whether this database has the key tables. */
-  tablesPresent(): Promise<boolean>;
   /** Run `fn` in one transaction (rolled back when it throws). */
   transaction<T>(fn: (tx: KeyTx) => Promise<T>): Promise<T>;
   /** The non-retired keys of the given orgs (no lock). */
@@ -110,10 +107,6 @@ function keyTx(tx: DrizzleTx): KeyTx {
 /** The Drizzle/Postgres implementation. */
 export function createDrizzleKeyStore(): RunnerKeyStore {
   return {
-    tablesPresent: () => runWithTenantContext({ isSuperAdmin: true }, async () =>
-      (await tableExists('pipeline_runner_signing_keys'))
-      && (await tableExists('pipeline_runner_key_settings'))
-      && (await tableExists('pipeline_runner_platform_settings'))),
     transaction: (fn) => elevated((tx) => fn(keyTx(tx))),
     publishedKeys: (orgIds) => (orgIds.length === 0 ? Promise.resolve([]) : elevated((tx) => tx.select().from(K)
       .where(and(inArray(K.orgId, [...orgIds]), ne(K.state, 'retired'))))),

@@ -33,7 +33,7 @@ import { createBillingEvent, getBundleCatalog } from './billing-helpers.js';
 import { releaseCampaignBudget, reserveCampaignBudget } from './campaign.js';
 import { postPendingCreditDebit } from './credit-debits.js';
 import { discountFloorBreach, recurringDiscountStandingCents } from './credit-floor.js';
-import { compactInMemoryLedger, creditLedgerEntry } from './credit-ledger-compaction.js';
+import { creditLedgerEntry } from './credit-ledger-compaction.js';
 import { aggregateLedgerSpend, type LedgerSpend } from './ledger-spend.js';
 import { evaluateUsage, type ProfileLike } from './offers-rules.js';
 import { MANAGEABLE_SUBSCRIPTION_STATUSES, loadManageableSubscription } from './subscription-status.js';
@@ -487,7 +487,13 @@ function clawbackDebitKey(row: { dedupeKey?: string; discountId: string; applied
  * lifecycle reconciler (`retryPendingCreditDebits`), so a retried clawback never debits twice and a failed
  * one is never lost.
  */
-export async function clawbackRecentPromotions(subscription: SubscriptionDocument, actorId?: string): Promise<number> {
+export async function clawbackRecentPromotions(
+  subscription: SubscriptionDocument,
+  actorId?: string,
+  /** Tags each tombstone with the reversal that clawed it (`dispute:<id>`), so a
+   *  won dispute can re-grant exactly what it took ({@link regrantDisputeClawback}). */
+  clawbackRef?: string,
+): Promise<number> {
   if (!promotionsEnabled()) return 0;
   const cutoff = Date.now() - config.promotions.clawbackWindowMs;
   const rows = (subscription.creditLedger ?? []).filter(
@@ -514,7 +520,12 @@ export async function clawbackRecentPromotions(subscription: SubscriptionDocumen
     const tombstone = await Subscription.updateOne(
       { _id: subscription._id, creditLedger: { $elemMatch: { dedupeKey: row.dedupeKey, clawedBackAt: { $exists: false } } } },
       {
-        $set: { 'creditLedger.$.cents': consumed, 'creditLedger.$.grantCount': 0, 'creditLedger.$.clawedBackAt': new Date() },
+        $set: {
+          'creditLedger.$.cents': consumed,
+          'creditLedger.$.grantCount': 0,
+          'creditLedger.$.clawedBackAt': new Date(),
+          ...(clawbackRef ? { 'creditLedger.$.clawbackRef': clawbackRef, 'creditLedger.$.clawedBackCents': reduce } : {}),
+        },
         $inc: { creditBalanceCents: -reduce },
         ...(debit ? { $push: { pendingCreditDebits: debit } } : {}),
       },
@@ -534,6 +545,44 @@ export async function clawbackRecentPromotions(subscription: SubscriptionDocumen
     count += 1;
   }
   if (count > 0) logger.info('Promotion grants clawed back on cancel', { orgId: subscription.orgId, count });
+  return count;
+}
+
+/**
+ * A WON dispute: re-grant the promotion credit that dispute's clawback took back
+ * ({@link clawbackRecentPromotions} with `clawbackRef: 'dispute:<id>'`). Each
+ * tombstone the dispute left is re-granted for the cents it RECOVERED (the part
+ * an invoice had consumed was never taken), through the same atomic grant core as
+ * every promotion — budget reserved under its guard, ledger `$push` guarded on a
+ * dedupeKey derived from the original grant and the dispute id, so a redelivered
+ * won event grants nothing twice. Returns the number of grants made. A refused
+ * re-grant (promotion revoked, budget gone, floor) is logged, not retried: the
+ * bias stays under-spend.
+ */
+export async function regrantDisputeClawback(subscription: SubscriptionDocument, disputeId: string): Promise<number> {
+  if (!promotionsEnabled()) return 0;
+  const ref = `dispute:${disputeId}`;
+  const rows = subscription.creditLedger.flatMap((l) => (l.clawbackRef === ref && l.clawedBackCents ? [{ row: l, cents: l.clawedBackCents }] : []));
+  if (rows.length === 0) return 0;
+  const ctx = await contextForSubscription(subscription);
+  if (!ctx) {
+    logger.warn('Won dispute: plan not found — clawed-back promotions not re-granted', { orgId: subscription.orgId, disputeId });
+    return 0;
+  }
+  let count = 0;
+  for (const { row, cents } of rows) {
+    const promoId = row.discountId.slice('promo:'.length);
+    const promo = await Promotion.findById(promoId);
+    const result = promo
+      ? await reserveAndGrant(promo, subscription, subscription.orgId, cents, `${row.dedupeKey ?? row.discountId}:dispute-won:${disputeId}`,
+        ctx.planPriceCents, undefined, { regrant: 'dispute_won', disputeId })
+      : null;
+    if (result?.granted) {count += 1;} else if (result?.reason !== 'already_granted') {
+      logger.warn('Won dispute: clawed-back promotion not re-granted', {
+        orgId: subscription.orgId, disputeId, promotionId: promoId, reason: result?.reason ?? 'promotion_missing',
+      });
+    }
+  }
   return count;
 }
 
@@ -570,16 +619,16 @@ export async function standingRecurringPromotionCents(subscription: Subscription
 
 /**
  * Re-grant standing RECURRING promotions for one billing period — called from the
- * periodic reconcile (Stripe invoice) / metering (Marketplace) path. Mutates the
- * subscription IN MEMORY (the caller saves), matching the recurring-discount
- * re-grant style; budget is reserved atomically on the Promotion doc and the grant
- * is idempotent per period via a period-scoped dedupeKey. Stops when the promo is
+ * periodic reconcile (Stripe invoice) / metering (Marketplace) path. Every write
+ * is atomic: budget is reserved on the Promotion doc, and the grant is a guarded
+ * `$push` + `$inc`, idempotent per period via a period-scoped dedupeKey — the
+ * passed `subscription` is read, never mutated, so the caller's own save cannot
+ * clobber (or be clobbered by) a concurrent credit write. Stops when the promo is
  * revoked / out of window / over budget or the org is no longer eligible. No-op
  * when promotions or the provider's credit realization is off.
  */
-export async function grantRecurringPromotions(subscription: SubscriptionDocument, periodKey: string, opts: { atomic?: boolean } = {}): Promise<void> {
+export async function grantRecurringPromotions(subscription: SubscriptionDocument, periodKey: string): Promise<void> {
   if (!promotionsEnabled()) return;
-  const { atomic = false } = opts;
   const provider = getPaymentProvider();
   if (provider.usageCreditSupport === 'none') return;
   const ctx = await contextForSubscription(subscription);
@@ -631,35 +680,21 @@ export async function grantRecurringPromotions(subscription: SubscriptionDocumen
         continue;
       }
     }
-    if (atomic) {
-      // Stripe-webhook path: guarded atomic write (not an in-memory push the caller
-      // full-saves) so it can't clobber — or be clobbered by — a concurrent credit
-      // write on the same ledger (M2). The dedupeKey guard keeps it idempotent per
-      // period. Reservation is compensated if the guard loses (already granted).
-      const committed = await Subscription.findOneAndUpdate(
-        { _id: subscription._id, creditLedger: { $not: { $elemMatch: { dedupeKey } } } },
-        { $push: { creditLedger: creditLedgerEntry({ discountId: ledgerId(promo._id), cents, fulfillmentRef: ref, dedupeKey, campaign: promo.campaign }) }, $inc: { creditBalanceCents: cents } },
-        { new: true },
-      );
-      if (!committed) {
-        await releaseBoth();
-        continue;
-      }
-      periodPromotionCents += cents;
-      await createBillingEvent(subscription.orgId, 'promotion_granted', { promotionId: promo._id, cents, campaign: promo.campaign, periodKey }, subscription._id.toString());
+    // Guarded atomic write so it can't clobber — or be clobbered by — a
+    // concurrent credit write on the same ledger (M2). The dedupeKey guard keeps
+    // it idempotent per period; the reservation is compensated if it loses.
+    const committed = await Subscription.findOneAndUpdate(
+      { _id: subscription._id, creditLedger: { $not: { $elemMatch: { dedupeKey } } } },
+      { $push: { creditLedger: creditLedgerEntry({ discountId: ledgerId(promo._id), cents, fulfillmentRef: ref, dedupeKey, campaign: promo.campaign }) }, $inc: { creditBalanceCents: cents } },
+      { new: true },
+    );
+    if (!committed) {
+      await releaseBoth();
       continue;
     }
-    // In-memory grant: the caller saves. (Both production callers pass `atomic`.)
-    subscription.creditBalanceCents = (subscription.creditBalanceCents ?? 0) + cents;
-    subscription.creditLedger.push(creditLedgerEntry({ discountId: ledgerId(promo._id), cents, fulfillmentRef: ref, dedupeKey, campaign: promo.campaign }));
     periodPromotionCents += cents;
     await createBillingEvent(subscription.orgId, 'promotion_granted', { promotionId: promo._id, cents, campaign: promo.campaign, periodKey }, subscription._id.toString());
   }
-
-  // Bound the ledger's growth (in-memory path only — see compactInMemoryLedger).
-  // Compaction preserves summed cents + grantCount, so reconcilePromotionSpend
-  // stays exact across a fold.
-  compactInMemoryLedger(subscription, atomic);
 }
 
 /** Build the trigger context (tier / interval / plan price) for an existing subscription. */

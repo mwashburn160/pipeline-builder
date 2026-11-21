@@ -73,9 +73,8 @@ export function clientVersionOf(req: Pick<Request, 'headers'>): string | undefin
  * misread response.
  *
  * - Unset / blank minimum: nothing is refused (the default); versions are still counted.
- * - A request WITHOUT the version header passes: browsers, other clients and
- *   CLIs released before the header existed are not identified, so they are
- *   not gated. Forward-only, by design.
+ * - A request WITHOUT the version header passes: browsers and other clients
+ *   are not identified, so they are not gated.
  * - A CI caller (CodeBuild) is counted but never refused — see {@link CI_CALLER_HEADER}.
  * - A malformed header value passes too (nothing to compare), but a malformed
  *   MINIMUM throws at startup: a typo must not silently disable the gate.

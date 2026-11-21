@@ -132,6 +132,13 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@p
 
 ({ withAiCallReservation: realWithAiCallReservation } = await import('@pipeline-builder/api-server/lib/api/ai-call-reservation.js'));
 const { createGeneratePluginRoutes } = await import('../src/routes/generate-plugin.js');
+
+// A deployment shares one Redis draft store across services (ask-agent redeems
+// what this service issues); a process-local memory store would issue no id here.
+{
+  const { _setAiDraftStoreForTests, createMemoryAiDraftStore } = await import('@pipeline-builder/api-core');
+  _setAiDraftStoreForTests({ ...createMemoryAiDraftStore(), crossService: true });
+}
 const { initSSEStream } = await import('@pipeline-builder/api-core');
 
 // -- Helpers ------------------------------------------------------------------

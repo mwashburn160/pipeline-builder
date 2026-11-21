@@ -8,6 +8,7 @@ import { config } from '../config.js';
 import { createBillingEvent } from './billing-helpers.js';
 import { recordMarketplaceConsumption } from './billing-ledger.js';
 import { billingPeriodKey } from './billing-period.js';
+import { compactStoredCreditLedger, type LedgerCollection } from './credit-ledger-compaction.js';
 import { grantPeriodicCredits } from './discount-helpers.js';
 import { planMeteredDrawdown } from './marketplace-credit.js';
 import { grantRecurringPromotions } from './promotion-engine.js';
@@ -119,10 +120,10 @@ export async function reportMarketplaceAddonUsage(orgId: string, now: Date = new
       // COMPENSATE the claim (unset the marker) so a later cycle retries; grants
       // that already landed dedupe on their period key.
       try {
-        await grantPeriodicCredits(claimed, periodKey, { atomic: true });
+        await grantPeriodicCredits(claimed, periodKey);
         // Recurring PROMOTIONS re-grant on the same period key (Marketplace parity
         // with the Stripe invoice path).
-        await grantRecurringPromotions(claimed, periodKey, { atomic: true });
+        await grantRecurringPromotions(claimed, periodKey);
       } catch (err) {
         await Subscription.findOneAndUpdate(
           { '_id': subscription._id, 'metadata.lastCreditPeriod': periodKey },
@@ -130,6 +131,11 @@ export async function reportMarketplaceAddonUsage(orgId: string, now: Date = new
         ).catch(() => undefined);
         throw err;
       }
+      // Bound the ledger the re-grants appended to (compare-and-set; fail-soft —
+      // the next period's pass retries a fold that lost a race or failed).
+      await compactStoredCreditLedger(Subscription.collection as unknown as LedgerCollection, claimed._id).catch((err) => {
+        logger.warn('Credit-ledger compaction failed', { orgId: claimed.orgId, error: String(err) });
+      });
     }
     // The atomic grants (or another pod's) did not touch any in-memory doc —
     // reload so the drawdown below plans from the current balance.

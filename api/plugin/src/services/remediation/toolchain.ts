@@ -596,12 +596,17 @@ export async function approveToolchainFix(row: PluginRemediation, actor: string,
       throw leaseLost();
     }
   };
-  /** Give the lease up (keeping the progress) — only while this attempt still holds it. */
-  const releaseLease = async (): Promise<void> => {
+  /**
+   * Give the lease up (keeping the progress) — only while this attempt still holds it.
+   * False when it no longer did (another attempt took over); a failed write throws.
+   */
+  const releaseLease = async (): Promise<boolean> => {
     const held = state.leaseUntil;
     state.leaseUntil = EXPIRED;
-    await writeHeld(held, { toolchainCandidate: { ...c, gateRefusals, publish: state } }).catch(() => false);
+    return writeHeld(held, { toolchainCandidate: { ...c, gateRefusals, publish: state } });
   };
+  /** Best-effort release on a path that is already failing with its own error. */
+  const releaseLeaseQuietly = (): Promise<boolean> => releaseLease().catch(() => false);
   const auditFields = { ...(resuming ? { resumed: true, approvedBy: state.approvedBy } : {}), ...(reason ? { reason } : {}) };
 
   const pending = [
@@ -616,7 +621,7 @@ export async function approveToolchainFix(row: PluginRemediation, actor: string,
     const existing = await storedHalf(half.name, c.toRelease);
     if (existing) {
       if (existing.imageDigest !== half.digest) {
-        await releaseLease();
+        await releaseLeaseQuietly();
         throw stageConflict('outdated', { reason: 'RELEASE_VERSION_TAKEN', toRelease: c.toRelease, half: half.name });
       }
       plan.push({ half, key, record, gated: null }); // stored by an earlier attempt that crashed before recording it
@@ -641,8 +646,7 @@ export async function approveToolchainFix(row: PluginRemediation, actor: string,
         // Nothing stored yet: back to undecided (reject is possible again). Otherwise keep the progress.
         wrote = await writeHeld(held, { toolchainCandidate: { ...c, gateRefusals, publish: undefined }, decidedBy: null, decidedAt: null, decisionReason: null });
       } else {
-        await releaseLease();
-        wrote = true;
+        wrote = await releaseLease();
       }
       if (!wrote) throw leaseLost();
       auditToolchainFix('toolchain.fix.approved', row, { refusal: gated.scan.refusal, half: half.name, refusals: gateRefusals, ...(exhausted ? { movedTo: 'needs_review' } : {}), ...auditFields }, actor, 'failure');
@@ -689,7 +693,7 @@ export async function approveToolchainFix(row: PluginRemediation, actor: string,
     if ((err as { details?: { reason?: string } }).details?.reason === 'LEASE_LOST') throw err;
     incCounter(TOOLCHAIN_FIX_METRICS.failures, { stage: state.steps.bootstrap && state.steps.cdkSynth && !state.steps.inputs ? 'keep_inputs' : 'publish' });
     logger.error('Toolchain fix publish failed; it resumes on the next approve or the nightly sweep', { remediationId: row.id, steps: state.steps, error: errorMessage(err) });
-    await releaseLease();
+    await releaseLeaseQuietly();
     throw err;
   }
 

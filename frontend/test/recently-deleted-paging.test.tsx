@@ -126,6 +126,35 @@ describe('RecentlyDeletedPanel — paging', () => {
     expect(screen.getAllByText('pipe-24')).toHaveLength(1);
   });
 
+  it('a row restored while "Load more" is in flight does not make the next page skip a tombstone', async () => {
+    restorePipeline.mockImplementation(async (id: string) => {
+      store = store.filter((p) => p.id !== id);
+      return { success: true };
+    });
+    render(<RecentlyDeletedPanel resource="pipeline" />);
+    await screen.findByText('pipe-24');
+    // Hold the next page; the server reads it only once released (after the restore).
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    listDeletedPipelines.mockImplementationOnce(async (params?: Record<string, string>) => {
+      await gate;
+      const limit = Number(params?.limit ?? 10);
+      const offset = Number(params?.offset ?? 0);
+      return { success: true, data: { pipelines: store.slice(offset, offset + limit) } };
+    });
+    fireEvent.click(screen.getByRole('button', { name: /load more/i }));
+    fireEvent.click(screen.getByText('pipe-3').closest('tr')!.querySelector('button')!);
+    fireEvent.click(screen.getByText('confirm-step-up'));
+    await waitFor(() => expect(screen.queryByText('pipe-3')).toBeNull());
+    release();
+    // The page was asked for at offset 25 before the restore shifted the server's
+    // rows down a slot: pipe-25 must still appear.
+    expect(await screen.findByText('pipe-29')).toBeInTheDocument();
+    expect(screen.getByText('pipe-25')).toBeInTheDocument();
+    expect(screen.getAllByText('pipe-24')).toHaveLength(1);
+    expect(screen.getByText(/showing 29 deleted pipelines/i)).toBeInTheDocument();
+  });
+
   it('finishes a restore the global step-up dialog replayed after a refused token, without an error toast', async () => {
     const { StepUpRequiredError } = jest.requireActual<typeof import('../src/lib/api/errors')>('../src/lib/api/errors');
     const onRestored = jest.fn<AnyFn>();

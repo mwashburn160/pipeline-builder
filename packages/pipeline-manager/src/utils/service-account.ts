@@ -30,10 +30,10 @@
  * issue (+ retire at the cap) behind ONE, so a run costs one approval.
  */
 
-import { errorMessage, SEED_BUNDLES } from '@pipeline-builder/api-core';
+import { errorMessage } from '@pipeline-builder/api-core';
 import type { SeedBundleId } from '@pipeline-builder/api-core';
 import type { ApiClient } from './api-client.js';
-import { printInfo, printSuccess, printWarning } from './output-utils.js';
+import { printSuccess, printWarning } from './output-utils.js';
 
 /** Step-up header the platform reads (see api-core `requireStepUp`). */
 export const STEP_UP_HEADER = 'X-Step-Up-Token';
@@ -86,20 +86,6 @@ interface AccountSummary {
   id: string;
   name: string;
   keys?: Array<{ id: string; status: string; createdAt: string; scope?: string | null }>;
-}
-
-/** HTTP status of a failed CLI request, or undefined for a transport error.
- *  `ApiError` carries it directly; a raw axios error only on the response. */
-function statusOf(err: unknown): number | undefined {
-  const e = err as { status?: number; response?: { status?: number } };
-  const status = e?.status ?? e?.response?.status;
-  return typeof status === 'number' ? status : undefined;
-}
-
-/** The platform's error code on a failed request, when it sent one. */
-function errorCodeOf(err: unknown): string | undefined {
-  const data = (err as { response?: { data?: { error?: { code?: string }; code?: string } } })?.response?.data;
-  return data?.error?.code ?? data?.code;
 }
 
 /** Unwrap api-core's `{ success, data }` envelope (some paths return data bare). */
@@ -173,67 +159,6 @@ async function resolveOrganizationId(client: ApiClient): Promise<string> {
   return orgId;
 }
 
-/**
- * The org's built-in Role for `bundle` — a `system` Role under the name api-core's
- * `SEED_BUNDLES` gives it, which every org seeds (and the platform's startup
- * backfill creates in orgs seeded before it existed). Assigning it is still
- * subject to the ordinary ceiling on the platform side, so this can never grant
- * the account more than the operator holds.
- */
-async function resolveBuiltinRoleId(client: ApiClient, orgId: string, bundle: SeedBundleId): Promise<string> {
-  const name = SEED_BUNDLES[bundle].name;
-  const res = await client.get<unknown>(`/api/organization/${orgId}/roles`);
-  const roles = unwrap<{ roles?: Array<{ id: string; name: string; system?: boolean }> }>(res)?.roles ?? [];
-  const role = roles.find((r) => r.system && r.name === name);
-  if (!role) {
-    throw new Error(
-      `Organization ${orgId} has no built-in '${name}' Role to grant the service account. `
-      + 'The platform creates it at startup — upgrade/restart the platform, then re-run this command.',
-    );
-  }
-  return role.id;
-}
-
-/** Find an existing account by name (the name is the stable machine identifier). */
-async function findAccount(client: ApiClient, orgId: string, name: string): Promise<AccountSummary | undefined> {
-  const res = await client.get<unknown>(`/api/organization/${orgId}/service-accounts`);
-  const accounts = unwrap<{ serviceAccounts?: AccountSummary[] }>(res)?.serviceAccounts ?? [];
-  return accounts.find((a) => a.name === name);
-}
-
-/**
- * Create the account if it isn't there yet, and return its id. IDEMPOTENT: a
- * re-run reuses the existing account (including the 409 race where two runs
- * create it at once), and never re-grants Roles — an operator who narrowed the
- * account's Roles by hand must not have that undone by the next `store-token`.
- */
-async function ensureAccount(opts: ProvisionKeyOptions, orgId: string): Promise<string> {
-  const existing = await findAccount(opts.client, orgId, opts.accountName);
-  if (existing) {
-    printInfo('Reusing the existing service account', { account: opts.accountName, id: existing.id });
-    return existing.id;
-  }
-
-  const roleIds = opts.role ? [await resolveBuiltinRoleId(opts.client, orgId, opts.role)] : [];
-  try {
-    const res = await opts.client.post<unknown>(
-      `/api/organization/${orgId}/service-accounts`,
-      { name: opts.accountName, description: opts.description, roleIds },
-      { [STEP_UP_HEADER]: await opts.stepUp() },
-    );
-    const account = unwrap<{ serviceAccount?: { id?: string } }>(res)?.serviceAccount;
-    if (!account?.id) throw new Error('service-account create returned no id');
-    printSuccess(`Created the '${opts.accountName}' service account`);
-    return account.id;
-  } catch (err) {
-    if (statusOf(err) === 409) {
-      const raced = await findAccount(opts.client, orgId, opts.accountName);
-      if (raced) return raced.id;
-    }
-    throw err;
-  }
-}
-
 /** Revoke one of an account's keys. Best-effort by contract — see the call sites. */
 export async function revokeServiceAccountKey(
   client: ApiClient,
@@ -249,45 +174,6 @@ export async function revokeServiceAccountKey(
 }
 
 /**
- * Issue a key, self-healing past the per-account active-key cap: at the cap the
- * OLDEST active key is retired and the mint retried once. The cap exists to bound
- * a compromise, not to make provisioning fail, and the credential a re-run is
- * replacing is the very thing that should go.
- */
-async function issueKey(
-  opts: ProvisionKeyOptions,
-  orgId: string,
-  accountId: string,
-): Promise<{ key: string; accessKey: { id: string; expiresAt: string; scope: string | null } }> {
-  const body = {
-    name: opts.keyName,
-    expiresIn: opts.expiresInSeconds,
-    ...(opts.scope ? { scope: opts.scope } : {}),
-  };
-  const mint = async () => unwrap<{ key: string; accessKey: { id: string; expiresAt: string; scope: string | null } }>(
-    await opts.client.post<unknown>(
-      `/api/organization/${orgId}/service-accounts/${accountId}/keys`,
-      body,
-      { [STEP_UP_HEADER]: await opts.stepUp() },
-    ),
-  );
-
-  try {
-    return await mint();
-  } catch (err) {
-    if (statusOf(err) !== 409 && errorCodeOf(err) !== 'SA_KEY_LIMIT') throw err;
-    const account = await findAccount(opts.client, orgId, opts.accountName);
-    const oldest = (account?.keys ?? [])
-      .filter((k) => k.status === 'active')
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
-    if (!oldest) throw err;
-    printWarning(`Service account '${opts.accountName}' is at its active-key limit — retiring its oldest key (${oldest.id}).`);
-    await revokeServiceAccountKey(opts.client, opts.stepUp, orgId, accountId, oldest.id);
-    return mint();
-  }
-}
-
-/**
  * Ensure the named service account exists and issue it a fresh key.
  *
  * Deliberately does NOT revoke anything the caller was previously holding: the
@@ -299,56 +185,37 @@ export async function provisionServiceAccountKey(opts: ProvisionKeyOptions): Pro
   const organizationId = await resolveOrganizationId(opts.client);
 
   // One call, one step-up: find-or-create + issue (+ retire the oldest at the
-  // cap) server-side. An older platform without the route answers 404 BEFORE
-  // its step-up gate, so the token is not spent — but one was minted, so the
-  // fallback below costs that one extra approval, on old platforms only.
-  try {
-    const res = unwrap<{
-      serviceAccount: { id: string; name: string; created: boolean };
-      key: string;
-      accessKey: { id: string; expiresAt: string; scope: string | null };
-      retiredKeyIds?: string[];
-    }>(await opts.client.post<unknown>(
-      `/api/organization/${organizationId}/service-accounts/provision-key`,
-      {
-        accountName: opts.accountName,
-        description: opts.description,
-        ...(opts.role ? { role: opts.role } : {}),
-        ...(opts.scope ? { scope: opts.scope } : {}),
-        key: { name: opts.keyName, expiresIn: opts.expiresInSeconds },
-      },
-      { [STEP_UP_HEADER]: await opts.stepUp() },
-    ));
-    printSuccess(res.serviceAccount.created
-      ? `Created the '${opts.accountName}' service account`
-      : `Reusing the existing '${opts.accountName}' service account`);
-    for (const id of res.retiredKeyIds ?? []) {
-      printWarning(`Service account '${opts.accountName}' was at its active-key limit — retired its oldest key (${id}).`);
-    }
-    return {
-      key: res.key,
-      keyId: res.accessKey.id,
-      serviceAccountId: res.serviceAccount.id,
-      serviceAccountName: res.serviceAccount.name,
-      organizationId,
-      expiresAt: res.accessKey.expiresAt,
-      scope: res.accessKey.scope ?? null,
-    };
-  } catch (err) {
-    if (statusOf(err) !== 404) throw err;
-    printInfo('This platform predates single-call key provisioning; using the per-step calls (one step-up each).');
+  // cap) server-side.
+  const res = unwrap<{
+    serviceAccount: { id: string; name: string; created: boolean };
+    key: string;
+    accessKey: { id: string; expiresAt: string; scope: string | null };
+    retiredKeyIds?: string[];
+  }>(await opts.client.post<unknown>(
+    `/api/organization/${organizationId}/service-accounts/provision-key`,
+    {
+      accountName: opts.accountName,
+      description: opts.description,
+      ...(opts.role ? { role: opts.role } : {}),
+      ...(opts.scope ? { scope: opts.scope } : {}),
+      key: { name: opts.keyName, expiresIn: opts.expiresInSeconds },
+    },
+    { [STEP_UP_HEADER]: await opts.stepUp() },
+  ));
+  printSuccess(res.serviceAccount.created
+    ? `Created the '${opts.accountName}' service account`
+    : `Reusing the existing '${opts.accountName}' service account`);
+  for (const id of res.retiredKeyIds ?? []) {
+    printWarning(`Service account '${opts.accountName}' was at its active-key limit — retired its oldest key (${id}).`);
   }
-
-  const serviceAccountId = await ensureAccount(opts, organizationId);
-  const { key, accessKey } = await issueKey(opts, organizationId, serviceAccountId);
   return {
-    key,
-    keyId: accessKey.id,
-    serviceAccountId,
-    serviceAccountName: opts.accountName,
+    key: res.key,
+    keyId: res.accessKey.id,
+    serviceAccountId: res.serviceAccount.id,
+    serviceAccountName: res.serviceAccount.name,
     organizationId,
-    expiresAt: accessKey.expiresAt,
-    scope: accessKey.scope ?? null,
+    expiresAt: res.accessKey.expiresAt,
+    scope: res.accessKey.scope ?? null,
   };
 }
 

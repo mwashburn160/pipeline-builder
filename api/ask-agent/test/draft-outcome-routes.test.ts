@@ -27,6 +27,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
   requirePermission: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   requireFeature: () => (_req: unknown, _res: unknown, next: () => void) => next(),
+  requireOrgAIEnabled: Object.assign((_req: unknown, _res: unknown, next: () => void) => next(), { gate: 'org-ai-enabled' }),
   InternalHttpClient: class {
     constructor(cfg: unknown) { constructed.push(cfg); }
     post(...a: unknown[]) { return mockPost(...a); }
@@ -100,8 +101,13 @@ describe('POST /ask-agent/draft-outcome', () => {
   it('caps outcomes per USER, ahead of the handler, so one member cannot flood the acceptance rate', () => {
     expect(limiterOptions).toContainEqual(expect.objectContaining({ name: 'ask-draft-outcome', keyBy: 'user', windowMs: 60_000 }));
     const layer = (router as any).stack.find((l: any) => l.route?.path === '/draft-outcome');
-    // requireAskAccess, requireFeature, the limiter, then the handler.
-    expect(layer.route.stack).toHaveLength(4);
+    // requireAskAccess, requireFeature, requireOrgAIEnabled, the limiter, then the handler.
+    expect(layer.route.stack).toHaveLength(5);
+  });
+
+  it('is refused while the org has AI turned off — the same gate /agent/stream applies', () => {
+    const layer = (router as any).stack.find((l: any) => l.route?.path === '/draft-outcome');
+    expect(layer.route.stack.some((l: any) => l.handle.gate === 'org-ai-enabled')).toBe(true);
   });
 
   it('forwards org, feature and outcome ONLY, on ask-agent\'s own identity — never the user\'s token or id', async () => {
@@ -201,7 +207,7 @@ describe('POST /ask-agent/draft-outcome', () => {
     });
 
     it('answers 503 when the draft store cannot verify the id (fail-closed: nothing counted)', async () => {
-      _setAiDraftStoreForTests({ issue: async () => null, redeem: async () => 'unavailable', stop: () => undefined });
+      _setAiDraftStoreForTests({ crossService: true, issue: async () => null, redeem: async () => 'unavailable', stop: () => undefined });
       const res = await post({ feature: 'agent', outcome: 'accepted', draftId: 'Z'.repeat(32) });
       expect(res.status).toHaveBeenCalledWith(503);
       expect(mockPost).not.toHaveBeenCalled();

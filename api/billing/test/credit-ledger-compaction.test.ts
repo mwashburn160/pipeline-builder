@@ -9,8 +9,8 @@
  * one-time rows and distinct families are untouched; a prior carry row re-merges.
  */
 
-import { describe, it, expect } from '@jest/globals';
-import { compactCreditLedger, DEFAULT_KEEP_RECENT, type CreditLedgerEntry } from '../src/helpers/credit-ledger-compaction.js';
+import { describe, it, expect, jest } from '@jest/globals';
+import { compactCreditLedger, compactStoredCreditLedger, DEFAULT_KEEP_RECENT, type CreditLedgerEntry } from '../src/helpers/credit-ledger-compaction.js';
 
 /** A periodic recurring/combo/promo row (dedupeKey = the period marker). */
 function periodic(discountId: string, period: number, cents = 100): CreditLedgerEntry {
@@ -93,5 +93,49 @@ describe('compactCreditLedger', () => {
 
   it('handles an empty ledger', () => {
     expect(compactCreditLedger([])).toEqual([]);
+  });
+});
+
+describe('compactStoredCreditLedger (compare-and-set on the stored ledger)', () => {
+  /** A collection stand-in: findOne returns the stored ledger; updateOne applies only when the filter's ledger still matches. */
+  function store(ledger: CreditLedgerEntry[]) {
+    const state = { ledger };
+    const collection = {
+      findOne: async () => ({ creditLedger: state.ledger }),
+      updateOne: async (filter: any, update: any) => {
+        if (JSON.stringify(filter.creditLedger) !== JSON.stringify(state.ledger)) return { modifiedCount: 0 };
+        state.ledger = update.$set.creditLedger;
+        return { modifiedCount: 1 };
+      },
+    };
+    return { state, collection };
+  }
+
+  it('folds the stored ledger, guarded on the ledger it read', async () => {
+    const rows = Array.from({ length: DEFAULT_KEEP_RECENT + 3 }, (_, i) => periodic('promo:x', i + 1));
+    const { state, collection } = store(rows);
+    await expect(compactStoredCreditLedger(collection, 'sub-1')).resolves.toBe(true);
+    expect(state.ledger).toHaveLength(DEFAULT_KEEP_RECENT + 1);
+    expect(totals(state.ledger, 'promo:x')).toEqual({ cents: 100 * (DEFAULT_KEEP_RECENT + 3), grants: DEFAULT_KEEP_RECENT + 3 });
+  });
+
+  it('writes nothing when nothing needs folding', async () => {
+    const { collection } = store([periodic('promo:x', 1)]);
+    const updateOne = jest.spyOn(collection, 'updateOne');
+    await expect(compactStoredCreditLedger(collection, 'sub-1')).resolves.toBe(false);
+    expect(updateOne).not.toHaveBeenCalled();
+  });
+
+  it('loses cleanly to a concurrent ledger write: the grant pushed meanwhile is kept', async () => {
+    const rows = Array.from({ length: DEFAULT_KEEP_RECENT + 3 }, (_, i) => periodic('promo:x', i + 1));
+    const { state, collection } = store(rows);
+    const read = collection.findOne;
+    collection.findOne = async () => {
+      const snapshot = await read();
+      state.ledger = [...state.ledger, periodic('combo:y', 99)]; // a $push lands between read and write
+      return snapshot;
+    };
+    await expect(compactStoredCreditLedger(collection, 'sub-1')).resolves.toBe(false);
+    expect(state.ledger).toHaveLength(DEFAULT_KEEP_RECENT + 4);
   });
 });

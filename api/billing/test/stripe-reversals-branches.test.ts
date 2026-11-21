@@ -22,9 +22,11 @@ const createBillingEvent = jest.fn<AnyFn>(async () => undefined);
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({ createBillingEvent }));
 const ingestStripeInvoice = jest.fn<AnyFn>(async () => undefined);
 const reverseLedgerInvoice = jest.fn<AnyFn>(async () => undefined);
-jest.unstable_mockModule('../src/helpers/billing-ledger.js', () => ({ ingestStripeInvoice, reverseLedgerInvoice }));
+const restoreDisputedLedgerInvoice = jest.fn<AnyFn>(async () => undefined);
+jest.unstable_mockModule('../src/helpers/billing-ledger.js', () => ({ ingestStripeInvoice, reverseLedgerInvoice, restoreDisputedLedgerInvoice }));
 const clawbackRecentPromotions = jest.fn<AnyFn>(async () => 1);
-jest.unstable_mockModule('../src/helpers/promotion-engine.js', () => ({ clawbackRecentPromotions }));
+const regrantDisputeClawback = jest.fn<AnyFn>(async () => 0);
+jest.unstable_mockModule('../src/helpers/promotion-engine.js', () => ({ clawbackRecentPromotions, regrantDisputeClawback }));
 const findReversalSubscription = jest.fn<AnyFn>();
 const findSubscriptionByStripeId = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/helpers/stripe-helpers.js', () => ({
@@ -41,7 +43,7 @@ let activeProvider: unknown;
 jest.unstable_mockModule('../src/providers/stripe-provider.js', () => ({ StripeProvider }));
 jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({ getPaymentProvider: () => activeProvider }));
 
-const { handleChargeRefunded, handleChargeDisputeCreated, handleInvoiceReversal } = await import('../src/helpers/stripe-reversals.js');
+const { handleChargeRefunded, handleChargeDisputeCreated, handleChargeDisputeClosed, handleInvoiceReversal } = await import('../src/helpers/stripe-reversals.js');
 
 const sub = { _id: { toString: () => 'sub_1' }, orgId: 'org_1' };
 
@@ -101,10 +103,40 @@ describe('disputes', () => {
 
   it('treats a missing charge or dispute amount as 0 (net never negative)', async () => {
     const retrieve = jest.fn<AnyFn>(async () => ({ id: 'ch_4', payment_intent: 'pi_4', customer: 'cus_4' }));
-    activeProvider = new StripeProvider({ charges: { retrieve }, invoicePayments });
+    activeProvider = new StripeProvider({ charges: { retrieve }, invoicePayments, disputes: { retrieve: async () => ({ status: 'needs_response' }) } });
     await handleChargeDisputeCreated({ id: 'dp_4', charge: 'ch_4', status: 'needs_response' } as any);
     expect(reverseLedgerInvoice).toHaveBeenCalledWith('in_4', 'disputed', 0);
     expect(createBillingEvent).toHaveBeenCalledWith('org_1', 'subscription_updated', expect.objectContaining({ disputedCents: 0, disputeStatus: 'needs_response' }), 'sub_1');
+  });
+});
+
+describe('won disputes', () => {
+  const won = (over: Record<string, unknown> = {}) => ({ id: 'dp_w', charge: 'ch_w', status: 'won', ...over }) as any;
+
+  it.each([
+    ['no charge id', () => undefined, won({ charge: null })],
+    ['no Stripe client', () => { activeProvider = new StripeProvider(null); }, won()],
+  ])('cannot restore with %s', async (_label, arrange, dispute) => {
+    arrange();
+    await handleChargeDisputeClosed(dispute);
+    expect(logger.warn).toHaveBeenCalledWith('Won dispute without a resolvable charge — cannot restore', expect.objectContaining({ disputeId: 'dp_w' }));
+    expect(restoreDisputedLedgerInvoice).not.toHaveBeenCalled();
+  });
+
+  it('a charge with no invoice and no customer restores nothing and re-grants nothing, missing amounts read as 0', async () => {
+    activeProvider = new StripeProvider({ charges: { retrieve: async () => ({ id: 'ch_w' }) }, invoicePayments });
+    await handleChargeDisputeClosed(won());
+    expect(restoreDisputedLedgerInvoice).not.toHaveBeenCalled();
+    expect(findReversalSubscription).not.toHaveBeenCalled();
+    expect(regrantDisputeClawback).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Won dispute without a single matching local subscription'), expect.objectContaining({ ambiguous: false }));
+  });
+
+  it('a charge with missing amounts restores the row to paid at 0', async () => {
+    activeProvider = new StripeProvider({ charges: { retrieve: async () => ({ id: 'ch_w', payment_intent: 'pi_w', customer: 'cus_w' }) }, invoicePayments });
+    await handleChargeDisputeClosed(won());
+    expect(restoreDisputedLedgerInvoice).toHaveBeenCalledWith('in_w', 'paid', 0);
+    expect(regrantDisputeClawback).toHaveBeenCalledWith(sub, 'dp_w');
   });
 });
 

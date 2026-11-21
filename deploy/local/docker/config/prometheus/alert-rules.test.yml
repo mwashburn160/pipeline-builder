@@ -17,6 +17,34 @@ rule_files:
   - alert-rules.yml
 evaluation_interval: 1m
 tests:
+  # BillingDuplicateRefundFailing: a canceled duplicate checkout whose first
+  # invoice could not be refunded fires at once ...
+  - interval: 1m
+    input_series:
+      - series: 'billing_duplicate_stripe_refund_failed_total{service="billing",pod="billing-aaa"}'
+        values: '0x10 1x30'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: BillingDuplicateRefundFailing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: billing
+              tenancy: platform
+            exp_annotations:
+              summary: "A duplicate Stripe subscription was canceled but not refunded"
+              description: "A duplicate checkout was canceled but its first invoice could not be refunded 1 time(s) in the last hour, so a customer has paid twice. The refund is not retried: find the billing event (reason duplicate_checkout, refundFailed) for the org and the canceled subscription id, then refund that subscription's first paid invoice in the Stripe Dashboard. The billing log line 'Failed to refund duplicate Stripe sub' carries the Stripe error."
+
+  # ... and a quiet counter does not.
+  - interval: 1m
+    input_series:
+      - series: 'billing_duplicate_stripe_refund_failed_total{service="billing",pod="billing-aaa"}'
+        values: '0+0x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: BillingDuplicateRefundFailing
+        exp_alerts: []
+
   # --- Nightly plugin CVE remediation -----------------------------------------
   # PluginRemediationErrors: one remediation that ended in an error fires (no
   # for:, a job error is rare and each one is worth a look) ...
@@ -207,4 +235,62 @@ tests:
     alert_rule_test:
       - eval_time: 49h
         alertname: PluginRemediationCanaryStale
+        exp_alerts: []
+
+  # --- Per-org KMS post-change verification ---------------------------------
+  # KmsSecretVerifyFailed: a secret that did not decrypt under its org's new
+  # KMS config fires at once, one alert per field ...
+  - interval: 1m
+    input_series:
+      - series: 'platform_kms_secret_verify_failed_total{field="aiProviderKeys.openai",service="platform",pod="platform-aaa"}'
+        values: '0x10 1x30'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: KmsSecretVerifyFailed
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: platform
+              tenancy: platform
+              field: aiProviderKeys.openai
+            exp_annotations:
+              summary: "aiProviderKeys.openai unreadable after a per-org KMS config change"
+              description: "1 org secret(s) (aiProviderKeys.openai) did not decrypt under their org's current KMS config in the post-change verification: a platform replica wrote them under the previous key before the cache eviction reached it. The org is named in the platform logs ('KMS verify: org secrets do not decrypt') and the admin.org.kms-config.verify failure audit row; its admins were asked to re-enter the secret. If they cannot, follow docs/runbooks/secret-rotation.md (Per-org KMS -> Post-change verification)."
+
+  # ... and a quiet counter does not.
+  - interval: 1m
+    input_series:
+      - series: 'platform_kms_secret_verify_failed_total{field="idpClientSecret",service="platform",pod="platform-aaa"}'
+        values: '0+0x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: KmsSecretVerifyFailed
+        exp_alerts: []
+
+  # BillingStripeWebhookEventsMissing: the reconcile could not add 2 handled
+  # events to the Stripe webhook endpoint (e.g. a restricted key) — fires after 15m ...
+  - interval: 1m
+    input_series:
+      - series: 'billing_stripe_webhook_events_missing{service="billing",pod="billing-aaa"}'
+        values: '2x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: BillingStripeWebhookEventsMissing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: billing
+              tenancy: platform
+            exp_annotations:
+              summary: "2 handled Stripe event type(s) are not confirmed on the webhook endpoint"
+              description: "Billing could not make the Stripe webhook endpoint subscribe to every event it handles, so Stripe may never deliver those events (subscription changes, payments, refunds or disputes would silently stop reconciling). The stripe-webhook-reconcile log line on the billing leader names the missing events and the reason. Grant STRIPE_SECRET_KEY Webhook Endpoints write access, set STRIPE_WEBHOOK_ENDPOINT_ID when the endpoint is not at PLATFORM_BASE_URL/billing/stripe/webhook, or add the events in the Stripe Dashboard. See docs/billing-providers.md (Step 4)."
+
+  # ... and a complete endpoint (gauge 0) does not.
+  - interval: 1m
+    input_series:
+      - series: 'billing_stripe_webhook_events_missing{service="billing",pod="billing-aaa"}'
+        values: '0x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: BillingStripeWebhookEventsMissing
         exp_alerts: []

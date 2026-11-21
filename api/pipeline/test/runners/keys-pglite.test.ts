@@ -54,8 +54,7 @@ beforeEach(async () => {
 });
 
 describe('Drizzle key store (real SQL, app role)', () => {
-  it('the tables are present; generate stores only the encrypted PEM; the version rises on every change', async () => {
-    expect(await store.tablesPresent()).toBe(true);
+  it('generate stores only the encrypted PEM; the version rises on every change', async () => {
     const d = deps();
     const { kid } = await generateOrgKey(d, A, user);
     const [row] = await rows(A);

@@ -168,7 +168,8 @@ export async function clearServiceAccountRoles(
  * The org's built-in (`system`) Role for a seed bundle — e.g. `Pipeline
  * Automation` — located by the name api-core's `SEED_BUNDLES` gives it, exactly
  * as `pipeline-manager` resolved it client-side. Throws
- * `SA_BUILTIN_ROLE_MISSING` when the org has none (startup backfill not run).
+ * `SA_BUILTIN_ROLE_MISSING` when the org has none (seeded at creation, so only
+ * a Role removed outside the API).
  * Resolving it grants nothing: the assignment still goes through the creator's
  * ceiling in `createServiceAccount`.
  */

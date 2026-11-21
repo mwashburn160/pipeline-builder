@@ -242,6 +242,13 @@ jest.unstable_mockModule('../src/services/ai-generation-service.js', () => ({
 ({ withAiCallReservation: realWithAiCallReservation } = await import('@pipeline-builder/api-server/lib/api/ai-call-reservation.js'));
 const { createGeneratePipelineRoutes } = await import('../src/routes/generate-pipeline.js');
 
+// A deployment shares one Redis draft store across services (ask-agent redeems
+// what this service issues); a process-local memory store would issue no id here.
+{
+  const { _setAiDraftStoreForTests, createMemoryAiDraftStore } = await import('@pipeline-builder/api-core');
+  _setAiDraftStoreForTests({ ...createMemoryAiDraftStore(), crossService: true });
+}
+
 // Helpers
 
 const stubQuotaService = { increment: jest.fn<AnyFn>().mockResolvedValue(undefined) } as any;
@@ -1245,6 +1252,22 @@ describe('POST /generate/from-url (JSON)', () => {
     expect(data.keywords).toEqual(['node']);
     expect(data.analysis).toEqual(expect.objectContaining({ owner: MOCK_ANALYSIS.owner, repo: MOCK_ANALYSIS.repo }));
     expect(mockDecrementQuota).not.toHaveBeenCalled();
+  });
+
+  it('serves the draft WITHOUT an id when the draft store is process-local (ask-agent could never redeem it)', async () => {
+    const { _setAiDraftStoreForTests, createMemoryAiDraftStore, getAiDraftStore } = await import('@pipeline-builder/api-core');
+    const shared = getAiDraftStore();
+    const local = createMemoryAiDraftStore();
+    _setAiDraftStoreForTests(local);
+    try {
+      await handler(mockReq({ body: {} }), mockSseRes());
+      const data = mockSendSuccess.mock.calls[0][2] as { props?: unknown; draftId?: string };
+      expect(data.props).toBeDefined();
+      expect(data).not.toHaveProperty('draftId');
+    } finally {
+      // Back to the cross-service store the other cases use (stopping it only ends its sweep timer).
+      _setAiDraftStoreForTests(shared);
+    }
   });
 
   it('carries a single-use pipeline-generate draft id bound to the caller', async () => {
