@@ -43,7 +43,7 @@ spec:
       labels:
         app: reporting
         app.kubernetes.io/component: backend
-        version: "6.3.2"
+        version: "6.3.3"
         track: stable
       annotations:
         prometheus.io/scrape: "true"
@@ -87,7 +87,7 @@ spec:
               echo "Dependencies ready"
       containers:
         - name: reporting
-          image: ghcr.io/mwashburn160/reporting:6.3.2@sha256:2dfae6d308b00c80a2e832a6241a2f3e5735ca96f38677e3787b509f17c672ac
+          image: ghcr.io/mwashburn160/reporting:6.3.3@sha256:517f04383c9cd72f4967fa29d794a9ac694af9c46c04a3812f2036864d4b01f6
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
