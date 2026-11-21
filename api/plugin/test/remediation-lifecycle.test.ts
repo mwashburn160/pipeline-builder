@@ -62,7 +62,7 @@ const sources = {
   retryPluginSourceOrphans: jest.fn<AnyFn>(async () => ({ tried: 0, cleared: 0, failed: 0 })),
 };
 jest.unstable_mockModule('../src/services/plugin-sources.js', () => sources);
-const rollout = { startTenantRollout: jest.fn<AnyFn>(async () => true), cancelRollout: jest.fn<AnyFn>(async () => true), setRolloutClientForTests: jest.fn() };
+const rollout = { startTenantRollout: jest.fn<AnyFn>(async () => ({ ok: true })), cancelRollout: jest.fn<AnyFn>(async () => true), setRolloutClientForTests: jest.fn() };
 jest.unstable_mockModule('../src/services/remediation/rollout.js', () => rollout);
 const persisted: any[] = [];
 /** Runs inside persistVersion before the row is stored (a concurrent delete, in a test). */
@@ -161,6 +161,24 @@ describe('queueing after a completed pass', () => {
     expect(enqueue).toHaveBeenCalledTimes(2);
     expect(enqueue.mock.calls[0]![2]).toMatchObject({ jobId: `remediation-${(await rowsOf(id))[0].id}` });
     expect(audits.mock.calls.map((c) => (c[0] as any).action)).toContain('plugin.remediation.started');
+  });
+
+  it('a failed enqueue whose ENQUEUE_FAILED write also fails is logged, and the pass enqueues the next row', async () => {
+    const a = await plugin(ORG, 'a', '1.0.0');
+    const b = await plugin(ORG, 'b', '1.0.0');
+    // The status write of a failed enqueue throws (the database refuses it).
+    await raw.exec(`
+      CREATE OR REPLACE FUNCTION test_refuse_enqueue_failed() RETURNS trigger AS $$
+      BEGIN IF NEW.error = 'ENQUEUE_FAILED' THEN RAISE EXCEPTION 'status write refused'; END IF; RETURN NEW; END $$ LANGUAGE plpgsql;
+      CREATE TRIGGER test_refuse_enqueue_failed BEFORE UPDATE ON plugin_remediations FOR EACH ROW EXECUTE FUNCTION test_refuse_enqueue_failed();`);
+    try {
+      const failing = jest.fn<AnyFn>(async () => undefined).mockRejectedValueOnce(new Error('redis down'));
+      const result = await queuePassRemediations([cand(a, 'a', '1.0.0', [finding()]), cand(b, 'b', '1.0.0', [finding()])], { enqueue: failing });
+      expect(failing).toHaveBeenCalledTimes(2);
+      expect(result.queued).toBe(1);
+    } finally {
+      await raw.exec('DROP TRIGGER test_refuse_enqueue_failed ON plugin_remediations; DROP FUNCTION test_refuse_enqueue_failed();');
+    }
   });
 
   it('targets the configured severities, KEV always, and never a waived finding', async () => {
@@ -367,6 +385,25 @@ describe('the remediation job', () => {
     expect(p.discarded).toEqual([]);
   });
 
+  it('apply: a publish whose rollout start is refused (4xx) stays published, gives up at once and says so (N36 then N37)', async () => {
+    await settings(ORG, 'apply');
+    const row = await queued(ORG, 'lint', '1.0.0');
+    rollout.startTenantRollout.mockResolvedValueOnce({ ok: false, status: '400', permanent: true });
+    expect(await runRemediation(row, { ports: ports() })).toBe('published');
+    expect((await getRemediation(row.id))!).toMatchObject({ stage: 'published', error: 'rollout_start_failed', rollout: { startAttempts: 1, lastStartStatus: '400' } });
+    expect(notices.map((n) => n.code)).toEqual(['N36', 'N37']);
+    expect(counters).toContainEqual(['plugin_remediation_rollout_start_failures_total', { reason: 'permanent' }]);
+  });
+
+  it('apply: a publish whose rollout start fails transiently counts the attempt and leaves it to the sweep', async () => {
+    await settings(ORG, 'apply');
+    const row = await queued(ORG, 'lint', '1.0.0');
+    rollout.startTenantRollout.mockResolvedValueOnce({ ok: false, status: '503', permanent: false });
+    expect(await runRemediation(row, { ports: ports() })).toBe('published');
+    expect((await getRemediation(row.id))!).toMatchObject({ stage: 'published', error: null, rollout: { startAttempts: 1, lastStartStatus: '503' } });
+    expect(notices.map((n) => n.code)).toEqual(['N36']);
+  });
+
   it('publish keeps the diff under the FIX version\'s prefix: purging the from-version\'s prefix leaves it downloadable', async () => {
     await settings(ORG, 'apply');
     const objects = new Map<string, string>();
@@ -571,14 +608,19 @@ describe('cancel on delete', () => {
   });
 });
 
+const START_FAILURES = 'plugin_remediation_rollout_start_failures_total';
+/** A nightly pass `n` days from now (every row is long past the 15-minute guard). */
+const night = (n: number) => () => new Date(Date.now() + (n + 1) * 86_400_000);
+
 describe('a rollout start that failed at publish', () => {
   /** A published fix of `orgId` whose rollout was never started, last touched `minutes` ago. */
-  async function publishedFix(orgId: string, name: string, minutes: number) {
+  async function publishedFix(orgId: string, name: string, minutes: number, start?: Record<string, unknown>, error: string | null = null) {
     const row = await queued(orgId, name, '1.0.0');
     const fix = await plugin(orgId, name, '1.0.1');
     await raw.exec('ALTER TABLE plugin_remediations DISABLE TRIGGER update_plugin_remediations_modtime');
     try {
-      await raw.query(`UPDATE plugin_remediations SET stage = 'published', to_version = '1.0.1', to_plugin_id = $2, updated_at = now() - interval '${minutes} minutes' WHERE id = $1`, [row.id, fix]);
+      await raw.query(`UPDATE plugin_remediations SET stage = 'published', to_version = '1.0.1', to_plugin_id = $2, rollout = $3, error = $4, updated_at = now() - interval '${minutes} minutes' WHERE id = $1`,
+        [row.id, fix, start ? JSON.stringify(start) : null, error]);
     } finally {
       await raw.exec('ALTER TABLE plugin_remediations ENABLE TRIGGER update_plugin_remediations_modtime');
     }
@@ -587,25 +629,147 @@ describe('a rollout start that failed at publish', () => {
 
   it('is started again by the nightly sweep until the pipeline service takes it, then never again', async () => {
     const id = await publishedFix(ORG, 'lint', 60);
-    rollout.startTenantRollout.mockResolvedValueOnce(false);
+    rollout.startTenantRollout.mockResolvedValueOnce({ ok: false, status: '503', permanent: false });
     expect(await queuePassRemediations([], { enqueue })).toMatchObject({ rolloutsStarted: 0 });
     expect(rollout.startTenantRollout).toHaveBeenCalledTimes(1);
     expect(rollout.startTenantRollout).toHaveBeenCalledWith(expect.objectContaining({ id, stage: 'published', toVersion: '1.0.1' }));
-    expect((await getRemediation(id))!.stage).toBe('published');
+    expect((await getRemediation(id))!).toMatchObject({ stage: 'published', error: null, rollout: { startAttempts: 2, lastStartStatus: '503' } });
 
-    expect(await queuePassRemediations([], { enqueue })).toMatchObject({ rolloutsStarted: 1 });
+    // The next night.
+    expect(await queuePassRemediations([], { enqueue, now: night(1) })).toMatchObject({ rolloutsStarted: 1 });
     expect(rollout.startTenantRollout).toHaveBeenCalledTimes(2);
     expect((await getRemediation(id))!.stage).toBe('rolling_out');
 
     // Started: the sweep never starts it again.
-    await queuePassRemediations([], { enqueue });
+    await queuePassRemediations([], { enqueue, now: night(2) });
     expect(rollout.startTenantRollout).toHaveBeenCalledTimes(2);
+    expect(counters.filter(([n]) => n === START_FAILURES)).toEqual([]);
+  });
+
+  it('a permanent refusal (a 4xx other than 408 / 429) is given up at once: error rollout_start_failed, N37, counted, never retried', async () => {
+    const id = await publishedFix(ORG, 'lint', 60);
+    rollout.startTenantRollout.mockResolvedValueOnce({ ok: false, status: '422', permanent: true });
+    await queuePassRemediations([], { enqueue });
+    const row = (await getRemediation(id))!;
+    expect(row).toMatchObject({ stage: 'published', error: 'rollout_start_failed', rollout: { startAttempts: 2, lastStartStatus: '422' } });
+    expect(counters.filter(([n]) => n === START_FAILURES)).toEqual([[START_FAILURES, { reason: 'permanent' }]]);
+    const n37 = notices.filter((n) => n.code === 'N37');
+    expect(n37).toHaveLength(1);
+    expect(n37[0]).toMatchObject({ orgId: ORG, remediationId: id, toVersion: '1.0.1', summary: { status: 'paused', toVersion: '1.0.1' }, startFailure: { reason: 'permanent', lastStatus: '422', attempts: 2 } });
+
+    // Given up: the sweep leaves it alone from now on.
+    await queuePassRemediations([], { enqueue, now: night(1) });
+    expect(rollout.startTenantRollout).toHaveBeenCalledTimes(1);
+    expect(notices.filter((n) => n.code === 'N37')).toHaveLength(1);
+  });
+
+  it('408 and 429 are transient like a 5xx or an unreachable service', async () => {
+    for (const status of ['408', '429', 'unreachable']) {
+      await raw.exec('DELETE FROM plugin_remediations; DELETE FROM plugins;');
+      const id = await publishedFix(ORG, 'lint', 60);
+      rollout.startTenantRollout.mockResolvedValueOnce({ ok: false, status, permanent: false });
+      await queuePassRemediations([], { enqueue });
+      expect((await getRemediation(id))!).toMatchObject({ stage: 'published', error: null, rollout: { lastStartStatus: status } });
+    }
+    expect(counters.filter(([n]) => n === START_FAILURES)).toEqual([]);
+  });
+
+  it('transient failures are retried nightly up to 5 attempts in all (the publish attempt counted), then given up as exhausted', async () => {
+    const id = await publishedFix(ORG, 'lint', 60, { startAttempts: 1, lastStartStatus: '503' });
+    rollout.startTenantRollout.mockResolvedValue({ ok: false, status: '503', permanent: false });
+    for (let night_ = 0; night_ < 6; night_++) await queuePassRemediations([], { enqueue, now: night(night_) });
+    // Attempts 2..5 by the sweep; the 6th night does nothing.
+    expect(rollout.startTenantRollout).toHaveBeenCalledTimes(4);
+    expect((await getRemediation(id))!).toMatchObject({ stage: 'published', error: 'rollout_start_failed', rollout: { startAttempts: 5, lastStartStatus: '503' } });
+    expect(counters.filter(([n]) => n === START_FAILURES)).toEqual([[START_FAILURES, { reason: 'exhausted' }]]);
+    expect(notices.filter((n) => n.code === 'N37')).toMatchObject([{ startFailure: { reason: 'exhausted', attempts: 5, lastStatus: '503' } }]);
+    rollout.startTenantRollout.mockReset();
+    rollout.startTenantRollout.mockResolvedValue({ ok: true });
+  });
+
+  it('a published fix whose fix version was purged (to_plugin_id NULL) ends done / cancelled instead of staying live', async () => {
+    // Official first: the pass inside the second helper call never starts a system-org rollout.
+    const official = await publishedFix(SYSTEM, 'official', 60);
+    const id = await publishedFix(ORG, 'lint', 60);
+    await raw.query("DELETE FROM plugins WHERE version = '1.0.1'");
+    expect((await getRemediation(id))!.toPluginId).toBeNull();
+    expect(await queuePassRemediations([], { enqueue })).toMatchObject({ fixPurged: 2 });
+    for (const r of [id, official]) {
+      expect((await getRemediation(r))!).toMatchObject({ stage: 'done', outcome: 'cancelled', error: 'FIX_VERSION_PURGED' });
+      expect((await getRemediation(r))!.finishedAt).not.toBeNull();
+    }
+    expect(rollout.startTenantRollout).not.toHaveBeenCalled();
+    expect(counters).toContainEqual(['plugin_remediations_total', { stage: 'done', outcome: 'cancelled' }]);
   });
 
   it('leaves a just-published fix (its publish may still be starting it) and an Official fix alone', async () => {
     await publishedFix(ORG, 'fresh', 1);
     await publishedFix(SYSTEM, 'official', 60);
     expect(await queuePassRemediations([], { enqueue })).toMatchObject({ rolloutsStarted: 0 });
+    expect(rollout.startTenantRollout).not.toHaveBeenCalled();
+  });
+});
+
+describe('restarting a given-up rollout start (POST …/retry on a published fix)', () => {
+  async function givenUp(orgId = ORG) {
+    const row = await queued(orgId, 'lint', '1.0.0');
+    const fix = await plugin(orgId, 'lint', '1.0.1');
+    await raw.query("UPDATE plugin_remediations SET stage = 'published', to_version = '1.0.1', to_plugin_id = $2, error = 'rollout_start_failed', rollout = $3 WHERE id = $1",
+      [row.id, fix, JSON.stringify({ startAttempts: 5, lastStartStatus: '503' })]);
+    return row.id;
+  }
+
+  it('shows the start bookkeeping on the card (rolloutStart), never as a rollout summary', async () => {
+    const id = await givenUp();
+    const res = await call('get', '/remediations/:id', { params: { id } });
+    expect(res.body.data).toMatchObject({ stage: 'published', error: 'rollout_start_failed', rollout: null, rolloutStart: { attempts: 5, lastStatus: '503' } });
+  });
+
+  it('starts the rollout again in place: rolling_out, error cleared, attempts reset, no new attempt row', async () => {
+    const id = await givenUp();
+    const res = await call('post', '/remediations/:id/retry', { params: { id } });
+    expect(res.statusCode).toBe(202);
+    expect(rollout.startTenantRollout).toHaveBeenCalledWith(expect.objectContaining({ id, stage: 'published', toVersion: '1.0.1' }));
+    expect(res.body.data).toMatchObject({ id, stage: 'rolling_out', error: null, rolloutStart: null });
+    expect((await getRemediation(id))!).toMatchObject({ stage: 'rolling_out', error: null, rollout: null });
+    expect((await raw.query('SELECT id FROM plugin_remediations')).rows).toHaveLength(1);
+    expect(enqueued).toHaveLength(0);
+    expect(audits.mock.calls.map((c) => c[0] as any)).toContainEqual(expect.objectContaining({ action: 'plugin.remediation.retried', targetId: id, details: expect.objectContaining({ rolloutRestart: true }) }));
+  });
+
+  it('a restart that fails transiently clears the error and counts from 1 again (the sweep retries it)', async () => {
+    const id = await givenUp();
+    rollout.startTenantRollout.mockResolvedValueOnce({ ok: false, status: '502', permanent: false });
+    const res = await call('post', '/remediations/:id/retry', { params: { id } });
+    expect(res.statusCode).toBe(202);
+    expect((await getRemediation(id))!).toMatchObject({ stage: 'published', error: null, rollout: { startAttempts: 1, lastStartStatus: '502' } });
+  });
+
+  it('a restart refused again keeps the error (no second N37)', async () => {
+    const id = await givenUp();
+    rollout.startTenantRollout.mockResolvedValueOnce({ ok: false, status: '403', permanent: true });
+    const res = await call('post', '/remediations/:id/retry', { params: { id } });
+    expect(res.statusCode).toBe(202);
+    expect(res.body.data).toMatchObject({ stage: 'published', error: 'rollout_start_failed', rolloutStart: { attempts: 1, lastStatus: '403' } });
+    expect(notices.filter((n) => n.code === 'N37')).toHaveLength(0);
+  });
+
+  it('a published fix still being retried by the sweep (no error), or another org\'s, is refused as today', async () => {
+    const id = await givenUp();
+    expect((await call('post', '/remediations/:id/retry', { params: { id } }, OTHER)).statusCode).toBe(404);
+    await raw.query('UPDATE plugin_remediations SET error = NULL WHERE id = $1', [id]);
+    const res = await call('post', '/remediations/:id/retry', { params: { id } });
+    expect(res.statusCode).toBe(409);
+    expect(res.body).toMatchObject({ code: 'REMEDIATION_STAGE_CONFLICT', details: { stage: 'published' } });
+    expect(rollout.startTenantRollout).not.toHaveBeenCalled();
+  });
+
+  it('is refused while the org\'s mode is off, like every retry', async () => {
+    const id = await givenUp();
+    await settings(ORG, 'off');
+    const res = await call('post', '/remediations/:id/retry', { params: { id } });
+    expect(res.statusCode).toBe(409);
+    expect(res.body).toMatchObject({ code: 'PLUGIN_REMEDIATION_MODE_OFF' });
     expect(rollout.startTenantRollout).not.toHaveBeenCalled();
   });
 });
@@ -624,6 +788,14 @@ describe('the rollout report', () => {
     expect(notices.filter((n) => n.code === 'N37')).toHaveLength(1);
     expect((paused!.rollout as any).rolledBackPipelineIds).toEqual([ev.pipelineId]);
     expect(await applyRolloutReport('00000000-0000-4000-8000-000000000999', { summary: S('done'), events: [] })).toBeNull();
+  });
+
+  it('a report for a given-up start (it had landed after all) moves it on and clears the start error', async () => {
+    const row = await queued(ORG, 'lint', '1.0.0');
+    await raw.query("UPDATE plugin_remediations SET stage = 'published', to_version = '1.0.1', error = 'rollout_start_failed', rollout = $1", [JSON.stringify({ startAttempts: 5, lastStartStatus: '503' })]);
+    const moved = await applyRolloutReport(row.id, { summary: S('batches'), events: [] });
+    expect(moved).toMatchObject({ stage: 'rolling_out', error: null });
+    expect(moved!.rollout).not.toHaveProperty('startAttempts');
   });
 
   it('two concurrent deliveries of the same report notify the rollback once', async () => {
@@ -770,6 +942,18 @@ describe('routes', () => {
     const res = await call('post', '/remediations/:id/retry', { params: { id: row.id } });
     expect(res.statusCode).toBe(202);
     expect((await getRemediation(row.id))!).toMatchObject({ stage: 'done', outcome: 'superseded' });
+  });
+
+  it('retry of a paused rollout refused by an attempt already building for the version leaves the paused row as it was', async () => {
+    const row = await queued(ORG, 'lint', '1.0.0');
+    await raw.query("UPDATE plugin_remediations SET stage = 'needs_review'");
+    // Another findings set of the same version is already building (the active-version index refuses a second one).
+    await raw.query(
+      `INSERT INTO plugin_remediations (org_id, plugin_id, plugin_name, from_version, findings_hash, stage, created_by)
+       VALUES ($1, $2, 'lint', '1.0.0', $3, 'queued', 'u-1')`, [ORG, row.pluginId, 'e'.repeat(64)]);
+    const res = await call('post', '/remediations/:id/retry', { params: { id: row.id } });
+    expect(res.statusCode).toBe(409);
+    expect((await getRemediation(row.id))!).toMatchObject({ stage: 'needs_review', outcome: null });
   });
 
   const handlersOf = (method: string, path: string) => {

@@ -376,7 +376,10 @@ digest setting (the sender batches them like N31). All are transactional:
   mode.
 - **N37 — a remediation rollout finished or paused.** Also sent to the pipeline
   owners (`pipelines:write`) of affected organizations when `notifyPipelineOwners`
-  is on.
+  is on. It is also sent ("Rollout paused", with the reason and how many
+  attempts were made) when a published fix's rollout never started and is no
+  longer retried — the pipeline service refused it, or 5 attempts failed; Retry
+  on the remediation starts it again.
 - **N38 — a pipeline was rolled back** off a fix version, to that pipeline's
   organization's pipeline owners (`notifyPipelineOwners`).
 - **N39 — the owner request**: the findings a remediation couldn't fix, each with

@@ -452,6 +452,17 @@ When two changes to the same org overlap, the first one to save wins. The other
 gets 409 `CONFLICT` before it re-encrypts anything and writes nothing. Re-read
 the config (`GET`) and retry if you still want that change.
 
+**Secrets edited during the change are kept.** Each re-encrypted AI provider key
+and the SSO client secret is written only if the stored value is still the one
+captured before the change. A secret that was set, replaced or deleted in the
+meantime is left exactly as that writer left it (never overwritten, never
+brought back), and its field name is listed in `concurrentlyChanged` in the
+response and audit row. If that concurrent value cannot be decrypted under the
+new config, it is also listed in `unreadableConcurrentWrites` and the audit row
+is marked as a failure. That happens when it was written by a replica that still
+had the old key cached (before the eviction reached it, or within the 5-minute
+TTL without Redis). Re-enter each listed secret through its admin endpoint.
+
 **Every replica picks the change up without a restart.** Each platform and
 pipeline process caches the org's unwrapped master. A `PUT`/`DELETE` evicts it
 on the platform replica that served the request and broadcasts the eviction

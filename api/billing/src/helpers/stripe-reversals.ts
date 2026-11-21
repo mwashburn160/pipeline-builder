@@ -163,7 +163,7 @@ export async function handleChargeRefunded(charge: Stripe.Charge): Promise<void>
 /**
  * `charge.dispute.created` — a chargeback opened. The Dispute event carries only
  * the charge id, so we re-fetch the Charge (for its invoice + customer). The
- * disputed funds are withdrawn, so net still-paid = `charge.amount − dispute.amount`.
+ * disputed funds are withdrawn, so net still-paid = `charge.amount − amount_refunded − dispute.amount`.
  */
 export async function handleChargeDisputeCreated(dispute: Stripe.Dispute): Promise<void> {
   const chargeId = idOf(dispute.charge);
@@ -194,11 +194,17 @@ export async function handleChargeDisputeCreated(dispute: Stripe.Dispute): Promi
     });
     throw err;
   }
-  const netPaidCents = Math.max(0, (charge.amount ?? 0) - (dispute.amount ?? 0));
+  // A dispute covers what is LEFT on the charge, so a refund made before it is
+  // part of the reversal too: refund 19 then dispute the remaining 30 of a 49
+  // charge leaves nothing collected, and is a FULL reversal for the clawback.
+  // Counting the dispute alone recorded 19 as still paid and skipped the
+  // clawback, so splitting a reversal into refund + dispute bypassed it.
+  const reversedCents = (charge.amount_refunded ?? 0) + (dispute.amount ?? 0);
+  const netPaidCents = Math.max(0, (charge.amount ?? 0) - reversedCents);
   await applyChargeReversal(charge, 'disputed', 'invoice_disputed', netPaidCents, {
     disputedCents: dispute.amount ?? 0,
     disputeStatus: dispute.status,
-  }, stripe, isFullReversal(charge.amount ?? 0, dispute.amount ?? 0));
+  }, stripe, isFullReversal(charge.amount ?? 0, reversedCents));
 }
 
 /**

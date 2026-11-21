@@ -13,7 +13,8 @@
  *   GET  /plugins/remediations/:id/export          system org + plugins:write   an Official fix's deploy/plugins/** export
  *   POST /plugins/remediations/:id/approve         plugins:write + step-up   awaiting_approval → re-run, verify and publish (503 while the operator knob is off; 409 PLUGIN_REMEDIATION_MODE_OFF while the org's mode is off)
  *   POST /plugins/remediations/:id/reject          plugins:write + step-up   awaiting_approval → failed / rejected
- *   POST /plugins/remediations/:id/retry           plugins:write + step-up   failed | needs_owner | needs_review → a new attempt (counts toward the daily cap, held under a per-org lock; 503 / 409 like approve)
+ *   POST /plugins/remediations/:id/retry           plugins:write + step-up   failed | needs_owner | needs_review → a new attempt (counts toward the daily cap, held under a per-org lock; 503 / 409 like approve);
+ *                                                                             published with error rollout_start_failed → its rollout started again in place
  *   GET  /plugins/remediation-settings             plugins:read   the org's pluginRemediation settings
  *   PUT  /plugins/remediation-settings             org_settings:write
  *   PUT  /plugins/by-name/:name/remediation-level  plugins:write  a plugin's own library upgrade level (null = Follow organization)
@@ -32,6 +33,7 @@ import {
   PluginRemediationSettingsWriteSchema,
   pluginRemediationJobId,
   recordAudit,
+  REMEDIATION_ROLLOUT_START_FAILED,
   requirePermission,
   requireStepUp,
   requireSystemOrg,
@@ -52,6 +54,8 @@ import { readRemediationArtifact, type ArtifactReader } from '../services/remedi
 import { toRemediationDto } from '../services/remediation/dto.js';
 import { auditRemediation, countStage } from '../services/remediation/lifecycle.js';
 import { queuePriority } from '../services/remediation/queueing.js';
+import { recordRolloutStart } from '../services/remediation/rollout-start.js';
+import { startTenantRollout } from '../services/remediation/rollout.js';
 import {
   getOrgRemediation, insertRemediationUnderCap, listRemediations, readSettings, readSettingsRow, remediationsCreatedSince, updateRemediation, writeSettings,
 } from '../services/remediation/store.js';
@@ -96,6 +100,31 @@ function sendText(res: Response, body: string, filename: string): void {
   res.setHeader('Content-Disposition', attachmentDisposition(filename));
   res.setHeader('Cache-Control', 'no-store');
   res.status(200).send(body);
+}
+
+/**
+ * Retry on a `published` fix whose rollout start was given up
+ * (`rollout_start_failed`): the same row's rollout is started again in place
+ * (no new attempt, nothing rebuilt, the daily cap untouched), counting from 1 —
+ * taken → rolling_out with the error cleared; a transient failure clears the
+ * error and leaves it to the nightly sweep; a permanent one keeps the error.
+ * Answers the row either way (202); the card says which.
+ */
+async function restartRolloutStart(row: PluginRemediation, caller: Caller, res: Response): Promise<void> {
+  if (!row.toPluginId) {
+    throw new EcosystemError(ErrorCode.REMEDIATION_STAGE_CONFLICT, `${row.pluginName}@${row.toVersion ?? ''} was purged; there is no fix version left to roll out`, { stage: row.stage, reason: 'fix_version_purged' });
+  }
+  if (!remediationConfig().enabled) throw disabled();
+  await assertOrgModeOn(caller);
+  const recorded = await recordRolloutStart(row, await startTenantRollout(row), 'manual');
+  if (!recorded.row) throw stageConflict('changing');
+  const start = toRemediationDto(recorded.row).rolloutStart;
+  auditRemediation('plugin.remediation.retried', recorded.row, {
+    rolloutRestart: true,
+    started: recorded.outcome === 'started',
+    ...(start?.lastStatus ? { lastStartStatus: start.lastStatus } : {}),
+  }, caller.userId);
+  sendSuccess(res, 202, toRemediationDto(recorded.row));
 }
 
 export function createRemediationRoutes(): Router {
@@ -172,6 +201,10 @@ export function createRemediationRoutes(): Router {
 
   router.post('/remediations/:id/retry', write, requireStepUp as RequestHandler, audited('plugin.remediation.retried', 'plugin.remediation.started') as RequestHandler, ecosystemRoute(async ({ req, res, caller }) => {
     const row = await ownRemediation(caller, param(req, 'id'));
+    if (row.stage === 'published' && row.error === REMEDIATION_ROLLOUT_START_FAILED) {
+      await restartRolloutStart(row, caller, res);
+      return;
+    }
     if (!(RETRYABLE_STAGES as readonly string[]).includes(row.stage)) throw stageConflict(row.stage);
     if (!row.pluginId) throw sourcePurged(row);
     const cfg = remediationConfig();

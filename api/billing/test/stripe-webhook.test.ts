@@ -395,6 +395,33 @@ describe('handleSubscriptionUpdated past_due grace clock', () => {
     expect(sub.save).not.toHaveBeenCalled();
   });
 
+  it('ends the lapse (clears the grace counters) when a past_due sub recovers to active', async () => {
+    // The invoice.payment_succeeded that normally resets these can be skipped as
+    // older than this event's watermark; a leftover firstFailedAt would make the
+    // NEXT lapse start with an already-expired grace clock.
+    const sub = makeSub({ status: 'past_due', firstFailedAt: new Date('2026-07-01T00:00:00Z'), failedPaymentAttempts: 2 });
+    mockFindByStripeId.mockResolvedValue(sub);
+
+    await handleSubscriptionUpdated(stripeSub('active'), EVT);
+
+    expect(sub.status).toBe('active');
+    expect(sub.firstFailedAt).toBeUndefined();
+    expect((sub as Record<string, unknown>).failedPaymentAttempts).toBe(0);
+    expect(sub.save).toHaveBeenCalled();
+  });
+
+  it('restarts the grace clock when an active sub carrying a stale clock enters past_due', async () => {
+    const stale = new Date('2026-01-01T00:00:00Z');
+    const sub = makeSub({ status: 'active', firstFailedAt: stale });
+    mockFindByStripeId.mockResolvedValue(sub);
+    const before = Date.now();
+
+    await handleSubscriptionUpdated(stripeSub('past_due'), EVT);
+
+    expect(sub.status).toBe('past_due');
+    expect((sub.firstFailedAt as Date).getTime()).toBeGreaterThanOrEqual(before);
+  });
+
   it('leaves an existing firstFailedAt untouched when already past_due', async () => {
     const existing = new Date('2026-07-01T00:00:00Z');
     const sub = makeSub({ status: 'past_due', firstFailedAt: existing });

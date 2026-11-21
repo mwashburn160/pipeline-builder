@@ -15,17 +15,18 @@
  *           fails the AES-GCM auth tag.
  *   Either way the secret is unreadable. The migration is mandatory.
  *
- * This helper does the migration in three phases:
- *   1. Capture every encrypted blob under the org while the OLD provider
- *      is still active in the process — decrypt to plaintext.
- *   2. Caller-supplied callback flips the kmsConfig + evicts the per-org
- *      cache so the NEW provider is what `encryptSecret` resolves to.
- *   3. Re-encrypt every plaintext and write back.
+ * The migration runs in three phases:
+ *   1. {@link captureOrgSecrets}: decrypt every blob under the org while the
+ *      OLD provider is still active in the process.
+ *   2. The caller (controllers/org-kms-config.ts) saves the new kmsConfig and
+ *      evicts the per-org cache, so `encryptSecret` resolves to the NEW provider.
+ *   3. {@link reencryptOrgSecrets}: wrap every plaintext under the new provider,
+ *      THEN write them back.
  *
- * Failure mode: the helper aborts mid-phase only by throwing. The caller
- * holds the transaction boundary; the PUT controller wraps this in a
- * try/catch and on failure reverts the kmsConfig change so the org isn't
- * left in a half-rotated state.
+ * Failure mode: phase 3 throws an {@link OrgSecretsReencryptError} whose
+ * `written` says whether any row was touched. Wrapping everything before the
+ * first write means a KMS failure under the new config (the likely one) leaves
+ * nothing written, so the caller can restore the previous config cleanly.
  *
  * {@link reencryptAllStoredSecrets} is the fleet-wide variant used by a
  * `SECRET_ENCRYPTION_KEY` rotation (scripts/reencrypt-secrets.ts) rather than a
@@ -54,6 +55,15 @@ interface CapturedSecrets {
   aiKeys: Partial<Record<string, string>>;
   /** Decrypted IdP client secret, if the org has one configured. */
   idpClientSecret?: string;
+  /**
+   * The exact stored (encrypted) blobs the plaintexts were read from. Phase 3
+   * writes each re-wrapped secret only where its field still holds this value,
+   * so a secret set or deleted in between is never overwritten or resurrected.
+   */
+  blobs: {
+    aiKeys: Partial<Record<string, string>>;
+    idpClientSecret?: string;
+  };
 }
 
 /**
@@ -62,7 +72,7 @@ interface CapturedSecrets {
  * moment the OLD wrapping is still valid.
  */
 export async function captureOrgSecrets(orgId: string): Promise<CapturedSecrets> {
-  const captured: CapturedSecrets = { aiKeys: {} };
+  const captured: CapturedSecrets = { aiKeys: {}, blobs: { aiKeys: {} } };
 
   const org = await Organization.findById(toOrgId(orgId)).select('aiProviderKeys').lean();
   if (org?.aiProviderKeys) {
@@ -71,6 +81,7 @@ export async function captureOrgSecrets(orgId: string): Promise<CapturedSecrets>
       if (!raw) continue;
       try {
         captured.aiKeys[provider] = await unwrapEncrypted(raw, orgId, `aiProviderKeys.${provider}`);
+        captured.blobs.aiKeys[provider] = raw;
       } catch (err) {
         throw new Error(`Failed to decrypt aiProviderKeys.${provider} for org ${orgId} (cannot proceed with rotation without first repairing this row): ${errorMessage(err)}`);
       }
@@ -81,6 +92,7 @@ export async function captureOrgSecrets(orgId: string): Promise<CapturedSecrets>
   if (idp?.clientSecretEncrypted) {
     try {
       captured.idpClientSecret = await unwrapEncrypted(idp.clientSecretEncrypted, orgId, 'idpClientSecret');
+      captured.blobs.idpClientSecret = idp.clientSecretEncrypted;
     } catch (err) {
       throw new Error(`Failed to decrypt IdP clientSecret for org ${orgId}: ${errorMessage(err)}`);
     }
@@ -90,36 +102,138 @@ export async function captureOrgSecrets(orgId: string): Promise<CapturedSecrets>
 }
 
 /**
+ * Thrown by {@link reencryptOrgSecrets}. `written` is false when it failed
+ * before writing anything — every stored blob is still the one captured under
+ * the OLD provider, so restoring the previous config leaves the org consistent.
+ * Once a write has been attempted it is true, and a restore would strand what
+ * was written under the new config. A conditional write that missed (the secret
+ * changed meanwhile) writes nothing; it sets `written` only when the concurrent
+ * value is itself under the new config, which a restore would strand too.
+ */
+export class OrgSecretsReencryptError extends Error {
+  constructor(message: string, readonly written: boolean) {
+    super(message);
+    this.name = 'OrgSecretsReencryptError';
+  }
+}
+
+/** What {@link reencryptOrgSecrets} did — field names only, never values. */
+export interface OrgSecretsReencryptResult {
+  aiKeysReencrypted: number;
+  idpSecretReencrypted: boolean;
+  /**
+   * Fields (`aiProviderKeys.<provider>`, `idpClientSecret`) that no longer held
+   * the captured blob at write time: set, replaced or deleted by a concurrent
+   * writer. Left as that writer left them — never overwritten or resurrected.
+   */
+  concurrentlyChanged: string[];
+  /**
+   * The subset of {@link concurrentlyChanged} whose concurrent value does NOT
+   * decrypt under the now-active provider: written by a replica still holding
+   * the outgoing key (before the eviction reached it, or within the cache TTL).
+   * This pass cannot open it, so the secret must be re-entered.
+   */
+  unreadableConcurrentWrites: string[];
+}
+
+/**
  * Phase 3 — Re-encrypt the captured plaintexts under whatever provider is
  * active when this is called. Run AFTER the operator has updated the
- * kmsConfig (and evicted the per-org cache).
+ * kmsConfig (and evicted the per-org cache). Every value is wrapped before
+ * any is written; failures throw {@link OrgSecretsReencryptError}.
+ *
+ * Each secret is written with its own conditional update, filtered on the
+ * exact blob it was captured from. A miss means the secret changed since the
+ * capture; it is reported in `concurrentlyChanged` and left alone. Its current
+ * value is then checked against the new provider: a writer that had already
+ * picked up the new config wrapped it under the new key (nothing to do), but a
+ * replica whose cache still held the outgoing key wrapped it under the OLD one,
+ * which nothing can now open — that lands in `unreadableConcurrentWrites`.
  *
  * Returns counts so the caller can include them in the audit log.
  */
-export async function reencryptOrgSecrets(orgId: string, captured: CapturedSecrets): Promise<{ aiKeysReencrypted: number; idpSecretReencrypted: boolean }> {
-  let aiKeysReencrypted = 0;
-  let idpSecretReencrypted = false;
+export async function reencryptOrgSecrets(orgId: string, captured: CapturedSecrets): Promise<OrgSecretsReencryptResult> {
+  let written = false;
+  const concurrentlyChanged: string[] = [];
+  const unreadableConcurrentWrites: string[] = [];
 
-  const orgDoc = await Organization.findById(toOrgId(orgId));
-  if (orgDoc && Object.keys(captured.aiKeys).length > 0) {
-    if (!orgDoc.aiProviderKeys) orgDoc.aiProviderKeys = {};
-    for (const [provider, plaintext] of Object.entries(captured.aiKeys)) {
-      if (!plaintext) continue;
-      (orgDoc.aiProviderKeys as Record<string, string | undefined>)[provider] = await wrapEncrypted(plaintext, orgId);
-      aiKeysReencrypted++;
+  /** A conditional write missed: classify the value a concurrent writer left. */
+  const noteConcurrentChange = async (field: string, current: string | undefined): Promise<void> => {
+    concurrentlyChanged.push(field);
+    if (!current) {
+      logger.warn('Secret removed during KMS re-encryption; not restoring it', { orgId, field });
+      return;
     }
-    orgDoc.markModified('aiProviderKeys');
-    await orgDoc.save();
-  }
+    try {
+      await unwrapEncrypted(current, orgId, field);
+      // The store now holds a blob only the NEW config opens, so restoring the
+      // previous config after a later failure would strand it.
+      written = true;
+      logger.warn('Secret changed during KMS re-encryption; kept the concurrent value (already under the new key)', { orgId, field });
+    } catch (err) {
+      unreadableConcurrentWrites.push(field);
+      logger.error('Secret changed during KMS re-encryption under a key the new config cannot open; it must be re-entered', {
+        orgId, field, error: errorMessage(err),
+      });
+    }
+  };
 
-  if (captured.idpClientSecret) {
-    const wrapped = await wrapEncrypted(captured.idpClientSecret, orgId);
-    await OrgIdpConfig.updateOne({ organizationId: orgId }, { $set: { clientSecretEncrypted: wrapped } });
-    idpSecretReencrypted = true;
-  }
+  /** Run one conditional write; true when it matched. */
+  const conditionalWrite = async (write: () => Promise<{ matchedCount?: number }>): Promise<boolean> => {
+    const before = written;
+    written = true; // a throw mid-write may still have landed
+    const result = await write();
+    if (result.matchedCount === 0) {
+      written = before;
+      return false;
+    }
+    return true;
+  };
 
-  logger.info('Re-encrypted org secrets under new provider', { orgId, aiKeysReencrypted, idpSecretReencrypted });
-  return { aiKeysReencrypted, idpSecretReencrypted };
+  try {
+    const aiKeys: Array<{ provider: string; blob: string; wrapped: string }> = [];
+    for (const [provider, plaintext] of Object.entries(captured.aiKeys)) {
+      const blob = captured.blobs.aiKeys[provider];
+      if (plaintext && blob) aiKeys.push({ provider, blob, wrapped: await wrapEncrypted(plaintext, orgId) });
+    }
+    const idpBlob = captured.blobs.idpClientSecret;
+    const idpWrapped = captured.idpClientSecret && idpBlob ? await wrapEncrypted(captured.idpClientSecret, orgId) : undefined;
+
+    let aiKeysReencrypted = 0;
+    const missedAiKeys: string[] = [];
+    for (const { provider, blob, wrapped } of aiKeys) {
+      const path = `aiProviderKeys.${provider}`;
+      const matched = await conditionalWrite(() => Organization.updateOne(
+        { _id: toOrgId(orgId), [path]: blob },
+        { $set: { [path]: wrapped } },
+      ));
+      if (matched) aiKeysReencrypted++;
+      else missedAiKeys.push(provider);
+    }
+    if (missedAiKeys.length > 0) {
+      const org = await Organization.findById(toOrgId(orgId)).select('aiProviderKeys').lean();
+      const current = (org?.aiProviderKeys ?? {}) as Record<string, string | undefined>;
+      for (const provider of missedAiKeys) await noteConcurrentChange(`aiProviderKeys.${provider}`, current[provider]);
+    }
+
+    let idpSecretReencrypted = false;
+    if (idpWrapped) {
+      idpSecretReencrypted = await conditionalWrite(() => OrgIdpConfig.updateOne(
+        { organizationId: orgId, clientSecretEncrypted: idpBlob },
+        { $set: { clientSecretEncrypted: idpWrapped } },
+      ));
+      if (!idpSecretReencrypted) {
+        const idp = await OrgIdpConfig.findOne({ organizationId: orgId }).select('clientSecretEncrypted').lean();
+        await noteConcurrentChange('idpClientSecret', idp?.clientSecretEncrypted);
+      }
+    }
+
+    const result = { aiKeysReencrypted, idpSecretReencrypted, concurrentlyChanged, unreadableConcurrentWrites };
+    logger.info('Re-encrypted org secrets under new provider', { orgId, ...result });
+    return result;
+  } catch (err) {
+    throw new OrgSecretsReencryptError(errorMessage(err), written);
+  }
 }
 
 /** Per-row outcome counts for a fleet-wide re-encryption run. */

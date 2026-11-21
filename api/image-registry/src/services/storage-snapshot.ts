@@ -210,12 +210,34 @@ export function mergeOrgRecord(opts: {
 export interface SnapshotStore {
   get(key: string): Promise<string | null>;
   set(key: string, value: string, ttlSeconds: number): Promise<void>;
+  /**
+   * Write `value` only if the key still holds `expected` (null: still absent),
+   * atomically. False when another writer got there first. The org records'
+   * read-merge-write goes through this, so a run and a refresh racing on one
+   * org never drop each other's merge.
+   */
+  setIfUnchanged(key: string, expected: string | null, value: string, ttlSeconds: number): Promise<boolean>;
 }
 
 interface RedisKv {
   get(key: string): Promise<string | null>;
   set(key: string, value: string, mode: 'EX', seconds: number): Promise<unknown>;
+  eval(script: string, numKeys: number, ...args: (string | number)[]): Promise<unknown>;
 }
+
+/**
+ * Compare-and-set. KEYS: the key. ARGV: '1' when a value is expected ('0':
+ * expect it absent), the expected value, the new value, its TTL in seconds.
+ */
+const SET_IF_UNCHANGED_SCRIPT = `
+local cur = redis.call('GET', KEYS[1])
+if ARGV[1] == '1' then
+  if cur ~= ARGV[2] then return 0 end
+elseif cur then
+  return 0
+end
+redis.call('SET', KEYS[1], ARGV[3], 'EX', ARGV[4])
+return 1`;
 
 function createStore(): SnapshotStore {
   const redis = createEnvRedisClient<RedisKv>('storage-snapshot');
@@ -223,18 +245,29 @@ function createStore(): SnapshotStore {
     return {
       get: (key) => redis.get(key),
       set: async (key, value, ttlSeconds) => { await redis.set(key, value, 'EX', ttlSeconds); },
+      setIfUnchanged: async (key, expected, value, ttlSeconds) =>
+        Number(await redis.eval(SET_IF_UNCHANGED_SCRIPT, 1, key, expected === null ? '0' : '1', expected ?? '', value, ttlSeconds)) === 1,
     };
   }
   // No Redis: each pod runs the (then unlocked) job and keeps its own copy.
   logger.info('Redis not configured — storage snapshot kept in process memory');
   const mem = new Map<string, { value: string; expires: number }>();
+  const read = (key: string): string | null => {
+    const hit = mem.get(key);
+    if (!hit || hit.expires < Date.now()) return null;
+    return hit.value;
+  };
+  const write = (key: string, value: string, ttlSeconds: number): void => {
+    mem.set(key, { value, expires: Date.now() + ttlSeconds * 1000 });
+  };
   return {
-    get: async (key) => {
-      const hit = mem.get(key);
-      if (!hit || hit.expires < Date.now()) return null;
-      return hit.value;
+    get: async (key) => read(key),
+    set: async (key, value, ttlSeconds) => write(key, value, ttlSeconds),
+    setIfUnchanged: async (key, expected, value, ttlSeconds) => {
+      if (read(key) !== expected) return false;
+      write(key, value, ttlSeconds);
+      return true;
     },
-    set: async (key, value, ttlSeconds) => { mem.set(key, { value, expires: Date.now() + ttlSeconds * 1000 }); },
   };
 }
 
@@ -253,6 +286,25 @@ function parse<T>(raw: string | null): T | null {
   } catch {
     return null;
   }
+}
+
+/** Read-merge-write attempts before an org record write gives up (contention is rare: two writers at most). */
+const MERGE_ATTEMPTS = 5;
+
+/**
+ * Store one org's record as `build(stored)`, against what is stored at the
+ * moment of the write: re-read and re-merge whenever another writer changed the
+ * record in between. Throws when the record stays contended (or the store
+ * fails); the caller treats the org as not stored.
+ */
+async function storeMergedOrgRecord(s: SnapshotStore, orgId: string, build: (stored: OrgRecord | null) => OrgRecord): Promise<OrgRecord> {
+  const key = orgKey(orgId);
+  for (let attempt = 0; attempt < MERGE_ATTEMPTS; attempt++) {
+    const raw = await s.get(key);
+    const record = build(parse<OrgRecord>(raw));
+    if (await s.setIfUnchanged(key, raw, JSON.stringify(record), RECORD_TTL_SECONDS)) return record;
+  }
+  throw new Error(`org record still contended after ${MERGE_ATTEMPTS} attempts`);
 }
 
 /** Publish the fleet's liveness gauges from a run marker. */
@@ -398,16 +450,13 @@ export async function runStorageSnapshot(opts: { intervalMs: number; signal?: Ab
     if (signal?.aborted) return;
     try {
       // Read-merge-write: a targeted refresh may have stored newer figures for
-      // some of these repositories since this scan started.
-      const record = mergeOrgRecord({
-        measured: figuresFrom(scan.perRepo, orgStart),
-        repos,
-        stored: parse<OrgRecord>(await s.get(orgKey(orgId))),
-        runId,
-        recordsComplete,
-      });
+      // some of these repositories since this scan started (or store them while
+      // this write is in flight — the write is conditional on what it merged).
+      const measured = figuresFrom(scan.perRepo, orgStart);
+      const record = await storeMergedOrgRecord(s, orgId, (stored) => mergeOrgRecord({
+        measured, repos, stored, runId, recordsComplete,
+      }));
       if (record.incomplete) incompleteOrgs++;
-      await s.set(orgKey(orgId), JSON.stringify(record), RECORD_TTL_SECONDS);
     } catch (err) {
       // One org's record not landing must not lose every other org's: the
       // marker names it, so it reads as unknown rather than as 0 bytes.
@@ -494,20 +543,25 @@ async function refreshOnce(orgId: string): Promise<void> {
   const startedAt = Date.now();
   const repos = [...record.repos].sort();
   const scan = await scanRepositories(repos, { perRepo: true });
-  // Merge into what is stored NOW: a full run may have written since this
-  // refresh read the record. Its repositories (including any this refresh never
-  // knew) are kept, and its figures win wherever it measured after `startedAt`.
-  const current = parse<OrgRecord>(await s.get(orgKey(orgId))) ?? record;
-  const next = mergeOrgRecord({
-    measured: figuresFrom(scan.perRepo, startedAt),
-    repos: current.repos,
-    stored: current,
-    // The refresh measured the org at or after `startedAt`, so it is at least as
-    // current as any run that started before it.
-    runId: startedAt,
-    recordsComplete: current.recordsComplete,
+  // Merge into what is stored AT THE WRITE: a full run may have written since
+  // this refresh read the record (or write while this one is in flight — the
+  // write is conditional on what it merged). The run's repositories (including
+  // any this refresh never knew) are kept, its figures win wherever it measured
+  // after `startedAt`, and its `runId` is kept, so the record still counts as
+  // current for that run's marker.
+  const measured = figuresFrom(scan.perRepo, startedAt);
+  const next = await storeMergedOrgRecord(s, orgId, (stored) => {
+    const current = stored ?? record;
+    return mergeOrgRecord({
+      measured,
+      repos: current.repos,
+      stored: current,
+      // The refresh measured the org at or after `startedAt`, so it is at least as
+      // current as any run that started before it.
+      runId: startedAt,
+      recordsComplete: current.recordsComplete,
+    });
   });
-  await s.set(orgKey(orgId), JSON.stringify(next), RECORD_TTL_SECONDS);
   logger.info('Storage snapshot refreshed for org', { orgId, bytes: next.bytes, incomplete: next.incomplete, ms: Date.now() - startedAt });
 }
 

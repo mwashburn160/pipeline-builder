@@ -301,14 +301,21 @@ describe('reportMarketplaceAddonUsage — usage-credit realization', () => {
     expect(mockCreateBillingEvent).not.toHaveBeenCalledWith('org-1', 'credit_consumed', expect.anything(), expect.anything());
   });
 
-  it('re-grants recurring/combo credits once per period (winner runs grantPeriodicCredits)', async () => {
+  it('re-grants recurring/combo credits once per period, with ATOMIC writes (no full-doc save)', async () => {
+    // A full-doc save wrote creditBalanceCents as an absolute value, so another
+    // pod's concurrent hourly drawdown ($inc) landing between this pod's read and
+    // its save was overwritten — the customer got that credit back for free.
     const granted = creditSub({ save: jest.fn<() => Promise<unknown>>().mockResolvedValue(undefined) });
     mockSubscriptionFindOne.mockResolvedValue(creditSub());
+    mockSubscriptionFindById.mockResolvedValue(creditSub({ creditBalanceCents: 4000 }));
     claims({ period: granted, hour: { creditBalanceCents: 0 } });
 
     await reportMarketplaceAddonUsage('org-1', new Date('2026-07-29T14:00:00Z'));
-    expect(mockGrantPeriodicCredits).toHaveBeenCalledWith(granted, '2026-07-15'); // the period's start date
-    expect((granted as unknown as { save: unknown }).save).toHaveBeenCalled();
+    expect(mockGrantPeriodicCredits).toHaveBeenCalledWith(granted, '2026-07-15', { atomic: true }); // the period's start date
+    expect(mockGrantRecurringPromotions).toHaveBeenCalledWith(granted, '2026-07-15', { atomic: true });
+    expect((granted as unknown as { save: unknown }).save).not.toHaveBeenCalled();
+    // The drawdown plans from the RE-READ balance (the atomic grants did not touch the in-memory doc).
+    expect(mockSubscriptionFindById).toHaveBeenCalled();
   });
 
   it('warns + counts an unrealizable balance (credit but no priced meterable dimension)', async () => {

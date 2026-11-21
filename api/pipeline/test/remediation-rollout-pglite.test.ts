@@ -315,14 +315,48 @@ describe('start: who is proposed, queued or skipped', () => {
     expect(moveCalls.map((m) => m.pipelineId)).not.toContain(foreign);
   });
 
-  it('refuses the row when the org hierarchy cannot be confirmed (fail-closed), and still writes the root\'s own', async () => {
+  it('fails the whole start when the org hierarchy cannot be confirmed (fail-closed, nothing written); the retried start writes every row', async () => {
     await settings(ROOT, { rollout: 'apply' });
     const own = await pipelineOn(ROOT);
-    await pipelineOn(TEAM, { root: ROOT });
+    const team = await pipelineOn(TEAM, { root: ROOT });
     const failing = createRolloutEngine({ ...deps, ancestors: async () => { throw new Error('platform down'); } });
     const rem = randomUUID();
-    await failing.start(rem, startBody());
-    expect((await loadRows(rem)).map((r) => r.pipelineId)).toEqual([own]);
+    // A partial start would leave the team's pipeline out for good: a repeat
+    // start only re-targets existing rows, and the plugin service retries only
+    // a start that failed.
+    await expect(failing.start(rem, startBody())).rejects.toThrow(/platform down/);
+    expect(await loadRows(rem)).toEqual([]);
+    expect(changeRequests).toEqual([]);
+    await engine.start(rem, startBody());
+    expect((await loadRows(rem)).map((r) => r.pipelineId).sort()).toEqual([own, team].sort());
+  });
+
+  it('a team that moved to another root is planned under its LIVE root (settings, parentOrgId, team placement), not the root its resolution row recorded', async () => {
+    // The resolution row still records OTHER (the team's old root); the platform
+    // hierarchy says TEAM is now under ROOT.
+    await settings(OTHER, { rollout: 'off' });
+    await settings(ROOT, { rollout: 'apply' });
+    const teamPipe = await pipelineOn(TEAM, { root: OTHER });
+    plans.set(teamPipe, { kind: 'redeploy', steps: [], install: null });
+    const settingsCalls: Array<[string, string | null]> = [];
+    const planRoots: Array<string | null> = [];
+    const live = createRolloutEngine({
+      ...deps,
+      settings: (orgId, rootOrgId) => { settingsCalls.push([orgId, rootOrgId]); return deps.settings(orgId, rootOrgId); },
+      plan: (pipeline, rootOrgId, ref, opts) => { planRoots.push(rootOrgId); return deps.plan(pipeline, rootOrgId, ref, opts); },
+    });
+    const rem = randomUUID();
+    await live.start(rem, startBody(TEAM));
+    expect((await stateOf(rem))[teamPipe]).toBe('queued');
+    expect(planRoots).toEqual([ROOT]);
+    expect(settingsCalls.filter(([o]) => o === TEAM).map(([, r]) => r)).not.toContain(OTHER);
+    expect(settingsCalls).toContainEqual([TEAM, ROOT]);
+
+    // A repeat start re-targeting the open row also reads the live root.
+    planRoots.length = 0;
+    await live.start(rem, { ...startBody(TEAM), toVersion: '1.4.4' });
+    expect(planRoots).toEqual([ROOT]);
+    expect((await stateOf(rem))[teamPipe]).toBe('queued');
   });
 
   it('rowOrgAdmits: the row org must be the pipeline\'s org, and the scope its own org or an ancestor', async () => {
@@ -453,6 +487,47 @@ describe('rollback', () => {
     return { rem, ids };
   }
 
+  it('a team moved to another root: the move and the rollback use the root start() stored on the row, not the stale resolution root', async () => {
+    // The resolution row records OTHER (the old root, off); TEAM is now under ROOT (apply).
+    await settings(OTHER, { rollout: 'off' });
+    await settings(ROOT, { rollout: 'apply' });
+    const teamPipe = await pipelineOn(TEAM, { root: OTHER });
+    plans.set(teamPipe, { kind: 'redeploy', steps: [], install: null });
+    const roots: Array<{ step: string; rootOrgId: string | null }> = [];
+    const live = createRolloutEngine({
+      ...deps,
+      move: (input) => { roots.push({ step: input.rollback ? 'rollback' : 'move', rootOrgId: input.rootOrgId }); return deps.move(input); },
+      rollbackTarget: (row, rootOrgId) => { roots.push({ step: 'rollbackTarget', rootOrgId }); return deps.rollbackTarget(row, rootOrgId); },
+    });
+    const rem = randomUUID();
+    await live.start(rem, startBody(TEAM));
+    expect((await loadRows(rem))[0]).toMatchObject({ pipelineId: teamPipe, rootOrgId: ROOT });
+    await live.tick();
+    expect((await stateOf(rem))[teamPipe]).toBe('moved');
+    expect(roots).toEqual([{ step: 'move', rootOrgId: ROOT }]);
+
+    await manifest(teamPipe, TEAM, 'Build', 'trivy', PLUGIN, TO);
+    await failAction(teamPipe, TEAM, 'Build', 'trivy');
+    await finishRuns(rem);
+    advance(60_000);
+    await live.tick();
+    expect((await stateOf(rem))[teamPipe]).toBe('rolled_back');
+    expect(roots.slice(1)).toEqual([{ step: 'rollbackTarget', rootOrgId: ROOT }, { step: 'rollback', rootOrgId: ROOT }]);
+  });
+
+  it('a row with no stored root (NULL) falls back to the resolution row\'s root', async () => {
+    await settings(ROOT, { rollout: 'apply' });
+    const teamPipe = await pipelineOn(TEAM, { root: ROOT });
+    plans.set(teamPipe, { kind: 'redeploy', steps: [], install: null });
+    const roots: Array<string | null> = [];
+    const live = createRolloutEngine({ ...deps, move: (input) => { roots.push(input.rootOrgId); return deps.move(input); } });
+    const rem = randomUUID();
+    await live.start(rem, startBody());
+    await owner((q) => q.query('UPDATE pipeline_remediation_upgrades SET root_org_id = NULL WHERE remediation_id = $1', [rem]));
+    await live.tick();
+    expect(roots).toEqual([ROOT]);
+  });
+
   it('a failed canary run on a step using the new version rolls that pipeline back and stops the rollout', async () => {
     const { rem, ids } = await moved(7);
     const canary = (await loadRows(rem)).filter((r) => r.wave === 0);
@@ -529,6 +604,7 @@ describe('the rollback target (real SQL)', () => {
   const row = (pipelineId: string) => ({
     id: randomUUID(),
     orgId: ROOT,
+    rootOrgId: null,
     remediationId: randomUUID(),
     pipelineId,
     pluginName: PLUGIN,

@@ -814,6 +814,40 @@ describe('PUT /subscriptions/:id', () => {
 
     expect(mockUpdateSubscription).toHaveBeenCalledWith('ext-sub-1', 'enterprise', 'monthly');
   });
+
+  it('skips the provider for a row not yet bound to a provider subscription (like the admin override)', async () => {
+    // Inside an in-app create's bind window the row has no externalId; handing
+    // '' to the provider failed the change with a 500.
+    const sub = makeSubscription({ externalId: undefined });
+    mockSubscriptionFindOne.mockResolvedValue(sub);
+    mockPlanFindOne.mockResolvedValue({ _id: 'enterprise', name: 'Enterprise', tier: 'enterprise', isActive: true });
+    mockUpdateSubscription.mockRejectedValue(new Error('No such subscription: \'\''));
+
+    const res = mockRes();
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), res);
+
+    expect(mockUpdateSubscription).not.toHaveBeenCalled();
+    expect(sub.save).toHaveBeenCalled();
+    expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, expect.anything());
+  });
+
+  it('answers 503 on an UNKNOWN provider outcome (timeout) and changes nothing locally', async () => {
+    // The provider may have applied the change; its customer.subscription.updated
+    // webhook adopts the plan when it did. Retrying is safe (same target price).
+    const sub = makeSubscription({ planId: 'pro' });
+    mockSubscriptionFindOne.mockResolvedValue(sub);
+    mockPlanFindOne.mockResolvedValue({ _id: 'enterprise', name: 'Enterprise', tier: 'enterprise', isActive: true });
+    mockUpdateSubscription.mockRejectedValue(Object.assign(new Error('Request aborted due to timeout'), { type: 'StripeConnectionError' }));
+
+    const res = mockRes();
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), res);
+
+    expect(mockSendError).toHaveBeenCalledWith(res, 503, expect.stringContaining('may still have been applied'),
+      'SERVICE_UNAVAILABLE', { outcome: 'unknown', reconcilePending: true });
+    expect(mockIncCounter).toHaveBeenCalledWith('billing_provider_outcome_unknown_total', { op: 'plan_change' });
+    expect(sub.save).not.toHaveBeenCalled();
+    expect(sub.planId).toBe('pro');
+  });
 });
 
 describe('POST /subscriptions/:id/cancel', () => {

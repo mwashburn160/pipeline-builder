@@ -10,6 +10,8 @@
  *     under the now-active provider and persists them.
  *   - an encrypt failure THROWS (surfaces loud) rather than silently dropping
  *     a secret — the caller reverts / alerts on-call.
+ *   - each write is conditional on the captured blob: a secret set or deleted
+ *     concurrently is kept / not resurrected, and reported by field name.
  *   - captureOrgSecrets refuses (throws) when an existing blob can't be
  *     decrypted, so a rotation never proceeds over unreadable data.
  */
@@ -20,6 +22,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockOrgFindById = jest.fn<AnyFn>();
 const mockOrgFind = jest.fn<AnyFn>();
+const mockOrgUpdateOne = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockIdpFindOne = jest.fn<AnyFn>();
 const mockIdpFind = jest.fn<AnyFn>();
 const mockIdpUpdateOne = jest.fn<(...a: unknown[]) => Promise<unknown>>();
@@ -43,6 +46,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   Organization: {
     findById: (...a: unknown[]) => mockOrgFindById(...a),
     find: (...a: unknown[]) => mockOrgFind(...a),
+    updateOne: (...a: unknown[]) => mockOrgUpdateOne(...a),
   },
   UserTotp: {
     find: (...a: unknown[]) => mockTotpFind(...a),
@@ -72,7 +76,7 @@ jest.unstable_mockModule('../src/utils/secret-blob.js', () => ({
   unwrapEncrypted: (...a: unknown[]) => mockUnwrap(...a),
 }));
 
-const { reencryptOrgSecrets, captureOrgSecrets, reencryptAllStoredSecrets } = await import('../src/services/secret-reencrypt.js');
+const { reencryptOrgSecrets, captureOrgSecrets, reencryptAllStoredSecrets, OrgSecretsReencryptError } = await import('../src/services/secret-reencrypt.js');
 
 /** `Model.find().select().cursor()` over a fixed array of docs. */
 function cursorOver(docs: unknown[]) {
@@ -86,57 +90,173 @@ function bareCursorOver(docs: unknown[]) {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockIdpUpdateOne.mockResolvedValue(undefined);
+  mockIdpUpdateOne.mockResolvedValue({ matchedCount: 1 });
+  mockOrgUpdateOne.mockResolvedValue({ matchedCount: 1 });
   mockWrap.mockImplementation((pt: unknown) => `enc:${pt}`);
 });
 
+/** `Model.findX().select().lean()` resolving to `doc` — the re-read after a conflict. */
+function leanDoc(doc: unknown) {
+  return { select: () => ({ lean: () => Promise.resolve(doc) }) };
+}
+
+/** A captured set: plaintexts plus the exact stored blobs they were read from. */
+const CAPTURED = {
+  aiKeys: { anthropic: 'k-anthropic', openai: 'k-openai' },
+  idpClientSecret: 'idp-plain',
+  blobs: { aiKeys: { anthropic: 'old:anthropic', openai: 'old:openai' }, idpClientSecret: 'old:idp' },
+};
+
 describe('reencryptOrgSecrets', () => {
-  it('re-wraps every captured AI key + the IdP secret and persists them', async () => {
-    const orgDoc: any = { aiProviderKeys: {}, markModified: jest.fn<AnyFn>(), save: jest.fn(async () => undefined) };
-    mockOrgFindById.mockResolvedValue(orgDoc);
+  it('re-wraps every captured AI key + the IdP secret, each write conditional on the blob it was captured from', async () => {
+    const counts = await reencryptOrgSecrets('org-1', CAPTURED);
 
-    const counts = await reencryptOrgSecrets('org-1', {
-      aiKeys: { anthropic: 'k-anthropic', openai: 'k-openai' },
-      idpClientSecret: 'idp-plain',
-    });
-
-    expect(counts).toEqual({ aiKeysReencrypted: 2, idpSecretReencrypted: true });
-    // AI keys re-wrapped under the (new) active provider and saved.
-    expect(orgDoc.aiProviderKeys.anthropic).toBe('enc:k-anthropic');
-    expect(orgDoc.aiProviderKeys.openai).toBe('enc:k-openai');
-    expect(orgDoc.markModified).toHaveBeenCalledWith('aiProviderKeys');
-    expect(orgDoc.save).toHaveBeenCalledTimes(1);
-    // IdP secret re-wrapped via a targeted update.
+    expect(counts).toEqual({ aiKeysReencrypted: 2, idpSecretReencrypted: true, concurrentlyChanged: [], unreadableConcurrentWrites: [] });
+    expect(mockOrgUpdateOne).toHaveBeenCalledWith(
+      { '_id': 'org-1', 'aiProviderKeys.anthropic': 'old:anthropic' },
+      { $set: { 'aiProviderKeys.anthropic': 'enc:k-anthropic' } },
+    );
+    expect(mockOrgUpdateOne).toHaveBeenCalledWith(
+      { '_id': 'org-1', 'aiProviderKeys.openai': 'old:openai' },
+      { $set: { 'aiProviderKeys.openai': 'enc:k-openai' } },
+    );
     expect(mockIdpUpdateOne).toHaveBeenCalledWith(
-      { organizationId: 'org-1' },
+      { organizationId: 'org-1', clientSecretEncrypted: 'old:idp' },
       { $set: { clientSecretEncrypted: 'enc:idp-plain' } },
     );
   });
 
   it('leaves the IdP row alone when no IdP secret was captured', async () => {
-    const orgDoc: any = { aiProviderKeys: {}, markModified: jest.fn<AnyFn>(), save: jest.fn(async () => undefined) };
-    mockOrgFindById.mockResolvedValue(orgDoc);
+    const counts = await reencryptOrgSecrets('org-1', { aiKeys: { openai: 'k' }, blobs: { aiKeys: { openai: 'old:openai' } } });
 
-    const counts = await reencryptOrgSecrets('org-1', { aiKeys: { openai: 'k' } });
-
-    expect(counts).toEqual({ aiKeysReencrypted: 1, idpSecretReencrypted: false });
+    expect(counts).toMatchObject({ aiKeysReencrypted: 1, idpSecretReencrypted: false });
     expect(mockIdpUpdateOne).not.toHaveBeenCalled();
   });
 
+  it('keeps an AI key set concurrently (under the new key) instead of overwriting it', async () => {
+    // The openai filter no longer matches: someone set a new key in between.
+    mockOrgUpdateOne.mockImplementation(async (filter: any) => ({ matchedCount: 'aiProviderKeys.openai' in filter ? 0 : 1 }));
+    mockOrgFindById.mockReturnValue(leanDoc({ aiProviderKeys: { anthropic: 'enc:k-anthropic', openai: 'enc:fresh-openai' } }));
+    mockUnwrap.mockImplementation((raw: unknown) => `plain:${raw}`);
+
+    const counts = await reencryptOrgSecrets('org-1', CAPTURED);
+
+    expect(counts).toEqual({
+      aiKeysReencrypted: 1,
+      idpSecretReencrypted: true,
+      concurrentlyChanged: ['aiProviderKeys.openai'],
+      unreadableConcurrentWrites: [],
+    });
+    // Only conditional writes: nothing can overwrite the fresh value.
+    for (const [filter] of mockOrgUpdateOne.mock.calls) expect(Object.keys(filter as object)).toHaveLength(2);
+    // The concurrent value was checked against the now-active key.
+    expect(mockUnwrap).toHaveBeenCalledWith('enc:fresh-openai', 'org-1', 'aiProviderKeys.openai');
+  });
+
+  it('does not resurrect an AI key deleted concurrently', async () => {
+    mockOrgUpdateOne.mockImplementation(async (filter: any) => ({ matchedCount: 'aiProviderKeys.openai' in filter ? 0 : 1 }));
+    mockOrgFindById.mockReturnValue(leanDoc({ aiProviderKeys: { anthropic: 'enc:k-anthropic' } }));
+
+    const counts = await reencryptOrgSecrets('org-1', CAPTURED);
+
+    expect(counts).toMatchObject({ aiKeysReencrypted: 1, concurrentlyChanged: ['aiProviderKeys.openai'], unreadableConcurrentWrites: [] });
+    // No unconditional write ever put the captured value back.
+    expect(mockOrgUpdateOne).toHaveBeenCalledTimes(2);
+    expect(mockUnwrap).not.toHaveBeenCalled();
+  });
+
+  it('reports a concurrent write still under the OLD key (a replica with a stale cache) as unreadable', async () => {
+    mockOrgUpdateOne.mockImplementation(async (filter: any) => ({ matchedCount: 'aiProviderKeys.openai' in filter ? 0 : 1 }));
+    mockOrgFindById.mockReturnValue(leanDoc({ aiProviderKeys: { openai: 'stale:openai' } }));
+    mockUnwrap.mockImplementation(() => { throw new Error('KMS key id mismatch'); });
+
+    const counts = await reencryptOrgSecrets('org-1', CAPTURED);
+
+    expect(counts).toMatchObject({ concurrentlyChanged: ['aiProviderKeys.openai'], unreadableConcurrentWrites: ['aiProviderKeys.openai'] });
+    // Never surfaces the secret value itself.
+    expect(JSON.stringify(counts)).not.toContain('stale:openai');
+  });
+
+  it('keeps an IdP secret set concurrently instead of overwriting it', async () => {
+    mockIdpUpdateOne.mockResolvedValue({ matchedCount: 0 });
+    mockIdpFindOne.mockReturnValue(leanDoc({ clientSecretEncrypted: 'enc:fresh-idp' }));
+    mockUnwrap.mockImplementation((raw: unknown) => `plain:${raw}`);
+
+    const counts = await reencryptOrgSecrets('org-1', CAPTURED);
+
+    expect(counts).toEqual({ aiKeysReencrypted: 2, idpSecretReencrypted: false, concurrentlyChanged: ['idpClientSecret'], unreadableConcurrentWrites: [] });
+    expect(mockIdpUpdateOne).toHaveBeenCalledTimes(1);
+    expect(mockIdpUpdateOne.mock.calls[0][0]).toEqual({ organizationId: 'org-1', clientSecretEncrypted: 'old:idp' });
+  });
+
+  it('does not resurrect an IdP secret removed concurrently', async () => {
+    mockIdpUpdateOne.mockResolvedValue({ matchedCount: 0 });
+    mockIdpFindOne.mockReturnValue(leanDoc(null));
+
+    const counts = await reencryptOrgSecrets('org-1', CAPTURED);
+
+    expect(counts).toMatchObject({ idpSecretReencrypted: false, concurrentlyChanged: ['idpClientSecret'], unreadableConcurrentWrites: [] });
+    expect(mockIdpUpdateOne).toHaveBeenCalledTimes(1);
+  });
+
   it('THROWS (does not silently drop) when re-encrypting a secret fails', async () => {
-    const orgDoc: any = { aiProviderKeys: {}, markModified: jest.fn<AnyFn>(), save: jest.fn(async () => undefined) };
-    mockOrgFindById.mockResolvedValue(orgDoc);
     mockWrap.mockImplementation((pt: unknown) => {
       if (pt === 'k-openai') throw new Error('KMS Encrypt denied');
       return `enc:${pt}`;
     });
 
-    await expect(
-      reencryptOrgSecrets('org-1', { aiKeys: { openai: 'k-openai' }, idpClientSecret: 'idp-plain' }),
-    ).rejects.toThrow('KMS Encrypt denied');
-    // The failure short-circuits BEFORE the IdP row is touched — no partial,
+    await expect(reencryptOrgSecrets('org-1', CAPTURED)).rejects.toThrow('KMS Encrypt denied');
+    // The failure short-circuits BEFORE any row is touched — no partial,
     // silently-lost secret.
+    expect(mockOrgUpdateOne).not.toHaveBeenCalled();
     expect(mockIdpUpdateOne).not.toHaveBeenCalled();
+  });
+
+  it('wraps EVERY secret before writing any: a failure on the last one leaves nothing written (written: false)', async () => {
+    mockWrap.mockImplementation((pt: unknown) => {
+      if (pt === 'idp-plain') throw new Error('KMS Encrypt denied');
+      return `enc:${pt}`;
+    });
+
+    const err = await reencryptOrgSecrets('org-1', CAPTURED).then(() => undefined, (e: unknown) => e);
+    expect(err).toBeInstanceOf(OrgSecretsReencryptError);
+    expect((err as InstanceType<typeof OrgSecretsReencryptError>).written).toBe(false);
+    expect((err as Error).message).toMatch(/KMS Encrypt denied/);
+    expect(mockOrgUpdateOne).not.toHaveBeenCalled();
+    expect(mockIdpUpdateOne).not.toHaveBeenCalled();
+  });
+
+  it('a write failure after a write landed reports written: true', async () => {
+    mockIdpUpdateOne.mockRejectedValue(new Error('mongo down'));
+
+    const err = await reencryptOrgSecrets('org-1', CAPTURED).then(() => undefined, (e: unknown) => e);
+    expect(err).toBeInstanceOf(OrgSecretsReencryptError);
+    expect((err as InstanceType<typeof OrgSecretsReencryptError>).written).toBe(true);
+    expect(mockOrgUpdateOne).toHaveBeenCalledTimes(2);
+  });
+
+  it('a failure after only non-matching writes still reports written: false', async () => {
+    // Every AI-key filter misses (nothing written), then the re-read fails.
+    mockOrgUpdateOne.mockResolvedValue({ matchedCount: 0 });
+    mockOrgFindById.mockReturnValue({ select: () => ({ lean: () => Promise.reject(new Error('mongo down')) }) });
+
+    const err = await reencryptOrgSecrets('org-1', CAPTURED).then(() => undefined, (e: unknown) => e);
+    expect(err).toBeInstanceOf(OrgSecretsReencryptError);
+    expect((err as InstanceType<typeof OrgSecretsReencryptError>).written).toBe(false);
+    expect(mockIdpUpdateOne).not.toHaveBeenCalled();
+  });
+
+  it('a concurrent value already under the new key counts as written: a restore would strand it', async () => {
+    // Nothing of ours lands, but the store now holds a new-key blob, then a later step fails.
+    mockOrgUpdateOne.mockResolvedValue({ matchedCount: 0 });
+    mockOrgFindById.mockReturnValue(leanDoc({ aiProviderKeys: { openai: 'enc:fresh-openai' } }));
+    mockUnwrap.mockImplementation((raw: unknown) => `plain:${raw}`);
+    mockIdpUpdateOne.mockResolvedValue({ matchedCount: 0 });
+    mockIdpFindOne.mockReturnValue({ select: () => ({ lean: () => Promise.reject(new Error('mongo down')) }) });
+
+    const err = await reencryptOrgSecrets('org-1', CAPTURED).then(() => undefined, (e: unknown) => e);
+    expect(err).toBeInstanceOf(OrgSecretsReencryptError);
+    expect((err as InstanceType<typeof OrgSecretsReencryptError>).written).toBe(true);
   });
 });
 
@@ -164,6 +284,8 @@ describe('captureOrgSecrets', () => {
     const captured = await captureOrgSecrets('org-1');
     expect(captured.aiKeys.openai).toBe('plain:cipher-openai');
     expect(captured.idpClientSecret).toBe('plain:cipher-idp');
+    // The exact stored blobs are kept, so phase 3 can write conditionally on them.
+    expect(captured.blobs).toEqual({ aiKeys: { openai: 'cipher-openai' }, idpClientSecret: 'cipher-idp' });
   });
 });
 

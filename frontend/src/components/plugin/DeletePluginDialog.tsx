@@ -92,9 +92,12 @@ export function DeletePluginDialog({ name, onClose, onDeleted }: {
       try {
         const res = await api.getPluginDeleteJob(name, job.jobId, { signal: controller.signal });
         if (stopped) return;
-        failures = 0;
         const status = res.data;
-        if (status && status.state !== 'running') {
+        // An answer without a status is a failed read too: counted toward the
+        // same stop, so a broken reply can never keep the dialog polling forever.
+        if (!status) throw new Error('Could not read the delete\'s progress; check Recently deleted');
+        failures = 0;
+        if (status.state !== 'running') {
           setJob(null);
           if (status.state === 'failed') {
             setError(`The delete did not finish: ${status.error?.message ?? 'unknown error'}`);

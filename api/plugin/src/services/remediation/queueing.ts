@@ -38,6 +38,7 @@ import {
   MANAGED_TOOLCHAIN,
   pluginRemediationJobId,
   PLUGIN_REMEDIATION_JOB_NAME,
+  REMEDIATION_ROLLOUT_START_FAILED,
   remediationFindingsHash,
   remediationQueuePriority,
   scanFindingKey,
@@ -55,6 +56,7 @@ import { and, eq, isNull, ne } from 'drizzle-orm';
 import { isCanaryPlugin } from './canary.js';
 import { removeQueuedRemediationJobs } from './cancel.js';
 import { auditRemediation, countStage, sendOwnerRequest } from './lifecycle.js';
+import { recordRolloutStart } from './rollout-start.js';
 import { startTenantRollout } from './rollout.js';
 import {
   elevatedTx, insertRemediationUnderCap, isRolloutStage, liveRemediations, newestCleanOwnerVersion, readSettings, remediationExistsFor,
@@ -201,15 +203,36 @@ export const ROLLOUT_START_RETRY_AFTER_MS = 15 * 60_000;
  * one moves to `rolling_out` (on the start's answer, or on the pipeline
  * service's first report). Start it again; the pipeline side is idempotent per
  * remediation id, so a start that did land but lost its answer only moves the
- * stage. An Official fix (system org) is started by its listing publish, never here.
+ * stage. At most REMEDIATION_ROLLOUT_START_MAX_ATTEMPTS attempts in all, and
+ * none after a permanent refusal (rollout-start.ts): a given-up row
+ * (`rollout_start_failed`) waits for Retry. An Official fix (system org) is
+ * started by its listing publish, never here.
  */
 async function retryRolloutStart(row: PluginRemediation, result: QueuePassResult, now: Date): Promise<void> {
-  if (isSystemOrgId(row.orgId) || row.updatedAt.getTime() > now.getTime() - ROLLOUT_START_RETRY_AFTER_MS) return;
-  if (!await startTenantRollout(row)) return;
-  if (await updateRemediation(row.id, { stage: 'rolling_out' }, ['published'])) {
+  if (isSystemOrgId(row.orgId) || row.error === REMEDIATION_ROLLOUT_START_FAILED) return;
+  if (row.updatedAt.getTime() > now.getTime() - ROLLOUT_START_RETRY_AFTER_MS) return;
+  const recorded = await recordRolloutStart(row, await startTenantRollout(row), 'sweep');
+  if (recorded.outcome === 'started') {
     result.rolloutsStarted++;
     logger.info('Remediation rollout started on retry', { remediationId: row.id });
+  } else if (recorded.outcome === 'given_up') {
+    result.rolloutStartsGivenUp++;
   }
+}
+
+/**
+ * A `published` fix whose fix version was purged (`to_plugin_id` NULL — ON
+ * DELETE SET NULL; a purge path that did not go through the delete's cancel)
+ * has nothing left to roll out: it ends `done` / `cancelled` (the catalog's
+ * "the version was deleted"), error FIX_VERSION_PURGED, instead of staying
+ * live forever.
+ */
+async function finishPurgedFix(row: PluginRemediation): Promise<boolean> {
+  const done = await updateRemediation(row.id, { stage: 'done', outcome: 'cancelled', error: 'FIX_VERSION_PURGED', finishedAt: new Date() }, ['published']);
+  if (!done) return false;
+  countStage('done', 'cancelled');
+  logger.info('Published remediation closed: its fix version was purged', { remediationId: row.id });
+  return true;
 }
 
 async function liveResumeToolchainFixes(): Promise<number> {
@@ -238,10 +261,14 @@ export interface QueuePassResult {
   stranded: number;
   /** Published tenant fixes whose failed rollout start was retried and taken this pass. */
   rolloutsStarted: number;
+  /** Published tenant fixes whose rollout start was given up this pass (permanent refusal, or attempts exhausted). */
+  rolloutStartsGivenUp: number;
+  /** Published fixes closed because their fix version was purged. */
+  fixPurged: number;
 }
 
 export async function queuePassRemediations(candidates: readonly RemediationCandidate[], deps: QueueDeps): Promise<QueuePassResult> {
-  const result: QueuePassResult = { queued: 0, ownerRequests: 0, publisherRequests: 0, capped: 0, superseded: 0, deactivated: 0, requeued: 0, stranded: 0, rolloutsStarted: 0 };
+  const result: QueuePassResult = { queued: 0, ownerRequests: 0, publisherRequests: 0, capped: 0, superseded: 0, deactivated: 0, requeued: 0, stranded: 0, rolloutsStarted: 0, rolloutStartsGivenUp: 0, fixPurged: 0 };
   const cfg = remediationConfig();
   if (!cfg.enabled) return result;
   const now = deps.now?.() ?? new Date();
@@ -344,9 +371,11 @@ export async function queuePassRemediations(candidates: readonly RemediationCand
       }, { jobId: pluginRemediationJobId(row.id), priority: queuePriority(row.orgId, priority) });
       result.queued++;
     } catch (err) {
-      // The row stays `queued`; POST …/retry (or the next findings change) re-queues it.
+      // Failed ENQUEUE_FAILED (retryable): POST …/retry (or the next findings change) starts it again.
       logger.warn('Remediation job not enqueued', { remediationId: row.id, error: errorMessage(err) });
-      await updateRemediation(row.id, { stage: 'failed', outcome: 'error', error: 'ENQUEUE_FAILED', finishedAt: new Date() }, ['queued']);
+      // A failed status write is logged and the pass goes on (the stranded sweep recovers the row).
+      await updateRemediation(row.id, { stage: 'failed', outcome: 'error', error: 'ENQUEUE_FAILED', finishedAt: new Date() }, ['queued'])
+        .catch((e: unknown) => logger.warn('Remediation not marked ENQUEUE_FAILED', { remediationId: row.id, error: errorMessage(e) }));
     }
   }
   return result;
@@ -430,6 +459,10 @@ async function sweepLive(result: QueuePassResult, deps: Pick<QueueDeps, 'discard
       if (ownerRow && isRolloutStage(row.stage)) {
         await startTenantRollout(row, { toVersion: owner, toPluginId: ownerRow.id });
       }
+      continue;
+    }
+    if (row.stage === 'published' && !row.toPluginId) {
+      if (await finishPurgedFix(row).catch((err) => { logger.warn('Purged-fix remediation not closed', { remediationId: row.id, error: errorMessage(err) }); return false; })) result.fixPurged++;
       continue;
     }
     if (row.toPluginId && (row.stage === 'rolling_out' || row.stage === 'published')) {

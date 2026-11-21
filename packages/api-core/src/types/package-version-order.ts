@@ -295,16 +295,24 @@ export function compareMavenVersions(a: string, b: string): number {
 
 const GEM_VERSION = /^[0-9]+(?:\.[0-9a-zA-Z]+)*(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
-function gemSegments(version: string): Array<string | number> | null {
+/** A RubyGems segment: a number (its digit string, leading zeros dropped) or a letter run. */
+type GemSegment = { num: string } | string;
+const GEM_ZERO: GemSegment = { num: '0' };
+const isGemZero = (x: GemSegment | undefined): boolean => typeof x === 'object' && x.num === '0';
+
+function gemSegments(version: string): GemSegment[] | null {
   const v = version.trim().replace(/^v(?=\d)/i, '');
   if (!GEM_VERSION.test(v)) return null;
   const s = v.replace(/-/g, '.pre.');
-  const segs: Array<string | number> = (s.match(/[0-9]+|[a-z]+/gi) ?? []).map((x) => (/^\d+$/.test(x) ? Number(x) : x));
+  // Numbers stay digit strings: Ruby's Integer is arbitrary precision, and a JS
+  // Number would round long (date-like) segments into one another.
+  const segs: GemSegment[] = (s.match(/[0-9]+|[a-z]+/gi) ?? [])
+    .map((x) => (/^\d+$/.test(x) ? { num: x.replace(/^0+(?=\d)/, '') } : x));
   // canonical_segments: drop trailing zeros from the numeric part and from the prerelease part.
   const firstStr = segs.findIndex((x) => typeof x === 'string');
   const nums = firstStr < 0 ? segs : segs.slice(0, firstStr);
   const strs = firstStr < 0 ? [] : segs.slice(firstStr);
-  const trim = (xs: Array<string | number>) => { const out = [...xs]; while (out.length && out[out.length - 1] === 0) out.pop(); return out; };
+  const trim = (xs: GemSegment[]) => { const out = [...xs]; while (out.length && isGemZero(out[out.length - 1])) out.pop(); return out; };
   return [...trim(nums), ...trim(strs)];
 }
 
@@ -318,12 +326,18 @@ export function compareGemVersions(a: string, b: string): number {
   const y = gemSegments(b);
   if (!x || !y) return verrevcmp(a.trim(), b.trim());
   for (let i = 0; i < Math.max(x.length, y.length); i++) {
-    const l = x[i] ?? 0;
-    const r = y[i] ?? 0;
-    if (l === r) continue;
-    if (typeof l === 'string' && typeof r === 'number') return -1;
-    if (typeof l === 'number' && typeof r === 'string') return 1;
-    return typeof l === 'number' ? sign(l - (r as number)) : compareStrings(l, r as string);
+    const l = x[i] ?? GEM_ZERO;
+    const r = y[i] ?? GEM_ZERO;
+    if (typeof l === 'string' && typeof r === 'string') {
+      if (l !== r) return compareStrings(l, r);
+    } else if (typeof l === 'string') {
+      return -1;
+    } else if (typeof r === 'string') {
+      return 1;
+    } else {
+      const c = compareDigits(l.num, r.num);
+      if (c) return sign(c);
+    }
   }
   return 0;
 }

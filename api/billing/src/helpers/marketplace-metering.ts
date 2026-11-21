@@ -111,16 +111,18 @@ export async function reportMarketplaceAddonUsage(orgId: string, now: Date = new
       { new: true },
     );
     if (claimed) {
-      // Won the period — re-grant onto the freshly-claimed doc and persist. If the
-      // grant/save fails, COMPENSATE the claim (unset the marker) so a later cycle
-      // retries instead of permanently losing this period's credit.
+      // Won the period — re-grant with ATOMIC writes (guarded `$push` + `$inc`,
+      // idempotent per period key), never a full-doc save: a save wrote
+      // `creditBalanceCents` as an absolute value, so another pod's concurrent
+      // hourly drawdown (`$inc`) landing between our read and our save was
+      // overwritten and the customer got that credit back. If a grant fails,
+      // COMPENSATE the claim (unset the marker) so a later cycle retries; grants
+      // that already landed dedupe on their period key.
       try {
-        await grantPeriodicCredits(claimed, periodKey);
+        await grantPeriodicCredits(claimed, periodKey, { atomic: true });
         // Recurring PROMOTIONS re-grant on the same period key (Marketplace parity
-        // with the Stripe invoice path) — in-memory, persisted by the save below.
-        await grantRecurringPromotions(claimed, periodKey);
-        await claimed.save();
-        subscription = claimed;
+        // with the Stripe invoice path).
+        await grantRecurringPromotions(claimed, periodKey, { atomic: true });
       } catch (err) {
         await Subscription.findOneAndUpdate(
           { '_id': subscription._id, 'metadata.lastCreditPeriod': periodKey },
@@ -128,11 +130,10 @@ export async function reportMarketplaceAddonUsage(orgId: string, now: Date = new
         ).catch(() => undefined);
         throw err;
       }
-    } else {
-      // Another pod / earlier cycle already granted this period — reload so the
-      // drawdown below sees the current balance.
-      subscription = (await Subscription.findById(subscription._id)) ?? subscription;
     }
+    // The atomic grants (or another pod's) did not touch any in-memory doc —
+    // reload so the drawdown below plans from the current balance.
+    subscription = (await Subscription.findById(subscription._id)) ?? subscription;
   }
 
   // 2. Plan the drawdown from the current balance → reduced quantities to report.

@@ -291,14 +291,15 @@ subscriptionSchema.index(
 subscriptionSchema.index({ orgId: 1, status: 1 });
 
 // Sparse index for AWS Marketplace license lookup (license-event queries).
-// Enforce uniqueness on the active row only — historical canceled rows
-// keep their license without colliding.
+// One MANAGEABLE (active / trialing / past_due) row per license — the same set
+// as the per-org index above and the bound checks in routes/marketplace.ts —
+// so historical canceled rows keep their license without colliding.
 subscriptionSchema.index(
   { 'metadata.awsLicenseArn': 1 },
   {
     unique: true,
     partialFilterExpression: {
-      'status': 'active',
+      'status': { $in: ['active', 'trialing', 'past_due'] },
       'metadata.awsLicenseArn': { $exists: true, $type: 'string' },
     },
   },

@@ -37,7 +37,11 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
     updateOne: (...a: unknown[]) => mockOrgUpdateOne(...a),
   },
 }));
+class OrgSecretsReencryptError extends Error {
+  constructor(message: string, readonly written: boolean) { super(message); }
+}
 jest.unstable_mockModule('../src/services/secret-reencrypt.js', () => ({
+  OrgSecretsReencryptError,
   captureOrgSecrets: (...a: unknown[]) => mockCapture(...a),
   reencryptOrgSecrets: (...a: unknown[]) => mockReencryptOrg(...a),
 }));
@@ -87,7 +91,7 @@ const OK = { ok: true, counts: { scanned: 2, reencrypted: 2, failures: [] } };
 beforeEach(() => {
   jest.clearAllMocks();
   mockCapture.mockResolvedValue([]);
-  mockReencryptOrg.mockResolvedValue({ aiKeysReencrypted: 0 });
+  mockReencryptOrg.mockResolvedValue({ aiKeysReencrypted: 0, idpSecretReencrypted: false, concurrentlyChanged: [], unreadableConcurrentWrites: [] });
   mockRunnerReencrypt.mockResolvedValue(OK);
   mockOrgUpdateOne.mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
 });
@@ -204,13 +208,30 @@ describe('DELETE kms-config: runner signing keys', () => {
 
   it('re-encrypts the platform secrets: captured under the CMK BEFORE the clear, re-wrapped AFTER it', async () => {
     mockOrgFindById.mockReturnValue(orgDoc({ ...OLD }));
-    mockReencryptOrg.mockResolvedValue({ aiKeysReencrypted: 2, idpSecretReencrypted: true });
+    mockReencryptOrg.mockResolvedValue({ aiKeysReencrypted: 2, idpSecretReencrypted: true, concurrentlyChanged: [], unreadableConcurrentWrites: [] });
     const res = await del();
     expect(res.statusCode).toBe(200);
     expect(mockCapture).toHaveBeenCalledWith(ORG);
     expect(mockCapture.mock.invocationCallOrder[0]).toBeLessThan(save.mock.invocationCallOrder[0]);
     expect(save.mock.invocationCallOrder[0]).toBeLessThan(mockReencryptOrg.mock.invocationCallOrder[0]);
     expect(res.body.data).toMatchObject({ configured: false, aiKeysReencrypted: 2, idpSecretReencrypted: true });
+  });
+
+  it('a secret written under the OLD key mid-migration is reported and audited as a failure', async () => {
+    mockOrgFindById.mockReturnValue(orgDoc({ ...OLD }));
+    mockReencryptOrg.mockResolvedValue({
+      aiKeysReencrypted: 1,
+      idpSecretReencrypted: true,
+      concurrentlyChanged: ['aiProviderKeys.openai'],
+      unreadableConcurrentWrites: ['aiProviderKeys.openai'],
+    });
+    const res = await del();
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data).toMatchObject({ unreadableConcurrentWrites: ['aiProviderKeys.openai'] });
+    expect(mockAudit.mock.calls[0][2]).toMatchObject({
+      outcome: 'failure',
+      details: { concurrentlyChanged: ['aiProviderKeys.openai'], unreadableConcurrentWrites: ['aiProviderKeys.openai'] },
+    });
   });
 
   it('a failed capture refuses the clear (409) and leaves the config in place', async () => {
@@ -313,5 +334,68 @@ describe('kms-config: concurrent changes', () => {
     const res = await put();
     expect(res.statusCode).toBe(200);
     expect(mockOrgUpdateOne.mock.calls[0][0]).toHaveProperty('$or');
+  });
+});
+
+describe('kms-config: re-encrypt failed before any secret was written', () => {
+  const unwritten = () => new OrgSecretsReencryptError('KMS Encrypt denied for alias/new', false);
+
+  it('PUT: restores the previous config (conditionally on the new one), skips the runner keys, answers 500', async () => {
+    mockOrgFindById.mockReturnValue(orgDoc({ ...OLD }));
+    mockReencryptOrg.mockRejectedValue(unwritten());
+    const res = await put();
+    expect(res.statusCode).toBe(500);
+    expect(res.body.message).toMatch(/restored/i);
+    expect(res.body.message).toMatch(/KMS Encrypt denied/);
+    expect(mockOrgUpdateOne).toHaveBeenCalledTimes(2);
+    expect(mockOrgUpdateOne.mock.calls[1]).toEqual([
+      { '_id': ORG, 'kmsConfig.keyId': NEW.keyId, 'kmsConfig.ciphertextBase64': NEW.ciphertextBase64 },
+      { $set: { kmsConfig: OLD } },
+    ]);
+    expect(mockRunnerReencrypt).not.toHaveBeenCalled();
+    expect(mockAudit.mock.calls[0][2]).toMatchObject({
+      outcome: 'failure',
+      details: { secretsReencryptError: expect.stringMatching(/KMS Encrypt denied/), configRestored: true },
+    });
+  });
+
+  it('PUT on an org that had no config: the restore unsets the new one', async () => {
+    mockOrgFindById.mockReturnValue(orgDoc(undefined));
+    mockReencryptOrg.mockRejectedValue(unwritten());
+    const res = await put();
+    expect(res.statusCode).toBe(500);
+    expect(mockOrgUpdateOne.mock.calls[1][1]).toEqual({ $unset: { kmsConfig: 1 } });
+    expect(mockRunnerReencrypt).not.toHaveBeenCalled();
+  });
+
+  it('DELETE: puts the cleared config back, conditionally on the org still having none', async () => {
+    mockOrgFindById.mockReturnValue(orgDoc({ ...OLD }));
+    mockReencryptOrg.mockRejectedValue(unwritten());
+    const res = await del();
+    expect(res.statusCode).toBe(500);
+    expect(mockOrgUpdateOne.mock.calls[1][0]).toHaveProperty('$or');
+    expect(mockOrgUpdateOne.mock.calls[1][1]).toEqual({ $set: { kmsConfig: OLD } });
+    expect(mockRunnerReencrypt).not.toHaveBeenCalled();
+  });
+
+  it('when the restore no longer matches (changed again), the migration finishes as before', async () => {
+    mockOrgFindById.mockReturnValue(orgDoc({ ...OLD }));
+    mockReencryptOrg.mockRejectedValue(unwritten());
+    mockOrgUpdateOne
+      .mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 })
+      .mockResolvedValueOnce({ matchedCount: 0, modifiedCount: 0 });
+    const res = await put();
+    expect(res.statusCode).toBe(500);
+    expect(res.body.message).toMatch(/re-encryption failed mid-flight/);
+    expect(mockRunnerReencrypt).toHaveBeenCalledWith({ orgId: ORG, previousKmsConfig: OLD });
+  });
+
+  it('a failure after a secret was written is never rolled back', async () => {
+    mockOrgFindById.mockReturnValue(orgDoc({ ...OLD }));
+    mockReencryptOrg.mockRejectedValue(new OrgSecretsReencryptError('mongo down', true));
+    const res = await put();
+    expect(res.statusCode).toBe(500);
+    expect(mockOrgUpdateOne).toHaveBeenCalledTimes(1);
+    expect(mockRunnerReencrypt).toHaveBeenCalled();
   });
 });

@@ -26,7 +26,7 @@
  * create/update/delete (org admins own their notification surface).
  */
 
-import { assertSafeUrl, createLogger, errorMessage, sendError, sendSuccess, isSystemAdmin } from '@pipeline-builder/api-core';
+import { assertSafeUrl, createLogger, ErrorCode, errorMessage, sendError, sendSuccess, isSystemAdmin } from '@pipeline-builder/api-core';
 import { ALERT_CHANNELS, type AlertChannel } from '@pipeline-builder/api-core/wire-vocabulary';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { config } from '../config/index.js';
@@ -38,6 +38,7 @@ import { deliveryStatusesFor, type DeliveryStatusView } from '../services/alert-
 import { alertDestinationService, DestinationNotFoundError, toApiDestination } from '../services/alert-destination-service.js';
 import { relayWebhook, type AlertmanagerWebhook } from '../services/alert-relay.js';
 import { isValidEmail } from '../utils/email-address.js';
+import { isMaskedTarget } from '../utils/target-mask.js';
 import { createAlertDestinationSchema, updateAlertDestinationSchema } from '../utils/validation-observability.js';
 import { validateBody } from '../utils/validation.js';
 
@@ -168,6 +169,11 @@ export const createAlertDestination = withController('Create alert destination',
   const body = validateBody(createAlertDestinationSchema, req.body, res);
   if (!body) return;
   const { channel, label, target, minSeverity, enabled } = body;
+  // A masked read-back is never a real destination (the mask would be stored
+  // as the target and every delivery would fail) — on any channel.
+  if (isMaskedTarget(target)) {
+    return sendError(res, 400, 'target is a masked read-back value; enter the full destination', ErrorCode.VALIDATION_ERROR);
+  }
   if (channel !== 'in-app') {
     const err = validateChannelTarget(channel, target);
     if (err) return sendError(res, 400, err);
@@ -201,8 +207,11 @@ export const updateAlertDestination = withController('Update alert destination',
   // Static `observability:write` gate now enforced at the route.
 
   const id = req.params.id as string;
-  const body = validateBody(updateAlertDestinationSchema, req.body, res);
-  if (!body) return;
+  const parsed = validateBody(updateAlertDestinationSchema, req.body, res);
+  if (!parsed) return;
+  // A masked target is the GET's read-back sent back unchanged: keep the stored
+  // target (as for an empty one), so a round-trip never overwrites the secret.
+  const body = isMaskedTarget(parsed.target) ? { ...parsed, target: undefined } : parsed;
 
   if (body.target !== undefined && body.target !== '') {
     // Validate against the new channel if supplied, otherwise look up the existing channel.

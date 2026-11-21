@@ -126,6 +126,34 @@ describe('RecentlyDeletedPanel — paging', () => {
     expect(screen.getAllByText('pipe-24')).toHaveLength(1);
   });
 
+  it('finishes a restore the global step-up dialog replayed after a refused token, without an error toast', async () => {
+    const { StepUpRequiredError } = jest.requireActual<typeof import('../src/lib/api/errors')>('../src/lib/api/errors');
+    const onRestored = jest.fn<AnyFn>();
+    const refusal = new StepUpRequiredError('Confirm with a passkey', 'STEP_UP_METHOD_REQUIRED');
+    refusal.attachResume(Promise.resolve({ success: true }));
+    restorePipeline.mockRejectedValueOnce(refusal);
+    render(<RecentlyDeletedPanel resource="pipeline" onRestored={onRestored} />);
+    await screen.findByText('pipe-3');
+    fireEvent.click(screen.getByText('pipe-3').closest('tr')!.querySelector('button')!);
+    fireEvent.click(screen.getByText('confirm-step-up'));
+    await waitFor(() => expect(screen.queryByText('pipe-3')).toBeNull());
+    expect(onRestored).toHaveBeenCalled();
+    expect(pageToast.error).not.toHaveBeenCalled();
+  });
+
+  it('finishes a purge the global step-up dialog replayed', async () => {
+    const { StepUpRequiredError } = jest.requireActual<typeof import('../src/lib/api/errors')>('../src/lib/api/errors');
+    const refusal = new StepUpRequiredError('Confirm with a passkey', 'STEP_UP_METHOD_REQUIRED');
+    refusal.attachResume(Promise.resolve({ success: true }));
+    purgePipeline.mockRejectedValueOnce(refusal);
+    render(<RecentlyDeletedPanel resource="pipeline" />);
+    await screen.findByText('pipe-3');
+    fireEvent.click(screen.getByText('pipe-3').closest('tr')!.querySelectorAll('button')[1]!);
+    fireEvent.click(screen.getByText('confirm-step-up'));
+    await waitFor(() => expect(screen.queryByText('pipe-3')).toBeNull());
+    expect(pageToast.error).not.toHaveBeenCalled();
+  });
+
   it('applies the per-row restore gate to appended rows', async () => {
     render(<RecentlyDeletedPanel resource="pipeline" canRestoreRow={(r) => r.visibility !== 'public'} />);
     await screen.findByText('pipe-24');

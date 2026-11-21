@@ -649,7 +649,7 @@ export async function grantRecurringPromotions(subscription: SubscriptionDocumen
       await createBillingEvent(subscription.orgId, 'promotion_granted', { promotionId: promo._id, cents, campaign: promo.campaign, periodKey }, subscription._id.toString());
       continue;
     }
-    // In-memory grant (the Marketplace metering caller saves the subscription).
+    // In-memory grant: the caller saves. (Both production callers pass `atomic`.)
     subscription.creditBalanceCents = (subscription.creditBalanceCents ?? 0) + cents;
     subscription.creditLedger.push(creditLedgerEntry({ discountId: ledgerId(promo._id), cents, fulfillmentRef: ref, dedupeKey, campaign: promo.campaign }));
     periodPromotionCents += cents;

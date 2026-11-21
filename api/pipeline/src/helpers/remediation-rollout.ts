@@ -174,6 +174,8 @@ export interface MovePlan {
 export interface UpgradeRow {
   id: string;
   orgId: string;
+  /** The root org the rollout start resolved for a team's row (null: a root org's own pipeline, or not recorded — see {@link rowRootOrg}). */
+  rootOrgId: string | null;
   remediationId: string;
   pipelineId: string;
   pluginName: string;
@@ -270,6 +272,7 @@ function toRow(r: Record<string, unknown>): UpgradeRow {
   return {
     id: String(r.id),
     orgId: String(r.org_id),
+    rootOrgId: (r.root_org_id as string | null) ?? null,
     remediationId: String(r.remediation_id),
     pipelineId: String(r.pipeline_id),
     pluginName: String(r.plugin_name),
@@ -307,6 +310,7 @@ interface RowPatch {
   state?: PipelineRemediationUpgradeState;
   mode?: UpgradeRow['mode'];
   wave?: number | null;
+  rootOrgId?: string | null;
   movedAt?: Date | null;
   runRequestId?: string | null;
   rolledBackAt?: Date | null;
@@ -330,6 +334,7 @@ export async function patchRow(id: string, patch: RowPatch, fromStates?: readonl
   if (patch.rolledBackTo !== undefined) sets.push(sql`rolled_back_to = ${patch.rolledBackTo}`);
   if (patch.error !== undefined) sets.push(sql`error = ${patch.error === null ? null : patch.error.slice(0, 255)}`);
   if (patch.toVersion !== undefined) sets.push(sql`to_version = ${patch.toVersion}`);
+  if (patch.rootOrgId !== undefined) sets.push(sql`root_org_id = ${patch.rootOrgId}`);
   sets.push(sql`updated_at = now()`);
   const guard = fromStates && fromStates.length > 0
     ? sql` AND state IN (${stateList(fromStates)})`
@@ -371,7 +376,9 @@ export async function rolloutCandidates(input: Pick<StartRolloutInput, 'orgId' |
  * under it — confirmed against the platform org hierarchy (`ancestors`), never
  * against the root a resolution row recorded, which the candidate query reads
  * and a stale or foreign row could claim. Fail-closed: a hierarchy that cannot
- * be read refuses the row (logged); the pipeline is picked up by a later start.
+ * be read THROWS (logged), so the start writes nothing and fails — the plugin
+ * service retries a failed start, while a repeat of a start that did write
+ * rows only re-targets them and would never add the pipeline left out.
  */
 export async function rowOrgAdmits(
   input: { pipelineOrgId: string; rowOrgId: string; scopeOrgId: string | null },
@@ -385,9 +392,28 @@ export async function rowOrgAdmits(
   try {
     return (await ancestors(input.pipelineOrgId)).some((a) => a.toLowerCase() === scope);
   } catch (err) {
-    logger.warn('Remediation row refused: org hierarchy unavailable', { orgId: input.pipelineOrgId, scopeOrgId: input.scopeOrgId, error: errorMessage(err) });
-    return false;
+    logger.warn('Remediation rollout start refused: org hierarchy unavailable', { orgId: input.pipelineOrgId, scopeOrgId: input.scopeOrgId, error: errorMessage(err) });
+    throw err;
   }
+}
+
+/**
+ * The LIVE root of `orgId` in the platform hierarchy (its farthest ancestor),
+ * or null when the org is itself a root — the same shape as `rootOrgOf`. A
+ * scoped rollout start reads this instead of the resolution row's recorded
+ * root, which goes stale when a team moves to another root. Throws (logged)
+ * when the hierarchy cannot be read, failing the start whole.
+ */
+export async function liveRootOrg(orgId: string, ancestors: (orgId: string) => Promise<string[]>): Promise<string | null> {
+  let chain: string[];
+  try {
+    chain = await ancestors(orgId);
+  } catch (err) {
+    logger.warn('Remediation rollout start refused: org hierarchy unavailable', { orgId, error: errorMessage(err) });
+    throw err;
+  }
+  const root = chain.at(-1);
+  return root && root.toLowerCase() !== orgId.toLowerCase() ? root : null;
 }
 
 /** The root org a TEAM pipeline's resolution recorded (null for a root org's pipeline). */
@@ -396,6 +422,16 @@ export async function rootOrgOf(pipelineId: string, orgId: string): Promise<stri
     SELECT MAX(root_org_id) AS root FROM pipeline_plugin_resolution WHERE pipeline_id = ${pipelineId}`));
   const root = rowsOf<{ root: string | null }>(res)[0]?.root ?? null;
   return root && root.toLowerCase() !== orgId.toLowerCase() ? root : null;
+}
+
+/**
+ * The root a row's later steps (move, redeploy retry, rollback, resume) plan
+ * under: the one the rollout start resolved and stored on the row (the live
+ * hierarchy's for a scoped rollout), else — a root org's own pipeline, or a
+ * row written before the root was recorded — the resolution row's.
+ */
+export async function rowRootOrg(row: Pick<UpgradeRow, 'rootOrgId' | 'pipelineId' | 'orgId'>): Promise<string | null> {
+  return row.rootOrgId ?? rootOrgOf(row.pipelineId, row.orgId);
 }
 
 /** The pipeline row (live only), cross-org. */
@@ -710,6 +746,20 @@ export function createRolloutEngine(deps: RolloutDeps) {
     const existing = await loadRows(remediationId);
     const requested = new Set<string>();
 
+    // A scoped rollout reads each org's root from the LIVE hierarchy (one fetch
+    // per org per start), never the root a resolution row recorded: a team
+    // moved to another root would otherwise take its old root's settings and
+    // be planned under it. An official (instance-wide) rollout keeps the
+    // recorded root and never reads the hierarchy.
+    const chains = new Map<string, Promise<string[]>>();
+    const ancestorsOf = (orgId: string): Promise<string[]> => {
+      const key = orgId.toLowerCase();
+      if (!chains.has(key)) chains.set(key, deps.ancestors(orgId));
+      return chains.get(key)!;
+    };
+    const rootFor = (orgId: string, recorded: () => Promise<string | null>): Promise<string | null> =>
+      input.orgId === null ? recorded() : liveRootOrg(orgId, ancestorsOf);
+
     const placeFor = async (orgId: string, pipelineId: string, rootOrgId: string | null, loaded?: RolloutPipeline): Promise<Placement | null> => {
       const pipeline = loaded ?? await loadPipeline(pipelineId);
       if (!pipeline) return null;
@@ -729,32 +779,42 @@ export function createRolloutEngine(deps: RolloutDeps) {
       // A repeat start. A different toVersion (the owner's own clean version)
       // re-targets every OPEN row at it; moved / rolled-back rows stay as they are.
       const open: readonly PipelineRemediationUpgradeState[] = OPEN_STATES;
-      for (const row of existing.filter((r) => r.toVersion !== input.toVersion && open.includes(r.state))) {
-        const rootOrgId = await rootOrgOf(row.pipelineId, row.orgId);
+      const retarget = existing.filter((r) => r.toVersion !== input.toVersion && open.includes(r.state));
+      // Every root is read before any row is patched: an unreadable hierarchy
+      // fails the start with nothing re-targeted.
+      const roots = new Map<string, string | null>();
+      for (const row of retarget) roots.set(row.id, await rootFor(row.orgId, () => rowRootOrg(row)));
+      for (const row of retarget) {
+        const rootOrgId = roots.get(row.id) ?? null;
         const placement = await placeFor(row.orgId, row.pipelineId, rootOrgId);
         await patchRow(row.id, placement
-          ? { toVersion: input.toVersion, state: placement.state, mode: placement.mode, error: placement.error, wave: null }
+          ? { toVersion: input.toVersion, rootOrgId, state: placement.state, mode: placement.mode, error: placement.error, wave: null }
           : { state: 'superseded', error: 'pipeline_deleted' }, open);
       }
       return { remediationId, created: false, orgDefault, counts: countStates(await loadRows(remediationId)) };
     }
 
+    // The rows are written as the system: check every candidate's org against
+    // its pipeline (and the rollout's scope) FIRST, before anything is planned,
+    // requested or written — an unreadable hierarchy fails the start whole.
+    const admitted: Array<{ c: Awaited<ReturnType<typeof rolloutCandidates>>[number]; pipeline: RolloutPipeline; rootOrgId: string | null }> = [];
     for (const c of await rolloutCandidates(input)) {
       const pipeline = await loadPipeline(c.pipelineId);
       if (!pipeline) continue;
-      // The row is written as the system: check its org against the pipeline
-      // (and the rollout's scope) here, before anything is planned or requested.
-      if (!await rowOrgAdmits({ pipelineOrgId: pipeline.orgId, rowOrgId: c.orgId, scopeOrgId: input.orgId }, deps.ancestors)) {
+      if (!await rowOrgAdmits({ pipelineOrgId: pipeline.orgId, rowOrgId: c.orgId, scopeOrgId: input.orgId }, ancestorsOf)) {
         logger.warn('Remediation row refused: pipeline outside the rollout org', { remediationId, pipelineId: c.pipelineId, orgId: c.orgId, scopeOrgId: input.orgId });
         continue;
       }
-      const placement = await placeFor(c.orgId, c.pipelineId, c.rootOrgId, pipeline);
+      admitted.push({ c, pipeline, rootOrgId: await rootFor(pipeline.orgId, async () => c.rootOrgId) });
+    }
+    for (const { c, pipeline, rootOrgId } of admitted) {
+      const placement = await placeFor(c.orgId, c.pipelineId, rootOrgId, pipeline);
       if (!placement || placement.state === 'superseded') continue;
       // Guarded in SQL too: the row is inserted only while the pipeline is live
       // and still belongs to the row's org.
       await asSystem((tx) => tx.execute(sql`
-        INSERT INTO pipeline_remediation_upgrades (org_id, remediation_id, pipeline_id, plugin_name, plugin_publisher, from_version, to_version, mode, state, error)
-        SELECT ${c.orgId}, ${remediationId}::uuid, p.id, ${input.plugin}, ${input.publisher}, ${input.fromVersion}, ${input.toVersion},
+        INSERT INTO pipeline_remediation_upgrades (org_id, root_org_id, remediation_id, pipeline_id, plugin_name, plugin_publisher, from_version, to_version, mode, state, error)
+        SELECT ${c.orgId}, ${rootOrgId}, ${remediationId}::uuid, p.id, ${input.plugin}, ${input.publisher}, ${input.fromVersion}, ${input.toVersion},
                ${placement.mode}, ${placement.state}, ${placement.error}
         FROM pipelines p
         WHERE p.id = ${c.pipelineId}::uuid AND p.deleted_at IS NULL AND lower(p.org_id) = ${c.orgId.toLowerCase()}
@@ -786,7 +846,7 @@ export function createRolloutEngine(deps: RolloutDeps) {
       await patchRow(row.id, { state: 'superseded', error: 'pipeline_deleted' }, from);
       return 'superseded';
     }
-    const rootOrgId = await rootOrgOf(row.pipelineId, row.orgId);
+    const rootOrgId = await rowRootOrg(row);
     const resolved = effectiveRollout(pipeline.remediationUpgrades, await deps.settings(row.orgId, rootOrgId));
     const ref = REF_OF(row);
     const plan = resolved.mode === 'off' ? NO_PLAN : await deps.plan(pipeline, rootOrgId, ref);
@@ -829,7 +889,7 @@ export function createRolloutEngine(deps: RolloutDeps) {
       return 'superseded';
     }
     const attempts = redeployAttempts(row.error) + 1;
-    const result = await deps.redeploy({ row, pipeline, rootOrgId: await rootOrgOf(row.pipelineId, row.orgId) });
+    const result = await deps.redeploy({ row, pipeline, rootOrgId: await rowRootOrg(row) });
     if (result.ok && movedState(result) === 'moved') {
       await patchRow(row.id, { state: 'moved', runRequestId: result.runRequestId, error: null }, from);
       return 'moved';
@@ -855,7 +915,7 @@ export function createRolloutEngine(deps: RolloutDeps) {
       await patchRow(row.id, { state: 'superseded', error: 'pipeline_deleted' }, from);
       return 'superseded';
     }
-    const plan = await deps.plan(pipeline, await rootOrgOf(row.pipelineId, row.orgId), REF_OF(row));
+    const plan = await deps.plan(pipeline, await rowRootOrg(row), REF_OF(row));
     if (plan.install?.pendingChange) return 'waiting_change_request';
     if (plan.kind === 'install_pin') {
       await patchRow(row.id, { state: 'dismissed', error: 'change_request_rejected' }, from);
@@ -868,7 +928,7 @@ export function createRolloutEngine(deps: RolloutDeps) {
   /** Roll one moved row back (see the module doc for when it is refused). */
   async function rollbackOne(row: UpgradeRow): Promise<PipelineRemediationUpgradeState> {
     const now = deps.now();
-    const rootOrgId = await rootOrgOf(row.pipelineId, row.orgId);
+    const rootOrgId = await rowRootOrg(row);
     const target = await deps.rollbackTarget(row, rootOrgId);
     const audit = (outcome: 'success' | 'failure', extra: Record<string, unknown>) => recordAudit({
       action: 'plugin.remediation.rolled_back',

@@ -194,6 +194,8 @@ export const pluginRemediationSetting = pgTable('plugin_remediation_settings', {
 export const pipelineRemediationUpgrade = pgTable('pipeline_remediation_upgrades', {
   id: uuid('id').primaryKey().defaultRandom(),
   orgId: varchar('org_id', { length: 255 }).notNull(),
+  /** The root org the rollout start resolved for a team's row (null: a root org's own pipeline, or not recorded). */
+  rootOrgId: varchar('root_org_id', { length: 255 }),
   remediationId: uuid('remediation_id').notNull(),
   pipelineId: uuid('pipeline_id').notNull().references(() => pipeline.id, { onDelete: 'cascade' }),
   pluginName: varchar('plugin_name', { length: 255 }).notNull(),

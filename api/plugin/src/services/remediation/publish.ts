@@ -34,6 +34,7 @@ import type { Plugin, PluginRemediation } from '@pipeline-builder/pipeline-data'
 
 import type { EngineCandidate } from './engine.js';
 import { auditRemediation, countCleared, countStage, advisoryIds } from './lifecycle.js';
+import { recordRolloutStart } from './rollout-start.js';
 import { startTenantRollout } from './rollout.js';
 import { getRemediation, updateRemediation } from './store.js';
 import type { PluginRecordData } from '../../helpers/plugin-helpers.js';
@@ -195,10 +196,9 @@ export async function publishCandidate(input: {
     await openOfficialListingFix({ remediationId: published.id, toPluginId: stored.id, toVersion: stored.version, digest: candidate.ref.digest }).catch(() => null);
     return (await getRemediation(published.id)) ?? published;
   }
-  if (await startTenantRollout(kept)) {
-    return (await updateRemediation(published.id, { stage: 'rolling_out' }, ['published'])) ?? kept;
-  }
-  return kept;
+  // A failed start is counted (attempt 1) and retried by the nightly sweep, or given up at once when permanent.
+  const started = await recordRolloutStart(kept, await startTenantRollout(kept), 'publish');
+  return started.row ?? kept;
 }
 
 /**

@@ -103,9 +103,9 @@ describe('reverseLedgerInvoice', () => {
   it('sets only the status when no net amount is given, and clamps a negative net to 0', async () => {
     BillingInvoice.findOneAndUpdate.mockResolvedValue({ orgId: 'org_1' });
     await expect(ledger.reverseLedgerInvoice('in_1', 'disputed')).resolves.toBe('org_1');
-    expect(BillingInvoice.findOneAndUpdate).toHaveBeenLastCalledWith({ externalInvoiceId: 'in_1' }, { $set: { status: 'disputed' } }, { new: true });
+    expect(BillingInvoice.findOneAndUpdate).toHaveBeenLastCalledWith({ externalInvoiceId: 'in_1', status: { $in: ['open', 'paid', 'void', 'uncollectible', 'refunded', 'disputed'] } }, { $set: { status: 'disputed' } }, { new: true });
     await ledger.reverseLedgerInvoice('in_1', 'refunded', -50);
-    expect(BillingInvoice.findOneAndUpdate).toHaveBeenLastCalledWith({ externalInvoiceId: 'in_1' }, { $set: { status: 'refunded', amountPaidCents: 0 } }, { new: true });
+    expect(BillingInvoice.findOneAndUpdate).toHaveBeenLastCalledWith({ externalInvoiceId: 'in_1', status: { $in: ['open', 'paid', 'void', 'uncollectible', 'refunded'] } }, { $set: { status: 'refunded' }, $min: { amountPaidCents: 0 } }, { new: true });
     expect(incCounter).toHaveBeenCalledWith('billing_invoice_reversed_total', { source: 'stripe', status: 'refunded' });
   });
 
@@ -113,8 +113,8 @@ describe('reverseLedgerInvoice', () => {
     BillingInvoice.findOneAndUpdate.mockResolvedValue(null);
     await expect(ledger.reverseLedgerInvoice('in_x', 'refunded', 0)).resolves.toBeNull();
     expect(BillingPendingReversal.updateOne).toHaveBeenCalledWith(
-      { _id: 'in_x' },
-      { $set: { status: 'refunded', amountPaidCents: 0, expiresAt: expect.any(Date) } },
+      { _id: 'in_x', status: { $in: ['open', 'paid', 'void', 'uncollectible', 'refunded'] } },
+      { $set: { status: 'refunded', expiresAt: expect.any(Date) }, $min: { amountPaidCents: 0 } },
       { upsert: true },
     );
     expect(BillingPendingReversal.deleteOne).not.toHaveBeenCalled();
@@ -126,16 +126,17 @@ describe('reverseLedgerInvoice', () => {
     BillingInvoice.findOneAndUpdate.mockResolvedValue(null);
     await ledger.reverseLedgerInvoice('in_x', 'void');
     expect(BillingPendingReversal.updateOne).toHaveBeenCalledWith(
-      { _id: 'in_x' },
+      { _id: 'in_x', status: { $in: ['open', 'paid', 'void', 'uncollectible'] } },
       { $set: { status: 'void', expiresAt: expect.any(Date) } },
       { upsert: true },
     );
   });
 
   it('applies directly when the invoice was ingested between the miss and the bank', async () => {
-    BillingInvoice.findOneAndUpdate.mockResolvedValueOnce(null).mockResolvedValueOnce({ orgId: 'org_1' });
+    // Miss (precedence write), miss (amount-only fallback: no row), then the re-look hits.
+    BillingInvoice.findOneAndUpdate.mockResolvedValueOnce(null).mockResolvedValueOnce(null).mockResolvedValueOnce({ orgId: 'org_1' });
     await expect(ledger.reverseLedgerInvoice('in_race', 'refunded', 100)).resolves.toBe('org_1');
-    expect(BillingInvoice.findOneAndUpdate).toHaveBeenCalledTimes(2);
+    expect(BillingInvoice.findOneAndUpdate).toHaveBeenCalledTimes(3);
     expect(BillingPendingReversal.deleteOne).toHaveBeenCalledWith({ _id: 'in_race' });
     expect(incCounter).toHaveBeenCalledWith('billing_invoice_reversed_total', { source: 'stripe', status: 'refunded' });
   });
@@ -150,7 +151,7 @@ describe('ingestStripeInvoice — banked reversals', () => {
 
     expect(BillingInvoice.updateOne).toHaveBeenCalled(); // the invoice row itself
     expect(BillingInvoice.findOneAndUpdate).toHaveBeenCalledWith(
-      { externalInvoiceId: 'in_b' }, { $set: { status: 'refunded', amountPaidCents: 300 } }, { new: true },
+      { externalInvoiceId: 'in_b', status: { $in: ['open', 'paid', 'void', 'uncollectible', 'refunded'] } }, { $set: { status: 'refunded' }, $min: { amountPaidCents: 300 } }, { new: true },
     );
     expect(BillingPendingReversal.deleteOne).toHaveBeenCalledWith({ _id: 'in_b', updatedAt });
   });
@@ -159,7 +160,7 @@ describe('ingestStripeInvoice — banked reversals', () => {
     banked.mockResolvedValue({ status: 'void', updatedAt: new Date(1) });
     BillingInvoice.findOneAndUpdate.mockResolvedValue({ orgId: 'org_1' });
     await ledger.ingestStripeInvoice('org_1', { id: 'in_v', status: 'paid' } as any);
-    expect(BillingInvoice.findOneAndUpdate).toHaveBeenCalledWith({ externalInvoiceId: 'in_v' }, { $set: { status: 'void' } }, { new: true });
+    expect(BillingInvoice.findOneAndUpdate).toHaveBeenCalledWith({ externalInvoiceId: 'in_v', status: { $in: ['open', 'paid', 'void', 'uncollectible'] } }, { $set: { status: 'void' } }, { new: true });
   });
 
   it('does nothing extra when no reversal is banked', async () => {
@@ -191,10 +192,10 @@ describe('summaries', () => {
   const matchOf = () => (BillingInvoice.aggregate.mock.calls.at(-1)![0] as Array<{ $match?: unknown }>)[0]!.$match;
 
   it.each([
-    [undefined, undefined, { orgId: 'org_1' }],
-    [new Date(1), undefined, { orgId: 'org_1', periodStart: { $gte: new Date(1) } }],
-    [undefined, new Date(2), { orgId: 'org_1', periodStart: { $lte: new Date(2) } }],
-    [new Date(1), new Date(2), { orgId: 'org_1', periodStart: { $gte: new Date(1), $lte: new Date(2) } }],
+    [undefined, undefined, { orgId: 'org_1', status: { $nin: ['void', 'uncollectible'] } }],
+    [new Date(1), undefined, { orgId: 'org_1', periodStart: { $gte: new Date(1) }, status: { $nin: ['void', 'uncollectible'] } }],
+    [undefined, new Date(2), { orgId: 'org_1', periodStart: { $lte: new Date(2) }, status: { $nin: ['void', 'uncollectible'] } }],
+    [new Date(1), new Date(2), { orgId: 'org_1', periodStart: { $gte: new Date(1), $lte: new Date(2) }, status: { $nin: ['void', 'uncollectible'] } }],
   ])('the account summary windows on periodStart (from=%s to=%s)', async (from, to, match) => {
     BillingInvoice.aggregate.mockResolvedValue([]);
     await ledger.getBillingSummary('org_1', from, to);
@@ -216,14 +217,14 @@ describe('summaries', () => {
   it('the admin summary narrows by org and window, and maps the per-org breakdown', async () => {
     BillingInvoice.aggregate.mockResolvedValueOnce([{ totals: [{ netBilledCents: 10, invoiceCount: 2 }], byOrg: [{ _id: 'org_1', grossBilledCents: 10, creditsCents: 0, discountsCents: 0, netBilledCents: 10, invoiceCount: 2 }] }]);
     const out = await ledger.getAdminBillingSummary(new Date(1), new Date(2), 'org_1');
-    expect(matchOf()).toEqual({ orgId: 'org_1', periodStart: { $gte: new Date(1), $lte: new Date(2) } });
+    expect(matchOf()).toEqual({ status: { $nin: ['void', 'uncollectible'] }, orgId: 'org_1', periodStart: { $gte: new Date(1), $lte: new Date(2) } });
     expect(out).toMatchObject({ invoiceCount: 2, byOrg: [{ orgId: 'org_1', netBilledCents: 10 }] });
     BillingInvoice.aggregate.mockResolvedValueOnce([]);
     await expect(ledger.getAdminBillingSummary(undefined, new Date(2))).resolves.toMatchObject({ byOrg: [], invoiceCount: 0 });
-    expect(matchOf()).toEqual({ periodStart: { $lte: new Date(2) } });
+    expect(matchOf()).toEqual({ status: { $nin: ['void', 'uncollectible'] }, periodStart: { $lte: new Date(2) } });
     BillingInvoice.aggregate.mockResolvedValueOnce([]);
     await ledger.getAdminBillingSummary(new Date(1));
-    expect(matchOf()).toEqual({ periodStart: { $gte: new Date(1) } });
+    expect(matchOf()).toEqual({ status: { $nin: ['void', 'uncollectible'] }, periodStart: { $gte: new Date(1) } });
   });
 
   it('lists invoice rows newest first with pagination', async () => {

@@ -129,6 +129,25 @@ describe('DeletePluginDialog', () => {
     expect(onDeleted).not.toHaveBeenCalled();
   });
 
+  it('stops after 5 consecutive status reads that carry no status, and says so', async () => {
+    jest.useFakeTimers();
+    try {
+      getPluginDeleteJob.mockResolvedValue({ success: true });
+      render(<DeletePluginDialog name="tf-plan" onClose={() => {}} />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Delete 2 versions' }));
+      fireEvent.click(screen.getByText('confirm-step-up'));
+      expect(await screen.findByTestId('delete-plugin-running')).toBeInTheDocument();
+      for (let i = 0; i < 8; i += 1) {
+        await act(async () => { jest.advanceTimersByTime(DELETE_JOB_POLL_MS); });
+      }
+      expect(getPluginDeleteJob).toHaveBeenCalledTimes(5);
+      expect(screen.getByText(/check Recently deleted/i)).toBeInTheDocument();
+      expect(screen.queryByTestId('delete-plugin-running')).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('an expired or unknown job (404) stops polling and says so', async () => {
     getPluginDeleteJob.mockRejectedValue(new ApiError('Delete job not found.', 404, 'NOT_FOUND'));
     render(<DeletePluginDialog name="tf-plan" onClose={() => {}} />);

@@ -346,8 +346,20 @@ export async function handleSubscriptionUpdated(payload: Stripe.Subscription, ev
   // window). Not counted in `statusChanged` — this is a clock start, not a
   // customer-visible status transition — but it still marks the row dirty so
   // the stamp persists.
-  if (newStatus === 'past_due' && !subscription.firstFailedAt) {
+  // A clock left over from an EARLIER lapse (see the recovery reset below) is
+  // not an in-progress window: entering past_due from elsewhere restarts it.
+  if (newStatus === 'past_due' && (!subscription.firstFailedAt || previousStatus !== 'past_due')) {
     subscription.firstFailedAt = new Date();
+    dirty = true;
+  }
+  // Back to active/trialing ends the lapse. invoice.payment_succeeded normally
+  // resets these, but it can be skipped as older than this event's watermark;
+  // a leftover firstFailedAt would then open the NEXT lapse already past the
+  // grace cutoff, so the cron downgrades with no grace at all.
+  if ((newStatus === 'active' || newStatus === 'trialing')
+    && (subscription.firstFailedAt || (subscription.failedPaymentAttempts ?? 0) > 0)) {
+    subscription.firstFailedAt = undefined;
+    subscription.failedPaymentAttempts = 0;
     dirty = true;
   }
 

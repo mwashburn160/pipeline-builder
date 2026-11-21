@@ -77,16 +77,34 @@ const REPO_BLOBS: Record<string, string[]> = {
 };
 let catalog: string[];
 
-/** In-memory store that records write order. */
+/**
+ * In-memory store that records write order. `beforeWrite`, when set, is awaited
+ * at the start of every write (a test parks one writer there); the compare and
+ * the write after it are one synchronous step, as Redis's script is.
+ */
 function memoryStore() {
   const data = new Map<string, string>();
   const writes: string[] = [];
-  return {
+  const self = {
     data,
     writes,
+    beforeWrite: null as null | ((key: string) => Promise<void>),
     get: async (key: string) => data.get(key) ?? null,
-    set: async (key: string, value: string) => { data.set(key, value); writes.push(key); },
+    set: async (key: string, value: string, _ttlSeconds?: number) => {
+      await self.beforeWrite?.(key);
+      data.set(key, value); writes.push(key);
+    },
+    setIfUnchanged: async (key: string, expected: string | null, value: string, ttlSeconds: number) => {
+      await self.beforeWrite?.(key);
+      if ((data.get(key) ?? null) !== expected) return false;
+      // Through `self.set` (minus its hook) so a test overriding `set` still sees every write.
+      const hook = self.beforeWrite;
+      self.beforeWrite = null;
+      try { await self.set(key, value, ttlSeconds); } finally { self.beforeWrite = hook; }
+      return true;
+    },
   };
+  return self;
 }
 let store: ReturnType<typeof memoryStore>;
 
@@ -347,6 +365,37 @@ describe('targeted refresh after a delete / prune', () => {
     expect(await readOrgStorageUsage('beta')).toMatchObject({ bytes: 5, incomplete: false });
   });
 
+  it('a refresh that read the record before a full run wrote it does not overwrite the run (no lost update)', async () => {
+    let now = Date.now();
+    jest.spyOn(Date, 'now').mockImplementation(() => (now += 1));
+    await run();
+    SIZES['sha256:shared'] = 0; // the delete
+    // Park the refresh's write of acme's record: it has read (and merged) the
+    // record the FIRST run stored, but not written it yet.
+    let parked!: () => void;
+    const isParked = new Promise<void>((r) => { parked = r; });
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    store.beforeWrite = async (key) => {
+      if (!key.endsWith('org:acme')) return;
+      store.beforeWrite = null;
+      parked();
+      await gate;
+    };
+    const refresh = refreshOrgSnapshot('acme');
+    await isParked;
+    // A full run starts AFTER the refresh did, and stores acme's record meanwhile.
+    const second = (await run())!;
+    release();
+    await refresh;
+    const record = JSON.parse(store.data.get('image-registry:storage-snapshot:org:acme')!);
+    // The record must still count as current for the latest marker — a record
+    // older than the run reads as "the run found nothing": 0 bytes, complete,
+    // and the push gate waves pushes through.
+    expect(record.runId).toBeGreaterThanOrEqual(second.runId);
+    expect(await readOrgStorageUsage('acme')).toMatchObject({ bytes: 30, repos: 2, incomplete: false });
+  });
+
   it('a full run keeps its own figures where they are newer than a refresh, and adds repositories the refresh never knew', async () => {
     let now = Date.now();
     jest.spyOn(Date, 'now').mockImplementation(() => (now += 1));
@@ -376,12 +425,34 @@ describe('backing store', () => {
     const redis = {
       get: jest.fn(async (k: string) => kv.get(k) ?? null),
       set: jest.fn(async (k: string, v: string, _mode: string, _secs: number) => { kv.set(k, v); return 'OK'; }),
+      // The compare-and-set script, emulated: ARGV = hasExpected, expected, value, ttl.
+      eval: jest.fn(async (_script: string, _n: number, k: string, has: string, expected: string, v: string, _secs: number) => {
+        const cur = kv.get(k);
+        if (has === '1' ? cur !== expected : cur !== undefined) return 0;
+        kv.set(k, v);
+        return 1;
+      }),
     };
     createEnvRedisClient.mockReturnValueOnce(redis);
     setSnapshotStoreForTests(null);
     await run();
     expect(redis.set).toHaveBeenCalledWith('image-registry:storage-snapshot:meta', expect.any(String), 'EX', 7 * 24 * 60 * 60);
+    // Org records are written conditionally on what was merged, with the same expiry.
+    expect(redis.eval).toHaveBeenCalledWith(expect.stringContaining("redis.call('SET', KEYS[1], ARGV[3], 'EX', ARGV[4])"), 1,
+      'image-registry:storage-snapshot:org:acme', '0', '', expect.any(String), 7 * 24 * 60 * 60);
     expect((await readOrgStorageUsage('acme')).bytes).toBe(1030);
+    // A second run's write expects the record the first stored.
+    await run();
+    expect(redis.eval).toHaveBeenLastCalledWith(expect.any(String), 1, expect.any(String), '1', expect.any(String), expect.any(String), expect.any(Number));
+  });
+
+  it('an org record that stays contended is not stored, and the org reads unknown', async () => {
+    const first = (await run())!;
+    store.setIfUnchanged = async () => false;
+    const second = (await run())!;
+    expect(second.incompleteOrgIds).toEqual(['acme', 'beta']);
+    expect(second.runId).toBeGreaterThanOrEqual(first.runId);
+    expect(await readOrgStorageUsage('acme')).toMatchObject({ incomplete: true });
   });
 
   it('falls back to process memory without Redis', async () => {

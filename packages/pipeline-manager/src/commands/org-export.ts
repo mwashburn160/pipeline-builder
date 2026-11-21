@@ -7,16 +7,26 @@ import axios from 'axios';
 import { Command } from 'commander';
 import pico from 'picocolors';
 import { TIMEOUTS } from '../config/cli.constants.js';
-import { assertCredentialTlsAllowed } from '../utils/auth-utils.js';
+import { assertCredentialTlsAllowed, switchOrganization } from '../utils/auth-utils.js';
 import { printCommandHeader, printExecutionSummary, printSslWarning, validateEntityId, withSslOptions } from '../utils/command-utils.js';
 import { getApiConfig } from '../utils/config-loader.js';
 import { beginDeviceApproval, pollForDeviceToken } from '../utils/device-auth.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
-import { printDebug, printError, printInfo, printKeyValue, printSection, printSuccess } from '../utils/output-utils.js';
+import { printDebug, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
 import { requestCorrelationHeaders } from '../utils/request-context.js';
 import { platformHttpsAgent } from '../utils/tls.js';
 
 const { bold, green } = pico;
+
+/** The platform's `failed` map (store -> names it could not read), or null when nothing failed. */
+function incompleteStores(failed: unknown): Record<string, string[]> | null {
+  if (!failed || typeof failed !== 'object') return null;
+  const out: Record<string, string[]> = {};
+  for (const [store, names] of Object.entries(failed as Record<string, unknown>)) {
+    if (Array.isArray(names) && names.length > 0) out[store] = names.map(String);
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
 
 /**
  * CLI  `pipeline-manager org export --id <orgId> --output <file>`.
@@ -50,10 +60,12 @@ export function orgExport(program: Command): void {
     .description('Export an organization\'s data as JSON (GDPR portability: sysadmins any org, org admins their own)')
     .requiredOption('-i, --id <id>', 'Organization ID to export')
     .option('-o, --output <file>', 'Output file path (default: org-<id>-export.json in CWD)')
+    .option('--org <orgId>', 'Act in this organization first (switches the sign-in\'s active org; use it when exporting an org you manage that is not your default)')
     .option('--no-browser', 'Never open a browser — print the verification URL instead')
     .option('--url <url>', 'Platform base URL (default: PLATFORM_BASE_URL, else the platform you last signed in to, else config.yml)'))
     .action(async (options) => {
       const executionId = printCommandHeader('Org Export');
+      let incomplete = false;
 
       try {
         printSslWarning(options.verifySsl);
@@ -88,6 +100,16 @@ export function orgExport(program: Command): void {
           process.exit(ERROR_CODES.AUTHENTICATION);
         }
 
+        // The platform checks the export against the session's ACTIVE org, and a
+        // device sign-in starts in the user's default one: switch first when asked.
+        // The step-up token is bound to the user, so it survives the switch.
+        let accessToken = session.access_token;
+        if (options.org) {
+          accessToken = (await switchOrganization({
+            url, orgId: options.org, accessToken, httpsAgent, timeout: TIMEOUTS.HTTP_REQUEST, quiet: false,
+          })).accessToken;
+        }
+
         console.log('');
         printSection('Fetching Export');
 
@@ -98,7 +120,7 @@ export function orgExport(program: Command): void {
         printDebug('GET', { url: exportUrl });
         const { data: response } = await axios.get<Record<string, unknown>>(exportUrl, {
           headers: {
-            'Authorization': `Bearer ${session.access_token}`,
+            'Authorization': `Bearer ${accessToken}`,
             'X-Step-Up-Token': session.step_up_token,
             ...requestCorrelationHeaders(),
           },
@@ -145,7 +167,15 @@ export function orgExport(program: Command): void {
         });
 
         printExecutionSummary(executionId, duration);
-        printSuccess('Organization export complete', { path: outputPath });
+        // The platform returns what it could read and names the stores it could
+        // not (`failed`): such a dump is not the org's whole record.
+        const failed = incompleteStores(response.failed);
+        if (failed) {
+          printWarning('Organization export is INCOMPLETE: these stores could not be read; run the export again', failed);
+          incomplete = true;
+        } else {
+          printSuccess('Organization export complete', { path: outputPath });
+        }
       } catch (error) {
         handleError(error, ERROR_CODES.API_REQUEST, {
           debug: program.opts().debug,
@@ -153,5 +183,8 @@ export function orgExport(program: Command): void {
           context: { command: 'org-export', executionId, orgId: options.id },
         });
       }
+      // A partial dump is kept on disk but is not a success: exit non-zero (outside
+      // the try, so the exit isn't re-reported as an error) for scripts and CI.
+      if (incomplete) process.exit(ERROR_CODES.API_REQUEST);
     });
 }

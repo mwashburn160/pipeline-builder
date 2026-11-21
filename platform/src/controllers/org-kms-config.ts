@@ -46,7 +46,7 @@ import { activeKmsConfig } from '../helpers/org-kms-config.js';
 import type { AuditAction } from '../models/audit-event.js';
 import { Organization, type OrganizationDocument } from '../models/index.js';
 import { reencryptRunnerSigningKeys, type RunnerKeyReencryptResult } from '../services/runner-key-reencrypt.js';
-import { captureOrgSecrets, reencryptOrgSecrets } from '../services/secret-reencrypt.js';
+import { captureOrgSecrets, OrgSecretsReencryptError, reencryptOrgSecrets } from '../services/secret-reencrypt.js';
 import { orgKmsConfigSchema, validateBody } from '../utils/validation.js';
 
 const logger = createLogger('org-kms-config-controller');
@@ -105,6 +105,36 @@ function kmsConfigMatch(current: ProposedKmsConfig | null): Record<string, unkno
     : { $or: [{ 'kmsConfig.keyId': { $in: [null, ''] } }, { 'kmsConfig.ciphertextBase64': { $in: [null, ''] } }] };
 }
 
+/**
+ * Put `previous` back after a change to `next` whose secret re-encrypt failed
+ * before writing anything — conditionally on `next` still being the stored
+ * config, so a change that landed since is never overwritten. True when the
+ * previous config is current again. A failed restore is logged, not thrown:
+ * the caller then finishes the migration as if no restore was tried.
+ */
+async function restoreKmsConfig(
+  orgId: string,
+  org: OrganizationDocument,
+  next: ProposedKmsConfig | null,
+  previous: ProposedKmsConfig | null,
+): Promise<boolean> {
+  try {
+    const restored = await Organization.updateOne(
+      { _id: org._id, ...kmsConfigMatch(next) },
+      previous ? { $set: { kmsConfig: { keyId: previous.keyId, ciphertextBase64: previous.ciphertextBase64 } } } : { $unset: { kmsConfig: 1 } },
+    );
+    if (restored.matchedCount === 0) {
+      logger.error('KMS config restore skipped: the config changed again since this request saved it', { orgId });
+      return false;
+    }
+  } catch (err) {
+    logger.error('KMS config restore failed', { orgId, error: errorMessage(err) });
+    return false;
+  }
+  evictPerOrgCache(orgId);
+  return true;
+}
+
 /** The two config changes, keyed: their audit action and the words their messages use. */
 const KMS_CONFIG_CHANGES = {
   upsert: { action: 'admin.org.kms-config.upsert', verb: 'rotate', done: 'saved' },
@@ -125,7 +155,9 @@ type KmsConfigChange = keyof typeof KMS_CONFIG_CHANGES;
  *     being current, so a concurrent PUT/DELETE gets 409 CONFLICT before it
  *     re-encrypts anything — + evict the per-org cache so the NEW provider
  *     becomes active on the next encrypt call.
- *  3. Re-encrypt the captured plaintexts under the NEW provider.
+ *  3. Re-encrypt the captured plaintexts under the NEW provider. A failure
+ *     before any secret was written (the new CMK unusable) restores the
+ *     previous config and answers 500 without touching the runner keys.
  *  4. Ask the pipeline service to re-wrap the org's runner signing keys
  *     (Postgres), handing it the config they were written under.
  *
@@ -193,16 +225,32 @@ async function changeKmsConfig(
   // Once the config is saved the previous one survives only in this request,
   // so the runner keys are re-wrapped even when the Mongo pass failed —
   // skipping them would strand them under a config nothing can name again.
+  // The one exception: a pass that failed before writing anything (the new
+  // CMK unusable) is undone by restoring the previous config instead.
   let reencryptCounts;
   let secretsError: string | undefined;
   if (reencrypt && captured) {
     try {
       reencryptCounts = await reencryptOrgSecrets(orgId, captured);
     } catch (err) {
-      // Mid-flight failure: secrets are partially re-encrypted. Surface
-      // the error loud so on-call can finish the migration manually.
       secretsError = errorMessage(err);
       logger.error(`KMS config ${verb}: re-encryption failed after config change`, { orgId, error: secretsError });
+      if (err instanceof OrgSecretsReencryptError && !err.written
+        && await restoreKmsConfig(orgId, org, next, previousKmsConfig)) {
+        audit(req, action, {
+          targetType: 'org-kms-config',
+          targetId: orgId,
+          affectedOrgId: orgId,
+          outcome: 'failure',
+          details: { ...(next ? { keyId: next.keyId } : {}), secretsReencryptError: secretsError, configRestored: true },
+        });
+        return void sendError(
+          res, 500,
+          `Cannot ${verb} KMS config: re-encrypting the platform secrets under the new config failed before any was written: ${secretsError}. The previous config was restored; nothing else changed. Check the new config with POST .../kms-config/test and retry.`,
+        );
+      }
+      // Otherwise secrets may be partially re-encrypted. Surface the error
+      // loud so on-call can finish the migration manually.
     }
   }
 
@@ -221,7 +269,9 @@ async function changeKmsConfig(
       ...(secretsError ? { secretsReencryptError: secretsError } : {}),
       ...runnerKeyDetails(runnerKeys),
     },
-    ...(secretsError || !runnerKeys.ok ? { outcome: 'failure' as const } : {}),
+    // A secret a stale replica wrote under the OLD key mid-migration is now
+    // unreadable — the change landed, but that secret must be re-entered.
+    ...(secretsError || !runnerKeys.ok || reencryptCounts?.unreadableConcurrentWrites.length ? { outcome: 'failure' as const } : {}),
   });
 
   if (secretsError) {

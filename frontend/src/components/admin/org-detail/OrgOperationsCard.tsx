@@ -6,6 +6,7 @@ import { useRouter } from 'next/router';
 import { Download, FileDown, Trash2 } from 'lucide-react';
 import api from '@/lib/api';
 import { invalidate } from '@/lib/api-cache';
+import { continueAfterStepUp } from '@/lib/api/errors';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -50,13 +51,20 @@ export function OrgOperationsCard({ org }: { org: OrganizationDetail }) {
   // GDPR portability dump. The endpoint streams raw JSON (not an ApiResponse
   // envelope); the client method returns the body text, saved here as a file.
   // Step-up gated server-side (a bulk read of every row the org owns).
+  const saveExport = (json: string) => {
+    triggerBlobDownload(new Blob([json], { type: 'application/json' }), `org-${org.slug ?? org.id}-export.json`);
+  };
   const exportM = useMutation({
     fn: (stepUpToken: string) => api.exportOrganization(org.id, stepUpToken),
     scopeKey: org.id,
     errorFallback: 'Failed to export organization data',
     toast: { success: 'Organization data exported' },
-    onSuccess: (json) => {
-      triggerBlobDownload(new Blob([json], { type: 'application/json' }), `org-${org.slug ?? org.id}-export.json`);
+    onSuccess: saveExport,
+    // A refused token (expired, already spent) is handed to the global step-up
+    // dialog; its replay carries the export body, which is the file to save.
+    onStepUpResumed: (json) => {
+      saveExport(json as string);
+      toast.success('Organization data exported');
     },
     onError: (_e, message) => setError(message),
   });
@@ -70,18 +78,27 @@ export function OrgOperationsCard({ org }: { org: OrganizationDetail }) {
       void exportM.run(stepUpToken);
       return;
     }
+    const saveYaml = (yaml: string) => {
+      triggerBlobDownload(new Blob([yaml], { type: 'application/yaml' }), `pb-org-${org.slug ?? org.id}.yaml`);
+      toast.success('Namespace YAML downloaded');
+    };
+    const afterDelete = () => {
+      // The list this navigates to reads through the shared cache.
+      invalidate.organizations();
+      void router.push('/dashboard/organizations');
+    };
     try {
       if (op === 'yaml') {
-        const yaml = await api.getOrgNamespaceYaml(org.id, stepUpToken);
-        triggerBlobDownload(new Blob([yaml], { type: 'application/yaml' }), `pb-org-${org.slug ?? org.id}.yaml`);
-        toast.success('Namespace YAML downloaded');
+        saveYaml(await api.getOrgNamespaceYaml(org.id, stepUpToken));
       } else if (op === 'delete') {
         await api.deleteOrganization(org.id, stepUpToken);
-        // The list this navigates to reads through the shared cache.
-        invalidate.organizations();
-        void router.push('/dashboard/organizations');
+        afterDelete();
       }
     } catch (e) {
+      // A refused token is handed to the global step-up dialog, which replays
+      // the request: finish with the replay's answer instead of showing an error.
+      if (op === 'yaml' && continueAfterStepUp<string>(e, saveYaml)) return;
+      if (op === 'delete' && continueAfterStepUp(e, afterDelete)) return;
       setError(formatError(e, op === 'delete' ? 'Failed to delete organization' : 'Failed to download namespace YAML'));
     }
   };

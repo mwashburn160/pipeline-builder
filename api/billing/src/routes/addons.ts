@@ -88,7 +88,7 @@ async function recordLostCombos(orgId: string, lost: ComboChange[], subscription
  * handlers so the two can't drift:
  *
  * 1. Guarded write (optimistic concurrency): commit `addons` ONLY if the doc hasn't
- *    changed since it was read (`__v` match), so two concurrent seat/add-on changes
+ *    changed since it was read (`__v`, plan and interval match), so two concurrent seat/add-on changes
  *    can't clobber each other or both slip past the over-cap gate. The durable
  *    `metadata.providerAddonSyncPending` marker rides the SAME write whenever the
  *    sub has an `externalId`, so a crash before `syncProviderAddons` still leaves it
@@ -115,8 +115,11 @@ async function commitAddonChange(args: {
   auditDetails: Record<string, unknown>;
 }): Promise<SubscriptionDocument | null> {
   const { subscription, tier, orgId, next, actorId: eventActorId, source, bundleId } = args;
+  // `planId` + `interval` ride the guard too: a plan change that prunes nothing
+  // saves only `planId`, which does not bump `__v`, so a version-only guard let
+  // this commit and push the tier the caller READ over the one the row now holds.
   const committed = await Subscription.findOneAndUpdate(
-    { _id: subscription._id, __v: subscription.__v },
+    { _id: subscription._id, __v: subscription.__v, planId: subscription.planId, interval: subscription.interval },
     {
       $set: { addons: next, ...(subscription.externalId ? { 'metadata.providerAddonSyncPending': true } : {}) },
       $inc: { __v: 1 },

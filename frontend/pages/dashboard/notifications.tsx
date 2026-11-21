@@ -31,8 +31,6 @@ import { isSystemOrgActive } from '@/lib/ecosystem-access';
 
 type EcosystemPrefKey = keyof NotificationPrefs['ecosystem'];
 
-/** Ecosystem email opt-outs. `systemOrgOnly` rows exist only for the system
- *  org's moderators (the daily moderation digest). */
 /**
  * The plugin security FIX notices (nightly CVE remediation). They follow the
  * org's plugin security recipients and digest, are transactional (no opt-out),
@@ -47,6 +45,8 @@ export const REMEDIATION_NOTICES: { code: string; label: string; href: string; w
   { code: 'N41', label: 'Unused plugin versions will be deactivated by automatic tidying (Keep to stop it)', href: '/dashboard/plugins', where: 'Plugins' },
 ];
 
+/** Ecosystem email opt-outs. `systemOrgOnly` rows exist only for the system
+ *  org's moderators (the daily moderation digest). */
 const ECOSYSTEM_PREFS: { key: EcosystemPrefKey; label: string; hint: string; systemOrgOnly?: boolean }[] = [
   {
     key: 'reviewsEmail',

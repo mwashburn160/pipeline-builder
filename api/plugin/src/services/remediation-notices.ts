@@ -7,7 +7,8 @@
  *
  *  - **N36** a fixed version was published (or, in propose mode, is awaiting a
  *    plugins:write approval).
- *  - **N37** the rollout of a fix to pipelines finished or paused. Also to the
+ *  - **N37** the rollout of a fix to pipelines finished or paused — or never
+ *    started and is no longer retried (`startFailure`). Also to the
  *    pipeline writers of the orgs whose pipelines it moved or proposed to
  *    (each org's `notifyPipelineOwners`).
  *  - **N38** a pipeline was rolled back from a fix version (or could not be,
@@ -44,11 +45,13 @@ import {
   parseRemediationEnabled,
   REMEDIATION_REMAINING_REASON_LABELS,
   remediationFindingsKey,
+  rolloutStartFailureText,
   type EcosystemRecipientSpec,
   type RemediationClearedFinding,
   type RemediationProposeReason,
   type RemediationRemainingFinding,
   type RemediationRolloutPauseReason,
+  type RemediationRolloutStartGiveUp,
   type RemediationRolloutSummary,
 } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
@@ -109,6 +112,11 @@ export interface RolloutNotice extends RemediationNoticeBase {
   summary: RemediationRolloutSummary;
   /** Orgs whose pipelines the rollout moved or proposed to (their pipeline writers hear it). */
   affectedOrgIds?: string[];
+  /**
+   * Set when the rollout never STARTED and the sweep gave up (the summary is
+   * then a `paused` one with zero counts): why, after how many attempts.
+   */
+  startFailure?: { reason: RemediationRolloutStartGiveUp; attempts: number; lastStatus: string | null };
 }
 
 /** N38: one pipeline was rolled back (or the rollback was blocked). */
@@ -253,6 +261,16 @@ export function renderFixPublished(n: FixPublishedNotice): { subject: string; te
 export function renderRollout(n: RolloutNotice): { subject: string; text: string } {
   const s = n.summary;
   const ref = `${n.pluginName} ${s.toVersion}`;
+  if (n.startFailure) {
+    const f = n.startFailure;
+    return {
+      subject: `Rollout paused: ${ref}`,
+      text: `The rollout of ${ref} (fixing ${n.pluginName}@${n.fromVersion}) did not start: ${rolloutStartFailureText(f.lastStatus)}`
+        + `${f.reason === 'exhausted' ? ` (${plural(f.attempts, 'attempt')})` : ''}. It is no longer retried automatically. `
+        + 'The version stays published, so owners can still choose it; Retry on the remediation starts the rollout again.'
+        + `\n\n${remediationUrl(n.remediationId)}`,
+    };
+  }
   const paused = s.status === 'paused';
   const why = s.pausedReason ? PAUSE_REASON_TEXT[s.pausedReason] ?? null : null;
   const subject = paused ? `Rollout paused: ${ref}` : `Rollout finished: ${ref}`;

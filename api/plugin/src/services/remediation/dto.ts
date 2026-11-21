@@ -1,13 +1,38 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { PluginRemediationDto } from '@pipeline-builder/api-core';
+import type { PluginRemediationDto, RemediationRolloutStart, RemediationRolloutSummary } from '@pipeline-builder/api-core';
 import type { PluginRemediation } from '@pipeline-builder/pipeline-data';
 
 /** The wire shape (the rolled-back pipeline ids included: the remediation card lists them). */
 export type RemediationDtoOut = PluginRemediationDto;
 
 const iso = (d: Date | null | undefined): string | null => (d ? d.toISOString() : null);
+
+/** The start bookkeeping a `published` row keeps in its `rollout` jsonb (beside a summary once one exists). */
+export interface StoredRolloutStart { startAttempts?: number; lastStartStatus?: string | null }
+
+/** The rollout start bookkeeping of a row's `rollout` jsonb (null when no start failed). */
+export function readRolloutStart(rollout: unknown): RemediationRolloutStart | null {
+  const r = rollout as StoredRolloutStart | null | undefined;
+  if (!r || typeof r.startAttempts !== 'number') return null;
+  return { attempts: r.startAttempts, lastStatus: typeof r.lastStartStatus === 'string' ? r.lastStartStatus : null };
+}
+
+/** The `rollout` jsonb without the start bookkeeping (null when nothing else is left). */
+export function withoutRolloutStart(rollout: unknown): Record<string, unknown> | null {
+  if (!rollout || typeof rollout !== 'object') return null;
+  const { startAttempts: _a, lastStartStatus: _s, ...rest } = rollout as Record<string, unknown>;
+  return Object.keys(rest).length > 0 ? rest : null;
+}
+
+/** The pipeline service's summary, as the card shows it: only once a report stored one (`status`). */
+function rolloutSummary(rollout: unknown): RemediationRolloutSummary | null {
+  const rest = withoutRolloutStart(rollout);
+  if (!rest || typeof rest.status !== 'string') return null;
+  const { rolledBackPipelineIds: _r, ...summary } = rest;
+  return summary as unknown as RemediationRolloutSummary;
+}
 
 /**
  * A remediation as the routes answer it. Never the findings hash, never a
@@ -35,7 +60,8 @@ export function toRemediationDto(r: PluginRemediation): RemediationDtoOut {
     remaining: r.remaining ?? [],
     hasPatch: !!r.patchKey,
     hasExport: !!r.exportKey,
-    rollout: rollout ? (({ rolledBackPipelineIds: _r, ...summary }) => summary)(rollout as typeof rollout & { rolledBackPipelineIds?: unknown }) : null,
+    rollout: rolloutSummary(rollout),
+    rolloutStart: readRolloutStart(rollout),
     error: r.error ?? null,
     attempt: r.attempt,
     retryOf: r.retryOf ?? null,

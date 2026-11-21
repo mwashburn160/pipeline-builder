@@ -185,6 +185,43 @@ describe('RemediationCard', () => {
     await waitFor(() => expect(api.retryPluginRemediation).toHaveBeenCalledWith('rem-1', 'step-up-token'));
   });
 
+  it('a published fix whose rollout start was given up says why and offers Retry, which restarts the rollout', async () => {
+    const givenUp = {
+      ...REMEDIATION, stage: 'published' as const, decidedAt: '2026-11-19T00:30:00Z', publishedAt: '2026-11-19T01:00:00Z',
+      error: 'rollout_start_failed', rolloutStart: { attempts: 5, lastStatus: '503' },
+    };
+    api.retryPluginRemediation.mockReturnValue(ok({ ...givenUp, stage: 'rolling_out', error: null, rolloutStart: null }));
+    const onChanged = jest.fn<AnyFn>();
+    render(<RemediationCard remediation={givenUp} canWrite onChanged={onChanged} />);
+    const why = screen.getByTestId('remediation-rollout-start-failed');
+    expect(why.textContent).toContain("Rollout didn't start: the pipeline service answered HTTP 503");
+    expect(why.textContent).toContain('5 attempts');
+    // Said in words, not as the raw code.
+    expect(screen.queryByTestId('remediation-error')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Retry rollout/ }));
+    expect(screen.getByRole('dialog', { name: 'Start this rollout again?' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm password' }));
+    await waitFor(() => expect(api.retryPluginRemediation).toHaveBeenCalledWith('rem-1', 'step-up-token'));
+    await waitFor(() => expect(onChanged).toHaveBeenCalledWith(expect.objectContaining({ stage: 'rolling_out' })));
+    expect(toast.success).toHaveBeenCalledWith('Rollout started');
+  });
+
+  it('a restart that still did not start warns instead of claiming success', async () => {
+    const givenUp = { ...REMEDIATION, stage: 'published' as const, decidedAt: '2026-11-19T00:30:00Z', error: 'rollout_start_failed', rolloutStart: { attempts: 1, lastStatus: '403' } };
+    api.retryPluginRemediation.mockReturnValue(ok({ ...givenUp, rolloutStart: { attempts: 1, lastStatus: '403' } }));
+    render(<RemediationCard remediation={givenUp} canWrite />);
+    fireEvent.click(screen.getByRole('button', { name: /Retry rollout/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm password' }));
+    await waitFor(() => expect(toast.warning).toHaveBeenCalledWith("Rollout didn't start: the pipeline service answered HTTP 403"));
+    expect(toast.success).not.toHaveBeenCalled();
+  });
+
+  it('a published fix the sweep is still retrying shows no Retry', () => {
+    render(<RemediationCard remediation={{ ...REMEDIATION, stage: 'published', decidedAt: '2026-11-19T00:30:00Z', rolloutStart: { attempts: 2, lastStatus: '503' } }} canWrite />);
+    expect(screen.queryByRole('button', { name: /Retry/ })).toBeNull();
+    expect(screen.queryByTestId('remediation-rollout-start-failed')).toBeNull();
+  });
+
   it('shows the rollout\'s waiting-on-a-change-request and pending-redeploy counts when present', () => {
     render(<RemediationCard
       remediation={{

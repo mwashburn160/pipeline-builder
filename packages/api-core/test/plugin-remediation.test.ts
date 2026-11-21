@@ -141,6 +141,8 @@ describe('comparePackageVersions per ecosystem', () => {
     equal('gem', '1.0', '1.0.0');
     equal('gem', '1.0.a', '1.a');
     equal('gem', '1.0.0-rc1', '1.0.0.pre.rc1');
+    // Segments are arbitrary-precision integers in Ruby (no Number rounding).
+    ascending('gem', ['1.99999999999999999998', '1.99999999999999999999', '20240101000000000001']);
   });
 
   it('dotnet follows NuGet SemVer 2 (4 parts, prerelease, case-insensitive)', () => {

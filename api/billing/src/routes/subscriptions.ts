@@ -432,8 +432,30 @@ export function createSubscriptionRoutes(): Router {
     const effectivePlanId = planChanged && planId ? planId : subscription.planId;
     const effectiveInterval = intervalChanged && interval ? interval : subscription.interval;
 
-    if (planChanged || intervalChanged) {
-      await getPaymentProvider().updateSubscription(subscription.externalId || '', effectivePlanId, effectiveInterval);
+    // A row not yet bound to a provider subscription (an in-app create's bind
+    // window) has no provider price to move — skipped, as the admin override
+    // does, rather than handing the provider an empty id (a 500).
+    if ((planChanged || intervalChanged) && subscription.externalId) {
+      try {
+        await getPaymentProvider().updateSubscription(subscription.externalId, effectivePlanId, effectiveInterval);
+      } catch (err) {
+        // UNKNOWN outcome (timeout / connection loss / 5xx): the provider may
+        // have applied the change. Nothing local has moved yet, and if it did
+        // land its `customer.subscription.updated` webhook adopts the plan (the
+        // handler re-reads the live sub and reverses the price map). A retry
+        // targets the same price, so it is safe — say so instead of a bare 500.
+        if (isProviderOutcomeUnknown(err)) {
+          incCounter('billing_provider_outcome_unknown_total', { op: 'plan_change' });
+          logger.error('Provider plan change outcome unknown — left to the provider webhook to settle', {
+            orgId, subscriptionId, error: errorMessage(err),
+          });
+          return sendError(res, 503,
+            'The payment provider did not confirm the plan change in time. It may still have been applied; '
+            + 'it will be reconciled automatically from the provider, and retrying is safe.',
+            ErrorCode.SERVICE_UNAVAILABLE, { outcome: 'unknown', reconcilePending: true });
+        }
+        throw err;
+      }
     }
 
     // Deferred post-save side effects for a plan change (sync + plan_changed

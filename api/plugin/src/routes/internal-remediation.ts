@@ -24,6 +24,7 @@ import {
   parseContractBody,
   parseContractParams,
   PLUGIN_INTERNAL,
+  REMEDIATION_ROLLOUT_START_FAILED,
   requireInternalService,
   sendBadRequest,
   sendError,
@@ -71,7 +72,12 @@ export async function applyRolloutReport(remediationId: string, report: RolloutR
     else if (live && status === 'paused') stage = 'needs_review';
     else if (row.stage === 'published' && (status === 'pending' || status === 'canary' || status === 'batches')) stage = 'rolling_out';
     return {
-      patch: { rollout: rollout as RemediationRolloutSummary, ...(stage !== row.stage ? { stage, ...(stage === 'done' ? { finishedAt: new Date() } : {}) } : {}) },
+      patch: {
+        rollout: rollout as RemediationRolloutSummary,
+        ...(stage !== row.stage ? { stage, ...(stage === 'done' ? { finishedAt: new Date() } : {}) } : {}),
+        // A start given up on that had landed after all: the rollout is under way, the error no longer holds.
+        ...(stage !== row.stage && row.error === REMEDIATION_ROLLOUT_START_FAILED ? { error: null } : {}),
+      },
       result: { fresh, stage },
     };
   });

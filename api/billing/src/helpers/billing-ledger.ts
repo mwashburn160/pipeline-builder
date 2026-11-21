@@ -52,18 +52,76 @@ function mapInvoiceStatus(status?: string | null): LedgerStatus {
   return (status && Object.hasOwn(STRIPE_INVOICE_STATUS_MAP, status) ? STRIPE_INVOICE_STATUS_MAP[status] : undefined) ?? 'open';
 }
 
-/** Write a reversal onto an existing ledger row; null when the row is absent. */
-async function applyReversal(invoiceId: string, set: Record<string, unknown>): Promise<{ orgId: string } | null> {
-  return BillingInvoice.findOneAndUpdate({ externalInvoiceId: invoiceId }, { $set: set }, { new: true });
+/**
+ * Reversal PRECEDENCE. Stripe delivers `charge.refunded` / `charge.dispute.created`
+ * unordered, and each carries an ABSOLUTE status + net amount, so a lesser event
+ * arriving late (the partial refund that preceded a dispute) used to overwrite the
+ * row back to `refunded` with a higher amount still paid. A reversal now only moves
+ * the status UP this ranking, and the net amount paid only ever goes DOWN (`$min`:
+ * the provider's cumulative totals make the latest reversal the lowest net).
+ */
+const REVERSAL_RANK: Readonly<Record<LedgerStatus, number>> = {
+  open: 0, paid: 0, void: 1, uncollectible: 1, refunded: 2, disputed: 3,
+};
+
+/** The statuses `status` may replace: its own rank or lower. */
+function replaceableBy(status: LedgerStatus): LedgerStatus[] {
+  return (Object.keys(REVERSAL_RANK) as LedgerStatus[]).filter((s) => REVERSAL_RANK[s] <= REVERSAL_RANK[status]);
+}
+
+/** Statuses never collected: kept on the row, left out of billed totals. */
+const UNCOLLECTED_STATUSES: readonly LedgerStatus[] = ['void', 'uncollectible'];
+
+/** The amount half of a reversal update: lower the net paid, never raise it. */
+function amountUpdate(netAmountPaidCents?: number): Record<string, unknown> {
+  return netAmountPaidCents === undefined ? {} : { $min: { amountPaidCents: Math.max(0, netAmountPaidCents) } };
+}
+
+/**
+ * Write a reversal onto an existing ledger row, under {@link REVERSAL_RANK}: the
+ * status moves only when it outranks (or equals) the row's, and the amount is
+ * lowered either way. Null when the row is absent.
+ */
+async function applyReversal(invoiceId: string, status: LedgerStatus, netAmountPaidCents?: number): Promise<{ orgId: string } | null> {
+  const amount = amountUpdate(netAmountPaidCents);
+  const moved = await BillingInvoice.findOneAndUpdate(
+    { externalInvoiceId: invoiceId, status: { $in: replaceableBy(status) } },
+    { $set: { status }, ...amount },
+    { new: true },
+  );
+  if (moved) return moved;
+  // The row holds a higher-precedence reversal (or is absent): keep its status.
+  return netAmountPaidCents === undefined
+    ? BillingInvoice.findOne({ externalInvoiceId: invoiceId }).lean<{ orgId: string }>()
+    : BillingInvoice.findOneAndUpdate({ externalInvoiceId: invoiceId }, amount, { new: true });
+}
+
+/**
+ * Bank a reversal for an invoice not yet ingested, under the same precedence as
+ * a row: an outranked banked status is kept (the upsert's filter misses, its
+ * insert trips the `_id` key) and only the amount is lowered.
+ */
+async function bankReversal(invoiceId: string, status: LedgerStatus, netAmountPaidCents?: number): Promise<void> {
+  const expiresAt = new Date(Date.now() + PENDING_REVERSAL_TTL_MS);
+  const amount = amountUpdate(netAmountPaidCents);
+  try {
+    await BillingPendingReversal.updateOne(
+      { _id: invoiceId, status: { $in: replaceableBy(status) } },
+      { $set: { status, expiresAt }, ...amount },
+      { upsert: true },
+    );
+  } catch (err) {
+    if ((err as { code?: number }).code !== 11000) throw err;
+    await BillingPendingReversal.updateOne({ _id: invoiceId }, { $set: { expiresAt }, ...amount });
+  }
 }
 
 /**
  * Reverse an invoice row in the ledger — the charge-level counterpart to
  * {@link ingestStripeInvoice}. Sets the row's `status` (`refunded`/`disputed`,
- * or `void`/`uncollectible`) and, when given, OVERWRITES `amountPaidCents` with
- * the net still-collected amount (Stripe sends the cumulative refunded/disputed
- * total on each event, so an absolute set is idempotent under redelivery/partial
- * refunds).
+ * or `void`/`uncollectible`) and, when given, lowers `amountPaidCents` to the net
+ * still-collected amount, both under {@link REVERSAL_RANK} so redelivered and
+ * out-of-order reversals converge on the same row.
  *
  * When the invoice has not been ingested yet (webhooks are unordered, and an
  * ingest can fail and be redelivered later) the reversal is BANKED as a
@@ -77,28 +135,20 @@ export async function reverseLedgerInvoice(
   status: LedgerStatus,
   netAmountPaidCents?: number,
 ): Promise<string | null> {
-  const set: Record<string, unknown> = { status };
-  if (netAmountPaidCents !== undefined) set.amountPaidCents = Math.max(0, netAmountPaidCents);
-  const row = await applyReversal(invoiceId, set);
+  const row = await applyReversal(invoiceId, status, netAmountPaidCents);
   if (row) {
     incCounter('billing_invoice_reversed_total', { source: 'stripe', status });
     logger.info('Billing invoice reversed in ledger', { orgId: row.orgId, invoiceId, status });
     return row.orgId;
   }
 
-  // No row yet: bank the reversal for the ingest to apply. Merged with `$set`
-  // exactly as successive reversals merge onto a row — one that carries no
-  // amount keeps the amount an earlier one banked, as it would on the row.
-  await BillingPendingReversal.updateOne(
-    { _id: invoiceId },
-    { $set: { ...set, expiresAt: new Date(Date.now() + PENDING_REVERSAL_TTL_MS) } },
-    { upsert: true },
-  );
+  // No row yet: bank the reversal for the ingest to apply.
+  await bankReversal(invoiceId, status, netAmountPaidCents);
 
   // The invoice may have been ingested between the miss above and the bank —
   // that ingest found no banked reversal. Look again so the reversal can't be
-  // stranded; applying twice is harmless (absolute set).
-  const late = await applyReversal(invoiceId, set);
+  // stranded; applying twice is harmless (precedence + `$min`).
+  const late = await applyReversal(invoiceId, status, netAmountPaidCents);
   if (late) {
     await BillingPendingReversal.deleteOne({ _id: invoiceId });
     incCounter('billing_invoice_reversed_total', { source: 'stripe', status });
@@ -119,9 +169,7 @@ export async function reverseLedgerInvoice(
 async function applyBankedReversal(invoiceId: string): Promise<void> {
   const banked = await BillingPendingReversal.findOne({ _id: invoiceId }).lean<{ status: LedgerStatus; amountPaidCents?: number; updatedAt?: Date }>();
   if (!banked) return;
-  const set: Record<string, unknown> = { status: banked.status };
-  if (banked.amountPaidCents !== undefined && banked.amountPaidCents !== null) set.amountPaidCents = banked.amountPaidCents;
-  const row = await applyReversal(invoiceId, set);
+  const row = await applyReversal(invoiceId, banked.status, banked.amountPaidCents ?? undefined);
   if (!row) return;
   await BillingPendingReversal.deleteOne({ _id: invoiceId, ...(banked.updatedAt ? { updatedAt: banked.updatedAt } : {}) });
   incCounter('billing_invoice_reversed_total', { source: 'stripe', status: banked.status });
@@ -294,7 +342,8 @@ export async function getBillingSummary(orgId: string, from?: Date, to?: Date): 
     totals: Array<BillingSummary['totals'] & { invoiceCount: number }>;
     timeline: Array<{ periodStart: Date; grossCents: number; discountCents: number; creditCents: number; netCents: number }>;
   }>([
-    { $match: windowFilter(orgId, from, to) },
+    // Void / uncollectible invoices were never collected — not billed revenue.
+    { $match: { ...windowFilter(orgId, from, to), status: { $nin: [...UNCOLLECTED_STATUSES] } } },
     { $sort: { periodStart: 1 } },
     {
       $facet: {
@@ -336,7 +385,8 @@ export interface AdminBillingSummary {
  * a single account's own dashboard.
  */
 export async function getAdminBillingSummary(from?: Date, to?: Date, orgId?: string): Promise<AdminBillingSummary> {
-  const filter: Record<string, unknown> = {};
+  // Void / uncollectible invoices were never collected — not billed revenue.
+  const filter: Record<string, unknown> = { status: { $nin: [...UNCOLLECTED_STATUSES] } };
   if (orgId) filter.orgId = orgId;
   if (from || to) {
     const range: Record<string, Date> = {};

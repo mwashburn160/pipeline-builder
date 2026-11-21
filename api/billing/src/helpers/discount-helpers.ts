@@ -592,8 +592,8 @@ async function grantUsageCredit(subscription: SubscriptionDocument, discountId: 
     return;
   }
 
-  // Marketplace path: in-memory mutation; the metering cycle saves the (period-
-  // claimed) doc.
+  // In-memory path: the caller saves. (Both production callers — the Stripe
+  // invoice reconcile and the Marketplace metering cycle — now pass `atomic`.)
   subscription.creditBalanceCents = (subscription.creditBalanceCents ?? 0) + cents;
   subscription.creditLedger.push(creditLedgerEntry({ discountId, cents, fulfillmentRef: ref, dedupeKey }));
   await createBillingEvent(subscription.orgId, 'credit_applied', { discountId, cents }, subscription._id.toString(), actorId);

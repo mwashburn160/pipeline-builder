@@ -873,6 +873,43 @@ export interface RemediationRolloutSummary {
   updatedAt: string;
 }
 
+/**
+ * `plugin_remediations.error` of a published TENANT fix whose rollout never
+ * started and is no longer retried: the pipeline service refused the start
+ * (a 4xx other than 408 / 429), or {@link REMEDIATION_ROLLOUT_START_MAX_ATTEMPTS}
+ * transient failures (5xx, 408, 429, unreachable) in a row. The row stays
+ * `published` (the version is live and choosable); POST …/retry starts it again.
+ */
+export const REMEDIATION_ROLLOUT_START_FAILED = 'rollout_start_failed';
+/** Start attempts of one tenant rollout, the publish's own included, before the nightly sweep gives up. */
+export const REMEDIATION_ROLLOUT_START_MAX_ATTEMPTS = 5;
+/** Why the sweep stopped starting a rollout (the `reason` label of the start-failures counter). */
+export type RemediationRolloutStartGiveUp = 'permanent' | 'exhausted';
+
+/**
+ * The start bookkeeping kept in the `rollout` jsonb of a `published` row
+ * (`startAttempts` / `lastStartStatus`, beside a summary once one exists).
+ * `lastStatus`: the pipeline service's HTTP status ('503'), or `unreachable`,
+ * `invalid_response`, `request_invalid` (refused before it was sent),
+ * `not_startable` (no fix version to start).
+ */
+export interface RemediationRolloutStart {
+  attempts: number;
+  lastStatus: string | null;
+}
+
+/** The last failed start as one phrase ("Rollout didn't start: <this>"), for the card and the N37 notice. */
+export function rolloutStartFailureText(lastStatus: string | null | undefined): string {
+  if (lastStatus && /^\d{3}$/.test(lastStatus)) return `the pipeline service answered HTTP ${lastStatus}`;
+  switch (lastStatus) {
+    case 'unreachable': return 'the pipeline service could not be reached';
+    case 'invalid_response': return 'the pipeline service gave an answer that could not be read';
+    case 'request_invalid': return 'the start request was invalid';
+    case 'not_startable': return 'the fix version is not available';
+    default: return 'the pipeline service did not accept it';
+  }
+}
+
 /** Up to this many pipelines in the canary wave, preferring ones that ran successfully in the last {@link REMEDIATION_CANARY_RECENT_DAYS} days. */
 export const REMEDIATION_CANARY_SIZE = 5;
 export const REMEDIATION_CANARY_RECENT_DAYS = 7;
@@ -1005,6 +1042,8 @@ export const PLUGIN_REMEDIATION_METRICS = {
   findingsCleared: 'plugin_remediation_findings_cleared_total',
   /** {kind} (object | prefix | image) — a purge delete that failed and landed in plugin_source_orphans. */
   sourceDeleteFailures: 'plugin_source_delete_failures_total',
+  /** {reason} (permanent | exhausted) — a published tenant fix whose rollout start was given up. */
+  rolloutStartFailures: 'plugin_remediation_rollout_start_failures_total',
 } as const;
 
 /**
@@ -1086,6 +1125,12 @@ export interface PluginRemediationDto {
   /** Official only: an export for deploy/plugins/** is stored (GET /plugins/remediations/:id/export, system org). */
   hasExport: boolean;
   rollout: RemediationRolloutSummary | null;
+  /**
+   * Start attempts of a tenant rollout that has not started yet (null when none
+   * failed). With `error` = {@link REMEDIATION_ROLLOUT_START_FAILED} on a
+   * `published` row the sweep gave up: Retry starts it again.
+   */
+  rolloutStart: RemediationRolloutStart | null;
   /** Pipelines this remediation's rollout moved back (at most 1000; kept beside the rollout summary). */
   rolledBackPipelineIds: string[];
   /** A short error CODE (never raw log text). */

@@ -254,6 +254,20 @@ describe('charge.dispute.created', () => {
     );
   });
 
+  it('counts an earlier partial REFUND: refund + dispute of the rest is a full reversal', async () => {
+    // Refund 1900, then dispute the remaining 3000 (Stripe disputes what is left).
+    // Net still collected is 0, and nothing of the payment stays with us, so the
+    // subscribe-grab-refund clawback must fire — splitting the reversal into a
+    // partial refund plus a partial dispute must not bypass it.
+    mockChargesRetrieve.mockResolvedValue({ id: 'ch_d', payment_intent: 'pi_d', customer: 'cus_1', amount: 4900, amount_refunded: 1900 });
+    mockFindReversalSub.mockResolvedValue({ subscription: subDoc(), ambiguous: false });
+
+    await handleChargeDisputeCreated({ id: 'dp_r', charge: 'ch_d', amount: 3000, status: 'needs_response' } as any);
+
+    expect(mockReverseLedgerInvoice).toHaveBeenCalledWith('in_d', 'disputed', 0);
+    expect(mockClawback).toHaveBeenCalled();
+  });
+
   it('no-ops when the dispute carries no charge id', async () => {
     await handleChargeDisputeCreated({ id: 'dp_2', charge: null, amount: 100 } as any);
     expect(mockChargesRetrieve).not.toHaveBeenCalled();

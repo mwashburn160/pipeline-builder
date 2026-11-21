@@ -20,7 +20,7 @@ import { bodyFrom, ecosystemRoute, param } from './ecosystem-route.js';
 import { shapePlugin } from '../helpers/plugin-helpers.js';
 import { EcosystemError } from '../services/ecosystem/context.js';
 import { tidyPreview } from '../services/tidy/pass.js';
-import { isPluginName, NeverTidyWriteSchema, readTidySettings, TidySettingsWriteSchema, writeTidySettings } from '../services/tidy/settings.js';
+import { isListedPluginName, isPluginName, NeverTidyWriteSchema, readTidySettings, TidySettingsWriteSchema, writeTidySettings } from '../services/tidy/settings.js';
 import { keepVersion, setNeverTidy } from '../services/tidy/usage.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -68,8 +68,9 @@ export function createTidyRoutes(): Router {
 
   router.put('/by-name/:name/never-tidy', write, audited('plugin.tidy.kept') as RequestHandler, ecosystemRoute(async ({ req, res, caller }) => {
     const name = param(req, 'name');
-    if (!isPluginName(name)) throw new EcosystemError(ErrorCode.VALIDATION_ERROR, 'name must be a plugin name');
     const { neverTidy } = bodyFrom(req, NeverTidyWriteSchema);
+    // Adding takes a lowercase name only; clearing also takes one an older list holds in another case.
+    if (!(neverTidy ? isPluginName(name) : isListedPluginName(name))) throw new EcosystemError(ErrorCode.VALIDATION_ERROR, 'name must be a plugin name');
     const settings = await setNeverTidy(caller.orgId, name, neverTidy, caller.userId);
     sendSuccess(res, 200, { name, neverTidy, settings });
   }));

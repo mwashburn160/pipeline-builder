@@ -8,6 +8,7 @@ import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
 
 import { getNotificationChannel, plainTextBody, severityToPriority, subjectLine, type AlertNotification } from './notification-channels.js';
 import { config } from '../config/index.js';
+import { isMaskedTarget, TARGET_MASK } from '../utils/target-mask.js';
 
 const logger = createLogger('alert-destination-service');
 
@@ -70,10 +71,11 @@ export interface DestinationUpdate {
 function maskTarget(target: string): string {
   if (!target) return '';
   const origin = urlOrigin(target);
-  if (origin) return `${origin}/••••`;
-  if (target.length <= 16) return '••••' + target.slice(-4);
-  return '••••' + target.slice(-12);
+  if (origin) return `${origin}/${TARGET_MASK}`;
+  if (target.length <= 16) return TARGET_MASK + target.slice(-4);
+  return TARGET_MASK + target.slice(-12);
 }
+
 
 /** `scheme://host[:port]` of an http(s) URL, or null when `s` is not one. */
 function urlOrigin(s: string): string | null {
@@ -285,10 +287,10 @@ export class AlertDestinationService {
   ): Promise<OrgAlertDestination | null> {
     const updates: Partial<OrgAlertDestinationInsert> = { updatedBy: caller.userId };
     if (input.channel !== undefined) updates.channel = input.channel;
-    // Empty-string target on update means "leave existing target alone" — the
-    // GET endpoint masks the value, so a client-side edit form that doesn't
-    // re-enter the secret would otherwise wipe it.
-    if (input.target !== undefined && input.target !== '') updates.target = input.target;
+    // An empty or MASKED target on update means "leave the existing target
+    // alone" — the GET endpoint masks the value, so an edit form that doesn't
+    // re-enter the secret (or sends the read-back as-is) would otherwise wipe it.
+    if (input.target !== undefined && input.target !== '' && !isMaskedTarget(input.target)) updates.target = input.target;
     if (input.label !== undefined) updates.label = input.label;
     if (input.minSeverity !== undefined) updates.minSeverity = input.minSeverity;
     if (input.enabled !== undefined) updates.enabled = input.enabled;

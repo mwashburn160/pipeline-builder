@@ -69,5 +69,8 @@ export async function writeTidySettings(orgId: string, patch: SettingsPatch, by:
   return normalizeTidySettings(rows[0]);
 }
 
-/** Whether `name` is a plugin name as stored — lowercase only (the never-tidy route's path check). */
+/** Whether `name` is a plugin name as stored — lowercase only (what the never-tidy route may ADD). */
 export const isPluginName = (name: string): boolean => PLUGIN_NAME_WRITE.test(name);
+
+/** Whether `name` may be on a stored never-tidy list (any case: a list written before adds were lowercase-only can still be cleared). */
+export const isListedPluginName = (name: string): boolean => PLUGIN_NAME.test(name);

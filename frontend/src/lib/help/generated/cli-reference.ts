@@ -1,6 +1,6 @@
 // GENERATED FROM docs/pipeline-manager.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 9a1364969ba3ceb99a122d6603c7fc860f5339515c1ed55114cabe17e965e6fb
+// SOURCE-SHA256: c170e28685606f7618b4af3d6d2cd3dc93e1ef7907c61e8ceee2359e51c6db65
 // SPDX-License-Identifier: Apache-2.0
 import { Terminal } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -589,7 +589,7 @@ export const cliReferenceTopic: HelpTopic = {
             ],
             [
               "org export",
-              "Export an organization's data as JSON for GDPR portability (sysadmins can export any org; org admins their own only). Needs a fresh step-up: like auth pat, it shows a device code to approve in the browser (--no-browser prints the URL instead)"
+              "Export an organization's data as JSON for GDPR portability (sysadmins can export any org; org admins their own only). Needs a fresh step-up: like auth pat, it shows a device code to approve in the browser (--no-browser prints the URL instead). To export an org you manage that isn't your default, add --org <orgId>. If the platform could not read some stores, the file is still written (0600) but the CLI warns the export is INCOMPLETE and exits 3 (API_REQUEST)"
             ]
           ]
         },
@@ -824,7 +824,7 @@ export const cliReferenceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Codes are defined in src/types/error.ts; the derivation lives in src/utils/error-handler.ts (resolveExitCode). The operator-audit commands keep their own contract instead: exit 1 means \"findings present\" and exit 2 any AWS or platform failure, whatever its type (see Operator audits)."
+          "content": "Codes are defined in src/types/error.ts; the derivation lives in src/utils/error-handler.ts (resolveExitCode). The operator-audit commands keep their own contract instead: exit 1 means \"findings present\" and exit 2 any AWS or platform failure, whatever its type (see Operator audits). org export exits 3 (API_REQUEST) on a partial dump, even though the file is written."
         }
       ]
     },

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/notifications.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: fda4cbd84aa5036fc998a9997fb2d77d157ce98446646453c46bea0f15d7a367
+// SOURCE-SHA256: a4b42b89b20cb91fa50292a2bfca854313fcf91d2ed0cf9f6e84f096c0f6f719
 // SPDX-License-Identifier: Apache-2.0
 import { Bell } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -647,7 +647,7 @@ export const notificationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "owners (pipelines:write) of affected organizations when notifyPipelineOwners is on."
+          "content": "owners (pipelines:write) of affected organizations when notifyPipelineOwners is on. It is also sent (\"Rollout paused\", with the reason and how many attempts were made) when a published fix's rollout never started and is no longer retried — the pipeline service refused it, or 5 attempts failed; Retry on the remediation starts it again."
         },
         {
           "type": "list",

@@ -59,7 +59,7 @@ jest.unstable_mockModule('../src/services/plugin-sources.js', () => ({
   fetchPluginSource: jest.fn<AnyFn>(async () => 'missing'),
   pluginSourcesBucket: () => 'plugin-sources',
 }));
-jest.unstable_mockModule('../src/services/remediation/rollout.js', () => ({ startTenantRollout: jest.fn<AnyFn>(async () => true), cancelRollout: jest.fn<AnyFn>(async () => true), setRolloutClientForTests: jest.fn() }));
+jest.unstable_mockModule('../src/services/remediation/rollout.js', () => ({ startTenantRollout: jest.fn<AnyFn>(async () => ({ ok: true })), cancelRollout: jest.fn<AnyFn>(async () => true), setRolloutClientForTests: jest.fn() }));
 const hygieneEvents: any[] = [];
 /** Fault injection: the next persist of this half throws; the next N notices throw. */
 const faults: { persistName: string | null; notice: number } = { persistName: null, notice: 0 };

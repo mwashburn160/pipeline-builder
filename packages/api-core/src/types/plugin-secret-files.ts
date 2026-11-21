@@ -74,20 +74,46 @@ function isLiteralToken(raw: string): boolean {
  * `...` placeholder, or a script grepping for it is not one.
  */
 const PRIVATE_KEY_BLOCK = /-----BEGIN ((?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?)-----[ \t]*\r?\n(?:[A-Za-z-]+: [^\r\n]*\r?\n)*(?:[ \t]*\r?\n)?(?:[ \t]*[A-Za-z0-9+/=]+[ \t]*\r?\n){1,}-----END \1-----/;
-/** A PuTTY private key file: its header and its private-key lines. */
-const PUTTY_KEY = /^PuTTY-User-Key-File-\d+: \S+[\s\S]*^Private-Lines: \d+/m;
+/** A PuTTY private key file: its header, then (on a later line) its private-key lines. */
+const PUTTY_HEADER = /^PuTTY-User-Key-File-\d+: \S+/m;
+const PUTTY_PRIVATE_LINES = /^Private-Lines: \d+/m;
+
+/**
+ * Two linear searches, not one `header[\s\S]*^Private-Lines` regex: that one
+ * rescans to the end from every header line, so a file of header lines
+ * (any name: every file is a candidate) stalled the scan quadratically.
+ */
+function holdsPuttyKey(text: string): boolean {
+  const header = PUTTY_HEADER.exec(text);
+  return header !== null && PUTTY_PRIVATE_LINES.test(text.slice(header.index + header[0].length));
+}
 
 /** True when `text` holds a private key (literally, or inside a string with escaped `\n`s). */
 function holdsPrivateKey(text: string): boolean {
-  if (PRIVATE_KEY_BLOCK.test(text) || PUTTY_KEY.test(text)) return true;
+  if (PRIVATE_KEY_BLOCK.test(text) || holdsPuttyKey(text)) return true;
   if (!text.includes('PRIVATE KEY')) return false;
   const unescaped = text.replace(/\\r\\n|\\n/g, '\n');
   return unescaped !== text && PRIVATE_KEY_BLOCK.test(unescaped);
 }
 
-/** Every `<tag>…</tag>` body in an XML text. */
-const xmlValues = (text: string, tag: string): string[] =>
-  [...text.matchAll(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, 'g'))].map((m) => m[1] ?? '');
+/**
+ * Every `<tag>…</tag>` body in an XML text (each `<tag>` up to the next `</tag>`).
+ * indexOf, not a lazy `<tag>([\s\S]*?)</tag>` regex, which rescans to the end
+ * from every unclosed `<tag>` (quadratic on a crafted file).
+ */
+function xmlValues(text: string, tag: string): string[] {
+  const open = `<${tag}>`;
+  const close = `</${tag}>`;
+  const out: string[] = [];
+  for (let i = text.indexOf(open); i >= 0;) {
+    const start = i + open.length;
+    const end = text.indexOf(close, start);
+    if (end < 0) break;
+    out.push(text.slice(start, end));
+    i = text.indexOf(open, end + close.length);
+  }
+  return out;
+}
 
 /**
  * A URL with credentials in it: `scheme://user:password@` with a literal
@@ -95,7 +121,9 @@ const xmlValues = (text: string, tag: string): string[] =>
  * GitLab / Gemfury / Artifactory tokens ride in an index URL).
  */
 function urlHoldsCredentials(text: string): boolean {
-  for (const m of text.matchAll(/[a-z][a-z0-9+.-]*:\/\/([^\s/@]+)@/gi)) {
+  // Only the scheme's last character is matched: a `[a-z][a-z0-9+.-]*://` prefix
+  // is retried from every character of a long scheme-like run (quadratic).
+  for (const m of text.matchAll(/[a-z0-9+.-]:\/\/([^\s/@]+)@/gi)) {
     const userinfo = m[1]!;
     const colon = userinfo.indexOf(':');
     if (isLiteralToken(colon >= 0 ? userinfo.slice(colon + 1) : userinfo)) return true;

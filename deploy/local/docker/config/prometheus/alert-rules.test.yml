@@ -55,6 +55,35 @@ tests:
         alertname: PluginRemediationErrors
         exp_alerts: []
 
+  # PluginRemediationRolloutStartFailing: one given-up rollout start fires,
+  # per reason ...
+  - interval: 1m
+    input_series:
+      - series: 'plugin_remediation_rollout_start_failures_total{reason="exhausted",service="plugin",pod="plugin-aaa"}'
+        values: '0x10 1x30'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: PluginRemediationRolloutStartFailing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: plugin
+              tenancy: platform
+              reason: exhausted
+            exp_annotations:
+              summary: "1 plugin remediation rollouts did not start (exhausted) in 6h"
+              description: "Plugins → Remediations: the Published rows reading \"Rollout didn't start\". permanent = the pipeline service refused the start request (check the plugin log 'Remediation rollout not started' for the status, and pipeline's internal route and service-auth config); exhausted = the pipeline service stayed unavailable or overloaded across 5 nightly passes. Once fixed, Retry on each card restarts its rollout."
+
+  # ... and a quiet counter does not.
+  - interval: 1m
+    input_series:
+      - series: 'plugin_remediation_rollout_start_failures_total{reason="permanent",service="plugin",pod="plugin-aaa"}'
+        values: '0+0x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: PluginRemediationRolloutStartFailing
+        exp_alerts: []
+
   # PluginSourceDeleteFailing: per kind, so an image-delete failure is told
   # apart from a RustFS prefix failure.
   - interval: 1m

@@ -461,6 +461,25 @@ describe('handlePaymentFailed', () => {
     expect(sendSystemNotification).not.toHaveBeenCalled();
   });
 
+  it('starts a FRESH lapse when an entitled sub still carries an earlier lapse clock', async () => {
+    // A past_due sub that recovered through `.updated`→active, with its
+    // payment_succeeded skipped as older than the watermark, keeps the old
+    // lapse's firstFailedAt. Months later a new failure must not inherit it:
+    // the old clock is already past the grace cutoff, so the cron would
+    // downgrade on its next tick with no grace and no first-failure notice.
+    const stale = new Date('2026-01-01T00:00:00Z');
+    const sub = makeSub({ status: 'active', failedPaymentAttempts: 3, firstFailedAt: stale });
+    findSubscriptionByStripeId.mockResolvedValue(sub);
+    const before = Date.now();
+
+    await handlePaymentFailed(makeInvoice(), EVT);
+
+    expect(sub.status).toBe('past_due');
+    expect((sub.firstFailedAt as Date).getTime()).toBeGreaterThanOrEqual(before);
+    expect(sub.failedPaymentAttempts).toBe(1);
+    expect(sendSystemNotification).toHaveBeenCalledTimes(1);
+  });
+
   it('records the failure event with the configured grace window', async () => {
     await handlePaymentFailed(makeInvoice(), EVT);
 

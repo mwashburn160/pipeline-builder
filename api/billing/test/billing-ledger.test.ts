@@ -65,6 +65,12 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
   incCounter: jest.fn<AnyFn>(),
 }));
 
+/** The `$set` / `$min` half of a reversal update, applied in place. */
+function applyUpdate(row: any, update: any): void {
+  Object.assign(row, update.$set ?? {});
+  for (const [k, v] of Object.entries<any>(update.$min ?? {})) row[k] = row[k] === undefined ? v : Math.min(row[k], v);
+}
+
 // In-memory BillingInvoice store keyed by externalInvoiceId.
 const store = new Map<string, any>();
 const mockUpdateOne = jest.fn(async (filter: any, update: any, _opts: any) => {
@@ -97,6 +103,7 @@ function matchRows(filter: any): any[] {
   return [...store.values()]
     .filter((r) => {
       if (filter.orgId !== undefined && r.orgId !== filter.orgId) return false;
+      if (filter.status?.$nin && filter.status.$nin.includes(r.status)) return false;
       const ps = filter.periodStart;
       if (ps && typeof ps === 'object') {
         const t = (r.periodStart instanceof Date ? r.periodStart : new Date(r.periodStart)).getTime();
@@ -170,7 +177,8 @@ jest.unstable_mockModule('../src/models/billing-invoice.js', () => ({
     findOneAndUpdate: async (filter: any, update: any) => {
       const row = store.get(filter.externalInvoiceId);
       if (!row) return null;
-      Object.assign(row, update.$set);
+      if (filter.status?.$in && !filter.status.$in.includes(row.status)) return null;
+      applyUpdate(row, update);
       return row;
     },
     aggregate: mockAggregate,
@@ -184,7 +192,12 @@ let bankClock = 0;
 jest.unstable_mockModule('../src/models/billing-pending-reversal.js', () => ({
   BillingPendingReversal: {
     updateOne: async (filter: any, update: any) => {
-      const row = { ...(bank.get(filter._id) ?? { _id: filter._id }), ...update.$set, updatedAt: new Date(++bankClock) };
+      const prior = bank.get(filter._id);
+      // A precedence miss on an existing doc → the upsert's insert trips `_id`.
+      if (prior && filter.status?.$in && !filter.status.$in.includes(prior.status)) throw Object.assign(new Error('dup'), { code: 11000 });
+      const row = { ...(prior ?? { _id: filter._id }) };
+      applyUpdate(row, update);
+      row.updatedAt = new Date(++bankClock);
       for (const k of Object.keys(update.$unset ?? {})) delete row[k];
       bank.set(filter._id, row);
     },
@@ -426,13 +439,14 @@ describe('refund vs invoice arrival order', () => {
   });
 
   it('an amount-less reversal after an amount-carrying one lands the same in either order', async () => {
-    // Invoice first: the second reversal sets only the status, so the row keeps
-    // the first one's net amount.
+    // Invoice first: the second reversal carries no amount, so the row keeps the
+    // first one's net amount — and, being LOWER precedence than the refund, it
+    // does not move the status either.
     await ingestStripeInvoice('org-1', invoice({ id: 'in_void', amount_paid: 2900 }));
     await reverseLedgerInvoice('in_void', 'refunded', 100);
     await reverseLedgerInvoice('in_void', 'void');
     const invoiceFirst = { ...store.get('in_void') };
-    expect(invoiceFirst).toMatchObject({ status: 'void', amountPaidCents: 100 });
+    expect(invoiceFirst).toMatchObject({ status: 'refunded', amountPaidCents: 100 });
 
     store.clear();
     bank.clear();

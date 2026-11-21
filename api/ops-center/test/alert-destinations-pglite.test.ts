@@ -114,6 +114,21 @@ describe('create', () => {
     expect(mockReserve).not.toHaveBeenCalled();
   });
 
+  it('400s (VALIDATION_ERROR) a target carrying the read-back mask, on every channel, and inserts nothing', async () => {
+    for (const body of [
+      { channel: 'slack', label: 'x', target: 'https://hooks.slack.com/••••' },
+      { channel: 'webhook', label: 'x', target: 'https://example.com/••••' },
+      { channel: 'email', label: 'x', target: '••••@example.com' },
+      { channel: 'in-app', label: 'x', target: '••••' },
+    ]) {
+      const res = await call(ctl.createAlertDestination, A, { body });
+      expect(res.statusCode).toBe(400);
+      expect(res.body?.code).toBe('VALIDATION_ERROR');
+    }
+    expect(mockReserve).not.toHaveBeenCalled();
+    expect((await owner((q) => q.query('SELECT 1 FROM org_alert_destinations'))).rows).toHaveLength(0);
+  });
+
   it('400s a webhook target pointing at a private / metadata address (SSRF)', async () => {
     for (const target of ['https://169.254.169.254/latest', 'https://127.0.0.1/hook', 'https://10.0.0.5/x']) {
       const res = await call(ctl.createAlertDestination, A, { body: { channel: 'webhook', label: 'w', target } });
@@ -179,6 +194,22 @@ describe('update', () => {
     expect(res.body!.data.destination).toMatchObject({ label: 'renamed', enabled: false });
     expect((await storedTarget(d.id))?.target).toBe(SLACK);
     expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'alert.destination.update', expect.objectContaining({ targetId: d.id }));
+  });
+
+  it('a target sent back as the masked read-back keeps the stored secret (round-trip of a GET)', async () => {
+    const d = await create(A, { channel: 'slack', label: 'ops', target: SLACK });
+    const res = await call(ctl.updateAlertDestination, A, { params: { id: d.id }, body: { label: 'renamed', target: d.target } });
+    expect(res.statusCode).toBe(200);
+    expect(res.body!.data.destination).toMatchObject({ label: 'renamed', target: 'https://hooks.slack.com/••••' });
+    expect((await storedTarget(d.id))?.target).toBe(SLACK);
+  });
+
+  it('a masked target with a channel switch re-validates the STORED target, never stores the mask', async () => {
+    const d = await create(A, { channel: 'email', label: 'mail', target: 'ops@example.com' });
+    const res = await call(ctl.updateAlertDestination, A, { params: { id: d.id }, body: { channel: 'slack', target: 'https://hooks.slack.com/••••' } });
+    expect(res.statusCode).toBe(400);
+    expect(res.body?.message).toMatch(/hooks\.slack\.com/);
+    expect(await storedTarget(d.id)).toMatchObject({ target: 'ops@example.com', channel: 'email' });
   });
 
   it('validates a new target against the STORED channel when no channel is sent', async () => {

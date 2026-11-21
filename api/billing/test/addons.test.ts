@@ -668,6 +668,26 @@ describe('DELETE /subscriptions/:id/addons/:bundleId (remove)', () => {
     expect(mockSyncProviderAddons).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['POST', 'post', '/subscriptions/:id/addons', { body: { bundleId: 'seat_pack', quantity: 1 } }],
+    ['DELETE', 'delete', '/subscriptions/:id/addons/:bundleId', { params: { bundleId: 'seat_pack' } }],
+  ])('%s refuses to commit over a plan/interval change made since the read (no stale-tier sync)', async (_m, method, path, over) => {
+    // A plan change that prunes nothing saves only `planId`, which does not
+    // bump `__v` — so a version-only guard let this add-on change commit and
+    // then push the OLD plan's tier over the new plan's entitlements.
+    withActiveSub(makeSubscription({ addons: [{ bundleId: 'seat_pack', quantity: 2 }] }));
+    const stored = { planId: 'team', interval: 'monthly' }; // what the row holds NOW
+    mockSubscriptionFindOneAndUpdate.mockImplementationOnce(async (filter: any, update: any) => {
+      if (filter.planId !== undefined && filter.planId !== stored.planId) return null;
+      if (filter.interval !== undefined && filter.interval !== stored.interval) return null;
+      return { ...loadedSub, ...stored, addons: update.$set.addons };
+    });
+    await getHandler(method, path)(mockReq(over), mockRes());
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 409, expect.stringContaining('concurrently'), 'CONFLICT');
+    expect(mockSyncEntitlements).not.toHaveBeenCalled();
+    expect(mockSyncProviderAddons).not.toHaveBeenCalled();
+  });
+
   it('removes the bundle, syncs, and returns 200', async () => {
     withActiveSub(makeSubscription({ addons: [{ bundleId: 'seat_pack', quantity: 2 }, { bundleId: 'bulk_operations', quantity: 1 }] }));
     await handler(mockReq({ params: { bundleId: 'seat_pack' } }), mockRes());

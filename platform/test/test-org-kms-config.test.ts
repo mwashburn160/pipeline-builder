@@ -76,6 +76,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 // The controller imports captureOrgSecrets + reencryptOrgSecrets for the
 // PUT path; for testOrgKmsConfig they're irrelevant but still resolved.
 jest.unstable_mockModule('../src/services/secret-reencrypt.js', () => ({
+  OrgSecretsReencryptError: class extends Error {},
   captureOrgSecrets: jest.fn<AnyFn>(),
   reencryptOrgSecrets: jest.fn<AnyFn>(),
 }));

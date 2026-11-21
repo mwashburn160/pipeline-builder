@@ -278,6 +278,15 @@ export async function handlePaymentFailed(invoice: Stripe.Invoice, event: Stripe
     return;
   }
 
+  // A failure on a sub that is NOT already in dunning opens a NEW lapse. Its
+  // counters may still hold an earlier lapse's clock: a recovery applied by
+  // `.updated`→active, whose payment_succeeded was then skipped as older than
+  // the watermark, never reset them, and inheriting that clock (already past the
+  // grace cutoff) would downgrade on the next cron tick with no grace at all.
+  if (previousStatus !== 'past_due') {
+    subscription.firstFailedAt = undefined;
+    subscription.failedPaymentAttempts = 0;
+  }
   subscription.status = 'past_due';
   subscription.failedPaymentAttempts = (subscription.failedPaymentAttempts || 0) + 1;
 

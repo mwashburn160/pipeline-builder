@@ -15,6 +15,7 @@ import { StepUpModal } from '@/components/admin/StepUpModal';
 import { useFetch } from '@/hooks/useFetch';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
+import { continueAfterStepUp } from '@/lib/api/errors';
 import { visibilityColor } from '@/components/ui/visibility-rungs';
 import type { Pipeline, Plugin, Message, PipelineTemplate, Visibility } from '@/types';
 import type { ComplianceRule, CompliancePolicy } from '@/types/compliance';
@@ -294,23 +295,41 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
     setNextOffset((o) => Math.max(0, o - 1));
   };
 
+  /**
+   * Run a step-up-gated restore / purge of one row. A refused token (the route
+   * wanted a stronger factor, or the token expired) is handed to the global
+   * step-up dialog, which replays the call: its answer finishes the action here
+   * instead of an error toast for a request that is about to succeed.
+   */
+  const runRowAction = async (
+    call: () => Promise<{ success: boolean }>,
+    onDone: () => void,
+    failure: string,
+  ) => {
+    const settle = (res: { success: boolean }) => {
+      if (res.success) onDone();
+      else toast.error(failure);
+    };
+    try {
+      settle(await call());
+    } catch (err) {
+      if (continueAfterStepUp<{ success: boolean }>(err, settle)) return;
+      toast.error(formatError(err, failure));
+    }
+  };
+
   const executeRestore = async (stepUpToken: string) => {
     if (!pendingRestore) return;
-    const { id, name } = pendingRestore;
-    setRestoring(id);
+    const row = pendingRestore;
+    setRestoring(row.id);
     try {
-      const res = await config.restore(id, stepUpToken);
-      if (res.success) {
-        toast.success(`Restored ${labels.singular} "${name}"`);
-        removeRow(id);
+      await runRowAction(() => config.restore(row.id, stepUpToken), () => {
+        toast.success(`Restored ${labels.singular} "${row.name}"`);
+        removeRow(row.id);
         // Refresh the mounting page's main list — the restored entity reappears
         // there, so skipping this leaves it showing a stale list.
         onRestored?.();
-      } else {
-        toast.error(`Failed to restore ${labels.singular}`);
-      }
-    } catch (err) {
-      toast.error(formatError(err, `Failed to restore ${labels.singular}`));
+      }, `Failed to restore ${labels.singular}`);
     } finally {
       setRestoring(null);
       setPendingRestore(null);
@@ -322,18 +341,13 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
   // gone, not returned to the main list; the panel drops the row in place.
   const executePurge = async (stepUpToken: string) => {
     if (!pendingPurge) return;
-    const { id, name } = pendingPurge;
-    setPurging(id);
+    const row = pendingPurge;
+    setPurging(row.id);
     try {
-      const res = await config.purge(id, stepUpToken);
-      if (res.success) {
-        toast.success(`Permanently deleted ${labels.singular} "${name}"`);
-        removeRow(id);
-      } else {
-        toast.error(`Failed to purge ${labels.singular}`);
-      }
-    } catch (err) {
-      toast.error(formatError(err, `Failed to purge ${labels.singular}`));
+      await runRowAction(() => config.purge(row.id, stepUpToken), () => {
+        toast.success(`Permanently deleted ${labels.singular} "${row.name}"`);
+        removeRow(row.id);
+      }, `Failed to purge ${labels.singular}`);
     } finally {
       setPurging(null);
       setPendingPurge(null);

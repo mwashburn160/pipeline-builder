@@ -164,6 +164,16 @@ beforeEach(() => {
   }));
 });
 
+/** A Subscription.findOne that answers with `row` only when the query's status filter admits it. */
+function licenseRowMatchingStatus(row: { status: string } & Record<string, unknown>) {
+  return async (query: any) => {
+    if (!query?.['metadata.awsLicenseArn']) return null;
+    const st = query.status;
+    const admits = typeof st === 'string' ? st === row.status : Array.isArray(st?.$in) ? st.$in.includes(row.status) : true;
+    return admits ? row : null;
+  };
+}
+
 describe('POST /marketplace/resolve', () => {
   const handler = getHandler('post', '/marketplace/resolve');
 
@@ -212,6 +222,18 @@ describe('POST /marketplace/resolve', () => {
     expect((data as any).alreadyRegistered).toBe(true);
     expect(mockPendingCreate).not.toHaveBeenCalled();
     expect(mockSubscriptionCreate).not.toHaveBeenCalled();
+  });
+
+  it.each(['trialing', 'past_due'])('treats a %s license row as already bound, like an active one', async (status) => {
+    mockSubscriptionFindOne.mockImplementationOnce(licenseRowMatchingStatus({
+      _id: { toString: () => 'sub-x' }, orgId: 'org-existing', planId: 'team', status,
+    }));
+    const req: any = { body: { 'x-amzn-marketplace-token': 'tok' }, query: {} };
+    await handler(req, mockRes());
+
+    const [, , data] = mockSendSuccess.mock.calls[0];
+    expect((data as any).alreadyRegistered).toBe(true);
+    expect(mockPendingCreate).not.toHaveBeenCalled();
   });
 
   it('rejects a body-supplied orgId (no pre-binding on the unauthenticated route)', async () => {
@@ -322,6 +344,15 @@ describe('POST /marketplace/claim', () => {
   it('409s when the AWS customer is already bound to another org — and leaves the ref claimable', async () => {
     livePending();
     mockSubscriptionFindOne.mockResolvedValueOnce({ _id: { toString: () => 'x' }, orgId: 'other', status: 'active' });
+    const req: any = { body: { registrationRef: 'ref-1' }, orgId: 'org-real', userId: 'user-1' };
+    await handler(req, mockRes());
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 409, expect.stringContaining('already linked'), expect.anything());
+    expectRegistrationUntouched();
+  });
+
+  it.each(['trialing', 'past_due'])('409s when the AWS customer is bound through a %s row, like an active one', async (status) => {
+    livePending();
+    mockSubscriptionFindOne.mockImplementationOnce(licenseRowMatchingStatus({ _id: { toString: () => 'x' }, orgId: 'other', status }));
     const req: any = { body: { registrationRef: 'ref-1' }, orgId: 'org-real', userId: 'user-1' };
     await handler(req, mockRes());
     expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 409, expect.stringContaining('already linked'), expect.anything());

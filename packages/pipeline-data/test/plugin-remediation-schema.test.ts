@@ -170,6 +170,8 @@ describe('settings, orphans and pipeline upgrades', () => {
     await expect(ins('pending')).rejects.toThrow(/check/i);
     await ins('proposed');
     await expect(ins('moved')).rejects.toThrow(/unique|duplicate/i);
+    // The rollout start's root for a team's row: optional (NULL for a root org's own pipeline).
+    expect((await owner((q) => q.query<{ root_org_id: string | null }>('SELECT root_org_id FROM pipeline_remediation_upgrades WHERE remediation_id = $1', [rem]))).rows).toEqual([{ root_org_id: null }]);
     await owner((q) => q.query('DELETE FROM pipelines WHERE id = $1', [p]));
     expect((await owner((q) => q.query('SELECT 1 FROM pipeline_remediation_upgrades WHERE remediation_id = $1', [rem]))).rows).toEqual([]);
   });

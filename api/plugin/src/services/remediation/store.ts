@@ -131,7 +131,8 @@ export type CappedInsert =
  * transaction-scoped advisory lock, so concurrent retries (or a retry racing
  * the nightly pass) are serialized and can never exceed `cap` together.
  * `beforeInsert` runs inside the same transaction once the cap holds (retry
- * closes the needs_review row it replaces there). `conflict` = an idempotency
+ * closes the needs_review row it replaces there) and is rolled back when the
+ * insert then conflicts. `conflict` = an idempotency
  * index refused the row (already live / building for that version);
  * `refused` = a version it names is not the row's org's (checked first).
  */
@@ -142,7 +143,8 @@ export async function insertRemediationUnderCap(
 ): Promise<CappedInsert> {
   const org = row.orgId.toLowerCase();
   const since = new Date((opts.now ?? new Date()).getTime() - 24 * 3_600_000);
-  return elevatedTx(async (tx) => {
+  const rollback = new Error('remediation insert conflicted');
+  return elevatedTx<CappedInsert>(async (tx) => {
     if (!await pluginsBelongToRowOrg(tx, row)) {
       logRefusedInsert(row);
       return { status: 'refused' } as const;
@@ -154,7 +156,13 @@ export async function insertRemediationUnderCap(
     if (used >= cap) return { status: 'capped', used } as const;
     if (opts.beforeInsert) await opts.beforeInsert(tx);
     const rows = await tx.insert(R()).values({ ...row, orgId: org }).onConflictDoNothing().returning() as PluginRemediation[];
-    return rows[0] ? { status: 'inserted', row: rows[0] } as const : { status: 'conflict' } as const;
+    if (rows[0]) return { status: 'inserted', row: rows[0] } as const;
+    // What `beforeInsert` wrote was only for the new row: roll it back with the refused insert.
+    if (opts.beforeInsert) throw rollback;
+    return { status: 'conflict' } as const;
+  }).catch((err: unknown) => {
+    if (err === rollback) return { status: 'conflict' } as const;
+    throw err;
   });
 }
 

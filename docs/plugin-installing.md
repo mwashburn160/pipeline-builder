@@ -187,6 +187,7 @@ When the platform publishes a fixed version of a flagged plugin (see [Automatic 
 - An install that already has a change request pending (anyone's) holds only the pipelines that would move **that** install: they show **Waiting for a change request** (`waiting_change_request`) and the rest of the rollout carries on. Once an approver decides the request, the rollout resumes them: approved, they are moved or redeployed as planned; rejected (the install still pins the flagged version), they end as dismissed with the reason `change_request_rejected`.
 - For an Official plugin, the fix arrives as a new listing version and the rollout runs against listing installs in every organization.
 - A team can't change an install it inherits from its root organization, so the root's rollout moves inherited installs. Teams get proposals only for pins in their own pipelines.
+- For an organization's rollout, a team's root organization is read from the organization hierarchy when the rollout starts, not from the pipeline's last synth. A team moved under another root follows its current root's setting, and its move, redeploy and rollback use that root too. If the hierarchy can't be read, the rollout start fails and is retried.
 
 **Choosing the mode.** Each level picks `off` (publish and notify only), `propose` (open an upgrade proposal on the pipeline, listing the CVEs it clears, for its owners to **Apply**) or `apply` (upgrade and redeploy automatically, in waves). The most specific setting wins:
 
@@ -238,7 +239,7 @@ A move whose redeploy did not start (a run was already starting in the duplicate
 - Rollback only goes to a **live** version. If the previous version has been deleted since, that pipeline's rollout pauses and its owners are told, with the live versions they can choose.
 - Rollback never restores a version with a KEV-listed Critical unless a risk acceptance covers it.
 
-When the rollout finishes or pauses, your plugin security recipients are told (N37).
+When the rollout finishes or pauses — or never starts and is no longer retried — your plugin security recipients are told (N37).
 
 ## Implicit Official installs
 

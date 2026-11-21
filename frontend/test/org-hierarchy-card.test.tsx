@@ -41,12 +41,14 @@ jest.mock('@/components/admin/StepUpModal', () => ({
 const listOrganizations = jest.fn<AnyFn>();
 const moveOrganization = jest.fn<AnyFn>();
 const exportOrganization = jest.fn<AnyFn>();
+const getOrgNamespaceYaml = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
     listOrganizations: (...a: unknown[]) => listOrganizations(...a),
     moveOrganization: (...a: unknown[]) => moveOrganization(...a),
     exportOrganization: (...a: unknown[]) => exportOrganization(...a),
+    getOrgNamespaceYaml: (...a: unknown[]) => getOrgNamespaceYaml(...a),
   },
 }));
 
@@ -219,6 +221,32 @@ describe('OrgOperationsCard — delete vs. live teams', () => {
     expect(screen.getByRole('dialog')).toHaveTextContent(/export .*platform/i);
     fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
     await waitFor(() => expect(exportOrganization).toHaveBeenCalledWith('org-9', 'step-up-token'));
+  });
+
+  it('saves the export the global step-up dialog replays after a refused token', async () => {
+    const { StepUpRequiredError } = jest.requireActual<typeof import('../src/lib/api/errors')>('../src/lib/api/errors');
+    const { triggerBlobDownload } = jest.requireMock<{ triggerBlobDownload: jest.Mock }>('@/lib/download');
+    const refusal = new StepUpRequiredError('Step-up expired', 'STEP_UP_EXPIRED');
+    refusal.attachResume(Promise.resolve('{"org":"replayed"}'));
+    exportOrganization.mockRejectedValueOnce(refusal);
+    render(<OrgOperationsCard org={base()} />);
+    fireEvent.click(screen.getByRole('button', { name: /export data/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+    await waitFor(() => expect(triggerBlobDownload).toHaveBeenCalledWith(expect.any(Blob), 'org-org-9-export.json'));
+    expect(screen.queryByText(/step-up expired/i)).not.toBeInTheDocument();
+  });
+
+  it('saves the namespace YAML the global step-up dialog replays, without an error banner', async () => {
+    const { StepUpRequiredError } = jest.requireActual<typeof import('../src/lib/api/errors')>('../src/lib/api/errors');
+    const { triggerBlobDownload } = jest.requireMock<{ triggerBlobDownload: jest.Mock }>('@/lib/download');
+    const refusal = new StepUpRequiredError('Step-up expired', 'STEP_UP_EXPIRED');
+    refusal.attachResume(Promise.resolve('kind: Namespace'));
+    getOrgNamespaceYaml.mockRejectedValueOnce(refusal);
+    render(<OrgOperationsCard org={base()} />);
+    fireEvent.click(screen.getByRole('button', { name: /namespace yaml/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+    await waitFor(() => expect(triggerBlobDownload).toHaveBeenCalledWith(expect.any(Blob), 'pb-org-org-9.yaml'));
+    expect(screen.queryByText(/step-up expired/i)).not.toBeInTheDocument();
   });
 
   it('refuses up front on a root with live teams, and says what to do', () => {

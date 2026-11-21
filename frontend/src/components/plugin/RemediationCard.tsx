@@ -4,6 +4,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { Check, Download, FileDiff, RotateCcw, Wrench, X } from 'lucide-react';
+import { REMEDIATION_ROLLOUT_START_FAILED, rolloutStartFailureText } from '@pipeline-builder/api-core/plugin-scan';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -28,6 +29,10 @@ import { RemediationOffNotice } from './RemediationOffNotice';
 
 /** Stages a new attempt may be started from (the retry route's own rule). */
 const RETRYABLE = new Set(['failed', 'needs_owner', 'needs_review']);
+
+/** A published fix whose rollout start the sweep gave up on: Retry starts that rollout again (the same route). */
+export const rolloutStartGivenUp = (r: Pick<PluginRemediationDto, 'stage' | 'error'>): boolean =>
+  r.stage === 'published' && r.error === REMEDIATION_ROLLOUT_START_FAILED;
 
 /** The stage as a badge, in the shared status colours. */
 export function RemediationStageBadge({ stage }: { stage: PluginRemediationDto['stage'] }) {
@@ -118,12 +123,19 @@ export function RemediationCard({ remediation, canWrite, isSystemOrg = false, on
     }
   };
 
+  // Retry on a given-up rollout start restarts that rollout in place; on anything else it queues a new attempt.
+  const startGivenUp = rolloutStartGivenUp(r);
   const retryM = useMutation({
     fn: async (token: string) => (await api.retryPluginRemediation(r.id, token)).data ?? null,
     scopeKey: r.id,
-    errorFallback: 'Could not retry the remediation',
-    toast: { success: 'A new remediation attempt was queued' },
-    onSuccess: (dto) => onChanged?.(dto),
+    errorFallback: startGivenUp ? 'Could not restart the rollout' : 'Could not retry the remediation',
+    onSuccess: (dto) => {
+      if (!startGivenUp) toast.success('A new remediation attempt was queued');
+      else if (dto?.stage === 'rolling_out') toast.success('Rollout started');
+      else if (dto?.error === REMEDIATION_ROLLOUT_START_FAILED) toast.warning(`Rollout didn't start: ${rolloutStartFailureText(dto.rolloutStart?.lastStatus)}`);
+      else toast.info(`Rollout didn't start yet (${rolloutStartFailureText(dto?.rolloutStart?.lastStatus)}); it is retried nightly`);
+      onChanged?.(dto);
+    },
     onError: (err, message) => {
       if (isRemediationOperatorOff(err)) setOperatorOff(true);
       else if (isRemediationModeOff(err)) setModeOff(true);
@@ -269,7 +281,13 @@ export function RemediationCard({ remediation, canWrite, isSystemOrg = false, on
         </p>
       )}
 
-      {r.error && <p className="text-danger-strong" data-testid="remediation-error">Error: <span className="font-mono">{r.error}</span></p>}
+      {startGivenUp ? (
+        <p className="text-danger-strong" data-testid="remediation-rollout-start-failed">
+          Rollout didn&apos;t start: {rolloutStartFailureText(r.rolloutStart?.lastStatus)}
+          {r.rolloutStart && r.rolloutStart.attempts > 1 && ` (${r.rolloutStart.attempts} attempts)`}.
+          {' '}The fix version is published, so owners can still choose it; Retry starts the rollout again.
+        </p>
+      ) : r.error && <p className="text-danger-strong" data-testid="remediation-error">Error: <span className="font-mono">{r.error}</span></p>}
 
       <div className="flex flex-wrap gap-2">
         {r.hasPatch && (
@@ -294,6 +312,11 @@ export function RemediationCard({ remediation, canWrite, isSystemOrg = false, on
             </Button>
           </>
         )}
+        {canWrite && startGivenUp && (
+          <Button variant="outline" size="xs" onClick={() => setPending('retry')} disabled={anyBusy} loading={busy === 'retry' || retryM.pending}>
+            <RotateCcw className="mr-1 h-3.5 w-3.5" aria-hidden />Retry rollout
+          </Button>
+        )}
         {canWrite && !sourcePurged && RETRYABLE.has(r.stage) && (
           <Button variant="outline" size="xs" onClick={() => setPending('retry')} disabled={anyBusy} loading={busy === 'retry' || retryM.pending}>
             <RotateCcw className="mr-1 h-3.5 w-3.5" aria-hidden />Retry remediation
@@ -309,12 +332,14 @@ export function RemediationCard({ remediation, canWrite, isSystemOrg = false, on
 
       {pending && (
         <StepUpModal
-          title={pending === 'approve' ? 'Approve and publish this fix?' : pending === 'reject' ? 'Reject this fix?' : 'Retry this remediation?'}
+          title={pending === 'approve' ? 'Approve and publish this fix?' : pending === 'reject' ? 'Reject this fix?' : startGivenUp ? 'Start this rollout again?' : 'Retry this remediation?'}
           action={pending === 'approve'
             ? `Publish ${r.pluginName} ${r.toVersion ?? ''} as the fix for ${r.fromVersion}`
             : pending === 'reject'
               ? `Reject the fix for ${r.pluginName} ${r.fromVersion}; the version stays flagged`
-              : `Start a new remediation attempt for ${r.pluginName} ${r.fromVersion} (counts toward today's limit)`}
+              : startGivenUp
+                ? `Start the rollout of ${r.pluginName} ${r.toVersion ?? ''} to the pipelines on ${r.fromVersion} again`
+                : `Start a new remediation attempt for ${r.pluginName} ${r.fromVersion} (counts toward today's limit)`}
           details={pending === 'reject' ? (
             <div className="space-y-1">
               <label htmlFor={`remediation-reject-reason-${r.id}`} className="block text-fg">Reason (optional)</label>

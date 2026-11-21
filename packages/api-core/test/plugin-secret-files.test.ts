@@ -3,7 +3,7 @@
 
 import { describe, it, expect } from '@jest/globals';
 
-import { SECRET_FILE_KINDS, secretFileKind, secretFileNeedsContent } from '../src/types/plugin-secret-files.js';
+import { SECRET_FILE_CONTENT_SCAN_BYTES, SECRET_FILE_KINDS, secretFileKind, secretFileNeedsContent } from '../src/types/plugin-secret-files.js';
 
 const PRIVATE_PEM = '-----BEGIN PRIVATE KEY-----\nMIIEv...\n-----END PRIVATE KEY-----\n';
 const RSA_PEM = '-----BEGIN RSA PRIVATE KEY-----\nMIIEo...\n-----END RSA PRIVATE KEY-----\n';
@@ -209,6 +209,25 @@ describe('secretFileKind: content-based kinds', () => {
 
   it('a content kind without content is not decided (the caller must pass it)', () => {
     expect(secretFileKind('tls/server.pem')).toBeNull();
+  });
+
+  // An uploaded ZIP is scanned on the plugin service: a crafted file must not stall it with
+  // polynomial regex backtracking (each case took seconds to minutes before).
+  describe('adversarial content is scanned in linear time', () => {
+    const scanned = (file: string, content: string) => {
+      const t0 = Date.now();
+      expect(secretFileKind(file, content)).toBeNull();
+      expect(Date.now() - t0).toBeLessThan(1_000);
+    };
+    it('PuTTY headers with no Private-Lines (any file name)', () => {
+      scanned('notes.txt', 'PuTTY-User-Key-File-3: x\n'.repeat(SECRET_FILE_CONTENT_SCAN_BYTES / 26));
+    });
+    it('unclosed <password> tags in settings.xml', () => {
+      scanned('settings.xml', '<password>'.repeat(SECRET_FILE_CONTENT_SCAN_BYTES / 10));
+    });
+    it('a long scheme-like run with no :// in pip.conf', () => {
+      scanned('pip.conf', 'a'.repeat(100_000));
+    });
   });
 
   it('every kind has a label', () => {

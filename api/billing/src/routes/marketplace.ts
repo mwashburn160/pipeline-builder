@@ -168,9 +168,11 @@ export function createMarketplaceRoutes(): Router {
 
         // Step 2: Already bound? If a real org has already claimed this AWS
         // customer, there's nothing to register — tell the caller to sign in.
+        // Bound = a MANAGEABLE row holds the license (the set the partial unique
+        // index on the license covers), not only an `active` one.
         const existing = await Subscription.findOne({
           'metadata.awsLicenseArn': resolved.licenseArn,
-          'status': 'active',
+          'status': { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] },
         });
 
         if (existing) {
@@ -288,7 +290,7 @@ export function createMarketplaceRoutes(): Router {
       // backstop for a concurrent claim that passes this check.
       const alreadyBound = await Subscription.findOne({
         'metadata.awsLicenseArn': pending.awsLicenseArn,
-        'status': 'active',
+        'status': { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] },
       });
       if (alreadyBound) {
         return sendError(res, 409, LICENSE_BOUND_MESSAGE, ErrorCode.CONFLICT);

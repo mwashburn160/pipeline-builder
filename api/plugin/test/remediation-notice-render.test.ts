@@ -103,6 +103,17 @@ describe('N37 rollout', () => {
     expect(n.text).toContain('needs review');
   });
 
+  it('a rollout that never started (given up): says why and how to restart it, without pipeline counts', () => {
+    const exhausted = renderRollout({ code: 'N37', ...base, summary: summary({ status: 'paused' }), startFailure: { reason: 'exhausted', attempts: 5, lastStatus: '503' } });
+    expect(exhausted.subject).toBe('Rollout paused: lint 1.0.1');
+    expect(exhausted.text).toContain('did not start: the pipeline service answered HTTP 503 (5 attempts)');
+    expect(exhausted.text).toContain('Retry on the remediation starts the rollout again');
+    expect(exhausted.text).not.toContain('Pipelines:');
+    expect(exhausted.text).not.toContain('needs review');
+    const refused = renderRollout({ code: 'N37', ...base, summary: summary({ status: 'paused' }), startFailure: { reason: 'permanent', attempts: 1, lastStatus: 'unreachable' } });
+    expect(refused.text).toContain('did not start: the pipeline service could not be reached. It is no longer retried');
+  });
+
   it('paused with no recorded reason still reads cleanly', () => {
     expect(renderRollout({ code: 'N37', ...base, summary: summary({ status: 'paused' }) }).text).toMatch(/fixing lint@1\.0\.0\) paused\. The version/);
   });

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/runbooks/secret-rotation.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 0ea64a2435d268725946c42dfac642a721cbce1456a9f005e67661fe2649fc0e
+// SOURCE-SHA256: a2c61f24019455b276571d0220d501ebbb85c92f7ca9f599c0904bb16ff3b779
 // SPDX-License-Identifier: Apache-2.0
 import { KeyRound } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -746,6 +746,10 @@ export const runbookSecretRotationTopic: HelpTopic = {
         {
           "type": "text",
           "content": "One change at a time. The PUT/DELETE saves the new config only if the config it read (keyId and wrapped ciphertext) is still the org's current one. When two changes to the same org overlap, the first one to save wins. The other gets 409 CONFLICT before it re-encrypts anything and writes nothing. Re-read the config (GET) and retry if you still want that change."
+        },
+        {
+          "type": "text",
+          "content": "Secrets edited during the change are kept. Each re-encrypted AI provider key and the SSO client secret is written only if the stored value is still the one captured before the change. A secret that was set, replaced or deleted in the meantime is left exactly as that writer left it (never overwritten, never brought back), and its field name is listed in concurrentlyChanged in the response and audit row. If that concurrent value cannot be decrypted under the new config, it is also listed in unreadableConcurrentWrites and the audit row is marked as a failure. That happens when it was written by a replica that still had the old key cached (before the eviction reached it, or within the 5-minute TTL without Redis). Re-enter each listed secret through its admin endpoint."
         },
         {
           "type": "text",

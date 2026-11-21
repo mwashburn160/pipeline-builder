@@ -1,6 +1,6 @@
 // GENERATED FROM docs/plugin-installing.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: f335e516b86dc106fcd1203d12ba00361bbb4f4d745215576cdebd68580078c9
+// SOURCE-SHA256: c637539800f4818ee3a9312dc0a01ee61f6350872d4dc0cc7c09c0cc7071bbcf
 // SPDX-License-Identifier: Apache-2.0
 import { PackagePlus } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -421,7 +421,8 @@ export const pluginInstallingTopic: HelpTopic = {
             "An install whose change needs approval (plugin_installs:manage) gets a change request instead, never an automatic move. A change request is opened only while the install is still pinned to the flagged version.",
             "An install that already has a change request pending (anyone's) holds only the pipelines that would move that install: they show Waiting for a change request (waiting_change_request) and the rest of the rollout carries on. Once an approver decides the request, the rollout resumes them: approved, they are moved or redeployed as planned; rejected (the install still pins the flagged version), they end as dismissed with the reason change_request_rejected.",
             "For an Official plugin, the fix arrives as a new listing version and the rollout runs against listing installs in every organization.",
-            "A team can't change an install it inherits from its root organization, so the root's rollout moves inherited installs. Teams get proposals only for pins in their own pipelines."
+            "A team can't change an install it inherits from its root organization, so the root's rollout moves inherited installs. Teams get proposals only for pins in their own pipelines.",
+            "For an organization's rollout, a team's root organization is read from the organization hierarchy when the rollout starts, not from the pipeline's last synth. A team moved under another root follows its current root's setting, and its move, redeploy and rollback use that root too. If the hierarchy can't be read, the rollout start fails and is retried."
           ]
         },
         {
@@ -529,7 +530,7 @@ export const pluginInstallingTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "When the rollout finishes or pauses, your plugin security recipients are told (N37)."
+          "content": "When the rollout finishes or pauses — or never starts and is no longer retried — your plugin security recipients are told (N37)."
         }
       ]
     },

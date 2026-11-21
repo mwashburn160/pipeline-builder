@@ -3267,6 +3267,9 @@ CREATE TABLE IF NOT EXISTS plugin_remediation_settings (
 CREATE TABLE IF NOT EXISTS pipeline_remediation_upgrades (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     org_id VARCHAR(255) NOT NULL,
+    -- The root org the rollout start resolved for a team's row (NULL for a
+    -- root org's own pipeline, or a row written before it was recorded).
+    root_org_id VARCHAR(255),
     remediation_id UUID NOT NULL,
     pipeline_id UUID NOT NULL REFERENCES pipelines(id) ON DELETE CASCADE,
     plugin_name VARCHAR(255) NOT NULL,

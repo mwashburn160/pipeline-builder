@@ -10,6 +10,7 @@
 
 import {
   callInternal,
+  ContractRequestError,
   createLogger,
   getServiceAuthHeader,
   InternalHttpClient,
@@ -38,14 +39,37 @@ export function setRolloutClientForTests(c?: ContractHttpClient): void {
 }
 
 /**
+ * The answer to one start: taken, or why not. `status` is the pipeline
+ * service's HTTP status ('503'), or `unreachable` (no answer, a network error),
+ * `invalid_response` (a 2xx that did not parse — the start may well have
+ * landed), `request_invalid` (refused before it was sent), `not_startable`
+ * (no fix version, or a system-org row). `permanent`: retrying the same start
+ * cannot help — a 4xx other than 408 / 429, an invalid request, nothing to start.
+ */
+export type RolloutStartResult =
+  | { ok: true }
+  | { ok: false; status: string; permanent: boolean };
+
+/** Whether a failed start's `status` is permanent (see {@link RolloutStartResult}). */
+export function isPermanentStartStatus(status: string): boolean {
+  if (/^\d{3}$/.test(status)) {
+    const code = Number(status);
+    return code >= 400 && code < 500 && code !== 408 && code !== 429;
+  }
+  return status === 'request_invalid' || status === 'not_startable';
+}
+
+const failed = (status: string): RolloutStartResult => ({ ok: false, status, permanent: isPermanentStartStatus(status) });
+
+/**
  * Start the tenant rollout of a published fix (or, with `toVersion` overriding
  * the row's, supersede its open proposals with the owner's own version).
- * Returns whether the pipeline service accepted it. Never throws.
+ * Answers whether the pipeline service took it, and why not. Never throws.
  */
-export async function startTenantRollout(row: PluginRemediation, override?: { toVersion: string; toPluginId: string }): Promise<boolean> {
+export async function startTenantRollout(row: PluginRemediation, override?: { toVersion: string; toPluginId: string }): Promise<RolloutStartResult> {
   const toVersion = override?.toVersion ?? row.toVersion;
   const toPluginId = override?.toPluginId ?? row.toPluginId;
-  if (!toVersion || !toPluginId || isSystemOrgId(row.orgId)) return false;
+  if (!toVersion || !toPluginId || isSystemOrgId(row.orgId)) return failed('not_startable');
   try {
     const res = await callInternal(client(), PIPELINE_INTERNAL.startRemediationRollout, {
       params: { remediationId: row.id },
@@ -60,11 +84,13 @@ export async function startTenantRollout(row: PluginRemediation, override?: { to
       },
       options: { headers: { Authorization: getServiceAuthHeader({ serviceName: 'plugin', orgId: row.orgId, role: 'member' }) }, maxRetries: 2 },
     });
-    if (!res.ok) logger.warn('Remediation rollout not started', { remediationId: row.id, reason: res.reason, ...(res.reason === 'status' ? { status: res.status } : {}) });
-    return res.ok;
+    if (res.ok) return { ok: true };
+    logger.warn('Remediation rollout not started', { remediationId: row.id, reason: res.reason, ...(res.reason === 'status' ? { status: res.status } : {}) });
+    if (res.reason === 'status') return failed(String(res.status));
+    return failed(res.reason === 'invalid-response' ? 'invalid_response' : 'unreachable');
   } catch (err) {
     logger.warn('Remediation rollout not started', { remediationId: row.id, error: (err as Error).name });
-    return false;
+    return failed(err instanceof ContractRequestError ? 'request_invalid' : 'unreachable');
   }
 }
 
