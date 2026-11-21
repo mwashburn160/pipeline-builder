@@ -36,9 +36,18 @@ describe('load-plugins.sh verifies the builds, with three outcomes', () => {
   it('counts a build as done on an image digest OR metadata_only', () => {
     // An approval step produces no image by design, so a null digest is not a
     // failure for it — treating it as one would make the catalogue permanently
-    // one short of green.
-    expect(sh).toContain('metadata_only');
-    expect(sh).toContain('imageDigest');
+    // one short of green. The verdict lives in plugin-build-verdict.py (run for
+    // real in plugin-build-verdict.test.ts); the loader must go through it.
+    expect(sh).toContain('plugin-build-verdict.py');
+    const verdict = read('deploy/bin/plugin-build-verdict.py');
+    expect(verdict).toContain('metadata_only');
+    expect(verdict).toContain('imageDigest');
+  });
+
+  it('never adds the queue\'s TOTAL failure count to its own', () => {
+    // The plugin service's remediation-canary-* plugins fail in the same queue;
+    // a fresh install stopped at the toolchain because the loader counted them.
+    expect(sh).not.toContain('totalFailed');
   });
 
   it('only a reported FAILURE makes the run red; a deadline does not', () => {

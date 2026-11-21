@@ -311,50 +311,25 @@ if [ "$VERIFY_BUILDS" = true ] && [ "$DRY_RUN" = false ] && [ "$SUCCEEDED" -gt 0
   # a total meaningless, and `--rebuild` re-uploads versions that already exist.
   _want_count=$(wc -l < "$COUNTER_DIR/uploaded" | tr -d ' ')
 
+  # The verdict (plugin-build-verdict.py) is scoped to what THIS run uploaded:
+  # the build queue also holds failures that are not this run's — on a fresh
+  # install the plugin service's own remediation-canary-* plugins — and adding
+  # the queue's total stopped init at the toolchain with every upload clean.
+  _verdict() {
+    python3 -I "$SCRIPT_DIR/plugin-build-verdict.py" "$1" "$COUNTER_DIR/uploaded" \
+      "$COUNTER_DIR/list.json" "$COUNTER_DIR/triage.json" 2>/dev/null
+  }
+
   _deadline=$(( $(date +%s) + VERIFY_TIMEOUT ))
-  _built=0 _failed=0 _timed_out=false
+  _built=0 _failed=0 _ignored=0 _timed_out=false
   while :; do
-    # The system org's own plugins, with the two fields that decide "built".
-    # A high limit in one page: the catalogue is ~120 and paging here would
-    # make the loop's arithmetic depend on page boundaries.
-    _list=$(_api_get "/api/plugins?limit=500")
-    _built=$(
-      printf '%s' "$_list" | python3 -c '
-import json, sys
-try:
-    body = json.load(sys.stdin)
-except Exception:
-    print(0); raise SystemExit
-rows = (body.get("data") or {}).get("plugins") or []
-want = set()
-with open(sys.argv[1], encoding="utf-8") as fh:
-    for line in fh:
-        parts = line.rstrip("\n").split("\t")
-        if len(parts) >= 2 and parts[0]:
-            want.add((parts[0], parts[1]))
-done = 0
-for r in rows:
-    key = (r.get("name"), r.get("version"))
-    if key not in want:
-        continue
-    # A metadata_only plugin (an approval step) produces no image by design, so
-    # its presence IS completion; anything else needs the digest the build
-    # writes once the image is pushed, signed and SBOM-attested.
-    if r.get("buildType") == "metadata_only" or r.get("imageDigest"):
-        done += 1
-print(done)
-' "$COUNTER_DIR/uploaded" 2>/dev/null || echo 0
-    )
-    _failed=$(
-      printf '%s' "$(_api_get /api/plugins/queue/triage)" | python3 -c '
-import json, sys
-try:
-    body = json.load(sys.stdin)
-except Exception:
-    print(0); raise SystemExit
-print((body.get("data") or {}).get("totalFailed") or 0)
-' 2>/dev/null || echo 0
-    )
+    # The system org's own plugins, with the two fields that decide "built"
+    # (an image digest, or metadata_only for an approval step). A high limit in
+    # one page: the catalogue is ~120 and paging here would make the loop's
+    # arithmetic depend on page boundaries.
+    _api_get "/api/plugins?limit=500" > "$COUNTER_DIR/list.json"
+    _api_get /api/plugins/queue/triage > "$COUNTER_DIR/triage.json"
+    read -r _built _failed _ignored <<< "$(_verdict counts || echo '0 0 0')"
     [ "$(( _built + _failed ))" -ge "$_want_count" ] && break
     if [ "$(date +%s)" -ge "$_deadline" ]; then _timed_out=true; break; fi
     printf '\r  built=%s failed=%s of %s ...' "$_built" "$_failed" "$_want_count"
@@ -367,23 +342,12 @@ print((body.get("data") or {}).get("totalFailed") or 0)
   echo "  built:          $_built"
   echo "  failed:         $_failed"
   echo "  still building: $_pending"
+  [ "$_ignored" -gt 0 ] && echo "  (not this run's: $_ignored other failed build(s) in the queue, e.g. remediation canaries — not counted)"
 
   if [ "$_failed" -gt 0 ]; then
     echo ""
-    echo "  Failures by category (from /plugins/queue/triage):"
-    printf '%s' "$(_api_get /api/plugins/queue/triage)" | python3 -c '
-import json, sys
-try:
-    body = json.load(sys.stdin)
-except Exception:
-    raise SystemExit
-for g in ((body.get("data") or {}).get("groups") or []):
-    names = ", ".join((g.get("pluginNames") or [])[:8])
-    count = g.get("count")
-    category = g.get("category")
-    suffix = " - " + names if names else ""
-    print("    {0}x {1}{2}".format(count, category, suffix))
-' 2>/dev/null || echo "    (could not read the triage breakdown)"
+    echo "  Failures by category (this run's uploads, from /plugins/queue/triage):"
+    _verdict groups || echo "    (could not read the triage breakdown)"
     echo ""
     echo "  The Builds page (Queue / Failed-Triage) carries the full reason per" >&2
     echo "  plugin, including the CVE and fixed version for a PLUGIN_VULN_GATE." >&2
