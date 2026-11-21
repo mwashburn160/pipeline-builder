@@ -109,7 +109,7 @@
       "./package.json": "./package.json"
     }
   },
-  "version": "6.2.3",
+  "version": "6.2.4",
   "bugs": {
     "url": "https://github.com/mwashburn160/pipeline-builder/issues"
   },
