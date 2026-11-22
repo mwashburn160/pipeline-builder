@@ -204,6 +204,9 @@ export PLATFORM_BASE_URL JWT_TOKEN UPLOAD_TIMEOUT_SECONDS UPLOAD_RETRIES UPLOAD_
 export DRY_RUN REBUILD COUNTER_DIR PLUGINS_DIR DEPLOY_DIR SCRIPT_DIR
 
 START_TIME=$(date +%s)
+# The same instant as ISO-8601 UTC, for the build verdict: a failed job that
+# finished before this run started is an earlier run's (see plugin-build-verdict.py).
+START_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 echo ""
 echo "=== Processing $TOTAL plugin(s) ==="
 
@@ -315,9 +318,12 @@ if [ "$VERIFY_BUILDS" = true ] && [ "$DRY_RUN" = false ] && [ "$SUCCEEDED" -gt 0
   # the build queue also holds failures that are not this run's — on a fresh
   # install the plugin service's own remediation-canary-* plugins — and adding
   # the queue's total stopped init at the toolchain with every upload clean.
+  # START_ISO drops failed jobs that finished before this run: re-uploading the
+  # same version after a failed load re-queues its build, and the earlier run's
+  # failed job must not be counted against the new build while it is pending.
   _verdict() {
     python3 -I "$SCRIPT_DIR/plugin-build-verdict.py" "$1" "$COUNTER_DIR/uploaded" \
-      "$COUNTER_DIR/list.json" "$COUNTER_DIR/triage.json" 2>/dev/null
+      "$COUNTER_DIR/list.json" "$COUNTER_DIR/triage.json" "$START_ISO" 2>/dev/null
   }
 
   _deadline=$(( $(date +%s) + VERIFY_TIMEOUT ))
@@ -328,7 +334,9 @@ if [ "$VERIFY_BUILDS" = true ] && [ "$DRY_RUN" = false ] && [ "$SUCCEEDED" -gt 0
     # one page: the catalogue is ~120 and paging here would make the loop's
     # arithmetic depend on page boundaries.
     _api_get "/api/plugins?limit=500" > "$COUNTER_DIR/list.json"
-    _api_get /api/plugins/queue/triage > "$COUNTER_DIR/triage.json"
+    # samples=20 (the server's cap): the more failed jobs carry a timestamp, the
+    # more of an earlier run's failures the verdict can tell apart from this one's.
+    _api_get "/api/plugins/queue/triage?samples=20" > "$COUNTER_DIR/triage.json"
     read -r _built _failed _ignored <<< "$(_verdict counts || echo '0 0 0')"
     [ "$(( _built + _failed ))" -ge "$_want_count" ] && break
     if [ "$(date +%s)" -ge "$_deadline" ]; then _timed_out=true; break; fi

@@ -32,6 +32,7 @@ export {
 } from './restore-helpers.js';
 export * from './sse-helpers.js';
 export * from './org-hierarchy.js';
+export { BLOB_GC_WINDOW, pushFreezeActiveAt, pushFreezeEndIfOverlapping } from './blob-gc-window.js';
 export {
   fetchParentOrgId,
   fetchOrgDescendants,

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 2c76ea264b5f6013f73649b3ef3295f1d92d4b335904c67b9f6ddd90eb33e90c
+// SOURCE-SHA256: f16b2b3505a478d6cf63c07ceb610cc3a6711e02938ebe023f25d47f34df8a7a
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -698,7 +698,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "It runs while the registry stays up, inside a push freeze. garbage-collect marks every blob a manifest references and sweeps the rest, so a push landing between the two would have its new layers swept from under a manifest that then points at nothing — a corrupted image, not a failed push. Image-registry is the registry's only token issuer, so it withholds push from every token (management included) from 03:10 minus the token TTL (REGISTRY_TOKEN_EXPIRES_IN, default 300s) minus 60s, until 03:40 UTC. No push token is alive when the job starts; pulls and deletes carry on. A token issued inside the freeze is audited with pushFrozenForBlobGc: true. A plugin build that reaches its push in that half hour fails it, and the build queue's retries and dead-letter re-queue apply as for any push failure. The window lives in api/image-registry/src/services/blob-gc-window.ts; test/deploy-contracts/test/registry-blob-gc-contract.test.ts pins every tree's schedule to it. The k8s job refuses to run outside 03:10–03:35, so a late start is a failed Job, not an unprotected sweep."
+          "content": "It runs while the registry stays up, inside a push freeze. garbage-collect marks every blob a manifest references and sweeps the rest, so a push landing between the two would have its new layers swept from under a manifest that then points at nothing — a corrupted image, not a failed push. Image-registry is the registry's only token issuer, so it withholds push from every token (management included) from 03:10 minus the token TTL (REGISTRY_TOKEN_EXPIRES_IN, default 300s) minus 60s, until 03:40 UTC. No push token is alive when the job starts; pulls and deletes carry on. A token issued inside the freeze is audited with pushFrozenForBlobGc: true. Plugin builds wait the freeze out rather than run into it: a build worker that picks up a build (or a remediation) from 30 minutes before the freeze until it ends moves it to delayed until 03:40 (plus up to 2 min of jitter), holding no build slot and spending no attempt, and the build's log says it is waiting for the maintenance window (plugin_build_blob_gc_hold_total{job} counts each hold). The window lives in packages/api-core/src/helpers/blob-gc-window.ts, shared by image-registry and the build workers; test/deploy-contracts/test/registry-blob-gc-contract.test.ts pins every tree's schedule to it. The k8s job refuses to run outside 03:10–03:35, so a late start is a failed Job, not an unprotected sweep."
         },
         {
           "type": "text",

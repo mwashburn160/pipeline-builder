@@ -313,7 +313,7 @@ JSON
 }
 
 # Push via a one-shot kubectl-run crane pod inside the cluster
-# (minikube/ec2). Same auth dance, but DNS resolution happens inside the
+# (minikube/ec2/eks). Same auth dance, but DNS resolution happens inside the
 # cluster so the registry + image-registry service names are reachable.
 # JWT is passed via env (--env), not as a CLI arg, so it doesn't leak in
 # the host's process list. The pod is auto-deleted on exit (--rm).
@@ -324,41 +324,68 @@ JSON
 # defined in the patch — the merge resolves to the image's default
 # entrypoint (which for crane:debug is `crane` with no args) and the pod
 # just prints help and exits.
+#
+# THE TARBALL CROSSES THE API SERVER as the attach stream's stdin, and on EKS
+# that stream is reset mid-transfer often enough to matter: "connection reset
+# by peer" / "write on closed stream", leaving the pod a truncated tar
+# ("unexpected EOF", "manifest.json not found in tar"). It hit one of the 1 GB+
+# bases on two installs in a row, and a single retry did not clear it. So:
+#   - `docker save` runs ONCE, to a host temp file, so every attempt sends the
+#     same bytes without re-exporting the image;
+#   - the pod checks it received exactly EXPECTED_BYTES before crane runs, so a
+#     cut-off transfer reads as one and never reaches the registry;
+#   - up to PUSH_ATTEMPTS (default 4) attempts, with a growing pause between.
 _push_k8s() {
-  local _tag="$1" _remote="$2" _jwt="$3"
-  local _podname
-  _podname="crane-push-$(date +%s)-$$"
+  local _tag="$1" _remote="$2" _jwt="$3" _tar _rc=0
+  _tar="$(mktemp "${TMPDIR:-/tmp}/pb-base-image.XXXXXX")" || return 1
+  if docker save "$_tag" -o "$_tar"; then
+    _push_k8s_tar "$_tar" "$_tag" "$_remote" "$_jwt" || _rc=$?
+  else
+    echo "    docker save $_tag failed" >&2
+    _rc=1
+  fi
+  rm -f "$_tar"
+  return "$_rc"
+}
+
+# _push_k8s_tar <tarball> <tag> <remote> <jwt> — the attempts loop of _push_k8s.
+_push_k8s_tar() {
+  local _tar="$1" _tag="$2" _remote="$3" _jwt="$4"
+  local _bytes _attempts="${PUSH_ATTEMPTS:-4}" _attempt=1 _podname _overrides _out _rc
+  _bytes="$(wc -c < "$_tar" | tr -d ' ')"
   # The actual shell command the pod runs. Variables are expanded by
   # the *pod's* shell (not the host's), so they resolve against the env
   # block below at runtime. JSON-escape the double quotes so the cmd
   # survives embedding in the override JSON.
-  local _cmd='cat > /tmp/img.tar && crane --insecure auth login "$REGISTRY_HOST" --username _token --password "$PLATFORM_JWT" >/dev/null && crane --insecure push /tmp/img.tar "$REMOTE"'
+  local _cmd="cat > /tmp/img.tar && _got=\$(wc -c < /tmp/img.tar | tr -d ' ') && if [ \"\$_got\" -ne ${_bytes} ]; then echo \"transfer cut off: received \$_got of ${_bytes} bytes\" >&2; exit 75; fi && crane --insecure auth login \"\$REGISTRY_HOST\" --username _token --password \"\$PLATFORM_JWT\" >/dev/null && crane --insecure push /tmp/img.tar \"\$REMOTE\""
   local _cmd_json="${_cmd//\"/\\\"}"
 
-  local _overrides
-  _overrides=$(_pod_overrides "$_podname" "$_cmd_json" true "$_jwt" "$REGISTRY_HOST" "$_remote")
-  if docker save "$_tag" | kubectl_ctx -n "$NAMESPACE" run "$_podname" \
-       --rm -i --quiet \
-       --restart=Never \
-       --image="$CRANE_IMAGE" \
-       --overrides="$_overrides" >/dev/null 2>&1; then
-    return 0
-  fi
-  # First attempt reported non-zero. Re-run once as a RETRY, capturing the pod's
-  # REAL exit code (not the exit of the tail/sed pipe); _push_verdict tells a
-  # transient hiccup and an already-present manifest apart from a hard failure.
-  # Pod name suffixed so there is no collision against the prior --rm cleanup.
-  local _retry_podname="${_podname}-retry"
-  local _retry_overrides
-  _retry_overrides=$(_pod_overrides "$_retry_podname" "$_cmd_json" true "$_jwt" "$REGISTRY_HOST" "$_remote")
-  local _out _rc
-  _out="$(docker save "$_tag" | kubectl_ctx -n "$NAMESPACE" run "$_retry_podname" \
-            --rm -i --quiet \
-            --restart=Never \
-            --image="$CRANE_IMAGE" \
-            --overrides="$_retry_overrides" 2>&1)"
-  _rc=$?
-  _push_verdict "$_rc" "$_out"
+  while :; do
+    _podname="crane-push-$(date +%s)-$$-${_attempt}"
+    _overrides=$(_pod_overrides "$_podname" "$_cmd_json" true "$_jwt" "$REGISTRY_HOST" "$_remote")
+    _rc=0
+    _out="$(kubectl_ctx -n "$NAMESPACE" run "$_podname" \
+              --rm -i --quiet \
+              --restart=Never \
+              --image="$CRANE_IMAGE" \
+              --overrides="$_overrides" < "$_tar" 2>&1)" || _rc=$?
+    [ "$_rc" -eq 0 ] && return 0
+    if [ "$_attempt" -ge "$_attempts" ]; then
+      # Last attempt: _push_verdict prints the real error and still honours an
+      # "existing manifest" success.
+      _push_verdict "$_rc" "$_out"
+      return
+    fi
+    if printf '%s' "$_out" | grep -q 'existing manifest'; then
+      _push_verdict "$_rc" "$_out"
+      return
+    fi
+    echo "    attempt ${_attempt}/${_attempts} for $_tag failed (exit $_rc): $(printf '%s' "$_out" | grep -Eo 'transfer cut off[^"]*|connection reset by peer|unexpected EOF|manifest.json not found|write on closed stream' | head -1)" >&2
+    # Clear a pod a broken attach left behind; --rm only fires when attach returns cleanly.
+    kubectl_ctx -n "$NAMESPACE" delete pod "$_podname" --ignore-not-found --wait=false >/dev/null 2>&1 || true
+    sleep $((_attempt * 10))
+    _attempt=$((_attempt + 1))
+  done
 }
 
 # -----------------------------------------------------------------------

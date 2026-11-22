@@ -14,7 +14,7 @@
  *  - the job exists in every tree (a missing one is unbounded storage growth
  *    that the reference-based quota hides);
  *  - it runs at the window image-registry freezes pushes around
- *    (api/image-registry/src/services/blob-gc-window.ts) — a job at another
+ *    (packages/api-core/src/helpers/blob-gc-window.ts) — a job at another
  *    time sweeps while pushes land, and corrupts images rather than failing;
  *  - it never passes `--delete-untagged`, which would delete the untagged
  *    manifests pipelines pin by digest.
@@ -23,7 +23,7 @@
 import { describe, it, expect } from '@jest/globals';
 import { K8S_TARGETS, read, yamlDocs } from '../src/index.js';
 
-const WINDOW_SRC = read('api/image-registry/src/services/blob-gc-window.ts');
+const WINDOW_SRC = read('packages/api-core/src/helpers/blob-gc-window.ts');
 const num = (key: string): number => {
   const m = new RegExp(`\\b${key}:\\s*(\\d+)`).exec(WINDOW_SRC);
   if (!m) throw new Error(`blob-gc-window.ts no longer declares ${key}`);
