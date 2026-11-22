@@ -119,6 +119,7 @@ const mockSupersedeKeptSetupImages = jest.fn<(...args: any[]) => Promise<void>>(
 const mockSetGauge = jest.fn<AnyFn>();
 const mockIncCounter = jest.fn<AnyFn>();
 const mockTryAcquireOrgSlot = jest.fn<(...args: any[]) => any>().mockResolvedValue(true);
+const mockBlobGcHoldUntil = jest.fn<(...args: any[]) => number | null>(() => null);
 const mockStopSlotHeartbeat = jest.fn<AnyFn>();
 const queueLogger = { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() };
 
@@ -320,6 +321,12 @@ function registerMocks() {
       hdel: jest.fn<(...args: any[]) => any>().mockResolvedValue(1),
       hgetall: jest.fn<(...args: any[]) => any>().mockResolvedValue({}),
     }),
+  }));
+
+  // The weekly blob-GC hold reads the real clock: off by default, so a run that
+  // happens to land early on a Sunday (UTC) does not delay every build here.
+  jest.unstable_mockModule('../src/queue/blob-gc-hold.js', () => ({
+    blobGcHoldUntil: mockBlobGcHoldUntil,
   }));
 
   // Relative path, so the real slot manager (and its Redis Lua) stays out of
@@ -638,6 +645,26 @@ describe('plugin-build-queue', () => {
       const events = mockWorkerOn.mock.calls.map((c: any) => c[0]);
       expect(events).toContain('failed');
       expect(events).toContain('error');
+    });
+  });
+
+  describe('worker processor: the weekly blob-GC hold', () => {
+    afterEach(() => { mockBlobGcHoldUntil.mockReturnValue(null); });
+
+    it('delays a build that could reach its push inside the freeze, before taking a slot, and says why', async () => {
+      const sse = makeSseManager();
+      queueModule.startWorker(sse, makeQuotaService());
+      const until = Date.parse('2026-11-22T03:41:00Z');
+      mockBlobGcHoldUntil.mockReturnValue(until);
+      mockTryAcquireOrgSlot.mockClear();
+      const job = makeJob(makeJobData());
+
+      await expect(getMainProcessor()(job)).rejects.toMatchObject({ name: 'DelayedError' });
+
+      expect(job.moveToDelayed).toHaveBeenCalledWith(until, undefined);
+      expect(mockTryAcquireOrgSlot).not.toHaveBeenCalled();
+      expect(sse.send).toHaveBeenCalledWith('req-123', 'INFO',
+        expect.stringContaining('weekly maintenance window'), expect.objectContaining({ holdUntil: until }));
     });
   });
 

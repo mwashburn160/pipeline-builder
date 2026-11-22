@@ -4,7 +4,7 @@
 """load-plugins.sh's build verdict, scoped to what THIS run uploaded.
 
 Usage:
-  plugin-build-verdict.py counts UPLOADED LIST_JSON TRIAGE_JSON
+  plugin-build-verdict.py counts UPLOADED LIST_JSON TRIAGE_JSON [SINCE]
       prints "<built> <failed> <ignored>":
         built   - uploaded name+version rows that have an image digest, or are
                   metadata_only (an approval step produces no image by design)
@@ -12,8 +12,13 @@ Usage:
                   that have not since built
         ignored - failed jobs in the queue for plugins this run did not upload
                   (e.g. the plugin service's own remediation-canary-* plugins)
-  plugin-build-verdict.py groups UPLOADED LIST_JSON TRIAGE_JSON
+  plugin-build-verdict.py groups UPLOADED LIST_JSON TRIAGE_JSON [SINCE]
       prints the per-category breakdown of this run's failures only.
+
+SINCE (optional) is when the run started, as ISO-8601 UTC. A sampled failure
+that finished BEFORE it is an earlier run's: re-uploading the same version after
+a failed load re-queues its build, and the old failed job must not count against
+the new build while that build is still pending.
 
 UPLOADED is the loader's `name<TAB>version` file; LIST_JSON is the body of
 GET /api/plugins?limit=500, TRIAGE_JSON the body of GET /api/plugins/queue/triage.
@@ -22,6 +27,7 @@ An unreadable body reads as empty: the verdict is never a crash.
 
 import json
 import sys
+from datetime import datetime, timezone
 
 
 def load(path):
@@ -36,11 +42,23 @@ def data(body):
     return (body.get("data") or {}) if isinstance(body, dict) else {}
 
 
+def parse_time(value):
+    """An ISO-8601 instant as an aware datetime, or None when absent/unreadable."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        t = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+
+
 def main(argv):
-    if len(argv) != 5 or argv[1] not in ("counts", "groups"):
+    if len(argv) not in (5, 6) or argv[1] not in ("counts", "groups"):
         sys.stderr.write(__doc__)
         return 2
-    mode, uploaded_path, list_path, triage_path = argv[1:]
+    mode, uploaded_path, list_path, triage_path = argv[1:5]
+    since = parse_time(argv[5]) if len(argv) == 6 else None
 
     want = []
     with open(uploaded_path, encoding="utf-8") as fh:
@@ -62,7 +80,12 @@ def main(argv):
     # bounded server-side, so a name with NO versioned sample still counts for
     # every uploaded version of it; one whose samples name versions counts only
     # for those (an older version's failed job is not this upload's failure).
+    # With SINCE, a sample that failed before the run started is dropped, and a
+    # name is cleared only when EVERY group naming it sampled it and every one of
+    # those samples is that old: a group that names it without a sample (samples
+    # are capped per group) may hold a recent failure, so it still counts.
     failed_versions = {}
+    sampled, fresh, unsampled = set(), set(), set()
     ignored = 0
     for g in groups:
         names = g.get("pluginNames") or []
@@ -70,10 +93,23 @@ def main(argv):
         ignored += len([n for n in names if n not in want_names])
         for n in ours:
             failed_versions.setdefault(n, set())
+        in_samples = {s.get("pluginName") for s in g.get("samples") or []}
+        unsampled.update(n for n in ours if n not in in_samples)
         for s in g.get("samples") or []:
             n, v = s.get("pluginName"), s.get("version")
-            if n in want_names and v:
+            if n not in want_names:
+                continue
+            sampled.add(n)
+            failed_at = parse_time(s.get("failedAt"))
+            if since and failed_at and failed_at < since:
+                continue
+            fresh.add(n)
+            if v:
                 failed_versions[n].add(v)
+    if since:
+        for n in sampled - fresh - unsampled:
+            failed_versions.pop(n, None)
+            ignored += 1
 
     def is_failed(key):
         n, v = key

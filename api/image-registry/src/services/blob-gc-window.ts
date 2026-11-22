@@ -26,46 +26,15 @@
  * manifest pullable after removing its tag. `--delete-untagged` would delete
  * exactly those.
  *
- * The CronJob schedules and the compose loop are pinned to these numbers by
- * test/deploy-contracts/test/registry-blob-gc-contract.test.ts.
+ * The window itself (BLOB_GC_WINDOW) and the freeze arithmetic live in
+ * api-core (helpers/blob-gc-window.ts), shared with the plugin build workers,
+ * which hold a build back until the freeze ends rather than let its push be
+ * refused. The CronJob schedules and the compose loop are pinned to those
+ * numbers by test/deploy-contracts/test/registry-blob-gc-contract.test.ts.
  */
-export const BLOB_GC_WINDOW = {
-  /** Day of week, UTC (0 = Sunday). */
-  dayOfWeekUtc: 0,
-  /** GC start, UTC: 03:10. */
-  startHourUtc: 3,
-  startMinuteUtc: 10,
-  /** The job's hard deadline (`activeDeadlineSeconds` / `timeout`), minutes. */
-  maxRunMinutes: 25,
-  /** Freeze kept after the deadline, minutes — slack for a slow pod kill. */
-  tailMinutes: 5,
-} as const;
+import { pushFreezeActiveAt } from '@pipeline-builder/api-core';
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-const WEEK_MS = 7 * DAY_MS;
-
-/** Margin past the token TTL before GC starts, so a request in flight at expiry finishes. */
-const FREEZE_LEAD_MARGIN_MS = 60_000;
-
-/**
- * The freeze interval `[start, end)` of the window nearest `nowMs` (this
- * week's, last week's or next week's — the lead can cross a day boundary).
- */
-function freezeIntervals(nowMs: number, tokenTtlSeconds: number): Array<[number, number]> {
-  const now = new Date(nowMs);
-  const midnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-  const daysSince = (now.getUTCDay() - BLOB_GC_WINDOW.dayOfWeekUtc + 7) % 7;
-  const thisWeek = midnight - daysSince * DAY_MS
-    + (BLOB_GC_WINDOW.startHourUtc * 60 + BLOB_GC_WINDOW.startMinuteUtc) * 60_000;
-  const lead = tokenTtlSeconds * 1000 + FREEZE_LEAD_MARGIN_MS;
-  const tail = (BLOB_GC_WINDOW.maxRunMinutes + BLOB_GC_WINDOW.tailMinutes) * 60_000;
-  return [thisWeek - WEEK_MS, thisWeek, thisWeek + WEEK_MS].map((gcStart) => [gcStart - lead, gcStart + tail]);
-}
-
-/** True while `push` must not be granted at `nowMs` (see the module comment). */
-export function pushFreezeActiveAt(nowMs: number, tokenTtlSeconds: number): boolean {
-  return freezeIntervals(nowMs, tokenTtlSeconds).some(([start, end]) => nowMs >= start && nowMs < end);
-}
+export { BLOB_GC_WINDOW, pushFreezeActiveAt } from '@pipeline-builder/api-core';
 
 let clock: () => number = () => Date.now();
 

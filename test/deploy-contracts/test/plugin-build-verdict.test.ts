@@ -21,12 +21,14 @@ import { REPO_ROOT } from '../src/index.js';
 
 const SCRIPT = join(REPO_ROOT, 'deploy/bin/plugin-build-verdict.py');
 
-function run(mode: 'counts' | 'groups', uploaded: string[][], plugins: unknown[], groups: unknown[]) {
+function run(mode: 'counts' | 'groups', uploaded: string[][], plugins: unknown[], groups: unknown[], since?: string) {
   const dir = mkdtempSync(join(tmpdir(), 'verdict-'));
   writeFileSync(join(dir, 'uploaded'), uploaded.map((r) => r.join('\t')).join('\n') + '\n');
   writeFileSync(join(dir, 'list.json'), JSON.stringify({ data: { plugins } }));
   writeFileSync(join(dir, 'triage.json'), JSON.stringify({ data: { totalFailed: 99, groups } }));
-  const r = spawnSync('python3', ['-I', SCRIPT, mode, join(dir, 'uploaded'), join(dir, 'list.json'), join(dir, 'triage.json')], { encoding: 'utf8' });
+  const args = ['-I', SCRIPT, mode, join(dir, 'uploaded'), join(dir, 'list.json'), join(dir, 'triage.json')];
+  if (since) args.push(since);
+  const r = spawnSync('python3', args, { encoding: 'utf8' });
   expect(r.status).toBe(0);
   return r.stdout;
 }
@@ -73,6 +75,38 @@ describe('plugin-build-verdict.py', () => {
       [{ category: 'PLUGIN_VULN_GATE', count: 1, pluginNames: ['veracode'], samples: [{ pluginName: 'veracode', version: '2.0.0' }] }, canaryGroup]);
     expect(out).toContain('1x PLUGIN_VULN_GATE - veracode');
     expect(out).not.toContain('remediation-canary');
+  });
+
+  describe('with the run start time (SINCE)', () => {
+    const SINCE = '2026-11-22T04:29:00Z';
+    const pending = [{ name: 'jacoco', version: '1.2.0' }];
+    const group = (failedAt: string | null, pluginNames = ['jacoco']) => ({
+      category: 'auth-secrets',
+      count: 1,
+      pluginNames,
+      samples: [{ pluginName: 'jacoco', version: '1.2.0', failedAt }],
+    });
+
+    it('does not count an earlier run\'s failed job of the SAME version against a re-upload still building', () => {
+      expect(run('counts', [['jacoco', '1.2.0']], pending, [group('2026-11-22T03:20:00.000Z')], SINCE).trim()).toBe('0 0 1');
+    });
+
+    it('still counts a failure that finished after the run started', () => {
+      expect(run('counts', [['jacoco', '1.2.0']], pending, [group('2026-11-22T04:40:00.000Z')], SINCE).trim()).toBe('0 1 0');
+    });
+
+    it('still counts a name another group lists without a sample (it may hold a recent failure)', () => {
+      const unsampled = { category: 'timeout', count: 1, pluginNames: ['jacoco'], samples: [] };
+      expect(run('counts', [['jacoco', '1.2.0']], pending, [group('2026-11-22T03:20:00.000Z'), unsampled], SINCE).trim()).toBe('0 1 0');
+    });
+
+    it('treats a sample with no failedAt as recent', () => {
+      expect(run('counts', [['jacoco', '1.2.0']], pending, [group(null)], SINCE).trim()).toBe('0 1 0');
+    });
+
+    it('without SINCE, counts the old failed job as before', () => {
+      expect(run('counts', [['jacoco', '1.2.0']], pending, [group('2026-11-22T03:20:00.000Z')]).trim()).toBe('0 1 0');
+    });
   });
 
   it('reads an unreadable API body as nothing built and nothing failed, never a crash', () => {

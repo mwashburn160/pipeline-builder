@@ -1227,20 +1227,47 @@ _api_error() {
 }
 
 step_up_token() {
-  local _resp _token
-  # Password via jq's environment + curl's stdin, never argv (visible in ps).
-  _resp=$(PB_PW="$PLATFORM_PASSWORD" jq -n '{password: env.PB_PW}' \
-    | curl -X POST "${PLATFORM_BASE_URL}/api/auth/step-up" \
-      -k -s \
-      -H 'Content-Type: application/json' \
-      -H "Authorization: Bearer ${JWT_TOKEN}" \
-      --data-binary @- 2>&1) || true
-  _token=$(printf '%s' "$_resp" | jq -r '.data.stepUpToken // empty' 2>/dev/null) || true
-  if [ -z "$_token" ]; then
-    echo "ERROR: could not obtain a step-up token (is PLATFORM_PASSWORD correct?)" >&2
+  local _resp _status _body _token _attempt=1
+  local _tries="${STEP_UP_RETRIES:-3}"
+  # Each attempt is BOUNDED. Without --max-time, one stalled connection to the
+  # ingress hung init for 43 minutes and then failed with no reason given.
+  # Retry only what a retry can fix: a timeout/connection error (000), a gateway
+  # error (502/503/504), or the per-user step-up limiter (429, 5 per minute, which
+  # init's 4 step-ups plus a re-run can trip). A 401 is a wrong password: repeating
+  # it would only spend the lockout budget, so it fails at once.
+  while :; do
+    # Password via jq's environment + curl's stdin, never argv (visible in ps).
+    _resp=$(PB_PW="$PLATFORM_PASSWORD" jq -n '{password: env.PB_PW}' \
+      | curl -X POST "${PLATFORM_BASE_URL}/api/auth/step-up" \
+        -k -s -w '\n%{http_code}' \
+        --connect-timeout 10 --max-time "${STEP_UP_TIMEOUT:-30}" \
+        -H 'Content-Type: application/json' \
+        -H "Authorization: Bearer ${JWT_TOKEN}" \
+        --data-binary @- 2>/dev/null) || true
+    _status=$(printf '%s' "$_resp" | tail -n1)
+    _body=$(printf '%s' "$_resp" | sed '$d')
+    [ -n "$_status" ] || _status=000
+    _token=$(printf '%s' "$_body" | jq -r '.data.stepUpToken // empty' 2>/dev/null) || true
+    if [ -n "$_token" ]; then
+      printf '%s\n' "$_token"
+      return 0
+    fi
+    case "$_status" in
+      000|429|502|503|504)
+        if [ "$_attempt" -lt "$_tries" ]; then
+          local _wait=5
+          # The limiter's window is a minute; waiting less just earns another 429.
+          [ "$_status" = 429 ] && _wait="${STEP_UP_RATE_WAIT:-65}"
+          echo "  step-up attempt ${_attempt}/${_tries} failed (HTTP ${_status}$(_api_error "$_body")) — retrying in ${_wait}s" >&2
+          sleep "$_wait"
+          _attempt=$((_attempt + 1))
+          continue
+        fi ;;
+    esac
+    echo "ERROR: could not obtain a step-up token (HTTP ${_status}$(_api_error "$_body"))" >&2
+    [ "$_status" = 401 ] && echo "  Check PLATFORM_PASSWORD." >&2
     return 1
-  fi
-  printf '%s\n' "$_token"
+  done
 }
 
 # ---------------------------------------------------------------------------

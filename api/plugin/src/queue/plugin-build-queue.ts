@@ -20,6 +20,7 @@ import { DelayedError, UnrecoverableError, Worker } from 'bullmq';
 import type { Job, ConnectionOptions } from 'bullmq';
 import { and, eq } from 'drizzle-orm';
 
+import { blobGcHoldUntil } from './blob-gc-hold.js';
 import { buildTrigger, chargeBuildCredits } from './build-credits.js';
 import { recordBuildEvent } from './build-failures.js';
 import { withReplicaBuildSlot, maxBuildsPerReplica, buildBorrowMax } from './build-gate.js';
@@ -275,6 +276,22 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
     // A nightly remediation rides the same tier queues and workers (after every
     // un-prioritised user build), under the org's flexible build slot and the
     // replica budget, plus its own fleet-wide PLUGIN_REMEDIATION_CONCURRENCY.
+    // The weekly blob-GC push freeze (blob-gc-hold.ts): a build that could reach
+    // its image push inside it waits for it to end instead of being refused at
+    // the push. Before the slot gate, so a held build holds no slot; a delay
+    // spends no attempt (the DelayedError pairing, as for the slot wait below).
+    const holdUntil = blobGcHoldUntil();
+    if (holdUntil !== null) {
+      if (job.name !== PLUGIN_REMEDIATION_JOB_NAME) {
+        await sseManager.bindStreamOwner(job.data.requestId, job.data.orgId).catch(() => undefined);
+        sseManager.send(job.data.requestId, 'INFO',
+          `Waiting for the registry's weekly maintenance window to end (${new Date(holdUntil).toISOString()}): image pushes are paused during it. The build starts automatically.`,
+          { holdUntil });
+      }
+      incCounter('plugin_build_blob_gc_hold_total', { job: job.name === PLUGIN_REMEDIATION_JOB_NAME ? 'remediation' : 'build' });
+      await job.moveToDelayed(holdUntil, token);
+      throw new DelayedError();
+    }
     if (job.name === PLUGIN_REMEDIATION_JOB_NAME) return runRemediationOnWorker(job as unknown as Job<PluginRemediationJobData>, token);
     const { requestId, orgId, userId, access, buildRequest, pluginRecord } = job.data;
     // The setup catalog load's marker keeps a gate-refused image for promotion

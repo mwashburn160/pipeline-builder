@@ -24,7 +24,7 @@
 import { randomUUID } from 'crypto';
 import path from 'path';
 
-import { createLogger, errorMessage, isSystemOrgId, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID, type GrypePackageType } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, fetchParentOrgId, isSystemOrgId, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID, type GrypePackageType } from '@pipeline-builder/api-core';
 import { setGauge } from '@pipeline-builder/api-server';
 import { Config } from '@pipeline-builder/pipeline-core';
 import { schema } from '@pipeline-builder/pipeline-data';
@@ -360,9 +360,42 @@ export async function refreshCanaryGauge(): Promise<void> {
   }
 }
 
-/** Enqueue a system-org build for every fixture not yet stored. Never throws. */
-export async function ensureRemediationCanaries(enqueue: (jobName: string, data: ReturnType<typeof createBuildJobData>) => Promise<void>): Promise<number> {
+/**
+ * Whether platform knows the system org yet, asked the way compliance's build
+ * gate asks: `GET /organization/:id/parent`. Platform creates that org when the
+ * first administrator registers, which on a new install is init-platform.sh,
+ * often well after the plugin service's first rescan pass. Until then compliance
+ * fails every system-org plugin closed ("parent-org lookup failed ... HTTP 404"),
+ * so a canary queued then can only fail. Any error counts as "not yet".
+ */
+export async function systemOrgReady(): Promise<boolean> {
   try {
+    await fetchParentOrgId(SYSTEM_ORG_ID, { authOrgId: SYSTEM_ORG_ID, throwOnHttpError: true });
+    return true;
+  } catch (err) {
+    logger.debug('System org not resolvable yet', { error: errorMessage(err) });
+    return false;
+  }
+}
+
+/**
+ * Enqueue a system-org build for every fixture not yet stored. Never throws.
+ *
+ * Waits for the system org: on a new install the first rescan pass completes
+ * before init has registered the administrator, and every fixture queued then
+ * failed compliance with a 404 (and tripped its circuit breaker). Skipping
+ * costs nothing: a fixture with no stored row is re-queued after the next
+ * completed pass.
+ */
+export async function ensureRemediationCanaries(
+  enqueue: (jobName: string, data: ReturnType<typeof createBuildJobData>) => Promise<void>,
+  isSystemOrgReady: () => Promise<boolean> = systemOrgReady,
+): Promise<number> {
+  try {
+    if (!(await isSystemOrgReady())) {
+      logger.info('Remediation canary fixtures deferred: the system org does not exist yet (init has not registered the administrator)');
+      return 0;
+    }
     const p = schema.plugin;
     const names = CANARY_FIXTURES.map((f) => canaryPluginName(f.type));
     const present = new Set((await elevatedTx((tx) => tx.select({ name: p.name }).from(p)
