@@ -506,6 +506,18 @@ describe('ai-core provider-registry', () => {
       expect(model.modelId).toBe('qwen2.5-coder');
     });
 
+    it('enables structured outputs so Output.object sends the JSON Schema to the local server', async () => {
+      process.env.OPENAI_COMPATIBLE_BASE_URL = 'http://ask-model:12434/v1';
+      process.env.OPENAI_COMPATIBLE_MODELS = 'qwen2.5-coder';
+
+      const { resolveModel } = await freshImport();
+      resolveModel('openai-compatible', 'qwen2.5-coder');
+
+      expect(createOpenAICompatible).toHaveBeenCalledWith(
+        expect.objectContaining({ supportsStructuredOutputs: true }),
+      );
+    });
+
     it('resolveModel rejects a model id not served by the local endpoint', async () => {
       process.env.OPENAI_COMPATIBLE_BASE_URL = 'http://ask-model:12434/v1';
       process.env.OPENAI_COMPATIBLE_MODELS = 'qwen2.5-coder';

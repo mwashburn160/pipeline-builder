@@ -130,7 +130,7 @@ spec:
               name: http
           env:
             - name: OLLAMA_MODEL
-              value: "qwen2.5-coder:7b"
+              value: "qwen2.5:7b-instruct"
             - name: OLLAMA_HOST
               value: "0.0.0.0:11434"
             # Keep the model resident. The default is 5m, after which ollama
@@ -160,7 +160,7 @@ spec:
             - name: OLLAMA_NUM_CTX
               value: "8192"
             - name: OLLAMA_SERVED_MODEL
-              value: "qwen2.5-coder:7b-ctx8k"
+              value: "qwen2.5:7b-instruct-ctx8k"
           # Run the server AND the pull as the container's main process.
           #
           # This was a lifecycle.postStart hook, which was a mistake: a blocking
@@ -267,7 +267,11 @@ spec:
           persistentVolumeClaim:
             claimName: ask-model-models
 ---
-# ask-agent -> ask-model (OpenAI-compatible inference). Additive istio authz.
+# ask-agent / pipeline / plugin -> ask-model (OpenAI-compatible inference).
+# Additive istio authz. pipeline and plugin are here because Ask's drafting
+# tools (propose_pipeline*, propose_plugin*) delegate the generation to them
+# (/pipelines/generate*, /plugins/generate) — without them every Ask draft
+# fails with `AI provider "openai-compatible" is not configured`.
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
@@ -283,6 +287,8 @@ spec:
         - source:
             principals:
               - cluster.local/ns/pipeline-builder/sa/ask-agent
+              - cluster.local/ns/pipeline-builder/sa/pipeline
+              - cluster.local/ns/pipeline-builder/sa/plugin
       to:
         - operation:
             ports: ["11434"]
@@ -298,10 +304,18 @@ spec:
   policyTypes:
     - Ingress
   ingress:
+    # ask-agent, plus pipeline and plugin for Ask's delegated draft generation
+    # (see ask-model-allow above).
     - from:
         - podSelector:
             matchLabels:
               app: ask-agent
+        - podSelector:
+            matchLabels:
+              app: pipeline
+        - podSelector:
+            matchLabels:
+              app: plugin
       ports:
         - port: 11434
 ---

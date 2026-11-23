@@ -63,6 +63,13 @@ const PROVIDER_FACTORIES: Record<string, (key?: string) => (modelId: string) => 
       name: OPENAI_COMPATIBLE_PROVIDER_ID,
       baseURL,
       apiKey: key ?? process.env.OPENAI_COMPATIBLE_API_KEY ?? 'not-needed',
+      // Send the JSON Schema (`response_format: json_schema`) for Output.object /
+      // generateObject, so the server constrains decoding to it. Without this the
+      // SDK sends bare `json_object` and a small self-hosted model must follow a
+      // large schema unaided: every AI draft (pipeline/plugin generation behind
+      // Ask's propose_* tools) failed "response did not match schema" on
+      // qwen2.5 7B, and passed with it. Ollama, vLLM and llama.cpp all honour it.
+      supportsStructuredOutputs: true,
     });
     return (modelId: string) => provider(modelId);
   },

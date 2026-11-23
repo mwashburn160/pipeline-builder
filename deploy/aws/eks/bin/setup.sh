@@ -1038,7 +1038,8 @@ spec:
     matchExpressions:
       - key: app
         operator: In
-        values: [alloy, prometheus, ops-center, kube-state-metrics]
+        # Same set as allow-kube-api-egress in k8s/networkpolicy.yaml (keep in step).
+        values: [alloy, prometheus, ops-center, kube-state-metrics, ask-model-scaler]
   policyTypes:
     - Egress
   egress:

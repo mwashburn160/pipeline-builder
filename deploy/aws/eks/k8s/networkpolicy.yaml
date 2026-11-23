@@ -1029,7 +1029,11 @@ spec:
         # platform is NOT listed: it holds no Kubernetes RBAC at all.
         # kube-state-metrics joins them: its entire job is LISTing and WATCHing
         # this namespace's API objects, which is API-server traffic like theirs.
-        values: [alloy, prometheus, ops-center, kube-state-metrics]
+        # ask-model-scaler: the ask-model-up/down CronJobs (ask-model-schedule.yaml)
+        # run `kubectl scale deployment/ask-model` — API-server traffic. Without
+        # it here their pods time out on the TLS handshake and the GPU is never
+        # scaled down (2026-11-23).
+        values: [alloy, prometheus, ops-center, kube-state-metrics, ask-model-scaler]
   # NOT SUFFICIENT ON ITS OWN for ops-center: it is ports-only, and
   # allow-ops-center-external-egress `except`s 192.168.0.0/16, where the EKS
   # control-plane ENIs live — the `except` deny wins (see allow-dns-egress).
