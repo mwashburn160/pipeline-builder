@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 327b08f41114054409a8cb2154e9eabede6e19fe47a69ad5ae5ac3a158ff1152
+// SOURCE-SHA256: ea7e098a20064ac1d6067ca8988609913ec1f2071fae7bf3ec452382e20cbb78
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1537,6 +1537,11 @@ export const envVariablesTopic: HelpTopic = {
               "REGISTRY_STORAGE_CACHE_TTL_MS",
               "60000",
               "Namespace storage rollup and per-version breakdown cache (ms) — short enough that a cleanup shows freed bytes promptly, long enough that a dashboard auto-refresh doesn't walk the registry each time. Per-org totals come from the storage snapshot below"
+            ],
+            [
+              "REGISTRY_STORAGE_BREAKDOWN_MAX_STALE_MS",
+              "600000",
+              "How long a complete per-version breakdown (the Storage page) is still served once past REGISTRY_STORAGE_CACHE_TTL_MS, while a refresh runs in the background. A breakdown walks the whole catalog and can outlast the page's 25s deadline, so recomputing on every view past the TTL meant the page never loaded. A prune or delete still evicts it at once"
             ],
             [
               "REGISTRY_STORAGE_SNAPSHOT_INTERVAL_MS",
