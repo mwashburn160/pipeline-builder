@@ -80,7 +80,9 @@ export function useRepoAnalysis({ initialUrl, autoGenerate }: UseRepoAnalysisOpt
   const [projectOverride, setProjectOverride] = useState('');
   const [organizationOverride, setOrganizationOverride] = useState('');
 
-  const ai = useAIProviders(() => api.getAIProviders(), { askAgent: true });
+  // The Git URL form checks the Ask agent's model is answering before making it
+  // the default; when it is not, the local provider is selected instead.
+  const ai = useAIProviders(() => api.getAIProviders(), { askAgent: true, probeAskAgent: true });
   const { generating, error, preview: previewJson, setError, setPreview: setPreviewJson, generate } = useAiStreamGeneration();
 
   // Set on unmount (e.g. the create modal closes or the user switches tab

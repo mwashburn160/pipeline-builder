@@ -253,7 +253,12 @@ export type AskUnavailableReason =
   /** No AI provider is configured at all. Does NOT come back by itself. */
   | 'not-configured'
   /** The organization's administrators switched AI features off. */
-  | 'disabled';
+  | 'disabled'
+  /**
+   * A live probe (`?probe=true`) found the self-hosted model not answering —
+   * switched off by hand, crashed, still starting, or missing its weights.
+   */
+  | 'unreachable';
 
 /** The answer `GET /ask-agent/availability` serves. */
 export type AskAvailability =

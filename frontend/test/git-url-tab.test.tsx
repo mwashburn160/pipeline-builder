@@ -10,7 +10,9 @@
  *  - the generated props (with the project/organization overrides) plus the
  *    generated description/keywords reach `onSubmit`;
  *  - Create before generating says to generate first; a stream error shows;
- *  - an `initialUrl` + `autoGenerate` (the dashboard hero) starts on its own.
+ *  - an `initialUrl` + `autoGenerate` (the dashboard hero) starts on its own;
+ *  - the Ask agent is the default only when its model answers a live check;
+ *    otherwise the local (OpenAI-compatible) provider is selected and a warning shown.
  */
 
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
@@ -146,5 +148,41 @@ describe('GitUrlTab inside the create modal', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Create 1 placeholder plugin$/ }));
     expect(await screen.findByText(/plugin quota reached/)).toBeInTheDocument();
     expect(screen.getByTestId('missing-plugins-proposal')).toBeInTheDocument();
+  });
+});
+
+describe('GitUrlTab default provider: checks the Ask agent first', () => {
+  const LOCAL = { id: 'openai-compatible', name: 'Local model (OpenAI-compatible)', models: [{ id: 'qwen', name: 'Qwen 2.5 7B Instruct' }] };
+
+  beforeEach(() => {
+    apiFn('getAIProviders').mockResolvedValue({ success: true, data: { providers: [LOCAL] } });
+    apiFn('getAskProviders').mockResolvedValue({ success: true, data: { providers: [LOCAL] } });
+  });
+
+  it('defaults to the Ask agent when its model answers', async () => {
+    apiFn('getAskAvailability').mockResolvedValue({ success: true, data: { available: true } });
+    renderModal();
+    await waitFor(() => expect(screen.getByLabelText('Provider')).toHaveValue('ask-agent'));
+    expect(apiFn('getAskAvailability')).toHaveBeenCalledWith({ probe: true, provider: 'openai-compatible' });
+    expect(screen.queryByText(/not responding/)).not.toBeInTheDocument();
+  });
+
+  it('defaults to the local provider, with a warning, when the Ask agent\'s model is not responding', async () => {
+    apiFn('getAskAvailability').mockResolvedValue({
+      success: true,
+      data: { available: false, reason: 'unreachable', message: 'The Ask assistant\'s self-hosted model is not responding.' },
+    });
+    renderModal();
+    await waitFor(() => expect(screen.getByLabelText('Provider')).toHaveValue('openai-compatible'));
+    expect(screen.getByText(/not responding\. Another provider was selected instead\./)).toBeInTheDocument();
+    // Still offered, so the user can choose it anyway.
+    expect(screen.getByRole('option', { name: /^Ask agent/ })).toBeInTheDocument();
+  });
+
+  it('does not default to the Ask agent when the check itself fails', async () => {
+    apiFn('getAskAvailability').mockRejectedValue(new Error('network'));
+    renderModal();
+    await waitFor(() => expect(screen.getByLabelText('Provider')).toHaveValue('openai-compatible'));
+    expect(screen.getByText(/Could not confirm the Ask assistant is available/)).toBeInTheDocument();
   });
 });

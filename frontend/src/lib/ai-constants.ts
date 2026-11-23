@@ -43,6 +43,13 @@ export interface AIProviderInfo {
  */
 export const ASK_AGENT_PROVIDER_ID = 'ask-agent';
 
+/**
+ * The local / self-hosted (OpenAI-compatible) provider id. Mirrors
+ * `OPENAI_COMPATIBLE_PROVIDER_ID` in `@pipeline-builder/api-core`, which is not
+ * exported on the browser-safe `ai-catalog` subpath.
+ */
+export const OPENAI_COMPATIBLE_PROVIDER_ID = 'openai-compatible';
+
 /** True when the selected provider routes generation through the Ask agent. */
 export function isAskAgentProvider(providerId: string): boolean {
   return providerId === ASK_AGENT_PROVIDER_ID;

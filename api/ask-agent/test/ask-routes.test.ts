@@ -10,7 +10,7 @@
  * done. The grounding/answer logic itself is covered in `@pipeline-builder/ai-core`.
  */
 
-import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
@@ -103,6 +103,13 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   CoreConstants: { SSE_STREAM_TIMEOUT_MS: 300000 },
+}));
+
+/** The live self-hosted-model probe (its own behaviour is model-probe.test.ts). */
+const mockProbe = jest.fn<(...a: any[]) => any>(async () => ({ reachable: true }));
+jest.unstable_mockModule('../src/services/model-probe.js', () => ({
+  probeSelfHostedModel: (...a: unknown[]) => mockProbe(...a),
+  resetModelProbeCache: jest.fn(),
 }));
 
 ({ withAiCallReservation: realWithAiCallReservation, reserveAiCallSlot: realReserveAiCallSlot } = await import('@pipeline-builder/api-server/lib/api/ai-call-reservation.js'));
@@ -200,6 +207,53 @@ describe('GET /ask-agent/availability', () => {
   it('falls back to the platform-default prediction when the org settings cannot be read', async () => {
     mockFetchOrgAIAccess.mockRejectedValue(new Error('platform down'));
     expect(await availability()).toEqual({ available: true });
+  });
+  describe('?probe=true', () => {
+    const localProvider = { id: 'openai-compatible', name: 'Local model', models: [{ id: 'qwen', name: 'Qwen' }] };
+    const probed = async (query: Record<string, string>) => {
+      const res = mockRes();
+      await getHandler('get', '/availability')({ ...mockReq(undefined), query }, res);
+      return res.json.mock.calls[0]?.[0]?.data;
+    };
+
+    beforeEach(() => {
+      mockProbe.mockReset();
+      mockFetchOrgAIAccess.mockResolvedValue({ aiEnabled: true, providers: [] });
+      mockGetAvailableProviders.mockReturnValue([localProvider]);
+    });
+
+    // clearAllMocks keeps implementations: restore the suite's default list.
+    afterEach(() => {
+      mockGetAvailableProviders.mockReturnValue([{ id: 'anthropic', name: 'Anthropic', models: [{ id: 'claude-sonnet-5', name: 'Claude Sonnet 5' }] }]);
+    });
+
+    it('reports the self-hosted model unreachable when the live probe fails', async () => {
+      mockProbe.mockResolvedValue({ reachable: false });
+      expect(await probed({ probe: 'true', provider: 'openai-compatible' })).toMatchObject({ available: false, reason: 'unreachable' });
+      expect(mockProbe).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports available when the live probe succeeds', async () => {
+      mockProbe.mockResolvedValue({ reachable: true });
+      expect(await probed({ probe: 'true', provider: 'openai-compatible' })).toEqual({ available: true });
+    });
+
+    it('never probes without ?probe=true — the Ask panel check stays socket-free', async () => {
+      expect(await probed({ provider: 'openai-compatible' })).toEqual({ available: true });
+      expect(mockProbe).not.toHaveBeenCalled();
+    });
+
+    it('never probes a cloud provider', async () => {
+      mockGetAvailableProviders.mockReturnValue([{ id: 'anthropic', name: 'Anthropic', models: [] }, localProvider]);
+      expect(await probed({ probe: 'true', provider: 'anthropic' })).toEqual({ available: true });
+      expect(mockProbe).not.toHaveBeenCalled();
+    });
+
+    it('ignores a provider id that is not configured', async () => {
+      // Falls back to the predicted default (anthropic in this suite's resolveModelSelection mock).
+      expect(await probed({ probe: 'true', provider: 'made-up' })).toEqual({ available: true });
+      expect(mockProbe).not.toHaveBeenCalled();
+    });
   });
 });
 
