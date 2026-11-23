@@ -21,6 +21,7 @@ import {
   fetchOrgAIAccess,
   initSSEStream,
   isKeylessProviderId,
+  OPENAI_COMPATIBLE_PROVIDER_ID,
   requireFeature,
   requireOrgAIEnabled,
   sendBadRequest,
@@ -39,6 +40,7 @@ import { requireAskAccess } from '../authz.js';
 import { AskBodySchema, AskFeedbackSchema } from '../request-schema.js';
 import { recordAi, recordAiTokens, recordAskFeedback, recordHelpSearchMiss } from '../services/ai-metrics.js';
 import { getDocsIndex } from '../services/docs-index.js';
+import { probeSelfHostedModel } from '../services/model-probe.js';
 import { askModelAvailability, sendAskFailure } from '../services/model-window.js';
 import { ASK_MAX_OUTPUT_TOKENS, ASK_TEMPERATURE } from '../services/model.js';
 
@@ -177,7 +179,12 @@ export function createAskRoutes(quotaService: QuotaService): Router {
   // Predicts what the routes below resolve when the caller names no provider:
   // the org's own provider when it configured one, else the registry's first.
   // An org whose administrators switched AI off is told so (`reason: 'disabled'`).
-  router.get('/availability', requireAskAccess, requireFeature('ai_generation'), withRoute(async ({ res, orgId }) => {
+  //
+  // `?probe=true` (opt-in; the Git URL form uses it) additionally makes ONE live
+  // request to the self-hosted model server — see services/model-probe.ts — and
+  // `?provider=<id>` lets a caller that sends an explicit provider ask about that
+  // one instead of the predicted default.
+  router.get('/availability', requireAskAccess, requireFeature('ai_generation'), withRoute(async ({ req, res, orgId }) => {
     let predicted: { provider?: string; aiEnabled: boolean };
     try {
       predicted = await predictedProvider(orgId);
@@ -194,10 +201,31 @@ export function createAskRoutes(quotaService: QuotaService): Router {
         message: 'AI features are turned off for this organization. The help topics below cover the same material.',
       });
     }
+    // Only a configured provider id is honoured from the query string.
+    const query = req.query ?? {};
+    const requested = typeof query.provider === 'string' ? query.provider : undefined;
+    const provider = requested && getAvailableProviders().some((p) => p.id === requested)
+      ? requested
+      : predicted.provider;
+
     // No provider (no org key, no platform key, no OPENAI_COMPATIBLE_BASE_URL) is
     // a real "cannot answer", and unlike the schedule it does not come back on
     // its own — askModelAvailability reports it as not-configured.
-    return sendSuccess(res, 200, askModelAvailability(predicted.provider));
+    const availability = askModelAvailability(provider);
+
+    // Cloud providers are never probed: their uptime is not this deployment's to
+    // observe, and a probe would cost nothing useful.
+    if (query.probe === 'true' && availability.available && provider === OPENAI_COMPATIBLE_PROVIDER_ID) {
+      const { reachable } = await probeSelfHostedModel();
+      if (!reachable) {
+        return sendSuccess(res, 200, {
+          available: false,
+          reason: 'unreachable',
+          message: 'The Ask assistant\'s self-hosted model is not responding. It may be switched off or still starting up — ask an operator to check it.',
+        });
+      }
+    }
+    return sendSuccess(res, 200, availability);
   }));
 
   // -- POST /ask-agent/feedback  was that answer any good? -------------------------

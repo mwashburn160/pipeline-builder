@@ -6,6 +6,7 @@ import { isKeylessProviderId } from '@pipeline-builder/api-core/ai-catalog';
 import {
   type AIProviderInfo,
   ASK_AGENT_PROVIDER_ID,
+  OPENAI_COMPATIBLE_PROVIDER_ID,
   ORG_PROVIDER_MODELS,
   AI_PROVIDER_NAMES,
   askAgentModelId,
@@ -54,6 +55,13 @@ export interface UseAIProvidersResult {
    */
   hasConfiguredProvider: boolean;
   /**
+   * Set when `probeAskAgent` found the Ask agent unable to answer: a sentence for
+   * the user saying so. The default selection then skipped the Ask agent (see
+   * {@link pickDefaultProviderWithoutAskAgent}); it stays in the list so the user
+   * can still choose it. Null when the check passed or was not asked for.
+   */
+  askAgentUnavailable: string | null;
+  /**
    * True when the organization's administrators switched AI features off
    * (`aiEnabled: false` on the org AI config). Every AI entry point then refuses
    * with `AI_DISABLED`, so callers show a locked state instead of a picker and
@@ -72,6 +80,14 @@ export interface UseAIProvidersOptions {
    * to the direct providers.
    */
   askAgent?: boolean;
+  /**
+   * Before defaulting to the Ask agent, check that its model is actually
+   * answering (`GET /ask-agent/availability?probe=true`). When it is not, the
+   * default falls to the local (OpenAI-compatible) provider instead — see
+   * {@link pickDefaultProviderWithoutAskAgent} — and `askAgentUnavailable`
+   * carries the reason. Only meaningful with `askAgent`.
+   */
+  probeAskAgent?: boolean;
 }
 
 type ProvidersResponse = { data?: { providers?: Array<{ id: string; name: string; models: Array<{ id: string; name: string }> }> } };
@@ -169,6 +185,25 @@ export function pickDefaultProvider(merged: AIProviderInfo[]): AIProviderInfo | 
   return merged.find((p) => p.source !== 'none' && p.models.length > 0) ?? merged[0];
 }
 
+/**
+ * The default when the Ask agent was checked and is NOT answering: the local
+ * (OpenAI-compatible) provider when it is configured, otherwise the usual
+ * default among the remaining providers. The Ask agent stays in the list — the
+ * user can still pick it — it just is not pre-selected to fail.
+ *
+ * Note that on deployments where the local provider points at the same
+ * `ask-model` server, it will be down too; the caller shows the notice so the
+ * user is told before clicking Generate either way.
+ */
+export function pickDefaultProviderWithoutAskAgent(merged: AIProviderInfo[]): AIProviderInfo | undefined {
+  const rest = merged.filter((p) => p.id !== ASK_AGENT_PROVIDER_ID);
+  return rest.find((p) => p.id === OPENAI_COMPATIBLE_PROVIDER_ID && p.source !== 'none' && p.models.length > 0)
+    ?? pickDefaultProvider(rest);
+}
+
+/** Shown when the availability check itself could not be completed. */
+const ASK_AGENT_CHECK_FAILED = 'Could not confirm the Ask assistant is available, so another provider was selected.';
+
 export function useAIProviders(
   fetchServerProviders: () => Promise<ProvidersResponse>,
   options: UseAIProvidersOptions = {},
@@ -182,22 +217,45 @@ export function useAIProviders(
   // every provider, so a user with their own key can proceed — the error only
   // stops an outage from masquerading as "no providers configured".
   const { data, loading, error: loadError } = useFetch(async () => {
-    const [server, org, ask] = await Promise.allSettled([
+    const askProviders = options.askAgent ? api.getAskProviders() : Promise.resolve(null);
+    // The availability check needs the provider the Ask agent's DEFAULT model
+    // will call (its first model — see askAgentEntry), so it chains on the
+    // provider list while the other two sources load in parallel.
+    const askCheck = options.askAgent && options.probeAskAgent
+      ? askProviders.then((res) => {
+        const provider = res?.data?.providers?.find((p) => p.models.length > 0)?.id;
+        return provider ? api.getAskAvailability({ probe: true, provider }) : null;
+      })
+      : Promise.resolve(null);
+    const [server, org, ask, check] = await Promise.allSettled([
       fetchServerProviders(),
       api.getOrgAIConfig(),
-      options.askAgent ? api.getAskProviders() : Promise.resolve(null),
+      askProviders,
+      askCheck,
     ]);
     const value = <T,>(r: PromiseSettledResult<T>): T | null => (r.status === 'fulfilled' ? r.value : null);
+    const providers = mergeAIProviders(value(server), value(org), value(ask));
+
+    // Only judged when the Ask agent is actually offered. A check that could
+    // not complete counts as "not confirmed": the point is not to pre-select a
+    // provider that may only fail.
+    let askAgentUnavailable: string | null = null;
+    if (options.probeAskAgent && providers.some((p) => p.id === ASK_AGENT_PROVIDER_ID)) {
+      const availability = value(check)?.data;
+      if (!availability) askAgentUnavailable = ASK_AGENT_CHECK_FAILED;
+      else if (!availability.available) askAgentUnavailable = availability.message;
+    }
     return {
-      providers: mergeAIProviders(value(server), value(org), value(ask)),
+      providers,
+      askAgentUnavailable,
       degraded: [server, org, ask].some((r) => r.status === 'rejected'),
       // Explicitly `false` only: an unreadable org config must not lock the UI —
       // the server still refuses a disabled org, and says why.
       aiDisabled: value(org)?.data?.aiEnabled === false,
     };
   }, [], {
-    onSuccess: ({ providers: merged }) => {
-      const first = pickDefaultProvider(merged);
+    onSuccess: ({ providers: merged, askAgentUnavailable }) => {
+      const first = askAgentUnavailable ? pickDefaultProviderWithoutAskAgent(merged) : pickDefaultProvider(merged);
       if (!first) return;
       setSelectedProviderState(first.id);
       if (first.models.length > 0) setSelectedModel(first.models[0].id);
@@ -240,6 +298,7 @@ export function useAIProviders(
     error,
     hasConfiguredProvider,
     aiDisabled: data?.aiDisabled ?? false,
+    askAgentUnavailable: data?.askAgentUnavailable ?? null,
     selectedProvider,
     selectedModel,
     setSelectedProvider,

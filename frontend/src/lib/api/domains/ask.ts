@@ -46,9 +46,11 @@ export type AskAvailability =
     /**
      * `scheduled-off` returns by itself; `not-configured` does not; `disabled`
      * means the organization's administrators turned AI off (`AI_DISABLED`) —
-     * it returns only when one turns it back on in Settings.
+     * it returns only when one turns it back on in Settings; `unreachable` comes
+     * only from a live probe (`probe: true`) that found the self-hosted model
+     * not answering.
      */
-    reason: 'scheduled-off' | 'not-configured' | 'disabled';
+    reason: 'scheduled-off' | 'not-configured' | 'disabled' | 'unreachable';
     /** A ready sentence for the user, with times already stated as UTC. */
     message: string;
     /** When it returns, e.g. `07:45 UTC`. */
@@ -67,9 +69,17 @@ export function askApi(core: ApiCore) {
      * Whether the assistant can answer right now. Cheap and side-effect free:
      * the server resolves provider CONFIGURATION only and never opens a socket
      * to the model, so this neither wakes nor probes it.
+     *
+     * `probe: true` additionally has the server make one short live request to
+     * the self-hosted model (cached server-side for a few seconds); `provider`
+     * asks about that provider instead of the predicted default.
      */
-    getAskAvailability: async () => {
-      return core.request<ApiResponse<AskAvailability>>('/api/ask-agent/availability');
+    getAskAvailability: async (opts: { probe?: boolean; provider?: string } = {}) => {
+      const params = new URLSearchParams();
+      if (opts.probe) params.set('probe', 'true');
+      if (opts.provider) params.set('provider', opts.provider);
+      const qs = params.toString();
+      return core.request<ApiResponse<AskAvailability>>(`/api/ask-agent/availability${qs ? `?${qs}` : ''}`);
     },
 
     /**

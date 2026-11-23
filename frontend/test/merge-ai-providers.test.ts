@@ -4,7 +4,7 @@
 /** mergeAIProviders: the AI picker's provider order and sources. */
 
 import { describe, it, expect } from '@jest/globals';
-import { mergeAIProviders, pickDefaultProvider } from '@/hooks/useAIProviders';
+import { mergeAIProviders, pickDefaultProvider, pickDefaultProviderWithoutAskAgent } from '@/hooks/useAIProviders';
 
 const server = { data: { providers: [{ id: 'openai', name: 'OpenAI', models: [{ id: 'gpt', name: 'GPT' }] }] } };
 const org = { success: true, statusCode: 200, data: { providers: { anthropic: { configured: true }, openai: { configured: true }, google: { configured: false } } } } as never;
@@ -84,5 +84,30 @@ describe('pickDefaultProvider', () => {
     const merged = mergeAIProviders(null, null, null);
     expect(merged.every((p) => p.source === 'none')).toBe(true);
     expect(pickDefaultProvider(merged)).toBeDefined();
+  });
+});
+
+describe('pickDefaultProviderWithoutAskAgent', () => {
+  const local = { data: { providers: [
+    { id: 'openai', name: 'OpenAI', models: [{ id: 'gpt', name: 'GPT' }] },
+    { id: 'openai-compatible', name: 'Local model (OpenAI-compatible)', models: [{ id: 'qwen', name: 'Qwen' }] },
+  ] } };
+
+  it('selects the local provider when the Ask agent is not answering', () => {
+    const merged = mergeAIProviders(local, null, ask);
+    expect(pickDefaultProvider(merged)!.id).toBe('ask-agent');
+    const picked = pickDefaultProviderWithoutAskAgent(merged)!;
+    expect(picked.id).toBe('openai-compatible');
+    expect(picked.source).toBe('server');
+  });
+
+  it('falls back to the usual default when no local provider is configured', () => {
+    expect(pickDefaultProviderWithoutAskAgent(mergeAIProviders(server, null, ask))!.id).toBe('openai');
+  });
+
+  it('never selects the Ask agent, even when nothing else is configured', () => {
+    const picked = pickDefaultProviderWithoutAskAgent(mergeAIProviders(null, null, ask))!;
+    expect(picked.id).not.toBe('ask-agent');
+    expect(picked.source).toBe('none');
   });
 });
