@@ -103,6 +103,16 @@ spec:
           env:
             - name: SERVICE_NAME
               value: "pipeline"
+            # Self-hosted model (ask-model.yaml) for AI generation. Ask's drafting
+            # tools delegate here (/pipelines/generate*); without these every
+            # Ask draft fails `AI provider "openai-compatible" is not configured`.
+            # Must match ask-agent.yaml's OPENAI_COMPATIBLE_MODELS / ask-model's
+            # OLLAMA_SERVED_MODEL; ask-model-allow admits this service account.
+            # LEAN=1 strips both with ask-model.
+            - name: OPENAI_COMPATIBLE_BASE_URL
+              value: "http://ask-model:11434/v1"
+            - name: OPENAI_COMPATIBLE_MODELS
+              value: "qwen2.5:7b-instruct-ctx8k|Qwen 2.5 7B Instruct"
             - name: COMPLIANCE_SERVICE_HOST
               value: "compliance"
             - name: COMPLIANCE_SERVICE_PORT

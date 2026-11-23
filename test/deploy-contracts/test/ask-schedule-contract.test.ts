@@ -252,3 +252,28 @@ describe('ask-model schedule — the two standalone copies do not drift', () => 
     expect(kinds).toContain('Role');
   });
 });
+
+describe('ask-model schedule — the scaler can reach the API server', () => {
+  // The bug this caught (2026-11-23): the scaler pods (`app: ask-model-scaler`)
+  // were in no kube-API egress policy, so `kubectl scale` timed out on the TLS
+  // handshake to 10.100.0.1:443 and the GPU was never scaled down. On eks the
+  // generated allow-kube-api-endpoints (setup.sh) is needed as well: the
+  // control-plane ENIs sit in a range other egress policies `except`.
+  const apiEgressApps = (target: string): string[] => {
+    const np = yamlDocs<Doc>(`${target}/k8s/networkpolicy.yaml`)
+      .find((d) => d.kind === 'NetworkPolicy' && d.metadata.name === 'allow-kube-api-egress')!;
+    return (np.spec.podSelector.matchExpressions as Doc[]).flatMap((e) => e.values as string[]);
+  };
+
+  it.each(TARGETS.map((t) => t.target))('%s allow-kube-api-egress selects the scaler pods', (target) => {
+    const label = cronOf(docsOf(target), 'ask-model-down').spec.jobTemplate.spec.template.metadata.labels.app;
+    expect(apiEgressApps(target)).toContain(label);
+  });
+
+  it('eks setup.sh allow-kube-api-endpoints selects the same apps as allow-kube-api-egress', () => {
+    const setup = read('deploy/aws/eks/bin/setup.sh');
+    const block = setup.slice(setup.indexOf('name: allow-kube-api-endpoints'));
+    const values = block.match(/values: \[([^\]]*)\]/)![1].split(',').map((s) => s.trim());
+    expect([...values].sort()).toEqual([...apiEgressApps('deploy/aws/eks')].sort());
+  });
+});
