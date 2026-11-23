@@ -17,6 +17,7 @@ import {
   audited,
   clientAbortSignal,
   createLogger,
+  envInt,
   errorMessage,
   fetchOrgAIAccess,
   initSSEStream,
@@ -32,7 +33,7 @@ import {
   type AiQuotaSettlement,
   type QuotaService,
 } from '@pipeline-builder/api-core';
-import { withAiCallReservation, withRoute, type AiCallSlot, type AiSlotWaiver } from '@pipeline-builder/api-server';
+import { rateLimitByOrg, withAiCallReservation, withRoute, type AiCallSlot, type AiSlotWaiver } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 
@@ -184,7 +185,18 @@ export function createAskRoutes(quotaService: QuotaService): Router {
   // request to the self-hosted model server — see services/model-probe.ts — and
   // `?provider=<id>` lets a caller that sends an explicit provider ask about that
   // one instead of the predicted default.
-  router.get('/availability', requireAskAccess, requireFeature('ai_generation'), withRoute(async ({ req, res, orgId }) => {
+  //
+  // Capped per USER (`ASK_AVAILABILITY_RATE_LIMIT_PER_MIN`, default 30) on top
+  // of the per-org Ask limit at the mount: the probe reaches the model server,
+  // so this route gets a bound of its own (the probe's cache bounds it too).
+  const availabilityPerUser = rateLimitByOrg({
+    name: 'ask-availability',
+    keyBy: 'user',
+    max: envInt('ASK_AVAILABILITY_RATE_LIMIT_PER_MIN', 30, { min: 1 }),
+    windowMs: 60_000,
+    message: 'Too many Ask availability checks',
+  });
+  router.get('/availability', requireAskAccess, requireFeature('ai_generation'), availabilityPerUser, withRoute(async ({ req, res, orgId }) => {
     let predicted: { provider?: string; aiEnabled: boolean };
     try {
       predicted = await predictedProvider(orgId);

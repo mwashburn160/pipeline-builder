@@ -34,7 +34,7 @@ afterEach(() => {
 
 describe('probeSelfHostedModel', () => {
   it('is reachable when the server lists an advertised model', async () => {
-    const fetchImpl = jest.fn(async () => served('llama3', 'qwen2.5:7b-instruct-ctx8k'));
+    const fetchImpl = jest.fn(async (_url: string, _init?: RequestInit) => served('llama3', 'qwen2.5:7b-instruct-ctx8k'));
     expect(await probeSelfHostedModel(fetchImpl as unknown as typeof fetch)).toEqual({ reachable: true });
     expect(fetchImpl).toHaveBeenCalledWith('http://ask-model:11434/v1/models', expect.objectContaining({ signal: expect.any(AbortSignal) }));
   });

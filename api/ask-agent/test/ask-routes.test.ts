@@ -88,7 +88,14 @@ const auditRecord = jest.fn();
 // The REAL reservation helper (its api-core calls hit this file's api-core mock).
 let realWithAiCallReservation: (...a: any[]) => unknown;
 let realReserveAiCallSlot: (...a: any[]) => unknown;
+/** Options each `rateLimitByOrg` limiter was built with, and the middleware it returned. */
+const limiters: Array<{ opts: Record<string, unknown>; mw: unknown }> = [];
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
+  rateLimitByOrg: (opts: Record<string, unknown>) => {
+    const mw = (_req: unknown, _res: unknown, next: () => void) => next();
+    limiters.push({ opts, mw });
+    return mw;
+  },
   withAiCallReservation: (...a: any[]) => realWithAiCallReservation(...a),
   reserveAiCallSlot: (...a: any[]) => realReserveAiCallSlot(...a),
   withRoute: (handler: Function) => async (req: any, res: any) => {
@@ -208,6 +215,15 @@ describe('GET /ask-agent/availability', () => {
     mockFetchOrgAIAccess.mockRejectedValue(new Error('platform down'));
     expect(await availability()).toEqual({ available: true });
   });
+  it('is capped per USER by its own limiter, ahead of the handler', () => {
+    const limiter = limiters.find((l) => l.opts.name === 'ask-availability');
+    expect(limiter?.opts).toMatchObject({ keyBy: 'user', max: 30, windowMs: 60_000 });
+    const layer = (router as any).stack.find((l: any) => l.route?.path === '/availability' && l.route?.methods.get);
+    const chain = layer.route.stack.map((s: any) => s.handle);
+    expect(chain).toContain(limiter!.mw);
+    expect(chain.indexOf(limiter!.mw)).toBeLessThan(chain.length - 1);
+  });
+
   describe('?probe=true', () => {
     const localProvider = { id: 'openai-compatible', name: 'Local model', models: [{ id: 'qwen', name: 'Qwen' }] };
     const probed = async (query: Record<string, string>) => {

@@ -111,6 +111,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 let realWithAiCallReservation: (...a: any[]) => unknown;
 let realReserveAiCallSlot: (...a: any[]) => unknown;
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
+  // The /availability per-user limiter, built when the Ask routes are; not under test here.
+  rateLimitByOrg: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   withAiCallReservation: (...a: any[]) => realWithAiCallReservation(...a),
   reserveAiCallSlot: (...a: any[]) => realReserveAiCallSlot(...a),
   withRoute: (handler: Function) => async (req: any, res: any) => {

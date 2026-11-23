@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: ea7e098a20064ac1d6067ca8988609913ec1f2071fae7bf3ec452382e20cbb78
+// SOURCE-SHA256: 6ad01600d67ea41730725fb2b05227307fc701055384aa0e15e814c70e4a2793
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -5312,6 +5312,21 @@ export const envVariablesTopic: HelpTopic = {
               "ASK_MAX_TURN_GENERATIONS",
               "2",
               "How many charged generations (propose_pipeline / propose_plugin / their from-repo forms / propose_template) one agent turn may START (1-10). Each draws its own aiCalls slot, and one model step can call several tools, so the step bound does not cap them; past this a generating tool declines. Refusals count ask_turn_generation_budget_refused_total."
+            ],
+            [
+              "ASK_MODEL_PROBE_TIMEOUT_MS",
+              "2500",
+              "Timeout (min 200) for the live check GET /ask-agent/availability?probe=true makes against the self-hosted model (GET {OPENAI_COMPATIBLE_BASE_URL}/models). The Git URL form waits on it before choosing its default provider, so keep it short; a timeout counts as \"not responding\"."
+            ],
+            [
+              "ASK_AVAILABILITY_RATE_LIMIT_PER_MIN",
+              "30",
+              "Per-user cap (min 1) on GET /ask-agent/availability, applied on top of the per-org ASK_RATE_LIMIT_PER_MIN. With ?probe=true that route reaches the self-hosted model server, so it gets a limit of its own."
+            ],
+            [
+              "ASK_MODEL_PROBE_CACHE_MS",
+              "15000",
+              "How long one live-check answer (reachable or not) is reused before the model server is asked again (min 0). Concurrent callers also share one in-flight check, so opening forms cannot flood the model server."
             ],
             [
               "MAX_PAGE_OFFSET",
