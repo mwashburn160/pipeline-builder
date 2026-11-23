@@ -108,6 +108,26 @@ export interface StorageBreakdown {
 const breakdownCache = new Map<string, StorageBreakdown>();
 
 /**
+ * How long a complete breakdown may still be SERVED (while a refresh runs in
+ * the background) once it is older than `CACHE_TTL_MS`. A breakdown costs a
+ * full catalog walk plus a scan — tens of seconds on an object-store backend,
+ * past the route's deadline — so recomputing on every view past the 60s TTL
+ * meant the Storage page never loaded. Override via
+ * `REGISTRY_STORAGE_BREAKDOWN_MAX_STALE_MS`.
+ */
+const BREAKDOWN_MAX_STALE_MS = envInt('REGISTRY_STORAGE_BREAKDOWN_MAX_STALE_MS', 600_000, { min: 1 });
+
+/** The one in-flight computation per org: concurrent views share it. */
+const breakdownInflight = new Map<string, Promise<StorageBreakdown>>();
+
+/**
+ * Bumped by {@link invalidateOrgStorageCache}. A computation only caches its
+ * result if no invalidation happened while it ran — otherwise a scan that
+ * started before a prune would put the deleted versions back.
+ */
+const breakdownGeneration = new Map<string, number>();
+
+/**
  * Per-version storage attribution for an org: what each image version costs,
  * and what deleting it would actually free.
  *
@@ -127,8 +147,48 @@ export async function computeOrgStorageBreakdown(
 ): Promise<StorageBreakdown> {
   const key = `${ORG_BREAKDOWN_KEY}${orgId}`;
   const cached = breakdownCache.get(key);
-  if (!opts.force && cached && Date.now() - cached.computedAt < CACHE_TTL_MS) return cached;
+  if (!opts.force && cached) {
+    const age = Date.now() - cached.computedAt;
+    if (age < CACHE_TTL_MS) return cached;
+    // Stale but recent enough: answer now, refresh behind it. `computedAt`
+    // tells the caller how old the figures are.
+    if (age < Math.max(BREAKDOWN_MAX_STALE_MS, CACHE_TTL_MS)) {
+      refreshOrgStorageBreakdown(orgId).catch((err: unknown) => {
+        logger.warn('Background storage breakdown refresh failed', { orgId, error: errorMessage(err) });
+      });
+      return cached;
+    }
+  }
+  return refreshOrgStorageBreakdown(orgId);
+}
 
+/**
+ * Compute an org's breakdown, sharing an in-flight computation if there is
+ * one (several page loads in a row used to start several catalog walks at
+ * once, which slowed the object store until they timed out), and cache it
+ * when complete and not invalidated meanwhile.
+ */
+function refreshOrgStorageBreakdown(orgId: string): Promise<StorageBreakdown> {
+  const key = `${ORG_BREAKDOWN_KEY}${orgId}`;
+  const running = breakdownInflight.get(key);
+  if (running) return running;
+  const generation = breakdownGeneration.get(key) ?? 0;
+  const run: Promise<StorageBreakdown> = measureOrgStorageBreakdown(orgId)
+    .then((result) => {
+      // Never cache a partial answer, for the same reason the rollup does not:
+      // a cached under-count outlives the outage that caused it.
+      if (!result.incomplete && (breakdownGeneration.get(key) ?? 0) === generation) breakdownCache.set(key, result);
+      return result;
+    })
+    .finally(() => {
+      if (breakdownInflight.get(key) === run) breakdownInflight.delete(key);
+    });
+  breakdownInflight.set(key, run);
+  return run;
+}
+
+/** One uncached breakdown measurement (see {@link computeOrgStorageBreakdown}). */
+async function measureOrgStorageBreakdown(orgId: string): Promise<StorageBreakdown> {
   const { repos, recordsComplete } = await orgScanRepositories(orgId);
   const scan = await scanRepositories(repos, { detail: true });
   const incomplete = scan.incomplete || !recordsComplete;
@@ -164,17 +224,13 @@ export async function computeOrgStorageBreakdown(
     // Biggest reclaimable first — the order a prune surface should offer.
     .sort((a, b) => b.marginalBytes - a.marginalBytes || b.totalBytes - a.totalBytes);
 
-  const result: StorageBreakdown = {
+  return {
     orgId,
     bytes: scan.bytes,
     entries,
     computedAt: Date.now(),
     incomplete,
   };
-  // Never cache a partial answer, for the same reason the rollup does not: a
-  // cached under-count outlives the outage that caused it.
-  if (!incomplete) breakdownCache.set(key, result);
-  return result;
 }
 
 /** What retiring one SYSTEM plugin version (every copy of it) would free. */
@@ -344,10 +400,16 @@ export const PUBLIC_STORAGE_GAUGE = 'registry_public_storage_bytes';
  * the fail-closed gate must not under-count an org because of it.
  */
 async function orgScanRepositories(orgId: string): Promise<{ repos: string[]; recordsComplete: boolean }> {
+  // ONE catalog walk, reused for the org's own namespace AND the publication
+  // records (the storage snapshot does the same). On an object-store backend
+  // the walk is the expensive part: measured 2026-11-23 at ~24-29s for 374
+  // repositories, and walking it twice (once inside the publication-owner read,
+  // once for `org-<id>/`) put the system org's breakdown at ~65s.
+  const catalog = await listRepositoriesUnderPrefix('');
   let recordsComplete = true;
   let published: string[] = [];
   try {
-    const owned = await publicRepositoriesOwnedBy(orgId);
+    const owned = await publicRepositoriesOwnedBy(orgId, { catalog });
     published = owned.repositories;
     recordsComplete = owned.complete;
   } catch (err) {
@@ -356,7 +418,8 @@ async function orgScanRepositories(orgId: string): Promise<{ repos: string[]; re
   }
   // `org-<id>/` can never match `quarantine/*`, and publication records only
   // name `public/*` repos — anonymous-submission bytes are never billed to a tenant.
-  return { repos: [...await listRepositoriesUnderPrefix(`org-${orgId}/`), ...published], recordsComplete };
+  const own = `org-${orgId}/`;
+  return { repos: [...catalog.filter((r) => r.startsWith(own)), ...published], recordsComplete };
 }
 
 /** Cache-key namespace for org breakdowns (never a valid repo prefix). */
@@ -617,7 +680,13 @@ export function onOrgStorageInvalidated(fn: OrgStorageListener): void {
 
 /** Evict one org's per-version breakdown and tell listeners its bytes changed. */
 export function invalidateOrgStorageCache(orgId: string): void {
-  breakdownCache.delete(`${ORG_BREAKDOWN_KEY}${orgId}`);
+  const key = `${ORG_BREAKDOWN_KEY}${orgId}`;
+  breakdownCache.delete(key);
+  // A computation already running measured the PRE-change registry: let it
+  // finish for whoever awaits it, but neither cache it nor hand it to the next
+  // caller.
+  breakdownGeneration.set(key, (breakdownGeneration.get(key) ?? 0) + 1);
+  breakdownInflight.delete(key);
   for (const fn of orgStorageListeners) {
     try {
       fn(orgId);

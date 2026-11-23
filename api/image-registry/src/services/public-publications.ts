@@ -130,9 +130,16 @@ export async function readPublicationOwners(
   return { owners, complete };
 }
 
-/** The `public/*` repositories billed to `orgId`. */
-export async function publicRepositoriesOwnedBy(orgId: string): Promise<{ repositories: string[]; complete: boolean }> {
-  const { owners, complete } = await readPublicationOwners();
+/**
+ * The `public/*` repositories billed to `orgId`. `catalog`: a full catalog
+ * listing the caller already holds, so a cache miss does not walk it again
+ * (see {@link readPublicationOwners}).
+ */
+export async function publicRepositoriesOwnedBy(
+  orgId: string,
+  opts: { catalog?: readonly string[] } = {},
+): Promise<{ repositories: string[]; complete: boolean }> {
+  const { owners, complete } = await readPublicationOwners(opts.catalog ? { catalog: opts.catalog } : {});
   const want = orgId.toLowerCase();
   const repositories = [...owners.entries()].filter(([, org]) => org?.toLowerCase() === want).map(([repo]) => repo).sort();
   return { repositories, complete };

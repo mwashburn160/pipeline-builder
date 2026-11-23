@@ -61,6 +61,7 @@ This service loads its own config (`src/config`) rather than the shared server c
 | `REGISTRY_COPY_PARALLEL_BLOBS` | Parallel blob copies | `8` |
 | `REGISTRY_BLOB_STREAM_TIMEOUT_MS` | Blob stream timeout (ms) | `30000` |
 | `REGISTRY_STORAGE_CACHE_TTL_MS` | Namespace rollup / breakdown cache TTL (ms) | `60000` |
+| `REGISTRY_STORAGE_BREAKDOWN_MAX_STALE_MS` | How long a stale breakdown is still served while it refreshes in the background (ms) | `600000` |
 | `REGISTRY_STORAGE_SNAPSHOT_INTERVAL_MS` | Per-org storage snapshot cadence (ms); stale after 2× + run time; a cycle within 90% of the last run's start skips | `600000` |
 | `REGISTRY_STORAGE_SNAPSHOT_STARTUP_DELAY_MS` | Delay before the first snapshot run (ms) | `30000` |
 | `REGISTRY_STORAGE_SNAPSHOT_LOCK_TTL_MS` | Snapshot leader-lock TTL (ms) | `120000` |

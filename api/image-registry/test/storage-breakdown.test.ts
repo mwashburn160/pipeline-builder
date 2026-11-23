@@ -14,7 +14,7 @@
  * and `marginalBytes` (what deleting it actually returns).
  */
 
-import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 import { registryClientMock } from './helpers/registry-client-mock.js';
 
@@ -22,7 +22,7 @@ const listRepositoriesUnderPrefix = jest.fn<(p: string) => Promise<string[]>>();
 const listTags = jest.fn<(name: string) => Promise<{ tags: string[] }>>();
 const getManifest = jest.fn<(name: string, ref: string) => Promise<{ body: unknown; digest: string; mediaType: string }>>();
 const headBlob = jest.fn<(name: string, digest: string) => Promise<{ contentLength?: number }>>();
-const publicRepositoriesOwnedBy = jest.fn<(orgId: string) => Promise<{ repositories: string[]; complete: boolean }>>();
+const publicRepositoriesOwnedBy = jest.fn<(orgId: string, opts?: { catalog?: readonly string[] }) => Promise<{ repositories: string[]; complete: boolean }>>();
 
 jest.unstable_mockModule('../src/services/registry-client.js', () => registryClientMock({
   listRepositoriesUnderPrefix,
@@ -221,5 +221,76 @@ describe('computeSystemRetentionBreakdown — one unit per plugin version, base 
     const b = await computeSystemRetentionBreakdown(SYSTEM);
     expect(b.incomplete).toBe(true);
     expect(b.entries).toHaveLength(1);
+  });
+});
+
+// The Storage page's system-org breakdown took ~65s cold (two full catalog
+// walks over an object-store backend plus the scan) against a 25s route
+// deadline, and a 60s TTL meant almost every view recomputed it. These pin the
+// three fixes: one walk, serve-stale-then-refresh, one computation at a time.
+describe('computeOrgStorageBreakdown — cost and freshness', () => {
+  const tags = async () => (await computeOrgStorageBreakdown('acme')).entries.map((e) => e.tag).sort();
+  /** Let the background refresh (mock I/O resolves at once) run to completion. */
+  const settle = async () => { for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r)); };
+  let now = 1_000_000;
+  beforeEach(() => {
+    now = 1_000_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+  });
+  afterEach(() => { jest.restoreAllMocks(); });
+
+  it('walks the catalog ONCE, reuses it for the publication records, and keeps to the org prefix', async () => {
+    registry(
+      { 'org-acme/app': { v1: ['sha256:c1', 'sha256:l1'] }, 'org-acme-two/app': { x: ['sha256:c9', 'sha256:l9'] } },
+      { 'sha256:c1': MB, 'sha256:l1': MB, 'sha256:c9': MB, 'sha256:l9': MB },
+    );
+    expect(await tags()).toEqual(['v1']);
+    expect(listRepositoriesUnderPrefix).toHaveBeenCalledTimes(1);
+    expect(listRepositoriesUnderPrefix).toHaveBeenCalledWith('');
+    expect(publicRepositoriesOwnedBy).toHaveBeenCalledWith('acme', { catalog: expect.arrayContaining(['org-acme/app']) });
+  });
+
+  it('serves a stale breakdown at once and refreshes it in the background', async () => {
+    registry({ 'org-acme/app': { v1: ['sha256:c1', 'sha256:l1'] } }, { 'sha256:c1': MB, 'sha256:l1': MB });
+    expect(await tags()).toEqual(['v1']);
+
+    // The registry changes without an invalidation; the cache is past its 60s TTL.
+    registry({ 'org-acme/app': { v2: ['sha256:c2', 'sha256:l2'] } }, { 'sha256:c2': MB, 'sha256:l2': MB });
+    now += 61_000;
+    listRepositoriesUnderPrefix.mockClear();
+    expect(await tags()).toEqual(['v1']); // stale, immediately
+    expect(listRepositoriesUnderPrefix).toHaveBeenCalledTimes(1); // refresh started
+    await settle();
+    expect(await tags()).toEqual(['v2']); // the refresh landed
+  });
+
+  it('recomputes before answering once past the max-stale window (10 min default)', async () => {
+    registry({ 'org-acme/app': { v1: ['sha256:c1', 'sha256:l1'] } }, { 'sha256:c1': MB, 'sha256:l1': MB });
+    expect(await tags()).toEqual(['v1']);
+    registry({ 'org-acme/app': { v2: ['sha256:c2', 'sha256:l2'] } }, { 'sha256:c2': MB, 'sha256:l2': MB });
+    now += 601_000;
+    expect(await tags()).toEqual(['v2']);
+  });
+
+  it('shares one computation between concurrent views', async () => {
+    registry({ 'org-acme/app': { v1: ['sha256:c1', 'sha256:l1'] } }, { 'sha256:c1': MB, 'sha256:l1': MB });
+    const results = await Promise.all([computeOrgStorageBreakdown('acme'), computeOrgStorageBreakdown('acme'), computeOrgStorageBreakdown('acme')]);
+    expect(listRepositoriesUnderPrefix).toHaveBeenCalledTimes(1);
+    expect(new Set(results).size).toBe(1);
+  });
+
+  it('keeps a computation that an invalidation overtook out of the cache', async () => {
+    registry({ 'org-acme/app': { v1: ['sha256:c1', 'sha256:l1'] } }, { 'sha256:c1': MB, 'sha256:l1': MB });
+    let open!: () => void;
+    const gate = new Promise<void>((r) => { open = r; });
+    listRepositoriesUnderPrefix.mockImplementationOnce(async () => { await gate; return ['org-acme/app']; });
+
+    const before = computeOrgStorageBreakdown('acme'); // measuring the pre-prune registry
+    invalidateOrgStorageCache('acme'); // the prune lands mid-scan
+    open();
+    expect((await before).entries.map((e) => e.tag)).toEqual(['v1']); // its caller still gets an answer
+
+    registry({ 'org-acme/app': { v2: ['sha256:c2', 'sha256:l2'] } }, { 'sha256:c2': MB, 'sha256:l2': MB });
+    expect(await tags()).toEqual(['v2']); // not the overtaken v1
   });
 });
