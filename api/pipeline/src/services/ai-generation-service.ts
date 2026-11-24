@@ -11,7 +11,7 @@ import {
   tokenUsage,
 } from '@pipeline-builder/ai-core';
 import type { AITokenUsage, ResolvedModelSelection, SystemModelMessage } from '@pipeline-builder/ai-core';
-import { createLogger, MANAGED_TOOLCHAIN } from '@pipeline-builder/api-core';
+import { createLogger, managedRefPinsVersion, MANAGED_TOOLCHAIN } from '@pipeline-builder/api-core';
 import { PipelineGenerationSchema } from './generation-schema.js';
 import type { PluginSummary } from './plugin-catalog.js';
 
@@ -36,7 +36,7 @@ export class AIEmptyOutputError extends Error {
  * recorded on every `pipeline.ai.generate` audit row and returned with each
  * result, so a change in output quality can be traced to the prompt that made it.
  */
-export const PIPELINE_PROMPT_VERSION = 'pipeline-generate@3';
+export const PIPELINE_PROMPT_VERSION = 'pipeline-generate@4';
 
 /**
  * Sampling temperature for a structured config draft: low, so the same request
@@ -160,9 +160,10 @@ The plugins you may use are listed in the "Available Plugins" section that follo
 1. **project** and **organization** are required. Infer them from the user's description. Use lowercase with hyphens.
 2. **synth** is required and must include:
    - source: one of {type: "github", options: {repo: "owner/repo", branch?: "main"}}, {type: "s3", options: {bucketName: "..."}}, {type: "codestar", options: {repo: "owner/repo", connectionArn: "..."}}, or {type: "codecommit", options: {repositoryName: "..."}}
-   - plugin: {name: "cdk-synth", filter: {isDefault: true}} — ALWAYS use "cdk-synth" as the synth plugin with isDefault: true. This is required for all pipelines.
+   - plugin: {name: "cdk-synth", filter: {isDefault: true}} — EXACTLY this, for every pipeline, whatever the repository's language. The synth step synthesizes the pipeline itself; it does not build the application. Never put a language, build or test plugin (e.g. "python" or "java") in synth, and never give the synth plugin a version, id or publisher.
    Optional top-level fields include **role** (custom IAM role with roleArn or roleName) and **schedule** (cron/rate expression for scheduled execution).
 3. **stages** are optional arrays of {stageName, steps: [{plugin: {name, filter: {isDefault: true}}, ...}]}
+   - Building and testing the application happens HERE: put the language/build plugin (e.g. "python") in a stage such as "Build", and test plugins in a stage such as "Test"
    - Every plugin reference MUST include filter with at minimum isDefault: true
    - A plugin listed with [publisher: "x"] MUST be referenced with publisher: "x" next to its name; never add publisher to any other plugin
    - Optional filter fields: version, visibility ("public"|"private"), isActive
@@ -211,31 +212,44 @@ function validateGeneratedPlugins(
   const refKey = (name: string, publisher?: string) => `${publisher ?? ''}/${name}`;
   const pluginRefs = new Set(availablePlugins.map((p) => refKey(p.name, p.publisher)));
 
-  // Enforce cdk-synth as the synth plugin with filter
-  const synth = props.synth as { plugin?: { name?: string; filter?: Record<string, unknown> } } | undefined;
-  const synthPlugin = synth?.plugin?.name;
+  // The synth step is the pipeline's OWN CDK synthesis (`pipeline-manager
+  // pipeline synth` → cdk.out), always the managed cdk-synth whatever the repo's
+  // language. Its reference is replaced whole — nothing of what the model wrote
+  // is carried over: cdk-synth is half of the managed toolchain and can't be
+  // pinned on its own (saving refuses TOOLCHAIN_PIN_VIA_RELEASE; the release is
+  // pinned with toolchain.release). A model that put the APP's build plugin there
+  // (e.g. "python") meant a build step, so a catalog plugin no stage already uses
+  // is moved to a "Build" stage rather than lost.
+  type PluginRef = { name?: string; publisher?: string; filter?: Record<string, unknown> } & Record<string, unknown>;
+  type Step = { plugin?: PluginRef } & Record<string, unknown>;
+  type Stage = { stageName?: string; steps?: Step[] } & Record<string, unknown>;
+  const synth = props.synth as { plugin?: PluginRef } | undefined;
   if (synth) {
-    if (!synth.plugin) {
-      (synth as Record<string, unknown>).plugin = { name: MANAGED_TOOLCHAIN.synth, filter: { isDefault: true } };
-    } else {
-      if (synthPlugin !== MANAGED_TOOLCHAIN.synth) {
-        warnings.push(`Synth plugin changed from "${synthPlugin}" to "${MANAGED_TOOLCHAIN.synth}" (required for all pipelines)`);
-        synth.plugin.name = MANAGED_TOOLCHAIN.synth;
-      }
-      if (!synth.plugin.filter) {
-        synth.plugin.filter = { isDefault: true };
+    const given = synth.plugin;
+    synth.plugin = { name: MANAGED_TOOLCHAIN.synth, filter: { isDefault: true } };
+    if (given?.name && given.name !== MANAGED_TOOLCHAIN.synth) {
+      const publisher = given.publisher || undefined;
+      const key = refKey(given.name, publisher);
+      const label = `${publisher ? `${publisher}/` : ''}${given.name}`;
+      const stages: Stage[] = Array.isArray(props.stages) ? props.stages as Stage[] : [];
+      const alreadyUsed = stages.some((st) => (st.steps ?? []).some((step) =>
+        step.plugin?.name !== undefined && refKey(step.plugin.name, step.plugin.publisher || undefined) === key));
+      if (!pluginRefs.has(key)) {
+        warnings.push(`Synth plugin changed from "${label}" to "${MANAGED_TOOLCHAIN.synth}" (the synth step is always "${MANAGED_TOOLCHAIN.synth}"; "${label}" is not an available plugin)`);
+      } else if (alreadyUsed) {
+        warnings.push(`Synth plugin changed from "${label}" to "${MANAGED_TOOLCHAIN.synth}" (the synth step is always "${MANAGED_TOOLCHAIN.synth}"; "${label}" already runs in a stage)`);
       } else {
-        // cdk-synth is half of the managed toolchain: it can't be pinned on its own
-        // (saving refuses TOOLCHAIN_PIN_VIA_RELEASE). A version the model gave —
-        // often for the plugin it named before the rename above — is dropped.
-        const { version, id } = synth.plugin.filter;
-        if (version !== undefined || id !== undefined) {
-          delete synth.plugin.filter.version;
-          delete synth.plugin.filter.id;
-          warnings.push(`Synth plugin version removed: "${MANAGED_TOOLCHAIN.synth}" follows the managed toolchain release (pin it with toolchain.release)`);
+        const step: Step = { plugin: given };
+        const build = stages.find((st) => typeof st.stageName === 'string' && st.stageName.toLowerCase() === 'build');
+        if (build) {
+          build.steps = [step, ...(build.steps ?? [])];
+        } else {
+          props.stages = [{ stageName: 'Build', steps: [step] }, ...stages];
         }
-        if (synth.plugin.filter.isDefault === undefined) synth.plugin.filter.isDefault = true;
+        warnings.push(`Synth plugin "${label}" moved to the "${build?.stageName ?? 'Build'}" stage; the synth step is always "${MANAGED_TOOLCHAIN.synth}"`);
       }
+    } else if (given && managedRefPinsVersion(given.filter)) {
+      warnings.push(`Synth plugin version removed: "${MANAGED_TOOLCHAIN.synth}" follows the managed toolchain release (pin it with toolchain.release)`);
     }
   }
 
