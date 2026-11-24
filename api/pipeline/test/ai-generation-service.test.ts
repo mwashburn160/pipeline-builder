@@ -534,6 +534,26 @@ describe('ai-generation-service', () => {
       ]);
     });
 
+    // The model named its own synth plugin WITH a version; the rename to cdk-synth
+    // kept that filter, and saving the draft then refused it (cdk-synth can't be
+    // pinned on its own — TOOLCHAIN_PIN_VIA_RELEASE).
+    it('drops a version/id from the synth filter, renamed or not', async () => {
+      const plugins: Array<{ name: string; filter: Record<string, unknown> }> = [
+        { name: 'python', filter: { version: '3.11' } },
+        { name: 'cdk-synth', filter: { id: 'abc', isDefault: false } },
+      ];
+      for (const plugin of plugins) {
+        streamReturning({ ...mockAIOutput, synth: { ...mockAIOutput.synth, plugin } });
+        const result = await generatePipelineConfig(baseRequest, CALL);
+        const synth = (result.props as any).synth.plugin;
+        expect(synth.name).toBe('cdk-synth');
+        expect(synth.filter.version).toBeUndefined();
+        expect(synth.filter.id).toBeUndefined();
+        expect(synth.filter.isDefault).toBe(plugin.filter.isDefault ?? true);
+        expect(result.validationWarnings).toContain('Synth plugin version removed: "cdk-synth" follows the managed toolchain release (pin it with toolchain.release)');
+      }
+    });
+
     it('throws when AI returns null output', async () => {
       streamReturning(null);
 

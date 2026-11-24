@@ -18,6 +18,7 @@ export type { OrgModelSelection, OrgSelectionDeps } from './org-selection.js';
 // temperature, prompt caching, untrusted-data fencing, platform failover, audit).
 export {
   AI_REQUEST_TIMEOUT_MS,
+  AI_ROUTE_TIMEOUT_MS,
   AI_MAX_OUTPUT_TOKENS,
   AI_MAX_RETRIES,
   aiCallSignal,

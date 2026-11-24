@@ -24,7 +24,9 @@ const { checkQuota } = await import('../src/api/check-quota.js');
 const {
   createProtectedRoute,
   createAuthenticatedWithOrgRoute,
+  extendRequestTimeout,
 } = await import('../src/api/middleware-factory.js');
+const { default: express } = await import('express');
 const { requireOrgId } = await import('../src/api/require-org-id.js');
 const { withTenantContext } = await import('../src/api/tenant-context.js');
 
@@ -86,5 +88,48 @@ describe('createAuthenticatedWithOrgRoute', () => {
     expect(result[1]).toBe('REQUIRE_ORG_ID_MIDDLEWARE');
     expect(typeof result[2]).toBe('function'); // idempotency middleware (real closure)
     expect(result[3]).toBe('TENANT_CONTEXT_MIDDLEWARE');
+  });
+});
+
+describe('extendRequestTimeout', () => {
+  /**
+   * A server with app-factory's shape: every request gets a SHORT deadline that
+   * answers 503, and `/slow` answers 200 after `handlerMs`. `extend` puts
+   * extendRequestTimeout in front of it.
+   */
+  async function slowRequest(opts: { deadlineMs: number; handlerMs: number; extend?: number }): Promise<number> {
+    const app = express();
+    app.use((_req, res, next) => {
+      res.setTimeout(opts.deadlineMs, () => {
+        if (!res.headersSent) res.status(503).end();
+      });
+      next();
+    });
+    const handler = (_req: unknown, res: { headersSent: boolean; status: (c: number) => { end: () => void } }) => {
+      setTimeout(() => { if (!res.headersSent) res.status(200).end(); }, opts.handlerMs);
+    };
+    if (opts.extend !== undefined) app.get('/slow', extendRequestTimeout(opts.extend), handler as never);
+    else app.get('/slow', handler as never);
+    const server = app.listen(0);
+    await new Promise<void>((resolve) => server.once('listening', () => resolve()));
+    try {
+      const { port } = server.address() as { port: number };
+      return (await fetch(`http://127.0.0.1:${port}/slow`)).status;
+    } finally {
+      server.closeAllConnections();
+      await new Promise((resolve) => server.close(resolve));
+    }
+  }
+
+  it('without it, a handler slower than the default deadline is answered 503', async () => {
+    expect(await slowRequest({ deadlineMs: 50, handlerMs: 200 })).toBe(503);
+  });
+
+  it('moves the deadline, so the slow handler answers', async () => {
+    expect(await slowRequest({ deadlineMs: 50, handlerMs: 200, extend: 1_000 })).toBe(200);
+  });
+
+  it('keeps the 503 answer once the new deadline passes', async () => {
+    expect(await slowRequest({ deadlineMs: 50, handlerMs: 400, extend: 150 })).toBe(503);
   });
 });

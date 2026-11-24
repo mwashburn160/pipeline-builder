@@ -56,6 +56,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
+  extendRequestTimeout: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   incCounter: jest.fn(),
   setGauge: jest.fn(),
   observe: jest.fn(),

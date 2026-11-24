@@ -96,6 +96,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
+  extendRequestTimeout: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   incCounter: () => undefined,
   // The '/pipelines' + '/pipeline-templates' apiCalls quota mounts — one
   // pass-through each (`app.use(path)` with zero handlers throws).

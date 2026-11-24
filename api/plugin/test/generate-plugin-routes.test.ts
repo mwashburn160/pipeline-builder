@@ -35,6 +35,7 @@ const mockRecordAudit = jest.fn<AnyFn>();
 const SELECTION = { model: { id: 'model' }, provider: 'anthropic', modelId: 'claude-sonnet-5', keySource: 'platform' };
 const mockResolveOrgModelSelection = jest.fn<AnyFn>(async () => SELECTION);
 jest.unstable_mockModule('@pipeline-builder/ai-core', () => stubModule('@pipeline-builder/ai-core', {
+  AI_ROUTE_TIMEOUT_MS: 135_000,
   resolveOrgModelSelection: (...a: unknown[]) => mockResolveOrgModelSelection(...a),
   runWithFailover: async (selection: unknown, attempt: (s: unknown) => Promise<unknown>) => ({ value: await attempt(selection), selection, failedOver: [] }),
   aiUsageAuditDetails: (sel: any, extra: any) => ({ provider: sel.provider, model: sel.modelId, keySource: sel.keySource, quotaSlot: extra.quotaSlot, promptVersion: extra.promptVersion, tokens: extra.usage }),
@@ -111,7 +112,15 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 
 // The REAL reservation helper (its api-core calls hit this file's api-core mock).
 let realWithAiCallReservation: (...a: any[]) => unknown;
+/** Every extendRequestTimeout(ms) the routes asked for: the middleware, tagged with its ms. */
+const deadlineLayers: Array<{ ms: number; handle: (req: unknown, res: unknown, next: () => void) => void }> = [];
+const mockExtendRequestTimeout = (ms: number) => {
+  const handle = (_req: unknown, _res: unknown, next: () => void) => next();
+  deadlineLayers.push({ ms, handle });
+  return handle;
+};
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
+  extendRequestTimeout: mockExtendRequestTimeout,
   withAiCallReservation: (...a: any[]) => realWithAiCallReservation(...a),
   incCounter: () => undefined,
   observe: () => undefined,
@@ -453,5 +462,18 @@ describe('POST /generate — BYOK spends no aiCalls unit', () => {
     expect(mockReserveQuota).not.toHaveBeenCalled();
     expect(mockDecrementQuota).not.toHaveBeenCalled();
     expect(auditRows()[0].details).toEqual(expect.objectContaining({ quota: { type: 'aiCalls', slot: 'waived', waived: 'byok', amount: 0 } }));
+  });
+});
+
+// POST /generate answers once the whole model call is done; the server-wide 25s
+// deadline would answer 503 while a self-hosted model is still working.
+describe('AI route deadline', () => {
+  const layerFor = (path: string) => (router as any).stack.find((l: any) => l.route?.path === path && l.route?.methods.post);
+
+  it('gives POST /generate the AI route deadline and leaves the stream on its own', () => {
+    const generate = layerFor('/generate').route.stack.map((l: any) => l.handle);
+    expect(deadlineLayers.find((d) => generate.includes(d.handle))?.ms).toBe(135_000);
+    const stream = layerFor('/generate/stream').route.stack.map((l: any) => l.handle);
+    expect(deadlineLayers.some((d) => stream.includes(d.handle))).toBe(false);
   });
 });

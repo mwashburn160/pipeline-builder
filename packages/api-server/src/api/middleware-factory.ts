@@ -3,7 +3,7 @@
 
 import { requireAuth } from '@pipeline-builder/api-core';
 import type { QuotaType, QuotaService } from '@pipeline-builder/api-core';
-import type { RequestHandler } from 'express';
+import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { checkQuota } from './check-quota.js';
 import { idempotencyMiddleware } from './idempotency-middleware.js';
 import { requireOrgId } from './require-org-id.js';
@@ -84,4 +84,18 @@ export function createAuthenticatedWithOrgRoute(): RequestHandler[] {
     idempotencyMiddleware() as RequestHandler,
     withTenantContext() as RequestHandler,
   ];
+}
+
+/**
+ * Move this request's deadline from the server-wide 25s (`REQUEST_TIMEOUT_MS`,
+ * app-factory) to `ms`, for a route that legitimately runs longer, such as one
+ * waiting on an AI model (a self-hosted model can take more than 25s to answer).
+ * Place it before the handler; the default 503 answer stays, only its deadline moves.
+ */
+export function extendRequestTimeout(ms: number): RequestHandler {
+  return (req: Request, res: Response, next: NextFunction) => {
+    res.setTimeout(ms);
+    req.setTimeout(ms);
+    next();
+  };
 }
