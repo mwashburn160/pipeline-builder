@@ -40,7 +40,7 @@ spec:
       labels:
         app: ask-agent
         app.kubernetes.io/component: backend
-        version: "6.2.8"
+        version: "6.2.9"
         track: stable
       annotations:
         prometheus.io/scrape: "true"
@@ -66,7 +66,7 @@ spec:
       # conversation state is client-held; the docs corpus is in the image).
       containers:
         - name: ask-agent
-          image: ghcr.io/mwashburn160/ask-agent:6.2.8@sha256:de2d26c4aa73a610572769786eccb140013e38acd68f07be6ddc13f514c6ebe6
+          image: ghcr.io/mwashburn160/ask-agent:6.2.9@sha256:d7ff8dc2c1ce0c400c43a3f4c86a421585a1f34fbcbecc78e600ef7e0b30061a
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
