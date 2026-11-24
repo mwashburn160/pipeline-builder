@@ -534,24 +534,67 @@ describe('ai-generation-service', () => {
       ]);
     });
 
-    // The model named its own synth plugin WITH a version; the rename to cdk-synth
-    // kept that filter, and saving the draft then refused it (cdk-synth can't be
-    // pinned on its own — TOOLCHAIN_PIN_VIA_RELEASE).
-    it('drops a version/id from the synth filter, renamed or not', async () => {
-      const plugins: Array<{ name: string; filter: Record<string, unknown> }> = [
-        { name: 'python', filter: { version: '3.11' } },
-        { name: 'cdk-synth', filter: { id: 'abc', isDefault: false } },
-      ];
-      for (const plugin of plugins) {
-        streamReturning({ ...mockAIOutput, synth: { ...mockAIOutput.synth, plugin } });
+    // The synth step is the pipeline's own CDK synthesis. A model that put the
+    // APP's build plugin there (seen live: "python" with filter.version) got it
+    // renamed to cdk-synth with the version kept — saving then refused the draft
+    // (TOOLCHAIN_PIN_VIA_RELEASE) — and lost the build step.
+    describe('synth plugin normalization', () => {
+      const MANAGED = { name: 'cdk-synth', filter: { isDefault: true } };
+      const synthWith = (plugin: unknown, stages?: unknown[]) => ({
+        ...mockAIOutput,
+        synth: { ...mockAIOutput.synth, plugin },
+        ...(stages ? { stages } : {}),
+      });
+
+      it('moves a catalog build plugin from synth to a new Build stage, as written', async () => {
+        const given = { name: 'nodejs-build', filter: { version: '1.0.0', isDefault: true } };
+        streamReturning(synthWith(given, [{ stageName: 'Test', steps: [{ plugin: { name: 'nodejs-build-test' } }] }]));
         const result = await generatePipelineConfig(baseRequest, CALL);
-        const synth = (result.props as any).synth.plugin;
-        expect(synth.name).toBe('cdk-synth');
-        expect(synth.filter.version).toBeUndefined();
-        expect(synth.filter.id).toBeUndefined();
-        expect(synth.filter.isDefault).toBe(plugin.filter.isDefault ?? true);
+        const props = result.props as any;
+        expect(props.synth.plugin).toEqual(MANAGED);
+        expect(props.stages.map((s: any) => s.stageName)).toEqual(['Build', 'Test']);
+        expect(props.stages[0].steps).toEqual([{ plugin: given }]);
+        expect(result.validationWarnings).toContain('Synth plugin "nodejs-build" moved to the "Build" stage; the synth step is always "cdk-synth"');
+      });
+
+      it('puts it first in an existing build stage', async () => {
+        streamReturning(synthWith({ name: 'nodejs-build' }, [{ stageName: 'build', steps: [{ plugin: { name: 'lint' } }] }]));
+        const props = (await generatePipelineConfig(baseRequest, CALL)).props as any;
+        expect(props.stages).toHaveLength(1);
+        expect(props.stages[0].steps.map((s: any) => s.plugin.name)).toEqual(['nodejs-build', 'lint']);
+      });
+
+      it('does not duplicate a plugin a stage already runs', async () => {
+        streamReturning(synthWith({ name: 'nodejs-build' }, [{ stageName: 'Compile', steps: [{ plugin: { name: 'nodejs-build' } }] }]));
+        const result = await generatePipelineConfig(baseRequest, CALL);
+        const props = result.props as any;
+        expect(props.synth.plugin).toEqual(MANAGED);
+        expect(props.stages).toHaveLength(1);
+        expect(result.validationWarnings).toContain('Synth plugin changed from "nodejs-build" to "cdk-synth" (the synth step is always "cdk-synth"; "nodejs-build" already runs in a stage)');
+      });
+
+      it('drops a synth plugin that is not in the catalog', async () => {
+        streamReturning(synthWith({ name: 'python', filter: { version: '3.11' } }));
+        const result = await generatePipelineConfig(baseRequest, CALL);
+        const props = result.props as any;
+        expect(props.synth.plugin).toEqual(MANAGED);
+        expect(props.stages).toBeUndefined();
+        expect(result.validationWarnings).toContain('Synth plugin changed from "python" to "cdk-synth" (the synth step is always "cdk-synth"; "python" is not an available plugin)');
+      });
+
+      it('replaces a pinned cdk-synth reference with the managed one', async () => {
+        streamReturning(synthWith({ name: 'cdk-synth', publisher: 'acme', filter: { id: 'abc', version: '1.1.35', isDefault: false } }));
+        const result = await generatePipelineConfig(baseRequest, CALL);
+        expect((result.props as any).synth.plugin).toEqual(MANAGED);
         expect(result.validationWarnings).toContain('Synth plugin version removed: "cdk-synth" follows the managed toolchain release (pin it with toolchain.release)');
-      }
+      });
+
+      it('leaves a clean cdk-synth reference alone, with no warning', async () => {
+        streamReturning(synthWith(MANAGED));
+        const result = await generatePipelineConfig(baseRequest, CALL);
+        expect((result.props as any).synth.plugin).toEqual(MANAGED);
+        expect(result.validationWarnings ?? []).toEqual([]);
+      });
     });
 
     it('throws when AI returns null output', async () => {
