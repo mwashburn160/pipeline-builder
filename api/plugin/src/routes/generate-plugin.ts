@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { AI_ROUTE_TIMEOUT_MS } from '@pipeline-builder/ai-core';
 import {
   audited,
   clientAbortSignal,
@@ -19,7 +20,7 @@ import {
   AIGenerateBodySchema,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
-import { withAiCallReservation, withRoute, rateLimitByOrg } from '@pipeline-builder/api-server';
+import { extendRequestTimeout, withAiCallReservation, withRoute, rateLimitByOrg } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router, type Request } from 'express';
 
@@ -105,7 +106,9 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
   }));
 
   // -- POST /generate generate plugin config from natural language ----------
-  router.post('/generate', requireFeature('ai_generation'), requirePermission('plugins:write'), requireOrgAIEnabled, generateRateLimit, audited('plugin.ai.generate'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  // The JSON route answers once the whole model call is done, so it gets the AI
+  // route deadline instead of the server's 25s default (see AI_ROUTE_TIMEOUT_MS).
+  router.post('/generate', requireFeature('ai_generation'), requirePermission('plugins:write'), requireOrgAIEnabled, generateRateLimit, extendRequestTimeout(AI_ROUTE_TIMEOUT_MS), audited('plugin.ai.generate'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, AIGenerateBodySchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error);

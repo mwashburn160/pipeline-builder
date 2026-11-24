@@ -124,6 +124,7 @@ const authStandIn = (req: any, _res: any, next: () => void) => {
 const authChain = () => [authStandIn, idempotencyMiddleware()];
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
+  extendRequestTimeout: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   incCounter: () => undefined,
   // The prefix mount's meter + deferred check, collapsed to one counting layer:
   // the count is how many times the '/pipelines' apiCalls mount ran.

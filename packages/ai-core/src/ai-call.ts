@@ -29,6 +29,16 @@ import { getAvailableProviders, resolveModel, type ResolvedModelSelection } from
 export const AI_REQUEST_TIMEOUT_MS = envInt('AI_REQUEST_TIMEOUT_MS', 120_000, { min: 1_000 });
 
 /**
+ * How long a route that makes ONE AI call may run before the server answers 503:
+ * {@link AI_REQUEST_TIMEOUT_MS} plus 15s for the work around the call (repository
+ * analysis before it, validation after). Longer than the call, so a stalled model
+ * is answered by the call's own 504; shorter than the Ask agent's delegated wait
+ * (`AI_REQUEST_TIMEOUT_MS` + 30s), so the caller hears the answer rather than its
+ * own timeout. Routes apply it with api-server's `extendRequestTimeout`.
+ */
+export const AI_ROUTE_TIMEOUT_MS = AI_REQUEST_TIMEOUT_MS + 15_000;
+
+/**
  * Platform-wide output cap per model call (`AI_MAX_OUTPUT_TOKENS`, default 8192). The
  * CEILING: a call may ask for less (the Ask assistant and report summaries do), never
  * more — so one `aiCalls` slot has a bounded cost whatever a prompt asks for.

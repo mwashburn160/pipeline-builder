@@ -224,8 +224,17 @@ function validateGeneratedPlugins(
       }
       if (!synth.plugin.filter) {
         synth.plugin.filter = { isDefault: true };
-      } else if (synth.plugin.filter.isDefault === undefined) {
-        synth.plugin.filter.isDefault = true;
+      } else {
+        // cdk-synth is half of the managed toolchain: it can't be pinned on its own
+        // (saving refuses TOOLCHAIN_PIN_VIA_RELEASE). A version the model gave —
+        // often for the plugin it named before the rename above — is dropped.
+        const { version, id } = synth.plugin.filter;
+        if (version !== undefined || id !== undefined) {
+          delete synth.plugin.filter.version;
+          delete synth.plugin.filter.id;
+          warnings.push(`Synth plugin version removed: "${MANAGED_TOOLCHAIN.synth}" follows the managed toolchain release (pin it with toolchain.release)`);
+        }
+        if (synth.plugin.filter.isDefault === undefined) synth.plugin.filter.isDefault = true;
       }
     }
   }

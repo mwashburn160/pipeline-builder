@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { getAvailableProviders } from '@pipeline-builder/ai-core';
+import { AI_ROUTE_TIMEOUT_MS, getAvailableProviders } from '@pipeline-builder/ai-core';
 import {
   audited,
   clientAbortSignal,
@@ -22,7 +22,7 @@ import {
   requirePermission,
 } from '@pipeline-builder/api-core';
 import type { QuotaService, SseStream } from '@pipeline-builder/api-core';
-import { createAuthenticatedWithOrgRoute, withRoute, rateLimitByOrg, withAiCallReservation } from '@pipeline-builder/api-server';
+import { createAuthenticatedWithOrgRoute, extendRequestTimeout, withRoute, rateLimitByOrg, withAiCallReservation } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router, type Request } from 'express';
 import { z } from 'zod';
@@ -245,6 +245,9 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
    */
   router.post( '/generate',
     ...generateGuards,
+    // One JSON answer after a whole model call: the server's 25s default would
+    // answer 503 while a slower (e.g. self-hosted) model is still working.
+    extendRequestTimeout(AI_ROUTE_TIMEOUT_MS),
     audited('pipeline.ai.generate'),
     withRoute(async ({ req, res, ctx, orgId, userId }) => {
       const validation = validateBody(req, AIGenerateBodySchema);
@@ -329,6 +332,9 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
    */
   router.post( '/generate/from-url',
     ...generateGuards,
+    // One JSON answer after a whole model call: the server's 25s default would
+    // answer 503 while a slower (e.g. self-hosted) model is still working.
+    extendRequestTimeout(AI_ROUTE_TIMEOUT_MS),
     audited('pipeline.ai.generate'),
     withRoute(async ({ req, res, ctx, orgId, userId }) => {
       const validation = validateBody(req, AIGenerateFromUrlBodySchema);

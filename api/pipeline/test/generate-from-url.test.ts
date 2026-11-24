@@ -103,7 +103,15 @@ const mockRateLimitByOrg = jest.fn((..._args: unknown[]) => {
 
 // The REAL reservation helper (its api-core calls hit this file's api-core mock).
 let realWithAiCallReservation: (...a: any[]) => unknown;
+/** Every extendRequestTimeout(ms) the routes asked for: the middleware, tagged with its ms. */
+const deadlineLayers: Array<{ ms: number; handle: (req: unknown, res: unknown, next: () => void) => void }> = [];
+const mockExtendRequestTimeout = (ms: number) => {
+  const handle = (_req: unknown, _res: unknown, next: () => void) => next();
+  deadlineLayers.push({ ms, handle });
+  return handle;
+};
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
+  extendRequestTimeout: mockExtendRequestTimeout,
   withAiCallReservation: (...a: any[]) => realWithAiCallReservation(...a),
   incCounter: () => undefined,
   observe: () => undefined,
@@ -220,6 +228,7 @@ class AIEmptyOutputError extends Error {
 const SELECTION = { model: { id: 'model' }, provider: 'anthropic', modelId: 'claude-sonnet-5', keySource: 'platform' };
 const mockResolveOrgModelSelection = jest.fn<AnyFn>(async () => SELECTION);
 jest.unstable_mockModule('@pipeline-builder/ai-core', () => stubModule('@pipeline-builder/ai-core', {
+  AI_ROUTE_TIMEOUT_MS: 135_000,
   getAvailableProviders: mockGetAvailableProviders,
   resolveOrgModelSelection: (...a: unknown[]) => mockResolveOrgModelSelection(...a),
   // No failover in these suites (covered by ai-byo-key-no-fallback): run once on the selection.
@@ -1454,5 +1463,27 @@ describe('POST /generate/from-url (JSON) — BYOK spends no aiCalls unit', () =>
     expect(mockReserveQuota).not.toHaveBeenCalled();
     expect(mockGeneratePipelineConfig).toHaveBeenCalled();
     expect(auditRows()[0].details).toEqual(expect.objectContaining({ quota: { type: 'aiCalls', slot: 'waived', waived: 'byok', amount: 0 } }));
+  });
+});
+
+// The JSON generate routes answer once the whole model call is done; the
+// server-wide 25s deadline answered 503 while a self-hosted model was still
+// working (the generation then completed with nobody listening).
+describe('AI route deadline', () => {
+  const layerFor = (path: string) => (router as any).stack.find((l: any) => l.route?.path === path && l.route?.methods.post);
+
+  it('gives the JSON generate routes the AI route deadline', () => {
+    for (const path of ['/generate', '/generate/from-url']) {
+      const handles = layerFor(path).route.stack.map((l: any) => l.handle);
+      const deadline = deadlineLayers.find((d) => handles.includes(d.handle));
+      expect(deadline?.ms).toBe(135_000);
+    }
+  });
+
+  it('leaves the streaming and AI-free routes on their own deadlines', () => {
+    for (const path of ['/generate/stream', '/generate/from-url/stream', '/analyze/from-url', '/generate/missing-plugins']) {
+      const handles = layerFor(path).route.stack.map((l: any) => l.handle);
+      expect(deadlineLayers.some((d) => handles.includes(d.handle))).toBe(false);
+    }
   });
 });
