@@ -689,7 +689,8 @@ Remedies differ accordingly:
   Volumes only ever grow: neither EBS nor Kubernetes can shrink one, and EBS
   refuses a second modification of the same volume for roughly 6 hours — so size
   with headroom rather than nudging upward. The StatefulSet claims
-  (`data-rustfs-{0..3}`, `data-redis-{0..2}`) come from `volumeClaimTemplates`,
+  (`data-rustfs-{0..3}`, `data-redis-{0..2}`,
+  `postgres-replica-data-postgres-replica-N`) come from `volumeClaimTemplates`,
   which is **immutable** on a live StatefulSet: patch each PVC *and* edit the
   manifest, re-applying with `kubectl delete sts <name> --cascade=orphan` so the
   pods survive. Skip the manifest edit and a replacement replica silently comes
@@ -1179,9 +1180,19 @@ Operational properties worth knowing:
   has **no** Kubernetes RBAC at all and keeps `automountServiceAccountToken: false`;
   `test/deploy-contracts/test/ops-center-rbac-contract.test.ts` holds both halves.
 - **StatefulSet claims are expanded too**, and that leaves the manifest behind,
-  because `volumeClaimTemplates` is immutable. `PvcAutoExpandTemplateDrift` fires
-  so it cannot rot silently — update `rustfs.yaml` / `redis.yaml` and re-apply
-  with `--cascade=orphan`. It is `severity: warning`, so it already reaches the
+  because `volumeClaimTemplates` is immutable. Auto mode deliberately stops at the
+  claim: recreating the StatefulSet is left to a person. `PvcAutoExpandTemplateDrift`
+  fires so it cannot rot silently — update `rustfs.yaml` / `redis-sentinel.yaml` /
+  `postgres-replica.yaml` and re-apply with `--cascade=orphan`. Its gauge,
+  `pvc_autoexpand_template_drift`, is set the moment a StatefulSet claim is
+  expanded and is then **recomputed from the cluster** every
+  `PVC_AUTOEXPAND_DRIFT_INTERVAL_MS` (claim request vs the StatefulSet's
+  template, on every ops-center replica), so it survives a restart and clears
+  by itself once the StatefulSet is recreated at the new size. (It used to be
+  set once in the expanding pod's memory: it never cleared, and a restart
+  dropped it while the drift was still real.) Reading the templates is the one
+  StatefulSet permission the expander holds: `get` on `rustfs`, `redis` and
+  `postgres-replica`. It is `severity: warning`, so it already reaches the
   `warning-slack` receiver; what makes it the awkward one is that its consequence
   arrives at the next scale event, so there is nothing wrong in the cluster to
   look at when it fires.

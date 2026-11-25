@@ -397,6 +397,14 @@ rules:
       - data-redis-2
       - postgres-replica-data-postgres-replica-0
       - postgres-replica-data-postgres-replica-1
+  # Read-only, three named StatefulSets: the drift sweep compares each claim
+  # it may grow with its StatefulSet's volumeClaimTemplates
+  # (services/pvc-autoexpand.ts TEMPLATED_STATEFULSETS). Its own rule because
+  # resourceNames applies to every resource in a rule.
+  - apiGroups: ["apps"]
+    resources: ["statefulsets"]
+    verbs: ["get"]
+    resourceNames: ["postgres-replica", "redis", "rustfs"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

@@ -107,6 +107,10 @@ export const config = {
     ceilingFactor: envInt('PVC_AUTOEXPAND_CEILING_MULTIPLE', 4),
     maxGi: envInt('PVC_AUTOEXPAND_MAX_GI', 500),
     cooldownSeconds: envInt('PVC_AUTOEXPAND_COOLDOWN_SECONDS', 6 * 60 * 60),
+    // Where the StatefulSets whose claims it grows live, for the drift sweep.
+    namespace: process.env.PVC_AUTOEXPAND_NAMESPACE || 'pipeline-builder',
+    // How often pvc_autoexpand_template_drift is recomputed from the cluster.
+    driftSweepIntervalMs: envInt('PVC_AUTOEXPAND_DRIFT_INTERVAL_MS', 10 * 60 * 1000),
   },
   postgresRung: {
     enabled: process.env.POSTGRES_RUNG_ENABLED === 'true',

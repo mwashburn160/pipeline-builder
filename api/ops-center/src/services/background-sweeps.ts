@@ -103,6 +103,20 @@ export async function sweepDefinitions(): Promise<SweepDefinition[]> {
   // Alert delivery health gauges (every replica), the status table's 30-day
   // retention, and the soft-delete retention purge of dashboards / alert rules /
   // alert destinations.
+  // Recompute pvc_autoexpand_template_drift from the cluster (claim size vs the
+  // StatefulSet's volumeClaimTemplates). On every replica, no lock: each pod
+  // publishes its own gauge and the alert takes the max, so every replica must
+  // tell the truth — the once-set gauge it replaces outlived fixes and vanished
+  // on restarts.
+  if (config.pvcAutoExpand.enabled) {
+    const { reconcileTemplateDrift } = await import('./pvc-autoexpand.js');
+    defs.push({
+      name: 'pvc-template-drift',
+      intervalMs: config.pvcAutoExpand.driftSweepIntervalMs,
+      run: async () => { await reconcileTemplateDrift(config.pvcAutoExpand.namespace); },
+    });
+  }
+
   const [{ deliveryHealthSweep, deliveryStatusRetentionSweep }, { softDeletePurgeSweep }] = await Promise.all([
     import('./alert-delivery-status.js'),
     import('./soft-delete-purge.js'),

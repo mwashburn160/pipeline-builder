@@ -523,7 +523,14 @@ spec:
         accessModes: ["ReadWriteOnce"]
         resources:
           requests:
-            storage: 20Gi
+            # 30Gi, not the uniform 20Gi (2026-11-25): pvc-autoexpand grew all four
+            # claims 20Gi -> 30Gi after ~4 days of catalog builds (60% used at
+            # 30Gi). volumeClaimTemplates is immutable, so a template left at 20Gi
+            # breaks the next apply on that install and provisions any new
+            # replica at the old size. On a live StatefulSet change it with
+            # `kubectl delete sts rustfs --cascade=orphan` + re-apply (pods keep
+            # running); PvcAutoExpandTemplateDrift says when that is due.
+            storage: 30Gi
 ---
 # rustfs runs 4 replicas in distributed (erasure-coded) mode here, so writes
 # need a quorum of drives. Karpenter consolidation would otherwise be free to

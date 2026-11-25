@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: c03d056ddb1c1f283df28a5428bd28c7629b3b9a33c3c5674eb0a15d24b51f24
+// SOURCE-SHA256: da2c61908f6a8be77db38e6550257e516c05431835c9bd42f121ec09ceec9af6
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -4444,6 +4444,16 @@ export const envVariablesTopic: HelpTopic = {
               "PVC_AUTOEXPAND_COOLDOWN_SECONDS",
               "21600",
               "Minimum gap between decisions for one claim. 6 h because EBS refuses a second modification of the same volume inside roughly that window and Alertmanager re-sends on its repeat_interval. Held in Redis, which also provides the cross-replica lock — without Redis, expansion fails closed."
+            ],
+            [
+              "PVC_AUTOEXPAND_NAMESPACE",
+              "pipeline-builder",
+              "Namespace of the StatefulSets (rustfs, redis, postgres-replica) whose claims the drift sweep compares with their volumeClaimTemplates."
+            ],
+            [
+              "PVC_AUTOEXPAND_DRIFT_INTERVAL_MS",
+              "600000",
+              "How often pvc_autoexpand_template_drift is recomputed from the cluster (10 min). Runs on every ops-center replica, only when PVC_AUTOEXPAND_ENABLED=true."
             ],
             [
               "NODE_DISK_AUTOEXPAND_ENABLED",

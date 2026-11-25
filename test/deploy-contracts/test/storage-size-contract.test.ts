@@ -59,6 +59,8 @@ const EXPECTED: Record<string, string> = {
 const EXCEPTIONS: Record<string, { size: string; why: string }> = {
   'deploy/local/minikube:ask-model':
     { size: '8Gi', why: 'holds the pulled ollama model (~1-5GB); the uniform 1Gi would not fit it' },
+  'deploy/aws/eks:rustfs':
+    { size: '30Gi', why: 'pvc-autoexpand grew all four claims to 30Gi in ~4 days of catalog builds (2026-11-25); volumeClaimTemplates is immutable, so the template must match the live claims' },
 };
 
 type Found = { file: string; kind: string; where: 'capacity' | 'requests'; size: string };

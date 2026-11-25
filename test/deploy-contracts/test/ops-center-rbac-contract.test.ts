@@ -182,12 +182,25 @@ describe('ops-center RBAC is pinned by resourceNames', () => {
 
   it('eks pvc-autoexpand grants exactly the claims the eks tree creates', () => {
     const role = roleOf(opsDocs('deploy/aws/eks'), 'ops-center-pvc-autoexpand')!;
-    expect(role.rules).toHaveLength(1);
+    expect(role.rules).toHaveLength(2);
     const [rule] = role.rules;
     expect(rule.apiGroups).toEqual(['']);
     expect(rule.resources).toEqual(['persistentvolumeclaims']);
     expect([...rule.verbs].sort()).toEqual(['get', 'patch']);
     expect([...rule.resourceNames].sort()).toEqual(eksClaims());
+  });
+
+  it('eks pvc-autoexpand may only READ the StatefulSets its drift sweep checks', () => {
+    // services/pvc-autoexpand.ts TEMPLATED_STATEFULSETS is the source of truth;
+    // a StatefulSet added there without a grant would 403 silently every sweep.
+    const src = read('api/ops-center/src/services/pvc-autoexpand.ts');
+    const names = [...src.matchAll(/\{\s*statefulSet:\s*'([^']+)',\s*template:/g)].map((m) => m[1]).sort();
+    expect(names).toEqual(['postgres-replica', 'redis', 'rustfs']);
+    const rule = roleOf(opsDocs('deploy/aws/eks'), 'ops-center-pvc-autoexpand')!.rules[1];
+    expect(rule.apiGroups).toEqual(['apps']);
+    expect(rule.resources).toEqual(['statefulsets']);
+    expect(rule.verbs).toEqual(['get']);
+    expect([...rule.resourceNames].sort()).toEqual(names);
   });
 
   it('finds the claim-bearing manifests it expects (guards the scan itself)', () => {

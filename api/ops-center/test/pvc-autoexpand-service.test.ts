@@ -36,7 +36,7 @@ jest.unstable_mockModule('../src/observability/metrics.js', () => ({
   observe: jest.fn(),
 }));
 
-const { expandClaim, ORIGINAL_ANNOTATION, LAST_ANNOTATION } = await import('../src/services/pvc-autoexpand.js');
+const { expandClaim, ORIGINAL_ANNOTATION, LAST_ANNOTATION, reconcileTemplateDrift, statefulSetOfClaim } = await import('../src/services/pvc-autoexpand.js');
 
 const CFG = { enabled: true, stepFactor: 1.5, ceilingFactor: 4, maxGi: 500, cooldownSeconds: 21600 };
 
@@ -115,7 +115,7 @@ describe('expansion', () => {
     expect(k8s.mock.calls[0][0]).toBe('/api/v1/namespaces/pb%2F..%2Fkube-system/persistentvolumeclaims/x%3Fy');
   });
 
-  it.each(['data-rustfs-0', 'data-redis-2'])('a StatefulSet claim (%s) raises template drift', async (claim) => {
+  it.each(['data-rustfs-0', 'data-redis-2', 'postgres-replica-data-postgres-replica-1'])('a StatefulSet claim (%s) raises template drift', async (claim) => {
     k8s.mockResolvedValueOnce(pvc()).mockResolvedValueOnce({});
     await expandClaim('pb', claim, CFG);
     expect(mockSetGauge).toHaveBeenCalledWith('pvc_autoexpand_template_drift', { namespace: 'pb', claim }, 1);
@@ -168,5 +168,70 @@ describe('API failures', () => {
     redis.del.mockRejectedValue(new Error('redis gone'));
     expect(await expandClaim('pb', 'c', CFG)).toMatchObject({ outcome: 'error', detail: expect.stringContaining('422') });
     expect(results()).toEqual(['error']);
+  });
+});
+
+describe('statefulSetOfClaim', () => {
+  it('maps a templated claim to its StatefulSet, and nothing else', () => {
+    expect(statefulSetOfClaim('data-rustfs-3')).toEqual({ statefulSet: 'rustfs', template: 'data', ordinal: 3 });
+    expect(statefulSetOfClaim('data-redis-0')).toEqual({ statefulSet: 'redis', template: 'data', ordinal: 0 });
+    expect(statefulSetOfClaim('postgres-replica-data-postgres-replica-1'))
+      .toEqual({ statefulSet: 'postgres-replica', template: 'postgres-replica-data', ordinal: 1 });
+    for (const c of ['postgres-data', 'data-rustfs-', 'data-rustfs-x', 'data-other-0', 'grafana-data']) expect(statefulSetOfClaim(c)).toBeNull();
+  });
+});
+
+describe('reconcileTemplateDrift (gauge derived from the cluster)', () => {
+  const sts = (replicas: number, template: string, storage: string) => ({
+    spec: { replicas, volumeClaimTemplates: [{ metadata: { name: template }, spec: { resources: { requests: { storage } } } }] },
+  });
+  const notFound = (path: string) => new Error(`k8s GET ${path} -> 404 {"kind":"Status"}`);
+  /** Route GETs by path; anything unlisted is a 404. */
+  const cluster = (objects: Record<string, unknown>) => k8s.mockImplementation(async (path: string) => {
+    for (const [suffix, body] of Object.entries(objects)) if (path.endsWith(suffix)) return body;
+    throw notFound(path);
+  });
+
+  it('publishes 1 for a claim larger than its template and 0 for one that matches', async () => {
+    cluster({
+      '/statefulsets/rustfs': sts(2, 'data', '20Gi'),
+      '/persistentvolumeclaims/data-rustfs-0': pvc({ storage: '30Gi' }),
+      '/persistentvolumeclaims/data-rustfs-1': pvc({ storage: '20Gi' }),
+    });
+    const r = await reconcileTemplateDrift('pb');
+    expect(r.map((x) => [x.claim, x.drift])).toEqual([['data-rustfs-0', true], ['data-rustfs-1', false]]);
+    expect(mockSetGauge).toHaveBeenCalledWith('pvc_autoexpand_template_drift', { namespace: 'pb', claim: 'data-rustfs-0' }, 1);
+    expect(mockSetGauge).toHaveBeenCalledWith('pvc_autoexpand_template_drift', { namespace: 'pb', claim: 'data-rustfs-1' }, 0);
+  });
+
+  it('clears the gauge once the StatefulSet is recreated with the new size', async () => {
+    cluster({ '/statefulsets/rustfs': sts(1, 'data', '30Gi'), '/persistentvolumeclaims/data-rustfs-0': pvc({ storage: '30Gi' }) });
+    await reconcileTemplateDrift('pb');
+    expect(mockSetGauge).toHaveBeenCalledWith('pvc_autoexpand_template_drift', { namespace: 'pb', claim: 'data-rustfs-0' }, 0);
+  });
+
+  it('covers postgres-replica, whose claims are named after their own template', async () => {
+    cluster({
+      '/statefulsets/postgres-replica': sts(1, 'postgres-replica-data', '20Gi'),
+      '/persistentvolumeclaims/postgres-replica-data-postgres-replica-0': pvc({ storage: '30Gi' }),
+    });
+    const r = await reconcileTemplateDrift('pb');
+    expect(r).toEqual([expect.objectContaining({ claim: 'postgres-replica-data-postgres-replica-0', statefulSet: 'postgres-replica', drift: true })]);
+  });
+
+  it('skips a StatefulSet the target does not run and a claim not yet provisioned, without warning', async () => {
+    cluster({ '/statefulsets/rustfs': sts(2, 'data', '20Gi'), '/persistentvolumeclaims/data-rustfs-0': pvc({ storage: '20Gi' }) });
+    const r = await reconcileTemplateDrift('pb');
+    expect(r.map((x) => x.claim)).toEqual(['data-rustfs-0']);
+  });
+
+  it('leaves a claim\'s gauge untouched when the API errors (never guesses 0)', async () => {
+    k8s.mockImplementation(async (path: string) => {
+      if (path.endsWith('/statefulsets/rustfs')) return sts(1, 'data', '20Gi');
+      if (path.endsWith('/persistentvolumeclaims/data-rustfs-0')) throw new Error(`k8s GET ${path} -> 403 forbidden`);
+      throw notFound(path);
+    });
+    await expect(reconcileTemplateDrift('pb')).resolves.toEqual([]);
+    expect(mockSetGauge).not.toHaveBeenCalled();
   });
 });

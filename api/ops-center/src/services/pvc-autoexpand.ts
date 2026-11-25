@@ -33,11 +33,14 @@
  *   3. NO SHRINK. Expansion is irreversible in both EBS and Kubernetes, so a
  *      computed size that is not strictly larger is never submitted.
  *
- * StatefulSet claims (data-rustfs-*, data-redis-*) ARE expanded, by explicit
- * decision. Their size comes from volumeClaimTemplates, which is immutable on a
- * live StatefulSet, so patching the live claim leaves the manifest behind: a
- * replica created later provisions at the OLD size. That divergence is reported
- * through `pvc_autoexpand_template_drift` so it cannot rot silently.
+ * StatefulSet claims (data-rustfs-*, data-redis-*, postgres-replica-data-*) ARE
+ * expanded, by explicit decision. Their size comes from volumeClaimTemplates,
+ * which is immutable on a live StatefulSet, so patching the live claim leaves
+ * the manifest behind: a replica created later provisions at the OLD size. That
+ * divergence is reported through `pvc_autoexpand_template_drift` so it cannot
+ * rot silently — set at once on expansion, and RECOMPUTED from the cluster by
+ * {@link reconcileTemplateDrift} on a sweep, so it survives a pod restart and
+ * clears once the StatefulSet is recreated with the new size.
  */
 
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
@@ -48,6 +51,28 @@ import { getRedisClient } from '../utils/redis-client.js';
 const logger = createLogger('pvc-autoexpand');
 
 const GIB = 1024 ** 3;
+
+/**
+ * The StatefulSets whose claims this controller may grow, with the
+ * volumeClaimTemplate each one's claims come from. Kubernetes names those claims
+ * `<template>-<statefulset>-<ordinal>`.
+ */
+export const TEMPLATED_STATEFULSETS: readonly { statefulSet: string; template: string }[] = [
+  { statefulSet: 'rustfs', template: 'data' },
+  { statefulSet: 'redis', template: 'data' },
+  { statefulSet: 'postgres-replica', template: 'postgres-replica-data' },
+];
+
+/** The StatefulSet a claim was provisioned from, or null for a standalone claim. */
+export function statefulSetOfClaim(claim: string): { statefulSet: string; template: string; ordinal: number } | null {
+  for (const t of TEMPLATED_STATEFULSETS) {
+    const prefix = `${t.template}-${t.statefulSet}-`;
+    if (claim.startsWith(prefix) && /^\d+$/.test(claim.slice(prefix.length))) {
+      return { ...t, ordinal: Number(claim.slice(prefix.length)) };
+    }
+  }
+  return null;
+}
 
 /** Set on first expansion so the ceiling is measured from the original size. */
 export const ORIGINAL_ANNOTATION = 'pipeline-builder.io/autoexpand-original';
@@ -231,7 +256,7 @@ export async function expandClaim(
     // A StatefulSet claim's size lives in volumeClaimTemplates, which is
     // immutable — the manifest now disagrees with the live claim, and a replica
     // created later comes back at the old size.
-    if (/^data-(rustfs|redis)-\d+$/.test(claim)) {
+    if (statefulSetOfClaim(claim)) {
       setGauge('pvc_autoexpand_template_drift', labels, 1);
       logger.warn('Expanded a StatefulSet claim; volumeClaimTemplates still says the old size', { namespace, claim, toGi });
     }
@@ -249,4 +274,76 @@ export async function expandClaim(
     if (redis) await redis.del(key).catch(() => undefined);
     return { namespace, claim, outcome: 'error', detail: errorMessage(err) };
   }
+}
+
+interface StatefulSetBody {
+  spec?: {
+    replicas?: number;
+    volumeClaimTemplates?: { metadata?: { name?: string }; spec?: { resources?: { requests?: { storage?: string } } } }[];
+  };
+}
+
+const statefulSetPath = (ns: string, name: string) =>
+  `/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/statefulsets/${encodeURIComponent(name)}`;
+
+/** One claim's drift verdict, as published. */
+export interface TemplateDrift {
+  claim: string;
+  statefulSet: string;
+  claimBytes: number;
+  templateBytes: number;
+  drift: boolean;
+}
+
+/**
+ * Recompute `pvc_autoexpand_template_drift` from the cluster: for every
+ * {@link TEMPLATED_STATEFULSETS} entry present in `namespace`, compare each live
+ * claim's requested size with the StatefulSet's volumeClaimTemplates and publish
+ * 1 (claim larger than the template) or 0.
+ *
+ * The gauge used to be set ONCE, in the memory of the pod that did the
+ * expansion: nothing ever cleared it, so the alert outlived the fix, and a
+ * restart dropped it while the drift was still real. Deriving it from the
+ * cluster makes it true on every replica and after every restart.
+ *
+ * A StatefulSet this target does not run (404) is skipped. Never throws: one
+ * unreadable object is logged and leaves its claims' gauges as they were.
+ */
+export async function reconcileTemplateDrift(namespace: string): Promise<TemplateDrift[]> {
+  const results: TemplateDrift[] = [];
+  for (const { statefulSet, template } of TEMPLATED_STATEFULSETS) {
+    let sts: StatefulSetBody;
+    try {
+      sts = (await k8sRequest(statefulSetPath(namespace, statefulSet))) as StatefulSetBody;
+    } catch (err) {
+      if (!/-> 404\b/.test(errorMessage(err))) {
+        logger.warn('Template drift: StatefulSet unreadable', { namespace, statefulSet, error: errorMessage(err) });
+      }
+      continue;
+    }
+    const tpl = sts.spec?.volumeClaimTemplates?.find((t) => t.metadata?.name === template);
+    const templateBytes = parseQuantityToBytes(tpl?.spec?.resources?.requests?.storage ?? '');
+    if (templateBytes === null) {
+      logger.warn('Template drift: no readable size in volumeClaimTemplates', { namespace, statefulSet, template });
+      continue;
+    }
+    const replicas = sts.spec?.replicas ?? 0;
+    for (let i = 0; i < replicas; i++) {
+      const claim = `${template}-${statefulSet}-${i}`;
+      try {
+        const pvc = (await k8sRequest(pvcPath(namespace, claim))) as PvcBody;
+        const claimBytes = parseQuantityToBytes(pvc.spec?.resources?.requests?.storage ?? '');
+        if (claimBytes === null) continue;
+        const drift = claimBytes > templateBytes;
+        setGauge('pvc_autoexpand_template_drift', { namespace, claim }, drift ? 1 : 0);
+        results.push({ claim, statefulSet, claimBytes, templateBytes, drift });
+      } catch (err) {
+        // A replica that has not provisioned its claim yet is not drift.
+        if (!/-> 404\b/.test(errorMessage(err))) {
+          logger.warn('Template drift: claim unreadable', { namespace, claim, error: errorMessage(err) });
+        }
+      }
+    }
+  }
+  return results;
 }
