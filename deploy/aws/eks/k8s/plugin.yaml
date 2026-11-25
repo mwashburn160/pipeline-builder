@@ -312,15 +312,18 @@ spec:
             # the buildkitd sidecar that runs tenant Dockerfile RUN steps).
             - name: PLUGIN_SIGNING_PUBLIC_KEY_FILE
               value: "/etc/pipeline-builder/plugin-signing/plugin-signing.pub"
-            # grype's vulnerability DB (build-time scan + nightly rescan): the
-            # SHARED, read-only copy on the grype-db EFS claim (grype-db.yaml).
-            # Pods never update it themselves — the grype-db-refresh CronJob is
-            # its one writer — so PLUGIN_GRYPE_DB_AUTO_UPDATE=false: the
-            # operator-managed mode in api/plugin/src/helpers/vuln-scan.ts.
+            # grype's vulnerability DB (build-time scan + nightly rescan) on the
+            # pod's OWN grype-db emptyDir below, refreshed in-process (the
+            # default PLUGIN_GRYPE_DB_AUTO_UPDATE=true): at most hourly before a
+            # build scan and forced before each nightly rescan. See the volume's
+            # comment for why it is no longer a shared EFS copy.
             - name: GRYPE_DB_CACHE_DIR
               value: "/var/cache/grype"
-            - name: PLUGIN_GRYPE_DB_AUTO_UPDATE
-              value: "false"
+            # The grype-db emptyDir's sizeLimit below, in bytes, published as
+            # plugin_vuln_db_cache_limit_bytes so PluginVulnDbCacheNearLimit can
+            # warn BEFORE the kubelet evicts the pod. Keep equal to the sizeLimit.
+            - name: PLUGIN_GRYPE_DB_CACHE_LIMIT_BYTES
+              value: "12884901888"
           volumeMounts:
             # This pod's OWN internal-token signing key and the PUBLIC
             # bundle it verifies its peers with. One private key per pod — that
@@ -353,7 +356,6 @@ spec:
               mountPath: /tmp
             - name: grype-db
               mountPath: /var/cache/grype
-              readOnly: true
           resources:
             limits:
               cpu: "1500m"
@@ -363,6 +365,10 @@ spec:
               # its 1500m limit, so a low reservation avoids over-reserving CPU.
               cpu: "300m"
               memory: 1024Mi
+              # Reserve node disk for the grype-db emptyDir's refresh peak
+              # (~7.3 GiB), so the scheduler counts it instead of discovering it
+              # as node disk pressure.
+              ephemeral-storage: 8Gi
           readinessProbe:
             exec:
               command: ["node", "-e", "fetch('http://127.0.0.1:3000/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
@@ -422,26 +428,34 @@ spec:
         - name: scratch-tmp
           emptyDir:
             sizeLimit: 1Gi
-        # grype vulnerability DB: ONE shared copy on EFS, written only by the
-        # grype-db-refresh CronJob and mounted read-only above (see grype-db.yaml).
+        # grype vulnerability DB: a per-pod copy on node-local disk, the same
+        # shape as ec2. Re-downloaded after a pod restart (~3-4 min), refreshed
+        # hourly at most and forced before each nightly rescan.
         #
-        # It was a per-pod emptyDir, and that history is why it no longer is.
-        # 5Gi, not 2Gi. The DB is no longer "hundreds of MB" — it measured 2.1G
-        # on a pod minutes old — and grype needs roughly DOUBLE it transiently,
-        # since it downloads an archive and extracts alongside it. At 2Gi the
-        # kubelet EVICTED the pod ("Usage of EmptyDir volume grype-db exceeds
-        # the limit"), which killed the build worker mid-job; BullMQ then
-        # reported the abandoned builds as "job stalled more than allowable
-        # limit", so the visible symptom named the queue rather than the disk.
-        # Each new pod re-downloaded and was evicted again — twelve pods in
-        # under two hours. Then the DB reached ~3.3 GiB installed, a refresh
-        # over it peaked near 7.3 GiB, and 5Gi evicted pods the same way —
-        # helped by ~3 GiB download dirs that interrupted updates left behind.
-        # One shared, read-only copy ends both, and the 8 KEDA replicas' copies.
+        # WHY NOT EFS (2026-11-25). This was one shared copy on a bursting-mode
+        # EFS claim, written by a grype-db-refresh CronJob. grype 0.121 reads the
+        # WHOLE DB (~3.6 GB) on every run - `grype db status` ~3.3 GB, a scan
+        # ~6.6 GB - whatever GRYPE_DB_VALIDATE_BY_HASH_ON_START says (measured).
+        # The hourly status checks alone (~7 GB/h for two pods) outran the
+        # ~1.2 GB/h of burst credit a ~6.6 GB file system earns; one nightly
+        # rescan plus the remediation builds it queued read ~1.4 TB, the credits
+        # hit zero, EFS fell to ~1 MiB/s, and the refresh CronJob could no longer
+        # finish inside its deadline (CronJobRunFailed) while scans timed out.
+        # Node-local disk has no credit cliff.
+        #
+        # 12Gi, not 5Gi (history, from the first per-pod era). The DB reached
+        # ~3.3 GiB installed, and a refresh over an existing copy peaks around
+        # 7.3 GiB ON DISK (measured on XFS: the installed DB plus a fresh
+        # download that peaks at 4.0 GiB) - 2Gi and then 5Gi evicted pods
+        # ("Usage of EmptyDir volume grype-db exceeds the limit"), killing
+        # build workers mid-job. 12Gi leaves ~60% headroom over that peak, the
+        # ephemeral-storage request above reserves it, the plugin service deletes
+        # download dirs an interrupted update left behind before each refresh
+        # (removeOrphanDownloads), and PluginVulnDbCacheNearLimit warns when the
+        # projected peak nears the limit.
         - name: grype-db
-          persistentVolumeClaim:
-            claimName: grype-db
-            readOnly: true
+          emptyDir:
+            sizeLimit: 12Gi
         - name: buildkitd-config
           configMap:
             name: buildkitd-config

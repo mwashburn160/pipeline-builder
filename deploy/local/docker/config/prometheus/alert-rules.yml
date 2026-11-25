@@ -465,8 +465,8 @@ groups:
         # sits beside the old copy). Fire when that PROJECTED peak passes 80% of
         # the emptyDir sizeLimit the deploy declares, so the limit is raised
         # BEFORE the kubelet evicts pods mid-build ("Usage of EmptyDir volume
-        # grype-db exceeds the limit"). Absent where no limit is declared (EKS
-        # shares one EFS copy; docker uses a named volume), so nothing fires.
+        # grype-db exceeds the limit"). Absent where no limit is declared
+        # (docker uses a named volume), so nothing fires.
         expr: plugin_vuln_db_cache_bytes * 2.2 > 0.8 * plugin_vuln_db_cache_limit_bytes
         for: 15m
         labels:
@@ -486,8 +486,8 @@ groups:
       - alert: PluginVulnDbStale
         # grype's DB build time, read by the plugin service at every build scan
         # and every rescan tick (hourly) — so it is live whichever process
-        # refreshes the DB: in-process `grype db update`, or the EKS grype-db
-        # CronJob with PLUGIN_GRYPE_DB_AUTO_UPDATE=false. 129600 s = 36 h, the
+        # refreshes the DB: in-process `grype db update`, or an operator job
+        # with PLUGIN_GRYPE_DB_AUTO_UPDATE=false. 129600 s = 36 h, the
         # default PLUGIN_VULN_DB_MAX_AGE_HOURS: past it the nightly rescan
         # REFUSES to run and builds warn, so this is the page that says why.
         # Keep the literal in step with that env var if it is changed.
@@ -499,7 +499,7 @@ groups:
           tenancy: platform
         annotations:
           summary: "Plugin vulnerability DB is older than 36h"
-          description: "The installed grype DB was built {{ $value | humanizeDuration }} ago. The nightly rescan refuses to run on it (plugin_vuln_rescan_runs_total{outcome=\"stale_db\"}) and build scans warn that their result predates the DB. Check whatever refreshes it: plugin_vuln_db_updates_total{outcome=\"failed\"} and the plugin logs for the in-process refresh, or the grype-db CronJob on EKS."
+          description: "The installed grype DB was built {{ $value | humanizeDuration }} ago. The nightly rescan refuses to run on it (plugin_vuln_rescan_runs_total{outcome=\"stale_db\"}) and build scans warn that their result predates the DB. Check whatever refreshes it: plugin_vuln_db_updates_total{outcome=\"failed\"} and the plugin logs for the in-process refresh, or the operator job where PLUGIN_GRYPE_DB_AUTO_UPDATE=false."
 
       - alert: PluginVulnDbAgeUnknown
         # The twin of PluginVulnDbStale for the case it cannot see: no valid DB

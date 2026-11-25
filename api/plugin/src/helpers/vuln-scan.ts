@@ -39,6 +39,7 @@
  */
 
 import * as fs from 'fs';
+import { DatabaseSync } from 'node:sqlite';
 import * as os from 'os';
 import path from 'path';
 
@@ -196,13 +197,63 @@ export async function refreshVulnDb(opts: { force?: boolean } = {}): Promise<voi
 }
 
 /**
- * When the installed vulnerability DB was BUILT, from `grype db status -o json`
- * (`built`, RFC 3339 — grype 0.121 / schema v6), or null when there is no valid
- * DB or the status can't be read (grype exits non-zero for a missing or corrupt
- * DB). Publishes `plugin_vuln_db_built_timestamp_seconds` on every successful
- * read, so the DB's age is visible whichever process refreshes it. Never throws.
+ * The installed DB's build time straight from its SQLite metadata
+ * (`<cache>/<schema>/vulnerability.db`, table `db_metadata`, column
+ * `build_timestamp` — grype schema v6), or null when there is no such file or
+ * table. A few KB read in milliseconds.
+ *
+ * WHY NOT ONLY `grype db status`. grype 0.121 reads the WHOLE ~3.6 GB DB on
+ * every run (`db status` ~3.3 GB, a scan ~6.6 GB — whatever
+ * GRYPE_DB_VALIDATE_BY_HASH_ON_START says; measured 2026-11-25). This is called
+ * before every build scan and on every hourly rescan tick, so on EKS's shared
+ * bursting-EFS copy those reads alone exhausted the file system's credits and
+ * the DB refresh stopped finishing. Integrity is still checked: every grype
+ * SCAN validates the file itself and fails closed on a corrupt DB.
+ */
+function builtAtFromMetadata(): Date | null {
+  const root = dbCacheDir();
+  // Schema directories are numeric (`6/`); in-flight downloads
+  // (`grype-db-download*`) are not, so they are never read.
+  const schemas = fs.readdirSync(root, { withFileTypes: true })
+    .filter((d) => d.isDirectory() && /^\d+$/.test(d.name))
+    .map((d) => Number(d.name))
+    .sort((x, y) => y - x);
+  for (const schema of schemas) {
+    const file = path.join(root, String(schema), 'vulnerability.db');
+    if (!fs.existsSync(file)) continue;
+    const db = new DatabaseSync(file, { readOnly: true });
+    try {
+      const row = db.prepare('SELECT build_timestamp FROM db_metadata LIMIT 1').get() as { build_timestamp?: unknown } | undefined;
+      if (typeof row?.build_timestamp !== 'string') return null;
+      // `2026-11-25 06:22:21+00:00` — SQLite's datetime text; ISO with a T.
+      const built = new Date(row.build_timestamp.replace(' ', 'T'));
+      return Number.isNaN(built.getTime()) ? null : built;
+    } finally {
+      db.close();
+    }
+  }
+  return null;
+}
+
+/**
+ * When the installed vulnerability DB was BUILT, or null when there is no valid
+ * DB or its build time can't be read. Reads the DB's own metadata first
+ * ({@link builtAtFromMetadata}); only when that yields nothing does it fall back
+ * to `grype db status -o json` (`built`, RFC 3339), which exits non-zero for a
+ * missing or corrupt DB. Publishes `plugin_vuln_db_built_timestamp_seconds` on
+ * every successful read, so the DB's age is visible whichever process
+ * refreshes it. Never throws.
  */
 export async function vulnDbBuiltAt(): Promise<Date | null> {
+  try {
+    const fromMetadata = builtAtFromMetadata();
+    if (fromMetadata) {
+      setGauge('plugin_vuln_db_built_timestamp_seconds', {}, Math.floor(fromMetadata.getTime() / 1000));
+      return fromMetadata;
+    }
+  } catch (err) {
+    logger.debug('Vulnerability DB metadata unreadable; asking grype', { error: errorMessage(err) });
+  }
   try {
     const stdout = await run('grype', ['db', 'status', '-o', 'json'], DB_STATUS_TIMEOUT_MS, grypeEnv(), { captureStdout: true });
     const status = JSON.parse(stdout) as { built?: unknown; valid?: unknown };

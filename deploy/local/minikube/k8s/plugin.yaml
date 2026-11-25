@@ -369,7 +369,7 @@ spec:
         # also deletes download dirs an interrupted update left behind before
         # each refresh (removeOrphanDownloads), which 5Gi could not absorb either.
         # PluginVulnDbCacheNearLimit warns when the projected peak nears 12Gi.
-        # (EKS does not use this: it shares one read-only DB — eks grype-db.yaml.)
+        # (EKS does the same: a per-pod emptyDir, auto-updated in place.)
         - name: grype-db
           emptyDir:
             sizeLimit: 12Gi

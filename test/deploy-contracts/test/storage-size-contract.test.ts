@@ -165,14 +165,13 @@ describe('cross-target', () => {
     // StatefulSet with a PVC, and eks runs rustfs as a 4-pod StatefulSet
     // against ec2's single hostPath Deployment. Both are topology differences,
     // not size drift — but if either target silently LOSES a database volume
-    // the diff below is where it shows up. grype-db is the same kind of
-    // difference: eks shares ONE grype DB across its plugin replicas on an EFS
-    // claim (written by a CronJob), where single-node ec2 keeps a per-pod
-    // emptyDir.
+    // the diff below is where it shows up. (grype-db was eks-only until
+    // 2026-11-25: one EFS copy read by every replica ran the file system out of
+    // burst credits, and eks now keeps a per-pod emptyDir like ec2.)
     const filesOf = (t: string) => new Set(volumesOf(t).map((v) => v.file));
     const eks = filesOf('deploy/aws/eks');
     const ec2 = filesOf('deploy/aws/ec2');
-    const EKS_ONLY = ['grype-db', 'redis-sentinel', 'rustfs'];
+    const EKS_ONLY = ['redis-sentinel', 'rustfs'];
     expect([...eks].filter((f) => !ec2.has(f)).sort()).toEqual([...EKS_ONLY].sort());
     expect([...ec2].filter((f) => !eks.has(f))).toEqual([]);
   });
