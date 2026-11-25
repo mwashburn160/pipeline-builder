@@ -141,8 +141,9 @@ spec:
         version: "v2.20.0"
         track: stable
       annotations:
-        # Prometheus here discovers pods by annotation (the `kubernetes-pods`
-        # job), so this is the whole scrape wiring — no prometheus.yml change.
+        # Prometheus discovers this pod by annotation, in its OWN
+        # `kube-state-metrics` job (honor_labels, so kube_pod_* keep the
+        # observed pod's labels); `kubernetes-pods` drops app=kube-state-metrics.
         # Port 8080 is the OBJECT-STATE endpoint; 8081 is kube-state-metrics'
         # own process telemetry and is deliberately not scraped.
         prometheus.io/scrape: "true"

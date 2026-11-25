@@ -723,7 +723,11 @@ Both rules are keyed on CronJobs in the namespace rather than on job names, so a
 
 **Least privilege.** Unlike the upstream deployment, this one watches a single namespace (`--namespaces=pipeline-builder`), which makes a namespaced **Role** sufficient rather than a cluster-wide ClusterRole over every object kind. It is granted `list`/`watch` only, and **not** `secrets` or `configmaps` — kube-state-metrics does not export their values but does export their names and metadata, and Grafana here applies no org scoping. The `--resources` flag and the Role must stay in exact lockstep: a resource watched without permission logs `failed to list` on every resync and its metric family is silently absent, so an alert built on it never fires. A contract test enforces both the lockstep and that every `kube_*` family the rules read is actually exported.
 
-kube-state-metrics itself is covered by `ServiceDown` — it is discovered by the same `kubernetes-pods` scrape job as everything else, so if it stops answering, that fires.
+**Its own scrape job.** kube-state-metrics is scraped by a dedicated `kube-state-metrics` job with `honor_labels: true`, and the generic `kubernetes-pods` job drops it. Its series describe *other* objects in their `pod`/`namespace`/`container` labels; under `kubernetes-pods` the target's own `pod` relabel overwrote them (the real pod survived only as `exported_pod`), so `PodNotScheduled` named `kube-state-metrics-…` instead of the stuck pod and `ContainerOOMKilled`'s `on (namespace, pod, container)` join matched across pods. When querying data recorded before this change, the observed pod is in `exported_pod`.
+
+kube-state-metrics itself is covered by `ServiceDown`, whose matcher is `up{job=~"kubernetes-pods|kube-state-metrics"}`, so if it stops answering, that fires.
+
+`PodNotScheduled` reads `kube_pod_status_phase{phase="Pending"}`, and Kubernetes keeps a pod in `Pending` while its **init containers** run — so a pod with a long init step (a dependency wait, or a delayed-action Job that sleeps in an init container) fires it without any scheduling problem. Check the pod's init container state before looking at node capacity.
 
 ### The monitoring stack itself
 

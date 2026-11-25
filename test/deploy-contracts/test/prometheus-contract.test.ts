@@ -92,7 +92,7 @@ describe.each(K8S_TARGETS)('istio mesh metrics — %s', (target) => {
     // Every other rule needs the service alive enough to emit the metric it
     // alerts on, so a crashlooping or hung pod tripped nothing at all.
     expect(rules).toContain('alert: ServiceDown');
-    expect(rules).toContain('up{job="kubernetes-pods"} == 0');
+    expect(rules).toContain('up{job=~"kubernetes-pods|kube-state-metrics"} == 0');
   });
 
   it('scrapes the observability stack itself', () => {

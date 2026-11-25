@@ -153,8 +153,12 @@ groups:
       # Prometheus cannot alert on its own death either. If that matters, pair
       # this with an always-firing watchdog alert and an external check on
       # Alertmanager, so silence itself becomes a signal.
+      #
+      # kube-state-metrics is scraped by its own job (honor_labels — see
+      # prometheus.yml), so the matcher names both; dropping it would leave the
+      # exporter every compute and CronJob alert reads from unwatched.
       - alert: ServiceDown
-        expr: up{job="kubernetes-pods"} == 0
+        expr: up{job=~"kubernetes-pods|kube-state-metrics"} == 0
         for: 5m
         labels:
           severity: critical
@@ -3858,7 +3862,7 @@ groups:
           tenancy: platform
         annotations:
           summary: "Pod {{ $labels.pod }} has been Pending for 15m"
-          description: "{{ $labels.pod }} (namespace {{ $labels.namespace }}) has not started for 15 minutes. On ec2 - one node - the usual cause is that no node has the CPU or memory left to fit its requests, which is what an HPA scale-out or a Postgres rung increase can produce. Check: kubectl -n {{ $labels.namespace }} describe pod {{ $labels.pod }} (the scheduler's reason is in Events)."
+          description: "{{ $labels.pod }} (namespace {{ $labels.namespace }}) has not started for 15 minutes. A pod also reports Pending while its init containers run, so a long-running init container (a wait or a delayed-action sleep) looks the same. Otherwise the usual cause is that no node has the CPU or memory left to fit its requests - on ec2 (one node) that is what an HPA scale-out or a Postgres rung increase produces; on eks, a node pool that cannot add capacity. Check: kubectl -n {{ $labels.namespace }} describe pod {{ $labels.pod }} (the scheduler's reason is in Events)."
 
       # A container that keeps dying and coming back. OOMKills land here too: the
       # kubelet restarts the container rather than reporting a distinct state, so

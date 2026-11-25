@@ -26,6 +26,11 @@
  *     their values, but it does export their names and metadata — and Grafana
  *     here applies no org scoping, so that would publish the shape of every
  *     tenant's configuration to anyone who reaches a dashboard.
+ *   - KSM SCRAPED WITHOUT honor_labels. Its series name OTHER objects in
+ *     `pod`/`namespace`/`container`; under the generic `kubernetes-pods` job
+ *     the target's own `pod` relabel won, the real pod became `exported_pod`,
+ *     and PodNotScheduled paged "kube-state-metrics-... has been Pending" for
+ *     a pod that was Running (2026-11-24).
  */
 
 import { describe, it, expect } from '@jest/globals';
@@ -119,6 +124,26 @@ describe.each(TARGETS)('%s — kube-state-metrics', (target) => {
     // 8081 is the exporter's own process metrics; the cluster-object families
     // the alerts read are on 8080.
     expect(tpl.metadata.annotations['prometheus.io/port']).toBe('8080');
+  });
+
+  it('is scraped by its own honor_labels job, and by nothing else', () => {
+    const promCfg = parseAllDocuments(read(`${target}/config/prometheus/prometheus.yml`))[0].toJSON() as Doc;
+    const jobs = promCfg.scrape_configs as Doc[];
+    const ksm = jobs.find((j) => j.job_name === 'kube-state-metrics')!;
+    expect(ksm).toBeDefined();
+    // Without it the target's `pod` relabel overwrites the observed pod's label.
+    expect(ksm.honor_labels).toBe(true);
+    expect(ksm.relabel_configs).toContainEqual({
+      source_labels: ['__meta_kubernetes_pod_label_app'], action: 'keep', regex: 'kube-state-metrics',
+    });
+    // ...and the generic job must not ALSO scrape it: a second copy of every
+    // kube_* series, with the clobbered labels, would fire every alert twice.
+    const pods = jobs.find((j) => j.job_name === 'kubernetes-pods')!;
+    expect(pods.relabel_configs).toContainEqual({
+      source_labels: ['__meta_kubernetes_pod_label_app'], action: 'drop', regex: 'kube-state-metrics',
+    });
+    // ServiceDown is what watches the exporter itself.
+    expect(read(`${target}/config/prometheus/alert-rules.yml`)).toContain('up{job=~"kubernetes-pods|kube-state-metrics"} == 0');
   });
 
   it('runs unprivileged, read-only, on a digest-pinned image', () => {
