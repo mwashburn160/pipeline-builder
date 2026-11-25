@@ -1,6 +1,6 @@
 {
   "AWSTemplateFormatVersion": "2010-09-09",
-  "Description": "Pipeline Builder cross-account PIPELINE RUNNER — a Lambda that starts/stops this account's pipelines with its own role, on platform-signed requests POSTed to its Function URL (or an IP-allowlisted, WAF rate-limited API Gateway). The platform holds no AWS access to this account and the runner holds no platform credential. Deployed by pipeline-manager infra setup-runner, which also fills PipelineActions with one ARN per allowlisted region x prefix and keys the API deployment to the IP allowlist (utils/runner-template.ts). With EnableDeploy=true (setup-runner --enable-deploy) it also holds a deploy CodeBuild project the runner starts on a signed deploy request: it runs the pipeline's own managed cdk-synth image (pinned by digest) with a role that can only assume this account's CDK bootstrap roles, and the job's single-use platform grant travels KMS-encrypted (only the runner role encrypts, only the deploy role decrypts). Lambda code is uploaded separately.",
+  "Description": "Pipeline Builder cross-account PIPELINE RUNNER — a Lambda that starts/stops this account's pipelines with its own role, on platform-signed requests POSTed to its Function URL (or an IP-allowlisted, WAF rate-limited API Gateway). The platform holds no AWS access to this account and the runner holds no platform credential. Deployed by pipeline-manager infra setup-runner, which also fills PipelineActions with one ARN per allowlisted region x prefix and keys the API deployment to the IP allowlist (utils/runner-template.ts). With EnableDeploy=true (setup-runner --enable-deploy) it also holds a deploy CodeBuild project the runner starts on a signed deploy request: it runs the pipeline's own managed cdk-synth image (pinned by digest) with a role that can only assume this account's CDK bootstrap roles, and the job's single-use platform grant travels KMS-encrypted, bound to its request (only the runner role encrypts, only the deploy role decrypts). Lambda code is uploaded separately.",
   "Parameters": {
     "RunnerId": {
       "Type": "String",
@@ -94,8 +94,8 @@
       "Type": "Number",
       "Default": 60,
       "MinValue": 10,
-      "MaxValue": 480,
-      "Description": "EnableDeploy only: the deploy build's timeout (CodeBuild TimeoutInMinutes)."
+      "MaxValue": 120,
+      "Description": "EnableDeploy only: the deploy build's timeout (CodeBuild TimeoutInMinutes). At most 120: the platform's deploy deadline (RUNNER_DEPLOY_DEADLINE_MINUTES, default 120) cancels a longer deploy first, failing DEPLOY_TIMED_OUT."
     },
     "DeployConcurrency": {
       "Type": "Number",
@@ -473,7 +473,7 @@
       "Condition": "UseDeploy",
       "Properties": {
         "Description": {
-          "Fn::Sub": "Pipeline Builder runner ${RunnerId}: wraps each deploy job's single-use platform grant (the runner role encrypts, the deploy role decrypts)."
+          "Fn::Sub": "Pipeline Builder runner ${RunnerId}: wraps each deploy job's single-use platform grant under {runnerId, purpose, requestId} (the runner role encrypts, the deploy role decrypts; a ciphertext decrypts for its own request only)."
         },
         "EnableKeyRotation": true,
         "PendingWindowInDays": 7,
@@ -525,6 +525,16 @@
                     "Ref": "RunnerId"
                   },
                   "kms:EncryptionContext:purpose": "deploy-grant"
+                },
+                "Null": {
+                  "kms:EncryptionContext:requestId": "false"
+                },
+                "ForAllValues:StringEquals": {
+                  "kms:EncryptionContextKeys": [
+                    "runnerId",
+                    "purpose",
+                    "requestId"
+                  ]
                 }
               }
             },
@@ -547,6 +557,16 @@
                     "Ref": "RunnerId"
                   },
                   "kms:EncryptionContext:purpose": "deploy-grant"
+                },
+                "Null": {
+                  "kms:EncryptionContext:requestId": "false"
+                },
+                "ForAllValues:StringEquals": {
+                  "kms:EncryptionContextKeys": [
+                    "runnerId",
+                    "purpose",
+                    "requestId"
+                  ]
                 }
               }
             }

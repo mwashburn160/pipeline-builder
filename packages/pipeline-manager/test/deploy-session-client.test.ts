@@ -142,3 +142,29 @@ describe('DeploySessionClient', () => {
     expect(calls).toEqual([]);
   });
 });
+
+describe('a wiped session (401 on any facade route)', () => {
+  it.each([
+    ['pipeline', (c: InstanceType<typeof DeploySessionClient>) => c.get('/api/pipelines/pipe-1')],
+    ['plugin-lookup', (c: InstanceType<typeof DeploySessionClient>) => c.post('/api/plugins/lookup', {})],
+    ['progress', (c: InstanceType<typeof DeploySessionClient>) => c.progress('deploying')],
+    ['registry', (c: InstanceType<typeof DeploySessionClient>) => c.registry({ pipelineName: 'p', stackName: 's', region: 'eu-west-2' })],
+    ['result', (c: InstanceType<typeof DeploySessionClient>) => c.result({ code: 'OK', stage: 'done' })],
+  ])('%s: DeploySessionEndedError', async (_leaf, call) => {
+    const { DeploySessionEndedError, isDeploySessionEnded } = await import('../src/utils/deploy-session-client.js');
+    const f = fakeHttp(() => refusal(401, { code: 'DEPLOY_SESSION_INVALID' }));
+    const c = new DeploySessionClient({ baseUrl: 'https://platform.example', session: SESSION, http: f.http });
+    const err = await call(c).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(DeploySessionEndedError);
+    expect(isDeploySessionEnded(Object.assign(new Error('wrapped'), { cause: err }))).toBe(true);
+  });
+
+  it('any other failure passes through unchanged', async () => {
+    const { isDeploySessionEnded } = await import('../src/utils/deploy-session-client.js');
+    const f = fakeHttp(() => refusal(503, {}));
+    const c = new DeploySessionClient({ baseUrl: 'https://platform.example', session: SESSION, http: f.http });
+    const err = await c.progress('deploying').catch((e: unknown) => e);
+    expect((err as { response?: { status?: number } }).response?.status).toBe(503);
+    expect(isDeploySessionEnded(err)).toBe(false);
+  });
+});

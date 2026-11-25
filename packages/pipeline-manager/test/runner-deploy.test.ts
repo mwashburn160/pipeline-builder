@@ -139,7 +139,8 @@ describe('deploy', () => {
     expect(r).toEqual({ status: 200, body: { outcome: 'deploying', buildId: BUILD('11111111-2222-4333-8444-555555555555'), runnerVersion: '9.9.9' } });
 
     const enc = t.aws.find((a) => a.name === 'EncryptCommand')!;
-    expect(enc.input).toEqual({ KeyId: KEY_ARN, Plaintext: Buffer.from(GRANT, 'utf8'), EncryptionContext: deployGrantEncryptionContext('runner-1') });
+    expect(enc.input).toEqual({ KeyId: KEY_ARN, Plaintext: Buffer.from(GRANT, 'utf8'), EncryptionContext: deployGrantEncryptionContext('runner-1', 'req-1') });
+    expect(enc.input.EncryptionContext).toMatchObject({ requestId: 'req-1' });
 
     const start = t.aws.find((a) => a.name === 'StartBuildCommand')!;
     expect(Object.keys(start.input).sort()).toEqual([
@@ -206,6 +207,24 @@ describe('deploy', () => {
     expect(names(t.aws)).not.toContain('StartBuildCommand');
     expect(names(t.aws)).not.toContain('EncryptCommand');
     expect(t.aws.find((a) => a.name === 'ListBuildsForProjectCommand')!.input).toEqual({ projectName: PROJECT, sortOrder: 'DESCENDING' });
+  });
+
+  it('a redelivery after its build FINISHED returns that build (CodeBuild\'s 5-minute idempotency token has lapsed; a second build would burn the single-use grant)', async () => {
+    const done = BUILD('aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee');
+    const t = setup({ codebuild: codebuildFake([{ id: done, buildStatus: 'FAILED', env: { PB_REQUEST_ID: 'req-1', PB_PIPELINE_ID: 'pipe-1' } }]) });
+    expect(await t.send(deploy())).toEqual({ status: 200, body: { outcome: 'deploying', buildId: done, runnerVersion: '9.9.9' } });
+    expect(names(t.aws)).not.toContain('StartBuildCommand');
+    expect(names(t.aws)).not.toContain('EncryptCommand');
+  });
+
+  it('a redelivery after its build deployed the pipeline returns that build, not PIPELINE_ALREADY_DEPLOYED', async () => {
+    const done = BUILD('aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee');
+    const t = setup({
+      tagging: () => ({ ResourceTagMappingList: [{ ResourceARN: `arn:aws:codepipeline:eu-west-2:${ACCOUNT}:acme-shop-pipeline` }] }),
+      codebuild: codebuildFake([{ id: done, buildStatus: 'SUCCEEDED', env: { PB_REQUEST_ID: 'req-1', PB_PIPELINE_ID: 'pipe-1' } }]),
+    });
+    expect(await t.send(deploy())).toEqual({ status: 200, body: { outcome: 'deploying', buildId: done, runnerVersion: '9.9.9' } });
+    expect(names(t.aws)).not.toContain('StartBuildCommand');
   });
 
   it('another request\'s build of the same pipeline still running: 409 DEPLOY_IN_PROGRESS', async () => {

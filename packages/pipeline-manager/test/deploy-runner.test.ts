@@ -6,6 +6,7 @@ import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from '@pipeline-builder/api-core/testing';
 
 const mockExecuteCdk = jest.fn<(...args: any[]) => { duration: number }>();
+const mockSpawnCdk = jest.fn<(...args: any[]) => Promise<{ duration: number }>>();
 const mockBuildRegistryPayload = jest.fn<(...args: any[]) => Promise<{ pipelineId: string }>>();
 const mockWritePendingIntent = jest.fn<(...args: any[]) => Promise<string>>();
 const mockReadStepManifest = jest.fn<(...args: any[]) => Promise<unknown[] | undefined>>();
@@ -13,6 +14,7 @@ const mockReadStepManifest = jest.fn<(...args: any[]) => Promise<unknown[] | und
 jest.unstable_mockModule('../src/utils/cdk-utils.js', () => ({
   __esModule: true,
   executeCdkShellCommand: (...a: unknown[]) => mockExecuteCdk(...(a as [])),
+  spawnCdkShellCommand: (...a: unknown[]) => mockSpawnCdk(...(a as [])),
   resolveBoilerplatePath: () => '/app/boilerplate.js',
 }));
 jest.unstable_mockModule('../src/utils/registry.js', () => ({
@@ -73,6 +75,33 @@ describe('runDeploy: the runner deploy job\'s non-interactive path', () => {
     expect(post).not.toHaveBeenCalled();
     expect(mockBuildRegistryPayload).not.toHaveBeenCalled();
     expect(mockWritePendingIntent).not.toHaveBeenCalled();
+  });
+
+  it('with a signal: cdk runs abortable (spawned, not execSync) and gets that signal', async () => {
+    mockSpawnCdk.mockResolvedValue({ duration: 5 });
+    const controller = new AbortController();
+    const register = jest.fn<(...args: any[]) => Promise<void>>().mockResolvedValue(undefined);
+    await runDeploy({ ...BASE, region: 'eu-west-2', app: '/work/cdk.out', register, signal: controller.signal });
+    expect(mockExecuteCdk).not.toHaveBeenCalled();
+    const [command, opts] = mockSpawnCdk.mock.calls[0]! as [string, { signal: AbortSignal; env: Record<string, string> }];
+    expect(command).toContain("--app='/work/cdk.out'");
+    expect(opts.signal).toBe(controller.signal);
+    expect(opts.env.AWS_REGION).toBe('eu-west-2');
+    expect(register).toHaveBeenCalled();
+  });
+
+  it('an aborted cdk run throws and never registers', async () => {
+    mockSpawnCdk.mockRejectedValue(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+    const register = jest.fn<(...args: any[]) => Promise<void>>();
+    await expect(runDeploy({ ...BASE, region: 'eu-west-2', app: '/work/cdk.out', register, signal: new AbortController().signal }))
+      .rejects.toMatchObject({ name: 'AbortError' });
+    expect(register).not.toHaveBeenCalled();
+  });
+
+  it('a signal without a pre-synthesized app is refused (the props file must outlive the run)', async () => {
+    await expect(runDeploy({ ...BASE, region: 'eu-west-2', signal: new AbortController().signal })).rejects.toThrow(/app/);
+    expect(mockSpawnCdk).not.toHaveBeenCalled();
+    expect(mockExecuteCdk).not.toHaveBeenCalled();
   });
 
   it('a CDK failure throws before the callback', async () => {

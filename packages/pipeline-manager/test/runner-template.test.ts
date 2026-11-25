@@ -17,10 +17,11 @@ import { describe, it, expect } from '@jest/globals';
 const {
   buildRunnerTemplate, CDK_BOOTSTRAP_ROLE_KINDS, DEFAULT_CDK_QUALIFIER, DEFAULT_WAF_RATE_LIMIT, pipelineActionResources, runnerStackParameters,
   RUNNER_DEPLOY_BUILD_ACTIONS, RUNNER_PIPELINE_ACTIONS, runnerStackName, runnerFunctionName, DEPLOY_RESULT_FILE,
+  DEPLOY_TIMEOUT_MAX_MINUTES,
 } = await import('../src/utils/runner-template.js');
 const {
   DEPLOY_BUILD_QUEUED_TIMEOUT_MINUTES, DEPLOY_BUILD_TIMEOUT_MINUTES, DEPLOY_JOB_EXPORTED_VARIABLES, DEPLOY_JOB_OVERRIDE_ENV,
-  deployGrantEncryptionContext, deployLogGroupName, deployProjectName,
+  deployGrantEncryptionContext, deployLogGroupName, deployProjectName, RUNNER_TUNABLE_DEFAULTS, DEPLOY_GRANT_KMS_CONTEXT_KEYS,
 } = await import('@pipeline-builder/api-core/pipeline-runners');
 const YAML = await import('yaml');
 
@@ -312,10 +313,19 @@ describe('runner-stack.json: deploys (opt-in)', () => {
     expect(p.CdkQualifier).toMatchObject({ Type: 'String', Default: DEFAULT_CDK_QUALIFIER });
     expect(DEFAULT_CDK_QUALIFIER).toBe('hnb659fds');
     expect(p.DeployTimeoutMinutes).toMatchObject({
-      Type: 'Number', Default: DEPLOY_BUILD_TIMEOUT_MINUTES.default, MinValue: DEPLOY_BUILD_TIMEOUT_MINUTES.min, MaxValue: DEPLOY_BUILD_TIMEOUT_MINUTES.max,
+      Type: 'Number', Default: DEPLOY_BUILD_TIMEOUT_MINUTES.default, MinValue: DEPLOY_BUILD_TIMEOUT_MINUTES.min, MaxValue: 120,
     });
     expect(p.DeployConcurrency).toMatchObject({ Type: 'Number', Default: 2, MinValue: 1 });
     expect(p.DeployPermissionsBoundaryArn).toMatchObject({ Type: 'String', Default: '' });
+  });
+
+  it('caps the deploy build timeout at the platform\'s deploy deadline (a longer build is cancelled by the platform first)', () => {
+    const deadline = Number(RUNNER_TUNABLE_DEFAULTS.RUNNER_DEPLOY_DEADLINE_MINUTES);
+    expect(base().Parameters.DeployTimeoutMinutes.MaxValue).toBe(deadline);
+    expect(DEPLOY_TIMEOUT_MAX_MINUTES).toBe(DEPLOY_BUILD_TIMEOUT_MINUTES.max);
+    expect(DEPLOY_BUILD_TIMEOUT_MINUTES.max).toBe(deadline);
+    expect(base().Parameters.DeployTimeoutMinutes.MaxValue).toBe(DEPLOY_BUILD_TIMEOUT_MINUTES.max);
+    expect(DEPLOY_TIMEOUT_MAX_MINUTES).toBe(120);
   });
 
   it('the deploy project: named for the runner, no source / artifacts, not privileged, an inline buildspec running deploy-job', () => {
@@ -458,9 +468,20 @@ describe('runner-stack.json: deploys (opt-in)', () => {
     expect(key.EnableKeyRotation).toBe(true);
     expect(key.KeySpec ?? 'SYMMETRIC_DEFAULT').toBe('SYMMETRIC_DEFAULT');
     const sts: Json[] = key.KeyPolicy.Statement;
-    const ctx = Object.fromEntries(Object.entries(deployGrantEncryptionContext('X')).map(([k, v]) => [
+    // The fixed pairs are matched by value; the request id (a different value per
+    // request) must be PRESENT, and no other context key is allowed. KMS then
+    // binds each ciphertext to its request: a decrypt under another request's
+    // context fails.
+    const context = deployGrantEncryptionContext('X', 'REQ');
+    const fixed = Object.fromEntries(Object.entries(context).filter(([k]) => k !== 'requestId').map(([k, v]) => [
       `kms:EncryptionContext:${k}`, k === 'runnerId' ? { Ref: 'RunnerId' } : v,
     ]));
+    const ctx = {
+      'StringEquals': fixed,
+      'Null': { 'kms:EncryptionContext:requestId': 'false' },
+      'ForAllValues:StringEquals': { 'kms:EncryptionContextKeys': [...DEPLOY_GRANT_KMS_CONTEXT_KEYS] },
+    };
+    expect(Object.keys(context).sort()).toEqual([...DEPLOY_GRANT_KMS_CONTEXT_KEYS].sort());
     const runner = sts.find((s) => s.Sid === 'RunnerEncryptsGrants')!;
     expect(runner).toEqual({
       Sid: 'RunnerEncryptsGrants',
@@ -468,7 +489,7 @@ describe('runner-stack.json: deploys (opt-in)', () => {
       Principal: { AWS: { 'Fn::GetAtt': ['RunnerRole', 'Arn'] } },
       Action: 'kms:Encrypt',
       Resource: '*',
-      Condition: { StringEquals: ctx },
+      Condition: ctx,
     });
     const job = sts.find((s) => s.Sid === 'DeployJobDecryptsGrants')!;
     expect(job).toEqual({
@@ -477,7 +498,7 @@ describe('runner-stack.json: deploys (opt-in)', () => {
       Principal: { AWS: { 'Fn::GetAtt': ['DeployRole', 'Arn'] } },
       Action: 'kms:Decrypt',
       Resource: '*',
-      Condition: { StringEquals: ctx },
+      Condition: ctx,
     });
     // Nobody else — not the account root, so no IAM policy can grant either — may use the key's data plane or grant it.
     const DATA = /^kms:(Encrypt|Decrypt|ReEncrypt|GenerateDataKey|CreateGrant|\*)/;

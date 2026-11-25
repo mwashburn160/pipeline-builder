@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 6988125061c7bdb903b60ded7bbb03b7a2e0b049f87c367e661b35127d8823a3
+// SOURCE-SHA256: 4f11b3a332093944316e406fa60466a525a959d1fc337ce5cbdd3fcb1f2bc903
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1591,7 +1591,7 @@ export const apiReferenceTopic: HelpTopic = {
               "PUT \\",
               "DELETE",
               "/admin/orgs/:orgId/kms-config",
-              "Set ({ keyId, ciphertextBase64 }) / clear the org's per-org KMS config — DELETE falls the org back to the shared master. Both re-encrypt the org's platform secrets under the incoming provider and re-wrap its runner signing keys → { configured, keyId?, …counts } (DELETE on an org with no config answers 200 { configured: false } and changes nothing). ?reencrypt=false skips only the platform-secret re-encrypt (those secrets become unreadable; the runner keys are still re-wrapped). 409 when a stored secret cannot be decrypted under the current provider — nothing is changed; 500 when the config was saved but the re-encrypt (or the runner-key re-wrap) failed mid-flight — audited as a failure. MFA session (aal2) + step-up by passkey or authenticator code",
+              "Set ({ keyId, ciphertextBase64 }) / clear the org's per-org KMS config — DELETE falls the org back to the shared master. Both re-encrypt the org's platform secrets under the incoming provider and re-wrap its runner signing keys → { configured, keyId?, …counts } (DELETE on an org with no config answers 200 { configured: false } and changes nothing). ?reencrypt=false skips only the platform-secret re-encrypt (those secrets become unreadable; the runner keys are still re-wrapped). 409 when a stored secret cannot be decrypted under the current provider, or while an earlier change's runner-key re-wrap is still pending (retry it with …/runner-keys/reencrypt first) — nothing is changed; 500 when the config was saved but the re-encrypt (or the runner-key re-wrap) failed mid-flight — audited as a failure. MFA session (aal2) + step-up by passkey or authenticator code",
               "org_kms:write + system admin"
             ],
             [

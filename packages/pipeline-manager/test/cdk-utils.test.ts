@@ -10,7 +10,8 @@ const mockExecSync = jest.fn<AnyFn>();
 jest.unstable_mockModule('child_process', () => ({
   __esModule: true,
   execSync: mockExecSync,
-  default: { execSync: mockExecSync },
+  spawn: jest.fn<AnyFn>(),
+  default: { execSync: mockExecSync, spawn: jest.fn<AnyFn>() },
 }));
 
 const {

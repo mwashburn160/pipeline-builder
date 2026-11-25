@@ -11,6 +11,10 @@
  * drops one is exactly that case.
  *
  * So the service checks the endpoint itself, at startup and then daily:
+ *  - a DISABLED endpoint (by hand, or by Stripe after days of failed
+ *    deliveries) delivers nothing, whatever it lists — every handled event is
+ *    missing. It is reported, never re-enabled: why it was disabled is an
+ *    operator's call;
  *  - `['*']` already receives everything — nothing to do;
  *  - otherwise the missing handled events are ADDED. Additive on purpose: other
  *    consumers of the same endpoint may rely on events billing does not handle.
@@ -46,7 +50,7 @@ export type WebhookEndpointClient = Pick<StripeProvider,
 
 export type ReconcileStatus =
   | 'all_events' | 'complete' | 'updated'
-  | 'endpoint_not_found' | 'lookup_failed' | 'update_failed';
+  | 'endpoint_not_found' | 'endpoint_disabled' | 'lookup_failed' | 'update_failed';
 
 export interface ReconcileOutcome {
   status: ReconcileStatus;
@@ -79,7 +83,9 @@ async function findEndpoint(client: WebhookEndpointClient): Promise<WebhookEndpo
   if (!webhookUrl) return null;
   const target = normalizeUrl(webhookUrl);
   const endpoints = await client.listWebhookEndpoints();
-  return endpoints.find((ep) => sameWorld(ep) && normalizeUrl(ep.url) === target) ?? null;
+  const atUrl = endpoints.filter((ep) => sameWorld(ep) && normalizeUrl(ep.url) === target);
+  // A disabled endpoint left beside its replacement must not shadow it.
+  return atUrl.find((ep) => ep.enabled !== false) ?? atUrl[0] ?? null;
 }
 
 function publish(outcome: ReconcileOutcome): ReconcileOutcome {
@@ -114,6 +120,15 @@ export async function reconcileStripeWebhookEvents(
       fix: 'Create the endpoint, or set STRIPE_WEBHOOK_ENDPOINT_ID to its id (we_…) when it is not registered at PLATFORM_BASE_URL/api/billing/stripe/webhook',
     });
     return publish({ status: 'endpoint_not_found', added: [], missing: all });
+  }
+
+  if (endpoint.enabled === false) {
+    logger.error('Stripe webhook endpoint is disabled — no handled event is being delivered', {
+      endpointId: endpoint.id,
+      missingEvents: all,
+      fix: 'Fix whatever made its deliveries fail, then re-enable the endpoint in the Stripe Dashboard',
+    });
+    return publish({ status: 'endpoint_disabled', endpointId: endpoint.id, added: [], missing: all });
   }
 
   if (endpoint.enabledEvents.includes('*')) {

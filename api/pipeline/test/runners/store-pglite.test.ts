@@ -52,6 +52,22 @@ describe('Drizzle runner store (real SQL)', () => {
     }
   });
 
+  it("a deploy half is tied to its request's org: a cross-org reference is refused (23503), even by a role that bypasses RLS", async () => {
+    const reqId = '11111111-1111-4111-8111-111111111111';
+    await tdb.asOwner((q) => q.query(
+      "INSERT INTO pipeline_run_requests (id, org_id, pipeline_id, action, requested_by, expires_at) VALUES ($1, $2, $3, 'deploy', 'u', now() + interval '10 minutes')",
+      [reqId, ORG, PIPE]));
+    const deployRow = (orgId: string) => tdb.asOwner((q) => q.query(
+      `INSERT INTO pipeline_runner_deploys (request_id, org_id, pipeline_id, region, pipeline_name, stack_name, image_digest, toolchain_release, grant_expires_at)
+       VALUES ($1, $2, $3, 'us-east-1', 'p', 's', 'sha256:x', '1.0.0', now())`, [reqId, orgId, PIPE]));
+    const crossOrg = await deployRow(OTHER).then(() => null, (err: unknown) => err as { code?: string; cause?: { code?: string } });
+    expect(crossOrg?.code ?? crossOrg?.cause?.code).toBe('23503');
+    await expect(deployRow(ORG)).resolves.toBeTruthy();
+    // The request's delete still takes its deploy half with it.
+    await tdb.asOwner((q) => q.query('DELETE FROM pipeline_run_requests WHERE id = $1', [reqId]));
+    expect((await tdb.asOwner((q) => q.query('SELECT 1 FROM pipeline_runner_deploys WHERE request_id = $1', [reqId]))).rows).toHaveLength(0);
+  });
+
   it('markRunnerUnreachable: only the call that finds it healthy takes the transition', async () => {
     const a = await store.insertRunner({ orgId: ORG, label: 'a', functionUrl: URL_A, status: 'active' });
     expect((await store.markRunnerUnreachable(a.id))!.health).toBe('unreachable');

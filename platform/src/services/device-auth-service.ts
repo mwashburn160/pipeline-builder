@@ -268,9 +268,11 @@ export async function startDeviceAuthorization(params: {
 
 /** Drop both entries of a flow (deny, expiry, and the successful consume). */
 async function discard(key: string, userCode: string): Promise<void> {
+  // The poll counter is NOT removed: it lapses with the flow. A concurrent poll
+  // that read the record before this discard still writes its bookkeeping back,
+  // and a reset counter would hand that resurrected record a fresh ceiling.
   await deviceCodes.remove(key);
   await deviceDecisions.remove(key);
-  await devicePolls.remove(key);
   await userCodeIndex.remove(userCode);
 }
 
@@ -411,7 +413,6 @@ export async function poll(deviceCode: unknown): Promise<PollResult> {
     // which is what an already-redeemed code is).
     const claimed = await deviceDecisions.consume(key);
     await deviceCodes.remove(key);
-    await devicePolls.remove(key);
     await userCodeIndex.remove(record.userCode);
     if (!claimed || claimed.status !== 'approved' || !claimed.approval) return { outcome: 'expired_token', existed: true, deviceRequestId: record.id };
     return { outcome: 'approved', record: { ...record, approval: claimed.approval }, approval: claimed.approval };

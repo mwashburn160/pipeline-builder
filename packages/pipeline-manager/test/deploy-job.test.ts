@@ -102,7 +102,7 @@ interface World {
   assumed: string[];
 }
 
-function setup(over: Partial<DeployJobDeps> & { stack?: StackState; everCompleted?: boolean; deleteFails?: boolean; assembly?: Parameters<typeof writeAssembly>[1]; exchange?: () => unknown } = {}) {
+function setup(over: Partial<DeployJobDeps> & { stack?: StackState; everCompleted?: boolean; deleteFails?: boolean; assembly?: Parameters<typeof writeAssembly>[1]; exchange?: () => unknown; facade?: (url: string, body?: unknown) => unknown; heartbeatMs?: number } = {}) {
   const dir = mkdtempSync(join(WORK, 'job-'));
   const world: World = { posts: [], calls: [], ...(over.stack ? { stack: over.stack } : {}), everCompleted: !!over.everCompleted, deleteFails: !!over.deleteFails, deleted: [], assumed: [] };
   const deps: DeployJobDeps = {
@@ -115,7 +115,9 @@ function setup(over: Partial<DeployJobDeps> & { stack?: StackState; everComplete
           if (out instanceof Error) throw out;
           return out;
         }
-        return { success: true };
+        const answer = over.facade?.(url, body);
+        if (answer instanceof Error) throw answer;
+        return answer ?? { success: true };
       },
     },
     caller: async () => ({ accountId: ACCOUNT, partition: 'aws' }),
@@ -138,7 +140,7 @@ function setup(over: Partial<DeployJobDeps> & { stack?: StackState; everComplete
     ...over,
   } as DeployJobDeps;
   const resultFile = join(dir, 'result.env');
-  const run = (env = ENV()) => runDeployJob({ env, resultFile, output: join(dir, 'cdk.out'), deps });
+  const run = (env = ENV()) => runDeployJob({ env, resultFile, output: join(dir, 'cdk.out'), deps, ...(over.heartbeatMs ? { heartbeatMs: over.heartbeatMs } : {}) });
   const stages = () => world.posts.filter((p) => p.url.endsWith('/progress')).map((p) => (p.body as { stage: string }).stage);
   const result = () => world.posts.find((p) => p.url.endsWith('/result'))?.body;
   return { world, deps, run, resultFile, dir, stages, result };
@@ -146,6 +148,8 @@ function setup(over: Partial<DeployJobDeps> & { stack?: StackState; everComplete
 
 const tagged = (status: string, pipelineId: string | null = 'pipe-1'): StackState => ({ status, tags: pipelineId ? { 'pb.pipeline-id': pipelineId } : {} });
 const awsError = (name: string) => Object.assign(new Error(name), { name });
+/** The facade's answer once the platform wiped the session (deploy cancelled or past its deadline). */
+const sessionGone = () => Object.assign(new Error('Request failed with status code 401'), { response: { status: 401, data: { code: 'DEPLOY_SESSION_INVALID' } } });
 
 let logged: string[] = [];
 beforeEach(() => {
@@ -163,7 +167,9 @@ describe('deploy mode: the happy path', () => {
     const r = await t.run(env);
     expect(r).toEqual({ code: 'OK', stage: 'done' });
 
-    expect(t.deps.decryptGrant).toHaveBeenCalledWith(CIPHERTEXT, deployGrantEncryptionContext('runner-1'));
+    expect(t.deps.decryptGrant).toHaveBeenCalledWith(CIPHERTEXT, deployGrantEncryptionContext('runner-1', 'req-1'));
+    // The job's own request id: KMS refuses a ciphertext wrapped for another request.
+    expect((t.deps.decryptGrant as jest.Mock).mock.calls[0]![1]).toMatchObject({ requestId: 'req-1' });
     expect(t.world.posts[0]).toEqual({ url: runnerDeployPath('req-1', 'session'), body: { grant: GRANT } });
     // Every later call carries the session token, never the grant.
     for (const p of t.world.posts.slice(1)) {
@@ -266,6 +272,15 @@ describe('deploy mode: refusals, each with its code', () => {
     expect(t.deps.fetchPipeline).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['another pipeline record', { pipeline: { ...PIPELINE, id: 'pipe-2' }, propsWithIds: { ...PROPS } }],
+    ['props that would tag the stack for another pipeline', { pipeline: PIPELINE, propsWithIds: { ...PROPS, pipelineId: 'pipe-2' } }],
+  ])('the session answering with %s: DEPLOY_TARGET_MISMATCH, nothing synthesized', async (_n, fetched) => {
+    const t = setup({ fetchPipeline: jest.fn(async () => fetched) as DeployJobDeps['fetchPipeline'] });
+    expect(await t.run()).toEqual({ code: 'DEPLOY_TARGET_MISMATCH', stage: 'fetching' });
+    expect(t.world.calls).toEqual([]);
+  });
+
   it('the pipeline unreadable through the session: PIPELINE_FETCH_FAILED; a plugin that does not resolve: PLUGIN_RESOLUTION_FAILED', async () => {
     const t = setup({ fetchPipeline: async () => { throw new Error('503'); } });
     expect(await t.run()).toEqual({ code: 'PIPELINE_FETCH_FAILED', stage: 'fetching' });
@@ -321,6 +336,13 @@ describe('deploy mode: refusals, each with its code', () => {
     expect(t.result()).toEqual({ code: 'CFN_DEPLOY_FAILED', stage: 'deploying' });
   });
 
+  it('a plain-http PLATFORM_BASE_URL in production: DEPLOY_JOB_ERROR before the grant is unwrapped or sent', async () => {
+    const t = setup();
+    expect(await t.run(ENV({ PLATFORM_BASE_URL: 'http://platform.example', NODE_ENV: 'production' }))).toMatchObject({ code: 'DEPLOY_JOB_ERROR', stage: 'starting' });
+    expect(t.deps.decryptGrant).not.toHaveBeenCalled();
+    expect(t.world.posts).toEqual([]);
+  });
+
   it('a missing job setting: DEPLOY_JOB_ERROR before any call', async () => {
     const t = setup();
     expect(await t.run(ENV({ PB_REQUEST_ID: undefined }))).toMatchObject({ code: 'DEPLOY_JOB_ERROR', stage: 'starting' });
@@ -373,10 +395,94 @@ describe('change 2: the target stack\'s state before deploying', () => {
     expect(t.world.calls).toEqual([]);
   });
 
+  it('a stack of that name created by another pipeline WHILE this job synthesized: STACK_OWNED_BY_OTHER_PIPELINE, never deployed over', async () => {
+    const t = setup({
+      synth: jest.fn(async ({ output }: { output: string }) => {
+        writeAssembly(output);
+        t.world.stack = tagged('CREATE_IN_PROGRESS', 'pipe-2');
+      }) as DeployJobDeps['synth'],
+    });
+    expect((await t.run()).code).toBe('STACK_OWNED_BY_OTHER_PIPELINE');
+    expect(t.deps.deploy).not.toHaveBeenCalled();
+  });
+
   it('this pipeline\'s healthy stack (deployed, never registered): deployed over in place', async () => {
     const t = setup({ stack: tagged('CREATE_COMPLETE') });
     expect((await t.run()).code).toBe('OK');
     expect(t.world.deleted).toEqual([]);
+  });
+});
+
+describe('the session wiped (401 from the facade: cancelled or past the deadline)', () => {
+  it('a 401 on the pipeline read: DEPLOY_CANCELLED, nothing synthesized or deployed', async () => {
+    // Through the session client, as fetchPipelineProps reads it.
+    const t = setup({
+      facade: (url) => (url.endsWith('/pipeline') ? sessionGone() : undefined),
+      fetchPipeline: jest.fn(async (client: import('../src/utils/api-client.js').PlatformReadClient) => {
+        await client.get('/api/pipelines/pipe-1');
+        return { pipeline: PIPELINE, propsWithIds: { ...PROPS } };
+      }) as DeployJobDeps['fetchPipeline'],
+    });
+    expect(await t.run()).toEqual({ code: 'DEPLOY_CANCELLED', stage: 'fetching' });
+    expect(t.world.calls).toEqual([]);
+  });
+
+  it('a 401 on the progress post right before cdk deploy: DEPLOY_CANCELLED, cdk deploy never starts', async () => {
+    const t = setup({
+      facade: (url, body) => (url.endsWith('/progress') && (body as { stage?: string })?.stage === 'deploying' ? sessionGone() : undefined),
+    });
+    expect(await t.run()).toEqual({ code: 'DEPLOY_CANCELLED', stage: 'deploying' });
+    expect(t.deps.deploy).not.toHaveBeenCalled();
+  });
+
+  it('a 401 on any earlier progress post stops the job there', async () => {
+    const t = setup({ facade: (url) => (url.endsWith('/progress') ? sessionGone() : undefined) });
+    expect(await t.run()).toEqual({ code: 'DEPLOY_CANCELLED', stage: 'fetching' });
+    expect(t.deps.fetchPipeline).not.toHaveBeenCalled();
+  });
+
+  it('a 401 on the heartbeat WHILE cdk deploy runs aborts cdk: DEPLOY_CANCELLED, never registered', async () => {
+    let wiped = false;
+    let seenSignal: AbortSignal | undefined;
+    const t = setup({
+      heartbeatMs: 20,
+      facade: (url) => (wiped && url.endsWith('/progress') ? sessionGone() : undefined),
+      deploy: jest.fn(async (input: import('../src/utils/deploy-runner.js').RunDeployInput) => {
+        seenSignal = input.signal;
+        wiped = true; // the platform cancels mid-deploy
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(resolve, 5_000);
+          input.signal?.addEventListener('abort', () => { clearTimeout(timer); reject(Object.assign(new Error('aborted'), { name: 'AbortError' })); });
+        });
+        await input.register?.({ region: input.region!, output: input.output });
+      }) as DeployJobDeps['deploy'],
+    });
+    const started = Date.now();
+    expect(await t.run()).toEqual({ code: 'DEPLOY_CANCELLED', stage: 'deploying' });
+    expect(Date.now() - started).toBeLessThan(4_000);
+    expect(seenSignal?.aborted).toBe(true);
+    expect(t.world.posts.some((p) => p.url.endsWith('/registry'))).toBe(false);
+  });
+
+  it('a heartbeat that fails for another reason (5xx, network) does not stop cdk', async () => {
+    let seenSignal: AbortSignal | undefined;
+    const t = setup({
+      heartbeatMs: 10,
+      facade: (url, body) => (url.endsWith('/progress') && (body as { stage?: string })?.stage === 'deploying' && seenSignal
+        ? Object.assign(new Error('503'), { response: { status: 503 } }) : undefined),
+      deploy: jest.fn(async (input: import('../src/utils/deploy-runner.js').RunDeployInput) => {
+        seenSignal = input.signal;
+        await new Promise((r) => setTimeout(r, 80));
+      }) as DeployJobDeps['deploy'],
+    });
+    expect((await t.run()).code).toBe('OK');
+    expect(seenSignal?.aborted).toBe(false);
+  });
+
+  it('undeploy: a 401 before the delete stops it, the stack untouched', async () => {
+    const t = setup({ stack: tagged('UPDATE_COMPLETE'), facade: (url, body) => (url.endsWith('/progress') && (body as { stage?: string })?.stage === 'removing' ? sessionGone() : undefined) });
+    expect(await t.run(ENV({ PB_JOB_MODE: 'undeploy' }))).toEqual({ code: 'DEPLOY_CANCELLED', stage: 'removing' });
+    expect(t.world.calls).toEqual([]);
   });
 });
 

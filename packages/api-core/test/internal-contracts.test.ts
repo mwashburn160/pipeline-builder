@@ -16,6 +16,7 @@ import {
   pathParamNames,
 } from '../src/contracts/define.js';
 import { INTERNAL_CONTRACTS, internalContractsServedBy } from '../src/contracts/index.js';
+import { PIPELINE_INTERNAL } from '../src/contracts/pipeline.js';
 import type { RouteTableEntry } from '../src/middleware/route-table.js';
 import { findContractMountViolations, roundTripContractSample } from '../src/testing/internal-contracts.js';
 
@@ -308,5 +309,30 @@ describe('the contract registry', () => {
   it('filters by serving service', () => {
     expect(internalContractsServedBy('billing').map((c) => c.id)).toEqual(['billing.consumeSupportIncident', 'billing.refundSupportIncident', 'billing.purgeOrg']);
     expect(internalContractsServedBy('nobody')).toEqual([]);
+  });
+});
+
+describe('PIPELINE_INTERNAL.registerFromFirstEvent body', () => {
+  const body = (region?: string, orgId = 'a'.repeat(24)) => ({
+    allowedOrgIds: [orgId],
+    pipelines: [{ pipelineId: '7f1c2d3e-4b5a-4c6d-8e9f-0a1b2c3d4e5f', ...(region === undefined ? {} : { region }) }],
+  });
+  const accepts = (b: unknown) => parseContractBody(PIPELINE_INTERNAL.registerFromFirstEvent, { body: b }).ok;
+
+  it('accepts an AWS region name, or none', () => {
+    expect(accepts(body('us-east-1'))).toBe(true);
+    expect(accepts(body('us-gov-west-1'))).toBe(true);
+    expect(accepts(body())).toBe(true);
+  });
+
+  it('refuses a region that is not an AWS region name (it is recorded and later signed into runner hints)', () => {
+    for (const bad of ['US-EAST-1', 'us-east-1;x', '../x', 'us east 1', 'x']) {
+      expect(accepts(body(bad))).toBe(false);
+    }
+  });
+
+  it('refuses an allowed org id that is not an organization id', () => {
+    expect(accepts(body('us-east-1', 'not-an-org'))).toBe(false);
+    expect(accepts(body('us-east-1', 'A'.repeat(24)))).toBe(true);
   });
 });

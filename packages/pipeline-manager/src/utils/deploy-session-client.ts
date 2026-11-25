@@ -61,6 +61,26 @@ export class DeployGrantRefusedError extends Error {
   }
 }
 
+/**
+ * A facade route answered 401: the platform wiped this deploy's session (the
+ * deploy was cancelled or passed its deadline). The job must stop — no
+ * further step, and no `cdk deploy` left running.
+ */
+export class DeploySessionEndedError extends Error {
+  constructor() {
+    super('The platform ended this deploy\'s session (cancelled or past its deadline)');
+    this.name = 'DeploySessionEndedError';
+  }
+}
+
+/** Whether `err` (or anything in its `cause` chain) is a {@link DeploySessionEndedError}. */
+export function isDeploySessionEnded(err: unknown): boolean {
+  for (let e: unknown = err, depth = 0; e && depth < 8; e = (e as { cause?: unknown }).cause, depth++) {
+    if (e instanceof DeploySessionEndedError) return true;
+  }
+  return false;
+}
+
 const unwrap = (res: unknown): unknown => {
   const r = res as { data?: unknown } | null;
   return r && typeof r === 'object' && 'data' in r && r.data && typeof r.data === 'object' ? r.data : res;
@@ -132,8 +152,13 @@ export class DeploySessionClient implements PlatformReadClient {
     };
   }
 
-  private send<T>(method: 'GET' | 'POST', leaf: DeploySessionLeaf, body?: unknown): Promise<T> {
-    return this.http.request(method, runnerDeployPath(this.session.requestId, leaf), body, { Authorization: `Bearer ${this.session.sessionToken}` }) as Promise<T>;
+  private async send<T>(method: 'GET' | 'POST', leaf: DeploySessionLeaf, body?: unknown): Promise<T> {
+    try {
+      return await this.http.request(method, runnerDeployPath(this.session.requestId, leaf), body, { Authorization: `Bearer ${this.session.sessionToken}` }) as T;
+    } catch (err) {
+      if ((err as { response?: { status?: number } })?.response?.status === 401) throw new DeploySessionEndedError();
+      throw err;
+    }
   }
 
   private refuse(method: string, url: string): never {

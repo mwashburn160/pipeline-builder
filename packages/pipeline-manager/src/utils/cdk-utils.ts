@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { execSync } from 'child_process';
+import { execSync, spawn } from 'child_process';
 import path from 'path';
 import { printError } from './output-utils.js';
 
@@ -159,4 +159,77 @@ export function executeCdkShellCommand(
 
     throw error;
   }
+}
+
+/** Options for {@link spawnCdkShellCommand}. */
+export interface CdkSpawnOptions extends Pick<CdkShellOptions, 'showOutput' | 'env'> {
+  /** Aborting kills the command's whole process group (cdk and the node app it started) and rejects with an `AbortError`. */
+  signal?: AbortSignal;
+  /** Called with the child's pid once it is started (tests). */
+  onSpawn?: (pid: number) => void;
+}
+
+const abortError = (): Error => Object.assign(new Error('The CDK command was aborted'), { name: 'AbortError' });
+
+/**
+ * {@link executeCdkShellCommand}'s ABORTABLE twin: the command runs in its own
+ * process group without blocking the event loop, so the caller can keep
+ * talking to the platform (the runner deploy job's session heartbeat) and stop
+ * cdk when told to. Resolves with the duration; a non-zero exit rejects.
+ * An abort sends SIGTERM to the group, then SIGKILL after 10 s.
+ */
+export function spawnCdkShellCommand(command: string, options: CdkSpawnOptions = {}): Promise<CdkShellResult> {
+  const { showOutput = true, env: extraEnv, signal, onSpawn } = options;
+  if (signal?.aborted) return Promise.reject(abortError());
+  const startTime = Date.now();
+  return new Promise<CdkShellResult>((resolve, reject) => {
+    const child = spawn(command, {
+      shell: true,
+      detached: true,
+      stdio: showOutput ? 'inherit' : 'ignore',
+      env: { ...process.env, ...extraEnv },
+    });
+    if (child.pid) onSpawn?.(child.pid);
+    let aborted = false;
+    let killTimer: NodeJS.Timeout | undefined;
+    const killGroup = (sig: NodeJS.Signals): void => {
+      try {
+        if (child.pid) process.kill(-child.pid, sig);
+      } catch {
+        // Already gone.
+      }
+    };
+    const onAbort = (): void => {
+      aborted = true;
+      killGroup('SIGTERM');
+      killTimer = setTimeout(() => killGroup('SIGKILL'), 10_000);
+      killTimer.unref();
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+    const done = (): void => {
+      signal?.removeEventListener('abort', onAbort);
+      if (killTimer) clearTimeout(killTimer);
+    };
+    child.on('error', (err) => {
+      done();
+      reject(aborted ? abortError() : err);
+    });
+    child.on('exit', (code, sig) => {
+      done();
+      // The shell may have exited while its group lives on: make sure nothing outlives an abort.
+      if (aborted) {
+        killGroup('SIGKILL');
+        reject(abortError());
+        return;
+      }
+      const duration = Date.now() - startTime;
+      if (code === 0) {
+        resolve({ duration });
+        return;
+      }
+      const why = sig ? `was killed by ${sig}` : `exited with code ${code}`;
+      printError(`CDK command ${why} (after ${duration}ms)`);
+      reject(Object.assign(new Error(`CDK command ${why}`), { status: code ?? undefined }));
+    });
+  });
 }

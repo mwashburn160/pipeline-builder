@@ -17,6 +17,18 @@ export type StackNoticeSource =
   }
   | { kind: 'unknown' };
 
+/** Why a purge would leave the stack, or null when nothing in the record stops the runner removing it. */
+function retainedReason(
+  runner: { capabilities: RunnerCapability[] } | null | undefined,
+  stackName: string | null,
+  region: string | null,
+): 'no_runner' | 'runner_not_deploy_capable' | 'no_stack' | null {
+  if (!runner) return 'no_runner';
+  if (!runner.capabilities?.includes(DEPLOY_CAPABILITY)) return 'runner_not_deploy_capable';
+  if (!stackName || !region) return 'no_stack';
+  return null;
+}
+
 /**
  * What a delete / purge dialog says about a deployed pipeline's stack — the
  * ONE outcome that will happen. A soft delete never touches the stack; a
@@ -29,23 +41,21 @@ export function PipelineStackNotice({ purge, source }: { purge: boolean; source:
   let text: string;
   if (source.kind === 'deleted') {
     const d = source.deployment;
-    const capable = !!d.runner?.capabilities.includes(DEPLOY_CAPABILITY);
     text = stackRemovalNotice(purge, {
       stackName: d.stackName,
       region: d.region,
       runnerLabel: d.runner?.label ?? null,
       removedOnPurge: d.stackRemovedOnPurge,
-      reason: d.stackRemovedOnPurge ? null
-        : !d.runner ? 'no_runner'
-          : !capable ? 'runner_not_deploy_capable'
-            : !d.stackName || !d.region ? 'no_stack' : 'runner_unavailable',
+      // The server found no runner able to take the removal now: say why it can't.
+      reason: d.stackRemovedOnPurge ? null : retainedReason(d.runner, d.stackName, d.region) ?? 'runner_unavailable',
     });
   } else if (source.kind === 'live' && source.runner !== undefined) {
-    const r = source.runner;
-    const capable = !!r?.capabilities?.includes(DEPLOY_CAPABILITY);
+    // The server's rule (deletedPipelineDeployment): a deploy-capable runner AND a recorded stack name + region.
+    const reason = retainedReason(source.runner, source.stackName, source.region);
     text = stackRemovalNotice(purge, {
-      stackName: source.stackName, region: source.region, runnerLabel: r?.label ?? null,
-      removedOnPurge: capable, reason: r ? null : 'no_runner',
+      stackName: source.stackName, region: source.region, runnerLabel: source.runner?.label ?? null,
+      // A runner without deploys is named ("prod cannot remove it …") rather than "Its runner".
+      removedOnPurge: reason === null, reason: reason === 'runner_not_deploy_capable' ? null : reason,
     });
   } else {
     text = stackRemovalNotice(purge, 'unknown');

@@ -133,10 +133,12 @@ export function createInternalRoutes(): Router {
     withRoute(async ({ req, res, ctx }) => {
       const p = parseContractParams(C.deployLookup, req);
       if (!p.ok) return sendBadRequest(res, contractErrorMessage(p), ErrorCode.VALIDATION_ERROR);
-      const orgId = String(p.value.orgId).toLowerCase();
+      // Normalised as the public route's identity org is (trimmed + lowercased).
+      const orgId = String(p.value.orgId).trim().toLowerCase();
+      if (!orgId) return sendBadRequest(res, 'orgId is required', ErrorCode.VALIDATION_ERROR);
       let parentOrgId: string | undefined;
       try {
-        parentOrgId = await fetchParentOrgId(orgId, { throwOnHttpError: true });
+        parentOrgId = (await fetchParentOrgId(orgId, { throwOnHttpError: true }))?.trim().toLowerCase() || undefined;
       } catch (err) {
         // Fail closed: resolving without the parent could pick a different plugin.
         logger.warn('Deploy lookup: the org hierarchy could not be read', { orgId, error: errorMessage(err) });
@@ -144,7 +146,10 @@ export function createInternalRoutes(): Router {
       }
       // Loaded on use: the read router's module (its lookup chain) is heavy, and suites stub it.
       const { lookupFromBody } = await import('./read-plugins.js');
-      return runWithTenantContext({ orgId, isSuperAdmin: false }, () => lookupFromBody(req.body, parentOrgId, res, orgId, ctx));
+      // The tenant scope the public chain sets for a member of the org (its
+      // parent included, for side-effects such as compliance evaluation), with
+      // no user: no member's private plugin is a candidate.
+      return runWithTenantContext({ orgId, isSuperAdmin: false, ...(parentOrgId ? { parentOrgId } : {}) }, () => lookupFromBody(req.body, parentOrgId, res, orgId, ctx));
     }, { requireOrgId: false }),
   );
 

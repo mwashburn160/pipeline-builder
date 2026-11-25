@@ -94,7 +94,7 @@ import { apiRefusal, extractListPage, unwrapData } from '../utils/response-utils
 import {
   buildRunnerTemplate, CDK_BOOTSTRAP_ROLE_KINDS, DEFAULT_CDK_QUALIFIER, DEFAULT_DEPLOY_CONCURRENCY, DEFAULT_WAF_RATE_LIMIT, pipelineActionResources,
   RUNNER_LABEL_TAG, RUNNER_PIPELINE_ACTIONS, RUNNER_STACK_PREFIX, runnerFunctionName, runnerStackName, runnerStackParameters,
-  WAF_RATE_LIMIT_MAX, WAF_RATE_LIMIT_MIN,
+  WAF_RATE_LIMIT_MAX, WAF_RATE_LIMIT_MIN, DEPLOY_TIMEOUT_MAX_MINUTES,
 } from '../utils/runner-template.js';
 import { resolveOrganizationId, STEP_UP_HEADER, type StepUpProvider } from '../utils/service-account.js';
 
@@ -284,7 +284,7 @@ function planDeploy(input: RunnerPlanInput): RunnerDeployPlan | undefined {
   }
   return {
     qualifier,
-    timeoutMinutes: wholeNumber(input.deployTimeout, '--deploy-timeout', DEPLOY_BUILD_TIMEOUT_MINUTES.min, DEPLOY_BUILD_TIMEOUT_MINUTES.max, DEPLOY_BUILD_TIMEOUT_MINUTES.default),
+    timeoutMinutes: wholeNumber(input.deployTimeout, '--deploy-timeout', DEPLOY_BUILD_TIMEOUT_MINUTES.min, DEPLOY_TIMEOUT_MAX_MINUTES, DEPLOY_BUILD_TIMEOUT_MINUTES.default),
     concurrency: wholeNumber(input.deployConcurrency, '--deploy-concurrency', 1, DEPLOY_CONCURRENCY_MAX, DEFAULT_DEPLOY_CONCURRENCY),
     permissionsBoundaryArn: boundary,
     requireBootstrap: !!input.requireBootstrap,
@@ -373,7 +373,7 @@ function describeDeploy(plan: RunnerPlan, d: RunnerDeployPlan): Record<string, u
       'ssm:GetParameter': plan.regions.map((r) => `arn:\${AWS::Partition}:ssm:${r}:\${AWS::AccountId}:parameter/cdk-bootstrap/${d.qualifier}/version`),
       'secretsmanager:DescribeSecret': plan.regions.map((r) => `arn:\${AWS::Partition}:secretsmanager:${r}:\${AWS::AccountId}:secret:pipeline-builder/*`),
       'secretsmanager:GetSecretValue': `arn:\${AWS::Partition}:secretsmanager:${plan.region}:\${AWS::AccountId}:secret:pipeline-builder/<orgId>/registry-push-??????`,
-      'kms:Decrypt': 'the grant key only, under {runnerId, purpose: deploy-grant} (the runner role may only Encrypt)',
+      'kms:Decrypt': 'the grant key only, under {runnerId, purpose: deploy-grant, requestId} — each ciphertext for its own request only (the runner role may only Encrypt)',
     },
   };
 }
@@ -1249,7 +1249,7 @@ export function setupRunner(program: Command): void {
     .option('--require-bootstrap', 'With --enable-deploy: refuse when an allowlisted region has no current CDK bootstrap (default: warn)', false)
     .option('--bootstrap', 'With --enable-deploy: run cdk bootstrap (these credentials) in each allowlisted region that needs it', false)
     .option('--cdk-qualifier <qualifier>', `With --enable-deploy: the regions' CDK bootstrap qualifier (default ${DEFAULT_CDK_QUALIFIER})`)
-    .option('--deploy-timeout <minutes>', `With --enable-deploy: the deploy build timeout, ${DEPLOY_BUILD_TIMEOUT_MINUTES.min}-${DEPLOY_BUILD_TIMEOUT_MINUTES.max} (default ${DEPLOY_BUILD_TIMEOUT_MINUTES.default})`)
+    .option('--deploy-timeout <minutes>', `With --enable-deploy: the deploy build timeout, ${DEPLOY_BUILD_TIMEOUT_MINUTES.min}-${DEPLOY_TIMEOUT_MAX_MINUTES} (default ${DEPLOY_BUILD_TIMEOUT_MINUTES.default}; at most the platform's deploy deadline, RUNNER_DEPLOY_DEADLINE_MINUTES, which cancels a longer deploy)`)
     .option('--deploy-concurrency <n>', `With --enable-deploy: deploy builds at once, 1-${DEPLOY_CONCURRENCY_MAX} (default ${DEFAULT_DEPLOY_CONCURRENCY})`)
     .option('--deploy-permissions-boundary <arn>', 'With --enable-deploy: an IAM permissions boundary for the deploy role')
     .option('--registry-pull-host <host[:port]>', 'With --enable-deploy: the registry host the deploy build pulls from (default: the platform URL\'s host)')

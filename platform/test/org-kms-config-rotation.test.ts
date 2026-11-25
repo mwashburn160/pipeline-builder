@@ -519,9 +519,31 @@ describe('kms-config: recovering a failed runner-key re-wrap', () => {
     expect(mockRunnerReencrypt).not.toHaveBeenCalled();
   });
 
-  it('a later change whose re-wrap succeeds clears a pending marker (every row read under some config)', async () => {
+  // A change made while a re-wrap is pending would leave runner keys under TWO
+  // configs (the recorded one and the one being replaced) with only one marker:
+  // if its own re-wrap failed, the rows under the replaced config could never
+  // be named again. So the pending re-wrap must be finished first.
+  it('a PUT while a re-wrap is pending is refused (409) before anything is captured or written', async () => {
+    mockOrgFindById.mockReturnValue({ ...orgDoc({ ...OLD }), kmsRunnerRewrapFrom: { keyId: 'alias/older', ciphertextBase64: 'T0xERVI=', pendingSince: new Date() } });
+    const res = await put();
+    expect(res.statusCode).toBe(409);
+    expect(res.body.code).toBe('CONFLICT');
+    expect(res.body.message).toMatch(/kms-config\/runner-keys\/reencrypt/);
+    expect(mockCapture).not.toHaveBeenCalled();
+    expect(mockOrgUpdateOne).not.toHaveBeenCalled();
+    expect(mockRunnerReencrypt).not.toHaveBeenCalled();
+  });
+
+  it('a DELETE while a re-wrap is pending is refused too', async () => {
     mockOrgFindById.mockReturnValue({ ...orgDoc({ ...OLD }), kmsRunnerRewrapFrom: { pendingSince: new Date() } });
+    const res = await del();
+    expect(res.statusCode).toBe(409);
+    expect(mockOrgUpdateOne).not.toHaveBeenCalled();
+  });
+
+  it('the save is conditional on no re-wrap being pending (a failure recorded meanwhile refuses it)', async () => {
+    mockOrgFindById.mockReturnValue(orgDoc({ ...OLD }));
     await put();
-    expect(mockOrgUpdateOne).toHaveBeenCalledWith({ _id: ORG }, { $unset: { kmsRunnerRewrapFrom: 1 } });
+    expect(mockOrgUpdateOne.mock.calls[0][0]).toMatchObject({ kmsRunnerRewrapFrom: { $exists: false } });
   });
 });

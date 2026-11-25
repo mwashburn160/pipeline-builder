@@ -169,9 +169,9 @@ export function createAskRoutes(quotaService: QuotaService): Router {
   // business-hours window `ask-model` has zero replicas, and the only signal
   // used to be the failed turn itself.
   //
-  // Resolution is CONFIGURATION ONLY — `resolveModelSelection` never opens a
-  // socket (see services/model-window.ts) — so this stays a cheap, side-effect
-  // free read and never wakes or probes the model. It therefore PREDICTS from
+  // Without `?probe=true`, resolution is CONFIGURATION ONLY — `resolveModelSelection`
+  // never opens a socket (see services/model-window.ts) — so this stays a cheap,
+  // side-effect free read that never wakes the model. It therefore PREDICTS from
   // the configured schedule rather than observing the Deployment: a `true` here
   // is "no reason to think it is off", and a turn that still fails is explained
   // by `sendAskFailure` as before. Deliberately no quota reservation: no

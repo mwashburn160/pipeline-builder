@@ -49,6 +49,15 @@ export const DEFAULT_CDK_QUALIFIER = 'hnb659fds';
 /** The deploy project's default ConcurrentBuildLimit (runner-stack.json's DeployConcurrency). */
 export const DEFAULT_DEPLOY_CONCURRENCY = 2;
 
+/**
+ * The longest deploy build timeout a runner accepts (runner-stack.json's
+ * DeployTimeoutMinutes MaxValue, setup-runner --deploy-timeout): api-core's
+ * DEPLOY_BUILD_TIMEOUT_MINUTES.max, the platform's deploy deadline
+ * (RUNNER_DEPLOY_DEADLINE_MINUTES, default 120). A longer build would only be
+ * cancelled by the platform first and fail DEPLOY_TIMED_OUT.
+ */
+export const DEPLOY_TIMEOUT_MAX_MINUTES: number = DEPLOY_BUILD_TIMEOUT_MINUTES.max;
+
 /** Where the deploy job writes its result for the buildspec's post_build to export (runner-stack.json's buildspec). */
 export const DEPLOY_RESULT_FILE = '/tmp/pb-deploy-result.env';
 

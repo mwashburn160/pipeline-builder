@@ -19,6 +19,7 @@ import { z } from 'zod';
 import { CASCADE_LEG_AUTH, CascadeOrgParams, OrgPurgeResponse } from './cascade.js';
 import { defineInternalEndpoint } from './define.js';
 import { PerOrgKmsConfigSchema } from './platform.js';
+import { AWS_REGION_PATTERN } from '../types/pipeline-runners.js';
 import { PIPELINE_REMEDIATION_UPGRADE_STATES, PLUGIN_REMEDIATION_ROLLOUTS } from '../types/plugin-remediation.js';
 
 const ORG_ID = /^[a-f0-9]{24}$/i;
@@ -183,10 +184,12 @@ export const PIPELINE_INTERNAL = {
       + '`allowedOrgIds`, soft-deleted, or already registered to another org is never registered.',
     params: z.object({}),
     body: z.object({
-      allowedOrgIds: z.array(z.string().min(1).max(64).transform((s) => s.toLowerCase())).min(1).max(MAX_FIRST_EVENT_ORGS),
+      allowedOrgIds: z.array(z.string().regex(ORG_ID, ORG_ID_MESSAGE).transform((s) => s.toLowerCase())).min(1).max(MAX_FIRST_EVENT_ORGS),
       pipelines: z.array(z.object({
         pipelineId: z.string().uuid(),
-        region: z.string().min(1).max(30).optional(),
+        // Recorded as the registry row's region and later signed into runner hints:
+        // an AWS region name only (reporting drops any other before calling).
+        region: z.string().max(30).regex(AWS_REGION_PATTERN, 'region must be an AWS region name').optional(),
       }).strict()).min(1).max(MAX_FIRST_EVENT_PIPELINES),
     }).strict(),
     response: z.object({

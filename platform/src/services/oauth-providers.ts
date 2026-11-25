@@ -182,9 +182,13 @@ function fetchBearerJson<T>(url: string, accessToken: string): Promise<T> {
  * a sign-in take over a pre-existing local account.
  */
 function requireVerifiedEmail(email: unknown, verified: boolean): string {
-  if (typeof email !== 'string' || !email) throw new Error(OAUTH_NO_EMAIL);
+  // Normalized here, once, for everything downstream: the SSO-enforcement gate
+  // keys on the domain and account linking on the address, so a padded
+  // `victim@corp.com ` must not miss corp.com's enforced SSO and still link.
+  const normalized = typeof email === 'string' ? email.trim().toLowerCase() : '';
+  if (!normalized) throw new Error(OAUTH_NO_EMAIL);
   if (!verified) throw new Error(OAUTH_EMAIL_UNVERIFIED);
-  return email;
+  return normalized;
 }
 
 /**

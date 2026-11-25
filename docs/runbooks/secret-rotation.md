@@ -448,8 +448,8 @@ runner keys reading them under the current config, then the recorded outgoing
 one, then the shared provider; it is safe to repeat, answers 409 when nothing is
 pending, and clears the record on success. Re-sending the same `PUT`, or
 `reencrypt-runner-keys --org`, cannot do this: neither knows the outgoing config.
-If a second change also fails while one is pending, the retry covers only the
-oldest outgoing config.
+While a re-wrap is pending, further `PUT`/`DELETE` of the org's KMS config are
+refused with 409 CONFLICT until the retry succeeds.
 
 **One change at a time.** The `PUT`/`DELETE` saves the new config only if the
 config it read (keyId and wrapped ciphertext) is still the org's current one.
@@ -1118,7 +1118,7 @@ platform credentials, neither of which is rotated, because neither lives long en
 
 | Credential | Lifetime | Where it is |
 |---|---|---|
-| Deploy grant (`pb_dg_…`, 32 random bytes) | **Single use**, and expires after the deploy project's queue timeout (30 min) plus a 15-minute provisioning margin, never less than the 10-minute delivery lifetime. | Minted when the deploy is queued; the platform stores its sha256 and a copy encrypted with the org's secret key (for re-signing on redelivery), wiped at the exchange or at any terminal status. It rides inside the signed request; the runner Lambda KMS-encrypts it (key `DeployGrantKey` in the runner stack, context `{runnerId, purpose: deploy-grant}`) before `StartBuild`, so the account only ever sees ciphertext. The job decrypts it, exchanges it and scrubs it from its environment. |
+| Deploy grant (`pb_dg_…`, 32 random bytes) | **Single use**, and expires after the deploy project's queue timeout (30 min) plus a 15-minute provisioning margin, never less than the 10-minute delivery lifetime. | Minted when the deploy is queued; the platform stores its sha256 and a copy encrypted with the org's secret key (for re-signing on redelivery), wiped at the exchange or at any terminal status. It rides inside the signed request; the runner Lambda KMS-encrypts it (key `DeployGrantKey` in the runner stack, context `{runnerId, purpose: deploy-grant, requestId}`, so it decrypts only for its own request) before `StartBuild`, so the account only ever sees ciphertext. The job decrypts it, exchanges it and scrubs it from its environment. |
 | Deploy session (`pb_ds_…`) | Until the deploy's deadline (`RUNNER_DEPLOY_DEADLINE_MINUTES`), and **revoked at any terminal status** (its hash is nulled). | Returned once by the exchange (`Cache-Control: no-store`, body only). It reaches only that deploy's facade under `/api/pipelines/runner/deploys/:requestId/…` (the path id must match). |
 
 Nothing to rotate: a leaked grant is useless once exchanged or expired, and a leaked session dies with its deploy.

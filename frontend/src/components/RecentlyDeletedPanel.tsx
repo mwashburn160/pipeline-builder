@@ -16,9 +16,10 @@ import { PipelineStackNotice } from '@/components/pipeline/PipelineStackNotice';
 import { useFetch } from '@/hooks/useFetch';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
-import { ApiError, continueAfterStepUp } from '@/lib/api/errors';
+import { ApiError, continueAfterStepUp, stepUpReplayFailed } from '@/lib/api/errors';
 import { Callout } from '@/components/ui/Callout';
-import { purgeRefusedCopy, purgeResultCopy } from '@/lib/pipeline-deploys';
+import { purgeDeployInProgressCopy, purgeRefusedCopy, purgeResultCopy } from '@/lib/pipeline-deploys';
+import { useMutation } from '@/hooks/useMutation';
 import type { DeletedPipelineDeploymentDto } from '@pipeline-builder/api-core/pipeline-runners';
 import { visibilityColor } from '@/components/ui/visibility-rungs';
 import type { Pipeline, Plugin, Message, PipelineTemplate, Visibility } from '@/types';
@@ -112,7 +113,18 @@ interface ResourceConfig {
   /** What a finished purge did beyond deleting the row (shown above the list). */
   purgeOutcome?: (data: unknown) => { tone: 'info' | 'warning'; text: string } | null;
   /** A refused purge's own explanation (shown above the list instead of a toast), or null. */
-  purgeRefusal?: (err: unknown) => string | null;
+  purgeRefusal?: (err: unknown, row: DeletedRow) => PurgeNotice | null;
+}
+
+/**
+ * What the panel says above the list after a purge: what it did beyond deleting
+ * the row, or why it was refused. `cancelDeploy` — a deploy through a runner in
+ * flight blocked it, and that deploy can be cancelled from here.
+ */
+interface PurgeNotice {
+  tone: 'info' | 'warning';
+  text: string;
+  cancelDeploy?: { pipelineId: string; requestId: string };
 }
 
 function pipelineToRow(p: Pipeline & { deployment?: DeletedPipelineDeploymentDto | null }): DeletedRow {
@@ -173,7 +185,14 @@ const RESOURCES: Record<Resource, ResourceConfig> = {
       <PipelineStackNotice purge source={row.deployment ? { kind: 'deleted', deployment: row.deployment } : { kind: 'unknown' }} />
     )),
     purgeOutcome: (data) => purgeResultCopy(data as Parameters<typeof purgeResultCopy>[0]),
-    purgeRefusal: (err) => (err instanceof ApiError && err.statusCode === 409 ? purgeRefusedCopy(err.details) : null),
+    purgeRefusal: (err, row) => {
+      if (!(err instanceof ApiError) || err.statusCode !== 409) return null;
+      // A deploy through a runner is creating the stack right now (refused even forced).
+      const busy = purgeDeployInProgressCopy(err.code, err.details);
+      if (busy) return { tone: 'warning', text: busy.text, cancelDeploy: { pipelineId: row.id, requestId: busy.requestId } };
+      const text = purgeRefusedCopy(err.details);
+      return text ? { tone: 'warning', text } : null;
+    },
   },
   plugin: {
     labels: { singular: 'plugin', plural: 'plugins' },
@@ -254,7 +273,17 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
   const [pendingPurge, setPendingPurge] = useState<DeletedRow | null>(null);
   const [purging, setPurging] = useState<string | null>(null);
   // What the last purge did beyond deleting the row (a pipeline's stack), or why it was refused.
-  const [purgeResult, setPurgeResult] = useState<{ tone: 'info' | 'warning'; text: string } | null>(null);
+  const [purgeResult, setPurgeResult] = useState<PurgeNotice | null>(null);
+  // Cancel the runner deploy that blocked a purge (the deploy cancel route, `pipelines:write` like the purge).
+  const cancelBlockingDeploy = useMutation({
+    fn: async (target: { pipelineId: string; requestId: string }) => {
+      const res = await api.cancelPipelineDeploy(target.pipelineId, target.requestId);
+      if (!res.success) throw new Error(res.message || 'The cancel was refused');
+      return res.data;
+    },
+    errorFallback: 'Could not cancel the deploy',
+    onSuccess: () => setPurgeResult({ tone: 'info', text: 'Cancel requested for the deploy. Once it has stopped, purge the pipeline again.' }),
+  });
 
   // The loaded pages, appended in order. `nextOffset` is where the next page
   // starts on the SERVER: it advances by a page per load and steps back by one
@@ -340,22 +369,29 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
    * Run a step-up-gated restore / purge of one row. A refused token (the route
    * wanted a stronger factor, or the token expired) is handed to the global
    * step-up dialog, which replays the call: its answer finishes the action here
-   * instead of an error toast for a request that is about to succeed.
+   * instead of an error toast for a request that is about to succeed — and a
+   * replay that fails is reported like the first refusal. `onRefused` may claim
+   * a refusal (return true) to explain it on its own instead of a toast.
    */
-  const runRowAction = async (
-    call: () => Promise<{ success: boolean }>,
-    onDone: () => void,
+  const runRowAction = async <R extends { success: boolean }>(
+    call: () => Promise<R>,
+    onDone: (res: R) => void,
     failure: string,
+    onRefused?: (err: unknown) => boolean,
   ) => {
-    const settle = (res: { success: boolean }) => {
-      if (res.success) onDone();
+    const settle = (res: R) => {
+      if (res.success) onDone(res);
       else toast.error(failure);
+    };
+    const refuse = (err: unknown) => {
+      if (onRefused?.(err)) return;
+      toast.error(formatError(err, failure));
     };
     try {
       settle(await call());
     } catch (err) {
-      if (continueAfterStepUp<{ success: boolean }>(err, settle)) return;
-      toast.error(formatError(err, failure));
+      if (continueAfterStepUp<R>(err, settle, (reason) => { if (stepUpReplayFailed(reason)) refuse(reason); })) return;
+      refuse(err);
     }
   };
 
@@ -386,29 +422,19 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
     setPurging(row.id);
     setPurgeResult(null);
     try {
-      // The purge's answer (a pipeline's stack outcome); a refusal with its own
-      // explanation (a stack still deployed) is shown above the list, not toasted.
-      let data: unknown;
-      let refused = false;
-      await runRowAction(async () => {
-        try {
-          const res = await config.purge(row.id, stepUpToken);
-          data = res.data;
-          return res;
-        } catch (err) {
-          const refusal = config.purgeRefusal?.(err) ?? null;
-          if (!refusal) throw err;
-          refused = true;
-          setPurgeResult({ tone: 'warning', text: refusal });
-          return { success: true };
-        }
-      }, () => {
-        if (refused) return;
+      // The purge's answer (or its step-up replay's) carries a pipeline's stack
+      // outcome; a refusal with its own explanation (a stack still deployed) is
+      // shown above the list, not toasted.
+      await runRowAction(() => config.purge(row.id, stepUpToken), (res) => {
         toast.success(`Permanently deleted ${labels.singular} "${row.name}"`);
         removeRow(row.id);
-        const outcome = config.purgeOutcome?.(data) ?? null;
+        const outcome = config.purgeOutcome?.(res.data) ?? null;
         if (outcome) setPurgeResult(outcome);
-      }, `Failed to purge ${labels.singular}`);
+      }, `Failed to purge ${labels.singular}`, (err) => {
+        const refusal = config.purgeRefusal?.(err, row) ?? null;
+        if (refusal) { cancelBlockingDeploy.reset(); setPurgeResult(refusal); }
+        return refusal !== null;
+      });
     } finally {
       setPurging(null);
       setPendingPurge(null);
@@ -494,7 +520,25 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
 
       {purgeResult && (
         <div className="mb-3" data-testid={`${resource}-purge-result`}>
-          <Callout variant={purgeResult.tone} onDismiss={() => setPurgeResult(null)}>{purgeResult.text}</Callout>
+          <Callout variant={purgeResult.tone} onDismiss={() => setPurgeResult(null)}>
+            <p>{purgeResult.text}</p>
+            {purgeResult.cancelDeploy && (
+              <div className="mt-2 space-y-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="danger-outline"
+                  disabled={cancelBlockingDeploy.pending}
+                  onClick={() => { if (purgeResult.cancelDeploy) void cancelBlockingDeploy.run(purgeResult.cancelDeploy); }}
+                >
+                  Cancel the deploy
+                </Button>
+                {cancelBlockingDeploy.error && (
+                  <p className="text-xs" role="alert" data-testid="purge-cancel-deploy-error">{cancelBlockingDeploy.error}</p>
+                )}
+              </div>
+            )}
+          </Callout>
         </div>
       )}
 

@@ -31,7 +31,7 @@
 import { createLogger, errorMessage, SYSTEM_ACTOR_ID } from '@pipeline-builder/api-core';
 import {
   DEPLOY_GRANT_PREFIX, DEPLOY_JOB_IMAGE_REPOSITORY, DEPLOY_JOB_PROTOCOL_VERSION, DEPLOY_RESULT_OK, deployFailureOf, deployGrantTtlMs, deployLogHint,
-  IN_PROGRESS_RUN_REQUEST_STATUSES, isTerminalRunRequestStatus, RUNNER_DEPLOY_METRICS, runnerSupportsAction,
+  isTerminalRunRequestStatus, RUNNER_DEPLOY_METRICS, runnerSupportsAction,
   type DeployErrorCode, type DeployRequestDto, type DeployRequestStatus, type DeployStage, type RunDeployClaim, type TerminalRunRequestStatus,
 } from '@pipeline-builder/api-core/pipeline-runners';
 import { deliverPush, type ReplyVerdict } from './delivery.js';
@@ -40,17 +40,9 @@ import type { RunnerDeps } from './deps.js';
 import { finishRequest } from './lifecycle.js';
 import { RunnerRouteError } from './routing.js';
 import type { DeployRequestPair, RunnerDeployInsert, RunnerDeployRow, RunRequestRow, RunnerRow } from './store.js';
-import { isSystemRequester, PENDING_STATUSES, runnerSettings, RUN_REQUEST_TTL_MS, SYSTEM_DEPLOY_STATUS, SYSTEM_UNDEPLOY } from './vocabulary.js';
+import { PENDING_STATUSES, runnerSettings, RUN_REQUEST_TTL_MS, SYSTEM_DEPLOY_STATUS, SYSTEM_UNDEPLOY } from './vocabulary.js';
 
 const logger = createLogger('runner-deploys');
-
-/** Whether a request row is a deploy or an undeploy. */
-export function isDeployAction(action: string): action is 'deploy' | 'undeploy' {
-  return action === 'deploy' || action === 'undeploy';
-}
-
-/** The statuses a finished deploy / undeploy can move from (its delivery, or its running build). */
-export const DEPLOY_FINISHABLE_STATUSES = [...PENDING_STATUSES, ...IN_PROGRESS_RUN_REQUEST_STATUSES];
 
 // -- The deploy half of a new request --------------------------------------------
 
@@ -257,8 +249,9 @@ export interface DeployPollCounts {
 
 /**
  * The leader's deploy step: every running deploy / undeploy whose poll is due
- * is read with a signed `deploy_status`; past its deadline it is cancelled and
- * fails DEPLOY_TIMED_OUT. Then the overdue gauge (running past the deadline —
+ * is read with a signed `deploy_status`; past its deadline a build still
+ * running (or unreadable) is cancelled and fails DEPLOY_TIMED_OUT, while one
+ * that already finished keeps its outcome. Then the overdue gauge (running past the deadline —
  * RunnerDeployStuck) is published.
  */
 export async function pollDeploys(deps: RunnerDeps, now: number): Promise<DeployPollCounts> {
@@ -271,32 +264,41 @@ export async function pollDeploys(deps: RunnerDeps, now: number): Promise<Deploy
         if (await finishRequest(deps, request, 'expired', { errorCode: 'RUNNER_REVOKED' })) counts.finished++;
         continue;
       }
-      if (deploy.deadlineAt && deploy.deadlineAt.getTime() <= now) {
-        if (deploy.buildId && runner.health === 'healthy') await sendCancel(deps, request, runner, deploy.buildId);
-        if (await finishRequest(deps, request, 'failed', { errorCode: 'DEPLOY_TIMED_OUT' })) { counts.finished++; counts.timedOut++; }
-        continue;
-      }
+      const pastDeadline = !!deploy.deadlineAt && deploy.deadlineAt.getTime() <= now;
       const next = { nextPollAt: new Date(now + deployStatusPollMs) };
       // An unreachable runner is not asked (its health pings decide); a deploy
-      // without a build id cannot be (the deadline still applies above).
-      if (runner.health !== 'healthy' || !deploy.buildId) {
+      // without a build id cannot be (the deadline still applies).
+      const readable = runner.health === 'healthy' && !!deploy.buildId;
+      if (!readable && !pastDeadline) {
         await deps.store.updateDeploy(request.id, next, { onlyIfUnfinished: true });
         continue;
       }
-      counts.polled++;
-      const verdict = await sendDeployRead(deps, request, runner, 'deploy_status', deploy.buildId);
+      // Past the deadline the build is read first too: one that finished while
+      // nobody polled (the platform was down) keeps its real outcome.
+      let verdict: ReplyVerdict | null = null;
+      if (readable) {
+        counts.polled++;
+        verdict = pastDeadline
+          ? await sendDeployRead(deps, request, runner, 'deploy_status', deploy.buildId!).catch(() => null)
+          : await sendDeployRead(deps, request, runner, 'deploy_status', deploy.buildId!);
+      }
+      const final = verdict?.kind === 'success' && verdict.buildState ? finalStatusOf(request, deploy, verdict) : null;
+      if (final && verdict?.kind === 'success') {
+        if (verdict.stage) await deps.store.updateDeploy(request.id, { stage: verdict.stage }, { onlyIfUnfinished: true });
+        if (await finishRequest(deps, request, final.status, final.errorCode ? { errorCode: final.errorCode } : {})) counts.finished++;
+        continue;
+      }
+      if (pastDeadline) {
+        if (readable) await sendCancel(deps, request, runner, deploy.buildId!);
+        if (await finishRequest(deps, request, 'failed', { errorCode: 'DEPLOY_TIMED_OUT' })) { counts.finished++; counts.timedOut++; }
+        continue;
+      }
       if (verdict?.kind === 'fail' && verdict.code === 'DEPLOY_BUILD_NOT_FOUND') {
         if (await finishRequest(deps, request, 'failed', { errorCode: 'DEPLOY_BUILD_NOT_FOUND' })) counts.finished++;
         continue;
       }
-      if (verdict?.kind !== 'success' || !verdict.buildState) {
+      if (verdict?.kind !== 'success' || !verdict.buildState || !deploy.buildId) {
         await deps.store.updateDeploy(request.id, next, { onlyIfUnfinished: true });
-        continue;
-      }
-      const final = finalStatusOf(request, deploy, verdict);
-      if (final) {
-        if (verdict.stage) await deps.store.updateDeploy(request.id, { stage: verdict.stage }, { onlyIfUnfinished: true });
-        if (await finishRequest(deps, request, final.status, final.errorCode ? { errorCode: final.errorCode } : {})) counts.finished++;
         continue;
       }
       // Still running. A person's cancel that did not reach the runner is sent again.
@@ -478,9 +480,4 @@ export async function queueUndeploy(deps: RunnerDeps, input: UndeployInput, imag
     logger.warn('Undeploy enqueue failed; the sweep re-kicks it', { requestId: request.id, error: errorMessage(err) });
   });
   return request.id;
-}
-
-/** Whether a request is system-initiated (an undeploy on purge). */
-export function isSystemDeploy(request: Pick<RunRequestRow, 'requestedBy'>): boolean {
-  return isSystemRequester(request.requestedBy);
 }

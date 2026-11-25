@@ -224,8 +224,8 @@ export interface OrganizationData {
    * under before a KMS config change whose re-wrap of them FAILED — the only
    * durable copy of it once that request ends. Both fields absent = the shared
    * provider. `POST .../kms-config/runner-keys/reencrypt` retries the re-wrap
-   * with it and clears it on success; so does any later change whose own
-   * re-wrap succeeds. Set only when absent, so the oldest unmigrated config wins.
+   * with it and clears it on success. While it is set, a further PUT/DELETE of
+   * the config is refused (409): one marker can name only one outgoing config.
    */
   kmsRunnerRewrapFrom?: { keyId?: string; ciphertextBase64?: string; pendingSince: Date };
   /**

@@ -9,6 +9,7 @@
  * reproduce it byte for byte).
  */
 
+import { createHash } from 'crypto';
 import { readFileSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
 
@@ -160,5 +161,10 @@ describe('edge inputs', () => {
   it('sorts input names by byte order, as `LC_ALL=C sort` does', () => {
     const t = (names: string[]) => ({ 'pipeline-bootstrap': new Map(names.map((n) => [n, 'x\n'])), 'cdk-synth': new Map<string, string>() });
     expect(toolchainSourceDigest(t(['b', 'B', 'a']))).toBe(toolchainSourceDigest(t(['a', 'B', 'b'])));
+    // Byte order, not UTF-16 code-unit order: U+FF61 (EF BD A1) sorts BEFORE
+    // U+1F600 (F0 9F 98 80) as bytes, though its UTF-16 unit is the larger.
+    const [bmp, astral] = ['\uFF61', '\u{1F600}'];
+    const expected = createHash('sha256').update(`pipeline-bootstrap/${bmp}\nx\npipeline-bootstrap/${astral}\nx\n`).digest('hex');
+    expect(toolchainSourceDigest(t([astral, bmp]))).toBe(`sha256:${expected}`);
   });
 });

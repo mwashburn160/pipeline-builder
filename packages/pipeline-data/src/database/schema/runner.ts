@@ -6,7 +6,7 @@ import type {
   RunnerPublicJwk, RunnerStatus, RunRequestAction, RunRequestStatus,
 } from '@pipeline-builder/api-core/pipeline-runners';
 import { sql } from 'drizzle-orm';
-import { bigint, boolean, check, index, integer, pgSequence, pgTable, text, timestamp, uniqueIndex, uuid, varchar } from 'drizzle-orm/pg-core';
+import { bigint, boolean, check, foreignKey, index, integer, pgSequence, pgTable, text, timestamp, unique, uniqueIndex, uuid, varchar } from 'drizzle-orm/pg-core';
 import { jsonb } from './jsonb.js';
 
 // The runner vocabulary is api-core's (the contract the service, the runner
@@ -105,6 +105,8 @@ export const pipelineRunRequest = pgTable('pipeline_run_requests', {
   /** At most one ACTIVE deploy per pipeline. Same set as ACTIVE_DEPLOY_STATUSES. */
   oneActiveDeployUq: uniqueIndex('pipeline_run_requests_one_active_deploy_uq').on(table.pipelineId)
     .where(sql`action = 'deploy' AND status IN ('queued', 'delivering', 'deploying')`),
+  /** The target of pipeline_runner_deploys' (request_id, org_id) key (FK checks bypass RLS). */
+  idOrgUq: unique('pipeline_run_requests_id_org_uq').on(table.id, table.orgId),
 }));
 
 /**
@@ -129,7 +131,7 @@ export const pipelineRunRequest = pgTable('pipeline_run_requests', {
  * @table pipeline_runner_deploys
  */
 export const pipelineRunnerDeploy = pgTable('pipeline_runner_deploys', {
-  requestId: uuid('request_id').primaryKey().references(() => pipelineRunRequest.id, { onDelete: 'cascade' }),
+  requestId: uuid('request_id').primaryKey(),
   orgId: varchar('org_id', { length: 255 }).notNull(),
   pipelineId: uuid('pipeline_id').notNull(),
   region: varchar('region', { length: 30 }).notNull(),
@@ -154,6 +156,9 @@ export const pipelineRunnerDeploy = pgTable('pipeline_runner_deploys', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   pipelineIdx: index('pipeline_runner_deploys_pipeline_idx').on(table.orgId, table.pipelineId),
+  /** Tied to its request AND that request's org: a row can never carry another org's id for a request. */
+  requestFk: foreignKey({ name: 'pipeline_runner_deploys_request_fk', columns: [table.requestId, table.orgId], foreignColumns: [pipelineRunRequest.id, pipelineRunRequest.orgId] })
+    .onDelete('cascade'),
   pollIdx: index('pipeline_runner_deploys_poll_idx').on(table.nextPollAt).where(sql`next_poll_at IS NOT NULL`),
   stageCheck: check('pipeline_runner_deploys_stage_check',
     sql`stage IN ('queued', 'starting', 'authenticating', 'fetching', 'prechecking', 'cleaning', 'synthesizing', 'deploying', 'registering', 'removing', 'done')`),

@@ -785,13 +785,16 @@ const ACCOUNT_SETUP_RUNNER_CODES: readonly string[] = ['DEPLOY_NOT_ENABLED', 'RU
 
 /**
  * A failed deploy's class and retryability from its recorded code: the
- * deploy catalog's own; a runner refusal of the setup is `account_setup`; any
- * other runner catalog code (not delivered, bad signature, …) `platform`; an
- * unknown code `unknown`. Null for no code.
+ * deploy catalog's own; a runner refusal of the setup is `account_setup`; a
+ * pipeline already in the runner's account is `account_setup` and not
+ * retryable (the platform registers that pipeline instead, so a Retry only
+ * answers ALREADY_DEPLOYED); any other runner catalog code (not delivered, bad
+ * signature, …) `platform`; an unknown code `unknown`. Null for no code.
  */
 export function deployFailureOf(code: string | null | undefined): { failureClass: DeployFailureClass; retryable: boolean } | null {
   if (!code) return null;
   if (isRunnerDeployErrorCode(code)) return { failureClass: RUNNER_DEPLOY_ERRORS[code].class, retryable: RUNNER_DEPLOY_ERRORS[code].retryable };
+  if (code === 'PIPELINE_ALREADY_DEPLOYED') return { failureClass: 'account_setup', retryable: false };
   if (ACCOUNT_SETUP_RUNNER_CODES.includes(code)) return { failureClass: 'account_setup', retryable: true };
   if (isRunnerErrorCode(code)) return { failureClass: 'platform', retryable: true };
   return { failureClass: 'unknown', retryable: true };
@@ -824,15 +827,34 @@ export function deployGrantTtlMs(queuedTimeoutMinutes: number = DEPLOY_BUILD_QUE
 /** {@link deployGrantTtlMs} for the stack's queue timeout (45 min). */
 export const DEPLOY_GRANT_TTL_MS = deployGrantTtlMs();
 
-/** The runner stack's DeployTimeoutMinutes parameter (CodeBuild TimeoutInMinutes). */
-export const DEPLOY_BUILD_TIMEOUT_MINUTES = { default: 60, min: 10, max: 480 } as const;
+/**
+ * The runner stack's DeployTimeoutMinutes parameter (CodeBuild TimeoutInMinutes).
+ * `max` is the platform's deploy deadline (RUNNER_DEPLOY_DEADLINE_MINUTES'
+ * default, 120): a longer build would only be cancelled by the platform first
+ * (DEPLOY_TIMED_OUT).
+ */
+export const DEPLOY_BUILD_TIMEOUT_MINUTES = {
+  default: 60,
+  min: 10,
+  max: Number(RUNNER_TUNABLE_DEFAULTS.RUNNER_DEPLOY_DEADLINE_MINUTES),
+} as const;
 
 /** The KMS encryption context `purpose` the grant is wrapped under in the runner's account. */
 export const DEPLOY_GRANT_KMS_PURPOSE = 'deploy-grant';
 
-/** The KMS encryption context of a wrapped grant: only the RunnerRole encrypts and only the DeployRole decrypts under it. */
-export function deployGrantEncryptionContext(runnerId: string): { runnerId: string; purpose: typeof DEPLOY_GRANT_KMS_PURPOSE } {
-  return { runnerId, purpose: DEPLOY_GRANT_KMS_PURPOSE };
+/** Every key of {@link deployGrantEncryptionContext} (the grant key's policy allows these and no other). */
+export const DEPLOY_GRANT_KMS_CONTEXT_KEYS = ['runnerId', 'purpose', 'requestId'] as const;
+
+/**
+ * The KMS encryption context of a wrapped grant: only the RunnerRole encrypts
+ * and only the DeployRole decrypts under it. `requestId` (the deploy request's
+ * id = PB_REQUEST_ID) binds each ciphertext to ONE request: KMS refuses to
+ * decrypt it under any other request's context.
+ */
+export function deployGrantEncryptionContext(runnerId: string, requestId: string): {
+  runnerId: string; purpose: typeof DEPLOY_GRANT_KMS_PURPOSE; requestId: string;
+} {
+  return { runnerId, purpose: DEPLOY_GRANT_KMS_PURPOSE, requestId };
 }
 
 /** The KMS ciphertext blob of a grant, base64 (PB_DEPLOY_GRANT_CIPHERTEXT). */
@@ -953,17 +975,19 @@ export interface RunnerDeployCancelledReply {
   buildState: DeployBuildState;
 }
 
-// ---- Runner selection ----
+// ---- Runner selection and purge ----
 
-/** Why an eligible runner cannot deploy a pipeline (`GET …/deploy-targets`, `details.reason` of RUNNER_NOT_DEPLOYABLE). */
 /**
  * Why a purge left a pipeline's stack in the customer's account instead of
  * asking its runner to remove it (purge result `stackRetained.reason`, the 409's
  * `details.stackRetainedReason`, and the deleted-pipeline row's notice).
+ * `undeploy_not_queued`: an undeploy through a capable runner was planned, but
+ * queueing it failed after the purge landed.
  */
-export const STACK_RETAINED_REASONS = ['no_runner', 'runner_not_deploy_capable', 'toolchain_too_old', 'no_stack'] as const;
+export const STACK_RETAINED_REASONS = ['no_runner', 'runner_not_deploy_capable', 'toolchain_too_old', 'no_stack', 'undeploy_not_queued'] as const;
 export type StackRetainedReason = (typeof STACK_RETAINED_REASONS)[number];
 
+/** Why an eligible runner cannot deploy a pipeline (`GET …/deploy-targets`, `details.reason` of RUNNER_NOT_DEPLOYABLE). */
 export const DEPLOY_TARGET_REASONS = ['deploy_not_enabled', 'update_required', 'unhealthy', 'prefix_mismatch', 'team_deploys_not_shared', 'region'] as const;
 export type DeployTargetReason = (typeof DEPLOY_TARGET_REASONS)[number];
 

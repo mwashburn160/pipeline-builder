@@ -171,6 +171,12 @@ describe('deploy job error codes', () => {
     expect(deployFailureOf('RUN_REQUEST_EXPIRED')).toEqual({ failureClass: 'platform', retryable: true });
     expect(deployFailureOf('SOMETHING_NEW')).toEqual({ failureClass: 'unknown', retryable: true });
   });
+
+  it('classes a pipeline already in the runner\'s account as the account\'s, not retryable (never a platform failure)', () => {
+    // The platform registers the existing pipeline instead; a Retry would only
+    // answer 409 ALREADY_DEPLOYED, and class `platform` pages RunnerDeployPlatformFailures.
+    expect(deployFailureOf('PIPELINE_ALREADY_DEPLOYED')).toEqual({ failureClass: 'account_setup', retryable: false });
+  });
 });
 
 describe('deploy HTTP answers in RUNNER_ERRORS', () => {
@@ -224,7 +230,9 @@ describe('deploy grant and session tokens', () => {
 
   it('is KMS-wrapped in the account under a fixed encryption context', () => {
     expect(DEPLOY_GRANT_KMS_PURPOSE).toBe('deploy-grant');
-    expect(deployGrantEncryptionContext('r-1')).toEqual({ runnerId: 'r-1', purpose: 'deploy-grant' });
+    // The request id binds each ciphertext to ONE deploy request: KMS refuses a decrypt under another request's context.
+    expect(deployGrantEncryptionContext('r-1', 'req-1')).toEqual({ runnerId: 'r-1', purpose: 'deploy-grant', requestId: 'req-1' });
+    expect(Object.keys(deployGrantEncryptionContext('r-1', 'req-1')).sort()).toEqual([...catalog.DEPLOY_GRANT_KMS_CONTEXT_KEYS].sort());
     expect(DEPLOY_GRANT_CIPHERTEXT_PATTERN.test('AQICAHh0Zm9vYmFy+/==')).toBe(true);
     expect(DEPLOY_GRANT_CIPHERTEXT_PATTERN.test(`pb_dg_${b64}`)).toBe(false);
     expect(DEPLOY_GRANT_CIPHERTEXT_PATTERN.test('')).toBe(false);
@@ -274,7 +282,9 @@ describe('deploy job', () => {
   });
 
   it('bounds the build timeout as the stack parameter does', () => {
-    expect(DEPLOY_BUILD_TIMEOUT_MINUTES).toEqual({ default: 60, min: 10, max: 480 });
+    // A build may run no longer than the platform's deploy deadline, which cancels it first (DEPLOY_TIMED_OUT).
+    expect(DEPLOY_BUILD_TIMEOUT_MINUTES).toEqual({ default: 60, min: 10, max: 120 });
+    expect(DEPLOY_BUILD_TIMEOUT_MINUTES.max).toBe(Number(RUNNER_TUNABLE_DEFAULTS.RUNNER_DEPLOY_DEADLINE_MINUTES));
   });
 
   it('accepts AWS region names only', () => {

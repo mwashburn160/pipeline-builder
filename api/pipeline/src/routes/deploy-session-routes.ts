@@ -21,7 +21,7 @@
  */
 
 import {
-  audited, callInternal, ErrorCode, errorMessage, getParam, getServiceAuthHeader, InternalHttpClient, normalizeArrayFields,
+  audited, callInternal, createLogger, ErrorCode, errorMessage, getParam, getServiceAuthHeader, InternalHttpClient, normalizeArrayFields,
   PLUGIN_INTERNAL, recordAudit, sendError, sendSuccess, serviceEndpoint, serviceIdentity, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID,
 } from '@pipeline-builder/api-core';
 import {
@@ -38,6 +38,8 @@ import { RunnerRouteError } from '../runners/routing.js';
 import type { DeployRequestPair } from '../runners/store.js';
 import { PR_PIPELINE_NOT_OWNED, PR_REGISTRY_OWNED_BY_OTHER_ORG } from '../services/pipeline-registry-service.js';
 import { pipelineService } from '../services/pipeline-service.js';
+
+const logger = createLogger('deploy-session-routes');
 
 /** Calls one deploy's job may make per minute (a job makes a handful, plus one lookup per plugin). */
 export const DEPLOY_SESSION_REQUESTS_PER_MINUTE = 120;
@@ -134,6 +136,12 @@ export function createDeploySessionRoutes(): Router {
     const body = LookupBody.safeParse(req.body ?? {});
     if (!body.success) return badBody(res, body.error);
     const { request } = req.deploySession!;
+    // The lookup is recorded against (and gets the risk acceptances and notices
+    // of) the context's pipeline: only the session's own may be named.
+    const ctxPipelineId = body.data.context && typeof body.data.context === 'object' ? (body.data.context as { pipelineId?: unknown }).pipelineId : undefined;
+    if (ctxPipelineId !== undefined && (typeof ctxPipelineId !== 'string' || ctxPipelineId.toLowerCase() !== request.pipelineId.toLowerCase())) {
+      return sendError(res, 400, 'The lookup context names another pipeline than this deploy\'s.', ErrorCode.VALIDATION_ERROR);
+    }
     const client = new InternalHttpClient(serviceEndpoint('plugin'));
     let out: Awaited<ReturnType<typeof callInternal<typeof PLUGIN_INTERNAL.deployLookup>>>;
     try {
@@ -143,7 +151,9 @@ export function createDeploySessionRoutes(): Router {
         options: { headers: { Authorization: getServiceAuthHeader({ serviceName: serviceIdentity(), orgId: SYSTEM_ORG_ID, role: 'member' }) } },
       });
     } catch (err) {
-      return sendError(res, 502, `Plugin lookup failed (${errorMessage(err).slice(0, 120)}).`, ErrorCode.INTERNAL_ERROR);
+      // The cause names the plugin service's internal address: logged, never answered.
+      logger.warn('Deploy job plugin lookup failed', { requestId: request.id, error: errorMessage(err) });
+      return sendError(res, 502, 'Plugin lookup failed.', ErrorCode.INTERNAL_ERROR);
     }
     // The plugin service's own envelope, as POST /plugins/lookup answers it.
     if (out.ok) return res.status(out.status).json(out.body);
@@ -177,6 +187,10 @@ export function createDeploySessionRoutes(): Router {
       return sendError(res, 409, 'The registration does not match the deploy\'s pipeline name, stack name or region.', 'DEPLOY_TARGET_MISMATCH');
     }
     const deps = runnerDeps();
+    // A team's manifest is read with its root org's installs, as the user
+    // registry route reads it (there from the caller's token; here, with no
+    // user, from the hierarchy — nearest first, so the root is the last).
+    const rootOrgId = b.steps ? (await deps.hierarchy.ancestors(request.orgId)).at(-1) : undefined;
     try {
       // THE shared upsert: org, pipeline and runner come from the session; the
       // runner's own job deployed it, which is what links it.
@@ -188,6 +202,7 @@ export function createDeploySessionRoutes(): Router {
         region: deploy.region,
         runnerId: request.runnerId ?? undefined,
         ...(b.steps ? { steps: b.steps } : {}),
+        ...(rootOrgId ? { parentOrgId: rootOrgId } : {}),
       });
       recordAudit({
         action: 'pipeline.registry.register',

@@ -13,7 +13,7 @@ import { DeployPipelinePanel } from './DeployPipelinePanel';
  *
  * A pipeline created in the dashboard (Generate from Git, manual create, a
  * template) is only a CONFIG: nothing runs until it is deployed, and nothing
- * reports until it is registered. Three facts the copy below relies on:
+ * reports until it is registered. The facts the copy below relies on:
  *
  *  - A pipeline runner with deploys enabled (`setup-runner --enable-deploy`)
  *    deploys it into the runner's AWS account and registers it
@@ -88,7 +88,7 @@ export function DeployNextStep({ pipelineId, className = '' }: { pipelineId: str
   return (
     <section aria-label="Next step: deploy" className={['rounded-xl border border-default p-4 space-y-3', className].filter(Boolean).join(' ')}>
       <div className="flex items-center gap-2">
-        <Rocket className="w-4 h-4 text-fg-muted" />
+        <Rocket className="w-4 h-4 text-fg-muted" aria-hidden="true" />
         <h3 className="text-sm font-semibold text-fg">Next step: deploy it</h3>
       </div>
       <p className="text-sm text-fg-muted">

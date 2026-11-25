@@ -71,10 +71,12 @@ export interface WebhookEndpointView {
   /** `['*']` means every event. */
   enabledEvents: string[];
   livemode: boolean;
+  /** False once the endpoint is disabled (by hand, or by Stripe after failed deliveries): it then delivers nothing. */
+  enabled: boolean;
 }
 
 const toEndpointView = (ep: Stripe.WebhookEndpoint): WebhookEndpointView => ({
-  id: ep.id, url: ep.url, enabledEvents: [...ep.enabled_events], livemode: ep.livemode,
+  id: ep.id, url: ep.url, enabledEvents: [...ep.enabled_events], livemode: ep.livemode, enabled: ep.status !== 'disabled',
 });
 
 /** Stripe statuses in which a subscription is over and cannot be cancelled again. */

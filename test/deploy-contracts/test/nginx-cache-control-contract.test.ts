@@ -35,4 +35,27 @@ describe.each(ALL_TARGETS.map((t) => [t]))('%s nginx.conf', (target) => {
   it('adds the header from the upstream-aware map', () => {
     expect(conf).toContain('add_header Cache-Control $cache_control_header always;');
   });
+
+  // The only Cache-Control nginx adds is the upstream-aware server default. A
+  // location-level one (the old `/_next/` immutable header) stacks a second,
+  // conflicting header on the upstream's own (Next's `/_next/image` answers
+  // `max-age=60, must-revalidate` and got a year of `immutable` on top), and any
+  // location `add_header` silently drops every server-level header (HSTS,
+  // nosniff, X-Request-ID, the CSP fallback) for that location.
+  it('adds no Cache-Control of its own in any location', () => {
+    const literal = conf.match(/add_header\s+Cache-Control\s+(?!\$cache_control_header\b)[^;]*;/g) ?? [];
+    expect(literal).toEqual([]);
+  });
+
+  it('proxies /_next/ with the server-level headers (no location add_header)', () => {
+    const block = conf.match(/location \/_next\/ \{([^}]*)\}/);
+    expect(block).not.toBeNull();
+    expect(block![1]).not.toMatch(/\badd_header\b/);
+  });
+
+  // proxy_cache_valid only applies with a proxy_cache zone; none is defined, so
+  // the directive reads as a gateway cache that does not exist.
+  it('declares no proxy_cache_valid without a proxy_cache zone', () => {
+    if (!/proxy_cache_path\b/.test(conf)) expect(conf).not.toMatch(/proxy_cache_valid\b/);
+  });
 });

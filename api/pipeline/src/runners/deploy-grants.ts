@@ -119,8 +119,12 @@ export async function exchangeDeployGrant(deps: RunnerDeps, requestId: string, g
     sessionExpiresAt: expiresAt,
     stage: 'authenticating',
   });
-  // Lost a race with a concurrent exchange of the same grant: that IS a reuse.
-  if (!claimed) return reject('reused', pair);
+  if (!claimed) {
+    // Lost a race: a concurrent exchange of the same grant (grant_used_at now
+    // set) IS a reuse; a deploy that finished meanwhile is only wrong_state.
+    const fresh = await deps.store.getDeploy(requestId).catch(() => null);
+    return fresh?.grantUsedAt ? reject('reused', pair) : reject('wrong_state');
+  }
   return {
     sessionToken: session,
     expiresAt: expiresAt.toISOString(),
@@ -147,9 +151,4 @@ export async function authenticateDeploySession(deps: RunnerDeps, requestId: str
   if (!pair.deploy.sessionExpiresAt || pair.deploy.sessionExpiresAt.getTime() <= deps.now()) throw grantInvalid('expired');
   if (!LIVE_STATUSES.includes(pair.request.status) || pair.deploy.finishedAt) throw grantInvalid('wrong_state');
   return pair;
-}
-
-/** Whether a request is still before the runner's answer (the grant may be re-signed). */
-export function isUndelivered(status: RunRequestStatus): boolean {
-  return (PENDING_RUN_REQUEST_STATUSES as readonly string[]).includes(status);
 }

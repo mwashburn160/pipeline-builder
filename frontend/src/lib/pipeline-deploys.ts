@@ -275,6 +275,7 @@ export const STACK_RETAINED_REASON_COPY: Readonly<Record<StackRetainedReason | '
   runner_not_deploy_capable: 'Its runner cannot remove it (deploys are not enabled on it)',
   toolchain_too_old: 'Its toolchain is too old for the runner\'s undeploy job',
   no_stack: 'The platform has no stack name and region recorded for it',
+  undeploy_not_queued: 'Its runner was due to delete it, but that removal could not be queued when the pipeline was purged — the stack is still deployed',
 };
 
 const REMOVE_IT = 'remove it with cdk destroy or in the CloudFormation console';
@@ -340,4 +341,17 @@ export function purgeRefusedCopy(details: Record<string, unknown> | undefined): 
   const name = stackName({ stackName: typeof details.stackName === 'string' ? details.stackName : null, region: typeof details.region === 'string' ? details.region : null });
   const why = reasonText(typeof details.stackRetainedReason === 'string' ? details.stackRetainedReason : null) ?? 'No runner can remove it';
   return `Not purged: ${name} is still deployed. ${why}, so ${REMOVE_IT}, deregister it on the Deployments page, then purge again.`;
+}
+
+/**
+ * A purge refused (409 `DEPLOY_IN_PROGRESS`, `details.requestId`) because a
+ * deploy of the pipeline through a runner is in flight — refused even forced,
+ * since the stack is being created under it. The copy, and the deploy to cancel.
+ */
+export function purgeDeployInProgressCopy(code: string | undefined, details: Record<string, unknown> | undefined): { text: string; requestId: string } | null {
+  if (code !== 'DEPLOY_IN_PROGRESS' || typeof details?.requestId !== 'string' || !details.requestId) return null;
+  return {
+    text: 'Not purged: this pipeline is being deployed through a pipeline runner right now. Cancel the deploy (or wait for it to finish), then purge it again.',
+    requestId: details.requestId,
+  };
 }

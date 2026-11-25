@@ -582,7 +582,10 @@ CREATE TABLE IF NOT EXISTS pipeline_run_requests (
     error_code VARCHAR(64),
     -- When the runner accepted a start/stop (the dispatcher's success verdict);
     -- NULL until then, and for every request that was never accepted.
-    accepted_at TIMESTAMPTZ
+    accepted_at TIMESTAMPTZ,
+    -- The target of pipeline_runner_deploys' (request_id, org_id) key: a deploy
+    -- half can only name a request of its own org (FK checks bypass RLS).
+    CONSTRAINT pipeline_run_requests_id_org_uq UNIQUE (id, org_id)
 );
 
 -- The deploy half of a `deploy` / `undeploy` run request: what the runner's
@@ -595,7 +598,7 @@ CREATE TABLE IF NOT EXISTS pipeline_run_requests (
 -- is `<project>:<uuid>` (no account id). No route, log, audit entry or export
 -- carries grant_enc, grant_hash or session_hash.
 CREATE TABLE IF NOT EXISTS pipeline_runner_deploys (
-    request_id UUID PRIMARY KEY REFERENCES pipeline_run_requests(id) ON DELETE CASCADE,
+    request_id UUID PRIMARY KEY,
     org_id VARCHAR(255) NOT NULL,
     pipeline_id UUID NOT NULL,
     region VARCHAR(30) NOT NULL,
@@ -620,7 +623,11 @@ CREATE TABLE IF NOT EXISTS pipeline_runner_deploys (
     cancelled_by VARCHAR(255),
     result_code VARCHAR(64),
     finished_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- Tied to its request AND that request's org: a row can never carry another
+    -- org's id for a request (RLS reads it by org_id).
+    CONSTRAINT pipeline_runner_deploys_request_fk FOREIGN KEY (request_id, org_id)
+        REFERENCES pipeline_run_requests(id, org_id) ON DELETE CASCADE
 );
 
 -- ============================================================================
@@ -4386,7 +4393,7 @@ DROP FUNCTION pb_reset_policies(TEXT);
 \echo 'FORCE + org scope (SELECT carve-outs; own-org INSERT/UPDATE/DELETE) on every tenant table (64/64):'
 \echo ' - dashboards, dashboard_panels, org_alert_destinations, org_alert_rules, alert_destination_status'
 \echo ' - messages (+ recipient read-state update), message_attachments, pipeline_registry'
-\echo ' - pipeline_runners, pipeline_run_requests, pipeline_runner_signing_keys, pipeline_runner_key_settings (own org only, no system-org read)'
+\echo ' - pipeline_runners, pipeline_run_requests, pipeline_runner_deploys, pipeline_runner_signing_keys, pipeline_runner_key_settings (own org only, no system-org read)'
 \echo ' - pipeline_runner_platform_settings (system org only)'
 \echo ' - pipeline_templates, all compliance_* tables incl. compliance_entitlement_watermark'
 \echo ' - plugins, pipelines, pipeline_events, DORA tables (hot path)'

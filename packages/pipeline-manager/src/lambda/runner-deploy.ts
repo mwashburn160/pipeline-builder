@@ -14,13 +14,13 @@
  *     1. DEPLOY_NOT_ENABLED without EnableDeploy;
  *     2. the claim's region and pipeline name inside the local allowlist, else
  *        RUNNER_REFUSED;
- *     3. deploy only: a pipeline already tagged `pb.pipeline-id = <id>` in the
+ *     3. deploy only (after step 4's own-build check): a pipeline already tagged `pb.pipeline-id = <id>` in the
  *        account → PIPELINE_ALREADY_DEPLOYED (the platform links it instead);
- *     4. the project's in-progress builds: this request's own build is
- *        returned (a redelivery starts nothing); another request's build of the
- *        same pipeline → DEPLOY_IN_PROGRESS;
+ *     4. the project's recent builds: this request's own build, in any state,
+ *        is returned (a redelivery starts nothing); another request's running
+ *        build of the same pipeline → DEPLOY_IN_PROGRESS;
  *     5. the grant from the signed claim is KMS-encrypted with the stack's key
- *        under {@link deployGrantEncryptionContext} — only that ciphertext
+ *        under {@link deployGrantEncryptionContext} (runner id + request id) — only that ciphertext
  *        reaches the build (CodeBuild env overrides are readable through
  *        BatchGetBuilds and logged by CloudTrail);
  *     6. StartBuild with idempotencyToken = jti, the image
@@ -105,14 +105,17 @@ const errName = (err: unknown): string => String((err as { name?: string })?.nam
 const envOf = (b: Build, name: string): string | undefined => b.environment?.environmentVariables?.find((v) => v.name === name)?.value;
 const exportedOf = (b: Build, name: string): string | undefined => b.exportedEnvironmentVariables?.find((v) => v.name === name)?.value;
 
-/** The project's newest builds still running (queued builds count: their status is IN_PROGRESS). */
-async function inProgressBuilds(ctx: DeployContext, projectName: string): Promise<Build[]> {
+/**
+ * The project's newest builds, any state. One page (100, newest first) covers
+ * every build a live request can have started: ConcurrentBuildLimit is at most
+ * 20 and a request lives 10 minutes.
+ */
+async function recentBuilds(ctx: DeployContext, projectName: string): Promise<Build[]> {
   const listed = await ctx.codebuild.send(new ListBuildsForProjectCommand({ projectName, sortOrder: 'DESCENDING' })) as { ids?: string[] };
-  // One page (100, newest first) covers every running build: ConcurrentBuildLimit is at most 20.
   const ids = (listed.ids ?? []).slice(0, 100);
   if (ids.length === 0) return [];
   const got = await ctx.codebuild.send(new BatchGetBuildsCommand({ ids })) as { builds?: Build[] };
-  return (got.builds ?? []).filter((b) => deployBuildState(b.buildStatus) === 'in_progress');
+  return got.builds ?? [];
 }
 
 /** deploy / undeploy: start (or find) the job's build. */
@@ -122,17 +125,24 @@ async function startJob(ctx: DeployContext, claims: RunClaims): Promise<DeployAn
   const d = claims.deploy!;
   const pipelineId = claims.pipelineId!;
   if (!ctx.isAllowed(d.region, d.pipelineName)) return { refuse: 'RUNNER_REFUSED' };
-  if (d.mode === 'deploy' && await ctx.alreadyDeployed(pipelineId)) return { refuse: 'PIPELINE_ALREADY_DEPLOYED' };
 
-  for (const b of await inProgressBuilds(ctx, cfg.projectName)) {
-    if (envOf(b, DEPLOY_JOB_ENV.requestId) === claims.jti && b.id) return { outcome: d.mode === 'deploy' ? 'deploying' : 'undeploying', buildId: b.id };
-    if (envOf(b, DEPLOY_JOB_ENV.pipelineId) === pipelineId) return { refuse: 'DEPLOY_IN_PROGRESS' };
+  // This request's own build, in ANY state: a redelivery (the other container,
+  // after CodeBuild's 5-minute idempotency window) must return it, not start a
+  // second build that would only burn the already-used grant — and not answer
+  // PIPELINE_ALREADY_DEPLOYED for the pipeline that build just deployed.
+  const builds = await recentBuilds(ctx, cfg.projectName);
+  const own = builds.find((b) => b.id && envOf(b, DEPLOY_JOB_ENV.requestId) === claims.jti);
+  if (own?.id) return { outcome: d.mode === 'deploy' ? 'deploying' : 'undeploying', buildId: own.id };
+  if (d.mode === 'deploy' && await ctx.alreadyDeployed(pipelineId)) return { refuse: 'PIPELINE_ALREADY_DEPLOYED' };
+  if (builds.some((b) => deployBuildState(b.buildStatus) === 'in_progress' && envOf(b, DEPLOY_JOB_ENV.pipelineId) === pipelineId)) {
+    return { refuse: 'DEPLOY_IN_PROGRESS' };
   }
 
   const encrypted = await ctx.kms.send(new EncryptCommand({
     KeyId: cfg.grantKeyArn,
     Plaintext: Buffer.from(d.grant, 'utf8'),
-    EncryptionContext: deployGrantEncryptionContext(ctx.runnerId),
+    // Bound to this request (= the build's PB_REQUEST_ID): the ciphertext decrypts for its own build only.
+    EncryptionContext: deployGrantEncryptionContext(ctx.runnerId, claims.jti),
   })) as { CiphertextBlob?: Uint8Array };
   if (!encrypted.CiphertextBlob || encrypted.CiphertextBlob.length === 0) throw new Error('KMS returned no ciphertext');
   const ciphertext = Buffer.from(encrypted.CiphertextBlob).toString('base64');

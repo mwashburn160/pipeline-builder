@@ -492,7 +492,11 @@ class PipelineRegistryService {
   ): Promise<{ registered: string[]; inserted: FirstEventRegistration[] }> {
     const allowed = new Set(allowedOrgIds.map((o) => o.toLowerCase()));
     const regionById = new Map<string, string | undefined>();
-    for (const p of pipelines) if (!regionById.has(p.pipelineId)) regionById.set(p.pipelineId, p.region);
+    // Keyed as the rows come back (a uuid column reads lower case; a tag may carry any case).
+    for (const p of pipelines) {
+      const key = p.pipelineId.toLowerCase();
+      if (!regionById.has(key)) regionById.set(key, p.region);
+    }
     const ids = [...regionById.keys()];
     if (ids.length === 0 || allowed.size === 0) return { registered: [], inserted: [] };
 

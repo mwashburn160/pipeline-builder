@@ -9,8 +9,9 @@ import { STEP_MANIFEST_FILE } from '@pipeline-builder/pipeline-core';
 import { PipelineBuilder, type BuilderProps } from '@pipeline-builder/pipeline-core/cdk';
 import { App, Stack } from 'aws-cdk-lib';
 import pico from 'picocolors';
-import { generateExecutionId, pipelineStackName } from './config/cli.constants.js';
+import { generateExecutionId } from './config/cli.constants.js';
 import { readPropsFile } from './utils/props-file.js';
+import { synthStackName } from './utils/synth-stack-name.js';
 
 const { cyan, green, dim, bold, magenta, red } = pico;
 
@@ -25,7 +26,7 @@ function main(): void {
 
   const props = readPropsFile<BuilderProps>();
 
-  const stackName = pipelineStackName(props.project, props.organization);
+  const stackName = synthStackName(props as unknown as BuilderProps & Record<string, unknown>);
   const componentId = 'pipeline-builder';
 
   console.log('Pipeline configuration:', {

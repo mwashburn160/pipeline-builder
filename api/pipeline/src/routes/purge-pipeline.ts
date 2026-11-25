@@ -40,6 +40,16 @@ export function createPurgePipelineRoutes(): Router {
     // the 409 below would hand another org's stack name and region to anyone
     // who guessed an id. An unknown id falls through to loadAndPurge's 404.
     const tombstone = id ? await pipelineService.findDeletedById(id, orgId) : null;
+    // A deploy through a runner still in flight is creating the stack right now:
+    // purged under it, the stack lands with nothing to register it against (and
+    // no undeploy can be planned). Refused even forced — cancel it, or let it finish.
+    const activeDeploy = tombstone ? await runnerDeps().store.findActiveDeploy(tombstone.orgId, tombstone.id) : null;
+    if (activeDeploy) {
+      ctx.log('WARN', 'Purge refused: a deploy through a runner is in flight', { id, requestId: activeDeploy.id });
+      return sendError(res, 409,
+        'This pipeline is being deployed through a pipeline runner. Cancel the deploy (or wait for it to finish), then purge it.',
+        'DEPLOY_IN_PROGRESS', { requestId: activeDeploy.id });
+    }
     const deployment = id && tombstone ? await pipelineRegistryService.deploymentOf(id) : null;
     // Linked to a runner that can deploy (deploy:1): the purge removes the
     // stack through it (`undeploy`), so no force is needed. Decided BEFORE the
@@ -78,7 +88,7 @@ export function createPurgePipelineRoutes(): Router {
       }
     }
     const stackRetained = deployment && !undeploy && deployment.stackName
-      ? { stackName: deployment.stackName, region: deployment.region, reason: plan?.kind === 'retained' ? plan.reason : 'no_runner' }
+      ? { stackName: deployment.stackName, region: deployment.region, reason: plan?.kind === 'retained' ? plan.reason : plan?.kind === 'undeploy' ? 'undeploy_not_queued' : 'no_runner' }
       : null;
 
     // Best-effort attributed audit — `affectedOrgId` records the target's org so

@@ -15,7 +15,7 @@
  * deploy mode, in order (the stage each step reports):
  *   starting        read the job's env (a missing value: DEPLOY_JOB_ERROR);
  *   authenticating  KMS-decrypt the grant (encryption context
- *                   {runnerId, purpose: deploy-grant}: only this stack's deploy
+ *                   {runnerId, purpose: deploy-grant, requestId}: only this stack's deploy
  *                   role may), exchange it ONCE for a session, then scrub the
  *                   ciphertext from the environment — no child process ever
  *                   sees it, and the grant, ciphertext and session token are
@@ -47,7 +47,9 @@
  *                   utils/deploy-assembly.ts), and every pipeline-builder/…
  *                   secret its CodeBuild projects read exists in the region
  *                   (ACCOUNT_SECRETS_MISSING);
- *   deploying       `cdk deploy` of exactly that assembly through runDeploy
+ *   deploying       re-read the stack (one of that name that appeared since the
+ *                   precheck and is not this pipeline's: STACK_OWNED_BY_OTHER_PIPELINE),
+ *                   then `cdk deploy` of exactly that assembly through runDeploy
  *                   (CFN_DEPLOY_FAILED);
  *   registering     the registry row through the session (org / pipeline /
  *                   runner forced by the platform) — best effort: the
@@ -84,7 +86,7 @@ import { executeCdkShellCommand, resolveBoilerplatePath } from '../utils/cdk-uti
 import { assemblyStack, dockerImageAssetCount, templateSecretNames } from '../utils/deploy-assembly.js';
 import { runDeploy, type RunDeployInput } from '../utils/deploy-runner.js';
 import {
-  DeployGrantRefusedError, DeploySessionClient, defaultSessionHttp, exchangeDeployGrant, type SessionHttp,
+  DeployGrantRefusedError, DeploySessionClient, defaultSessionHttp, exchangeDeployGrant, isDeploySessionEnded, type SessionHttp,
 } from '../utils/deploy-session-client.js';
 import { printError, printInfo, printSuccess, printWarning } from '../utils/output-utils.js';
 import { fetchPipelineProps } from '../utils/pipeline-config.js';
@@ -161,8 +163,14 @@ function readJobEnv(env: Record<string, string | undefined>): JobEnv {
   };
   const mode = need(DEPLOY_JOB_ENV.mode);
   if (!(DEPLOY_JOB_MODES as readonly string[]).includes(mode)) throw new JobFailure('DEPLOY_JOB_ERROR', `Unknown ${DEPLOY_JOB_ENV.mode} "${mode}"`);
+  const platformBaseUrl = need('PLATFORM_BASE_URL').replace(/\/+$/, '');
+  // The grant and the session token travel to this URL: never in clear text in
+  // production (the runner Lambda holds its own copy of the URL to the same rule).
+  if (env.NODE_ENV === 'production' && !/^https:\/\//.test(platformBaseUrl)) {
+    throw new JobFailure('DEPLOY_JOB_ERROR', 'PLATFORM_BASE_URL must be https');
+  }
   return {
-    platformBaseUrl: need('PLATFORM_BASE_URL').replace(/\/+$/, ''),
+    platformBaseUrl,
     runnerId: need('PB_RUNNER_ID'),
     qualifier: need('PB_CDK_QUALIFIER'),
     requestId: need(DEPLOY_JOB_ENV.requestId),
@@ -192,7 +200,15 @@ export interface DeployJobInput {
   /** Where the cloud assembly is synthesized. */
   output: string;
   deps: DeployJobDeps;
+  /** How often the session is re-checked (a progress post) while `cdk deploy` runs; default {@link DEPLOY_HEARTBEAT_MS}. */
+  heartbeatMs?: number;
 }
+
+/** While `cdk deploy` runs, the session is re-checked this often: a 401 (cancelled / past the deadline) stops cdk. */
+export const DEPLOY_HEARTBEAT_MS = 30_000;
+
+/** The session is gone: the job stops where it is. */
+const sessionEnded = (): JobFailure => new JobFailure('DEPLOY_CANCELLED', 'The platform ended this deploy (cancelled, or past its deadline): stopping');
 
 /** Run the job; never throws. The code is OK or a RUNNER_DEPLOY_ERRORS code. */
 export async function runDeployJob(input: DeployJobInput): Promise<{ code: DeployJobResultCode; stage: DeployStage }> {
@@ -202,8 +218,14 @@ export async function runDeployJob(input: DeployJobInput): Promise<{ code: Deplo
   const enter = async (next: DeployStage): Promise<void> => {
     stage = next;
     printInfo(`Deploy job: ${next}`);
-    // Progress is a hint (the status poll decides): a failed post never fails the job.
-    if (session) await session.progress(next).catch(() => undefined);
+    // Progress is a hint (the status poll decides): a failed post never fails
+    // the job — except a 401, which means the session was wiped (the deploy was
+    // cancelled or passed its deadline): nothing more may run.
+    if (session) {
+      await session.progress(next).catch((err: unknown) => {
+        if (isDeploySessionEnded(err)) throw sessionEnded();
+      });
+    }
   };
 
   let code: DeployJobResultCode = DEPLOY_RESULT_OK;
@@ -242,7 +264,7 @@ export async function runDeployJob(input: DeployJobInput): Promise<{ code: Deplo
 async function authenticate(job: JobEnv, input: DeployJobInput, deps: DeployJobDeps): Promise<DeploySessionDto> {
   let grant: string;
   try {
-    grant = await deps.decryptGrant(job.ciphertext, deployGrantEncryptionContext(job.runnerId));
+    grant = await deps.decryptGrant(job.ciphertext, deployGrantEncryptionContext(job.runnerId, job.requestId));
   } catch (err) {
     if (isAccessDenied(err)) throw new JobFailure('DEPLOY_PERMISSION_DENIED', 'The grant key refused this build\'s role (kms:Decrypt) — redeploy the runner stack');
     throw new JobFailure('DEPLOY_GRANT_REJECTED', 'The deploy grant could not be unwrapped');
@@ -329,10 +351,16 @@ async function deploy(
   try {
     fetched = await deps.fetchPipeline(session, job.pipelineId);
   } catch (err) {
+    if (isDeploySessionEnded(err)) throw sessionEnded();
     if (err instanceof PluginResolutionError) throw new JobFailure('PLUGIN_RESOLUTION_FAILED', err.message);
     throw new JobFailure('PIPELINE_FETCH_FAILED', `The pipeline could not be read through the deploy session: ${err instanceof Error ? err.message : String(err)}`);
   }
   const { pipeline, propsWithIds } = fetched;
+  // The stack is tagged pb.pipeline-id from these props, and every ownership
+  // check below compares that tag with the request's id: they must be one id.
+  if (pipeline.id !== job.pipelineId || propsWithIds.pipelineId !== job.pipelineId) {
+    throw new JobFailure('DEPLOY_TARGET_MISMATCH', 'The deploy session answered with another pipeline than the request\'s');
+  }
   const names = deployedPipelineNames({ pipelineName: pipeline.pipelineName, project: pipeline.project, organization: pipeline.organization, props: propsWithIds });
   if (names.pipelineName !== job.pipelineName || names.stackName !== job.stackName) {
     throw new JobFailure('DEPLOY_TARGET_MISMATCH',
@@ -392,9 +420,35 @@ async function deploy(
       `The pipeline needs secrets this account does not have in ${job.region}: ${missing.join(', ')} (pipeline-manager infra store-token creates the platform ones)`);
   }
 
+  // Re-read the stack right before deploying: one of that name created since the
+  // precheck (another pipeline's, through another runner in this account) must
+  // not be deployed over.
+  const latest = await ops.describe(job.stackName);
+  if (latest && owner(latest, job.pipelineId) === 'other') {
+    throw new JobFailure('STACK_OWNED_BY_OTHER_PIPELINE', `A stack named ${job.stackName} appeared in ${job.region} while this job ran and is not this pipeline's`);
+  }
+
+  // The progress post here is the last check before cdk starts (a 401 stops
+  // the job); while cdk runs, a heartbeat re-checks the session and aborts
+  // cdk the moment the platform wipes it.
   await enter('deploying');
+  const abort = new AbortController();
+  let beating = false;
+  const heartbeat = setInterval(() => {
+    if (beating || abort.signal.aborted) return;
+    beating = true;
+    session.progress('deploying')
+      .catch((err: unknown) => {
+        if (isDeploySessionEnded(err)) {
+          printWarning('The platform ended this deploy while cdk deploy ran: stopping cdk');
+          abort.abort();
+        }
+      })
+      .finally(() => { beating = false; });
+  }, input.heartbeatMs ?? DEPLOY_HEARTBEAT_MS);
   try {
     await deps.deploy({
+      signal: abort.signal,
       pipeline,
       propsWithIds,
       region: job.region,
@@ -422,7 +476,10 @@ async function deploy(
     });
   } catch (err) {
     if (err instanceof JobFailure) throw err;
+    if (abort.signal.aborted) throw sessionEnded();
     throw new JobFailure('CFN_DEPLOY_FAILED', `cdk deploy failed: ${err instanceof Error ? err.message : String(err)}`);
+  } finally {
+    clearInterval(heartbeat);
   }
 }
 

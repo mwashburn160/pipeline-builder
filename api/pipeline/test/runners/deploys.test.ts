@@ -331,6 +331,35 @@ describe('the job grant and session', () => {
     expect((await refusal(authenticateDeploySession(deps, requestId, 'Bearer pb_ds_short'))).details?.reason).toBe('unknown');
   });
 
+  it('a deploy that finished between the state check and the claim is wrong_state — never a (paging) reuse', async () => {
+    const r = deployable();
+    const deps = withRunners(r);
+    const requestId = await accepted(deps, r);
+    const grant = signedGrant(deps);
+    const claim = deps.store.claimGrant.bind(deps.store);
+    // The poll finishes the deploy just before this exchange's claim lands.
+    deps.store.claimGrant = async (...args: Parameters<typeof claim>) => {
+      deps.store.deploys.set(requestId, { ...deps.store.deploys.get(requestId)!, finishedAt: new Date(deps.clock.t), sessionHash: null });
+      return claim(...args);
+    };
+    const err = await refusal(exchangeDeployGrant(deps, requestId, grant));
+    expect(err.details?.reason).toBe('wrong_state');
+    expect(deps.counterAdds).toContainEqual([RUNNER_DEPLOY_METRICS.grantRejections, { reason: 'wrong_state' }, 1]);
+    expect(deps.counterAdds.some(([n, l]) => n === RUNNER_DEPLOY_METRICS.grantRejections && l.reason === 'reused')).toBe(false);
+    expect(deps.audits.some((a) => a.action === 'pipeline.deploy.grant_reuse')).toBe(false);
+  });
+
+  it('two concurrent exchanges of one grant: one session, the loser is a reuse', async () => {
+    const r = deployable();
+    const deps = withRunners(r);
+    const requestId = await accepted(deps, r);
+    const grant = signedGrant(deps);
+    const results = await Promise.allSettled([exchangeDeployGrant(deps, requestId, grant), exchangeDeployGrant(deps, requestId, grant)]);
+    expect(results.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
+    const lost = results.find((x) => x.status === 'rejected') as PromiseRejectedResult;
+    expect((lost.reason as RunnerRouteError).details?.reason).toBe('reused');
+  });
+
   it('an exchange after the grant TTL is DEPLOY_GRANT_EXPIRED (its own reason; recorded for the dashboard), never "reused"', async () => {
     const r = deployable();
     const deps = withRunners(r);
@@ -440,6 +469,19 @@ describe('the sweep\'s deploy_status poll', () => {
     expect(claimsOf(String(deps.fetchMock.mock.calls.at(-1)![1].body))).toMatchObject({ action: 'deploy_cancel', deployRequestId: requestId });
     expect(deps.store.requests.get(requestId)).toMatchObject({ status: 'failed', errorCode: 'DEPLOY_TIMED_OUT' });
     expect(deps.gaugeValues.get(RUNNER_DEPLOY_METRICS.overdue)).toBe(0);
+  });
+
+  it('past the deadline, a build that already finished (nobody polled: the platform was down) keeps its real outcome — never cancelled or timed out', async () => {
+    const r = deployable();
+    const deps = withRunners(r);
+    const requestId = await accepted(deps, r);
+    deps.clock.t += 121 * 60_000;
+    deps.fetchMock.mockClear();
+    deps.fetchMock.mockResolvedValueOnce(reply(200, { outcome: 'deploy_status', buildState: 'succeeded', stage: 'done', resultCode: 'OK' }) as never);
+    expect(await pollDeploys(deps, deps.clock.t)).toMatchObject({ finished: 1, timedOut: 0 });
+    expect(deps.fetchMock.mock.calls.map((c) => claimsOf(String(c[1].body)).action)).toEqual(['deploy_status']);
+    expect(deps.store.requests.get(requestId)).toMatchObject({ status: 'deployed', errorCode: null });
+    expect(deps.store.registry.get(PIPE)).toMatchObject({ runnerId: r.id, linkStatus: 'linked' });
   });
 
   it('DEPLOY_BUILD_NOT_FOUND fails it; a revoked runner expires it (RUNNER_REVOKED)', async () => {

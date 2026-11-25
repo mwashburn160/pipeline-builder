@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-providers.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: cfce7c604b5a9417978d80c453f4666f64d2b9e2c8060841ddda6274d213cf42
+// SOURCE-SHA256: 34a6f3149b30f9abb076763cf023e6a214d4b94ee55ae327713ad10edcf9792d
 // SPDX-License-Identifier: Apache-2.0
 import { CreditCard } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -579,9 +579,9 @@ export const billingProvidersTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Which endpoint. It uses STRIPE_WEBHOOK_ENDPOINT_ID (we_…) if set. Otherwise it uses the endpoint whose URL is PLATFORM_BASE_URL + /billing/stripe/webhook, ignoring a trailing slash. That is the service path, not the gateway's /api/billing/stripe/webhook, so with the endpoint registered at the gateway URL above, set the id; likewise for any other URL, such as a proxy in front of the gateway. Only endpoints in the key's own Stripe world (test vs live) are considered.",
+            "Which endpoint. It uses STRIPE_WEBHOOK_ENDPOINT_ID (we_…) if set. Otherwise it uses the endpoint whose URL is PLATFORM_BASE_URL + /api/billing/stripe/webhook (the gateway URL above), ignoring a trailing slash, and prefers an enabled endpoint when several share that URL. For any other URL, such as a proxy in front of the gateway, set the id. Only endpoints in the key's own Stripe world (test vs live) are considered.",
             "Key permission. STRIPE_SECRET_KEY needs write access to Webhook Endpoints. A standard secret key has it. A restricted key (rk_…) must be granted Webhook Endpoints: Write. Without it the check still runs and reports, but cannot fix anything.",
-            "When it cannot fix it. Startup never fails because of this check. If the endpoint cannot be found, read or updated (missing permission, network, wrong id or URL), billing logs the missing event names and sets billing_stripe_webhook_events_missing to how many handled events are not confirmed on the endpoint. If the endpoint could not be read at all, that is every handled event. BillingStripeWebhookEventsMissing fires while the gauge is above 0. Read the stripe-webhook-reconcile log line for the event names and the reason. Then grant the permission, set STRIPE_WEBHOOK_ENDPOINT_ID, or add the events in the Dashboard. The next daily pass, or a restart, clears it."
+            "When it cannot fix it. Startup never fails because of this check. If the endpoint cannot be found, read or updated (missing permission, network, wrong id or URL), billing logs the missing event names and sets billing_stripe_webhook_events_missing to how many handled events are not confirmed on the endpoint. If the endpoint could not be read at all, that is every handled event. It is also every handled event when Stripe has disabled the endpoint (it does this after days of failed deliveries, leaving its event list intact): billing reports endpoint_disabled and never re-enables it itself. Fix the delivery failures, then re-enable the endpoint in the Dashboard. BillingStripeWebhookEventsMissing fires while the gauge is above 0. Read the stripe-webhook-reconcile log line for the event names and the reason. Then grant the permission, set STRIPE_WEBHOOK_ENDPOINT_ID, or add the events in the Dashboard. The next daily pass, or a restart, clears it."
           ]
         },
         {

@@ -635,6 +635,41 @@ describe('POST /reports/events', () => {
       expect(mockRegisterFirstEvent).not.toHaveBeenCalled();
     });
 
+    it('never offers an id the contract would refuse (not an RFC UUID): one bad id must not 400 the whole call', async () => {
+      // Loose 8-4-4-4-12 hex, but version digit 1 with variant nibble 1 — the
+      // contract's z.uuid() refuses it, which failed the registration of every
+      // other candidate in the same call.
+      const LOOSE = '11111111-1111-1111-1111-111111111111';
+      mockIngestEvents.mockResolvedValueOnce(result({ skipped: 2, unregisteredPipelineIds: [LOOSE, PID] }));
+
+      await getHandler()(ingestReq({ ...orgCaller, body: { events: [tagged(LOOSE), tagged(PID)] } }), res());
+
+      expect(mockRegisterFirstEvent).toHaveBeenCalledWith([{ pipelineId: PID, region: 'us-east-1' }], ['acme', 'team-a']);
+    });
+
+    it('offers a malformed region as no region at all (it is what trigger/cancel later address)', async () => {
+      mockIngestEvents.mockResolvedValueOnce(result({ skipped: 1, unregisteredPipelineIds: [PID] }));
+
+      await getHandler()(ingestReq({ ...orgCaller, body: { events: [tagged(PID, { region: 'evil.example.com' })] } }), res());
+
+      expect(mockRegisterFirstEvent).toHaveBeenCalledWith([{ pipelineId: PID }], ['acme', 'team-a']);
+    });
+
+    it('re-ingests only ids it offered: a reply naming any other id cannot re-run or discount events', async () => {
+      // PID2's events LANDED in the first pass; a reply that names it anyway must
+      // not re-ingest them or subtract them from `skipped`.
+      mockIngestEvents
+        .mockResolvedValueOnce(result({ inserted: 1, skipped: 1, unregisteredPipelineIds: [PID], affectedOrgs: ['acme'] }))
+        .mockResolvedValueOnce(result({ inserted: 1, affectedOrgs: ['acme'] }));
+      mockRegisterFirstEvent.mockResolvedValueOnce([PID, PID2]);
+
+      await getHandler()(ingestReq({ ...orgCaller, body: { events: [tagged(PID), tagged(PID2)] } }), res());
+
+      const retried = (mockIngestEvents.mock.calls[1] as unknown[])[0] as Array<Record<string, unknown>>;
+      expect(retried.map((e) => e.pipelineId)).toEqual([PID]);
+      expect(mockSendSuccess).toHaveBeenCalledWith(expect.anything(), 200, { inserted: 2, skipped: 0, total: 2 });
+    });
+
     it('never self-registers for a cross-tenant service caller (no org the events were authenticated for)', async () => {
       mockVerifyServicePrincipal.mockReturnValue(true);
       mockIngestEvents.mockResolvedValueOnce(result({ skipped: 1, unregisteredPipelineIds: [PID] }));

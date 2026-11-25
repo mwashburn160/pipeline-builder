@@ -1,6 +1,6 @@
 // GENERATED FROM docs/aws-deployment.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: fd454d34c6b92c551a4abe527ae656bd243ed40c88050a378a6455adc8e94f6e
+// SOURCE-SHA256: f0f04f118c04d8342e7a676ddf0704680d02298c247b4e55da5b1170a1e522a6
 // SPDX-License-Identifier: Apache-2.0
 import { Server } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -2625,12 +2625,12 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "sequenceDiagram\n    autonumber\n    actor U as User\n    participant P as Pipeline service\n    participant R as Runner Lambda\n    participant K as KMS key (runner stack)\n    participant B as CodeBuild deploy job\n    participant A as Runner's AWS account\n\n    U->>P: Generate / create the pipeline\n    U->>P: POST /pipelines/:id/deploys {runnerId, region} (pipelines:write, step-up, MFA)\n    P->>P: never deployed, compliance re-run, toolchain speaks deploy protocol, rate limit + per-runner cap\n    P->>P: mint single-use grant (only its sha256 stored), queue the deploy request\n    P->>R: signed pb-run+jwt {action: deploy, deploy: {grant, region, names, image digest, protocol}}\n    R->>R: runner lists deploy:1, region + names inside the allowlist, not already deployed\n    R->>K: kms:Encrypt(grant, context {runnerId, purpose: deploy-grant})\n    R->>B: StartBuild (image @digest, env: request id, names, grant CIPHERTEXT only)\n    R-->>P: deploying {buildId}\n    B->>K: kms:Decrypt(grant) (only the DeployRole may)\n    B->>P: POST /runner/deploys/:requestId/session {grant}\n    P-->>B: session token (no-store, valid to the deadline); grant is spent\n    B->>P: GET pipeline, POST plugin-lookup (session only)\n    B->>A: prechecks: CDK bootstrap version, needed secrets, existing stack ownership\n    B->>A: clean a failed first deploy of THIS pipeline (ROLLBACK_COMPLETE), if any\n    B->>A: cdk synth + cdk deploy through the bootstrap roles\n    B->>P: POST registry (names forced from the session) → runner link set\n    B->>P: POST progress / result {code}\n    loop every RUNNER_DEPLOY_STATUS_POLL_SECONDS until terminal or deadline\n        P->>R: signed deploy_status {deployRequestId, buildId}\n        R-->>P: buildState, stage, result code (never logs or ARNs)\n    end\n    P->>P: deployed (session revoked)\n    U->>P: GET /pipelines/:id/deploys/:requestId (2 s → 10 s backoff)",
+          "content": "sequenceDiagram\n    autonumber\n    actor U as User\n    participant P as Pipeline service\n    participant R as Runner Lambda\n    participant K as KMS key (runner stack)\n    participant B as CodeBuild deploy job\n    participant A as Runner's AWS account\n\n    U->>P: Generate / create the pipeline\n    U->>P: POST /pipelines/:id/deploys {runnerId, region} (pipelines:write, step-up, MFA)\n    P->>P: never deployed, compliance re-run, toolchain speaks deploy protocol, rate limit + per-runner cap\n    P->>P: mint single-use grant (only its sha256 stored), queue the deploy request\n    P->>R: signed pb-run+jwt {action: deploy, deploy: {grant, region, names, image digest, protocol}}\n    R->>R: runner lists deploy:1, region + names inside the allowlist, not already deployed\n    R->>K: kms:Encrypt(grant, context {runnerId, purpose: deploy-grant, requestId})\n    R->>B: StartBuild (image @digest, env: request id, names, grant CIPHERTEXT only)\n    R-->>P: deploying {buildId}\n    B->>K: kms:Decrypt(grant) (only the DeployRole may)\n    B->>P: POST /runner/deploys/:requestId/session {grant}\n    P-->>B: session token (no-store, valid to the deadline); grant is spent\n    B->>P: GET pipeline, POST plugin-lookup (session only)\n    B->>A: prechecks: CDK bootstrap version, needed secrets, existing stack ownership\n    B->>A: clean a failed first deploy of THIS pipeline (ROLLBACK_COMPLETE), if any\n    B->>A: cdk synth + cdk deploy through the bootstrap roles\n    B->>P: POST registry (names forced from the session) → runner link set\n    B->>P: POST progress / result {code}\n    loop every RUNNER_DEPLOY_STATUS_POLL_SECONDS until terminal or deadline\n        P->>R: signed deploy_status {deployRequestId, buildId}\n        R-->>P: buildState, stage, result code (never logs or ARNs)\n    end\n    P->>P: deployed (session revoked)\n    U->>P: GET /pipelines/:id/deploys/:requestId (2 s → 10 s backoff)",
           "language": "mermaid"
         },
         {
           "type": "text",
-          "content": "The page follows the deploy through its stages (queued, starting, authenticating, fetching, checking the account, removing a failed earlier attempt when needed, synthesizing, deploying, registering), offers Cancel (before delivery the request is cancelled outright; a running build gets a signed deploy_cancel → StopBuild), and resumes it on reload (GET /pipelines/:id/deploys/latest). A failure shows its code's copy and next steps, where its build log is (the CodeBuild project, log group /aws/codebuild/pipeline-builder-runner-deploy-<runnerId> and build id; open CloudWatch in the runner's account, the platform never reads it), and Retry / Change runner when the code is retryable. A deploy still running at RUNNER_DEPLOY_DEADLINE_MINUTES is cancelled and fails DEPLOY_TIMED_OUT."
+          "content": "The page follows the deploy through its stages (queued, starting, authenticating, fetching, checking the account, removing a failed earlier attempt when needed, synthesizing, deploying, registering), offers Cancel (before delivery the request is cancelled outright; a running build gets a signed deploy_cancel → StopBuild), and resumes it on reload (GET /pipelines/:id/deploys/latest). A failure shows its code's copy and next steps, where its build log is (the CodeBuild project, log group /aws/codebuild/pipeline-builder-runner-deploy-<runnerId> and build id; open CloudWatch in the runner's account, the platform never reads it), and Retry / Change runner when the code is retryable. At RUNNER_DEPLOY_DEADLINE_MINUTES the platform first reads the build's status: a build that already finished keeps its real outcome, and one still running is cancelled and fails DEPLOY_TIMED_OUT. A cancelled or timed-out deploy's session is wiped, and the deploy job stops on the facade's next 401: before cdk deploy it never starts it, and during it a 30-second heartbeat aborts the cdk process (DEPLOY_CANCELLED). A CloudFormation update cdk already submitted still runs to completion. While a runner is deploying a pipeline, purging it is refused with 409 DEPLOY_IN_PROGRESS, even with ?force=true. Cancel the deploy first."
         },
         {
           "type": "text",
@@ -2678,7 +2678,7 @@ export const deploymentTopic: HelpTopic = {
           "rows": [
             [
               "The grant leaks from the account (CodeBuild env overrides are visible to BatchGetBuilds and logged in CloudTrail's StartBuild)",
-              "The job grant reaches CodeBuild only KMS-encrypted (PB_DEPLOY_GRANT_CIPHERTEXT); the job decrypts it, exchanges it once for a session and removes it from its environment before running cdk. The key (DeployGrantKey, in the runner stack) lets only the runner role encrypt and only the deploy role decrypt, both with the encryption context {runnerId, purpose: deploy-grant}."
+              "The job grant reaches CodeBuild only KMS-encrypted (PB_DEPLOY_GRANT_CIPHERTEXT); the job decrypts it, exchanges it once for a session and removes it from its environment before running cdk. The key (DeployGrantKey, in the runner stack) lets only the runner role encrypt and only the deploy role decrypt, both with the encryption context {runnerId, purpose: deploy-grant, requestId} (no other key allowed), so a ciphertext decrypts only for the deploy request it was wrapped for."
             ],
             [
               "A grant is replayed",
@@ -2723,7 +2723,7 @@ export const deploymentTopic: HelpTopic = {
           "rows": [
             [
               "DeployProject",
-              "AWS::CodeBuild::Project pipeline-builder-runner-deploy-<runnerId>: no source or artifacts, an inline buildspec the runner cannot override, never privileged, QueuedTimeoutInMinutes 30, TimeoutInMinutes = --deploy-timeout (60, 10–480), ConcurrentBuildLimit = --deploy-concurrency (2)."
+              "AWS::CodeBuild::Project pipeline-builder-runner-deploy-<runnerId>: no source or artifacts, an inline buildspec the runner cannot override, never privileged, QueuedTimeoutInMinutes 30, TimeoutInMinutes = --deploy-timeout (60, 10–120: at most the platform's deploy deadline RUNNER_DEPLOY_DEADLINE_MINUTES, default 120, which cancels a longer deploy), ConcurrentBuildLimit = --deploy-concurrency (2)."
             ],
             [
               "DeployRole",
@@ -2735,7 +2735,7 @@ export const deploymentTopic: HelpTopic = {
             ],
             [
               "DeployGrantKey",
-              "AWS::KMS::Key, key rotation on: only the runner role may kms:Encrypt and only the deploy role may kms:Decrypt, each only with the encryption context {runnerId, purpose: deploy-grant}."
+              "AWS::KMS::Key, key rotation on: only the runner role may kms:Encrypt and only the deploy role may kms:Decrypt, each only with the encryption context {runnerId, purpose: deploy-grant, requestId} (requestId required, no other key allowed)."
             ],
             [
               "RunnerRole additions",

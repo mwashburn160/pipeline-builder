@@ -230,3 +230,90 @@ describe('progress, cancel, failure, resume', () => {
     expect(onDeployed).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('round 7 regressions', () => {
+  it('Change runner after a resumed active deploy fails does not re-follow the targets\' stale activeRequestId', async () => {
+    jest.useFakeTimers();
+    api.getDeployTargets
+      .mockResolvedValueOnce(targets([runner(), runner({ id: 'r2', label: 'dr' })], { activeRequestId: 'd1' }))
+      .mockResolvedValue(targets([runner(), runner({ id: 'r2', label: 'dr' })]));
+    api.getLatestPipelineDeploy.mockResolvedValue({ success: true, data: deploy({ status: 'deploying', stage: 'deploying' }) });
+    api.getPipelineDeploy.mockResolvedValue({ success: true, data: deploy({ status: 'failed', stage: 'deploying', errorCode: 'DEPLOY_TIMED_OUT', failureClass: 'timeout', retryable: true }) });
+    render(<DeployPipelinePanel pipelineId="p1" />);
+    await act(async () => { await jest.advanceTimersByTimeAsync(2500); });
+    expect(screen.getByTestId('deploy-failure')).toBeInTheDocument();
+    const reads = api.getPipelineDeploy.mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: /Change runner/ }));
+    await act(async () => { await jest.advanceTimersByTimeAsync(5000); });
+    expect(screen.queryByTestId('deploy-failure')).not.toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: /pipeline runner/i })).toBeInTheDocument();
+    expect(api.getPipelineDeploy.mock.calls.length).toBe(reads);
+  });
+
+  it('a Retry after a resumed deploy fails follows the NEW deploy, not the stale activeRequestId', async () => {
+    jest.useFakeTimers();
+    api.getDeployTargets.mockResolvedValue(targets([runner()], { activeRequestId: 'd1' }));
+    api.getLatestPipelineDeploy.mockResolvedValue({ success: true, data: deploy({ status: 'deploying', stage: 'deploying' }) });
+    api.getPipelineDeploy.mockImplementation(async (_p: unknown, id: unknown) => ({
+      success: true,
+      data: id === 'd1'
+        ? deploy({ status: 'failed', stage: 'deploying', errorCode: 'DEPLOY_TIMED_OUT', failureClass: 'timeout', retryable: true })
+        : deploy({ requestId: 'd2', status: 'deploying', stage: 'synthesizing' }),
+    }));
+    api.startPipelineDeploy.mockResolvedValue({ success: true, data: { ...QUEUED.data, requestId: 'd2' } });
+    render(<DeployPipelinePanel pipelineId="p1" />);
+    await act(async () => { await jest.advanceTimersByTimeAsync(2500); });
+    fireEvent.click(screen.getByRole('button', { name: /^Retry/ }));
+    fireEvent.click(within(screen.getByTestId('stepup-modal')).getByText('Confirm step-up'));
+    await act(async () => { await jest.advanceTimersByTimeAsync(2500); });
+    const d1Reads = api.getPipelineDeploy.mock.calls.filter((c) => c[1] === 'd1').length;
+    await act(async () => { await jest.advanceTimersByTimeAsync(5000); });
+    expect(api.getPipelineDeploy.mock.calls.filter((c) => c[1] === 'd1').length).toBe(d1Reads);
+    expect(api.getPipelineDeploy).toHaveBeenCalledWith('p1', 'd2', expect.anything());
+    expect(screen.getByTestId('deploy-progress')).toBeInTheDocument();
+  });
+
+  it('a refused progress read says the read failed, not that the deploy passed its deadline', async () => {
+    jest.useFakeTimers();
+    api.getDeployTargets.mockResolvedValue(targets([runner()]));
+    api.getLatestPipelineDeploy.mockResolvedValue({ success: true, data: deploy({ status: 'deploying', stage: 'deploying' }) });
+    api.getPipelineDeploy.mockRejectedValue(new ApiError('You no longer have access to this pipeline.', 403, 'FORBIDDEN'));
+    render(<DeployPipelinePanel pipelineId="p1" />);
+    await act(async () => { await jest.advanceTimersByTimeAsync(2500); });
+    const progress = screen.getByTestId('deploy-progress');
+    expect(progress).toHaveTextContent(/You no longer have access to this pipeline/);
+    expect(progress).not.toHaveTextContent(/deadline/);
+  });
+
+  it('a non-runner refusal of the start (compliance) shows the server\'s message, not runner copy', async () => {
+    api.getDeployTargets.mockResolvedValue(targets([runner()]));
+    api.startPipelineDeploy.mockRejectedValueOnce(new ApiError('Deploy blocked by compliance rules', 403, 'COMPLIANCE_VIOLATION'));
+    render(<DeployPipelinePanel pipelineId="p1" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Deploy to prod (us-east-1)' }));
+    fireEvent.click(within(screen.getByTestId('stepup-modal')).getByText('Confirm step-up'));
+    expect(await screen.findByText(/Deploy blocked by compliance rules/)).toBeInTheDocument();
+    expect(screen.queryByText(/pipeline runner could not complete/)).not.toBeInTheDocument();
+  });
+
+  it('a failed cancel says the cancel failed, and its error does not carry into the next deploy', async () => {
+    jest.useFakeTimers();
+    api.getDeployTargets.mockResolvedValue(targets([runner()]));
+    api.getLatestPipelineDeploy.mockResolvedValue({ success: true, data: deploy({ status: 'deploying', stage: 'deploying' }) });
+    api.getPipelineDeploy.mockResolvedValue({ success: true, data: deploy({ status: 'deploying', stage: 'deploying' }) });
+    api.cancelPipelineDeploy.mockRejectedValueOnce({});
+    render(<DeployPipelinePanel pipelineId="p1" />);
+    await act(async () => { await jest.advanceTimersByTimeAsync(10); });
+    fireEvent.click(screen.getByRole('button', { name: /Cancel deploy/ }));
+    await act(async () => { await jest.advanceTimersByTimeAsync(10); });
+    expect(screen.getByTestId('deploy-progress')).toHaveTextContent(/Could not cancel the deploy/);
+    // The deploy fails anyway; a new one is started: the old cancel error is gone.
+    api.getPipelineDeploy.mockResolvedValue({ success: true, data: deploy({ status: 'failed', errorCode: 'DEPLOY_TIMED_OUT', failureClass: 'timeout', retryable: true }) });
+    await act(async () => { await jest.advanceTimersByTimeAsync(2500); });
+    api.startPipelineDeploy.mockResolvedValue({ success: true, data: { ...QUEUED.data, requestId: 'd2' } });
+    api.getPipelineDeploy.mockResolvedValue({ success: true, data: deploy({ requestId: 'd2', status: 'deploying', stage: 'deploying' }) });
+    fireEvent.click(screen.getByRole('button', { name: /^Retry/ }));
+    fireEvent.click(within(screen.getByTestId('stepup-modal')).getByText('Confirm step-up'));
+    await act(async () => { await jest.advanceTimersByTimeAsync(10); });
+    expect(screen.getByTestId('deploy-progress')).not.toHaveTextContent(/Could not cancel/);
+  });
+});

@@ -283,7 +283,7 @@ tests:
               tenancy: platform
             exp_annotations:
               summary: "2 handled Stripe event type(s) are not confirmed on the webhook endpoint"
-              description: "Billing could not make the Stripe webhook endpoint subscribe to every event it handles, so Stripe may never deliver those events (subscription changes, payments, refunds or disputes would silently stop reconciling). The stripe-webhook-reconcile log line on the billing leader names the missing events and the reason. Grant STRIPE_SECRET_KEY Webhook Endpoints write access, set STRIPE_WEBHOOK_ENDPOINT_ID when the endpoint is not at PLATFORM_BASE_URL/api/billing/stripe/webhook, or add the events in the Stripe Dashboard. See docs/billing-providers.md (Step 4)."
+              description: "Billing could not make the Stripe webhook endpoint subscribe to every event it handles, so Stripe may never deliver those events (subscription changes, payments, refunds or disputes would silently stop reconciling). The stripe-webhook-reconcile log line on the billing leader names the missing events and the reason. Grant STRIPE_SECRET_KEY Webhook Endpoints write access, set STRIPE_WEBHOOK_ENDPOINT_ID when the endpoint is not at PLATFORM_BASE_URL/api/billing/stripe/webhook, add the events in the Stripe Dashboard, or, when the reason is endpoint_disabled, fix the failing deliveries and re-enable the endpoint there. See docs/billing-providers.md (Step 4)."
 
   # ... and a complete endpoint (gauge 0) does not.
   - interval: 1m

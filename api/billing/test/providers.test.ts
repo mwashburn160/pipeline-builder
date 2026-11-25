@@ -412,14 +412,15 @@ describe('StripeProvider', () => {
     it('lists EVERY endpoint, following pagination', async () => {
       mockStripeWebhookEndpointsList
         .mockResolvedValueOnce({ data: [ep('we_1'), ep('we_2')], has_more: true })
-        .mockResolvedValueOnce({ data: [ep('we_3', { livemode: true })], has_more: false });
+        .mockResolvedValueOnce({ data: [ep('we_3', { livemode: true, status: 'disabled' })], has_more: false });
 
       const out = await provider.listWebhookEndpoints();
 
       expect(out).toEqual([
-        { id: 'we_1', url: 'https://pb.example.com/we_1', enabledEvents: ['invoice.paid'], livemode: false },
-        { id: 'we_2', url: 'https://pb.example.com/we_2', enabledEvents: ['invoice.paid'], livemode: false },
-        { id: 'we_3', url: 'https://pb.example.com/we_3', enabledEvents: ['invoice.paid'], livemode: true },
+        { id: 'we_1', url: 'https://pb.example.com/we_1', enabledEvents: ['invoice.paid'], livemode: false, enabled: true },
+        { id: 'we_2', url: 'https://pb.example.com/we_2', enabledEvents: ['invoice.paid'], livemode: false, enabled: true },
+        // A disabled endpoint delivers nothing: the reconcile reports it.
+        { id: 'we_3', url: 'https://pb.example.com/we_3', enabledEvents: ['invoice.paid'], livemode: true, enabled: false },
       ]);
       expect(mockStripeWebhookEndpointsList).toHaveBeenNthCalledWith(1, { limit: 100 });
       expect(mockStripeWebhookEndpointsList).toHaveBeenNthCalledWith(2, { limit: 100, starting_after: 'we_2' });

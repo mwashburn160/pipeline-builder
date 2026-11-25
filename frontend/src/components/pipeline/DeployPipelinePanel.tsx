@@ -23,21 +23,33 @@ import {
   DEPLOY_SETUP_COMMAND, DEPLOY_STATUS_LABEL, DEPLOY_TARGET_REASON_COPY, deployFailureCopy, deployStageSteps,
   deployTargetLabel, isActiveDeployStatus, logHintGuidance,
 } from '@/lib/pipeline-deploys';
-import { PIPELINE_RUNNERS_HREF, RUNNERS_UNAVAILABLE_COPY, runnerErrorCopy } from '@/lib/pipeline-runners';
+import { isRunnerError, PIPELINE_RUNNERS_HREF, RUNNERS_UNAVAILABLE_COPY, runnerErrorCopy } from '@/lib/pipeline-runners';
 
 type TargetRunner = DeployTargetsDto['runners'][number];
 
 /** What the step-up dialog will send. */
 interface DeployChoice { runnerId: string; region: string; label: string }
 
-/** The sentence a refused POST …/deploys shows. */
-function startErrorMessage(e: unknown): string {
+/**
+ * The sentence a refused deploy write shows: a runner / deploy catalog code
+ * reads its copy; any other refusal (compliance, validation, a toolchain
+ * error) reads the server's own message.
+ */
+function deployWriteErrorMessage(e: unknown, fallback: string): string {
   if (e instanceof MfaRequiredError) return ''; // The shell shows its own dialog.
-  if (e instanceof ApiError && e.code) {
+  if (isRunnerError(e)) {
     const c = runnerErrorCopy(e.code, e.details?.reason);
     return `${c.title} ${c.body}`;
   }
-  return formatError(e, 'Could not start the deploy');
+  return formatError(e, fallback);
+}
+const startErrorMessage = (e: unknown) => deployWriteErrorMessage(e, 'Could not start the deploy');
+const cancelErrorMessage = (e: unknown) => deployWriteErrorMessage(e, 'Could not cancel the deploy');
+
+/** Why the page stopped following a deploy: past its deadline, or a refused read of its progress. */
+function lostMessage(lost: unknown): string {
+  if (lost instanceof ApiError) return `Could not read this deploy's progress: ${lost.message.replace(/\.?$/, '.')} Reload the page to see its result.`;
+  return 'It is taking longer than its deadline. Reload the page to see its result.';
 }
 
 /** The deploy's stages as an ordered list: done, current, pending (or the one it failed in). */
@@ -115,10 +127,15 @@ export function DeployPipelinePanel({ pipelineId, onDeployed, className = '' }: 
   const t = targets.data;
   const { deploy, follow } = tracker;
 
-  // The targets name an active deploy the latest read did not (a race with another tab): follow it.
+  // The targets name an active deploy the latest read did not (a race with another tab): follow it —
+  // ONCE per id. The targets are a snapshot: after that deploy ends, Change runner / Retry must not
+  // send the panel back to it.
   const activeId = t?.activeRequestId ?? null;
+  const autoFollowed = useRef<string | null>(null);
   useEffect(() => {
-    if (activeId && tracker.resumed && deploy?.requestId !== activeId) follow(activeId);
+    if (!activeId || !tracker.resumed || autoFollowed.current === activeId) return;
+    autoFollowed.current = activeId;
+    if (deploy?.requestId !== activeId) follow(activeId);
   }, [activeId, tracker.resumed, deploy?.requestId, follow]);
 
   const deployable = useMemo(() => (t?.runners ?? []).filter((r) => r.deployable), [t]);
@@ -134,10 +151,10 @@ export function DeployPipelinePanel({ pipelineId, onDeployed, className = '' }: 
     },
     scopeKey: pipelineId,
     formatError: startErrorMessage,
-    onSuccess: (queued, choice) => { tracker.track(queued, choice.runnerId); },
+    onSuccess: (queued, choice) => { cancelDeploy.reset(); tracker.track(queued, choice.runnerId); },
     onStepUpResumed: (replay, choice) => {
       const queued = (replay as { data?: QueuedDeployDto } | undefined)?.data;
-      if (queued) tracker.track(queued, choice.runnerId);
+      if (queued) { cancelDeploy.reset(); tracker.track(queued, choice.runnerId); }
     },
     onError: (e) => {
       // Another deploy of this pipeline is running: follow it instead.
@@ -158,11 +175,11 @@ export function DeployPipelinePanel({ pipelineId, onDeployed, className = '' }: 
       return res.data;
     },
     scopeKey: pipelineId,
-    formatError: startErrorMessage,
+    formatError: cancelErrorMessage,
   });
   const cancelError = cancelDeploy.error || null;
 
-  const changeRunner = () => { tracker.clear(); setPicked(null); startDeploy.reset(); void targets.refetch(); };
+  const changeRunner = () => { tracker.clear(); setPicked(null); startDeploy.reset(); cancelDeploy.reset(); void targets.refetch(); };
 
   let body: ReactNode;
   if (targets.error && !t) {
@@ -178,7 +195,7 @@ export function DeployPipelinePanel({ pipelineId, onDeployed, className = '' }: 
         </p>
         <StageSteps deploy={deploy} />
         {tracker.lost != null && (
-          <Callout variant="warning">It is taking longer than its deadline. Reload the page to see its result.</Callout>
+          <Callout variant="warning">{lostMessage(tracker.lost)}</Callout>
         )}
         {cancelError && <Callout variant="danger">{cancelError}</Callout>}
         <Button type="button" size="sm" variant="danger-outline" disabled={cancelDeploy.pending} onClick={() => void cancelDeploy.run(deploy)}>

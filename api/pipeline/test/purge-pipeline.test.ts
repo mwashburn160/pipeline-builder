@@ -52,7 +52,9 @@ jest.unstable_mockModule('../src/helpers/undeploy-on-purge.js', () => ({
   planUndeploy: mockPlanUndeploy,
   startUndeploy: mockStartUndeploy,
 }));
-jest.unstable_mockModule('../src/runners/deps.js', () => ({ runnerDeps: () => ({}) }));
+// The pipeline's active deploy through a runner (null: none in flight).
+const mockFindActiveDeploy = jest.fn<AnyFn>(async () => null);
+jest.unstable_mockModule('../src/runners/deps.js', () => ({ runnerDeps: () => ({ store: { findActiveDeploy: mockFindActiveDeploy } }) }));
 
 const mockEmitPipelineAudit = jest.fn<AnyFn>();
 const sendError = jest.fn((res: any, status: number, msg: string, code?: string, details?: unknown) => {
@@ -189,6 +191,20 @@ describe('POST /pipelines/:id/purge (purge)', () => {
 
   beforeEach(() => { jest.clearAllMocks(); });
 
+  describe('a pipeline with a deploy through a runner in flight', () => {
+    it('is refused with 409 DEPLOY_IN_PROGRESS even with ?force=true: its stack is being created (nothing purged)', async () => {
+      mockFindDeletedById.mockResolvedValueOnce(existingPipeline);
+      mockFindActiveDeploy.mockResolvedValueOnce({ id: 'deploy-req-1', status: 'deploying' });
+      const res = mockRes();
+      await handler(mockReq({ query: { force: 'true' } }), res);
+      expect(mockFindActiveDeploy).toHaveBeenCalledWith('org-1', 'pipeline-uuid-1');
+      expect(res.status).toHaveBeenCalledWith(409);
+      expect(res.json.mock.calls[0][0]).toMatchObject({ code: 'DEPLOY_IN_PROGRESS', details: { requestId: 'deploy-req-1' } });
+      expect(mockPurgeById).not.toHaveBeenCalled();
+      expect(mockEmitPipelineAudit).not.toHaveBeenCalled();
+    });
+  });
+
   describe('a pipeline still registered as deployed', () => {
     const deployment = { registryId: 'reg-1', stackName: 'acme-stack', region: 'us-east-1' };
 
@@ -233,6 +249,18 @@ describe('POST /pipelines/:id/purge (purge)', () => {
         action: 'pipeline.purge',
         details: expect.objectContaining({ undeployRequestId: 'undeploy-req-1', deregistered: { registryId: 'reg-1', stackName: 'acme-stack' } }),
       }));
+    });
+
+    it('an undeploy that could not be queued: the purge stands and the stack is retained as undeploy_not_queued', async () => {
+      mockDeploymentOf.mockResolvedValueOnce({ ...deployment, pipelineName: 'acme-pipe', runnerId: 'runner-1' });
+      mockPlanUndeploy.mockResolvedValueOnce({ kind: 'undeploy', runnerId: 'runner-1', runnerLabel: 'prod' });
+      mockStartUndeploy.mockRejectedValueOnce(new Error('db down'));
+      mockFindDeletedById.mockResolvedValue(existingPipeline);
+      mockPurgeById.mockResolvedValue('pipeline-uuid-1');
+      const res = mockRes();
+      await handler(mockReq(), res);
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json.mock.calls[0][0].data).toEqual({ undeploy: null, stackRetained: { stackName: 'acme-stack', region: 'us-east-1', reason: 'undeploy_not_queued' } });
     });
 
     it('a runner without the capability: still 409 without force, naming why the stack would stay', async () => {

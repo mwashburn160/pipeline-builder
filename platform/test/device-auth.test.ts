@@ -233,6 +233,22 @@ describe('POST /auth/device/token — the polling state machine', () => {
     expect(body(await call(deviceToken, { body: { device_code: started.device_code } })).error).toBe('expired_token');
   });
 
+  it('a poll that read the flow before a ceiling discard cannot write it back with a fresh count', async () => {
+    const poll = (code: string) => call(deviceToken, { body: { device_code: code } });
+    // Sweep the overlap: the over-ceiling poll starts first, the stale one a few
+    // ticks later — reading the flow before the discard, counting after it.
+    for (let delay = 0; delay < 40; delay += 1) {
+      _resetAllPendingStoresForTests();
+      const started = await start();
+      for (let i = 0; i < 200; i += 1) await poll(started.device_code);
+      const over = poll(started.device_code);
+      for (let t = 0; t < delay; t += 1) await Promise.resolve();
+      await Promise.all([over, poll(started.device_code)]);
+      clockOffset += 60_000;
+      expect(body(await poll(started.device_code)).error).toBe('expired_token');
+    }
+  });
+
   it('hands back access_denied after a denial, then forgets the flow', async () => {
     const started = await start();
     await call(denyDeviceRequest, { user: APPROVER, body: { userCode: started.user_code } });

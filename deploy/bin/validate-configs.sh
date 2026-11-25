@@ -172,15 +172,16 @@ for t in "${TARGETS[@]}"; do
 ' > "$work/ask-agent-upstream.conf"
   openssl req -x509 -newkey rsa:2048 -nodes -keyout "$work/certs/nginx.key"     -out "$work/certs/nginx.crt" -days 1 -subj "/CN=localhost" >/dev/null 2>&1
 
-  # Every name nginx resolves at parse time.
-  mapfile -t _hosts < <(cat "$work"/*.conf 2>/dev/null     | grep -oE '(\bserver[[:space:]]+[A-Za-z][A-Za-z0-9._-]*|proxy_pass[[:space:]]+https?://[A-Za-z][A-Za-z0-9._-]*|^[[:space:]]*resolver[[:space:]]+[A-Za-z][A-Za-z0-9._-]*)'     | sed -E 's|.*[/[:space:]]||' | grep -v '^localhost$' | sort -u)
+  # Every name nginx resolves at parse time (while-read, not mapfile: bash 3.2).
+  _hosts=()
+  while IFS= read -r _h; do [ -n "$_h" ] && _hosts+=("$_h"); done < <(cat "$work"/*.conf 2>/dev/null     | grep -oE '(\bserver[[:space:]]+[A-Za-z][A-Za-z0-9._-]*|proxy_pass[[:space:]]+https?://[A-Za-z][A-Za-z0-9._-]*|^[[:space:]]*resolver[[:space:]]+[A-Za-z][A-Za-z0-9._-]*)'     | sed -E 's|.*[/[:space:]]||' | grep -v '^localhost$' | sort -u)
 
   # The AWS targets ship admin-consoles.conf in one of two states; both must parse,
   # and the DISABLED pair is what a default deploy actually runs.
   for state in enabled disabled; do
     [ -f "$work/admin-consoles.conf" ] || { [ "$state" = disabled ] && continue; }
     args=(--rm --user 0 --entrypoint nginx)
-    for h in "${_hosts[@]}"; do [ -n "$h" ] && args+=(--add-host "$h:127.0.0.1"); done
+    for h in "${_hosts[@]+"${_hosts[@]}"}"; do args+=(--add-host "$h:127.0.0.1"); done
     args+=(-v "$work/nginx.conf:/etc/nginx/nginx.conf:ro" -v "$work/njs:/etc/nginx/njs:ro")
     args+=(-v "$work/certs:/etc/nginx/certs:ro")
     args+=(-v "$work/real-ip.conf:/etc/nginx/real-ip.conf:ro" -v "$work/ask-agent-upstream.conf:/etc/nginx/ask-agent-upstream.conf:ro")

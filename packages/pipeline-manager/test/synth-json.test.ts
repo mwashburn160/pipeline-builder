@@ -14,6 +14,7 @@ const mockExecute = jest.fn<(command: string, opts: { showOutput?: boolean }) =>
 
 jest.unstable_mockModule('../src/utils/cdk-utils.js', () => ({
   executeCdkShellCommand: mockExecute,
+  spawnCdkShellCommand: jest.fn(),
   resolveBoilerplatePath: () => '/tmp/boilerplate.js',
 }));
 jest.unstable_mockModule('../src/utils/pipeline-config.js', () => ({

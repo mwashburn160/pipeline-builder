@@ -8,7 +8,7 @@
  *
  * | Variable | Default | Meaning |
  * |---|---|---|
- * | `PLUGIN_AUTO_TIDY_ENABLED` | `true` | Run the daily tidy job. Only the literal `false` turns it off; the preview answers either way. |
+ * | `PLUGIN_AUTO_TIDY_ENABLED` | `true` | Run the daily tidy job. Only `false` (in any case) turns it off; the preview answers either way. |
  *
  * The timeline, counted from the day a version goes stale (N = the latest of
  * created / last used / kept + the org's `staleAfterDays`): warned at N-7 in the

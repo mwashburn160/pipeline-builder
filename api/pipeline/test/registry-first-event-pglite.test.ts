@@ -114,6 +114,14 @@ describe('POST /pipelines/internal/registry/first-event', () => {
     expect(mockLink).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ pipelineId: id, orgId: ORG }));
   });
 
+  it('a pipeline id in upper case (as a tag may carry it) still records the event region', async () => {
+    const id = await pipeline(ORG);
+    const res = await register({ allowedOrgIds: [ORG], pipelines: [{ pipelineId: id.toUpperCase(), region: 'eu-west-2' }] });
+    expect(res.statusCode).toBe(200);
+    expect(res.body?.data?.registered).toEqual([id]);
+    expect((await registryRows(id))[0]?.region).toBe('eu-west-2');
+  });
+
   it('registers a team pipeline when the caller\'s roll-up includes the team', async () => {
     const id = await pipeline(TEAM);
     const res = await register({ allowedOrgIds: [ORG, TEAM], pipelines: [{ pipelineId: id }] });

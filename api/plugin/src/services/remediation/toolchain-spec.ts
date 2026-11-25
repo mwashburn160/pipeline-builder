@@ -86,8 +86,9 @@ export function toolchainSourceDigest(trees: ToolchainTrees): string {
   const hash = createHash('sha256');
   for (const dir of TOOLCHAIN_DIRS) {
     const inputs = toolchainInputsOf(trees[dir]);
-    // `ls -A | LC_ALL=C sort`: byte order.
-    for (const file of [...inputs.keys()].sort((a, b) => (Buffer.from(a) < Buffer.from(b) ? -1 : Buffer.from(a) > Buffer.from(b) ? 1 : 0))) {
+    // `ls -A | LC_ALL=C sort`: UTF-8 byte order (`<` on two Buffers compares
+    // their strings, i.e. UTF-16 units, which differs for non-BMP names).
+    for (const file of [...inputs.keys()].sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)))) {
       hash.update(`${dir}/${file}\n`);
       hash.update(normalised(dir, file, inputs.get(file)!).map((l) => `${l}\n`).join(''));
     }

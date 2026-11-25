@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, ErrorCode, validateBody, errorMessage, verifyServicePrincipal, audited } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, ErrorCode, validateBody, errorMessage, verifyServicePrincipal, audited, AWS_REGION_PATTERN } from '@pipeline-builder/api-core';
 import { withRoute, incCounter, resetGauge, setGauge, type SSEManager } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { runWithTenantContext, reportingService, type EventSource, type IngestCaller, type IngestMetric } from '@pipeline-builder/pipeline-data';
@@ -171,15 +171,21 @@ function dropRegion<E extends { region?: unknown }>(event: E): Omit<E, 'region'>
   return rest;
 }
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/**
+ * The contract's own id check (`z.string().uuid()`: RFC 9562 version + variant),
+ * not a looser hex shape: one id the pipeline service refuses fails its whole
+ * request with a 400, and every other candidate in the batch with it.
+ */
+const isPipelineUuid = (id: string): boolean => z.uuid().safeParse(id).success;
 
 /**
  * The pipelines a skipped batch may self-register: unregistered ids that a
  * `codepipeline` event names (the events Lambda only forwards those after
  * reading the pipeline's `pb.pipeline-id` tag) and that are pipeline UUIDs,
- * once each, with the first region any of its events carried. None for a
- * cross-tenant caller or one with no org: self-registration is confined to
- * the orgs the events were authenticated for.
+ * once each, with the first well-formed AWS region any of its events carried
+ * (the region trigger/cancel later address, so a malformed one is dropped, not
+ * recorded). None for a cross-tenant caller or one with no org: self-registration
+ * is confined to the orgs the events were authenticated for.
  */
 function firstEventCandidates(
   events: ReadonlyArray<{ pipelineId: string; eventSource: string; region?: string }>,
@@ -190,10 +196,11 @@ function firstEventCandidates(
   const unregistered = new Set(unregisteredIds);
   const byId = new Map<string, FirstEventCandidate>();
   for (const e of events) {
-    if (e.eventSource !== 'codepipeline' || !unregistered.has(e.pipelineId) || !UUID.test(e.pipelineId)) continue;
+    if (e.eventSource !== 'codepipeline' || !unregistered.has(e.pipelineId) || !isPipelineUuid(e.pipelineId)) continue;
+    const region = e.region && AWS_REGION_PATTERN.test(e.region) ? e.region : undefined;
     const seen = byId.get(e.pipelineId);
-    if (!seen) byId.set(e.pipelineId, { pipelineId: e.pipelineId, ...(e.region ? { region: e.region } : {}) });
-    else if (!seen.region && e.region) seen.region = e.region;
+    if (!seen) byId.set(e.pipelineId, { pipelineId: e.pipelineId, ...(region ? { region } : {}) });
+    else if (!seen.region && region) seen.region = region;
   }
   return [...byId.values()];
 }
@@ -359,7 +366,10 @@ export function createEventIngestRoutes(sseManager: SSEManager): Router {
     // did not register (or a failed call) stays skipped and counted, as before.
     const candidates = firstEventCandidates(events, result.unregisteredPipelineIds, caller);
     if (candidates.length > 0) {
-      const registered = new Set(await registerFirstEventPipelines(candidates, caller.allowedOrgIds));
+      // Only ids this route offered: every event of one of them was skipped by the
+      // first pass, which is what the second pass and `mergeIngest` rely on.
+      const offered = new Set(candidates.map((c) => c.pipelineId));
+      const registered = new Set((await registerFirstEventPipelines(candidates, caller.allowedOrgIds)).filter((id) => offered.has(id)));
       const retry = events.filter((e) => registered.has(e.pipelineId));
       if (retry.length > 0) {
         ctx.log('INFO', 'Registered pipelines on their first event; ingesting their events', { pipelineIds: [...registered] });

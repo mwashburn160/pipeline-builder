@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { errorMessage } from '@pipeline-builder/api-core';
 import pico from 'picocolors';
 import { resolveDeployRegion } from './aws-env.js';
-import { executeCdkShellCommand, resolveBoilerplatePath } from './cdk-utils.js';
+import { executeCdkShellCommand, resolveBoilerplatePath, spawnCdkShellCommand } from './cdk-utils.js';
 import { ensureOutputDirectory, printInfo, printKeyValue, printSection, printSuccess, printWarning } from './output-utils.js';
 import { withPropsFile } from './props-file.js';
 import { buildRegistryPayload, readStepManifest, writePendingIntent } from './registry.js';
@@ -59,6 +59,13 @@ export interface RunDeployInput {
    * survives.
    */
   register?: (deployed: { region: string; output: string }) => Promise<void>;
+  /**
+   * Makes `cdk deploy` abortable (the runner deploy job stops it when its
+   * session is wiped). It is then spawned, not run with execSync, and
+   * requires {@link app}: the props file of a fresh synth would be removed
+   * before an asynchronous run ends.
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -73,6 +80,7 @@ export interface RunDeployInput {
  */
 export async function runDeploy(input: RunDeployInput): Promise<void> {
   const { pipeline, propsWithIds, profile, requireApproval, output, debug, executionId } = input;
+  if (input.signal && !input.app) throw new Error('An abortable deploy needs a pre-synthesized app (--app)');
   // One region for the deploy AND the registry row (see resolveDeployRegion):
   // CDK is handed it explicitly, so the pipeline lands where Re-run will look.
   const region = await resolveDeployRegion(input.region, profile);
@@ -104,19 +112,18 @@ export async function runDeploy(input: RunDeployInput): Promise<void> {
   // registry pull-host fallback. Absent in
   // local-spec mode.
   // Throws on failure — surfaced by the caller as a non-zero exit.
-  const run = (propsEnv: Record<string, string>) => executeCdkShellCommand(command, {
-    debug,
-    showOutput: true,
-    env: {
-      ...propsEnv,
-      // The SDK inside cdk honours AWS_REGION over the profile's region.
-      AWS_REGION: region,
-      AWS_DEFAULT_REGION: region,
-      ...(input.platformBaseUrl ? { PLATFORM_BASE_URL: input.platformBaseUrl } : {}),
-    },
+  const cdkEnv = (propsEnv: Record<string, string>): Record<string, string> => ({
+    ...propsEnv,
+    // The SDK inside cdk honours AWS_REGION over the profile's region.
+    AWS_REGION: region,
+    AWS_DEFAULT_REGION: region,
+    ...(input.platformBaseUrl ? { PLATFORM_BASE_URL: input.platformBaseUrl } : {}),
   });
+  const run = (propsEnv: Record<string, string>) => executeCdkShellCommand(command, { debug, showOutput: true, env: cdkEnv(propsEnv) });
   // A pre-synthesized assembly needs no props: the app does not run again.
-  const result = input.app ? run({}) : withPropsFile(propsWithIds, run);
+  const result = input.signal
+    ? await spawnCdkShellCommand(command, { showOutput: true, env: cdkEnv({}), signal: input.signal })
+    : input.app ? run({}) : withPropsFile(propsWithIds, run);
 
   console.log('');
   printSection('Deployment Complete');

@@ -17,15 +17,17 @@ import type { ReactNode } from 'react';
 import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { RecentlyDeletedPanel } from '../src/components/RecentlyDeletedPanel';
-import { ApiError } from '../src/lib/api/errors';
+import { ApiError, StepUpRequiredError } from '../src/lib/api/errors';
 
 const listDeletedPipelines = jest.fn<AnyFn>();
 const purgePipeline = jest.fn<AnyFn>();
+const cancelPipelineDeploy = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
     listDeletedPipelines: (...a: unknown[]) => listDeletedPipelines(...a),
     purgePipeline: (...a: unknown[]) => purgePipeline(...a),
+    cancelPipelineDeploy: (...a: unknown[]) => cancelPipelineDeploy(...a),
     listDeletedDashboards: async () => ({ success: true, data: { dashboards: [{ id: 'd1', name: 'Ops', visibility: 'org', createdBy: 'u1', deletedAt: '2026-11-19T10:00:00Z' }] } }),
     restorePipeline: jest.fn<AnyFn>(), purgeDashboard: jest.fn<AnyFn>(), restoreDashboard: jest.fn<AnyFn>(),
   },
@@ -112,5 +114,70 @@ describe('RecentlyDeletedPanel — a pipeline purge names what happens to its st
     fireEvent.click(await screen.findByRole('button', { name: /Purge/ }));
     await screen.findByTestId('stepup-modal');
     expect(screen.queryByTestId('pipeline-stack-notice')).not.toBeInTheDocument();
+  });
+});
+
+describe('RecentlyDeletedPanel — a purge replayed after the global step-up dialog', () => {
+  it('shows the REPLAY\'s stack outcome', async () => {
+    const err = new StepUpRequiredError('Confirm it is you', 'STEP_UP_METHOD_REQUIRED');
+    err.attachResume(Promise.resolve({ success: true, data: { undeploy: { requestId: 'u1', runnerLabel: 'Production' }, stackRetained: null } }));
+    purgePipeline.mockRejectedValue(err);
+    await openPurge(DEPLOYED_CAPABLE);
+    fireEvent.click(screen.getByText('confirm-step-up'));
+    const result = await screen.findByTestId('pipeline-purge-result');
+    expect(result).toHaveTextContent(/Production was asked to delete its stack/);
+  });
+
+  it('a replay refused because the stack is still deployed says why', async () => {
+    const err = new StepUpRequiredError('Confirm it is you', 'STEP_UP_METHOD_REQUIRED');
+    const refusal = new ApiError('still deployed', 409, 'CONFLICT', { stackName: 'web-stack', region: 'us-east-1', stackRetainedReason: 'no_runner' });
+    const replay = Promise.reject(refusal);
+    replay.catch(() => {});
+    err.attachResume(replay);
+    purgePipeline.mockRejectedValue(err);
+    await openPurge(DEPLOYED_KEPT);
+    fireEvent.click(screen.getByText('confirm-step-up'));
+    const result = await screen.findByTestId('pipeline-purge-result');
+    expect(result).toHaveTextContent(/Not purged/);
+  });
+});
+
+describe('RecentlyDeletedPanel — a purge refused while a runner deploy is in flight', () => {
+  const inProgress = () => new ApiError('This pipeline is being deployed through a pipeline runner.', 409, 'DEPLOY_IN_PROGRESS', { requestId: 'dep-1' });
+
+  it('says a deploy is running, and Cancel the deploy cancels it by its requestId', async () => {
+    purgePipeline.mockRejectedValue(inProgress());
+    cancelPipelineDeploy.mockResolvedValue({ success: true, data: { requestId: 'dep-1', status: 'cancelled' } });
+    await openPurge(DEPLOYED_CAPABLE);
+    fireEvent.click(screen.getByText('confirm-step-up'));
+    const result = await screen.findByTestId('pipeline-purge-result');
+    expect(result).toHaveTextContent(/being deployed through a pipeline runner/);
+    fireEvent.click(screen.getByRole('button', { name: /Cancel the deploy/ }));
+    await waitFor(() => expect(cancelPipelineDeploy).toHaveBeenCalledWith('p1', 'dep-1'));
+    expect(await screen.findByText(/Cancel requested/)).toBeInTheDocument();
+    // The row stays: nothing was purged.
+    expect(screen.getByText('web')).toBeInTheDocument();
+  });
+
+  it('a refused cancel says so', async () => {
+    purgePipeline.mockRejectedValue(inProgress());
+    cancelPipelineDeploy.mockRejectedValue(new ApiError('It already finished.', 409, 'DEPLOY_NOT_CANCELLABLE'));
+    await openPurge(DEPLOYED_CAPABLE);
+    fireEvent.click(screen.getByText('confirm-step-up'));
+    fireEvent.click(await screen.findByRole('button', { name: /Cancel the deploy/ }));
+    expect(await screen.findByTestId('purge-cancel-deploy-error')).toBeInTheDocument();
+  });
+
+  it('the same on a step-up replay', async () => {
+    const err = new StepUpRequiredError('Confirm it is you', 'STEP_UP_METHOD_REQUIRED');
+    const replay = Promise.reject(inProgress());
+    replay.catch(() => {});
+    err.attachResume(replay);
+    purgePipeline.mockRejectedValue(err);
+    await openPurge(DEPLOYED_CAPABLE);
+    fireEvent.click(screen.getByText('confirm-step-up'));
+    const result = await screen.findByTestId('pipeline-purge-result');
+    expect(result).toHaveTextContent(/being deployed through a pipeline runner/);
+    expect(screen.getByRole('button', { name: /Cancel the deploy/ })).toBeInTheDocument();
   });
 });

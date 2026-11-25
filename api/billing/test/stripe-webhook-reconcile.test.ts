@@ -40,7 +40,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 const cfg = { billingProvider: 'stripe', stripe: { webhookEndpointId: '', webhookUrl: 'https://pb.example.com/billing/stripe/webhook' } };
 jest.unstable_mockModule('../src/config.js', () => ({ config: cfg }));
 
-interface Endpoint { id: string; url: string; enabledEvents: string[]; livemode: boolean }
+interface Endpoint { id: string; url: string; enabledEvents: string[]; livemode: boolean; enabled?: boolean }
 class FakeStripeProvider {
   keyMode: 'live' | 'test' | null = 'live';
   endpoints: Endpoint[] = [];
@@ -137,6 +137,30 @@ describe('reconcileStripeWebhookEvents', () => {
     expect(out).toMatchObject({ status: 'updated', endpointId: 'we_pinned' });
     expect(fake.retrieve).toHaveBeenCalledWith('we_pinned');
     expect(fake.list).not.toHaveBeenCalled();
+  });
+
+  it('a DISABLED endpoint delivers nothing: every handled event is missing, whatever it lists', async () => {
+    // Stripe disables an endpoint after days of failed deliveries; its event list
+    // is intact, so reading only the list reported `complete` with nothing arriving.
+    fake.endpoints = [{ id: 'we_1', url: URL, enabledEvents: ['*'], livemode: true, enabled: false }];
+
+    const out = await reconcileStripeWebhookEvents(fake as never, HANDLED);
+
+    expect(out).toMatchObject({ status: 'endpoint_disabled', endpointId: 'we_1', missing: [...HANDLED] });
+    expect(missingGauge()).toBe(HANDLED.length);
+    expect(fake.update).not.toHaveBeenCalled();
+    expect(logger.error).toHaveBeenCalled();
+  });
+
+  it('prefers the enabled endpoint when a disabled one shares the URL', async () => {
+    fake.endpoints = [
+      { id: 'we_old', url: URL, enabledEvents: [], livemode: true, enabled: false },
+      { id: 'we_new', url: URL, enabledEvents: [...HANDLED], livemode: true },
+    ];
+
+    const out = await reconcileStripeWebhookEvents(fake as never, HANDLED);
+
+    expect(out).toMatchObject({ status: 'complete', endpointId: 'we_new' });
   });
 
   it('matches the URL ignoring a trailing slash', async () => {

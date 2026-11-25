@@ -825,6 +825,9 @@ describe('--enable-deploy', () => {
     expect(() => deployPlan({ cdkQualifier: 'bad qual' })).toThrow(/--cdk-qualifier/);
     expect(() => deployPlan({ deployTimeout: '5' })).toThrow(/--deploy-timeout/);
     expect(() => deployPlan({ deployTimeout: '481' })).toThrow(/--deploy-timeout/);
+    // Past the platform's deploy deadline (120 min) the platform cancels the build first.
+    expect(() => deployPlan({ deployTimeout: '121' })).toThrow(/--deploy-timeout "121" must be a whole number, 10-120/);
+    expect(deployPlan({ deployTimeout: '120' }).deploy?.timeoutMinutes).toBe(120);
     expect(() => deployPlan({ deployConcurrency: '0' })).toThrow(/--deploy-concurrency/);
     expect(() => deployPlan({ deployPermissionsBoundary: 'not-an-arn' })).toThrow(/--deploy-permissions-boundary/);
     expect(() => deployPlan({ registryPullHost: 'https://x/y' })).toThrow(/--registry-pull-host/);

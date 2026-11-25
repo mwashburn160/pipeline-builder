@@ -218,6 +218,28 @@ describe('verifyOAuthCode', () => {
     expect(identity).toMatchObject({ id: 'g-42', email: 'real@x.com' });
   });
 
+  // The SSO-enforcement gate keys on the email's domain and account linking on
+  // the email: a padded or mixed-case address must reach both normalized, or
+  // `victim@corp.com ` would miss corp.com's enforced SSO yet still link.
+  it('normalizes the provider email (trimmed, lower-cased) before anything keys on it', async () => {
+    const state = await mintState('google');
+    global.fetch = jest.fn<AnyFn>()
+      .mockResolvedValueOnce(okJson({ access_token: 'tok' }))
+      .mockResolvedValueOnce(okJson({ sub: 'g-42', email: '  Real@X.com ', email_verified: true })) as any;
+
+    const identity = await verifyOAuthCode('google', 'auth-code', state, browser());
+    expect(identity.email).toBe('real@x.com');
+  });
+
+  it('a whitespace-only email is no email', async () => {
+    const state = await mintState('google');
+    global.fetch = jest.fn<AnyFn>()
+      .mockResolvedValueOnce(okJson({ access_token: 'tok' }))
+      .mockResolvedValueOnce(okJson({ sub: 'g-42', email: '   ', email_verified: true })) as any;
+
+    await expect(verifyOAuthCode('google', 'auth-code', state, browser())).rejects.toThrow(OAUTH_NO_EMAIL);
+  });
+
   it('bounds every provider call with a deadline, so a hung provider cannot pin the sign-in', async () => {
     const state = await mintState('google');
     const fetchMock = jest.fn<AnyFn>()

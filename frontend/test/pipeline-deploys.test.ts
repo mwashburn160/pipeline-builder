@@ -16,11 +16,12 @@
 import { describe, it, expect } from '@jest/globals';
 import {
   DEPLOY_FAILURE_CLASSES, DEPLOY_REQUEST_STATUSES, DEPLOY_SETUP_COMMAND, DEPLOY_STAGES, DEPLOY_TARGET_REASONS,
-  RUNNER_DEPLOY_ERROR_CODES, RUNNER_ERROR_CODES,
+  RUNNER_DEPLOY_ERROR_CODES, RUNNER_ERROR_CODES, STACK_RETAINED_REASONS,
 } from '@pipeline-builder/api-core/pipeline-runners';
 import {
   DEPLOY_ERROR_COPY, DEPLOY_FAILURE_CLASS_COPY, DEPLOY_STAGE_LABEL, DEPLOY_STATUS_LABEL, DEPLOY_TARGET_REASON_COPY,
-  deployFailureCopy, deployStageSteps, deployTargetLabel, isActiveDeployStatus, logHintGuidance,
+  STACK_RETAINED_REASON_COPY, deployFailureCopy, deployStageSteps, deployTargetLabel, isActiveDeployStatus, logHintGuidance,
+  purgeDeployInProgressCopy, purgeResultCopy,
 } from '../src/lib/pipeline-deploys';
 import { RUNNER_ERROR_COPY } from '../src/lib/pipeline-runners';
 
@@ -117,5 +118,25 @@ describe('the runner catalog\'s deploy codes', () => {
     }
     expect(RUNNER_ERROR_COPY.RUNNER_DEPLOY_UNSUPPORTED.body).toContain(DEPLOY_SETUP_COMMAND);
     expect(RUNNER_ERROR_COPY.DEPLOY_NOT_ENABLED.body).toContain(DEPLOY_SETUP_COMMAND);
+  });
+});
+
+describe('purge copy', () => {
+  it('every stack-retained reason has copy', () => {
+    for (const r of STACK_RETAINED_REASONS) expect(STACK_RETAINED_REASON_COPY[r].length).toBeGreaterThan(10);
+  });
+
+  it('undeploy_not_queued: the stack is still deployed — delete it through the runner or by hand', () => {
+    const c = purgeResultCopy({ undeploy: null, stackRetained: { stackName: 'web-stack', region: 'us-east-1', reason: 'undeploy_not_queued' } });
+    expect(c?.tone).toBe('warning');
+    expect(c?.text).toMatch(/web-stack \(us-east-1\) stays in your AWS account/);
+    expect(c?.text).toMatch(/could not be queued/);
+    expect(c?.text).toMatch(/cdk destroy/);
+  });
+
+  it('DEPLOY_IN_PROGRESS: the refusal copy and the deploy to cancel', () => {
+    expect(purgeDeployInProgressCopy('DEPLOY_IN_PROGRESS', { requestId: 'd1' })).toEqual({ text: expect.stringMatching(/being deployed through a pipeline runner/), requestId: 'd1' });
+    expect(purgeDeployInProgressCopy('DEPLOY_IN_PROGRESS', {})).toBeNull();
+    expect(purgeDeployInProgressCopy('CONFLICT', { requestId: 'd1' })).toBeNull();
   });
 });
