@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 4e1b89622fc10a80bc375477cce45784e4b4702526b50d649b9713c095ca2198
+// SOURCE-SHA256: e02a417a2903d4dcb4eabd8bacd2e0599223e5ab0cb73009e0aafdb53803cb8e
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1561,7 +1561,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "kube-state-metrics itself is covered by ServiceDown, whose matcher is up{job=~\"kubernetes-pods|kube-state-metrics\"}, so if it stops answering, that fires."
+          "content": "kube-state-metrics itself is covered by ServiceDown, whose matcher is up{job=~\"kubernetes-pods|kube-state-metrics|nginx\"}, so if it stops answering, that fires."
         },
         {
           "type": "text",
@@ -1814,7 +1814,11 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Ingress and application HTTP were already covered — nginx_http_requests_total with GatewayError5xxRatioHigh/GatewayLatencyHigh, and ServiceError5xxBurst on the shared http_requests_total. What was missing sat below and beside them."
+          "content": "Ingress and application HTTP were already covered — nginx_http_requests_total with GatewayError5xxRatioHigh/GatewayLatencyHigh, and ServiceError5xxBurst on the shared http_requests_total."
+        },
+        {
+          "type": "text",
+          "content": "Gateway latency counts requests, not channels. nginx's metrics carry service = the route label each location sets (nginx/metrics.js). On the Kubernetes targets nginx is scraped by its own nginx job with honor_labels: true (and dropped from kubernetes-pods), because the generic job's service relabel overwrote the route with \"nginx\" and left it only in exported_service — GatewayLatencyHigh's service!~\"ws|plugin-logs|registry-v2|metrics\" then excluded nothing. metrics.js also keeps any response that is a held-open channel — Content-Type: text/event-stream (notifications, AI generation, ask-agent, log tails) or a 101 websocket upgrade — out of the latency histogram, while still counting it as a request: its $request_time is the connection's lifetime, and one per minute put the gateway p95 in the top bucket (2026-11-25: the alert read \"30s\" while every API call was under 2.5 s). What was missing sat below and beside them."
         },
         {
           "type": "text",

@@ -92,7 +92,7 @@ describe.each(K8S_TARGETS)('istio mesh metrics — %s', (target) => {
     // Every other rule needs the service alive enough to emit the metric it
     // alerts on, so a crashlooping or hung pod tripped nothing at all.
     expect(rules).toContain('alert: ServiceDown');
-    expect(rules).toContain('up{job=~"kubernetes-pods|kube-state-metrics"} == 0');
+    expect(rules).toContain('up{job=~"kubernetes-pods|kube-state-metrics|nginx"} == 0');
   });
 
   it('scrapes the observability stack itself', () => {
@@ -215,6 +215,28 @@ describe.each(K8S_TARGETS)('istio mesh metrics — %s', (target) => {
     // Ties the alert to the scrape job added above — renaming one without the
     // other silently disables it.
     expect(rules).toContain('up{job="istio-mesh", mesh_component="istiod"}');
+  });
+
+  it('scrapes nginx with honor_labels, so its per-route `service` survives', () => {
+    // Under `kubernetes-pods` the target's `service` relabel (= "nginx")
+    // overwrote the route label and demoted it to `exported_service`:
+    // GatewayLatencyHigh's exclusions matched nothing and paged on SSE streams
+    // (2026-11-25). The nginx job must keep it, and kubernetes-pods must not
+    // ALSO scrape nginx (two copies of every series).
+    expect(promCfg).toContain("job_name: 'nginx'");
+    const job = promCfg.slice(promCfg.indexOf("job_name: 'nginx'"));
+    const nginxJob = job.slice(0, job.indexOf('job_name:', 'job_name:'.length));
+    expect(nginxJob).toContain('honor_labels: true');
+    expect(nginxJob).toMatch(/action: keep\s+regex: nginx\b/);
+    const podsJob = promCfg.slice(promCfg.indexOf("job_name: 'kubernetes-pods'"));
+    expect(podsJob.slice(0, podsJob.indexOf('job_name:', 'job_name:'.length))).toMatch(/action: drop\s+regex: (kube-state-metrics\|)?nginx\b/);
+    expect(read(`${target}/config/prometheus/alert-rules.yml`)).toContain('service!~"ws|plugin-logs|registry-v2|metrics"');
+  });
+
+  it('keeps held-open channels (SSE, websocket) out of the gateway latency histogram', () => {
+    const js = read(`${target}/nginx/metrics.js`);
+    expect(js).toContain("ctype.indexOf('text/event-stream') === 0");
+    expect(js).toContain('status === 101');
   });
 
   it('collects the metric its PersistentVolume alerts read, with the RBAC to do it', () => {

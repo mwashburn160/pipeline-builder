@@ -723,7 +723,7 @@ Both rules are keyed on CronJobs in the namespace rather than on job names, so a
 
 **Its own scrape job.** kube-state-metrics is scraped by a dedicated `kube-state-metrics` job with `honor_labels: true`, and the generic `kubernetes-pods` job drops it. Its series describe *other* objects in their `pod`/`namespace`/`container` labels; under `kubernetes-pods` the target's own `pod` relabel overwrote them (the real pod survived only as `exported_pod`), so `PodNotScheduled` named `kube-state-metrics-…` instead of the stuck pod and `ContainerOOMKilled`'s `on (namespace, pod, container)` join matched across pods. When querying data recorded before this change, the observed pod is in `exported_pod`.
 
-kube-state-metrics itself is covered by `ServiceDown`, whose matcher is `up{job=~"kubernetes-pods|kube-state-metrics"}`, so if it stops answering, that fires.
+kube-state-metrics itself is covered by `ServiceDown`, whose matcher is `up{job=~"kubernetes-pods|kube-state-metrics|nginx"}`, so if it stops answering, that fires.
 
 `PodNotScheduled` reads `kube_pod_status_phase{phase="Pending"}`, and Kubernetes keeps a pod in `Pending` while its **init containers** run — so a pod with a long init step (a dependency wait, or a delayed-action Job that sleeps in an init container) fires it without any scheduling problem. Check the pod's init container state before looking at node capacity.
 
@@ -929,7 +929,20 @@ Two things that let these stay invisible, both now closed:
 
 Ingress and application HTTP were already covered — `nginx_http_requests_total`
 with `GatewayError5xxRatioHigh`/`GatewayLatencyHigh`, and `ServiceError5xxBurst`
-on the shared `http_requests_total`. What was missing sat below and beside them.
+on the shared `http_requests_total`.
+
+**Gateway latency counts requests, not channels.** nginx's metrics carry
+`service` = the route label each location sets (`nginx/metrics.js`). On the
+Kubernetes targets nginx is scraped by its own `nginx` job with
+`honor_labels: true` (and dropped from `kubernetes-pods`), because the generic
+job's `service` relabel overwrote the route with "nginx" and left it only in
+`exported_service` — `GatewayLatencyHigh`'s `service!~"ws|plugin-logs|registry-v2|metrics"`
+then excluded nothing. `metrics.js` also keeps any response that is a held-open
+channel — `Content-Type: text/event-stream` (notifications, AI generation,
+ask-agent, log tails) or a `101` websocket upgrade — out of the latency
+histogram, while still counting it as a request: its `$request_time` is the
+connection's lifetime, and one per minute put the gateway p95 in the top bucket
+(2026-11-25: the alert read "30s" while every API call was under 2.5 s). What was missing sat below and beside them.
 
 **DNS had no signal at all**, which is why it gets three rules rather than one.
 CoreDNS lives in `kube-system`, a namespace no other scrape job touches, and the

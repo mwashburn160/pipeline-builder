@@ -48,7 +48,15 @@ function record(r) {
     var cls = status >= 100 && status < 600 ? Math.floor(status / 100) + 'xx' : 'other';
     d.incr('req|' + svc + '|' + cls, 1, 0);
 
-    var t = parseFloat(r.variables.request_time);
+    // A held-open channel is not a slow request: an SSE stream
+    // (text/event-stream — notifications, AI generation, ask-agent, log tails)
+    // or a websocket (101) has a $request_time equal to its connection
+    // lifetime, and one of those per minute is enough to put the gateway p95 at
+    // the top bucket (2026-11-25: GatewayLatencyHigh at "30s" while every API
+    // call was under 2.5s). Counted as a request above; kept out of latency.
+    var ctype = r.variables.sent_http_content_type || '';
+    var held = status === 101 || ctype.indexOf('text/event-stream') === 0;
+    var t = held ? NaN : parseFloat(r.variables.request_time);
     if (!isNaN(t)) {
         for (var i = 0; i < BUCKETS.length; i++) {
             if (t <= BUCKETS[i]) d.incr('lat|' + svc + '|' + BUCKETS[i], 1, 0);

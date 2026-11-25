@@ -139,11 +139,12 @@ describe.each(TARGETS)('%s — kube-state-metrics', (target) => {
     // ...and the generic job must not ALSO scrape it: a second copy of every
     // kube_* series, with the clobbered labels, would fire every alert twice.
     const pods = jobs.find((j) => j.job_name === 'kubernetes-pods')!;
-    expect(pods.relabel_configs).toContainEqual({
-      source_labels: ['__meta_kubernetes_pod_label_app'], action: 'drop', regex: 'kube-state-metrics',
-    });
+    const drop = (pods.relabel_configs as Doc[]).find((r) => r.action === 'drop'
+      && JSON.stringify(r.source_labels) === JSON.stringify(['__meta_kubernetes_pod_label_app']));
+    expect(drop).toBeDefined();
+    expect(new RegExp(`^(?:${drop!.regex})$`).test('kube-state-metrics')).toBe(true);
     // ServiceDown is what watches the exporter itself.
-    expect(read(`${target}/config/prometheus/alert-rules.yml`)).toContain('up{job=~"kubernetes-pods|kube-state-metrics"} == 0');
+    expect(read(`${target}/config/prometheus/alert-rules.yml`)).toContain('up{job=~"kubernetes-pods|kube-state-metrics|nginx"} == 0');
   });
 
   it('runs unprivileged, read-only, on a digest-pinned image', () => {

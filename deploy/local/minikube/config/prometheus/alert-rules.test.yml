@@ -163,6 +163,27 @@ tests:
               summary: "kube-state-metrics is not responding to scrapes"
               description: "Prometheus has failed to scrape kube-state-metrics (pod kube-state-metrics-abc) for 5m. The pod exists but is unreachable — crashloop, OOM, or a hung process. Check: kubectl get pods -n pipeline-builder | grep kube-state-metrics"
 
+  # 6b. nginx is scraped by its own job too (honor_labels, so its request
+  #     metrics keep their per-route `service`); ServiceDown must still see it.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="nginx",service="nginx",pod="nginx-abc"}'
+        values: '0+0x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: ServiceDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: platform
+              tenancy: platform
+              job: nginx
+              service: nginx
+              pod: nginx-abc
+            exp_annotations:
+              summary: "nginx is not responding to scrapes"
+              description: "Prometheus has failed to scrape nginx (pod nginx-abc) for 5m. The pod exists but is unreachable — crashloop, OOM, or a hung process. Check: kubectl get pods -n pipeline-builder | grep nginx"
+
   # 7. A healthy service does NOT fire.
   - interval: 1m
     input_series:
