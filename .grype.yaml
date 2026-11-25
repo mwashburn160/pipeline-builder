@@ -8,5 +8,5 @@
 # so nothing here outlives the reason it was added.
 #
 # No rules at present. CVE-2026-115557 (AWS CLI's bundled Python 3.14.8) was
-# dropped 2026-11-25: AWS CLI 2.42.3 bundles Python 3.14.10, the fix.
+# dropped 2026-11-25: AWS CLI 2.42.3+ bundles Python 3.14.10, the fix.
 ignore: []

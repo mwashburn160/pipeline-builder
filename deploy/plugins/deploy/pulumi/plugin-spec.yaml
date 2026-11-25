@@ -109,7 +109,7 @@ network:
     - "proxy.golang.org"
     - "sum.golang.org"
 changelog: |
-  1.0.3: Pin refresh 2026-11-25 — Pulumi 3.278.0; smokeTest now covers every tool the commands call. Rebuilt on the refreshed base images (Ubuntu 26.10 security updates, AWS CLI 2.42.3).
+  1.0.3: Pin refresh 2026-11-25 — Pulumi 3.278.0; smokeTest now covers every tool the commands call. Rebuilt on the refreshed base images (Ubuntu 26.10 security updates, AWS CLI 2.42.4).
   1.0.2: Pin refresh 2026-11-18 — Pulumi 3.277.0.
   1.0.1: Pin refresh 2026-11-13 — Pulumi 3.276.0; rebuilt on the refreshed base images (AWS CLI 2.40.2, Go 1.27.4, Node.js 26.13.1).
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

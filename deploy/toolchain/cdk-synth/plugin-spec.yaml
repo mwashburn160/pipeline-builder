@@ -57,6 +57,11 @@ env:
   PIPELINE_MANAGER_UPGRADE: 'false'
   PIPELINE_MANAGER_UPGRADE_VERSION: 'latest'
 
+# Smoke test — runs after `docker build` in test-plugins.sh --build. Proves every
+# tool the commands (and the opt-in self-upgrade) invoke is installed and runs,
+# plus the runtimes cdk-synth adds for Python and TypeScript CDK apps.
+smokeTest: "node --version && npm --version && pipeline-manager --version && cdk --version && command -v cdk-assets && aws --version && git --version && curl --version && python3 --version && pip3 --version && tsc --version && ts-node --version"
+
 # ─── Catalog metadata (plugin-ecosystem W0.2) ───
 license: Apache-2.0
 homepageUrl: https://docs.aws.amazon.com/cdk/
@@ -70,6 +75,7 @@ network:
     - "pypi.org"
     - "files.pythonhosted.org"
 changelog: |
+  1.1.44: Toolchain release 1.1.44 — CVE pass 2026-11-25: npm 11.21.3 over Node 26's bundled npm 11.20.0 (clears 6 undici/brace-expansion Highs), node:26.13.1-slim at its re-pushed digest with Debian's security updates, AWS CLI 2.42.4, cdk-assets 4.8.1; smokeTest added.
   1.1.5: PIPELINE_MANAGER_UPGRADE=true on its own (or with PIPELINE_MANAGER_UPGRADE_VERSION blank or `latest`) now runs a bare `pipeline-manager --upgrade`, which never moves backwards; 1.1.3 and 1.1.4 passed `latest` as a named version, which would have downgraded a baked CLI newer than npm's `latest`. Any other version is still installed as named.
   1.1.4: Toolchain release 1.1.4 — pipeline-manager 4.5.4 (release sync).
   1.1.3: Opt-in CLI self-upgrade before synth: PIPELINE_MANAGER_UPGRADE (default false) runs `pipeline-manager --upgrade` to PIPELINE_MANAGER_UPGRADE_VERSION (semver or dist-tag; blank = latest). Off by default, so the step still runs the release's pinned CLI; any other value fails the step.

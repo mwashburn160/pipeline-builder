@@ -11,6 +11,6 @@ pluginType: BuildImage
 toolchain:
   pipelineManager: "6.4.1"
   awsCdk: "2.1149.0"
-  cdkAssets: "4.8.0"
+  cdkAssets: "4.8.1"
   node: "26.13.1"
-sourceDigest: "sha256:b7cf9c3777442f98c1aa64d2e4e67223ab72e93e4198f80d04dd357a4f169808"
+sourceDigest: "sha256:46de7318498330b7def15e24c57a1b38fc91465243ea06aae5e9af18e7568b9a"

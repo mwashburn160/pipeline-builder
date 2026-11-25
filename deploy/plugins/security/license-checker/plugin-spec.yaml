@@ -92,7 +92,7 @@ network:
     - "rubygems.org"
     - "index.rubygems.org"
 changelog: |
-  1.0.3: Pin refresh 2026-11-25 — Bundler 4.1.1 installed, so `bundle install` for a Gemfile.lock works (the distro Ruby ships only `bundle3.3`). Rebuilt on the refreshed base images (Ubuntu 26.10 security updates, npm 12.2.3 (clears 6 undici/brace-expansion Highs)).
+  1.0.3: Pin refresh 2026-11-25 — Bundler 4.1.1 installed, so `bundle install` for a Gemfile.lock works (the distro Ruby ships only `bundle3.3`). Rebuilt on the refreshed base images (Ubuntu 26.10 security updates, npm 11.21.3 (clears 6 undici/brace-expansion Highs)).
   1.0.2: Pin refresh 2026-11-18 — Rebuilt on the refreshed base images (Ubuntu 26.10 digest refresh).
   1.0.1: Pin refresh 2026-11-13 — Rebuilt on the refreshed base images (Node.js 26.13.1); removed read-installed's test fixtures, whose names match two npm malware advisories (false positives).
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

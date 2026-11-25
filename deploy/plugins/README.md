@@ -524,6 +524,12 @@ on sight:
   only php8.5, and neither sury nor the ondrej PPA publishes `stonking`. Taking
   8.6 means compiling PHP from source in the base.
 - **Maven 3.x (`_jvm-base`)** — 4.0.0 is still release-candidate only (rc-7).
+- **npm 11.x (`_node-base`, `deploy/toolchain/pipeline-bootstrap`, and the
+  plugins that install their own Node: cdk-deploy, cdk-deploy-multi-region,
+  dependency-check)** — npm 12 runs dependency install scripts only when they
+  are on its `allow-scripts` allowlist, so `npm install` of a user project
+  silently skips every postinstall (it left Cypress with no binary). 11.21.3,
+  the newest 11.x, already carries the undici and brace-expansion fixes.
 - **Java 25 (`_jvm-base`, `language/java`, `language/java-oracle`)** — 27 is
   out, but 25 is the LTS line and 27 is not.
 - **TypeScript 6.0.3 in `cdk-synth`, `cdk-deploy`, `cdk-deploy-multi-region`** —

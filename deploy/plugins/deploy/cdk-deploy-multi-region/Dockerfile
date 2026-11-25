@@ -27,9 +27,9 @@ RUN apt-retry-install python3 python3-pip parallel libatomic1
 # 11.20.0, whose own node_modules carry undici 6.28.0 (GHSA-2m5v-pch6-74hx,
 # GHSA-qrxm-fqhp-jwvm, GHSA-xjj6-f33q-929c, GHSA-rfgv-xxqx-mfg5) and
 # brace-expansion 5.0.9 (GHSA-6j4f-fj2g-mc7p, GHSA-qhr7-859c-m2p7), all High.
-# npm 12.2.3 bundles undici 6.29.1 and brace-expansion 5.0.12.
+# npm 11.21.3 bundles undici 6.29.1 and brace-expansion 5.0.12.
 ARG COREPACK_VERSION=0.36.0
-ARG NPM_VERSION=12.2.3
+ARG NPM_VERSION=11.21.3
 ARG NODE_SHA256_AMD64=518674de2b621728a5e4486f5fb3b7d2900bb3cc4aa97969edaa463db99f9778
 ARG NODE_SHA256_ARM64=80a330b35415382878df18d41afbd106ea89bfb3be0087d6608e289a14c5cc7d
 RUN set -eux; \

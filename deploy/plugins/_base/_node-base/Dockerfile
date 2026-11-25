@@ -58,8 +58,13 @@ RUN npm install -g "corepack@${COREPACK_VERSION}" && corepack --version
 # 26.13.1 ships npm 11.20.0, whose own node_modules carry undici 6.28.0 (four
 # Highs, fixed in 6.29.1) and brace-expansion 5.0.9 (two Highs, fixed in 5.0.11)
 # — inherited by every Node plugin, and fixable only by replacing npm.
-# 11.20.0 -> 12.2.3 (2026-11-25): the newest release; its engines accept
-# Node >=26.0.0. Same uid-1000-owned NODE_HOME as corepack above.
-ARG NPM_VERSION=12.2.3
+# 11.20.0 -> 11.21.3 (2026-11-25), the newest 11.x, which bundles undici 6.29.1
+# and brace-expansion 5.0.12. Same uid-1000-owned NODE_HOME as corepack above.
+# HELD at 11.x: npm 12 runs a dependency's install scripts only when it is on
+# the `allow-scripts` allowlist, so `npm install` / `npm ci` of a user project
+# silently skips every postinstall — Cypress's binary download, native modules,
+# esbuild/husky setup — and the step then fails later, far from the cause.
+# Taking npm 12 needs an explicit allow-scripts policy for user projects first.
+ARG NPM_VERSION=11.21.3
 RUN npm install -g "npm@${NPM_VERSION}" && npm --version | grep -qx "${NPM_VERSION}"
 CMD ["bash"]

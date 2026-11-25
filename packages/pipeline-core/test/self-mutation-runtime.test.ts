@@ -28,7 +28,7 @@ const DOCKERFILE = resolve(here, '../../../deploy/toolchain/pipeline-bootstrap/D
  * (`npm view aws-cdk@<V> engines`), and cross-checks against an installed copy
  * when one is resolvable.
  */
-const PINNED_CLI = { version: '2.1148.1', enginesNode: '>= 18.0.0' };
+const PINNED_CLI = { version: '2.1149.0', enginesNode: '>= 18.0.0' };
 
 /** Whether Node `<major>.x` satisfies a range of `>=`/`^`/`~`/bare-major comparators joined by `||`. */
 function majorSatisfies(major: number, range: string): boolean {

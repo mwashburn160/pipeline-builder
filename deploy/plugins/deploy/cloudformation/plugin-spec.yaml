@@ -127,7 +127,7 @@ network:
   egress:
     - "*.amazonaws.com"
 changelog: |
-  1.0.4: Pin refresh 2026-11-25 — cfn-lint 1.61.0; smokeTest now also checks the AWS CLI. Rebuilt on the refreshed base images (Ubuntu 26.10 security updates, AWS CLI 2.42.3).
+  1.0.4: Pin refresh 2026-11-25 — cfn-lint 1.61.0; smokeTest now also checks the AWS CLI. Rebuilt on the refreshed base images (Ubuntu 26.10 security updates, AWS CLI 2.42.4).
   1.0.3: Pin refresh 2026-11-18 — Rebuilt on the refreshed base images (Ubuntu 26.10 digest refresh; AWS CLI 2.41.1; Go builder image digest refresh).
   1.0.2: Pin refresh 2026-11-13 — rain rebuilt with Go 1.27.4, cfn-lint 1.60.1; rebuilt on the refreshed base images (AWS CLI 2.40.2).
   1.0.1: rain is built from its v1.24.4 source with go1.27.3 (the release binary was built with go1.26.2, carrying a Critical Go stdlib advisory); the tag is pinned to its commit.

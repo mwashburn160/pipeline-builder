@@ -47,7 +47,7 @@
 # Base pinned BY DIGEST (matches projen minNodeVersion 26.13.1): a re-pushed
 # tag cannot change what CodeBuild runs. Renovate bumps the digest; that changes
 # the sourceDigest, so it ships as a new release (never an in-place rebuild).
-ARG NODE_IMAGE=node:26.13.1-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc
+ARG NODE_IMAGE=node:26.13.1-slim@sha256:abe7e5a82b61a8ef67b315b85497c9e65173387ccf2f4a029248184b8e020be5
 FROM ${NODE_IMAGE}
 
 # ── Debian security updates ──
@@ -99,7 +99,7 @@ ARG AWS_CDK_VERSION="2.1149.0"
 # cdk-assets — publishes a synthesized assembly's file and container assets
 # (what `cdk-assets publish` does in a pipeline's Assets stage). Installed the
 # same way as the CDK CLI and pinned the same way; a bump is a new release.
-ARG CDK_ASSETS_VERSION="4.8.0"
+ARG CDK_ASSETS_VERSION="4.8.1"
 # AWS CLI v2 — PINNED and checksum-verified, held EQUAL to _base/_aws-cli-base
 # (toolchain-drift-contract). It used to install the unversioned
 # `awscli-exe-linux-<arch>.zip`, i.e. whatever AWS served that day with no
@@ -107,9 +107,16 @@ ARG CDK_ASSETS_VERSION="4.8.0"
 # image every cold-start CodeBuild action runs. AWS publishes no checksum file;
 # these are the same two-download digests _aws-cli-base carries. Bump all three
 # together, in both files.
-ARG AWS_CLI_VERSION="2.42.3"
-ARG AWS_CLI_SHA256_AMD64="09a4a71458061ce4e6e8c1ddbeb5d128c219ef7c9906b7b92c3b542944c025c8"
-ARG AWS_CLI_SHA256_ARM64="7c512283f5293c6fb0832ad648198993185889b22ea8b19bcd04c153dabc8643"
+# npm — node:26.13.1-slim bundles npm 11.20.0, whose vendored undici 6.28.0 and
+# brace-expansion 5.0.9 carry six fixable High advisories (GHSA-xjj6-f33q-929c,
+# GHSA-rfgv-xxqx-mfg5, GHSA-qrxm-fqhp-jwvm, GHSA-2m5v-pch6-74hx,
+# GHSA-6j4f-fj2g-mc7p, GHSA-qhr7-859c-m2p7) in every cold-start build and in
+# cdk-synth. npm 11.21.3 bundles undici 6.29.1 and
+# brace-expansion 5.0.12. The same version as _base/_node-base.
+ARG NPM_VERSION="11.21.3"
+ARG AWS_CLI_VERSION="2.42.4"
+ARG AWS_CLI_SHA256_AMD64="8998885d7fc32370c50efc2e44746c34b222a03d70015113a5554f98be79165c"
+ARG AWS_CLI_SHA256_ARM64="d0203a83caa162118c128ad16bc6c11835e998bd23763a3b195aeb323c78d010"
 
 # What this image carries, readable from the image itself. Each value is the ARG
 # it is installed from, so a label cannot disagree with the binary; plugin
@@ -140,6 +147,8 @@ RUN set -eux; \
     rm -rf /tmp/aws /tmp/awscli.zip; \
     aws --version; \
     # pipeline-manager — the pinned PIPELINE_MANAGER_VERSION above.
+    npm install -g "npm@${NPM_VERSION}"; \
+    test "$(npm --version)" = "${NPM_VERSION}"; \
     npm config set @pipeline-builder:registry=https://registry.npmjs.org/; \
     npm install -g "aws-cdk@${AWS_CDK_VERSION}" "cdk-assets@${CDK_ASSETS_VERSION}" "@pipeline-builder/pipeline-manager@${PIPELINE_MANAGER_VERSION}"; \
     cdk --version; \
