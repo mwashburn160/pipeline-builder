@@ -12,12 +12,13 @@
  */
 
 import {
-  RUNNER_DELIVERY_FAILURE_CLASSES, TERMINAL_RUN_REQUEST_STATUSES as TERMINAL_RUN_REQUEST_STATUS_LIST,
+  DEPLOY_SETUP_COMMAND, RUNNER_DELIVERY_FAILURE_CLASSES, TERMINAL_RUN_REQUEST_STATUSES as TERMINAL_RUN_REQUEST_STATUS_LIST,
   type RunnerDeliveryFailureClass, type RunnerErrorCode, type RunnerHealth, type RunnerStatus, type RunnersUnavailableReason, type RunRequestStatus,
 } from '@pipeline-builder/api-core/pipeline-runners';
 import type { BadgeColor } from '@/components/ui/Badge';
 import type { PipelineRunner } from '@/lib/api/domains/pipelines';
 import { ApiError } from '@/lib/api/errors';
+import { orgSettingsHref } from '@/lib/org-settings-sections';
 
 export { isTerminalExecutionStatus } from '@pipeline-builder/api-core/pipeline-runners';
 
@@ -29,12 +30,12 @@ export { isTerminalExecutionStatus } from '@pipeline-builder/api-core/pipeline-r
 export const ONE_RUNNER_PER_ACCOUNT_COPY =
   'Install one runner per AWS account for this organization: one runner covers every region it allows. Another organization may install its own runner in the same account, but a shared AWS account is a shared trust boundary — anyone with AWS access there can reach both organizations\' pipelines.';
 
-/** Anchor of the Pipeline runners card on Settings → Organization. */
+/** Anchor of the Pipeline runners card on Settings → Organization → Pipelines. */
 export const PIPELINE_RUNNERS_ANCHOR = 'pipeline-runners';
 
-/** Settings → Organization → Pipeline runners. The fragment also opens the tab
- *  (registered in the settings page's `hashTabs`). */
-export const PIPELINE_RUNNERS_HREF = `/dashboard/settings?tab=organization#${PIPELINE_RUNNERS_ANCHOR}`;
+/** Settings → Organization → Pipelines → Pipeline runners. The fragment alone
+ *  also opens the tab and the section (registered in the settings page's `hashTabs`). */
+export const PIPELINE_RUNNERS_HREF = orgSettingsHref('pipelines', PIPELINE_RUNNERS_ANCHOR);
 
 type RunnerBadge = { label: string; color: BadgeColor };
 
@@ -279,6 +280,83 @@ const COPY = {
   RUNNER_KEY_CONFIRMATION_MISMATCH: {
     title: 'The confirmation doesn\'t match.',
     body: 'Type the last 6 characters of the active key id.',
+    link: null,
+  },
+  // -- Deploying a pipeline through a runner (the pipeline service's answers to POST …/deploys) --
+  RUNNER_DEPLOY_UNSUPPORTED: {
+    title: 'This pipeline runner cannot deploy pipelines.',
+    body: `Its stack was set up without deploys, or its bundle is too old to speak them. Update it with ${DEPLOY_SETUP_COMMAND} in its AWS account, then try again.`,
+    link: 'runners',
+  },
+  DEPLOY_RUNNER_REQUIRED: {
+    title: 'Choose a pipeline runner to deploy through.',
+    body: 'More than one runner can deploy this pipeline, and the platform will not pick one for you. Choose one from the list, then deploy.',
+    link: null,
+  },
+  RUNNER_NOT_DEPLOYABLE: {
+    title: 'That pipeline runner cannot deploy this pipeline.',
+    body: 'It is not enabled for deploys, needs an update, is not answering, or its regions or pipeline prefixes do not cover this pipeline. Choose another runner, or fix it in its settings.',
+    link: 'runners',
+  },
+  ALREADY_DEPLOYED: {
+    title: 'This pipeline is already deployed.',
+    body: 'Deploys through a runner are for a pipeline that was never deployed. Start it with Run pipeline, or redeploy changes with pipeline-manager pipeline deploy.',
+    link: null,
+  },
+  DEPLOY_IN_PROGRESS: {
+    title: 'This pipeline is already being deployed.',
+    body: 'Another deploy of it is running (through another runner, or from another tab). Follow that one, or wait for it to finish before starting another.',
+    link: null,
+  },
+  DEPLOY_REGION_NOT_ALLOWED: {
+    title: 'The runner cannot deploy into that region.',
+    body: 'A runner deploys only into the regions its stack allows. Choose one of its regions, or widen its region allowlist by re-running pipeline-manager infra setup-runner.',
+    link: 'runners',
+  },
+  TOOLCHAIN_TOO_OLD_FOR_DEPLOY: {
+    title: 'This pipeline\'s toolchain is too old to deploy through a runner.',
+    body: 'Its pinned toolchain release ships a deploy image the platform cannot drive. Upgrade the pipeline\'s toolchain to the current release (Edit pipeline → Toolchain), then deploy again.',
+    link: null,
+  },
+  DEPLOY_NOT_CANCELLABLE: {
+    title: 'This deploy has already finished.',
+    body: 'There is nothing left to cancel — it ended while the request was on its way. The deploy\'s result is shown below.',
+    link: null,
+  },
+  DEPLOY_RATE_LIMITED: {
+    title: 'Too many deploys this hour.',
+    body: 'Your organization has started as many deploys through runners as the platform allows in an hour. Wait a while, then try again; pipeline-manager pipeline deploy with your own AWS credentials still works.',
+    link: null,
+  },
+  TOO_MANY_DEPLOYS: {
+    title: 'The pipeline runner is busy with other deploys.',
+    body: 'It already runs as many deploys at once as the platform allows. Wait for one of them to finish, or choose another runner, then try again.',
+    link: null,
+  },
+  DEPLOY_GRANT_INVALID: {
+    title: 'The deploy job\'s one-time credential was refused.',
+    body: 'It was already used, expired, or is for a deploy no longer running. Start the deploy again; platform operators are alerted when a credential is reused.',
+    link: null,
+  },
+  // -- A runner's answers to a deploy --
+  DEPLOY_NOT_ENABLED: {
+    title: 'Deploys are not enabled on this pipeline runner.',
+    body: `Its stack was set up without --enable-deploy. Re-run ${DEPLOY_SETUP_COMMAND} in its AWS account to turn deploys on, then try again.`,
+    link: 'runners',
+  },
+  PIPELINE_ALREADY_DEPLOYED: {
+    title: 'This pipeline already exists in the runner\'s AWS account.',
+    body: 'The runner found a pipeline tagged with this pipeline\'s id, so nothing was deployed. The platform links the pipeline to that runner; reload to see it.',
+    link: null,
+  },
+  DEPLOY_BUSY: {
+    title: 'The runner\'s deploy project is at its concurrent build limit.',
+    body: 'Other deploys are running in that account. The platform delivers the deploy again on its own; if it expires, try again once they finish.',
+    link: null,
+  },
+  DEPLOY_BUILD_NOT_FOUND: {
+    title: 'The runner could not find this deploy\'s build.',
+    body: 'Its deploy project has no build for this request — it may have been deleted in the account. Reload to see the deploy\'s recorded result, then deploy again if needed.',
     link: null,
   },
 } satisfies Record<Exclude<RunnerErrorCode, GenericCopyCode>, RunnerErrorCopy>;

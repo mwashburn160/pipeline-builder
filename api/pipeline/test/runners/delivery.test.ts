@@ -13,7 +13,7 @@ import { claimsOf, reply, runnerRow, testDeps, URL_A } from '../helpers/runner-f
 describe('interpretReply', () => {
   it.each([
     [200, { outcome: 'started', executionId: 'e-1', runnerVersion: '1.0' }, { kind: 'success', outcome: 'started', executionId: 'e-1', runnerVersion: '1.0' }],
-    [200, { outcome: 'pong', regions: ['us-east-1', 'bogus', 7] }, { kind: 'success', outcome: 'pong', regions: ['us-east-1'] }],
+    [200, { outcome: 'pong', regions: ['us-east-1', 'bogus', 7] }, { kind: 'success', outcome: 'pong', regions: ['us-east-1'], capabilities: [], pipelinePrefixes: [] }],
     [200, { outcome: 'exploded' }, { kind: 'fail', code: 'RUNNER_ERROR' }],
     [200, 'not json', { kind: 'fail', code: 'RUNNER_ERROR' }],
     [429, {}, { kind: 'retry', code: 'http_429', transport: true }],

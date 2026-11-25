@@ -61,6 +61,11 @@ const SAMPLES: Record<keyof typeof PIPELINE_INTERNAL, ContractSample> = {
     body: { reason: 'version_deleted' },
     response: { remediationId: '00000000-0000-4000-8000-0000000000a1', cancelled: true },
   },
+  registerFromFirstEvent: {
+    params: {},
+    body: { allowedOrgIds: ['0123456789abcdef01234567'], pipelines: [{ pipelineId: '00000000-0000-4000-8000-0000000000c1', region: 'us-east-1' }] },
+    response: { registered: ['00000000-0000-4000-8000-0000000000c1'] },
+  },
 };
 
 let table: RouteTableEntry[];

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/plugin-publishing.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 7b51eba19bfae6d8c0e56f24ce3e9954a81739bfda9349e8417e767ae82abb14
+// SOURCE-SHA256: 75489e0c3588dc9245fcd7d370b9446f7fb7b741938716da3afa0a35af33f686
 // SPDX-License-Identifier: Apache-2.0
 import { Store } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -376,7 +376,7 @@ export const pluginPublishingTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Who is told. A blocked build (notice N30) is always reported right away. New Critical or High findings from a rescan (notice N31) follow your organization's settings; for a listed version they go to every organization that installed it — a yanked version too, until its image is collected, since installs pinned to it still run it. Admins set both under Settings → Organization → Plugin security notifications: who receives them (the uploader and everyone who can write plugins, or chosen members), whether rescan findings are sent and as a daily or weekly digest, an optional signed webhook, and one external address. The external address gets nothing until its owner opens the confirmation link and presses Confirm address. Send test sends a test notice to every configured channel."
+          "content": "Who is told. A blocked build (notice N30) is always reported right away. New Critical or High findings from a rescan (notice N31) follow your organization's settings; for a listed version they go to every organization that installed it — a yanked version too, until its image is collected, since installs pinned to it still run it. Admins set both under Settings → Organization → Pipelines → Plugin security notifications: who receives them (the uploader and everyone who can write plugins, or chosen members), whether rescan findings are sent and as a daily or weekly digest, an optional signed webhook, and one external address. The external address gets nothing until its owner opens the confirmation link and presses Confirm address. Send test sends a test notice to every configured channel."
         },
         {
           "type": "text",
@@ -580,7 +580,7 @@ export const pluginPublishingTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Admins set the mode, the upgrade level with its per-type overrides, and the pipeline rollout under Settings → Organization → Plugin security (PUT /api/plugins/remediation-settings, org_settings:write). Every remediation in the organization is listed on Plugins → Remediations (GET /api/plugins/remediations), filterable by stage. Retry (plugins:write) re-runs a failed, needs-owner or needs-review remediation as a new attempt; on a published fix whose rollout didn't start (rollout_start_failed) it starts that rollout again instead."
+          "content": "Admins set the mode, the upgrade level with its per-type overrides, and the pipeline rollout under Settings → Organization → Pipelines → Plugin security (PUT /api/plugins/remediation-settings, org_settings:write). Every remediation in the organization is listed on Plugins → Remediations (GET /api/plugins/remediations), filterable by stage. Retry (plugins:write) re-runs a failed, needs-owner or needs-review remediation as a new attempt; on a published fix whose rollout didn't start (rollout_start_failed) it starts that rollout again instead."
         },
         {
           "type": "text",
@@ -1380,7 +1380,7 @@ export const pluginPublishingTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Old versions nobody uses still take storage and clutter the version list. Automatic tidying finds them, tells you, and (if you turn it on) removes them in slow, reversible steps. Set it under Settings → Organization → Plugin security → Automatic tidying (org_settings:write):"
+          "content": "Old versions nobody uses still take storage and clutter the version list. Automatic tidying finds them, tells you, and (if you turn it on) removes them in slow, reversible steps. Set it under Settings → Organization → Pipelines → Plugin security → Automatic tidying (org_settings:write):"
         },
         {
           "type": "table",

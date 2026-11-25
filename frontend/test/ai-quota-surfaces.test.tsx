@@ -60,8 +60,8 @@ describe('lib/ai-quota', () => {
     expect(aiKeySource({ customApiKey: '', currentSource: 'org' })).toBe('org');
     expect(aiKeySource({ customApiKey: 'sk-1', currentSource: 'org' })).toBe('request');
     expect(aiKeySource({ customApiKey: '  ', currentSource: 'none' })).toBe('platform');
-    // The Ask-agent entry takes no key override, so a leftover typed key is ignored.
-    expect(aiKeySource({ customApiKey: 'sk-1', currentSource: 'agent' })).toBe('platform');
+    // The Local model entry takes no key override, so a leftover typed key is ignored.
+    expect(aiKeySource({ customApiKey: 'sk-1', currentSource: 'local' })).toBe('platform');
   });
 
   it('blocks only a platform-key call on a capped, exhausted quota', () => {

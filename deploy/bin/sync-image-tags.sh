@@ -304,8 +304,11 @@ echo "→ pipeline-bootstrap: pipeline-manager ${_pm_ver}"
 # Minor/major bumps are made by hand, in both specs together.
 #
 # The hash EXCLUDES every generated field — the specs' `version`, `toolchain`,
-# `sourceDigest` (and the human-written `changelog`), and cdk-synth's generated
-# `ARG BOOTSTRAP_IMAGE=` default — so writing them never changes the hash and a
+# `sourceDigest` (and the human-written `changelog`), cdk-synth's generated
+# `ARG BOOTSTRAP_IMAGE=` default, and cdk-synth's `metadata` line
+# `pb:deploy-job:protocol` (derived from the image: it changes only with a
+# pipeline-manager release, whose Dockerfile ARG is already hashed, and
+# build-plugin-images.sh fails the build when it disagrees with the image) — so writing them never changes the hash and a
 # re-run is a no-op. The writes are plain text edits of exactly those keys, never
 # a YAML re-serialisation: a reformatted comment or re-quoted string elsewhere in
 # a spec would change the hash on the next run and bump the version again.
@@ -322,6 +325,9 @@ _toolchain_normalise() {
     mode == "spec" {
       if (skip) { if ($0 ~ /^[ \t]/ || $0 == "") next; skip = 0 }
       if ($0 ~ /^(version|toolchain|sourceDigest|changelog):/) { skip = 1; next }
+      # cdk-synth metadata pb:deploy-job:protocol: what the image prints, not a
+      # build input (build-plugin-images.sh refuses a value the image does not).
+      if ($0 ~ /^[ \t]+["\047]?pb:deploy-job:protocol["\047]?:/) next
     }
     mode == "synth-dockerfile" && /^ARG BOOTSTRAP_IMAGE=/ { print "ARG BOOTSTRAP_IMAGE=<generated>"; next }
     { print }

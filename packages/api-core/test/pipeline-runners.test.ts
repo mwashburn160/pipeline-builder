@@ -39,8 +39,8 @@ describe('pipeline-runners catalog', () => {
     expect(isRunnerErrorCode('RUNNERS_NOT_ENABLED')).toBe(false);
   });
 
-  it('splits request statuses into pending and terminal, with nothing left over', () => {
-    expect([...PENDING_RUN_REQUEST_STATUSES, ...TERMINAL_RUN_REQUEST_STATUSES].sort()).toEqual([...RUN_REQUEST_STATUSES].sort());
+  it('splits request statuses into pending, in progress (a runner job running) and terminal, with nothing left over', () => {
+    expect([...PENDING_RUN_REQUEST_STATUSES, ...catalog.IN_PROGRESS_RUN_REQUEST_STATUSES, ...TERMINAL_RUN_REQUEST_STATUSES].sort()).toEqual([...RUN_REQUEST_STATUSES].sort());
   });
 
   it('expects an outcome for every signed action, each a known outcome', () => {
@@ -61,7 +61,7 @@ describe('pipeline-runners catalog', () => {
 
   it('retries only the runner answers that are transient', () => {
     // RUNNER_ERROR in a runner's own 4xx reply is final (a bare 5xx is retried as a transport failure, whatever its body).
-    expect(RUNNER_ERROR_CODES.filter((c) => RUNNER_ERRORS[c].retryable).sort()).toEqual(['DUPLICATE', 'NOT_YET_VISIBLE']);
+    expect(RUNNER_ERROR_CODES.filter((c) => RUNNER_ERRORS[c].retryable).sort()).toEqual(['DEPLOY_BUSY', 'DUPLICATE', 'NOT_YET_VISIBLE']);
     for (const c of RUNNER_ERROR_CODES) if (RUNNER_ERRORS[c].retryable) expect(RUNNER_ERRORS[c].category).toBe('runner');
   });
 
@@ -158,6 +158,10 @@ describe('tunable limits', () => {
       RUNNER_HEALTH_PING_INTERVAL_SECONDS: '60',
       RUNNER_UNHEALTHY_AFTER_PINGS: '2',
       RUNNER_KEY_MAX_AGE_DAYS: '365',
+      DEPLOY_REQUESTS_PER_HOUR: '20',
+      MAX_ACTIVE_DEPLOYS_PER_RUNNER: '2',
+      RUNNER_DEPLOY_DEADLINE_MINUTES: '120',
+      RUNNER_DEPLOY_STATUS_POLL_SECONDS: '30',
     });
     expect(Object.keys(RUNNER_TUNABLE_MINIMUMS).sort()).toEqual(Object.keys(RUNNER_TUNABLE_DEFAULTS).sort());
     for (const [k, v] of Object.entries(RUNNER_TUNABLE_DEFAULTS)) {
@@ -251,4 +255,18 @@ describe('signing-key audit actions', () => {
       'pipeline.runner.deliveries.pause', 'pipeline.runner.deliveries.resume', 'pipeline.runner.link.refresh',
     ]) expect([a, isRemoteAuditAction(a)]).toEqual([a, true]);
   });
+});
+
+describe('deploy-job protocol metadata (a toolchain release records it from its cdk-synth half)', () => {
+  it('reads a whole number >= 1 from the cdk-synth metadata key, as a number or digit string', () => {
+    const k = catalog.DEPLOY_JOB_PROTOCOL_METADATA_KEY;
+    expect(k).toBe('pb:deploy-job:protocol');
+    expect(catalog.deployJobProtocolFromMetadata({ [k]: catalog.DEPLOY_JOB_PROTOCOL_VERSION })).toBe(catalog.DEPLOY_JOB_PROTOCOL_VERSION);
+    expect(catalog.deployJobProtocolFromMetadata({ [k]: ' 2 ' })).toBe(2);
+  });
+
+  it.each([null, undefined, 'x', {}, { 'pb:deploy-job:protocol': 0 }, { 'pb:deploy-job:protocol': 1.5 }, { 'pb:deploy-job:protocol': '1a' }, { 'pb:deploy-job:protocol': true }])(
+    'is null for %p', (metadata) => {
+      expect(catalog.deployJobProtocolFromMetadata(metadata)).toBeNull();
+    });
 });

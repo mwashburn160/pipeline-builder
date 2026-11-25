@@ -22,7 +22,7 @@ import { useAiStreamGeneration } from '@/hooks/useAiStreamGeneration';
 import { useBuildStatus } from '@/hooks/useBuildStatus';
 import { BuildFailureMessage } from './BuildFailureMessage';
 import api from '@/lib/api';
-import { isAskAgentProvider } from '@/lib/ai-constants';
+import { routesViaAskAgent } from '@/lib/ai-constants';
 import { streamAgentDraft } from '@/lib/ask-agent-draft';
 import { AI_MAX_PROMPT_LENGTH, formatError, formatJSON } from '@/lib/constants';
 import type { PluginGenerationDone, SimilarPlugin, Visibility } from '@/types';
@@ -178,7 +178,7 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
     const keyToUse = ai.customApiKey.trim() || undefined;
 
     await generate<PluginGenerationDone<GeneratedConfig>>({
-      stream: isAskAgentProvider(ai.selectedProvider)
+      stream: routesViaAskAgent(ai.selectedProvider)
         ? streamAgentDraft('plugin', prompt.trim(), ai.selectedModel)
         : api.streamPluginGeneration(prompt.trim(), ai.selectedProvider, ai.selectedModel, keyToUse),
       onDone: (data) => {
@@ -188,7 +188,7 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
         setDockerfileViolations(data.dockerfileViolations ?? []);
         setServed({ servedBy: data.servedBy, usage: data.usage });
         setStreamPreview(null);
-        draftOutcome.offered(isAskAgentProvider(ai.selectedProvider) ? 'agent' : 'plugin-generate', { config: data.config, dockerfile: data.dockerfile }, data.draftId);
+        draftOutcome.offered(routesViaAskAgent(ai.selectedProvider) ? 'agent' : 'plugin-generate', { config: data.config, dockerfile: data.dockerfile }, data.draftId);
       },
       onSettled: () => setStreamPreview(null),
     });

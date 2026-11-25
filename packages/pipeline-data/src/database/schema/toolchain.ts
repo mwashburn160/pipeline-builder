@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { sql } from 'drizzle-orm';
-import { boolean, varchar, pgTable, text, timestamp, uuid, index, check } from 'drizzle-orm/pg-core';
+import { boolean, integer, varchar, pgTable, text, timestamp, uuid, index, check } from 'drizzle-orm/pg-core';
 
 /**
  * Managed toolchain releases.
@@ -28,15 +28,24 @@ export type ToolchainDefaultKind = 'set' | 'initial' | 'restore';
  * One row per release. Release versions are plain `X.Y.Z` — a managed name
  * refuses prerelease uploads, so a dev build can never become a release.
  *
+ * `deployJobProtocol`: the `pipeline-manager pipeline deploy-job` protocol the
+ * release's cdk-synth image ships (api-core `DEPLOY_JOB_PROTOCOL_VERSION`),
+ * recorded from the cdk-synth half's `DEPLOY_JOB_PROTOCOL_METADATA_KEY`
+ * metadata when that half is uploaded. Null: the image runs no deploy job —
+ * a pipeline pinned to it cannot be deployed through a runner
+ * (TOOLCHAIN_TOO_OLD_FOR_DEPLOY).
+ *
  * @table toolchain_release
  */
 export const toolchainRelease = pgTable('toolchain_release', {
   releaseVersion: varchar('release_version', { length: 50 }).primaryKey(),
   releaseNotes: text('release_notes'),
+  deployJobProtocol: integer('deploy_job_protocol'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   createdBy: text('created_by').notNull(),
 }, (table) => ({
   versionCheck: check('toolchain_release_version_check', sql`${table.releaseVersion} ~ '^[0-9]+\.[0-9]+\.[0-9]+$'`),
+  deployJobProtocolCheck: check('toolchain_release_deploy_job_protocol_check', sql`${table.deployJobProtocol} IS NULL OR ${table.deployJobProtocol} >= 1`),
 }));
 
 /**

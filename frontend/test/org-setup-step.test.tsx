@@ -71,7 +71,7 @@ describe('OrgSetupStep — install a pipeline runner (before the first run)', ()
     expect(step).not.toHaveTextContent(/optional/);
     expect(step).toHaveTextContent('pipeline-manager infra setup-runner --region us-east-1');
     expect(screen.getByTestId('setup-runner-one-per-account')).toHaveTextContent(/one runner per AWS account/i);
-    expect(screen.getByRole('link', { name: /Pipeline runners/ })).toHaveAttribute('href', '/dashboard/settings?tab=organization#pipeline-runners');
+    expect(screen.getByRole('link', { name: /Pipeline runners/ })).toHaveAttribute('href', '/dashboard/settings?tab=organization&section=pipelines#pipeline-runners');
     // Listed in the overview too.
     expect(screen.getAllByText(/Install a pipeline runner/).length).toBe(2);
   });

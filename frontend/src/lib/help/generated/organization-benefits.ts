@@ -1,6 +1,6 @@
 // GENERATED FROM docs/organization-benefits.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 2fd474dfc4a668ce38fc6c8cdd1149add771df08923cded17932203ed700aede
+// SOURCE-SHA256: e51d15e964dd76b7539f5b3b46c14da2d74a7e637accbc359bbfb5bd030cc827
 // SPDX-License-Identifier: Apache-2.0
 import { Building2 } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -419,7 +419,7 @@ export const organizationBenefitsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Every pipeline synthesizes on a managed toolchain release — the pipeline-bootstrap build image and the cdk-synth step, published together by the system org under one version (Pipeline Manager → The toolchain release). By default an organization follows the platform default: its pipelines move to each newly promoted release on their next run. Settings → Organization → Pipeline toolchain lets an organization hold its own release instead."
+          "content": "Every pipeline synthesizes on a managed toolchain release — the pipeline-bootstrap build image and the cdk-synth step, published together by the system org under one version (Pipeline Manager → The toolchain release). By default an organization follows the platform default: its pipelines move to each newly promoted release on their next run. Settings → Organization → Pipelines → Pipeline toolchain lets an organization hold its own release instead."
         },
         {
           "type": "list",

@@ -24,34 +24,51 @@ export type { AIModelInfo };
  * Provider info as seen by frontend components.
  * Includes a `source` field indicating whether the provider is configured
  * via server env vars, per-organization API keys, or not configured at all —
- * or, for the synthetic "Ask agent" entry, that generation is routed through
- * the Ask agent (see {@link ASK_AGENT_PROVIDER_ID}).
+ * or, for the combined "Local model" entry, that it is the self-hosted model
+ * (see {@link LOCAL_MODEL_NAME}).
  */
 export interface AIProviderInfo {
   id: string;
   name: string;
-  source: 'server' | 'org' | 'none' | 'agent';
+  source: 'server' | 'org' | 'none' | 'local';
   models: AIModelInfo[];
+  /**
+   * Listed but unable to serve: set on the "Local model" entry when the Ask
+   * agent is not answering and no local provider is configured to fall back on.
+   * Never selected by default; the picker shows it disabled.
+   */
+  unavailable?: boolean;
 }
 
 /**
- * Synthetic provider id for "Ask agent": generation is drafted by the Ask
- * agent (the `ask-agent` service's tool-calling loop) instead of calling the
- * pipeline/plugin generator directly. Its "models" are the ask-agent service's
- * server-configured models, each identified by a composite
+ * Display name of the single "Local model" entry the create dialogs lead with:
+ * the deployment's self-hosted model, reached through whichever route can serve.
+ * Its `id` names that route — {@link ASK_AGENT_PROVIDER_ID} when drafts go
+ * through the Ask agent (doc-grounded), {@link OPENAI_COMPATIBLE_PROVIDER_ID}
+ * when they go straight to the local provider — so the tabs pass `id`/model
+ * through unchanged and branch only on {@link routesViaAskAgent}.
+ */
+export const LOCAL_MODEL_NAME = 'Local model';
+
+/**
+ * The "Local model" entry's id while it routes through the Ask agent: the draft
+ * is produced by the Ask agent (the `ask-agent` service's tool-calling loop)
+ * instead of calling the pipeline/plugin generator directly. Its models are the
+ * ask-agent service's server-configured ones, each identified by a composite
  * `provider|model` id — see {@link askAgentModelId}.
  */
 export const ASK_AGENT_PROVIDER_ID = 'ask-agent';
 
 /**
- * The local / self-hosted (OpenAI-compatible) provider id. Mirrors
+ * The local / self-hosted (OpenAI-compatible) provider id — also the "Local
+ * model" entry's id while it routes straight to that provider. Mirrors
  * `OPENAI_COMPATIBLE_PROVIDER_ID` in `@pipeline-builder/api-core`, which is not
  * exported on the browser-safe `ai-catalog` subpath.
  */
 export const OPENAI_COMPATIBLE_PROVIDER_ID = 'openai-compatible';
 
-/** True when the selected provider routes generation through the Ask agent. */
-export function isAskAgentProvider(providerId: string): boolean {
+/** True when the selected provider routes generation through the Ask agent (`streamAgentDraft`). */
+export function routesViaAskAgent(providerId: string): boolean {
   return providerId === ASK_AGENT_PROVIDER_ID;
 }
 
@@ -98,6 +115,7 @@ export { AI_PROVIDER_NAMES };
  */
 export function getProviderSourceLabel(provider: AIProviderInfo): string {
   if (provider.source === 'none') return 'API key required';
-  if (provider.source === 'agent') return 'default';
+  if (provider.unavailable) return 'unavailable';
+  if (provider.source === 'local') return 'default';
   return provider.source;
 }

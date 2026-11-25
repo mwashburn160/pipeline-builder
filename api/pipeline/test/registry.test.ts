@@ -90,6 +90,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
       id: 'id',
       orgId: 'org_id',
     },
+    pipelineEvent: { pipelineId: 'pipeline_id', orgId: 'org_id' },
   },
 }));
 
@@ -788,38 +789,54 @@ describe('POST /pipelines/registry', () => {
  * unless the page says so.
  */
 describe('findRegistrationStatus', () => {
-  const oneRow = (row: unknown[]) => {
-    mockSelect.mockImplementation(() => ({
-      from: jest.fn<AnyFn>().mockImplementation(() => ({
-        where: jest.fn<AnyFn>().mockImplementation(() => Promise.resolve(row)),
-      })),
-    }));
+  /** Call 1 = the registry row; call 2 = whether any event was ever ingested for the pipeline. */
+  const rows = (registry: unknown[], events: unknown[] = []) => {
+    let call = 0;
+    mockSelect.mockImplementation(() => {
+      call++;
+      const result = call === 1 ? registry : events;
+      return {
+        from: jest.fn<AnyFn>().mockImplementation(() => ({
+          where: jest.fn<AnyFn>().mockImplementation(() => Object.assign(Promise.resolve(result), {
+            limit: jest.fn<AnyFn>().mockImplementation(() => Promise.resolve(result)),
+          })),
+        })),
+      };
+    });
   };
 
   it('reports registered, with the deploy metadata, when a row exists', async () => {
     const lastDeployed = new Date('2026-03-01T00:00:00Z');
-    oneRow([{ lastDeployed, stackName: 'pb-web', region: 'us-east-1' }]);
+    rows([{ lastDeployed, stackName: 'pb-web', region: 'us-east-1' }], [{ one: 1 }]);
     expect(await pipelineRegistryService.findRegistrationStatus('11111111-1111-4111-8111-111111111111', 'org-1')).toEqual({
       registered: true,
       lastDeployed: lastDeployed.toISOString(),
       stackName: 'pb-web',
       region: 'us-east-1',
+      hasEvents: true,
     });
   });
 
-  it('reports NOT registered — the reason a pipeline shows empty reports', async () => {
-    oneRow([]);
+  it('reports NOT registered and never reported — a pipeline that was never deployed', async () => {
+    rows([], []);
     expect(await pipelineRegistryService.findRegistrationStatus('11111111-1111-4111-8111-111111111111', 'org-1')).toEqual({
-      registered: false, lastDeployed: null, stackName: null, region: null,
+      registered: false, lastDeployed: null, stackName: null, region: null, hasEvents: false,
+    });
+  });
+
+  it('reports NOT registered but with past events — deployed, its registration since removed', async () => {
+    rows([], [{ one: 1 }]);
+    expect(await pipelineRegistryService.findRegistrationStatus('11111111-1111-4111-8111-111111111111', 'org-1')).toEqual({
+      registered: false, lastDeployed: null, stackName: null, region: null, hasEvents: true,
     });
   });
 
   it('nulls absent optional columns rather than reporting undefined', async () => {
     // A registered-but-never-deployed row is a real state: the page must render it
     // without treating `undefined` as "not registered".
-    oneRow([{ lastDeployed: null, stackName: null, region: null }]);
+    rows([{ lastDeployed: null, stackName: null, region: null }]);
     expect(await pipelineRegistryService.findRegistrationStatus('11111111-1111-4111-8111-111111111111', 'org-1')).toEqual({
-      registered: true, lastDeployed: null, stackName: null, region: null,
+      registered: true, lastDeployed: null, stackName: null, region: null, hasEvents: false,
     });
   });
 });

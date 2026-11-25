@@ -14,7 +14,7 @@
  */
 
 import type { KeyObject } from 'node:crypto';
-import { RUN_REQUEST_ISS, RUN_REQUEST_TTL_MS, RUN_REQUEST_TYP, RUNNER_KEY_CACHE_MS, type RunClaims, type RunnerAction } from '@pipeline-builder/api-core/pipeline-runners';
+import { RUN_REQUEST_ISS, RUN_REQUEST_TTL_MS, RUN_REQUEST_TYP, RUNNER_KEY_CACHE_MS, type RunClaims, type RunDeployClaim, type RunnerAction } from '@pipeline-builder/api-core/pipeline-runners';
 import { ed25519Jwk, signEdDsaJws, type Ed25519Jwk } from './jws.js';
 
 /** The signed request's fixed protocol fields. */
@@ -31,6 +31,11 @@ export interface RunRequestClaimsInput {
   pipelineId?: string;
   hint?: { region: string; pipelineName: string };
   executionId?: string;
+  /** deploy / undeploy: what the runner's CodeBuild job runs (carries the single-use grant — never logged). */
+  deploy?: RunDeployClaim;
+  /** deploy_status / deploy_cancel: the deploy request asked about, and its build. */
+  deployRequestId?: string;
+  buildId?: string;
   requestedBy: string;
   /** The request's own expiry: the token never outlives it. */
   expiresAt?: Date;
@@ -66,6 +71,9 @@ export function createRunRequestSigner(current: KeyObject, previous: KeyObject |
         ...(input.pipelineId ? { pipelineId: input.pipelineId } : {}),
         ...(input.hint ? { hint: input.hint } : {}),
         ...(input.executionId ? { executionId: input.executionId } : {}),
+        ...(input.deploy ? { deploy: input.deploy } : {}),
+        ...(input.deployRequestId ? { deployRequestId: input.deployRequestId } : {}),
+        ...(input.buildId ? { buildId: input.buildId } : {}),
         requestedBy: input.requestedBy,
       };
       return signEdDsaJws({ typ: RUN_REQUEST_TYP, kid: currentJwk.kid }, claims, current);

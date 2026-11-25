@@ -22,12 +22,12 @@ export type AIKeySource = 'platform' | 'org' | 'request';
  * (`useAIProviders`). Precedence matches the backend: the caller's own key >
  * the org's key > the platform's.
  *
- * The Ask-agent entry takes no key override (its delegated generation cannot
- * forward one), so a key left typed in the hidden override field is ignored
- * there — exactly as the surfaces ignore it when they send the request.
+ * The "Local model" entry takes no key override (the Ask agent's delegated
+ * generation cannot forward one, and the local provider is keyless), so a key
+ * left typed in the hidden override field is ignored there.
  */
 export function aiKeySource(ai: { customApiKey: string; currentSource?: string }): AIKeySource {
-  if (ai.currentSource === 'agent') return 'platform';
+  if (ai.currentSource === 'local') return 'platform';
   if (ai.customApiKey.trim()) return 'request';
   if (ai.currentSource === 'org') return 'org';
   return 'platform';

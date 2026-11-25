@@ -1,6 +1,6 @@
 // GENERATED FROM docs/runbooks/secret-rotation.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: a573a8e703ce6c45d7dc3ec951c43c543afc475ff37636ab71d7bb5337325bdf
+// SOURCE-SHA256: b33bc78a45b569768992462061fbded168ab7a4be731ec1eb76c43413ad72200
 // SPDX-License-Identifier: Apache-2.0
 import { KeyRound } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1301,7 +1301,7 @@ export const runbookSecretRotationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Org admins do this themselves, in Settings → Organization → Pipeline runners → Signing key, or with pipeline-manager runner signing-key rotate. Every key write needs org_settings:write, an MFA-grade session and a step-up, and is limited to 5 per org per hour. The limit fails closed: while its Redis store is unreachable key writes answer 503 rather than go unlimited. Key writes work while Pause all pipeline runs is on (the pause stops deliveries, not key changes), so an admin can rotate or revoke during an incident. The server enforces the timing, not the operator."
+          "content": "Org admins do this themselves, in Settings → Organization → Pipelines → Pipeline runners → Signing key, or with pipeline-manager runner signing-key rotate. Every key write needs org_settings:write, an MFA-grade session and a step-up, and is limited to 5 per org per hour. The limit fails closed: while its Redis store is unreachable key writes answer 503 rather than go unlimited. Key writes work while Pause all pipeline runs is on (the pause stops deliveries, not key changes), so an admin can rotate or revoke during an incident. The server enforces the timing, not the operator."
         },
         {
           "type": "list",
@@ -1485,6 +1485,92 @@ export const runbookSecretRotationTopic: HelpTopic = {
         {
           "type": "text",
           "content": "created active; the org's runners pick it up from their JWKS, so nothing changes in the customer's account."
+        },
+        {
+          "type": "text",
+          "content": "Deploy grants and sessions"
+        },
+        {
+          "type": "text",
+          "content": "A deploy through a runner uses two platform credentials, neither of which is rotated, because neither lives long enough to need it:"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Credential",
+            "Lifetime",
+            "Where it is"
+          ],
+          "rows": [
+            [
+              "Deploy grant (pb_dg_…, 32 random bytes)",
+              "Single use, and expires after the deploy project's queue timeout (30 min) plus a 15-minute provisioning margin, never less than the 10-minute delivery lifetime.",
+              "Minted when the deploy is queued; the platform stores its sha256 and a copy encrypted with the org's secret key (for re-signing on redelivery), wiped at the exchange or at any terminal status. It rides inside the signed request; the runner Lambda KMS-encrypts it (key DeployGrantKey in the runner stack, context {runnerId, purpose: deploy-grant}) before StartBuild, so the account only ever sees ciphertext. The job decrypts it, exchanges it and scrubs it from its environment."
+            ],
+            [
+              "Deploy session (pb_ds_…)",
+              "Until the deploy's deadline (RUNNER_DEPLOY_DEADLINE_MINUTES), and revoked at any terminal status (its hash is nulled).",
+              "Returned once by the exchange (Cache-Control: no-store, body only). It reaches only that deploy's facade under /api/pipelines/runner/deploys/:requestId/… (the path id must match)."
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Nothing to rotate: a leaked grant is useless once exchanged or expired, and a leaked session dies with its deploy. An exchange after expiry is refused as DEPLOY_GRANT_EXPIRED (reason=\"expired\"), which is a slow queue, not an attack."
+        },
+        {
+          "type": "text",
+          "content": "Responding to RunnerDeployGrantReuse (critical: a grant was presented again after its exchange, pipeline_runner_deploy_grant_rejections_total{reason=\"reused\"}):"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Find the deploy: the pipeline.deploy.grant_reuse audit event names the pipeline, request and runner (system actor)."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "The original exchange already succeeded, so the deploy itself ran under its own session."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Cancel the deploy if it is still running (pipeline page → Cancel deploy, or POST /pipelines/:id/deploys/:requestId/cancel):"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "that revokes its session. A finished deploy's session is already revoked."
+        },
+        {
+          "type": "list",
+          "items": [
+            "In the runner's account, treat the replay as a sign that something other than the job decrypted the grant:"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "check CloudTrail for kms:Decrypt on DeployGrantKey by any principal other than the stack's DeployRole (the key policy allows only it), for edits to the key policy, the DeployRole or the DeployProject, and for StartBuild calls not made by the RunnerRole."
+        },
+        {
+          "type": "list",
+          "items": [
+            "If the account is suspect, turn deploys off for that runner (re-run pipeline-manager infra setup-runner without"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "--enable-deploy) or revoke it from Settings → Organization → Pipelines → Pipeline runners, and review the stacks its deploys created (pb.pipeline-id tags)."
+        },
+        {
+          "type": "list",
+          "items": [
+            "A job that ran twice (a CodeBuild retry) also triggers it: its second exchange is refused and it fails"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "DEPLOY_GRANT_REJECTED without deploying. Confirm with the build history of pipeline-builder-runner-deploy-<runnerId>."
         },
         {
           "type": "text",

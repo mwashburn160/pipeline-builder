@@ -7,7 +7,7 @@ import {
   pluginArtifactAlias, pluginLookupFilter, pluginTargetIdentity, summarizeLookupWarnings, unwrapLookup,
 } from '@pipeline-builder/pipeline-core';
 import pico from 'picocolors';
-import { ApiClient } from './api-client.js';
+import type { PlatformReadClient } from './api-client.js';
 import { printWarning } from './output-utils.js';
 
 /** Minimal plugin reference shape — matches PluginOptions from pipeline-core. */
@@ -260,7 +260,7 @@ function serviceMessage(err: unknown): string | null {
  * Keyed by `pluginArtifactAlias` to match `PluginLookup.plugin()`.
  */
 export async function resolvePluginsForProps(
-  client: ApiClient,
+  client: PlatformReadClient,
   props: Record<string, unknown>,
   warningSink?: LookupWarning[],
   toolchainSink?: Record<string, LookupToolchain>,

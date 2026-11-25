@@ -20,6 +20,7 @@ import UploadConfigTab, { UploadConfigTabRef } from './UploadConfigTab';
 import FormBuilderTab, { FormBuilderTabRef } from './FormBuilderTab';
 import { WIZARD_STEPS } from '@/lib/wizard-validation';
 import { JsonPreviewPanel } from './JsonPreviewPanel';
+import { DeployNextStep } from './PipelineDeployGuidance';
 import { useBuilderWizard } from '@/hooks/useBuilderWizard';
 import { useIsDirty } from '@/hooks/useIsDirty';
 
@@ -41,6 +42,12 @@ interface CreatePipelineModalProps {
   canPublish: boolean;
   /** Optional pre-filled Git URL (opens on Git URL tab and starts generation). */
   initialGitUrl?: string;
+  /**
+   * The pipeline the last submit created. When set the modal shows the next
+   * step — deploy it — in place of the form: a created pipeline is only a
+   * config, and nothing runs or reports until it is deployed.
+   */
+  createdPipelineId?: string | null;
 }
 
 /**
@@ -52,7 +59,7 @@ interface CreatePipelineModalProps {
  */
 export default function CreatePipelineModal({
   isOpen, onClose, onSubmit,
-  createLoading, createError, createSuccess, canPublish, initialGitUrl,
+  createLoading, createError, createSuccess, canPublish, initialGitUrl, createdPipelineId,
 }: CreatePipelineModalProps) {
   const [activeTab, setActiveTab] = useState<'upload' | 'form' | 'ai' | 'prompt'>('ai');
   // AI generation is a paid feature. The two AI tabs (Git URL, From prompt) hit a
@@ -302,6 +309,25 @@ export default function CreatePipelineModal({
       </div>
     </div>
   );
+
+  // Created: the form is done with; what matters now is deploying it.
+  if (createdPipelineId) {
+    return (
+      <Modal
+        title="Pipeline created"
+        onClose={onClose}
+        maxWidth="max-w-2xl"
+        footer={(
+          <div className="flex items-center justify-end">
+            <Button onClick={onClose}>Done</Button>
+          </div>
+        )}
+      >
+        <SuccessAlert message={createSuccess} className="mb-4" />
+        <DeployNextStep pipelineId={createdPipelineId} />
+      </Modal>
+    );
+  }
 
   return (
     <Modal

@@ -29,6 +29,7 @@ import { queries } from '@/lib/api-cache';
 import type { PipelineDeployment } from '@/lib/api/domains/pipelines';
 import type { Pipeline } from '@/types';
 import { RegisterDeploymentModal, type PipelineConfig } from '@/components/deployments/RegisterDeploymentModal';
+import { useOpenOnCreateQuery } from '@/hooks/useOpenOnCreateQuery';
 
 /** The config columns drift + the register modal need — the whole set is
  *  drained (see `queries.allPipelines`), so it stays narrow. */
@@ -245,8 +246,16 @@ export default function DeploymentsPage() {
 
   // ── Register ──
   const [showRegister, setShowRegister] = useState(false);
+  // The pipeline the form opens on: `?register=<pipelineId>` (the pipeline
+  // page's link for a deployed pipeline with no registration).
+  const [registerFor, setRegisterFor] = useState<string | undefined>(undefined);
 
-  const openRegister = () => setShowRegister(true);
+  const openRegister = () => { setRegisterFor(undefined); setShowRegister(true); };
+  useOpenOnCreateQuery((pipelineId) => {
+    if (!canWrite) return;
+    setRegisterFor(pipelineId || undefined);
+    setShowRegister(true);
+  }, isReady && !!user, 'register');
 
   const handleSort = useCallback((columnId: string, direction: 'asc' | 'desc') => {
     setSort({ col: columnId, dir: direction });
@@ -470,6 +479,7 @@ export default function DeploymentsPage() {
       {showRegister && (
         <RegisterDeploymentModal
           configs={configs}
+          initialPipelineId={registerFor}
           onClose={() => setShowRegister(false)}
           onRegistered={() => {
             // Re-read the registry (the server upserts by pipelineId, so the

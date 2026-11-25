@@ -151,7 +151,7 @@ describe('listRunners / runnerDto', () => {
     const { own: o, inherited } = await listRunners(deps, ORG);
     expect(o).toEqual([expect.objectContaining({ id: own.id, functionUrl: URL_A })]);
     expect(inherited).toEqual([expect.objectContaining({ id: inh.id, functionUrl: null, fromOrgId: PARENT, fromOrgName: expect.any(String) })]);
-    expect(Object.keys(runnerDto(own, ORG)).sort()).toEqual(['createdAt', 'functionUrl', 'health', 'id', 'jwksUrl', 'label', 'lastDeliveryAt', 'orgId', 'pipelineCount', 'regions', 'shareWithTeams', 'status', 'updateRequired', 'version'].sort());
+    expect(Object.keys(runnerDto(own, ORG)).sort()).toEqual(['capabilities', 'createdAt', 'functionUrl', 'health', 'id', 'jwksUrl', 'label', 'lastDeliveryAt', 'orgId', 'pipelineCount', 'pipelinePrefixes', 'regions', 'shareDeploysWithTeams', 'shareWithTeams', 'status', 'updateRequired', 'version'].sort());
   });
 
   it('each runner carries its pipelineCount (the pipelines linked to it) and its own JWKS URL', async () => {

@@ -64,6 +64,7 @@ const runner = (over: Partial<PipelineRunner> = {}): PipelineRunner => ({
   version: '1.2.0', regions: ['us-east-1', 'eu-west-2'], health: 'healthy', status: 'active',
   lastDeliveryAt: '2026-11-17T00:00:00Z', createdAt: '2026-11-01T00:00:00Z', updateRequired: false,
   jwksUrl: jwksOf(over.id ?? 'r1'), pipelineCount: 0,
+  capabilities: [], shareDeploysWithTeams: false, pipelinePrefixes: [],
   ...over,
 });
 const dto = (over: Partial<PipelineRunnersDto> = {}): PipelineRunnersDto => ({
@@ -104,7 +105,7 @@ describe('PipelineRunnersSettings — what it shows', () => {
   it('is anchored for the pipeline page\'s links', async () => {
     const { container } = render(<PipelineRunnersSettings orgId="org-1" />);
     expect(await screen.findByText('Pipeline runners')).toBeInTheDocument();
-    expect(PIPELINE_RUNNERS_HREF).toBe(`/dashboard/settings?tab=organization#${PIPELINE_RUNNERS_ANCHOR}`);
+    expect(PIPELINE_RUNNERS_HREF).toBe(`/dashboard/settings?tab=organization&section=pipelines#${PIPELINE_RUNNERS_ANCHOR}`);
     expect(container.querySelector(`#${PIPELINE_RUNNERS_ANCHOR}`)).not.toBeNull();
   });
 
@@ -488,5 +489,45 @@ describe('PipelineRunnersSettings — per-runner keys, linked pipelines, health'
     render(<PipelineRunnersSettings orgId="org-1" />);
     await screen.findByTestId('runner-r1');
     expect(screen.queryByTestId('runners-unhealthy-banner')).not.toBeInTheDocument();
+  });
+});
+
+describe('PipelineRunnersSettings — deploys through a runner', () => {
+  it('a runner set up with --enable-deploy is badged "Deploys enabled"; one without is not', async () => {
+    api.getPipelineRunners.mockResolvedValue(ok(dto({ own: [runner({ capabilities: ['deploy:1'] }), runner({ id: 'r2', label: 'Staging' })] })));
+    render(<PipelineRunnersSettings orgId="org-1" />);
+    const card = await screen.findByTestId('runner-r1');
+    expect(within(card).getByText('Deploys enabled')).toBeInTheDocument();
+    expect(within(screen.getByTestId('runner-r2')).queryByText('Deploys enabled')).not.toBeInTheDocument();
+  });
+
+  it('"Teams may deploy through it": PATCH { shareDeploysWithTeams } behind the step-up, ON needs the widening tick', async () => {
+    api.getPipelineRunners.mockResolvedValue(ok(dto({ own: [runner({ capabilities: ['deploy:1'], shareWithTeams: true })] })));
+    render(<PipelineRunnersSettings orgId="org-1" />);
+    fireEvent.click(await screen.findByRole('switch', { name: /Teams may deploy through it/ }));
+    expect(within(dialog()).getByRole('heading')).toHaveTextContent(/Let teams deploy through Production/);
+    expect(within(dialog()).getByText(/deploy their pipelines into this AWS account/)).toBeInTheDocument();
+    expect(within(dialog()).getByRole('button', { name: 'Confirm step-up' })).toBeDisabled();
+    fireEvent.click(within(dialog()).getByRole('checkbox'));
+    confirmStepUp();
+    await waitFor(() => expect(api.updatePipelineRunner).toHaveBeenCalledWith('r1', { shareDeploysWithTeams: true }, 'tok'));
+  });
+
+  it('turning team deploys OFF needs no tick', async () => {
+    api.getPipelineRunners.mockResolvedValue(ok(dto({ own: [runner({ capabilities: ['deploy:1'], shareWithTeams: true, shareDeploysWithTeams: true })] })));
+    render(<PipelineRunnersSettings orgId="org-1" />);
+    fireEvent.click(await screen.findByRole('switch', { name: /Teams may deploy through it/ }));
+    confirmStepUp();
+    await waitFor(() => expect(api.updatePipelineRunner).toHaveBeenCalledWith('r1', { shareDeploysWithTeams: false }, 'tok'));
+  });
+
+  it('the team-deploys toggle needs deploys enabled and the runner shared with teams', async () => {
+    api.getPipelineRunners.mockResolvedValue(ok(dto({ own: [
+      runner({ capabilities: ['deploy:1'], shareWithTeams: false }),
+      runner({ id: 'r2', label: 'Staging', capabilities: [], shareWithTeams: true }),
+    ] })));
+    render(<PipelineRunnersSettings orgId="org-1" />);
+    await screen.findByTestId('runner-r1');
+    expect(screen.queryByRole('switch', { name: /Teams may deploy through it/ })).not.toBeInTheDocument();
   });
 });

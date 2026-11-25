@@ -43,6 +43,12 @@ const mockRecordAudit = jest.fn<(e: unknown) => void>();
 const mockVerifyServicePrincipal = jest.fn<(req: unknown) => boolean>().mockReturnValue(true);
 const mockResolveOrgRollup = jest.fn<(orgId: string) => Promise<string[] | undefined>>();
 
+// First-event self-registration: the internal call to the pipeline service.
+const mockRegisterFirstEvent = jest.fn<(pipelines: unknown, allowedOrgIds: unknown) => Promise<string[]>>().mockResolvedValue([]);
+jest.unstable_mockModule('../src/services/first-event-registration.js', () => ({
+  registerFirstEventPipelines: (pipelines: unknown, allowedOrgIds: unknown) => mockRegisterFirstEvent(pipelines, allowedOrgIds),
+}));
+
 jest.unstable_mockModule('../src/helpers/report-helpers.js', () => ({
   resolveOrgRollup: (orgId: string) => mockResolveOrgRollup(orgId),
 }));
@@ -108,6 +114,7 @@ describe('POST /reports/events', () => {
     jest.clearAllMocks();
     mockVerifyServicePrincipal.mockReturnValue(true);
     mockResolveOrgRollup.mockResolvedValue(undefined);
+    mockRegisterFirstEvent.mockResolvedValue([]);
     // A real send spy: the live-execution fan-out is a behaviour of this route,
     // and it was passing an empty manager that swallowed everything.
     router = createEventIngestRoutes({ send: mockSseSend } as never);
@@ -538,6 +545,111 @@ describe('POST /reports/events', () => {
       });
       await getHandler()(ingestReq(), res());
       expect(mockIncCounter).toHaveBeenCalledWith('reporting_ingest_invalid_time_dropped_total', expect.anything());
+    });
+  });
+
+  /**
+   * First-event self-registration. A pipeline created in the dashboard and
+   * deployed by anything but `pipeline-manager pipeline deploy` had no registry
+   * row, so every event it sent was skipped and its reports stayed empty. The
+   * route now asks the pipeline service to register such pipelines (tagged,
+   * same org, live — the pipeline service enforces that) and ingests the events
+   * it registered. A failed registration keeps today's skip + metric.
+   */
+  describe('first-event self-registration', () => {
+    const PID = '11111111-1111-4111-8111-111111111111';
+    const PID2 = '22222222-2222-4222-8222-222222222222';
+    const tagged = (pipelineId: string, over: Record<string, unknown> = {}) => ({
+      pipelineId, eventSource: 'codepipeline', eventType: 'PIPELINE', status: 'STARTED', region: 'us-east-1', ...over,
+    });
+    const result = (over: Record<string, unknown> = {}) => ({
+      inserted: 0,
+      skipped: 0,
+      unregisteredPipelineIds: [],
+      affectedOrgs: [],
+      droppedForeignOrg: 0,
+      droppedInvalidTime: 0,
+      foreignPipelineIds: [],
+      insertedPipelineIds: [],
+      insertedExecutionIds: [],
+      ...over,
+    });
+    const orgCaller = { user: { sub: 'u-1', scope: 'reporting:ingest', organizationId: 'acme' } };
+    beforeEach(() => {
+      mockVerifyServicePrincipal.mockReturnValue(false);
+      mockResolveOrgRollup.mockResolvedValue(['acme', 'team-a']);
+    });
+
+    it('registers an unregistered tagged pipeline, then ingests its events instead of skipping them', async () => {
+      mockIngestEvents
+        .mockResolvedValueOnce(result({ skipped: 2, unregisteredPipelineIds: [PID, PID] }))
+        .mockResolvedValueOnce(result({ inserted: 2, affectedOrgs: ['acme'], insertedPipelineIds: [PID] }));
+      mockRegisterFirstEvent.mockResolvedValueOnce([PID]);
+
+      const events = [tagged(PID), tagged(PID, { eventType: 'STAGE', stageName: 'Build', status: 'SUCCEEDED' })];
+      await getHandler()(ingestReq({ ...orgCaller, body: { events } }), res());
+
+      // Offered once per pipeline, with the event's region, for the caller's allowed orgs.
+      expect(mockRegisterFirstEvent).toHaveBeenCalledWith([{ pipelineId: PID, region: 'us-east-1' }], ['acme', 'team-a']);
+      expect(mockIngestEvents).toHaveBeenCalledTimes(2);
+      const retried = (mockIngestEvents.mock.calls[1] as unknown[])[0] as Array<Record<string, unknown>>;
+      expect(retried).toHaveLength(2);
+      expect(retried.every((e) => e.pipelineId === PID && !('region' in e))).toBe(true);
+      // The same tenancy allow-list on the second pass.
+      expect((mockIngestEvents.mock.calls[1] as unknown[])[2]).toEqual({ allowedOrgIds: ['acme', 'team-a'] });
+      expect(mockSendSuccess).toHaveBeenCalledWith(expect.anything(), 200, { inserted: 2, skipped: 0, total: 2 });
+      expect(mockIncCounter).not.toHaveBeenCalledWith('reporting_ingest_rejected_total', { reason: 'unregistered_pipeline' }, expect.anything());
+      expect(mockSseSend).toHaveBeenCalledWith('acme', 'MESSAGE', 'execution-updated', expect.any(Object));
+    });
+
+    it('re-ingests only the pipelines that registered; the rest stay skipped and counted', async () => {
+      mockIngestEvents
+        .mockResolvedValueOnce(result({ skipped: 2, unregisteredPipelineIds: [PID, PID2] }))
+        .mockResolvedValueOnce(result({ inserted: 1, affectedOrgs: ['acme'] }));
+      mockRegisterFirstEvent.mockResolvedValueOnce([PID]);
+
+      await getHandler()(ingestReq({ ...orgCaller, body: { events: [tagged(PID), tagged(PID2)] } }), res());
+
+      const retried = (mockIngestEvents.mock.calls[1] as unknown[])[0] as Array<Record<string, unknown>>;
+      expect(retried.map((e) => e.pipelineId)).toEqual([PID]);
+      expect(mockSendSuccess).toHaveBeenCalledWith(expect.anything(), 200, { inserted: 1, skipped: 1, total: 2 });
+      expect(mockIncCounter).toHaveBeenCalledWith('reporting_ingest_rejected_total', { reason: 'unregistered_pipeline' }, 1);
+    });
+
+    it('fails safe: nothing registered keeps today\'s skip and metric, with no second ingest', async () => {
+      mockIngestEvents.mockResolvedValueOnce(result({ skipped: 1, unregisteredPipelineIds: [PID] }));
+      mockRegisterFirstEvent.mockResolvedValueOnce([]);
+
+      await getHandler()(ingestReq({ ...orgCaller, body: { events: [tagged(PID)] } }), res());
+
+      expect(mockIngestEvents).toHaveBeenCalledTimes(1);
+      expect(mockSendSuccess).toHaveBeenCalledWith(expect.anything(), 200, { inserted: 0, skipped: 1, total: 1 });
+      expect(mockIncCounter).toHaveBeenCalledWith('reporting_ingest_rejected_total', { reason: 'unregistered_pipeline' }, 1);
+    });
+
+    it('never offers a non-uuid id or a non-CodePipeline event (no pb.pipeline-id tag behind it)', async () => {
+      mockIngestEvents.mockResolvedValueOnce(result({ skipped: 2, unregisteredPipelineIds: ['not-a-uuid', PID2] }));
+
+      await getHandler()(ingestReq({ ...orgCaller, body: { events: [tagged('not-a-uuid'), tagged(PID2, { eventSource: 'plugin-build', status: 'completed', eventType: 'BUILD' })] } }), res());
+
+      expect(mockRegisterFirstEvent).not.toHaveBeenCalled();
+    });
+
+    it('never self-registers for a cross-tenant service caller (no org the events were authenticated for)', async () => {
+      mockVerifyServicePrincipal.mockReturnValue(true);
+      mockIngestEvents.mockResolvedValueOnce(result({ skipped: 1, unregisteredPipelineIds: [PID] }));
+
+      await getHandler()(ingestReq({ body: { events: [tagged(PID)] } }), res());
+
+      expect(mockRegisterFirstEvent).not.toHaveBeenCalled();
+    });
+
+    it('never self-registers when the token carries no org', async () => {
+      mockIngestEvents.mockResolvedValueOnce(result({ skipped: 1, unregisteredPipelineIds: [PID] }));
+
+      await getHandler()(ingestReq({ user: { sub: 'u-1', scope: 'reporting:ingest' }, body: { events: [tagged(PID)] } }), res());
+
+      expect(mockRegisterFirstEvent).not.toHaveBeenCalled();
     });
   });
 

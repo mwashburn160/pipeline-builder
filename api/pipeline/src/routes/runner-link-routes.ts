@@ -80,6 +80,7 @@ export async function runnerLinkDto(deps: RunnerDeps, pipelineId: string, orgId:
       lastDeliveryAt: runner.lastDeliveryAt ? runner.lastDeliveryAt.toISOString() : null,
       ownerOrgName,
       isOwn,
+      capabilities: runner.capabilities ?? [],
     } : null,
     checkedAt: link.linkCheckedAt ? link.linkCheckedAt.toISOString() : null,
     detail: link.linkDetail ?? null,

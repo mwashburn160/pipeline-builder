@@ -6,6 +6,8 @@
  * and dismiss-flag handling — all kept side-effect-free for unit testing.
  */
 
+import { orgSettingsHref } from '@/lib/org-settings-sections';
+
 const DISMISS_KEY_PREFIX = 'pb-onboarding-dismissed';
 const VISITED_PLUGINS_KEY_PREFIX = 'pb-onboarding-visited-plugins';
 
@@ -60,9 +62,9 @@ export function isFreshAccount(
   return true;
 }
 
-/** Settings → Organization → Pipeline runners (kept here, not imported, so this
- *  module stays free of the runner copy). */
-const PIPELINE_RUNNERS_SETTINGS_HREF = '/dashboard/settings?tab=organization#pipeline-runners';
+/** Settings → Organization → Pipelines → Pipeline runners (the anchor is kept
+ *  here, not imported, so this module stays free of the runner copy). */
+const PIPELINE_RUNNERS_SETTINGS_HREF = orgSettingsHref('pipelines', 'pipeline-runners');
 
 /** Compute the current step state. Every pipeline runs through a runner, so
  *  "Install a runner" comes before "Run your first pipeline". */

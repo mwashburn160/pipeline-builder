@@ -6,11 +6,13 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import {
   SYSTEM_ACTOR_ID, checkWriteAccess, ConcurrencyConflictError, ConflictError, ErrorCode, ForbiddenError, NotFoundError, ValidationError, VISIBILITY_WRITE_REFUSAL, entityEvents, createCacheService, createLogger, errorMessage,
   isManagedToolchainPlugin,
+  MANAGED_TOOLCHAIN,
   toComplianceAttributes, versionScanFacts, type VulnSeverity,
   type MetadataSources,
   type VisibilityWriteRefusal,
   type WriteAccess,
 } from '@pipeline-builder/api-core';
+import { deployJobProtocolFromMetadata } from '@pipeline-builder/api-core/pipeline-runners';
 import { CoreConstants, ComputeType, PluginType, pluginImageRepository } from '@pipeline-builder/pipeline-core';
 import {
   CrudService, buildPluginConditions, distinctPipelines, executeRows, findVersionReferences, parseSemver, pluginResolutionOrderBy,
@@ -1364,7 +1366,16 @@ export class PluginService extends CrudService<
       // half never lands without its release row. RLS admits it: only the
       // system org reaches this branch (asserted above), and the release tables
       // are writable by the system org's own scope. Never a default.
-      if (managed) {
+      // The cdk-synth half also records the deploy-job protocol its image ships
+      // (its metadata's DEPLOY_JOB_PROTOCOL_METADATA_KEY; null without one): what
+      // decides whether a pipeline pinned to the release can be deployed through
+      // a runner. A managed version is never overwritten, so this is set once.
+      if (managed && data.name === MANAGED_TOOLCHAIN.synth) {
+        const deployJobProtocol = deployJobProtocolFromMetadata(data.metadata);
+        await tx.insert(schema.toolchainRelease)
+          .values({ releaseVersion: version, createdBy: userId, deployJobProtocol })
+          .onConflictDoUpdate({ target: schema.toolchainRelease.releaseVersion, set: { deployJobProtocol } });
+      } else if (managed) {
         await tx.insert(schema.toolchainRelease)
           .values({ releaseVersion: version, createdBy: userId })
           .onConflictDoNothing({ target: schema.toolchainRelease.releaseVersion });

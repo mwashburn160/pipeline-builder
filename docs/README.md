@@ -165,7 +165,7 @@ Look things up.
 
 ### Dashboard and AI
 
-The web UI at `https://localhost:8443` provides visual pipeline and plugin management. The AI builder analyzes a Git repository (or a natural-language prompt) and generates the right stages and plugins automatically, streaming results over SSE. It works across five providers — Anthropic, OpenAI, Google, xAI, and Amazon Bedrock — and can fall back to a secondary provider if the primary one is unavailable. The create dialogs default to **Ask agent**, which drafts the pipeline or plugin through the Ask assistant's tools (with the chosen server-configured model) for you to review; pick a provider directly to call its generator instead.
+The web UI at `https://localhost:8443` provides visual pipeline and plugin management. The AI builder analyzes a Git repository (or a natural-language prompt) and generates the right stages and plugins automatically, streaming results over SSE. It works across five providers — Anthropic, OpenAI, Google, xAI, and Amazon Bedrock — and can fall back to a secondary provider if the primary one is unavailable. The create dialogs default to **Local model**, your self-hosted model: while the Ask agent serves the self-hosted model and answers its availability check, the draft goes through the Ask assistant's tools (grounded in the platform docs), otherwise straight to the local OpenAI-compatible provider; pick another provider to call its generator instead.
 
 **Default credentials** (created by `init-platform.sh docker` on a fresh install):
 

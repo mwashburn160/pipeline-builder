@@ -4414,3 +4414,84 @@ tests:
       - eval_time: 30m
         alertname: BillingStripeWebhookEventsMissing
         exp_alerts: []
+
+  # --- Deploys through a runner -------------------------------------------------
+
+  # A reused deploy grant pages at once (the series is primed at zero on boot).
+  - interval: 1m
+    input_series:
+      - series: 'pipeline_runner_deploy_grant_rejections_total{reason="reused",service="pipeline",pod="pipeline-a"}'
+        values: '0x10 1x20'
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: RunnerDeployGrantReuse
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: RunnerDeployGrantReuse
+        exp_alerts:
+          - exp_labels: { severity: critical, component: pipeline, tenancy: platform }
+            exp_annotations:
+              summary: "A runner deploy grant was presented again after its exchange"
+              description: "A deploy job grant was exchanged a second time in the last 15 minutes (pipeline_runner_deploy_grant_rejections_total{reason=\"reused\"}). Grants are single use and only ever travel inside a signed run request, so a reuse means a grant leaked from a runner's account or the platform. Find the deploy in the audit log (pipeline.deploy.grant_reuse: requestId, runnerId), check that runner's CodeBuild project and KMS key policy in the customer account, and cancel the deploy if it is still running. See docs/aws-deployment.md (Deploying a pipeline through a runner)."
+
+  # Expired, unknown and wrong-state grant refusals never page as a reuse.
+  - interval: 1m
+    input_series:
+      - series: 'pipeline_runner_deploy_grant_rejections_total{reason="reused",service="pipeline",pod="pipeline-a"}'
+        values: '0x40'
+      - series: 'pipeline_runner_deploy_grant_rejections_total{reason="expired",service="pipeline",pod="pipeline-a"}'
+        values: '0+1x40'
+      - series: 'pipeline_runner_deploy_grant_rejections_total{reason="unknown",service="pipeline",pod="pipeline-a"}'
+        values: '0+2x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: RunnerDeployGrantReuse
+        exp_alerts: []
+
+  # Platform-class deploy failures warn; customer-side classes (account setup,
+  # CloudFormation) never do.
+  - interval: 1m
+    input_series:
+      - series: 'pipeline_runner_deploy_failures_total{class="platform",service="pipeline",pod="pipeline-a"}'
+        values: '0x30 1 2 3 4x30'
+      - series: 'pipeline_runner_deploy_failures_total{class="account_setup",service="pipeline",pod="pipeline-a"}'
+        values: '0+5x60'
+    alert_rule_test:
+      - eval_time: 32m
+        alertname: RunnerDeployPlatformFailures
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: RunnerDeployPlatformFailures
+        exp_alerts:
+          - exp_labels: { severity: warning, component: pipeline, tenancy: platform }
+            exp_annotations:
+              summary: "4 runner deploys failed for a platform reason in 30 minutes"
+              description: "Deploys through pipeline runners are failing with platform-class codes (DEPLOY_GRANT_REJECTED, DEPLOY_GRANT_EXPIRED, PIPELINE_FETCH_FAILED, or a delivery that never reached the runner). Check the pipeline service logs for 'runner-deploys', the runner-dispatch queue, the deploy facade (/api/pipelines/runner/deploys/...) reachability from runner accounts, and the build queue time behind DEPLOY_GRANT_EXPIRED."
+
+  # A deploy running past its deadline for 10 minutes warns (max across a
+  # leader handover); a blip the sweep clears does not.
+  - interval: 1m
+    input_series:
+      - series: 'pipeline_runner_deploys_overdue{service="pipeline",pod="pipeline-a"}'
+        values: '0x5 1x30'
+      - series: 'pipeline_runner_deploys_overdue{service="pipeline",pod="pipeline-b"}'
+        values: '_x10 1x30'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: RunnerDeployStuck
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: RunnerDeployStuck
+        exp_alerts:
+          - exp_labels: { severity: warning, component: pipeline, tenancy: platform }
+            exp_annotations:
+              summary: "1 runner deploy(s) are running past their deadline"
+              description: "At least one deploy or undeploy through a runner has been running past its deadline for 10 minutes, so the runner sweep is not finishing it (deploy_cancel + DEPLOY_TIMED_OUT). Check that the runner sweep is running (its leader lock, the pipeline service logs for 'Runner deploy poll'), and the database the sweep writes to."
+  - interval: 1m
+    input_series:
+      - series: 'pipeline_runner_deploys_overdue{service="pipeline",pod="pipeline-a"}'
+        values: '0x5 1x3 0x30'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: RunnerDeployStuck
+        exp_alerts: []

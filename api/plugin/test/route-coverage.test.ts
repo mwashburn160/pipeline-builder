@@ -82,6 +82,12 @@ const EXCEPTIONS: RouteCoverageException[] = [
     reason: 'Confirms an org\'s external security-notice address from its emailed link: no caller identity by design (the recipient may have no account; nginx strips credentials). The single-use, 24-hour token (stored only as a sha256) is the authority; rate limited per trusted IP; audited.',
   },
   {
+    method: 'POST',
+    path: '/internal/plugins/orgs/:orgId/lookup',
+    waive: 'audit',
+    reason: 'Read-only: a plugin lookup for a runner\'s deploy job, proxied by the pipeline service (service principal only), answering exactly what POST /plugins/lookup answers that org; it persists nothing but the step-lookup trail the user route records too.',
+  },
+  {
     path: /^GET \/public\/plugins/,
     waive: 'permission',
     reason: 'Anonymous public plugin directory: no caller identity by design (nginx strips credentials), reads only the public_* views through the view-only ecosystem_public_reader role, rate limited per trusted IP.',
@@ -103,6 +109,8 @@ const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   { method: 'GET', path: '/internal/plugins/image-pipeline-references', callers: ['image-registry'] },
   // platform's durable cascade outbox: tear a purged org's rows out of this service's own tables (idempotent).
   { method: 'POST', path: '/internal/plugins/orgs/:orgId/purge', callers: ['platform'] },
+  // pipeline: a runner deploy job's plugin lookup, as the deploy session's org.
+  { method: 'POST', path: '/internal/plugins/orgs/:orgId/lookup', callers: ['pipeline'] },
   // The same outbox, for a GDPR user erasure: anonymize the person's listing reviews.
   { method: 'POST', path: '/internal/plugins/users/:userId/erase', callers: ['platform'] },
   // The deploy scripts (init-platform.sh, from an operator's shell through the

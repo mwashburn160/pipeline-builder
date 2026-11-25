@@ -106,6 +106,14 @@ export interface RunnerSettings {
   healthPingIntervalMs: number;
   /** RUNNER_UNHEALTHY_AFTER_PINGS (2) — consecutive failed health pings that mark a runner unreachable. */
   unhealthyAfterPings: number;
+  /** DEPLOY_REQUESTS_PER_HOUR (20) — deploys through a runner per org per hour. */
+  deployRequestsPerHour: number;
+  /** MAX_ACTIVE_DEPLOYS_PER_RUNNER (2) — queued|delivering|deploying deploys on one runner. */
+  maxActiveDeploysPerRunner: number;
+  /** RUNNER_DEPLOY_DEADLINE_MINUTES (120), in ms — an accepted deploy past this is cancelled (DEPLOY_TIMED_OUT). */
+  deployDeadlineMs: number;
+  /** RUNNER_DEPLOY_STATUS_POLL_SECONDS (30), in ms — each running deploy's build is polled this often. */
+  deployStatusPollMs: number;
 }
 
 export function runnerSettings(env: NodeJS.ProcessEnv = process.env): RunnerSettings {
@@ -123,6 +131,10 @@ export function runnerSettings(env: NodeJS.ProcessEnv = process.env): RunnerSett
     maxInFlightPerRunner: tunable('MAX_IN_FLIGHT_PER_RUNNER', env),
     healthPingIntervalMs: tunable('RUNNER_HEALTH_PING_INTERVAL_SECONDS', env) * 1000,
     unhealthyAfterPings: tunable('RUNNER_UNHEALTHY_AFTER_PINGS', env),
+    deployRequestsPerHour: tunable('DEPLOY_REQUESTS_PER_HOUR', env),
+    maxActiveDeploysPerRunner: tunable('MAX_ACTIVE_DEPLOYS_PER_RUNNER', env),
+    deployDeadlineMs: tunable('RUNNER_DEPLOY_DEADLINE_MINUTES', env) * 60_000,
+    deployStatusPollMs: tunable('RUNNER_DEPLOY_STATUS_POLL_SECONDS', env) * 1000,
   };
 }
 
@@ -146,6 +158,10 @@ export const SYSTEM_PLUGIN_UPGRADE = 'system:plugin-upgrade';
 export const SYSTEM_RUNNER_PING = 'system:runner-ping';
 /** The background runner-link probe at pipeline registration. */
 export const SYSTEM_RUNNER_LINK = 'system:runner-link';
+/** The sweep's signed deploy_status / deploy_cancel reads of a running deploy. */
+export const SYSTEM_DEPLOY_STATUS = 'system:deploy-status';
+/** The undeploy a purge sends for a pipeline linked to a deploy-capable runner. */
+export const SYSTEM_UNDEPLOY = 'system:undeploy';
 
 /**
  * A system-initiated request (a plugin-upgrade redeploy): it waits in the queue

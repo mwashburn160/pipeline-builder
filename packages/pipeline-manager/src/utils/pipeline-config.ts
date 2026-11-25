@@ -7,7 +7,7 @@
  */
 
 import type { LookupToolchain, LookupWarning } from '@pipeline-builder/pipeline-core';
-import type { ApiClient } from './api-client.js';
+import type { PlatformReadClient } from './api-client.js';
 import { printInfo } from './output-utils.js';
 import { resolvePluginsForProps } from './plugin-resolver.js';
 import { bakePlatformRegistry } from './registry.js';
@@ -38,7 +38,7 @@ export interface FetchedPipeline {
  *  - bake the registry pull-host from the platform URL (no-op when
  *    IMAGE_REGISTRY_PULL_HOST is set).
  */
-export async function fetchPipelineProps(client: ApiClient, pipelineId: string): Promise<FetchedPipeline> {
+export async function fetchPipelineProps(client: PlatformReadClient, pipelineId: string): Promise<FetchedPipeline> {
   const config = client.getConfig();
   const response = await client.get<Record<string, unknown>>(`${config.api.pipelineUrl}/${pipelineId}`);
   const pipeline = extractSingleResponse<Pipeline>(response, 'pipeline', 'props');

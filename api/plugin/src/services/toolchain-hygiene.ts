@@ -118,7 +118,7 @@ async function orgsNewlyBehind(tx: Tx, platformDefault: string, previousDefault:
 // -- Rendering ---------------------------------------------------------------
 
 const FIX_DEFAULT = (platformDefault: string | null) =>
-  `Choose an eligible release, or follow the platform default${platformDefault ? ` (currently ${platformDefault})` : ''}, under Settings → Organization → Pipeline toolchain.`;
+  `Choose an eligible release, or follow the platform default${platformDefault ? ` (currently ${platformDefault})` : ''}, under Settings → Organization → Pipelines → Pipeline toolchain.`;
 
 /** The notice an org's `toolchain:manage` holders get about their OWN default. */
 export function renderOrgDefaultNotice(event: ToolchainHygieneEvent, ctx: { releaseVersion: string; platformDefault: string | null; behind?: number }): { subject: string; text: string } {
@@ -159,7 +159,7 @@ export function renderOrgDefaultNotice(event: ToolchainHygieneEvent, ctx: { rele
           `Toolchain release ${event.fixedRelease} is a security fix of ${v}, your organization's pipeline toolchain default`
             + `${event.cleared.length ? `: it clears ${event.cleared.slice(0, 25).join(', ')}${event.cleared.length > 25 ? ` and ${event.cleared.length - 25} more` : ''}` : ''}. Its pipeline-manager, AWS CDK, cdk-assets and Node versions are unchanged.`,
           'Nothing moves until you change it: your unpinned pipelines keep building on the current default.',
-          `Choose ${event.fixedRelease} as your organization default under Settings → Organization → Pipeline toolchain.`,
+          `Choose ${event.fixedRelease} as your organization default under Settings → Organization → Pipelines → Pipeline toolchain.`,
         ].join('\n\n'),
       };
     case 'behind':
@@ -289,7 +289,7 @@ export function renderFollowingNotice(releaseVersion: string): { subject: string
     text: [
       `Pipeline toolchain is updating to ${releaseVersion}, effective on each pipeline's next run.`,
       'Your organization follows the platform default, so its unpinned pipelines pick it up automatically; pipelines that pin toolchain.release stay on their pin.',
-      'To stay on a release, choose it as your organization default under Settings → Organization → Pipeline toolchain.',
+      'To stay on a release, choose it as your organization default under Settings → Organization → Pipelines → Pipeline toolchain.',
     ].join('\n\n'),
   };
 }
@@ -299,7 +299,7 @@ export function renderNewerAvailableNotice(releaseVersion: string, orgDefault: s
     subject: `A newer platform toolchain (${releaseVersion}) is available`,
     text: [
       `A newer platform toolchain (${releaseVersion}) is available. Your org stays on ${orgDefault} until you change it.`,
-      'Switch your organization default, or follow the platform default, under Settings → Organization → Pipeline toolchain.',
+      'Switch your organization default, or follow the platform default, under Settings → Organization → Pipelines → Pipeline toolchain.',
     ].join('\n\n'),
   };
 }

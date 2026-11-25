@@ -10,14 +10,22 @@
  * service layer above is what decides which org ids a caller may name.
  */
 
-import type { RunnerLinkDetail, RunnerLinkStatus } from '@pipeline-builder/api-core/pipeline-runners';
+import { ACTIVE_DEPLOY_STATUSES, IN_PROGRESS_RUN_REQUEST_STATUSES, type RunnerLinkDetail, type RunnerLinkStatus } from '@pipeline-builder/api-core/pipeline-runners';
 import { pipelineRegistryRunnerLink, runWithTenantContext, schema, withTenantTx, type RunRequestStatus } from '@pipeline-builder/pipeline-data';
-import { and, asc, count, eq, inArray, lt, lte, ne, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from 'drizzle-orm';
 
 export type RunnerRow = typeof schema.pipelineRunner.$inferSelect;
 export type RunnerInsert = typeof schema.pipelineRunner.$inferInsert;
 export type RunRequestRow = typeof schema.pipelineRunRequest.$inferSelect;
 export type RunRequestInsert = typeof schema.pipelineRunRequest.$inferInsert;
+export type RunnerDeployRow = typeof schema.pipelineRunnerDeploy.$inferSelect;
+export type RunnerDeployInsert = typeof schema.pipelineRunnerDeploy.$inferInsert;
+
+/** A deploy / undeploy request with its deploy half. */
+export interface DeployRequestPair {
+  request: RunRequestRow;
+  deploy: RunnerDeployRow;
+}
 
 export { PENDING_STATUSES, TERMINAL_STATUSES } from './vocabulary.js';
 import { PENDING_STATUSES } from './vocabulary.js';
@@ -104,6 +112,32 @@ export interface RunnerStore {
   linkedOrgIds(runnerId: string, ownerOrgId: string): Promise<string[]>;
   /** pipelineId → its linked runner `{ id, label }` (the Deployment card), for one org's pipelines. */
   runnerLinks(pipelineIds: readonly string[], orgId: string): Promise<Map<string, { id: string; label: string }>>;
+
+  // -- Deploys through a runner (action deploy / undeploy) --
+
+  /**
+   * Insert a deploy / undeploy request and its deploy half in ONE transaction.
+   * A second active deploy of the pipeline fails 23505 (the one-active-deploy index).
+   */
+  insertDeploy(request: RunRequestInsert, deploy: Omit<RunnerDeployInsert, 'requestId'>): Promise<DeployRequestPair>;
+  getDeploy(requestId: string): Promise<RunnerDeployRow | null>;
+  /** Update a deploy half; `onlyIfUnfinished` leaves a finished one (finished_at set) alone. */
+  updateDeploy(requestId: string, patch: Partial<RunnerDeployInsert>, opts?: { onlyIfUnfinished?: boolean }): Promise<RunnerDeployRow | null>;
+  /**
+   * The grant exchange, atomically: only while the grant is unused and its
+   * hash is `grantHash` — of two concurrent exchanges exactly one gets the row.
+   */
+  claimGrant(requestId: string, grantHash: string, patch: Partial<RunnerDeployInsert>): Promise<RunnerDeployRow | null>;
+  /** The pipeline's ACTIVE (queued|delivering|deploying) deploy, if any. */
+  findActiveDeploy(orgId: string, pipelineId: string): Promise<RunRequestRow | null>;
+  /** The pipeline's most recent deploy request (any status). */
+  latestDeploy(orgId: string, pipelineId: string): Promise<RunRequestRow | null>;
+  /** Active deploys on a runner (MAX_ACTIVE_DEPLOYS_PER_RUNNER). */
+  countActiveDeploys(runnerId: string): Promise<number>;
+  /** In-progress (deploying|undeploying) requests whose poll or deadline is due. */
+  listDeploysDue(now: Date, limit: number): Promise<DeployRequestPair[]>;
+  /** In-progress requests past their deadline (the overdue gauge). */
+  countOverdueDeploys(now: Date): Promise<number>;
 }
 
 const elevated = <T>(fn: Parameters<typeof withTenantTx<T>>[0]): Promise<T> =>
@@ -113,6 +147,8 @@ const R = schema.pipelineRunner;
 const Q = schema.pipelineRunRequest;
 // The registry through its runner-link mapping — the only one naming `runner_id`.
 const G = pipelineRegistryRunnerLink;
+const D = schema.pipelineRunnerDeploy;
+const IN_PROGRESS = [...IN_PROGRESS_RUN_REQUEST_STATUSES];
 
 /** The Drizzle/Postgres implementation. */
 export function createDrizzleRunnerStore(): RunnerStore {
@@ -216,5 +252,31 @@ export function createDrizzleRunnerStore(): RunnerStore {
         .where(and(eq(G.orgId, orgId), inArray(G.pipelineId, unique))));
       return new Map(rows.map((r) => [r.pipelineId, { id: r.id, label: r.label }]));
     },
+
+    insertDeploy: (request, deploy) => elevated(async (tx) => {
+      const [req] = await tx.insert(Q).values(request).returning();
+      const [dep] = await tx.insert(D).values({ ...deploy, requestId: req!.id }).returning();
+      return { request: req!, deploy: dep! };
+    }),
+    getDeploy: (requestId) => elevated(async (tx) => (await tx.select().from(D).where(eq(D.requestId, requestId)))[0] ?? null),
+    updateDeploy: (requestId, patch, opts) => elevated(async (tx) => (await tx.update(D).set(patch)
+      .where(and(eq(D.requestId, requestId), opts?.onlyIfUnfinished ? isNull(D.finishedAt) : undefined)).returning())[0] ?? null),
+    claimGrant: (requestId, grantHash, patch) => elevated(async (tx) => (await tx.update(D).set(patch)
+      .where(and(eq(D.requestId, requestId), eq(D.grantHash, grantHash), isNull(D.grantUsedAt), isNull(D.finishedAt))).returning())[0] ?? null),
+    findActiveDeploy: (orgId, pipelineId) => elevated(async (tx) => (await tx.select().from(Q)
+      .where(and(eq(Q.orgId, orgId), eq(Q.pipelineId, pipelineId), eq(Q.action, 'deploy'), inArray(Q.status, [...ACTIVE_DEPLOY_STATUSES])))
+      .orderBy(asc(Q.requestedAt)).limit(1))[0] ?? null),
+    latestDeploy: (orgId, pipelineId) => elevated(async (tx) => (await tx.select().from(Q)
+      .where(and(eq(Q.orgId, orgId), eq(Q.pipelineId, pipelineId), eq(Q.action, 'deploy')))
+      .orderBy(desc(Q.requestedAt), desc(Q.id)).limit(1))[0] ?? null),
+    countActiveDeploys: (runnerId) => elevated(async (tx) => (await tx.select({ n: sql<number>`count(*)::int` }).from(Q)
+      .where(and(eq(Q.runnerId, runnerId), eq(Q.action, 'deploy'), inArray(Q.status, [...ACTIVE_DEPLOY_STATUSES]))))[0]?.n ?? 0),
+    listDeploysDue: (now, limit) => elevated(async (tx) => (tx.select({ request: Q, deploy: D }).from(Q)
+      .innerJoin(D, eq(D.requestId, Q.id))
+      .where(and(inArray(Q.status, IN_PROGRESS), or(lte(D.nextPollAt, now), lte(D.deadlineAt, now), and(isNull(D.nextPollAt), isNull(D.deadlineAt)))))
+      .orderBy(asc(D.nextPollAt)).limit(limit))),
+    countOverdueDeploys: (now) => elevated(async (tx) => (await tx.select({ n: sql<number>`count(*)::int` }).from(Q)
+      .innerJoin(D, eq(D.requestId, Q.id))
+      .where(and(inArray(Q.status, IN_PROGRESS), isNotNull(D.deadlineAt), lt(D.deadlineAt, now))))[0]?.n ?? 0),
   };
 }

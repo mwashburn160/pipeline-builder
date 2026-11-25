@@ -35,7 +35,8 @@ export type AgentDraftKind = keyof typeof AGENT_DRAFT;
  * `tool-call` activity is forwarded as-is, and a turn that ends without a
  * usable draft becomes an `error` carrying whatever the agent said instead.
  *
- * `agentModelId` is the composite id from the "Ask agent" provider entry; it
+ * `agentModelId` is the composite id from the "Local model" entry while it
+ * routes via the Ask agent (see `routesViaAskAgent`); it
  * is split back into the real provider/model the agent (and the generator its
  * tool delegates to) should use. Drafts only — nothing is created here.
  */

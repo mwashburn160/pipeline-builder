@@ -99,7 +99,7 @@ describe('DomainJoinSettings', () => {
     expect(await screen.findByText('Email domains')).toBeInTheDocument();
     expect(screen.getByText(/single sign-on serves/i)).toBeInTheDocument();
     // …and the wizard's link resolves to something on the page.
-    expect(DOMAIN_SETTINGS_HREF).toBe(`/dashboard/settings?tab=organization#${DOMAIN_SETTINGS_ANCHOR}`);
+    expect(DOMAIN_SETTINGS_HREF).toBe(`/dashboard/settings?tab=organization&section=general#${DOMAIN_SETTINGS_ANCHOR}`);
     expect(container.querySelector(`#${DOMAIN_SETTINGS_ANCHOR}`)).not.toBeNull();
   });
 

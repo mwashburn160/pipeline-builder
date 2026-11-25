@@ -11,6 +11,8 @@
  *    `pipeline_runner_signing_keys.private_key_enc` after a
  *    SECRET_ENCRYPTION_KEY or per-org KMS rotation (platform's own
  *    secret-reencrypt covers MongoDB only).
+ *  - first-event registration: reporting's event ingest registers a deployed
+ *    pipeline it sees events for but finds no registry row for.
  */
 
 import { z } from 'zod';
@@ -26,6 +28,11 @@ const REMEDIATION_AUTH = 'plugin service token (the remediation job, as SYSTEM_P
   + 'context scoped to the named org (or, for an Official listing fix, every org installing the listing); every pipeline move '
   + 'goes through the normal upgrade write path (template validation, contract check, compliance, resolution recording) and is '
   + 'audited pipeline.plugin.upgraded with actor SYSTEM_PLUGIN_REMEDIATION.';
+
+/** Upper bound on pipelines per first-event registration (an ingest batch's cap). */
+const MAX_FIRST_EVENT_PIPELINES = 100;
+/** Upper bound on the ingest caller's org roll-up (its org plus descendant teams). */
+const MAX_FIRST_EVENT_ORGS = 1000;
 
 const RemediationParams = z.object({ remediationId: z.string().uuid() });
 
@@ -144,5 +151,46 @@ export const PIPELINE_INTERNAL = {
     params: RemediationParams,
     body: z.object({ reason: z.enum(['version_deleted', 'name_deleted', 'cancelled']) }).strict(),
     response: z.object({ remediationId: z.string(), cancelled: z.boolean() }),
+  }),
+  /**
+   * Register deployed pipelines on their FIRST pipeline event. Reporting's
+   * event ingest calls this for the `pb.pipeline-id`-tagged CodePipeline
+   * events it would otherwise skip as unregistered, then ingests them.
+   *
+   * A pipeline registers only when its row exists, is NOT soft-deleted, and
+   * belongs to one of `allowedOrgIds` — the orgs the ingest credential was
+   * authenticated for (the same allow-list the ingest's foreign-org check
+   * uses). Names are derived as a CLI deploy derives them
+   * (pipeline-core `deployedPipelineNames`); `region` is the event's.
+   * Insert-if-absent: an existing row is never overwritten (a CLI
+   * registration keeps its manifest and region), and concurrent calls insert
+   * once and audit once (`pipeline.registry.register`, actor `system`,
+   * `details.source: 'first-event'`).
+   *
+   * `registered` lists every requested pipeline that now has a registry row in
+   * its own (allowed) org — inserted by this call or already there. Anything
+   * else (unknown, deleted, another org's, registered to another org) is
+   * simply absent: the caller keeps skipping those events.
+   */
+  registerFromFirstEvent: defineInternalEndpoint({
+    id: 'pipeline.registerFromFirstEvent',
+    service: 'pipeline',
+    method: 'POST',
+    path: '/pipelines/internal/registry/first-event',
+    callers: ['reporting'],
+    auth: 'reporting service token (system org); the caller is authorized by its key-bound service name. Runs under a sysadmin '
+      + 'tenant context for the pipeline lookup and under each pipeline\'s own org for the registry write; a pipeline outside '
+      + '`allowedOrgIds`, soft-deleted, or already registered to another org is never registered.',
+    params: z.object({}),
+    body: z.object({
+      allowedOrgIds: z.array(z.string().min(1).max(64).transform((s) => s.toLowerCase())).min(1).max(MAX_FIRST_EVENT_ORGS),
+      pipelines: z.array(z.object({
+        pipelineId: z.string().uuid(),
+        region: z.string().min(1).max(30).optional(),
+      }).strict()).min(1).max(MAX_FIRST_EVENT_PIPELINES),
+    }).strict(),
+    response: z.object({
+      registered: z.array(z.string()),
+    }),
   }),
 } as const;

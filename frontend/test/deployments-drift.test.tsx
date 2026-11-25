@@ -16,6 +16,8 @@ import DeploymentsPage from '../pages/dashboard/deployments';
 jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
 jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule());
+// The page reads `?register=<pipelineId>` (the pipeline page's Register deployment link).
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule());
 
 const listAllPipelines = jest.fn<AnyFn>();
 const listPipelineDeployments = jest.fn<AnyFn>();

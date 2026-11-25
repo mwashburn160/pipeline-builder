@@ -102,6 +102,15 @@ bootstrap it built in the same run, so a release's cdk-synth always runs on that
 release's bootstrap, by digest. The `ARG` default (`pipeline-bootstrap:<version>`,
 also generated) is only for a build outside that script.
 
+The spec's `metadata` `pb:deploy-job:protocol` is the deploy-job protocol this
+image's pipeline-manager speaks (`pipeline-manager pipeline deploy-job
+--protocol`, api-core `DEPLOY_JOB_PROTOCOL_VERSION`). The upload records it on
+the release (`toolchain_release.deploy_job_protocol`); a release without it
+cannot deploy through a runner. `build-plugin-images.sh` fails this image's
+build when the built image prints a different value, and the key is left out of
+`sourceDigest`: only a pipeline-manager release (already a hashed input) changes
+it. Edit it together with the CLI bump, never on its own.
+
 ## Local testing
 
 ```bash

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 8ae15ddb85e8353f551e24cd8e8e68697c2be4d4b8be2b6720ead86831cfdc8d
+// SOURCE-SHA256: 6988125061c7bdb903b60ded7bbb03b7a2e0b049f87c367e661b35127d8823a3
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -239,7 +239,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/pipelines/:id",
-              "Get by ID"
+              "Get by ID. Also answers registration: { registered, lastDeployed, stackName, region, hasEvents } — registered: false with hasEvents: false is a pipeline never deployed; with hasEvents: true it reported before and has no registration now. Omitted when the registry read fails"
             ],
             [
               "POST",
@@ -304,7 +304,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "POST",
               "/pipelines/registry",
-              "Upsert registry entry (deploy hook; tenant-guarded)"
+              "Upsert registry entry (deploy hook; tenant-guarded). A deployed pipeline with no entry also registers itself on its first pipeline event, through the internal POST /pipelines/internal/registry/first-event (reporting only) — see DORA metrics → Registration"
             ],
             [
               "GET",
@@ -2087,7 +2087,7 @@ export const apiReferenceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "66 routes, from frontend/src/generated/route-table/pipeline.json."
+          "content": "77 routes, from frontend/src/generated/route-table/pipeline.json."
         },
         {
           "type": "table",
@@ -2275,6 +2275,41 @@ export const apiReferenceTopic: HelpTopic = {
               "pipeline.security_report.upload"
             ],
             [
+              "GET",
+              "/pipelines/:pipelineId/deploy-targets",
+              "pipelines:write",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/pipelines/:pipelineId/deploys",
+              "pipelines:write; MFA session (aal2); step-up",
+              "apiCalls",
+              "pipeline.deploy.request"
+            ],
+            [
+              "GET",
+              "/pipelines/:pipelineId/deploys/:requestId",
+              "pipelines:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/pipelines/:pipelineId/deploys/:requestId/cancel",
+              "pipelines:write",
+              "apiCalls",
+              "pipeline.deploy.cancel"
+            ],
+            [
+              "GET",
+              "/pipelines/:pipelineId/deploys/latest",
+              "pipelines:read",
+              "apiCalls",
+              "—"
+            ],
+            [
               "POST",
               "/pipelines/:pipelineId/executions",
               "pipelines:write",
@@ -2448,6 +2483,48 @@ export const apiReferenceTopic: HelpTopic = {
               "pipeline_registry:write",
               "apiCalls",
               "pipeline.registry.deregister"
+            ],
+            [
+              "GET",
+              "/pipelines/runner/deploys/:requestId/pipeline",
+              "no bearer token",
+              "—",
+              "—"
+            ],
+            [
+              "POST",
+              "/pipelines/runner/deploys/:requestId/plugin-lookup",
+              "no bearer token",
+              "—",
+              "—"
+            ],
+            [
+              "POST",
+              "/pipelines/runner/deploys/:requestId/progress",
+              "no bearer token",
+              "—",
+              "—"
+            ],
+            [
+              "POST",
+              "/pipelines/runner/deploys/:requestId/registry",
+              "no bearer token",
+              "—",
+              "pipeline.registry.register"
+            ],
+            [
+              "POST",
+              "/pipelines/runner/deploys/:requestId/result",
+              "no bearer token",
+              "—",
+              "—"
+            ],
+            [
+              "POST",
+              "/pipelines/runner/deploys/:requestId/session",
+              "no bearer token",
+              "—",
+              "pipeline.deploy.grant_reuse"
             ],
             [
               "GET",

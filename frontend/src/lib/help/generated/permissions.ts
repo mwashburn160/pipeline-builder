@@ -1,6 +1,6 @@
 // GENERATED FROM docs/permissions.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 527001edfb9903c3eda67a5509f4cf298dc720075bb5062b8d55a17a1e4f267f
+// SOURCE-SHA256: 3b97349388671b7fa28077bb56d5132261931b58d925ca713404c3b2a043bb36
 // SPDX-License-Identifier: Apache-2.0
 import { UserCog } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1211,7 +1211,7 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Each organization chooses whether platform sysadmins may view its members' accounts, under Settings → Organization → Administrator access. Changing it requires the org_impersonation:write permission and re-entering your password."
+          "content": "Each organization chooses whether platform sysadmins may view its members' accounts, under Settings → Organization → Security → Administrator access. Changing it requires the org_impersonation:write permission and re-entering your password."
         },
         {
           "type": "table",

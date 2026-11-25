@@ -1,6 +1,6 @@
 // GENERATED FROM docs/plugin-installing.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 9400ec84f02f7395d6f82ae87bed18b153875da681cd061a659b469e159ee0b2
+// SOURCE-SHA256: 52976d69f89194b00e4022a61c252fe9e45d4ea5b5d3b3cfc2defeb2079b5a19
 // SPDX-License-Identifier: Apache-2.0
 import { PackagePlus } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -399,7 +399,7 @@ export const pluginInstallingTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Your organization decides who is told about rescan findings under Settings → Organization → Plugin security notifications (see Notifications)."
+          "content": "Your organization decides who is told about rescan findings under Settings → Organization → Pipelines → Plugin security notifications (see Notifications)."
         },
         {
           "type": "text",
@@ -440,7 +440,7 @@ export const pluginInstallingTopic: HelpTopic = {
           "rows": [
             [
               "Root organization",
-              "rollout under Settings → Organization → Plugin security",
+              "rollout under Settings → Organization → Pipelines → Plugin security",
               "off, propose (default), apply"
             ],
             [
@@ -951,7 +951,7 @@ export const pluginInstallingTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "N30 and N31 go where your organization says, under Settings → Organization → Plugin security notifications. Anyone with plugins:read can see the settings; changing them needs org_settings:write."
+          "content": "N30 and N31 go where your organization says, under Settings → Organization → Pipelines → Plugin security notifications. Anyone with plugins:read can see the settings; changing them needs org_settings:write."
         },
         {
           "type": "table",

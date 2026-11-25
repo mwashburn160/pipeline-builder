@@ -7,7 +7,7 @@ import { useFetch } from '@/hooks/useFetch';
 import { useFormState } from '@/hooks/useFormState';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
-import { TabBar } from '@/components/ui/TabBar';
+import { TabBar, tabPanelProps } from '@/components/ui/TabBar';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { FormSection } from '@/components/ui/FormSection';
 import { FormField } from '@/components/ui/FormField';
@@ -33,6 +33,7 @@ import { PluginSecurityNotificationSettings } from '@/components/settings/Plugin
 import { PipelineToolchainSettings } from '@/components/settings/PipelineToolchainSettings';
 import { PipelineRunnersSettings } from '@/components/settings/PipelineRunnersSettings';
 import { PIPELINE_RUNNERS_ANCHOR } from '@/lib/pipeline-runners';
+import { ORG_SETTINGS_SECTIONS, PLUGIN_SECURITY_ANCHOR, type OrgSettingsSectionId } from '@/lib/org-settings-sections';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import Link from 'next/link';
@@ -57,6 +58,13 @@ const SETTINGS_TABS = [
 type SettingsTab = (typeof SETTINGS_TABS)[number]['id'];
 const SETTINGS_TAB_IDS = SETTINGS_TABS.map((t) => t.id) as readonly string[];
 
+/** Card anchors on the Organization tab → the section that renders them. */
+const ANCHOR_SECTIONS: Readonly<Record<string, OrgSettingsSectionId>> = {
+  [DOMAIN_SETTINGS_ANCHOR]: 'general',
+  [PIPELINE_RUNNERS_ANCHOR]: 'pipelines',
+  [PLUGIN_SECURITY_ANCHOR]: 'pipelines',
+};
+
 /** User and organization settings page. Manages profile info, org identity and
  *  policy, AI provider API keys, and account deletion. */
 export default function SettingsPage() {
@@ -74,20 +82,47 @@ export default function SettingsPage() {
   // Pipeline toolchain: readable with `pipelines:read`, edited with `toolchain:manage`.
   const canSeeToolchain = hasPermission(user, 'pipelines:read');
 
-  // Active tab, hydrated from `?tab=` and kept in sync (shallow) so it's
-  // shareable / back-forward-friendly — same pattern as the Billing page.
-  // Tab state lives in `?tab=` so the view is shareable, refresh-safe and
-  // back/forward-friendly. `useUrlTab` owns the hydrate + shallow write-back.
-  // `#email-domains` names the card SSO setup sends admins to (verify a domain).
-  // Registering it here makes the fragment carry its own tab, so the link works
-  // with or without `?tab=organization`, and `useUrlTab` does the scroll once the
-  // card has actually rendered.
+  const orgId = user?.organizationId;
+
+  // Which Organization sections have at least one card this viewer can see.
+  // Each entry is the OR of its cards' own mount conditions below — keep the two
+  // in step, or a section shows empty (or hides a card the viewer may see).
+  const sectionVisible: Record<OrgSettingsSectionId, boolean> = {
+    general: canSeeOrgSettings,
+    security: !!orgId && (canSeeOrgSettings || canSeeImpersonationPolicy),
+    pipelines: canSeeToolchain || (!!orgId && (canSeeOrgSettings || canSeePluginSecurity)),
+    ai: true,
+    data: canSeeOrgSettings && !!orgId,
+  };
+  const orgSections = ORG_SETTINGS_SECTIONS.filter((s) => sectionVisible[s.id]);
+  const orgSectionIds = orgSections.map((s) => s.id);
+
+  // Tab state lives in `?tab=` (and the Organization section in `?section=`) so
+  // the view is shareable, refresh-safe and back/forward-friendly. `useUrlTab`
+  // owns the hydrate + shallow write-back. A card's anchor (`#email-domains`,
+  // the SSO wizard's "verify a domain"; `#pipeline-runners`, the pipeline
+  // page's runner errors; `#plugin-security`) is registered at BOTH levels, so
+  // the fragment alone opens the tab and the section that render it, and
+  // `useUrlTab` scrolls once the card has actually rendered.
   const [activeTab, changeTab] = useUrlTab<SettingsTab>(
     'tab',
     SETTINGS_TAB_IDS as readonly SettingsTab[],
     'profile',
-    { hashTabs: { [DOMAIN_SETTINGS_ANCHOR]: 'organization', [PIPELINE_RUNNERS_ANCHOR]: 'organization' } },
+    {
+      hashTabs: Object.fromEntries(Object.keys(ANCHOR_SECTIONS).map((a) => [a, 'organization' as const])),
+      clearOnSelect: ['section'],
+    },
   );
+  // Only the sections the viewer can see are valid, and the first of them is
+  // the default — so a link naming a hidden section opens the first visible one.
+  const [urlSection, changeSection] = useUrlTab<OrgSettingsSectionId>(
+    'section',
+    orgSectionIds,
+    orgSectionIds[0] ?? 'ai',
+    { hashTabs: ANCHOR_SECTIONS },
+  );
+  const activeSection = orgSectionIds.includes(urlSection) ? urlSection : orgSectionIds[0];
+  const activeSectionMeta = orgSections.find((s) => s.id === activeSection);
 
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -283,6 +318,24 @@ export default function SettingsPage() {
 
         {activeTab === 'organization' && (
           <div className="space-y-6">
+            {/* The tab was one long column of thirteen cards; it is grouped into
+                sections now, each shown only when the viewer can see one of its
+                cards (see `sectionVisible`). */}
+            <div className="space-y-2">
+              <TabBar
+                variant="pill"
+                idPrefix="org-settings"
+                ariaLabel="Organization sections"
+                items={orgSections.map((s) => ({ id: s.id, label: s.label }))}
+                activeId={activeSection}
+                onSelect={(id) => changeSection(id as OrgSettingsSectionId)}
+              />
+              {activeSectionMeta && (
+                <p className="text-sm text-fg-muted" data-testid="org-section-description">{activeSectionMeta.description}</p>
+              )}
+            </div>
+
+            <div {...tabPanelProps('org-settings', activeSection)} className="space-y-6 focus:outline-none">
             {/* VISIBILITY rides the raw permission; `readOnly` disables the
                 controls. These cards were gated on `can()`, which is false for any
                 mutation permission under read-only impersonation — so a sysadmin
@@ -290,98 +343,115 @@ export default function SettingsPage() {
                 domain, impersonation, MFA, password, authenticator and session policies
                 simply GONE instead of shown disabled, and the `readOnly` props below
                 could never be true. members.tsx already fixed this the same way. */}
-            {/* Organization Identity (owner/admin self-serve) */}
-            {canSeeOrgSettings && <OrgIdentitySettings onSaved={refreshUser} readOnly={isReadOnly} />}
 
-            {/* Email domains: DNS verification (what single sign-on serves) +
-                domain-based join (owner/admin self-serve). The SSO wizard deep
-                links here — see DOMAIN_SETTINGS_ANCHOR. */}
-            {canSeeOrgSettings && user.organizationId && (
-              <DomainJoinSettings orgId={user.organizationId} readOnly={isReadOnly} />
-            )}
+            {activeSection === 'general' && (
+              <>
+                {/* Organization Identity (owner/admin self-serve) */}
+                {canSeeOrgSettings && <OrgIdentitySettings onSaved={refreshUser} readOnly={isReadOnly} />}
 
-            {/* Support contacts: who may raise and own a support case. Same
-                capability as the other org settings. Mounted here rather than on
-                a support page because it is an ORG setting about the org's own
-                people, and because an admin who just bought support has no other
-                place to look — and until somebody is designated, every support
-                send opens no case at all. */}
-            {canSeeOrgSettings && user.organizationId && (
-              <SupportContactSettings orgId={user.organizationId} readOnly={isReadOnly} />
-            )}
+                {/* Email domains: DNS verification (what single sign-on serves) +
+                    domain-based join (owner/admin self-serve). The SSO wizard deep
+                    links here — see DOMAIN_SETTINGS_ANCHOR. */}
+                {canSeeOrgSettings && user.organizationId && (
+                  <DomainJoinSettings orgId={user.organizationId} readOnly={isReadOnly} />
+                )}
 
-            {/* Administrator access (impersonation policy). Mounted in the same
-                change that ENFORCES it — never shown while it controlled nothing.
-                Its own capability, `org_impersonation:write`, not org_settings:write, so a role
-                that manages general settings can't also open the org to impersonation. */}
-            {canSeeImpersonationPolicy && user.organizationId && (
-              <ImpersonationPolicySettings orgId={user.organizationId} readOnly={isReadOnly} />
+                {/* Support contacts: who may raise and own a support case. Same
+                    capability as the other org settings. Mounted here rather than on
+                    a support page because it is an ORG setting about the org's own
+                    people, and because an admin who just bought support has no other
+                    place to look — and until somebody is designated, every support
+                    send opens no case at all. */}
+                {canSeeOrgSettings && user.organizationId && (
+                  <SupportContactSettings orgId={user.organizationId} readOnly={isReadOnly} />
+                )}
+              </>
             )}
 
-            {/* Two-factor requirement. Same capability as the other org
-                security settings; the WRITE is step-up gated server-side because
-                turning it OFF removes a control for every member. */}
-            {canSeeOrgSettings && user.organizationId && (
-              <MfaPolicySettings orgId={user.organizationId} readOnly={isReadOnly} />
+            {activeSection === 'security' && (
+              <>
+                {/* Two-factor requirement. Same capability as the other org
+                    security settings; the WRITE is step-up gated server-side because
+                    turning it OFF removes a control for every member. */}
+                {canSeeOrgSettings && user.organizationId && (
+                  <MfaPolicySettings orgId={user.organizationId} readOnly={isReadOnly} />
+                )}
+
+                {/* Security policy: password minimum + approved authenticator models.
+                    Same capability as the two-factor requirement; both writes are
+                    step-up gated server-side, and LOOSENING either also needs a
+                    session opened with a second factor. */}
+                {canSeeOrgSettings && user.organizationId && (
+                  <PasswordPolicySettings orgId={user.organizationId} readOnly={isReadOnly} />
+                )}
+                {canSeeOrgSettings && user.organizationId && (
+                  <AuthenticatorPolicySettings orgId={user.organizationId} readOnly={isReadOnly} />
+                )}
+                {/* Session lifetime (maximum age / idle timeout). Same capability and
+                    step-up as the password minimum; LENGTHENING also needs a second
+                    factor. It can only shorten the platform defaults. */}
+                {canSeeOrgSettings && user.organizationId && (
+                  <SessionPolicySettings orgId={user.organizationId} readOnly={isReadOnly} />
+                )}
+
+                {/* Administrator access (impersonation policy). Mounted in the same
+                    change that ENFORCES it — never shown while it controlled nothing.
+                    Its own capability, `org_impersonation:write`, not org_settings:write, so a role
+                    that manages general settings can't also open the org to impersonation. */}
+                {canSeeImpersonationPolicy && user.organizationId && (
+                  <ImpersonationPolicySettings orgId={user.organizationId} readOnly={isReadOnly} />
+                )}
+              </>
             )}
 
-            {/* Security policy: password minimum + approved authenticator models.
-                Same capability as the two-factor requirement; both writes are
-                step-up gated server-side, and LOOSENING either also needs a
-                session opened with a second factor. */}
-            {canSeeOrgSettings && user.organizationId && (
-              <PasswordPolicySettings orgId={user.organizationId} readOnly={isReadOnly} />
-            )}
-            {canSeeOrgSettings && user.organizationId && (
-              <AuthenticatorPolicySettings orgId={user.organizationId} readOnly={isReadOnly} />
-            )}
-            {/* Session lifetime (maximum age / idle timeout). Same capability and
-                step-up as the password minimum; LENGTHENING also needs a second
-                factor. It can only shorten the platform defaults. */}
-            {canSeeOrgSettings && user.organizationId && (
-              <SessionPolicySettings orgId={user.organizationId} readOnly={isReadOnly} />
-            )}
+            {activeSection === 'pipelines' && (
+              <>
+                {/* Pipeline runners: the Lambdas in customer AWS accounts that every
+                    pipeline run goes through, and the org's runner signing key.
+                    Always shown to org admins (same capability as the other org
+                    settings); every write is step-up gated and MFA-grade
+                    server-side. Renders nothing only while runners are unavailable
+                    (paused, or secret encryption not set up). The pipeline page's
+                    Re-run / Stop errors deep link here (PIPELINE_RUNNERS_ANCHOR). */}
+                {canSeeOrgSettings && user.organizationId && (
+                  <PipelineRunnersSettings orgId={user.organizationId} readOnly={isReadOnly} parentOrgName={parentOrgName} />
+                )}
 
-            {/* Notifications: who hears about plugin versions the scan gates
-                block, and about new findings from the nightly rescan. */}
-            {canSeePluginSecurity && user.organizationId && (
-              <PluginSecurityNotificationSettings
-                orgId={user.organizationId}
-                canEdit={canSeeOrgSettings}
-                readOnly={isReadOnly}
-              />
-            )}
+                {/* Pipeline toolchain: which managed build-image + cdk-synth release
+                    this org's unpinned pipelines run (teams: inherit the root's).
+                    Read with `pipelines:read`; writes need `toolchain:manage` and
+                    are step-up gated server-side. */}
+                {canSeeToolchain && (
+                  <PipelineToolchainSettings
+                    canEdit={hasPermission(user, 'toolchain:manage')}
+                    readOnly={isReadOnly}
+                  />
+                )}
 
-            {/* Pipeline runners: the Lambdas in customer AWS accounts that every
-                pipeline run goes through, and the org's runner signing key.
-                Always shown to org admins (same capability as the other org
-                settings); every write is step-up gated and MFA-grade
-                server-side. Renders nothing only while runners are unavailable
-                (paused, or secret encryption not set up). The pipeline page's
-                Re-run / Stop errors deep link here (PIPELINE_RUNNERS_ANCHOR). */}
-            {canSeeOrgSettings && user.organizationId && (
-              <PipelineRunnersSettings orgId={user.organizationId} readOnly={isReadOnly} parentOrgName={parentOrgName} />
-            )}
-
-            {/* Pipeline toolchain: which managed build-image + cdk-synth release
-                this org's unpinned pipelines run (teams: inherit the root's).
-                Read with `pipelines:read`; writes need `toolchain:manage` and
-                are step-up gated server-side. */}
-            {canSeeToolchain && (
-              <PipelineToolchainSettings
-                canEdit={hasPermission(user, 'toolchain:manage')}
-                readOnly={isReadOnly}
-              />
+                {/* Plugin security: who hears about plugin versions the scan gates
+                    block, and about new findings from the nightly rescan. The
+                    Notifications page links here (PLUGIN_SECURITY_ANCHOR). */}
+                {canSeePluginSecurity && user.organizationId && (
+                  <div id={PLUGIN_SECURITY_ANCHOR} tabIndex={-1} className="scroll-mt-6 outline-none">
+                    <PluginSecurityNotificationSettings
+                      orgId={user.organizationId}
+                      canEdit={canSeeOrgSettings}
+                      readOnly={isReadOnly}
+                    />
+                  </div>
+                )}
+              </>
             )}
 
             {/* AI Providers */}
-            <AIProviderConfig canEdit={can('org_settings:write')} />
+            {activeSection === 'ai' && <AIProviderConfig canEdit={can('org_settings:write')} />}
 
             {/* Data portability: the org's own export (a read — shown during a
                 read-only session too). Same capability as the endpoint. */}
-            {canSeeOrgSettings && user.organizationId && (
+            {activeSection === 'data' && canSeeOrgSettings && user.organizationId && (
               <OrgDataExport orgId={user.organizationId} orgName={user.organizationName} />
             )}
+            </div>
           </div>
         )}
 
@@ -491,7 +561,7 @@ function OrgIdentitySettings({ onSaved, readOnly = false }: { onSaved: () => Pro
 
   if (org.error) {
     return (
-      <SectionCard icon={Building2} title="Organization">
+      <SectionCard icon={Building2} title="Identity">
         <RetryError message={formatError(org.error, 'Could not load your organization settings.')} onRetry={org.refetch} />
       </SectionCard>
     );
@@ -500,8 +570,8 @@ function OrgIdentitySettings({ onSaved, readOnly = false }: { onSaved: () => Pro
   return (
     <FormSection
       icon={Building2}
-      title="Organization"
-      description="Your organization's display name and URL slug."
+      title="Identity"
+      description="The organization's display name and URL slug."
       error={form.error}
       success={form.success}
       onSubmit={handleSubmit}

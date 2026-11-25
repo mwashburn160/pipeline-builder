@@ -189,7 +189,7 @@ export const PROPOSAL_META: Record<ProposalKind, ProposalMeta> = {
   'pipeline-edit': { label: 'Proposed pipeline change', icon: GitBranch, createLabel: 'Apply change', ...APPLY_VERBS, href: '/dashboard/pipelines', createdText: 'Applied — open pipelines', permission: 'pipelines:write' },
   'plugin-edit': { label: 'Proposed plugin change', icon: Package, createLabel: 'Apply change', ...APPLY_VERBS, href: '/dashboard/plugins', createdText: 'Applied — open plugins', permission: 'plugins:write' },
   'template-edit': { label: 'Proposed template change', icon: LayoutTemplate, createLabel: 'Apply change', ...APPLY_VERBS, href: '/dashboard/templates', createdText: 'Applied — open templates', permission: 'templates:write' },
-  'org-settings-edit': { label: 'Proposed organization setting', icon: Settings, createLabel: 'Apply setting', ...APPLY_VERBS, href: '/dashboard/settings', createdText: 'Applied — open settings' },
+  'org-settings-edit': { label: 'Proposed organization setting', icon: Settings, createLabel: 'Apply setting', ...APPLY_VERBS, href: '/dashboard/settings?tab=organization', createdText: 'Applied — open settings' },
 
   'install-change-request': {
     label: 'Proposed install change',

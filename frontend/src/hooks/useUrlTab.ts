@@ -16,6 +16,12 @@ interface UrlTabOptions<T extends string> {
    * the default and the section it promised isn't on screen.
    */
   hashTabs?: Readonly<Record<string, T>>;
+  /**
+   * Query keys that only mean something under the current value (a sub-tab's
+   * `section`), dropped from the URL on every switch so the next view opens on
+   * its own default instead of inheriting a stale sub-selection.
+   */
+  clearOnSelect?: readonly string[];
 }
 
 /**
@@ -42,7 +48,8 @@ interface UrlTabOptions<T extends string> {
  * @param valid Accepted values; anything else in the URL is ignored, so a
  *              hand-edited or stale link can't put the UI in an unknown state.
  * @param fallback Value used until/unless the URL names a valid one.
- * @param options `hashTabs` — which tab owns which anchor (see above).
+ * @param options `hashTabs` — which tab owns which anchor (see above);
+ *              `clearOnSelect` — query keys a switch drops.
  */
 export function useUrlTab<T extends string>(
   key: string,
@@ -64,6 +71,8 @@ export function useUrlTab<T extends string>(
   // effects on every render (same reasoning as `valid` below).
   const hashTabsRef = useRef(options?.hashTabs);
   hashTabsRef.current = options?.hashTabs;
+  const clearOnSelectRef = useRef(options?.clearOnSelect);
+  clearOnSelectRef.current = options?.clearOnSelect;
   const fallbackRef = useRef(fallback);
   fallbackRef.current = fallback;
 
@@ -77,9 +86,13 @@ export function useUrlTab<T extends string>(
     // No (valid) tab named, but the fragment may name a section — open the tab
     // that actually renders it rather than the fallback. Otherwise the URL now
     // names nothing (a nav link to the bare page, Back onto it): show what a
-    // refresh of this URL would, not whatever tab was open before.
+    // refresh of this URL would, not whatever tab was open before. The owner
+    // must itself be valid right now: when `valid` depends on what the viewer
+    // may see, a fragment naming a hidden view lands on the fallback, not on a
+    // value nothing renders.
     const id = currentHashId();
-    const next = (id ? hashTabsRef.current?.[id] : undefined) ?? fallbackRef.current;
+    const owner = id ? hashTabsRef.current?.[id] : undefined;
+    const next = owner && (validTabs as readonly string[]).includes(owner) ? owner : fallbackRef.current;
     setTab((prev) => (prev === next ? prev : next));
   }, [router.isReady, fromUrl, validTabs]);
 
@@ -116,7 +129,9 @@ export function useUrlTab<T extends string>(
     // at content the new tab doesn't render and re-fires the scroll above.
     const id = currentHashId();
     const hash = id && hashTabsRef.current?.[id] === value ? `#${id}` : '';
-    void router.replace({ query: { ...router.query, [key]: value }, hash }, undefined, { shallow: true });
+    const query = { ...router.query, [key]: value };
+    for (const k of clearOnSelectRef.current ?? []) delete query[k];
+    void router.replace({ query, hash }, undefined, { shallow: true });
   });
 
   return [tab, select];

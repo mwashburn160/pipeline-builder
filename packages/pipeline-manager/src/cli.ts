@@ -11,6 +11,7 @@ import { auditTokens } from './commands/audit-tokens.js';
 import { bootstrap } from './commands/bootstrap.js';
 import { createPat } from './commands/create-pat.js';
 import { createPipeline } from './commands/create-pipeline.js';
+import { deployJobCommand } from './commands/deploy-job.js';
 import { deploy } from './commands/deploy.js';
 import { getPipeline } from './commands/get-pipeline.js';
 import { getPlugin } from './commands/get-plugin.js';
@@ -250,6 +251,7 @@ function registerTaskNamespaces(): void {
   deletePipeline(pipeline); // pipeline delete — delete a pipeline configuration
   synth(pipeline); // pipeline synth — CDK synthesis from pipeline config
   deploy(pipeline); // pipeline deploy — CDK deploy (--app prints boilerplate path)
+  deployJobCommand(pipeline); // pipeline deploy-job — hidden: the runner's deploy CodeBuild job (setup-runner --enable-deploy)
   runPipeline(pipeline); // pipeline run — start with your own AWS credentials (tag-checked)
   stopPipeline(pipeline); // pipeline stop — stop an execution with your own AWS credentials
 
@@ -659,8 +661,10 @@ if (isMainModule) {
     debug: process.env.DEBUG === 'true',
     // `--token` prints a bare token for `$(…)` capture, so the banner and the
     // startup chrome must not reach stdout either. Scanned from argv like
-    // `--quiet` is, because this runs BEFORE Commander parses.
-    quiet: process.argv.includes('--quiet') || process.argv.includes('--token'),
+    // `--quiet` is, because this runs BEFORE Commander parses. The runner's
+    // `pipeline deploy-job` is machine-run (and `--protocol` prints a bare
+    // number for a toolchain release to record): no chrome either.
+    quiet: process.argv.includes('--quiet') || process.argv.includes('--token') || process.argv.includes('deploy-job'),
     verbose: process.argv.includes('--verbose'),
     noColor: process.argv.includes('--no-color') || process.env.NO_COLOR === '1',
     selfUpdate: isSelfUpdate(process.argv.slice(2)),

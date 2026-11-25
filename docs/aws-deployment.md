@@ -73,6 +73,7 @@ Panels backed by fleet-wide queries are shown only to system admins, and a dashb
 - [Post-Deploy Steps](#post-deploy-steps) -- Platform init, credentials, EventBridge reporting
 - [Drift Detection (`audit stacks`)](#drift-detection-audit-stacks) -- Reconcile registry vs live CloudFormation
 - [Cross-account pipeline runner](#cross-account-pipeline-runner) -- the only way pipelines run: one runner per AWS account per org, with no platform access to them
+  - [Deploying a pipeline through a runner](#deploying-a-pipeline-through-a-runner) -- `--enable-deploy`: the dashboard deploys a new pipeline into the runner's account
 - [Report API Endpoints](#report-api-endpoints) -- Execution and plugin analytics
 - [Access Points](#access-points) -- Service URLs after deployment
 - [File Structure](#file-structure) -- Deployment file layout
@@ -1005,6 +1006,16 @@ patch of both specs whenever the build inputs change — a pipeline-manager
 release, a Renovate `node:` digest bump, a `cdk-synth` edit. Bump minor or major
 by hand, in both specs together.
 
+**The deploy-job protocol.** `cdk-synth`'s spec carries `metadata`
+`pb:deploy-job:protocol`: the deploy-job protocol its bundled pipeline-manager
+speaks (`pipeline-manager pipeline deploy-job --protocol`, api-core
+`DEPLOY_JOB_PROTOCOL_VERSION`). The upload records it on the release, and a
+release without it cannot deploy a pipeline through a runner
+(`TOOLCHAIN_TOO_OLD_FOR_DEPLOY`). `build-plugin-images.sh` runs the built
+cdk-synth image with that command and fails the build when it prints anything
+else; the key is not in `sourceDigest` (it changes only with a pipeline-manager
+release, which already makes a new release). Change it only with the CLI.
+
 **A version is immutable.** The build refuses to re-push a published
 `library/pipeline-bootstrap:<version>` with different bits, `--force` never
 rebuilds a managed image in place, and `PIPELINE_MANAGER_VERSION` overrides are
@@ -1186,8 +1197,9 @@ aws lambda get-function --function-name pipeline-builder-event-ingestion \
 Synth  → CDK tags the CodePipeline `pb.pipeline-id=<pipelineId>` (+ `pb.deploys`) (stable, set at creation)
 Deploy → pipeline-manager registers the pipeline (by pipelineId) in pipeline_registry
 Execute → CodePipeline runs → EventBridge captures state changes
-Ingest  → SQS → Lambda resolves the pb.pipeline-id tag → POST /api/reports/events (keyed by pipelineId)
+Ingest  → SQS → Lambda resolves the pb.pipeline-id tag → POST /api/reports/events (keyed by pipelineId, + the event's region)
 Store   → Reporting API matches the registry by pipelineId → inserts into pipeline_events
+          (no row: the pipeline service registers a live, same-org pipeline on this first event, then the events are stored)
 View    → Dashboard Reports page or GET /api/reports/...
 ```
 
@@ -1197,7 +1209,7 @@ View    → Dashboard Reports page or GET /api/reports/...
 
 ### Drift Detection (`audit stacks`)
 
-The `pipeline_registry` table is written only when `pipeline-manager pipeline deploy` succeeds. CloudFormation stacks can be created or destroyed outside of that path — manual `aws cloudformation delete-stack`, console operations, side-channel deploys — and over time the registry can drift from reality.
+The `pipeline_registry` table is written when `pipeline-manager pipeline deploy` succeeds, by **Register deployment**, and on a deployed pipeline's first event when it has no row (first-event self-registration, see [DORA metrics → Registration](dora-metrics.md#registration)). CloudFormation stacks can be created or destroyed outside of that path — manual `aws cloudformation delete-stack`, console operations, side-channel deploys — and over time the registry can drift from reality.
 
 The `audit stacks` command joins your org's registry rows for ONE region (every page of them) against the live CloudFormation stacks in that region whose **stack** tags include `pipeline-builder` (the `PipelineBuilder` construct puts `pipeline-builder`, `OrgId` and `pb.pipeline-id` on the stack itself), skipping stacks tagged with another `OrgId`. It surfaces two categories of drift:
 
@@ -1266,7 +1278,7 @@ Drift is **not auto-fixed** — the command reports, and prints with each findin
 
 ## Cross-account pipeline runner
 
-Runners are the **only** way the platform starts and stops pipelines. The platform never has pipelines in its own AWS account and holds no CodePipeline permission on any deploy target: every Run, Stop and plugin-upgrade redeploy becomes a queued **run request** that the platform signs and pushes to the **runner** installed in the pipeline's account, a small Lambda that acts with its own IAM role. Until an org installs a runner, Run answers `NO_RUNNER` and the pipeline page links to **Settings → Organization → Pipeline runners** with the install command; onboarding puts *Install a runner* before *Run your first pipeline*.
+Runners are the **only** way the platform starts and stops pipelines. The platform never has pipelines in its own AWS account and holds no CodePipeline permission on any deploy target: every Run, Stop and plugin-upgrade redeploy becomes a queued **run request** that the platform signs and pushes to the **runner** installed in the pipeline's account, a small Lambda that acts with its own IAM role. Until an org installs a runner, Run answers `NO_RUNNER` and the pipeline page links to **Settings → Organization → Pipelines → Pipeline runners** with the install command; onboarding puts *Install a runner* before *Run your first pipeline*.
 
 ```bash
 # In the pipelines' account, with that account's credentials:
@@ -1287,7 +1299,7 @@ Runners are on for every org: there is no feature flag and nothing for the opera
 
 #### Linking pipelines to runners
 
-The runner for a pipeline is always found by its `pb.pipeline-id` tag, which only the runner can see, so nobody picks it by hand. When a pipeline is registered the platform probes the org's runners in the background and saves the link; the pipeline page shows it under **Runs via** (Linked, Not linked yet, Not found, or Two runners matched) with **Find runner again** to re-probe (step-up). An unlinked pipeline is discovered on its first Run, and a stale link is rediscovered once.
+The runner for a pipeline is found by its `pb.pipeline-id` tag, which only the runner can see, or (for a pipeline [deployed through a runner](#deploying-a-pipeline-through-a-runner)) written once that runner's own deploy job has deployed it, which is its proof. Nobody re-points a runner by hand. When a pipeline is registered the platform probes the org's runners in the background and saves the link; the pipeline page shows it under **Runs via** (Linked, Not linked yet, Not found, or Two runners matched) with **Find runner again** to re-probe (step-up). An unlinked pipeline is discovered on its first Run, and a stale link is rediscovered once.
 
 ### A run request, end to end
 
@@ -1326,7 +1338,7 @@ A failed delivery (timeout, refused connection, 5xx, 429) is retried with backof
 | Your AWS account number | **Never sent or stored.** A Function URL (`<id>.lambda-url.<region>.on.aws`) or API Gateway URL carries none, and the runner never returns an ARN or account id. |
 | What the platform stores | The runner's endpoint URL (treated as a secret: shown only to your org's admins, never logged), its label, version, regions and health. |
 | What the runner holds | **No platform credential.** Nothing to store, rotate or leak. It trusts a request only because the platform's **signature** verifies. |
-| What a request can make the runner do | Start, stop, read an execution's status, or look up a pipeline **inside the allowlist you set** at install. The platform cannot widen it. |
+| What a request can make the runner do | Start, stop, read an execution's status, or look up a pipeline **inside the allowlist you set** at install. With deploys enabled (`--enable-deploy`), also start, poll and stop a deploy build, and delete a purged pipeline's own stack (see [Deploying a pipeline through a runner](#deploying-a-pipeline-through-a-runner)). The platform cannot widen it. |
 | What the runner sends back | An outcome (`started`, `stopped`, `status`, `match`, `no_match`, `pong`), an execution id and status, or an error code, always with its `runnerVersion`. Nothing else it reads from your account. |
 
 Every request is checked, in this order (steps 1 and 2 before any AWS call):
@@ -1427,7 +1439,7 @@ The CLI asks the platform only where the pipeline is, then performs the same ide
 pipeline-manager infra setup-runner --region us-east-1 --label default --delete
 ```
 
-This **revokes the runner on the platform first** (step-up): delivery stops, its pipeline links are cleared and pending requests expire. **Then** it deletes the stack. If the revoke fails for any reason other than "already gone", the stack is left in place, so a runner the platform still believes in never silently disappears. The runner revoked is the one the stack in this account and region names. With no stack there, only a still-**pending** runner of that label is revoked; an active one is refused (it is installed in another account or region, so re-run there or revoke it from the settings panel). Deleting the stack by hand (or disabling the Function URL) also cuts the platform off at once; the runner then shows as Unreachable and can be revoked from **Settings → Organization → Pipeline runners**.
+This **revokes the runner on the platform first** (step-up): delivery stops, its pipeline links are cleared and pending requests expire. **Then** it deletes the stack. If the revoke fails for any reason other than "already gone", the stack is left in place, so a runner the platform still believes in never silently disappears. The runner revoked is the one the stack in this account and region names. With no stack there, only a still-**pending** runner of that label is revoked; an active one is refused (it is installed in another account or region, so re-run there or revoke it from the settings panel). Deleting the stack by hand (or disabling the Function URL) also cuts the platform off at once; the runner then shows as Unreachable and can be revoked from **Settings → Organization → Pipelines → Pipeline runners**.
 
 
 ### Runner metrics and alerts
@@ -1454,6 +1466,103 @@ The refusal codes the alerts watch, and `status="expired"`, are created at zero 
 | `RunnerSigningKeyUnreadable` | any org's signing key can't be decrypted; that org's runs fail with `RUNNER_KEY_UNREADABLE` | critical |
 | `RunnerRefusalSpike` | more than 5 `RUNNER_REFUSED`, `PIPELINE_IDENTITY_MISMATCH` or `AMBIGUOUS_PIPELINE` refusals of one code in 15 minutes, held 5 minutes | warning |
 | `RunnerRequestsExpiring` | any run request expired undelivered in 30 minutes | warning |
+
+### Deploying a pipeline through a runner
+
+A pipeline created in the dashboard (Generate from Git, the wizard, a template) is only a config until it is deployed. With deploys enabled on a runner, the dashboard deploys it **into that runner's AWS account** without anyone handing the platform AWS credentials: the create flow's **Next step: deploy it** and a never-deployed pipeline's page show **Deploy through a pipeline runner**. Exactly one runner able to deploy it is pre-selected (**Deploy to *label* (*region*)**, then step-up); several give a dropdown (runners that cannot deploy it are listed, disabled, with the reason: deploys not enabled, update required, not answering, prefix or region allowlist, or a parent's runner whose owner has not let teams deploy through it); none explains why and shows the setup command. `pipeline-manager pipeline deploy --id <id>` with your own credentials stays the alternative.
+
+A deploy is only for a pipeline with no registry row (`ALREADY_DEPLOYED` otherwise), and one pipeline has at most one active deploy. The runner's Lambda cannot run `cdk`, so it starts a **CodeBuild project in the runner stack** that runs the pipeline's own managed `cdk-synth` image pinned by digest; the build runs the hidden `pipeline-manager pipeline deploy-job` command.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as User
+    participant P as Pipeline service
+    participant R as Runner Lambda
+    participant K as KMS key (runner stack)
+    participant B as CodeBuild deploy job
+    participant A as Runner's AWS account
+
+    U->>P: Generate / create the pipeline
+    U->>P: POST /pipelines/:id/deploys {runnerId, region} (pipelines:write, step-up, MFA)
+    P->>P: never deployed, compliance re-run, toolchain speaks deploy protocol, rate limit + per-runner cap
+    P->>P: mint single-use grant (only its sha256 stored), queue the deploy request
+    P->>R: signed pb-run+jwt {action: deploy, deploy: {grant, region, names, image digest, protocol}}
+    R->>R: runner lists deploy:1, region + names inside the allowlist, not already deployed
+    R->>K: kms:Encrypt(grant, context {runnerId, purpose: deploy-grant})
+    R->>B: StartBuild (image @digest, env: request id, names, grant CIPHERTEXT only)
+    R-->>P: deploying {buildId}
+    B->>K: kms:Decrypt(grant) (only the DeployRole may)
+    B->>P: POST /runner/deploys/:requestId/session {grant}
+    P-->>B: session token (no-store, valid to the deadline); grant is spent
+    B->>P: GET pipeline, POST plugin-lookup (session only)
+    B->>A: prechecks: CDK bootstrap version, needed secrets, existing stack ownership
+    B->>A: clean a failed first deploy of THIS pipeline (ROLLBACK_COMPLETE), if any
+    B->>A: cdk synth + cdk deploy through the bootstrap roles
+    B->>P: POST registry (names forced from the session) → runner link set
+    B->>P: POST progress / result {code}
+    loop every RUNNER_DEPLOY_STATUS_POLL_SECONDS until terminal or deadline
+        P->>R: signed deploy_status {deployRequestId, buildId}
+        R-->>P: buildState, stage, result code (never logs or ARNs)
+    end
+    P->>P: deployed (session revoked)
+    U->>P: GET /pipelines/:id/deploys/:requestId (2 s → 10 s backoff)
+```
+
+The page follows the deploy through its stages (queued, starting, authenticating, fetching, checking the account, removing a failed earlier attempt when needed, synthesizing, deploying, registering), offers **Cancel** (before delivery the request is cancelled outright; a running build gets a signed `deploy_cancel` → `StopBuild`), and resumes it on reload (`GET /pipelines/:id/deploys/latest`). A failure shows its code's copy and next steps, where its build log is (the CodeBuild project, log group `/aws/codebuild/pipeline-builder-runner-deploy-<runnerId>` and build id; open CloudWatch **in the runner's account**, the platform never reads it), and **Retry** / **Change runner** when the code is retryable. A deploy still running at `RUNNER_DEPLOY_DEADLINE_MINUTES` is cancelled and fails `DEPLOY_TIMED_OUT`.
+
+#### Trust model
+
+| | |
+| --- | --- |
+| What enabling deploys lets the platform do | Ask the runner to run **one build of a fixed project** with a fixed buildspec, role and timeout (no override of either), on the pipeline's managed `cdk-synth` image pinned by digest from your stack's registry host. The request chooses only the region (inside the allowlist), the names (inside the prefix allowlist) and the digest. |
+| What the deploy itself can do | Whatever the account's **CDK bootstrap roles** allow. The DeployRole can only assume `cdk-<qualifier>-{deploy,file-publishing,image-publishing,lookup}-role-<account>-<region>` for allowlisted regions, read the bootstrap version, describe `pipeline-builder/*` secrets and read the registry credential. It has **no** `iam:*` and no direct CloudFormation writes. The real limit is the **bootstrap execution policy** (`pipeline-manager infra bootstrap --cloudformation-execution-policies`), plus an optional `DeployPermissionsBoundaryArn` on the DeployRole. Bootstrap with a policy scoped to what your pipelines need. |
+| What the build gets from the platform | A single-use grant, KMS-wrapped in the account, exchanged once for a session that reaches only that deploy's facade (`/api/pipelines/runner/deploys/:requestId/…`: the pipeline, plugin lookup, progress, the registry write, the result). The session is revoked at any terminal status. |
+| What the platform learns | The build id (`<project>:<uuid>`, no account id), its state, stage and a result code from a fixed list. Never a log line, a message or an ARN. |
+| Proof for the runner link | The link to the runner is written only after **that runner's own job** deployed the pipeline. |
+
+#### Threats and mitigations
+
+| Threat | Mitigation |
+| --- | --- |
+| The grant leaks from the account (CodeBuild env overrides are visible to `BatchGetBuilds` and logged in CloudTrail's `StartBuild`) | The job grant reaches CodeBuild only KMS-encrypted (`PB_DEPLOY_GRANT_CIPHERTEXT`); the job decrypts it, exchanges it once for a session and removes it from its environment before running cdk. The key (`DeployGrantKey`, in the runner stack) lets **only** the runner role encrypt and **only** the deploy role decrypt, both with the encryption context `{runnerId, purpose: deploy-grant}`. |
+| A grant is replayed | It is single-use and short-lived (the build queue timeout plus a margin): a second exchange is refused `401 DEPLOY_GRANT_INVALID`, counted in `pipeline_runner_deploy_grant_rejections_total{reason="reused"}`, audited `pipeline.deploy.grant_reuse`, and pages `RunnerDeployGrantReuse` (critical). An exchange after expiry is `DEPLOY_GRANT_EXPIRED`, a separate reason. See the [runbook](runbooks/secret-rotation.md#deploy-grants-and-sessions). |
+| A malicious or swapped image | The project's image is `${RegistryPullHost}/system/cdk-synth@sha256:…`: the host comes only from the stack, the repository is exactly `system/cdk-synth`, and the digest is the one the pipeline's pinned toolchain release recorded. The job refuses to run when its deploy-job protocol differs from the claim's (`DEPLOY_JOB_PROTOCOL_MISMATCH`). |
+| A request outside the allowlist | Region and names are checked against the runner's allowlist before `StartBuild` (`403 RUNNER_REFUSED`); the DeployRole can assume bootstrap roles only in allowlisted regions. |
+| A deploy overwrites a stack that is not this pipeline's | Before deploying the job reads the target stack: tagged `pb.pipeline-id` for another pipeline, or untagged, is `STACK_OWNED_BY_OTHER_PIPELINE`. Only this pipeline's own failed first deploy (ROLLBACK_COMPLETE / DELETE_FAILED, never CREATE_COMPLETE) is deleted before retrying. |
+| An old runner bundle is sent a deploy | The platform sends deploy actions only to a runner whose last pong listed `deploy:1` (`RUNNER_DEPLOY_UNSUPPORTED` otherwise), so an old bundle never answers `SIGNATURE_INVALID`. |
+| A team deploys through its parent's runner | Only when the parent turned on **Teams may deploy through it** (`shareDeploysWithTeams`, off by default) on a runner it shares. |
+
+#### What `--enable-deploy` adds to the stack
+
+All of it under the `EnableDeploy` parameter (default `false`, condition `UseDeploy`):
+
+| Part | |
+| --- | --- |
+| `DeployProject` | `AWS::CodeBuild::Project` `pipeline-builder-runner-deploy-<runnerId>`: no source or artifacts, an inline buildspec the runner cannot override, never privileged, `QueuedTimeoutInMinutes` 30, `TimeoutInMinutes` = `--deploy-timeout` (60, 10–480), `ConcurrentBuildLimit` = `--deploy-concurrency` (2). |
+| `DeployRole` | `pb-runner-deploy-<runnerId>`. Trusted by CodeBuild for this account and project only (`aws:SourceAccount`, `aws:SourceArn`); `sts:AssumeRole` on the CDK bootstrap roles of each allowlisted region; `ssm:GetParameter` on `/cdk-bootstrap/<qualifier>/version`; `secretsmanager:DescribeSecret` on `pipeline-builder/*`; `GetSecretValue` on the registry credential only; its log group; `kms:Decrypt` on the grant key. Optional permissions boundary (`--deploy-permissions-boundary`). |
+| `DeployLogGroup` | `/aws/codebuild/pipeline-builder-runner-deploy-<runnerId>`, 90-day retention. |
+| `DeployGrantKey` | `AWS::KMS::Key`, key rotation on: only the runner role may `kms:Encrypt` and only the deploy role may `kms:Decrypt`, each only with the encryption context `{runnerId, purpose: deploy-grant}`. |
+| RunnerRole additions | `codebuild:StartBuild`, `BatchGetBuilds`, `StopBuild`, `ListBuildsForProject` on the DeployProject ARN only. |
+
+Parameters: `RegistryPullHost` (`--registry-pull-host`), `RegistryCredentialSecretName` (`pipeline-builder/<orgId>/registry-push`), `CdkQualifier` (`--cdk-qualifier`, default `hnb659fds`), `DeployTimeoutMinutes` (`--deploy-timeout`), `DeployConcurrency` (`--deploy-concurrency`), `DeployPermissionsBoundaryArn` (`--deploy-permissions-boundary`).
+
+The runner's deploy build runs unprivileged (no Docker daemon). Pipelines built by Pipeline Builder never contain Docker image assets: every step image is pulled from the platform registry pinned by digest, and nothing is built at synth. The deploy job checks the synthesized assembly anyway; if a stack ever carried a Docker image asset it stops with `DEPLOY_NEEDS_PRIVILEGED` before deploying. Deploy such a pipeline with `pipeline-manager pipeline deploy` from a machine with Docker. There is no privileged-mode setting on the runner.
+
+#### Turning deploys on
+
+1. Store the registry pull credential the deploy project reads (required; `setup-runner --enable-deploy` refuses without it): `pipeline-manager infra store-token --scope registry:push --region <stack-region>`.
+2. Bootstrap CDK (version 21 or later) in every allowlisted region, with an execution policy scoped to what your pipelines deploy: `pipeline-manager infra bootstrap --region <region>` (add `--qualifier <q>` if not the default, and `--cloudformation-execution-policies <policy-arns>`), or pass `--bootstrap` to `setup-runner` to bootstrap the missing regions for you. `setup-runner --enable-deploy` checks each region and warns; `--require-bootstrap` refuses instead. The deploy job never bootstraps; a missing or outdated bootstrap fails `CDK_NOT_BOOTSTRAPPED` / `CDK_BOOTSTRAP_OUTDATED` naming the command.
+3. Update the runner (same `--label`): `pipeline-manager infra setup-runner --region <region> --enable-deploy [--require-bootstrap|--bootstrap] [--cdk-qualifier q] [--deploy-timeout 60] [--deploy-concurrency 2] [--deploy-permissions-boundary arn] [--registry-pull-host host[:port]]`. Its next pong reports `deploy:1`, and **Settings → Organization → Pipelines → Pipeline runners** badges it **Deploys enabled**. Re-running `setup-runner` without `--enable-deploy` turns deploys off.
+4. Optional: let teams it is shared with deploy through it (**Teams may deploy through it**, step-up).
+
+Deploys are limited to `DEPLOY_REQUESTS_PER_HOUR` per org and `MAX_ACTIVE_DEPLOYS_PER_RUNNER` per runner (CodeBuild's concurrent build limit is the backstop); see [Environment Variables](environment-variables.md). They spend no pipelines quota.
+
+#### Purging a deployed pipeline
+
+Deleting a pipeline never touches its stack. **Purging** it (hard delete, from **Recently deleted**) asks its linked runner, when that runner has deploys enabled, to run the same project in undeploy mode, which deletes the stack only if it is tagged `pb.pipeline-id` for this pipeline; the outcome is audited `pipeline.undeploy.complete`. The delete dialog and the **Recently deleted** purge dialog state which of the two will happen (each deleted row carries its `deployment`: the stack, the linked runner and `stackRemovedOnPurge`), and after a purge the panel shows the result: the undeploy requested through the runner, or the stack retained and why (no runner linked, deploys not enabled on it, a toolchain too old for the undeploy job, or no stack recorded). A pipeline whose stack no runner can remove keeps it: the purge is refused (`409`, `details.stackRetainedReason`) until you remove the stack with `cdk destroy` or in the CloudFormation console and deregister it (or purge with `?force=true` once it is gone).
+
+The deploy alerts (`RunnerDeployGrantReuse`, `RunnerDeployPlatformFailures`, `RunnerDeployStuck`) are in [Deploy Operations](deploy-operations.md#runner-deploy-alerts).
 
 ### Two-account smoke test
 
@@ -1701,4 +1810,4 @@ The ACM cert DNS-validates during stack creation (a few minutes). If it never is
 1. Verify `pipeline-manager infra store-token` was run
 2. Check Lambda logs: `aws logs tail /aws/lambda/pipeline-builder-event-ingestion --follow`
 3. Check SQS DLQ for failed events
-4. Verify pipeline was deployed after `infra setup-events` (it must have a `pipeline_registry` row)
+4. Verify pipeline was deployed after `infra setup-events`. A pipeline with no `pipeline_registry` row registers itself on its first event; if it doesn't, the reporting log says `Skipped events for unregistered pipeline ids` (the pipeline is deleted, belongs to another org, or the pipeline service was unreachable)

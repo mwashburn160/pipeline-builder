@@ -25,6 +25,11 @@ const SAMPLES: Record<keyof typeof PLUGIN_INTERNAL, ContractSample> = {
   orgImageReferences: { query: { orgId: 'acme' }, response: { digests: [DIGEST] } },
   purgeOrg: { params: { orgId: 'acme' }, response: { orgId: 'acme', tables: { plugins: 3, plugin_installs: 1 } } },
   eraseUser: { params: { userId: 'u-1' }, response: { userId: 'u-1', reviews: 2 } },
+  deployLookup: {
+    params: { orgId: 'acme' },
+    body: { filter: { name: 'lint' } },
+    response: { plugin: { name: 'lint', version: '1.0.0' }, warnings: [] },
+  },
   reportRemediationRollout: {
     params: { remediationId: '00000000-0000-4000-8000-000000000001' },
     body: {

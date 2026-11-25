@@ -238,6 +238,10 @@ it('reads the runner limit tunables from api-core (guards against a vacuously pa
     RUNNER_HEALTH_PING_INTERVAL_SECONDS: '60',
     RUNNER_UNHEALTHY_AFTER_PINGS: '2',
     RUNNER_KEY_MAX_AGE_DAYS: '365',
+    DEPLOY_REQUESTS_PER_HOUR: '20',
+    MAX_ACTIVE_DEPLOYS_PER_RUNNER: '2',
+    RUNNER_DEPLOY_DEADLINE_MINUTES: '120',
+    RUNNER_DEPLOY_STATUS_POLL_SECONDS: '30',
   });
 });
 

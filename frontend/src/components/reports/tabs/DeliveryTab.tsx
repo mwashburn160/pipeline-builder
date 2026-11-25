@@ -140,7 +140,7 @@ export function RunnerPanel({ loading, data }: { loading: boolean; data: RunnerR
               </tbody>
             </table>
             <p className="mt-2 text-xs text-fg-muted">
-              Start and stop requests only (discovery probes are not runs). Time to start runs from the request to the
+              Start and stop requests only (deploys through a runner and discovery probes are not runs). Time to start runs from the request to the
               start of the execution the runner reported.
             </p>
           </Card>

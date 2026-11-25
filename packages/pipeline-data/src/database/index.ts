@@ -202,6 +202,7 @@ export {
   type OrgToolchainDefaultHistoryInsert,
   pipelineRunner,
   pipelineRunRequest,
+  pipelineRunnerDeploy,
   pipelineRegistryRunnerLink,
   pipelineRunnerSigningKey,
   pipelineRunnerKeySettings,

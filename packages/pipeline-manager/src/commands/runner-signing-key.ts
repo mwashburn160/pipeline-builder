@@ -32,7 +32,7 @@ import { STEP_UP_HEADER, type StepUpProvider } from '../utils/service-account.js
 
 const RUNNERS_ROUTE = '/api/pipelines/runners';
 const SIGNING_KEY_ROUTE = `${RUNNERS_ROUTE}/signing-key`;
-const PANEL = 'Settings → Organization → Pipeline runners';
+const PANEL = 'Settings → Organization → Pipelines → Pipeline runners';
 
 export const SIGNING_KEY_ACTIONS = ['status', 'generate', 'rotate', 'finish'] as const;
 export type SigningKeyAction = (typeof SIGNING_KEY_ACTIONS)[number];

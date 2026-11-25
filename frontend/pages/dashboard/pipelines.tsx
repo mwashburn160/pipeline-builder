@@ -159,10 +159,12 @@ export default function PipelinesPage() {
   const [deletedView, setDeletedView] = useUrlTab<'active' | 'deleted'>('view', DELETED_VIEWS, 'active');
   const createForm = useFormState();
   const [createSuccess, setCreateSuccess] = useState<string | null>(null);
+  // The pipeline the last create made: the modal stays open on its deploy next step.
+  const [createdPipelineId, setCreatedPipelineId] = useState<string | null>(null);
   // The post-create auto-close: tracked so it can't fire after unmount, or shut
   // a create modal reopened (and half-filled) after closing this one by hand.
   const createClose = useAutoCloseTimer();
-  const closeCreateModal = () => { createClose.cancel(); setShowCreateModal(false); setCreateSuccess(null); };
+  const closeCreateModal = () => { createClose.cancel(); setShowCreateModal(false); setCreateSuccess(null); setCreatedPipelineId(null); };
   const [editPipeline, setEditPipeline] = useState<PipelineSummary | null>(null);
   const [showBulkCreate, setShowBulkCreate] = useState(false);
 
@@ -170,7 +172,7 @@ export default function PipelinesPage() {
   // shortcut (`?create=1`).
   useOpenOnCreateQuery(() => { if (canWrite) setShowCreateModal(true); }, isReady && !!user);
 
-  const openCreate = () => { setShowCreateModal(true); createForm.reset(); setCreateSuccess(null); };
+  const openCreate = () => { setShowCreateModal(true); createForm.reset(); setCreateSuccess(null); setCreatedPipelineId(null); };
 
   /**
    * A create whose (project, organization) slot is already taken comes back 409
@@ -228,7 +230,11 @@ export default function PipelinesPage() {
           // not discovered later in a report that credits the wrong stage.
           for (const w of result.data?.warnings ?? []) toast.warning(w, 12000);
           setSlotConflict(null);
-          createClose.schedule(closeCreateModal, 2000);
+          // A NEW pipeline stays open on its next step (deploy it): nothing runs
+          // or reports until it is deployed. An overwrite closes as before.
+          const newId = !overwrote ? result.data?.pipeline?.id : undefined;
+          if (newId) setCreatedPipelineId(newId);
+          else createClose.schedule(closeCreateModal, 2000);
         },
       },
     );
@@ -487,6 +493,7 @@ export default function PipelinesPage() {
         createLoading={createForm.loading}
         createError={createForm.error}
         createSuccess={createSuccess}
+        createdPipelineId={createdPipelineId}
         canPublish={can('pipelines:publish')}
       />
       )}

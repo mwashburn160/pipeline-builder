@@ -57,7 +57,7 @@ export function OrgDataExport({ orgId, orgName }: { orgId: string; orgName?: str
     <SectionCard
       icon={PackageOpen}
       title="Export organization data"
-      description="Download what the platform holds for this organization — its profile, members, roles, pipelines, plugins, settings and recent audit events — as one JSON file, for your records or to move elsewhere."
+      description="One JSON file of what the platform holds for this organization: profile, members, roles, pipelines, plugins, settings and recent audit events."
     >
       <div className="space-y-3">
         <ErrorAlert message={error} onDismiss={() => setError(null)} />

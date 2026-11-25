@@ -4,10 +4,9 @@
 import { promises as fs } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
-import { parsePlatformBaseUrl, resolvePipelineProps, STEP_MANIFEST_FILE, type StepManifestEntry } from '@pipeline-builder/pipeline-core';
+import { deployedPipelineNames, parsePlatformBaseUrl, STEP_MANIFEST_FILE, type StepManifestEntry } from '@pipeline-builder/pipeline-core';
 import { resolveAwsRegion } from './aws-env.js';
 import { printInfo } from './output-utils.js';
-import { defaultPipelineName, pipelineStackName } from '../config/cli.constants.js';
 
 /**
  * Helpers for registering a deployed pipeline ARN with the platform.
@@ -101,30 +100,13 @@ export interface PipelineForRegistry {
   props?: Record<string, unknown>;
 }
 
-const nonEmpty = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v : undefined);
-
 /**
  * The CodePipeline and CloudFormation stack names the synth app deploys for
- * `pipeline`: the same derivation as boilerplate.ts (stack) and pipeline-core's
- * PipelineConfiguration (pipeline), applied to the props it is handed. Falls
- * back to the record when the props carry no project / organization.
+ * `pipeline` — pipeline-core's `deployedPipelineNames`, the one derivation every
+ * registry writer (this CLI, the pipeline service's first-event registration) uses.
  */
 export function deployedNames(pipeline: PipelineForRegistry): { pipelineName: string; stackName: string } {
-  // Resolved exactly as the synth resolves them (PipelineBuilder →
-  // resolvePipelineProps): a templated `project` names the stack by its VALUE.
-  const props = resolvePipelineProps(pipeline.props ?? {});
-  const project = nonEmpty(props.project);
-  const organization = nonEmpty(props.organization);
-  if (project && organization) {
-    return {
-      pipelineName: nonEmpty(props.pipelineName) ?? defaultPipelineName(organization, project),
-      stackName: pipelineStackName(project, organization),
-    };
-  }
-  return {
-    pipelineName: pipeline.pipelineName || defaultPipelineName(pipeline.organization, pipeline.project),
-    stackName: pipelineStackName(pipeline.project, pipeline.organization),
-  };
+  return deployedPipelineNames(pipeline);
 }
 
 /** Where pending registration intents are persisted between CLI invocations. */

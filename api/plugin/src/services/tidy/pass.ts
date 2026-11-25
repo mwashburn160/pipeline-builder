@@ -250,7 +250,7 @@ export function renderDigest(settings: TidySettings, entries: readonly TidyVersi
       : `would be deactivated on ${DATE(e.deactivateAt ? new Date(e.deactivateAt) : undefined)} if automatic tidying were on`;
     return `  • ${e.name}@${e.version} — ${used}, stale since ${DATE(new Date(e.staleAt))}; ${when}. Keep: ${keepUrl(e.pluginId)}`;
   });
-  const more = n > DIGEST_MAX_LINES ? `\n  … and ${n - DIGEST_MAX_LINES} more (see Settings → Organization → Plugin security → Automatic tidying).` : '';
+  const more = n > DIGEST_MAX_LINES ? `\n  … and ${n - DIGEST_MAX_LINES} more (see Settings → Organization → Pipelines → Plugin security → Automatic tidying).` : '';
   const what = on
     ? 'Automatic tidying deactivates each on the date shown — an exact pin keeps resolving it, with a warning, so no pipeline breaks — and soft-deletes it 30 days later if it is still unused. A deleted version can be restored for 30 days.'
     : 'Automatic tidying is set to notify, so nothing will change; this is a list of versions you could delete.';
@@ -259,7 +259,7 @@ export function renderDigest(settings: TidySettings, entries: readonly TidyVersi
     text: [
       `These plugin versions in your organization have not been used by a pipeline for ${settings.staleAfterDays} days. ${what}`,
       lines.join('\n') + more,
-      'Keep a version to restart its clock, or set a plugin to never tidy on its page. Using a version again (a synth or a pipeline save resolving it) restarts its clock too. Change the mode or the number of days in Settings → Organization → Plugin security.',
+      'Keep a version to restart its clock, or set a plugin to never tidy on its page. Using a version again (a synth or a pipeline save resolving it) restarts its clock too. Change the mode or the number of days in Settings → Organization → Pipelines → Plugin security.',
     ].join('\n\n').slice(0, 10_000),
   };
 }

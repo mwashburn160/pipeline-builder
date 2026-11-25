@@ -7,17 +7,18 @@ import { Checkbox } from '@/components/ui/Checkbox';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
+import { orgSettingsHref } from '@/lib/org-settings-sections';
 
 /**
- * The id the "Email domains" card carries on Settings → Organization. It is the
- * scroll target of every link below: that card is the SIXTH on the tab, so a
- * link to the tab alone left the admin hunting for it (and the card is named
- * after joining, not verifying, which is what they were sent for).
+ * The id the "Email domains" card carries on Settings → Organization → General.
+ * It is the scroll target of every link below, and the fragment alone opens
+ * the tab and section (registered in the settings page's `hashTabs`): a link to
+ * the tab alone left the admin hunting for the card.
  */
 export const DOMAIN_SETTINGS_ANCHOR = 'email-domains';
 
-/** Where domains are verified (Settings → Organization → Email domains). */
-export const DOMAIN_SETTINGS_HREF = `/dashboard/settings?tab=organization#${DOMAIN_SETTINGS_ANCHOR}`;
+/** Where domains are verified (Settings → Organization → General → Email domains). */
+export const DOMAIN_SETTINGS_HREF = orgSettingsHref('general', DOMAIN_SETTINGS_ANCHOR);
 
 /** The org's DNS-verified domains, or `null` when the caller may not list them. */
 export function useVerifiedDomains(orgId: string): { domains: string[] | null; loading: boolean } {

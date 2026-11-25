@@ -1,10 +1,11 @@
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { WarningAlert } from '@/components/ui/WarningAlert';
 import { FormField } from '@/components/ui/FormField';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { AIDisabledNotice } from '@/components/ui/AIServedBy';
-import { getProviderSourceLabel } from '@/lib/ai-constants';
+import { getProviderSourceLabel, routesViaAskAgent } from '@/lib/ai-constants';
 import type { UseAIProvidersResult } from '@/hooks/useAIProviders';
 
 /** Props for the {@link AiProviderModelPicker} component. */
@@ -20,8 +21,9 @@ interface AiProviderModelPickerProps {
  *
  * Renders a Provider `<Select>` over `ai.providers`, a Model `<Select>` over
  * `ai.currentModels`, and the API-key override toggle whose copy adapts to the
- * selected provider's source (`none` / `org` / `server`; the `agent` entry shows a
- * short note instead, as it takes no key override). Used by all three AI
+ * selected provider's source (`none` / `org` / `server`; the `local` entry — the
+ * self-hosted "Local model" — shows a short note instead, as neither of its
+ * routes takes a key override). Used by all three AI
  * generation tabs (prompt, git-url, plugin) to keep the picker UX identical.
  *
  * While the organization's AI switch is off it renders the locked notice INSTEAD
@@ -45,7 +47,7 @@ export function AiProviderModelPicker({ ai, disabled }: AiProviderModelPickerPro
             disabled={disabled}
           >
             {ai.providers.map((p) => (
-              <option key={p.id} value={p.id}>
+              <option key={p.id} value={p.id} disabled={p.unavailable}>
                 {p.name} — {getProviderSourceLabel(p)}
               </option>
             ))}
@@ -64,11 +66,17 @@ export function AiProviderModelPicker({ ai, disabled }: AiProviderModelPickerPro
         </FormField>
       </div>
 
-      {/* Ask agent drafts with the ask-agent service's server-configured keys — no
-          per-request key override (its delegated generation can't forward one). */}
-      {ai.currentSource === 'agent' ? (
+      {/* Neither route can serve the Local model (the Ask agent failed its check
+          and no local provider is configured), so another provider was selected. */}
+      {ai.localModelUnavailable && <WarningAlert message={ai.localModelUnavailable} />}
+
+      {/* Local model takes no per-request key override: the Ask agent's delegated
+          generation can't forward one, and the local provider is keyless. */}
+      {ai.currentSource === 'local' ? (
         <p className="text-xs text-fg-muted">
-          The Ask agent drafts this for you with the selected model. Review the result before creating.
+          {routesViaAskAgent(ai.selectedProvider)
+            ? 'Runs on your self-hosted model, drafted with your platform docs. Review the result before creating.'
+            : 'Runs on your self-hosted model. Review the result before creating.'}
         </p>
       ) : (
         <div>

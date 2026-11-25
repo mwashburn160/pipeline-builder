@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 532dffa2ff08086138b1dd988fea1270111bfea91dd1f19c94c379ddff2ee9d7
+// SOURCE-SHA256: 4e1b89622fc10a80bc375477cce45784e4b4702526b50d649b9713c095ca2198
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1569,6 +1569,51 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
+          "content": "Runner deploy alerts"
+        },
+        {
+          "type": "text",
+          "content": "In alert-rules.yml on all four targets, from the pipeline service's /metrics; the promtool cases are in the minikube suite (which covers the three Kubernetes copies) and in deploy/local/docker/config/prometheus/alert-rules.test.yml. What a deploy through a runner is, and its trust model: Deploying a pipeline through a runner."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Alert",
+            "Fires when",
+            "Severity"
+          ],
+          "rows": [
+            [
+              "RunnerDeployGrantReuse",
+              "any deploy job grant was presented again after its exchange (increase(pipeline_runner_deploy_grant_rejections_total{reason=\"reused\"}[15m]) > 0)",
+              "critical"
+            ],
+            [
+              "RunnerDeployPlatformFailures",
+              "deploys failing with failure class platform (pipeline_runner_deploy_failures_total{class=\"platform\"}): the platform side of the path — grant exchange, the job's reads through its session, delivery — not the customer's account",
+              "warning"
+            ],
+            [
+              "RunnerDeployStuck",
+              "a deploying request is past its RUNNER_DEPLOY_DEADLINE_MINUTES deadline (max(pipeline_runner_deploys_overdue) > 0 for 10 min): the status poll or the deadline cancel is not running",
+              "warning"
+            ]
+          ]
+        },
+        {
+          "type": "list",
+          "items": [
+            "RunnerDeployGrantReuse is the one that matters. A grant is single-use and only its hash is stored, so a second exchange means the KMS-wrapped grant was decrypted and replayed by something other than the job, or the job ran twice. The durable record is the pipeline.deploy.grant_reuse audit event (pipeline id, request id, runner id). Response: secret rotation → deploy grants and sessions.",
+            "RunnerDeployPlatformFailures: failures of the other classes (account_setup, definition, aws_permission, cloudformation, image, timeout, cancelled) are the customer's to fix and are shown to them with next steps, so they are counted in pipeline_runner_deploy_failures_total{class} but not alerted on.",
+            "RunnerDeployStuck: the leader-locked sweep step polls each deploying build every RUNNER_DEPLOY_STATUS_POLL_SECONDS and cancels it past its deadline. A deploy overdue for 10 minutes means that step is not running (no sweep leader, the runner unreachable, or signing failing — check RunnerUnreachable, RunnerSignatureInvalid and the pipeline service's logs)."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "pipeline_runner_deploys_total{outcome} and pipeline_runner_deploy_duration_seconds are not alerted on."
+        },
+        {
+          "type": "text",
           "content": "The monitoring stack itself"
         },
         {
@@ -1597,7 +1642,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "At 245 rules one root cause is a pager flood, and a flood is functionally the same as no alert. The inhibition tree in alertmanager.yml suppresses the consequences of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service being down."
+          "content": "At 248 rules one root cause is a pager flood, and a flood is functionally the same as no alert. The inhibition tree in alertmanager.yml suppresses the consequences of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service being down."
         },
         {
           "type": "text",

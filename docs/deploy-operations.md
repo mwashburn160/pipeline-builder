@@ -727,6 +727,22 @@ kube-state-metrics itself is covered by `ServiceDown`, whose matcher is `up{job=
 
 `PodNotScheduled` reads `kube_pod_status_phase{phase="Pending"}`, and Kubernetes keeps a pod in `Pending` while its **init containers** run — so a pod with a long init step (a dependency wait, or a delayed-action Job that sleeps in an init container) fires it without any scheduling problem. Check the pod's init container state before looking at node capacity.
 
+### Runner deploy alerts
+
+In `alert-rules.yml` on **all four targets**, from the pipeline service's `/metrics`; the promtool cases are in the minikube suite (which covers the three Kubernetes copies) and in `deploy/local/docker/config/prometheus/alert-rules.test.yml`. What a deploy through a runner is, and its trust model: [Deploying a pipeline through a runner](aws-deployment.md#deploying-a-pipeline-through-a-runner).
+
+| Alert | Fires when | Severity |
+|-------|-----------|----------|
+| `RunnerDeployGrantReuse` | any deploy job grant was presented again after its exchange (`increase(pipeline_runner_deploy_grant_rejections_total{reason="reused"}[15m]) > 0`) | critical |
+| `RunnerDeployPlatformFailures` | deploys failing with failure class `platform` (`pipeline_runner_deploy_failures_total{class="platform"}`): the platform side of the path — grant exchange, the job's reads through its session, delivery — not the customer's account | warning |
+| `RunnerDeployStuck` | a deploying request is past its `RUNNER_DEPLOY_DEADLINE_MINUTES` deadline (`max(pipeline_runner_deploys_overdue) > 0` for 10 min): the status poll or the deadline cancel is not running | warning |
+
+- **`RunnerDeployGrantReuse`** is the one that matters. A grant is single-use and only its hash is stored, so a second exchange means the KMS-wrapped grant was decrypted and replayed by something other than the job, or the job ran twice. The durable record is the `pipeline.deploy.grant_reuse` audit event (pipeline id, request id, runner id). Response: [secret rotation → deploy grants and sessions](runbooks/secret-rotation.md#deploy-grants-and-sessions).
+- **`RunnerDeployPlatformFailures`**: failures of the other classes (`account_setup`, `definition`, `aws_permission`, `cloudformation`, `image`, `timeout`, `cancelled`) are the customer's to fix and are shown to them with next steps, so they are counted in `pipeline_runner_deploy_failures_total{class}` but not alerted on.
+- **`RunnerDeployStuck`**: the leader-locked sweep step polls each deploying build every `RUNNER_DEPLOY_STATUS_POLL_SECONDS` and cancels it past its deadline. A deploy overdue for 10 minutes means that step is not running (no sweep leader, the runner unreachable, or signing failing — check `RunnerUnreachable`, `RunnerSignatureInvalid` and the pipeline service's logs).
+
+`pipeline_runner_deploys_total{outcome}` and `pipeline_runner_deploy_duration_seconds` are not alerted on.
+
 ### The monitoring stack itself
 
 Every observability component is scrape-annotated, so `ServiceDown` catches the
@@ -763,7 +779,7 @@ accepts writes at all, because RustFS exposes no Prometheus endpoint of its own.
 
 #### Inhibition: suppressing consequences, and what cannot be suppressed
 
-At 245 rules one root cause is a pager flood, and a flood is functionally the same
+At 248 rules one root cause is a pager flood, and a flood is functionally the same
 as no alert. The inhibition tree in `alertmanager.yml` suppresses the consequences
 of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service
 being down.

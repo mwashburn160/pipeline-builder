@@ -546,24 +546,34 @@ CREATE TABLE IF NOT EXISTS pipeline_runners (
     created_by VARCHAR(255),
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now(),
-    last_delivery_at TIMESTAMPTZ
+    last_delivery_at TIMESTAMPTZ,
+    -- What the runner's bundle reported in its last pong (`deploy:1`: deploys
+    -- enabled), and the pipeline-name prefixes its stack allows (`*` = all).
+    -- The platform never signs a gated action for a runner without its capability.
+    capabilities TEXT[] NOT NULL DEFAULT '{}',
+    pipeline_prefixes TEXT[] NOT NULL DEFAULT '{}',
+    -- Teams this runner is shared with may also DEPLOY through it (off by default).
+    share_deploys_with_teams BOOLEAN NOT NULL DEFAULT false
 );
 
--- One signed run request (start / stop / discovery probe) for a runner. The
--- row is the durable state; the `runner-dispatch` BullMQ job (jobId = id) only
--- drives push delivery.
+-- One signed run request (start / stop / discovery probe / deploy / undeploy)
+-- for a runner. The row is the durable state; the `runner-dispatch` BullMQ job
+-- (jobId = id) only drives push delivery. A deploy / undeploy the runner
+-- accepted is `deploying` / `undeploying` until the sweep's signed
+-- deploy_status poll sees its CodeBuild job finish.
 CREATE TABLE IF NOT EXISTS pipeline_run_requests (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     org_id VARCHAR(255) NOT NULL,
     pipeline_id UUID NOT NULL,
-    action VARCHAR(10) NOT NULL CHECK (action IN ('start', 'stop', 'probe')),
+    action VARCHAR(10) NOT NULL CHECK (action IN ('start', 'stop', 'probe', 'deploy', 'undeploy')),
     execution_id VARCHAR(100),
     parent_request_id UUID,
     requested_by VARCHAR(255) NOT NULL,
     requested_at TIMESTAMPTZ DEFAULT now(),
     expires_at TIMESTAMPTZ NOT NULL,
     status VARCHAR(16) NOT NULL DEFAULT 'queued'
-                        CHECK (status IN ('queued', 'delivering', 'started', 'stopped', 'failed', 'expired')),
+                        CHECK (status IN ('queued', 'delivering', 'started', 'stopped', 'failed', 'expired',
+                                          'deploying', 'deployed', 'cancelled', 'undeploying', 'undeployed')),
     runner_id UUID,
     attempts INT NOT NULL DEFAULT 0,
     next_attempt_at TIMESTAMPTZ,
@@ -573,6 +583,44 @@ CREATE TABLE IF NOT EXISTS pipeline_run_requests (
     -- When the runner accepted a start/stop (the dispatcher's success verdict);
     -- NULL until then, and for every request that was never accepted.
     accepted_at TIMESTAMPTZ
+);
+
+-- The deploy half of a `deploy` / `undeploy` run request: what the runner's
+-- CodeBuild job runs, where it is, and the job's credentials. `grant_hash` is
+-- the sha256 (hex) of the single-use job grant (`pb_dg_...`), the only form the
+-- grant is kept in clear; `grant_enc` is the grant under the org's
+-- encryptSecret (re-signed on a redelivery), wiped at the exchange and at any
+-- terminal status. `session_hash` is the sha256 of the session token
+-- (`pb_ds_...`) the exchange issued, nulled at any terminal status. `build_id`
+-- is `<project>:<uuid>` (no account id). No route, log, audit entry or export
+-- carries grant_enc, grant_hash or session_hash.
+CREATE TABLE IF NOT EXISTS pipeline_runner_deploys (
+    request_id UUID PRIMARY KEY REFERENCES pipeline_run_requests(id) ON DELETE CASCADE,
+    org_id VARCHAR(255) NOT NULL,
+    pipeline_id UUID NOT NULL,
+    region VARCHAR(30) NOT NULL,
+    pipeline_name VARCHAR(255) NOT NULL,
+    stack_name VARCHAR(255) NOT NULL,
+    image_digest VARCHAR(80) NOT NULL,
+    toolchain_release VARCHAR(50) NOT NULL,
+    build_id VARCHAR(255),
+    stage VARCHAR(16) NOT NULL DEFAULT 'queued'
+          CONSTRAINT pipeline_runner_deploys_stage_check
+          CHECK (stage IN ('queued', 'starting', 'authenticating', 'fetching', 'prechecking', 'cleaning',
+                           'synthesizing', 'deploying', 'registering', 'removing', 'done')),
+    deadline_at TIMESTAMPTZ,
+    next_poll_at TIMESTAMPTZ,
+    grant_hash VARCHAR(64),
+    grant_enc TEXT,
+    grant_expires_at TIMESTAMPTZ NOT NULL,
+    grant_used_at TIMESTAMPTZ,
+    session_hash VARCHAR(64),
+    session_expires_at TIMESTAMPTZ,
+    cancel_requested_at TIMESTAMPTZ,
+    cancelled_by VARCHAR(255),
+    result_code VARCHAR(64),
+    finished_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- ============================================================================
@@ -1078,6 +1126,15 @@ CREATE INDEX IF NOT EXISTS pipeline_run_requests_pipeline_idx
 CREATE UNIQUE INDEX IF NOT EXISTS pipeline_run_requests_one_pending_start_uq
     ON pipeline_run_requests(pipeline_id)
     WHERE action = 'start' AND status IN ('queued', 'delivering');
+-- At most ONE active (queued|delivering|deploying) deploy per pipeline: a
+-- second Deploy reuses it (same runner) or answers 409 DEPLOY_IN_PROGRESS.
+CREATE UNIQUE INDEX IF NOT EXISTS pipeline_run_requests_one_active_deploy_uq
+    ON pipeline_run_requests(pipeline_id)
+    WHERE action = 'deploy' AND status IN ('queued', 'delivering', 'deploying');
+CREATE INDEX IF NOT EXISTS pipeline_runner_deploys_pipeline_idx
+    ON pipeline_runner_deploys(org_id, pipeline_id);
+CREATE INDEX IF NOT EXISTS pipeline_runner_deploys_poll_idx
+    ON pipeline_runner_deploys(next_poll_at) WHERE next_poll_at IS NOT NULL;
 
 -- Runner signing keys: a kid names one key on the whole deployment; at most
 -- one next, one active and one retiring key per org (a concurrent second
@@ -3358,6 +3415,12 @@ CREATE TABLE IF NOT EXISTS toolchain_release (
                     CONSTRAINT toolchain_release_version_check
                     CHECK (release_version ~ '^[0-9]+\.[0-9]+\.[0-9]+$'),
     release_notes TEXT,
+    -- The `pipeline-manager pipeline deploy-job` protocol the release's
+    -- cdk-synth image ships (recorded from that half's upload metadata). NULL:
+    -- no deploy job — the release can't deploy a pipeline through a runner.
+    deploy_job_protocol INT
+                        CONSTRAINT toolchain_release_deploy_job_protocol_check
+                        CHECK (deploy_job_protocol IS NULL OR deploy_job_protocol >= 1),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_by TEXT NOT NULL
 );
@@ -3829,7 +3892,7 @@ DO $$
 DECLARE
     t TEXT;
 BEGIN
-    FOR t IN SELECT unnest(ARRAY['pipeline_runners', 'pipeline_run_requests', 'pipeline_runner_signing_keys', 'pipeline_runner_key_settings'])
+    FOR t IN SELECT unnest(ARRAY['pipeline_runners', 'pipeline_run_requests', 'pipeline_runner_deploys', 'pipeline_runner_signing_keys', 'pipeline_runner_key_settings'])
     LOOP
         EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
         PERFORM pb_reset_policies(t);
@@ -4194,6 +4257,7 @@ ALTER TABLE pipeline_registry FORCE ROW LEVEL SECURITY;
 -- runs under an explicit (sysadmin) tenant scope.
 ALTER TABLE pipeline_runners FORCE ROW LEVEL SECURITY;
 ALTER TABLE pipeline_run_requests FORCE ROW LEVEL SECURITY;
+ALTER TABLE pipeline_runner_deploys FORCE ROW LEVEL SECURITY;
 ALTER TABLE pipeline_runner_signing_keys FORCE ROW LEVEL SECURITY;
 ALTER TABLE pipeline_runner_key_settings FORCE ROW LEVEL SECURITY;
 ALTER TABLE pipeline_runner_platform_settings FORCE ROW LEVEL SECURITY;
@@ -4319,7 +4383,7 @@ DROP FUNCTION pb_reset_policies(TEXT);
 
 \echo ''
 \echo '=== RLS POLICIES INSTALLED ==='
-\echo 'FORCE + org scope (SELECT carve-outs; own-org INSERT/UPDATE/DELETE) on every tenant table (63/63):'
+\echo 'FORCE + org scope (SELECT carve-outs; own-org INSERT/UPDATE/DELETE) on every tenant table (64/64):'
 \echo ' - dashboards, dashboard_panels, org_alert_destinations, org_alert_rules, alert_destination_status'
 \echo ' - messages (+ recipient read-state update), message_attachments, pipeline_registry'
 \echo ' - pipeline_runners, pipeline_run_requests, pipeline_runner_signing_keys, pipeline_runner_key_settings (own org only, no system-org read)'

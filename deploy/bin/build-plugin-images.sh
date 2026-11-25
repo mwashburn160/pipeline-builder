@@ -742,6 +742,28 @@ if [ "$TOTAL" -eq 0 ]; then
   exit 1
 fi
 
+# _check_deploy_job_protocol <image> <spec> — the cdk-synth release gate. The
+# spec's metadata `pb:deploy-job:protocol` is what the platform records on the
+# release (toolchain_release.deploy_job_protocol) and promises runners; it must
+# be what the image's bundled CLI actually speaks (`pipeline-manager pipeline
+# deploy-job --protocol`). Missing, malformed or different fails the build.
+_check_deploy_job_protocol() {
+  local _image="$1" _spec="$2" _want _got
+  _want=$(sed -nE "s/^[[:space:]]+[\"']?pb:deploy-job:protocol[\"']?:[[:space:]]*[\"']?([^\"'[:space:]#]*)[\"']?[[:space:]]*(#.*)?$/\1/p" "$_spec" | head -1)
+  if ! printf '%s' "$_want" | grep -Eq '^[1-9][0-9]{0,5}$'; then
+    echo "    ERROR: $_spec has no valid metadata 'pb:deploy-job:protocol' (got '${_want}'); set it to what \`pipeline-manager pipeline deploy-job --protocol\` prints." >&2
+    return 1
+  fi
+  _got=$(docker run --rm ${PUBLISH_PLATFORM:+--platform "$PUBLISH_PLATFORM"} --entrypoint pipeline-manager "$_image" \
+           pipeline deploy-job --protocol 2>/dev/null | tr -d '\r' | awk 'NF { l = $0 } END { print l }' | tr -d '[:space:]') || _got=""
+  if [ "$_got" != "$_want" ]; then
+    echo "    ERROR: $_spec metadata 'pb:deploy-job:protocol' is ${_want}, but $_image's \`pipeline-manager pipeline deploy-job --protocol\` prints '${_got}'." >&2
+    echo "           Set the spec to the image's value (an empty one means its CLI has no deploy-job --protocol)." >&2
+    return 1
+  fi
+  echo "    deploy-job protocol ${_got} (matches the spec)"
+}
+
 # build_plugin_dir <plugin_dir> [docker build args...] — build one plugin image,
 # save image.tar and flip its config.yaml to prebuilt. Shared by cdk-synth (from
 # the toolchain root, with its BOOTSTRAP_IMAGE args) and the catalog walk.
@@ -872,6 +894,15 @@ build_plugin_dir() {
       return 0
     fi
     rm -f "$build_log"
+
+    # The managed cdk-synth image must speak the protocol its spec records.
+    if [ "$name" = cdk-synth ] && _is_managed "$name" \
+       && ! _check_deploy_job_protocol "plugin:${tag}" "$plugin_dir/plugin-spec.yaml"; then
+      echo "    FAIL (deploy-job protocol: spec and image disagree)"
+      docker rmi "plugin:${tag}" > /dev/null 2>&1 || true
+      FAILED=$((FAILED + 1))
+      return 0
+    fi
 
     # Save to tar
     tar_path="$plugin_dir/image.tar"

@@ -31,7 +31,6 @@ import { TabBar } from '@/components/ui/TabBar';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
-import { WarningAlert } from '@/components/ui/WarningAlert';
 import { RetryError } from '@/components/ui/RetryError';
 import { visibilityColor } from '@/components/ui/visibility-rungs';
 import { Badge } from '@/components/ui/Badge';
@@ -46,6 +45,9 @@ import type { ExecutionFailure } from '@/lib/api/domains/reporting';
 import { PipelineContextCard } from '@/components/pipeline/PipelineContextCard';
 import { runnerErrorBanner, runnerErrorMessage } from '@/components/pipeline/RunnerError';
 import { RunRequestStatus } from '@/components/pipeline/RunRequestStatus';
+import { PipelineRegistrationBanner } from '@/components/pipeline/PipelineDeployGuidance';
+import { DeployPipelinePanel } from '@/components/pipeline/DeployPipelinePanel';
+import { PipelineStackNotice } from '@/components/pipeline/PipelineStackNotice';
 import { RunnerLinkBanners, RunnerLinkRow, useRunnerLink } from '@/components/pipeline/RunnerLinkStatus';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { useRunRequestTracker, type RunRequestOutcome } from '@/hooks/useRunRequestTracker';
@@ -509,19 +511,20 @@ function PipelineDetail({ id }: { id: string }) {
       {runRequests.active.map((r) => <RunRequestStatus key={r.requestId} request={r} />)}
 
       {/* Unregistered ⇒ no events ⇒ every report below is legitimately empty.
-          Without this the Runs tab, the scorecard and DORA all read as broken. */}
-      {pipeline?.registration?.registered === false && (
-        <WarningAlert
+          Without this the Runs tab, the scorecard and DORA all read as broken.
+          Never deployed (the normal state after create) reads differently from
+          deployed-but-unregistered. */}
+      {pipeline?.registration && (
+        <PipelineRegistrationBanner
           className="mb-4"
-          message={(
-            <>
-              <strong>Not registered for reporting.</strong> Runs, reports and DORA metrics for this
-              pipeline will stay empty until it registers. A pipeline registers itself after a successful
-              deploy — if it is already deployed, re-run{' '}
-              <code>pipeline-manager pipeline deploy --id {pipeline.id}</code> to complete registration.
-            </>
-          )}
+          pipelineId={pipeline.id}
+          registered={pipeline.registration.registered}
+          hasEvents={pipeline.registration.hasEvents}
         />
+      )}
+      {/* Never deployed and editable: deploy it through a pipeline runner from here. */}
+      {pipeline?.registration && !pipeline.registration.registered && !pipeline.registration.hasEvents && canEdit && (
+        <DeployPipelinePanel className="mb-4 rounded-xl border border-default p-4" pipelineId={pipeline.id} onDeployed={() => { void reloadPipeline(); }} />
       )}
 
       {fetching && !pipeline && <LoadingSpinner />}
@@ -834,7 +837,20 @@ function PipelineDetail({ id }: { id: string }) {
           loading={deleting}
           onConfirm={confirmDelete}
           onCancel={() => setShowDelete(false)}
-        />
+        >
+          {(pipeline.registration?.registered || pipeline.registration?.hasEvents) && (
+            <PipelineStackNotice
+              purge={false}
+              source={{
+                kind: 'live',
+                stackName: pipeline.registration?.stackName ?? null,
+                region: pipeline.registration?.region ?? null,
+                // The link's runner (null: none linked); unread link → both outcomes.
+                runner: runnerLink.link ? runnerLink.link.runner : undefined,
+              }}
+            />
+          )}
+        </DeleteConfirmModal>
       )}
     </DashboardLayout>
   );

@@ -37,7 +37,7 @@ import {
  * `pluginId` is used to resolve the plugin — name/version/digest are
  * re-read from that row server-side (see replaceStepManifest).
  */
-const StepManifestEntrySchema = z.object({
+export const StepManifestEntrySchema = z.object({
   stageName: z.string().min(1).max(255),
   actionName: z.string().min(1).max(255),
   pluginId: z.string().uuid(),
@@ -54,7 +54,7 @@ const StepManifestEntrySchema = z.object({
 });
 
 /** Upper bound on manifest entries per registration (CodePipeline caps a pipeline far below this). */
-const MAX_MANIFEST_STEPS = 500;
+export const MAX_MANIFEST_STEPS = 500;
 
 const PipelineRegistrySchema = z.object({
   // The pipeline's row id (a uuid column): anything else would reach the

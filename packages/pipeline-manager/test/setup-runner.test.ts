@@ -79,6 +79,10 @@ function fakeDeps(opts: {
   confirm?: boolean;
   /** The account's enabled regions (EC2 DescribeRegions), or the error reading them. */
   enabledRegions?: string[] | Error;
+  /** CDK bootstrap version per region (missing = not bootstrapped). */
+  bootstrap?: Record<string, number>;
+  /** Whether the org's registry-push secret exists in the stack region. */
+  registrySecret?: boolean;
 } = {}) {
   const calls: string[] = [];
   const detail: Record<string, unknown[]> = {};
@@ -86,6 +90,7 @@ function fakeDeps(opts: {
   const questions: string[] = [];
   const rec = (name: string, d?: unknown) => { calls.push(name); (detail[name] ??= []).push(d); };
   const deployed = new Set((opts.stacks ?? []).map((s) => s.stackName));
+  const bootstrapped: Record<string, number> = { ...(opts.bootstrap ?? { 'us-east-1': 28, 'eu-west-2': 28 }) };
   let stepUps = 0;
   const deps: SetupRunnerDeps = {
     platformBaseUrl: 'https://platform.example',
@@ -144,6 +149,10 @@ function fakeDeps(opts: {
     async runSetupEvents(region) { rec('setupEvents', region); },
     async confirm(q) { questions.push(q); return opts.confirm ?? false; },
     warn: (m) => { warnings.push(m); },
+    async organizationId() { rec('organizationId'); return 'org-1'; },
+    async bootstrapVersion(region, qualifier) { rec('bootstrapVersion', { region, qualifier }); return bootstrapped[region]; },
+    async runBootstrap(region, qualifier) { rec('runBootstrap', { region, qualifier }); bootstrapped[region] = 28; },
+    async secretExists(name, region) { rec('secretExists', { name, region }); return opts.registrySecret ?? true; },
   };
   return { deps, calls, detail, warnings, questions };
 }
@@ -530,7 +539,7 @@ describe('signing key', () => {
   it('no key and no new registration (an update): refused before deploying, pointing to --generate-key and the dashboard', async () => {
     const f = fakeDeps({ signingKey: NO_KEY, stacks: [stack('run-1')], own: [{ id: 'run-1', label: 'default', status: 'active', functionUrl: ENDPOINT }] });
     await expect(setupRunnerFlow(basePlan(), f.deps)).rejects.toThrow(NO_ORG_KEY_MESSAGE);
-    expect(NO_ORG_KEY_MESSAGE).toMatch(/--generate-key.*Settings → Organization → Pipeline runners/s);
+    expect(NO_ORG_KEY_MESSAGE).toMatch(/--generate-key.*Settings → Organization → Pipelines → Pipeline runners/s);
     expect(f.calls).not.toContain('deployStack');
   });
 
@@ -798,5 +807,114 @@ describe('the CLI', () => {
       log.mockRestore();
     }
     expect(JSON.parse(out.join('\n'))).toMatchObject({ entryPoint: 'api-gateway', waf: { rateLimit: 700 } });
+  });
+});
+
+describe('--enable-deploy', () => {
+  const deployPlan = (over: Record<string, unknown> = {}) => basePlan({ regions: 'us-east-1,eu-west-2', enableDeploy: true, ...over });
+  const params = (f: ReturnType<typeof fakeDeps>) => (f.detail.deployStack as any[])[0].parameters as string[];
+
+  it('plan: the deploy options need --enable-deploy, are validated, and contradict --delete', () => {
+    expect(deployPlan().deploy).toEqual({
+      qualifier: 'hnb659fds', timeoutMinutes: 60, concurrency: 2, permissionsBoundaryArn: '', requireBootstrap: false, bootstrap: false,
+    });
+    for (const k of ['requireBootstrap', 'bootstrap', 'cdkQualifier', 'deployTimeout', 'deployConcurrency', 'deployPermissionsBoundary', 'registryPullHost']) {
+      expect(() => basePlan({ [k]: k === 'requireBootstrap' || k === 'bootstrap' ? true : '1' })).toThrow(/--enable-deploy/);
+    }
+    expect(() => deployPlan({ delete: true })).toThrow(/--enable-deploy/);
+    expect(() => deployPlan({ cdkQualifier: 'bad qual' })).toThrow(/--cdk-qualifier/);
+    expect(() => deployPlan({ deployTimeout: '5' })).toThrow(/--deploy-timeout/);
+    expect(() => deployPlan({ deployTimeout: '481' })).toThrow(/--deploy-timeout/);
+    expect(() => deployPlan({ deployConcurrency: '0' })).toThrow(/--deploy-concurrency/);
+    expect(() => deployPlan({ deployPermissionsBoundary: 'not-an-arn' })).toThrow(/--deploy-permissions-boundary/);
+    expect(() => deployPlan({ registryPullHost: 'https://x/y' })).toThrow(/--registry-pull-host/);
+    expect(deployPlan({ cdkQualifier: 'abc12', deployTimeout: '90', deployConcurrency: '3', deployPermissionsBoundary: 'arn:aws:iam::123456789012:policy/pb', bootstrap: true }).deploy)
+      .toEqual({ qualifier: 'abc12', timeoutMinutes: 90, concurrency: 3, permissionsBoundaryArn: 'arn:aws:iam::123456789012:policy/pb', requireBootstrap: false, bootstrap: true });
+  });
+
+  it('checks the org\'s registry-push secret and every allowlisted region\'s bootstrap BEFORE registering or deploying, then deploys with EnableDeploy=true', async () => {
+    const f = fakeDeps();
+    const r = await setupRunnerFlow(deployPlan(), f.deps);
+    const firstWrite = f.calls.indexOf('stepUp');
+    for (const c of ['organizationId', 'secretExists', 'bootstrapVersion']) expect(f.calls.indexOf(c)).toBeLessThan(firstWrite);
+    expect(f.detail.secretExists).toEqual([{ name: 'pipeline-builder/org-1/registry-push', region: 'us-east-1' }]);
+    expect(f.detail.bootstrapVersion).toEqual([{ region: 'us-east-1', qualifier: 'hnb659fds' }, { region: 'eu-west-2', qualifier: 'hnb659fds' }]);
+    expect(params(f)).toEqual(expect.arrayContaining([
+      'EnableDeploy=true', 'RegistryPullHost=platform.example', 'RegistryCredentialSecretName=pipeline-builder/org-1/registry-push',
+      'CdkQualifier=hnb659fds', 'DeployTimeoutMinutes=60', 'DeployConcurrency=2', 'DeployPermissionsBoundaryArn=',
+    ]));
+    expect(r.deploy).toEqual({ enabled: true, bootstrap: { 'us-east-1': 'ok', 'eu-west-2': 'ok' } });
+    expect(f.warnings).toEqual([]);
+  });
+
+  it('the pull host follows the platform URL\'s port, or --registry-pull-host', async () => {
+    const f = fakeDeps();
+    f.deps.platformBaseUrl = 'https://platform.example:8443';
+    await setupRunnerFlow(deployPlan(), f.deps);
+    expect(params(f)).toContain('RegistryPullHost=platform.example:8443');
+    const g = fakeDeps();
+    await setupRunnerFlow(deployPlan({ registryPullHost: 'registry.example.com' }), g.deps);
+    expect(params(g)).toContain('RegistryPullHost=registry.example.com');
+  });
+
+  it('refuses without the registry-push secret, naming the command that stores it — before anything is created', async () => {
+    const f = fakeDeps({ registrySecret: false });
+    await expect(setupRunnerFlow(deployPlan(), f.deps)).rejects.toThrow(/pipeline-manager infra store-token --scope registry:push --region us-east-1/);
+    expect(f.calls).not.toContain('deployStack');
+    expect(f.calls).not.toContain('POST /api/pipelines/runners');
+  });
+
+  it('a region without (or with an outdated) CDK bootstrap is warned about, naming the bootstrap command', async () => {
+    const f = fakeDeps({ bootstrap: { 'us-east-1': 28, 'eu-west-2': 14 } });
+    const r = await setupRunnerFlow(deployPlan({ regions: 'us-east-1,eu-west-2,ap-south-1' }), f.deps);
+    expect((r.deploy as { bootstrap?: unknown }).bootstrap).toEqual({ 'us-east-1': 'ok', 'eu-west-2': 'outdated', 'ap-south-1': 'missing' });
+    expect(f.warnings.join('\n')).toMatch(/pipeline-manager infra bootstrap --region eu-west-2/);
+    expect(f.warnings.join('\n')).toMatch(/pipeline-manager infra bootstrap --region ap-south-1/);
+    expect(f.calls).toContain('deployStack');
+  });
+
+  it('--require-bootstrap refuses instead, before anything is created', async () => {
+    const f = fakeDeps({ bootstrap: { 'us-east-1': 28 } });
+    await expect(setupRunnerFlow(deployPlan({ requireBootstrap: true }), f.deps)).rejects.toThrow(/eu-west-2.*pipeline-manager infra bootstrap --region eu-west-2/s);
+    expect(f.calls).not.toContain('deployStack');
+    expect(f.calls).not.toContain('POST /api/pipelines/runners');
+  });
+
+  it('--bootstrap bootstraps the regions that need it (with the qualifier), then deploys', async () => {
+    const f = fakeDeps({ bootstrap: { 'us-east-1': 28 } });
+    const r = await setupRunnerFlow(deployPlan({ bootstrap: true, requireBootstrap: true, cdkQualifier: 'abc12' }), f.deps);
+    expect(f.detail.runBootstrap).toEqual([{ region: 'eu-west-2', qualifier: 'abc12' }]);
+    expect((r.deploy as { bootstrap?: unknown }).bootstrap).toEqual({ 'us-east-1': 'ok', 'eu-west-2': 'bootstrapped' });
+    expect(params(f)).toContain('CdkQualifier=abc12');
+  });
+
+  it('without --enable-deploy: no deploy check at all, and EnableDeploy=false (a re-run turns deploys off)', async () => {
+    const f = fakeDeps();
+    const r = await setupRunnerFlow(basePlan(), f.deps);
+    expect(f.calls).not.toContain('organizationId');
+    expect(f.calls).not.toContain('bootstrapVersion');
+    expect(params(f)).toContain('EnableDeploy=false');
+    expect(r.deploy).toEqual({ enabled: false });
+  });
+
+  it('the dry run names the deploy steps and the deploy role\'s IAM', () => {
+    const d = describePlan(deployPlan()) as any;
+    expect(d.deploy).toMatchObject({ enabled: true, cdkQualifier: 'hnb659fds', timeoutMinutes: 60, concurrency: 2 });
+    expect(d.deploy.iam['sts:AssumeRole']).toEqual(expect.arrayContaining([
+      'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/cdk-hnb659fds-deploy-role-${AWS::AccountId}-eu-west-2',
+    ]));
+    expect(d.steps.join('\n')).toMatch(/registry-push/);
+    expect(d.steps.join('\n')).toMatch(/CDK bootstrap/);
+    expect(describePlan(basePlan()) as any).not.toHaveProperty('deploy');
+  });
+
+  it('the CLI has the deploy flags', async () => {
+    const { Command } = await import('commander');
+    const program = new Command();
+    setupRunner(program.command('infra'));
+    const cmd = program.commands[0]!.commands.find((c) => c.name() === 'setup-runner')!;
+    expect(cmd.options.map((o) => o.long)).toEqual(expect.arrayContaining([
+      '--enable-deploy', '--require-bootstrap', '--bootstrap', '--cdk-qualifier', '--deploy-timeout', '--deploy-concurrency', '--deploy-permissions-boundary', '--registry-pull-host',
+    ]));
   });
 });

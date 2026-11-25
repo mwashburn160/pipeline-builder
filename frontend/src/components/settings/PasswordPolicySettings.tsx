@@ -73,7 +73,7 @@ export function PasswordPolicySettings({ orgId, readOnly }: { orgId: string; rea
     <SectionCard
       icon={KeySquare}
       title="Password policy"
-      description="The minimum password length for this organization's members."
+      description="The minimum password length for members."
     >
       {error && <div className="mb-3"><ErrorAlert message={error} /></div>}
 

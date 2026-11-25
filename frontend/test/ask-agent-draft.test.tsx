@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * "Ask agent" as the default AI provider in the create dialogs:
- *  - useAIProviders puts the Ask-agent entry first (so it's selected by default),
- *    with composite provider|model ids built from the ask-agent service's providers,
- *    and omits it when the ask-agent service has nothing configured.
+ * "Local model" as the default AI provider in the create dialogs:
+ *  - useAIProviders puts the combined "Local model" entry first (so it's selected
+ *    by default); while the Ask agent answers its availability check the entry
+ *    routes through the agent, with composite provider|model ids built from the
+ *    ask-agent service's providers; it is omitted when neither the agent nor a
+ *    local provider is configured.
  *  - streamAgentDraft adapts an agent turn to the generation-tab event stream:
  *    the matching proposal becomes `done`, a repo analysis becomes `analyzed`,
  *    and a turn with no usable draft becomes an `error` quoting the agent.
@@ -20,12 +22,14 @@ import { streamAgentDraft } from '../src/lib/ask-agent-draft';
 const askAgentStream = jest.fn<AnyFn>();
 const getAskProviders = jest.fn<AnyFn>();
 const getOrgAIConfig = jest.fn<AnyFn>();
+const getAskAvailability = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
     askAgentStream: (...a: unknown[]) => askAgentStream(...a),
     getAskProviders: (...a: unknown[]) => getAskProviders(...a),
     getOrgAIConfig: (...a: unknown[]) => getOrgAIConfig(...a),
+    getAskAvailability: (...a: unknown[]) => getAskAvailability(...a),
   },
 }));
 
@@ -47,21 +51,42 @@ describe('useAIProviders({ askAgent: true })', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     getOrgAIConfig.mockResolvedValue({ data: { providers: {} } });
+    getAskAvailability.mockResolvedValue({ data: { available: true } });
   });
 
-  it('leads with the Ask agent entry and selects it by default', async () => {
+  it('leads with the Local model entry, routed via the self-hosted agent, and selects it by default', async () => {
+    getAskProviders.mockResolvedValue({
+      data: { providers: [
+        { id: 'amazon-bedrock', name: 'Amazon Bedrock', models: [{ id: 'us.anthropic.claude:0', name: 'Claude Sonnet 4.5' }] },
+        { id: 'openai-compatible', name: 'Local model (OpenAI-compatible)', models: [{ id: 'qwen2.5:7b', name: 'Qwen 2.5 7B' }] },
+      ] },
+    });
+    const { result } = renderHook(() => useAIProviders(serverProviders, { askAgent: true }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    // The self-hosted model is what is checked, not the agent's first (cloud) one.
+    expect(getAskAvailability).toHaveBeenCalledWith({ probe: true, provider: 'openai-compatible' });
+    expect(result.current.providers[0]).toMatchObject({ id: 'ask-agent', name: 'Local model', source: 'local' });
+    expect(result.current.selectedProvider).toBe('ask-agent');
+    expect(result.current.localModelUnavailable).toBeNull();
+    // Composite id keeps the real provider + a model id that itself contains ':';
+    // the agent's cloud models are not "Local model".
+    expect(result.current.selectedModel).toBe('openai-compatible|qwen2.5:7b');
+    expect(result.current.currentModels).toEqual([{ id: 'openai-compatible|qwen2.5:7b', name: 'Qwen 2.5 7B' }]);
+    expect(result.current.currentSource).toBe('local');
+  });
+
+  it('offers no Local model, and does not probe, when the agent runs only on a cloud provider', async () => {
     getAskProviders.mockResolvedValue({
       data: { providers: [{ id: 'amazon-bedrock', name: 'Amazon Bedrock', models: [{ id: 'us.anthropic.claude:0', name: 'Claude Sonnet 4.5' }] }] },
     });
     const { result } = renderHook(() => useAIProviders(serverProviders, { askAgent: true }));
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    expect(result.current.providers[0]).toMatchObject({ id: 'ask-agent', name: 'Ask agent', source: 'agent' });
-    expect(result.current.selectedProvider).toBe('ask-agent');
-    // Composite id keeps the real provider + a model id that itself contains ':'.
-    expect(result.current.selectedModel).toBe('amazon-bedrock|us.anthropic.claude:0');
-    expect(result.current.currentModels[0].name).toBe('Claude Sonnet 4.5 (Amazon Bedrock)');
-    expect(result.current.currentSource).toBe('agent');
+    expect(result.current.providers.some((p) => p.source === 'local' || p.id === 'ask-agent')).toBe(false);
+    expect(result.current.selectedProvider).toBe('amazon-bedrock');
+    expect(result.current.localModelUnavailable).toBeNull();
+    expect(getAskAvailability).not.toHaveBeenCalled();
   });
 
   it('falls back to the direct providers when the ask-agent service is unavailable', async () => {
@@ -69,8 +94,9 @@ describe('useAIProviders({ askAgent: true })', () => {
     const { result } = renderHook(() => useAIProviders(serverProviders, { askAgent: true }));
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    expect(result.current.providers.some((p) => p.id === 'ask-agent')).toBe(false);
+    expect(result.current.providers.some((p) => p.source === 'local')).toBe(false);
     expect(result.current.selectedProvider).toBe('amazon-bedrock');
+    expect(getAskAvailability).not.toHaveBeenCalled();
   });
 
   it('does not query the ask-agent service unless asked to', async () => {

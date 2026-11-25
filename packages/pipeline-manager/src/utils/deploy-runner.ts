@@ -44,6 +44,21 @@ export interface RunDeployInput {
   platformClient?: RegistryClient;
   platformPipelineUrl?: string;
   platformBaseUrl?: string;
+  /**
+   * A cloud assembly already synthesized from these props (the runner deploy
+   * job synthesizes and inspects it first): `cdk deploy --app <dir>` deploys
+   * exactly that assembly instead of running the boilerplate app again.
+   */
+  app?: string;
+  /**
+   * The NON-INTERACTIVE registration path (the runner deploy job, whose
+   * registration goes through its deploy session): called after a successful
+   * deploy INSTEAD of the platform registry POST — no `platformClient`
+   * registration and never a pending intent (nobody would drain one inside
+   * CodeBuild). It must not throw for a registration failure the deploy
+   * survives.
+   */
+  register?: (deployed: { region: string; output: string }) => Promise<void>;
 }
 
 /**
@@ -73,10 +88,10 @@ export async function runDeploy(input: RunDeployInput): Promise<void> {
   // `assertShellSafe` rejects shell metacharacters but ALLOWS spaces, so quote
   // every interpolated value (a path/profile with a space would otherwise split
   // into extra cdk args — matching how the agent path quotes them).
-  const scriptPath = resolveBoilerplatePath(__dirname);
+  if (input.app) assertShellSafe(input.app, 'app');
   const profileArg = profile ? `--profile=${shellQuote(profile)}` : '';
   const outputArg = `--output=${shellQuote(output)}`;
-  const appArg = `--app="node ${scriptPath}"`;
+  const appArg = input.app ? `--app=${shellQuote(input.app)}` : `--app="node ${resolveBoilerplatePath(__dirname)}"`;
   const command = `cdk deploy ${profileArg} --require-approval=${shellQuote(requireApproval)} ${outputArg} --notices=false ${appArg}`;
 
   printSection('CDK Execution');
@@ -89,7 +104,7 @@ export async function runDeploy(input: RunDeployInput): Promise<void> {
   // registry pull-host fallback. Absent in
   // local-spec mode.
   // Throws on failure — surfaced by the caller as a non-zero exit.
-  const result = withPropsFile(propsWithIds, (propsEnv) => executeCdkShellCommand(command, {
+  const run = (propsEnv: Record<string, string>) => executeCdkShellCommand(command, {
     debug,
     showOutput: true,
     env: {
@@ -99,7 +114,9 @@ export async function runDeploy(input: RunDeployInput): Promise<void> {
       AWS_DEFAULT_REGION: region,
       ...(input.platformBaseUrl ? { PLATFORM_BASE_URL: input.platformBaseUrl } : {}),
     },
-  }));
+  });
+  // A pre-synthesized assembly needs no props: the app does not run again.
+  const result = input.app ? run({}) : withPropsFile(propsWithIds, run);
 
   console.log('');
   printSection('Deployment Complete');
@@ -110,6 +127,10 @@ export async function runDeploy(input: RunDeployInput): Promise<void> {
     'Status': '✓ Success',
   });
 
+  if (input.register) {
+    await input.register({ region, output });
+    return;
+  }
   // Register the pipeline ARN for event reporting (non-blocking). Skipped when
   // there's no platform client (local-spec) or no orgId to scope it to.
   if (!input.platformClient || !input.platformPipelineUrl) {

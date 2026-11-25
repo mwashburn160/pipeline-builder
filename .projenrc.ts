@@ -931,6 +931,11 @@ const manager = new ManagerProject({
     // finds a pipeline by its `pb.pipeline-id` tag through the tagging API.
     `@aws-sdk/client-codepipeline@${awsSdkVersion}`,
     `@aws-sdk/client-resource-groups-tagging-api@${awsSdkVersion}`,
+    // Deploys through a runner (`infra setup-runner --enable-deploy`): the runner
+    // Lambda starts / reads / stops the runner stack's deploy CodeBuild project and
+    // KMS-wraps the job grant; the deploy job (`pipeline deploy-job`, in that
+    // project) unwraps it and reads the region's CDK bootstrap version from SSM.
+    `@aws-sdk/client-codebuild@${awsSdkVersion}`, `@aws-sdk/client-kms@${awsSdkVersion}`, `@aws-sdk/client-ssm@${awsSdkVersion}`,
     'form-data@4.0.6', 'commander@15.1.0', 'figlet@1.12.0',
     'axios@1.21.1', 'progress@2.0.3', 'picocolors@1.1.1', 'yaml@2.9.1', 'ora@10.0.0',
     'zod@4.6.7',

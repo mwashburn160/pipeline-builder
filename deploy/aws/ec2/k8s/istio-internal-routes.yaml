@@ -58,7 +58,9 @@
 #   pipeline -> POST /internal/plugins/remediations/:id/rollout           (report)
 # admitted at L4 by `pipeline-allow` (sa/plugin) and `plugin-allow`
 # (sa/pipeline), and at the CNI by allow-pipeline-from-plugin /
-# allow-plugin-from-pipeline. test/deploy-contracts/test/mesh-callers-contract.test.ts
+# allow-plugin-from-pipeline. Likewise event ingest's first-event registration:
+#   reporting -> POST /pipelines/internal/registry/first-event
+# admitted by `pipeline-allow` (sa/reporting) and allow-pipeline-from-reporting. test/deploy-contracts/test/mesh-callers-contract.test.ts
 # evaluates every contract's callers against these policies on each target.
 #
 # -- Rollback ----------------------------------------------------------------

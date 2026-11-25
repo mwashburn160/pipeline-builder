@@ -203,6 +203,260 @@ export function recordLookupRefusal(reason: string): void {
  * falling through to the later write mounts, which must not require `:read`.
  * apiCalls is metered + checked by the '/plugins' prefix mount (app-routes.ts).
  */
+// Shared single-plugin lookup. `/lookup` POST takes the filter from the
+// body; `/find` GET reads it from query string. Same `PluginFilterSchema`
+// whitelist as the listing endpoint so callers can't smuggle internal
+// fields (`deletedAt`, `orgId`) to peek at soft-deleted rows.
+//
+// Resolution order:
+//   - no `publisher`: the org's own plugin row, then (a team) its parent's
+//     shared row, then the Official listing through the org's install
+//     (explicit, or the implicit one). An own row that shadows an
+//     Official listing answers with a PLUGIN_SHADOWS_LISTING warning;
+//   - `publisher`: ONLY that publisher's listing, through an install.
+// A listed version answers with its `public/*` imageRepository, verified
+// with its signed tier annotation.
+export const respondWithSinglePlugin = async (
+  filter: PluginFilter,
+  parentOrgId: string | undefined, res: Response, orgId: string,
+  ctx: RequestContext,
+  opts: { setCacheHeader: boolean; context?: LookupContext | null; releasePin?: string; resolved?: boolean },
+) => {
+  // Org → team hierarchy: a team org also sees its parent's public plugins
+  // (mirrors the list path). No-op for root orgs (no parent).
+  const scope = { orgId, ...(parentOrgId ? { rootOrgId: parentOrgId } : {}) };
+  const { publisher, ...rowFilter } = filter;
+  // A step context counts only for a pipeline this org owns.
+  const pipeline = opts.context ? await ownedPipeline(orgId, opts.context.pipelineId) : null;
+  if (opts.context && !pipeline) ctx.log('WARN', 'Lookup context names a pipeline outside the org; ignored', { pipelineId: opts.context.pipelineId });
+  const context = pipeline && opts.context ? opts.context : null;
+  const acceptances = context ? await acceptancesFor(orgId, context.pipelineId) : NO_ACCEPTANCES;
+  // Record what synth was told, once per step the lookup serves (never fails the lookup).
+  const record = (outcome: {
+    plugin?: { id?: unknown; name?: unknown; version?: unknown; imageDigest?: unknown; publisher?: unknown };
+    warnings?: LookupWarning[];
+    refusal?: { code: string; reason: string; message: string };
+  }) => {
+    if (!context) return;
+    const str = (v: unknown): string | null => (typeof v === 'string' && v ? v : null);
+    const row = {
+      orgId,
+      pipelineId: context.pipelineId,
+      pluginPublisher: str(outcome.plugin?.publisher) ?? publisher ?? null,
+      pluginName: str(outcome.plugin?.name) ?? (typeof rowFilter.name === 'string' ? rowFilter.name : '(unknown)'),
+      requestedVersion: typeof rowFilter.version === 'string' ? rowFilter.version : null,
+      resolvedVersion: str(outcome.plugin?.version),
+      resolvedPluginId: str(outcome.plugin?.id),
+      imageDigest: str(outcome.plugin?.imageDigest),
+      warnings: (outcome.warnings ?? []).map((w) => ({ code: w.code, message: w.message, severity: w.severity })),
+      refusal: outcome.refusal ?? null,
+    };
+    for (const stepKey of context.stepKeys) {
+      void recordStepLookup({ ...row, stepKey })
+        .catch((err: unknown) => ctx.log('WARN', 'Step lookup not recorded', { pipelineId: context.pipelineId, stepKey, error: String(err) }));
+    }
+  };
+  const done = (plugin: Record<string, unknown> & { name: string; version: string }, warnings: LookupWarning[], suggestedVersion: string | null, extra: Record<string, unknown> = {}) => {
+    const severity = answerSeverity(warnings);
+    ctx.log('COMPLETED', 'Plugin lookup', { id: plugin.id, name: plugin.name, ...(publisher ? { publisher } : {}), ...(warnings.length ? { warnings: warnings.map((w) => w.code), severity } : {}) });
+    record({ plugin, warnings });
+    // A pipeline about to run a version graded `error` or louder: its owners hear it.
+    if (context && pipeline && severity && severityAtLeast(severity, 'error')) {
+      void notifyPipelineVulnerable({
+        orgId,
+        pipelineId: pipeline.id,
+        pipelineName: pipeline.name,
+        stepKey: context.stepKeys.join(', '),
+        plugin: typeof plugin.publisher === 'string' && plugin.publisher ? `${plugin.publisher}/${plugin.name}` : plugin.name,
+        version: plugin.version,
+        severity,
+        warnings: warnings.filter((w) => severityAtLeast(w.severity, 'error')).map((w) => ({ code: w.code, severity: w.severity, message: w.message })),
+        suggestedVersion,
+        trigger: 'lookup',
+      });
+    }
+    if (opts.setCacheHeader) res.setHeader('Cache-Control', CoreConstants.CACHE_CONTROL_LIST);
+    // A resolved record travels into the CDK app's props whole, so `/lookup`
+    // answers without the display and scan fields no pipeline build reads
+    // (pipeline-core's RESOLVED_PLUGIN_OMITTED_FIELDS); `/find` answers the
+    // full record.
+    return sendSuccess(res, 200, { plugin: opts.resolved ? toResolvedPlugin(plugin) : plugin, warnings, severity, ...extra });
+  };
+  const refused = (status: number, message: string, code: ErrorCode, details: Record<string, unknown> | undefined, plugin?: Record<string, unknown>) => {
+    const reason = typeof details?.reason === 'string' ? details.reason : String(code);
+    record({ ...(plugin ? { plugin } : {}), refusal: { code, reason, message } });
+    return sendError(res, status, message, code, details);
+  };
+  // The org's consumption policy (its fixable-High threshold) and the pipeline's
+  // acceptances feed the ONE assessment lookup, runtime-check and the save-time
+  // check share. It grades what resolved; it never refuses.
+  const policy = await consumptionPolicyFor(scope);
+  const verificationFailed = (err: unknown, plugin: Record<string, unknown>) => {
+    if (!(err instanceof ImageVerificationError)) throw err;
+    recordLookupRefusal('signature');
+    ctx.log('WARN', 'Plugin image failed verification', { id: plugin.id, name: plugin.name, error: err.message });
+    return refused(409, err.message, ErrorCode.IMAGE_VERIFICATION_FAILED, undefined, plugin);
+  };
+
+  // A MANAGED toolchain name answers from the toolchain resolver and nothing
+  // else — with or without a publisher, for the system org too — so a
+  // same-named row or listing anywhere is never a candidate.
+  if (typeof rowFilter.name === 'string' && isManagedToolchainPlugin(rowFilter.name)) {
+    const name = rowFilter.name.trim().toLowerCase() as ManagedToolchainPlugin;
+    if (managedRefPinsVersion(rowFilter)) {
+      return refused(400, `${name} is part of the managed toolchain and can't be pinned on its own: remove filter.version / id and pin the whole release with toolchain.release.`,
+        ErrorCode.TOOLCHAIN_PIN_VIA_RELEASE, { reason: 'pin_via_release', name });
+    }
+    let resolution;
+    try {
+      resolution = await resolveManagedToolchain({ orgId }, opts.releasePin ? { releasePin: opts.releasePin } : {});
+    } catch (err) {
+      if (!(err instanceof ManagedToolchainError)) throw err;
+      const reason = typeof err.details?.reason === 'string' ? err.details.reason : String(err.code);
+      recordLookupRefusal(reason);
+      ctx.log('WARN', 'Toolchain lookup refused', { name, code: err.code });
+      return refused(err.statusCode, err.message, err.code, { ...(err.details ?? {}), reason });
+    }
+    const half = name === MANAGED_TOOLCHAIN.bootstrap ? resolution.bootstrap : resolution.synth;
+    const imageRepository = pluginImageRepository(half);
+    const shaped = {
+      ...shapePlugin(half),
+      source: 'org',
+      publisher: null,
+      imageRepository,
+      ...(name === MANAGED_TOOLCHAIN.bootstrap ? { toolchain: bootstrapToolchainOf(half) } : {}),
+    } as Record<string, unknown> & { name: string; version: string };
+    // Both halves run an image synth pins by digest: never hand out one whose
+    // signature doesn't verify.
+    try {
+      await verifyImageSignature({ ...half, imageRepository }, Config.get('registry'));
+    } catch (err) {
+      return verificationFailed(err, shaped);
+    }
+    const assessment = await assessmentFor({ orgId, record: half, policy, acceptances, suggestedVersion: null });
+    const warnings: LookupWarning[] = [...resolution.warnings.map(graded), ...assessment.warnings];
+    return done(shaped, warnings, null, { toolchain: { releaseVersion: resolution.releaseVersion, resolvedVia: resolution.resolvedVia } });
+  }
+
+  if (!publisher) {
+    let result = await pluginService.findFirst(resolutionFilter(rowFilter), orgId, parentOrgId);
+    // An EXACT pin still resolves a version automatic tidying deactivated
+    // (services/tidy/), with a warning, so no pipeline breaks. A version its
+    // owner deactivated stays out, as before.
+    let tidyDeactivated = false;
+    if (!result && isPinnedFilter(rowFilter) && rowFilter.isActive === undefined) {
+      const inactive = await pluginService.findFirst({ ...resolutionFilter(rowFilter), isActive: false } as PluginFilter, orgId, parentOrgId);
+      if (inactive?.tidyDeactivatedAt) {
+        result = inactive;
+        tidyDeactivated = true;
+      }
+    }
+    if (result) {
+      // For a FLAGGED answer, the version to move to: the newest unflagged live one.
+      const newest = result.scanFlaggedAt && result.name
+        ? await pluginService.findFirst({ ...resolutionFilter({ name: result.name, isActive: true } as PluginFilter), excludeScanFlagged: true }, orgId, parentOrgId)
+        : null;
+      const suggestedVersion = newest && compareSemverLenient(newest.version, result.version) > 0 ? newest.version : null;
+      const assessment = await assessmentFor({ orgId, record: result, policy, acceptances, suggestedVersion });
+      const shaped = { ...shapePlugin(result), source: 'org', publisher: null } as Record<string, unknown> & { name: string; version: string };
+      const imageRepository = pluginImageRepository(result);
+      // These are the endpoints synth resolves plugins through, and synth pins
+      // CodeBuild to the returned `imageDigest` — so never hand out a digest whose
+      // signature doesn't verify against the plugin-signing key (or a plugin that
+      // needs an image but has no signed digest at all).
+      if (pluginRequiresImage(result)) {
+        try {
+          await verifyImageSignature({ ...result, imageRepository }, Config.get('registry'));
+        } catch (err) {
+          return verificationFailed(err, shaped);
+        }
+      }
+      // Deprecated / yanked-but-pinned versions still resolve, with a warning the
+      // caller surfaces (synth prints it).
+      const warnings: LookupWarning[] = [...lookupWarnings(result), ...assessment.warnings];
+      if (tidyDeactivated) warnings.unshift(tidyDeactivatedWarning(result));
+      if (suggestedVersion && isPinnedFilter(rowFilter)) {
+        warnings.push(vulnUpgradeAvailableWarning(result.name, result.version, suggestedVersion));
+      }
+      if (rowFilter.name && !isSystemOrgId(orgId)) {
+        const listing = await shadowedListing(scope, result.name);
+        if (listing) {
+          warnings.push({
+            code: 'PLUGIN_SHADOWS_LISTING',
+            severity: 'info',
+            message: `Your organization's plugin ${result.name} shadows the Official listing ${listing.publisher}/${listing.name}. `
+              + `Reference it with publisher: ${listing.publisher} to use the listing instead.`,
+          });
+        }
+      }
+      // Resolving a version is a use: it restarts its tidy clock (and reactivates it).
+      if (opts.resolved) void recordPluginUse(result);
+      return done({ ...shaped, imageRepository }, warnings, suggestedVersion);
+    }
+  }
+
+  // Listings resolve by name (an `id` pins an org row, which didn't match).
+  if (typeof rowFilter.name !== 'string' || rowFilter.id !== undefined) {
+    const state = notFoundStateOf(await pluginRowState(scope, rowFilter));
+    return refused(404, 'Plugin not found.', ErrorCode.NOT_FOUND, { reason: 'not_found', state });
+  }
+  // An UNQUALIFIED reference to a name the org DELETED must not fall through to
+  // a same-named listing: that silently swaps the image a pipeline runs.
+  if (!publisher && !isSystemOrgId(orgId)) {
+    const state = await pluginRowState(scope, rowFilter);
+    if (state === 'deleted') {
+      recordLookupRefusal('deleted');
+      return refused(410, `Plugin ${rowFilter.name} was deleted in your organization; it no longer resolves, and the reference does not fall back to a listing of the same name. `
+        + 'Restore it, or reference a listing explicitly with publisher.', ErrorCode.PLUGIN_DELETED, { reason: 'deleted', state, name: rowFilter.name });
+    }
+  }
+  const listed = await resolveListedLookup(scope, { ...(publisher ? { publisher } : {}), name: rowFilter.name, ...(rowFilter.version ? { version: rowFilter.version } : {}) });
+  if (listed && 'refused' in listed) {
+    const { status, code, message, details } = listed.refused;
+    recordLookupRefusal(typeof details.reason === 'string' ? details.reason : String(code));
+    ctx.log('WARN', 'Plugin lookup refused', { name: rowFilter.name, publisher, code });
+    return refused(status, message, code, details);
+  }
+  if (!listed) {
+    if (publisher) return refused(404, `No listing ${publisher}/${rowFilter.name}.`, ErrorCode.NOT_FOUND, { reason: 'not_found', state: 'missing' });
+    const state = notFoundStateOf(await pluginRowState(scope, rowFilter));
+    return refused(404, 'Plugin not found.', ErrorCode.NOT_FOUND, { reason: 'not_found', state });
+  }
+  const listedRecord = listed.record as Record<string, unknown> & { buildType: string; pluginType: string; name: string; version: string };
+  // The listed resolution applied the org's install and advisory policy; the
+  // assessment grades the version's scan state under the pipeline's acceptances.
+  const assessment = await assessmentFor({ orgId, record: listedRecord, policy, acceptances, suggestedVersion: listed.resolution.suggestedVersion });
+  if (pluginRequiresImage(listedRecord)) {
+    try {
+      await verifyListedImage(listed.resolution);
+    } catch (err) {
+      return verificationFailed(err, listedRecord);
+    }
+  }
+  // The resolver's own VULN_FLAGGED is superseded by the assessment's (which
+  // knows the pipeline's acceptances).
+  const resolutionWarnings = listed.resolution.warnings.filter((w) => w.code !== 'VULN_FLAGGED').map(graded);
+  return done(listedRecord, [...resolutionWarnings, ...assessment.warnings], listed.resolution.suggestedVersion);
+};
+
+/**
+ * `POST /plugins/lookup`'s body (filter, optional context and releasePin),
+ * resolved as `orgId` (with `parentOrgId` for a team) sees it. Shared with the
+ * pipeline service's deploy-job lookup (PLUGIN_INTERNAL.deployLookup), which
+ * runs it for the deploy session's org.
+ */
+export function lookupFromBody(body: unknown, parentOrgId: string | undefined, res: Response, orgId: string, ctx: RequestContext) {
+  const { filter, context, releasePin } = (body ?? {}) as { filter?: unknown; context?: unknown; releasePin?: unknown };
+  if (!filter || typeof filter !== 'object') return sendBadRequest(res, 'Filter is required in request body', ErrorCode.MISSING_REQUIRED_FIELD);
+  const parsed = PluginFilterSchema.safeParse(filter);
+  if (!parsed.success) return sendBadRequest(res, `Invalid filter: ${parsed.error.message}`, ErrorCode.VALIDATION_ERROR);
+  const lookupContext = parseLookupContext(context);
+  if (typeof lookupContext === 'string') return sendBadRequest(res, lookupContext, ErrorCode.VALIDATION_ERROR);
+  const pin = parseReleasePin(releasePin);
+  if (typeof pin === 'object') return sendBadRequest(res, pin.error, ErrorCode.VALIDATION_ERROR);
+  return respondWithSinglePlugin(parsed.data as PluginFilter, parentOrgId, res, orgId, ctx, { setCacheHeader: false, resolved: true, context: lookupContext, ...(pin ? { releasePin: pin } : {}) });
+}
+
 export function createReadPluginRoutes(): Router {
   const router: Router = Router();
 
@@ -322,254 +576,10 @@ export function createReadPluginRoutes(): Router {
     });
   }));
 
-  // Shared single-plugin lookup. `/lookup` POST takes the filter from the
-  // body; `/find` GET reads it from query string. Same `PluginFilterSchema`
-  // whitelist as the listing endpoint so callers can't smuggle internal
-  // fields (`deletedAt`, `orgId`) to peek at soft-deleted rows.
-  //
-  // Resolution order:
-  //   - no `publisher`: the org's own plugin row, then (a team) its parent's
-  //     shared row, then the Official listing through the org's install
-  //     (explicit, or the implicit one). An own row that shadows an
-  //     Official listing answers with a PLUGIN_SHADOWS_LISTING warning;
-  //   - `publisher`: ONLY that publisher's listing, through an install.
-  // A listed version answers with its `public/*` imageRepository, verified
-  // with its signed tier annotation.
-  const respondWithSinglePlugin = async (
-    filter: PluginFilter,
-    req: Request, res: Response, orgId: string,
-    ctx: RequestContext,
-    opts: { setCacheHeader: boolean; context?: LookupContext | null; releasePin?: string; resolved?: boolean },
-  ) => {
-    // Org → team hierarchy: a team org also sees its parent's public plugins
-    // (mirrors the list path). No-op for root orgs (claim absent).
-    const parentOrgId = parentOrgIdOf(req);
-    const scope = { orgId, ...(parentOrgId ? { rootOrgId: parentOrgId } : {}) };
-    const { publisher, ...rowFilter } = filter;
-    // A step context counts only for a pipeline this org owns.
-    const pipeline = opts.context ? await ownedPipeline(orgId, opts.context.pipelineId) : null;
-    if (opts.context && !pipeline) ctx.log('WARN', 'Lookup context names a pipeline outside the org; ignored', { pipelineId: opts.context.pipelineId });
-    const context = pipeline && opts.context ? opts.context : null;
-    const acceptances = context ? await acceptancesFor(orgId, context.pipelineId) : NO_ACCEPTANCES;
-    // Record what synth was told, once per step the lookup serves (never fails the lookup).
-    const record = (outcome: {
-      plugin?: { id?: unknown; name?: unknown; version?: unknown; imageDigest?: unknown; publisher?: unknown };
-      warnings?: LookupWarning[];
-      refusal?: { code: string; reason: string; message: string };
-    }) => {
-      if (!context) return;
-      const str = (v: unknown): string | null => (typeof v === 'string' && v ? v : null);
-      const row = {
-        orgId,
-        pipelineId: context.pipelineId,
-        pluginPublisher: str(outcome.plugin?.publisher) ?? publisher ?? null,
-        pluginName: str(outcome.plugin?.name) ?? (typeof rowFilter.name === 'string' ? rowFilter.name : '(unknown)'),
-        requestedVersion: typeof rowFilter.version === 'string' ? rowFilter.version : null,
-        resolvedVersion: str(outcome.plugin?.version),
-        resolvedPluginId: str(outcome.plugin?.id),
-        imageDigest: str(outcome.plugin?.imageDigest),
-        warnings: (outcome.warnings ?? []).map((w) => ({ code: w.code, message: w.message, severity: w.severity })),
-        refusal: outcome.refusal ?? null,
-      };
-      for (const stepKey of context.stepKeys) {
-        void recordStepLookup({ ...row, stepKey })
-          .catch((err: unknown) => ctx.log('WARN', 'Step lookup not recorded', { pipelineId: context.pipelineId, stepKey, error: String(err) }));
-      }
-    };
-    const done = (plugin: Record<string, unknown> & { name: string; version: string }, warnings: LookupWarning[], suggestedVersion: string | null, extra: Record<string, unknown> = {}) => {
-      const severity = answerSeverity(warnings);
-      ctx.log('COMPLETED', 'Plugin lookup', { id: plugin.id, name: plugin.name, ...(publisher ? { publisher } : {}), ...(warnings.length ? { warnings: warnings.map((w) => w.code), severity } : {}) });
-      record({ plugin, warnings });
-      // A pipeline about to run a version graded `error` or louder: its owners hear it.
-      if (context && pipeline && severity && severityAtLeast(severity, 'error')) {
-        void notifyPipelineVulnerable({
-          orgId,
-          pipelineId: pipeline.id,
-          pipelineName: pipeline.name,
-          stepKey: context.stepKeys.join(', '),
-          plugin: typeof plugin.publisher === 'string' && plugin.publisher ? `${plugin.publisher}/${plugin.name}` : plugin.name,
-          version: plugin.version,
-          severity,
-          warnings: warnings.filter((w) => severityAtLeast(w.severity, 'error')).map((w) => ({ code: w.code, severity: w.severity, message: w.message })),
-          suggestedVersion,
-          trigger: 'lookup',
-        });
-      }
-      if (opts.setCacheHeader) res.setHeader('Cache-Control', CoreConstants.CACHE_CONTROL_LIST);
-      // A resolved record travels into the CDK app's props whole, so `/lookup`
-      // answers without the display and scan fields no pipeline build reads
-      // (pipeline-core's RESOLVED_PLUGIN_OMITTED_FIELDS); `/find` answers the
-      // full record.
-      return sendSuccess(res, 200, { plugin: opts.resolved ? toResolvedPlugin(plugin) : plugin, warnings, severity, ...extra });
-    };
-    const refused = (status: number, message: string, code: ErrorCode, details: Record<string, unknown> | undefined, plugin?: Record<string, unknown>) => {
-      const reason = typeof details?.reason === 'string' ? details.reason : String(code);
-      record({ ...(plugin ? { plugin } : {}), refusal: { code, reason, message } });
-      return sendError(res, status, message, code, details);
-    };
-    // The org's consumption policy (its fixable-High threshold) and the pipeline's
-    // acceptances feed the ONE assessment lookup, runtime-check and the save-time
-    // check share. It grades what resolved; it never refuses.
-    const policy = await consumptionPolicyFor(scope);
-    const verificationFailed = (err: unknown, plugin: Record<string, unknown>) => {
-      if (!(err instanceof ImageVerificationError)) throw err;
-      recordLookupRefusal('signature');
-      ctx.log('WARN', 'Plugin image failed verification', { id: plugin.id, name: plugin.name, error: err.message });
-      return refused(409, err.message, ErrorCode.IMAGE_VERIFICATION_FAILED, undefined, plugin);
-    };
 
-    // A MANAGED toolchain name answers from the toolchain resolver and nothing
-    // else — with or without a publisher, for the system org too — so a
-    // same-named row or listing anywhere is never a candidate.
-    if (typeof rowFilter.name === 'string' && isManagedToolchainPlugin(rowFilter.name)) {
-      const name = rowFilter.name.trim().toLowerCase() as ManagedToolchainPlugin;
-      if (managedRefPinsVersion(rowFilter)) {
-        return refused(400, `${name} is part of the managed toolchain and can't be pinned on its own: remove filter.version / id and pin the whole release with toolchain.release.`,
-          ErrorCode.TOOLCHAIN_PIN_VIA_RELEASE, { reason: 'pin_via_release', name });
-      }
-      let resolution;
-      try {
-        resolution = await resolveManagedToolchain({ orgId }, opts.releasePin ? { releasePin: opts.releasePin } : {});
-      } catch (err) {
-        if (!(err instanceof ManagedToolchainError)) throw err;
-        const reason = typeof err.details?.reason === 'string' ? err.details.reason : String(err.code);
-        recordLookupRefusal(reason);
-        ctx.log('WARN', 'Toolchain lookup refused', { name, code: err.code });
-        return refused(err.statusCode, err.message, err.code, { ...(err.details ?? {}), reason });
-      }
-      const half = name === MANAGED_TOOLCHAIN.bootstrap ? resolution.bootstrap : resolution.synth;
-      const imageRepository = pluginImageRepository(half);
-      const shaped = {
-        ...shapePlugin(half),
-        source: 'org',
-        publisher: null,
-        imageRepository,
-        ...(name === MANAGED_TOOLCHAIN.bootstrap ? { toolchain: bootstrapToolchainOf(half) } : {}),
-      } as Record<string, unknown> & { name: string; version: string };
-      // Both halves run an image synth pins by digest: never hand out one whose
-      // signature doesn't verify.
-      try {
-        await verifyImageSignature({ ...half, imageRepository }, Config.get('registry'));
-      } catch (err) {
-        return verificationFailed(err, shaped);
-      }
-      const assessment = await assessmentFor({ orgId, record: half, policy, acceptances, suggestedVersion: null });
-      const warnings: LookupWarning[] = [...resolution.warnings.map(graded), ...assessment.warnings];
-      return done(shaped, warnings, null, { toolchain: { releaseVersion: resolution.releaseVersion, resolvedVia: resolution.resolvedVia } });
-    }
-
-    if (!publisher) {
-      let result = await pluginService.findFirst(resolutionFilter(rowFilter), orgId, parentOrgId);
-      // An EXACT pin still resolves a version automatic tidying deactivated
-      // (services/tidy/), with a warning, so no pipeline breaks. A version its
-      // owner deactivated stays out, as before.
-      let tidyDeactivated = false;
-      if (!result && isPinnedFilter(rowFilter) && rowFilter.isActive === undefined) {
-        const inactive = await pluginService.findFirst({ ...resolutionFilter(rowFilter), isActive: false } as PluginFilter, orgId, parentOrgId);
-        if (inactive?.tidyDeactivatedAt) {
-          result = inactive;
-          tidyDeactivated = true;
-        }
-      }
-      if (result) {
-        // For a FLAGGED answer, the version to move to: the newest unflagged live one.
-        const newest = result.scanFlaggedAt && result.name
-          ? await pluginService.findFirst({ ...resolutionFilter({ name: result.name, isActive: true } as PluginFilter), excludeScanFlagged: true }, orgId, parentOrgId)
-          : null;
-        const suggestedVersion = newest && compareSemverLenient(newest.version, result.version) > 0 ? newest.version : null;
-        const assessment = await assessmentFor({ orgId, record: result, policy, acceptances, suggestedVersion });
-        const shaped = { ...shapePlugin(result), source: 'org', publisher: null } as Record<string, unknown> & { name: string; version: string };
-        const imageRepository = pluginImageRepository(result);
-        // These are the endpoints synth resolves plugins through, and synth pins
-        // CodeBuild to the returned `imageDigest` — so never hand out a digest whose
-        // signature doesn't verify against the plugin-signing key (or a plugin that
-        // needs an image but has no signed digest at all).
-        if (pluginRequiresImage(result)) {
-          try {
-            await verifyImageSignature({ ...result, imageRepository }, Config.get('registry'));
-          } catch (err) {
-            return verificationFailed(err, shaped);
-          }
-        }
-        // Deprecated / yanked-but-pinned versions still resolve, with a warning the
-        // caller surfaces (synth prints it).
-        const warnings: LookupWarning[] = [...lookupWarnings(result), ...assessment.warnings];
-        if (tidyDeactivated) warnings.unshift(tidyDeactivatedWarning(result));
-        if (suggestedVersion && isPinnedFilter(rowFilter)) {
-          warnings.push(vulnUpgradeAvailableWarning(result.name, result.version, suggestedVersion));
-        }
-        if (rowFilter.name && !isSystemOrgId(orgId)) {
-          const listing = await shadowedListing(scope, result.name);
-          if (listing) {
-            warnings.push({
-              code: 'PLUGIN_SHADOWS_LISTING',
-              severity: 'info',
-              message: `Your organization's plugin ${result.name} shadows the Official listing ${listing.publisher}/${listing.name}. `
-                + `Reference it with publisher: ${listing.publisher} to use the listing instead.`,
-            });
-          }
-        }
-        // Resolving a version is a use: it restarts its tidy clock (and reactivates it).
-        if (opts.resolved) void recordPluginUse(result);
-        return done({ ...shaped, imageRepository }, warnings, suggestedVersion);
-      }
-    }
-
-    // Listings resolve by name (an `id` pins an org row, which didn't match).
-    if (typeof rowFilter.name !== 'string' || rowFilter.id !== undefined) {
-      const state = notFoundStateOf(await pluginRowState(scope, rowFilter));
-      return refused(404, 'Plugin not found.', ErrorCode.NOT_FOUND, { reason: 'not_found', state });
-    }
-    // An UNQUALIFIED reference to a name the org DELETED must not fall through to
-    // a same-named listing: that silently swaps the image a pipeline runs.
-    if (!publisher && !isSystemOrgId(orgId)) {
-      const state = await pluginRowState(scope, rowFilter);
-      if (state === 'deleted') {
-        recordLookupRefusal('deleted');
-        return refused(410, `Plugin ${rowFilter.name} was deleted in your organization; it no longer resolves, and the reference does not fall back to a listing of the same name. `
-          + 'Restore it, or reference a listing explicitly with publisher.', ErrorCode.PLUGIN_DELETED, { reason: 'deleted', state, name: rowFilter.name });
-      }
-    }
-    const listed = await resolveListedLookup(scope, { ...(publisher ? { publisher } : {}), name: rowFilter.name, ...(rowFilter.version ? { version: rowFilter.version } : {}) });
-    if (listed && 'refused' in listed) {
-      const { status, code, message, details } = listed.refused;
-      recordLookupRefusal(typeof details.reason === 'string' ? details.reason : String(code));
-      ctx.log('WARN', 'Plugin lookup refused', { name: rowFilter.name, publisher, code });
-      return refused(status, message, code, details);
-    }
-    if (!listed) {
-      if (publisher) return refused(404, `No listing ${publisher}/${rowFilter.name}.`, ErrorCode.NOT_FOUND, { reason: 'not_found', state: 'missing' });
-      const state = notFoundStateOf(await pluginRowState(scope, rowFilter));
-      return refused(404, 'Plugin not found.', ErrorCode.NOT_FOUND, { reason: 'not_found', state });
-    }
-    const listedRecord = listed.record as Record<string, unknown> & { buildType: string; pluginType: string; name: string; version: string };
-    // The listed resolution applied the org's install and advisory policy; the
-    // assessment grades the version's scan state under the pipeline's acceptances.
-    const assessment = await assessmentFor({ orgId, record: listedRecord, policy, acceptances, suggestedVersion: listed.resolution.suggestedVersion });
-    if (pluginRequiresImage(listedRecord)) {
-      try {
-        await verifyListedImage(listed.resolution);
-      } catch (err) {
-        return verificationFailed(err, listedRecord);
-      }
-    }
-    // The resolver's own VULN_FLAGGED is superseded by the assessment's (which
-    // knows the pipeline's acceptances).
-    const resolutionWarnings = listed.resolution.warnings.filter((w) => w.code !== 'VULN_FLAGGED').map(graded);
-    return done(listedRecord, [...resolutionWarnings, ...assessment.warnings], listed.resolution.suggestedVersion);
-  };
-
-  router.post('/lookup', requirePermission('plugins:read'), withRoute(async ({ req, res, ctx, orgId }) => {
-    const { filter, context, releasePin } = req.body ?? {};
-    if (!filter || typeof filter !== 'object') return sendBadRequest(res, 'Filter is required in request body', ErrorCode.MISSING_REQUIRED_FIELD);
-    const parsed = PluginFilterSchema.safeParse(filter);
-    if (!parsed.success) return sendBadRequest(res, `Invalid filter: ${parsed.error.message}`, ErrorCode.VALIDATION_ERROR);
-    const lookupContext = parseLookupContext(context);
-    if (typeof lookupContext === 'string') return sendBadRequest(res, lookupContext, ErrorCode.VALIDATION_ERROR);
-    const pin = parseReleasePin(releasePin);
-    if (typeof pin === 'object') return sendBadRequest(res, pin.error, ErrorCode.VALIDATION_ERROR);
-    return respondWithSinglePlugin(parsed.data as PluginFilter, req, res, orgId, ctx, { setCacheHeader: false, resolved: true, context: lookupContext, ...(pin ? { releasePin: pin } : {}) });
-  }));
+  router.post('/lookup', requirePermission('plugins:read'), withRoute(async ({ req, res, ctx, orgId }) => (
+    lookupFromBody(req.body, parentOrgIdOf(req), res, orgId, ctx)
+  )));
 
   // GET /plugins/find — single plugin by filter
   router.get('/find', requirePermission('plugins:read'), withRoute(async ({ req, res, ctx, orgId }) => {
@@ -580,7 +590,7 @@ export function createReadPluginRoutes(): Router {
     if (typeof pin === 'object') return sendBadRequest(res, pin.error, ErrorCode.VALIDATION_ERROR);
     // A pinned answer is the pin's; the shared list cache-control would still be
     // correct (a release is immutable), so it is kept.
-    return respondWithSinglePlugin(validated.value as PluginFilter, req, res, orgId, ctx, { setCacheHeader: true, ...(pin ? { releasePin: pin } : {}) });
+    return respondWithSinglePlugin(validated.value as PluginFilter, parentOrgIdOf(req), res, orgId, ctx, { setCacheHeader: true, ...(pin ? { releasePin: pin } : {}) });
   }));
 
   // GET /plugins/deleted — org's soft-deleted tombstones (most recent first),

@@ -652,6 +652,43 @@ describe('pipeline runner tables — own org only (no system-org read carve-out)
     await expect(db.query("INSERT INTO pipeline_runners (org_id, label, function_url, health) VALUES ('o', 'x', 'https://x', 'offline')")).rejects.toThrow(/check/i);
   });
 
+  it('deploys: the new action/status vocabulary, one ACTIVE deploy per pipeline, and pipeline_runner_deploys own org only', async () => {
+    const pipe = randomUUID();
+    const req = (org: string, status: string, action = 'deploy') => db.query<{ id: string }>(
+      "INSERT INTO pipeline_run_requests (org_id, pipeline_id, action, requested_by, expires_at, status) VALUES ($1, $2, $3, 'u1', now() + interval '10 minutes', $4) RETURNING id",
+      [org, pipe, action, status]);
+    const first = (await req(ORG_A, 'queued')).rows[0]!.id;
+    // A second ACTIVE deploy of the same pipeline is refused, whatever active status either holds.
+    for (const status of ['queued', 'delivering', 'deploying']) await expect(req(ORG_A, status)).rejects.toThrow(/unique|duplicate/i);
+    await db.query("UPDATE pipeline_run_requests SET status = 'deploying' WHERE id = $1", [first]);
+    await expect(req(ORG_A, 'queued')).rejects.toThrow(/unique|duplicate/i);
+    // Finished deploys do not hold the slot; an undeploy is not a deploy.
+    for (const status of ['deployed', 'failed', 'expired', 'cancelled']) await expect(req(ORG_A, status)).resolves.toBeTruthy();
+    await expect(req(ORG_A, 'undeploying', 'undeploy')).resolves.toBeTruthy();
+    await expect(req(ORG_A, 'undeployed', 'undeploy')).resolves.toBeTruthy();
+    // Runner columns default to nothing.
+    await expect(db.query("INSERT INTO pipeline_runners (org_id, label) VALUES ('o', 'x') RETURNING capabilities, pipeline_prefixes, share_deploys_with_teams"))
+      .resolves.toMatchObject({ rows: [{ capabilities: [], pipeline_prefixes: [], share_deploys_with_teams: false }] });
+
+    const deploy = (org: string, requestId: string) => db.query(
+      'INSERT INTO pipeline_runner_deploys (request_id, org_id, pipeline_id, region, pipeline_name, stack_name, image_digest, toolchain_release, grant_expires_at) '
+      + "VALUES ($1, $2, $3, 'us-east-1', 'p', 's', 'sha256:x', '1.0.0', now() + interval '45 minutes')", [requestId, org, pipe]);
+    await deploy(ORG_A, first);
+    const sysReq = (await db.query<{ id: string }>(
+      "INSERT INTO pipeline_run_requests (org_id, pipeline_id, action, requested_by, expires_at, status) VALUES ($1, $2, 'deploy', 'u1', now(), 'failed') RETURNING id",
+      [SYSTEM_ORG, pipe])).rows[0]!.id;
+    await deploy(SYSTEM_ORG, sysReq);
+    await asTenant(db, { orgId: ORG_A }, async (q) => {
+      const seen = (await q.query<{ request_id: string }>('SELECT request_id FROM pipeline_runner_deploys WHERE request_id = ANY($1)', [[first, sysReq]])).rows.map((r) => r.request_id);
+      expect(seen).toEqual([first]);
+      expect((await q.query("UPDATE pipeline_runner_deploys SET stage = 'starting' WHERE request_id = $1", [sysReq])).affectedRows).toBe(0);
+    });
+    await expect(db.query("UPDATE pipeline_runner_deploys SET stage = 'bogus' WHERE request_id = $1", [first])).rejects.toThrow(/check/i);
+    // The deploy row goes with its request.
+    await db.query('DELETE FROM pipeline_run_requests WHERE id = $1', [first]);
+    expect((await db.query('SELECT 1 FROM pipeline_runner_deploys WHERE request_id = $1', [first])).rows).toHaveLength(0);
+  });
+
   it('pipeline_registry carries the nullable runner link', async () => {
     const r = await db.query<{ is_nullable: string; data_type: string }>(
       "SELECT is_nullable, data_type FROM information_schema.columns WHERE table_name = 'pipeline_registry' AND column_name = 'runner_id'");

@@ -13,7 +13,7 @@ import { aiKeySource, aiQuotaBlocked } from '@/lib/ai-quota';
 import { useAIProviders } from '@/hooks/useAIProviders';
 import { useAiStreamGeneration } from '@/hooks/useAiStreamGeneration';
 import api from '@/lib/api';
-import { isAskAgentProvider } from '@/lib/ai-constants';
+import { routesViaAskAgent } from '@/lib/ai-constants';
 import { streamAgentDraft } from '@/lib/ask-agent-draft';
 import { AI_MAX_PROMPT_LENGTH, formatJSON } from '@/lib/constants';
 import { useUnmountedRef } from '@/hooks/useUnmountedRef';
@@ -110,7 +110,7 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
       const keyToUse = ai.customApiKey.trim() || undefined;
 
       await generate<{ props: BuilderProps; description?: string; keywords?: string[]; servedBy?: AIServedByInfo; usage?: AIUsageInfo; draftId?: string }>({
-        stream: isAskAgentProvider(ai.selectedProvider)
+        stream: routesViaAskAgent(ai.selectedProvider)
           ? streamAgentDraft('pipeline', prompt.trim(), ai.selectedModel)
           : api.streamPipelineFromPrompt(prompt.trim(), ai.selectedProvider, ai.selectedModel, keyToUse),
         cancelledRef,
@@ -126,7 +126,7 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
           setProjectOverride(data.props.project || '');
           setOrganizationOverride(data.props.organization || '');
           setServedBy({ servedBy: data.servedBy, usage: data.usage });
-          draftOutcome.offered(isAskAgentProvider(ai.selectedProvider) ? 'agent' : 'pipeline-generate', data.props, data.draftId);
+          draftOutcome.offered(routesViaAskAgent(ai.selectedProvider) ? 'agent' : 'pipeline-generate', data.props, data.draftId);
         },
       });
     };

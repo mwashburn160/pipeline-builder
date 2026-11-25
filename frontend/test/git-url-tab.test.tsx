@@ -11,8 +11,9 @@
  *    generated description/keywords reach `onSubmit`;
  *  - Create before generating says to generate first; a stream error shows;
  *  - an `initialUrl` + `autoGenerate` (the dashboard hero) starts on its own;
- *  - the Ask agent is the default only when its model answers a live check;
- *    otherwise the local (OpenAI-compatible) provider is selected and a warning shown.
+ *  - "Local model" is the default: routed via the Ask agent only when its model
+ *    answers a live check, otherwise straight to the local (OpenAI-compatible)
+ *    provider with no warning; a warning only when neither can serve.
  */
 
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
@@ -151,7 +152,7 @@ describe('GitUrlTab inside the create modal', () => {
   });
 });
 
-describe('GitUrlTab default provider: checks the Ask agent first', () => {
+describe('GitUrlTab default provider: Local model, routed by a live check of the Ask agent', () => {
   const LOCAL = { id: 'openai-compatible', name: 'Local model (OpenAI-compatible)', models: [{ id: 'qwen', name: 'Qwen 2.5 7B Instruct' }] };
 
   beforeEach(() => {
@@ -159,30 +160,39 @@ describe('GitUrlTab default provider: checks the Ask agent first', () => {
     apiFn('getAskProviders').mockResolvedValue({ success: true, data: { providers: [LOCAL] } });
   });
 
-  it('defaults to the Ask agent when its model answers', async () => {
+  it('routes Local model via the Ask agent when its model answers', async () => {
     apiFn('getAskAvailability').mockResolvedValue({ success: true, data: { available: true } });
     renderModal();
     await waitFor(() => expect(screen.getByLabelText('Provider')).toHaveValue('ask-agent'));
     expect(apiFn('getAskAvailability')).toHaveBeenCalledWith({ probe: true, provider: 'openai-compatible' });
+    expect(screen.getByRole('option', { name: 'Local model — default' })).toBeInTheDocument();
     expect(screen.queryByText(/not responding/)).not.toBeInTheDocument();
   });
 
-  it('defaults to the local provider, with a warning, when the Ask agent\'s model is not responding', async () => {
+  it('routes Local model straight to the local provider, with no warning, when the Ask agent\'s model is not responding', async () => {
     apiFn('getAskAvailability').mockResolvedValue({
       success: true,
       data: { available: false, reason: 'unreachable', message: 'The Ask assistant\'s self-hosted model is not responding.' },
     });
     renderModal();
     await waitFor(() => expect(screen.getByLabelText('Provider')).toHaveValue('openai-compatible'));
-    expect(screen.getByText(/not responding\. Another provider was selected instead\./)).toBeInTheDocument();
-    // Still offered, so the user can choose it anyway.
-    expect(screen.getByRole('option', { name: /^Ask agent/ })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Local model — default' })).toBeInTheDocument();
+    expect(screen.queryByText(/not responding/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /^Ask agent/ })).not.toBeInTheDocument();
   });
 
-  it('does not default to the Ask agent when the check itself fails', async () => {
+  it('routes straight to the local provider when the check itself fails', async () => {
     apiFn('getAskAvailability').mockRejectedValue(new Error('network'));
     renderModal();
     await waitFor(() => expect(screen.getByLabelText('Provider')).toHaveValue('openai-compatible'));
-    expect(screen.getByText(/Could not confirm the Ask assistant is available/)).toBeInTheDocument();
+    expect(screen.queryByText(/Could not confirm/)).not.toBeInTheDocument();
+  });
+
+  it('warns, and selects another provider, when the check fails and no local provider is configured', async () => {
+    apiFn('getAIProviders').mockResolvedValue({ success: true, data: { providers: [{ id: 'anthropic', name: 'Anthropic', models: [{ id: 'm1', name: 'M1' }] }] } });
+    apiFn('getAskAvailability').mockRejectedValue(new Error('network'));
+    renderModal();
+    await waitFor(() => expect(screen.getByLabelText('Provider')).toHaveValue('anthropic'));
+    expect(screen.getByText(/Could not confirm the local model is available/)).toBeInTheDocument();
   });
 });

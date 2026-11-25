@@ -5,7 +5,6 @@ import { LoadingSpinner } from '@/components/ui/Loading';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
-import { WarningAlert } from '@/components/ui/WarningAlert';
 import { AiProviderModelPicker } from '@/components/ui/AiProviderModelPicker';
 import { useRepoAnalysis } from '@/hooks/internal/useRepoAnalysis';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -17,7 +16,7 @@ import { useAIQuota } from '@/hooks/useAIQuota';
 import { aiKeySource, aiQuotaBlocked } from '@/lib/ai-quota';
 import { GeneratedConfigReview, GenerationProgress, stageProgress, useGeneratedProps } from '@/components/pipeline/GeneratedConfigReview';
 import { useAiDraftOutcome } from '@/hooks/useAiDraftOutcome';
-import { isAskAgentProvider } from '@/lib/ai-constants';
+import { routesViaAskAgent } from '@/lib/ai-constants';
 
 /** Methods exposed to the parent modal via ref. */
 export interface GitUrlTabRef {
@@ -74,7 +73,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
     const draftOutcome = useAiDraftOutcome();
     const generationSettled = useEffectEvent(() => {
       const draft = withOverrides();
-      if (draft) draftOutcome.offered(isAskAgentProvider(ai.selectedProvider) ? 'agent' : 'pipeline-generate', draft, draftId);
+      if (draft) draftOutcome.offered(routesViaAskAgent(ai.selectedProvider) ? 'agent' : 'pipeline-generate', draft, draftId);
     });
     useEffect(() => {
       if (!generating) generationSettled();
@@ -126,15 +125,6 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
         />
 
         <AiProviderModelPicker ai={ai} disabled={disabled || generating} />
-
-        {/* The Ask agent was checked before defaulting to it and is not answering. */}
-        {ai.askAgentUnavailable && (
-          <WarningAlert
-            message={isAskAgentProvider(ai.selectedProvider)
-              ? ai.askAgentUnavailable
-              : `${ai.askAgentUnavailable} Another provider was selected instead.`}
-          />
-        )}
 
         {/* Generate Button */}
         <div className="flex items-center justify-end gap-3">

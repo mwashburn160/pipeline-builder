@@ -138,7 +138,7 @@ describe('deprecated and vulnerable', () => {
     const toA = sent.find((n) => n.recipients[0]!.orgId === A)!;
     expect(toA.subject).toBe('A security fix of your toolchain default 1.0.0 is available: 1.0.2');
     expect(toA.text).toContain('CVE-2026-1, CVE-2026-2');
-    expect(toA.text).toContain('Settings → Organization → Pipeline toolchain');
+    expect(toA.text).toContain('Settings → Organization → Pipelines → Pipeline toolchain');
     expect(toA.text).toMatch(/nothing moves until you change it/i);
     const toB = sent.find((n) => n.recipients[0]!.orgId === B)!;
     expect(toB.recipients).toEqual([{ kind: 'org_permission', orgId: B, permission: 'pipelines:write' }]);
@@ -212,7 +212,7 @@ describe('never throws', () => {
     ] as const) {
       const n = hygiene.renderOrgDefaultNotice(event, { releaseVersion: '1.0.0', platformDefault: null, behind: 4 });
       expect(n.subject).toContain('1.0.0');
-      expect(n.text).toContain('Settings → Organization → Pipeline toolchain');
+      expect(n.text).toContain('Settings → Organization → Pipelines → Pipeline toolchain');
     }
     const many = Array.from({ length: 52 }, (_, i) => ({ id: `p${i}`, name: null, orgId: A }));
     expect(hygiene.renderPinnedNotice('1.0.0', null, many).text).toContain('… and 2 more');

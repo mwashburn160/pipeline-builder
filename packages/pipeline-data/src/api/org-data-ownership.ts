@@ -89,6 +89,9 @@ export const ORG_DATA_OWNERSHIP: Readonly<Record<OrgDataOwner, OrgDataSlice>> = 
       // Cross-account runners (their reach-me URLs are org secrets, so the
       // export never carries function_url) and the run requests delivered to them.
       t(schema.pipelineRunner, 'pipeline_runners', ['function_url']),
+      // The deploy half of a deploy / undeploy request (before its run request:
+      // FK). The job grant and session never leave: hashes and the wrapped grant stripped.
+      t(schema.pipelineRunnerDeploy, 'pipeline_runner_deploys', ['grant_hash', 'grant_enc', 'session_hash']),
       t(schema.pipelineRunRequest, 'pipeline_run_requests'),
       // The org's run-request signing keys (HARD: purge removes the rows, key
       // material and all — never tombstoned) and its key mode.

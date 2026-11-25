@@ -10,6 +10,7 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { describe, it, expect, beforeAll, afterAll, beforeEach, jest } from '@jest/globals';
 import { toolchainMetadata } from '@pipeline-builder/api-core';
+import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import {
   isEligibleRelease,
@@ -309,9 +310,20 @@ describe('resolveManagedToolchain — one release, system rows only, nothing abo
     await canary(ROOT, '1.1.0');
     await orgDefault(OTHER, '1.0.0');
     const res = await resolve(TEAM);
-    expect(Object.keys(res).sort()).toEqual(['bootstrap', 'releaseVersion', 'resolvedVia', 'synth', 'warnings']);
+    expect(Object.keys(res).sort()).toEqual(['bootstrap', 'deployJobProtocol', 'releaseVersion', 'resolvedVia', 'synth', 'warnings']);
     const text = JSON.stringify(res);
     for (const id of [ROOT, MID, OTHER]) expect(text).not.toContain(id);
+  });
+});
+
+describe('resolveManagedToolchain — the release\'s deploy-job protocol', () => {
+  it('carries the protocol the release recorded from its cdk-synth half, null when it recorded none', async () => {
+    await release('1.0.0');
+    await release('1.1.0');
+    await db.update(schema.toolchainRelease).set({ deployJobProtocol: 1 }).where(eq(schema.toolchainRelease.releaseVersion, '1.1.0'));
+    await setPlatformDefault('1.0.0');
+    expect((await resolve(TEAM)).deployJobProtocol).toBeNull();
+    expect((await resolve(TEAM, '1.1.0')).deployJobProtocol).toBe(1);
   });
 });
 

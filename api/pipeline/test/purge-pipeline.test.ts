@@ -45,6 +45,15 @@ jest.unstable_mockModule('../src/services/pipeline-registry-service.js', () => (
   pipelineRegistryService: { deploymentOf: mockDeploymentOf },
 }));
 
+// The undeploy a purge sends through the pipeline's linked, deploy-capable runner (change 5).
+const mockPlanUndeploy = jest.fn<AnyFn>(async () => ({ kind: 'retained', reason: 'no_runner' }));
+const mockStartUndeploy = jest.fn<AnyFn>(async () => 'undeploy-req-1');
+jest.unstable_mockModule('../src/helpers/undeploy-on-purge.js', () => ({
+  planUndeploy: mockPlanUndeploy,
+  startUndeploy: mockStartUndeploy,
+}));
+jest.unstable_mockModule('../src/runners/deps.js', () => ({ runnerDeps: () => ({}) }));
+
 const mockEmitPipelineAudit = jest.fn<AnyFn>();
 const sendError = jest.fn((res: any, status: number, msg: string, code?: string, details?: unknown) => {
   res.status(status).json({ success: false, statusCode: status, message: msg, code, details });
@@ -208,6 +217,36 @@ describe('POST /pipelines/:id/purge (purge)', () => {
       mockDeploymentOf.mockResolvedValue(null);
     });
 
+    it('linked to a deploy-capable runner: purges WITHOUT force and sends the undeploy (the stack goes with it)', async () => {
+      mockDeploymentOf.mockResolvedValueOnce({ ...deployment, pipelineName: 'acme-pipe', runnerId: 'runner-1' });
+      mockPlanUndeploy.mockResolvedValueOnce({ kind: 'undeploy', runnerId: 'runner-1', runnerLabel: 'prod' });
+      mockFindDeletedById.mockResolvedValue(existingPipeline);
+      mockPurgeById.mockResolvedValue('pipeline-uuid-1');
+      const res = mockRes();
+      await handler(mockReq(), res);
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(mockStartUndeploy).toHaveBeenCalledTimes(1);
+      // Sent only AFTER the purge landed.
+      expect(mockPurgeById.mock.invocationCallOrder[0]).toBeLessThan(mockStartUndeploy.mock.invocationCallOrder[0]!);
+      expect(res.json.mock.calls[0][0].data).toEqual({ undeploy: { requestId: 'undeploy-req-1', runnerLabel: 'prod' }, stackRetained: null });
+      expect(mockEmitPipelineAudit).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'pipeline.purge',
+        details: expect.objectContaining({ undeployRequestId: 'undeploy-req-1', deregistered: { registryId: 'reg-1', stackName: 'acme-stack' } }),
+      }));
+    });
+
+    it('a runner without the capability: still 409 without force, naming why the stack would stay', async () => {
+      mockFindDeletedById.mockResolvedValueOnce(existingPipeline);
+      mockDeploymentOf.mockResolvedValueOnce({ ...deployment, runnerId: 'runner-1' });
+      mockPlanUndeploy.mockResolvedValueOnce({ kind: 'retained', reason: 'runner_not_deploy_capable' });
+      const res = mockRes();
+      await handler(mockReq(), res);
+      expect(res.status).toHaveBeenCalledWith(409);
+      expect(res.json.mock.calls[0][0].details).toEqual(expect.objectContaining({ stackRetainedReason: 'runner_not_deploy_capable' }));
+      expect(mockPurgeById).not.toHaveBeenCalled();
+      expect(mockStartUndeploy).not.toHaveBeenCalled();
+    });
+
     it('purges with ?force=true, and the audit records the forced deregistration', async () => {
       mockDeploymentOf.mockResolvedValueOnce(deployment);
       mockFindDeletedById.mockResolvedValue(existingPipeline);
@@ -219,6 +258,9 @@ describe('POST /pipelines/:id/purge (purge)', () => {
         action: 'pipeline.purge',
         details: expect.objectContaining({ forced: true, deregistered: { registryId: 'reg-1', stackName: 'acme-stack' } }),
       }));
+      // No capable runner: nothing is sent, and the answer says the stack stays.
+      expect(mockStartUndeploy).not.toHaveBeenCalled();
+      expect(res.json.mock.calls[0][0].data).toEqual({ undeploy: null, stackRetained: { stackName: 'acme-stack', region: 'us-east-1', reason: 'no_runner' } });
     });
   });
 

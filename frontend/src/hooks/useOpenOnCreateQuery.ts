@@ -16,8 +16,11 @@ import { useRouter } from 'next/router';
  * was stripped anyway — so the Quick Actions / bookmarked `?create=1` URL never
  * opened the create modal, even for a user with write access. It only worked on
  * client-side navigation, where the profile was already loaded.
+ *
+ * `param` names a different query key for a page whose deep link is not a
+ * create (the Deployments page's `?register=<pipelineId>`); same consume-once rule.
  */
-export function useOpenOnCreateQuery(open: (value: string) => void, ready = true) {
+export function useOpenOnCreateQuery(open: (value: string) => void, ready = true, param = 'create') {
   const router = useRouter();
   // The consume step is an Effect Event: it reads the newest `open` and router,
   // but neither re-triggers it — it fires on the create param (and readiness)
@@ -25,10 +28,10 @@ export function useOpenOnCreateQuery(open: (value: string) => void, ready = true
   const consume = useEffectEvent((raw: string | string[]) => {
     open(Array.isArray(raw) ? (raw[0] ?? '') : raw);
     const rest = { ...router.query };
-    delete rest.create;
+    delete rest[param];
     void router.replace({ pathname: router.pathname, query: rest }, undefined, { shallow: true });
   });
-  const create = router.query.create;
+  const create = router.query[param];
   useEffect(() => {
     if (!ready || !router.isReady || !create) return;
     consume(create);

@@ -124,6 +124,22 @@ describe('dashboard home — member', () => {
     await waitFor(() => expect(apiFn('getExecutionCount').mock.calls.length).toBeGreaterThan(readsBefore));
   });
 
+  // A created pipeline is only a config: nothing runs or reports until it is
+  // deployed. The success state says so, with the exact command, instead of
+  // closing on a list that just grew by one.
+  it('a successful create shows the next step: the deploy command for the new pipeline', async () => {
+    render(<DashboardPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /Upload config/ }));
+    fireEvent.click(await screen.findByRole('tab', { name: 'Upload' }));
+    fireEvent.change(screen.getByLabelText('Pipeline Props (JSON)'), { target: { value: JSON.stringify(PROPS) } });
+    fireEvent.click(screen.getByRole('button', { name: /^Create$/ }));
+    expect(await screen.findByText('Next step: deploy it')).toBeInTheDocument();
+    expect(screen.getByText('pipeline-manager pipeline deploy --id new')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Open pipeline/ })).toHaveAttribute('href', '/dashboard/pipelines/new');
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    await waitFor(() => expect(screen.queryByText('Next step: deploy it')).not.toBeInTheDocument());
+  });
+
   it('a failed create stays on the modal with the error', async () => {
     apiFn('createPipeline').mockRejectedValue(new Error('Quota exceeded'));
     render(<DashboardPage />);

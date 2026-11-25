@@ -61,6 +61,8 @@ export default function DashboardPage() {
   const [createLoading, setCreateLoading] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [createSuccess, setCreateSuccess] = useState<string | null>(null);
+  // The pipeline the last create made: the modal stays open on its deploy next step.
+  const [createdPipelineId, setCreatedPipelineId] = useState<string | null>(null);
 
   // Execution Trend window (days). Drives the getSuccessRate from/to range.
   const [trendRange, setTrendRange] = useState<7 | 30 | 90>(7);
@@ -229,6 +231,7 @@ export default function DashboardPage() {
     setModalGitUrl(gitUrl.trim());
     setCreateError(null);
     setCreateSuccess(null);
+    setCreatedPipelineId(null);
     setShowCreateModal(true);
   };
 
@@ -240,7 +243,10 @@ export default function DashboardPage() {
       const created = await api.createPipeline({ project: props.project || '', organization: props.organization || '', props, visibility, description, keywords });
       const pw = pluginWarningsToast(created.data?.pluginWarnings);
       setCreateSuccess(pw ? `Pipeline created. ${pw.message}` : 'Pipeline created successfully!');
-      setShowCreateModal(false);
+      // Stay open on the next step (deploy): a created pipeline is only a config,
+      // and nothing runs or reports until it is deployed.
+      setCreatedPipelineId(created.data?.pipeline?.id ?? null);
+      if (!created.data?.pipeline?.id) setShowCreateModal(false);
       setGitUrl('');
       setModalGitUrl(undefined);
       // The list this page (and every other pipeline view) reads is now wrong.
@@ -258,6 +264,7 @@ export default function DashboardPage() {
     setModalGitUrl(undefined);
     setCreateError(null);
     setCreateSuccess(null);
+    setCreatedPipelineId(null);
     setShowCreateModal(true);
   };
 
@@ -456,11 +463,12 @@ export default function DashboardPage() {
       {showCreateModal && (
       <CreatePipelineModal
         isOpen
-        onClose={() => { setShowCreateModal(false); setModalGitUrl(undefined); }}
+        onClose={() => { setShowCreateModal(false); setModalGitUrl(undefined); setCreatedPipelineId(null); setCreateSuccess(null); }}
         onSubmit={handleCreateSubmit}
         createLoading={createLoading}
         createError={createError}
         createSuccess={createSuccess}
+        createdPipelineId={createdPipelineId}
         canPublish={can('pipelines:publish')}
         initialGitUrl={modalGitUrl}
       />

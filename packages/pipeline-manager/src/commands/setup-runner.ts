@@ -44,6 +44,15 @@
  *   --delete: revoke on the platform FIRST (step-up), then delete the stack.
  *   --with-events: afterwards run `infra setup-events --scoped-ingest`, so
  *     executions started through the runner report their status.
+ *   --enable-deploy: the stack also gets the deploy CodeBuild project, its
+ *     least-privilege role, log group and grant key (EnableDeploy=true; the
+ *     runner then reports the `deploy:1` capability), so the dashboard can
+ *     deploy a never-deployed pipeline through this runner. Before anything is
+ *     created it checks the org's registry-push secret (the build pulls the
+ *     cdk-synth image with it; refused without) and every allowlisted
+ *     region's CDK bootstrap (warned; --require-bootstrap refuses;
+ *     --bootstrap runs `cdk bootstrap` where it is missing or outdated). A run
+ *     without it sets EnableDeploy=false: deploys are turned off again.
  *
  * The endpoint URL is a secret: it is sent to the platform and never printed.
  */
@@ -60,32 +69,40 @@ import {
   waitUntilStackDeleteComplete,
 } from '@aws-sdk/client-cloudformation';
 import { LambdaClient, UpdateFunctionCodeCommand, waitUntilFunctionUpdatedV2 } from '@aws-sdk/client-lambda';
+import { DescribeSecretCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
+import { GetCallerIdentityCommand, STSClient } from '@aws-sdk/client-sts';
 import {
   RUNNER_ERRORS, runnerJwksPath, type RunnerErrorCode, type RunnerHealth, type RunnerOutcome, type RunnerSigningKeyDto,
   type RunnersUnavailableReason, type RunnerStatus,
 } from '@pipeline-builder/api-core/pipeline-runners';
+import { DEPLOY_BUILD_TIMEOUT_MINUTES } from '@pipeline-builder/api-core/pipeline-runners';
 import { Command } from 'commander';
+import { buildBootstrapCommand } from './bootstrap.js';
 import { buildStepUpProvider, chooseStepUp } from './store-token.js';
 import { APP_VERSION, EVENTS_STACK_NAME } from '../config/cli.constants.js';
 import { auditLog } from '../utils/audit-log.js';
 import { applyAwsProfile, resolveDeployRegion } from '../utils/aws-env.js';
+import { bootstrapCommandHint, MIN_CDK_BOOTSTRAP_VERSION, readBootstrapVersion } from '../utils/cdk-bootstrap.js';
+import { executeCdkShellCommand } from '../utils/cdk-utils.js';
 import { createAuthenticatedClientAsync, printCommandHeader, printSslWarning, withProfileOption, withSslOptions } from '../utils/command-utils.js';
 import { getApiConfig } from '../utils/config-loader.js';
 import { ERROR_CODES, handleError, ValidationError } from '../utils/error-handler.js';
 import { printInfo, printKeyValue, printSection, printSuccess, printWarning, setMachineOutput } from '../utils/output-utils.js';
-import { ensurePlatformToken } from '../utils/platform-secret.js';
+import { ensurePlatformToken, secretNameForOrg } from '../utils/platform-secret.js';
+import { registryOverrideFromBaseUrl } from '../utils/registry.js';
 import { apiRefusal, extractListPage, unwrapData } from '../utils/response-utils.js';
 import {
-  buildRunnerTemplate, DEFAULT_WAF_RATE_LIMIT, pipelineActionResources, RUNNER_LABEL_TAG, RUNNER_PIPELINE_ACTIONS, RUNNER_STACK_PREFIX,
-  runnerFunctionName, runnerStackName, runnerStackParameters, WAF_RATE_LIMIT_MAX, WAF_RATE_LIMIT_MIN,
+  buildRunnerTemplate, CDK_BOOTSTRAP_ROLE_KINDS, DEFAULT_CDK_QUALIFIER, DEFAULT_DEPLOY_CONCURRENCY, DEFAULT_WAF_RATE_LIMIT, pipelineActionResources,
+  RUNNER_LABEL_TAG, RUNNER_PIPELINE_ACTIONS, RUNNER_STACK_PREFIX, runnerFunctionName, runnerStackName, runnerStackParameters,
+  WAF_RATE_LIMIT_MAX, WAF_RATE_LIMIT_MIN,
 } from '../utils/runner-template.js';
-import { STEP_UP_HEADER, type StepUpProvider } from '../utils/service-account.js';
+import { resolveOrganizationId, STEP_UP_HEADER, type StepUpProvider } from '../utils/service-account.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const RUNNERS_ROUTE = '/api/pipelines/runners';
 const SIGNING_KEY_ROUTE = `${RUNNERS_ROUTE}/signing-key`;
-const RUNNERS_PANEL = 'Settings → Organization → Pipeline runners';
+const RUNNERS_PANEL = 'Settings → Organization → Pipelines → Pipeline runners';
 
 // ─── Plan (pure, offline) ────────────────────────────────────────────────────
 
@@ -105,7 +122,37 @@ export interface RunnerPlanInput {
   yes?: boolean;
   delete?: boolean;
   withEvents?: boolean;
+  /** `--enable-deploy` and its options (each needs it). */
+  enableDeploy?: boolean;
+  requireBootstrap?: boolean;
+  bootstrap?: boolean;
+  cdkQualifier?: string;
+  deployTimeout?: string | number;
+  deployConcurrency?: string | number;
+  deployPermissionsBoundary?: string;
+  registryPullHost?: string;
 }
+
+/** The deploy half of a plan (`--enable-deploy`). */
+export interface RunnerDeployPlan {
+  qualifier: string;
+  timeoutMinutes: number;
+  concurrency: number;
+  /** '' = none. */
+  permissionsBoundaryArn: string;
+  /** Refuse when an allowlisted region has no (or an outdated) CDK bootstrap. */
+  requireBootstrap: boolean;
+  /** Bootstrap such regions (cdk bootstrap with these credentials) instead of only warning. */
+  bootstrap: boolean;
+  /** Explicit; otherwise the platform URL's host[:port]. */
+  registryPullHost?: string;
+}
+
+/** The deploy CodeBuild project's ConcurrentBuildLimit bounds (runner-stack.json DeployConcurrency). */
+const DEPLOY_CONCURRENCY_MAX = 20;
+const QUALIFIER_RE = /^[A-Za-z0-9]{1,10}$/;
+const BOUNDARY_RE = /^arn:[a-z-]+:iam::\d{12}:policy\/.+$/;
+const PULL_HOST_RE = /^[A-Za-z0-9.-]+(:[0-9]{1,5})?$/;
 
 export interface RunnerPlan {
   label: string;
@@ -132,6 +179,8 @@ export interface RunnerPlan {
   yes: boolean;
   delete: boolean;
   withEvents: boolean;
+  /** `--enable-deploy`: the deploy project and its checks. */
+  deploy?: RunnerDeployPlan;
 }
 
 const LABEL_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
@@ -185,6 +234,7 @@ export function planRunner(input: RunnerPlanInput): RunnerPlan {
     wafRateLimit = n;
   }
   if (input.generateKey && input.delete) throw new ValidationError('--generate-key and --delete contradict each other', 'generate-key');
+  const deploy = planDeploy(input);
 
   return {
     label,
@@ -200,6 +250,46 @@ export function planRunner(input: RunnerPlanInput): RunnerPlan {
     yes: !!input.yes,
     delete: !!input.delete,
     withEvents: !!input.withEvents && !input.delete,
+    ...(deploy ? { deploy } : {}),
+  };
+}
+
+const wholeNumber = (raw: string | number | undefined, flag: string, min: number, max: number, fallback: number): number => {
+  if (raw === undefined) return fallback;
+  const t = String(raw).trim();
+  const n = Number(t);
+  if (!/^\d+$/.test(t) || n < min || n > max) throw new ValidationError(`${flag} "${raw}" must be a whole number, ${min}-${max}`, flag.slice(2));
+  return n;
+};
+
+/** The `--enable-deploy` half of the plan; its options are refused without it. */
+function planDeploy(input: RunnerPlanInput): RunnerDeployPlan | undefined {
+  const given: Array<[string, unknown]> = [
+    ['--require-bootstrap', input.requireBootstrap || undefined], ['--bootstrap', input.bootstrap || undefined], ['--cdk-qualifier', input.cdkQualifier],
+    ['--deploy-timeout', input.deployTimeout], ['--deploy-concurrency', input.deployConcurrency],
+    ['--deploy-permissions-boundary', input.deployPermissionsBoundary], ['--registry-pull-host', input.registryPullHost],
+  ];
+  if (!input.enableDeploy) {
+    const stray = given.find(([, v]) => v !== undefined);
+    if (stray) throw new ValidationError(`${stray[0]} applies only with --enable-deploy`, 'enable-deploy');
+    return undefined;
+  }
+  if (input.delete) throw new ValidationError('--enable-deploy and --delete contradict each other', 'enable-deploy');
+  const qualifier = input.cdkQualifier ?? DEFAULT_CDK_QUALIFIER;
+  if (!QUALIFIER_RE.test(qualifier)) throw new ValidationError(`--cdk-qualifier "${qualifier}" must be 1-10 letters or digits (cdk bootstrap --qualifier)`, 'cdk-qualifier');
+  const boundary = input.deployPermissionsBoundary ?? '';
+  if (boundary && !BOUNDARY_RE.test(boundary)) throw new ValidationError(`--deploy-permissions-boundary "${boundary}" is not an IAM policy ARN`, 'deploy-permissions-boundary');
+  if (input.registryPullHost !== undefined && !PULL_HOST_RE.test(input.registryPullHost)) {
+    throw new ValidationError(`--registry-pull-host "${input.registryPullHost}" must be a host or host:port`, 'registry-pull-host');
+  }
+  return {
+    qualifier,
+    timeoutMinutes: wholeNumber(input.deployTimeout, '--deploy-timeout', DEPLOY_BUILD_TIMEOUT_MINUTES.min, DEPLOY_BUILD_TIMEOUT_MINUTES.max, DEPLOY_BUILD_TIMEOUT_MINUTES.default),
+    concurrency: wholeNumber(input.deployConcurrency, '--deploy-concurrency', 1, DEPLOY_CONCURRENCY_MAX, DEFAULT_DEPLOY_CONCURRENCY),
+    permissionsBoundaryArn: boundary,
+    requireBootstrap: !!input.requireBootstrap,
+    bootstrap: !!input.bootstrap,
+    ...(input.registryPullHost !== undefined ? { registryPullHost: input.registryPullHost } : {}),
   };
 }
 
@@ -236,6 +326,13 @@ export function describePlan(plan: RunnerPlan, bundleSha256?: string): Record<st
       `read the ${plan.apiGateway ? 'API Gateway' : 'Function URL'} endpoint from the stack (never printed)`,
       'send the endpoint to the platform (step-up); it pings the runner, and a pong makes it active',
       ...(plan.withEvents ? [`run infra setup-events --scoped-ingest in ${plan.region}`] : [])];
+  if (plan.deploy) {
+    // The deploy checks run right after the account scan, before anything is created.
+    steps.splice(1, 0,
+      `check the organization's registry-push secret (pipeline-builder/<orgId>/registry-push) in ${plan.region}: refused without it`,
+      `check the CDK bootstrap (qualifier ${plan.deploy.qualifier}, version ${MIN_CDK_BOOTSTRAP_VERSION}+) in ${plan.regions.join(', ')}: `
+        + (plan.deploy.bootstrap ? 'bootstrap the regions that need it' : plan.deploy.requireBootstrap ? 'refused when one is missing' : 'warned when one is missing'));
+  }
   return {
     stackName: STACK_NAME_PATTERN,
     stackTags: { [RUNNER_LABEL_TAG]: plan.label },
@@ -254,7 +351,30 @@ export function describePlan(plan: RunnerPlan, bundleSha256?: string): Record<st
     },
     jwksUrl: `<platform>${JWKS_PATH_PATTERN}`,
     ...(bundleSha256 ? { bundleSha256 } : {}),
+    ...(plan.deploy ? { deploy: describeDeploy(plan, plan.deploy) } : {}),
     steps,
+  };
+}
+
+/** The deploy half of a dry run: the project's settings and its role's exact IAM. */
+function describeDeploy(plan: RunnerPlan, d: RunnerDeployPlan): Record<string, unknown> {
+  const sub = (s: string) => s.replace('${CdkQualifier}', d.qualifier);
+  return {
+    enabled: true,
+    project: 'pipeline-builder-runner-deploy-<runnerId>',
+    cdkQualifier: d.qualifier,
+    timeoutMinutes: d.timeoutMinutes,
+    concurrency: d.concurrency,
+    permissionsBoundary: d.permissionsBoundaryArn || '(none)',
+    registryPullHost: d.registryPullHost ?? '(the platform URL\'s host)',
+    privileged: false,
+    iam: {
+      'sts:AssumeRole': plan.regions.flatMap((r) => CDK_BOOTSTRAP_ROLE_KINDS.map((k) => `arn:\${AWS::Partition}:iam::\${AWS::AccountId}:role/cdk-${sub('${CdkQualifier}')}-${k}-role-\${AWS::AccountId}-${r}`)),
+      'ssm:GetParameter': plan.regions.map((r) => `arn:\${AWS::Partition}:ssm:${r}:\${AWS::AccountId}:parameter/cdk-bootstrap/${d.qualifier}/version`),
+      'secretsmanager:DescribeSecret': plan.regions.map((r) => `arn:\${AWS::Partition}:secretsmanager:${r}:\${AWS::AccountId}:secret:pipeline-builder/*`),
+      'secretsmanager:GetSecretValue': `arn:\${AWS::Partition}:secretsmanager:${plan.region}:\${AWS::AccountId}:secret:pipeline-builder/<orgId>/registry-push-??????`,
+      'kms:Decrypt': 'the grant key only, under {runnerId, purpose: deploy-grant} (the runner role may only Encrypt)',
+    },
   };
 }
 
@@ -331,6 +451,14 @@ export interface SetupRunnerDeps {
   /** A y/N question; false when nobody can answer (not a terminal, --json). */
   confirm(question: string): Promise<boolean>;
   warn(message: string): void;
+  /** --enable-deploy: the org the operator's token acts for (the registry-push secret is named after it). */
+  organizationId(): Promise<string>;
+  /** --enable-deploy: the region's CDK bootstrap version (undefined = not bootstrapped with that qualifier). */
+  bootstrapVersion(region: string, qualifier: string): Promise<number | undefined>;
+  /** --bootstrap: `cdk bootstrap` the region with these credentials. */
+  runBootstrap(region: string, qualifier: string): Promise<void>;
+  /** --enable-deploy: whether a Secrets Manager secret exists. */
+  secretExists(name: string, region: string): Promise<boolean>;
 }
 
 async function stepUpHeaders(deps: SetupRunnerDeps): Promise<Record<string, string>> {
@@ -455,7 +583,12 @@ export interface SetupRunnerResult {
   signingKey?: SigningKeyStatus;
   bundleSha256?: string;
   eventsStack?: 'present' | 'missing' | 'deployed';
+  /** Deploys through this runner: off, or on with each allowlisted region's CDK bootstrap. */
+  deploy?: { enabled: false } | { enabled: true; bootstrap: Record<string, RegionBootstrap> };
 }
+
+/** A region's CDK bootstrap as --enable-deploy found (or left) it. */
+export type RegionBootstrap = 'ok' | 'missing' | 'outdated' | 'bootstrapped';
 
 // ─── One runner per AWS account per organization ─────────────────────────────
 
@@ -675,6 +808,50 @@ async function ensureEventReporting(plan: RunnerPlan, deps: SetupRunnerDeps): Pr
   return 'missing';
 }
 
+/** The registry host the deploy build pulls from: --registry-pull-host, else the platform URL's host[:port]. */
+export function deployPullHost(plan: RunnerDeployPlan, platformBaseUrl: string): string {
+  if (plan.registryPullHost) return plan.registryPullHost;
+  const r = registryOverrideFromBaseUrl(platformBaseUrl);
+  if (!r) throw new ValidationError(`Cannot derive the registry pull host from the platform URL "${platformBaseUrl}" — pass --registry-pull-host`, 'registry-pull-host');
+  return r.pullPort === 443 || r.pullPort === 80 ? r.pullHost : `${r.pullHost}:${r.pullPort}`;
+}
+
+/**
+ * --enable-deploy, before anything is created: the org's registry-push secret
+ * must exist in the stack region (refused), and every allowlisted region needs
+ * a current CDK bootstrap (warned; --require-bootstrap refuses; --bootstrap
+ * bootstraps it). The deploy job itself never bootstraps.
+ */
+async function checkDeploySetup(plan: RunnerPlan, d: RunnerDeployPlan, deps: SetupRunnerDeps): Promise<{ secretName: string; bootstrap: Record<string, RegionBootstrap> }> {
+  const secretName = secretNameForOrg(await deps.organizationId(), 'registry-push');
+  if (!(await deps.secretExists(secretName, plan.region))) {
+    throw new ValidationError(
+      `--enable-deploy needs your organization's registry pull credential ${secretName} in ${plan.region}: the deploy build pulls the pipeline's cdk-synth image with it. `
+      + `Store it first: pipeline-manager infra store-token --scope registry:push --region ${plan.region}`, 'enable-deploy');
+  }
+  const state = async (region: string): Promise<RegionBootstrap> => {
+    const v = await deps.bootstrapVersion(region, d.qualifier);
+    return v === undefined ? 'missing' : v < MIN_CDK_BOOTSTRAP_VERSION ? 'outdated' : 'ok';
+  };
+  const bootstrap: Record<string, RegionBootstrap> = {};
+  for (const region of plan.regions) {
+    let s = await state(region);
+    if (s !== 'ok' && d.bootstrap) {
+      await deps.runBootstrap(region, d.qualifier);
+      s = (await state(region)) === 'ok' ? 'bootstrapped' : s;
+    }
+    bootstrap[region] = s;
+  }
+  const bad = Object.entries(bootstrap).filter(([, s]) => s === 'missing' || s === 'outdated');
+  if (bad.length > 0) {
+    const what = bad.map(([r, s]) => `${r} (${s === 'missing' ? `no CDK bootstrap with qualifier ${d.qualifier}` : `bootstrap older than version ${MIN_CDK_BOOTSTRAP_VERSION}`}): ${bootstrapCommandHint(r, d.qualifier)}`).join('; ');
+    const msg = `Deploys through this runner need a current CDK bootstrap in every region it deploys to. Not ready: ${what}. (Or re-run with --bootstrap.)`;
+    if (d.requireBootstrap) throw new ValidationError(msg, 'require-bootstrap');
+    deps.warn(`${msg} Deploys into those regions fail with CDK_NOT_BOOTSTRAPPED / CDK_BOOTSTRAP_OUTDATED until then.`);
+  }
+  return { secretName, bootstrap };
+}
+
 /** The runner's own JWKS URL (absolute). */
 export function runnerJwksUrl(platformBaseUrl: string, runnerId: string): string {
   return `${platformBaseUrl.replace(/\/+$/, '')}${runnerJwksPath(runnerId)}`;
@@ -687,6 +864,7 @@ export async function setupRunnerFlow(plan: RunnerPlan, deps: SetupRunnerDeps): 
   const prefixes = await resolvePrefixes(plan, deps);
   const account = classifyAccountRunners((await accountRunnerStacks(plan, deps)).stacks, list);
   const existing = await checkAccount(plan, deps, account, prefixes);
+  const deploySetup = plan.deploy ? await checkDeploySetup(plan, plan.deploy, deps) : undefined;
 
   // Which runner this stack is: this org's runner already in the account, else a
   // pending one left by an interrupted install of this label, else a new one.
@@ -713,6 +891,16 @@ export async function setupRunnerFlow(plan: RunnerPlan, deps: SetupRunnerDeps): 
       runnerId: runner.id,
       platformBaseUrl: deps.platformBaseUrl,
       version: APP_VERSION,
+      ...(plan.deploy && deploySetup ? {
+        deploy: {
+          registryPullHost: deployPullHost(plan.deploy, deps.platformBaseUrl),
+          registryCredentialSecretName: deploySetup.secretName,
+          cdkQualifier: plan.deploy.qualifier,
+          timeoutMinutes: plan.deploy.timeoutMinutes,
+          concurrency: plan.deploy.concurrency,
+          permissionsBoundaryArn: plan.deploy.permissionsBoundaryArn,
+        },
+      } : {}),
     }),
     tags: { [RUNNER_LABEL_TAG]: plan.label },
     region: plan.region,
@@ -738,6 +926,7 @@ export async function setupRunnerFlow(plan: RunnerPlan, deps: SetupRunnerDeps): 
     signingKey,
     bundleSha256,
     eventsStack,
+    deploy: deploySetup ? { enabled: true, bootstrap: deploySetup.bootstrap } : { enabled: false },
   };
 }
 
@@ -804,7 +993,8 @@ export function sha256OfFile(file: string): string {
   return createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
 
-type RealDeps = 'deployStack' | 'describeStack' | 'enabledRegions' | 'listRunnerStacks' | 'deleteStack' | 'uploadCode' | 'bundleSha256' | 'runSetupEvents' | 'confirm' | 'warn';
+type RealDeps = 'deployStack' | 'describeStack' | 'enabledRegions' | 'listRunnerStacks' | 'deleteStack' | 'uploadCode' | 'bundleSha256' | 'runSetupEvents' | 'confirm' | 'warn'
+  | 'bootstrapVersion' | 'runBootstrap' | 'secretExists';
 
 /** Every stack status but DELETE_COMPLETE: the ListStacks filter for stacks that still exist. */
 const LIVE_STACK_STATUSES: StackStatus[] = [
@@ -845,6 +1035,24 @@ export function runnerStackInfo(s: Stack, region: string): RunnerStackInfo | und
 
 function realAwsDeps(profile: string | undefined, interactive: boolean): Pick<SetupRunnerDeps, RealDeps> {
   return {
+    bootstrapVersion: (region, qualifier) => readBootstrapVersion(region, qualifier),
+    async runBootstrap(region, qualifier) {
+      const id = await new STSClient({ region }).send(new GetCallerIdentityCommand({}));
+      if (!id.Account) throw new Error('Could not read this AWS account\'s id (sts:GetCallerIdentity) to bootstrap it');
+      const command = buildBootstrapCommand({ account: id.Account, region, profile, ...(qualifier !== DEFAULT_CDK_QUALIFIER ? { qualifier } : {}) });
+      printInfo(`Bootstrapping CDK in ${region}`, { qualifier });
+      // Captured (replayed only on failure): stdout stays clean for --json.
+      executeCdkShellCommand(command, { showOutput: false });
+    },
+    async secretExists(name, region) {
+      try {
+        await new SecretsManagerClient({ region }).send(new DescribeSecretCommand({ SecretId: name }));
+        return true;
+      } catch (err) {
+        if ((err as { name?: string })?.name === 'ResourceNotFoundException') return false;
+        throw err;
+      }
+    },
     bundleSha256: () => sha256OfFile(runnerBundlePath()),
     async runSetupEvents(region) {
       // The existing command, exactly as an operator would run it (same CLI build).
@@ -962,8 +1170,13 @@ function printResult(r: SetupRunnerResult, json: boolean): void {
     ...(r.signingKey ? { 'Signing Key': describeSigningKey(r.signingKey) } : {}),
     ...(r.bundleSha256 ? { 'Bundle SHA-256': r.bundleSha256 } : {}),
     ...(r.eventsStack ? { 'Event Reporting': r.eventsStack === 'missing' ? 'not set up in this region' : '✓' } : {}),
+    ...(r.deploy ? {
+      Deploys: r.deploy.enabled
+        ? `enabled (CDK bootstrap: ${Object.entries(r.deploy.bootstrap).map(([region, s]) => `${region} ${s}`).join(', ')})`
+        : 'off (--enable-deploy turns them on)',
+    } : {}),
   });
-  if (r.test && !r.test.ok) printWarning('The test ping failed — check the runner\'s CloudWatch logs, then retest from Settings → Organization → Pipeline runners.');
+  if (r.test && !r.test.ok) printWarning('The test ping failed — check the runner\'s CloudWatch logs, then retest from Settings → Organization → Pipelines → Pipeline runners.');
   if (r.action !== 'deleted') {
     printInfo(`The runner verifies every request against its own key set: ${r.jwksUrl ?? 'its JWKS URL'}. See the signing key with "pipeline-manager runner signing-key status".`);
     printSuccess(`Runner ${r.action}. Remove it with: pipeline-manager infra setup-runner --label ${r.label} --region ${r.region} --delete`);
@@ -1032,6 +1245,14 @@ export function setupRunner(program: Command): void {
     .option('--no-browser', 'With browser step-up: print the approval URL instead of opening a browser')
     .option('--generate-key', 'If your organization has no runner signing key yet, generate one (step-up) instead of stopping', false)
     .option('--with-events', 'Afterwards run "infra setup-events --scoped-ingest" in the region, so runner-started executions report their progress', false)
+    .option('--enable-deploy', 'Let the platform deploy never-deployed pipelines through this runner (a deploy CodeBuild project in the stack; needs the registry-push secret). Without it, deploys are off', false)
+    .option('--require-bootstrap', 'With --enable-deploy: refuse when an allowlisted region has no current CDK bootstrap (default: warn)', false)
+    .option('--bootstrap', 'With --enable-deploy: run cdk bootstrap (these credentials) in each allowlisted region that needs it', false)
+    .option('--cdk-qualifier <qualifier>', `With --enable-deploy: the regions' CDK bootstrap qualifier (default ${DEFAULT_CDK_QUALIFIER})`)
+    .option('--deploy-timeout <minutes>', `With --enable-deploy: the deploy build timeout, ${DEPLOY_BUILD_TIMEOUT_MINUTES.min}-${DEPLOY_BUILD_TIMEOUT_MINUTES.max} (default ${DEPLOY_BUILD_TIMEOUT_MINUTES.default})`)
+    .option('--deploy-concurrency <n>', `With --enable-deploy: deploy builds at once, 1-${DEPLOY_CONCURRENCY_MAX} (default ${DEFAULT_DEPLOY_CONCURRENCY})`)
+    .option('--deploy-permissions-boundary <arn>', 'With --enable-deploy: an IAM permissions boundary for the deploy role')
+    .option('--registry-pull-host <host[:port]>', 'With --enable-deploy: the registry host the deploy build pulls from (default: the platform URL\'s host)')
     .option('--delete', 'Revoke the runner on the platform, then delete its stack', false)
     .option('-y, --yes', "Confirm --pipeline-prefix '*', and installing beside a parent organization's shared runner", false)
     .option('--dry-run', 'Show what would be deployed without calling AWS or the platform', false)
@@ -1057,6 +1278,14 @@ export function setupRunner(program: Command): void {
           yes: options.yes,
           delete: options.delete,
           withEvents: options.withEvents,
+          enableDeploy: options.enableDeploy,
+          requireBootstrap: options.requireBootstrap,
+          bootstrap: options.bootstrap,
+          cdkQualifier: options.cdkQualifier,
+          deployTimeout: options.deployTimeout,
+          deployConcurrency: options.deployConcurrency,
+          deployPermissionsBoundary: options.deployPermissionsBoundary,
+          registryPullHost: options.registryPullHost,
         });
 
         if (options.dryRun) {
@@ -1077,6 +1306,7 @@ export function setupRunner(program: Command): void {
         const client = await createAuthenticatedClientAsync(options);
         const deps: SetupRunnerDeps = {
           ...realAwsDeps(options.profile, !!process.stdin.isTTY && !options.json),
+          organizationId: () => resolveOrganizationId(client),
           platform: client,
           platformBaseUrl: client.getBaseUrl() || getApiConfig().api.baseUrl,
           stepUp: buildStepUpProvider(method, client, {

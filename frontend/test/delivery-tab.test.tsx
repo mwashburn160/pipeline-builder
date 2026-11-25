@@ -104,6 +104,11 @@ describe('RunnerPanel', () => {
     expect(screen.getByText('p90 1m · n = 3 (estimated)')).toBeInTheDocument();
   });
 
+  it('says deploys through a runner and discovery probes are not counted as runs', () => {
+    render(<RunnerPanel loading={false} data={RUNNERS} />);
+    expect(screen.getByText(/Start and stop requests only \(deploys through a runner and discovery probes are not runs\)/)).toBeInTheDocument();
+  });
+
   it('shows an empty state for a range with no run requests', () => {
     render(<RunnerPanel loading={false} data={EMPTY_RUNNERS} />);
     expect(screen.getByText('No run requests in this range')).toBeInTheDocument();

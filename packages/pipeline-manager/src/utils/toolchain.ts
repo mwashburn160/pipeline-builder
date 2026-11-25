@@ -20,7 +20,7 @@ import { BUILD_IMAGE_STEP_KEY, ErrorCode, errorMessage, MANAGED_TOOLCHAIN, toolc
 import {
   type LookupToolchain, type LookupWarning, type ResolvedBootstrap, parseLookupToolchain, pluginArtifactAlias, unwrapLookup,
 } from '@pipeline-builder/pipeline-core';
-import type { ApiClient } from './api-client.js';
+import type { ApiClient, PlatformReadClient } from './api-client.js';
 import { PluginResolutionError, isManagedToolchainRef, printLookupWarning, serviceErrorCode } from './plugin-resolver.js';
 import { bakePlatformRegistry } from './registry.js';
 
@@ -66,7 +66,7 @@ function bootstrapUnresolved(message: string, code: string = ErrorCode.BOOTSTRAP
 
 /** Look up one managed half. Throws {@link bootstrapUnresolved} on any failure. */
 async function lookupManaged(
-  client: ApiClient,
+  client: PlatformReadClient,
   name: string,
   releasePin: string | undefined,
   context?: { pipelineId: string; stepKeys: string[] },
@@ -108,7 +108,7 @@ async function lookupManaged(
  * "Build image" row (`context.stepKeys: ['build-image']`).
  */
 export async function resolveBootstrapImage(
-  client: ApiClient,
+  client: PlatformReadClient,
   props: Record<string, unknown>,
   warningSink?: LookupWarning[],
 ): Promise<ResolvedBootstrap> {

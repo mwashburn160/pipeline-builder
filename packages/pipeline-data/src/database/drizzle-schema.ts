@@ -72,7 +72,7 @@ import { pipelineRemediationUpgrade, pluginRemediation, pluginRemediationSetting
 import { plugin, pluginKeptSetupImage, pluginRetentionSetting } from './schema/plugin.js';
 import { doraDeployment, executionDailyRollup, pipelinePluginResolution, pipelineSecurityReport, pipelineStepLookup, pluginVulnExposure } from './schema/reporting-analytics.js';
 import { reportDefinition, reportRun, reportShareLink, reportRecipient } from './schema/reporting-stakeholder.js';
-import { pipelineRunRequest, pipelineRunner, pipelineRunnerKeySettings, pipelineRunnerPlatformSettings, pipelineRunnerSigningKey } from './schema/runner.js';
+import { pipelineRunRequest, pipelineRunner, pipelineRunnerDeploy, pipelineRunnerKeySettings, pipelineRunnerPlatformSettings, pipelineRunnerSigningKey } from './schema/runner.js';
 import { supportCase, supportCaseCounter, supportContact, supportCaseNote, supportCannedResponse } from './schema/support.js';
 import {
   toolchainRelease,
@@ -102,6 +102,8 @@ export const schema = {
   // Cross-account pipeline runners + their signed run requests (pipeline service)
   pipelineRunner,
   pipelineRunRequest,
+  // The deploy half of a deploy / undeploy run request (job grant, session, build)
+  pipelineRunnerDeploy,
   // Per-org run-request signing keys, each org's key mode, and the platform pause toggle
   pipelineRunnerSigningKey,
   pipelineRunnerKeySettings,

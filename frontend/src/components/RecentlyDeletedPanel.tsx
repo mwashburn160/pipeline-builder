@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { History, RotateCcw, Trash2 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -12,10 +12,14 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { useToast } from '@/components/ui/Toast';
 import { RetryError } from '@/components/ui/RetryError';
 import { StepUpModal } from '@/components/admin/StepUpModal';
+import { PipelineStackNotice } from '@/components/pipeline/PipelineStackNotice';
 import { useFetch } from '@/hooks/useFetch';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
-import { continueAfterStepUp } from '@/lib/api/errors';
+import { ApiError, continueAfterStepUp } from '@/lib/api/errors';
+import { Callout } from '@/components/ui/Callout';
+import { purgeRefusedCopy, purgeResultCopy } from '@/lib/pipeline-deploys';
+import type { DeletedPipelineDeploymentDto } from '@pipeline-builder/api-core/pipeline-runners';
 import { visibilityColor } from '@/components/ui/visibility-rungs';
 import type { Pipeline, Plugin, Message, PipelineTemplate, Visibility } from '@/types';
 import type { ComplianceRule, CompliancePolicy } from '@/types/compliance';
@@ -32,6 +36,8 @@ interface DeletedRow {
   createdBy?: string;
   deletedAt?: string | null;
   deletedBy?: string | null;
+  /** Pipelines: what a purge does to the deployed stack (null = never registered; absent = unknown). */
+  deployment?: DeletedPipelineDeploymentDto | null;
 }
 
 /**
@@ -100,11 +106,21 @@ interface ResourceConfig {
   restore: (id: string, stepUpToken?: string) => Promise<{ success: boolean }>;
   /** Permanently hard-delete a tombstone before the retention sweep would. Step-up
    *  gated like restore (irreversible destruction): the re-verified token is forwarded. */
-  purge: (id: string, stepUpToken?: string) => Promise<{ success: boolean }>;
+  purge: (id: string, stepUpToken?: string) => Promise<{ success: boolean; data?: unknown }>;
+  /** What else a purge of this row does or leaves behind, shown in its dialog. */
+  purgeNotice?: (row: DeletedRow) => ReactNode;
+  /** What a finished purge did beyond deleting the row (shown above the list). */
+  purgeOutcome?: (data: unknown) => { tone: 'info' | 'warning'; text: string } | null;
+  /** A refused purge's own explanation (shown above the list instead of a toast), or null. */
+  purgeRefusal?: (err: unknown) => string | null;
 }
 
-function pipelineToRow(p: Pipeline): DeletedRow {
-  return { id: p.id, name: p.pipelineName || p.id, visibility: p.visibility, createdBy: p.createdBy, deletedAt: p.deletedAt, deletedBy: p.deletedBy };
+function pipelineToRow(p: Pipeline & { deployment?: DeletedPipelineDeploymentDto | null }): DeletedRow {
+  return {
+    id: p.id, name: p.pipelineName || p.id, visibility: p.visibility, createdBy: p.createdBy, deletedAt: p.deletedAt, deletedBy: p.deletedBy,
+    // Absent (an answer without it) stays unknown; null is "never registered".
+    ...(p.deployment === undefined ? {} : { deployment: p.deployment }),
+  };
 }
 
 function pluginToRow(p: Plugin): DeletedRow {
@@ -152,6 +168,12 @@ const RESOURCES: Record<Resource, ResourceConfig> = {
     load: paged((params) => api.listDeletedPipelines(params), (d) => d.pipelines.map(pipelineToRow), 'Failed to load deleted pipelines'),
     restore: (id, stepUpToken) => api.restorePipeline(id, stepUpToken),
     purge: (id, stepUpToken) => api.purgePipeline(id, stepUpToken),
+    // A deployed pipeline's stack: removed through a deploy-enabled runner, else left in the account.
+    purgeNotice: (row) => (row.deployment === null ? null : (
+      <PipelineStackNotice purge source={row.deployment ? { kind: 'deleted', deployment: row.deployment } : { kind: 'unknown' }} />
+    )),
+    purgeOutcome: (data) => purgeResultCopy(data as Parameters<typeof purgeResultCopy>[0]),
+    purgeRefusal: (err) => (err instanceof ApiError && err.statusCode === 409 ? purgeRefusedCopy(err.details) : null),
   },
   plugin: {
     labels: { singular: 'plugin', plural: 'plugins' },
@@ -231,6 +253,8 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
   // Hold the row awaiting a purge confirm; the permanent delete runs in executePurge.
   const [pendingPurge, setPendingPurge] = useState<DeletedRow | null>(null);
   const [purging, setPurging] = useState<string | null>(null);
+  // What the last purge did beyond deleting the row (a pipeline's stack), or why it was refused.
+  const [purgeResult, setPurgeResult] = useState<{ tone: 'info' | 'warning'; text: string } | null>(null);
 
   // The loaded pages, appended in order. `nextOffset` is where the next page
   // starts on the SERVER: it advances by a page per load and steps back by one
@@ -360,10 +384,30 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
     if (!pendingPurge) return;
     const row = pendingPurge;
     setPurging(row.id);
+    setPurgeResult(null);
     try {
-      await runRowAction(() => config.purge(row.id, stepUpToken), () => {
+      // The purge's answer (a pipeline's stack outcome); a refusal with its own
+      // explanation (a stack still deployed) is shown above the list, not toasted.
+      let data: unknown;
+      let refused = false;
+      await runRowAction(async () => {
+        try {
+          const res = await config.purge(row.id, stepUpToken);
+          data = res.data;
+          return res;
+        } catch (err) {
+          const refusal = config.purgeRefusal?.(err) ?? null;
+          if (!refusal) throw err;
+          refused = true;
+          setPurgeResult({ tone: 'warning', text: refusal });
+          return { success: true };
+        }
+      }, () => {
+        if (refused) return;
         toast.success(`Permanently deleted ${labels.singular} "${row.name}"`);
         removeRow(row.id);
+        const outcome = config.purgeOutcome?.(data) ?? null;
+        if (outcome) setPurgeResult(outcome);
       }, `Failed to purge ${labels.singular}`);
     } finally {
       setPurging(null);
@@ -442,9 +486,16 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
       {pendingPurge && (
         <StepUpModal
           action={`Re-confirm your password to PERMANENTLY delete the ${labels.singular} "${pendingPurge.name}". This is irreversible — it cannot be undone.`}
+          details={config.purgeNotice?.(pendingPurge)}
           onConfirmed={executePurge}
           onClose={() => setPendingPurge(null)}
         />
+      )}
+
+      {purgeResult && (
+        <div className="mb-3" data-testid={`${resource}-purge-result`}>
+          <Callout variant={purgeResult.tone} onDismiss={() => setPurgeResult(null)}>{purgeResult.text}</Callout>
+        </div>
       )}
 
       {loading && rows.length === 0 ? (

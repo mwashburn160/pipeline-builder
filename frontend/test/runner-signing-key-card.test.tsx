@@ -74,6 +74,7 @@ const runner = (): PipelineRunner => ({
   id: 'r1', orgId: 'org-1', label: 'Production', functionUrl: null, shareWithTeams: false, version: '1.2.0', regions: ['us-east-1'],
   health: 'healthy', status: 'active', lastDeliveryAt: null, createdAt: '2026-11-01T00:00:00Z', updateRequired: false,
   jwksUrl: 'https://pb.example.com/api/pipelines/runner/runners/r1/jwks.json', pipelineCount: 0,
+  capabilities: [], shareDeploysWithTeams: false, pipelinePrefixes: [],
 });
 const dto = (signingKey: RunnerSigningKeyDto | null, over: Partial<PipelineRunnersDto> = {}): PipelineRunnersDto => ({
   available: true, unavailableReason: null, platformEgressIps: null, own: [runner()], inherited: [], signingKey, ...over,

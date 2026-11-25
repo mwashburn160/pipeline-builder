@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type {
-  RunnerHealth, RunnerKeyMode, RunnerKeyRetiredReason, RunnerKeyState, RunnerKeyTransitionKind, RunnerLinkDetail, RunnerLinkStatus,
+  DeployStage, RunnerCapability, RunnerHealth, RunnerKeyMode, RunnerKeyRetiredReason, RunnerKeyState, RunnerKeyTransitionKind, RunnerLinkDetail, RunnerLinkStatus,
   RunnerPublicJwk, RunnerStatus, RunRequestAction, RunRequestStatus,
 } from '@pipeline-builder/api-core/pipeline-runners';
 import { sql } from 'drizzle-orm';
@@ -50,6 +50,16 @@ export const pipelineRunner = pgTable('pipeline_runners', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
   lastDeliveryAt: timestamp('last_delivery_at', { withTimezone: true }),
+  /**
+   * What the runner's bundle reported in its last pong (api-core
+   * `RUNNER_CAPABILITIES`; `deploy:1`: deploys enabled). The platform never
+   * signs a gated action for a runner that does not list its capability.
+   */
+  capabilities: text('capabilities').array().$type<RunnerCapability[]>().notNull().default(sql`'{}'::text[]`),
+  /** The pipeline-name prefixes its stack allows (`*` = all), as its last pong reported them. */
+  pipelinePrefixes: text('pipeline_prefixes').array().notNull().default(sql`'{}'::text[]`),
+  /** Teams this runner is shared with may also DEPLOY through it (needs `share_with_teams`). */
+  shareDeploysWithTeams: boolean('share_deploys_with_teams').notNull().default(false),
 }, (table) => ({
   orgIdx: index('pipeline_runners_org_idx').on(table.orgId, table.status),
 }));
@@ -92,6 +102,61 @@ export const pipelineRunRequest = pgTable('pipeline_run_requests', {
   /** At most one pending start per pipeline (the G12 reuse, race-free). Same pending set as PENDING_RUN_REQUEST_STATUSES. */
   onePendingStartUq: uniqueIndex('pipeline_run_requests_one_pending_start_uq').on(table.pipelineId)
     .where(sql`action = 'start' AND status IN ('queued', 'delivering')`),
+  /** At most one ACTIVE deploy per pipeline. Same set as ACTIVE_DEPLOY_STATUSES. */
+  oneActiveDeployUq: uniqueIndex('pipeline_run_requests_one_active_deploy_uq').on(table.pipelineId)
+    .where(sql`action = 'deploy' AND status IN ('queued', 'delivering', 'deploying')`),
+}));
+
+/**
+ * The deploy half of a `deploy` / `undeploy` run request: what the runner's
+ * CodeBuild job runs, where it is, and the job's credentials.
+ *
+ *  - `grant_hash` — sha256 (hex) of the single-use job grant (`pb_dg_…`), the
+ *    only form the grant is kept in clear; `grant_enc` — the grant encrypted
+ *    with the org's `encryptSecret` (re-signed on a redelivery), wiped at the
+ *    exchange and at any terminal status; `grant_expires_at` — the exchange
+ *    deadline (api-core `deployGrantTtlMs`); `grant_used_at` — the exchange.
+ *  - `session_hash` / `session_expires_at` — the session token (`pb_ds_…`)
+ *    the exchange issued, sha256 only; nulled at any terminal status.
+ *  - `build_id` — the runner's CodeBuild build (`<project>:<uuid>`, no
+ *    account id); `deadline_at` — RUNNER_DEPLOY_DEADLINE_MINUTES after the
+ *    runner accepted; `next_poll_at` — the sweep's next signed deploy_status.
+ *  - `stage` — the job's last reported stage; `result_code` — its result.
+ *
+ * NO route, log, audit entry or export ever carries `grant_enc`, `grant_hash`
+ * or `session_hash`. Own org only under RLS (no system-org read).
+ *
+ * @table pipeline_runner_deploys
+ */
+export const pipelineRunnerDeploy = pgTable('pipeline_runner_deploys', {
+  requestId: uuid('request_id').primaryKey().references(() => pipelineRunRequest.id, { onDelete: 'cascade' }),
+  orgId: varchar('org_id', { length: 255 }).notNull(),
+  pipelineId: uuid('pipeline_id').notNull(),
+  region: varchar('region', { length: 30 }).notNull(),
+  pipelineName: varchar('pipeline_name', { length: 255 }).notNull(),
+  stackName: varchar('stack_name', { length: 255 }).notNull(),
+  imageDigest: varchar('image_digest', { length: 80 }).notNull(),
+  toolchainRelease: varchar('toolchain_release', { length: 50 }).notNull(),
+  buildId: varchar('build_id', { length: 255 }),
+  stage: varchar('stage', { length: 16 }).$type<DeployStage>().notNull().default('queued'),
+  deadlineAt: timestamp('deadline_at', { withTimezone: true }),
+  nextPollAt: timestamp('next_poll_at', { withTimezone: true }),
+  grantHash: varchar('grant_hash', { length: 64 }),
+  grantEnc: text('grant_enc'),
+  grantExpiresAt: timestamp('grant_expires_at', { withTimezone: true }).notNull(),
+  grantUsedAt: timestamp('grant_used_at', { withTimezone: true }),
+  sessionHash: varchar('session_hash', { length: 64 }),
+  sessionExpiresAt: timestamp('session_expires_at', { withTimezone: true }),
+  cancelRequestedAt: timestamp('cancel_requested_at', { withTimezone: true }),
+  cancelledBy: varchar('cancelled_by', { length: 255 }),
+  resultCode: varchar('result_code', { length: 64 }),
+  finishedAt: timestamp('finished_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  pipelineIdx: index('pipeline_runner_deploys_pipeline_idx').on(table.orgId, table.pipelineId),
+  pollIdx: index('pipeline_runner_deploys_poll_idx').on(table.nextPollAt).where(sql`next_poll_at IS NOT NULL`),
+  stageCheck: check('pipeline_runner_deploys_stage_check',
+    sql`stage IN ('queued', 'starting', 'authenticating', 'fetching', 'prechecking', 'cleaning', 'synthesizing', 'deploying', 'registering', 'removing', 'done')`),
 }));
 
 /**
@@ -236,6 +301,8 @@ export const pipelineRunnerPlatformSettings = pgTable('pipeline_runner_platform_
   singletonCheck: check('pipeline_runner_platform_settings_singleton_check', sql`${table.singleton}`),
 }));
 
+export type PipelineRunnerDeployRow = typeof pipelineRunnerDeploy.$inferSelect;
+export type PipelineRunnerDeployInsert = typeof pipelineRunnerDeploy.$inferInsert;
 export type PipelineRunnerSigningKeyRow = typeof pipelineRunnerSigningKey.$inferSelect;
 export type PipelineRunnerSigningKeyInsert = typeof pipelineRunnerSigningKey.$inferInsert;
 export type PipelineRunnerKeySettingsRow = typeof pipelineRunnerKeySettings.$inferSelect;

@@ -13,7 +13,8 @@ import type { RunnersUnavailableReason } from '@pipeline-builder/api-core/pipeli
 import { fakeKeyStore, fakeSecrets } from './key-fakes.js';
 import type { RunnerDeps, SafeFetchFn } from '../../src/runners/deps.js';
 import { createOrgSignerCache, createRunRequestSigner, type RunRequestSigner } from '../../src/runners/signing.js';
-import type { RegistryLink, RunRequestRow, RunnerRow, RunnerStore } from '../../src/runners/store.js';
+import type { RegistryLink, RunnerDeployRow, RunRequestRow, RunnerRow, RunnerStore } from '../../src/runners/store.js';
+import type { DeploymentRegistration, DeploymentRegistrationResult } from '../../src/services/pipeline-registry-service.js';
 
 export const ORG = '0123456789abcdef01234567';
 export const PARENT = '0123456789abcdef01234568';
@@ -46,6 +47,9 @@ export function runnerRow(over: Partial<RunnerRow> = {}): RunnerRow {
     updatedAt: t,
     lastDeliveryAt: null,
     updateRequiredSince: null,
+    capabilities: [],
+    pipelinePrefixes: [],
+    shareDeploysWithTeams: false,
     ...over,
   };
 }
@@ -54,6 +58,7 @@ export interface FakeStore extends RunnerStore {
   runners: Map<string, RunnerRow>;
   requests: Map<string, RunRequestRow>;
   registry: Map<string, RegistryLink & { orgId: string }>;
+  deploys: Map<string, RunnerDeployRow>;
 }
 
 const PENDING = ['queued', 'delivering'];
@@ -62,10 +67,14 @@ export function fakeStore(): FakeStore {
   const runners = new Map<string, RunnerRow>();
   const requests = new Map<string, RunRequestRow>();
   const registry = new Map<string, RegistryLink & { orgId: string }>();
+  const deploys = new Map<string, RunnerDeployRow>();
+  const ACTIVE = ['queued', 'delivering', 'deploying'];
+  const IN_PROGRESS = ['deploying', 'undeploying'];
   const store: FakeStore = {
     runners,
     requests,
     registry,
+    deploys,
     async insertRunner(row) { const r = runnerRow(row as Partial<RunnerRow>); runners.set(r.id, r); return r; },
     async getRunner(id) { return runners.get(id) ?? null; },
     async listRunners(orgIds, opts) {
@@ -130,7 +139,7 @@ export function fakeStore(): FakeStore {
     },
     async deleteRequestsBefore(statuses, before) {
       let n = 0;
-      for (const [k, r] of requests) if (statuses.includes(r.status) && r.requestedAt! < before) { requests.delete(k); n++; }
+      for (const [k, r] of requests) if (statuses.includes(r.status) && r.requestedAt! < before) { requests.delete(k); deploys.delete(k); n++; }
       return n;
     },
     async getRegistryLink(pipelineId, orgId) {
@@ -191,8 +200,87 @@ export function fakeStore(): FakeStore {
       }
       return out;
     },
+    async insertDeploy(row, deploy) {
+      const dup = row.action === 'deploy' && ACTIVE.includes(row.status ?? 'queued')
+        && [...requests.values()].some((r) => r.pipelineId === row.pipelineId && r.action === 'deploy' && ACTIVE.includes(r.status));
+      if (dup) throw Object.assign(new Error('duplicate key value violates unique constraint "pipeline_run_requests_one_active_deploy_uq"'), { code: '23505' });
+      const request = await store.insertRequest(row);
+      const d: RunnerDeployRow = {
+        requestId: request.id,
+        orgId: deploy.orgId,
+        pipelineId: deploy.pipelineId,
+        region: deploy.region,
+        pipelineName: deploy.pipelineName,
+        stackName: deploy.stackName,
+        imageDigest: deploy.imageDigest,
+        toolchainRelease: deploy.toolchainRelease,
+        buildId: deploy.buildId ?? null,
+        stage: deploy.stage ?? 'queued',
+        deadlineAt: deploy.deadlineAt ?? null,
+        nextPollAt: deploy.nextPollAt ?? null,
+        grantHash: deploy.grantHash ?? null,
+        grantEnc: deploy.grantEnc ?? null,
+        grantExpiresAt: deploy.grantExpiresAt,
+        grantUsedAt: deploy.grantUsedAt ?? null,
+        sessionHash: deploy.sessionHash ?? null,
+        sessionExpiresAt: deploy.sessionExpiresAt ?? null,
+        cancelRequestedAt: deploy.cancelRequestedAt ?? null,
+        cancelledBy: deploy.cancelledBy ?? null,
+        resultCode: deploy.resultCode ?? null,
+        finishedAt: deploy.finishedAt ?? null,
+        createdAt: new Date(),
+      };
+      deploys.set(request.id, d);
+      return { request, deploy: d };
+    },
+    async getDeploy(id) { return deploys.get(id) ?? null; },
+    async updateDeploy(id, patch, opts) {
+      const d = deploys.get(id); if (!d) return null;
+      if (opts?.onlyIfUnfinished && d.finishedAt) return null;
+      const next = { ...d, ...patch } as RunnerDeployRow; deploys.set(id, next); return next;
+    },
+    async claimGrant(id, hash, patch) {
+      const d = deploys.get(id); if (!d || d.grantHash !== hash || d.grantUsedAt || d.finishedAt) return null;
+      const next = { ...d, ...patch } as RunnerDeployRow; deploys.set(id, next); return next;
+    },
+    async findActiveDeploy(orgId, pipelineId) {
+      return [...requests.values()].find((r) => r.orgId === orgId && r.pipelineId === pipelineId && r.action === 'deploy' && ACTIVE.includes(r.status)) ?? null;
+    },
+    async latestDeploy(orgId, pipelineId) {
+      return [...requests.values()].filter((r) => r.orgId === orgId && r.pipelineId === pipelineId && r.action === 'deploy')
+        .sort((a, b) => b.requestedAt!.getTime() - a.requestedAt!.getTime())[0] ?? null;
+    },
+    async countActiveDeploys(runnerId) { return [...requests.values()].filter((r) => r.runnerId === runnerId && r.action === 'deploy' && ACTIVE.includes(r.status)).length; },
+    async listDeploysDue(now, limit) {
+      return [...requests.values()].filter((r) => IN_PROGRESS.includes(r.status)).flatMap((request) => {
+        const deploy = deploys.get(request.id);
+        if (!deploy) return [];
+        const due = (deploy.nextPollAt && deploy.nextPollAt <= now) || (deploy.deadlineAt && deploy.deadlineAt <= now) || (!deploy.nextPollAt && !deploy.deadlineAt);
+        return due ? [{ request, deploy }] : [];
+      }).slice(0, limit);
+    },
+    async countOverdueDeploys(now) {
+      return [...requests.values()].filter((r) => IN_PROGRESS.includes(r.status) && (deploys.get(r.id)?.deadlineAt ?? null) !== null && deploys.get(r.id)!.deadlineAt! < now).length;
+    },
   };
   return store;
+}
+
+/** The registry port over the fake store's registry map (the one idempotent upsert, by pipeline id). */
+export function fakeDeployRegistry(store: FakeStore): { registerDeployment: (input: DeploymentRegistration) => Promise<DeploymentRegistrationResult>; calls: DeploymentRegistration[] } {
+  const calls: DeploymentRegistration[] = [];
+  return {
+    calls,
+    async registerDeployment(input) {
+      calls.push(input);
+      const existing = store.registry.get(input.pipelineId);
+      if (existing && existing.orgId !== input.orgId) throw new Error('PR_REGISTRY_OWNED_BY_OTHER_ORG');
+      const row = existing ?? { pipelineName: input.pipelineName, region: input.region, runnerId: null, linkStatus: 'unlinked' as const, orgId: input.orgId };
+      const next = input.runnerId ? { ...row, runnerId: input.runnerId, linkStatus: 'linked' as const } : row;
+      store.registry.set(input.pipelineId, next);
+      return { registryId: `reg-${input.pipelineId}`, inserted: !existing, linked: !!input.runnerId };
+    },
+  };
 }
 
 /** A safeFetch reply. */
@@ -223,6 +311,8 @@ export interface TestDeps extends RunnerDeps {
   gauges: Array<[string, number]>;
   /** The gauges this replica currently EXPORTS (a reset removes the series). */
   gaugeValues: Map<string, number>;
+  /** Every histogram observation. */
+  observed: Array<[string, Record<string, string>, number]>;
   ancestors: string[];
   /** What `runnersAvailable()` answers (mutable: flip `available` to pause). */
   availability: { available: boolean; reason?: RunnersUnavailableReason };
@@ -246,11 +336,13 @@ export function testDeps(over: Partial<RunnerDeps> = {}): TestDeps {
   const counterAdds: TestDeps['counterAdds'] = [];
   const gauges: TestDeps['gauges'] = [];
   const gaugeValues = new Map<string, number>();
+  const observed: TestDeps['observed'] = [];
   const ancestors: string[] = [];
   const locks = new Set<string>();
   const availability: TestDeps['availability'] = { available: true };
   const signerOrgs: string[] = [];
   const hits = new Map<string, number>();
+  const store = fakeStore();
   const deps: TestDeps = {
     signerFor: async (orgId: string) => { signerOrgs.push(orgId); return signer; },
     signerOrgs,
@@ -263,7 +355,8 @@ export function testDeps(over: Partial<RunnerDeps> = {}): TestDeps {
     secrets: fakeSecrets(),
     keyCaches: { signers: createOrgSignerCache({ resolve: async () => ({ signer, versionOrgIds: [], version: 0 }), version: async () => 0 }), jwks: new Map(), pause: null, unreadable: new Set() },
     publishKeyInvalidation: () => undefined,
-    store: fakeStore(),
+    store,
+    registry: fakeDeployRegistry(store),
     fetch: fetchMock,
     fetchMock,
     now,
@@ -282,7 +375,13 @@ export function testDeps(over: Partial<RunnerDeps> = {}): TestDeps {
     notified,
     audit: (e) => { audits.push(e as unknown as Record<string, unknown>); },
     audits,
-    metrics: { inc: (n, l, v = 1) => { counters.push([n, l]); counterAdds.push([n, l, v]); }, gauge: (n, _l, v) => { gauges.push([n, v]); gaugeValues.set(n, v); }, resetGauge: (n) => { gaugeValues.delete(n); } },
+    metrics: {
+      inc: (n, l, v = 1) => { counters.push([n, l]); counterAdds.push([n, l, v]); },
+      gauge: (n, _l, v) => { gauges.push([n, v]); gaugeValues.set(n, v); },
+      resetGauge: (n) => { gaugeValues.delete(n); },
+      observe: (n, l, v) => { observed.push([n, l, v]); },
+    },
+    observed,
     gaugeValues,
     counters,
     counterAdds,

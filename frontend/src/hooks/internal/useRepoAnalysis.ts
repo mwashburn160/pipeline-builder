@@ -7,7 +7,7 @@ import { useAIProviders } from '@/hooks/useAIProviders';
 import { useAiStreamGeneration } from '@/hooks/useAiStreamGeneration';
 import { useMutation } from '@/hooks/useMutation';
 import api from '@/lib/api';
-import { isAskAgentProvider } from '@/lib/ai-constants';
+import { routesViaAskAgent } from '@/lib/ai-constants';
 import { streamAgentDraft } from '@/lib/ask-agent-draft';
 import { formatJSON } from '@/lib/constants';
 import { useUnmountedRef } from '../useUnmountedRef';
@@ -82,7 +82,7 @@ export function useRepoAnalysis({ initialUrl, autoGenerate }: UseRepoAnalysisOpt
 
   // The Git URL form checks the Ask agent's model is answering before making it
   // the default; when it is not, the local provider is selected instead.
-  const ai = useAIProviders(() => api.getAIProviders(), { askAgent: true, probeAskAgent: true });
+  const ai = useAIProviders(() => api.getAIProviders(), { askAgent: true });
   const { generating, error, preview: previewJson, setError, setPreview: setPreviewJson, generate } = useAiStreamGeneration();
 
   // Set on unmount (e.g. the create modal closes or the user switches tab
@@ -131,7 +131,7 @@ export function useRepoAnalysis({ initialUrl, autoGenerate }: UseRepoAnalysisOpt
       // Via the Ask agent the repo is analyzed by its propose_pipeline_from_repo
       // tool (the adapter re-emits the analysis as `analyzed`); it drafts only.
       // Neither path creates plugins: the direct one PROPOSES the missing ones.
-      stream: isAskAgentProvider(ai.selectedProvider)
+      stream: routesViaAskAgent(ai.selectedProvider)
         ? streamAgentDraft('pipeline-from-repo', gitUrl.trim(), ai.selectedModel, { repoToken: tokenToUse })
         : api.streamPipelineFromUrl(gitUrl.trim(), ai.selectedProvider, ai.selectedModel, keyToUse, tokenToUse),
       cancelledRef,

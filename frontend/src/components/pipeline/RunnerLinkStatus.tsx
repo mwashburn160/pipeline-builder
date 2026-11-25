@@ -138,8 +138,10 @@ const LINK_STATUS_VIEWS = {
 /**
  * The Deployment card's "Runs via" row: the link status (Linked / Not linked
  * yet / Not found / Two runners matched / Checking) and Find runner again.
- * The runner is always found by the pipeline's pb.pipeline-id tag — never
- * picked by hand — so this shows and refreshes the link, nothing more.
+ * The runner is found by the pipeline's pb.pipeline-id tag (or, for a
+ * pipeline deployed through a runner, written once that runner's own job
+ * deployed it); nobody re-points a runner by hand, so this shows and
+ * refreshes the link, nothing more.
  */
 export function RunnerLinkRow({ link, stalled = false, canRefresh, onFindAgain }: {
   link: RunnerLinkDto;

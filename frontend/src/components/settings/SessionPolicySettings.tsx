@@ -160,7 +160,7 @@ export function SessionPolicySettings({ orgId, readOnly }: { orgId: string; read
     <SectionCard
       icon={Timer}
       title="Session policy"
-      description="How long a sign-in lasts for this organization's members."
+      description="How long a member's sign-in lasts."
     >
       {save.error && <div className="mb-3"><ErrorAlert message={save.error} /></div>}
 

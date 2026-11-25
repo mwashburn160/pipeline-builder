@@ -552,6 +552,8 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/prometheus
               - cluster.local/ns/pipeline-builder/sa/platform
               - cluster.local/ns/pipeline-builder/sa/plugin
+              # reporting's event ingest: first-event registration (POST /pipelines/internal/registry/first-event).
+              - cluster.local/ns/pipeline-builder/sa/reporting
       to:
         - operation:
             ports: ["3000"]

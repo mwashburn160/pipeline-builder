@@ -71,7 +71,7 @@ afterEach(() => { window.location.hash = ''; });
 
 describe('the SSO wizard\'s "verify a domain" link', () => {
   it('lands on a card that exists, and scrolls to it', async () => {
-    expect(DOMAIN_SETTINGS_HREF).toBe(`/dashboard/settings?tab=organization#${DOMAIN_SETTINGS_ANCHOR}`);
+    expect(DOMAIN_SETTINGS_HREF).toBe(`/dashboard/settings?tab=organization&section=general#${DOMAIN_SETTINGS_ANCHOR}`);
     query = { tab: 'organization' };
     window.location.hash = `#${DOMAIN_SETTINGS_ANCHOR}`;
     const { container } = render(<SettingsPage />);

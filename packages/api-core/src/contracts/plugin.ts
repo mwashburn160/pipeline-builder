@@ -135,6 +135,32 @@ export const PLUGIN_INTERNAL = {
     response: z.object({ userId: z.string(), reviews: z.number() }),
   }),
   /**
+   * A plugin lookup FOR an org, on behalf of a runner's deploy job (the
+   * pipeline service's session facade `POST …/runner/deploys/:requestId/plugin-lookup`
+   * proxies it; the job holds a deploy session, never a user token). Same
+   * body and answer as `POST /plugins/lookup` (filter, optional context and
+   * releasePin → `{ plugin, warnings, … }`), resolved as `:orgId` would see
+   * it; 404 / 400 as that route answers them.
+   */
+  deployLookup: defineInternalEndpoint({
+    id: 'plugin.deployLookup',
+    service: 'plugin',
+    method: 'POST',
+    path: '/internal/plugins/orgs/:orgId/lookup',
+    callers: ['pipeline'],
+    auth: 'pipeline service token (service principal); the org is the PATH param — the deploy session\'s org, never the caller\'s choice.',
+    params: CascadeOrgParams,
+    body: z.object({
+      filter: z.record(z.string(), z.unknown()),
+      context: z.unknown().optional(),
+      releasePin: z.unknown().optional(),
+    }).strict(),
+    response: z.looseObject({
+      plugin: z.record(z.string(), z.unknown()),
+      warnings: z.array(z.unknown()),
+    }),
+  }),
+  /**
    * The pipeline service's progress report on a remediation rollout
    * (PIPELINE_INTERNAL.startRemediationRollout). The plugin service stores
    * `summary` in plugin_remediations.rollout, moves the stage (rolling_out →

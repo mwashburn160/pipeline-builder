@@ -4,6 +4,7 @@
 import { useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { Server } from 'lucide-react';
+import { DEPLOY_CAPABILITY } from '@pipeline-builder/api-core/pipeline-runners';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { HelpCodeBlock } from '@/components/help/HelpCodeBlock';
 import { Badge } from '@/components/ui/Badge';
@@ -60,7 +61,14 @@ type PendingWrite = RunnerWrite | KeyWrite;
 /** Turning sharing ON lets every team under this org run pipelines through the
  *  runner — the one write that WIDENS reach, so it needs an explicit tick. */
 function pendingWidens(p: PendingWrite): boolean {
-  return p.kind === 'update' && p.body.shareWithTeams === true && !p.runner.shareWithTeams;
+  if (p.kind !== 'update') return false;
+  return (p.body.shareWithTeams === true && !p.runner.shareWithTeams)
+    || (p.body.shareDeploysWithTeams === true && !p.runner.shareDeploysWithTeams);
+}
+
+/** Whether the runner's stack was set up with --enable-deploy (its bundle lists `deploy:1`). */
+function deploysEnabled(r: Pick<PipelineRunner, 'capabilities'>): boolean {
+  return (r.capabilities ?? []).includes(DEPLOY_CAPABILITY);
 }
 
 type WriteKind = RunnerWrite['kind'];
@@ -82,11 +90,19 @@ const PENDING_WRITES: { [K in WriteKind]: WriteSpec<K> } = {
     send: (p, stepUpToken) => api.updatePipelineRunner(p.runner.id, p.body, stepUpToken),
     title: (p) => {
       if (p.body.label !== undefined) return `Rename ${p.runner.label}?`;
+      if (p.body.shareDeploysWithTeams !== undefined) {
+        return p.body.shareDeploysWithTeams ? `Let teams deploy through ${p.runner.label}?` : `Stop teams deploying through ${p.runner.label}?`;
+      }
       return p.body.shareWithTeams ? `Share ${p.runner.label} with teams?` : `Stop sharing ${p.runner.label} with teams?`;
     },
     action: (p) => `Update the pipeline runner ${p.runner.label}`,
     details: (p) => {
       if (p.body.label !== undefined) return <p>The runner will be called <strong>{p.body.label}</strong> everywhere it is shown, including its pipelines&apos; Deployment cards.</p>;
+      if (p.body.shareDeploysWithTeams !== undefined) {
+        return p.body.shareDeploysWithTeams
+          ? <p>Teams it is shared with will be able to deploy their pipelines into this AWS account through it, with the account&apos;s CDK bootstrap roles.</p>
+          : <p>Teams will no longer deploy new pipelines through this runner. Pipelines already deployed stay linked and keep running.</p>;
+      }
       return p.body.shareWithTeams
         ? <p>Teams will see this runner and use it for their pipelines in its AWS account.</p>
         : <p>Teams will no longer Re-run or Stop their pipelines through this runner; their links to it are cleared.</p>;
@@ -150,12 +166,13 @@ function writeErrorMessage(e: unknown, keyWrite: boolean): string {
   return formatError(e, keyWrite ? 'Could not change the signing key' : 'Could not save the pipeline runner');
 }
 
-function RunnerHealthBadge({ runner }: { runner: Pick<PipelineRunner, 'health' | 'status' | 'updateRequired'> }) {
+function RunnerHealthBadge({ runner }: { runner: Pick<PipelineRunner, 'health' | 'status' | 'updateRequired' | 'capabilities'> }) {
   const b = runnerBadge(runner);
   return (
     <>
       <Badge color={b.color}>{b.label}</Badge>
       {runner.updateRequired && runner.status !== 'revoked' && <Badge color="yellow">Update required</Badge>}
+      {runner.status !== 'revoked' && deploysEnabled(runner) && <Badge color="blue">Deploys enabled</Badge>}
     </>
   );
 }
@@ -368,6 +385,17 @@ function OwnRunnerCard({ runner, readOnly, locked, saving, testResult: result, r
         />
       )}
 
+      {manageable && runner.shareWithTeams && deploysEnabled(runner) && (
+        <ToggleRow
+          className="mt-2"
+          label="Teams may deploy through it"
+          description="Teams it is shared with may also deploy their never-deployed pipelines into this AWS account through this runner. Off: only this organization deploys through it."
+          checked={runner.shareDeploysWithTeams}
+          disabled={locked}
+          onChange={(v) => onWrite({ kind: 'update', runner, body: { shareDeploysWithTeams: v } })}
+        />
+      )}
+
       {result && (
         <div className="mt-2" data-testid={`runner-test-result-${runner.id}`}>
           {result.ok
@@ -461,7 +489,9 @@ export function PipelineRunnersSettings({ orgId, readOnly = false, parentOrgName
         case 'update':
           toast.success(p.body.label !== undefined
             ? `Runner renamed to ${p.body.label}`
-            : p.body.shareWithTeams ? `${p.runner.label} is now shared with teams` : `${p.runner.label} is no longer shared with teams`);
+            : p.body.shareDeploysWithTeams !== undefined
+              ? (p.body.shareDeploysWithTeams ? `Teams may now deploy through ${p.runner.label}` : `Teams can no longer deploy through ${p.runner.label}`)
+              : p.body.shareWithTeams ? `${p.runner.label} is now shared with teams` : `${p.runner.label} is no longer shared with teams`);
           setRenaming(null);
           break;
         case 'test': {
@@ -600,11 +630,13 @@ export function PipelineRunnersSettings({ orgId, readOnly = false, parentOrgName
               {widening && pending.kind === 'update' && (
                 <>
                   <Callout variant="warning" title="This widens who may use this runner">
-                    <p><strong>Every team</strong> under this organization will be able to Re-run and Stop its pipelines in this AWS account through {pending.runner.label}.</p>
+                    {pending.body.shareDeploysWithTeams
+                      ? <p><strong>Every team</strong> it is shared with will be able to deploy pipelines into this AWS account through {pending.runner.label}. What a deploy may create is limited by the account&apos;s CDK bootstrap execution policy.</p>
+                      : <p><strong>Every team</strong> under this organization will be able to Re-run and Stop its pipelines in this AWS account through {pending.runner.label}.</p>}
                   </Callout>
                   <label className="flex items-start gap-2 text-sm cursor-pointer">
                     <Checkbox checked={widenAck} onChange={(e) => setWidenAck(e.target.checked)} />
-                    <span>I understand, and want to share this runner with every team.</span>
+                    <span>{pending.body.shareDeploysWithTeams ? 'I understand, and want to let every team deploy through this runner.' : 'I understand, and want to share this runner with every team.'}</span>
                   </label>
                 </>
               )}

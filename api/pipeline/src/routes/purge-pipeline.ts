@@ -1,9 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { loadAndPurge, sendSuccess, sendError, audited, actorId, recordAudit, getParam, ErrorCode, requirePermission, requireStepUp } from '@pipeline-builder/api-core';
+import { loadAndPurge, sendSuccess, sendError, audited, actorId, recordAudit, getParam, ErrorCode, errorMessage, requirePermission, requireStepUp, toolchainReleasePin } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
+import { planUndeploy, startUndeploy, type UndeployPlan } from '../helpers/undeploy-on-purge.js';
+import { runnerDeps } from '../runners/deps.js';
 import { pipelineRegistryService } from '../services/pipeline-registry-service.js';
 import { pipelineService, withClosedExposureTally } from '../services/pipeline-service.js';
 
@@ -39,19 +41,45 @@ export function createPurgePipelineRoutes(): Router {
     // who guessed an id. An unknown id falls through to loadAndPurge's 404.
     const tombstone = id ? await pipelineService.findDeletedById(id, orgId) : null;
     const deployment = id && tombstone ? await pipelineRegistryService.deploymentOf(id) : null;
-    if (deployment && !force) {
+    // Linked to a runner that can deploy (deploy:1): the purge removes the
+    // stack through it (`undeploy`), so no force is needed. Decided BEFORE the
+    // purge, while the registration still names the runner and the stack.
+    const plan: UndeployPlan | null = deployment && tombstone
+      ? await planUndeploy(runnerDeps(), tombstone.orgId, tombstone.id, toolchainReleasePin(tombstone.props), deployment)
+      : null;
+    if (deployment && plan?.kind !== 'undeploy' && !force) {
       ctx.log('WARN', 'Purge refused: pipeline still registered as deployed', { id, stackName: deployment.stackName });
       return sendError(res, 409,
         `Pipeline is still registered as deployed${deployment.stackName ? ` (stack ${deployment.stackName}${deployment.region ? `, ${deployment.region}` : ''})` : ''}. `
-        + 'Delete the stack and deregister it (DELETE /pipelines/registry/:id), or purge with ?force=true if the stack is already gone.',
-        ErrorCode.CONFLICT, { registryId: deployment.registryId, stackName: deployment.stackName, region: deployment.region });
+        + 'The stack stays in your AWS account: remove it with `cdk destroy` or CloudFormation and deregister it (DELETE /pipelines/registry/:id), '
+        + 'or purge with ?force=true if the stack is already gone.',
+        ErrorCode.CONFLICT, {
+          registryId: deployment.registryId,
+          stackName: deployment.stackName,
+          region: deployment.region,
+          ...(plan?.kind === 'retained' ? { stackRetainedReason: plan.reason } : {}),
+        });
     }
 
     const { result, exposuresClosed } = await withClosedExposureTally(() => loadAndPurge(req, res, pipelineService, { orgId, userId, label: 'Pipeline', publishPermission: 'pipelines:publish' }));
     if (!result) return;
     const { existing, purgedId } = result;
 
-    ctx.log('COMPLETED', 'Purged pipeline', { id: purgedId, name: existing.pipelineName, forced: Boolean(deployment) });
+    ctx.log('COMPLETED', 'Purged pipeline', { id: purgedId, name: existing.pipelineName, forced: Boolean(deployment) && plan?.kind !== 'undeploy' });
+
+    // The stack goes too: the undeploy through the pipeline's runner, queued
+    // now the purge landed (its outcome is audited pipeline.undeploy.complete).
+    let undeploy: { requestId: string; runnerLabel: string } | null = null;
+    if (plan?.kind === 'undeploy') {
+      try {
+        undeploy = { requestId: await startUndeploy(runnerDeps(), plan), runnerLabel: plan.runnerLabel };
+      } catch (err) {
+        ctx.log('ERROR', 'Undeploy of a purged pipeline not queued; its stack stays in the account', { id: purgedId, error: errorMessage(err) });
+      }
+    }
+    const stackRetained = deployment && !undeploy && deployment.stackName
+      ? { stackName: deployment.stackName, region: deployment.region, reason: plan?.kind === 'retained' ? plan.reason : 'no_runner' }
+      : null;
 
     // Best-effort attributed audit — `affectedOrgId` records the target's org so
     // a no-org sysadmin purge is attributed to the org whose row was removed.
@@ -67,11 +95,15 @@ export function createPurgePipelineRoutes(): Router {
         visibility: existing.visibility,
         // Every remaining (declared + deployed) plugin vulnerability exposure the purge closed.
         exposuresClosed,
-        ...(deployment ? { forced: true, deregistered: { registryId: deployment.registryId, stackName: deployment.stackName } } : {}),
+        ...(deployment ? { deregistered: { registryId: deployment.registryId, stackName: deployment.stackName } } : {}),
+        ...(deployment && plan?.kind !== 'undeploy' ? { forced: true } : {}),
+        ...(undeploy ? { undeployRequestId: undeploy.requestId } : {}),
       },
     });
 
-    return sendSuccess(res, 200, {}, 'Pipeline permanently deleted.');
+    // `stackRetained`: the stack stays in the account (no runner could remove
+    // it) — the UI says to remove it with `cdk destroy` / CloudFormation.
+    return sendSuccess(res, 200, deployment ? { undeploy, stackRetained } : {}, 'Pipeline permanently deleted.');
   }));
 
   return router;

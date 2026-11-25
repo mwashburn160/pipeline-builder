@@ -10,7 +10,7 @@
  * Org admin (org_settings:write; writes add MFA-grade + step-up):
  * - GET    /pipelines/runners                         own + inherited runners, signingKey status.
  * - POST   /pipelines/runners                         register (creates the org key on the first runner).
- * - PATCH  /pipelines/runners/:id                     rename / share / new URL.
+ * - PATCH  /pipelines/runners/:id                     rename / share / share deploys with teams / new URL.
  * - POST   /pipelines/runners/:id/test                signed ping, 5/min/org.
  * - DELETE /pipelines/runners/:id                     revoke.
  * - POST   /pipelines/runners/signing-key             generate the first key.
@@ -109,6 +109,8 @@ const RegisterSchema = z.object({
 const UpdateSchema = z.object({
   label: LABEL.optional(),
   shareWithTeams: z.boolean().optional(),
+  /** Teams this runner is shared with may also deploy through it (needs shareWithTeams; un-sharing turns it off). */
+  shareDeploysWithTeams: z.boolean().optional(),
   functionUrl: z.string().min(1).max(2048).optional(),
 }).strict();
 
@@ -342,7 +344,7 @@ export function createRunnerRoutes(): Router {
           targetType: 'pipeline_runner',
           targetId: runner.id,
           // Which fields changed — never the new URL.
-          details: { changed, label: runner.label, shareWithTeams: runner.shareWithTeams },
+          details: { changed, label: runner.label, shareWithTeams: runner.shareWithTeams, shareDeploysWithTeams: runner.shareDeploysWithTeams },
         });
       }
       return sendSuccess(res, 200, { runner: runnerDto(runner, orgId) });

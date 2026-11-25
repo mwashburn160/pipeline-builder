@@ -23,7 +23,10 @@
  */
 
 import { createLogger, errorMessage, SYSTEM_ACTOR_ID } from '@pipeline-builder/api-core';
-import { RUNNER_API_ERROR_CODES, type RunnerReplyErrorCode, type TerminalRunRequestStatus } from '@pipeline-builder/api-core/pipeline-runners';
+import {
+  IN_PROGRESS_RUN_REQUEST_STATUSES, RUNNER_API_ERROR_CODES, RUNNER_DEPLOY_METRICS, runnerSupportsAction,
+  type RunDeployClaim, type RunnerCapability, type RunnerReplyErrorCode, type RunRequestStatus, type TerminalRunRequestStatus,
+} from '@pipeline-builder/api-core/pipeline-runners';
 import { deliverPush, verdictCode, type ReplyVerdict } from './delivery.js';
 import type { RunnerDeps } from './deps.js';
 import { advanceKeyTransitions, promoteDueKeys, retireDueKeys, sendKeyAgeReminders } from './keys.js';
@@ -65,15 +68,22 @@ export async function finishRequest(
   // A start/stop the runner accepted records WHEN, so the Delivery report can
   // measure requested → accepted exactly instead of estimating it.
   const accepted = (request.action === 'start' && status === 'started') || (request.action === 'stop' && status === 'stopped');
+  // A deploy / undeploy also finishes from its running state (the poll, the deadline, a revoke).
+  const deployish = request.action === 'deploy' || request.action === 'undeploy';
+  const from: readonly RunRequestStatus[] = deployish ? [...PENDING_STATUSES, ...IN_PROGRESS_RUN_REQUEST_STATUSES] : PENDING_STATUSES;
   const row = await deps.store.updateRequest(request.id, {
     status,
     resultExecutionId: extra.executionId ?? null,
     errorCode: extra.errorCode ?? null,
     nextAttemptAt: null,
     ...(accepted ? { acceptedAt: new Date(deps.now()) } : {}),
-  }, PENDING_STATUSES);
+  }, from);
   if (!row) return null;
   deps.metrics.inc('pipeline_runner_requests_total', { status });
+  if (deployish) {
+    await (await import('./deploys.js')).onDeployFinished(deps, row, status, extra.errorCode);
+    return row;
+  }
 
   if (row.action === 'start' || row.action === 'stop') {
     const succeeded = status === 'started' || status === 'stopped';
@@ -108,7 +118,10 @@ export async function applyVerdict(deps: RunnerDeps, request: RunRequestRow, run
   const now = deps.now();
   if (verdict.kind === 'success') {
     await recordRunnerSuccess(deps, runner, verdict);
-    if (request.action === 'probe') {
+    if (request.action === 'deploy' || request.action === 'undeploy') {
+      // Accepted: the build runs; the sweep's deploy_status poll decides what follows.
+      await (await import('./deploys.js')).acceptDeploy(deps, request, runner, verdict);
+    } else if (request.action === 'probe') {
       if (verdict.outcome === 'match') await finishRequest(deps, request, 'started');
       else await finishRequest(deps, request, 'failed', { errorCode: NO_MATCH });
     } else {
@@ -130,6 +143,7 @@ export async function applyVerdict(deps: RunnerDeps, request: RunRequestRow, run
   if (verdict.kind === 'fail') {
     // The runner answered: it is reachable, whatever it said.
     await recordRunnerSuccess(deps, runner, verdict.runnerVersion ? { runnerVersion: verdict.runnerVersion } : {});
+    if (request.action === 'deploy' || request.action === 'undeploy') await (await import('./deploys.js')).onDeployRefused(deps, request, runner, verdict.code);
     // A LINKED runner that no longer finds the pipeline: the link is stale (the
     // pipeline moved accounts). Clear it and re-discover — once. A re-targeted
     // request is delivered again by THIS job: completing it and enqueueing anew
@@ -173,7 +187,9 @@ export async function applyVerdict(deps: RunnerDeps, request: RunRequestRow, run
 // -- Health ---------------------------------------------------------------------
 
 /** A reachable runner: reset failures, stamp delivery, learn its version; recover if unhealthy. */
-export async function recordRunnerSuccess(deps: RunnerDeps, runner: RunnerRow, info: { runnerVersion?: string; regions?: string[] }): Promise<void> {
+export async function recordRunnerSuccess(
+  deps: RunnerDeps, runner: RunnerRow, info: { runnerVersion?: string; regions?: string[]; capabilities?: RunnerCapability[]; pipelinePrefixes?: string[] },
+): Promise<void> {
   const now = new Date(deps.now());
   const wasUnhealthy = runner.health !== 'healthy';
   const version = versionPatch(runner, info.runnerVersion, now);
@@ -183,6 +199,9 @@ export async function recordRunnerSuccess(deps: RunnerDeps, runner: RunnerRow, i
     health: 'healthy',
     ...(info.runnerVersion ? { version: info.runnerVersion } : {}),
     ...(info.regions ? { regions: info.regions } : {}),
+    // A pong says what the bundle can do NOW (a re-run setup-runner adds or drops deploy:1).
+    ...(info.capabilities ? { capabilities: info.capabilities } : {}),
+    ...(info.pipelinePrefixes ? { pipelinePrefixes: info.pipelinePrefixes } : {}),
     ...version.patch,
   });
   // Once: the flag's timestamp is set only on the transition.
@@ -336,6 +355,14 @@ export async function processDelivery(deps: RunnerDeps, requestId: string): Prom
     return { done: true };
   }
 
+  // A deploy / undeploy goes only to a runner whose last pong listed its
+  // capability: an older bundle (or a stack without --enable-deploy) would
+  // answer the unknown action 401 SIGNATURE_INVALID — a page for nothing.
+  if (!runnerSupportsAction(runner.capabilities ?? [], request.action)) {
+    await finishRequest(deps, request, 'failed', { errorCode: 'RUNNER_DEPLOY_UNSUPPORTED' });
+    return { done: true };
+  }
+
   // At most MAX_IN_FLIGHT_PER_RUNNER deliveries to one runner at a time.
   if ((await deps.store.countDelivering(runner.id)) >= runnerSettings().maxInFlightPerRunner) return { done: false, retryInMs: BUSY_RETRY_MS };
   const token = await deps.lock.acquire(request.pipelineId, LOCK_TTL_MS);
@@ -344,6 +371,15 @@ export async function processDelivery(deps: RunnerDeps, requestId: string): Prom
     const delivering = await deps.store.updateRequest(request.id, { status: 'delivering', attempts: request.attempts + 1 }, ['queued', 'delivering']);
     if (!delivering) return { done: true };
     const hint = await hintFor(deps, delivering);
+    let deploy: RunDeployClaim | undefined;
+    if (delivering.action === 'deploy' || delivering.action === 'undeploy') {
+      const row = await deps.store.getDeploy(delivering.id);
+      if (!row) {
+        await finishRequest(deps, delivering, 'failed', { errorCode: 'RUNNER_ERROR' });
+        return { done: true };
+      }
+      deploy = await (await import('./deploys.js')).deployClaimFor(deps, delivering, row);
+    }
     const verdict = await deliverPush(deps, runner, {
       runnerId: runner.id,
       requestId: delivering.id,
@@ -351,6 +387,7 @@ export async function processDelivery(deps: RunnerDeps, requestId: string): Prom
       pipelineId: delivering.pipelineId,
       ...(hint ? { hint } : {}),
       ...(delivering.executionId ? { executionId: delivering.executionId } : {}),
+      ...(deploy ? { deploy } : {}),
       requestedBy: delivering.requestedBy,
       expiresAt: delivering.expiresAt,
     });
@@ -378,6 +415,9 @@ export interface SweepCounts {
   retained: number;
   /** Registry rows left `checking` past {@link STALE_LINK_CHECK_MS}, put back. */
   staleLinkChecks: number;
+  /** Running deploys / undeploys read with a signed deploy_status, and those that finished. */
+  deploysPolled: number;
+  deploysFinished: number;
 }
 
 /** A probe takes seconds (one delivery timeout); a row `checking` longer than this lost its probe. */
@@ -394,7 +434,7 @@ const KEY_SWEEPS = [
 /** The periodic sweep (leader-locked by the scheduler). */
 export async function runSweep(deps: RunnerDeps): Promise<SweepCounts> {
   const now = deps.now();
-  const counts: SweepCounts = { expired: 0, pinged: 0, recovered: 0, markedUnhealthy: 0, rekicked: 0, pendingDeleted: 0, retained: 0, staleLinkChecks: 0 };
+  const counts: SweepCounts = { expired: 0, pinged: 0, recovered: 0, markedUnhealthy: 0, rekicked: 0, pendingDeleted: 0, retained: 0, staleLinkChecks: 0, deploysPolled: 0, deploysFinished: 0 };
   const settings = runnerSettings();
   const day = 24 * 60 * 60_000;
 
@@ -405,8 +445,8 @@ export async function runSweep(deps: RunnerDeps): Promise<SweepCounts> {
 
   // Housekeeping: registered-but-never-deployed runners, and retention.
   counts.pendingDeleted = await deps.store.deletePendingRunnersBefore(new Date(now - PENDING_RUNNER_TTL_MS));
-  counts.retained += await deps.store.deleteRequestsBefore(['started', 'stopped'], new Date(now - settings.retentionDays * day));
-  counts.retained += await deps.store.deleteRequestsBefore(['failed', 'expired'], new Date(now - settings.failedRetentionDays * day));
+  counts.retained += await deps.store.deleteRequestsBefore(['started', 'stopped', 'deployed', 'undeployed'], new Date(now - settings.retentionDays * day));
+  counts.retained += await deps.store.deleteRequestsBefore(['failed', 'expired', 'cancelled'], new Date(now - settings.failedRetentionDays * day));
   // A replica that died mid-probe (Find runner again, registration) left its row `checking`.
   counts.staleLinkChecks = await deps.store.resetStaleLinkChecks(new Date(now - STALE_LINK_CHECK_MS));
 
@@ -439,6 +479,16 @@ export async function runSweep(deps: RunnerDeps): Promise<SweepCounts> {
 
   // 4. Health: a signed ping to every active runner each interval.
   await healthPings(deps, now, counts);
+
+  // 5. Running deploys / undeploys: a signed deploy_status for each one due,
+  // the deadline, and the overdue gauge. One failing never stops the sweep.
+  try {
+    const polled = await (await import('./deploys.js')).pollDeploys(deps, now);
+    counts.deploysPolled = polled.polled;
+    counts.deploysFinished = polled.finished;
+  } catch (err) {
+    logger.warn('Runner deploy poll failed', { error: errorMessage(err) });
+  }
 
   deps.metrics.gauge(UNHEALTHY_GAUGE, {}, await deps.store.countUnhealthyRunners());
   if (counts.expired + counts.recovered + counts.markedUnhealthy > 0) logger.info('Runner sweep', { ...counts });
@@ -524,4 +574,6 @@ export const UNHEALTHY_GAUGE = 'pipeline_runners_unhealthy';
 /** This replica's sweep ran without the lock: stop exporting the count it published as leader. */
 export function dropUnhealthyGauge(deps: RunnerDeps): void {
   deps.metrics.resetGauge(UNHEALTHY_GAUGE);
+  // The overdue-deploys gauge is the leader's too (RunnerDeployStuck takes the max).
+  deps.metrics.resetGauge(RUNNER_DEPLOY_METRICS.overdue);
 }

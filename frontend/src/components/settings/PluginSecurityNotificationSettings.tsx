@@ -223,7 +223,7 @@ export function PluginSecurityNotificationSettings({ orgId, canEdit, readOnly }:
     <SectionCard
       icon={ShieldAlert}
       title="Plugin security"
-      description="How vulnerable plugin versions are fixed and rolled out to pipelines, and who hears when a plugin build is refused for vulnerabilities, a rescan finds new Critical or High findings in a stored version, or a pipeline runs a vulnerable plugin."
+      description="How vulnerable plugin versions are fixed and rolled out, and who is told when a build is refused for vulnerabilities, a rescan finds new Critical or High findings, or a pipeline runs a vulnerable plugin."
       actions={canEdit ? (
         <Button variant="secondary" size="sm" onClick={sendTest} loading={testing} readOnly={readOnly} disabled={!prefs || dirty}
           title={dirty ? 'Save your changes first' : undefined}>

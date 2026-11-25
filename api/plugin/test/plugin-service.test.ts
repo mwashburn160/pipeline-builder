@@ -1053,8 +1053,10 @@ describe('PluginService', () => {
     let versionRows: Array<Record<string, unknown>>;
     let defaultRows: Array<Record<string, unknown>>;
     const mockReleaseConflict = jest.fn(async (..._args: unknown[]) => []);
+    // The cdk-synth half's release row also records its deploy-job protocol (insert-or-set).
+    const mockReleaseUpsert = jest.fn((..._args: unknown[]) => ({ returning: jest.fn(async () => [{ id: 'm-1', orgId: SYSTEM_ORG_ID, name: 'cdk-synth', version: '1.0.0' }]) }));
     const mockValues = jest.fn((..._args: unknown[]) => ({
-      onConflictDoUpdate: jest.fn(() => ({ returning: jest.fn(async () => [{ id: 'm-1', orgId: SYSTEM_ORG_ID, name: 'cdk-synth', version: '1.0.0' }]) })),
+      onConflictDoUpdate: mockReleaseUpsert,
       // The release row (toolchain_release): inserted once per version, never overwritten.
       onConflictDoNothing: mockReleaseConflict,
     }));
@@ -1066,6 +1068,7 @@ describe('PluginService', () => {
     beforeEach(() => {
       versionRows = [];
       defaultRows = [];
+      mockReleaseConflict.mockClear();
       pipelineDataMock.withTenantTx.mockImplementation(async (cb: any) => {
         let call = 0;
         return cb({
@@ -1111,11 +1114,21 @@ describe('PluginService', () => {
       expect(mockValues).not.toHaveBeenCalled();
     });
 
-    it('a managed upload registers its release row in the same transaction (insert-or-keep)', async () => {
-      await service.deployVersion({ ...managed, version: '1.4.2' }, 'loader', admin);
+    it('a managed upload registers its release row in the same transaction (the bootstrap half: insert-or-keep)', async () => {
+      await service.deployVersion({ ...managed, name: 'pipeline-bootstrap', version: '1.4.2' }, 'loader', admin);
       expect(mockInsert).toHaveBeenCalledWith(expect.objectContaining({ table: 'toolchain_release' }));
       expect(mockValues).toHaveBeenCalledWith({ releaseVersion: '1.4.2', createdBy: 'loader' });
       expect(mockReleaseConflict).toHaveBeenCalledWith({ target: 'toolchainRelease.releaseVersion' });
+    });
+
+    it('the cdk-synth half records the deploy-job protocol its metadata names on the release (null without one)', async () => {
+      await service.deployVersion({ ...managed, version: '1.4.2', metadata: { 'pb:deploy-job:protocol': 1 } }, 'loader', admin);
+      expect(mockValues).toHaveBeenCalledWith({ releaseVersion: '1.4.2', createdBy: 'loader', deployJobProtocol: 1 });
+      expect(mockReleaseUpsert).toHaveBeenCalledWith({ target: 'toolchainRelease.releaseVersion', set: { deployJobProtocol: 1 } });
+      mockValues.mockClear();
+      await service.deployVersion({ ...managed, version: '1.4.3' }, 'loader', admin);
+      expect(mockValues).toHaveBeenCalledWith({ releaseVersion: '1.4.3', createdBy: 'loader', deployJobProtocol: null });
+      expect(mockReleaseConflict).not.toHaveBeenCalled();
     });
 
     it('a non-managed name still follows the default rule', async () => {

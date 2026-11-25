@@ -29,12 +29,13 @@ import {
   type SystemNotification,
 } from '@pipeline-builder/api-core';
 import { RUNNER_KEY_CACHE_MS, RUNNER_KEY_METRICS, type RunnerKeyInvalidation, type RunnersUnavailableReason } from '@pipeline-builder/api-core/pipeline-runners';
-import { incCounter, resetGauge, setGauge } from '@pipeline-builder/api-server';
+import { incCounter, observe, resetGauge, setGauge } from '@pipeline-builder/api-server';
 import { encryptionReady, evictOrgKms, keySecrets, type KeySecrets } from './key-crypto.js';
 import { keyInvalidationBus, REPLICA_ID, type KeyInvalidationInput } from './key-invalidation.js';
 import type { RunnerKeyStore } from './key-store.js';
 import { createOrgSignerCache, type OrgSignerCache, type RunRequestSigner } from './signing.js';
 import type { RunnerStore } from './store.js';
+import type { DeploymentRegistration, DeploymentRegistrationResult } from '../services/pipeline-registry-service.js';
 
 const logger = createLogger('pipeline-runners');
 
@@ -49,9 +50,12 @@ export interface PipelineLock {
   release(pipelineId: string, token: string): Promise<void>;
 }
 
-/** Fixed-window limiter: true when the hit is within `max` per `windowMs`. */
+/**
+ * Fixed-window limiter: true when the hit is within `max` per `windowMs`. A
+ * store failure allows the hit unless `failClosed` (then it is refused).
+ */
 export interface RateLimiter {
-  hit(key: string, max: number, windowMs: number): Promise<boolean>;
+  hit(key: string, max: number, windowMs: number, opts?: { failClosed?: boolean }): Promise<boolean>;
 }
 
 /** Org ancestry + names for team inheritance. */
@@ -70,6 +74,11 @@ export interface HierarchyClient {
    */
   descendants(orgId: string, opts?: { strict?: boolean }): Promise<string[]>;
   names(orgIds: string[]): Promise<Record<string, string>>;
+}
+
+/** The registry write the deploy path makes (pipeline-registry-service's one idempotent upsert). */
+export interface DeployRegistry {
+  registerDeployment(input: DeploymentRegistration): Promise<DeploymentRegistrationResult>;
 }
 
 /** Whether runners can be used at all right now, and why not. */
@@ -121,7 +130,15 @@ export interface RunnerDeps {
   hierarchy: HierarchyClient;
   notify: (n: SystemNotification) => Promise<boolean>;
   audit: (event: RemoteAuditEvent) => void;
-  metrics: { inc(name: string, labels: Record<string, string>, value?: number): void; gauge(name: string, labels: Record<string, string>, value: number): void; resetGauge(name: string): void };
+  metrics: {
+    inc(name: string, labels: Record<string, string>, value?: number): void;
+    gauge(name: string, labels: Record<string, string>, value: number): void;
+    resetGauge(name: string): void;
+    /** A histogram observation (deploy durations). */
+    observe?(name: string, labels: Record<string, string>, value: number): void;
+  };
+  /** Registering a pipeline the runner's job deployed (links the runner). */
+  registry: DeployRegistry;
   newId: () => string;
 }
 
@@ -175,13 +192,13 @@ export function createRateLimiter(redis: LockRedisClient | null, now: () => numb
   let nextSweep = now() + LOCAL_LIMITER_SWEEP_MS;
   return {
     localSize: () => local.size,
-    async hit(key, max, windowMs) {
+    async hit(key, max, windowMs, opts) {
       if (redis) {
         try {
           return (await incrWindow(redis, `runner-rate:${key}`, windowMs)) <= max;
         } catch (err) {
-          logger.warn('Runner rate limit store unavailable; allowing', { error: errorMessage(err) });
-          return true;
+          logger.warn(opts?.failClosed ? 'Runner rate limit store unavailable; refusing' : 'Runner rate limit store unavailable; allowing', { error: errorMessage(err) });
+          return !opts?.failClosed;
         }
       }
       const t = now();
@@ -397,7 +414,11 @@ function defaultDeps(): RunnerDeps {
     hierarchy: createHierarchyClient(),
     notify: (n) => sendSystemNotification(n),
     audit: (e) => recordAudit(e),
-    metrics: { inc: (n, l, v) => incCounter(n, l, v), gauge: (n, l, v) => setGauge(n, l, v), resetGauge: (n) => resetGauge(n) },
+    metrics: { inc: (n, l, v) => incCounter(n, l, v), gauge: (n, l, v) => setGauge(n, l, v), resetGauge: (n) => resetGauge(n), observe: (n, l, v) => observe(n, l, v) },
+    // Loaded on first use, like the stores (importing the runner modules must not load the registry service).
+    registry: {
+      registerDeployment: async (input) => (await import('../services/pipeline-registry-service.js')).pipelineRegistryService.registerDeployment(input),
+    },
     newId: () => randomUUID(),
   };
 }

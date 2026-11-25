@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, type ReactNode } from 'react';
 import { Modal } from './Modal';
 import { ModalFooter } from './ModalFooter';
 
@@ -16,6 +16,8 @@ interface DeleteConfirmModalProps {
   onCancel: () => void;
   /** Extra classes appended to the modal panel. */
   className?: string;
+  /** What else the delete does or leaves behind, under the confirmation. */
+  children?: ReactNode;
 }
 
 /**
@@ -29,7 +31,7 @@ interface DeleteConfirmModalProps {
  * factor in the same dialog. Chaining this in front of it double-prompts for one
  * decision, and `test/one-dialog-rule.test.ts` fails the build when it happens.
  */
-export function DeleteConfirmModal({ title, itemName, loading, onConfirm, onCancel, className = '' }: DeleteConfirmModalProps) {
+export function DeleteConfirmModal({ title, itemName, loading, onConfirm, onCancel, className = '', children }: DeleteConfirmModalProps) {
   const cancelRef = useRef<HTMLButtonElement>(null);
 
   // While a delete is in flight the modal must not be dismissible — swallow the
@@ -57,6 +59,7 @@ export function DeleteConfirmModal({ title, itemName, loading, onConfirm, onCanc
         Are you sure you want to delete <strong className="text-fg">{itemName}</strong>?
       </p>
       <p className="text-sm text-danger">This action cannot be undone.</p>
+      {children}
     </Modal>
   );
 }

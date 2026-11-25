@@ -104,7 +104,6 @@ describe('verifyRunRequest', () => {
     await rejects(verify(signJws(key, claims({ action: 'stop' }))), /executionId/);
     await rejects(verify(signJws(key, claims({ action: 'status' }))), /executionId/);
     await expect(verify(signJws(key, claims({ action: 'status', executionId: 'e-1' })))).resolves.toMatchObject({ action: 'status', executionId: 'e-1' });
-    await rejects(verify(signJws(key, claims({ action: 'deploy' }))), /unknown action/);
   });
 
   it('a runner without RUNNER_ID refuses everything — a ping included, whatever its aud', async () => {
@@ -119,6 +118,91 @@ describe('verifyRunRequest', () => {
   it('a ping for another runner is refused like any other request', async () => {
     const { verify } = setup();
     await rejects(verify(signJws(key, claims({ action: 'ping', pipelineId: undefined, aud: 'runner-2' }))), /wrong aud/);
+  });
+});
+
+const GRANT = `pb_dg_${'A'.repeat(43)}`;
+const DIGEST = `sha256:${'a'.repeat(64)}`;
+const deployBlock = (over: Record<string, unknown> = {}) => ({
+  grant: GRANT,
+  protocol: 1,
+  mode: 'deploy',
+  region: 'us-east-1',
+  pipelineName: 'acme-shop-pipeline',
+  stackName: 'shop-acme',
+  image: { repository: 'system/cdk-synth', digest: DIGEST },
+  toolchainRelease: '1.4.0',
+  ...over,
+});
+
+describe('verifyRunRequest: the deploy actions', () => {
+  it('deploy: returns the validated claim block', async () => {
+    const { verify } = setup();
+    const c = await verify(signJws(key, claims({ action: 'deploy', deploy: deployBlock() })));
+    expect(c).toMatchObject({ action: 'deploy', pipelineId: 'pipe-1', deploy: deployBlock() });
+  });
+
+  it('undeploy: the same block with mode undeploy', async () => {
+    const { verify } = setup();
+    const c = await verify(signJws(key, claims({ action: 'undeploy', deploy: deployBlock({ mode: 'undeploy' }) })));
+    expect(c.deploy).toEqual(deployBlock({ mode: 'undeploy' }));
+  });
+
+  it('deploy without a claim block, or a non-object one, is refused', async () => {
+    const { verify } = setup();
+    await rejects(verify(signJws(key, claims({ action: 'deploy' }))), /deploy claim/);
+    await rejects(verify(signJws(key, claims({ action: 'deploy', deploy: 'x' }))), /deploy claim/);
+    await rejects(verify(signJws(key, claims({ action: 'deploy', deploy: [deployBlock()] }))), /deploy claim/);
+  });
+
+  it.each([
+    ['a grant of the wrong shape', { grant: 'pb_dg_short' }, /grant/],
+    ['a session token as the grant', { grant: `pb_ds_${'A'.repeat(43)}` }, /grant/],
+    ['a non-integer protocol', { protocol: 1.5 }, /protocol/],
+    ['a zero protocol', { protocol: 0 }, /protocol/],
+    ['a string protocol', { protocol: '1' }, /protocol/],
+    ['an unknown mode', { mode: 'destroy' }, /mode/],
+    ['a mode that is not the action', { mode: 'undeploy' }, /mode/],
+    ['a region that is not a region', { region: 'us-east-1; rm -rf' }, /region/],
+    ['a pipeline name with a space', { pipelineName: 'acme shop' }, /pipelineName/],
+    ['a stack name starting with a digit', { stackName: '1shop' }, /stackName/],
+    ['a stack name over 128 characters', { stackName: `s${'a'.repeat(128)}` }, /stackName/],
+    ['another repository', { image: { repository: 'system/other', digest: DIGEST } }, /repository/],
+    ['an org repository', { image: { repository: 'org-1/cdk-synth', digest: DIGEST } }, /repository/],
+    ['a tag instead of a digest', { image: { repository: 'system/cdk-synth', digest: 'latest' } }, /digest/],
+    ['an upper-case digest', { image: { repository: 'system/cdk-synth', digest: `sha256:${'A'.repeat(64)}` } }, /digest/],
+    ['no image', { image: undefined }, /image/],
+    ['an empty toolchain release', { toolchainRelease: '' }, /toolchainRelease/],
+    ['a toolchain release with a shell character', { toolchainRelease: '1.4.0$(x)' }, /toolchainRelease/],
+  ])('deploy with %s is refused', async (_n, over, reason) => {
+    const { verify } = setup();
+    await rejects(verify(signJws(key, claims({ action: 'deploy', deploy: deployBlock(over) }))), reason);
+  });
+
+  it('deploy_status / deploy_cancel need deployRequestId and a build id of the shape <project>:<uuid>', async () => {
+    const { verify } = setup();
+    const buildId = 'pipeline-builder-runner-deploy-runner-1:0f3b8c1e-9d4a-4e6f-8a7b-1c2d3e4f5a6b';
+    for (const action of ['deploy_status', 'deploy_cancel']) {
+      await expect(verify(signJws(key, claims({ action, deployRequestId: 'req-0', buildId }))))
+        .resolves.toMatchObject({ action, deployRequestId: 'req-0', buildId });
+      await rejects(verify(signJws(key, claims({ action, buildId }))), /deployRequestId/);
+      await rejects(verify(signJws(key, claims({ action, deployRequestId: 'req-0' }))), /buildId/);
+      await rejects(verify(signJws(key, claims({ action, deployRequestId: 'req-0', buildId: 'arn:aws:codebuild:us-east-1:123456789012:build/x' }))), /buildId/);
+    }
+  });
+
+  it('a deploy block, deployRequestId or buildId on an action that takes none is refused', async () => {
+    const { verify } = setup();
+    await rejects(verify(signJws(key, claims({ action: 'start', deploy: deployBlock() }))), /deploy claim/);
+    await rejects(verify(signJws(key, claims({ action: 'deploy_status', deployRequestId: 'r', buildId: 'p:0f3b8c1e-9d4a-4e6f-8a7b-1c2d3e4f5a6b', deploy: deployBlock() }))), /deploy claim/);
+    await rejects(verify(signJws(key, claims({ action: 'deploy', deploy: deployBlock(), buildId: 'p:0f3b8c1e-9d4a-4e6f-8a7b-1c2d3e4f5a6b' }))), /buildId/);
+    await rejects(verify(signJws(key, claims({ action: 'stop', executionId: 'e', deployRequestId: 'r' }))), /deployRequestId/);
+  });
+
+  it('every deploy action still needs pipelineId', async () => {
+    const { verify } = setup();
+    await rejects(verify(signJws(key, claims({ action: 'deploy', pipelineId: undefined, deploy: deployBlock() }))), /pipelineId/);
+    await rejects(verify(signJws(key, claims({ action: 'deploy_status', pipelineId: undefined, deployRequestId: 'r', buildId: 'p:0f3b8c1e-9d4a-4e6f-8a7b-1c2d3e4f5a6b' }))), /pipelineId/);
   });
 });
 

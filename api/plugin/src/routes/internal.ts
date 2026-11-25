@@ -25,6 +25,8 @@
  *    service's own `plugin` slice, after the org's kept sources on RustFS
  *    (`plugin-sources/<orgId>/`; a failed delete there is a 500, not an ack).
  *    Idempotent; 2xx is the outbox's ack.
+ *  - POST /internal/plugins/orgs/:orgId/lookup — the pipeline service, for a
+ *    runner's deploy job → `POST /plugins/lookup` as `:orgId` sees it.
  *  - POST /internal/plugins/users/:userId/erase — the same outbox, for a GDPR
  *    user erasure → scrub the person out of the listing reviews they wrote
  *    (author, display name, body go NULL; the rating stays). Idempotent: the
@@ -38,6 +40,7 @@ import {
   createLogger,
   ErrorCode,
   errorMessage,
+  fetchParentOrgId,
   MAX_REFERENCE_DIGESTS,
   parseContractParams,
   parseContractQuery,
@@ -117,6 +120,31 @@ export function createInternalRoutes(): Router {
         return out;
       });
       return sendSuccess(res, 200, { references });
+    }, { requireOrgId: false }),
+  );
+
+  // A plugin lookup FOR an org, on behalf of a runner's deploy job: the
+  // pipeline service's session facade proxies it with the deploy session's org
+  // as the path param. Resolved exactly as POST /plugins/lookup resolves it for
+  // that org (a team: with its parent), under that org's own tenant scope.
+  router.post(
+    contractRoute(C.deployLookup, MOUNT),
+    requireInternalService({ callers: [...C.deployLookup.callers] }) as RequestHandler,
+    withRoute(async ({ req, res, ctx }) => {
+      const p = parseContractParams(C.deployLookup, req);
+      if (!p.ok) return sendBadRequest(res, contractErrorMessage(p), ErrorCode.VALIDATION_ERROR);
+      const orgId = String(p.value.orgId).toLowerCase();
+      let parentOrgId: string | undefined;
+      try {
+        parentOrgId = await fetchParentOrgId(orgId, { throwOnHttpError: true });
+      } catch (err) {
+        // Fail closed: resolving without the parent could pick a different plugin.
+        logger.warn('Deploy lookup: the org hierarchy could not be read', { orgId, error: errorMessage(err) });
+        return sendError(res, 503, 'The organization hierarchy is unavailable; retry the lookup.', ErrorCode.SERVICE_UNAVAILABLE);
+      }
+      // Loaded on use: the read router's module (its lookup chain) is heavy, and suites stub it.
+      const { lookupFromBody } = await import('./read-plugins.js');
+      return runWithTenantContext({ orgId, isSuperAdmin: false }, () => lookupFromBody(req.body, parentOrgId, res, orgId, ctx));
     }, { requireOrgId: false }),
   );
 

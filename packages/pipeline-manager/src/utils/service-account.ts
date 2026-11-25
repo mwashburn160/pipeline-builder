@@ -150,7 +150,7 @@ export function browserStepUp(approve: () => Promise<string | undefined>): StepU
 }
 
 /** The org the operator's token is active in. */
-async function resolveOrganizationId(client: ApiClient): Promise<string> {
+export async function resolveOrganizationId(client: Pick<ApiClient, 'get'>): Promise<string> {
   const res = await client.get<unknown>('/api/organization');
   const orgId = unwrap<{ organization?: { id?: string } }>(res)?.organization?.id;
   if (!orgId) {

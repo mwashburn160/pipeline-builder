@@ -3621,3 +3621,47 @@ groups:
         annotations:
           summary: "Pipeline run requests are expiring undelivered"
           description: "Run requests expired in the last 30 minutes without reaching a runner. Users pressed Run or Stop and nothing happened. Check the runner-dispatch queue (Redis, the pipeline service logs for 'Runner dispatch'), the system-org Pause all pipeline runs toggle, and RunnerUnreachable for the runner it was meant for."
+
+      # A deploy job's single-use grant presented AGAIN after its exchange: the
+      # grant (in the signed claim, KMS-wrapped for the runner's build) leaked,
+      # or someone is replaying it. The platform refused it (401
+      # DEPLOY_GRANT_INVALID) and audited pipeline.deploy.grant_reuse; the
+      # series is primed at zero on boot, so the first one pages.
+      - alert: RunnerDeployGrantReuse
+        expr: sum(increase(pipeline_runner_deploy_grant_rejections_total{reason="reused"}[15m])) > 0
+        for: 0m
+        labels:
+          severity: critical
+          component: pipeline
+          tenancy: platform
+        annotations:
+          summary: "A runner deploy grant was presented again after its exchange"
+          description: "A deploy job grant was exchanged a second time in the last 15 minutes (pipeline_runner_deploy_grant_rejections_total{reason=\"reused\"}). Grants are single use and only ever travel inside a signed run request, so a reuse means a grant leaked from a runner's account or the platform. Find the deploy in the audit log (pipeline.deploy.grant_reuse: requestId, runnerId), check that runner's CodeBuild project and KMS key policy in the customer account, and cancel the deploy if it is still running. See docs/aws-deployment.md (Deploying a pipeline through a runner)."
+
+      # Deploys through runners failing for a PLATFORM reason (a grant refused
+      # or expired, the job could not read its pipeline, a delivery that never
+      # landed): not the customer's account or pipeline definition.
+      - alert: RunnerDeployPlatformFailures
+        expr: sum(increase(pipeline_runner_deploy_failures_total{class="platform"}[30m])) >= 3
+        for: 0m
+        labels:
+          severity: warning
+          component: pipeline
+          tenancy: platform
+        annotations:
+          summary: "{{ $value | humanize }} runner deploys failed for a platform reason in 30 minutes"
+          description: "Deploys through pipeline runners are failing with platform-class codes (DEPLOY_GRANT_REJECTED, DEPLOY_GRANT_EXPIRED, PIPELINE_FETCH_FAILED, or a delivery that never reached the runner). Check the pipeline service logs for 'runner-deploys', the runner-dispatch queue, the deploy facade (/api/pipelines/runner/deploys/...) reachability from runner accounts, and the build queue time behind DEPLOY_GRANT_EXPIRED."
+
+      # A deploy still running past RUNNER_DEPLOY_DEADLINE_MINUTES: the sweep
+      # should have cancelled it and failed it DEPLOY_TIMED_OUT within a poll.
+      # Published by the sweep leader only (max across replicas).
+      - alert: RunnerDeployStuck
+        expr: max(pipeline_runner_deploys_overdue) > 0
+        for: 10m
+        labels:
+          severity: warning
+          component: pipeline
+          tenancy: platform
+        annotations:
+          summary: "{{ $value | humanize }} runner deploy(s) are running past their deadline"
+          description: "At least one deploy or undeploy through a runner has been running past its deadline for 10 minutes, so the runner sweep is not finishing it (deploy_cancel + DEPLOY_TIMED_OUT). Check that the runner sweep is running (its leader lock, the pipeline service logs for 'Runner deploy poll'), and the database the sweep writes to."

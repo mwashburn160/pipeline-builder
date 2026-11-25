@@ -84,7 +84,7 @@ describe('buildSteps', () => {
     const steps = buildSteps(signals());
     expect(steps.map((s) => s.id)).toEqual(['explore-plugins', 'create-pipeline', 'install-runner', 'run-build']);
     expect(steps.find((s) => s.id === 'run-build')?.title).toBe('Run your first pipeline');
-    expect(steps.find((s) => s.id === 'install-runner')?.href).toBe('/dashboard/settings?tab=organization#pipeline-runners');
+    expect(steps.find((s) => s.id === 'install-runner')?.href).toBe('/dashboard/settings?tab=organization&section=pipelines#pipeline-runners');
   });
 
   it('marks explore-plugins done when visited', () => {

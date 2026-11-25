@@ -1,6 +1,6 @@
 // GENERATED FROM docs/authentication.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: c5c3e191be21251b14140fdff924a8d5e3deef061e24f4ecad72ee9e905048f4
+// SOURCE-SHA256: 0e0aaece4272614a2b8dcba5d94a7ed6748fe73b46820448f59e584b68c7a416
 // SPDX-License-Identifier: Apache-2.0
 import { Lock } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -234,7 +234,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "An org admin (org_settings:write, step-up; lowering it also needs an aal: 2 session) can raise the minimum length for its members — Settings → Organization → Password policy, or PATCH /organization/:id/password-policy with { minLength } (null clears it). It must be ≥ the platform minimum and ≤ 128. A parent org's minimum applies to its teams; the strictest value along the lineage wins. Because one password serves every org a person belongs to, the bar for a person is the strictest effective minimum among all their active memberships."
+          "content": "An org admin (org_settings:write, step-up; lowering it also needs an aal: 2 session) can raise the minimum length for its members — Settings → Organization → Security → Password policy, or PATCH /organization/:id/password-policy with { minLength } (null clears it). It must be ≥ the platform minimum and ≤ 128. A parent org's minimum applies to its teams; the strictest value along the lineage wins. Because one password serves every org a person belongs to, the bar for a person is the strictest effective minimum among all their active memberships."
         },
         {
           "type": "text",
@@ -860,7 +860,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "email domains the org has verified through DNS (Settings → Organization → domains). A team may also use a domain its account root verified, but only when a root admin has shared that domain with teams (PATCH /organization/:id/domains/:domainId/team-sharing, { \"sharedWithTeams\": true }; org_settings:write + step-up, audited as org.domain.share). Sharing is off by default: every team runs its own IdP, so inheriting the root's domains would let any team owner assert owner@<root-domain> and sign in as the root's own accounts. The same rule bounds a team's SCIM provisioning and direct member adds. Losing the DNS proof on re-verification also clears the share. allowedEmailDomains optionally narrows that to a subset — it is a picker over verified domains, and the write path refuses a domain the org has not verified (IDP_DOMAIN_NOT_VERIFIED), because an unverified entry proves nothing. Only IdP users whose email is in a served domain may sign in to that org (so an over-broad corporate IdP can't let evil-contractor.com in through your acme.com config)."
+          "content": "email domains the org has verified through DNS (Settings → Organization → General → Email domains). A team may also use a domain its account root verified, but only when a root admin has shared that domain with teams (PATCH /organization/:id/domains/:domainId/team-sharing, { \"sharedWithTeams\": true }; org_settings:write + step-up, audited as org.domain.share). Sharing is off by default: every team runs its own IdP, so inheriting the root's domains would let any team owner assert owner@<root-domain> and sign in as the root's own accounts. The same rule bounds a team's SCIM provisioning and direct member adds. Losing the DNS proof on re-verification also clears the share. allowedEmailDomains optionally narrows that to a subset — it is a picker over verified domains, and the write path refuses a domain the org has not verified (IDP_DOMAIN_NOT_VERIFIED), because an unverified entry proves nothing. Only IdP users whose email is in a served domain may sign in to that org (so an over-broad corporate IdP can't let evil-contractor.com in through your acme.com config)."
         },
         {
           "type": "list",
@@ -2293,7 +2293,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "An org admin (org_settings:write, step-up; widening or clearing the list also needs an aal: 2 session) can limit passkeys to specific authenticator models — Settings → Organization → Approved authenticators, or PATCH /organization/:id/authenticator-policy with { allowedAaguids: [...] }. Empty means any model. A parent org's list applies to its teams too; where both set one, only models on every list apply (strictest wins)."
+          "content": "An org admin (org_settings:write, step-up; widening or clearing the list also needs an aal: 2 session) can limit passkeys to specific authenticator models — Settings → Organization → Security → Approved authenticators, or PATCH /organization/:id/authenticator-policy with { allowedAaguids: [...] }. Empty means any model. A parent org's list applies to its teams too; where both set one, only models on every list apply (strictest wins)."
         },
         {
           "type": "list",
@@ -2824,7 +2824,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Settings → Organization → Two-factor authentication (needs org_settings:write, and the save is step-up gated because turning it off removes a control for every member)."
+          "content": "Settings → Organization → Security → Two-factor authentication (needs org_settings:write, and the save is step-up gated because turning it off removes a control for every member)."
         },
         {
           "type": "list",

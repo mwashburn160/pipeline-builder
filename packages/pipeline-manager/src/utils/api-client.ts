@@ -14,6 +14,14 @@ import { TIMEOUTS } from '../config/cli.constants.js';
 import { ApiError } from '../types/index.js';
 
 /**
+ * What resolving a pipeline for synth / deploy needs of a platform client
+ * (fetchPipelineProps, the plugin and toolchain lookups): the authenticated
+ * {@link ApiClient}, or the runner deploy job's session-scoped facade
+ * (utils/deploy-session-client.ts).
+ */
+export type PlatformReadClient = Pick<ApiClient, 'get' | 'post' | 'getConfig'>;
+
+/**
  * API Client for making HTTP requests to the platform API
  */
 export class ApiClient {

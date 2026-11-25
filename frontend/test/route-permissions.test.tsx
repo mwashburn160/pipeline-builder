@@ -840,7 +840,7 @@ const CONTROLS: Control[] = [
     },
   },
   {
-    control: 'Edit plugin security fix (remediation) settings (Settings → Organization → Plugin security)',
+    control: 'Edit plugin security fix (remediation) settings (Settings → Organization → Pipelines → Plugin security)',
     file: 'pages/dashboard/settings.tsx',
     gateFiles: ['src/components/settings/PluginSecurityNotificationSettings.tsx', 'src/components/settings/PluginRemediationSettings.tsx'],
     // Shown read-only with `plugins:read`; the save needs `org_settings:write`.
@@ -848,12 +848,12 @@ const CONTROLS: Control[] = [
     routes: ['plugin PUT /plugins/remediation-settings'],
     behaviour: {
       mount: page('../pages/dashboard/settings'),
-      router: { query: { tab: 'organization' }, pathname: '/dashboard/settings' },
+      router: { query: { tab: 'organization', section: 'pipelines' }, pathname: '/dashboard/settings' },
       find: button(/^save security fix settings$/i),
     },
   },
   {
-    control: 'Pipeline runners and the signing key: rename, share with teams, test, revoke; generate, rotate, cancel, finish, revoke the key, switch key mode (Settings → Organization)',
+    control: 'Pipeline runners and the signing key: rename, share with teams, test, revoke; generate, rotate, cancel, finish, revoke the key, switch key mode (Settings → Organization → Pipelines)',
     file: 'pages/dashboard/settings.tsx',
     // settings.tsx mounts the panel for org_settings:write holders, with no
     // feature gate: runners are the only execution path, for every org. The
@@ -877,7 +877,7 @@ const CONTROLS: Control[] = [
     ],
     behaviour: {
       mount: page('../pages/dashboard/settings'),
-      router: { query: { tab: 'organization' }, pathname: '/dashboard/settings' },
+      router: { query: { tab: 'organization', section: 'pipelines' }, pathname: '/dashboard/settings' },
       api: {
         getPipelineRunners: {
           available: true, unavailableReason: null, platformEgressIps: null,
@@ -887,6 +887,39 @@ const CONTROLS: Control[] = [
         },
       },
       find: button(/^rename$/i),
+    },
+  },
+  {
+    control: 'Deploy a never-deployed pipeline through a pipeline runner (pipeline page banner, and the create flow\'s next step)',
+    file: 'pages/dashboard/pipelines/[id].tsx',
+    // The panel mounts only for a viewer who may write the pipeline
+    // (canWritePipeline → pipelines:write); the create flow mounts it for the
+    // pipeline the same person just created. Deploy goes through its own
+    // step-up dialog; Cancel and the targets read ride the same gate.
+    gateFiles: ['src/components/pipeline/DeployPipelinePanel.tsx', 'src/components/pipeline/PipelineDeployGuidance.tsx'],
+    permissions: ['pipelines:write'],
+    stepUp: true,
+    minAssurance: 2,
+    routes: [
+      'pipeline GET /pipelines/:pipelineId/deploy-targets',
+      'pipeline POST /pipelines/:pipelineId/deploys',
+      'pipeline POST /pipelines/:pipelineId/deploys/:requestId/cancel',
+    ],
+    behaviour: {
+      mount: page('../pages/dashboard/pipelines/[id]'),
+      router: { query: { id: 'p1' }, pathname: '/dashboard/pipelines/[id]' },
+      api: {
+        getPipelineById: {
+          pipeline: { id: 'p1', pipelineName: 'p', organizationId: 'org-1', visibility: 'private', createdBy: 'u1' },
+          registration: { registered: false, lastDeployed: null, stackName: null, region: null, hasEvents: false },
+        },
+        getDeployTargets: {
+          pipelineId: 'p1', available: true, unavailableReason: null, alreadyDeployed: false, activeRequestId: null, autoRunnerId: 'r1',
+          setupCommand: 'pipeline-manager infra setup-runner --enable-deploy',
+          runners: [{ id: 'r1', label: 'prod', isOwn: true, ownerOrgName: null, regions: ['us-east-1'], deployable: true, reason: null }],
+        },
+      },
+      find: button(/^deploy to prod \(us-east-1\)$/i),
     },
   },
   {
@@ -1623,7 +1656,7 @@ const CONTROLS: Control[] = [
     routes: ['platform PATCH /organization/:id/identity', 'platform POST /organization/:id/domains'],
     behaviour: {
       mount: page('../pages/dashboard/settings'),
-      router: { query: { tab: 'organization' }, pathname: '/dashboard/settings' },
+      router: { query: { tab: 'organization', section: 'general' }, pathname: '/dashboard/settings' },
       find: button(/^save organization$/i),
     },
   },
@@ -1636,12 +1669,12 @@ const CONTROLS: Control[] = [
     routes: ['platform PATCH /organization/:id/impersonation-policy'],
     behaviour: {
       mount: page('../pages/dashboard/settings'),
-      router: { query: { tab: 'organization' }, pathname: '/dashboard/settings' },
+      router: { query: { tab: 'organization', section: 'security' }, pathname: '/dashboard/settings' },
       find: byText(/^administrator access$/i),
     },
   },
   {
-    control: 'Edit the password / approved-authenticator / session policy (Settings → Organization)',
+    control: 'Edit the password / approved-authenticator / session policy (Settings → Organization → Security)',
     file: 'pages/dashboard/settings.tsx',
     gateFiles: [
       'src/components/settings/PasswordPolicySettings.tsx',
@@ -1657,12 +1690,12 @@ const CONTROLS: Control[] = [
     ],
     behaviour: {
       mount: page('../pages/dashboard/settings'),
-      router: { query: { tab: 'organization' }, pathname: '/dashboard/settings' },
+      router: { query: { tab: 'organization', section: 'security' }, pathname: '/dashboard/settings' },
       find: byText(/^password policy$/i),
     },
   },
   {
-    control: 'Set / clear the org pipeline toolchain default (Settings → Organization)',
+    control: 'Set / clear the org pipeline toolchain default (Settings → Organization → Pipelines)',
     file: 'pages/dashboard/settings.tsx',
     gateFiles: ['src/components/settings/PipelineToolchainSettings.tsx'],
     // The card mounts with `pipelines:read` (read-only there); the write controls
@@ -1673,7 +1706,7 @@ const CONTROLS: Control[] = [
     routes: ['plugin PUT /plugins/toolchain/org-default', 'plugin DELETE /plugins/toolchain/org-default'],
     behaviour: {
       mount: page('../pages/dashboard/settings'),
-      router: { query: { tab: 'organization' }, pathname: '/dashboard/settings' },
+      router: { query: { tab: 'organization', section: 'pipelines' }, pathname: '/dashboard/settings' },
       api: {
         getToolchainOrgDefault: {
           effective: { releaseVersion: '1.1.0', resolvedVia: 'default' }, orgDefault: null, inheritedFrom: null,
@@ -1687,7 +1720,7 @@ const CONTROLS: Control[] = [
     },
   },
   {
-    control: 'Edit / test plugin security notifications (Settings → Organization)',
+    control: 'Edit / test plugin security notifications (Settings → Organization → Pipelines)',
     file: 'pages/dashboard/settings.tsx',
     gateFiles: ['src/components/settings/PluginSecurityNotificationSettings.tsx'],
     // Shown read-only with `plugins:read`; the write controls need `org_settings:write`.
@@ -1695,7 +1728,7 @@ const CONTROLS: Control[] = [
     routes: ['plugin PUT /plugins/security-notifications', 'plugin POST /plugins/security-notifications/test'],
     behaviour: {
       mount: page('../pages/dashboard/settings'),
-      router: { query: { tab: 'organization' }, pathname: '/dashboard/settings' },
+      router: { query: { tab: 'organization', section: 'pipelines' }, pathname: '/dashboard/settings' },
       find: button(/^save notification settings$/i),
     },
   },
@@ -2964,7 +2997,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   },
   'plugin PUT /plugins/tidy/settings': {
     category: 'same-control',
-    coveredBy: 'Edit plugin security fix (remediation) settings (Settings → Organization → Plugin security)',
+    coveredBy: 'Edit plugin security fix (remediation) settings (Settings → Organization → Pipelines → Plugin security)',
     why: '"Save tidying settings" in the Automatic tidying section of Settings → Organization → Plugin security (src/components/settings/PluginTidySettings.tsx, api.updatePluginTidySettings), mounted beside the security fix settings and shown only with canEdit (org_settings:write) — the same gate and page as the security fix save. Audited plugin.tidy.settings.update.',
   },
   'plugin POST /plugins/tidy/versions/:id/keep': {
@@ -3203,9 +3236,11 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   'compliance POST /compliance/internal/orgs/:orgId/purge': { category: 'machine-only', why: 'Internal route (callers: platform): the cascade outbox\'s org-purge leg; no user token is admitted.' },
   'message POST /messages/internal/orgs/:orgId/purge': { category: 'machine-only', why: 'Internal route (callers: platform): the cascade outbox\'s org-purge leg; no user token is admitted.' },
   'pipeline POST /pipelines/internal/orgs/:orgId/purge': { category: 'machine-only', why: 'Internal route (callers: platform): the cascade outbox\'s org-purge leg; no user token is admitted.' },
+  'plugin POST /internal/plugins/orgs/:orgId/lookup': { category: 'machine-only', why: 'Internal route (callers: pipeline): the deploy facade\'s plugin-lookup (POST /pipelines/runner/deploys/:requestId/plugin-lookup) resolves a deploying pipeline\'s plugins for its org through it; no user token is admitted.' },
   'plugin POST /internal/plugins/orgs/:orgId/purge': { category: 'machine-only', why: 'Internal route (callers: platform): the cascade outbox\'s org-purge leg; no user token is admitted.' },
   'plugin POST /internal/plugins/remediations/:remediationId/rollout': { category: 'machine-only', why: 'Internal route (callers: pipeline): the pipeline service reports a remediation rollout\'s progress (waves, rollbacks) back to the plugin service; no user token is admitted.' },
   'pipeline POST /pipelines/internal/plugin-remediations/:remediationId/rollout': { category: 'machine-only', why: 'Internal route (callers: plugin): the plugin service starts a published fix\'s rollout across the pipelines using the flagged version; no user token is admitted.' },
+  'pipeline POST /pipelines/internal/registry/first-event': { category: 'machine-only', why: 'Internal route (callers: reporting): event ingest registers a deployed, pb.pipeline-id-tagged pipeline of the ingest caller\'s own org on its first event, so its runs report; no user token is admitted.' },
   'pipeline POST /pipelines/internal/plugin-remediations/:remediationId/cancel': { category: 'machine-only', why: 'Internal route (callers: plugin): the plugin service cancels a rollout when its version or name is deleted; no user token is admitted.' },
   'plugin POST /internal/plugins/users/:userId/erase': { category: 'machine-only', why: 'Internal route (callers: platform): the cascade outbox\'s GDPR user-erasure leg; no user token is admitted.' },
   'reporting POST /reports/internal/orgs/:orgId/purge': { category: 'machine-only', why: 'Internal route (callers: platform): the cascade outbox\'s org-purge leg; no user token is admitted.' },
@@ -3638,6 +3673,16 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   'platform GET /organization/:id/support-usage': { category: 'no-ui', why: 'Pooled support-contact usage at the account root (`{ supportContacts, supportPremiumContacts }` each `{ limit, used }`) for BILLING: api/billing/src/helpers/downstream-client.ts `fetchSupportUsage` feeds the add-on over-cap guard and the entitlement-drift reconciler. Gate (in the controller, like seat-usage) is a service principal or canAdministerOrg; the dashboard shows contacts on the support settings, not this count.' },
   'platform POST /auth/device/code': { category: 'no-ui', why: 'Device-authorization grant START — issued to the CLI (packages/pipeline-manager/src/utils/device-auth.ts), not a browser. The dashboard only drives the human half (GET /auth/device/authorize, approve, deny).' },
   'platform POST /auth/device/token': { category: 'no-ui', why: 'Device-grant token POLL — the CLI polls it (packages/pipeline-manager/src/utils/device-auth.ts, `pollDeviceToken`); no frontend reference exists.' },
+  ...group('pipeline', [
+    'POST /pipelines/runner/deploys/:requestId/session',
+    'POST /pipelines/runner/deploys/:requestId/plugin-lookup',
+    'POST /pipelines/runner/deploys/:requestId/progress',
+    'POST /pipelines/runner/deploys/:requestId/result',
+    'POST /pipelines/runner/deploys/:requestId/registry',
+  ], {
+    category: 'no-ui',
+    why: 'The deploy job\'s facade, called only from a runner\'s CodeBuild deploy build by `pipeline-manager pipeline deploy-job` (packages/pipeline-manager/src/commands/deploy-job.ts through utils/deploy-session-client.ts): session exchanges the single-use grant, the rest take the session token it returns (dynamicAuthz deploy-grant / deploy-session). No user token is admitted and no client function exists.',
+  }),
   'pipeline POST /pipelines/runners': { category: 'no-ui', why: 'CLI only — `pipeline-manager infra setup-runner` (packages/pipeline-manager/src/commands/setup-runner.ts) registers a PENDING runner before deploying its stack in the customer account, then sends the Function URL with PATCH (which the Pipeline runners panel row maps). Same org_settings:write + aal2 + step-up as the panel\'s writes (and, for a root org with no key yet, it creates the org\'s first signing key in the same flow); there is no in-browser registration because the runner must be deployed with AWS credentials for that account.' },
   'platform POST /organization/:id/service-accounts/provision-key': { category: 'no-ui', why: 'CLI only — `pipeline-manager infra store-token` (packages/pipeline-manager/src/utils/service-account.ts) provisions the org machine credential it parks in Secrets Manager: find-or-create the account, issue its key, retire the oldest at the active-key cap, behind ONE step-up. Same service_accounts:manage + aal2(except bootstrap-setup) + step-up as the create-account and issue-key routes the dashboard drives (ServiceAccountsSection / ServiceAccountDrawer), which stay its UI.' },
   'platform POST /auth/token/exchange': { category: 'no-ui', why: 'Service-account token exchange; a machine surface with no frontend reference (api.generateNewToken is a different route).' },

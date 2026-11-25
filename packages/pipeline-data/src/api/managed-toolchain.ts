@@ -63,6 +63,12 @@ export interface ManagedToolchainResolution {
   resolvedVia: ToolchainResolvedVia;
   bootstrap: Plugin;
   synth: Plugin;
+  /**
+   * The deploy-job protocol the release's cdk-synth image ships
+   * (`toolchain_release.deploy_job_protocol`); null when it runs none. A
+   * deploy through a runner needs api-core's `DEPLOY_JOB_PROTOCOL_VERSION`.
+   */
+  deployJobProtocol: number | null;
   warnings: ManagedToolchainWarning[];
 }
 
@@ -345,7 +351,9 @@ async function resolveOnChain(db: ToolchainDb, chain: readonly string[], release
     const promoted = via === 'pin' || via === 'org-default'
       ? (await wasPlatformDefault(db, h.releaseVersion)) || canary?.releaseVersion === h.releaseVersion
       : true;
-    return { releaseVersion: h.releaseVersion, resolvedVia: via, ...pair, warnings: standingWarnings({ ...h, ...pair }, promoted, via) };
+    return {
+      releaseVersion: h.releaseVersion, resolvedVia: via, ...pair, deployJobProtocol: h.release?.deployJobProtocol ?? null, warnings: standingWarnings({ ...h, ...pair }, promoted, via),
+    };
   };
 
   if (releasePin !== undefined) {

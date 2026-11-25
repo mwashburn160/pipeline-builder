@@ -12,24 +12,44 @@
 
 import { errorMessage } from '@pipeline-builder/api-core';
 import {
-  EXPECTED_OUTCOMES, isRunnerKeyServiceUnavailable, RUNNER_DELIVERY_FAILURE_CLASSES, RUNNER_ERROR_CODES, type RunnersUnavailableReason,
+  DEPLOY_BUILD_STATES, DEPLOY_STAGES, RUNNER_DEPLOY_METRICS, EXPECTED_OUTCOMES, isDeployJobResultCode, isRunnerKeyServiceUnavailable, parsePipelinePrefixes, parseRunnerCapabilities,
+  RUNNER_DELIVERY_FAILURE_CLASSES, RUNNER_ERROR_CODES,
+  type DeployBuildState, type DeployJobResultCode, type DeployStage, type RunnerCapability, type RunnersUnavailableReason,
 } from '@pipeline-builder/api-core/pipeline-runners';
 import type { RunnerDeps } from './deps.js';
 import type { RunRequestClaimsInput, RunRequestSigner } from './signing.js';
 import type { RunnerRow } from './store.js';
-import { DELIVERY_TIMEOUT_MS, RUNNER_OUTCOMES, RUNNER_REPLY_ERRORS, type FailureClass, type RunnerOutcome, type RunnerReplyError } from './vocabulary.js';
+import { DELIVERY_TIMEOUT_MS, RUNNER_OUTCOMES, RUNNER_REPLY_ERRORS, type FailureClass, type RunnerOutcome } from './vocabulary.js';
 
 /** What a runner's answer means for the request. */
 export type ReplyVerdict =
-  /** The runner did it (or answered the probe/ping). */
-  | { kind: 'success'; outcome: RunnerOutcome; executionId?: string; executionStatus?: string; runnerVersion?: string; regions?: string[] }
+  /**
+   * The runner did it (or answered the probe/ping). A `pong` carries the
+   * bundle's `capabilities` and `pipelinePrefixes` (always, [] when it sent
+   * none); `deploying` / `undeploying` the build id; `deploy_status` /
+   * `deploy_cancelled` the build state (plus stage and result code).
+   */
+  | {
+    kind: 'success';
+    outcome: RunnerOutcome;
+    executionId?: string;
+    executionStatus?: string;
+    runnerVersion?: string;
+    regions?: string[];
+    capabilities?: RunnerCapability[];
+    pipelinePrefixes?: string[];
+    buildId?: string;
+    buildState?: DeployBuildState;
+    stage?: DeployStage | null;
+    resultCode?: DeployJobResultCode | null;
+  }
   /**
    * Try again later. `transport` failures count against the runner's health;
    * `immediate` ones (the host no longer exists, AWS says the Function URL is
    * gone) mark it unreachable at once. `code` is a failure class for
    * `last_delivery_error`, or the runner's own code (DUPLICATE).
    */
-  | { kind: 'retry'; code: FailureClass | 'DUPLICATE'; transport: boolean; immediate?: boolean }
+  | { kind: 'retry'; code: FailureClass | 'DUPLICATE' | 'DEPLOY_BUSY'; transport: boolean; immediate?: boolean }
   /** The pipeline exists but the tagging API cannot see it yet (retry every 15 s, ≤ 60 s). */
   | { kind: 'not_yet_visible' }
   /**
@@ -62,8 +82,13 @@ export function interpretReply(status: number, body: unknown): ReplyVerdict {
   if (code) {
     if (code === 'NOT_YET_VISIBLE') return { kind: 'not_yet_visible' };
     // DUPLICATE: the runner holds this jti in flight with no final result yet.
-    if (code === 'DUPLICATE') return { kind: 'retry', code, transport: false };
-    return { kind: 'fail', code: REPLY_ERRORS.has(code) ? (code as RunnerReplyError) : 'RUNNER_ERROR', ...(runnerVersion ? { runnerVersion } : {}) };
+    // DEPLOY_BUSY: the deploy project is at its concurrent build limit — delivered
+    // again on the backoff, within the request's lifetime (the runner is fine).
+    if (code === 'DUPLICATE' || code === 'DEPLOY_BUSY') return { kind: 'retry', code, transport: false };
+    // DEPLOY_IN_PROGRESS: the one platform-catalog code a runner may send (its
+    // deploy project already builds this pipeline for another request id).
+    const known = REPLY_ERRORS.has(code) || code === 'DEPLOY_IN_PROGRESS';
+    return { kind: 'fail', code: known ? code : 'RUNNER_ERROR', ...(runnerVersion ? { runnerVersion } : {}) };
   }
   if (status < 200 || status >= 300) return { kind: 'fail', code: 'RUNNER_ERROR' };
   const outcome = str(b.outcome, 16);
@@ -71,6 +96,8 @@ export function interpretReply(status: number, body: unknown): ReplyVerdict {
   const executionId = str(b.executionId, 100);
   const executionStatus = str(b.executionStatus, 32);
   const regions = regionsOf(b.regions);
+  const deploy = deployDetailsOf(outcome as RunnerOutcome, b);
+  if (deploy === null) return { kind: 'fail', code: 'RUNNER_ERROR' };
   return {
     kind: 'success',
     outcome: outcome as RunnerOutcome,
@@ -78,7 +105,39 @@ export function interpretReply(status: number, body: unknown): ReplyVerdict {
     ...(executionStatus ? { executionStatus } : {}),
     ...(runnerVersion ? { runnerVersion } : {}),
     ...(regions ? { regions } : {}),
+    // Only a pong reports what the bundle can do; parsed against the fixed lists.
+    ...(outcome === 'pong' ? { capabilities: parseRunnerCapabilities(b.capabilities), pipelinePrefixes: parsePipelinePrefixes(b.pipelinePrefixes) } : {}),
+    ...deploy,
   };
+}
+
+/** A CodeBuild build id: `<project>:<uuid>` (never an ARN, so never an account id). */
+const BUILD_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,254}:[0-9a-f-]{36}$/;
+
+/**
+ * The deploy details an outcome must carry, validated against the fixed lists:
+ * `deploying` / `undeploying` a build id; `deploy_status` a build state (stage
+ * and result code optional, dropped when unknown); `deploy_cancelled` a build
+ * state. Null when a required one is missing or malformed (the answer is
+ * RUNNER_ERROR); {} for every other outcome.
+ */
+function deployDetailsOf(outcome: RunnerOutcome, b: Record<string, unknown>): Partial<Extract<ReplyVerdict, { kind: 'success' }>> | null {
+  const state = typeof b.buildState === 'string' && (DEPLOY_BUILD_STATES as readonly string[]).includes(b.buildState) ? b.buildState as DeployBuildState : undefined;
+  switch (outcome) {
+    case 'deploying':
+    case 'undeploying':
+      return typeof b.buildId === 'string' && BUILD_ID_PATTERN.test(b.buildId) ? { buildId: b.buildId } : null;
+    case 'deploy_status': {
+      if (!state) return null;
+      const stage = typeof b.stage === 'string' && (DEPLOY_STAGES as readonly string[]).includes(b.stage) ? b.stage as DeployStage : null;
+      const resultCode = isDeployJobResultCode(b.resultCode) ? b.resultCode : null;
+      return { buildState: state, stage, resultCode };
+    }
+    case 'deploy_cancelled':
+      return state ? { buildState: state } : null;
+    default:
+      return {};
+  }
 }
 
 /** The outcome a successful answer to each action must carry (the shared contract). */
@@ -180,4 +239,7 @@ const ALERTED_REFUSALS = ['SIGNATURE_INVALID', 'RUNNER_REFUSED', 'PIPELINE_IDENT
 export function primeRunnerMetrics(deps: RunnerDeps): void {
   for (const code of ALERTED_REFUSALS) deps.metrics.inc(DELIVERY_METRIC, { outcome: 'refused', code }, 0);
   deps.metrics.inc('pipeline_runner_requests_total', { status: 'expired' }, 0);
+  // The deploy alerts (RunnerDeployGrantReuse, RunnerDeployPlatformFailures).
+  deps.metrics.inc(RUNNER_DEPLOY_METRICS.grantRejections, { reason: 'reused' }, 0);
+  deps.metrics.inc(RUNNER_DEPLOY_METRICS.failuresByClass, { class: 'platform' }, 0);
 }

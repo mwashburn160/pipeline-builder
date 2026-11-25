@@ -43,6 +43,8 @@ export const TOOLCHAIN_INPUT_EXCLUDED: ReadonlySet<string> = new Set(['image.tar
 export const TOOLCHAIN_REPO_DIR = (d: ToolchainDir): string => `deploy/toolchain/${d}/`;
 
 const GENERATED_SPEC_KEY = /^(version|toolchain|sourceDigest|changelog):/;
+/** The cdk-synth spec's derived `pb:deploy-job:protocol` metadata line — excluded exactly as sync-image-tags.sh does. */
+const DEPLOY_JOB_PROTOCOL_LINE = /^[ \t]+["']?pb:deploy-job:protocol["']?:/;
 
 /** A tree's build inputs: top-level files only, minus {@link TOOLCHAIN_INPUT_EXCLUDED}. */
 export function toolchainInputsOf(tree: FileMap): Map<string, string> {
@@ -69,6 +71,9 @@ function normalised(dir: ToolchainDir, file: string, text: string): string[] {
         skip = false;
       }
       if (GENERATED_SPEC_KEY.test(line)) { skip = true; continue; }
+      // cdk-synth metadata pb:deploy-job:protocol: what the image prints, not a
+      // build input (build-plugin-images.sh refuses a value the image does not).
+      if (DEPLOY_JOB_PROTOCOL_LINE.test(line)) continue;
     }
     if (mode === 'synth-dockerfile' && /^ARG BOOTSTRAP_IMAGE=/.test(line)) { out.push('ARG BOOTSTRAP_IMAGE=<generated>'); continue; }
     out.push(line);

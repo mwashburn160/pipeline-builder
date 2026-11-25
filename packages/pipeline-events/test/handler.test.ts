@@ -207,6 +207,15 @@ describe('pipeline-events handler', () => {
     expect(JSON.stringify(body)).not.toContain('arn:aws:codepipeline');
   });
 
+  // The region is what a FIRST-EVENT self-registration records for a pipeline
+  // the platform has no registry row for (trigger/cancel address it there).
+  it('forwards the region the event came from (the EventBridge envelope\'s)', async () => {
+    await handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT, { ...MOCK_CODEPIPELINE_EVENT, region: 'eu-west-1' }]));
+    const { events } = lastEventsBody();
+    expect(events[0].region).toBe('us-east-1');
+    expect(events[1].region).toBe('eu-west-1');
+  });
+
   it('forwards the EventBridge event id and SQS messageId per event, capped at 128', async () => {
     await handler(createSQSEvent([
       { ...MOCK_CODEPIPELINE_EVENT, id: 'evt-0b1c2d3e' },

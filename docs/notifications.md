@@ -364,8 +364,8 @@ document in, org-authored rules are stored and previewable but never evaluated.
 
 ## Organization: plugin security notifications
 
-**Dashboard → Settings → Organization → "Plugin security notifications"**
-(`/dashboard/settings?tab=organization`).
+**Dashboard → Settings → Organization → Pipelines → "Plugin security notifications"**
+(`/dashboard/settings?tab=organization&section=pipelines#plugin-security`).
 
 The card is visible with `org_settings:write` **or** `plugins:read`; the write controls
 and **Send test** need `org_settings:write`. The routes match: `GET` is `plugins:read`,
@@ -584,7 +584,7 @@ For an org admin, once the operator says email works:
 
 1. **Observability → Alert destinations**: add a Slack or webhook destination,
    press *Send test*, and confirm it arrived before relying on it.
-2. **Settings → Organization → Plugin security notifications**: choose
+2. **Settings → Organization → Pipelines → Plugin security notifications**: choose
    recipients, add the security team's external address, confirm it from the
    link, then *Send test*.
 3. **Compliance → Settings → Notifications**: turn on email if you want it — it is

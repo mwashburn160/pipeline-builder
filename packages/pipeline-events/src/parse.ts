@@ -18,6 +18,10 @@ export interface ParsedEvent {
    */
   orgId: string | null;
   pipelineId: string;
+  /** The AWS region the event came from (the EventBridge envelope's). Not
+   *  stored on the event: it is the region a first-event self-registration
+   *  records for a pipeline the platform has no registry row for. */
+  region?: string;
   eventSource: string;
   eventType: string;
   status: string;
@@ -323,6 +327,7 @@ export async function parseRecord(record: SQSRecord): Promise<ParsedEvent | null
   return {
     orgId,
     pipelineId,
+    ...(event.region && { region: event.region }),
     eventSource,
     eventType,
     status: state,

@@ -953,7 +953,7 @@ running while it is on.
 
 ### Rotate an org's key (org admins)
 
-Org admins do this themselves, in **Settings → Organization → Pipeline runners →
+Org admins do this themselves, in **Settings → Organization → Pipelines → Pipeline runners →
 Signing key**, or with `pipeline-manager runner signing-key rotate`. Every key
 write needs `org_settings:write`, an MFA-grade session and a step-up, and is
 limited to 5 per org per hour. The limit fails closed: while its Redis store is
@@ -1110,6 +1110,36 @@ wrong-org blob, or KMS refusing the ciphertext or the grant) is
 3. If it is gone, revoke the org's key from the system org. A fresh key is
    created active; the org's runners pick it up from their JWKS, so nothing
    changes in the customer's account.
+
+### Deploy grants and sessions
+
+A [deploy through a runner](../aws-deployment.md#deploying-a-pipeline-through-a-runner) uses two
+platform credentials, neither of which is rotated, because neither lives long enough to need it:
+
+| Credential | Lifetime | Where it is |
+|---|---|---|
+| Deploy grant (`pb_dg_…`, 32 random bytes) | **Single use**, and expires after the deploy project's queue timeout (30 min) plus a 15-minute provisioning margin, never less than the 10-minute delivery lifetime. | Minted when the deploy is queued; the platform stores its sha256 and a copy encrypted with the org's secret key (for re-signing on redelivery), wiped at the exchange or at any terminal status. It rides inside the signed request; the runner Lambda KMS-encrypts it (key `DeployGrantKey` in the runner stack, context `{runnerId, purpose: deploy-grant}`) before `StartBuild`, so the account only ever sees ciphertext. The job decrypts it, exchanges it and scrubs it from its environment. |
+| Deploy session (`pb_ds_…`) | Until the deploy's deadline (`RUNNER_DEPLOY_DEADLINE_MINUTES`), and **revoked at any terminal status** (its hash is nulled). | Returned once by the exchange (`Cache-Control: no-store`, body only). It reaches only that deploy's facade under `/api/pipelines/runner/deploys/:requestId/…` (the path id must match). |
+
+Nothing to rotate: a leaked grant is useless once exchanged or expired, and a leaked session dies with its deploy.
+An exchange after expiry is refused as `DEPLOY_GRANT_EXPIRED` (`reason="expired"`), which is a slow queue, not an attack.
+
+**Responding to `RunnerDeployGrantReuse`** (critical: a grant was presented again after its exchange,
+`pipeline_runner_deploy_grant_rejections_total{reason="reused"}`):
+
+1. Find the deploy: the `pipeline.deploy.grant_reuse` audit event names the pipeline, request and runner (system actor).
+   The original exchange already succeeded, so the deploy itself ran under its own session.
+2. Cancel the deploy if it is still running (pipeline page → **Cancel deploy**, or `POST /pipelines/:id/deploys/:requestId/cancel`):
+   that revokes its session. A finished deploy's session is already revoked.
+3. In the runner's account, treat the replay as a sign that something other than the job decrypted the grant:
+   check CloudTrail for `kms:Decrypt` on `DeployGrantKey` by any principal other than the stack's DeployRole
+   (the key policy allows only it), for edits to the key policy, the DeployRole or the DeployProject, and for
+   `StartBuild` calls not made by the RunnerRole.
+4. If the account is suspect, turn deploys off for that runner (re-run `pipeline-manager infra setup-runner` without
+   `--enable-deploy`) or revoke it from **Settings → Organization → Pipelines → Pipeline runners**, and review the
+   stacks its deploys created (`pb.pipeline-id` tags).
+5. A job that ran twice (a CodeBuild retry) also triggers it: its second exchange is refused and it fails
+   `DEPLOY_GRANT_REJECTED` without deploying. Confirm with the build history of `pipeline-builder-runner-deploy-<runnerId>`.
 
 ### Accepted runner URL hosts
 

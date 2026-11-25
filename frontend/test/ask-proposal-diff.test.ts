@@ -256,3 +256,10 @@ describe('requiredPermissions', () => {
     }).sort()).toEqual(['pipelines:read', 'pipelines:write']);
   });
 });
+
+describe('org-settings-edit link', () => {
+  it('opens the Organization tab of settings, not the Profile tab', async () => {
+    const { PROPOSAL_META } = await import('../src/components/ask/proposal');
+    expect(PROPOSAL_META['org-settings-edit'].href).toBe('/dashboard/settings?tab=organization');
+  });
+});

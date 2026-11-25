@@ -9,6 +9,7 @@ import { useQuery } from '@/hooks/useQuery';
 import api from '@/lib/api';
 import { queries } from '@/lib/api-cache';
 import { hasPermission } from '@/lib/auth-helpers';
+import { orgSettingsHref } from '@/lib/org-settings-sections';
 import { formatDate } from '@/lib/format';
 import {
   PASSKEY_ENROLMENT_HREF, SECURITY_HREF, SESSIONS_HREF, TOTP_ENROLMENT_HREF,
@@ -16,7 +17,7 @@ import {
 import type { User } from '@/types';
 
 /** Where the org-level controls live. */
-export const ORG_MFA_SETTINGS_HREF = '/dashboard/settings?tab=organization';
+export const ORG_MFA_SETTINGS_HREF = orgSettingsHref('security');
 export const ORG_SSO_SETTINGS_HREF = '/dashboard/settings/sso';
 const FACTORS_HREF = `${SECURITY_HREF}?tab=factors`;
 const PASSWORD_HREF = `${FACTORS_HREF}#password`;

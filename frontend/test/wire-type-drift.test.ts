@@ -57,6 +57,7 @@ const REGISTERED: ReadonlyArray<readonly [string, string, string]> = [
   // Team benchmarking's row shapes (pipeline-data, not importable).
   ['BenchmarkCell', 'frontend/src/lib/api/domains/reporting-benchmark.ts', 'packages/pipeline-data/src/api/reporting/team-benchmark.ts'],
   ['BenchmarkSuccess', 'frontend/src/lib/api/domains/reporting-benchmark.ts', 'packages/pipeline-data/src/api/reporting/team-benchmark.ts'],
+  // Why a purge keeps a pipeline's stack (purge 200 `stackRetained.reason`, 409 `details.stackRetainedReason`; api/pipeline, not importable).
   ['TeamBenchmarkRow', 'frontend/src/lib/api/domains/reporting-benchmark.ts', 'packages/pipeline-data/src/api/reporting/team-benchmark.ts'],
   // The crossover verdict. Registered rather
   // than shared because it is served by api/billing, which the client cannot

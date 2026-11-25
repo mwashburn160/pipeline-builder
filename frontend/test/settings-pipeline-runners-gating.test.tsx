@@ -4,7 +4,8 @@
 /**
  * Settings → Organization mounts the Pipeline runners panel only for holders of
  * `org_settings:write` (never even reading it otherwise), and its fragment
- * (`#pipeline-runners`, the pipeline page's link) opens the Organization tab.
+ * (`#pipeline-runners`, the pipeline page's link) opens the Organization tab
+ * on its Pipelines section.
  * Runners are a core capability: no feature flag gates the panel, and it
  * renders nothing only while runners are unavailable on the deployment.
  */
@@ -87,7 +88,7 @@ describe('Settings → Organization → Pipeline runners', () => {
       user: { id: 'u2', organizationId: 'org-1', username: 'dev', email: 'd@acme.com', isEmailVerified: true, permissions: ['pipelines:read'] },
       can: (p: string) => p === 'pipelines:read',
     });
-    query = { tab: 'organization' };
+    query = { tab: 'organization', section: 'pipelines' };
     render(<SettingsPage />);
     await waitFor(() => expect(screen.queryByText('Pipeline runners')).not.toBeInTheDocument());
     expect(getPipelineRunners).not.toHaveBeenCalled();
@@ -96,7 +97,7 @@ describe('Settings → Organization → Pipeline runners', () => {
   it('is shown to an admin whose org has no features at all (no cross_account_runners gate)', async () => {
     admin();
     mockFeatures = new Set();
-    query = { tab: 'organization' };
+    query = { tab: 'organization', section: 'pipelines' };
     const { container } = render(<SettingsPage />);
     expect(await screen.findByText('Pipeline runners')).toBeInTheDocument();
     expect(container.querySelector(`#${PIPELINE_RUNNERS_ANCHOR}`)).not.toBeNull();
@@ -105,7 +106,7 @@ describe('Settings → Organization → Pipeline runners', () => {
 
   it('renders nothing while runners are unavailable (paused)', async () => {
     admin();
-    query = { tab: 'organization' };
+    query = { tab: 'organization', section: 'pipelines' };
     getPipelineRunners.mockResolvedValue({ success: true, data: { available: false, unavailableReason: 'paused', platformEgressIps: null, own: [], inherited: [], signingKey: null } });
     render(<SettingsPage />);
     await waitFor(() => expect(getPipelineRunners).toHaveBeenCalled());

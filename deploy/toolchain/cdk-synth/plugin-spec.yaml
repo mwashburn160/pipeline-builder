@@ -21,6 +21,7 @@ metadata:
   aws:cdk:pipelines:codepipeline:dockerenabledforselfmutation: true
   aws:cdk:pipelines:codepipeline:publishassetsinparallel: true
   aws:cdk:codebuild:buildenvironment:privileged: true
+  pb:deploy-job:protocol: 1 # = `pipeline-manager pipeline deploy-job --protocol` in this image; build-gated, not in sourceDigest (README)
 dockerfile: Dockerfile
 installCommands:
   - test -d cdk.out || mkdir -p cdk.out

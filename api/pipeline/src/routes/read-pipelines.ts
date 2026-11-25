@@ -16,13 +16,31 @@ import {
   PIPELINE_REMEDIATION_ELECTIONS,
   requirePermission,
 } from '@pipeline-builder/api-core';
+import type { DeletedPipelineDeploymentDto } from '@pipeline-builder/api-core/pipeline-runners';
 import { withRoute } from '@pipeline-builder/api-server';
 import { CoreConstants, resolvePipelineProps } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
+import { undeployRunnerFor } from '../runners/deploys.js';
+import { runnerDeps } from '../runners/deps.js';
 import { pipelineRegistryService } from '../services/pipeline-registry-service.js';
 import { pipelineService } from '../services/pipeline-service.js';
 
 // apiCalls is metered + checked by the '/pipelines' prefix mount (app-routes.ts).
+/** `deployment` of a Recently deleted row ({@link DeletedPipelineDeploymentDto}); null when it was never registered. */
+export async function deletedPipelineDeployment(pipelineId: string): Promise<DeletedPipelineDeploymentDto | null> {
+  const deployment = await pipelineRegistryService.deploymentOf(pipelineId);
+  if (!deployment) return null;
+  const deps = runnerDeps();
+  const runner = deployment.runnerId ? await deps.store.getRunner(deployment.runnerId).catch(() => null) : null;
+  const capable = await undeployRunnerFor(deps, deployment.runnerId).catch(() => null);
+  return {
+    stackName: deployment.stackName,
+    region: deployment.region,
+    runner: runner ? { id: runner.id, label: runner.label, capabilities: runner.capabilities ?? [] } : null,
+    stackRemovedOnPurge: !!capable && !!deployment.stackName && !!deployment.region,
+  };
+}
+
 export function createReadPipelineRoutes(): Router {
   const router: Router = Router();
 
@@ -100,7 +118,10 @@ export function createReadPipelineRoutes(): Router {
 
     ctx.log('COMPLETED', 'Listed deleted pipelines', { count: deleted.length });
 
-    return sendSuccess(res, 200, { pipelines: deleted.map(r => normalizeArrayFields(r, ['keywords'])) });
+    // What a purge does to each tombstone's stack (the delete/purge notice):
+    // removed through its linked deploy-capable runner, or left in the account.
+    const deployments = await Promise.all(deleted.map((r) => deletedPipelineDeployment(r.id)));
+    return sendSuccess(res, 200, { pipelines: deleted.map((r, i) => ({ ...normalizeArrayFields(r, ['keywords']), deployment: deployments[i] ?? null })) });
   }));
 
   // GET /pipelines/:id — single pipeline by UUID

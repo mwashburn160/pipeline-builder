@@ -56,6 +56,25 @@
   },
   {
     "method": "POST",
+    "path": "/internal/plugins/orgs/:orgId/lookup",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "dynamicAuthz": [],
+    "internalCallers": [
+      "pipeline"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "POST",
     "path": "/internal/plugins/orgs/:orgId/purge",
     "auth": true,
     "permissions": [],

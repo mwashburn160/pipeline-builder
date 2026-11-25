@@ -24,7 +24,7 @@
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import {
   isRunnerErrorCode, isRunnerKeyServiceUnavailable, runnerErrorStatus, type PendingRunRequestStatus, type RunnerApiErrorCode, type RunnerErrorCode, type RunnerLinkDetail, type RunnerLinkStatus, type RunnerReplyErrorCode,
-  type RunnersUnavailableReason,
+  type RunnersUnavailableReason, type DeployGrantRejectionReason, type DeployTargetReason,
 } from '@pipeline-builder/api-core/pipeline-runners';
 import { deliverPush } from './delivery.js';
 import type { RunnerDeps } from './deps.js';
@@ -47,7 +47,21 @@ export class RunnerRouteError extends Error {
   constructor(
     readonly code: RunnerRouteCode,
     message: string,
-    readonly details?: { runnerLabel?: string; lastDeliveryAt?: string | null; runnersChecked?: string[]; reason?: RunnersUnavailableReason },
+    readonly details?: {
+      runnerLabel?: string;
+      lastDeliveryAt?: string | null;
+      runnersChecked?: string[];
+      reason?: RunnersUnavailableReason | DeployTargetReason | DeployGrantRejectionReason;
+      /** DEPLOY_IN_PROGRESS: the pipeline's active deploy. */
+      requestId?: string;
+      /** DEPLOY_RUNNER_REQUIRED: the runners that can deploy it (labels and ids only). */
+      runners?: Array<{ id: string; label: string; regions: string[] }>;
+      /** DEPLOY_REGION_NOT_ALLOWED: the runner's allowed regions. */
+      regions?: string[];
+      /** TOOLCHAIN_TOO_OLD_FOR_DEPLOY: the pinned release, and the protocol it ships (null: none). */
+      toolchainRelease?: string;
+      deployJobProtocol?: number | null;
+    },
   ) {
     super(message);
     this.name = 'RunnerRouteError';

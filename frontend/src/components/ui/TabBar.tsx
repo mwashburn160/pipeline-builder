@@ -31,6 +31,13 @@ interface TabBarProps {
   idPrefix?: string;
   /** Accessible name for the tab list (e.g. "Report sections"). */
   ariaLabel?: string;
+  /**
+   * `underline` (default): the page-level tab bar. `pill`: a compact, wrapping
+   * row of rounded tabs for a SECOND level under an underline bar (the
+   * Organization settings sections), so two stacked bars don't read as one.
+   * State tabs only; same tablist semantics and keyboard model either way.
+   */
+  variant?: 'underline' | 'pill';
 }
 
 /** DOM id of a state tab, for a given {@link TabBarProps.idPrefix}. */
@@ -70,7 +77,7 @@ export function tabPanelProps(idPrefix: string, activeId: string) {
  * The one tab bar: the Builds tabs (`BuildsTabs`) delegate here too, so the
  * markup lives in one place.
  */
-export function TabBar({ items, activeId, onSelect, disabledIds, className = '', idPrefix, ariaLabel }: TabBarProps) {
+export function TabBar({ items, activeId, onSelect, disabledIds, className = '', idPrefix, ariaLabel, variant = 'underline' }: TabBarProps) {
   const isNav = items.some((item) => item.href);
   const generatedPrefix = useId();
   const prefix = idPrefix ?? generatedPrefix;
@@ -81,6 +88,13 @@ export function TabBar({ items, activeId, onSelect, disabledIds, className = '',
   // The single tab stop: the selected tab, or the first usable one if the
   // selection isn't among the items (so the list is never unreachable).
   const tabStopId = enabled.some((item) => item.id === activeId) ? activeId : enabled[0]?.id;
+
+  const pillClassFor = (active: boolean, disabled: boolean) =>
+    `px-3 py-1.5 rounded-full text-sm font-medium border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--pb-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
+      active
+        ? 'bg-brand-solid text-white border-brand'
+        : 'bg-surface text-fg-muted border-default hover:bg-surface-muted hover:text-fg'
+    }${disabled ? ' opacity-50 cursor-not-allowed' : ''}`;
 
   const classFor = (active: boolean, disabled: boolean) =>
     // Same missing-focus-ring problem as IconButton: tabs were keyboard
@@ -134,9 +148,10 @@ export function TabBar({ items, activeId, onSelect, disabledIds, className = '',
     );
   }
 
+  const pill = variant === 'pill';
   return (
-    <div className={`border-b border-default mb-6 ${className}`}>
-      <div role="tablist" tabIndex={-1} aria-label={ariaLabel} aria-orientation="horizontal" className="-mb-px flex space-x-6" onKeyDown={onKeyDown}>
+    <div className={pill ? className : `border-b border-default mb-6 ${className}`}>
+      <div role="tablist" tabIndex={-1} aria-label={ariaLabel} aria-orientation="horizontal" className={pill ? 'flex flex-wrap gap-2' : '-mb-px flex space-x-6'} onKeyDown={onKeyDown}>
         {items.map((item) => {
           const active = item.id === activeId;
           const disabled = isDisabled(item.id);
@@ -156,7 +171,7 @@ export function TabBar({ items, activeId, onSelect, disabledIds, className = '',
               data-tab-id={item.id}
               disabled={disabled}
               onClick={() => onSelect?.(item.id)}
-              className={classFor(active, disabled)}
+              className={pill ? pillClassFor(active, disabled) : classFor(active, disabled)}
             >
               {item.label}
             </button>

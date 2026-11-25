@@ -17,14 +17,16 @@ export type PipelineConfig = Pick<Pipeline, 'pipelineName' | 'project' | 'organi
 
 /** Modal to register (upsert) a deployment for one of the org's pipelines. */
 export function RegisterDeploymentModal({
-  configs, onClose, onRegistered,
+  configs, onClose, onRegistered, initialPipelineId,
 }: {
   configs: PipelineConfig[];
   onClose: () => void;
   onRegistered: (row: PipelineDeployment) => void;
+  /** The pipeline the form opens on (the pipeline page's Register deployment link). */
+  initialPipelineId?: string;
 }) {
   const uid = useId();
-  const [pipelineId, setPipelineId] = useState('');
+  const [pipelineId, setPipelineId] = useState(initialPipelineId ?? '');
   const [region, setRegion] = useState('');
   const [stackName, setStackName] = useState('');
 

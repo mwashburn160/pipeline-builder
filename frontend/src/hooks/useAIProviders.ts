@@ -6,6 +6,7 @@ import { isKeylessProviderId } from '@pipeline-builder/api-core/ai-catalog';
 import {
   type AIProviderInfo,
   ASK_AGENT_PROVIDER_ID,
+  LOCAL_MODEL_NAME,
   OPENAI_COMPATIBLE_PROVIDER_ID,
   ORG_PROVIDER_MODELS,
   AI_PROVIDER_NAMES,
@@ -34,7 +35,7 @@ export interface UseAIProvidersResult {
   setSelectedModel: (id: string) => void;
   /** Models available for the currently selected provider. */
   currentModels: AIProviderInfo['models'];
-  /** Source of the currently selected provider ('server', 'org', 'none', or 'agent'). */
+  /** Source of the currently selected provider ('server', 'org', 'none', or 'local'). */
   currentSource: AIProviderInfo['source'] | undefined;
   /** Custom API key override value. */
   customApiKey: string;
@@ -55,12 +56,13 @@ export interface UseAIProvidersResult {
    */
   hasConfiguredProvider: boolean;
   /**
-   * Set when `probeAskAgent` found the Ask agent unable to answer: a sentence for
-   * the user saying so. The default selection then skipped the Ask agent (see
-   * {@link pickDefaultProviderWithoutAskAgent}); it stays in the list so the user
-   * can still choose it. Null when the check passed or was not asked for.
+   * Set when the "Local model" entry can serve on NEITHER route — the Ask agent
+   * failed its availability check and no local provider is configured to go to
+   * directly: a sentence for the user saying so. The entry is then listed as
+   * unavailable and the default moved to the next configured provider. Null
+   * otherwise (including when the direct route quietly took over).
    */
-  askAgentUnavailable: string | null;
+  localModelUnavailable: string | null;
   /**
    * True when the organization's administrators switched AI features off
    * (`aiEnabled: false` on the org AI config). Every AI entry point then refuses
@@ -73,30 +75,54 @@ export interface UseAIProvidersResult {
 /** Options for {@link useAIProviders}. */
 export interface UseAIProvidersOptions {
   /**
-   * Offer "Ask agent" as the first — and therefore default — provider: drafts
-   * are routed through the Ask agent (see `streamAgentDraft`). Its models are
-   * the ask-agent service's server-configured ones. Omitted when the ask-agent service
-   * reports no configured provider or is unreachable, so the picker falls back
-   * to the direct providers.
+   * Lead with the single "Local model" entry — the self-hosted model — as the
+   * default provider (see {@link mergeAIProviders}). When the ask-agent service
+   * offers a self-hosted (openai-compatible) model, it is checked live
+   * (`GET /ask-agent/availability?probe=true`): answering, the entry routes
+   * drafts through the Ask agent (`streamAgentDraft`, doc-grounded); not
+   * answering, straight to the local OpenAI-compatible provider when one is
+   * configured. The separate "Ask agent" / local-provider entries never appear.
    */
   askAgent?: boolean;
-  /**
-   * Before defaulting to the Ask agent, check that its model is actually
-   * answering (`GET /ask-agent/availability?probe=true`). When it is not, the
-   * default falls to the local (OpenAI-compatible) provider instead — see
-   * {@link pickDefaultProviderWithoutAskAgent} — and `askAgentUnavailable`
-   * carries the reason. Only meaningful with `askAgent`.
-   */
-  probeAskAgent?: boolean;
 }
 
 type ProvidersResponse = { data?: { providers?: Array<{ id: string; name: string; models: Array<{ id: string; name: string }> }> } };
 
-/** Build the synthetic "Ask agent" entry from the ask-agent service's providers. */
-function askAgentEntry(res: ProvidersResponse): AIProviderInfo | null {
-  const models = (res.data?.providers ?? []).flatMap((p) =>
-    p.models.map((m) => ({ id: askAgentModelId(p.id, m.id), name: `${m.name} (${p.name})` })));
-  return models.length > 0 ? { id: ASK_AGENT_PROVIDER_ID, name: 'Ask agent', source: 'agent', models } : null;
+/**
+ * The Ask agent's SELF-HOSTED models, as composite `provider|model` ids (see
+ * `askAgentModelId`). Only the openai-compatible provider counts: "Local model"
+ * must only ever mean the self-hosted model, so an agent configured with a
+ * cloud provider (Bedrock, Anthropic, …) contributes nothing here.
+ */
+function askAgentLocalModels(res: ProvidersResponse | null): AIProviderInfo['models'] {
+  return (res?.data?.providers ?? [])
+    .filter((p) => p.id === OPENAI_COMPATIBLE_PROVIDER_ID)
+    .flatMap((p) => p.models.map((m) => ({ id: askAgentModelId(p.id, m.id), name: m.name })));
+}
+
+/** What {@link mergeAIProviders} needs to build the "Local model" entry. */
+export interface LocalModelSources {
+  /** The ask-agent service's providers, or null when not offered / unreachable. */
+  agent: ProvidersResponse | null;
+  /** Whether the Ask agent's self-hosted model passed its live availability check. */
+  agentAnswering: boolean;
+}
+
+/**
+ * The single "Local model" entry, or null when there is nothing self-hosted to
+ * offer. Routes via the Ask agent when the agent serves the self-hosted model
+ * and is answering; otherwise straight to the local provider (`local`, already
+ * merged) when configured; otherwise — the agent serves the self-hosted model
+ * but cannot answer, and there is no direct route — it is listed as
+ * unavailable on the agent route. An agent on a cloud provider never counts.
+ */
+function localModelEntry(sources: LocalModelSources, local: AIProviderInfo | undefined): AIProviderInfo | null {
+  const agentModels = askAgentLocalModels(sources.agent);
+  const base = { name: LOCAL_MODEL_NAME, source: 'local' as const };
+  if (agentModels.length > 0 && sources.agentAnswering) return { ...base, id: ASK_AGENT_PROVIDER_ID, models: agentModels };
+  if (local && local.source !== 'none' && local.models.length > 0) return { ...base, id: OPENAI_COMPATIBLE_PROVIDER_ID, models: local.models };
+  if (agentModels.length > 0) return { ...base, id: ASK_AGENT_PROVIDER_ID, models: agentModels, unavailable: true };
+  return null;
 }
 
 type OrgAIConfigResponse = Awaited<ReturnType<typeof api.getOrgAIConfig>>;
@@ -104,9 +130,13 @@ type OrgAIConfigResponse = Awaited<ReturnType<typeof api.getOrgAIConfig>>;
 /**
  * Merge the provider sources into the picker's list: org-configured first, then
  * server-configured, then every other known provider as unconfigured (needs a
- * custom key) — configured ones first, then alphabetical. "Ask agent" (when
- * offered) leads the list and so becomes the default selection. Each source is
+ * custom key) — configured ones first, then alphabetical. Each source is
  * `null` when it wasn't asked for or its request failed.
+ *
+ * With `localModel` (the create dialogs), the Ask agent and the local
+ * OpenAI-compatible provider are folded into ONE "Local model" entry that leads
+ * the list and so becomes the default selection — see {@link localModelEntry}
+ * for which route it takes. Without it (the Ask panel) the list is left as is.
  *
  * The ORG key wins over the platform's for the same provider id, because that is
  * what the backend does (precedence: the caller's own key > the org's key > the
@@ -116,7 +146,7 @@ type OrgAIConfigResponse = Awaited<ReturnType<typeof api.getOrgAIConfig>>;
 export function mergeAIProviders(
   server: ProvidersResponse | null,
   org: OrgAIConfigResponse | null,
-  ask: ProvidersResponse | null,
+  localModel?: LocalModelSources,
 ): AIProviderInfo[] {
   const serverProviders: AIProviderInfo[] = (server?.data?.providers ?? []).map((p) => ({ ...p, source: 'server' as const }));
 
@@ -146,9 +176,10 @@ export function mergeAIProviders(
     return a.name.localeCompare(b.name);
   });
 
-  const agent = ask ? askAgentEntry(ask) : null;
-  if (agent) merged.unshift(agent);
-  return merged;
+  if (!localModel) return merged;
+  const entry = localModelEntry(localModel, merged.find((p) => p.id === OPENAI_COMPATIBLE_PROVIDER_ID));
+  const rest = merged.filter((p) => p.id !== OPENAI_COMPATIBLE_PROVIDER_ID);
+  return entry ? [entry, ...rest] : rest;
 }
 
 /**
@@ -182,27 +213,12 @@ export function mergeAIProviders(
  * invisible in the UI, because something is always selected either way.
  */
 export function pickDefaultProvider(merged: AIProviderInfo[]): AIProviderInfo | undefined {
-  return merged.find((p) => p.source !== 'none' && p.models.length > 0) ?? merged[0];
+  return merged.find((p) => p.source !== 'none' && !p.unavailable && p.models.length > 0)
+    ?? merged.find((p) => !p.unavailable);
 }
 
-/**
- * The default when the Ask agent was checked and is NOT answering: the local
- * (OpenAI-compatible) provider when it is configured, otherwise the usual
- * default among the remaining providers. The Ask agent stays in the list — the
- * user can still pick it — it just is not pre-selected to fail.
- *
- * Note that on deployments where the local provider points at the same
- * `ask-model` server, it will be down too; the caller shows the notice so the
- * user is told before clicking Generate either way.
- */
-export function pickDefaultProviderWithoutAskAgent(merged: AIProviderInfo[]): AIProviderInfo | undefined {
-  const rest = merged.filter((p) => p.id !== ASK_AGENT_PROVIDER_ID);
-  return rest.find((p) => p.id === OPENAI_COMPATIBLE_PROVIDER_ID && p.source !== 'none' && p.models.length > 0)
-    ?? pickDefaultProvider(rest);
-}
-
-/** Shown when the availability check itself could not be completed. */
-const ASK_AGENT_CHECK_FAILED = 'Could not confirm the Ask assistant is available, so another provider was selected.';
+/** Shown when the availability check itself could not be completed and nothing else can serve the local model. */
+const LOCAL_MODEL_CHECK_FAILED = 'Could not confirm the local model is available, so another provider was selected.';
 
 export function useAIProviders(
   fetchServerProviders: () => Promise<ProvidersResponse>,
@@ -218,15 +234,13 @@ export function useAIProviders(
   // stops an outage from masquerading as "no providers configured".
   const { data, loading, error: loadError } = useFetch(async () => {
     const askProviders = options.askAgent ? api.getAskProviders() : Promise.resolve(null);
-    // The availability check needs the provider the Ask agent's DEFAULT model
-    // will call (its first model — see askAgentEntry), so it chains on the
-    // provider list while the other two sources load in parallel.
-    const askCheck = options.askAgent && options.probeAskAgent
-      ? askProviders.then((res) => {
-        const provider = res?.data?.providers?.find((p) => p.models.length > 0)?.id;
-        return provider ? api.getAskAvailability({ probe: true, provider }) : null;
-      })
-      : Promise.resolve(null);
+    // The availability check is of the agent's SELF-HOSTED model — the only one
+    // "Local model" may route to (see askAgentLocalModels) — so it chains on the
+    // provider list while the other two sources load in parallel. An agent with
+    // no self-hosted model is never checked.
+    const askCheck = askProviders.then((res) => (askAgentLocalModels(res).length > 0
+      ? api.getAskAvailability({ probe: true, provider: OPENAI_COMPATIBLE_PROVIDER_ID })
+      : null));
     const [server, org, ask, check] = await Promise.allSettled([
       fetchServerProviders(),
       api.getOrgAIConfig(),
@@ -234,28 +248,29 @@ export function useAIProviders(
       askCheck,
     ]);
     const value = <T,>(r: PromiseSettledResult<T>): T | null => (r.status === 'fulfilled' ? r.value : null);
-    const providers = mergeAIProviders(value(server), value(org), value(ask));
+    // A check that could not complete counts as "not answering": the point is
+    // not to route through an agent that may only fail.
+    const availability = value(check)?.data;
+    const providers = mergeAIProviders(value(server), value(org), options.askAgent
+      ? { agent: value(ask), agentAnswering: availability?.available === true }
+      : undefined);
 
-    // Only judged when the Ask agent is actually offered. A check that could
-    // not complete counts as "not confirmed": the point is not to pre-select a
-    // provider that may only fail.
-    let askAgentUnavailable: string | null = null;
-    if (options.probeAskAgent && providers.some((p) => p.id === ASK_AGENT_PROVIDER_ID)) {
-      const availability = value(check)?.data;
-      if (!availability) askAgentUnavailable = ASK_AGENT_CHECK_FAILED;
-      else if (!availability.available) askAgentUnavailable = availability.message;
-    }
+    // Said only when NEITHER route can serve — the direct route taking over is
+    // not worth a warning.
+    const localModelUnavailable = providers.some((p) => p.source === 'local' && p.unavailable)
+      ? (availability?.available === false ? `${availability.message} Another provider was selected instead.` : LOCAL_MODEL_CHECK_FAILED)
+      : null;
     return {
       providers,
-      askAgentUnavailable,
+      localModelUnavailable,
       degraded: [server, org, ask].some((r) => r.status === 'rejected'),
       // Explicitly `false` only: an unreadable org config must not lock the UI —
       // the server still refuses a disabled org, and says why.
       aiDisabled: value(org)?.data?.aiEnabled === false,
     };
   }, [], {
-    onSuccess: ({ providers: merged, askAgentUnavailable }) => {
-      const first = askAgentUnavailable ? pickDefaultProviderWithoutAskAgent(merged) : pickDefaultProvider(merged);
+    onSuccess: ({ providers: merged }) => {
+      const first = pickDefaultProvider(merged);
       if (!first) return;
       setSelectedProviderState(first.id);
       if (first.models.length > 0) setSelectedModel(first.models[0].id);
@@ -283,6 +298,12 @@ export function useAIProviders(
     if (provider?.source === 'none') {
       setShowKeyOverride(true);
     }
+    // Neither Local model route takes a per-request key: drop one typed for
+    // another provider so the direct route never forwards it.
+    if (provider?.source === 'local') {
+      setCustomApiKey('');
+      setShowKeyOverride(false);
+    }
   };
 
   const currentModels = providers.find((p) => p.id === selectedProvider)?.models ?? [];
@@ -290,7 +311,7 @@ export function useAIProviders(
 
   // `source` is the only honest signal: the catalog pads the list with every
   // known provider at `source: 'none'`, so length proves nothing.
-  const hasConfiguredProvider = providers.some((p) => p.source !== 'none' && p.models.length > 0);
+  const hasConfiguredProvider = providers.some((p) => p.source !== 'none' && !p.unavailable && p.models.length > 0);
 
   return {
     providers,
@@ -298,7 +319,7 @@ export function useAIProviders(
     error,
     hasConfiguredProvider,
     aiDisabled: data?.aiDisabled ?? false,
-    askAgentUnavailable: data?.askAgentUnavailable ?? null,
+    localModelUnavailable: data?.localModelUnavailable ?? null,
     selectedProvider,
     selectedModel,
     setSelectedProvider,

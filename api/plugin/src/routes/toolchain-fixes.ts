@@ -18,8 +18,8 @@
  *   GET  /plugins/toolchain-fixes/:id/export    the deploy/toolchain/** spec patch (text/x-diff) for the release workflow
  *
  * Approval never changes an org's toolchain default or the platform default:
- * orgs move through their own default (Settings → Organization → Pipeline
- * toolchain), the platform default through the console's promotion.
+ * orgs move through their own default (Settings → Organization → Pipelines →
+ * Pipeline toolchain), the platform default through the console's promotion.
  */
 
 import {

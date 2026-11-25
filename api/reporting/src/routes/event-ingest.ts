@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { countIngestRejection, ingestKeyId, recordIngestBatch, recordIngestRejection } from '../helpers/ingest-audit.js';
 import { resolveOrgRollup } from '../helpers/report-helpers.js';
 import { requireIngestScope } from '../middleware/require-ingest-scope.js';
+import { registerFirstEventPipelines, type FirstEventCandidate } from '../services/first-event-registration.js';
 
 /**
  * Status values accepted per-eventSource. AWS pipelines use uppercase
@@ -33,6 +34,10 @@ const baseIngestFields = {
   // Stable pipeline id the events Lambda read from the pipeline's
   // `pb.pipeline-id` tag (= the platform pipelineId). The registry join key.
   pipelineId: z.string().min(1),
+  // The AWS region the event came from (the EventBridge envelope's). Not stored
+  // on the event row: it is what a first-event self-registration records as the
+  // pipeline's region (trigger/cancel address the CodePipeline there).
+  region: z.string().min(1).max(30).optional(),
   eventType: z.enum(['PIPELINE', 'STAGE', 'ACTION', 'BUILD']),
   // The columns' own bounds (VARCHAR(255)): past them the INSERT failed as a 500
   // the forwarder retries forever, rather than a 400 it can dead-letter.
@@ -158,6 +163,58 @@ function foldCompute<E extends { computeType?: unknown; detail?: Record<string, 
 function foldBuildPhases<E extends { buildPhases?: unknown; detail?: Record<string, unknown> }>(event: E): Omit<E, 'buildPhases'> {
   const { buildPhases, ...rest } = event;
   return buildPhases === undefined ? rest : { ...rest, detail: { ...(rest.detail ?? {}), buildPhases } };
+}
+
+/** The ingest's region is a registration hint, never part of the stored event. */
+function dropRegion<E extends { region?: unknown }>(event: E): Omit<E, 'region'> {
+  const { region: _region, ...rest } = event;
+  return rest;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The pipelines a skipped batch may self-register: unregistered ids that a
+ * `codepipeline` event names (the events Lambda only forwards those after
+ * reading the pipeline's `pb.pipeline-id` tag) and that are pipeline UUIDs,
+ * once each, with the first region any of its events carried. None for a
+ * cross-tenant caller or one with no org: self-registration is confined to
+ * the orgs the events were authenticated for.
+ */
+function firstEventCandidates(
+  events: ReadonlyArray<{ pipelineId: string; eventSource: string; region?: string }>,
+  unregisteredIds: readonly string[],
+  caller: IngestCaller,
+): FirstEventCandidate[] {
+  if (caller.crossTenant || caller.allowedOrgIds.length === 0 || unregisteredIds.length === 0) return [];
+  const unregistered = new Set(unregisteredIds);
+  const byId = new Map<string, FirstEventCandidate>();
+  for (const e of events) {
+    if (e.eventSource !== 'codepipeline' || !unregistered.has(e.pipelineId) || !UUID.test(e.pipelineId)) continue;
+    const seen = byId.get(e.pipelineId);
+    if (!seen) byId.set(e.pipelineId, { pipelineId: e.pipelineId, ...(e.region ? { region: e.region } : {}) });
+    else if (!seen.region && e.region) seen.region = e.region;
+  }
+  return [...byId.values()];
+}
+
+/** What one ingest pass reports. */
+type IngestResult = Awaited<ReturnType<typeof reportingService.ingestEvents>>;
+
+/** Fold a second ingest pass (the self-registered pipelines' events) into the first's result. */
+function mergeIngest(first: IngestResult, second: IngestResult, registered: ReadonlySet<string>, retried: number): IngestResult {
+  const union = (a: readonly string[], b: readonly string[]) => [...new Set([...a, ...b])];
+  return {
+    inserted: first.inserted + second.inserted,
+    skipped: first.skipped - retried + second.skipped,
+    unregisteredPipelineIds: [...first.unregisteredPipelineIds.filter((id) => !registered.has(id)), ...second.unregisteredPipelineIds],
+    affectedOrgs: union(first.affectedOrgs, second.affectedOrgs),
+    droppedForeignOrg: first.droppedForeignOrg + second.droppedForeignOrg,
+    droppedInvalidTime: first.droppedInvalidTime + second.droppedInvalidTime,
+    foreignPipelineIds: union(first.foreignPipelineIds, second.foreignPipelineIds),
+    insertedPipelineIds: union(first.insertedPipelineIds, second.insertedPipelineIds),
+    insertedExecutionIds: union(first.insertedExecutionIds, second.insertedExecutionIds),
+  };
 }
 
 /**
@@ -288,13 +345,31 @@ export function createEventIngestRoutes(sseManager: SSEManager): Router {
     const caller = await resolveIngestCaller(req);
 
     // see ReportingService.ingestEvents for the cross-tenant rationale
+    const ingest = (batch: typeof events) => runWithTenantContext(
+      { isSuperAdmin: true },
+      () => reportingService.ingestEvents(batch.map(dropRegion).map(foldFailure).map(foldCompute).map(foldBuildPhases), onMetric, caller),
+    );
+    let result = await ingest(events);
+
+    // FIRST-EVENT SELF-REGISTRATION. A tagged pipeline with no registry row (created
+    // in the dashboard, deployed by CDK, a runner or CI rather than `pipeline-manager
+    // pipeline deploy`) had every event skipped, so its reports stayed empty. Ask the
+    // pipeline service to register it — it does so only for a live pipeline of one of
+    // the caller's allowed orgs — and ingest the events it registered. Anything it
+    // did not register (or a failed call) stays skipped and counted, as before.
+    const candidates = firstEventCandidates(events, result.unregisteredPipelineIds, caller);
+    if (candidates.length > 0) {
+      const registered = new Set(await registerFirstEventPipelines(candidates, caller.allowedOrgIds));
+      const retry = events.filter((e) => registered.has(e.pipelineId));
+      if (retry.length > 0) {
+        ctx.log('INFO', 'Registered pipelines on their first event; ingesting their events', { pipelineIds: [...registered] });
+        result = mergeIngest(result, await ingest(retry), registered, retry.length);
+      }
+    }
     const {
       inserted, skipped, unregisteredPipelineIds, affectedOrgs, droppedForeignOrg, droppedInvalidTime,
       foreignPipelineIds, insertedPipelineIds, insertedExecutionIds,
-    } = await runWithTenantContext(
-      { isSuperAdmin: true },
-      () => reportingService.ingestEvents(events.map(foldFailure).map(foldCompute).map(foldBuildPhases), onMetric, caller),
-    );
+    } = result;
 
     // A non-zero count is either a misrouted producer or an injection attempt;
     // both need a metric, not just a log line inside the data layer.

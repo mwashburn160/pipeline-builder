@@ -215,6 +215,12 @@ describe('Notifications page', () => {
     ]);
   });
 
+  it('links "Organization settings" to the Plugin security card on the Pipelines section', async () => {
+    render(<NotificationsPage />);
+    expect(await screen.findByRole('link', { name: /organization settings/i }))
+      .toHaveAttribute('href', '/dashboard/settings?tab=organization&section=pipelines#plugin-security');
+  });
+
   it('disables the toggle during read-only impersonation', async () => {
     authGuard.isReadOnly = true;
     render(<NotificationsPage />);

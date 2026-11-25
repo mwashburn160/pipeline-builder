@@ -28,6 +28,7 @@ import { useToast } from '@/components/ui/Toast';
 import { formatError } from '@/lib/constants';
 import { saveNotificationPrefs, useNotificationPrefs, type NotificationPrefs } from '@/lib/notification-prefs';
 import { isSystemOrgActive } from '@/lib/ecosystem-access';
+import { orgSettingsHref, PLUGIN_SECURITY_ANCHOR } from '@/lib/org-settings-sections';
 
 type EcosystemPrefKey = keyof NotificationPrefs['ecosystem'];
 
@@ -174,7 +175,7 @@ export default function NotificationsPage() {
           title="Plugin security notices"
           description="Who hears about plugin versions blocked for vulnerabilities, new findings from the nightly rescan, and the security fixes remediation builds."
           actions={
-            <Link href="/dashboard/settings?tab=organization" className="action-link text-sm shrink-0">
+            <Link href={orgSettingsHref('pipelines', PLUGIN_SECURITY_ANCHOR)} className="action-link text-sm shrink-0">
               Organization settings →
             </Link>
           }

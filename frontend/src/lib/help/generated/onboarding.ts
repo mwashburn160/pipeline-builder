@@ -1,6 +1,6 @@
 // GENERATED FROM docs/onboarding.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 3433854b87be6610ac630d194299b2843fe1849e29fc54bfc419d7acb160fc2e
+// SOURCE-SHA256: 873a3c29eb32bae43aaa6a76e313d1cf402ce662784224b33a4e25a91333437e
 // SPDX-License-Identifier: Apache-2.0
 import { Rocket } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -431,7 +431,15 @@ export const onboardingTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "It registers the runner with the platform, deploys its stack and runs a test. Your organization's first runner also creates its runner signing key: every run request is signed with it, and only your org's runners trust it. View and rotate it on the Signing key card, or with pipeline-manager runner signing-key status|rotate|finish. A team uses its parent's shared runners and key with no setup; a team's first runner creates its top-level organization's key if that organization has none yet. Manage runners under Settings → Organization → Pipeline runners; remove one with pipeline-manager infra setup-runner --delete. Prefer no inbound endpoint? Use pipeline-manager pipeline run --id <pipelineId> (and pipeline stop) with your own AWS credentials instead. Full detail: Cross-account pipeline runner."
+          "content": "It registers the runner with the platform, deploys its stack and runs a test. Your organization's first runner also creates its runner signing key: every run request is signed with it, and only your org's runners trust it. View and rotate it on the Signing key card, or with pipeline-manager runner signing-key status|rotate|finish. A team uses its parent's shared runners and key with no setup; a team's first runner creates its top-level organization's key if that organization has none yet. Manage runners under Settings → Organization → Pipelines → Pipeline runners; remove one with pipeline-manager infra setup-runner --delete."
+        },
+        {
+          "type": "text",
+          "content": "Let the dashboard deploy new pipelines (optional). Add --enable-deploy to setup-runner (after infra store-token --scope registry:push --region <stack-region> and infra bootstrap in each allowlisted region, or pass --bootstrap) and the runner can also deploy a never-deployed pipeline into its account: the create flow's Next step: deploy it and a new pipeline's page then offer Deploy to runner (region) behind a step-up, with no AWS credentials on your machine. What a deploy may create is limited by the account's CDK bootstrap execution policy. Full detail: Deploying a pipeline through a runner."
+        },
+        {
+          "type": "text",
+          "content": "Prefer no inbound endpoint? Use pipeline-manager pipeline run --id <pipelineId> (and pipeline stop) with your own AWS credentials instead. Full detail: Cross-account pipeline runner."
         },
         {
           "type": "note",
@@ -452,7 +460,16 @@ export const onboardingTopic: HelpTopic = {
           "items": [
             "Dashboard visual builder, or AI prompt (\"build a Node service pipeline for …\").",
             "Golden-path template — instantiate a governed starter by filling a few inputs (Templates).",
-            "CLI — pipeline-manager pipeline create then pipeline synth / pipeline deploy (needs local deploy prerequisites).",
+            "CLI — pipeline-manager pipeline create then pipeline synth / pipeline deploy (needs local deploy prerequisites)."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "A pipeline created in the dashboard is a config until it is deployed. With a deploy-enabled runner (Step 6b) the create flow deploys it for you; otherwise deploy it with pipeline-manager pipeline deploy --id <pipelineId>."
+        },
+        {
+          "type": "list",
+          "items": [
             "CDK construct (CDK Usage) or REST API (API Reference)."
           ]
         },

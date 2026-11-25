@@ -76,13 +76,48 @@ beforeEach(() => {
 describe('pipeline detail overview', () => {
   it('shows the registration warning, deployment card and resolved names', async () => {
     render(<PipelineDetailPage />);
-    expect(await screen.findByText(/Not registered for reporting/)).toBeInTheDocument();
+    expect(await screen.findByText(/Not deployed yet/)).toBeInTheDocument();
     expect(await screen.findByText('web-stack')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /View stack in AWS/i })).toHaveAttribute('href', expect.stringContaining('us-east-1.console.aws.amazon.com'));
     expect(screen.getByText('Ships the web app')).toBeInTheDocument();
     expect(await screen.findAllByText('alice')).not.toHaveLength(0);
     expect(screen.getByText('u9')).toBeInTheDocument(); // unknown updater falls back to the id
     expect(screen.getByText('Default')).toBeInTheDocument();
+  });
+});
+
+/**
+ * The two unregistered states read differently. Right after Generate / create a
+ * pipeline is simply not deployed — that is normal, and the page says how to
+ * deploy it. A pipeline that has reported before but has no registration was
+ * deployed; it registers itself on its next pipeline event, or by hand.
+ */
+describe('pipeline detail registration banner', () => {
+  it('never deployed (no registration, no events): says how to deploy, and what Run does not do', async () => {
+    api.getPipelineById.mockResolvedValue({ success: true, data: { pipeline, registration: { registered: false, hasEvents: false } } });
+    render(<PipelineDetailPage />);
+    const banner = (await screen.findByText(/Not deployed yet/)).closest('[role="alert"], div') as HTMLElement;
+    expect(banner).toHaveTextContent('pipeline-manager pipeline deploy --id p1');
+    expect(banner).toHaveTextContent(/Run pipeline only starts a pipeline that is already deployed/);
+    expect(banner).toHaveTextContent(/registers itself on its first pipeline event/);
+    expect(screen.queryByText(/Deployed but not registered/)).not.toBeInTheDocument();
+  });
+
+  it('deployed but not registered (it has reported before): registers itself, or by hand from Deployments', async () => {
+    api.getPipelineById.mockResolvedValue({ success: true, data: { pipeline, registration: { registered: false, hasEvents: true } } });
+    render(<PipelineDetailPage />);
+    expect(await screen.findByText(/Deployed but not registered/)).toBeInTheDocument();
+    expect(screen.getByText(/registers itself on its next pipeline event/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Register deployment/ })).toHaveAttribute('href', '/dashboard/deployments?register=p1');
+    expect(screen.queryByText(/Not deployed yet/)).not.toBeInTheDocument();
+  });
+
+  it('shows neither once registered', async () => {
+    api.getPipelineById.mockResolvedValue({ success: true, data: { pipeline, registration: { registered: true, hasEvents: true, lastDeployed: null, stackName: null, region: null } } });
+    render(<PipelineDetailPage />);
+    expect(await screen.findByText('Ships the web app')).toBeInTheDocument();
+    expect(screen.queryByText(/Not deployed yet/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Deployed but not registered/)).not.toBeInTheDocument();
   });
 });
 

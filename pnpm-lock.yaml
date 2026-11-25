@@ -1424,7 +1424,13 @@ importers:
       '@aws-sdk/client-cloudformation':
         specifier: 3.1160.0
         version: 3.1160.0
+      '@aws-sdk/client-codebuild':
+        specifier: 3.1160.0
+        version: 3.1160.0
       '@aws-sdk/client-codepipeline':
+        specifier: 3.1160.0
+        version: 3.1160.0
+      '@aws-sdk/client-kms':
         specifier: 3.1160.0
         version: 3.1160.0
       '@aws-sdk/client-lambda':
@@ -1437,6 +1443,9 @@ importers:
         specifier: 3.1160.0
         version: 3.1160.0
       '@aws-sdk/client-sqs':
+        specifier: 3.1160.0
+        version: 3.1160.0
+      '@aws-sdk/client-ssm':
         specifier: 3.1160.0
         version: 3.1160.0
       '@aws-sdk/client-sts':
@@ -1797,6 +1806,10 @@ packages:
 
   '@aws-sdk/client-cloudformation@3.1160.0':
     resolution: {integrity: sha512-D7PFeX99y6D0r1jShW2fsdIitq8aL3SzRxxP9wMhR+tpAQpXs5D2rUu7DZmVdCbLaMe8BbuvmGvSoeTtjs/mzw==}
+    engines: {node: '>=20.0.0'}
+
+  '@aws-sdk/client-codebuild@3.1160.0':
+    resolution: {integrity: sha512-H3ykoSY9j6h701bmWzX3OCBy7WKNn9k2C7bjFufzOH8QaUtSi5lr0bTMaEeSv8NntYH+GBYsxf3kV0yXkI4JuA==}
     engines: {node: '>=20.0.0'}
 
   '@aws-sdk/client-codepipeline@3.1160.0':
@@ -9614,6 +9627,17 @@ snapshots:
       '@smithy/node-http-handler': 4.13.0
       '@smithy/types': 4.19.0
       tslib: 2.8.1
+
+  '@aws-sdk/client-codebuild@3.1160.0':
+    dependencies:
+      '@aws-sdk/core': 3.981.0
+      '@aws-sdk/credential-provider-node': 3.972.91
+      '@aws-sdk/types': 3.975.1
+      '@smithy/core': 3.41.0
+      '@smithy/fetch-http-handler': 5.8.0
+      '@smithy/node-http-handler': 4.13.0
+      '@smithy/types': 4.20.0
+      tslib: 2.9.1
 
   '@aws-sdk/client-codepipeline@3.1160.0':
     dependencies:

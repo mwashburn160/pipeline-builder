@@ -134,7 +134,7 @@ the check without public egress.
 ### Org password policy
 
 An org admin (`org_settings:write`, step-up; **lowering** it also needs an `aal: 2`
-session) can raise the minimum length for its members — Settings → Organization →
+session) can raise the minimum length for its members — Settings → Organization → Security →
 Password policy, or `PATCH /organization/:id/password-policy` with
 `{ minLength }` (`null` clears it). It must be ≥ the platform minimum and ≤ 128.
 A parent org's minimum applies to its teams; the strictest value along the
@@ -512,7 +512,7 @@ identical on both.
   the IdP's published JWKS before trusting any identity claim.
 - **Verified domains decide who SSO serves.** An enabled connection serves the
   email domains the org has **verified through DNS** (Settings → Organization →
-  domains). A **team** may also use a domain its account root verified, but
+  General → Email domains). A **team** may also use a domain its account root verified, but
   **only when a root admin has shared that domain with teams**
   (`PATCH /organization/:id/domains/:domainId/team-sharing`, `{ "sharedWithTeams": true }`;
   `org_settings:write` + step-up, audited as `org.domain.share`). Sharing is off
@@ -1475,7 +1475,7 @@ once.
 
 An org admin (`org_settings:write`, step-up; widening or clearing the list also needs
 an `aal: 2` session) can limit passkeys to specific authenticator **models** —
-Settings → Organization → Approved authenticators, or
+Settings → Organization → Security → Approved authenticators, or
 `PATCH /organization/:id/authenticator-policy` with `{ allowedAaguids: [...] }`.
 Empty means any model. A parent org's list applies to its teams too; where both
 set one, only models on **every** list apply (strictest wins).
@@ -1835,7 +1835,7 @@ is allowed at `aal: 1`, turning it **off** needs `aal: 2`.
 
 ### Requiring it for an organization
 
-**Settings → Organization → Two-factor authentication** (needs `org_settings:write`,
+**Settings → Organization → Security → Two-factor authentication** (needs `org_settings:write`,
 and the save is step-up gated because turning it *off* removes a control for
 every member).
 

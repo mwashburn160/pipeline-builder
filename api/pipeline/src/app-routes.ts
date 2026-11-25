@@ -8,9 +8,12 @@ import type { Express } from 'express';
 import { createBulkPipelineRoutes } from './routes/bulk-pipeline.js';
 import { createCreatePipelineRoutes } from './routes/create-pipeline.js';
 import { createDeletePipelineRoutes } from './routes/delete-pipeline.js';
+import { createDeployRoutes } from './routes/deploy-routes.js';
+import { createDeploySessionRoutes } from './routes/deploy-session-routes.js';
 import { createExecutionRoutes } from './routes/executions.js';
 import { createGeneratePipelineRoutes } from './routes/generate-pipeline.js';
 import { createInternalOrgPurgeRoutes } from './routes/internal-org-purge.js';
+import { createInternalRegistryRoutes } from './routes/internal-registry-routes.js';
 import { createInternalRemediationRoutes } from './routes/internal-remediation-routes.js';
 import { createPipelineTemplateRoutes } from './routes/pipeline-template-routes.js';
 import { createPluginUpgradeRoutes } from './routes/plugin-upgrade-routes.js';
@@ -49,6 +52,10 @@ export function mountRoutes(app: Express, { quotaService }: PipelineRouteDeps): 
   // PUBLIC (unauthenticated runner Lambdas fetch it), so it is served ahead of
   // the apiCalls meter and every auth chain.
   app.use('/pipelines/runner', createRunnerJwksRoutes());
+  // The runner deploy job's facade (/pipelines/runner/deploys/:requestId/…):
+  // no user token either — its own single-use grant, then a session token for
+  // that one request (dynamicAuthz), rate limited per request id and per IP.
+  app.use('/pipelines/runner', createDeploySessionRoutes());
 
   app.use('/pipelines', ...apiCallsQuota(quotaService));
   app.use('/pipeline-templates', ...apiCallsQuota(quotaService));
@@ -84,6 +91,8 @@ export function mountRoutes(app: Express, { quotaService }: PipelineRouteDeps): 
   app.use('/pipelines/internal', createInternalRunnerKeyRoutes());
   //    - internal remediation rollout: the plugin service starts / cancels Stage 3 of a CVE fix (service token only).
   app.use('/pipelines/internal', createInternalRemediationRoutes());
+  //    - internal first-event registration: reporting's event ingest registers a deployed pipeline it has no registry row for (service token only).
+  app.use('/pipelines/internal', createInternalRegistryRoutes());
   app.use('/pipelines', createCreatePipelineRoutes(quotaService));
   //    - validate: auth + orgId + pipelines:write per route. Writes nothing and
   //      reserves no 'pipelines' slot, so it is deliberately NOT behind the create mount's
@@ -100,6 +109,10 @@ export function mountRoutes(app: Express, { quotaService }: PipelineRouteDeps): 
   //      pipelines:write + MFA-grade + step-up) and `/runners/:id/pipelines`
   //      (org_settings:write), each self-guarded; claimed before the read `/:id`.
   app.use('/pipelines', createRunnerLinkRoutes());
+  //    - deploys through a runner: `/:pipelineId/deploy-targets` and `/deploys…`
+  //      (deploy: pipelines:write + MFA-grade + step-up; reads: pipelines:read),
+  //      each self-guarded; claimed before the read `/:id`.
+  app.use('/pipelines', createDeployRoutes());
   //    - plugin upgrades + security reports: auth + orgId + their own permission
   //      per route (`/:id/plugin-upgrades/preview` is a READ despite being a POST,
   //      so it must not fall into the shared pipelines:write chain below).

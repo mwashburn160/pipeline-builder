@@ -66,7 +66,7 @@ const KEY_NOTICES: { [K in KeyNoticeEvent['kind']]: { priority: 'high' | 'normal
     priority: 'normal',
     text: (e) => ({
       subject: e.followup ? 'Runner signing key is overdue for rotation' : 'Runner signing key is due for rotation',
-      content: `Runner signing key ${short(e.kid)} is ${e.ageDays} days old. Consider rotating it from Settings → Organization → Pipeline runners.`,
+      content: `Runner signing key ${short(e.kid)} is ${e.ageDays} days old. Consider rotating it from Settings → Organization → Pipelines → Pipeline runners.`,
     }),
   },
 };

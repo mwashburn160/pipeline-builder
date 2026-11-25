@@ -94,7 +94,7 @@ describe('GET /:pipelineId/runner-link', () => {
     expect(data(out)).toEqual({
       pipelineId: PIPE,
       status,
-      runner: status === 'unlinked' ? null : { id: r.id, label: 'prod', health: 'healthy', lastDeliveryAt: '2026-11-18T00:00:00.000Z', ownerOrgName: null, isOwn: true },
+      runner: status === 'unlinked' ? null : { id: r.id, label: 'prod', health: 'healthy', lastDeliveryAt: '2026-11-18T00:00:00.000Z', ownerOrgName: null, isOwn: true, capabilities: [] },
       checkedAt: checkedAt.toISOString(),
       detail: { runnersChecked: ['prod'], matched: status === 'linked' ? ['prod'] : [], errorCode: null },
       deliveriesPaused: false,
@@ -110,6 +110,12 @@ describe('GET /:pipelineId/runner-link', () => {
     deps.availability.available = false;
     deps.availability.reason = 'paused';
     expect(data(await getLink())).toMatchObject({ runner: { ownerOrgName: expect.any(String), isOwn: false }, deliveriesPaused: true });
+  });
+
+  it('carries the linked runner\'s capabilities (deploy:1: a purge removes the stack through it)', async () => {
+    const r = add({ label: 'deployer', capabilities: ['deploy:1'] });
+    deps.store.registry.set(PIPE, { orgId: ORG, pipelineName: 'p', region: 'us-east-1', runnerId: r.id, linkStatus: 'linked' });
+    expect(data(await getLink())).toMatchObject({ runner: { id: r.id, capabilities: ['deploy:1'] } });
   });
 });
 

@@ -157,5 +157,7 @@ export {
   resolvePipelineProps,
   bakeSourceTemplates,
 } from './template/pipeline-props.js';
+// The CodePipeline + stack names a pipeline record deploys as (every registry writer)
+export { deployedPipelineNames, type DeployedNamesInput } from './core/deployed-names.js';
 // A plugin's `{{ … }}` resolution against a pipeline scope (synth, `plugin test`)
 export { resolvePluginTemplates } from './template/plugin-resolver.js';

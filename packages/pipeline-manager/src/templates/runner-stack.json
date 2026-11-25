@@ -1,6 +1,6 @@
 {
   "AWSTemplateFormatVersion": "2010-09-09",
-  "Description": "Pipeline Builder cross-account PIPELINE RUNNER — a Lambda that starts/stops this account's pipelines with its own role, on platform-signed requests POSTed to its Function URL (or an IP-allowlisted, WAF rate-limited API Gateway). The platform holds no AWS access to this account and the runner holds no platform credential. Deployed by pipeline-manager infra setup-runner, which also fills PipelineActions with one ARN per allowlisted region x prefix and keys the API deployment to the IP allowlist (utils/runner-template.ts). Lambda code is uploaded separately.",
+  "Description": "Pipeline Builder cross-account PIPELINE RUNNER — a Lambda that starts/stops this account's pipelines with its own role, on platform-signed requests POSTed to its Function URL (or an IP-allowlisted, WAF rate-limited API Gateway). The platform holds no AWS access to this account and the runner holds no platform credential. Deployed by pipeline-manager infra setup-runner, which also fills PipelineActions with one ARN per allowlisted region x prefix and keys the API deployment to the IP allowlist (utils/runner-template.ts). With EnableDeploy=true (setup-runner --enable-deploy) it also holds a deploy CodeBuild project the runner starts on a signed deploy request: it runs the pipeline's own managed cdk-synth image (pinned by digest) with a role that can only assume this account's CDK bootstrap roles, and the job's single-use platform grant travels KMS-encrypted (only the runner role encrypts, only the deploy role decrypts). Lambda code is uploaded separately.",
   "Parameters": {
     "RunnerId": {
       "Type": "String",
@@ -63,6 +63,51 @@
       "Type": "String",
       "Default": "0.0.0",
       "Description": "The @pipeline-builder/pipeline-manager version whose runner bundle this stack runs (semver; reported as runnerVersion in every response and checked against the platform's MIN_RUNNER_VERSION). setup-runner always passes its own package version; 0.0.0 marks a hand-deployed stack as outdated."
+    },
+    "EnableDeploy": {
+      "Type": "String",
+      "Default": "false",
+      "AllowedValues": [
+        "true",
+        "false"
+      ],
+      "Description": "Deploys through this runner (setup-runner --enable-deploy): the deploy CodeBuild project, its role, log group and grant key. The runner answers DEPLOY_NOT_ENABLED to a deploy request without it and reports the deploy:1 capability only with it."
+    },
+    "RegistryPullHost": {
+      "Type": "String",
+      "Default": "",
+      "AllowedPattern": "^$|^[A-Za-z0-9.-]+(:[0-9]{1,5})?$",
+      "Description": "EnableDeploy only: the platform registry host (and :port) the deploy build pulls the pipeline's system/cdk-synth image from, pinned by digest. Never taken from a request."
+    },
+    "RegistryCredentialSecretName": {
+      "Type": "String",
+      "Default": "",
+      "Description": "EnableDeploy only: the Secrets Manager secret (in the stack region) holding the registry:push key CodeBuild pulls the image with — pipeline-builder/<orgId>/registry-push (pipeline-manager infra store-token --scope registry:push)."
+    },
+    "CdkQualifier": {
+      "Type": "String",
+      "Default": "hnb659fds",
+      "AllowedPattern": "^[A-Za-z0-9]{1,10}$",
+      "Description": "EnableDeploy only: the CDK bootstrap qualifier of the regions deployed into (cdk-<qualifier>-*-role-<account>-<region> are the only roles the deploy job may assume)."
+    },
+    "DeployTimeoutMinutes": {
+      "Type": "Number",
+      "Default": 60,
+      "MinValue": 10,
+      "MaxValue": 480,
+      "Description": "EnableDeploy only: the deploy build's timeout (CodeBuild TimeoutInMinutes)."
+    },
+    "DeployConcurrency": {
+      "Type": "Number",
+      "Default": 2,
+      "MinValue": 1,
+      "MaxValue": 20,
+      "Description": "EnableDeploy only: deploy builds that may run at once (CodeBuild ConcurrentBuildLimit; the platform's MAX_ACTIVE_DEPLOYS_PER_RUNNER is the first limit)."
+    },
+    "DeployPermissionsBoundaryArn": {
+      "Type": "String",
+      "Default": "",
+      "Description": "EnableDeploy only: an IAM permissions boundary for the deploy role ('' = none)."
     }
   },
   "Conditions": {
@@ -93,6 +138,33 @@
               "Ref": "EnableWaf"
             },
             "true"
+          ]
+        }
+      ]
+    },
+    "UseDeploy": {
+      "Fn::Equals": [
+        {
+          "Ref": "EnableDeploy"
+        },
+        "true"
+      ]
+    },
+    "HasDeployPermissionsBoundary": {
+      "Fn::And": [
+        {
+          "Condition": "UseDeploy"
+        },
+        {
+          "Fn::Not": [
+            {
+              "Fn::Equals": [
+                {
+                  "Ref": "DeployPermissionsBoundaryArn"
+                },
+                ""
+              ]
+            }
           ]
         }
       ]
@@ -150,6 +222,29 @@
                       "Fn::Sub": "arn:${AWS::Partition}:codepipeline:${AWS::Region}:${AWS::AccountId}:${PipelinePrefix}*"
                     }
                   ]
+                },
+                {
+                  "Fn::If": [
+                    "UseDeploy",
+                    {
+                      "Sid": "DeployBuild",
+                      "Effect": "Allow",
+                      "Action": [
+                        "codebuild:StartBuild",
+                        "codebuild:BatchGetBuilds",
+                        "codebuild:StopBuild",
+                        "codebuild:ListBuildsForProject"
+                      ],
+                      "Resource": [
+                        {
+                          "Fn::Sub": "arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:project/pipeline-builder-runner-deploy-${RunnerId}"
+                        }
+                      ]
+                    },
+                    {
+                      "Ref": "AWS::NoValue"
+                    }
+                  ]
                 }
               ]
             }
@@ -194,6 +289,36 @@
             "RUNNER_VERSION": {
               "Ref": "PipelineManagerVersion"
             },
+            "DEPLOY_ENABLED": {
+              "Ref": "EnableDeploy"
+            },
+            "DEPLOY_PROJECT_NAME": {
+              "Fn::If": [
+                "UseDeploy",
+                {
+                  "Fn::Sub": "pipeline-builder-runner-deploy-${RunnerId}"
+                },
+                ""
+              ]
+            },
+            "REGISTRY_PULL_HOST": {
+              "Ref": "RegistryPullHost"
+            },
+            "REGISTRY_CREDENTIAL_SECRET": {
+              "Ref": "RegistryCredentialSecretName"
+            },
+            "DEPLOY_GRANT_KEY_ARN": {
+              "Fn::If": [
+                "UseDeploy",
+                {
+                  "Fn::GetAtt": [
+                    "DeployGrantKey",
+                    "Arn"
+                  ]
+                },
+                ""
+              ]
+            },
             "NODE_ENV": "production"
           }
         }
@@ -206,6 +331,309 @@
           "Fn::Sub": "/aws/lambda/pipeline-builder-runner${NameSuffix}"
         },
         "RetentionInDays": 90
+      }
+    },
+    "DeployLogGroup": {
+      "Type": "AWS::Logs::LogGroup",
+      "Condition": "UseDeploy",
+      "Properties": {
+        "LogGroupName": {
+          "Fn::Sub": "/aws/codebuild/pipeline-builder-runner-deploy-${RunnerId}"
+        },
+        "RetentionInDays": 90
+      }
+    },
+    "DeployRole": {
+      "Type": "AWS::IAM::Role",
+      "Condition": "UseDeploy",
+      "Properties": {
+        "RoleName": {
+          "Fn::Sub": "pb-runner-deploy${NameSuffix}"
+        },
+        "Description": "Pipeline Builder runner deploy job: assumes only this account's CDK bootstrap roles in the allowlisted regions (cdk deploy), never IAM or CloudFormation directly.",
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "codebuild.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole",
+              "Condition": {
+                "StringEquals": {
+                  "aws:SourceAccount": {
+                    "Ref": "AWS::AccountId"
+                  }
+                },
+                "ArnLike": {
+                  "aws:SourceArn": {
+                    "Fn::Sub": "arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:project/pipeline-builder-runner-deploy-${RunnerId}"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "PermissionsBoundary": {
+          "Fn::If": [
+            "HasDeployPermissionsBoundary",
+            {
+              "Ref": "DeployPermissionsBoundaryArn"
+            },
+            {
+              "Ref": "AWS::NoValue"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "pipeline-runner-deploy",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "AssumeCdkBootstrapRoles",
+                  "Effect": "Allow",
+                  "Action": [
+                    "sts:AssumeRole"
+                  ],
+                  "Resource": [
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/cdk-${CdkQualifier}-deploy-role-${AWS::AccountId}-${AWS::Region}"
+                    },
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/cdk-${CdkQualifier}-file-publishing-role-${AWS::AccountId}-${AWS::Region}"
+                    },
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/cdk-${CdkQualifier}-image-publishing-role-${AWS::AccountId}-${AWS::Region}"
+                    },
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/cdk-${CdkQualifier}-lookup-role-${AWS::AccountId}-${AWS::Region}"
+                    }
+                  ]
+                },
+                {
+                  "Sid": "ReadCdkBootstrapVersion",
+                  "Effect": "Allow",
+                  "Action": [
+                    "ssm:GetParameter"
+                  ],
+                  "Resource": [
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cdk-bootstrap/${CdkQualifier}/version"
+                    }
+                  ]
+                },
+                {
+                  "Sid": "DescribeAccountSecrets",
+                  "Effect": "Allow",
+                  "Action": [
+                    "secretsmanager:DescribeSecret"
+                  ],
+                  "Resource": [
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:pipeline-builder/*"
+                    }
+                  ]
+                },
+                {
+                  "Sid": "ReadRegistryPullCredential",
+                  "Effect": "Allow",
+                  "Action": [
+                    "secretsmanager:GetSecretValue"
+                  ],
+                  "Resource": [
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${RegistryCredentialSecretName}-??????"
+                    }
+                  ]
+                },
+                {
+                  "Sid": "WriteDeployLogs",
+                  "Effect": "Allow",
+                  "Action": [
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                  ],
+                  "Resource": [
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/pipeline-builder-runner-deploy-${RunnerId}:*"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "DeployGrantKey": {
+      "Type": "AWS::KMS::Key",
+      "Condition": "UseDeploy",
+      "Properties": {
+        "Description": {
+          "Fn::Sub": "Pipeline Builder runner ${RunnerId}: wraps each deploy job's single-use platform grant (the runner role encrypts, the deploy role decrypts)."
+        },
+        "EnableKeyRotation": true,
+        "PendingWindowInDays": 7,
+        "KeyPolicy": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "KeyAdministration",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"
+                }
+              },
+              "Action": [
+                "kms:DescribeKey",
+                "kms:GetKeyPolicy",
+                "kms:GetKeyRotationStatus",
+                "kms:ListResourceTags",
+                "kms:PutKeyPolicy",
+                "kms:EnableKeyRotation",
+                "kms:DisableKeyRotation",
+                "kms:EnableKey",
+                "kms:DisableKey",
+                "kms:TagResource",
+                "kms:UntagResource",
+                "kms:UpdateKeyDescription",
+                "kms:ScheduleKeyDeletion",
+                "kms:CancelKeyDeletion"
+              ],
+              "Resource": "*"
+            },
+            {
+              "Sid": "RunnerEncryptsGrants",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Fn::GetAtt": [
+                    "RunnerRole",
+                    "Arn"
+                  ]
+                }
+              },
+              "Action": "kms:Encrypt",
+              "Resource": "*",
+              "Condition": {
+                "StringEquals": {
+                  "kms:EncryptionContext:runnerId": {
+                    "Ref": "RunnerId"
+                  },
+                  "kms:EncryptionContext:purpose": "deploy-grant"
+                }
+              }
+            },
+            {
+              "Sid": "DeployJobDecryptsGrants",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Fn::GetAtt": [
+                    "DeployRole",
+                    "Arn"
+                  ]
+                }
+              },
+              "Action": "kms:Decrypt",
+              "Resource": "*",
+              "Condition": {
+                "StringEquals": {
+                  "kms:EncryptionContext:runnerId": {
+                    "Ref": "RunnerId"
+                  },
+                  "kms:EncryptionContext:purpose": "deploy-grant"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "DeployProject": {
+      "Type": "AWS::CodeBuild::Project",
+      "Condition": "UseDeploy",
+      "DependsOn": "DeployLogGroup",
+      "Properties": {
+        "Name": {
+          "Fn::Sub": "pipeline-builder-runner-deploy-${RunnerId}"
+        },
+        "Description": "Pipeline Builder runner deploy job: pipeline-manager pipeline deploy-job on the pipeline's managed cdk-synth image (StartBuild overrides only the image digest and the request's PB_* values).",
+        "ServiceRole": {
+          "Fn::GetAtt": [
+            "DeployRole",
+            "Arn"
+          ]
+        },
+        "Source": {
+          "Type": "NO_SOURCE",
+          "BuildSpec": "version: 0.2\nenv:\n  shell: bash\n  exported-variables:\n    - PB_DEPLOY_RESULT\n    - PB_DEPLOY_STAGE\nphases:\n  build:\n    commands:\n      - pipeline-manager pipeline deploy-job --result-file /tmp/pb-deploy-result.env\n  post_build:\n    commands:\n      - 'export PB_DEPLOY_RESULT=\"$(grep -E ''^PB_DEPLOY_RESULT=[A-Z_]{1,64}$'' /tmp/pb-deploy-result.env 2>/dev/null | cut -d= -f2)\"'\n      - 'export PB_DEPLOY_STAGE=\"$(grep -E ''^PB_DEPLOY_STAGE=[a-z_]{1,32}$'' /tmp/pb-deploy-result.env 2>/dev/null | cut -d= -f2)\"'\n"
+        },
+        "Artifacts": {
+          "Type": "NO_ARTIFACTS"
+        },
+        "Environment": {
+          "Type": "LINUX_CONTAINER",
+          "ComputeType": "BUILD_GENERAL1_MEDIUM",
+          "Image": {
+            "Fn::Sub": "${RegistryPullHost}/system/cdk-synth:set-per-build"
+          },
+          "ImagePullCredentialsType": "SERVICE_ROLE",
+          "RegistryCredential": {
+            "Credential": {
+              "Ref": "RegistryCredentialSecretName"
+            },
+            "CredentialProvider": "SECRETS_MANAGER"
+          },
+          "PrivilegedMode": false,
+          "EnvironmentVariables": [
+            {
+              "Name": "PLATFORM_BASE_URL",
+              "Type": "PLAINTEXT",
+              "Value": {
+                "Ref": "PlatformBaseUrl"
+              }
+            },
+            {
+              "Name": "PB_RUNNER_ID",
+              "Type": "PLAINTEXT",
+              "Value": {
+                "Ref": "RunnerId"
+              }
+            },
+            {
+              "Name": "PB_CDK_QUALIFIER",
+              "Type": "PLAINTEXT",
+              "Value": {
+                "Ref": "CdkQualifier"
+              }
+            },
+            {
+              "Name": "NODE_ENV",
+              "Type": "PLAINTEXT",
+              "Value": "production"
+            }
+          ]
+        },
+        "TimeoutInMinutes": {
+          "Ref": "DeployTimeoutMinutes"
+        },
+        "QueuedTimeoutInMinutes": 30,
+        "ConcurrentBuildLimit": {
+          "Ref": "DeployConcurrency"
+        },
+        "LogsConfig": {
+          "CloudWatchLogs": {
+            "Status": "ENABLED",
+            "GroupName": {
+              "Fn::Sub": "/aws/codebuild/pipeline-builder-runner-deploy-${RunnerId}"
+            }
+          }
+        }
       }
     },
     "FunctionUrl": {

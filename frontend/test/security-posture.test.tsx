@@ -114,7 +114,7 @@ describe('derivePosture', () => {
 
   it('says "Not required" when the org has no policy', () => {
     const items = byId(derivePosture({ user: baseUser(), recoveryCodes: null, activeSessions: null, sso: undefined, canManageOrg: true }));
-    expect(items['org-mfa']).toMatchObject({ value: 'Not required', href: '/dashboard/settings?tab=organization' });
+    expect(items['org-mfa']).toMatchObject({ value: 'Not required', href: '/dashboard/settings?tab=organization&section=security' });
   });
 
   it('omits SSO when it cannot be read and the account has no SSO link', () => {

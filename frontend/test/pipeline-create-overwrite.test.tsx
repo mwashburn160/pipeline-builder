@@ -28,10 +28,11 @@ jest.mock('@/components/pipeline/DeployedPipelinesPanel', () => ({ __esModule: t
 // the form's error line, which is all this flow needs from it.
 jest.mock('next/dynamic', () => ({
   __esModule: true,
-  default: () => function CreateStub({ onSubmit, onClose, createError }: { onSubmit?: (...a: unknown[]) => void; onClose?: () => void; createError?: string | null }) {
+  default: () => function CreateStub({ onSubmit, onClose, createError, createdPipelineId }: { onSubmit?: (...a: unknown[]) => void; onClose?: () => void; createError?: string | null; createdPipelineId?: string | null }) {
     if (!onSubmit) return null;
     return (
       <div>
+        {createdPipelineId && <p>created: {createdPipelineId}</p>}
         <button type="button" onClick={() => onSubmit({ project: 'web', organization: 'acme', pipelineName: 'web-pipeline' }, 'org')}>stub-submit</button>
         {onClose && <button type="button" onClick={onClose}>stub-close</button>}
         {createError && <p>form-error: {createError}</p>}
@@ -72,6 +73,23 @@ describe('pipelines — overwrite after a slot conflict', () => {
     await waitFor(() => expect(createPipeline).toHaveBeenLastCalledWith(expect.anything(), { upsert: true }));
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Overwrite it' })).not.toBeInTheDocument());
     expect(screen.getByText(/form-error: .*Not the owner/)).toBeInTheDocument();
+  });
+});
+
+describe('pipelines — post-create next step', () => {
+  it('a new pipeline keeps the dialog open on its deploy next step (no auto-close)', async () => {
+    jest.useFakeTimers();
+    try {
+      createPipeline.mockResolvedValue({ success: true, data: { inserted: true, pipeline: { id: 'p-new' } } });
+      render(<PipelinesPage />);
+      fireEvent.click((await screen.findAllByRole('button', { name: /create pipeline/i }))[0]);
+      fireEvent.click(await screen.findByRole('button', { name: 'stub-submit' }));
+      expect(await screen.findByText('created: p-new')).toBeInTheDocument();
+      act(() => { jest.advanceTimersByTime(5000); });
+      expect(screen.getByText('created: p-new')).toBeInTheDocument();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
 

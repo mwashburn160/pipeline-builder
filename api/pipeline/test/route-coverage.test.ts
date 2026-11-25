@@ -67,6 +67,22 @@ const EXCEPTIONS: RouteCoverageException[] = [
   },
   {
     method: 'POST',
+    path: '/pipelines/runner/deploys/:requestId/session',
+    waive: 'permission',
+    reason: 'A runner\'s CodeBuild deploy job (no user token, ever): its authority is the request\'s single-use grant (pb_dg_…, sha256 stored, constant-time compared, expiring), traded once for a session token for THIS request id. Reuse answers 401 DEPLOY_GRANT_INVALID, pages RunnerDeployGrantReuse and is audited pipeline.deploy.grant_reuse; rate limited per request id and per IP.',
+  },
+  {
+    path: /^(GET|POST) \/pipelines\/runner\/deploys\/:requestId\/(pipeline|plugin-lookup|progress|registry|result)$/,
+    waive: 'permission',
+    reason: 'A runner\'s CodeBuild deploy job (no user token, ever): the bearer session token its grant exchange issued, valid only for THIS request id, until the deploy deadline, while the deploy runs (401 DEPLOY_GRANT_INVALID otherwise). The org, pipeline and runner come from the session, never the caller; rate limited per request id and per IP.',
+  },
+  {
+    path: /^POST \/pipelines\/runner\/deploys\/:requestId\/(plugin-lookup|progress|result)$/,
+    waive: 'audit',
+    reason: 'The deploy job\'s read-only plugin lookup, and its stage / result reports: they decide nothing (the sweep\'s signed deploy_status poll decides the final status, audited pipeline.deploy.complete) and write only the deploy\'s own stage / result columns.',
+  },
+  {
+    method: 'POST',
     path: '/pipelines/validate',
     waive: 'audit',
     reason: 'Read-only: reports whether a create would land and persists nothing. Its compliance check is a dryRun (no audit event, no notification) precisely so validating does not appear in the trail as a create attempt.',
@@ -98,6 +114,8 @@ const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   // the plugin service's CVE remediation job: start / cancel Stage 3 (the pipeline rollout) of a published fix.
   { method: 'POST', path: '/pipelines/internal/plugin-remediations/:remediationId/rollout', callers: ['plugin'] },
   { method: 'POST', path: '/pipelines/internal/plugin-remediations/:remediationId/cancel', callers: ['plugin'] },
+  // reporting's event ingest: register a deployed, tagged pipeline on its first event (same-org, live pipelines only).
+  { method: 'POST', path: '/pipelines/internal/registry/first-event', callers: ['reporting'] },
 ];
 
 /**

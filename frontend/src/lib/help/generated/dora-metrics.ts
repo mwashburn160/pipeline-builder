@@ -1,6 +1,6 @@
 // GENERATED FROM docs/dora-metrics.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 992334f53ceebad7a853ea37a19af374037c1803451300be20a80803357c59bb
+// SOURCE-SHA256: c5f4bf7d660ab31eb3e72586aed888c7c90d36d9e53d19cae632be15d2954080
 // SPDX-License-Identifier: Apache-2.0
 import { Gauge } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -68,7 +68,7 @@ export const doraMetricsTopic: HelpTopic = {
           "type": "list",
           "items": [
             "Declare — a user sets an environment on each deploy stage. pipeline-core derives the pb.deploys tag (see Declaring deployments).",
-            "Ingest — the events Lambda parses pb.deploys, sets environment on the deploy-stage events, resolves the source commit range in-account (oldest unshipped commit time plus count) — only when enabled with setup-events --with-dora — and forwards normalized events to the reporting service.",
+            "Ingest — events are recorded only for a pipeline with a deploy registration (a pipeline_registry row). pipeline-manager pipeline deploy registers it; a pipeline deployed any other way (CDK directly, CI) registers itself on its first pipeline event — see Registration. The events Lambda parses pb.deploys, sets environment on the deploy-stage events, resolves the source commit range in-account (oldest unshipped commit time plus count) — only when enabled with setup-events --with-dora — and forwards normalized events to the reporting service.",
             "Compute — DORA is derived over the deploy-stage executions in the window: deployment frequency, two-class change-failure rate, measured lead time, production median time to restore, and coverage.",
             "Classify — each metric gets a level band (elite / high / medium / low; insufficient below the minimum sample; null when there is no sample) and its sample size n.",
             "Surface — results render as per-environment Reports-page cards, with production as the headline, or are consumed via the endpoints."
@@ -167,6 +167,28 @@ export const doraMetricsTopic: HelpTopic = {
             "A stage listed in pb.deploys is a deploy, and the forwarder sets environment only on those stages' events. A stage that is absent is not a deployment and never enters DORA.",
             "isDeploy is not a field — it is derived server-side as \"environment IS NOT NULL on a STAGE event\"."
           ]
+        }
+      ]
+    },
+    {
+      "id": "registration",
+      "title": "Registration",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Event ingest attributes every event to a pipeline through its registry row, so a pipeline with no row reports nothing: no runs, no reports, no DORA, no scorecard."
+        },
+        {
+          "type": "list",
+          "items": [
+            "pipeline-manager pipeline deploy --id <id> deploys the pipeline and registers it (with its step manifest).",
+            "First-event self-registration. When the forwarder posts events for a pb.pipeline-id-tagged pipeline that has no row, reporting asks the pipeline service to register it (POST /pipelines/internal/registry/first-event) and then records those events. The pipeline service registers it only when the pipeline exists, is not deleted, and belongs to an org the ingest credential was authenticated for (its own org or a descendant team). It records the CodePipeline and stack names a CLI deploy would record, and the event's region. It never overwrites an existing row. The registration is audited pipeline.registry.register with actor system and details.source: 'first-event'. If the call fails, the events are skipped and counted as reporting_ingest_rejected_total{reason=\"unregistered_pipeline\"}, as before.",
+            "By hand: Deployments → Register deployment."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "A pipeline created in the dashboard (Generate from Git, manual create, a template) is a config until it is deployed. Its page says Not deployed yet with the deploy command. Run pipeline does not deploy: it starts an already-deployed CodePipeline through a pipeline runner. A page that says Deployed but not registered belongs to a pipeline that has reported before but whose registration was removed. It registers itself again on its next pipeline event."
         }
       ]
     },
@@ -864,7 +886,7 @@ export const doraMetricsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "What counts. Start and stop requests in the range, by request time. Discovery probes are not runs and are left out.",
+            "What counts. Start and stop requests in the range, by request time. Discovery probes and deploys through a runner are not runs and are left out.",
             "Outcomes. Started (the runner accepted it), failed, expired (not delivered before the request lapsed), refused (the runner answered 401/403: bad signature, refused, permission denied) and pending (still queued or delivering). The failure rate is failed + expired + refused over everything that finished; pending requests are in neither side.",
             "Time to start. Median and p90 time to acceptance over accepted start requests, measured two ways:",
             "Exact: from the request to its accepted_at, the moment the runner accepted it. The pipeline service records it on every start or stop a runner accepts.",

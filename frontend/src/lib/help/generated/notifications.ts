@@ -1,6 +1,6 @@
 // GENERATED FROM docs/notifications.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 9b88191c64c0d0772df8f2a76ffa3ba97b8565f18352158a0320826bb1ce4428
+// SOURCE-SHA256: 0606071217a46f4f3b284cb64158811e0ecde33a94286f431805bd4e25011612
 // SPDX-License-Identifier: Apache-2.0
 import { Bell } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -604,7 +604,7 @@ export const notificationsTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Dashboard → Settings → Organization → \"Plugin security notifications\" (/dashboard/settings?tab=organization)."
+          "content": "Dashboard → Settings → Organization → Pipelines → \"Plugin security notifications\" (/dashboard/settings?tab=organization&section=pipelines#plugin-security)."
         },
         {
           "type": "text",
@@ -1057,7 +1057,7 @@ export const notificationsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Settings → Organization → Plugin security notifications: choose"
+            "Settings → Organization → Pipelines → Plugin security notifications: choose"
           ]
         },
         {

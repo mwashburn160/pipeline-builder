@@ -173,7 +173,7 @@ Finding warnings name the newest version your pin allows that clears them (`sugg
 
 A version a pipeline references can never be **deleted**, vulnerable or not — deleting it would fail the pipeline's next pull. The refusal is `409 PLUGIN_VERSION_IN_USE` and names the pipelines and the version to move to. Deactivating, yanking, uninstalling or suspending lands, with an in-use warning in the answer, and the orgs whose pipelines use it are told (N14).
 
-Your organization decides who is told about rescan findings under **Settings → Organization → Plugin security notifications** (see [Notifications](#notifications)).
+Your organization decides who is told about rescan findings under **Settings → Organization → Pipelines → Plugin security notifications** (see [Notifications](#notifications)).
 
 ### Remediation upgrades
 
@@ -194,7 +194,7 @@ When the platform publishes a fixed version of a flagged plugin (see [Automatic 
 
 | Level | Setting | Values |
 |-------|---------|--------|
-| Root organization | `rollout` under **Settings → Organization → Plugin security** | `off`, `propose` (default), `apply` |
+| Root organization | `rollout` under **Settings → Organization → Pipelines → Plugin security** | `off`, `propose` (default), `apply` |
 | Team | the same setting on the team | `inherit` (default), `off`, `propose`, `apply` |
 | Pipeline | **Plugin security fixes** on the pipeline (`remediationUpgrades` on `PUT /api/pipelines/:id` or on create, `pipelines:write`), or `remediationUpgrades` in the pipeline definition | `inherit` (default), `off`, `propose`, `apply` |
 
@@ -388,7 +388,7 @@ Notices go to your organization only. Publishers never learn who installed their
 
 ### Plugin security notifications
 
-N30 and N31 go where your organization says, under **Settings → Organization → Plugin security notifications**. Anyone with `plugins:read` can see the settings; changing them needs `org_settings:write`.
+N30 and N31 go where your organization says, under **Settings → Organization → Pipelines → Plugin security notifications**. Anyone with `plugins:read` can see the settings; changing them needs `org_settings:write`.
 
 | Setting | Default | What it does |
 |---------|---------|--------------|

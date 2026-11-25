@@ -3,7 +3,7 @@
 
 import { randomBytes } from 'crypto';
 import { readFileSync } from 'node:fs';
-import { defaultPipelineName as sharedDefaultPipelineName, pipelineIdentityDigest } from '@pipeline-builder/api-core';
+import { defaultPipelineName as sharedDefaultPipelineName, pipelineStackName as sharedPipelineStackName } from '@pipeline-builder/api-core';
 
 // ESM has no synchronous named JSON import (Node only exposes a default export,
 // and importing `../../package.json` would also fall outside `rootDir: src`), so
@@ -232,55 +232,13 @@ export function defaultPipelineName(organization: string, project: string): stri
   return sharedDefaultPipelineName(organization, project);
 }
 
-/** CloudFormation's stack-name rule (the same pattern aws-cdk-lib's `Stack` enforces). */
-const STACK_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9-]*$/;
-/** CloudFormation's stack-name length limit. */
-const STACK_NAME_MAX_LENGTH = 128;
-/** Leading letter for a derived name whose first character is not one (`2fa-app` → `pb-2fa-app-…`). */
-const STACK_NAME_LETTER_PREFIX = 'pb-';
-
 /**
- * The CloudFormation stack name a pipeline deploys as, derived from its
- * `project` and `organization` and always satisfying CloudFormation's naming
- * standard: starts with a letter, holds only letters, digits and hyphens, and
- * is at most 128 characters.
- *
- * - A pair whose plain derivation — `<project>-<organization>`, lowercased —
- *   already satisfies the standard, and whose organization holds no hyphen (so
- *   the name splits back into one pair only), keeps exactly that name
- *   (`spring-boot` / `system` → `spring-boot-system`).
- * - Any other pair is rewritten to conform: each disallowed character (`_`
- *   included: `spring_boot` / `system` → `spring-boot-system-<hash>`) becomes
- *   `-`, a leading non-letter gets `pb-`, and the base is truncated so that
- *   `-<hash>` of the RAW pair (`pipelineIdentityDigest`) still fits. The hash
- *   keeps rewritten names distinct from each other and from every plain name
- *   (`my.app` / `acme` → `my-app-acme-<hash>`, never `my-app-acme`).
- *
- * Shared by the synth app (`boilerplate.ts`, which names the stack) and the
- * registry payload (`utils/registry.ts`, which records it), so the deployed
- * stack and its registry record always agree. Only the derived name changes;
- * the project and organization values are kept as they are everywhere else.
- *
- * Throws only when project or organization is empty — there is nothing to
- * name the stack after.
+ * The CloudFormation stack name a pipeline deploys as — api-core's
+ * `pipelineStackName`, shared with the pipeline service's first-event
+ * self-registration so the deployed stack and every registry record agree.
  */
 export function pipelineStackName(project: string, organization: string): string {
-  if (!project.trim() || !organization.trim()) {
-    throw new Error(
-      `Cannot derive a stack name from project '${project}' and organization '${organization}': both are required.`,
-    );
-  }
-  const plain = `${project}-${organization}`.toLowerCase();
-  // Plain only when it reads back one way: the pair splits at the LAST hyphen,
-  // so the organization must hold none (`a-b` / `c` and `a` / `b-c` would
-  // otherwise both be `a-b-c`, one deploy replacing the other's stack).
-  if (!organization.includes('-') && plain.length <= STACK_NAME_MAX_LENGTH && STACK_NAME_PATTERN.test(plain)) return plain;
-
-  let base = plain.replace(/[^a-z0-9-]/g, '-');
-  if (!/^[a-z]/.test(base)) base = `${STACK_NAME_LETTER_PREFIX}${base}`;
-  const suffix = `-${pipelineIdentityDigest(project, organization)}`;
-  base = base.slice(0, STACK_NAME_MAX_LENGTH - suffix.length).replace(/-+$/, '');
-  return `${base}${suffix}`;
+  return sharedPipelineStackName(project, organization);
 }
 
 

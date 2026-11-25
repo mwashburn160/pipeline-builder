@@ -156,4 +156,40 @@ describe('Drizzle runner store (real SQL)', () => {
     expect(await store.resetStaleLinkChecks(new Date(T.getTime() + 1))).toBe(1);
     expect((await store.getRegistryLink(PIPE, ORG))!.linkStatus).toBe('unlinked');
   });
+
+  it('deploys: request + deploy half in one tx, one ACTIVE deploy per pipeline (23505), the grant claimed exactly once, the poll and overdue listings', async () => {
+    const r = await store.insertRunner({ orgId: ORG, label: 'a', functionUrl: URL_A, status: 'active', capabilities: ['deploy:1'], pipelinePrefixes: ['*'] });
+    expect((await store.getRunner(r.id))).toMatchObject({ capabilities: ['deploy:1'], pipelinePrefixes: ['*'], shareDeploysWithTeams: false });
+    const half = { orgId: ORG, pipelineId: PIPE, region: 'us-east-1', pipelineName: 'p', stackName: 's', imageDigest: `sha256:${'a'.repeat(64)}`, toolchainRelease: '1.0.0', grantHash: 'h'.repeat(64), grantEnc: '{}', grantExpiresAt: new Date(T.getTime() + 2_700_000) };
+    const mk = () => store.insertDeploy({ orgId: ORG, pipelineId: PIPE, action: 'deploy', requestedBy: 'u', requestedAt: T, expiresAt: new Date(T.getTime() + 600_000), runnerId: r.id }, half);
+    const { request, deploy } = await mk();
+    expect(deploy).toMatchObject({ requestId: request.id, stage: 'queued', finishedAt: null });
+    const dup = await mk().then(() => null, (err: unknown) => err as { code?: string; cause?: { code?: string } });
+    expect(dup?.code ?? dup?.cause?.code).toBe('23505');
+    // The failed second insert left no orphan deploy half behind (one transaction).
+    expect((await tdb.asOwner((q) => q.query('SELECT count(*)::int AS n FROM pipeline_runner_deploys'))).rows[0]).toEqual({ n: 1 });
+    expect((await store.findActiveDeploy(ORG, PIPE))!.id).toBe(request.id);
+    expect(await store.findActiveDeploy(OTHER, PIPE)).toBeNull();
+    expect((await store.latestDeploy(ORG, PIPE))!.id).toBe(request.id);
+    expect(await store.countActiveDeploys(r.id)).toBe(1);
+
+    const [a, b] = await Promise.all([
+      store.claimGrant(request.id, 'h'.repeat(64), { grantUsedAt: T, grantEnc: null }),
+      store.claimGrant(request.id, 'h'.repeat(64), { grantUsedAt: T, grantEnc: null }),
+    ]);
+    expect([a, b].filter(Boolean)).toHaveLength(1);
+    expect(await store.claimGrant(request.id, 'x'.repeat(64), { grantUsedAt: T })).toBeNull();
+
+    await store.updateRequest(request.id, { status: 'deploying' });
+    await store.updateDeploy(request.id, { nextPollAt: new Date(T.getTime() + 30_000), deadlineAt: new Date(T.getTime() + 7_200_000) });
+    expect(await store.listDeploysDue(T, 10)).toEqual([]);
+    expect((await store.listDeploysDue(new Date(T.getTime() + 30_000), 10)).map((p) => p.request.id)).toEqual([request.id]);
+    expect(await store.countOverdueDeploys(T)).toBe(0);
+    expect(await store.countOverdueDeploys(new Date(T.getTime() + 7_200_001))).toBe(1);
+    await store.updateDeploy(request.id, { finishedAt: T });
+    expect(await store.updateDeploy(request.id, { stage: 'done' }, { onlyIfUnfinished: true })).toBeNull();
+    await store.updateRequest(request.id, { status: 'deployed' });
+    expect(await store.findActiveDeploy(ORG, PIPE)).toBeNull();
+    await expect(mk()).resolves.toBeTruthy();
+  });
 });

@@ -33,7 +33,10 @@
  *      platform;
  *   5. start (clientRequestToken = requestId) / stop (the execution must belong
  *      to that pipeline) / status (read-only GetPipelineExecution) / probe
- *      (lookup only, never acts) / ping.
+ *      (lookup only, never acts) / ping (its pong reports the regions, the
+ *      prefix allowlist and the capabilities: `deploy:1` with EnableDeploy).
+ *   The deploy actions (deploy / deploy_status / deploy_cancel / undeploy) run
+ *   the stack's deploy CodeBuild project instead: runner-deploy.ts.
  *
  * Steps 1-2 run before any AWS call; the jti cache is per container (see
  * ReplayCache) and clientRequestToken is what makes a start idempotent.
@@ -41,18 +44,23 @@
  * NEVER logged or returned: the account id, any ARN, keys, tokens, signatures.
  *
  * Env: RUNNER_ID, PLATFORM_BASE_URL, ALLOWED_REGIONS (csv), ALLOWED_PIPELINE_PREFIXES
- *      (csv, '*' = every pipeline), RUNNER_VERSION.
+ *      (csv, '*' = every pipeline), RUNNER_VERSION; with EnableDeploy also
+ *      DEPLOY_ENABLED=true, DEPLOY_PROJECT_NAME, REGISTRY_PULL_HOST,
+ *      REGISTRY_CREDENTIAL_SECRET, DEPLOY_GRANT_KEY_ARN.
  */
 
+import { CodeBuildClient } from '@aws-sdk/client-codebuild';
 import {
   CodePipelineClient, GetPipelineExecutionCommand, StartPipelineExecutionCommand, StopPipelineExecutionCommand,
 } from '@aws-sdk/client-codepipeline';
+import { KMSClient } from '@aws-sdk/client-kms';
 import { GetResourcesCommand, ResourceGroupsTaggingAPIClient } from '@aws-sdk/client-resource-groups-tagging-api';
 import {
-  PIPELINE_ID_TAG, RUNNER_ERRORS, runnerJwksPath,
-  type RunnerOutcome, type RunnerReplyErrorCode,
+  DEPLOY_ACTION_CAPABILITY, DEPLOY_CAPABILITY, PIPELINE_ID_TAG, RUNNER_ERRORS, runnerJwksPath,
+  type DeployBuildState, type DeployJobResultCode, type DeployStage, type RunnerCapability, type RunnerOutcome, type RunnerReplyErrorCode,
 } from '@pipeline-builder/api-core/pipeline-runners';
 import { readPipelineIdTag, type Sender } from './pipeline-tag.js';
+import { deployConfigFromEnv, runDeployAction, type DeployConfig } from './runner-deploy.js';
 import {
   JwksCache, JwksUnavailableError, ReplayCache, SignatureError, verifyRunRequest,
   type FetchFn, type RunClaims,
@@ -63,13 +71,30 @@ const MAX_BODY_BYTES = 16 * 1024;
 // ─── Response vocabulary (the shared contract: api-core's pipeline-runners) ──
 
 export type Outcome = RunnerOutcome;
-/** The codes this runner answers with on a 4xx (RUNNER_ERROR is the bare 5xx). */
-export type RunnerErrorCode = Exclude<RunnerReplyErrorCode, 'RUNNER_ERROR'>;
+/**
+ * The codes this runner answers with on a 4xx (RUNNER_ERROR is the bare 5xx),
+ * plus DEPLOY_IN_PROGRESS — the one platform code a runner sends (its project
+ * already builds this pipeline for another request).
+ */
+export type RunnerErrorCode = Exclude<RunnerReplyErrorCode, 'RUNNER_ERROR'> | 'DEPLOY_IN_PROGRESS';
+
+/** The details beside a 200's `outcome` (each action sends its own: see api-core's reply types). */
+export interface OutcomeDetails {
+  executionId?: string;
+  executionStatus?: string;
+  regions?: string[];
+  capabilities?: RunnerCapability[];
+  pipelinePrefixes?: string[];
+  buildId?: string;
+  buildState?: DeployBuildState;
+  stage?: DeployStage | null;
+  resultCode?: DeployJobResultCode | null;
+}
 
 export interface RunnerResult {
   status: number;
   body:
-    | { outcome: Outcome; executionId?: string; executionStatus?: string; runnerVersion: string; regions?: string[] }
+    | ({ outcome: Outcome; runnerVersion: string } & OutcomeDetails)
     | { errorCode: RunnerErrorCode; runnerVersion: string }
     | { errorCode: 'RUNNER_ERROR' };
 }
@@ -84,6 +109,8 @@ export interface RunnerConfig {
   /** Pipeline-name prefixes the runner may act on; `'*'` = every pipeline in the allowed regions. */
   allowedPrefixes: string[];
   version: string;
+  /** Deploys through this runner (EnableDeploy): the stack's deploy project, pull host, credential and grant key. */
+  deploy: DeployConfig;
 }
 
 export type { Sender };
@@ -93,6 +120,10 @@ export interface RunnerDeps {
   now: () => number;
   tagging: (region: string) => Sender;
   codepipeline: (region: string) => Sender;
+  /** The stack region's CodeBuild (the deploy project). */
+  codebuild: () => Sender;
+  /** The stack region's KMS (the deploy grant key). */
+  kms: () => Sender;
   log: (level: 'INFO' | 'WARN' | 'ERROR', msg: string, data?: Record<string, unknown>) => void;
 }
 
@@ -118,6 +149,7 @@ export function configFromEnv(env: Record<string, string | undefined> = process.
     allowedRegions,
     allowedPrefixes,
     version: env.RUNNER_VERSION?.trim() || '0.0.0',
+    deploy: deployConfigFromEnv(env),
   };
 }
 
@@ -131,6 +163,8 @@ function defaultLog(level: 'INFO' | 'WARN' | 'ERROR', msg: string, data?: Record
 export function defaultDeps(): RunnerDeps {
   const tagging = new Map<string, ResourceGroupsTaggingAPIClient>();
   const cp = new Map<string, CodePipelineClient>();
+  let codebuild: CodeBuildClient | undefined;
+  let kms: KMSClient | undefined;
   return {
     fetch: (url, init) => fetch(url, init as RequestInit),
     now: () => Date.now(),
@@ -142,6 +176,8 @@ export function defaultDeps(): RunnerDeps {
       if (!cp.has(region)) cp.set(region, new CodePipelineClient({ region }));
       return cp.get(region)!;
     },
+    codebuild: () => (codebuild ??= new CodeBuildClient({})),
+    kms: () => (kms ??= new KMSClient({})),
     log: defaultLog,
   };
 }
@@ -279,10 +315,10 @@ const LOOKUP_REFUSALS: Readonly<Record<Exclude<Lookup['kind'], 'found'>, RunnerE
   hint_refused: 'RUNNER_REFUSED',
 };
 
-/** Final results are replayed for a repeated jti; transient ones are retried afresh. */
+/** Final results are replayed for a repeated jti; transient ones (the retryable codes) are retried afresh. */
 function isFinal(r: RunnerResult): boolean {
   if (r.status >= 500) return false;
-  return !('errorCode' in r.body && r.body.errorCode === 'NOT_YET_VISIBLE');
+  return !('errorCode' in r.body && (r.body.errorCode === 'NOT_YET_VISIBLE' || r.body.errorCode === 'DEPLOY_BUSY'));
 }
 
 export function createRunner(config: RunnerConfig, deps: RunnerDeps): Runner {
@@ -293,7 +329,7 @@ export function createRunner(config: RunnerConfig, deps: RunnerDeps): Runner {
     : { get: async () => undefined };
   const replay = new ReplayCache<RunnerResult>(deps.now);
 
-  const ok = (outcome: Outcome, extra: { executionId?: string; executionStatus?: string; regions?: string[] } = {}): RunnerResult =>
+  const ok = (outcome: Outcome, extra: OutcomeDetails = {}): RunnerResult =>
     ({ status: 200, body: { outcome, ...extra, runnerVersion: config.version } });
   const fail = (errorCode: RunnerErrorCode): RunnerResult =>
     ({ status: RUNNER_ERRORS[errorCode].httpStatus, body: { errorCode, runnerVersion: config.version } });
@@ -367,8 +403,30 @@ export function createRunner(config: RunnerConfig, deps: RunnerDeps): Runner {
     return ok('status', { executionId: claims.executionId!, executionStatus: execution.executionStatus ?? 'Unknown' });
   }
 
+  /** deploy / deploy_status / deploy_cancel / undeploy: the stack's deploy project (runner-deploy.ts). */
+  async function deployAction(claims: RunClaims): Promise<RunnerResult> {
+    const answer = await runDeployAction({
+      runnerId: config.runnerId!,
+      config: config.deploy,
+      codebuild: deps.codebuild(),
+      kms: deps.kms(),
+      isAllowed: (region, name) => isAllowed(config, region, name),
+      alreadyDeployed: async (pipelineId) => (await arnsByTag(config, deps, pipelineId)).length > 0,
+    }, claims);
+    if ('refuse' in answer) return fail(answer.refuse);
+    const { outcome, ...details } = answer;
+    return ok(outcome, details);
+  }
+
   async function act(claims: RunClaims, account: AccountContext | undefined): Promise<RunnerResult> {
-    if (claims.action === 'ping') return ok('pong', { regions: [...config.allowedRegions] });
+    if (claims.action === 'ping') {
+      return ok('pong', {
+        regions: [...config.allowedRegions],
+        capabilities: config.deploy.enabled ? [DEPLOY_CAPABILITY] : [],
+        pipelinePrefixes: [...config.allowedPrefixes],
+      });
+    }
+    if (Object.hasOwn(DEPLOY_ACTION_CAPABILITY, claims.action)) return deployAction(claims);
 
     const found = await findPipeline(config, deps, account, claims.pipelineId!, claims.hint);
     if (claims.action === 'probe') {
@@ -422,8 +480,15 @@ export function createRunner(config: RunnerConfig, deps: RunnerDeps): Runner {
     }
     if (isFinal(result)) replay.complete(claims.jti, result);
     else replay.forget(claims.jti);
-    const b = result.body as { outcome?: string; errorCode?: string; executionId?: string };
-    deps.log('INFO', 'Request handled', { ...logCtx, status: result.status, outcome: b.outcome ?? b.errorCode, ...(b.executionId ? { executionId: b.executionId } : {}) });
+    const b = result.body as { outcome?: string; errorCode?: string; executionId?: string; buildId?: string };
+    deps.log('INFO', 'Request handled', {
+      ...logCtx,
+      status: result.status,
+      outcome: b.outcome ?? b.errorCode,
+      ...(b.executionId ? { executionId: b.executionId } : {}),
+      // `<project>:<uuid>` — no account id. The grant and its ciphertext are never logged.
+      ...(b.buildId ? { buildId: b.buildId } : {}),
+    });
     return result;
   }
 

@@ -49,6 +49,40 @@ const BASE = {
   executionId: 'exec-1',
 };
 
+describe('runDeploy: the runner deploy job\'s non-interactive path', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockExecuteCdk.mockReturnValue({ duration: 5 });
+    mockResolveDeployRegion.mockImplementation(async (override?: unknown) => override as string);
+  });
+
+  it('deploys the pre-synthesized assembly it is handed (the one the job inspected), never re-synthesizing', async () => {
+    const register = jest.fn<(...args: any[]) => Promise<void>>().mockResolvedValue(undefined);
+    await runDeploy({ ...BASE, region: 'eu-west-2', app: '/work/cdk.out', register });
+    const command = mockExecuteCdk.mock.calls[0]![0] as string;
+    expect(command).toContain("--app='/work/cdk.out'");
+    expect(command).not.toContain('boilerplate');
+    expect(command).toContain("--require-approval='never'");
+  });
+
+  it('registers through the given callback only: no platform registry POST, no pending intent', async () => {
+    const register = jest.fn<(...args: any[]) => Promise<void>>().mockResolvedValue(undefined);
+    const post = jest.fn<(...args: any[]) => Promise<unknown>>();
+    await runDeploy({ ...BASE, region: 'eu-west-2', register, platformClient: { post }, platformPipelineUrl: '/api/pipelines' });
+    expect(register).toHaveBeenCalledWith({ region: 'eu-west-2', output: 'cdk.out' });
+    expect(post).not.toHaveBeenCalled();
+    expect(mockBuildRegistryPayload).not.toHaveBeenCalled();
+    expect(mockWritePendingIntent).not.toHaveBeenCalled();
+  });
+
+  it('a CDK failure throws before the callback', async () => {
+    mockExecuteCdk.mockImplementation(() => { throw new Error('cdk failed'); });
+    const register = jest.fn<(...args: any[]) => Promise<void>>();
+    await expect(runDeploy({ ...BASE, region: 'eu-west-2', register })).rejects.toThrow('cdk failed');
+    expect(register).not.toHaveBeenCalled();
+  });
+});
+
 describe('runDeploy', () => {
   beforeEach(() => {
     jest.clearAllMocks();

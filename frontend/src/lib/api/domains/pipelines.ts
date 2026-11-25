@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type {
+  DeletedPipelineDeploymentDto, DeployRequestDto, DeployStartBody, DeployTargetsDto, QueuedDeployDto,
   InheritedPipelineRunnerDto, PipelineRunnerDto, PipelineRunnersListDto, QueuedRunRequestDto, RunnerDeliveriesDto,
   RunnerHealth, RunnerKeyMode, RunnerKeyRotationState, RunnerKeyStatusRow, RunnerLinkDto, RunnerSigningKeyDto,
   RunnerSigningKeySummary, RunnerStatus, RunRequestAction, RunRequestStatus,
@@ -55,15 +56,18 @@ export interface BulkCreateResult {
  *  time). No AWS account id / ARN is ever returned by the server. */
 /**
  * Whether a pipeline has a deploy registration. `registered: false` is why a
- * pipeline's reports are empty: the events Lambda resolves every event through the
- * registry, so an unregistered pipeline never produces one. Usual cause is a
- * deploy whose post-deploy registration call hasn't landed yet.
+ * pipeline's reports are empty: event ingest resolves every event through the
+ * registry. `hasEvents` separates the two unregistered states: false — never
+ * deployed (the normal state right after create); true — it has reported
+ * before, so it was deployed and its registration has since gone. A deployed
+ * pipeline registers itself on its first pipeline event.
  */
 export interface PipelineRegistrationStatus {
   registered: boolean;
   lastDeployed: string | null;
   stackName: string | null;
   region: string | null;
+  hasEvents: boolean;
 }
 
 export interface PipelineDeployment {
@@ -104,7 +108,24 @@ export type PipelineRunnersDto = PipelineRunnersListDto;
 
 export type { RunnerSigningKeyDto, RunnerSigningKeySummary, RunnerLinkDto, RunnerKeyStatusRow, RunnerDeliveriesDto };
 
-export type PipelineRunnerUpdate = { label?: string; shareWithTeams?: boolean; functionUrl?: string };
+/** `shareDeploysWithTeams`: teams the runner is shared with may also DEPLOY through it (needs `shareWithTeams`). */
+export type PipelineRunnerUpdate = { label?: string; shareWithTeams?: boolean; shareDeploysWithTeams?: boolean; functionUrl?: string };
+
+// -- Deploying a never-deployed pipeline through a pipeline runner --
+export type { DeletedPipelineDeploymentDto, DeployRequestDto, DeployStartBody, DeployTargetsDto, QueuedDeployDto };
+
+/** A Recently deleted pipeline row: `deployment` says what a purge does to its stack (null = never registered). */
+export type DeletedPipeline = Pipeline & { deployment: DeletedPipelineDeploymentDto | null };
+
+/**
+ * The 200 of `POST /pipelines/:id/purge` for a pipeline that was registered
+ * (`{}` otherwise): `undeploy` — its linked runner was asked to delete the
+ * stack; `stackRetained` — the stack stays in the account, and why.
+ */
+export interface PipelinePurgeResult {
+  undeploy: { requestId: string; runnerLabel: string } | null;
+  stackRetained: { stackName: string; region: string | null; reason: string } | null;
+}
 
 /** `POST /pipelines/runners/:id/test` — a signed ping. */
 export interface PipelineRunnerTestResult {
@@ -354,7 +375,7 @@ export function pipelinesApi(core: ApiCore) {
     /** List the org's soft-deleted pipelines (tombstones), most-recent first —
      *  restorable until the retention sweep purges them. */
     listDeletedPipelines: async (params?: Record<string, string>) => {
-      return core.request<ApiResponse<{ pipelines: Pipeline[] }>>(`/api/pipelines/deleted${buildQuery(params)}`);
+      return core.request<ApiResponse<{ pipelines: DeletedPipeline[] }>>(`/api/pipelines/deleted${buildQuery(params)}`);
     },
 
     /** Restore a soft-deleted pipeline. Step-up gated (reverses a destructive
@@ -370,7 +391,8 @@ export function pipelinesApi(core: ApiCore) {
     /** Permanently hard-delete a soft-deleted pipeline tombstone (bypasses the retention
      *  window). Irreversible + step-up gated like restore: pass the re-verified token. */
     purgePipeline: async (id: string, stepUpToken?: string) => {
-      return core.request<ApiResponse<undefined>>(`/api/pipelines/${id}/purge`, {
+      // A deployed pipeline whose stack no runner can remove is refused 409 (`details.stackRetainedReason`).
+      return core.request<ApiResponse<PipelinePurgeResult | Record<string, never>>>(`/api/pipelines/${id}/purge`, {
         method: 'POST',
         headers: core.stepUpHeader(stepUpToken),
       });
@@ -485,6 +507,57 @@ export function pipelinesApi(core: ApiCore) {
     },
 
     // ============================================
+    // Deploying a never-deployed pipeline through a pipeline runner: the
+    // runner's CodeBuild deploy job (stack set up with `--enable-deploy`)
+    // deploys it into the runner's AWS account and registers it.
+    // ============================================
+
+    /** Every eligible runner, each deployable or not (with its reason), and the pipeline's active deploy (`pipelines:write`). */
+    getDeployTargets: async (pipelineId: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<DeployTargetsDto>>(
+        `/api/pipelines/${encodeURIComponent(pipelineId)}/deploy-targets`,
+        { signal: opts?.signal },
+      );
+    },
+
+    /**
+     * Queue a deploy (202 {@link QueuedDeployDto}). `runnerId` is required when
+     * several runners can deploy it (409 DEPLOY_RUNNER_REQUIRED), `region` when
+     * the runner allows several. Step-up gated and MFA-grade.
+     */
+    startPipelineDeploy: async (pipelineId: string, body: DeployStartBody, stepUpToken?: string) => {
+      return core.request<ApiResponse<QueuedDeployDto>>(`/api/pipelines/${encodeURIComponent(pipelineId)}/deploys`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+        headers: core.stepUpHeader(stepUpToken),
+      });
+    },
+
+    /** The pipeline's most recent deploy (`pipelines:read`); 404 when it has none yet. */
+    getLatestPipelineDeploy: async (pipelineId: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<DeployRequestDto | null>>(
+        `/api/pipelines/${encodeURIComponent(pipelineId)}/deploys/latest`,
+        { signal: opts?.signal },
+      );
+    },
+
+    /** One deploy's progress (`pipelines:read`). */
+    getPipelineDeploy: async (pipelineId: string, requestId: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<DeployRequestDto>>(
+        `/api/pipelines/${encodeURIComponent(pipelineId)}/deploys/${encodeURIComponent(requestId)}`,
+        { signal: opts?.signal },
+      );
+    },
+
+    /** Cancel a deploy: before delivery it is cancelled outright; a running build is stopped (the poll records the end). */
+    cancelPipelineDeploy: async (pipelineId: string, requestId: string) => {
+      return core.request<ApiResponse<DeployRequestDto>>(
+        `/api/pipelines/${encodeURIComponent(pipelineId)}/deploys/${encodeURIComponent(requestId)}/cancel`,
+        { method: 'POST' },
+      );
+    },
+
+    // ============================================
     // Pipeline runners (org admins: `org_settings:write`; every WRITE is also
     // step-up gated and MFA-grade — a single-factor session gets 401
     // `MFA_REQUIRED`). Registering is the CLI's job (`infra setup-runner`).
@@ -573,7 +646,7 @@ export function pipelinesApi(core: ApiCore) {
       });
     },
 
-    // -- A pipeline's link to its runner (found by its pb.pipeline-id tag, never picked by hand).
+    // -- A pipeline's link to its runner (found by its pb.pipeline-id tag; nobody re-points a runner by hand).
 
     /** Status, runner label, last checked, runners checked. 404 = not registered. */
     getPipelineRunnerLink: async (pipelineId: string, opts?: { signal?: AbortSignal }) => {

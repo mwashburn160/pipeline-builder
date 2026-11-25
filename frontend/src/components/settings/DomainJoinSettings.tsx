@@ -136,7 +136,7 @@ export function DomainJoinSettings({ orgId, readOnly = false }: { orgId: string;
     <SectionCard
       icon={Globe}
       title="Email domains"
-      description={`Prove your organization owns an email domain with a DNS TXT record. A verified domain is what single sign-on serves, and what lets matching signups discover and join this organization.${!entitled ? ' Registering one needs the Team or Enterprise tier.' : ''}`}
+      description={`Verify a domain you own with a DNS TXT record. Single sign-on serves only verified domains, and matching signups use them to find and join this organization.${!entitled ? ' Registering one needs the Team or Enterprise tier.' : ''}`}
     >
       {form.error && <div className="mb-3"><ErrorAlert message={form.error} /></div>}
 

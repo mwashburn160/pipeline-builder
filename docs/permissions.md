@@ -766,7 +766,7 @@ approved), or `breakglass` (emergency access).
 ### Administrator access policy
 
 Each organization chooses whether platform sysadmins may view its members'
-accounts, under **Settings → Organization → Administrator access**. Changing it
+accounts, under **Settings → Organization → Security → Administrator access**. Changing it
 requires the `org_impersonation:write` permission and re-entering your password.
 
 | Policy | Shown as | What happens when a sysadmin asks |

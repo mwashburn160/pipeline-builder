@@ -11,7 +11,7 @@
  * reaches a log or an audit row.
  */
 
-import { runnerJwksPath } from '@pipeline-builder/api-core/pipeline-runners';
+import { IN_PROGRESS_RUN_REQUEST_STATUSES, runnerJwksPath, type RunnerCapability } from '@pipeline-builder/api-core/pipeline-runners';
 import { deliverPush, verdictCode } from './delivery.js';
 import type { RunnerDeps } from './deps.js';
 import { finishRequest, notifyUpdateRequired, recordRunnerFailure, recordRunnerSuccess, versionPatch } from './lifecycle.js';
@@ -39,6 +39,12 @@ export interface RunnerDto {
   jwksUrl: string;
   /** Pipelines linked to this runner (`pipeline_registry.runner_id`); 0 outside the list. */
   pipelineCount: number;
+  /** What its bundle reported in its last pong (`deploy:1`: deploys enabled). */
+  capabilities: RunnerCapability[];
+  /** Teams this runner is shared with may also deploy through it. */
+  shareDeploysWithTeams: boolean;
+  /** The pipeline-name prefixes its stack allows, as its last pong reported them. */
+  pipelinePrefixes: string[];
 }
 
 const iso = (d: Date | null | undefined): string | null => (d ? d.toISOString() : null);
@@ -66,6 +72,9 @@ export function runnerDto(row: RunnerRow, viewerOrgId: string, pipelineCount = 0
     updateRequired: versionBelow(row.version, runnerSettings().minRunnerVersion),
     jwksUrl: runnerJwksUrl(row.id),
     pipelineCount,
+    capabilities: row.capabilities ?? [],
+    shareDeploysWithTeams: row.shareDeploysWithTeams,
+    pipelinePrefixes: row.pipelinePrefixes ?? [],
   };
 }
 
@@ -124,6 +133,9 @@ export async function registerRunner(deps: RunnerDeps, orgId: string, userId: st
     updatedAt: now,
     lastDeliveryAt: null,
     updateRequiredSince: null,
+    capabilities: [],
+    pipelinePrefixes: [],
+    shareDeploysWithTeams: false,
   };
   if (!url) return deps.store.insertRunner(draft);
   const pong = await requirePong(deps, draft, userId);
@@ -133,6 +145,8 @@ export async function registerRunner(deps: RunnerDeps, orgId: string, userId: st
     ...draft,
     version: pong.runnerVersion ?? null,
     regions: input.regions ?? pong.regions ?? [],
+    capabilities: pong.capabilities ?? [],
+    pipelinePrefixes: pong.pipelinePrefixes ?? [],
     lastDeliveryAt: new Date(deps.now()),
     ...version.patch,
   });
@@ -154,7 +168,7 @@ async function ownLiveRunner(deps: RunnerDeps, orgId: string, id: string): Promi
   return runner;
 }
 
-export interface UpdateInput { label?: string; shareWithTeams?: boolean; functionUrl?: string }
+export interface UpdateInput { label?: string; shareWithTeams?: boolean; shareDeploysWithTeams?: boolean; functionUrl?: string }
 
 export async function updateRunner(deps: RunnerDeps, orgId: string, userId: string, id: string, input: UpdateInput): Promise<{ runner: RunnerRow; changed: string[] }> {
   const runner = await ownLiveRunner(deps, orgId, id);
@@ -163,6 +177,12 @@ export async function updateRunner(deps: RunnerDeps, orgId: string, userId: stri
   let flaggedVersion: string | undefined;
   if (input.label !== undefined && input.label !== runner.label) { patch.label = input.label; changed.push('label'); }
   if (input.shareWithTeams !== undefined && input.shareWithTeams !== runner.shareWithTeams) { patch.shareWithTeams = input.shareWithTeams; changed.push('shareWithTeams'); }
+  // Deploys by teams ride on the runner being shared with them at all: deploys
+  // through an ancestor's runner need BOTH (eligibility already requires
+  // shareWithTeams); un-sharing it turns team deploys off too.
+  const sharedAfter = patch.shareWithTeams ?? runner.shareWithTeams;
+  const deploysAfter = sharedAfter ? (input.shareDeploysWithTeams ?? runner.shareDeploysWithTeams) : false;
+  if (deploysAfter !== runner.shareDeploysWithTeams) { patch.shareDeploysWithTeams = deploysAfter; changed.push('shareDeploysWithTeams'); }
   if (input.functionUrl !== undefined) {
     const url = checkFunctionUrl(input.functionUrl);
     if (!url.ok) throw new RunnerRouteError('VALIDATION_ERROR', url.error);
@@ -178,6 +198,8 @@ export async function updateRunner(deps: RunnerDeps, orgId: string, userId: stri
         lastDeliveryAt: new Date(deps.now()),
         ...(pong.runnerVersion ? { version: pong.runnerVersion } : {}),
         ...(pong.regions && runner.regions.length === 0 ? { regions: pong.regions } : {}),
+        capabilities: pong.capabilities ?? [],
+        pipelinePrefixes: pong.pipelinePrefixes ?? [],
         ...(runner.status === 'pending' ? { status: 'active' } : {}),
       });
       changed.push('functionUrl');
@@ -212,7 +234,8 @@ export async function revokeRunner(deps: RunnerDeps, orgId: string, id: string):
   const revoked = runner.status === 'revoked' ? runner : ((await deps.store.updateRunner(runner.id, { status: 'revoked' })) ?? runner);
   const linksCleared = await deps.store.clearRunnerLinks(runner.id);
   let requestsExpired = 0;
-  for (const r of await deps.store.listRunnerRequests(runner.id, PENDING_STATUSES)) {
+  // Running deploys / undeploys too: their build can no longer be watched through this runner.
+  for (const r of await deps.store.listRunnerRequests(runner.id, [...PENDING_STATUSES, ...IN_PROGRESS_RUN_REQUEST_STATUSES])) {
     if (await finishRequest(deps, r, 'expired', { errorCode: 'RUNNER_REVOKED' })) requestsExpired++;
   }
   return { runner: revoked, linksCleared, requestsExpired };

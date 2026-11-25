@@ -244,8 +244,9 @@ describe('managed toolchain release (pipeline-bootstrap + cdk-synth)', () => {
    * every top-level file of both directories (bootstrap first, names sorted)
    * except the build outputs, config.yaml and README.md, each framed as
    * "<dir>/<file>\n" + its lines, with the GENERATED fields dropped — the
-   * specs' version/toolchain/sourceDigest (and changelog), and cdk-synth's
-   * `ARG BOOTSTRAP_IMAGE=` default. Keep the two in step.
+   * specs' version/toolchain/sourceDigest (and changelog), cdk-synth's
+   * `ARG BOOTSTRAP_IMAGE=` default and its `pb:deploy-job:protocol` metadata
+   * line. Keep the two in step.
    */
   function sourceDigest(): string {
     const hash = createHash('sha256');
@@ -267,6 +268,8 @@ describe('managed toolchain release (pipeline-bootstrap + cdk-synth)', () => {
               skip = false;
             }
             if (/^(version|toolchain|sourceDigest|changelog):/.test(line)) { skip = true; continue; }
+            // Image-derived, gated by build-plugin-images.sh (toolchain-deploy-job-protocol.test.ts).
+            if (/^[ \t]+["']?pb:deploy-job:protocol["']?:/.test(line)) continue;
           }
           if (mode === 'synth-dockerfile' && /^ARG BOOTSTRAP_IMAGE=/.test(line)) { out.push('ARG BOOTSTRAP_IMAGE=<generated>'); continue; }
           out.push(line);

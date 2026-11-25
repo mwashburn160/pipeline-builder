@@ -89,7 +89,17 @@
       "type": "runtime"
     },
     {
+      "name": "@aws-sdk/client-codebuild",
+      "version": "3.1160.0",
+      "type": "runtime"
+    },
+    {
       "name": "@aws-sdk/client-codepipeline",
+      "version": "3.1160.0",
+      "type": "runtime"
+    },
+    {
+      "name": "@aws-sdk/client-kms",
       "version": "3.1160.0",
       "type": "runtime"
     },
@@ -110,6 +120,11 @@
     },
     {
       "name": "@aws-sdk/client-sqs",
+      "version": "3.1160.0",
+      "type": "runtime"
+    },
+    {
+      "name": "@aws-sdk/client-ssm",
       "version": "3.1160.0",
       "type": "runtime"
     },

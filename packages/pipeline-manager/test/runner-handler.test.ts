@@ -37,6 +37,7 @@ function setup(opts: { config?: Partial<RunnerConfig>; tagging?: Responder; cp?:
     allowedRegions: ['us-east-1', 'eu-west-2'],
     allowedPrefixes: ['acme-'],
     version: '9.9.9',
+    deploy: { enabled: false },
     ...opts.config,
   };
   const runner = createRunner(config, {
@@ -44,6 +45,8 @@ function setup(opts: { config?: Partial<RunnerConfig>; tagging?: Responder; cp?:
     now: c.now,
     tagging: (region) => fakeSender(opts.tagging ?? (() => ({ ResourceTagMappingList: [] })), aws, region),
     codepipeline: (region) => fakeSender(opts.cp ?? ((n) => (n === 'StartPipelineExecutionCommand' ? { pipelineExecutionId: 'exec-1' } : {})), aws, region),
+    codebuild: () => fakeSender(() => { throw new Error('no deploy here'); }, aws),
+    kms: () => fakeSender(() => { throw new Error('no deploy here'); }, aws),
     log: (level, msg, data) => { logs.push({ level, msg, ...(data ? { data } : {}) }); },
   });
   const account = accountFromFunctionArn(FN_ARN)!;
@@ -247,7 +250,7 @@ describe('actions', () => {
 
   it('ping: pong with the allowed regions, no AWS call', async () => {
     const t = setup();
-    expect(await t.send({ action: 'ping', pipelineId: undefined })).toEqual({ status: 200, body: { outcome: 'pong', regions: ['us-east-1', 'eu-west-2'], runnerVersion: '9.9.9' } });
+    expect(await t.send({ action: 'ping', pipelineId: undefined })).toEqual({ status: 200, body: { outcome: 'pong', regions: ['us-east-1', 'eu-west-2'], capabilities: [], pipelinePrefixes: ['acme-'], runnerVersion: '9.9.9' } });
     expect(t.aws).toEqual([]);
   });
 });
@@ -381,12 +384,14 @@ describe('replay', () => {
   function createRunnerWithSlowStart(gate: Promise<void>) {
     const c = clock();
     const f = fakeFetch({ 'jwks.json': () => ({ status: 200, body: { keys: [key.jwk] } }) });
-    const r = createRunner({ runnerId: 'runner-1', platformBaseUrl: 'https://p', allowedRegions: ['us-east-1'], allowedPrefixes: ['acme-'], version: '9.9.9' }, {
+    const r = createRunner({ runnerId: 'runner-1', platformBaseUrl: 'https://p', allowedRegions: ['us-east-1'], allowedPrefixes: ['acme-'], version: '9.9.9', deploy: { enabled: false } }, {
       fetch: f.fn,
       now: c.now,
       log: () => {},
       tagging: () => fakeSender(tagged({ 'us-east-1': [arn('us-east-1', 'acme-app')] }), [], 'us-east-1'),
       codepipeline: () => ({ send: async () => { await gate; return { pipelineExecutionId: 'e' }; } }),
+      codebuild: () => ({ send: async () => ({}) }),
+      kms: () => ({ send: async () => ({}) }),
     });
     return { send: () => r.process(signJws(key, claims()), { account: { partition: 'aws', accountId: ACCOUNT } }) };
   }

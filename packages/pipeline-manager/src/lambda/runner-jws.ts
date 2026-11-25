@@ -22,8 +22,9 @@
 
 import { createPublicKey, verify as cryptoVerify, type KeyObject } from 'node:crypto';
 import {
+  AWS_REGION_PATTERN, DEPLOY_GRANT_PATTERN, DEPLOY_IMAGE_DIGEST_PATTERN, DEPLOY_JOB_IMAGE_REPOSITORY, DEPLOY_JOB_MODES,
   RUN_REQUEST_ALG, RUN_REQUEST_CLOCK_SKEW_SECONDS, RUN_REQUEST_ISS, RUN_REQUEST_MAX_LIFETIME_SECONDS, RUN_REQUEST_TYP, RUNNER_ACTIONS,
-  type RunClaims, type RunnerAction,
+  type DeployJobMode, type RunClaims, type RunDeployClaim, type RunnerAction,
 } from '@pipeline-builder/api-core/pipeline-runners';
 
 /** The claims a run request carries — the shared contract's. */
@@ -228,6 +229,19 @@ export async function verifyRunRequest(
     hint = { region: raw.region, pipelineName: raw.pipelineName };
   }
 
+  // The deploy actions: each carries exactly its own fields, every one checked
+  // here — before any AWS call and before anything reaches a CodeBuild override.
+  const takesBlock = action === 'deploy' || action === 'undeploy';
+  const takesBuild = action === 'deploy_status' || action === 'deploy_cancel';
+  if (!takesBlock && c.deploy !== undefined) throw new SignatureError('unexpected deploy claim');
+  if (!takesBuild && c.deployRequestId !== undefined) throw new SignatureError('unexpected deployRequestId');
+  if (!takesBuild && c.buildId !== undefined) throw new SignatureError('unexpected buildId');
+  const deploy = takesBlock ? parseDeployClaim(c.deploy, action) : undefined;
+  if (takesBuild) {
+    if (!isNonEmptyString(c.deployRequestId) || c.deployRequestId.length > 128) throw new SignatureError('missing deployRequestId');
+    if (typeof c.buildId !== 'string' || !BUILD_ID_PATTERN.test(c.buildId)) throw new SignatureError('malformed buildId');
+  }
+
   return {
     iss: c.iss,
     aud: c.aud,
@@ -238,7 +252,45 @@ export async function verifyRunRequest(
     ...(isNonEmptyString(c.pipelineId) ? { pipelineId: c.pipelineId } : {}),
     ...(hint ? { hint } : {}),
     ...(isNonEmptyString(c.executionId) ? { executionId: c.executionId } : {}),
+    ...(deploy ? { deploy } : {}),
+    ...(takesBuild ? { deployRequestId: c.deployRequestId as string, buildId: c.buildId as string } : {}),
     requestedBy: c.requestedBy,
+  };
+}
+
+/** A CodePipeline name (what the runner's prefix allowlist is matched against). */
+export const PIPELINE_NAME_PATTERN = /^[A-Za-z0-9.@_-]{1,100}$/;
+/** A CloudFormation stack name. */
+export const STACK_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9-]{0,127}$/;
+/** A managed toolchain release version (semver-like; it rides into a CodeBuild env override). */
+export const TOOLCHAIN_RELEASE_PATTERN = /^[0-9A-Za-z][0-9A-Za-z.+-]{0,63}$/;
+/** A CodeBuild build id: `<project>:<uuid>` (no account id, no ARN). */
+export const BUILD_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{1,254}:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/** The `deploy` claim block of a deploy / undeploy, every field checked; the mode must be the action. */
+function parseDeployClaim(raw: unknown, action: 'deploy' | 'undeploy'): RunDeployClaim {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new SignatureError('missing deploy claim');
+  const d = raw as Record<string, unknown>;
+  if (typeof d.grant !== 'string' || !DEPLOY_GRANT_PATTERN.test(d.grant)) throw new SignatureError('malformed deploy grant');
+  if (typeof d.protocol !== 'number' || !Number.isInteger(d.protocol) || d.protocol < 1) throw new SignatureError('malformed deploy protocol');
+  if (!(DEPLOY_JOB_MODES as readonly unknown[]).includes(d.mode) || d.mode !== action) throw new SignatureError('deploy mode is not the action');
+  if (typeof d.region !== 'string' || !AWS_REGION_PATTERN.test(d.region)) throw new SignatureError('malformed deploy region');
+  if (typeof d.pipelineName !== 'string' || !PIPELINE_NAME_PATTERN.test(d.pipelineName)) throw new SignatureError('malformed deploy pipelineName');
+  if (typeof d.stackName !== 'string' || !STACK_NAME_PATTERN.test(d.stackName)) throw new SignatureError('malformed deploy stackName');
+  const image = d.image as Record<string, unknown> | undefined;
+  if (!image || typeof image !== 'object' || Array.isArray(image)) throw new SignatureError('missing deploy image');
+  if (image.repository !== DEPLOY_JOB_IMAGE_REPOSITORY) throw new SignatureError('deploy image repository is not the managed cdk-synth');
+  if (typeof image.digest !== 'string' || !DEPLOY_IMAGE_DIGEST_PATTERN.test(image.digest)) throw new SignatureError('malformed deploy image digest');
+  if (typeof d.toolchainRelease !== 'string' || !TOOLCHAIN_RELEASE_PATTERN.test(d.toolchainRelease)) throw new SignatureError('malformed deploy toolchainRelease');
+  return {
+    grant: d.grant,
+    protocol: d.protocol,
+    mode: d.mode as DeployJobMode,
+    region: d.region,
+    pipelineName: d.pipelineName,
+    stackName: d.stackName,
+    image: { repository: DEPLOY_JOB_IMAGE_REPOSITORY, digest: image.digest },
+    toolchainRelease: d.toolchainRelease,
   };
 }
 

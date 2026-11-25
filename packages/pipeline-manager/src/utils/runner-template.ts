@@ -9,7 +9,10 @@
  * `PipelineActions` statement with exactly one ARN per (region, prefix), so the
  * role can act on nothing else, and keys the API Gateway deployment to the IP
  * allowlist (the API's WAFv2 rate limit is plain parameters, EnableWaf and
- * WafRateLimit); {@link runnerStackParameters} is the matching parameter set. Pure
+ * WafRateLimit). The opt-in deploy half (EnableDeploy) gets the same treatment:
+ * its role may assume the CDK bootstrap roles, read the bootstrap version and
+ * describe secrets of exactly the allowlisted regions.
+ * {@link runnerStackParameters} is the matching parameter set. Pure
  * functions: the CLI writes the result to a temp file.
  */
 
@@ -17,6 +20,7 @@ import { createHash } from 'crypto';
 import { readFileSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { DEPLOY_BUILD_TIMEOUT_MINUTES } from '@pipeline-builder/api-core/pipeline-runners';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -27,6 +31,38 @@ export const RUNNER_PIPELINE_ACTIONS: readonly string[] = [
   'codepipeline:GetPipelineExecution',
   'codepipeline:ListTagsForResource',
 ];
+
+/** What the runner calls on its own deploy project (RunnerRole `DeployBuild`, UseDeploy only) — exactly these. */
+export const RUNNER_DEPLOY_BUILD_ACTIONS: readonly string[] = [
+  'codebuild:StartBuild',
+  'codebuild:BatchGetBuilds',
+  'codebuild:StopBuild',
+  'codebuild:ListBuildsForProject',
+];
+
+/** The CDK bootstrap roles the deploy job may assume: `cdk-<qualifier>-<kind>-role-<account>-<region>`. */
+export const CDK_BOOTSTRAP_ROLE_KINDS: readonly string[] = ['deploy', 'file-publishing', 'image-publishing', 'lookup'];
+
+/** CDK's default bootstrap qualifier (runner-stack.json's CdkQualifier default). */
+export const DEFAULT_CDK_QUALIFIER = 'hnb659fds';
+
+/** The deploy project's default ConcurrentBuildLimit (runner-stack.json's DeployConcurrency). */
+export const DEFAULT_DEPLOY_CONCURRENCY = 2;
+
+/** Where the deploy job writes its result for the buildspec's post_build to export (runner-stack.json's buildspec). */
+export const DEPLOY_RESULT_FILE = '/tmp/pb-deploy-result.env';
+
+/** The deploy role's per-region statements, filled with one resource per allowlisted region. */
+function deployRoleResources(regions: string[]): Record<string, Array<{ 'Fn::Sub': string }>> {
+  const arn = (service: string, region: string, rest: string) => ({ 'Fn::Sub': `arn:\${AWS::Partition}:${service}:${region}:\${AWS::AccountId}:${rest}` });
+  return {
+    AssumeCdkBootstrapRoles: regions.flatMap((r) => CDK_BOOTSTRAP_ROLE_KINDS.map((k) => ({
+      'Fn::Sub': `arn:\${AWS::Partition}:iam::\${AWS::AccountId}:role/cdk-\${CdkQualifier}-${k}-role-\${AWS::AccountId}-${r}`,
+    }))),
+    ReadCdkBootstrapVersion: regions.map((r) => arn('ssm', r, 'parameter/cdk-bootstrap/${CdkQualifier}/version')),
+    DescribeAccountSecrets: regions.map((r) => arn('secretsmanager', r, 'secret:pipeline-builder/*')),
+  };
+}
 
 export interface RunnerTemplateOptions {
   regions: string[];
@@ -59,6 +95,21 @@ export interface RunnerStackParamsInput extends RunnerTemplateOptions {
   platformBaseUrl: string;
   allowIps?: string[];
   version: string;
+  /** `--enable-deploy`: the deploy parameters (omitted = EnableDeploy=false, always passed explicitly). */
+  deploy?: RunnerDeployParams;
+}
+
+/** The deploy half of the runner stack's parameters. */
+export interface RunnerDeployParams {
+  /** The platform registry host (`host` or `host:port`) the build pulls system/cdk-synth from. */
+  registryPullHost: string;
+  /** `pipeline-builder/<orgId>/registry-push`. */
+  registryCredentialSecretName: string;
+  cdkQualifier?: string;
+  timeoutMinutes?: number;
+  concurrency?: number;
+  /** '' / omitted = no permissions boundary. */
+  permissionsBoundaryArn?: string;
 }
 
 /** Every runner stack's name starts with this (setup-runner lists the account's stacks by it). */
@@ -114,6 +165,17 @@ export function buildRunnerTemplate(opts: RunnerTemplateOptions, base: Record<st
   if (!actions) throw new Error('runner-stack.json has no PipelineActions statement');
   actions.Action = [...RUNNER_PIPELINE_ACTIONS];
   actions.Resource = pipelineActionResources(opts.regions, opts.prefixes);
+  const deployBuild = statements.find((s) => s['Fn::If']?.[1]?.Sid === 'DeployBuild');
+  if (!deployBuild) throw new Error('runner-stack.json has no DeployBuild statement');
+  deployBuild['Fn::If'][1].Action = [...RUNNER_DEPLOY_BUILD_ACTIONS];
+  // The deploy job's role: the CDK bootstrap roles, bootstrap version and secrets
+  // of exactly the allowlisted regions (a cross product CloudFormation cannot express).
+  const deployStatements = tpl.Resources.DeployRole.Properties.Policies[0].PolicyDocument.Statement as Array<Record<string, any>>;
+  for (const [sid, resources] of Object.entries(deployRoleResources(opts.regions))) {
+    const st = deployStatements.find((s) => s.Sid === sid);
+    if (!st) throw new Error(`runner-stack.json's DeployRole has no ${sid} statement`);
+    st.Resource = resources;
+  }
   if (opts.apiGateway) keyApiDeployment(tpl, opts.allowIps ?? []);
   return tpl;
 }
@@ -154,6 +216,17 @@ export function runnerStackParameters(p: RunnerStackParamsInput): string[] {
     // for an omitted parameter, so "omitted" would mean "whatever was set last",
     // not the template default.
     if (waf) params.WafRateLimit = String(p.wafRateLimit ?? DEFAULT_WAF_RATE_LIMIT);
+  }
+  // Explicit for the same reason: a re-run without --enable-deploy turns deploys OFF
+  // (and removes the deploy project, role, log group and key) rather than keeping them.
+  params.EnableDeploy = p.deploy ? 'true' : 'false';
+  if (p.deploy) {
+    params.RegistryPullHost = p.deploy.registryPullHost;
+    params.RegistryCredentialSecretName = p.deploy.registryCredentialSecretName;
+    params.CdkQualifier = p.deploy.cdkQualifier ?? DEFAULT_CDK_QUALIFIER;
+    params.DeployTimeoutMinutes = String(p.deploy.timeoutMinutes ?? DEPLOY_BUILD_TIMEOUT_MINUTES.default);
+    params.DeployConcurrency = String(p.deploy.concurrency ?? DEFAULT_DEPLOY_CONCURRENCY);
+    params.DeployPermissionsBoundaryArn = p.deploy.permissionsBoundaryArn ?? '';
   }
   return Object.entries(params).map(([k, v]) => `${k}=${v}`);
 }

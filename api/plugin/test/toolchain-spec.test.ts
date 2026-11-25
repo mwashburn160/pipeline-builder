@@ -66,6 +66,15 @@ describe('the checked-in release', () => {
     const df = new Map(trees['pipeline-bootstrap']).set('Dockerfile', `${trees['pipeline-bootstrap'].get('Dockerfile')!}# x\n`);
     expect(toolchainSourceDigest({ ...trees, 'pipeline-bootstrap': df })).not.toBe(base);
   });
+
+  it('the cdk-synth deploy-job protocol metadata is not a build input (as sync-image-tags.sh)', () => {
+    const base = toolchainSourceDigest(trees);
+    const synth = new Map(trees['cdk-synth']);
+    const spec = synth.get('plugin-spec.yaml')!;
+    expect(spec).toMatch(/^[ \t]+["']?pb:deploy-job:protocol["']?:/m);
+    synth.set('plugin-spec.yaml', spec.replace(/^([ \t]+["']?pb:deploy-job:protocol["']?:).*$/m, '$1 99'));
+    expect(toolchainSourceDigest({ ...trees, 'cdk-synth': synth })).toBe(base);
+  });
 });
 
 describe('the node base refresh', () => {

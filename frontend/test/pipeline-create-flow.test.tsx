@@ -35,6 +35,11 @@ jest.mock('@/components/pipeline/FormBuilderTab', () => {
   return { __esModule: true, default: forwardRef(() => <div>wizard-tab</div>) };
 });
 jest.mock('@/components/ui/FeatureLock', () => ({ __esModule: true, FeatureLock: () => <div>ai-locked</div> }));
+// The deploy panel has its own suite (deploy-pipeline-panel): here it only has to be mounted for the new pipeline.
+jest.mock('@/components/pipeline/DeployPipelinePanel', () => ({
+  __esModule: true,
+  DeployPipelinePanel: ({ pipelineId }: { pipelineId: string }) => <div data-testid="deploy-panel">deploy-panel:{pipelineId}</div>,
+}));
 
 const dryRunPipelineCompliance = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
@@ -129,6 +134,17 @@ describe('CreatePipelineModal — compliance preview', () => {
     fireEvent.click(screen.getByRole('button', { name: /Preview Compliance/ }));
     expect(await screen.findByText('Failed to run compliance check')).toBeInTheDocument();
     expect(screen.queryByText('All compliance checks passed.')).not.toBeInTheDocument();
+  });
+});
+
+describe('CreatePipelineModal — next step: deploy it', () => {
+  it('a created pipeline offers the deploy through a runner, with the CLI command as the alternative', () => {
+    renderModal({ createdPipelineId: 'p-new', createSuccess: 'Pipeline created' });
+    const next = screen.getByRole('region', { name: 'Next step: deploy' });
+    expect(next).toContainElement(screen.getByTestId('deploy-panel'));
+    expect(screen.getByTestId('deploy-panel')).toHaveTextContent('deploy-panel:p-new');
+    expect(next).toHaveTextContent('pipeline-manager pipeline deploy --id p-new');
+    expect(next).toHaveTextContent(/Or deploy it from a machine with AWS credentials/);
   });
 });
 

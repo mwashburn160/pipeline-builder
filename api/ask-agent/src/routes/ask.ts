@@ -181,7 +181,7 @@ export function createAskRoutes(quotaService: QuotaService): Router {
   // the org's own provider when it configured one, else the registry's first.
   // An org whose administrators switched AI off is told so (`reason: 'disabled'`).
   //
-  // `?probe=true` (opt-in; the Git URL form uses it) additionally makes ONE live
+  // `?probe=true` (opt-in; the three AI create forms use it) additionally makes ONE live
   // request to the self-hosted model server — see services/model-probe.ts — and
   // `?provider=<id>` lets a caller that sends an explicit provider ask about that
   // one instead of the predicted default.

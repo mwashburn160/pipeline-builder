@@ -7,7 +7,10 @@
  *    must not throw out of the hook's effects and take the page down;
  *  - the URL dropping the tab param while the page stays mounted (a nav link to
  *    the bare page, Back onto it) must put the view back on the fallback, so
- *    what is shown matches what a refresh of that URL would show.
+ *    what is shown matches what a refresh of that URL would show;
+ *  - a fragment whose owner is not among the CURRENT valid values (a section
+ *    the viewer cannot see) must land on the fallback, not an unrenderable view;
+ *  - `clearOnSelect` drops dependent query keys (a sub-section) on a switch.
  */
 
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
@@ -53,5 +56,18 @@ describe('useUrlTab edge cases', () => {
     query = {};
     rerender();
     expect(result.current[0]).toBe('scans');
+  });
+
+  it('ignores a fragment whose owner is not a valid value right now', () => {
+    window.location.hash = '#scan-detail';
+    const { result } = renderHook(() => useUrlTab('view', ['overview', 'rules'] as const, 'rules', { hashTabs: { 'scan-detail': 'scans' as 'rules' } }));
+    expect(result.current[0]).toBe('rules');
+  });
+
+  it('drops the clearOnSelect keys from the query when the value changes', () => {
+    query = { view: 'rules', section: 'security' };
+    const { result } = renderHook(() => useUrlTab('view', TABS, 'overview', { clearOnSelect: ['section'] }));
+    act(() => result.current[1]('scans'));
+    expect(replace).toHaveBeenCalledWith({ query: { view: 'scans' }, hash: '' }, undefined, { shallow: true });
   });
 });

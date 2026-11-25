@@ -162,6 +162,23 @@ export const REMOTE_AUDIT_ACTIONS = [
   // "Find runner again" on a pipeline (`targetId` the pipeline id; details:
   // the resulting link status and runner labels, never an account id).
   'pipeline.runner.link.refresh',
+  // Deploying a never-deployed pipeline through a runner's CodeBuild project
+  // (`targetId` the pipeline id; `details` carry requestId, runnerId, region,
+  // stage, errorCode, class, durationMs, linked — never a grant, a session
+  // token, an AWS account id or a log line). request: a person queued it
+  // (pipelines:write + step-up); complete: it finished (details.outcome
+  // deployed | failed | expired | cancelled), recorded by the sweep as the
+  // system actor; cancel: a person cancelled it; grant_reuse: a job grant was
+  // presented again after its exchange (system actor; the critical alert's
+  // durable record).
+  'pipeline.deploy.request',
+  'pipeline.deploy.complete',
+  'pipeline.deploy.cancel',
+  'pipeline.deploy.grant_reuse',
+  // The stack of a PURGED pipeline removed through its linked runner (`undeploy`;
+  // details.outcome undeployed | failed | expired, requestId, runnerId, region,
+  // errorCode). System actor: the purge's own person is on pipeline.purge.
+  'pipeline.undeploy.complete',
   // Quota administration (api/quota) — a superadmin resetting an org's usage
   // counter or editing its tier limits. `affectedOrgId` is the org changed;
   // `details` carries the quotaType + old/new value.

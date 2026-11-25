@@ -338,8 +338,19 @@ run request is signed with it, and only your org's runners trust it. View and
 rotate it on the **Signing key** card, or with
 `pipeline-manager runner signing-key status|rotate|finish`. A team uses its
 parent's shared runners and key with no setup; a team's first runner creates
-its top-level organization's key if that organization has none yet. Manage runners under **Settings → Organization → Pipeline runners**;
-remove one with `pipeline-manager infra setup-runner --delete`. Prefer no
+its top-level organization's key if that organization has none yet. Manage runners under **Settings → Organization → Pipelines → Pipeline runners**;
+remove one with `pipeline-manager infra setup-runner --delete`.
+
+**Let the dashboard deploy new pipelines (optional).** Add `--enable-deploy` to
+`setup-runner` (after `infra store-token --scope registry:push --region <stack-region>`
+and `infra bootstrap` in each allowlisted region, or pass `--bootstrap`) and the runner can also deploy a
+never-deployed pipeline into its account: the create flow's **Next step: deploy
+it** and a new pipeline's page then offer **Deploy to *runner* (*region*)**
+behind a step-up, with no AWS credentials on your machine. What a deploy may
+create is limited by the account's CDK bootstrap execution policy. Full detail:
+[Deploying a pipeline through a runner](aws-deployment.md#deploying-a-pipeline-through-a-runner).
+
+Prefer no
 inbound endpoint? Use `pipeline-manager pipeline run --id <pipelineId>` (and
 `pipeline stop`) with your own AWS credentials instead. Full detail:
 [Cross-account pipeline runner](aws-deployment.md#cross-account-pipeline-runner).
@@ -356,6 +367,10 @@ Five ways in — pick whichever fits ([Developer Guide → Five Ways](developer-
 - **Dashboard** visual builder, or **AI prompt** ("build a Node service pipeline for …").
 - **Golden-path template** — instantiate a governed starter by filling a few inputs ([Templates](templates.md#golden-pipeline-templates)).
 - **CLI** — `pipeline-manager pipeline create` then `pipeline synth` / `pipeline deploy` (needs [local deploy prerequisites](pipeline-manager.md#prerequisites-for-local-pipeline-deploys)).
+
+A pipeline created in the dashboard is a config until it is deployed. With a
+deploy-enabled runner (Step 6b) the create flow deploys it for you; otherwise
+deploy it with `pipeline-manager pipeline deploy --id <pipelineId>`.
 - **CDK** construct ([CDK Usage](cdk-usage.md)) or **REST API** ([API Reference](api-reference.md)).
 
 If you provisioned with `--with-all`, the language [Samples](samples.md) are already
